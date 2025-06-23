@@ -81,6 +81,7 @@ Jido.Action transforms ad-hoc functions into structured, validated, AI-compatibl
 
 ### **Workflow Composition**
 - Instruction-based workflow definition via `Jido.Instruction`
+- DAG-based pipeline workflows via `Jido.Flow`
 - Parameter normalization and context sharing
 - Action chaining and conditional execution
 - Built-in workflow primitives
@@ -177,7 +178,28 @@ Enum.each(workflow, fn instruction ->
 end)
 ```
 
-### 4. AI Tool Integration
+### 4. Build DAG Pipelines with Jido.Flow
+
+```elixir
+# Create a data processing pipeline
+flow = Jido.Flow.new("data_processing")
+  |> Jido.Flow.add_step(name: "validate", action: MyApp.Actions.ValidateData)
+  |> Jido.Flow.add_step("validate", name: "normalize", work: &String.downcase/1)
+  |> Jido.Flow.add_step("normalize", name: "process", action: MyApp.Actions.ProcessData)
+
+# Execute with input data
+context = Jido.Flow.Context.new(%{raw_data: "Hello World"})
+runnables = Jido.Flow.next_runnables(flow, context)
+
+# Process first step
+{step, ctx} = hd(runnables)
+{:ok, result} = Jido.Flow.run({step, ctx})
+
+# Continue with next steps
+next_runnables = Jido.Flow.next_runnables(flow, result)
+```
+
+### 5. AI Tool Integration
 
 ```elixir
 # Convert action to AI tool format
@@ -230,6 +252,15 @@ The workflow composition system for building complex operations. Enables:
 - Context sharing across actions
 - Action allowlist validation
 - Flexible workflow definition patterns
+
+### Jido.Flow
+The DAG-based pipeline system for building dataflow workflows. Features:
+- Directed Acyclic Graph (DAG) structure for modeling dependencies
+- Support for both function-based and Action-based steps
+- Rich execution context with metadata and error tracking
+- Parallel execution capabilities via customizable runners
+- Integration with Jido.Action validation and error handling
+- Pipeline introspection and debugging tools
 
 ## Bundled Tools
 
@@ -288,6 +319,7 @@ Jido.Action comes with a comprehensive library of pre-built tools organized by c
 | Tool | Description | Use Case |
 |------|-------------|----------|
 | `Workflow` | Multi-step workflow execution | Complex processes |
+| `Flow` | DAG-based pipeline execution | Data processing pipelines |
 | `Simplebot` | Robot simulation actions | Testing, examples |
 
 ### Specialized Tools
@@ -297,6 +329,57 @@ Jido.Action comes with a comprehensive library of pre-built tools organized by c
 | Error Handling | Compensation and retry mechanisms | Fault tolerance |
 
 ## Advanced Features
+
+### DAG Pipeline Workflows with Jido.Flow
+
+Jido.Flow provides a powerful DAG-based pipeline system for complex data processing workflows:
+
+```elixir
+# Create a comprehensive data processing pipeline
+flow = Jido.Flow.new("nlp_pipeline")
+  |> Jido.Flow.add_step(name: "extract", action: MyApp.Actions.ExtractText)
+  |> Jido.Flow.add_step("extract", name: "tokenize", work: &String.split/1)
+  |> Jido.Flow.add_step("tokenize", name: "analyze", action: MyApp.Actions.SentimentAnalysis)
+  |> Jido.Flow.add_step("analyze", name: "store", action: MyApp.Actions.StoreResults)
+
+# Execute with custom runner for parallel processing
+defmodule AsyncRunner do
+  @behaviour Jido.Flow.Runner
+  
+  def run(runnables) when is_list(runnables) do
+    tasks = Enum.map(runnables, fn {step, context} ->
+      Task.async(fn -> Jido.Flow.Step.execute(step, context) end)
+    end)
+    
+    results = Task.await_many(tasks)
+    {:ok, results}
+  end
+end
+
+# Execute pipeline steps
+context = Jido.Flow.Context.new(%{document: "Large text document..."})
+runnables = Jido.Flow.next_runnables(flow, context)
+{:ok, results} = AsyncRunner.run(runnables)
+```
+
+#### Flow Features:
+
+- **Mixed Step Types**: Combine Actions and functions in the same pipeline
+- **Error Context**: Rich error tracking and recovery mechanisms
+- **Metadata Support**: Track execution context throughout the pipeline
+- **Parallel Execution**: Custom runners for different execution strategies
+- **Pipeline Introspection**: Analyze flow structure and dependencies
+
+```elixir
+# Pipeline analysis
+steps = Jido.Flow.steps(flow)
+order = Jido.Flow.topological_order(flow)
+is_valid = Jido.Flow.acyclic?(flow)
+
+# Add metadata to track pipeline versions
+flow = Jido.Flow.put_meta(flow, :version, "2.1.0")
+version = Jido.Flow.get_meta(flow, :version)
+```
 
 ### Error Handling and Compensation
 
