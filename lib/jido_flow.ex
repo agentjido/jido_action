@@ -33,6 +33,27 @@ defmodule Jido.Flow do
       context = Jido.Flow.Context.new("Hello World")
       runnables = Jido.Flow.next_runnables(flow, context)
 
+  ## Flow DSL
+
+  For a convenient macro-based DSL for defining flows, see `Jido.Flow.DSL`:
+
+      import Jido.Flow.DSL, only: [flow: 2]
+      
+      my_flow = flow "order_processing" do
+        action ValidateOrder
+        
+        parallel do
+          action CheckInventory
+          action CheckCustomerCredit
+          action CalculateShipping
+        end
+        
+        action ProcessPayment, when: &credit_approved?/1
+        action SendConfirmation
+      end
+
+  The DSL provides sequential dependencies, parallel execution blocks, and conditional execution.
+
   ## Action Integration
 
   Jido.Flow seamlessly integrates with Jido.Action modules:
