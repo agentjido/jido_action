@@ -45,6 +45,7 @@ defmodule Jido.Exec do
   alias Jido.Instruction
   alias Jido.Exec.Validation
   alias Jido.Exec.Telemetry
+  alias Jido.Exec.Retry
 
   require Logger
   require OK
@@ -52,18 +53,10 @@ defmodule Jido.Exec do
   import Jido.Action.Util, only: [cond_log: 3]
 
   @default_timeout 5000
-  @default_max_retries 1
-  @default_initial_backoff 250
 
   # Helper functions to get configuration values with fallbacks
   defp get_default_timeout,
     do: Application.get_env(:jido_action, :default_timeout, @default_timeout)
-
-  defp get_default_max_retries,
-    do: Application.get_env(:jido_action, :default_max_retries, @default_max_retries)
-
-  defp get_default_backoff,
-    do: Application.get_env(:jido_action, :default_backoff, @default_initial_backoff)
 
   @type action :: module()
   @type params :: map()
@@ -81,8 +74,8 @@ defmodule Jido.Exec do
   - `context`: A map providing additional context for the Action execution.
   - `opts`: Options controlling the execution:
     - `:timeout` - Maximum time (in ms) allowed for the Action to complete (default: #{@default_timeout}, configurable via `:jido_action, :default_timeout`).
-    - `:max_retries` - Maximum number of retry attempts (default: #{@default_max_retries}, configurable via `:jido_action, :default_max_retries`).
-    - `:backoff` - Initial backoff time in milliseconds, doubles with each retry (default: #{@default_initial_backoff}, configurable via `:jido_action, :default_backoff`).
+    - `:max_retries` - Maximum number of retry attempts (default: 1, configurable via `:jido_action, :default_max_retries`).
+    - `:backoff` - Initial backoff time in milliseconds, doubles with each retry (default: 250, configurable via `:jido_action, :default_backoff`).
     - `:log_level` - Override the global Logger level for this specific action. Accepts #{inspect(Logger.levels())}.
 
   ## Action Metadata in Context
@@ -146,7 +139,7 @@ defmodule Jido.Exec do
         "Executing #{inspect(action)} with params: #{inspect(validated_params)} and context: #{inspect(enhanced_context)}"
       )
 
-      do_run_with_retry(action, validated_params, enhanced_context, opts)
+      Retry.run_with_retry(action, validated_params, enhanced_context, opts, &do_run/4)
     else
       {:error, reason} ->
         dbug("Error in action setup", error: reason)
@@ -376,106 +369,15 @@ defmodule Jido.Exec do
     @spec validate_output(action(), map(), run_opts()) :: {:ok, map()} | {:error, Error.t()}
     defp validate_output(action, output, opts), do: Validation.validate_output(action, output, opts)
 
+    # Delegate retry functions to Retry module
     @spec do_run_with_retry(action(), params(), context(), run_opts()) ::
             {:ok, map()} | {:error, Error.t()}
     defp do_run_with_retry(action, params, context, opts) do
-      max_retries = Keyword.get(opts, :max_retries, get_default_max_retries())
-      backoff = Keyword.get(opts, :backoff, get_default_backoff())
-      dbug("Starting run with retry", action: action, max_retries: max_retries, backoff: backoff)
-      do_run_with_retry(action, params, context, opts, 0, max_retries, backoff)
-    end
-
-    @spec do_run_with_retry(
-            action(),
-            params(),
-            context(),
-            run_opts(),
-            non_neg_integer(),
-            non_neg_integer(),
-            non_neg_integer()
-          ) :: {:ok, map()} | {:error, Error.t()}
-    defp do_run_with_retry(action, params, context, opts, retry_count, max_retries, backoff) do
-      dbug("Attempting run", action: action, retry_count: retry_count)
-
-      case do_run(action, params, context, opts) do
-        OK.success(result) ->
-          dbug("Run succeeded", result: result)
-          OK.success(result)
-
-        {:ok, result, other} ->
-          dbug("Run succeeded with additional info", result: result, other: other)
-          {:ok, result, other}
-
-        {:error, reason, other} ->
-          dbug("Run failed with additional info", error: reason, other: other)
-
-          maybe_retry(
-            action,
-            params,
-            context,
-            opts,
-            retry_count,
-            max_retries,
-            backoff,
-            {:error, reason, other}
-          )
-
-        OK.failure(reason) ->
-          dbug("Run failed", error: reason)
-
-          maybe_retry(
-            action,
-            params,
-            context,
-            opts,
-            retry_count,
-            max_retries,
-            backoff,
-            OK.failure(reason)
-          )
-      end
-    end
-
-    defp maybe_retry(action, params, context, opts, retry_count, max_retries, backoff, error) do
-      if retry_count < max_retries do
-        backoff = calculate_backoff(retry_count, backoff)
-
-        cond_log(
-          Keyword.get(opts, :log_level, :info),
-          :info,
-          "Retrying #{inspect(action)} (attempt #{retry_count + 1}/#{max_retries}) after #{backoff}ms backoff"
-        )
-
-        dbug("Retrying after backoff",
-          action: action,
-          retry_count: retry_count,
-          max_retries: max_retries,
-          backoff: backoff
-        )
-
-        :timer.sleep(backoff)
-
-        do_run_with_retry(
-          action,
-          params,
-          context,
-          opts,
-          retry_count + 1,
-          max_retries,
-          backoff
-        )
-      else
-        dbug("Max retries reached", action: action, max_retries: max_retries)
-        error
-      end
+      Retry.run_with_retry(action, params, context, opts, &do_run/4)
     end
 
     @spec calculate_backoff(non_neg_integer(), non_neg_integer()) :: non_neg_integer()
-    defp calculate_backoff(retry_count, backoff) do
-      (backoff * :math.pow(2, retry_count))
-      |> round()
-      |> min(30_000)
-    end
+    defp calculate_backoff(retry_count, backoff), do: Retry.calculate_backoff(retry_count, backoff)
 
     @spec do_run(action(), params(), context(), run_opts()) ::
             {:ok, map()} | {:error, Error.t()}
