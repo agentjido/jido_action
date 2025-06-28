@@ -686,15 +686,18 @@ defmodule JidoTest.TestActions do
       schema: [
         count: [type: :integer, required: false, default: 1]
       ],
-      output_schema: []  # Disable output validation to allow Task structs
+      # Disable output validation to allow Task structs
+      output_schema: []
 
     def run(%{count: count}, _context) do
-      tasks = Enum.map(1..count, fn i ->
-        Task.async(fn ->
-          Process.sleep(1000)  # Long running task
-          i * 10
+      tasks =
+        Enum.map(1..count, fn i ->
+          Task.async(fn ->
+            # Long running task
+            Process.sleep(1000)
+            i * 10
+          end)
         end)
-      end)
 
       # Return the Task structs which contain PIDs
       {:ok, %{tasks: tasks, first_task: List.first(tasks)}}
@@ -1095,21 +1098,23 @@ defmodule JidoTest.TestActions do
   defmodule StreamResultAction do
     @moduledoc false
     use Action,
-      name: "stream_result_action", 
+      name: "stream_result_action",
       description: "Returns a Stream result with Task PIDs for testing auto-detach",
       schema: [
         count: [type: :integer, required: false, default: 3]
       ],
-      output_schema: []  # Disable output validation to allow Stream structs
+      # Disable output validation to allow Stream structs
+      output_schema: []
 
     def run(%{count: count}, _context) do
       # Create some tasks that are immediately accessible in the result
-      tasks = Enum.map(1..count, fn i ->
-        Task.async(fn ->
-          Process.sleep(100)
-          i * 2
+      tasks =
+        Enum.map(1..count, fn i ->
+          Task.async(fn ->
+            Process.sleep(100)
+            i * 2
+          end)
         end)
-      end)
 
       # Create a simple stream (the main streamable content)
       stream = 1..10 |> Stream.map(fn x -> x * 2 end)
@@ -1122,7 +1127,7 @@ defmodule JidoTest.TestActions do
   defmodule FileStreamAction do
     @moduledoc false
     use Action,
-      name: "file_stream_action", 
+      name: "file_stream_action",
       description: "Returns a File.Stream result with Task PIDs for testing auto-detach",
       schema: [
         filename: [type: :string, required: false, default: "/tmp/test_stream"]
@@ -1134,13 +1139,14 @@ defmodule JidoTest.TestActions do
       File.write!(filename, "line1\nline2\nline3\n")
 
       # Create a task that will be returned alongside the file stream
-      task = Task.async(fn ->
-        Process.sleep(200)
-        "background_work_done"
-      end)
+      task =
+        Task.async(fn ->
+          Process.sleep(200)
+          "background_work_done"
+        end)
 
       file_stream = File.stream!(filename)
-      
+
       {:ok, %{stream: file_stream, task: task, filename: filename}}
     end
   end
@@ -1149,7 +1155,7 @@ defmodule JidoTest.TestActions do
     @moduledoc false
     use Action,
       name: "range_action",
-      description: "Returns a Range result with Task PIDs for testing auto-detach", 
+      description: "Returns a Range result with Task PIDs for testing auto-detach",
       schema: [
         start: [type: :integer, required: false, default: 1],
         stop: [type: :integer, required: false, default: 100]
@@ -1157,10 +1163,11 @@ defmodule JidoTest.TestActions do
       output_schema: []
 
     def run(%{start: start, stop: stop}, _context) do
-      task = Task.async(fn ->
-        Process.sleep(150)
-        "range_processing_done"
-      end)
+      task =
+        Task.async(fn ->
+          Process.sleep(150)
+          "range_processing_done"
+        end)
 
       range = start..stop
 
@@ -1172,15 +1179,17 @@ defmodule JidoTest.TestActions do
     @moduledoc false
     use Action,
       name: "function_stream_action",
-      description: "Returns a function/2 result (stream function) with Task PIDs for testing auto-detach",
+      description:
+        "Returns a function/2 result (stream function) with Task PIDs for testing auto-detach",
       schema: [],
       output_schema: []
 
     def run(_params, _context) do
-      task = Task.async(fn ->
-        Process.sleep(100)
-        "function_stream_done"
-      end)
+      task =
+        Task.async(fn ->
+          Process.sleep(100)
+          "function_stream_done"
+        end)
 
       # Create a stream function
       stream_fun = fn acc, fun ->

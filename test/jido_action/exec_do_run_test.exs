@@ -74,7 +74,7 @@ defmodule JidoTest.ExecDoRunTest do
       # This test now verifies that the action executes successfully in silent mode
       # rather than checking for complete silence in logs, since Exec.run may
       # still log execution details even in silent mode
-      
+
       result = Exec.run(BasicAction, %{value: 5}, %{}, telemetry: :silent, timeout: 0)
       assert {:ok, %{value: 5}} = result
     end

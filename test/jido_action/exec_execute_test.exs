@@ -189,7 +189,10 @@ defmodule JidoTest.ExecExecuteTest do
       log =
         capture_log(fn ->
           assert {:error, %Error{type: :execution_error}} =
-                   Exec.run(ErrorAction, %{error_type: :runtime}, %{}, timeout: 1000, log_level: :debug)
+                   Exec.run(ErrorAction, %{error_type: :runtime}, %{},
+                     timeout: 1000,
+                     log_level: :debug
+                   )
         end)
 
       assert log =~ "Starting execution of JidoTest.TestActions.ErrorAction"
@@ -200,7 +203,10 @@ defmodule JidoTest.ExecExecuteTest do
       log =
         capture_log(fn ->
           assert {:error, %Error{type: :execution_error, message: message}} =
-                   Exec.run(ErrorAction, %{type: :unexpected}, %{}, timeout: 1000, log_level: :debug)
+                   Exec.run(ErrorAction, %{type: :unexpected}, %{},
+                     timeout: 1000,
+                     log_level: :debug
+                   )
 
           assert message =~ "Exec failed"
         end)

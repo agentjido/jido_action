@@ -25,12 +25,12 @@ defmodule Jido.Exec do
   - Automatic stream detection and Task PID detachment for streamable results
     
   ## Stream Detection and Auto-Detachment
-  
+
   When an action returns a streamable result (Stream, File.Stream, IO.Stream, Range, or function/2),
   the Exec module automatically detaches any Task PIDs found in the immediately accessible parts
   of the result structure. This prevents crashes when timeouts are used with actions that return
   streams containing Task references.
-  
+
   Streamable types that are detected:
   - `%Stream{}`
   - `%File.Stream{}`
@@ -57,8 +57,6 @@ defmodule Jido.Exec do
 
   use Private
   use ExDbug, enabled: false
-
-
 
   alias Jido.Action.Error
   alias Jido.Instruction
@@ -387,12 +385,6 @@ defmodule Jido.Exec do
 
   # Private functions are exposed to the test suite
   private do
-
-
-
-
-
-
     @spec do_run(action(), params(), context(), run_opts()) ::
             {:ok, map()} | {:error, Error.t()}
     defp do_run(action, params, context, opts) do
@@ -404,14 +396,16 @@ defmodule Jido.Exec do
         case telemetry do
           :silent ->
             if timeout do
-              result = TaskManager.execute_action_with_timeout(
-                action,
-                params,
-                context,
-                timeout,
-                opts,
-                &execute_action/4
-              )
+              result =
+                TaskManager.execute_action_with_timeout(
+                  action,
+                  params,
+                  context,
+                  timeout,
+                  opts,
+                  &execute_action/4
+                )
+
               maybe_detach_tasks(result, opts)
             else
               execute_action(action, params, context, opts)
@@ -423,14 +417,16 @@ defmodule Jido.Exec do
 
             result =
               if timeout do
-                result = TaskManager.execute_action_with_timeout(
-                  action,
-                  params,
-                  context,
-                  timeout,
-                  opts,
-                  &execute_action/4
-                )
+                result =
+                  TaskManager.execute_action_with_timeout(
+                    action,
+                    params,
+                    context,
+                    timeout,
+                    opts,
+                    &execute_action/4
+                  )
+
                 maybe_detach_tasks(result, opts)
               else
                 execute_action(action, params, context, opts)
@@ -466,10 +462,6 @@ defmodule Jido.Exec do
       end
     end
 
-
-
-
-
     @spec maybe_detach_tasks(
             {:ok, map()} | {:ok, map(), any()} | {:error, Error.t()},
             run_opts()
@@ -485,9 +477,7 @@ defmodule Jido.Exec do
       end
     end
 
-    @spec detach_tasks_from_result(
-            {:ok, map()} | {:ok, map(), any()} | {:error, Error.t()}
-          ) ::
+    @spec detach_tasks_from_result({:ok, map()} | {:ok, map(), any()} | {:error, Error.t()}) ::
             {:ok, map()} | {:ok, map(), any()} | {:error, Error.t()}
     defp detach_tasks_from_result({:ok, result}) do
       detach_pids_from_data(result)
@@ -594,11 +584,21 @@ defmodule Jido.Exec do
     @spec is_streamable?(any()) :: boolean()
     defp is_streamable?(result) do
       case result do
-        %Stream{} -> true
-        %File.Stream{} -> true  
-        %IO.Stream{} -> true
-        %Range{} -> true
-        result when is_function(result, 2) -> true
+        %Stream{} ->
+          true
+
+        %File.Stream{} ->
+          true
+
+        %IO.Stream{} ->
+          true
+
+        %Range{} ->
+          true
+
+        result when is_function(result, 2) ->
+          true
+
         # Check nested structures for streamable content
         result when is_map(result) ->
           try do
@@ -606,12 +606,14 @@ defmodule Jido.Exec do
           rescue
             Protocol.UndefinedError -> false
           end
+
         result when is_list(result) ->
           try do
             Enum.any?(result, &is_streamable?/1)
           rescue
             Protocol.UndefinedError -> false
           end
+
         result when is_tuple(result) ->
           try do
             result
@@ -620,14 +622,18 @@ defmodule Jido.Exec do
           rescue
             Protocol.UndefinedError -> false
           end
-        _ -> 
+
+        _ ->
           # Fallback: check if Enumerable but can't count
           try do
             case Enumerable.impl_for(result) do
-              nil -> false
-              impl -> 
+              nil ->
+                false
+
+              impl ->
                 case impl.count(result) do
-                  {:error, _} -> true  # Streams typically can't count
+                  # Streams typically can't count
+                  {:error, _} -> true
                   _ -> false
                 end
             end
@@ -638,7 +644,7 @@ defmodule Jido.Exec do
     end
 
     @spec execute_action(action(), params(), context(), run_opts()) ::
-             {:ok, map()} | {:error, Error.t()}
+            {:ok, map()} | {:error, Error.t()}
     defp execute_action(action, params, context, opts) do
       log_level = Keyword.get(opts, :log_level, :info)
       dbug("Executing action", action: action, params: params, context: context)
@@ -657,7 +663,10 @@ defmodule Jido.Exec do
             {:ok, validated_result} ->
               # Auto-detach Task PIDs if result is streamable
               if is_streamable?(validated_result) do
-                dbug("Result is streamable, auto-detaching any immediately accessible Task PIDs", result: validated_result)
+                dbug("Result is streamable, auto-detaching any immediately accessible Task PIDs",
+                  result: validated_result
+                )
+
                 detach_immediately_accessible_pids(validated_result)
               end
 
@@ -688,7 +697,10 @@ defmodule Jido.Exec do
             {:ok, validated_result} ->
               # Auto-detach Task PIDs if result is streamable
               if is_streamable?(validated_result) do
-                dbug("Result is streamable, auto-detaching any immediately accessible Task PIDs", result: validated_result)
+                dbug("Result is streamable, auto-detaching any immediately accessible Task PIDs",
+                  result: validated_result
+                )
+
                 detach_immediately_accessible_pids(validated_result)
               end
 
@@ -734,7 +746,10 @@ defmodule Jido.Exec do
             {:ok, validated_result} ->
               # Auto-detach Task PIDs if result is streamable
               if is_streamable?(validated_result) do
-                dbug("Result is streamable, auto-detaching any immediately accessible Task PIDs", result: validated_result)
+                dbug("Result is streamable, auto-detaching any immediately accessible Task PIDs",
+                  result: validated_result
+                )
+
                 detach_immediately_accessible_pids(validated_result)
               end
 
