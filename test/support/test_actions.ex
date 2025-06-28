@@ -678,6 +678,29 @@ defmodule JidoTest.TestActions do
     end
   end
 
+  defmodule TaskPidAction do
+    @moduledoc false
+    use Action,
+      name: "task_pid_action",
+      description: "Returns Task PIDs for testing streaming detach functionality",
+      schema: [
+        count: [type: :integer, required: false, default: 1]
+      ],
+      output_schema: []  # Disable output validation to allow Task structs
+
+    def run(%{count: count}, _context) do
+      tasks = Enum.map(1..count, fn i ->
+        Task.async(fn ->
+          Process.sleep(1000)  # Long running task
+          i * 10
+        end)
+      end)
+
+      # Return the Task structs which contain PIDs
+      {:ok, %{tasks: tasks, first_task: List.first(tasks)}}
+    end
+  end
+
   defmodule IOAction do
     @moduledoc """
     Test action module that demonstrates various IO operations.

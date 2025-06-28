@@ -62,7 +62,7 @@ defmodule Jido.Exec do
   @type action :: module()
   @type params :: map()
   @type context :: map()
-  @type run_opts :: [timeout: non_neg_integer()]
+  @type run_opts :: [timeout: non_neg_integer(), streaming: :detach]
   @type async_ref :: %{ref: reference(), pid: pid()}
 
   @doc """
@@ -77,6 +77,7 @@ defmodule Jido.Exec do
     - `:timeout` - Maximum time (in ms) allowed for the Action to complete. When not specified, actions run without timeout.
     - `:max_retries` - Maximum number of retry attempts (default: 0, no retries). Set to enable retry logic.
     - `:backoff` - Initial backoff time in milliseconds, doubles with each retry (default: 250).
+    - `:streaming` - Set to `:detach` to unlink any Task PIDs found in the action result when using timeouts.
     - `:log_level` - Override the global Logger level for this specific action. Accepts #{inspect(Logger.levels())}.
 
   ## Action Metadata in Context
@@ -407,7 +408,7 @@ defmodule Jido.Exec do
         case telemetry do
           :silent ->
             if timeout do
-              TaskManager.execute_action_with_timeout(
+              result = TaskManager.execute_action_with_timeout(
                 action,
                 params,
                 context,
@@ -415,6 +416,7 @@ defmodule Jido.Exec do
                 opts,
                 &execute_action/4
               )
+              maybe_detach_tasks(result, opts)
             else
               execute_action(action, params, context, opts)
             end
@@ -425,7 +427,7 @@ defmodule Jido.Exec do
 
             result =
               if timeout do
-                TaskManager.execute_action_with_timeout(
+                result = TaskManager.execute_action_with_timeout(
                   action,
                   params,
                   context,
@@ -433,6 +435,7 @@ defmodule Jido.Exec do
                   opts,
                   &execute_action/4
                 )
+                maybe_detach_tasks(result, opts)
               else
                 execute_action(action, params, context, opts)
               end
@@ -523,6 +526,68 @@ defmodule Jido.Exec do
 
     @spec cleanup_task_group(pid()) :: :ok
     defp cleanup_task_group(task_group), do: TaskManager.cleanup_task_group(task_group)
+
+    @spec maybe_detach_tasks(
+            {:ok, map()} | {:ok, map(), any()} | {:error, Error.t()},
+            run_opts()
+          ) ::
+            {:ok, map()} | {:ok, map(), any()} | {:error, Error.t()}
+    defp maybe_detach_tasks(result, opts) do
+      streaming = Keyword.get(opts, :streaming)
+
+      if streaming == :detach do
+        detach_tasks_from_result(result)
+      else
+        result
+      end
+    end
+
+    @spec detach_tasks_from_result(
+            {:ok, map()} | {:ok, map(), any()} | {:error, Error.t()}
+          ) ::
+            {:ok, map()} | {:ok, map(), any()} | {:error, Error.t()}
+    defp detach_tasks_from_result({:ok, result}) do
+      detach_pids_from_data(result)
+      {:ok, result}
+    end
+
+    defp detach_tasks_from_result({:ok, result, other}) do
+      detach_pids_from_data(result)
+      {:ok, result, other}
+    end
+
+    defp detach_tasks_from_result({:error, _} = error), do: error
+
+    @spec detach_pids_from_data(any()) :: :ok
+    defp detach_pids_from_data(%Task{pid: pid}) do
+      if Process.alive?(pid) do
+        Process.unlink(pid)
+        dbug("Detached from Task PID", pid: pid)
+      end
+    end
+
+    defp detach_pids_from_data(data) when is_pid(data) do
+      if Process.alive?(data) do
+        Process.unlink(data)
+        dbug("Detached from raw PID", pid: data)
+      end
+    end
+
+    defp detach_pids_from_data(data) when is_map(data) do
+      Enum.each(data, fn {_key, value} -> detach_pids_from_data(value) end)
+    end
+
+    defp detach_pids_from_data(data) when is_list(data) do
+      Enum.each(data, &detach_pids_from_data/1)
+    end
+
+    defp detach_pids_from_data(data) when is_tuple(data) do
+      data
+      |> Tuple.to_list()
+      |> Enum.each(&detach_pids_from_data/1)
+    end
+
+    defp detach_pids_from_data(_data), do: :ok
 
     @spec execute_action(action(), params(), context(), run_opts()) ::
             {:ok, map()} | {:error, Error.t()}
