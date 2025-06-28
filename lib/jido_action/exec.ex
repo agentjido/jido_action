@@ -22,6 +22,22 @@ defmodule Jido.Exec do
   - Comprehensive error handling and reporting
   - Telemetry integration for monitoring and tracing
   - Cancellation of running actions
+  - Automatic stream detection and Task PID detachment for streamable results
+    
+  ## Stream Detection and Auto-Detachment
+  
+  When an action returns a streamable result (Stream, File.Stream, IO.Stream, Range, or function/2),
+  the Exec module automatically detaches any Task PIDs found in the immediately accessible parts
+  of the result structure. This prevents crashes when timeouts are used with actions that return
+  streams containing Task references.
+  
+  Streamable types that are detected:
+  - `%Stream{}`
+  - `%File.Stream{}`
+  - `%IO.Stream{}`
+  - `%Range{}`
+  - Functions with arity 2 (stream functions)
+  - Maps, lists, or tuples containing any of the above
 
   ## Usage
 
@@ -573,6 +589,32 @@ defmodule Jido.Exec do
       end
     end
 
+    defp detach_pids_from_data(%Stream{} = _stream) do
+      # Don't iterate over streams as that would consume them
+      # Streams are lazy and should not be consumed during detachment
+      :ok
+    end
+
+    defp detach_pids_from_data(%File.Stream{} = _stream) do
+      # Don't iterate over file streams
+      :ok
+    end
+
+    defp detach_pids_from_data(%IO.Stream{} = _stream) do
+      # Don't iterate over IO streams
+      :ok
+    end
+
+    defp detach_pids_from_data(%Range{} = _range) do
+      # Don't iterate over ranges as they could be very large
+      :ok
+    end
+
+    defp detach_pids_from_data(fun) when is_function(fun, 2) do
+      # Don't try to inspect stream functions
+      :ok
+    end
+
     defp detach_pids_from_data(data) when is_map(data) do
       Enum.each(data, fn {_key, value} -> detach_pids_from_data(value) end)
     end
@@ -589,8 +631,87 @@ defmodule Jido.Exec do
 
     defp detach_pids_from_data(_data), do: :ok
 
+    @spec detach_immediately_accessible_pids(any()) :: :ok
+    defp detach_immediately_accessible_pids(%Stream{} = _stream) do
+      # For streams returned directly as results, there are no immediately accessible PIDs
+      # to detach since the stream is lazy and hasn't been consumed yet
+      :ok
+    end
+
+    defp detach_immediately_accessible_pids(%File.Stream{} = _stream) do
+      # File streams don't contain PIDs in their structure
+      :ok
+    end
+
+    defp detach_immediately_accessible_pids(%IO.Stream{} = _stream) do
+      # IO streams don't contain PIDs in their structure  
+      :ok
+    end
+
+    defp detach_immediately_accessible_pids(%Range{} = _range) do
+      # Ranges don't contain PIDs
+      :ok
+    end
+
+    defp detach_immediately_accessible_pids(fun) when is_function(fun, 2) do
+      # Stream functions don't contain PIDs in their structure
+      :ok
+    end
+
+    defp detach_immediately_accessible_pids(data) do
+      # For other types that contain streamable content, detach any PIDs
+      # that are immediately accessible (not deferred)
+      detach_pids_from_data(data)
+    end
+
+    @spec is_streamable?(any()) :: boolean()
+    defp is_streamable?(result) do
+      case result do
+        %Stream{} -> true
+        %File.Stream{} -> true  
+        %IO.Stream{} -> true
+        %Range{} -> true
+        result when is_function(result, 2) -> true
+        # Check nested structures for streamable content
+        result when is_map(result) ->
+          try do
+            Enum.any?(result, fn {_key, value} -> is_streamable?(value) end)
+          rescue
+            Protocol.UndefinedError -> false
+          end
+        result when is_list(result) ->
+          try do
+            Enum.any?(result, &is_streamable?/1)
+          rescue
+            Protocol.UndefinedError -> false
+          end
+        result when is_tuple(result) ->
+          try do
+            result
+            |> Tuple.to_list()
+            |> Enum.any?(&is_streamable?/1)
+          rescue
+            Protocol.UndefinedError -> false
+          end
+        _ -> 
+          # Fallback: check if Enumerable but can't count
+          try do
+            case Enumerable.impl_for(result) do
+              nil -> false
+              impl -> 
+                case impl.count(result) do
+                  {:error, _} -> true  # Streams typically can't count
+                  _ -> false
+                end
+            end
+          rescue
+            Protocol.UndefinedError -> false
+          end
+      end
+    end
+
     @spec execute_action(action(), params(), context(), run_opts()) ::
-            {:ok, map()} | {:error, Error.t()}
+             {:ok, map()} | {:error, Error.t()}
     defp execute_action(action, params, context, opts) do
       log_level = Keyword.get(opts, :log_level, :info)
       dbug("Executing action", action: action, params: params, context: context)
@@ -607,6 +728,12 @@ defmodule Jido.Exec do
 
           case Validation.validate_output(action, result, opts) do
             {:ok, validated_result} ->
+              # Auto-detach Task PIDs if result is streamable
+              if is_streamable?(validated_result) do
+                dbug("Result is streamable, auto-detaching any immediately accessible Task PIDs", result: validated_result)
+                detach_immediately_accessible_pids(validated_result)
+              end
+
               cond_log(
                 log_level,
                 :debug,
@@ -632,6 +759,12 @@ defmodule Jido.Exec do
 
           case Validation.validate_output(action, result, opts) do
             {:ok, validated_result} ->
+              # Auto-detach Task PIDs if result is streamable
+              if is_streamable?(validated_result) do
+                dbug("Result is streamable, auto-detaching any immediately accessible Task PIDs", result: validated_result)
+                detach_immediately_accessible_pids(validated_result)
+              end
+
               cond_log(
                 log_level,
                 :debug,
@@ -672,6 +805,12 @@ defmodule Jido.Exec do
 
           case Validation.validate_output(action, result, opts) do
             {:ok, validated_result} ->
+              # Auto-detach Task PIDs if result is streamable
+              if is_streamable?(validated_result) do
+                dbug("Result is streamable, auto-detaching any immediately accessible Task PIDs", result: validated_result)
+                detach_immediately_accessible_pids(validated_result)
+              end
+
               cond_log(
                 log_level,
                 :debug,

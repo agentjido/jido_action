@@ -1091,4 +1091,106 @@ defmodule JidoTest.TestActions do
       {:ok, %{metadata: context.action_metadata}}
     end
   end
+
+  defmodule StreamResultAction do
+    @moduledoc false
+    use Action,
+      name: "stream_result_action", 
+      description: "Returns a Stream result with Task PIDs for testing auto-detach",
+      schema: [
+        count: [type: :integer, required: false, default: 3]
+      ],
+      output_schema: []  # Disable output validation to allow Stream structs
+
+    def run(%{count: count}, _context) do
+      # Create some tasks that are immediately accessible in the result
+      tasks = Enum.map(1..count, fn i ->
+        Task.async(fn ->
+          Process.sleep(100)
+          i * 2
+        end)
+      end)
+
+      # Create a simple stream (the main streamable content)
+      stream = 1..10 |> Stream.map(fn x -> x * 2 end)
+
+      # Return both the stream and the tasks in the immediate result structure
+      {:ok, %{stream: stream, tasks: tasks, first_task: List.first(tasks)}}
+    end
+  end
+
+  defmodule FileStreamAction do
+    @moduledoc false
+    use Action,
+      name: "file_stream_action", 
+      description: "Returns a File.Stream result with Task PIDs for testing auto-detach",
+      schema: [
+        filename: [type: :string, required: false, default: "/tmp/test_stream"]
+      ],
+      output_schema: []
+
+    def run(%{filename: filename}, _context) do
+      # Write a test file
+      File.write!(filename, "line1\nline2\nline3\n")
+
+      # Create a task that will be returned alongside the file stream
+      task = Task.async(fn ->
+        Process.sleep(200)
+        "background_work_done"
+      end)
+
+      file_stream = File.stream!(filename)
+      
+      {:ok, %{stream: file_stream, task: task, filename: filename}}
+    end
+  end
+
+  defmodule RangeAction do
+    @moduledoc false
+    use Action,
+      name: "range_action",
+      description: "Returns a Range result with Task PIDs for testing auto-detach", 
+      schema: [
+        start: [type: :integer, required: false, default: 1],
+        stop: [type: :integer, required: false, default: 100]
+      ],
+      output_schema: []
+
+    def run(%{start: start, stop: stop}, _context) do
+      task = Task.async(fn ->
+        Process.sleep(150)
+        "range_processing_done"
+      end)
+
+      range = start..stop
+
+      {:ok, %{range: range, task: task}}
+    end
+  end
+
+  defmodule FunctionStreamAction do
+    @moduledoc false
+    use Action,
+      name: "function_stream_action",
+      description: "Returns a function/2 result (stream function) with Task PIDs for testing auto-detach",
+      schema: [],
+      output_schema: []
+
+    def run(_params, _context) do
+      task = Task.async(fn ->
+        Process.sleep(100)
+        "function_stream_done"
+      end)
+
+      # Create a stream function
+      stream_fun = fn acc, fun ->
+        case acc do
+          [] -> {:halt, acc}
+          [h | t] -> {[h], fun.(t, fun)}
+        end
+      end
+
+      {:ok, %{stream_function: stream_fun, task: task}}
+    end
+  end
 end
