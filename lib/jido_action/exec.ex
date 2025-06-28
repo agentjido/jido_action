@@ -43,6 +43,7 @@ defmodule Jido.Exec do
 
   alias Jido.Action.Error
   alias Jido.Instruction
+  alias Jido.Exec.Validation
 
   require Logger
   require OK
@@ -125,10 +126,10 @@ defmodule Jido.Exec do
     dbug("Starting action run", action: action, params: params, context: context, opts: opts)
     log_level = Keyword.get(opts, :log_level, :info)
 
-    with {:ok, normalized_params} <- normalize_params(params),
-         {:ok, normalized_context} <- normalize_context(context),
-         :ok <- validate_action(action),
-         OK.success(validated_params) <- validate_params(action, normalized_params) do
+    with {:ok, normalized_params} <- Validation.normalize_params(params),
+         {:ok, normalized_context} <- Validation.normalize_context(context),
+         :ok <- Validation.validate_action(action),
+         OK.success(validated_params) <- Validation.validate_params(action, normalized_params) do
       enhanced_context =
         Map.put(normalized_context, :action_metadata, action.__action_metadata__())
 
@@ -358,104 +359,21 @@ defmodule Jido.Exec do
 
   # Private functions are exposed to the test suite
   private do
+    # Delegate validation functions to Validation module
     @spec normalize_params(params()) :: {:ok, map()} | {:error, Error.t()}
-    defp normalize_params(%Error{} = error), do: OK.failure(error)
-    defp normalize_params(params) when is_map(params), do: OK.success(params)
-    defp normalize_params(params) when is_list(params), do: OK.success(Map.new(params))
-    defp normalize_params({:ok, params}) when is_map(params), do: OK.success(params)
-    defp normalize_params({:ok, params}) when is_list(params), do: OK.success(Map.new(params))
-    defp normalize_params({:error, reason}), do: OK.failure(Error.validation_error(reason))
-
-    defp normalize_params(params),
-      do: OK.failure(Error.validation_error("Invalid params type: #{inspect(params)}"))
+    defp normalize_params(params), do: Validation.normalize_params(params)
 
     @spec normalize_context(context()) :: {:ok, map()} | {:error, Error.t()}
-    defp normalize_context(context) when is_map(context), do: OK.success(context)
-    defp normalize_context(context) when is_list(context), do: OK.success(Map.new(context))
-
-    defp normalize_context(context),
-      do: OK.failure(Error.validation_error("Invalid context type: #{inspect(context)}"))
+    defp normalize_context(context), do: Validation.normalize_context(context)
 
     @spec validate_action(action()) :: :ok | {:error, Error.t()}
-    defp validate_action(action) do
-      dbug("Validating action", action: action)
-
-      case Code.ensure_compiled(action) do
-        {:module, _} ->
-          if function_exported?(action, :run, 2) do
-            :ok
-          else
-            {:error,
-             Error.invalid_action(
-               "Module #{inspect(action)} is not a valid action: missing run/2 function"
-             )}
-          end
-
-        {:error, reason} ->
-          {:error,
-           Error.invalid_action("Failed to compile module #{inspect(action)}: #{inspect(reason)}")}
-      end
-    end
+    defp validate_action(action), do: Validation.validate_action(action)
 
     @spec validate_params(action(), map()) :: {:ok, map()} | {:error, Error.t()}
-    defp validate_params(action, params) do
-      dbug("Validating params", action: action, params: params)
-
-      if function_exported?(action, :validate_params, 1) do
-        case action.validate_params(params) do
-          {:ok, params} ->
-            OK.success(params)
-
-          {:error, reason} ->
-            OK.failure(reason)
-
-          _ ->
-            OK.failure(Error.validation_error("Invalid return from action.validate_params/1"))
-        end
-      else
-        OK.failure(
-          Error.invalid_action(
-            "Module #{inspect(action)} is not a valid action: missing validate_params/1 function"
-          )
-        )
-      end
-    end
+    defp validate_params(action, params), do: Validation.validate_params(action, params)
 
     @spec validate_output(action(), map(), run_opts()) :: {:ok, map()} | {:error, Error.t()}
-    defp validate_output(action, output, opts) do
-      log_level = Keyword.get(opts, :log_level, :info)
-      dbug("Validating output", action: action, output: output)
-
-      if function_exported?(action, :validate_output, 1) do
-        case action.validate_output(output) do
-          {:ok, validated_output} ->
-            cond_log(log_level, :debug, "Output validation succeeded for #{inspect(action)}")
-            OK.success(validated_output)
-
-          {:error, reason} ->
-            cond_log(
-              log_level,
-              :debug,
-              "Output validation failed for #{inspect(action)}: #{inspect(reason)}"
-            )
-
-            OK.failure(reason)
-
-          _ ->
-            cond_log(log_level, :debug, "Invalid return from action.validate_output/1")
-            OK.failure(Error.validation_error("Invalid return from action.validate_output/1"))
-        end
-      else
-        # If action doesn't have validate_output/1, skip output validation
-        cond_log(
-          log_level,
-          :debug,
-          "No output validation function found for #{inspect(action)}, skipping"
-        )
-
-        OK.success(output)
-      end
-    end
+    defp validate_output(action, output, opts), do: Validation.validate_output(action, output, opts)
 
     @spec do_run_with_retry(action(), params(), context(), run_opts()) ::
             {:ok, map()} | {:error, Error.t()}
@@ -940,7 +858,7 @@ Debug info:
         {:ok, result, other} ->
           dbug("Action succeeded with additional info", result: result, other: other)
 
-          case validate_output(action, result, opts) do
+          case Validation.validate_output(action, result, opts) do
             {:ok, validated_result} ->
               cond_log(
                 log_level,
@@ -965,7 +883,7 @@ Debug info:
         OK.success(result) ->
           dbug("Action succeeded", result: result)
 
-          case validate_output(action, result, opts) do
+          case Validation.validate_output(action, result, opts) do
             {:ok, validated_result} ->
               cond_log(
                 log_level,
@@ -1005,7 +923,7 @@ Debug info:
         result ->
           dbug("Action returned unexpected result", result: result)
 
-          case validate_output(action, result, opts) do
+          case Validation.validate_output(action, result, opts) do
             {:ok, validated_result} ->
               cond_log(
                 log_level,
