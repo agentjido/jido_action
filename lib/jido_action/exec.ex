@@ -46,6 +46,8 @@ defmodule Jido.Exec do
   alias Jido.Exec.Validation
   alias Jido.Exec.Telemetry
   alias Jido.Exec.Retry
+  alias Jido.Exec.TaskManager
+  alias Jido.Exec.ErrorHandler
 
   require Logger
   require OK
@@ -367,7 +369,8 @@ defmodule Jido.Exec do
     defp validate_params(action, params), do: Validation.validate_params(action, params)
 
     @spec validate_output(action(), map(), run_opts()) :: {:ok, map()} | {:error, Error.t()}
-    defp validate_output(action, output, opts), do: Validation.validate_output(action, output, opts)
+    defp validate_output(action, output, opts),
+      do: Validation.validate_output(action, output, opts)
 
     # Delegate retry functions to Retry module
     @spec do_run_with_retry(action(), params(), context(), run_opts()) ::
@@ -377,7 +380,8 @@ defmodule Jido.Exec do
     end
 
     @spec calculate_backoff(non_neg_integer(), non_neg_integer()) :: non_neg_integer()
-    defp calculate_backoff(retry_count, backoff), do: Retry.calculate_backoff(retry_count, backoff)
+    defp calculate_backoff(retry_count, backoff),
+      do: Retry.calculate_backoff(retry_count, backoff)
 
     @spec do_run(action(), params(), context(), run_opts()) ::
             {:ok, map()} | {:error, Error.t()}
@@ -389,13 +393,28 @@ defmodule Jido.Exec do
       result =
         case telemetry do
           :silent ->
-            execute_action_with_timeout(action, params, context, timeout)
+            TaskManager.execute_action_with_timeout(
+              action,
+              params,
+              context,
+              timeout,
+              opts,
+              &execute_action/4
+            )
 
           _ ->
             start_time = System.monotonic_time(:microsecond)
             Telemetry.start_span(action, params, context, telemetry)
 
-            result = execute_action_with_timeout(action, params, context, timeout, opts)
+            result =
+              TaskManager.execute_action_with_timeout(
+                action,
+                params,
+                context,
+                timeout,
+                opts,
+                &execute_action/4
+              )
 
             end_time = System.monotonic_time(:microsecond)
             duration_us = end_time - start_time
@@ -419,280 +438,50 @@ defmodule Jido.Exec do
 
         {:error, error, other} ->
           dbug("Action failed with additional info", error: error, other: other)
-          handle_action_error(action, params, context, {error, other}, opts)
+          ErrorHandler.handle_action_error(action, params, context, {error, other}, opts)
 
         {:error, error} ->
           dbug("Action failed", error: error)
-          handle_action_error(action, params, context, error, opts)
+          ErrorHandler.handle_action_error(action, params, context, error, opts)
       end
     end
 
     # Delegate telemetry functions to Telemetry module
     @spec start_span(action(), params(), context(), atom()) :: :ok
-    defp start_span(action, params, context, telemetry), do: Telemetry.start_span(action, params, context, telemetry)
+    defp start_span(action, params, context, telemetry),
+      do: Telemetry.start_span(action, params, context, telemetry)
 
     @spec end_span(action(), {:ok, map()} | {:error, Error.t()}, non_neg_integer(), atom()) :: :ok
-    defp end_span(action, result, duration_us, telemetry), do: Telemetry.end_span(action, result, duration_us, telemetry)
+    defp end_span(action, result, duration_us, telemetry),
+      do: Telemetry.end_span(action, result, duration_us, telemetry)
 
-    @spec get_metadata(action(), {:ok, map()} | {:error, Error.t()}, non_neg_integer(), atom()) :: map()
-    defp get_metadata(action, result, duration_us, telemetry), do: Telemetry.get_metadata(action, result, duration_us, telemetry)
+    @spec get_metadata(action(), {:ok, map()} | {:error, Error.t()}, non_neg_integer(), atom()) ::
+            map()
+    defp get_metadata(action, result, duration_us, telemetry),
+      do: Telemetry.get_metadata(action, result, duration_us, telemetry)
 
     @spec get_process_info() :: map()
     defp get_process_info(), do: Telemetry.get_process_info()
 
     @spec emit_telemetry_event(atom(), map(), atom()) :: :ok
-    defp emit_telemetry_event(event, metadata, telemetry), do: Telemetry.emit_telemetry_event(event, metadata, telemetry)
+    defp emit_telemetry_event(event, metadata, telemetry),
+      do: Telemetry.emit_telemetry_event(event, metadata, telemetry)
 
-    # In handle_action_error:
-    @spec handle_action_error(
-            action(),
-            params(),
-            context(),
-            Error.t() | {Error.t(), any()},
-            run_opts()
-          ) ::
-            {:error, Error.t() | map()} | {:error, Error.t(), any()}
-    defp handle_action_error(action, params, context, error_or_tuple, opts) do
-      Logger.debug("Handle Action Error in handle_action_error: #{inspect(opts)}")
-      dbug("Handling action error", action: action, error: error_or_tuple)
-
-      # Extract error and directive if present
-      {error, directive} =
-        case error_or_tuple do
-          {error, directive} -> {error, directive}
-          error -> {error, nil}
-        end
-
-      if compensation_enabled?(action) do
-        metadata = action.__action_metadata__()
-        compensation_opts = metadata[:compensation] || []
-
-        timeout =
-          Keyword.get(opts, :timeout) ||
-            case compensation_opts do
-              opts when is_list(opts) -> Keyword.get(opts, :timeout, 5_000)
-              %{timeout: timeout} -> timeout
-              _ -> 5_000
-            end
-
-        dbug("Starting compensation", action: action, timeout: timeout)
-
-        task =
-          Task.async(fn ->
-            action.on_error(params, error, context, [])
-          end)
-
-        case Task.yield(task, timeout) || Task.shutdown(task) do
-          {:ok, result} ->
-            dbug("Compensation completed", result: result)
-            handle_compensation_result(result, error, directive)
-
-          nil ->
-            dbug("Compensation timed out", timeout: timeout)
-
-            error_result =
-              Error.compensation_error(
-                error,
-                %{
-                  compensated: false,
-                  compensation_error: "Compensation timed out after #{timeout}ms"
-                }
-              )
-
-            if directive, do: {:error, error_result, directive}, else: OK.failure(error_result)
-        end
-      else
-        dbug("Compensation not enabled", action: action)
-        if directive, do: {:error, error, directive}, else: OK.failure(error)
-      end
-    end
-
-    @spec handle_compensation_result(any(), Error.t(), any()) ::
-            {:error, Error.t()} | {:error, Error.t(), any()}
-    defp handle_compensation_result(result, original_error, directive) do
-      error_result =
-        case result do
-          {:ok, comp_result} ->
-            # Extract fields that should be at the top level of the details
-            {top_level_fields, remaining_fields} =
-              Map.split(comp_result, [:test_value, :compensation_context])
-
-            # Create the details map with the compensation result
-            details =
-              Map.merge(
-                %{
-                  compensated: true,
-                  compensation_result: remaining_fields
-                },
-                top_level_fields
-              )
-
-            Error.compensation_error(original_error, details)
-
-          {:error, comp_error} ->
-            Error.compensation_error(
-              original_error,
-              %{
-                compensated: false,
-                compensation_error: comp_error
-              }
-            )
-
-          _ ->
-            Error.compensation_error(
-              original_error,
-              %{
-                compensated: false,
-                compensation_error: "Invalid compensation result"
-              }
-            )
-        end
-
-      if directive, do: {:error, error_result, directive}, else: OK.failure(error_result)
-    end
-
-    @spec compensation_enabled?(action()) :: boolean()
-    defp compensation_enabled?(action) do
-      metadata = action.__action_metadata__()
-      compensation_opts = metadata[:compensation] || []
-
-      enabled =
-        case compensation_opts do
-          opts when is_list(opts) -> Keyword.get(opts, :enabled, false)
-          %{enabled: enabled} -> enabled
-          _ -> false
-        end
-
-      enabled && function_exported?(action, :on_error, 4)
-    end
-
+    # Delegate task management functions to TaskManager module (for testing)
     @spec execute_action_with_timeout(action(), params(), context(), non_neg_integer()) ::
             {:ok, map()} | {:error, Error.t()}
-    defp execute_action_with_timeout(action, params, context, timeout, opts \\ [])
-
-    defp execute_action_with_timeout(action, params, context, 0, opts) do
-      execute_action(action, params, context, opts)
+    defp execute_action_with_timeout(action, params, context, timeout) do
+      TaskManager.execute_action_with_timeout(action, params, context, timeout, [], &execute_action/4)
     end
 
-    defp execute_action_with_timeout(action, params, context, timeout, opts)
-         when is_integer(timeout) and timeout > 0 do
-      parent = self()
-      ref = make_ref()
-
-      dbug("Starting action with timeout", action: action, timeout: timeout)
-
-      # Create a temporary task group for this execution
-      {:ok, task_group} =
-        Task.Supervisor.start_child(
-          Jido.Action.TaskSupervisor,
-          fn ->
-            Process.flag(:trap_exit, true)
-
-            receive do
-              {:shutdown} -> :ok
-            end
-          end
-        )
-
-      # Add task_group to context so Actions can use it
-      enhanced_context = Map.put(context, :__task_group__, task_group)
-
-      # Get the current process's group leader
-      current_gl = Process.group_leader()
-
-      {pid, monitor_ref} =
-        spawn_monitor(fn ->
-          # Use the parent's group leader to ensure IO is properly captured
-          Process.group_leader(self(), current_gl)
-
-          result =
-            try do
-              dbug("Executing action in task", action: action, pid: self())
-              result = execute_action(action, params, enhanced_context, opts)
-              dbug("Action execution completed", action: action, result: result)
-              result
-            catch
-              kind, reason ->
-                stacktrace = __STACKTRACE__
-                dbug("Action execution caught error", action: action, kind: kind, reason: reason)
-
-                {:error,
-                 Error.execution_error(
-                   "Caught #{kind}: #{inspect(reason)}",
-                   %{kind: kind, reason: reason, action: action},
-                   stacktrace
-                 )}
-            end
-
-          send(parent, {:done, ref, result})
-        end)
-
-      result =
-        receive do
-          {:done, ^ref, result} ->
-            dbug("Received action result", action: action, result: result)
-            cleanup_task_group(task_group)
-            Process.demonitor(monitor_ref, [:flush])
-            result
-
-          {:DOWN, ^monitor_ref, :process, ^pid, :killed} ->
-            dbug("Task was killed", action: action)
-            cleanup_task_group(task_group)
-            {:error, Error.execution_error("Task was killed")}
-
-          {:DOWN, ^monitor_ref, :process, ^pid, reason} ->
-            dbug("Task exited unexpectedly", action: action, reason: reason)
-            cleanup_task_group(task_group)
-            {:error, Error.execution_error("Task exited: #{inspect(reason)}")}
-        after
-          timeout ->
-            dbug("Action timed out", action: action, timeout: timeout)
-            cleanup_task_group(task_group)
-            Process.exit(pid, :kill)
-
-            receive do
-              {:DOWN, ^monitor_ref, :process, ^pid, _} -> :ok
-            after
-              0 -> :ok
-            end
-
-            {:error,
-             Error.timeout(
-               "Action #{inspect(action)} timed out after #{timeout}ms. This could be due to:
-1. The action is taking too long to complete (current timeout: #{timeout}ms)
-2. The action is stuck in an infinite loop
-3. The action's return value doesn't match the expected format ({:ok, map()} | {:ok, map(), directive} | {:error, reason})
-4. An unexpected error occurred without proper error handling
-5. The action may be using unsafe IO operations (IO.inspect, etc).
-
-Debug info:
-- Action module: #{inspect(action)}
-- Params: #{inspect(params)}
-- Context: #{inspect(Map.drop(context, [:__task_group__]))}"
-             )}
-        end
-
-      result
+    @spec execute_action_with_timeout(action(), params(), context(), non_neg_integer(), run_opts()) ::
+            {:ok, map()} | {:error, Error.t()}
+    defp execute_action_with_timeout(action, params, context, timeout, opts) do
+      TaskManager.execute_action_with_timeout(action, params, context, timeout, opts, &execute_action/4)
     end
 
-    defp execute_action_with_timeout(action, params, context, _timeout, opts) do
-      execute_action_with_timeout(action, params, context, get_default_timeout(), opts)
-    end
-
-    defp cleanup_task_group(task_group) do
-      send(task_group, {:shutdown})
-
-      Process.exit(task_group, :kill)
-
-      Task.Supervisor.children(Jido.Action.TaskSupervisor)
-      |> Enum.filter(fn pid ->
-        case Process.info(pid, :group_leader) do
-          {:group_leader, ^task_group} -> true
-          _ -> false
-        end
-      end)
-      |> Enum.each(&Process.exit(&1, :kill))
-    end
+    @spec cleanup_task_group(pid()) :: :ok
+    defp cleanup_task_group(task_group), do: TaskManager.cleanup_task_group(task_group)
 
     @spec execute_action(action(), params(), context(), run_opts()) ::
             {:ok, map()} | {:error, Error.t()}
