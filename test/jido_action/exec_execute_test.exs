@@ -26,7 +26,7 @@ defmodule JidoTest.ExecExecuteTest do
       log =
         capture_log(fn ->
           assert {:ok, %{value: 5}} =
-                   Exec.execute_action(BasicAction, %{value: 5}, %{}, log_level: :debug)
+                   Exec.run(BasicAction, %{value: 5}, %{}, log_level: :debug)
         end)
 
       assert log =~ "Starting execution of JidoTest.TestActions.BasicAction"
@@ -37,9 +37,7 @@ defmodule JidoTest.ExecExecuteTest do
       log =
         capture_log(fn ->
           assert {:ok, %{result: result}} =
-                   Exec.execute_action(ContextAction, %{input: 5}, %{context: "test"},
-                     log_level: :debug
-                   )
+                   Exec.run(ContextAction, %{input: "5"}, %{context: "test"}, log_level: :debug)
 
           assert result =~ "5 processed with context"
         end)
@@ -52,7 +50,7 @@ defmodule JidoTest.ExecExecuteTest do
       log =
         capture_log(fn ->
           assert {:ok, %{result: "No params"}} =
-                   Exec.execute_action(NoParamsAction, %{}, %{}, log_level: :debug)
+                   Exec.run(NoParamsAction, %{}, %{}, log_level: :debug)
         end)
 
       assert log =~ "Starting execution of JidoTest.TestActions.NoParamsAction"
@@ -63,7 +61,7 @@ defmodule JidoTest.ExecExecuteTest do
       log =
         capture_log(fn ->
           assert {:ok, %{value: 5}} =
-                   Exec.execute_action(RawResultAction, %{value: 5}, %{}, log_level: :debug)
+                   Exec.run(RawResultAction, %{value: 5}, %{}, log_level: :debug)
         end)
 
       assert log =~ "Starting execution of JidoTest.TestActions.RawResultAction"
@@ -74,9 +72,7 @@ defmodule JidoTest.ExecExecuteTest do
       log =
         capture_log(fn ->
           assert {:error, %Error{type: :execution_error}} =
-                   Exec.execute_action(ErrorAction, %{error_type: :validation}, %{},
-                     log_level: :debug
-                   )
+                   Exec.run(ErrorAction, %{error_type: :validation}, %{}, log_level: :debug)
         end)
 
       assert log =~ "Starting execution of JidoTest.TestActions.ErrorAction"
@@ -87,9 +83,7 @@ defmodule JidoTest.ExecExecuteTest do
       log =
         capture_log(fn ->
           assert {:error, %Error{type: :execution_error, message: message}} =
-                   Exec.execute_action(ErrorAction, %{error_type: :runtime}, %{},
-                     log_level: :debug
-                   )
+                   Exec.run(ErrorAction, %{error_type: :runtime}, %{}, log_level: :debug)
 
           assert message =~ "Runtime error"
         end)
@@ -102,9 +96,7 @@ defmodule JidoTest.ExecExecuteTest do
       log =
         capture_log(fn ->
           assert {:error, %Error{type: :execution_error}} =
-                   Exec.execute_action(ErrorAction, %{error_type: :argument}, %{},
-                     log_level: :debug
-                   )
+                   Exec.run(ErrorAction, %{error_type: :argument}, %{}, log_level: :debug)
         end)
 
       assert log =~ "Starting execution of JidoTest.TestActions.ErrorAction"
@@ -115,9 +107,7 @@ defmodule JidoTest.ExecExecuteTest do
       log =
         capture_log(fn ->
           assert {:error, %Error{type: :execution_error, message: message}} =
-                   Exec.execute_action(ErrorAction, %{error_type: :custom}, %{},
-                     log_level: :debug
-                   )
+                   Exec.run(ErrorAction, %{error_type: :custom}, %{}, log_level: :debug)
 
           assert message =~ "Server error in JidoTest.TestActions.ErrorAction: Custom error"
         end)
@@ -132,9 +122,7 @@ defmodule JidoTest.ExecExecuteTest do
       log =
         capture_log(fn ->
           assert {:ok, %{result: "No params"}} =
-                   Exec.execute_action_with_timeout(NoParamsAction, %{}, %{}, 0,
-                     log_level: :debug
-                   )
+                   Exec.run(NoParamsAction, %{}, %{}, timeout: 0, log_level: :debug)
         end)
 
       assert log =~ "Starting execution of JidoTest.TestActions.NoParamsAction"
@@ -145,9 +133,7 @@ defmodule JidoTest.ExecExecuteTest do
       log =
         capture_log(fn ->
           assert {:ok, %{value: 5}} ==
-                   Exec.execute_action_with_timeout(BasicAction, %{value: 5}, %{}, 1000,
-                     log_level: :debug
-                   )
+                   Exec.run(BasicAction, %{value: 5}, %{}, timeout: 1000, log_level: :debug)
         end)
 
       assert log =~ "Starting execution of JidoTest.TestActions.BasicAction"
@@ -160,7 +146,7 @@ defmodule JidoTest.ExecExecuteTest do
       log =
         capture_log(fn ->
           result =
-            Exec.execute_action_with_timeout(BasicAction, %{value: 5}, %{}, 0, log_level: :debug)
+            Exec.run(BasicAction, %{value: 5}, %{}, timeout: 0, log_level: :debug)
 
           # Verify the result is correct
           assert {:ok, %{value: 5}} = result
@@ -181,9 +167,7 @@ defmodule JidoTest.ExecExecuteTest do
       log =
         capture_log(fn ->
           assert {:error, %Error{type: :timeout}} =
-                   Exec.execute_action_with_timeout(DelayAction, %{delay: 1000}, %{}, 100,
-                     log_level: :debug
-                   )
+                   Exec.run(DelayAction, %{delay: 1000}, %{}, timeout: 100, log_level: :debug)
         end)
 
       assert log =~ "Starting execution of JidoTest.TestActions.DelayAction"
@@ -193,9 +177,7 @@ defmodule JidoTest.ExecExecuteTest do
       log =
         capture_log(fn ->
           result =
-            Exec.execute_action_with_timeout(DelayAction, %{delay: 100}, %{}, 1,
-              log_level: :debug
-            )
+            Exec.run(DelayAction, %{delay: 100}, %{}, timeout: 1, log_level: :debug)
 
           assert {:error, %Error{type: :timeout}} = result
         end)
@@ -207,13 +189,7 @@ defmodule JidoTest.ExecExecuteTest do
       log =
         capture_log(fn ->
           assert {:error, %Error{type: :execution_error}} =
-                   Exec.execute_action_with_timeout(
-                     ErrorAction,
-                     %{error_type: :runtime},
-                     %{},
-                     1000,
-                     log_level: :debug
-                   )
+                   Exec.run(ErrorAction, %{error_type: :runtime}, %{}, timeout: 1000, log_level: :debug)
         end)
 
       assert log =~ "Starting execution of JidoTest.TestActions.ErrorAction"
@@ -224,13 +200,7 @@ defmodule JidoTest.ExecExecuteTest do
       log =
         capture_log(fn ->
           assert {:error, %Error{type: :execution_error, message: message}} =
-                   Exec.execute_action_with_timeout(
-                     ErrorAction,
-                     %{type: :unexpected},
-                     %{},
-                     1000,
-                     log_level: :debug
-                   )
+                   Exec.run(ErrorAction, %{type: :unexpected}, %{}, timeout: 1000, log_level: :debug)
 
           assert message =~ "Exec failed"
         end)
@@ -243,9 +213,7 @@ defmodule JidoTest.ExecExecuteTest do
       log =
         capture_log(fn ->
           assert {:error, %Error{type: :execution_error, message: message}} =
-                   Exec.execute_action_with_timeout(ErrorAction, %{type: :throw}, %{}, 1000,
-                     log_level: :debug
-                   )
+                   Exec.run(ErrorAction, %{type: :throw}, %{}, timeout: 1000, log_level: :debug)
 
           assert message =~ "Caught throw: \"Action threw an error\""
         end)
@@ -260,7 +228,7 @@ defmodule JidoTest.ExecExecuteTest do
         capture_log(fn ->
           spawn(fn ->
             result =
-              Exec.execute_action_with_timeout(SlowKilledAction, %{}, %{}, 50, log_level: :debug)
+              Exec.run(SlowKilledAction, %{}, %{}, timeout: 50, log_level: :debug)
 
             send(test_pid, {:result, result})
           end)
@@ -275,9 +243,7 @@ defmodule JidoTest.ExecExecuteTest do
       log =
         capture_log(fn ->
           assert {:ok, %{result: "Async action completed"}} ==
-                   Exec.execute_action_with_timeout(DelayAction, %{delay: 80}, %{}, 0,
-                     log_level: :debug
-                   )
+                   Exec.run(DelayAction, %{delay: 80}, %{}, timeout: 0, log_level: :debug)
         end)
 
       assert log =~ "Starting execution of JidoTest.TestActions.DelayAction"
@@ -288,9 +254,7 @@ defmodule JidoTest.ExecExecuteTest do
       log =
         capture_log(fn ->
           assert {:ok, %{result: "Async action completed"}} ==
-                   Exec.execute_action_with_timeout(DelayAction, %{delay: 80}, %{}, 0,
-                     log_level: :debug
-                   )
+                   Exec.run(DelayAction, %{delay: 80}, %{}, timeout: 0, log_level: :debug)
         end)
 
       assert log =~ "Starting execution of JidoTest.TestActions.DelayAction"
@@ -301,9 +265,7 @@ defmodule JidoTest.ExecExecuteTest do
       log =
         capture_log(fn ->
           assert {:ok, %{value: 5}} ==
-                   Exec.execute_action_with_timeout(BasicAction, %{value: 5}, %{}, -1,
-                     log_level: :debug
-                   )
+                   Exec.run(BasicAction, %{value: 5}, %{}, timeout: -1, log_level: :debug)
         end)
 
       assert log =~ "Starting execution of JidoTest.TestActions.BasicAction"
@@ -314,7 +276,7 @@ defmodule JidoTest.ExecExecuteTest do
       log =
         capture_log(fn ->
           result =
-            Exec.execute_action_with_timeout(NormalExitAction, %{}, %{}, 1000, log_level: :debug)
+            Exec.run(NormalExitAction, %{}, %{}, timeout: 1000, log_level: :debug)
 
           assert {:error, %Error{type: :execution_error, message: "Task exited: :normal"}} =
                    result
@@ -327,7 +289,7 @@ defmodule JidoTest.ExecExecuteTest do
       log =
         capture_log(fn ->
           result =
-            Exec.execute_action_with_timeout(KilledAction, %{}, %{}, 1000, log_level: :debug)
+            Exec.run(KilledAction, %{}, %{}, timeout: 1000, log_level: :debug)
 
           assert {:error, %Error{type: :execution_error, message: "Task was killed"}} = result
         end)
@@ -341,9 +303,7 @@ defmodule JidoTest.ExecExecuteTest do
           tasks =
             for i <- 1..10 do
               Task.async(fn ->
-                Exec.execute_action_with_timeout(BasicAction, %{value: i}, %{}, 1000,
-                  log_level: :debug
-                )
+                Exec.run(BasicAction, %{value: i}, %{}, timeout: 1000, log_level: :debug)
               end)
             end
 

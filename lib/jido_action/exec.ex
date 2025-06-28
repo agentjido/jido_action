@@ -58,6 +58,8 @@ defmodule Jido.Exec do
   use Private
   use ExDbug, enabled: false
 
+
+
   alias Jido.Action.Error
   alias Jido.Instruction
   alias Jido.Exec.Validation
@@ -385,33 +387,11 @@ defmodule Jido.Exec do
 
   # Private functions are exposed to the test suite
   private do
-    # Delegate validation functions to Validation module
-    @spec normalize_params(params()) :: {:ok, map()} | {:error, Error.t()}
-    defp normalize_params(params), do: Validation.normalize_params(params)
 
-    @spec normalize_context(context()) :: {:ok, map()} | {:error, Error.t()}
-    defp normalize_context(context), do: Validation.normalize_context(context)
 
-    @spec validate_action(action()) :: :ok | {:error, Error.t()}
-    defp validate_action(action), do: Validation.validate_action(action)
 
-    @spec validate_params(action(), map()) :: {:ok, map()} | {:error, Error.t()}
-    defp validate_params(action, params), do: Validation.validate_params(action, params)
 
-    @spec validate_output(action(), map(), run_opts()) :: {:ok, map()} | {:error, Error.t()}
-    defp validate_output(action, output, opts),
-      do: Validation.validate_output(action, output, opts)
 
-    # Delegate retry functions to Retry module
-    @spec do_run_with_retry(action(), params(), context(), run_opts()) ::
-            {:ok, map()} | {:error, Error.t()}
-    defp do_run_with_retry(action, params, context, opts) do
-      Retry.run_with_retry(action, params, context, opts, &do_run/4)
-    end
-
-    @spec calculate_backoff(non_neg_integer(), non_neg_integer()) :: non_neg_integer()
-    defp calculate_backoff(retry_count, backoff),
-      do: Retry.calculate_backoff(retry_count, backoff)
 
     @spec do_run(action(), params(), context(), run_opts()) ::
             {:ok, map()} | {:error, Error.t()}
@@ -486,62 +466,9 @@ defmodule Jido.Exec do
       end
     end
 
-    # Delegate telemetry functions to Telemetry module
-    @spec start_span(action(), params(), context(), atom()) :: :ok
-    defp start_span(action, params, context, telemetry),
-      do: Telemetry.start_span(action, params, context, telemetry)
 
-    @spec end_span(action(), {:ok, map()} | {:error, Error.t()}, non_neg_integer(), atom()) :: :ok
-    defp end_span(action, result, duration_us, telemetry),
-      do: Telemetry.end_span(action, result, duration_us, telemetry)
 
-    @spec get_metadata(action(), {:ok, map()} | {:error, Error.t()}, non_neg_integer(), atom()) ::
-            map()
-    defp get_metadata(action, result, duration_us, telemetry),
-      do: Telemetry.get_metadata(action, result, duration_us, telemetry)
 
-    @spec get_process_info() :: map()
-    defp get_process_info(), do: Telemetry.get_process_info()
-
-    @spec emit_telemetry_event(atom(), map(), atom()) :: :ok
-    defp emit_telemetry_event(event, metadata, telemetry),
-      do: Telemetry.emit_telemetry_event(event, metadata, telemetry)
-
-    # Delegate task management functions to TaskManager module (for testing)
-    @spec execute_action_with_timeout(action(), params(), context(), non_neg_integer()) ::
-            {:ok, map()} | {:error, Error.t()}
-    defp execute_action_with_timeout(action, params, context, timeout) do
-      TaskManager.execute_action_with_timeout(
-        action,
-        params,
-        context,
-        timeout,
-        [],
-        &execute_action/4
-      )
-    end
-
-    @spec execute_action_with_timeout(
-            action(),
-            params(),
-            context(),
-            non_neg_integer(),
-            run_opts()
-          ) ::
-            {:ok, map()} | {:error, Error.t()}
-    defp execute_action_with_timeout(action, params, context, timeout, opts) do
-      TaskManager.execute_action_with_timeout(
-        action,
-        params,
-        context,
-        timeout,
-        opts,
-        &execute_action/4
-      )
-    end
-
-    @spec cleanup_task_group(pid()) :: :ok
-    defp cleanup_task_group(task_group), do: TaskManager.cleanup_task_group(task_group)
 
     @spec maybe_detach_tasks(
             {:ok, map()} | {:ok, map(), any()} | {:error, Error.t()},

@@ -7,6 +7,7 @@ defmodule JidoTest.ExecRunTest do
 
   alias Jido.Action.Error
   alias Jido.Exec
+  alias Jido.Exec.Validation
   alias JidoTest.TestActions.BasicAction
   alias JidoTest.TestActions.DelayAction
   alias JidoTest.TestActions.ErrorAction
@@ -187,29 +188,29 @@ defmodule JidoTest.ExecRunTest do
   describe "normalize_params/1" do
     test "normalizes a map" do
       params = %{key: "value"}
-      assert {:ok, ^params} = Exec.normalize_params(params)
+      assert {:ok, ^params} = Validation.normalize_params(params)
     end
 
     test "normalizes a keyword list" do
       params = [key: "value"]
-      assert {:ok, %{key: "value"}} = Exec.normalize_params(params)
+      assert {:ok, %{key: "value"}} = Validation.normalize_params(params)
     end
 
     test "normalizes {:ok, map}" do
       params = {:ok, %{key: "value"}}
-      assert {:ok, %{key: "value"}} = Exec.normalize_params(params)
+      assert {:ok, %{key: "value"}} = Validation.normalize_params(params)
     end
 
     test "normalizes {:ok, keyword list}" do
       params = {:ok, [key: "value"]}
-      assert {:ok, %{key: "value"}} = Exec.normalize_params(params)
+      assert {:ok, %{key: "value"}} = Validation.normalize_params(params)
     end
 
     test "handles {:error, reason}" do
       params = {:error, "some error"}
 
       assert {:error, %Error{type: :validation_error, message: "some error"}} =
-               Exec.normalize_params(params)
+               Validation.normalize_params(params)
     end
 
     test "passes through %Error{} with different types" do
@@ -220,7 +221,7 @@ defmodule JidoTest.ExecRunTest do
       ]
 
       for error <- errors do
-        assert {:error, ^error} = Exec.normalize_params(error)
+        assert {:error, ^error} = Validation.normalize_params(error)
       end
     end
 
@@ -228,26 +229,26 @@ defmodule JidoTest.ExecRunTest do
       params = "invalid"
 
       assert {:error, %Error{type: :validation_error, message: "Invalid params type: " <> _}} =
-               Exec.normalize_params(params)
+               Validation.normalize_params(params)
     end
   end
 
   describe "normalize_context/1" do
     test "normalizes a map" do
       context = %{key: "value"}
-      assert {:ok, ^context} = Exec.normalize_context(context)
+      assert {:ok, ^context} = Validation.normalize_context(context)
     end
 
     test "normalizes a keyword list" do
       context = [key: "value"]
-      assert {:ok, %{key: "value"}} = Exec.normalize_context(context)
+      assert {:ok, %{key: "value"}} = Validation.normalize_context(context)
     end
 
     test "returns error for invalid context" do
       context = "invalid"
 
       assert {:error, %Error{type: :validation_error, message: "Invalid context type: " <> _}} =
-               Exec.normalize_context(context)
+               Validation.normalize_context(context)
     end
   end
 
@@ -258,7 +259,7 @@ defmodule JidoTest.ExecRunTest do
     end
 
     test "returns :ok for valid action" do
-      assert :ok = Exec.validate_action(BasicAction)
+      assert :ok = Validation.validate_action(BasicAction)
     end
 
     test "returns error for action without run/2" do
@@ -267,20 +268,20 @@ defmodule JidoTest.ExecRunTest do
                 type: :invalid_action,
                 message:
                   "Module JidoTest.ExecRunTest.NotAAction is not a valid action: missing run/2 function"
-              }} = Exec.validate_action(NotAAction)
+              }} = Validation.validate_action(NotAAction)
     end
   end
 
   describe "validate_params/2" do
     test "returns validated params for valid params" do
-      assert {:ok, %{value: 5}} = Exec.validate_params(BasicAction, %{value: 5})
+      assert {:ok, %{value: 5}} = Validation.validate_params(BasicAction, %{value: 5})
     end
 
     test "returns error for invalid params" do
       # BasicAction has validate_params/1 defined via use Action in test_actions.ex
       # The error will be an invalid_action error because we're using function_exported? in Exec
       # But this test is just verifying that invalid params return an error
-      {:error, %Error{}} = Exec.validate_params(BasicAction, %{invalid: "params"})
+      {:error, %Error{}} = Validation.validate_params(BasicAction, %{invalid: "params"})
     end
   end
 

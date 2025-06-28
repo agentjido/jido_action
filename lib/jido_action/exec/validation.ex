@@ -57,7 +57,7 @@ defmodule Jido.Exec.Validation do
 
   @spec validate_params(action(), map()) :: {:ok, map()} | {:error, Error.t()}
   def validate_params(action, params) do
-    if function_exported?(action, :validate_params, 1) do
+    try do
       case action.validate_params(params) do
         {:ok, params} ->
           OK.success(params)
@@ -68,12 +68,13 @@ defmodule Jido.Exec.Validation do
         _ ->
           OK.failure(Error.validation_error("Invalid return from action.validate_params/1"))
       end
-    else
-      OK.failure(
-        Error.invalid_action(
-          "Module #{inspect(action)} is not a valid action: missing validate_params/1 function"
+    rescue
+      UndefinedFunctionError ->
+        OK.failure(
+          Error.invalid_action(
+            "Module #{inspect(action)} is not a valid action: missing validate_params/1 function"
+          )
         )
-      )
     end
   end
 
