@@ -44,6 +44,7 @@ defmodule Jido.Exec do
   alias Jido.Action.Error
   alias Jido.Instruction
   alias Jido.Exec.Validation
+  alias Jido.Exec.Telemetry
 
   require Logger
   require OK
@@ -490,13 +491,13 @@ defmodule Jido.Exec do
 
           _ ->
             start_time = System.monotonic_time(:microsecond)
-            start_span(action, params, context, telemetry)
+            Telemetry.start_span(action, params, context, telemetry)
 
             result = execute_action_with_timeout(action, params, context, timeout, opts)
 
             end_time = System.monotonic_time(:microsecond)
             duration_us = end_time - start_time
-            end_span(action, result, duration_us, telemetry)
+            Telemetry.end_span(action, result, duration_us, telemetry)
 
             result
         end
@@ -524,72 +525,21 @@ defmodule Jido.Exec do
       end
     end
 
+    # Delegate telemetry functions to Telemetry module
     @spec start_span(action(), params(), context(), atom()) :: :ok
-    defp start_span(action, params, context, telemetry) do
-      metadata = %{
-        action: action,
-        params: params,
-        context: context
-      }
+    defp start_span(action, params, context, telemetry), do: Telemetry.start_span(action, params, context, telemetry)
 
-      emit_telemetry_event(:start, metadata, telemetry)
-    end
+    @spec end_span(action(), {:ok, map()} | {:error, Error.t()}, non_neg_integer(), atom()) :: :ok
+    defp end_span(action, result, duration_us, telemetry), do: Telemetry.end_span(action, result, duration_us, telemetry)
 
-    @spec end_span(action(), {:ok, map()} | {:error, Error.t()}, non_neg_integer(), atom()) ::
-            :ok
-    defp end_span(action, result, duration_us, telemetry) do
-      metadata = get_metadata(action, result, duration_us, telemetry)
-
-      status =
-        case result do
-          {:ok, _} -> :complete
-          {:ok, _, _} -> :complete
-          _ -> :error
-        end
-
-      emit_telemetry_event(status, metadata, telemetry)
-    end
-
-    @spec get_metadata(action(), {:ok, map()} | {:error, Error.t()}, non_neg_integer(), atom()) ::
-            map()
-    defp get_metadata(action, result, duration_us, :full) do
-      %{
-        action: action,
-        result: result,
-        duration_us: duration_us,
-        memory_usage: :erlang.memory(),
-        process_info: get_process_info(),
-        node: node()
-      }
-    end
-
-    @spec get_metadata(action(), {:ok, map()} | {:error, Error.t()}, non_neg_integer(), atom()) ::
-            map()
-    defp get_metadata(action, result, duration_us, :minimal) do
-      %{
-        action: action,
-        result: result,
-        duration_us: duration_us
-      }
-    end
+    @spec get_metadata(action(), {:ok, map()} | {:error, Error.t()}, non_neg_integer(), atom()) :: map()
+    defp get_metadata(action, result, duration_us, telemetry), do: Telemetry.get_metadata(action, result, duration_us, telemetry)
 
     @spec get_process_info() :: map()
-    defp get_process_info do
-      for key <- [:reductions, :message_queue_len, :total_heap_size, :garbage_collection],
-          into: %{} do
-        {key, self() |> Process.info(key) |> elem(1)}
-      end
-    end
+    defp get_process_info(), do: Telemetry.get_process_info()
 
     @spec emit_telemetry_event(atom(), map(), atom()) :: :ok
-    defp emit_telemetry_event(event, metadata, telemetry) when telemetry in [:full, :minimal] do
-      event_name = [:jido, :action, event]
-      measurements = %{system_time: System.system_time()}
-
-      :telemetry.execute(event_name, measurements, metadata)
-    end
-
-    defp emit_telemetry_event(_, _, _), do: :ok
+    defp emit_telemetry_event(event, metadata, telemetry), do: Telemetry.emit_telemetry_event(event, metadata, telemetry)
 
     # In handle_action_error:
     @spec handle_action_error(
