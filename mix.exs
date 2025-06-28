@@ -191,8 +191,15 @@ defmodule JidoAction.MixProject do
 
       # Skill & Action Dependencies for examples
       {:abacus, "~> 2.1"},
-      {:libgraph, "~> 0.16.0"},
+      # {:libgraph, "~> 0.16.0"},
+      {:libgraph, "~> 0.16.0",
+       [
+         env: :prod,
+         git: "https://github.com/zblanco/libgraph.git",
+         branch: "zw/multigraph-indexes"
+       ]},
       {:req, "~> 0.5.10"},
+      {:runic, github: "zblanco/runic", branch: "zw/map"},
       {:tentacat, "~> 2.5"},
       {:weather, "~> 0.4.0"},
 
