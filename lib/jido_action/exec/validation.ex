@@ -1,7 +1,7 @@
 defmodule Jido.Exec.Validation do
   @moduledoc """
   Validation functions for Jido.Exec.
-  
+
   This module handles:
   - Parameter and context normalization
   - Action validation  
@@ -84,7 +84,12 @@ defmodule Jido.Exec.Validation do
     if function_exported?(action, :validate_output, 1) do
       case action.validate_output(output) do
         {:ok, validated_output} ->
-          Jido.Action.Util.cond_log(log_level, :debug, "Output validation succeeded for #{inspect(action)}")
+          Jido.Action.Util.cond_log(
+            log_level,
+            :debug,
+            "Output validation succeeded for #{inspect(action)}"
+          )
+
           OK.success(validated_output)
 
         {:error, reason} ->
@@ -97,7 +102,12 @@ defmodule Jido.Exec.Validation do
           OK.failure(reason)
 
         _ ->
-          Jido.Action.Util.cond_log(log_level, :debug, "Invalid return from action.validate_output/1")
+          Jido.Action.Util.cond_log(
+            log_level,
+            :debug,
+            "Invalid return from action.validate_output/1"
+          )
+
           OK.failure(Error.validation_error("Invalid return from action.validate_output/1"))
       end
     else

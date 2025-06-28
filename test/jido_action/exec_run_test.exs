@@ -297,11 +297,11 @@ defmodule JidoTest.ExecRunTest do
         Application.put_env(:jido_action, :default_backoff, 50)
 
         # Test timeout from application config (using a very slow action to ensure timeout)
-        # Disable retries for this test to isolate timeout behavior
+        # Need to explicitly pass timeout option to trigger timeout behavior
         start_time = System.monotonic_time(:millisecond)
 
         assert {:error, %Error{type: :timeout}} =
-                 Exec.run(DelayAction, %{delay: 2_000}, %{}, max_retries: 0)
+                 Exec.run(DelayAction, %{delay: 2_000}, %{}, timeout: 1_000, max_retries: 0)
 
         end_time = System.monotonic_time(:millisecond)
         duration = end_time - start_time
@@ -319,7 +319,7 @@ defmodule JidoTest.ExecRunTest do
                    RetryAction,
                    %{should_succeed: false, max_attempts: 2},
                    %{attempts_table: @attempts_table},
-                   []
+                   max_retries: 2
                  )
 
         # Should succeed after exhausting retries

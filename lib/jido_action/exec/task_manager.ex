@@ -1,7 +1,7 @@
 defmodule Jido.Exec.TaskManager do
   @moduledoc """
   Task management functionality for Jido.Exec.
-  
+
   This module handles:
   - Action execution with timeout management
   - Task group creation and cleanup
@@ -26,7 +26,14 @@ defmodule Jido.Exec.TaskManager do
   defp get_default_timeout,
     do: Application.get_env(:jido_action, :default_timeout, @default_timeout)
 
-  @spec execute_action_with_timeout(action(), params(), context(), non_neg_integer(), run_opts(), function()) ::
+  @spec execute_action_with_timeout(
+          action(),
+          params(),
+          context(),
+          non_neg_integer(),
+          run_opts(),
+          function()
+        ) ::
           {:ok, map()} | {:error, Error.t()}
   def execute_action_with_timeout(action, params, context, timeout, opts, execute_action_fn)
 
@@ -65,12 +72,12 @@ defmodule Jido.Exec.TaskManager do
         # Use the parent's group leader to ensure IO is properly captured
         Process.group_leader(self(), current_gl)
 
-          result =
-            try do
-              dbug("Executing action in task", action: action, pid: self())
-              result = execute_action_fn.(action, params, enhanced_context, opts)
-              dbug("Action execution completed", action: action, result: result)
-              result
+        result =
+          try do
+            dbug("Executing action in task", action: action, pid: self())
+            result = execute_action_fn.(action, params, enhanced_context, opts)
+            dbug("Action execution completed", action: action, result: result)
+            result
           catch
             kind, reason ->
               stacktrace = __STACKTRACE__
@@ -136,7 +143,14 @@ Debug info:
   end
 
   def execute_action_with_timeout(action, params, context, _timeout, opts, execute_action_fn) do
-    execute_action_with_timeout(action, params, context, get_default_timeout(), opts, execute_action_fn)
+    execute_action_with_timeout(
+      action,
+      params,
+      context,
+      get_default_timeout(),
+      opts,
+      execute_action_fn
+    )
   end
 
   @doc """

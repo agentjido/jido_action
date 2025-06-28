@@ -1,10 +1,10 @@
 defmodule Jido.Exec do
   @moduledoc """
-  Exec provides a robust set of methods for executing Actions (`Jido.Action`).
+  Exec provides a streamlined execution engine for Actions (`Jido.Action`).
 
   This module offers functionality to:
   - Run actions synchronously or asynchronously
-  - Manage timeouts and retries
+  - Optional timeout and retry handling (when explicitly requested)
   - Cancel running actions
   - Normalize and validate input parameters and context
   - Emit telemetry events for monitoring and debugging
@@ -14,9 +14,10 @@ defmodule Jido.Exec do
 
   ## Features
 
+  - Fast, direct action execution (happy path - no overhead)
+  - Optional retries with exponential backoff (when max_retries > 0)
+  - Optional timeout handling for long-running actions (when timeout specified)
   - Synchronous and asynchronous action execution
-  - Automatic retries with exponential backoff
-  - Timeout handling for long-running actions
   - Parameter and context normalization
   - Comprehensive error handling and reporting
   - Telemetry integration for monitoring and tracing
@@ -54,11 +55,9 @@ defmodule Jido.Exec do
 
   import Jido.Action.Util, only: [cond_log: 3]
 
-  @default_timeout 5000
-
   # Helper functions to get configuration values with fallbacks
   defp get_default_timeout,
-    do: Application.get_env(:jido_action, :default_timeout, @default_timeout)
+    do: Application.get_env(:jido_action, :default_timeout, 5000)
 
   @type action :: module()
   @type params :: map()
@@ -75,9 +74,9 @@ defmodule Jido.Exec do
   - `params`: A map of input parameters for the Action.
   - `context`: A map providing additional context for the Action execution.
   - `opts`: Options controlling the execution:
-    - `:timeout` - Maximum time (in ms) allowed for the Action to complete (default: #{@default_timeout}, configurable via `:jido_action, :default_timeout`).
-    - `:max_retries` - Maximum number of retry attempts (default: 1, configurable via `:jido_action, :default_max_retries`).
-    - `:backoff` - Initial backoff time in milliseconds, doubles with each retry (default: 250, configurable via `:jido_action, :default_backoff`).
+    - `:timeout` - Maximum time (in ms) allowed for the Action to complete. When not specified, actions run without timeout.
+    - `:max_retries` - Maximum number of retry attempts (default: 0, no retries). Set to enable retry logic.
+    - `:backoff` - Initial backoff time in milliseconds, doubles with each retry (default: 250).
     - `:log_level` - Override the global Logger level for this specific action. Accepts #{inspect(Logger.levels())}.
 
   ## Action Metadata in Context
@@ -93,12 +92,19 @@ defmodule Jido.Exec do
 
   ## Examples
 
+      # Simple execution (happy path - no timeout, no retries)
       iex> Jido.Exec.run(MyAction, %{input: "value"}, %{user_id: 123})
       {:ok, %{result: "processed value"}}
 
-      iex> Jido.Exec.run(MyAction, %{invalid: "input"}, %{}, timeout: 1000)
-      {:error, %Jido.Action.Error{type: :validation_error, message: "Invalid input"}}
+      # With timeout (uses Task for timeout handling)
+      iex> Jido.Exec.run(MyAction, %{input: "value"}, %{}, timeout: 1000)
+      {:ok, %{result: "processed value"}}
 
+      # With retries (enables retry logic)
+      iex> Jido.Exec.run(MyAction, %{input: "value"}, %{}, max_retries: 3)
+      {:ok, %{result: "processed value"}}
+
+      # With custom log level
       iex> Jido.Exec.run(MyAction, %{input: "value"}, %{}, log_level: :debug)
       {:ok, %{result: "processed value"}}
 
@@ -141,7 +147,14 @@ defmodule Jido.Exec do
         "Executing #{inspect(action)} with params: #{inspect(validated_params)} and context: #{inspect(enhanced_context)}"
       )
 
-      Retry.run_with_retry(action, validated_params, enhanced_context, opts, &do_run/4)
+      # Check if retries are explicitly requested
+      max_retries = Keyword.get(opts, :max_retries, 0)
+
+      if max_retries > 0 do
+        Retry.run_with_retry(action, validated_params, enhanced_context, opts, &do_run/4)
+      else
+        do_run(action, validated_params, enhanced_context, opts)
+      end
     else
       {:error, reason} ->
         dbug("Error in action setup", error: reason)
@@ -386,27 +399,14 @@ defmodule Jido.Exec do
     @spec do_run(action(), params(), context(), run_opts()) ::
             {:ok, map()} | {:error, Error.t()}
     defp do_run(action, params, context, opts) do
-      timeout = Keyword.get(opts, :timeout, get_default_timeout())
+      timeout = Keyword.get(opts, :timeout)
       telemetry = Keyword.get(opts, :telemetry, :full)
       dbug("Starting action execution", action: action, timeout: timeout, telemetry: telemetry)
 
       result =
         case telemetry do
           :silent ->
-            TaskManager.execute_action_with_timeout(
-              action,
-              params,
-              context,
-              timeout,
-              opts,
-              &execute_action/4
-            )
-
-          _ ->
-            start_time = System.monotonic_time(:microsecond)
-            Telemetry.start_span(action, params, context, telemetry)
-
-            result =
+            if timeout do
               TaskManager.execute_action_with_timeout(
                 action,
                 params,
@@ -415,6 +415,27 @@ defmodule Jido.Exec do
                 opts,
                 &execute_action/4
               )
+            else
+              execute_action(action, params, context, opts)
+            end
+
+          _ ->
+            start_time = System.monotonic_time(:microsecond)
+            Telemetry.start_span(action, params, context, telemetry)
+
+            result =
+              if timeout do
+                TaskManager.execute_action_with_timeout(
+                  action,
+                  params,
+                  context,
+                  timeout,
+                  opts,
+                  &execute_action/4
+                )
+              else
+                execute_action(action, params, context, opts)
+              end
 
             end_time = System.monotonic_time(:microsecond)
             duration_us = end_time - start_time
@@ -471,13 +492,33 @@ defmodule Jido.Exec do
     @spec execute_action_with_timeout(action(), params(), context(), non_neg_integer()) ::
             {:ok, map()} | {:error, Error.t()}
     defp execute_action_with_timeout(action, params, context, timeout) do
-      TaskManager.execute_action_with_timeout(action, params, context, timeout, [], &execute_action/4)
+      TaskManager.execute_action_with_timeout(
+        action,
+        params,
+        context,
+        timeout,
+        [],
+        &execute_action/4
+      )
     end
 
-    @spec execute_action_with_timeout(action(), params(), context(), non_neg_integer(), run_opts()) ::
+    @spec execute_action_with_timeout(
+            action(),
+            params(),
+            context(),
+            non_neg_integer(),
+            run_opts()
+          ) ::
             {:ok, map()} | {:error, Error.t()}
     defp execute_action_with_timeout(action, params, context, timeout, opts) do
-      TaskManager.execute_action_with_timeout(action, params, context, timeout, opts, &execute_action/4)
+      TaskManager.execute_action_with_timeout(
+        action,
+        params,
+        context,
+        timeout,
+        opts,
+        &execute_action/4
+      )
     end
 
     @spec cleanup_task_group(pid()) :: :ok

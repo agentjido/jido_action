@@ -1,7 +1,7 @@
 defmodule Jido.Exec.ErrorHandler do
   @moduledoc """
   Error handling and compensation functionality for Jido.Exec.
-  
+
   This module handles:
   - Action error processing and compensation
   - Compensation result handling
@@ -22,7 +22,7 @@ defmodule Jido.Exec.ErrorHandler do
 
   @doc """
   Handles action errors and compensation logic.
-  
+
   If compensation is enabled for the action, it will attempt to run the
   compensation function. Otherwise, it returns the original error.
   """

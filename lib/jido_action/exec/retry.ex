@@ -1,7 +1,7 @@
 defmodule Jido.Exec.Retry do
   @moduledoc """
   Retry logic for Jido.Exec.
-  
+
   This module handles:
   - Retry logic with exponential backoff
   - Retry attempt counting and limiting
@@ -22,7 +22,7 @@ defmodule Jido.Exec.Retry do
   @type context :: map()
   @type run_opts :: [timeout: non_neg_integer()]
 
-  @default_max_retries 1
+  @default_max_retries 0
   @default_initial_backoff 250
 
   # Helper functions to get configuration values with fallbacks
@@ -51,7 +51,16 @@ defmodule Jido.Exec.Retry do
           non_neg_integer(),
           function()
         ) :: {:ok, map()} | {:error, Error.t()}
-  defp do_run_with_retry(action, params, context, opts, retry_count, max_retries, backoff, exec_fn) do
+  defp do_run_with_retry(
+         action,
+         params,
+         context,
+         opts,
+         retry_count,
+         max_retries,
+         backoff,
+         exec_fn
+       ) do
     dbug("Attempting run", action: action, retry_count: retry_count)
 
     case exec_fn.(action, params, context, opts) do
@@ -95,7 +104,17 @@ defmodule Jido.Exec.Retry do
     end
   end
 
-  defp maybe_retry(action, params, context, opts, retry_count, max_retries, backoff, error, exec_fn) do
+  defp maybe_retry(
+         action,
+         params,
+         context,
+         opts,
+         retry_count,
+         max_retries,
+         backoff,
+         error,
+         exec_fn
+       ) do
     if retry_count < max_retries do
       backoff = calculate_backoff(retry_count, backoff)
 

@@ -1,7 +1,7 @@
 defmodule Jido.Exec.Telemetry do
   @moduledoc """
   Telemetry functionality for Jido.Exec.
-  
+
   This module handles:
   - Telemetry event emission
   - Span management (start/end)
