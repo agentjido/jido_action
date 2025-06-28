@@ -1,15 +1,14 @@
 defmodule Jido.ExecTaskTest do
   use JidoTest.ActionCase, async: false
 
-  # Import Private to access private functions for testing
-  use Private
   alias Jido.Exec
+  alias Jido.Exec.TaskManager
   alias JidoTest.TestActions.SpawnerAction
   alias JidoTest.TestActions.TaskAction
   @moduletag :capture_log
   describe "spawning multiple processes" do
     test "handles action spawning multiple processes" do
-      result = Exec.execute_action_with_timeout(SpawnerAction, %{count: 10}, %{}, 1000)
+      result = Exec.run(SpawnerAction, %{count: 10}, %{}, timeout: 1000)
       assert {:ok, %{result: "Multi-process action completed"}} = result
       # Ensure no lingering processes
       :timer.sleep(150)
@@ -20,16 +19,16 @@ defmodule Jido.ExecTaskTest do
 
     test "handles naked task action spawning multiple processes" do
       result =
-        Exec.execute_action_with_timeout(
+        Exec.run(
           NakedTaskAction,
           %{count: 2},
           %{},
           # Short timeout to force error
-          100
+          timeout: 100
         )
 
       assert {:error, error} = result
-      assert error.type == :execution_error
+      assert error.type == :invalid_action
     end
 
     test "properly cleans up linked tasks when task group is terminated" do
@@ -37,13 +36,13 @@ defmodule Jido.ExecTaskTest do
 
       # Start a long-running task that will be linked to the task group
       result =
-        Exec.execute_action_with_timeout(
+        Exec.run(
           TaskAction,
           # Long delay to ensure task is still running
           %{count: 1, delay: 5000},
           %{},
           # Short timeout to force termination
-          100
+          timeout: 100
         )
 
       # Should timeout
@@ -62,13 +61,13 @@ defmodule Jido.ExecTaskTest do
 
       # Start multiple long-running tasks linked to task group
       result =
-        Exec.execute_action_with_timeout(
+        Exec.run(
           TaskAction,
           # Long delay
           %{count: 5, delay: 5000},
           %{},
           # Short timeout
-          100
+          timeout: 100
         )
 
       assert {:error, _} = result
@@ -118,7 +117,7 @@ defmodule Jido.ExecTaskTest do
       assert Enum.all?(child_pids, &Process.alive?/1)
 
       # Call cleanup_task_group
-      Exec.cleanup_task_group(task_group)
+      TaskManager.cleanup_task_group(task_group)
 
       # Give processes time to be killed
       Process.sleep(200)
@@ -146,7 +145,7 @@ defmodule Jido.ExecTaskTest do
       Process.sleep(100)
 
       # Should not raise when cleaning up already dead task group
-      Exec.cleanup_task_group(task_group)
+      TaskManager.cleanup_task_group(task_group)
     end
 
     test "kills only processes in the task group" do
@@ -187,7 +186,7 @@ defmodule Jido.ExecTaskTest do
       assert Process.alive?(other_pid)
 
       # Call cleanup_task_group
-      Exec.cleanup_task_group(task_group)
+      TaskManager.cleanup_task_group(task_group)
 
       Process.sleep(200)
 

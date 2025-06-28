@@ -93,6 +93,7 @@ defmodule JidoAction.MixProject do
           "guides/actions/directives.md",
           "guides/actions/runners.md",
           "guides/actions/actions-as-tools.md",
+          "guides/actions/streaming.md",
           "guides/actions/testing.md"
         ]
       ],
@@ -121,6 +122,7 @@ defmodule JidoAction.MixProject do
         {"guides/actions/directives.md", title: "Directives"},
         {"guides/actions/runners.md", title: "Runners"},
         {"guides/actions/actions-as-tools.md", title: "Actions as LLM Tools"},
+        {"guides/actions/streaming.md", title: "Streaming Actions"},
         {"guides/actions/testing.md", title: "Testing"},
         # Skills
         {"guides/skills/overview.md", title: "Overview"},

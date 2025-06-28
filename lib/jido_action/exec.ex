@@ -1,10 +1,10 @@
 defmodule Jido.Exec do
   @moduledoc """
-  Exec provides a robust set of methods for executing Actions (`Jido.Action`).
+  Exec provides a streamlined execution engine for Actions (`Jido.Action`).
 
   This module offers functionality to:
   - Run actions synchronously or asynchronously
-  - Manage timeouts and retries
+  - Optional timeout and retry handling (when explicitly requested)
   - Cancel running actions
   - Normalize and validate input parameters and context
   - Emit telemetry events for monitoring and debugging
@@ -14,13 +14,30 @@ defmodule Jido.Exec do
 
   ## Features
 
+  - Fast, direct action execution (happy path - no overhead)
+  - Optional retries with exponential backoff (when max_retries > 0)
+  - Optional timeout handling for long-running actions (when timeout specified)
   - Synchronous and asynchronous action execution
-  - Automatic retries with exponential backoff
-  - Timeout handling for long-running actions
   - Parameter and context normalization
   - Comprehensive error handling and reporting
   - Telemetry integration for monitoring and tracing
   - Cancellation of running actions
+  - Automatic stream detection and Task PID detachment for streamable results
+    
+  ## Stream Detection and Auto-Detachment
+
+  When an action returns a streamable result (Stream, File.Stream, IO.Stream, Range, or function/2),
+  the Exec module automatically detaches any Task PIDs found in the immediately accessible parts
+  of the result structure. This prevents crashes when timeouts are used with actions that return
+  streams containing Task references.
+
+  Streamable types that are detected:
+  - `%Stream{}`
+  - `%File.Stream{}`
+  - `%IO.Stream{}`
+  - `%Range{}`
+  - Functions with arity 2 (stream functions)
+  - Maps, lists, or tuples containing any of the above
 
   ## Usage
 
@@ -43,30 +60,25 @@ defmodule Jido.Exec do
 
   alias Jido.Action.Error
   alias Jido.Instruction
+  alias Jido.Exec.Validation
+  alias Jido.Exec.Telemetry
+  alias Jido.Exec.Retry
+  alias Jido.Exec.TaskManager
+  alias Jido.Exec.ErrorHandler
 
   require Logger
   require OK
 
   import Jido.Action.Util, only: [cond_log: 3]
 
-  @default_timeout 5000
-  @default_max_retries 1
-  @default_initial_backoff 250
-
   # Helper functions to get configuration values with fallbacks
   defp get_default_timeout,
-    do: Application.get_env(:jido_action, :default_timeout, @default_timeout)
-
-  defp get_default_max_retries,
-    do: Application.get_env(:jido_action, :default_max_retries, @default_max_retries)
-
-  defp get_default_backoff,
-    do: Application.get_env(:jido_action, :default_backoff, @default_initial_backoff)
+    do: Application.get_env(:jido_action, :default_timeout, 5000)
 
   @type action :: module()
   @type params :: map()
   @type context :: map()
-  @type run_opts :: [timeout: non_neg_integer()]
+  @type run_opts :: [timeout: non_neg_integer(), streaming: :detach]
   @type async_ref :: %{ref: reference(), pid: pid()}
 
   @doc """
@@ -78,9 +90,10 @@ defmodule Jido.Exec do
   - `params`: A map of input parameters for the Action.
   - `context`: A map providing additional context for the Action execution.
   - `opts`: Options controlling the execution:
-    - `:timeout` - Maximum time (in ms) allowed for the Action to complete (default: #{@default_timeout}, configurable via `:jido_action, :default_timeout`).
-    - `:max_retries` - Maximum number of retry attempts (default: #{@default_max_retries}, configurable via `:jido_action, :default_max_retries`).
-    - `:backoff` - Initial backoff time in milliseconds, doubles with each retry (default: #{@default_initial_backoff}, configurable via `:jido_action, :default_backoff`).
+    - `:timeout` - Maximum time (in ms) allowed for the Action to complete. When not specified, actions run without timeout.
+    - `:max_retries` - Maximum number of retry attempts (default: 0, no retries). Set to enable retry logic.
+    - `:backoff` - Initial backoff time in milliseconds, doubles with each retry (default: 250).
+    - `:streaming` - Set to `:detach` to unlink any Task PIDs found in the action result when using timeouts.
     - `:log_level` - Override the global Logger level for this specific action. Accepts #{inspect(Logger.levels())}.
 
   ## Action Metadata in Context
@@ -96,12 +109,19 @@ defmodule Jido.Exec do
 
   ## Examples
 
+      # Simple execution (happy path - no timeout, no retries)
       iex> Jido.Exec.run(MyAction, %{input: "value"}, %{user_id: 123})
       {:ok, %{result: "processed value"}}
 
-      iex> Jido.Exec.run(MyAction, %{invalid: "input"}, %{}, timeout: 1000)
-      {:error, %Jido.Action.Error{type: :validation_error, message: "Invalid input"}}
+      # With timeout (uses Task for timeout handling)
+      iex> Jido.Exec.run(MyAction, %{input: "value"}, %{}, timeout: 1000)
+      {:ok, %{result: "processed value"}}
 
+      # With retries (enables retry logic)
+      iex> Jido.Exec.run(MyAction, %{input: "value"}, %{}, max_retries: 3)
+      {:ok, %{result: "processed value"}}
+
+      # With custom log level
       iex> Jido.Exec.run(MyAction, %{input: "value"}, %{}, log_level: :debug)
       {:ok, %{result: "processed value"}}
 
@@ -125,10 +145,10 @@ defmodule Jido.Exec do
     dbug("Starting action run", action: action, params: params, context: context, opts: opts)
     log_level = Keyword.get(opts, :log_level, :info)
 
-    with {:ok, normalized_params} <- normalize_params(params),
-         {:ok, normalized_context} <- normalize_context(context),
-         :ok <- validate_action(action),
-         OK.success(validated_params) <- validate_params(action, normalized_params) do
+    with {:ok, normalized_params} <- Validation.normalize_params(params),
+         {:ok, normalized_context} <- Validation.normalize_context(context),
+         :ok <- Validation.validate_action(action),
+         OK.success(validated_params) <- Validation.validate_params(action, normalized_params) do
       enhanced_context =
         Map.put(normalized_context, :action_metadata, action.__action_metadata__())
 
@@ -144,7 +164,14 @@ defmodule Jido.Exec do
         "Executing #{inspect(action)} with params: #{inspect(validated_params)} and context: #{inspect(enhanced_context)}"
       )
 
-      do_run_with_retry(action, validated_params, enhanced_context, opts)
+      # Check if retries are explicitly requested
+      max_retries = Keyword.get(opts, :max_retries, 0)
+
+      if max_retries > 0 do
+        Retry.run_with_retry(action, validated_params, enhanced_context, opts, &do_run/4)
+      else
+        do_run(action, validated_params, enhanced_context, opts)
+      end
     else
       {:error, reason} ->
         dbug("Error in action setup", error: reason)
@@ -358,227 +385,56 @@ defmodule Jido.Exec do
 
   # Private functions are exposed to the test suite
   private do
-    @spec normalize_params(params()) :: {:ok, map()} | {:error, Error.t()}
-    defp normalize_params(%Error{} = error), do: OK.failure(error)
-    defp normalize_params(params) when is_map(params), do: OK.success(params)
-    defp normalize_params(params) when is_list(params), do: OK.success(Map.new(params))
-    defp normalize_params({:ok, params}) when is_map(params), do: OK.success(params)
-    defp normalize_params({:ok, params}) when is_list(params), do: OK.success(Map.new(params))
-    defp normalize_params({:error, reason}), do: OK.failure(Error.validation_error(reason))
-
-    defp normalize_params(params),
-      do: OK.failure(Error.validation_error("Invalid params type: #{inspect(params)}"))
-
-    @spec normalize_context(context()) :: {:ok, map()} | {:error, Error.t()}
-    defp normalize_context(context) when is_map(context), do: OK.success(context)
-    defp normalize_context(context) when is_list(context), do: OK.success(Map.new(context))
-
-    defp normalize_context(context),
-      do: OK.failure(Error.validation_error("Invalid context type: #{inspect(context)}"))
-
-    @spec validate_action(action()) :: :ok | {:error, Error.t()}
-    defp validate_action(action) do
-      dbug("Validating action", action: action)
-
-      case Code.ensure_compiled(action) do
-        {:module, _} ->
-          if function_exported?(action, :run, 2) do
-            :ok
-          else
-            {:error,
-             Error.invalid_action(
-               "Module #{inspect(action)} is not a valid action: missing run/2 function"
-             )}
-          end
-
-        {:error, reason} ->
-          {:error,
-           Error.invalid_action("Failed to compile module #{inspect(action)}: #{inspect(reason)}")}
-      end
-    end
-
-    @spec validate_params(action(), map()) :: {:ok, map()} | {:error, Error.t()}
-    defp validate_params(action, params) do
-      dbug("Validating params", action: action, params: params)
-
-      if function_exported?(action, :validate_params, 1) do
-        case action.validate_params(params) do
-          {:ok, params} ->
-            OK.success(params)
-
-          {:error, reason} ->
-            OK.failure(reason)
-
-          _ ->
-            OK.failure(Error.validation_error("Invalid return from action.validate_params/1"))
-        end
-      else
-        OK.failure(
-          Error.invalid_action(
-            "Module #{inspect(action)} is not a valid action: missing validate_params/1 function"
-          )
-        )
-      end
-    end
-
-    @spec validate_output(action(), map(), run_opts()) :: {:ok, map()} | {:error, Error.t()}
-    defp validate_output(action, output, opts) do
-      log_level = Keyword.get(opts, :log_level, :info)
-      dbug("Validating output", action: action, output: output)
-
-      if function_exported?(action, :validate_output, 1) do
-        case action.validate_output(output) do
-          {:ok, validated_output} ->
-            cond_log(log_level, :debug, "Output validation succeeded for #{inspect(action)}")
-            OK.success(validated_output)
-
-          {:error, reason} ->
-            cond_log(
-              log_level,
-              :debug,
-              "Output validation failed for #{inspect(action)}: #{inspect(reason)}"
-            )
-
-            OK.failure(reason)
-
-          _ ->
-            cond_log(log_level, :debug, "Invalid return from action.validate_output/1")
-            OK.failure(Error.validation_error("Invalid return from action.validate_output/1"))
-        end
-      else
-        # If action doesn't have validate_output/1, skip output validation
-        cond_log(
-          log_level,
-          :debug,
-          "No output validation function found for #{inspect(action)}, skipping"
-        )
-
-        OK.success(output)
-      end
-    end
-
-    @spec do_run_with_retry(action(), params(), context(), run_opts()) ::
-            {:ok, map()} | {:error, Error.t()}
-    defp do_run_with_retry(action, params, context, opts) do
-      max_retries = Keyword.get(opts, :max_retries, get_default_max_retries())
-      backoff = Keyword.get(opts, :backoff, get_default_backoff())
-      dbug("Starting run with retry", action: action, max_retries: max_retries, backoff: backoff)
-      do_run_with_retry(action, params, context, opts, 0, max_retries, backoff)
-    end
-
-    @spec do_run_with_retry(
-            action(),
-            params(),
-            context(),
-            run_opts(),
-            non_neg_integer(),
-            non_neg_integer(),
-            non_neg_integer()
-          ) :: {:ok, map()} | {:error, Error.t()}
-    defp do_run_with_retry(action, params, context, opts, retry_count, max_retries, backoff) do
-      dbug("Attempting run", action: action, retry_count: retry_count)
-
-      case do_run(action, params, context, opts) do
-        OK.success(result) ->
-          dbug("Run succeeded", result: result)
-          OK.success(result)
-
-        {:ok, result, other} ->
-          dbug("Run succeeded with additional info", result: result, other: other)
-          {:ok, result, other}
-
-        {:error, reason, other} ->
-          dbug("Run failed with additional info", error: reason, other: other)
-
-          maybe_retry(
-            action,
-            params,
-            context,
-            opts,
-            retry_count,
-            max_retries,
-            backoff,
-            {:error, reason, other}
-          )
-
-        OK.failure(reason) ->
-          dbug("Run failed", error: reason)
-
-          maybe_retry(
-            action,
-            params,
-            context,
-            opts,
-            retry_count,
-            max_retries,
-            backoff,
-            OK.failure(reason)
-          )
-      end
-    end
-
-    defp maybe_retry(action, params, context, opts, retry_count, max_retries, backoff, error) do
-      if retry_count < max_retries do
-        backoff = calculate_backoff(retry_count, backoff)
-
-        cond_log(
-          Keyword.get(opts, :log_level, :info),
-          :info,
-          "Retrying #{inspect(action)} (attempt #{retry_count + 1}/#{max_retries}) after #{backoff}ms backoff"
-        )
-
-        dbug("Retrying after backoff",
-          action: action,
-          retry_count: retry_count,
-          max_retries: max_retries,
-          backoff: backoff
-        )
-
-        :timer.sleep(backoff)
-
-        do_run_with_retry(
-          action,
-          params,
-          context,
-          opts,
-          retry_count + 1,
-          max_retries,
-          backoff
-        )
-      else
-        dbug("Max retries reached", action: action, max_retries: max_retries)
-        error
-      end
-    end
-
-    @spec calculate_backoff(non_neg_integer(), non_neg_integer()) :: non_neg_integer()
-    defp calculate_backoff(retry_count, backoff) do
-      (backoff * :math.pow(2, retry_count))
-      |> round()
-      |> min(30_000)
-    end
-
     @spec do_run(action(), params(), context(), run_opts()) ::
             {:ok, map()} | {:error, Error.t()}
     defp do_run(action, params, context, opts) do
-      timeout = Keyword.get(opts, :timeout, get_default_timeout())
+      timeout = Keyword.get(opts, :timeout)
       telemetry = Keyword.get(opts, :telemetry, :full)
       dbug("Starting action execution", action: action, timeout: timeout, telemetry: telemetry)
 
       result =
         case telemetry do
           :silent ->
-            execute_action_with_timeout(action, params, context, timeout)
+            if timeout do
+              result =
+                TaskManager.execute_action_with_timeout(
+                  action,
+                  params,
+                  context,
+                  timeout,
+                  opts,
+                  &execute_action/4
+                )
+
+              maybe_detach_tasks(result, opts)
+            else
+              execute_action(action, params, context, opts)
+            end
 
           _ ->
             start_time = System.monotonic_time(:microsecond)
-            start_span(action, params, context, telemetry)
+            Telemetry.start_span(action, params, context, telemetry)
 
-            result = execute_action_with_timeout(action, params, context, timeout, opts)
+            result =
+              if timeout do
+                result =
+                  TaskManager.execute_action_with_timeout(
+                    action,
+                    params,
+                    context,
+                    timeout,
+                    opts,
+                    &execute_action/4
+                  )
+
+                maybe_detach_tasks(result, opts)
+              else
+                execute_action(action, params, context, opts)
+              end
 
             end_time = System.monotonic_time(:microsecond)
             duration_us = end_time - start_time
-            end_span(action, result, duration_us, telemetry)
+            Telemetry.end_span(action, result, duration_us, telemetry)
 
             result
         end
@@ -598,330 +454,193 @@ defmodule Jido.Exec do
 
         {:error, error, other} ->
           dbug("Action failed with additional info", error: error, other: other)
-          handle_action_error(action, params, context, {error, other}, opts)
+          ErrorHandler.handle_action_error(action, params, context, {error, other}, opts)
 
         {:error, error} ->
           dbug("Action failed", error: error)
-          handle_action_error(action, params, context, error, opts)
+          ErrorHandler.handle_action_error(action, params, context, error, opts)
       end
     end
 
-    @spec start_span(action(), params(), context(), atom()) :: :ok
-    defp start_span(action, params, context, telemetry) do
-      metadata = %{
-        action: action,
-        params: params,
-        context: context
-      }
-
-      emit_telemetry_event(:start, metadata, telemetry)
-    end
-
-    @spec end_span(action(), {:ok, map()} | {:error, Error.t()}, non_neg_integer(), atom()) ::
-            :ok
-    defp end_span(action, result, duration_us, telemetry) do
-      metadata = get_metadata(action, result, duration_us, telemetry)
-
-      status =
-        case result do
-          {:ok, _} -> :complete
-          {:ok, _, _} -> :complete
-          _ -> :error
-        end
-
-      emit_telemetry_event(status, metadata, telemetry)
-    end
-
-    @spec get_metadata(action(), {:ok, map()} | {:error, Error.t()}, non_neg_integer(), atom()) ::
-            map()
-    defp get_metadata(action, result, duration_us, :full) do
-      %{
-        action: action,
-        result: result,
-        duration_us: duration_us,
-        memory_usage: :erlang.memory(),
-        process_info: get_process_info(),
-        node: node()
-      }
-    end
-
-    @spec get_metadata(action(), {:ok, map()} | {:error, Error.t()}, non_neg_integer(), atom()) ::
-            map()
-    defp get_metadata(action, result, duration_us, :minimal) do
-      %{
-        action: action,
-        result: result,
-        duration_us: duration_us
-      }
-    end
-
-    @spec get_process_info() :: map()
-    defp get_process_info do
-      for key <- [:reductions, :message_queue_len, :total_heap_size, :garbage_collection],
-          into: %{} do
-        {key, self() |> Process.info(key) |> elem(1)}
-      end
-    end
-
-    @spec emit_telemetry_event(atom(), map(), atom()) :: :ok
-    defp emit_telemetry_event(event, metadata, telemetry) when telemetry in [:full, :minimal] do
-      event_name = [:jido, :action, event]
-      measurements = %{system_time: System.system_time()}
-
-      :telemetry.execute(event_name, measurements, metadata)
-    end
-
-    defp emit_telemetry_event(_, _, _), do: :ok
-
-    # In handle_action_error:
-    @spec handle_action_error(
-            action(),
-            params(),
-            context(),
-            Error.t() | {Error.t(), any()},
+    @spec maybe_detach_tasks(
+            {:ok, map()} | {:ok, map(), any()} | {:error, Error.t()},
             run_opts()
           ) ::
-            {:error, Error.t() | map()} | {:error, Error.t(), any()}
-    defp handle_action_error(action, params, context, error_or_tuple, opts) do
-      Logger.debug("Handle Action Error in handle_action_error: #{inspect(opts)}")
-      dbug("Handling action error", action: action, error: error_or_tuple)
+            {:ok, map()} | {:ok, map(), any()} | {:error, Error.t()}
+    defp maybe_detach_tasks(result, opts) do
+      streaming = Keyword.get(opts, :streaming)
 
-      # Extract error and directive if present
-      {error, directive} =
-        case error_or_tuple do
-          {error, directive} -> {error, directive}
-          error -> {error, nil}
-        end
-
-      if compensation_enabled?(action) do
-        metadata = action.__action_metadata__()
-        compensation_opts = metadata[:compensation] || []
-
-        timeout =
-          Keyword.get(opts, :timeout) ||
-            case compensation_opts do
-              opts when is_list(opts) -> Keyword.get(opts, :timeout, 5_000)
-              %{timeout: timeout} -> timeout
-              _ -> 5_000
-            end
-
-        dbug("Starting compensation", action: action, timeout: timeout)
-
-        task =
-          Task.async(fn ->
-            action.on_error(params, error, context, [])
-          end)
-
-        case Task.yield(task, timeout) || Task.shutdown(task) do
-          {:ok, result} ->
-            dbug("Compensation completed", result: result)
-            handle_compensation_result(result, error, directive)
-
-          nil ->
-            dbug("Compensation timed out", timeout: timeout)
-
-            error_result =
-              Error.compensation_error(
-                error,
-                %{
-                  compensated: false,
-                  compensation_error: "Compensation timed out after #{timeout}ms"
-                }
-              )
-
-            if directive, do: {:error, error_result, directive}, else: OK.failure(error_result)
-        end
+      if streaming == :detach do
+        detach_tasks_from_result(result)
       else
-        dbug("Compensation not enabled", action: action)
-        if directive, do: {:error, error, directive}, else: OK.failure(error)
+        result
       end
     end
 
-    @spec handle_compensation_result(any(), Error.t(), any()) ::
-            {:error, Error.t()} | {:error, Error.t(), any()}
-    defp handle_compensation_result(result, original_error, directive) do
-      error_result =
-        case result do
-          {:ok, comp_result} ->
-            # Extract fields that should be at the top level of the details
-            {top_level_fields, remaining_fields} =
-              Map.split(comp_result, [:test_value, :compensation_context])
-
-            # Create the details map with the compensation result
-            details =
-              Map.merge(
-                %{
-                  compensated: true,
-                  compensation_result: remaining_fields
-                },
-                top_level_fields
-              )
-
-            Error.compensation_error(original_error, details)
-
-          {:error, comp_error} ->
-            Error.compensation_error(
-              original_error,
-              %{
-                compensated: false,
-                compensation_error: comp_error
-              }
-            )
-
-          _ ->
-            Error.compensation_error(
-              original_error,
-              %{
-                compensated: false,
-                compensation_error: "Invalid compensation result"
-              }
-            )
-        end
-
-      if directive, do: {:error, error_result, directive}, else: OK.failure(error_result)
+    @spec detach_tasks_from_result({:ok, map()} | {:ok, map(), any()} | {:error, Error.t()}) ::
+            {:ok, map()} | {:ok, map(), any()} | {:error, Error.t()}
+    defp detach_tasks_from_result({:ok, result}) do
+      detach_pids_from_data(result)
+      {:ok, result}
     end
 
-    @spec compensation_enabled?(action()) :: boolean()
-    defp compensation_enabled?(action) do
-      metadata = action.__action_metadata__()
-      compensation_opts = metadata[:compensation] || []
-
-      enabled =
-        case compensation_opts do
-          opts when is_list(opts) -> Keyword.get(opts, :enabled, false)
-          %{enabled: enabled} -> enabled
-          _ -> false
-        end
-
-      enabled && function_exported?(action, :on_error, 4)
+    defp detach_tasks_from_result({:ok, result, other}) do
+      detach_pids_from_data(result)
+      {:ok, result, other}
     end
 
-    @spec execute_action_with_timeout(action(), params(), context(), non_neg_integer()) ::
-            {:ok, map()} | {:error, Error.t()}
-    defp execute_action_with_timeout(action, params, context, timeout, opts \\ [])
+    defp detach_tasks_from_result({:error, _} = error), do: error
 
-    defp execute_action_with_timeout(action, params, context, 0, opts) do
-      execute_action(action, params, context, opts)
+    @spec detach_pids_from_data(any()) :: :ok
+    defp detach_pids_from_data(%Task{pid: pid}) do
+      if Process.alive?(pid) do
+        Process.unlink(pid)
+        dbug("Detached from Task PID", pid: pid)
+      end
     end
 
-    defp execute_action_with_timeout(action, params, context, timeout, opts)
-         when is_integer(timeout) and timeout > 0 do
-      parent = self()
-      ref = make_ref()
+    defp detach_pids_from_data(data) when is_pid(data) do
+      if Process.alive?(data) do
+        Process.unlink(data)
+        dbug("Detached from raw PID", pid: data)
+      end
+    end
 
-      dbug("Starting action with timeout", action: action, timeout: timeout)
+    defp detach_pids_from_data(%Stream{} = _stream) do
+      # Don't iterate over streams as that would consume them
+      # Streams are lazy and should not be consumed during detachment
+      :ok
+    end
 
-      # Create a temporary task group for this execution
-      {:ok, task_group} =
-        Task.Supervisor.start_child(
-          Jido.Action.TaskSupervisor,
-          fn ->
-            Process.flag(:trap_exit, true)
+    defp detach_pids_from_data(%File.Stream{} = _stream) do
+      # Don't iterate over file streams
+      :ok
+    end
 
-            receive do
-              {:shutdown} -> :ok
-            end
+    defp detach_pids_from_data(%IO.Stream{} = _stream) do
+      # Don't iterate over IO streams
+      :ok
+    end
+
+    defp detach_pids_from_data(%Range{} = _range) do
+      # Don't iterate over ranges as they could be very large
+      :ok
+    end
+
+    defp detach_pids_from_data(fun) when is_function(fun, 2) do
+      # Don't try to inspect stream functions
+      :ok
+    end
+
+    defp detach_pids_from_data(data) when is_map(data) do
+      Enum.each(data, fn {_key, value} -> detach_pids_from_data(value) end)
+    end
+
+    defp detach_pids_from_data(data) when is_list(data) do
+      Enum.each(data, &detach_pids_from_data/1)
+    end
+
+    defp detach_pids_from_data(data) when is_tuple(data) do
+      data
+      |> Tuple.to_list()
+      |> Enum.each(&detach_pids_from_data/1)
+    end
+
+    defp detach_pids_from_data(_data), do: :ok
+
+    @spec detach_immediately_accessible_pids(any()) :: :ok
+    defp detach_immediately_accessible_pids(%Stream{} = _stream) do
+      # For streams returned directly as results, there are no immediately accessible PIDs
+      # to detach since the stream is lazy and hasn't been consumed yet
+      :ok
+    end
+
+    defp detach_immediately_accessible_pids(%File.Stream{} = _stream) do
+      # File streams don't contain PIDs in their structure
+      :ok
+    end
+
+    defp detach_immediately_accessible_pids(%IO.Stream{} = _stream) do
+      # IO streams don't contain PIDs in their structure  
+      :ok
+    end
+
+    defp detach_immediately_accessible_pids(%Range{} = _range) do
+      # Ranges don't contain PIDs
+      :ok
+    end
+
+    defp detach_immediately_accessible_pids(fun) when is_function(fun, 2) do
+      # Stream functions don't contain PIDs in their structure
+      :ok
+    end
+
+    defp detach_immediately_accessible_pids(data) do
+      # For other types that contain streamable content, detach any PIDs
+      # that are immediately accessible (not deferred)
+      detach_pids_from_data(data)
+    end
+
+    @spec is_streamable?(any()) :: boolean()
+    defp is_streamable?(result) do
+      case result do
+        %Stream{} ->
+          true
+
+        %File.Stream{} ->
+          true
+
+        %IO.Stream{} ->
+          true
+
+        %Range{} ->
+          true
+
+        result when is_function(result, 2) ->
+          true
+
+        # Check nested structures for streamable content
+        result when is_map(result) ->
+          try do
+            Enum.any?(result, fn {_key, value} -> is_streamable?(value) end)
+          rescue
+            Protocol.UndefinedError -> false
           end
-        )
 
-      # Add task_group to context so Actions can use it
-      enhanced_context = Map.put(context, :__task_group__, task_group)
+        result when is_list(result) ->
+          try do
+            Enum.any?(result, &is_streamable?/1)
+          rescue
+            Protocol.UndefinedError -> false
+          end
 
-      # Get the current process's group leader
-      current_gl = Process.group_leader()
-
-      {pid, monitor_ref} =
-        spawn_monitor(fn ->
-          # Use the parent's group leader to ensure IO is properly captured
-          Process.group_leader(self(), current_gl)
-
-          result =
-            try do
-              dbug("Executing action in task", action: action, pid: self())
-              result = execute_action(action, params, enhanced_context, opts)
-              dbug("Action execution completed", action: action, result: result)
-              result
-            catch
-              kind, reason ->
-                stacktrace = __STACKTRACE__
-                dbug("Action execution caught error", action: action, kind: kind, reason: reason)
-
-                {:error,
-                 Error.execution_error(
-                   "Caught #{kind}: #{inspect(reason)}",
-                   %{kind: kind, reason: reason, action: action},
-                   stacktrace
-                 )}
-            end
-
-          send(parent, {:done, ref, result})
-        end)
-
-      result =
-        receive do
-          {:done, ^ref, result} ->
-            dbug("Received action result", action: action, result: result)
-            cleanup_task_group(task_group)
-            Process.demonitor(monitor_ref, [:flush])
+        result when is_tuple(result) ->
+          try do
             result
+            |> Tuple.to_list()
+            |> Enum.any?(&is_streamable?/1)
+          rescue
+            Protocol.UndefinedError -> false
+          end
 
-          {:DOWN, ^monitor_ref, :process, ^pid, :killed} ->
-            dbug("Task was killed", action: action)
-            cleanup_task_group(task_group)
-            {:error, Error.execution_error("Task was killed")}
+        _ ->
+          # Fallback: check if Enumerable but can't count
+          try do
+            case Enumerable.impl_for(result) do
+              nil ->
+                false
 
-          {:DOWN, ^monitor_ref, :process, ^pid, reason} ->
-            dbug("Task exited unexpectedly", action: action, reason: reason)
-            cleanup_task_group(task_group)
-            {:error, Error.execution_error("Task exited: #{inspect(reason)}")}
-        after
-          timeout ->
-            dbug("Action timed out", action: action, timeout: timeout)
-            cleanup_task_group(task_group)
-            Process.exit(pid, :kill)
-
-            receive do
-              {:DOWN, ^monitor_ref, :process, ^pid, _} -> :ok
-            after
-              0 -> :ok
+              impl ->
+                case impl.count(result) do
+                  # Streams typically can't count
+                  {:error, _} -> true
+                  _ -> false
+                end
             end
-
-            {:error,
-             Error.timeout(
-               "Action #{inspect(action)} timed out after #{timeout}ms. This could be due to:
-1. The action is taking too long to complete (current timeout: #{timeout}ms)
-2. The action is stuck in an infinite loop
-3. The action's return value doesn't match the expected format ({:ok, map()} | {:ok, map(), directive} | {:error, reason})
-4. An unexpected error occurred without proper error handling
-5. The action may be using unsafe IO operations (IO.inspect, etc).
-
-Debug info:
-- Action module: #{inspect(action)}
-- Params: #{inspect(params)}
-- Context: #{inspect(Map.drop(context, [:__task_group__]))}"
-             )}
-        end
-
-      result
-    end
-
-    defp execute_action_with_timeout(action, params, context, _timeout, opts) do
-      execute_action_with_timeout(action, params, context, get_default_timeout(), opts)
-    end
-
-    defp cleanup_task_group(task_group) do
-      send(task_group, {:shutdown})
-
-      Process.exit(task_group, :kill)
-
-      Task.Supervisor.children(Jido.Action.TaskSupervisor)
-      |> Enum.filter(fn pid ->
-        case Process.info(pid, :group_leader) do
-          {:group_leader, ^task_group} -> true
-          _ -> false
-        end
-      end)
-      |> Enum.each(&Process.exit(&1, :kill))
+          rescue
+            Protocol.UndefinedError -> false
+          end
+      end
     end
 
     @spec execute_action(action(), params(), context(), run_opts()) ::
@@ -940,8 +659,17 @@ Debug info:
         {:ok, result, other} ->
           dbug("Action succeeded with additional info", result: result, other: other)
 
-          case validate_output(action, result, opts) do
+          case Validation.validate_output(action, result, opts) do
             {:ok, validated_result} ->
+              # Auto-detach Task PIDs if result is streamable
+              if is_streamable?(validated_result) do
+                dbug("Result is streamable, auto-detaching any immediately accessible Task PIDs",
+                  result: validated_result
+                )
+
+                detach_immediately_accessible_pids(validated_result)
+              end
+
               cond_log(
                 log_level,
                 :debug,
@@ -965,8 +693,17 @@ Debug info:
         OK.success(result) ->
           dbug("Action succeeded", result: result)
 
-          case validate_output(action, result, opts) do
+          case Validation.validate_output(action, result, opts) do
             {:ok, validated_result} ->
+              # Auto-detach Task PIDs if result is streamable
+              if is_streamable?(validated_result) do
+                dbug("Result is streamable, auto-detaching any immediately accessible Task PIDs",
+                  result: validated_result
+                )
+
+                detach_immediately_accessible_pids(validated_result)
+              end
+
               cond_log(
                 log_level,
                 :debug,
@@ -1005,8 +742,17 @@ Debug info:
         result ->
           dbug("Action returned unexpected result", result: result)
 
-          case validate_output(action, result, opts) do
+          case Validation.validate_output(action, result, opts) do
             {:ok, validated_result} ->
+              # Auto-detach Task PIDs if result is streamable
+              if is_streamable?(validated_result) do
+                dbug("Result is streamable, auto-detaching any immediately accessible Task PIDs",
+                  result: validated_result
+                )
+
+                detach_immediately_accessible_pids(validated_result)
+              end
+
               cond_log(
                 log_level,
                 :debug,
