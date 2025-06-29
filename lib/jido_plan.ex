@@ -429,7 +429,6 @@ defmodule Jido.Plan do
       {params, []} -> {action, params}
       {params, opts} when map_size(params) == 0 and opts != [] -> {action, opts}
       {params, opts} when opts != [] -> {action, params, opts}
-      {params, []} -> {action, params}
     end
   end
 

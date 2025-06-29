@@ -51,11 +51,10 @@ defmodule Jido.Tools.Weather do
 
   defp demo_real_api do
     IO.puts("\n=== Testing with real API ===")
-    handle_demo_result(run(%{location: "60618,US", format: "text"}, %{}))
+    handle_demo_result(run(%{location: "60618,US", format: "text", test: false}, %{}))
   end
 
-  defp handle_demo_result({:ok, result}) when is_binary(result), do: IO.puts(result)
-  # credo:disable-for-next-line Credo.Check.Warning.IoInspect
+  # credo:disable-for-next-line Credo.Check.Warning.IoInspect  
   defp handle_demo_result({:ok, result}), do: IO.inspect(result, label: "Weather Data")
   defp handle_demo_result({:error, error}), do: IO.puts("Error: #{error}")
 
@@ -78,7 +77,7 @@ defmodule Jido.Tools.Weather do
   end
 
   defp build_opts(params) do
-    case System.fetch_env!("OPENWEATHER_API_KEY") do
+    case System.fetch_env("OPENWEATHER_API_KEY") do
       {:ok, api_key} ->
         {:ok,
          Weather.Opts.new!(

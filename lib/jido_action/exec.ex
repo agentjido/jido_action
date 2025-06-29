@@ -118,7 +118,8 @@ defmodule Jido.Exec do
       #   end
       # end
   """
-  @spec run(action(), params(), context(), run_opts()) :: {:ok, map()} | {:error, Error.t()}
+  @spec run(action(), params(), context(), run_opts()) ::
+          {:ok, map()} | {:ok, map(), any()} | {:error, Error.t()} | {:error, Error.t(), any()}
   def run(action, params \\ %{}, context \\ %{}, opts \\ [])
 
   def run(action, params, context, opts) when is_atom(action) and is_list(opts) do
@@ -150,11 +151,6 @@ defmodule Jido.Exec do
         dbug("Error in action setup", error: reason)
         cond_log(log_level, :debug, "Action Execution failed: #{inspect(reason)}")
         OK.failure(reason)
-
-      {:error, reason, other} ->
-        dbug("Error with additional info in action setup", error: reason, other: other)
-        cond_log(log_level, :debug, "Action Execution failed with directive: #{inspect(reason)}")
-        {:error, reason, other}
     end
   rescue
     e in [FunctionClauseError, BadArityError, BadFunctionError] ->
@@ -283,7 +279,7 @@ defmodule Jido.Exec do
       {:error, %Jido.Action.Error{type: :timeout, message: "Async action timed out after 100ms"}}
   """
   @spec await(async_ref(), timeout()) :: {:ok, map()} | {:error, Error.t()}
-  def await(%{ref: ref, pid: pid}, timeout \\ nil) do
+  def await(%{ref: ref, pid: pid}, timeout \\ 5000) do
     timeout = timeout || get_default_timeout()
     dbug("Awaiting async action result", ref: ref, pid: pid, timeout: timeout)
 
@@ -474,7 +470,9 @@ defmodule Jido.Exec do
             non_neg_integer(),
             non_neg_integer(),
             non_neg_integer()
-          ) :: {:ok, map()} | {:error, Error.t()}
+          ) ::
+            {:ok, map()} | {:ok, map(), any()} | {:error, Error.t()} | {:error, Error.t(), any()}
+    @dialyzer {:nowarn_function, do_run_with_retry: 7}
     defp do_run_with_retry(action, params, context, opts, retry_count, max_retries, backoff) do
       dbug("Attempting run", action: action, retry_count: retry_count)
 
@@ -484,24 +482,10 @@ defmodule Jido.Exec do
           OK.success(result)
 
         {:ok, result, other} ->
-          dbug("Run succeeded with additional info", result: result, other: other)
+          dbug("Run succeeded with directive", result: result, other: other)
           {:ok, result, other}
 
-        {:error, reason, other} ->
-          dbug("Run failed with additional info", error: reason, other: other)
-
-          maybe_retry(
-            action,
-            params,
-            context,
-            opts,
-            retry_count,
-            max_retries,
-            backoff,
-            {:error, reason, other}
-          )
-
-        OK.failure(reason) ->
+        {:error, reason} ->
           dbug("Run failed", error: reason)
 
           maybe_retry(
@@ -512,7 +496,21 @@ defmodule Jido.Exec do
             retry_count,
             max_retries,
             backoff,
-            OK.failure(reason)
+            {:error, reason}
+          )
+
+        {:error, reason, other} ->
+          dbug("Run failed with directive", error: reason, other: other)
+
+          maybe_retry(
+            action,
+            params,
+            context,
+            opts,
+            retry_count,
+            max_retries,
+            backoff,
+            {:error, reason, other}
           )
       end
     end
@@ -559,7 +557,8 @@ defmodule Jido.Exec do
     end
 
     @spec do_run(action(), params(), context(), run_opts()) ::
-            {:ok, map()} | {:error, Error.t()}
+            {:ok, map()} | {:ok, map(), any()} | {:error, Error.t()} | {:error, Error.t(), any()}
+    @dialyzer {:nowarn_function, do_run: 4}
     defp do_run(action, params, context, opts) do
       timeout = Keyword.get(opts, :timeout, get_default_timeout())
       telemetry = Keyword.get(opts, :telemetry, :full)
@@ -588,21 +587,21 @@ defmodule Jido.Exec do
           dbug("Action succeeded", result: success)
           success
 
-        {:ok, _result, _other} = success ->
-          dbug("Action succeeded with additional info", result: success)
+        {:ok, _result, _directive} = success ->
+          dbug("Action succeeded with directive", result: success)
           success
 
         {:error, %Error{type: :timeout}} = timeout_err ->
           dbug("Action timed out", error: timeout_err)
           timeout_err
 
-        {:error, error, other} ->
-          dbug("Action failed with additional info", error: error, other: other)
-          handle_action_error(action, params, context, {error, other}, opts)
-
         {:error, error} ->
           dbug("Action failed", error: error)
           handle_action_error(action, params, context, error, opts)
+
+        {:error, error, directive} ->
+          dbug("Action failed with directive", error: error, directive: directive)
+          handle_action_error(action, params, context, {error, directive}, opts)
       end
     end
 
@@ -682,6 +681,7 @@ defmodule Jido.Exec do
             run_opts()
           ) ::
             {:error, Error.t() | map()} | {:error, Error.t(), any()}
+    @dialyzer {:nowarn_function, handle_action_error: 5}
     defp handle_action_error(action, params, context, error_or_tuple, opts) do
       Logger.debug("Handle Action Error in handle_action_error: #{inspect(opts)}")
       dbug("Handling action error", action: action, error: error_or_tuple)
@@ -689,8 +689,11 @@ defmodule Jido.Exec do
       # Extract error and directive if present
       {error, directive} =
         case error_or_tuple do
-          {error, directive} -> {error, directive}
-          error -> {error, nil}
+          %Error{} = error -> {error, nil}
+          {%Error{} = error, directive} -> {error, directive}
+          error when is_binary(error) -> {Error.execution_error(error), nil}
+          {error, directive} when is_binary(error) -> {Error.execution_error(error), directive}
+          error -> {Error.execution_error(inspect(error)), nil}
         end
 
       if compensation_enabled?(action) do
@@ -925,7 +928,7 @@ Debug info:
     end
 
     @spec execute_action(action(), params(), context(), run_opts()) ::
-            {:ok, map()} | {:error, Error.t()}
+            {:ok, map()} | {:ok, map(), any()} | {:error, Error.t()} | {:error, Error.t(), any()}
     defp execute_action(action, params, context, opts) do
       log_level = Keyword.get(opts, :log_level, :info)
       dbug("Executing action", action: action, params: params, context: context)
@@ -937,32 +940,7 @@ Debug info:
       )
 
       case action.run(params, context) do
-        {:ok, result, other} ->
-          dbug("Action succeeded with additional info", result: result, other: other)
-
-          case validate_output(action, result, opts) do
-            {:ok, validated_result} ->
-              cond_log(
-                log_level,
-                :debug,
-                "Finished execution of #{inspect(action)}, result: #{inspect(validated_result)}, directive: #{inspect(other)}"
-              )
-
-              {:ok, validated_result, other}
-
-            {:error, validation_error} ->
-              dbug("Action output validation failed", error: validation_error)
-
-              cond_log(
-                log_level,
-                :error,
-                "Action #{inspect(action)} output validation failed: #{inspect(validation_error)}"
-              )
-
-              {:error, validation_error, other}
-          end
-
-        OK.success(result) ->
+        {:ok, result} ->
           dbug("Action succeeded", result: result)
 
           case validate_output(action, result, opts) do
@@ -973,7 +951,7 @@ Debug info:
                 "Finished execution of #{inspect(action)}, result: #{inspect(validated_result)}"
               )
 
-              OK.success(validated_result)
+              {:ok, validated_result}
 
             {:error, validation_error} ->
               dbug("Action output validation failed", error: validation_error)
@@ -984,23 +962,71 @@ Debug info:
                 "Action #{inspect(action)} output validation failed: #{inspect(validation_error)}"
               )
 
-              OK.failure(validation_error)
+              {:error, validation_error}
           end
 
-        {:error, reason, other} ->
-          dbug("Action failed with additional info", error: reason, other: other)
-          cond_log(log_level, :error, "Action #{inspect(action)} failed: #{inspect(reason)}")
-          {:error, reason, other}
+        {:ok, result, directive} ->
+          dbug("Action succeeded with directive", result: result, directive: directive)
 
-        OK.failure(%Error{} = error) ->
-          dbug("Action failed with error struct", error: error)
+          case validate_output(action, result, opts) do
+            {:ok, validated_result} ->
+              cond_log(
+                log_level,
+                :debug,
+                "Finished execution of #{inspect(action)}, result: #{inspect(validated_result)}, directive: #{inspect(directive)}"
+              )
+
+              {:ok, validated_result, directive}
+
+            {:error, validation_error} ->
+              dbug("Action output validation failed", error: validation_error)
+
+              cond_log(
+                log_level,
+                :error,
+                "Action #{inspect(action)} output validation failed: #{inspect(validation_error)}"
+              )
+
+              {:error, validation_error, directive}
+          end
+
+        {:error, reason} when is_binary(reason) ->
+          dbug("Action failed with string reason", error: reason)
+          cond_log(log_level, :error, "Action #{inspect(action)} failed: #{inspect(reason)}")
+          {:error, Error.execution_error(reason)}
+
+        {:error, %Error{} = error} ->
+          dbug("Action failed with Error struct", error: error)
           cond_log(log_level, :error, "Action #{inspect(action)} failed: #{inspect(error)}")
-          OK.failure(error)
+          {:error, error}
 
-        OK.failure(reason) ->
-          dbug("Action failed with reason", reason: reason)
+        {:error, reason} ->
+          dbug("Action failed with reason", error: reason)
           cond_log(log_level, :error, "Action #{inspect(action)} failed: #{inspect(reason)}")
-          OK.failure(Error.execution_error(reason))
+          {:error, Error.execution_error(reason)}
+
+        {:error, reason, directive} when is_binary(reason) ->
+          dbug("Action failed with string reason and directive",
+            error: reason,
+            directive: directive
+          )
+
+          cond_log(log_level, :error, "Action #{inspect(action)} failed: #{inspect(reason)}")
+          {:error, Error.execution_error(reason), directive}
+
+        {:error, %Error{} = error, directive} ->
+          dbug("Action failed with Error struct and directive",
+            error: error,
+            directive: directive
+          )
+
+          cond_log(log_level, :error, "Action #{inspect(action)} failed: #{inspect(error)}")
+          {:error, error, directive}
+
+        {:error, reason, directive} ->
+          dbug("Action failed with reason and directive", error: reason, directive: directive)
+          cond_log(log_level, :error, "Action #{inspect(action)} failed: #{inspect(reason)}")
+          {:error, Error.execution_error(reason), directive}
 
         result ->
           dbug("Action returned unexpected result", result: result)

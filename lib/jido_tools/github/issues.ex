@@ -33,8 +33,10 @@ defmodule Jido.Tools.Github.Issues do
         labels: params.labels
       }
 
-      result = Tentacat.Issues.create(params.client, params.owner, params.repo, body)
-      {:ok, result}
+      case Tentacat.Issues.create(params.client, params.owner, params.repo, body) do
+        {_, _, %{body: response_body}} when is_map(response_body) -> {:ok, response_body}
+        {_, _, %{body: response_body}} -> {:ok, %{body: response_body}}
+      end
     end
   end
 
@@ -71,8 +73,10 @@ defmodule Jido.Tools.Github.Issues do
         since: params.since
       }
 
-      result = Tentacat.Issues.filter(params.client, params.owner, params.repo, filters)
-      {:ok, result}
+      case Tentacat.Issues.filter(params.client, params.owner, params.repo, filters) do
+        {_, _, %{body: response_body}} when is_map(response_body) -> {:ok, response_body}
+        {_, _, %{body: response_body}} -> {:ok, %{body: response_body}}
+      end
     end
   end
 
@@ -93,8 +97,10 @@ defmodule Jido.Tools.Github.Issues do
       ]
 
     def run(params, _context) do
-      result = Tentacat.Issues.find(params.client, params.owner, params.repo, params.number)
-      {:ok, result}
+      case Tentacat.Issues.find(params.client, params.owner, params.repo, params.number) do
+        {_, _, %{body: response_body}} when is_map(response_body) -> {:ok, response_body}
+        {_, _, %{body: response_body}} -> {:ok, %{body: response_body}}
+      end
     end
   end
 
@@ -114,8 +120,10 @@ defmodule Jido.Tools.Github.Issues do
       ]
 
     def run(params, _context) do
-      result = Tentacat.Issues.list(params.client, params.owner, params.repo)
-      {:ok, result}
+      case Tentacat.Issues.list(params.client, params.owner, params.repo) do
+        {_, _, %{body: response_body}} when is_map(response_body) -> {:ok, response_body}
+        {_, _, %{body: response_body}} -> {:ok, %{body: response_body}}
+      end
     end
   end
 
@@ -151,10 +159,10 @@ defmodule Jido.Tools.Github.Issues do
         labels: params.labels
       }
 
-      result =
-        Tentacat.Issues.update(params.client, params.owner, params.repo, params.number, body)
-
-      {:ok, result}
+      case Tentacat.Issues.update(params.client, params.owner, params.repo, params.number, body) do
+        {_, _, %{body: response_body}} when is_map(response_body) -> {:ok, response_body}
+        {_, _, %{body: response_body}} -> {:ok, %{body: response_body}}
+      end
     end
   end
 end

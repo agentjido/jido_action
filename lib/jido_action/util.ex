@@ -79,7 +79,7 @@ defmodule Jido.Action.Util do
       {:error, "The name must contain only letters, numbers, and underscores."}
 
   """
-  @spec validate_name(any()) :: {:ok, String.t()} | {:error, Error.t()}
+  @spec validate_name(any()) :: {:ok, String.t()} | {:error, Jido.Action.Error.t()}
   def validate_name(name) when is_binary(name) do
     if Regex.match?(@name_regex, name) do
       OK.success(name)
