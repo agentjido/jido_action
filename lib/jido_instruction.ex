@@ -132,10 +132,31 @@ defmodule Jido.Instruction do
   - `Jido.Runner` - Instruction execution
   - `Jido.Agent` - Agent-based execution
   """
-  use TypedStruct
 
   alias Jido.Action.Error
   alias Jido.Instruction
+
+  # Define Zoi schema for instruction
+  @schema Zoi.struct(
+            __MODULE__,
+            %{
+              id:
+                Zoi.string(description: "Unique instruction identifier")
+                |> Zoi.optional(),
+              action:
+                Zoi.atom(description: "Action module to execute")
+                |> Zoi.refine({__MODULE__, :validate_action_module, []}),
+              params: Zoi.map(description: "Parameters for the action") |> Zoi.default(%{}),
+              context: Zoi.map(description: "Execution context") |> Zoi.default(%{}),
+              opts: Zoi.list(Zoi.any(), description: "Runtime options") |> Zoi.default([])
+            },
+            coerce: true
+          )
+
+  @type t :: unquote(Zoi.type_spec(@schema))
+
+  @enforce_keys Zoi.Struct.enforce_keys(@schema)
+  defstruct Zoi.Struct.struct_fields(@schema)
 
   @type action_module :: module()
   @type action_params :: map()
@@ -143,12 +164,18 @@ defmodule Jido.Instruction do
   @type instruction :: action_module() | action_tuple() | t()
   @type instruction_list :: [instruction()]
 
-  typedstruct do
-    field(:id, String.t(), default: Uniq.UUID.uuid7())
-    field(:action, module(), enforce: true)
-    field(:params, map(), default: %{})
-    field(:context, map(), default: %{})
-    field(:opts, keyword(), default: [])
+  @doc false
+  def validate_action_module(value, _opts \\ []) do
+    cond do
+      not is_atom(value) ->
+        {:error, "must be an atom"}
+
+      is_nil(value) ->
+        {:error, "cannot be nil"}
+
+      true ->
+        :ok
+    end
   end
 
   @doc """
@@ -185,11 +212,13 @@ defmodule Jido.Instruction do
       {:ok, instruction} ->
         instruction
 
+      {:error, error} when is_exception(error) ->
+        raise error
+
       {:error, reason} ->
-        {:error,
-         Error.validation_error("Invalid instruction configuration", %{
-           reason: reason
-         })}
+        raise Error.validation_error("Invalid instruction configuration", %{
+                reason: reason
+              })
     end
   end
 
@@ -220,23 +249,49 @@ defmodule Jido.Instruction do
       iex> Instruction.new(%{params: %{value: 1}})
       {:error, :missing_action}
   """
-  @spec new(map() | keyword()) :: {:ok, t()} | {:error, :missing_action | :invalid_action}
+  @spec new(map() | keyword()) ::
+          {:ok, t()} | {:error, :missing_action | :invalid_action | term()}
   def new(attrs) when is_list(attrs) do
     new(Map.new(attrs))
   end
 
-  def new(%{action: action} = attrs) when is_atom(action) do
-    {:ok,
-     %__MODULE__{
-       id: Map.get(attrs, :id, Uniq.UUID.uuid7()),
-       action: action,
-       params: Map.get(attrs, :params, %{}),
-       context: Map.get(attrs, :context, %{}),
-       opts: Map.get(attrs, :opts, [])
-     }}
+  def new(%{} = attrs) do
+    # Preserve backwards compatibility for missing action
+    if Map.has_key?(attrs, :action) do
+      # Check for invalid action early for backwards compatibility
+      action = Map.get(attrs, :action)
+
+      if is_atom(action) do
+        # Apply defaults - coerce nil values before Zoi.parse
+        attrs_with_defaults =
+          attrs
+          |> Map.put_new_lazy(:id, &Uniq.UUID.uuid7/0)
+          |> Map.update(:params, %{}, fn v -> if is_nil(v), do: %{}, else: v end)
+          |> Map.update(:context, %{}, fn v -> if is_nil(v), do: %{}, else: v end)
+          |> Map.update(:opts, [], fn v -> if is_nil(v), do: [], else: v end)
+
+        # Validate with Zoi
+        case Zoi.parse(@schema, attrs_with_defaults) do
+          {:ok, validated_struct} ->
+            {:ok, validated_struct}
+
+          {:error, zoi_errors} ->
+            error =
+              Error.validation_error(
+                "Invalid instruction configuration",
+                %{errors: format_zoi_errors(zoi_errors)}
+              )
+
+            {:error, error}
+        end
+      else
+        {:error, :invalid_action}
+      end
+    else
+      {:error, :missing_action}
+    end
   end
 
-  def new(%{action: _}), do: {:error, :invalid_action}
   def new(_), do: {:error, :missing_action}
 
   @doc """
@@ -446,6 +501,20 @@ defmodule Jido.Instruction do
   end
 
   # Private helpers
+
+  defp format_zoi_errors(errors) when is_list(errors) do
+    Enum.map(errors, fn
+      %{path: path, message: message} = error ->
+        %{
+          path: path,
+          message: message,
+          code: Map.get(error, :code)
+        }
+
+      error ->
+        %{message: inspect(error)}
+    end)
+  end
 
   defp normalize_params(nil), do: {:ok, %{}}
   defp normalize_params(params) when is_map(params), do: {:ok, params}

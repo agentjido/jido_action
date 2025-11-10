@@ -70,32 +70,39 @@ defmodule Jido.Action.Tool do
   Converts string keys to atom keys and handles type conversion based on schema.
   """
   def convert_params_using_schema(params, schema) do
-    schema_keys = Keyword.keys(schema)
+    schema_keys = Jido.Action.Schema.known_keys(schema)
 
     Enum.reduce(schema_keys, %{}, fn key, acc ->
       string_key = to_string(key)
 
       if Map.has_key?(params, string_key) do
         value = params[string_key]
-        schema_entry = Keyword.get(schema, key, [])
-        type = Keyword.get(schema_entry, :type)
 
+        # For NimbleOptions schemas, handle type conversion
         converted_value =
-          case {type, value} do
-            {:float, val} when is_binary(val) ->
-              case Float.parse(val) do
-                {num, _} -> num
-                :error -> val
-              end
+          if is_list(schema) do
+            schema_entry = Keyword.get(schema, key, [])
+            type = Keyword.get(schema_entry, :type)
 
-            {:integer, val} when is_binary(val) ->
-              case Integer.parse(val) do
-                {num, _} -> num
-                :error -> val
-              end
+            case {type, value} do
+              {:float, val} when is_binary(val) ->
+                case Float.parse(val) do
+                  {num, _} -> num
+                  :error -> val
+                end
 
-            _ ->
-              value
+              {:integer, val} when is_binary(val) ->
+                case Integer.parse(val) do
+                  {num, _} -> num
+                  :error -> val
+                end
+
+              _ ->
+                value
+            end
+          else
+            # For Zoi schemas, let the validation handle conversion
+            value
           end
 
         Map.put(acc, key, converted_value)
@@ -110,72 +117,14 @@ defmodule Jido.Action.Tool do
 
   ## Arguments
 
-    * `schema` - The NimbleOptions schema from the action.
+    * `schema` - The NimbleOptions or Zoi schema from the action.
 
   ## Returns
 
     A map representing the parameters schema in a format compatible with LangChain.
   """
-  @spec build_parameters_schema(keyword()) :: map()
+  @spec build_parameters_schema(Jido.Action.Schema.t()) :: map()
   def build_parameters_schema(schema) do
-    properties =
-      Map.new(schema, fn {key, opts} -> {to_string(key), parameter_to_json_schema(opts)} end)
-
-    required =
-      schema
-      |> Enum.filter(fn {_key, opts} -> Keyword.get(opts, :required, false) end)
-      |> Enum.map(fn {key, _opts} -> to_string(key) end)
-
-    %{
-      type: "object",
-      properties: properties,
-      required: required
-    }
+    Jido.Action.Schema.to_json_schema(schema)
   end
-
-  @doc """
-  Converts a NimbleOptions parameter definition to a JSON Schema representation.
-
-  ## Arguments
-
-    * `opts` - The options for a single parameter from the NimbleOptions schema.
-
-  ## Returns
-
-    A map representing the parameter in JSON Schema format.
-  """
-  @spec parameter_to_json_schema(keyword()) :: %{
-          type: String.t(),
-          description: String.t()
-        }
-  def parameter_to_json_schema(opts) do
-    %{
-      type: nimble_type_to_json_schema_type(Keyword.get(opts, :type)),
-      description: Keyword.get(opts, :doc, "No description provided.")
-    }
-  end
-
-  @doc """
-  Converts a NimbleOptions type to a JSON Schema type.
-
-  ## Arguments
-
-    * `type` - The NimbleOptions type.
-
-  ## Returns
-
-    A string representing the equivalent JSON Schema type.
-  """
-  @spec nimble_type_to_json_schema_type(atom()) :: String.t()
-  @spec nimble_type_to_json_schema_type(atom() | tuple()) :: String.t()
-  def nimble_type_to_json_schema_type(:string), do: "string"
-  def nimble_type_to_json_schema_type(:number), do: "integer"
-  def nimble_type_to_json_schema_type(:integer), do: "integer"
-  def nimble_type_to_json_schema_type(:float), do: "string"
-  def nimble_type_to_json_schema_type(:boolean), do: "boolean"
-  def nimble_type_to_json_schema_type(:keyword_list), do: "object"
-  def nimble_type_to_json_schema_type(:map), do: "object"
-  def nimble_type_to_json_schema_type({:list, _}), do: "array"
-  def nimble_type_to_json_schema_type({:map, _}), do: "object"
-  def nimble_type_to_json_schema_type(_), do: "string"
 end

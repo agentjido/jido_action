@@ -20,14 +20,14 @@ defmodule Jido.Action.ToolTest do
       tool = Tool.to_tool(TestActions.BasicAction)
 
       assert tool.parameters_schema == %{
-               type: "object",
-               properties: %{
+               "type" => "object",
+               "properties" => %{
                  "value" => %{
-                   type: "integer",
-                   description: "No description provided."
+                   "type" => "integer",
+                   "description" => "No description provided."
                  }
                },
-               required: ["value"]
+               "required" => ["value"]
              }
     end
   end
@@ -117,55 +117,26 @@ defmodule Jido.Action.ToolTest do
       result = Tool.build_parameters_schema(schema)
 
       assert result == %{
-               type: "object",
-               properties: %{
-                 "string" => %{type: "string", description: "No description provided."},
-                 "integer" => %{type: "integer", description: "No description provided."},
-                 "atom" => %{type: "string", description: "No description provided."},
-                 "boolean" => %{type: "boolean", description: "No description provided."},
-                 "list" => %{type: "array", description: "No description provided."},
-                 "keyword_list" => %{type: "object", description: "No description provided."},
-                 "map" => %{type: "object", description: "No description provided."},
-                 "custom" => %{type: "string", description: "No description provided."}
+               "type" => "object",
+               "properties" => %{
+                 "string" => %{"type" => "string", "description" => "No description provided."},
+                 "integer" => %{"type" => "integer", "description" => "No description provided."},
+                 "atom" => %{"type" => "string", "description" => "No description provided."},
+                 "boolean" => %{"type" => "boolean", "description" => "No description provided."},
+                 "list" => %{"type" => "array", "description" => "No description provided."},
+                 "keyword_list" => %{
+                   "type" => "object",
+                   "description" => "No description provided."
+                 },
+                 "map" => %{"type" => "object", "description" => "No description provided."},
+                 "custom" => %{"type" => "string", "description" => "No description provided."}
                },
-               required: []
+               "required" => []
              }
     end
   end
 
-  describe "parameter_to_json_schema/1" do
-    test "converts NimbleOptions parameter to JSON Schema" do
-      opts = [type: :string, doc: "A test parameter"]
-      result = Tool.parameter_to_json_schema(opts)
-
-      assert result == %{
-               type: "string",
-               description: "A test parameter"
-             }
-    end
-
-    test "uses default description when doc is not provided" do
-      opts = [type: :integer]
-      result = Tool.parameter_to_json_schema(opts)
-
-      assert result == %{
-               type: "integer",
-               description: "No description provided."
-             }
-    end
-  end
-
-  describe "nimble_type_to_json_schema_type/1" do
-    test "converts NimbleOptions types to JSON Schema types" do
-      assert Tool.nimble_type_to_json_schema_type(:string) == "string"
-      assert Tool.nimble_type_to_json_schema_type(:integer) == "integer"
-      assert Tool.nimble_type_to_json_schema_type(:float) == "string"
-      assert Tool.nimble_type_to_json_schema_type(:boolean) == "boolean"
-      assert Tool.nimble_type_to_json_schema_type(:keyword_list) == "object"
-      assert Tool.nimble_type_to_json_schema_type(:map) == "object"
-      assert Tool.nimble_type_to_json_schema_type({:list, :string}) == "array"
-      assert Tool.nimble_type_to_json_schema_type({:map, :string}) == "object"
-      assert Tool.nimble_type_to_json_schema_type(:atom) == "string"
-    end
-  end
+  # Note: parameter_to_json_schema/1 and nimble_type_to_json_schema_type/1 are now
+  # private implementation details in Jido.Action.Schema. The public API is
+  # Jido.Action.Schema.to_json_schema/1 which is tested via build_parameters_schema/1
 end

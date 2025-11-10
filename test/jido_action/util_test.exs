@@ -45,18 +45,17 @@ defmodule JidoTest.Action.UtilTest do
 
   describe "validate_name/1" do
     test "validates names that start with a letter" do
-      assert {:ok, "valid_name"} = Util.validate_name("valid_name")
-      assert {:ok, "ValidName"} = Util.validate_name("ValidName")
-      assert {:ok, "a"} = Util.validate_name("a")
-      assert {:ok, "A"} = Util.validate_name("A")
+      assert :ok = Util.validate_name("valid_name")
+      assert :ok = Util.validate_name("ValidName")
+      assert :ok = Util.validate_name("a")
+      assert :ok = Util.validate_name("A")
     end
 
     test "validates names with letters, numbers, and underscores" do
-      assert {:ok, "valid_name_123"} = Util.validate_name("valid_name_123")
-      assert {:ok, "TestAction42"} = Util.validate_name("TestAction42")
+      assert :ok = Util.validate_name("valid_name_123")
+      assert :ok = Util.validate_name("TestAction42")
 
-      assert {:ok, "action_name_with_underscores"} =
-               Util.validate_name("action_name_with_underscores")
+      assert :ok = Util.validate_name("action_name_with_underscores")
     end
 
     test "rejects names that start with numbers" do

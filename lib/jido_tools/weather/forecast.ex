@@ -64,7 +64,7 @@ defmodule Jido.Tools.Weather.Forecast do
       end
 
     result = %{
-      forecast_url: params.forecast_url,
+      forecast_url: params[:forecast_url],
       updated: body["properties"]["updated"],
       elevation: body["properties"]["elevation"],
       periods: formatted_periods,

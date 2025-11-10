@@ -68,7 +68,7 @@ defmodule Jido.Tools.Weather.HourlyForecast do
       end)
 
     result = %{
-      hourly_forecast_url: params.hourly_forecast_url,
+      hourly_forecast_url: params[:hourly_forecast_url],
       updated: body["properties"]["updated"],
       periods: formatted_periods,
       total_periods: length(periods)

@@ -16,4 +16,4 @@ Logger.configure(level: :debug)
 
 ExUnit.start()
 
-ExUnit.configure(exclude: [:skip])
+ExUnit.configure(capture_log: true, exclude: [:skip])

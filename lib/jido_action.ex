@@ -155,70 +155,78 @@ defmodule Jido.Action do
   > downstream Actions or systems.
   """
 
-  use TypedStruct
-
   alias Jido.Action.Error
   alias Jido.Action.Tool
 
-  typedstruct do
-    field(:name, String.t(), enforce: true)
-    field(:description, String.t())
-    field(:category, String.t())
-    field(:tags, [String.t()], default: [])
-    field(:vsn, String.t())
-    field(:schema, NimbleOptions.schema())
-    field(:output_schema, NimbleOptions.schema())
-  end
+  # Define Zoi schema for Action metadata
+  @schema Zoi.struct(
+            __MODULE__,
+            %{
+              name:
+                Zoi.string(description: "The name of the Action")
+                |> Zoi.refine({Jido.Action.Util, :validate_name, []}),
+              description: Zoi.string(description: "Description") |> Zoi.optional(),
+              category: Zoi.string(description: "Category") |> Zoi.optional(),
+              tags: Zoi.list(Zoi.string(), description: "Tags") |> Zoi.default([]),
+              vsn: Zoi.string(description: "Version") |> Zoi.optional(),
+              schema:
+                Zoi.any(description: "NimbleOptions or Zoi schema for validating Action input")
+                |> Zoi.default([]),
+              output_schema:
+                Zoi.any(description: "NimbleOptions or Zoi schema for validating Action output")
+                |> Zoi.default([])
+            },
+            coerce: true
+          )
 
-  @action_config_schema NimbleOptions.new!(
-                          name: [
-                            type: {:custom, Jido.Action.Util, :validate_name, []},
-                            required: true,
-                            doc:
-                              "The name of the Action. Must contain only letters, numbers, and underscores."
-                          ],
-                          description: [
-                            type: :string,
-                            required: false,
-                            doc: "A description of what the Action does."
-                          ],
-                          category: [
-                            type: :string,
-                            required: false,
-                            doc: "The category of the Action."
-                          ],
-                          tags: [
-                            type: {:list, :string},
-                            default: [],
-                            doc: "A list of tags associated with the Action."
-                          ],
-                          vsn: [
-                            type: :string,
-                            required: false,
-                            doc: "The version of the Action."
-                          ],
-                          compensation: [
-                            type: :keyword_list,
-                            default: [],
-                            keys: [
-                              enabled: [type: :boolean, default: false],
-                              max_retries: [type: :non_neg_integer, default: 1],
-                              timeout: [type: :non_neg_integer, default: 5000]
-                            ]
-                          ],
-                          schema: [
-                            type: :keyword_list,
-                            default: [],
-                            doc:
-                              "A NimbleOptions schema for validating the Action's input parameters."
-                          ],
-                          output_schema: [
-                            type: :keyword_list,
-                            default: [],
-                            doc:
-                              "A NimbleOptions schema for validating the Action's output. Only specified fields are validated."
-                          ]
-                        )
+  @type t :: unquote(Zoi.type_spec(@schema))
+
+  @enforce_keys Zoi.Struct.enforce_keys(@schema)
+  defstruct Zoi.Struct.struct_fields(@schema)
+
+  @action_config_schema Zoi.object(%{
+                          name:
+                            Zoi.string(
+                              description:
+                                "The name of the Action. Must contain only letters, numbers, and underscores."
+                            )
+                            |> Zoi.refine({Jido.Action.Util, :validate_name, []}),
+                          description:
+                            Zoi.string(description: "A description of what the Action does.")
+                            |> Zoi.optional(),
+                          category:
+                            Zoi.string(description: "The category of the Action.")
+                            |> Zoi.optional(),
+                          tags:
+                            Zoi.list(Zoi.string(),
+                              description: "A list of tags associated with the Action."
+                            )
+                            |> Zoi.default([]),
+                          vsn:
+                            Zoi.string(description: "The version of the Action.")
+                            |> Zoi.optional(),
+                          compensation:
+                            Zoi.object(%{
+                              enabled: Zoi.boolean() |> Zoi.default(false),
+                              max_retries: Zoi.integer() |> Zoi.min(0) |> Zoi.default(1),
+                              timeout: Zoi.integer() |> Zoi.min(0) |> Zoi.default(5000)
+                            })
+                            |> Zoi.default(%{enabled: false, max_retries: 1, timeout: 5000}),
+                          schema:
+                            Zoi.any(
+                              description:
+                                "A NimbleOptions or Zoi schema for validating the Action's input parameters."
+                            )
+                            |> Zoi.refine({Jido.Action.Schema, :validate_config_schema, []})
+                            |> Zoi.default([]),
+                          output_schema:
+                            Zoi.any(
+                              description:
+                                "A NimbleOptions or Zoi schema for validating the Action's output. Only specified fields are validated."
+                            )
+                            |> Zoi.refine({Jido.Action.Schema, :validate_config_schema, []})
+                            |> Zoi.default([])
+                        })
 
   @doc """
   Defines a new Action module.
@@ -228,7 +236,17 @@ defmodule Jido.Action do
 
   ## Options
 
-  #{NimbleOptions.docs(@action_config_schema)}
+  - `name` (required) - The name of the Action. Must contain only letters, numbers, and underscores.
+  - `description` (optional) - A description of what the Action does.
+  - `category` (optional) - The category of the Action.
+  - `tags` (optional, default: []) - A list of tags associated with the Action.
+  - `vsn` (optional) - The version of the Action.
+  - `compensation` (optional, default: %{enabled: false, max_retries: 1, timeout: 5000}) - Compensation configuration with keys:
+    - `enabled` (default: false) - Whether compensation is enabled
+    - `max_retries` (default: 1) - Maximum number of retry attempts
+    - `timeout` (default: 5000) - Timeout in milliseconds
+  - `schema` (optional, default: []) - A NimbleOptions or Zoi schema for validating the Action's input parameters.
+  - `output_schema` (optional, default: []) - A NimbleOptions or Zoi schema for validating the Action's output. Only specified fields are validated.
 
   ## Examples
 
@@ -247,8 +265,19 @@ defmodule Jido.Action do
       end
 
   """
-  defmacro __using__(opts) do
+  defmacro __using__(opts_ast) do
     escaped_schema = Macro.escape(@action_config_schema)
+
+    # Extract schema ASTs from the opts if it's a literal keyword list
+    # This preserves closures for Zoi schemas defined inline or in module attributes
+    {schema_ast, output_schema_ast} =
+      if is_list(opts_ast) do
+        {Keyword.get(opts_ast, :schema), Keyword.get(opts_ast, :output_schema)}
+      else
+        # For non-literal opts (e.g., variables from other macros), we can't extract the AST
+        # The schemas will be stored in module attributes from the validated opts
+        {nil, nil}
+      end
 
     quote location: :keep do
       @behaviour Jido.Action
@@ -257,9 +286,47 @@ defmodule Jido.Action do
       alias Jido.Instruction
       alias Jido.Signal
 
-      case NimbleOptions.validate(unquote(opts), unquote(escaped_schema)) do
+      # Convert opts to map for Zoi validation (including nested keyword lists)
+      opts_map =
+        if is_list(unquote(opts_ast)) and Keyword.keyword?(unquote(opts_ast)) do
+          unquote(opts_ast)
+          |> Map.new(fn
+            # Convert nested keyword lists to maps (e.g., compensation)
+            {key, value} when is_list(value) and key in [:compensation] ->
+              if Keyword.keyword?(value) do
+                {key, Map.new(value)}
+              else
+                {key, value}
+              end
+
+            other ->
+              other
+          end)
+        else
+          unquote(opts_ast)
+        end
+
+      case Zoi.parse(unquote(escaped_schema), opts_map) do
         {:ok, validated_opts} ->
-          @validated_opts validated_opts
+          # Convert Zoi struct to map for backward compatibility
+          validated_opts =
+            if is_struct(validated_opts),
+              do: Map.from_struct(validated_opts),
+              else: validated_opts
+
+          # When schema_ast is nil (non-literal opts), store schemas in module attributes
+          # Note: This will lose closures for Zoi schemas passed via variables,
+          # but it's the only option when we can't access the AST
+          if unquote(is_nil(schema_ast)) do
+            @__jido_schema__ Map.get(validated_opts, :schema, [])
+          end
+
+          if unquote(is_nil(output_schema_ast)) do
+            @__jido_output_schema__ Map.get(validated_opts, :output_schema, [])
+          end
+
+          # Store validated opts without schemas to avoid closure serialization  
+          @validated_opts Map.drop(validated_opts, [:schema, :output_schema])
 
           @doc "Returns the name of the Action."
           def name, do: @validated_opts[:name]
@@ -277,10 +344,18 @@ defmodule Jido.Action do
           def vsn, do: @validated_opts[:vsn]
 
           @doc "Returns the input schema of the Action."
-          def schema, do: @validated_opts[:schema]
+          if unquote(schema_ast) do
+            def schema, do: unquote(schema_ast)
+          else
+            def schema, do: @__jido_schema__
+          end
 
           @doc "Returns the output schema of the Action."
-          def output_schema, do: @validated_opts[:output_schema]
+          if unquote(output_schema_ast) do
+            def output_schema, do: unquote(output_schema_ast)
+          else
+            def output_schema, do: @__jido_output_schema__
+          end
 
           @doc "Returns the Action metadata as a JSON-serializable map."
           def to_json do
@@ -291,8 +366,8 @@ defmodule Jido.Action do
               tags: @validated_opts[:tags],
               vsn: @validated_opts[:vsn],
               compensation: @validated_opts[:compensation],
-              schema: @validated_opts[:schema],
-              output_schema: @validated_opts[:output_schema]
+              schema: schema(),
+              output_schema: output_schema()
             }
           end
 
@@ -361,48 +436,48 @@ defmodule Jido.Action do
           end
 
           defp do_validate_params(params) do
-            case @validated_opts[:schema] do
-              [] ->
-                {:ok, params}
+            param_schema = schema()
+            known_keys = Jido.Action.Schema.known_keys(param_schema)
+            {known_params, unknown_params} = Map.split(params, known_keys)
 
-              schema when is_list(schema) ->
-                known_keys = Keyword.keys(schema)
-                {known_params, unknown_params} = Map.split(params, known_keys)
+            case Jido.Action.Schema.validate(param_schema, known_params) do
+              {:ok, validated_params} ->
+                # Convert Zoi structs to maps for consistency
+                validated_map =
+                  if is_struct(validated_params),
+                    do: Map.from_struct(validated_params),
+                    else: validated_params
 
-                case NimbleOptions.validate(Enum.to_list(known_params), schema) do
-                  {:ok, validated_params} ->
-                    merged_params = Map.merge(unknown_params, Map.new(validated_params))
-                    {:ok, merged_params}
+                merged_params = Map.merge(unknown_params, validated_map)
+                {:ok, merged_params}
 
-                  {:error, %NimbleOptions.ValidationError{} = error} ->
-                    error
-                    |> Error.format_nimble_validation_error("Action", __MODULE__)
-                    |> Error.validation_error()
-                    |> then(&{:error, &1})
-                end
+              {:error, error} ->
+                error
+                |> Jido.Action.Schema.format_error("Action", __MODULE__)
+                |> then(&{:error, &1})
             end
           end
 
           defp do_validate_output(output) do
-            case @validated_opts[:output_schema] do
-              [] ->
-                {:ok, output}
+            out_schema = output_schema()
+            known_keys = Jido.Action.Schema.known_keys(out_schema)
+            {known_output, unknown_output} = Map.split(output, known_keys)
 
-              output_schema when is_list(output_schema) ->
-                known_keys = Keyword.keys(output_schema)
-                {known_output, unknown_output} = Map.split(output, known_keys)
+            case Jido.Action.Schema.validate(out_schema, known_output) do
+              {:ok, validated_output} ->
+                # Convert Zoi structs to maps for consistency
+                validated_map =
+                  if is_struct(validated_output),
+                    do: Map.from_struct(validated_output),
+                    else: validated_output
 
-                case NimbleOptions.validate(Enum.to_list(known_output), output_schema) do
-                  {:ok, validated_output} ->
-                    merged_output = Map.merge(unknown_output, Map.new(validated_output))
-                    {:ok, merged_output}
+                merged_output = Map.merge(unknown_output, validated_map)
+                {:ok, merged_output}
 
-                  {:error, %NimbleOptions.ValidationError{} = error} ->
-                    error
-                    |> Error.format_nimble_validation_error("Action output", __MODULE__)
-                    |> Error.validation_error()
-                    |> then(&{:error, &1})
-                end
+              {:error, error} ->
+                error
+                |> Jido.Action.Schema.format_error("Action output", __MODULE__)
+                |> then(&{:error, &1})
             end
           end
 
@@ -450,8 +525,14 @@ defmodule Jido.Action do
                          on_after_run: 1,
                          on_error: 4
 
-        {:error, error} ->
-          message = Error.format_nimble_config_error(error, "Action", __MODULE__)
+        {:error, errors} ->
+          message =
+            if is_list(errors) do
+              "Action configuration validation failed:\n" <> Zoi.prettify_errors(errors)
+            else
+              "Action configuration validation failed: #{inspect(errors)}"
+            end
+
           raise CompileError, description: message, file: __ENV__.file, line: __ENV__.line
       end
     end

@@ -162,6 +162,8 @@ defmodule Jido.Tools.Basic do
       ]
 
     @spec run(map(), map()) :: {:ok, map()}
+    # Dialyzer has issues with IO.inspect label option in Elixir 1.19
+    @dialyzer {:nowarn_function, run: 2}
     def run(%{value: value} = params, _ctx) do
       # credo:disable-for-next-line Credo.Check.Warning.IoInspect
       IO.inspect(value, label: "Inspect action output")

@@ -49,7 +49,7 @@ defmodule Jido.Tools.Weather.LocationToGrid do
     properties = body["properties"]
 
     result = %{
-      location: params.location,
+      location: params[:location],
       grid: %{
         office: properties["gridId"],
         grid_x: properties["gridX"],

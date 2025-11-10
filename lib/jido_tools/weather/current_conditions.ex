@@ -22,7 +22,7 @@ defmodule Jido.Tools.Weather.CurrentConditions do
 
   @impl Jido.Action
   def run(params, _context) do
-    with {:ok, stations} <- get_observation_stations(params.observation_stations_url) do
+    with {:ok, stations} <- get_observation_stations(params[:observation_stations_url]) do
       get_current_conditions(List.first(stations))
     end
   end

@@ -196,7 +196,7 @@ defmodule Jido.PlanTest do
     test "raises error for non-existent step" do
       plan = Plan.new() |> Plan.add(:step1, TestActions.FetchAction)
 
-      assert_raise RuntimeError, fn ->
+      assert_raise Jido.Action.Error.InvalidInputError, fn ->
         Plan.depends_on(plan, :nonexistent, :step1)
       end
     end
@@ -258,7 +258,7 @@ defmodule Jido.PlanTest do
     test "build!/3 raises on error" do
       invalid_plan = [:not, :a, :keyword, :list]
 
-      assert_raise RuntimeError, fn ->
+      assert_raise Jido.Action.Error.InvalidInputError, fn ->
         Plan.build!(invalid_plan)
       end
     end
@@ -304,7 +304,7 @@ defmodule Jido.PlanTest do
         |> Plan.add(:step1, TestActions.FetchAction, depends_on: :step2)
         |> Plan.add(:step2, TestActions.ValidateAction, depends_on: :step1)
 
-      assert_raise RuntimeError, fn ->
+      assert_raise Jido.Action.Error.InvalidInputError, fn ->
         Plan.normalize!(plan)
       end
     end
@@ -461,6 +461,7 @@ defmodule Jido.PlanTest do
   describe "PlanInstruction struct" do
     test "creates PlanInstruction with all fields" do
       plan_instruction = %Plan.PlanInstruction{
+        id: Uniq.UUID.uuid7(),
         name: :test_step,
         instruction: %Instruction{action: TestActions.FetchAction},
         depends_on: [:other_step],
@@ -494,7 +495,7 @@ defmodule Jido.PlanTest do
   describe "Edge cases and error handling" do
     test "handles invalid instruction normalization" do
       # Test the error path in add/4 where Instruction.normalize_single fails
-      assert_raise RuntimeError, "Invalid instruction format", fn ->
+      assert_raise Jido.Action.Error.InvalidInputError, "Invalid instruction format", fn ->
         Plan.new()
         |> Plan.add(:invalid, {:invalid_module_format})
       end

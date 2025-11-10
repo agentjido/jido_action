@@ -40,8 +40,6 @@ defmodule Jido.Plan do
   Plans can be normalized into a directed graph for execution analysis and validation.
   """
 
-  use TypedStruct
-
   alias Jido.Action.Error
   alias Jido.Instruction
 
@@ -52,25 +50,56 @@ defmodule Jido.Plan do
           | {module(), map(), keyword()}
           | Instruction.t()
 
-  typedstruct module: PlanInstruction do
+  defmodule PlanInstruction do
     @moduledoc """
     A single step in the execution plan.
 
     Only contains plan-level metadata. Execution metadata like retry, timeout, etc.
     should go in the Instruction.opts field.
     """
-    field(:id, String.t(), default: Uniq.UUID.uuid7())
-    field(:name, atom(), enforce: true)
-    field(:instruction, Instruction.t(), enforce: true)
-    field(:depends_on, [atom()], default: [])
-    field(:opts, keyword(), default: [])
+
+    # Define Zoi schema for PlanInstruction
+    @schema Zoi.struct(
+              __MODULE__,
+              %{
+                id:
+                  Zoi.string(description: "Unique plan instruction identifier")
+                  |> Zoi.optional(),
+                name: Zoi.atom(description: "Step name"),
+                instruction: Zoi.any(description: "Instruction struct"),
+                depends_on:
+                  Zoi.list(Zoi.atom(), description: "List of step dependencies")
+                  |> Zoi.default([]),
+                opts:
+                  Zoi.list(Zoi.any(), description: "Additional options")
+                  |> Zoi.default([])
+              },
+              coerce: true
+            )
+
+    @type t :: unquote(Zoi.type_spec(@schema))
+
+    @enforce_keys Zoi.Struct.enforce_keys(@schema)
+    defstruct Zoi.Struct.struct_fields(@schema)
   end
 
-  typedstruct do
-    field(:id, String.t(), default: Uniq.UUID.uuid7())
-    field(:steps, %{atom() => PlanInstruction.t()}, default: %{})
-    field(:context, map(), default: %{})
-  end
+  # Define Zoi schema for Plan
+  @schema Zoi.struct(
+            __MODULE__,
+            %{
+              id: Zoi.string(description: "Unique plan identifier") |> Zoi.optional(),
+              steps:
+                Zoi.map(description: "Map of step names to PlanInstructions")
+                |> Zoi.default(%{}),
+              context: Zoi.map(description: "Shared execution context") |> Zoi.default(%{})
+            },
+            coerce: true
+          )
+
+  @type t :: unquote(Zoi.type_spec(@schema))
+
+  @enforce_keys Zoi.Struct.enforce_keys(@schema)
+  defstruct Zoi.Struct.struct_fields(@schema)
 
   @doc """
   Creates a new empty Plan struct.
@@ -86,6 +115,8 @@ defmodule Jido.Plan do
   @spec new(keyword()) :: t()
   def new(opts \\ []) do
     %__MODULE__{
+      id: Uniq.UUID.uuid7(),
+      steps: %{},
       context: Keyword.get(opts, :context, %{})
     }
   end
@@ -134,7 +165,7 @@ defmodule Jido.Plan do
   def build!(plan_def, context \\ %{}) do
     case build(plan_def, context) do
       {:ok, plan} -> plan
-      {:error, error} -> raise error.message
+      {:error, error} -> raise error
     end
   end
 
@@ -158,9 +189,16 @@ defmodule Jido.Plan do
     depends_on = opts |> Keyword.get(:depends_on, []) |> List.wrap()
     plan_opts = Keyword.delete(opts, :depends_on)
 
+    # Validate depends_on contains only atoms
+    if !Enum.all?(depends_on, &is_atom/1) do
+      error = Error.validation_error("All dependencies must be atoms", %{depends_on: depends_on})
+      raise error
+    end
+
     case Instruction.normalize_single(step_def, plan.context, []) do
       {:ok, instruction} ->
         plan_instruction = %PlanInstruction{
+          id: Uniq.UUID.uuid7(),
           name: step_name,
           instruction: instruction,
           depends_on: depends_on,
@@ -170,7 +208,8 @@ defmodule Jido.Plan do
         %{plan | steps: Map.put(plan.steps, step_name, plan_instruction)}
 
       {:error, _error} ->
-        raise "Invalid instruction format"
+        error = Error.validation_error("Invalid instruction format", %{step_def: step_def})
+        raise error
     end
   end
 
@@ -194,7 +233,7 @@ defmodule Jido.Plan do
     case Map.get(plan.steps, step_name) do
       nil ->
         error = Error.validation_error("Step not found", %{step_name: step_name})
-        raise error.message
+        raise error
 
       plan_instruction ->
         current_deps = plan_instruction.depends_on
@@ -235,7 +274,7 @@ defmodule Jido.Plan do
   def normalize!(%__MODULE__{} = plan) do
     case normalize(plan) do
       {:ok, result} -> result
-      {:error, error} -> raise error.message
+      {:error, error} -> raise error
     end
   end
 
@@ -347,11 +386,16 @@ defmodule Jido.Plan do
   end
 
   # Simple cycle detection using DFS
+  # Dialyzer complains about MapSet opaque type but these are false positives
+  @dialyzer {:nowarn_function, find_cycle: 1, find_cycle_dfs: 4, dfs_visit: 5, dfs_neighbors: 5}
+
+  @spec find_cycle(Graph.t()) :: [atom()] | nil
   defp find_cycle(graph) do
     vertices = Graph.vertices(graph)
     find_cycle_dfs(graph, vertices, MapSet.new(), MapSet.new())
   end
 
+  @spec find_cycle_dfs(Graph.t(), [atom()], MapSet.t(), MapSet.t()) :: [atom()] | nil
   defp find_cycle_dfs(_graph, [], _visited, _rec_stack), do: nil
 
   defp find_cycle_dfs(graph, [vertex | rest], visited, rec_stack) do
@@ -365,6 +409,8 @@ defmodule Jido.Plan do
     end
   end
 
+  @spec dfs_visit(Graph.t(), atom(), MapSet.t(), MapSet.t(), [atom()]) ::
+          {:cycle, [atom()]} | {:ok, MapSet.t()}
   defp dfs_visit(graph, vertex, visited, rec_stack, path) do
     if MapSet.member?(rec_stack, vertex) do
       {:cycle, Enum.reverse([vertex | path])}
@@ -380,6 +426,8 @@ defmodule Jido.Plan do
     end
   end
 
+  @spec dfs_neighbors(Graph.t(), [atom()], MapSet.t(), MapSet.t(), [atom()]) ::
+          {:cycle, [atom()]} | {:ok, MapSet.t()}
   defp dfs_neighbors(_graph, [], visited, _rec_stack, _path), do: {:ok, visited}
 
   defp dfs_neighbors(graph, [neighbor | rest], visited, rec_stack, path) do

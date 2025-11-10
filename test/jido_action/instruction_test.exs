@@ -245,14 +245,16 @@ defmodule Jido.InstructionTest do
       assert instruction.params == %{value: 42}
     end
 
-    test "returns error tuple for missing action" do
-      assert {:error, %_{} = error} = Instruction.new!(%{params: %{value: 1}})
-      assert is_exception(error)
+    test "raises for missing action" do
+      assert_raise Jido.Action.Error.InvalidInputError, fn ->
+        Instruction.new!(%{params: %{value: 1}})
+      end
     end
 
-    test "returns error tuple for invalid action" do
-      assert {:error, %_{} = error} = Instruction.new!(%{action: "not_a_module"})
-      assert is_exception(error)
+    test "raises for invalid action" do
+      assert_raise Jido.Action.Error.InvalidInputError, fn ->
+        Instruction.new!(%{action: "not_a_module"})
+      end
     end
   end
 

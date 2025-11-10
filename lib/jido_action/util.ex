@@ -67,29 +67,31 @@ defmodule Jido.Action.Util do
 
   ## Returns
 
-  - `{:ok, name}` if the name is valid.
+  - `:ok` if the name is valid.
   - `{:error, reason}` if the name is invalid.
 
   ## Examples
 
       iex> Jido.Action.validate_name("valid_name_123")
-      {:ok, "valid_name_123"}
+      :ok
 
       iex> Jido.Action.validate_name("invalid-name")
       {:error, "The name must contain only letters, numbers, and underscores."}
 
   """
-  @spec validate_name(any()) :: {:ok, String.t()} | {:error, String.t()}
-  def validate_name(name) when is_binary(name) do
+  @spec validate_name(any(), keyword()) :: :ok | {:error, String.t()}
+  def validate_name(name, _opts \\ [])
+
+  def validate_name(name, _opts) when is_binary(name) do
     if Regex.match?(@name_regex, name) do
-      {:ok, name}
+      :ok
     else
       {:error,
        "The name must start with a letter and contain only letters, numbers, and underscores."}
     end
   end
 
-  def validate_name(_) do
+  def validate_name(_name, _opts) do
     {:error, "Invalid name format."}
   end
 

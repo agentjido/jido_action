@@ -130,10 +130,10 @@ defmodule Jido.Tools.LuaEvalTest do
 
       assert tool.name == "lua_eval"
       assert tool.description =~ "Execute a Lua code string"
-      assert tool.parameters_schema[:required] == ["code"]
+      assert tool.parameters_schema["required"] == ["code"]
 
       # Verify all parameters are present
-      properties = tool.parameters_schema[:properties]
+      properties = tool.parameters_schema["properties"]
       assert Map.has_key?(properties, "code")
       assert Map.has_key?(properties, "globals")
       assert Map.has_key?(properties, "return_mode")

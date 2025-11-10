@@ -40,15 +40,10 @@ defmodule Jido.Tools.Weather.ByLocation do
 
   @impl Jido.Action
   def run(params, context) do
-    with {:ok, grid_info} <- get_grid_info(params.location, context),
-         {:ok, forecast_data} <- get_forecast(grid_info.urls.forecast, params, context) do
+    with {:ok, grid_info} <- get_grid_info(params[:location], context),
+         {:ok, forecast_data} <- get_forecast(grid_info[:urls][:forecast], params, context) do
       result = build_result(grid_info, forecast_data, params)
-
-      # Return just the text for :text format, or the full result for other formats
-      case params[:format] do
-        :text -> {:ok, result.forecast}
-        _ -> {:ok, result}
-      end
+      {:ok, result}
     end
   end
 
@@ -87,17 +82,17 @@ defmodule Jido.Tools.Weather.ByLocation do
   defp build_result(grid_info, forecast_data, params) do
     base_result = %{
       location: %{
-        query: grid_info.location,
-        city: grid_info.city,
-        state: grid_info.state,
-        timezone: grid_info.timezone
+        query: grid_info[:location],
+        city: grid_info[:city],
+        state: grid_info[:state],
+        timezone: grid_info[:timezone]
       },
-      forecast: format_forecast_output(forecast_data.periods, params.format),
-      updated: forecast_data.updated
+      forecast: format_forecast_output(forecast_data[:periods], params[:format]),
+      updated: forecast_data[:updated]
     }
 
     if params[:include_location_info] do
-      Map.put(base_result, :grid_info, grid_info.grid)
+      Map.put(base_result, :grid_info, grid_info[:grid])
     else
       base_result
     end
@@ -108,18 +103,18 @@ defmodule Jido.Tools.Weather.ByLocation do
     # Reasonable limit for text format
     |> Enum.take(7)
     |> Enum.map_join("\n\n", fn period ->
-      temp_info = "#{period.temperature}°#{period.temperature_unit}"
+      temp_info = "#{period[:temperature]}°#{period[:temperature_unit]}"
 
       base_info = """
-      #{period.name}:
+      #{period[:name]}:
       Temperature: #{temp_info}
-      Wind: #{period.wind_speed} #{period.wind_direction}
-      Conditions: #{period.short_forecast}
+      Wind: #{period[:wind_speed]} #{period[:wind_direction]}
+      Conditions: #{period[:short_forecast]}
       """
 
       # Add detailed forecast if available
-      if Map.has_key?(period, :detailed_forecast) and period.detailed_forecast do
-        base_info <> "\nDetails: #{period.detailed_forecast}"
+      if Map.has_key?(period, :detailed_forecast) and period[:detailed_forecast] do
+        base_info <> "\nDetails: #{period[:detailed_forecast]}"
       else
         base_info
       end
