@@ -115,9 +115,59 @@ mix doctor --report
 
 The CI pipeline enforces documentation standards - builds will fail if documentation coverage is incomplete.
 
+## Git Hooks and Conventional Commits
+
+We use [`git_hooks`](https://hex.pm/packages/git_hooks) to enforce commit message conventions:
+
+```bash
+mix git_hooks.install
+```
+
+This installs a `commit-msg` hook that validates your commit messages follow the [Conventional Commits](https://www.conventionalcommits.org/) specification.
+
+### Commit Message Format
+
+```
+<type>[optional scope]: <description>
+
+[optional body]
+
+[optional footer(s)]
+```
+
+### Types
+
+| Type | Description |
+|------|-------------|
+| `feat` | A new feature |
+| `fix` | A bug fix |
+| `docs` | Documentation only changes |
+| `style` | Changes that don't affect code meaning |
+| `refactor` | Code change that neither fixes a bug nor adds a feature |
+| `perf` | Performance improvement |
+| `test` | Adding or correcting tests |
+| `chore` | Changes to build process or auxiliary tools |
+| `ci` | CI configuration changes |
+
+### Examples
+
+```bash
+# Feature
+git commit -m "feat(actions): add new action directive"
+
+# Bug fix
+git commit -m "fix(runner): resolve timeout handling"
+
+# Breaking change
+git commit -m "feat(api)!: change action schema"
+```
+
+The hook will reject non-conforming commits, ensuring a clean changelog can be generated automatically.
+
 ## Pull Request Guidelines
 
 - Provide a clear description of the changes
+- Use commit messages following conventional commits
 - Reference any related issues
 - Include tests and documentation updates
 - Ensure CI passes

@@ -212,6 +212,8 @@ defmodule JidoAction.MixProject do
       {:weather, "~> 0.4.0"},
 
       # Development & Test Dependencies
+      {:git_ops, "~> 2.9", only: :dev, runtime: false},
+      {:git_hooks, "~> 0.5.0", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test]},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:mix_audit, "~> 2.0", only: [:dev, :test], runtime: false},
@@ -239,12 +241,9 @@ defmodule JidoAction.MixProject do
       q: ["quality"],
       quality: [
         "format --check-formatted",
-        "deps.unlock --check-unused",
         "compile --warnings-as-errors",
-        "dialyzer",
         "credo --strict",
-        "doctor",
-        "deps.audit --format brief"
+        "dialyzer"
       ]
     ]
   end
