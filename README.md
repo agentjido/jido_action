@@ -223,6 +223,7 @@ The execution engine for running actions reliably. Features:
 - Timeout handling and process monitoring
 - Comprehensive error handling
 - Telemetry integration for monitoring
+- Instance isolation for multi-tenant applications
 
 ### Jido.Instruction
 The workflow composition system for building complex operations. Enables:
@@ -409,6 +410,22 @@ config :jido_action,
   default_max_retries: 3,
   default_backoff: 500
 ```
+
+### Instance Isolation (Multi-Tenant)
+
+For multi-tenant applications, route execution through instance-scoped supervisors:
+
+```elixir
+# Add instance supervisor to your supervision tree
+children = [
+  {Task.Supervisor, name: MyApp.Jido.TaskSupervisor}
+]
+
+# Execute with instance isolation
+{:ok, result} = Jido.Exec.run(MyAction, params, context, jido: MyApp.Jido)
+```
+
+When `jido: MyApp.Jido` is provided, all tasks spawn under `MyApp.Jido.TaskSupervisor` instead of the global supervisor, ensuring complete isolation between tenants.
 
 ## Contributing
 

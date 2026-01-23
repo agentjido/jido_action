@@ -43,6 +43,7 @@ defmodule Jido.Exec do
   alias Jido.Exec.Async
   alias Jido.Exec.Compensation
   alias Jido.Exec.Retry
+  alias Jido.Exec.Supervisors
   alias Jido.Exec.Telemetry
   alias Jido.Exec.Validator
   alias Jido.Instruction
@@ -58,7 +59,7 @@ defmodule Jido.Exec do
   @type action :: module()
   @type params :: map()
   @type context :: map()
-  @type run_opts :: [timeout: non_neg_integer()]
+  @type run_opts :: [timeout: non_neg_integer(), jido: atom()]
   @type async_ref :: %{ref: reference(), pid: pid()}
 
   # Execution result types
@@ -86,6 +87,7 @@ defmodule Jido.Exec do
     - `:max_retries` - Maximum number of retry attempts (configurable via `:jido_action, :default_max_retries`).
     - `:backoff` - Initial backoff time in milliseconds, doubles with each retry (configurable via `:jido_action, :default_backoff`).
     - `:log_level` - Override the global Logger level for this specific action. Accepts #{inspect(Logger.levels())}.
+    - `:jido` - Optional instance name for isolation. Routes execution through instance-scoped supervisors (e.g., `MyApp.Jido.TaskSupervisor`).
 
   ## Action Metadata in Context
 
@@ -455,9 +457,12 @@ defmodule Jido.Exec do
       # Get the current process's group leader for IO routing
       current_gl = Process.group_leader()
 
+      # Resolve supervisor based on jido: option (defaults to global)
+      task_sup = Supervisors.task_supervisor(opts)
+
       # Spawn task under supervisor using async_nolink
       task =
-        Task.Supervisor.async_nolink(Jido.Action.TaskSupervisor, fn ->
+        Task.Supervisor.async_nolink(task_sup, fn ->
           # Use the parent's group leader to ensure IO is properly captured
           Process.group_leader(self(), current_gl)
 

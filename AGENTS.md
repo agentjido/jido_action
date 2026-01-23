@@ -18,10 +18,31 @@ This is an Elixir library for **composable action framework** with AI integratio
 
 - **Jido.Action** - Core behavior for defining validated, composable actions
 - **Jido.Exec** - Execution engine (sync/async, retries, timeouts, error handling)
+- **Jido.Exec.Supervisors** - Instance isolation for multi-tenant execution
 - **Jido.Instruction** - Workflow composition system wrapping actions with params/context
 - **Jido.Action.Tool** - Converts actions to AI-compatible tool definitions (OpenAI function calling)
 - **Jido.Plan** - DAG (Directed Acyclic Graph) execution plans with dependency management
 - **Jido.Tools.\*** - 25+ pre-built tools (files, HTTP, arithmetic, GitHub, weather, workflow)
+
+## Instance Isolation
+
+For multi-tenant applications, use the `jido:` option to route execution through instance-scoped supervisors:
+
+```elixir
+# Global (default) - uses Jido.Action.TaskSupervisor
+Jido.Exec.run(MyAction, %{}, %{})
+
+# Instance-scoped - uses MyApp.Jido.TaskSupervisor
+Jido.Exec.run(MyAction, %{}, %{}, jido: MyApp.Jido)
+```
+
+Instance supervisors must be started in your supervision tree:
+
+```elixir
+children = [
+  {Task.Supervisor, name: MyApp.Jido.TaskSupervisor}
+]
+```
 
 ## Action Building Patterns
 

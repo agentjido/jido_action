@@ -3,6 +3,7 @@ defmodule Jido.Tools.Workflow.Execution do
 
   alias Jido.Action.Error
   alias Jido.Exec
+  alias Jido.Exec.Supervisors
   alias Jido.Instruction
 
   @spec execute_workflow(list(), map(), map(), module()) :: {:ok, map()} | {:error, any()}
@@ -118,6 +119,12 @@ defmodule Jido.Tools.Workflow.Execution do
   defp execute_parallel(instructions, params, context, metadata, module) do
     max_concurrency = Keyword.get(metadata, :max_concurrency, System.schedulers_online())
 
+    # Extract jido instance from context if present (set by parent workflow)
+    jido_opts = if context[:__jido__], do: [jido: context[:__jido__]], else: []
+
+    # Resolve supervisor based on jido: option (defaults to global)
+    task_sup = Supervisors.task_supervisor(jido_opts)
+
     stream_opts = [
       ordered: true,
       max_concurrency: max_concurrency,
@@ -126,22 +133,22 @@ defmodule Jido.Tools.Workflow.Execution do
     ]
 
     results =
-      Task.Supervisor.async_stream_nolink(
-        Jido.Action.TaskSupervisor,
+      Task.Supervisor.async_stream(
+        task_sup,
         instructions,
         fn instruction ->
           execute_parallel_instruction(instruction, params, context, module)
         end,
         stream_opts
       )
-      |> Enum.map(&handle_parallel_result/1)
+      |> Enum.map(&handle_stream_result/1)
 
     {:ok, %{parallel_results: results}}
   end
 
-  defp handle_parallel_result({:ok, value}), do: value
+  defp handle_stream_result({:ok, value}), do: value
 
-  defp handle_parallel_result({:exit, reason}) do
+  defp handle_stream_result({:exit, reason}) do
     %{error: Error.execution_error("Parallel task exited", %{reason: reason})}
   end
 

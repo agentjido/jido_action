@@ -40,6 +40,14 @@ Execute actions with retry, timeout, and error handling:
   max_retries: 2
 )
 
+# Instance-scoped execution (multi-tenant isolation)
+{:ok, result} = Jido.Exec.run(
+  MyAction,
+  %{input: "data"},
+  %{},
+  jido: MyApp.Jido  # Routes to MyApp.Jido.TaskSupervisor
+)
+
 # Chain actions sequentially
 {:ok, final} = Jido.Exec.Chain.chain([
   MyAction1,

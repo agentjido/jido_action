@@ -210,6 +210,41 @@ def start(_type, _args) do
 end
 ```
 
+### Instance Isolation (Multi-Tenant)
+
+For multi-tenant applications, create instance-scoped supervisors:
+
+```elixir
+# In your application.ex or dynamic supervisor
+def start(_type, _args) do
+  children = [
+    # Global supervisor (always required)
+    {Task.Supervisor, name: Jido.Action.TaskSupervisor},
+    
+    # Instance-scoped supervisors for tenant isolation
+    {Task.Supervisor, name: TenantA.Jido.TaskSupervisor},
+    {Task.Supervisor, name: TenantB.Jido.TaskSupervisor}
+  ]
+  
+  Supervisor.start_link(children, strategy: :one_for_one)
+end
+```
+
+Execute actions with instance isolation:
+
+```elixir
+# Routes to TenantA.Jido.TaskSupervisor
+{:ok, result} = Jido.Exec.run(MyAction, params, context, jido: TenantA.Jido)
+
+# Routes to TenantB.Jido.TaskSupervisor
+{:ok, result} = Jido.Exec.run(MyAction, params, context, jido: TenantB.Jido)
+```
+
+**Key behaviors:**
+- When `jido:` is absent or `nil`, uses global `Jido.Action.TaskSupervisor`
+- When `jido: MyApp.Jido` is provided, uses `MyApp.Jido.TaskSupervisor`
+- Raises `ArgumentError` if instance supervisor is not running (no silent fallback)
+
 ## Environment Variables
 
 Support runtime configuration via environment variables:
@@ -368,6 +403,7 @@ Passed to `Jido.Exec.run/4`:
 | `:backoff` | integer | 250 | Initial backoff in ms |
 | `:log_level` | atom | :info | Logger level override |
 | `:telemetry` | atom | :full | `:full` or `:silent` |
+| `:jido` | atom | nil | Instance name for multi-tenant isolation |
 
 ## Best Practices
 

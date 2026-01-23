@@ -71,6 +71,38 @@ async_ref = Jido.Exec.run_async(
 :ok = Jido.Exec.cancel(async_ref)
 ```
 
+### Instance Isolation (Multi-Tenant)
+
+For multi-tenant applications, route execution through instance-scoped supervisors:
+
+```elixir
+# First, add instance supervisor to your supervision tree
+children = [
+  {Task.Supervisor, name: MyTenant.Jido.TaskSupervisor}
+]
+
+# Execute with instance isolation
+{:ok, result} = Jido.Exec.run(
+  MyApp.Actions.ProcessData,
+  %{data: "input"},
+  %{user_id: "123"},
+  jido: MyTenant.Jido  # Routes to MyTenant.Jido.TaskSupervisor
+)
+
+# Async execution also supports instance isolation
+async_ref = Jido.Exec.run_async(
+  MyApp.Actions.LongRunning,
+  %{data: "large_dataset"},
+  %{user_id: "123"},
+  jido: MyTenant.Jido
+)
+```
+
+When `jido:` is provided:
+- All tasks spawn under the instance-scoped TaskSupervisor
+- Complete isolation between tenants (no cross-contamination)
+- Raises `ArgumentError` if the instance supervisor is not running (no silent fallback)
+
 ## Execution Features
 
 ### Timeout Management
