@@ -1,9 +1,6 @@
 defmodule Jido.ExecTaskTest do
   use JidoTest.ActionCase, async: false
 
-  # Import Private to access private functions for testing
-  use Private
-
   alias Jido.Exec
   alias JidoTest.TestActions.SpawnerAction
   alias JidoTest.TestActions.TaskAction

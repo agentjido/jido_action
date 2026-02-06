@@ -1,9 +1,6 @@
 defmodule Jido.ExecTimeoutTaskSupervisorTest do
   use JidoTest.ActionCase, async: false
 
-  # Import Private to access private functions for testing
-  use Private
-
   import ExUnit.CaptureIO
 
   alias Jido.Action.Error

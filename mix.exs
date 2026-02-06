@@ -206,7 +206,7 @@ defmodule JidoAction.MixProject do
     [
       {:jason, "~> 1.4"},
       {:nimble_options, "~> 1.1"},
-      {:private, "~> 0.1.2"},
+
       {:telemetry, "~> 1.3"},
       {:telemetry_metrics, "~> 1.1"},
       {:uniq, "~> 0.6.1"},

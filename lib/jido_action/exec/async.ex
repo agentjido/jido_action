@@ -5,7 +5,6 @@ defmodule Jido.Exec.Async do
   This module provides the core async implementation for Jido.Exec, 
   managing task supervision, cleanup, and async lifecycle.
   """
-  use Private
 
   alias Jido.Action.Error
   alias Jido.Exec.Supervisors
