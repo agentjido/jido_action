@@ -358,16 +358,7 @@ defmodule Jido.Exec do
   end
 
   @doc false
-  def maybe_retry(
-        action,
-        params,
-        context,
-        opts,
-        retry_count,
-        max_retries,
-        initial_backoff,
-        error
-      ) do
+  def maybe_retry(action, params, context, opts, retry_count, max_retries, initial_backoff, error) do
     if Retry.should_retry?(error, retry_count, max_retries, opts) do
       Retry.execute_retry(action, retry_count, max_retries, initial_backoff, opts, fn ->
         do_run_with_retry(
@@ -459,7 +450,7 @@ defmodule Jido.Exec do
 
   @dialyzer {:nowarn_function, execute_action_with_timeout: 5}
   def execute_action_with_timeout(action, params, context, timeout, opts)
-       when is_integer(timeout) and timeout > 0 do
+      when is_integer(timeout) and timeout > 0 do
     # Get the current process's group leader for IO routing
     current_gl = Process.group_leader()
 
@@ -584,7 +575,7 @@ defmodule Jido.Exec do
 
   # Handle exception errors
   def handle_action_result({:error, %_{} = error}, action, log_level, _opts)
-       when is_exception(error) do
+      when is_exception(error) do
     Telemetry.cond_log_error(log_level, action, error)
     {:error, error}
   end
