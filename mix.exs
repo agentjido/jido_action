@@ -164,7 +164,19 @@ defmodule JidoAction.MixProject do
           Jido.Tools.Github.Issues.Filter,
           Jido.Tools.Github.Issues.Find,
           Jido.Tools.Github.Issues.List,
-          Jido.Tools.Github.Issues.Update
+          Jido.Tools.Github.Issues.Update,
+          Jido.Tools.Github.Pulls,
+          Jido.Tools.Github.Pulls.Create,
+          Jido.Tools.Github.Pulls.Find,
+          Jido.Tools.Github.Pulls.List,
+          Jido.Tools.Github.Pulls.Update,
+          Jido.Tools.Github.IssueComments,
+          Jido.Tools.Github.IssueComments.Create,
+          Jido.Tools.Github.IssueComments.List,
+          Jido.Tools.Github.Webhooks,
+          Jido.Tools.Github.Webhooks.Create,
+          Jido.Tools.Github.Webhooks.List,
+          Jido.Tools.Github.Webhooks.Remove
         ],
         "Actions: Advanced": [
           Jido.Tools.ActionPlan

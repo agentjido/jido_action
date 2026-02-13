@@ -32,3 +32,7 @@ if config_env() == :dev do
       ci: [hidden?: true]
     ]
 end
+
+if config_env() == :test do
+  config :git_hooks, auto_install: false
+end

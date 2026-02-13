@@ -26,28 +26,20 @@ defmodule Jido.Tools.Github.Issues do
 
     @spec run(map(), map()) :: {:ok, map()} | {:error, Jido.Action.Error.t()}
     def run(params, context) do
-      client = get_client(params, context)
+      client = Jido.Tools.Github.Helpers.client(params, context)
 
-      body = %{
-        title: params.title,
-        body: params.body,
-        assignee: params.assignee,
-        milestone: params.milestone,
-        labels: params.labels
-      }
+      body =
+        %{
+          title: params.title,
+          body: params.body,
+          assignee: params[:assignee],
+          milestone: params[:milestone],
+          labels: params[:labels]
+        }
+        |> Jido.Tools.Github.Helpers.compact_nil()
 
       result = Tentacat.Issues.create(client, params.owner, params.repo, body)
-
-      {:ok,
-       %{
-         status: "success",
-         data: result,
-         raw: result
-       }}
-    end
-
-    defp get_client(params, context) do
-      params[:client] || context[:client] || get_in(context, [:tool_context, :client])
+      Jido.Tools.Github.Helpers.success(result)
     end
   end
 
@@ -75,30 +67,22 @@ defmodule Jido.Tools.Github.Issues do
 
     @spec run(map(), map()) :: {:ok, map()} | {:error, Jido.Action.Error.t()}
     def run(params, context) do
-      client = get_client(params, context)
+      client = Jido.Tools.Github.Helpers.client(params, context)
 
-      filters = %{
-        state: params[:state],
-        assignee: params[:assignee],
-        creator: params[:creator],
-        labels: params[:labels],
-        sort: params[:sort],
-        direction: params[:direction],
-        since: params[:since]
-      }
+      filters =
+        %{
+          state: params[:state],
+          assignee: params[:assignee],
+          creator: params[:creator],
+          labels: params[:labels],
+          sort: params[:sort],
+          direction: params[:direction],
+          since: params[:since]
+        }
+        |> Jido.Tools.Github.Helpers.compact_blank()
 
       result = Tentacat.Issues.filter(client, params.owner, params.repo, filters)
-
-      {:ok,
-       %{
-         status: "success",
-         data: result,
-         raw: result
-       }}
-    end
-
-    defp get_client(params, context) do
-      params[:client] || context[:client] || get_in(context, [:tool_context, :client])
+      Jido.Tools.Github.Helpers.success(result)
     end
   end
 
@@ -120,19 +104,9 @@ defmodule Jido.Tools.Github.Issues do
 
     @spec run(map(), map()) :: {:ok, map()} | {:error, Jido.Action.Error.t()}
     def run(params, context) do
-      client = get_client(params, context)
+      client = Jido.Tools.Github.Helpers.client(params, context)
       result = Tentacat.Issues.find(client, params.owner, params.repo, params.number)
-
-      {:ok,
-       %{
-         status: "success",
-         data: result,
-         raw: result
-       }}
-    end
-
-    defp get_client(params, context) do
-      params[:client] || context[:client] || get_in(context, [:tool_context, :client])
+      Jido.Tools.Github.Helpers.success(result)
     end
   end
 
@@ -153,19 +127,9 @@ defmodule Jido.Tools.Github.Issues do
 
     @spec run(map(), map()) :: {:ok, map()} | {:error, Jido.Action.Error.t()}
     def run(params, context) do
-      client = get_client(params, context)
+      client = Jido.Tools.Github.Helpers.client(params, context)
       result = Tentacat.Issues.list(client, params.owner, params.repo)
-
-      {:ok,
-       %{
-         status: "success",
-         data: result,
-         raw: result
-       }}
-    end
-
-    defp get_client(params, context) do
-      params[:client] || context[:client] || get_in(context, [:tool_context, :client])
+      Jido.Tools.Github.Helpers.success(result)
     end
   end
 
@@ -193,30 +157,23 @@ defmodule Jido.Tools.Github.Issues do
 
     @spec run(map(), map()) :: {:ok, map()} | {:error, Jido.Action.Error.t()}
     def run(params, context) do
-      client = get_client(params, context)
+      client = Jido.Tools.Github.Helpers.client(params, context)
 
-      body = %{
-        title: params[:title],
-        body: params[:body],
-        assignee: params[:assignee],
-        state: params[:state],
-        milestone: params[:milestone],
-        labels: params[:labels]
-      }
+      body =
+        %{
+          title: params[:title],
+          body: params[:body],
+          assignee: params[:assignee],
+          state: params[:state],
+          milestone: params[:milestone],
+          labels: params[:labels]
+        }
+        |> Jido.Tools.Github.Helpers.compact_nil()
 
       result =
         Tentacat.Issues.update(client, params.owner, params.repo, params.number, body)
 
-      {:ok,
-       %{
-         status: "success",
-         data: result,
-         raw: result
-       }}
-    end
-
-    defp get_client(params, context) do
-      params[:client] || context[:client] || get_in(context, [:tool_context, :client])
+      Jido.Tools.Github.Helpers.success(result)
     end
   end
 end
