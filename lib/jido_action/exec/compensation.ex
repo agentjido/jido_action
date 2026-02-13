@@ -96,12 +96,10 @@ defmodule Jido.Exec.Compensation do
     end
   end
 
-  # @doc false functions - internal implementation details
-
-  @doc false
+  # Internal implementation details.
   @spec execute_compensation(action(), params(), context(), Exception.t(), any(), run_opts()) ::
           exec_result
-  def execute_compensation(action, params, context, error, directive, opts) do
+  defp execute_compensation(action, params, context, error, directive, opts) do
     metadata = action.__action_metadata__()
     compensation_opts = metadata[:compensation] || []
     timeout = get_compensation_timeout(opts, compensation_opts)
@@ -153,8 +151,7 @@ defmodule Jido.Exec.Compensation do
     handle_task_result(result, error, directive, timeout)
   end
 
-  @doc false
-  def wait_for_down(monitor_ref, pid, wait_ms) do
+  defp wait_for_down(monitor_ref, pid, wait_ms) do
     receive do
       {:DOWN, ^monitor_ref, :process, ^pid, _} -> :ok
     after
@@ -162,14 +159,12 @@ defmodule Jido.Exec.Compensation do
     end
   end
 
-  @doc false
-  def cleanup_after_compensation(monitor_ref, ref) do
+  defp cleanup_after_compensation(monitor_ref, ref) do
     Process.demonitor(monitor_ref, [:flush])
     flush_compensation_results(ref)
   end
 
-  @doc false
-  def flush_compensation_results(ref) do
+  defp flush_compensation_results(ref) do
     receive do
       {:compensation_result, ^ref, _} ->
         flush_compensation_results(ref)
@@ -178,42 +173,38 @@ defmodule Jido.Exec.Compensation do
     end
   end
 
-  @doc false
   @spec get_compensation_timeout(run_opts(), keyword() | map()) :: non_neg_integer()
-  def get_compensation_timeout(opts, compensation_opts) do
+  defp get_compensation_timeout(opts, compensation_opts) do
     Keyword.get(opts, :timeout) || extract_timeout_from_compensation_opts(compensation_opts)
   end
 
-  @doc false
   @spec extract_timeout_from_compensation_opts(keyword() | map() | any()) :: non_neg_integer()
-  def extract_timeout_from_compensation_opts(opts) when is_list(opts),
+  defp extract_timeout_from_compensation_opts(opts) when is_list(opts),
     do: Keyword.get(opts, :timeout, 5_000)
 
-  def extract_timeout_from_compensation_opts(%{timeout: timeout}), do: timeout
-  def extract_timeout_from_compensation_opts(_), do: 5_000
+  defp extract_timeout_from_compensation_opts(%{timeout: timeout}), do: timeout
+  defp extract_timeout_from_compensation_opts(_), do: 5_000
 
-  @doc false
   @spec handle_task_result(
           {:ok, any()} | {:exit, any()} | :timeout,
           Exception.t(),
           any(),
           non_neg_integer()
         ) :: exec_result
-  def handle_task_result({:ok, result}, error, directive, _timeout) do
+  defp handle_task_result({:ok, result}, error, directive, _timeout) do
     handle_compensation_result(result, error, directive)
   end
 
-  def handle_task_result(:timeout, error, directive, timeout) do
+  defp handle_task_result(:timeout, error, directive, timeout) do
     build_timeout_error(error, directive, timeout)
   end
 
-  def handle_task_result({:exit, reason}, error, directive, _timeout) do
+  defp handle_task_result({:exit, reason}, error, directive, _timeout) do
     build_exit_error(error, directive, reason)
   end
 
-  @doc false
   @spec build_timeout_error(Exception.t(), any(), non_neg_integer()) :: exec_result
-  def build_timeout_error(error, directive, timeout) do
+  defp build_timeout_error(error, directive, timeout) do
     error_result =
       Error.execution_error(
         "Compensation timed out after #{timeout}ms for: #{inspect(error)}",
@@ -227,9 +218,8 @@ defmodule Jido.Exec.Compensation do
     wrap_error_with_directive(error_result, directive)
   end
 
-  @doc false
   @spec build_exit_error(Exception.t(), any(), any()) :: exec_result
-  def build_exit_error(error, directive, reason) do
+  defp build_exit_error(error, directive, reason) do
     error_message = Telemetry.extract_safe_error_message(error)
 
     error_result =
@@ -246,17 +236,15 @@ defmodule Jido.Exec.Compensation do
     wrap_error_with_directive(error_result, directive)
   end
 
-  @doc false
   @spec handle_compensation_result(any(), Exception.t(), any()) :: exec_result
-  def handle_compensation_result(result, original_error, directive) do
+  defp handle_compensation_result(result, original_error, directive) do
     result
     |> build_compensation_error(original_error)
     |> wrap_error_with_directive(directive)
   end
 
-  @doc false
   @spec build_compensation_error(any(), Exception.t()) :: Exception.t()
-  def build_compensation_error({:ok, comp_result}, original_error) do
+  defp build_compensation_error({:ok, comp_result}, original_error) do
     # Extract fields that should be at the top level of the details
     {top_level_fields, remaining_fields} =
       Map.split(comp_result, [:test_value, :compensation_context])
@@ -280,7 +268,7 @@ defmodule Jido.Exec.Compensation do
     )
   end
 
-  def build_compensation_error({:error, comp_error}, original_error) do
+  defp build_compensation_error({:error, comp_error}, original_error) do
     # Extract message from error struct properly using safe helper
     error_message = Telemetry.extract_safe_error_message(original_error)
 
@@ -294,7 +282,7 @@ defmodule Jido.Exec.Compensation do
     )
   end
 
-  def build_compensation_error(_invalid_result, original_error) do
+  defp build_compensation_error(_invalid_result, original_error) do
     Error.execution_error(
       "Invalid compensation result for: #{inspect(original_error)}",
       %{
@@ -305,8 +293,7 @@ defmodule Jido.Exec.Compensation do
     )
   end
 
-  @doc false
   @spec wrap_error_with_directive(Exception.t(), any()) :: exec_result
-  def wrap_error_with_directive(error, nil), do: {:error, error}
-  def wrap_error_with_directive(error, directive), do: {:error, error, directive}
+  defp wrap_error_with_directive(error, nil), do: {:error, error}
+  defp wrap_error_with_directive(error, directive), do: {:error, error, directive}
 end

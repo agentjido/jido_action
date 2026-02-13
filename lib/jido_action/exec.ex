@@ -286,38 +286,33 @@ defmodule Jido.Exec do
   @spec cancel(async_ref() | pid()) :: :ok | exec_error
   def cancel(async_ref_or_pid), do: Async.cancel(async_ref_or_pid)
 
-  # @doc false functions - internal implementation details
-
-  @doc false
+  # Internal implementation details.
   @spec normalize_params(params()) :: {:ok, map()} | {:error, Exception.t()}
-  def normalize_params(%_{} = error) when is_exception(error), do: {:error, error}
-  def normalize_params(params) when is_map(params), do: {:ok, params}
-  def normalize_params(params) when is_list(params), do: {:ok, Map.new(params)}
-  def normalize_params({:ok, params}) when is_map(params), do: {:ok, params}
-  def normalize_params({:ok, params}) when is_list(params), do: {:ok, Map.new(params)}
-  def normalize_params({:error, reason}), do: {:error, Error.validation_error(reason)}
+  defp normalize_params(%_{} = error) when is_exception(error), do: {:error, error}
+  defp normalize_params(params) when is_map(params), do: {:ok, params}
+  defp normalize_params(params) when is_list(params), do: {:ok, Map.new(params)}
+  defp normalize_params({:ok, params}) when is_map(params), do: {:ok, params}
+  defp normalize_params({:ok, params}) when is_list(params), do: {:ok, Map.new(params)}
+  defp normalize_params({:error, reason}), do: {:error, Error.validation_error(reason)}
 
-  def normalize_params(params),
+  defp normalize_params(params),
     do: {:error, Error.validation_error("Invalid params type: #{inspect(params)}")}
 
-  @doc false
   @spec normalize_context(context()) :: {:ok, map()} | {:error, Exception.t()}
-  def normalize_context(context) when is_map(context), do: {:ok, context}
-  def normalize_context(context) when is_list(context), do: {:ok, Map.new(context)}
+  defp normalize_context(context) when is_map(context), do: {:ok, context}
+  defp normalize_context(context) when is_list(context), do: {:ok, Map.new(context)}
 
-  def normalize_context(context),
+  defp normalize_context(context),
     do: {:error, Error.validation_error("Invalid context type: #{inspect(context)}")}
 
-  @doc false
   @spec do_run_with_retry(action(), params(), context(), run_opts()) :: exec_result
-  def do_run_with_retry(action, params, context, opts) do
+  defp do_run_with_retry(action, params, context, opts) do
     retry_opts = Retry.extract_retry_opts(opts)
     max_retries = retry_opts[:max_retries]
     backoff = retry_opts[:backoff]
     do_run_with_retry(action, params, context, opts, 0, max_retries, backoff)
   end
 
-  @doc false
   @spec do_run_with_retry(
           action(),
           params(),
@@ -327,7 +322,7 @@ defmodule Jido.Exec do
           non_neg_integer(),
           non_neg_integer()
         ) :: exec_result
-  def do_run_with_retry(action, params, context, opts, retry_count, max_retries, backoff) do
+  defp do_run_with_retry(action, params, context, opts, retry_count, max_retries, backoff) do
     case do_run(action, params, context, opts) do
       {:ok, result} ->
         {:ok, result}
@@ -361,8 +356,16 @@ defmodule Jido.Exec do
     end
   end
 
-  @doc false
-  def maybe_retry(action, params, context, opts, retry_count, max_retries, initial_backoff, error) do
+  defp maybe_retry(
+         action,
+         params,
+         context,
+         opts,
+         retry_count,
+         max_retries,
+         initial_backoff,
+         error
+       ) do
     if Retry.should_retry?(error, retry_count, max_retries, opts) do
       Retry.execute_retry(action, retry_count, max_retries, initial_backoff, opts, fn ->
         do_run_with_retry(
@@ -380,9 +383,8 @@ defmodule Jido.Exec do
     end
   end
 
-  @doc false
   @spec do_run(action(), params(), context(), run_opts()) :: exec_result
-  def do_run(action, params, context, opts) do
+  defp do_run(action, params, context, opts) do
     timeout = Keyword.get(opts, :timeout, get_default_timeout())
     telemetry = Keyword.get(opts, :telemetry, :full)
 
@@ -426,7 +428,6 @@ defmodule Jido.Exec do
     end
   end
 
-  @doc false
   @spec handle_action_error(
           action(),
           params(),
@@ -434,11 +435,10 @@ defmodule Jido.Exec do
           Exception.t() | {Exception.t(), any()},
           run_opts()
         ) :: exec_result
-  def handle_action_error(action, params, context, error_or_tuple, opts) do
+  defp handle_action_error(action, params, context, error_or_tuple, opts) do
     Compensation.handle_error(action, params, context, error_or_tuple, opts)
   end
 
-  @doc false
   @spec execute_action_with_timeout(
           action(),
           params(),
@@ -446,15 +446,15 @@ defmodule Jido.Exec do
           non_neg_integer(),
           run_opts()
         ) :: exec_result
-  def execute_action_with_timeout(action, params, context, timeout, opts \\ [])
+  defp execute_action_with_timeout(action, params, context, timeout, opts \\ [])
 
-  def execute_action_with_timeout(action, params, context, 0, opts) do
+  defp execute_action_with_timeout(action, params, context, 0, opts) do
     execute_action(action, params, context, opts)
   end
 
   @dialyzer {:nowarn_function, execute_action_with_timeout: 5}
-  def execute_action_with_timeout(action, params, context, timeout, opts)
-      when is_integer(timeout) and timeout > 0 do
+  defp execute_action_with_timeout(action, params, context, timeout, opts)
+       when is_integer(timeout) and timeout > 0 do
     # Get the current process's group leader for IO routing
     current_gl = Process.group_leader()
 
@@ -543,13 +543,12 @@ defmodule Jido.Exec do
     end
   end
 
-  def execute_action_with_timeout(action, params, context, _timeout, opts) do
+  defp execute_action_with_timeout(action, params, context, _timeout, opts) do
     execute_action_with_timeout(action, params, context, get_default_timeout(), opts)
   end
 
-  @doc false
   @spec execute_action(action(), params(), context(), run_opts()) :: exec_result
-  def execute_action(action, params, context, opts) do
+  defp execute_action(action, params, context, opts) do
     log_level = Keyword.get(opts, :log_level, :info)
     Telemetry.cond_log_execution_debug(log_level, action, params, context)
 
@@ -561,45 +560,43 @@ defmodule Jido.Exec do
   end
 
   # Handle successful results with extra data
-  @doc false
-  def handle_action_result({:ok, result, other}, action, log_level, opts) do
+  defp handle_action_result({:ok, result, other}, action, log_level, opts) do
     validate_and_log_success(action, result, log_level, opts, other)
   end
 
   # Handle successful results
-  def handle_action_result({:ok, result}, action, log_level, opts) do
+  defp handle_action_result({:ok, result}, action, log_level, opts) do
     validate_and_log_success(action, result, log_level, opts, nil)
   end
 
   # Handle errors with extra data
-  def handle_action_result({:error, reason, other}, action, log_level, _opts) do
+  defp handle_action_result({:error, reason, other}, action, log_level, _opts) do
     Telemetry.cond_log_error(log_level, action, reason)
     {:error, reason, other}
   end
 
   # Handle exception errors
-  def handle_action_result({:error, %_{} = error}, action, log_level, _opts)
-      when is_exception(error) do
+  defp handle_action_result({:error, %_{} = error}, action, log_level, _opts)
+       when is_exception(error) do
     Telemetry.cond_log_error(log_level, action, error)
     {:error, error}
   end
 
   # Handle generic errors
-  def handle_action_result({:error, reason}, action, log_level, _opts) do
+  defp handle_action_result({:error, reason}, action, log_level, _opts) do
     Telemetry.cond_log_error(log_level, action, reason)
     {:error, Error.execution_error(reason)}
   end
 
   # Handle unexpected return shapes
-  def handle_action_result(unexpected_result, action, log_level, _opts) do
+  defp handle_action_result(unexpected_result, action, log_level, _opts) do
     error = Error.execution_error("Unexpected return shape: #{inspect(unexpected_result)}")
     Telemetry.cond_log_error(log_level, action, error)
     {:error, error}
   end
 
   # Validate output and log success, with optional extra data
-  @doc false
-  def validate_and_log_success(action, result, log_level, opts, other) do
+  defp validate_and_log_success(action, result, log_level, opts, other) do
     case Validator.validate_output(action, result, opts) do
       {:ok, validated_result} ->
         log_validated_success(action, validated_result, log_level, other)
@@ -609,31 +606,28 @@ defmodule Jido.Exec do
     end
   end
 
-  @doc false
-  def log_validated_success(action, validated_result, log_level, nil) do
+  defp log_validated_success(action, validated_result, log_level, nil) do
     Telemetry.cond_log_end(log_level, action, {:ok, validated_result})
     {:ok, validated_result}
   end
 
-  def log_validated_success(action, validated_result, log_level, other) do
+  defp log_validated_success(action, validated_result, log_level, other) do
     Telemetry.cond_log_end(log_level, action, {:ok, validated_result, other})
     {:ok, validated_result, other}
   end
 
-  @doc false
-  def log_validation_failure(action, validation_error, log_level, nil) do
+  defp log_validation_failure(action, validation_error, log_level, nil) do
     Telemetry.cond_log_validation_failure(log_level, action, validation_error)
     {:error, validation_error}
   end
 
-  def log_validation_failure(action, validation_error, log_level, other) do
+  defp log_validation_failure(action, validation_error, log_level, other) do
     Telemetry.cond_log_validation_failure(log_level, action, validation_error)
     {:error, validation_error, other}
   end
 
   # Handle exceptions raised during action execution
-  @doc false
-  def handle_action_exception(e, stacktrace, action, opts) do
+  defp handle_action_exception(e, stacktrace, action, opts) do
     log_level = Keyword.get(opts, :log_level, :info)
     Telemetry.cond_log_error(log_level, action, e)
 
@@ -647,16 +641,38 @@ defmodule Jido.Exec do
      })}
   end
 
-  @doc false
-  def build_exception_message(%RuntimeError{} = e, action) do
+  defp build_exception_message(%RuntimeError{} = e, action) do
     "Server error in #{inspect(action)}: #{Telemetry.extract_safe_error_message(e)}"
   end
 
-  def build_exception_message(%ArgumentError{} = e, action) do
+  defp build_exception_message(%ArgumentError{} = e, action) do
     "Argument error in #{inspect(action)}: #{Telemetry.extract_safe_error_message(e)}"
   end
 
-  def build_exception_message(e, action) do
+  defp build_exception_message(e, action) do
     "An unexpected error occurred during execution of #{inspect(action)}: #{inspect(e)}"
+  end
+
+  if Mix.env() == :test do
+    @doc false
+    def __test_normalize_params__(params), do: normalize_params(params)
+
+    @doc false
+    def __test_normalize_context__(context), do: normalize_context(context)
+
+    @doc false
+    def __test_do_run__(action, params, context, opts), do: do_run(action, params, context, opts)
+
+    @doc false
+    def __test_do_run_with_retry__(action, params, context, opts),
+      do: do_run_with_retry(action, params, context, opts)
+
+    @doc false
+    def __test_execute_action_with_timeout__(action, params, context, timeout, opts \\ []),
+      do: execute_action_with_timeout(action, params, context, timeout, opts)
+
+    @doc false
+    def __test_execute_action__(action, params, context, opts),
+      do: execute_action(action, params, context, opts)
   end
 end

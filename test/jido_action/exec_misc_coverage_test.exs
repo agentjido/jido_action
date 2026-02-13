@@ -57,9 +57,11 @@ defmodule JidoTest.ExecMiscCoverageTest do
 
     test "normalize params with various invalid structures" do
       # Test edge cases in param normalization
-      assert {:error, %Error.InvalidInputError{}} = Exec.normalize_params(fn -> :function end)
-      assert {:error, %Error.InvalidInputError{}} = Exec.normalize_params(self())
-      assert {:error, %Error.InvalidInputError{}} = Exec.normalize_params(make_ref())
+      assert {:error, %Error.InvalidInputError{}} =
+               Exec.__test_normalize_params__(fn -> :function end)
+
+      assert {:error, %Error.InvalidInputError{}} = Exec.__test_normalize_params__(self())
+      assert {:error, %Error.InvalidInputError{}} = Exec.__test_normalize_params__(make_ref())
     end
 
     test "compensation with specific timeout configurations" do

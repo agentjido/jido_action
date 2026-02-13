@@ -8,7 +8,7 @@ defmodule Jido.ExecTaskTest do
   @moduletag :capture_log
   describe "spawning multiple processes" do
     test "handles action spawning multiple processes" do
-      result = Exec.execute_action_with_timeout(SpawnerAction, %{count: 10}, %{}, 1000)
+      result = Exec.__test_execute_action_with_timeout__(SpawnerAction, %{count: 10}, %{}, 1000)
       assert {:ok, %{result: "Multi-process action completed"}} = result
       # Ensure no lingering processes
       :timer.sleep(150)
@@ -19,7 +19,7 @@ defmodule Jido.ExecTaskTest do
 
     test "handles naked task action spawning multiple processes" do
       result =
-        Exec.execute_action_with_timeout(
+        Exec.__test_execute_action_with_timeout__(
           NakedTaskAction,
           %{count: 2},
           %{},
@@ -37,7 +37,7 @@ defmodule Jido.ExecTaskTest do
 
       # Start a long-running task that will be linked to the task group
       result =
-        Exec.execute_action_with_timeout(
+        Exec.__test_execute_action_with_timeout__(
           TaskAction,
           # Long delay to ensure task is still running
           %{count: 1, delay: 5000},
@@ -62,7 +62,7 @@ defmodule Jido.ExecTaskTest do
 
       # Start multiple long-running tasks linked to task group
       result =
-        Exec.execute_action_with_timeout(
+        Exec.__test_execute_action_with_timeout__(
           TaskAction,
           # Long delay
           %{count: 5, delay: 5000},

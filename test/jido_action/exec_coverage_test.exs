@@ -212,29 +212,31 @@ defmodule JidoTest.ExecCoverageTest do
 
     test "normalize_params with exception struct" do
       error = Error.validation_error("test error")
-      assert {:error, ^error} = Exec.normalize_params(error)
+      assert {:error, ^error} = Exec.__test_normalize_params__(error)
     end
 
     test "normalize_params with various invalid types" do
       # Test with atom (not covered)
-      assert {:error, %Error.InvalidInputError{}} = Exec.normalize_params(:invalid_atom)
+      assert {:error, %Error.InvalidInputError{}} = Exec.__test_normalize_params__(:invalid_atom)
 
       # Test with integer
-      assert {:error, %Error.InvalidInputError{}} = Exec.normalize_params(123)
+      assert {:error, %Error.InvalidInputError{}} = Exec.__test_normalize_params__(123)
 
       # Test with tuple (not ok/error tuple)
-      assert {:error, %Error.InvalidInputError{}} = Exec.normalize_params({:something, "else"})
+      assert {:error, %Error.InvalidInputError{}} =
+               Exec.__test_normalize_params__({:something, "else"})
     end
 
     test "normalize_context with various invalid types" do
       # Test with atom
-      assert {:error, %Error.InvalidInputError{}} = Exec.normalize_context(:invalid_atom)
+      assert {:error, %Error.InvalidInputError{}} = Exec.__test_normalize_context__(:invalid_atom)
 
       # Test with integer
-      assert {:error, %Error.InvalidInputError{}} = Exec.normalize_context(123)
+      assert {:error, %Error.InvalidInputError{}} = Exec.__test_normalize_context__(123)
 
       # Test with binary
-      assert {:error, %Error.InvalidInputError{}} = Exec.normalize_context("invalid_string")
+      assert {:error, %Error.InvalidInputError{}} =
+               Exec.__test_normalize_context__("invalid_string")
     end
 
     test "validate_action with module compilation failure" do

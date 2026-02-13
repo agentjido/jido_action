@@ -344,12 +344,12 @@ defmodule JidoTest.ExecEdgeCasesTest do
     test "normalize_params with nested {:ok, {:ok, params}}" do
       # Test nested ok tuples
       nested_ok = {:ok, {:ok, %{key: "value"}}}
-      assert {:error, %Error.InvalidInputError{}} = Exec.normalize_params(nested_ok)
+      assert {:error, %Error.InvalidInputError{}} = Exec.__test_normalize_params__(nested_ok)
     end
 
     test "normalize_params with complex nested error" do
       nested_error = {:error, {:nested, "error"}}
-      assert {:error, %Error.InvalidInputError{}} = Exec.normalize_params(nested_error)
+      assert {:error, %Error.InvalidInputError{}} = Exec.__test_normalize_params__(nested_error)
     end
   end
 end

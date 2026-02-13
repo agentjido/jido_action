@@ -20,7 +20,7 @@ defmodule Jido.Action.AtomSafetyTest do
   setup_all do
     # Warm up modules and schemas so their one-time atom creation
     # is not counted in the per-test measurements.
-    _ = Exec.normalize_params(%{"warmup" => "1"})
+    _ = Exec.__test_normalize_params__(%{"warmup" => "1"})
     _ = Tool.convert_params_using_schema(%{"warmup" => "1"}, warmup: [type: :string])
     schema = Zoi.object(%{warmup: Zoi.string()}, coerce: true)
     _ = Tool.convert_params_using_schema(%{"warmup" => "1"}, schema)
@@ -38,7 +38,7 @@ defmodule Jido.Action.AtomSafetyTest do
         end)
 
       # Normalize should not create atoms
-      {:ok, normalized} = Exec.normalize_params(params)
+      {:ok, normalized} = Exec.__test_normalize_params__(params)
 
       atom_count_after = :erlang.system_info(:atom_count)
 
@@ -60,7 +60,7 @@ defmodule Jido.Action.AtomSafetyTest do
       # Use pre-existing atoms
       params = [test_key_1: "value1", test_key_2: "value2", test_key_3: "value3"]
 
-      {:ok, normalized} = Exec.normalize_params(params)
+      {:ok, normalized} = Exec.__test_normalize_params__(params)
 
       atom_count_after = :erlang.system_info(:atom_count)
 
@@ -75,7 +75,7 @@ defmodule Jido.Action.AtomSafetyTest do
         "another_user_key" => "another_value"
       }
 
-      {:ok, normalized} = Exec.normalize_params(params)
+      {:ok, normalized} = Exec.__test_normalize_params__(params)
 
       # String keys should remain as strings
       assert Map.has_key?(normalized, "user_input_key")
@@ -158,7 +158,7 @@ defmodule Jido.Action.AtomSafetyTest do
         end)
 
       # Normalize should not create atoms
-      {:ok, result} = Exec.normalize_params(malicious_params)
+      {:ok, result} = Exec.__test_normalize_params__(malicious_params)
 
       atom_count_after = :erlang.system_info(:atom_count)
 

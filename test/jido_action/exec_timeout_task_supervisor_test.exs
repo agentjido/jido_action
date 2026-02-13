@@ -18,7 +18,9 @@ defmodule Jido.ExecTimeoutTaskSupervisorTest do
         end
       end
 
-      result = Exec.execute_action_with_timeout(FastAction, %{}, %{}, 1000, log_level: :info)
+      result =
+        Exec.__test_execute_action_with_timeout__(FastAction, %{}, %{}, 1000, log_level: :info)
+
       assert {:ok, %{completed: true}} = result
     end
 
@@ -32,7 +34,9 @@ defmodule Jido.ExecTimeoutTaskSupervisorTest do
         end
       end
 
-      result = Exec.execute_action_with_timeout(SlowAction, %{}, %{}, 50, log_level: :info)
+      result =
+        Exec.__test_execute_action_with_timeout__(SlowAction, %{}, %{}, 50, log_level: :info)
+
       assert {:error, %Error.TimeoutError{} = error} = result
       assert error.timeout == 50
       assert error.message =~ "timed out after 50ms"
@@ -56,9 +60,11 @@ defmodule Jido.ExecTimeoutTaskSupervisorTest do
       large_context = %{sensitive: "data", more: String.duplicate("y", 1000)}
 
       result =
-        Exec.execute_action_with_timeout(TimeoutMessageAction, large_params, large_context, 50,
-          log_level: :info
-        )
+        Exec.__test_execute_action_with_timeout__(
+          TimeoutMessageAction,
+          large_params,
+          large_context,
+          50, log_level: :info)
 
       assert {:error, %Error.TimeoutError{} = error} = result
 
@@ -87,7 +93,9 @@ defmodule Jido.ExecTimeoutTaskSupervisorTest do
 
       io =
         capture_io(fn ->
-          result = Exec.execute_action_with_timeout(IOAction, %{}, %{}, 1000, log_level: :info)
+          result =
+            Exec.__test_execute_action_with_timeout__(IOAction, %{}, %{}, 1000, log_level: :info)
+
           assert {:ok, %{io_worked: true}} = result
         end)
 
@@ -123,7 +131,7 @@ defmodule Jido.ExecTimeoutTaskSupervisorTest do
       # Execute the action with short timeout
       spawn_link(fn ->
         result =
-          Exec.execute_action_with_timeout(
+          Exec.__test_execute_action_with_timeout__(
             ChildSpawningAction,
             %{},
             %{test_pid: test_pid},
@@ -165,7 +173,9 @@ defmodule Jido.ExecTimeoutTaskSupervisorTest do
         end
       end
 
-      result = Exec.execute_action_with_timeout(ExitingAction, %{}, %{}, 1000, log_level: :info)
+      result =
+        Exec.__test_execute_action_with_timeout__(ExitingAction, %{}, %{}, 1000, log_level: :info)
+
       assert {:error, %Error.ExecutionFailureError{} = error} = result
       assert error.message =~ "Task exited"
     end
@@ -180,7 +190,11 @@ defmodule Jido.ExecTimeoutTaskSupervisorTest do
         end
       end
 
-      result = Exec.execute_action_with_timeout(KillableAction, %{}, %{}, 1000, log_level: :info)
+      result =
+        Exec.__test_execute_action_with_timeout__(KillableAction, %{}, %{}, 1000,
+          log_level: :info
+        )
+
       assert {:error, %Error.ExecutionFailureError{} = error} = result
       assert error.message =~ "Task exited"
     end
@@ -201,7 +215,7 @@ defmodule Jido.ExecTimeoutTaskSupervisorTest do
       for i <- 1..5 do
         spawn(fn ->
           result =
-            Exec.execute_action_with_timeout(
+            Exec.__test_execute_action_with_timeout__(
               ConcurrentAction,
               %{id: i, delay: i * 50},
               %{},
@@ -246,7 +260,7 @@ defmodule Jido.ExecTimeoutTaskSupervisorTest do
 
       # Run several actions that timeout
       for _ <- 1..10 do
-        Exec.execute_action_with_timeout(LeakTestAction, %{}, %{}, 50, log_level: :info)
+        Exec.__test_execute_action_with_timeout__(LeakTestAction, %{}, %{}, 50, log_level: :info)
       end
 
       # Wait for cleanup

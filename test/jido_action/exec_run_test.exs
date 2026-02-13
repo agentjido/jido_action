@@ -190,29 +190,29 @@ defmodule JidoTest.ExecRunTest do
   describe "normalize_params/1" do
     test "normalizes a map" do
       params = %{key: "value"}
-      assert {:ok, ^params} = Exec.normalize_params(params)
+      assert {:ok, ^params} = Exec.__test_normalize_params__(params)
     end
 
     test "normalizes a keyword list" do
       params = [key: "value"]
-      assert {:ok, %{key: "value"}} = Exec.normalize_params(params)
+      assert {:ok, %{key: "value"}} = Exec.__test_normalize_params__(params)
     end
 
     test "normalizes {:ok, map}" do
       params = {:ok, %{key: "value"}}
-      assert {:ok, %{key: "value"}} = Exec.normalize_params(params)
+      assert {:ok, %{key: "value"}} = Exec.__test_normalize_params__(params)
     end
 
     test "normalizes {:ok, keyword list}" do
       params = {:ok, [key: "value"]}
-      assert {:ok, %{key: "value"}} = Exec.normalize_params(params)
+      assert {:ok, %{key: "value"}} = Exec.__test_normalize_params__(params)
     end
 
     test "handles {:error, reason}" do
       params = {:error, "some error"}
 
       assert {:error, %Jido.Action.Error.InvalidInputError{}} =
-               Exec.normalize_params(params)
+               Exec.__test_normalize_params__(params)
     end
 
     test "passes through exception errors" do
@@ -223,7 +223,7 @@ defmodule JidoTest.ExecRunTest do
       ]
 
       for error <- errors do
-        assert {:error, ^error} = Exec.normalize_params(error)
+        assert {:error, ^error} = Exec.__test_normalize_params__(error)
       end
     end
 
@@ -231,19 +231,19 @@ defmodule JidoTest.ExecRunTest do
       params = "invalid"
 
       assert {:error, %Jido.Action.Error.InvalidInputError{message: "Invalid params type: " <> _}} =
-               Exec.normalize_params(params)
+               Exec.__test_normalize_params__(params)
     end
   end
 
   describe "normalize_context/1" do
     test "normalizes a map" do
       context = %{key: "value"}
-      assert {:ok, ^context} = Exec.normalize_context(context)
+      assert {:ok, ^context} = Exec.__test_normalize_context__(context)
     end
 
     test "normalizes a keyword list" do
       context = [key: "value"]
-      assert {:ok, %{key: "value"}} = Exec.normalize_context(context)
+      assert {:ok, %{key: "value"}} = Exec.__test_normalize_context__(context)
     end
 
     test "returns error for invalid context" do
@@ -251,7 +251,7 @@ defmodule JidoTest.ExecRunTest do
 
       assert {:error,
               %Jido.Action.Error.InvalidInputError{message: "Invalid context type: " <> _}} =
-               Exec.normalize_context(context)
+               Exec.__test_normalize_context__(context)
     end
   end
 
