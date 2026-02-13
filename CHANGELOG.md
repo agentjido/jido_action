@@ -7,7 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Workflow**: Parallel steps now support `timeout_ms` and `fail_on_error`; defaults remain compatibility-first (`timeout_ms: :infinity`, `fail_on_error: false`) (#74)
+
 ### Fixed
+- **Mix**: Remove duplicate `elixirc_paths` project key (#69)
+- **Plan**: Reject dependencies on undefined steps during normalization and phase analysis (#70)
+- **Exec**: Run async chains under `Task.Supervisor` without caller linkage and with `jido:` supervisor routing (#71)
+- **Exec**: Clean async await monitor and result mailbox residue deterministically (#72)
+- **Exec**: Clean compensation timeout/crash monitor and late result message residue (#73)
 - **Exec**: Async cancel now cleans monitor and result mailbox residue
 - **Tools**: LuaEval now runs under `Task.Supervisor` without caller linkage
 - **Exec**: Invalid timeout/retry config values now warn and safely fall back
