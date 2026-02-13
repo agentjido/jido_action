@@ -22,20 +22,9 @@ Thank you for your interest in contributing to Jido Action! This document provid
 ## Code Style
 
 - Follow the existing code style and patterns
-- Use `mix format` to format your code (includes Quokka formatting)
+- Use `mix format` to format your code
 - Ensure Dialyzer passes: `mix dialyzer`
 - Follow Credo guidelines: `mix credo`
-
-### Code Formatting with Quokka
-
-This project uses [Quokka](https://hexdocs.pm/quokka/) for advanced code formatting and style enforcement. Quokka is integrated into `mix format` and provides additional code improvements beyond standard formatting:
-
-- Automatic application of Credo style rules
-- Import/alias organization and optimization
-- Code structure improvements
-- Consistent styling patterns
-
-Quokka runs automatically when you use `mix format` or `mix quality`. It may make significant changes to your code during the first run, so review changes carefully before committing.
 
 ## Security Scanning
 

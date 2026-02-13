@@ -19,6 +19,7 @@ defmodule Jido.Exec.Chain do
 
   alias Jido.Action.Error
   alias Jido.Exec
+  alias Jido.Exec.Supervisors
 
   require Logger
 
@@ -63,7 +64,12 @@ defmodule Jido.Exec.Chain do
       end)
     end
 
-    if async, do: Task.async(chain_fun), else: chain_fun.()
+    if async do
+      task_sup = Supervisors.task_supervisor(opts)
+      Task.Supervisor.async_nolink(task_sup, chain_fun)
+    else
+      chain_fun.()
+    end
   end
 
   @spec should_interrupt?(interrupt_check | nil) :: boolean()
