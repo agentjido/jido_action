@@ -129,7 +129,6 @@ defmodule Jido.Exec.Compensation do
       result =
         receive do
           {:compensation_result, ^ref, result} ->
-            Process.demonitor(monitor_ref, [:flush])
             {:ok, result}
 
           {:DOWN, ^monitor_ref, :process, ^pid, reason} ->
@@ -147,10 +146,34 @@ defmodule Jido.Exec.Compensation do
         after
           timeout ->
             _ = Task.Supervisor.terminate_child(task_sup, pid)
+            wait_for_down(monitor_ref, pid, 100)
             :timeout
         end
 
+      cleanup_after_compensation(monitor_ref, ref)
       handle_task_result(result, error, directive, timeout)
+    end
+
+    defp wait_for_down(monitor_ref, pid, wait_ms) do
+      receive do
+        {:DOWN, ^monitor_ref, :process, ^pid, _} -> :ok
+      after
+        wait_ms -> :ok
+      end
+    end
+
+    defp cleanup_after_compensation(monitor_ref, ref) do
+      Process.demonitor(monitor_ref, [:flush])
+      flush_compensation_results(ref)
+    end
+
+    defp flush_compensation_results(ref) do
+      receive do
+        {:compensation_result, ^ref, _} ->
+          flush_compensation_results(ref)
+      after
+        0 -> :ok
+      end
     end
 
     @spec get_compensation_timeout(run_opts(), keyword() | map()) :: non_neg_integer()
