@@ -96,17 +96,18 @@ defmodule Jido.Tools.LuaEval do
     if Code.ensure_loaded?(Lua) do
       timeout_ms = Map.get(params, :timeout_ms, 1000)
 
-      task =
-        Task.async(fn ->
-          do_run(params)
-        end)
+      task = Task.Supervisor.async_nolink(Jido.Action.TaskSupervisor, fn -> do_run(params) end)
 
       case Task.yield(task, timeout_ms) do
         {:ok, res} ->
           res
 
+        {:exit, reason} ->
+          _ = Task.shutdown(task, :brutal_kill)
+          return_error(:lua_error, "Lua task exited: #{inspect(reason)}")
+
         nil ->
-          Task.shutdown(task, :brutal_kill)
+          _ = Task.shutdown(task, :brutal_kill)
           {:error, %{type: :timeout, timeout_ms: timeout_ms}}
       end
     else
