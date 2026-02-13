@@ -269,7 +269,8 @@ defmodule Jido.Plan do
   def normalize(%__MODULE__{} = plan) do
     plan_instructions = Map.values(plan.steps)
 
-    with {:ok, graph} <- build_graph(plan_instructions),
+    with :ok <- validate_defined_dependencies(plan_instructions),
+         {:ok, graph} <- build_graph(plan_instructions),
          :ok <- validate_graph(graph) do
       {:ok, {graph, plan_instructions}}
     end
@@ -353,6 +354,38 @@ defmodule Jido.Plan do
 
       _ ->
         {step_def, []}
+    end
+  end
+
+  defp validate_defined_dependencies(plan_instructions) do
+    defined_steps =
+      plan_instructions
+      |> Enum.map(& &1.name)
+      |> MapSet.new()
+
+    missing_dependencies_by_step =
+      Enum.reduce(plan_instructions, %{}, fn plan_instruction, acc ->
+        missing_dependencies =
+          plan_instruction.depends_on
+          |> Enum.uniq()
+          |> Enum.reject(&MapSet.member?(defined_steps, &1))
+          |> Enum.sort()
+
+        if missing_dependencies == [] do
+          acc
+        else
+          Map.put(acc, plan_instruction.name, missing_dependencies)
+        end
+      end)
+
+    if map_size(missing_dependencies_by_step) == 0 do
+      :ok
+    else
+      {:error,
+       Error.validation_error("Plan contains dependencies on undefined steps", %{
+         missing_dependencies_by_step: missing_dependencies_by_step,
+         available_steps: defined_steps |> MapSet.to_list() |> Enum.sort()
+       })}
     end
   end
 
