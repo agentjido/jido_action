@@ -64,7 +64,9 @@ defmodule Jido.ExecTimeoutTaskSupervisorTest do
           TimeoutMessageAction,
           large_params,
           large_context,
-          50, log_level: :info)
+          50,
+          log_level: :info
+        )
 
       assert {:error, %Error.TimeoutError{} = error} = result
 

@@ -198,7 +198,9 @@ defmodule JidoTest.ExecExecuteTest do
                      DelayAction,
                      %{delay: 1000},
                      %{},
-                     100, log_level: :debug)
+                     100,
+                     log_level: :debug
+                   )
         end)
 
       assert log =~ "Starting execution of JidoTest.TestActions.DelayAction"
@@ -265,7 +267,9 @@ defmodule JidoTest.ExecExecuteTest do
                      ErrorAction,
                      %{type: :throw},
                      %{},
-                     1000, log_level: :debug)
+                     1000,
+                     log_level: :debug
+                   )
 
           assert is_exception(error)
           assert Exception.message(error) =~ "Task exited"
