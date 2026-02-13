@@ -60,7 +60,11 @@ defmodule Jido.Exec do
   @type params :: map()
   @type context :: map()
   @type run_opts :: [timeout: non_neg_integer(), jido: atom()]
-  @type async_ref :: %{ref: reference(), pid: pid()}
+  @type async_ref :: %{
+          required(:ref) => reference(),
+          required(:pid) => pid(),
+          optional(:monitor_ref) => reference()
+        }
 
   # Execution result types
   @type exec_success :: {:ok, map()}

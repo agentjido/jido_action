@@ -22,7 +22,11 @@ defmodule Jido.Exec.Async do
   @type params :: map()
   @type context :: map()
   @type run_opts :: [timeout: non_neg_integer(), jido: atom()]
-  @type async_ref :: %{ref: reference(), pid: pid()}
+  @type async_ref :: %{
+          required(:ref) => reference(),
+          required(:pid) => pid(),
+          optional(:monitor_ref) => reference()
+        }
 
   # Execution result types
   @type exec_success :: {:ok, map()}
@@ -55,6 +59,7 @@ defmodule Jido.Exec.Async do
   An `async_ref` map containing:
   - `:ref` - A unique reference for this async action.
   - `:pid` - The PID of the process executing the Action.
+  - `:monitor_ref` - Monitor reference used for deterministic cleanup.
   """
   @spec start(action(), params(), context(), run_opts()) :: async_ref()
   def start(action, params \\ %{}, context \\ %{}, opts \\ []) do
@@ -73,10 +78,10 @@ defmodule Jido.Exec.Async do
         result
       end)
 
-    # We monitor the newly created Task so we can handle :DOWN messages in `await`.
-    Process.monitor(pid)
+    # Persist monitor_ref in async_ref so await can demonitor/flush deterministically.
+    monitor_ref = Process.monitor(pid)
 
-    %{ref: ref, pid: pid}
+    %{ref: ref, pid: pid, monitor_ref: monitor_ref}
   end
 
   @doc """
@@ -109,58 +114,60 @@ defmodule Jido.Exec.Async do
   - `{:error, reason}` if an error occurs or timeout is reached.
   """
   @spec await(async_ref(), timeout()) :: exec_result
-  def await(%{ref: ref, pid: pid}, timeout) do
-    result =
-      receive do
-        {:action_async_result, ^ref, result} ->
-          result
+  def await(%{ref: ref, pid: pid} = async_ref, timeout) do
+    monitor_ref = Map.get_lazy(async_ref, :monitor_ref, fn -> Process.monitor(pid) end)
 
-        {:DOWN, _monitor_ref, :process, ^pid, :normal} ->
-          # Process completed normally, but we might still receive the result
-          receive do
-            {:action_async_result, ^ref, result} ->
-              result
-          after
-            100 ->
-              # Flush any stray result message to prevent mailbox leak
-              receive do
-                {:action_async_result, ^ref, _} -> :ok
-              after
-                0 -> :ok
-              end
-
-              {:error, Error.execution_error("Process completed but result was not received")}
-          end
-
-        {:DOWN, _monitor_ref, :process, ^pid, reason} ->
-          {:error, Error.execution_error("Server error in async action: #{inspect(reason)}")}
-      after
-        timeout ->
-          Process.exit(pid, :kill)
-
-          receive do
-            {:DOWN, _, :process, ^pid, _} -> :ok
-          after
-            0 -> :ok
-          end
-
-          {:error,
-           Error.timeout_error("Async action timed out after #{timeout}ms", %{timeout: timeout})}
-      end
-
-    # Flush any remaining messages for this ref/pid to prevent mailbox leaks
-    flush_messages(ref, pid)
-
+    result = await_result(ref, pid, monitor_ref, timeout)
+    cleanup_after_await(ref, monitor_ref)
     result
   end
 
-  # Flush any stray messages related to this async operation
-  defp flush_messages(ref, pid) do
+  defp await_result(ref, pid, monitor_ref, timeout) do
     receive do
-      {:action_async_result, ^ref, _} -> flush_messages(ref, pid)
-      {:DOWN, _, :process, ^pid, _} -> flush_messages(ref, pid)
+      {:action_async_result, ^ref, result} ->
+        result
+
+      {:DOWN, ^monitor_ref, :process, ^pid, :normal} ->
+        # Process completed normally, but result message may still be in-flight.
+        receive do
+          {:action_async_result, ^ref, result} -> result
+        after
+          100 ->
+            {:error, Error.execution_error("Process completed but result was not received")}
+        end
+
+      {:DOWN, ^monitor_ref, :process, ^pid, reason} ->
+        {:error, Error.execution_error("Server error in async action: #{inspect(reason)}")}
     after
-      0 -> :ok
+      timeout ->
+        Process.exit(pid, :kill)
+        wait_for_down(monitor_ref, pid, 100)
+
+        {:error,
+         Error.timeout_error("Async action timed out after #{timeout}ms", %{timeout: timeout})}
+    end
+  end
+
+  defp wait_for_down(monitor_ref, pid, wait_ms) do
+    receive do
+      {:DOWN, ^monitor_ref, :process, ^pid, _} -> :ok
+    after
+      wait_ms -> :ok
+    end
+  end
+
+  defp cleanup_after_await(ref, monitor_ref) do
+    Process.demonitor(monitor_ref, [:flush])
+    flush_result_messages(ref)
+  end
+
+  defp flush_result_messages(ref) do
+    receive do
+      {:action_async_result, ^ref, _} ->
+        flush_result_messages(ref)
+    after
+      0 ->
+        :ok
     end
   end
 
