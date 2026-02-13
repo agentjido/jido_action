@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **Exec**: Async cancel now cleans monitor and result mailbox residue
 - **Tools**: LuaEval now runs under `Task.Supervisor` without caller linkage
+- **Exec**: Invalid timeout/retry config values now warn and safely fall back
 
 ## [2.0.0-rc.4] - 2026-02-06
 
