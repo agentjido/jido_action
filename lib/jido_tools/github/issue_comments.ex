@@ -23,19 +23,9 @@ defmodule Jido.Tools.Github.IssueComments do
 
     @spec run(map(), map()) :: {:ok, map()} | {:error, Jido.Action.Error.t()}
     def run(params, context) do
-      client = get_client(params, context)
+      client = Jido.Tools.Github.Helpers.client(params, context)
       result = Tentacat.Issues.Comments.list(client, params.owner, params.repo, params.number)
-
-      {:ok,
-       %{
-         status: "success",
-         data: result,
-         raw: result
-       }}
-    end
-
-    defp get_client(params, context) do
-      params[:client] || context[:client] || get_in(context, [:tool_context, :client])
+      Jido.Tools.Github.Helpers.success(result)
     end
   end
 
@@ -58,22 +48,13 @@ defmodule Jido.Tools.Github.IssueComments do
 
     @spec run(map(), map()) :: {:ok, map()} | {:error, Jido.Action.Error.t()}
     def run(params, context) do
-      client = get_client(params, context)
+      client = Jido.Tools.Github.Helpers.client(params, context)
       body = %{body: params.body}
 
       result =
         Tentacat.Issues.Comments.create(client, params.owner, params.repo, params.number, body)
 
-      {:ok,
-       %{
-         status: "success",
-         data: result,
-         raw: result
-       }}
-    end
-
-    defp get_client(params, context) do
-      params[:client] || context[:client] || get_in(context, [:tool_context, :client])
+      Jido.Tools.Github.Helpers.success(result)
     end
   end
 end

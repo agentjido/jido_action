@@ -22,19 +22,9 @@ defmodule Jido.Tools.Github.Webhooks do
 
     @spec run(map(), map()) :: {:ok, map()} | {:error, Jido.Action.Error.t()}
     def run(params, context) do
-      client = get_client(params, context)
+      client = Jido.Tools.Github.Helpers.client(params, context)
       result = Tentacat.Hooks.list(client, params.owner, params.repo)
-
-      {:ok,
-       %{
-         status: "success",
-         data: result,
-         raw: result
-       }}
-    end
-
-    defp get_client(params, context) do
-      params[:client] || context[:client] || get_in(context, [:tool_context, :client])
+      Jido.Tools.Github.Helpers.success(result)
     end
   end
 
@@ -60,14 +50,14 @@ defmodule Jido.Tools.Github.Webhooks do
 
     @spec run(map(), map()) :: {:ok, map()} | {:error, Jido.Action.Error.t()}
     def run(params, context) do
-      client = get_client(params, context)
+      client = Jido.Tools.Github.Helpers.client(params, context)
 
       config =
         %{
           "url" => params.url,
           "content_type" => params[:content_type] || "json"
         }
-        |> maybe_put("secret", params[:secret])
+        |> Jido.Tools.Github.Helpers.maybe_put("secret", params[:secret])
 
       body = %{
         "name" => "web",
@@ -77,21 +67,8 @@ defmodule Jido.Tools.Github.Webhooks do
       }
 
       result = Tentacat.Hooks.create(client, params.owner, params.repo, body)
-
-      {:ok,
-       %{
-         status: "success",
-         data: result,
-         raw: result
-       }}
+      Jido.Tools.Github.Helpers.success(result)
     end
-
-    defp get_client(params, context) do
-      params[:client] || context[:client] || get_in(context, [:tool_context, :client])
-    end
-
-    defp maybe_put(map, _key, nil), do: map
-    defp maybe_put(map, key, value), do: Map.put(map, key, value)
   end
 
   defmodule Remove do
@@ -112,19 +89,9 @@ defmodule Jido.Tools.Github.Webhooks do
 
     @spec run(map(), map()) :: {:ok, map()} | {:error, Jido.Action.Error.t()}
     def run(params, context) do
-      client = get_client(params, context)
+      client = Jido.Tools.Github.Helpers.client(params, context)
       result = Tentacat.Hooks.remove(client, params.owner, params.repo, params.hook_id)
-
-      {:ok,
-       %{
-         status: "success",
-         data: result,
-         raw: result
-       }}
-    end
-
-    defp get_client(params, context) do
-      params[:client] || context[:client] || get_in(context, [:tool_context, :client])
+      Jido.Tools.Github.Helpers.success(result)
     end
   end
 end

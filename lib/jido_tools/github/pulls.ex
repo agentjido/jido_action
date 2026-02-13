@@ -22,19 +22,9 @@ defmodule Jido.Tools.Github.Pulls do
 
     @spec run(map(), map()) :: {:ok, map()} | {:error, Jido.Action.Error.t()}
     def run(params, context) do
-      client = get_client(params, context)
+      client = Jido.Tools.Github.Helpers.client(params, context)
       result = Tentacat.Pulls.list(client, params.owner, params.repo)
-
-      {:ok,
-       %{
-         status: "success",
-         data: result,
-         raw: result
-       }}
-    end
-
-    defp get_client(params, context) do
-      params[:client] || context[:client] || get_in(context, [:tool_context, :client])
+      Jido.Tools.Github.Helpers.success(result)
     end
   end
 
@@ -56,19 +46,9 @@ defmodule Jido.Tools.Github.Pulls do
 
     @spec run(map(), map()) :: {:ok, map()} | {:error, Jido.Action.Error.t()}
     def run(params, context) do
-      client = get_client(params, context)
+      client = Jido.Tools.Github.Helpers.client(params, context)
       result = Tentacat.Pulls.find(client, params.owner, params.repo, params.number)
-
-      {:ok,
-       %{
-         status: "success",
-         data: result,
-         raw: result
-       }}
-    end
-
-    defp get_client(params, context) do
-      params[:client] || context[:client] || get_in(context, [:tool_context, :client])
+      Jido.Tools.Github.Helpers.success(result)
     end
   end
 
@@ -93,7 +73,7 @@ defmodule Jido.Tools.Github.Pulls do
 
     @spec run(map(), map()) :: {:ok, map()} | {:error, Jido.Action.Error.t()}
     def run(params, context) do
-      client = get_client(params, context)
+      client = Jido.Tools.Github.Helpers.client(params, context)
 
       body =
         %{
@@ -102,25 +82,10 @@ defmodule Jido.Tools.Github.Pulls do
           head: params[:head],
           base: params[:base]
         }
-        |> reject_nil_values()
+        |> Jido.Tools.Github.Helpers.compact_nil()
 
       result = Tentacat.Pulls.create(client, params.owner, params.repo, body)
-
-      {:ok,
-       %{
-         status: "success",
-         data: result,
-         raw: result
-       }}
-    end
-
-    defp get_client(params, context) do
-      params[:client] || context[:client] || get_in(context, [:tool_context, :client])
-    end
-
-    defp reject_nil_values(map) do
-      Enum.reject(map, fn {_key, value} -> is_nil(value) end)
-      |> Map.new()
+      Jido.Tools.Github.Helpers.success(result)
     end
   end
 
@@ -145,7 +110,7 @@ defmodule Jido.Tools.Github.Pulls do
 
     @spec run(map(), map()) :: {:ok, map()} | {:error, Jido.Action.Error.t()}
     def run(params, context) do
-      client = get_client(params, context)
+      client = Jido.Tools.Github.Helpers.client(params, context)
 
       body =
         %{
@@ -153,25 +118,10 @@ defmodule Jido.Tools.Github.Pulls do
           body: params[:body],
           state: params[:state]
         }
-        |> reject_nil_values()
+        |> Jido.Tools.Github.Helpers.compact_nil()
 
       result = Tentacat.Pulls.update(client, params.owner, params.repo, params.number, body)
-
-      {:ok,
-       %{
-         status: "success",
-         data: result,
-         raw: result
-       }}
-    end
-
-    defp get_client(params, context) do
-      params[:client] || context[:client] || get_in(context, [:tool_context, :client])
-    end
-
-    defp reject_nil_values(map) do
-      Enum.reject(map, fn {_key, value} -> is_nil(value) end)
-      |> Map.new()
+      Jido.Tools.Github.Helpers.success(result)
     end
   end
 end
