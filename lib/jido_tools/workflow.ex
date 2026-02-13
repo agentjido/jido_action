@@ -17,6 +17,16 @@ defmodule Jido.Tools.Workflow do
   - `{:converge, metadata, [instruction]}` - Converge branch paths
   - `{:parallel, metadata, [instructions]}` - Execute instructions in parallel
 
+  ## Parallel Step Metadata
+
+  Parallel steps support the following metadata options:
+
+  - `:max_concurrency` - Maximum number of parallel tasks (default: scheduler count)
+  - `:timeout_ms` - Timeout per parallel task in milliseconds (default: `:infinity`, compatibility mode)
+  - `:fail_on_error` - When `true`, any parallel error fails the workflow step. Defaults to `false`
+    for backwards compatibility, in which case errors are returned as `%{error: ...}` entries in
+    `parallel_results`.
+
   ## Usage
 
   ```elixir
