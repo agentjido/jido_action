@@ -58,9 +58,9 @@ defmodule Jido.Tools.Github.IssuesTest do
         assert repo == "test-repo"
         assert body.title == "Test Issue"
         assert body.body == "Test Body"
-        assert body.assignee == nil
-        assert body.milestone == nil
-        assert body.labels == nil
+        refute Map.has_key?(body, :assignee)
+        refute Map.has_key?(body, :milestone)
+        refute Map.has_key?(body, :labels)
         @mock_issue_response
       end)
 
@@ -125,13 +125,7 @@ defmodule Jido.Tools.Github.IssuesTest do
         assert client == @mock_client
         assert owner == "test-owner"
         assert repo == "test-repo"
-        assert filters.state == nil
-        assert filters.assignee == nil
-        assert filters.creator == nil
-        assert filters.labels == nil
-        assert filters.sort == nil
-        assert filters.direction == nil
-        assert filters.since == nil
+        assert filters == %{}
         mock_issues
       end)
 
@@ -157,7 +151,7 @@ defmodule Jido.Tools.Github.IssuesTest do
       mock_issues = [@mock_issue_response]
 
       expect(Tentacat.Issues, :filter, fn _client, _owner, _repo, filters ->
-        assert filters.state == "closed"
+        assert filters == %{state: "closed"}
         mock_issues
       end)
 
@@ -172,6 +166,31 @@ defmodule Jido.Tools.Github.IssuesTest do
         sort: nil,
         direction: nil,
         since: nil
+      }
+
+      assert {:ok, result} = Issues.Filter.run(params, %{})
+      assert result.status == "success"
+    end
+
+    test "filters issues removing empty string values" do
+      mock_issues = [@mock_issue_response]
+
+      expect(Tentacat.Issues, :filter, fn _client, _owner, _repo, filters ->
+        assert filters == %{state: "open"}
+        mock_issues
+      end)
+
+      params = %{
+        client: @mock_client,
+        owner: "test-owner",
+        repo: "test-repo",
+        state: "open",
+        assignee: "",
+        creator: "",
+        labels: "",
+        sort: "",
+        direction: "",
+        since: ""
       }
 
       assert {:ok, result} = Issues.Filter.run(params, %{})
@@ -308,12 +327,7 @@ defmodule Jido.Tools.Github.IssuesTest do
         assert owner == "test-owner"
         assert repo == "test-repo"
         assert number == 1
-        assert body.title == nil
-        assert body.body == nil
-        assert body.assignee == nil
-        assert body.state == nil
-        assert body.milestone == nil
-        assert body.labels == nil
+        assert body == %{}
         @mock_issue_response
       end)
 
@@ -339,7 +353,10 @@ defmodule Jido.Tools.Github.IssuesTest do
       expect(Tentacat.Issues, :update, fn _client, _owner, _repo, _number, body ->
         assert body.title == "New Title Only"
         assert body.state == "open"
-        assert body.body == nil
+        refute Map.has_key?(body, :body)
+        refute Map.has_key?(body, :assignee)
+        refute Map.has_key?(body, :milestone)
+        refute Map.has_key?(body, :labels)
         @mock_issue_response
       end)
 

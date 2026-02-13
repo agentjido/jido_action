@@ -28,13 +28,15 @@ defmodule Jido.Tools.Github.Issues do
     def run(params, context) do
       client = get_client(params, context)
 
-      body = %{
-        title: params.title,
-        body: params.body,
-        assignee: params.assignee,
-        milestone: params.milestone,
-        labels: params.labels
-      }
+      body =
+        %{
+          title: params.title,
+          body: params.body,
+          assignee: params[:assignee],
+          milestone: params[:milestone],
+          labels: params[:labels]
+        }
+        |> reject_nil_values()
 
       result = Tentacat.Issues.create(client, params.owner, params.repo, body)
 
@@ -48,6 +50,11 @@ defmodule Jido.Tools.Github.Issues do
 
     defp get_client(params, context) do
       params[:client] || context[:client] || get_in(context, [:tool_context, :client])
+    end
+
+    defp reject_nil_values(map) do
+      Enum.reject(map, fn {_key, value} -> is_nil(value) end)
+      |> Map.new()
     end
   end
 
@@ -77,15 +84,17 @@ defmodule Jido.Tools.Github.Issues do
     def run(params, context) do
       client = get_client(params, context)
 
-      filters = %{
-        state: params[:state],
-        assignee: params[:assignee],
-        creator: params[:creator],
-        labels: params[:labels],
-        sort: params[:sort],
-        direction: params[:direction],
-        since: params[:since]
-      }
+      filters =
+        %{
+          state: params[:state],
+          assignee: params[:assignee],
+          creator: params[:creator],
+          labels: params[:labels],
+          sort: params[:sort],
+          direction: params[:direction],
+          since: params[:since]
+        }
+        |> reject_empty_filters()
 
       result = Tentacat.Issues.filter(client, params.owner, params.repo, filters)
 
@@ -99,6 +108,11 @@ defmodule Jido.Tools.Github.Issues do
 
     defp get_client(params, context) do
       params[:client] || context[:client] || get_in(context, [:tool_context, :client])
+    end
+
+    defp reject_empty_filters(map) do
+      Enum.reject(map, fn {_key, value} -> is_nil(value) or value == "" end)
+      |> Map.new()
     end
   end
 
@@ -195,14 +209,16 @@ defmodule Jido.Tools.Github.Issues do
     def run(params, context) do
       client = get_client(params, context)
 
-      body = %{
-        title: params[:title],
-        body: params[:body],
-        assignee: params[:assignee],
-        state: params[:state],
-        milestone: params[:milestone],
-        labels: params[:labels]
-      }
+      body =
+        %{
+          title: params[:title],
+          body: params[:body],
+          assignee: params[:assignee],
+          state: params[:state],
+          milestone: params[:milestone],
+          labels: params[:labels]
+        }
+        |> reject_nil_values()
 
       result =
         Tentacat.Issues.update(client, params.owner, params.repo, params.number, body)
@@ -217,6 +233,11 @@ defmodule Jido.Tools.Github.Issues do
 
     defp get_client(params, context) do
       params[:client] || context[:client] || get_in(context, [:tool_context, :client])
+    end
+
+    defp reject_nil_values(map) do
+      Enum.reject(map, fn {_key, value} -> is_nil(value) end)
+      |> Map.new()
     end
   end
 end

@@ -6,7 +6,10 @@ Enum.each(
     System,
     Req,
     Jido.Exec,
-    Tentacat.Issues
+    Tentacat.Issues,
+    Tentacat.Pulls,
+    Tentacat.Issues.Comments,
+    Tentacat.Hooks
   ],
   &Mimic.copy/1
 )
