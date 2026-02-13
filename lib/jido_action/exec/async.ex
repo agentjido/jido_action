@@ -13,6 +13,7 @@ defmodule Jido.Exec.Async do
   require Logger
 
   @default_timeout 5000
+  @cancel_wait_ms 100
 
   # Helper functions to get configuration values with fallbacks
   defp get_default_timeout,
@@ -184,13 +185,42 @@ defmodule Jido.Exec.Async do
   - `{:error, reason}` if the cancellation failed or the input was invalid.
   """
   @spec cancel(async_ref() | pid()) :: :ok | exec_error
-  def cancel(%{ref: _ref, pid: pid}), do: cancel(pid)
+  def cancel(%{ref: ref, pid: pid} = async_ref) do
+    monitor_ref = get_cancel_monitor_ref(async_ref, pid)
+    cancel_with_cleanup(ref, pid, monitor_ref)
+  end
+
   def cancel(%{pid: pid}), do: cancel(pid)
 
   def cancel(pid) when is_pid(pid) do
-    Process.exit(pid, :shutdown)
-    :ok
+    monitor_ref = Process.monitor(pid)
+    cancel_with_cleanup(nil, pid, monitor_ref)
   end
 
   def cancel(_), do: {:error, Error.validation_error("Invalid async ref for cancellation")}
+
+  defp get_cancel_monitor_ref(%{monitor_ref: monitor_ref}, _pid) when is_reference(monitor_ref),
+    do: monitor_ref
+
+  defp get_cancel_monitor_ref(_async_ref, pid), do: Process.monitor(pid)
+
+  defp cancel_with_cleanup(ref, pid, monitor_ref) do
+    Process.exit(pid, :shutdown)
+    wait_for_down(monitor_ref, pid, @cancel_wait_ms)
+    Process.demonitor(monitor_ref, [:flush])
+    flush_down_messages(pid)
+
+    if is_reference(ref), do: flush_result_messages(ref)
+    :ok
+  end
+
+  defp flush_down_messages(pid) do
+    receive do
+      {:DOWN, _monitor_ref, :process, ^pid, _reason} ->
+        flush_down_messages(pid)
+    after
+      0 ->
+        :ok
+    end
+  end
 end
