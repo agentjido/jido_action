@@ -118,6 +118,8 @@ defmodule Jido.Tools.Workflow.Execution do
 
   defp execute_parallel(instructions, params, context, metadata, module) do
     max_concurrency = Keyword.get(metadata, :max_concurrency, System.schedulers_online())
+    timeout = Keyword.get(metadata, :timeout_ms, :infinity)
+    fail_on_error = Keyword.get(metadata, :fail_on_error, false)
 
     # Extract jido instance from context if present (set by parent workflow)
     jido_opts = if context[:__jido__], do: [jido: context[:__jido__]], else: []
@@ -128,7 +130,7 @@ defmodule Jido.Tools.Workflow.Execution do
     stream_opts = [
       ordered: true,
       max_concurrency: max_concurrency,
-      timeout: :infinity,
+      timeout: timeout,
       on_timeout: :kill_task
     ]
 
@@ -143,14 +145,40 @@ defmodule Jido.Tools.Workflow.Execution do
       )
       |> Enum.map(&handle_stream_result/1)
 
-    {:ok, %{parallel_results: results}}
+    finalize_parallel_result(results, fail_on_error)
   end
 
-  defp handle_stream_result({:ok, value}), do: value
+  defp handle_stream_result({:ok, %{error: reason}}), do: {:error, reason}
+  defp handle_stream_result({:ok, value}), do: {:ok, value}
+
+  defp handle_stream_result({:exit, :timeout}) do
+    {:error, Error.timeout_error("Parallel task timed out", %{})}
+  end
 
   defp handle_stream_result({:exit, reason}) do
-    %{error: Error.execution_error("Parallel task exited", %{reason: reason})}
+    {:error, Error.execution_error("Parallel task exited", %{reason: reason})}
   end
+
+  defp finalize_parallel_result(results, false) do
+    {:ok, %{parallel_results: Enum.map(results, &normalize_parallel_result/1)}}
+  end
+
+  defp finalize_parallel_result(results, true) do
+    case Enum.find(results, &match?({:error, _}, &1)) do
+      nil ->
+        {:ok, %{parallel_results: Enum.map(results, &normalize_parallel_result/1)}}
+
+      {:error, reason} ->
+        {:error,
+         Error.execution_error("Parallel workflow step failed", %{
+           reason: reason
+         })}
+    end
+  end
+
+  defp normalize_parallel_result({:ok, value}), do: value
+  defp normalize_parallel_result({:error, reason}), do: %{error: reason}
+  defp normalize_parallel_result(other), do: other
 
   defp execute_parallel_instruction(instruction, params, context, module) do
     case module.execute_step(instruction, params, context) do
