@@ -10,19 +10,43 @@ defmodule Jido.Exec.Telemetry do
 
   require Logger
 
+  @redacted_value "[REDACTED]"
+  @max_depth 4
+  @max_collection_items 25
+  @max_binary_bytes 256
+  @sensitive_patterns [
+    "password",
+    "passwd",
+    "passphrase",
+    "secret",
+    "token",
+    "apikey",
+    "accesskey",
+    "privatekey",
+    "authorization",
+    "auth",
+    "cookie",
+    "session",
+    "credential"
+  ]
+  @inspect_opts [charlists: :as_lists, printable_limit: :infinity, limit: :infinity]
+
   @doc """
   Emits telemetry start event for action execution.
   """
   @spec emit_start_event(module(), map(), map()) :: :ok
   def emit_start_event(action, params, context) do
-    :telemetry.execute(
-      [:jido, :action, :start],
-      %{system_time: System.system_time()},
-      %{
+    metadata =
+      sanitize_value(%{
         action: action,
         params: params,
         context: context
-      }
+      })
+
+    :telemetry.execute(
+      [:jido, :action, :start],
+      %{system_time: System.system_time()},
+      metadata
     )
   end
 
@@ -37,12 +61,13 @@ defmodule Jido.Exec.Telemetry do
       duration: 0
     }
 
-    metadata = %{
-      action: action,
-      params: params,
-      context: context,
-      result: result
-    }
+    metadata =
+      sanitize_value(%{
+        action: action,
+        params: params,
+        context: context,
+        result: result
+      })
 
     :telemetry.execute([:jido, :action, :stop], measurements, metadata)
   end
@@ -53,7 +78,7 @@ defmodule Jido.Exec.Telemetry do
   @spec log_execution_start(module(), map(), map()) :: :ok
   def log_execution_start(action, params, context) do
     Logger.notice(
-      "Executing #{inspect(action)} with params: #{inspect(params)} and context: #{inspect(context)}"
+      "Executing #{inspect(action)} with params: #{safe_inspect(params)} and context: #{safe_inspect(context)}"
     )
   end
 
@@ -64,23 +89,25 @@ defmodule Jido.Exec.Telemetry do
   def log_execution_end(action, _params, _context, result) do
     case result do
       {:ok, result_data} ->
-        Logger.debug("Finished execution of #{inspect(action)}, result: #{inspect(result_data)}")
+        Logger.debug(
+          "Finished execution of #{inspect(action)}, result: #{safe_inspect(result_data)}"
+        )
 
       {:ok, result_data, directive} ->
         Logger.debug(
-          "Finished execution of #{inspect(action)}, result: #{inspect(result_data)}, directive: #{inspect(directive)}"
+          "Finished execution of #{inspect(action)}, result: #{safe_inspect(result_data)}, directive: #{safe_inspect(directive)}"
         )
 
       {:error, error} ->
-        Logger.error("Action #{inspect(action)} failed: #{inspect(error)}")
+        Logger.error("Action #{inspect(action)} failed: #{safe_inspect(error)}")
 
       {:error, error, directive} ->
         Logger.error(
-          "Action #{inspect(action)} failed: #{inspect(error)}, directive: #{inspect(directive)}"
+          "Action #{inspect(action)} failed: #{safe_inspect(error)}, directive: #{safe_inspect(directive)}"
         )
 
       other ->
-        Logger.debug("Finished execution of #{inspect(action)}, result: #{inspect(other)}")
+        Logger.debug("Finished execution of #{inspect(action)}, result: #{safe_inspect(other)}")
     end
   end
 
@@ -103,11 +130,11 @@ defmodule Jido.Exec.Telemetry do
         if Map.has_key?(message, :message) and is_binary(message.message) do
           message.message
         else
-          inspect(message)
+          safe_inspect(message)
         end
 
       _ ->
-        inspect(error)
+        safe_inspect(error)
     end
   end
 
@@ -119,7 +146,7 @@ defmodule Jido.Exec.Telemetry do
     cond_log(
       log_level,
       :notice,
-      "Executing #{inspect(action)} with params: #{inspect(params)} and context: #{inspect(context)}"
+      "Executing #{inspect(action)} with params: #{safe_inspect(params)} and context: #{safe_inspect(context)}"
     )
   end
 
@@ -133,31 +160,31 @@ defmodule Jido.Exec.Telemetry do
         cond_log(
           log_level,
           :debug,
-          "Finished execution of #{inspect(action)}, result: #{inspect(result_data)}"
+          "Finished execution of #{inspect(action)}, result: #{safe_inspect(result_data)}"
         )
 
       {:ok, result_data, directive} ->
         cond_log(
           log_level,
           :debug,
-          "Finished execution of #{inspect(action)}, result: #{inspect(result_data)}, directive: #{inspect(directive)}"
+          "Finished execution of #{inspect(action)}, result: #{safe_inspect(result_data)}, directive: #{safe_inspect(directive)}"
         )
 
       {:error, error} ->
-        cond_log(log_level, :error, "Action #{inspect(action)} failed: #{inspect(error)}")
+        cond_log(log_level, :error, "Action #{inspect(action)} failed: #{safe_inspect(error)}")
 
       {:error, error, directive} ->
         cond_log(
           log_level,
           :error,
-          "Action #{inspect(action)} failed: #{inspect(error)}, directive: #{inspect(directive)}"
+          "Action #{inspect(action)} failed: #{safe_inspect(error)}, directive: #{safe_inspect(directive)}"
         )
 
       other ->
         cond_log(
           log_level,
           :debug,
-          "Finished execution of #{inspect(action)}, result: #{inspect(other)}"
+          "Finished execution of #{inspect(action)}, result: #{safe_inspect(other)}"
         )
     end
   end
@@ -167,7 +194,7 @@ defmodule Jido.Exec.Telemetry do
   """
   @spec cond_log_error(atom(), module(), any()) :: :ok
   def cond_log_error(log_level, action, error) do
-    cond_log(log_level, :error, "Action #{inspect(action)} failed: #{inspect(error)}")
+    cond_log(log_level, :error, "Action #{inspect(action)} failed: #{safe_inspect(error)}")
   end
 
   @doc """
@@ -235,7 +262,7 @@ defmodule Jido.Exec.Telemetry do
     cond_log(
       log_level,
       :debug,
-      "Starting execution of #{inspect(action)}, params: #{inspect(params)}, context: #{inspect(context)}"
+      "Starting execution of #{inspect(action)}, params: #{safe_inspect(params)}, context: #{safe_inspect(context)}"
     )
   end
 
@@ -247,7 +274,7 @@ defmodule Jido.Exec.Telemetry do
     cond_log(
       log_level,
       :error,
-      "Action #{inspect(action)} output validation failed: #{inspect(validation_error)}"
+      "Action #{inspect(action)} output validation failed: #{safe_inspect(validation_error)}"
     )
   end
 
@@ -258,4 +285,107 @@ defmodule Jido.Exec.Telemetry do
   def cond_log_failure(log_level, message) do
     cond_log(log_level, :debug, "Action Execution failed: #{message}")
   end
+
+  @doc false
+  @spec sanitize_value(any()) :: any()
+  def sanitize_value(value), do: do_sanitize(value, 0)
+
+  defp safe_inspect(value) do
+    value
+    |> sanitize_value()
+    |> inspect(@inspect_opts)
+  end
+
+  defp do_sanitize(value, depth) when depth >= @max_depth do
+    summarize_truncated(value)
+  end
+
+  defp do_sanitize(%_{} = struct, depth) do
+    struct
+    |> Map.from_struct()
+    |> do_sanitize(depth)
+    |> Map.put(:__struct__, struct.__struct__)
+  end
+
+  defp do_sanitize(value, depth) when is_map(value) do
+    value
+    |> Map.to_list()
+    |> Enum.sort_by(fn {key, _value} -> inspect(key) end)
+    |> Enum.split(@max_collection_items)
+    |> then(fn {kept, dropped} ->
+      sanitized =
+        kept
+        |> Enum.map(fn {key, raw_value} ->
+          sanitized_value =
+            if sensitive_key?(key) do
+              @redacted_value
+            else
+              do_sanitize(raw_value, depth + 1)
+            end
+
+          {key, sanitized_value}
+        end)
+        |> Map.new()
+
+      if dropped == [] do
+        sanitized
+      else
+        Map.put(sanitized, :__truncated_fields__, length(dropped))
+      end
+    end)
+  end
+
+  defp do_sanitize(value, depth) when is_list(value) do
+    {kept, dropped} = Enum.split(value, @max_collection_items)
+    sanitized = Enum.map(kept, &do_sanitize(&1, depth + 1))
+
+    if dropped == [] do
+      sanitized
+    else
+      sanitized ++ [%{__truncated_items__: length(dropped)}]
+    end
+  end
+
+  defp do_sanitize(value, depth) when is_tuple(value) do
+    value
+    |> Tuple.to_list()
+    |> do_sanitize(depth)
+    |> List.to_tuple()
+  end
+
+  defp do_sanitize(value, _depth) when is_binary(value) do
+    if byte_size(value) > @max_binary_bytes do
+      kept = binary_part(value, 0, @max_binary_bytes)
+      truncated = byte_size(value) - @max_binary_bytes
+      "#{kept}...(truncated #{truncated} bytes)"
+    else
+      value
+    end
+  end
+
+  defp do_sanitize(value, _depth), do: value
+
+  defp sensitive_key?(key) when is_atom(key), do: sensitive_key?(Atom.to_string(key))
+
+  defp sensitive_key?(key) when is_binary(key) do
+    normalized = key |> String.downcase() |> String.replace(~r/[^a-z0-9]/u, "")
+    Enum.any?(@sensitive_patterns, &String.contains?(normalized, &1))
+  end
+
+  defp sensitive_key?(key), do: sensitive_key?(inspect(key))
+
+  defp summarize_truncated(value) when is_map(value) do
+    %{__truncated_depth__: @max_depth, type: :map, size: map_size(value)}
+  end
+
+  defp summarize_truncated(value) when is_list(value) do
+    %{__truncated_depth__: @max_depth, type: :list, size: length(value)}
+  end
+
+  defp summarize_truncated(value) when is_tuple(value) do
+    %{__truncated_depth__: @max_depth, type: :tuple, size: tuple_size(value)}
+  end
+
+  defp summarize_truncated(value) when is_binary(value), do: do_sanitize(value, @max_depth - 1)
+  defp summarize_truncated(value), do: value
 end
