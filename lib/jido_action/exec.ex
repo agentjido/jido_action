@@ -78,6 +78,7 @@ defmodule Jido.Exec do
   @type async_ref :: %{
           required(:ref) => reference(),
           required(:pid) => pid(),
+          optional(:owner) => pid(),
           optional(:monitor_ref) => reference()
         }
 
@@ -223,6 +224,7 @@ defmodule Jido.Exec do
   An `async_ref` map containing:
   - `:ref` - A unique reference for this async action.
   - `:pid` - The PID of the process executing the Action.
+  - `:owner` - The PID of the caller that started the async action.
 
   ## Examples
 
@@ -249,6 +251,7 @@ defmodule Jido.Exec do
 
   - `{:ok, result}` if the Action executes successfully.
   - `{:error, reason}` if an error occurs during execution or if the action times out.
+  - `{:error, %Jido.Action.Error.InvalidInputError{}}` when awaited by a non-owner process.
 
   ## Examples
 
@@ -290,6 +293,7 @@ defmodule Jido.Exec do
 
   - `:ok` if the cancellation was successful.
   - `{:error, reason}` if the cancellation failed or the input was invalid.
+  - `{:error, %Jido.Action.Error.InvalidInputError{}}` when cancelled by a non-owner process.
 
   ## Examples
 
