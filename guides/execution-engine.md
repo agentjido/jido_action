@@ -71,6 +71,31 @@ async_ref = Jido.Exec.run_async(
 :ok = Jido.Exec.cancel(async_ref)
 ```
 
+### Asynchronous Execution Contract
+
+- `Jido.Exec.run_async/4` starts work under `Task.Supervisor`; with `jido: MyApp.Jido`, it routes to `MyApp.Jido.TaskSupervisor`.
+- The returned `async_ref` is tied to the caller mailbox that initiated `run_async/4`.
+  Await/cancel from the same process to avoid waiting on messages that were delivered elsewhere.
+- `Jido.Exec.await/2` performs deterministic cleanup:
+  - waits for result or monitor `:DOWN`
+  - on timeout, terminates the task
+  - demonitor/flushes monitor and result residue before returning
+- `Jido.Exec.cancel/1` performs deterministic cancellation cleanup:
+  - sends `:shutdown`
+  - waits a bounded grace period for `:DOWN`
+  - demonitor/flushes monitor and result residue before returning `:ok`
+
+### Async Error Shapes
+
+Async APIs return structured errors:
+
+- `{:error, %Jido.Action.Error.TimeoutError{}}` on timeout
+- `{:error, %Jido.Action.Error.ExecutionFailureError{}}` on task failures
+- `{:error, %Jido.Action.Error.InvalidInputError{}}` for invalid async refs
+
+For runtime config fallback behavior used by async timeout defaults, see
+[Configuration Guide](configuration.md#runtime-config-validation-and-fallback).
+
 ### Instance Isolation (Multi-Tenant)
 
 For multi-tenant applications, route execution through instance-scoped supervisors:
@@ -463,7 +488,7 @@ end
 ### Async Execution
 - Use async for I/O-bound operations
 - Limit concurrent async operations to prevent resource exhaustion
-- Always await or cancel async operations
+- Always await or cancel async operations from the process that started them
 
 ## Next Steps
 

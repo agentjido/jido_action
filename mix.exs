@@ -96,6 +96,7 @@ defmodule JidoAction.MixProject do
         ],
         "Help & Reference": [
           "guides/faq.md",
+          "guides/pr-68-triage.md",
           "CHANGELOG.md",
           "LICENSE"
         ]
@@ -120,6 +121,7 @@ defmodule JidoAction.MixProject do
         {"guides/testing.md", title: "Testing"},
         # Help & Reference
         {"guides/faq.md", title: "FAQ"},
+        {"guides/pr-68-triage.md", title: "PR #68 Triage"},
         {"CHANGELOG.md", title: "Changelog"},
         {"LICENSE", title: "Apache 2.0 License"}
       ],

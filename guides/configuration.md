@@ -49,6 +49,31 @@ config :jido_action,
 
 ## Runtime Configuration
 
+### Runtime Config Validation and Fallback
+
+`Jido.Exec`, `Jido.Exec.Async`, and `Jido.Exec.Retry` validate runtime values for:
+
+- `:default_timeout`
+- `:default_max_retries`
+- `:default_backoff`
+
+Each value must be a non-negative integer.
+
+If a value is invalid (for example `-1`, `:bad`, or `"5000"`), Jido:
+
+1. Logs a warning with the invalid value and config key.
+2. Uses the internal fallback default for that key.
+3. Continues execution without crashing.
+
+Example warning behavior:
+
+```elixir
+Application.put_env(:jido_action, :default_timeout, :bad_value)
+
+# Exec/Async calls will warn and use fallback timeout.
+{:ok, _result} = Jido.Exec.run(MyAction, %{input: "ok"}, %{})
+```
+
 ### Per-Action Configuration
 
 Actions define compensation settings at compile time:
@@ -378,9 +403,9 @@ end
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `:default_timeout` | integer | 30000 | Default action timeout in milliseconds |
-| `:default_max_retries` | integer | 1 | Default number of retry attempts |
-| `:default_backoff` | integer | 250 | Initial backoff time in ms (exponential) |
+| `:default_timeout` | non-negative integer | 30000 | Default action timeout in milliseconds (invalid values warn + fallback) |
+| `:default_max_retries` | non-negative integer | 1 | Default number of retry attempts (invalid values warn + fallback) |
+| `:default_backoff` | non-negative integer | 250 | Initial backoff time in ms (exponential, invalid values warn + fallback) |
 
 ### Action Compensation Config
 
@@ -424,7 +449,8 @@ Passed to `Jido.Exec.run/4`:
 ## Next Steps
 
 **→ [Testing Guide](testing.md)** - Testing configurations and environments  
-**→ [Error Handling Guide](error-handling.md)** - Error handling patterns
+**→ [Error Handling Guide](error-handling.md)** - Error handling patterns  
+**→ [Execution Engine Guide](execution-engine.md)** - Async execution lifecycle and guarantees
 
 ---
 ← [Error Handling Guide](error-handling.md) | **Next: [Testing Guide](testing.md)** →
