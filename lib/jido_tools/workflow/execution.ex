@@ -6,6 +6,8 @@ defmodule Jido.Tools.Workflow.Execution do
   alias Jido.Exec.Supervisors
   alias Jido.Instruction
 
+  @deadline_key :__jido_deadline_ms__
+
   @spec execute_workflow(list(), map(), map(), module()) :: {:ok, map()} | {:error, Exception.t()}
   def execute_workflow(steps, params, context, module) do
     initial_acc = {:ok, params, %{}}
@@ -146,25 +148,27 @@ defmodule Jido.Tools.Workflow.Execution do
     # Resolve supervisor based on jido: option (defaults to global)
     task_sup = Supervisors.task_supervisor(jido_opts)
 
-    stream_opts = [
-      ordered: true,
-      max_concurrency: max_concurrency,
-      timeout: timeout,
-      on_timeout: :kill_task
-    ]
+    with {:ok, effective_timeout} <- resolve_parallel_timeout(timeout, context) do
+      stream_opts = [
+        ordered: true,
+        max_concurrency: max_concurrency,
+        timeout: effective_timeout,
+        on_timeout: :kill_task
+      ]
 
-    results =
-      Task.Supervisor.async_stream(
-        task_sup,
-        instructions,
-        fn instruction ->
-          execute_parallel_instruction(instruction, params, context, module)
-        end,
-        stream_opts
-      )
-      |> Enum.map(&handle_stream_result/1)
+      results =
+        Task.Supervisor.async_stream(
+          task_sup,
+          instructions,
+          fn instruction ->
+            execute_parallel_instruction(instruction, params, context, module)
+          end,
+          stream_opts
+        )
+        |> Enum.map(&handle_stream_result/1)
 
-    finalize_parallel_result(results, fail_on_error)
+      finalize_parallel_result(results, fail_on_error)
+    end
   end
 
   defp handle_stream_result({:ok, %{error: reason}}), do: {:error, reason}
@@ -198,6 +202,34 @@ defmodule Jido.Tools.Workflow.Execution do
   defp normalize_parallel_result({:ok, value}), do: value
   defp normalize_parallel_result({:error, reason}), do: %{error: reason}
   defp normalize_parallel_result(other), do: other
+
+  defp resolve_parallel_timeout(timeout, context) do
+    case Map.get(context, @deadline_key) do
+      deadline_ms when is_integer(deadline_ms) ->
+        now = System.monotonic_time(:millisecond)
+        remaining = deadline_ms - now
+
+        if remaining <= 0 do
+          {:error,
+           Error.timeout_error("Execution deadline exceeded before parallel step dispatch", %{
+             deadline_ms: deadline_ms,
+             now_ms: now
+           })}
+        else
+          {:ok, cap_timeout(timeout, remaining)}
+        end
+
+      _ ->
+        {:ok, timeout}
+    end
+  end
+
+  defp cap_timeout(:infinity, remaining), do: remaining
+
+  defp cap_timeout(timeout, remaining) when is_integer(timeout) and timeout >= 0,
+    do: min(timeout, remaining)
+
+  defp cap_timeout(timeout, _remaining), do: timeout
 
   defp execute_parallel_instruction(instruction, params, context, module) do
     case module.execute_step(instruction, params, context) do

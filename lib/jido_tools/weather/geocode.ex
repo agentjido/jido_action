@@ -22,8 +22,10 @@ defmodule Jido.Tools.Weather.Geocode do
       ]
     ]
 
+  @deadline_key :__jido_deadline_ms__
+
   @impl Jido.Action
-  def run(%{location: location}, _context) do
+  def run(%{location: location}, context) do
     url = "https://nominatim.openstreetmap.org/search"
 
     req_options = [
@@ -40,16 +42,18 @@ defmodule Jido.Tools.Weather.Geocode do
       }
     ]
 
-    try do
-      response = Req.request!(req_options)
-      transform_result(response.status, response.body, location)
-    rescue
-      e ->
-        {:error,
-         Error.execution_error("Geocoding HTTP error: #{Exception.message(e)}", %{
-           type: :geocode_http_error,
-           reason: e
-         })}
+    with {:ok, req_options} <- apply_deadline_timeout(req_options, context) do
+      try do
+        response = Req.request!(req_options)
+        transform_result(response.status, response.body, location)
+      rescue
+        e ->
+          {:error,
+           Error.execution_error("Geocoding HTTP error: #{Exception.message(e)}", %{
+             type: :geocode_http_error,
+             reason: e
+           })}
+      end
     end
   end
 
@@ -90,4 +94,35 @@ defmodule Jido.Tools.Weather.Geocode do
 
   defp parse_coordinate(value) when is_float(value), do: Float.round(value, 4)
   defp parse_coordinate(value) when is_integer(value), do: value / 1
+
+  defp apply_deadline_timeout(req_options, context) do
+    case context[@deadline_key] do
+      deadline_ms when is_integer(deadline_ms) ->
+        now = System.monotonic_time(:millisecond)
+        remaining = deadline_ms - now
+
+        if remaining <= 0 do
+          {:error,
+           Error.timeout_error("Execution deadline exceeded before geocode request dispatch", %{
+             deadline_ms: deadline_ms,
+             now_ms: now
+           })}
+        else
+          {:ok, put_receive_timeout(req_options, remaining)}
+        end
+
+      _ ->
+        {:ok, req_options}
+    end
+  end
+
+  defp put_receive_timeout(req_options, remaining) do
+    case Keyword.get(req_options, :receive_timeout) do
+      timeout when is_integer(timeout) and timeout >= 0 ->
+        Keyword.put(req_options, :receive_timeout, min(timeout, remaining))
+
+      _ ->
+        Keyword.put(req_options, :receive_timeout, remaining)
+    end
+  end
 end

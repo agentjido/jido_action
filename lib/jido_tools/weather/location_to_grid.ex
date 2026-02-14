@@ -22,8 +22,10 @@ defmodule Jido.Tools.Weather.LocationToGrid do
       ]
     ]
 
+  @deadline_key :__jido_deadline_ms__
+
   @impl Jido.Action
-  def run(%{location: location} = params, _context) do
+  def run(%{location: location} = params, context) do
     url = "https://api.weather.gov/points/#{location}"
 
     req_options = [
@@ -35,20 +37,22 @@ defmodule Jido.Tools.Weather.LocationToGrid do
       }
     ]
 
-    try do
-      response = Req.request!(req_options)
+    with {:ok, req_options} <- apply_deadline_timeout(req_options, context) do
+      try do
+        response = Req.request!(req_options)
 
-      transform_result(%{
-        request: %{url: url, method: :get, params: params},
-        response: %{status: response.status, body: response.body, headers: response.headers}
-      })
-    rescue
-      e ->
-        {:error,
-         Error.execution_error("HTTP error fetching grid location: #{Exception.message(e)}", %{
-           type: :location_to_grid_http_error,
-           reason: e
-         })}
+        transform_result(%{
+          request: %{url: url, method: :get, params: params},
+          response: %{status: response.status, body: response.body, headers: response.headers}
+        })
+      rescue
+        e ->
+          {:error,
+           Error.execution_error("HTTP error fetching grid location: #{Exception.message(e)}", %{
+             type: :location_to_grid_http_error,
+             reason: e
+           })}
+      end
     end
   end
 
@@ -91,5 +95,36 @@ defmodule Jido.Tools.Weather.LocationToGrid do
        type: :location_to_grid_response_invalid,
        reason: :unexpected_response_format
      })}
+  end
+
+  defp apply_deadline_timeout(req_options, context) do
+    case context[@deadline_key] do
+      deadline_ms when is_integer(deadline_ms) ->
+        now = System.monotonic_time(:millisecond)
+        remaining = deadline_ms - now
+
+        if remaining <= 0 do
+          {:error,
+           Error.timeout_error("Execution deadline exceeded before grid lookup dispatch", %{
+             deadline_ms: deadline_ms,
+             now_ms: now
+           })}
+        else
+          {:ok, put_receive_timeout(req_options, remaining)}
+        end
+
+      _ ->
+        {:ok, req_options}
+    end
+  end
+
+  defp put_receive_timeout(req_options, remaining) do
+    case Keyword.get(req_options, :receive_timeout) do
+      timeout when is_integer(timeout) and timeout >= 0 ->
+        Keyword.put(req_options, :receive_timeout, min(timeout, remaining))
+
+      _ ->
+        Keyword.put(req_options, :receive_timeout, remaining)
+    end
   end
 end
