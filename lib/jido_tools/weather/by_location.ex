@@ -50,7 +50,12 @@ defmodule Jido.Tools.Weather.ByLocation do
   end
 
   defp get_grid_info(location, context) do
-    case Jido.Exec.run(Jido.Tools.Weather.LocationToGrid, %{location: location}, context) do
+    case Jido.Exec.run(
+           Jido.Tools.Weather.LocationToGrid,
+           %{location: location},
+           context,
+           internal_exec_opts(context)
+         ) do
       {:ok, grid_info} ->
         {:ok, grid_info}
 
@@ -70,7 +75,12 @@ defmodule Jido.Tools.Weather.ByLocation do
       format: if(params[:format] == :text, do: :detailed, else: params[:format])
     }
 
-    case Jido.Exec.run(Jido.Tools.Weather.Forecast, forecast_params, context) do
+    case Jido.Exec.run(
+           Jido.Tools.Weather.Forecast,
+           forecast_params,
+           context,
+           internal_exec_opts(context)
+         ) do
       {:ok, forecast} ->
         {:ok, forecast}
 
@@ -128,6 +138,16 @@ defmodule Jido.Tools.Weather.ByLocation do
 
   defp format_forecast_output(periods, _format) do
     periods
+  end
+
+  defp internal_exec_opts(context) do
+    override_opts =
+      if is_map(context), do: Map.get(context, :__jido_internal_exec_opts__), else: nil
+
+    case override_opts do
+      opts when is_list(opts) -> Keyword.merge([max_retries: 0], opts)
+      _ -> [max_retries: 0]
+    end
   end
 
   defp error_message(reason) when is_exception(reason), do: Exception.message(reason)

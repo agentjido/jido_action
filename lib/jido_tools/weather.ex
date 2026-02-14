@@ -55,7 +55,12 @@ defmodule Jido.Tools.Weather do
   end
 
   defp execute_weather_request(by_location_params, context) do
-    Jido.Exec.run(Jido.Tools.Weather.ByLocation, by_location_params, context)
+    Jido.Exec.run(
+      Jido.Tools.Weather.ByLocation,
+      by_location_params,
+      context,
+      internal_exec_opts(context)
+    )
   end
 
   defp format_result({:ok, weather_data}, :text) do
@@ -75,6 +80,16 @@ defmodule Jido.Tools.Weather do
 
   defp format_result({:error, reason}, _format) do
     {:error, "Failed to fetch weather: #{inspect(reason)}"}
+  end
+
+  defp internal_exec_opts(context) do
+    override_opts =
+      if is_map(context), do: Map.get(context, :__jido_internal_exec_opts__), else: nil
+
+    case override_opts do
+      opts when is_list(opts) -> Keyword.merge([max_retries: 0], opts)
+      _ -> [max_retries: 0]
+    end
   end
 
   @doc """
