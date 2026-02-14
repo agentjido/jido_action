@@ -5,6 +5,8 @@ defmodule Jido.Tools.Weather.HourlyForecast do
   Provides hour-by-hour weather conditions for more detailed planning needs.
   """
 
+  alias Jido.Action.Error
+
   use Jido.Action,
     name: "weather_hourly_forecast",
     description: "Get hourly weather forecast from NWS API",
@@ -23,8 +25,6 @@ defmodule Jido.Tools.Weather.HourlyForecast do
         doc: "Number of hours to return (max 156)"
       ]
     ]
-
-  alias Jido.Action.Error
 
   @deadline_key :__jido_deadline_ms__
 
@@ -48,7 +48,15 @@ defmodule Jido.Tools.Weather.HourlyForecast do
           response: %{status: response.status, body: response.body, headers: response.headers}
         })
       rescue
-        e -> {:error, "HTTP error: #{Exception.message(e)}"}
+        e ->
+          {:error,
+           Error.execution_error(
+             "HTTP error fetching hourly forecast: #{Exception.message(e)}",
+             %{
+               type: :hourly_forecast_http_error,
+               reason: e
+             }
+           )}
       end
     end
   end
@@ -84,11 +92,20 @@ defmodule Jido.Tools.Weather.HourlyForecast do
   end
 
   defp transform_result(%{response: %{status: status, body: body}}) when status != 200 do
-    {:error, "NWS hourly forecast API error (#{status}): #{inspect(body)}"}
+    {:error,
+     Error.execution_error("NWS hourly forecast API error (#{status})", %{
+       type: :hourly_forecast_request_failed,
+       status: status,
+       reason: %{status: status, body: body}
+     })}
   end
 
   defp transform_result(_payload) do
-    {:error, "Unexpected hourly forecast response format"}
+    {:error,
+     Error.execution_error("Unexpected hourly forecast response format", %{
+       type: :hourly_forecast_response_invalid,
+       reason: :unexpected_response_format
+     })}
   end
 
   defp apply_deadline_timeout(req_options, context) do

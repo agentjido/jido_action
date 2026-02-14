@@ -6,6 +6,8 @@ defmodule Jido.Tools.Weather.Forecast do
   weather information including temperature, wind, and conditions.
   """
 
+  alias Jido.Action.Error
+
   use Jido.Action,
     name: "weather_forecast",
     description: "Get detailed weather forecast from NWS forecast URL",
@@ -30,8 +32,6 @@ defmodule Jido.Tools.Weather.Forecast do
       ]
     ]
 
-  alias Jido.Action.Error
-
   @deadline_key :__jido_deadline_ms__
 
   @impl Jido.Action
@@ -54,7 +54,12 @@ defmodule Jido.Tools.Weather.Forecast do
           response: %{status: response.status, body: response.body, headers: response.headers}
         })
       rescue
-        e -> {:error, "HTTP error: #{Exception.message(e)}"}
+        e ->
+          {:error,
+           Error.execution_error("HTTP error fetching forecast: #{Exception.message(e)}", %{
+             type: :forecast_http_error,
+             reason: e
+           })}
       end
     end
   end
@@ -81,11 +86,20 @@ defmodule Jido.Tools.Weather.Forecast do
   end
 
   defp transform_result(%{response: %{status: status, body: body}}) when status != 200 do
-    {:error, "NWS forecast API error (#{status}): #{inspect(body)}"}
+    {:error,
+     Error.execution_error("NWS forecast API error (#{status})", %{
+       type: :forecast_request_failed,
+       status: status,
+       reason: %{status: status, body: body}
+     })}
   end
 
   defp transform_result(_payload) do
-    {:error, "Unexpected forecast response format"}
+    {:error,
+     Error.execution_error("Unexpected forecast response format", %{
+       type: :forecast_response_invalid,
+       reason: :unexpected_response_format
+     })}
   end
 
   defp format_summary_periods(periods) do

@@ -155,6 +155,15 @@ async_ref = Jido.Exec.run_async(MyApp.Actions.GreetUser, %{name: "Bob"})
 {:ok, result} = Jido.Exec.await(async_ref)
 ```
 
+#### Async Contract
+
+- `run_async/4` executes under `Task.Supervisor` (global or instance-scoped via `jido:`).
+- `async_ref` is mailbox-bound to the process that started the async call; await/cancel from that same process.
+- `await/2` timeout kills the task and drains monitor/result mailbox residue before returning.
+- `cancel/1` sends `:shutdown`, waits a bounded grace period, and flushes monitor/result residue.
+
+See the detailed contract in [Execution Engine Guide](guides/execution-engine.md#asynchronous-execution-contract).
+
 ### 3. Create Workflows with Jido.Instruction
 
 ```elixir
@@ -410,6 +419,9 @@ config :jido_action,
   default_max_retries: 3,
   default_backoff: 500
 ```
+
+If any of these values are invalid at runtime (non-integer or negative), Jido logs a warning and
+falls back to the built-in defaults instead of crashing. See [Configuration Guide](guides/configuration.md#runtime-config-validation-and-fallback).
 
 ### Instance Isolation (Multi-Tenant)
 

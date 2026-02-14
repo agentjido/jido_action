@@ -9,6 +9,8 @@ defmodule Jido.Tools.Weather.ByLocation do
   Provides a simple interface for getting weather by location in one call.
   """
 
+  alias Jido.Action.Error
+
   use Jido.Action,
     name: "weather_by_location",
     description: "Get weather forecast for any location using NWS API",
@@ -52,11 +54,12 @@ defmodule Jido.Tools.Weather.ByLocation do
       {:ok, grid_info} ->
         {:ok, grid_info}
 
-      {:error, %Jido.Action.Error.ExecutionFailureError{message: message}} ->
-        {:error, "Failed to get grid info: #{message}"}
-
       {:error, reason} ->
-        {:error, "Failed to get grid info: #{inspect(reason)}"}
+        {:error,
+         Error.execution_error("Failed to get grid info: #{error_message(reason)}", %{
+           type: :grid_lookup_failed,
+           reason: reason
+         })}
     end
   end
 
@@ -71,11 +74,12 @@ defmodule Jido.Tools.Weather.ByLocation do
       {:ok, forecast} ->
         {:ok, forecast}
 
-      {:error, %Jido.Action.Error.ExecutionFailureError{message: message}} ->
-        {:error, "Failed to get forecast: #{message}"}
-
       {:error, reason} ->
-        {:error, "Failed to get forecast: #{inspect(reason)}"}
+        {:error,
+         Error.execution_error("Failed to get forecast: #{error_message(reason)}", %{
+           type: :forecast_fetch_failed,
+           reason: reason
+         })}
     end
   end
 
@@ -125,4 +129,7 @@ defmodule Jido.Tools.Weather.ByLocation do
   defp format_forecast_output(periods, _format) do
     periods
   end
+
+  defp error_message(reason) when is_exception(reason), do: Exception.message(reason)
+  defp error_message(reason), do: inspect(reason)
 end
