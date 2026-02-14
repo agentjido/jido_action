@@ -159,9 +159,9 @@ defmodule JidoTest.ExecConfigTest do
       with_runtime_config(
         [default_timeout: 0, default_max_retries: :invalid, default_backoff: :bad],
         fn ->
-        assert {:error, error} = Exec.run(InvalidRuntimeConfigRetryAction, %{}, %{})
-        assert %Error.ExecutionFailureError{} = error
-        assert Exception.message(error) =~ "retry fallback test failure"
+          assert {:error, error} = Exec.run(InvalidRuntimeConfigRetryAction, %{}, %{})
+          assert %Error.ExecutionFailureError{} = error
+          assert Exception.message(error) =~ "retry fallback test failure"
         end
       )
     end
