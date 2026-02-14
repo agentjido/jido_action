@@ -127,8 +127,8 @@ defmodule Jido.Exec.Retry do
   @spec default_retry_config() :: keyword()
   def default_retry_config do
     [
-      max_retries: Application.get_env(:jido_action, :default_max_retries, 1),
-      backoff: Application.get_env(:jido_action, :default_backoff, 250)
+      max_retries: resolve_non_neg_integer_config(:default_max_retries, 1),
+      backoff: resolve_non_neg_integer_config(:default_backoff, 250)
     ]
   end
 
@@ -151,5 +151,20 @@ defmodule Jido.Exec.Retry do
       max_retries: Keyword.get(opts, :max_retries, defaults[:max_retries]),
       backoff: Keyword.get(opts, :backoff, defaults[:backoff])
     ]
+  end
+
+  defp resolve_non_neg_integer_config(key, fallback) do
+    case Application.get_env(:jido_action, key, fallback) do
+      value when is_integer(value) and value >= 0 ->
+        value
+
+      invalid ->
+        Logger.warning(
+          "Invalid :jido_action config for #{inspect(key)}: #{inspect(invalid)}. " <>
+            "Expected a non-negative integer; using fallback #{fallback}."
+        )
+
+        fallback
+    end
   end
 end

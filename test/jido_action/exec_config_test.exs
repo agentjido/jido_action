@@ -7,9 +7,19 @@ defmodule JidoTest.ExecConfigTest do
 
   import ExUnit.CaptureLog
 
+  alias Jido.Action.Error
   alias Jido.Exec
 
   @moduletag :capture_log
+
+  defmodule InvalidRuntimeConfigRetryAction do
+    use Jido.Action,
+      name: "invalid_runtime_config_retry_action",
+      description: "Action that always fails for retry config fallback tests"
+
+    @impl true
+    def run(_params, _context), do: {:error, Error.execution_error("retry fallback test failure")}
+  end
 
   describe "configuration function direct coverage" do
     test "directly trigger configuration helper functions" do
@@ -120,6 +130,62 @@ defmodule JidoTest.ExecConfigTest do
           end
         end)
       end
+    end
+  end
+
+  describe "invalid runtime config fallback guards" do
+    test "falls back to defaults for invalid sync timeout config without hanging" do
+      with_runtime_config([default_timeout: :invalid_timeout], fn ->
+        task = Task.async(fn -> Exec.run(JidoTest.TestActions.BasicAction, %{value: 42}, %{}) end)
+        yielded = Task.yield(task, 1_000)
+
+        if is_nil(yielded) do
+          _ = Task.shutdown(task, :brutal_kill)
+          flunk("Exec.run/3 did not return when :default_timeout was invalid")
+        end
+
+        assert {:ok, {:ok, %{value: 42}}} = yielded
+      end)
+    end
+
+    test "falls back to defaults for invalid async await timeout config" do
+      with_runtime_config([default_timeout: :invalid_timeout], fn ->
+        async_ref = Exec.run_async(JidoTest.TestActions.BasicAction, %{value: 7}, %{})
+        assert {:ok, %{value: 7}} = Exec.await(async_ref)
+      end)
+    end
+
+    test "falls back to defaults for invalid retry and backoff config" do
+      with_runtime_config(
+        [default_timeout: 0, default_max_retries: :invalid, default_backoff: :bad],
+        fn ->
+          assert {:error, error} = Exec.run(InvalidRuntimeConfigRetryAction, %{}, %{})
+          assert %Error.ExecutionFailureError{} = error
+          assert Exception.message(error) =~ "retry fallback test failure"
+        end
+      )
+    end
+  end
+
+  defp with_runtime_config(overrides, fun) when is_list(overrides) and is_function(fun, 0) do
+    missing = make_ref()
+
+    original_values =
+      Enum.map(overrides, fn {key, _value} ->
+        {key, Application.get_env(:jido_action, key, missing)}
+      end)
+
+    try do
+      Enum.each(overrides, fn {key, value} ->
+        Application.put_env(:jido_action, key, value)
+      end)
+
+      fun.()
+    after
+      Enum.each(original_values, fn
+        {key, ^missing} -> Application.delete_env(:jido_action, key)
+        {key, value} -> Application.put_env(:jido_action, key, value)
+      end)
     end
   end
 end

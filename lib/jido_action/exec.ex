@@ -54,7 +54,22 @@ defmodule Jido.Exec do
 
   # Helper functions to get configuration values with fallbacks
   defp get_default_timeout,
-    do: Application.get_env(:jido_action, :default_timeout, @default_timeout)
+    do: resolve_non_neg_integer_config(:default_timeout, @default_timeout)
+
+  defp resolve_non_neg_integer_config(key, fallback) do
+    case Application.get_env(:jido_action, key, fallback) do
+      value when is_integer(value) and value >= 0 ->
+        value
+
+      invalid ->
+        Logger.warning(
+          "Invalid :jido_action config for #{inspect(key)}: #{inspect(invalid)}. " <>
+            "Expected a non-negative integer; using fallback #{fallback}."
+        )
+
+        fallback
+    end
+  end
 
   @type action :: module()
   @type params :: map()
