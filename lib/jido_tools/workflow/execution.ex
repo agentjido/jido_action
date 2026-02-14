@@ -73,8 +73,14 @@ defmodule Jido.Tools.Workflow.Execution do
   defp run_normalized_instruction(%Instruction{} = normalized, params, context) do
     merged_params = Map.merge(params, normalized.params)
     merged_context = Map.merge(normalized.context, context)
+    execution_opts = default_internal_retry_opts(normalized.opts)
 
-    instruction = %{normalized | params: merged_params, context: merged_context}
+    instruction = %{
+      normalized
+      | params: merged_params,
+        context: merged_context,
+        opts: execution_opts
+    }
 
     case Exec.run(instruction) do
       {:ok, result} ->
@@ -89,6 +95,10 @@ defmodule Jido.Tools.Workflow.Execution do
       {:error, reason, _other} ->
         {:error, reason}
     end
+  end
+
+  defp default_internal_retry_opts(opts) do
+    Keyword.put_new(opts, :max_retries, 0)
   end
 
   defp execute_branch(condition, true_branch, false_branch, params, context, _metadata, module)

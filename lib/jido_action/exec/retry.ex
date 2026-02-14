@@ -8,6 +8,7 @@ defmodule Jido.Exec.Retry do
   - Retry option processing and validation
   """
 
+  alias Jido.Action.Error
   alias Jido.Exec.Telemetry
 
   require Logger
@@ -67,8 +68,14 @@ defmodule Jido.Exec.Retry do
       false
   """
   @spec should_retry?(any(), non_neg_integer(), non_neg_integer(), keyword()) :: boolean()
-  def should_retry?(_error, retry_count, max_retries, _opts) do
-    retry_count < max_retries
+  def should_retry?(_error, retry_count, max_retries, _opts) when retry_count >= max_retries do
+    false
+  end
+
+  def should_retry?(error, _retry_count, _max_retries, _opts) do
+    error
+    |> extract_retry_target()
+    |> retryable_error?()
   end
 
   @doc """
@@ -167,4 +174,54 @@ defmodule Jido.Exec.Retry do
         fallback
     end
   end
+
+  defp extract_retry_target({:error, reason, _other}), do: reason
+  defp extract_retry_target({:error, reason}), do: reason
+  defp extract_retry_target(other), do: other
+
+  defp retryable_error?(%Error.InvalidInputError{}), do: false
+  defp retryable_error?(%Error.ConfigurationError{}), do: false
+
+  defp retryable_error?(reason) do
+    case retry_hint(reason) do
+      false -> false
+      _ -> true
+    end
+  end
+
+  defp retry_hint(%{details: details}) do
+    case extract_retry_value(details) do
+      nil -> details |> extract_nested_reason() |> retry_hint()
+      value -> value
+    end
+  end
+
+  defp retry_hint(%{} = map) do
+    case extract_retry_value(map) do
+      nil -> map |> extract_nested_reason() |> retry_hint()
+      value -> value
+    end
+  end
+
+  defp retry_hint(_), do: nil
+
+  defp extract_nested_reason(%{} = map) do
+    Map.get(map, :reason) || Map.get(map, "reason")
+  end
+
+  defp extract_nested_reason(_), do: nil
+
+  defp extract_retry_value(%{} = map) do
+    cond do
+      Map.has_key?(map, :retry) -> Map.get(map, :retry)
+      Map.has_key?(map, "retry") -> Map.get(map, "retry")
+      true -> nil
+    end
+  end
+
+  defp extract_retry_value(keyword) when is_list(keyword) do
+    if Keyword.keyword?(keyword), do: Keyword.get(keyword, :retry), else: nil
+  end
+
+  defp extract_retry_value(_), do: nil
 end
