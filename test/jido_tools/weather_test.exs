@@ -337,9 +337,10 @@ defmodule JidoTest.Tools.WeatherTest do
       params = %{location: "invalid_location"}
 
       assert {:error, error} = Weather.run(params, %{})
-      assert is_binary(error)
-      assert error =~ "Failed to fetch weather"
-      assert error =~ "NWS API error"
+      assert %Jido.Action.Error.ExecutionFailureError{} = error
+      assert error.message =~ "Failed to fetch weather"
+      assert error.message =~ "NWS API error"
+      assert error.details[:reason]
     end
 
     test "handles empty location gracefully" do
@@ -348,8 +349,9 @@ defmodule JidoTest.Tools.WeatherTest do
       params = %{location: ""}
 
       assert {:error, error} = Weather.run(params, %{})
-      assert is_binary(error)
-      assert error =~ "Failed to fetch weather"
+      assert %Jido.Action.Error.ExecutionFailureError{} = error
+      assert error.message =~ "Failed to fetch weather"
+      assert error.details[:reason]
     end
 
     test "handles invalid format gracefully" do
@@ -357,9 +359,10 @@ defmodule JidoTest.Tools.WeatherTest do
       params = %{format: :invalid_format}
 
       assert {:error, error} = Weather.run(params, %{})
-      assert is_binary(error)
-      assert error =~ "Invalid parameters"
-      assert error =~ "expected one of [:detailed, :summary, :text]"
+      assert %Jido.Action.Error.ExecutionFailureError{} = error
+      assert error.message =~ "Invalid parameters"
+      assert error.message =~ "expected one of [:detailed, :summary, :text]"
+      assert error.details[:reason]
     end
   end
 
@@ -379,8 +382,9 @@ defmodule JidoTest.Tools.WeatherTest do
       params = %{format: :map}
 
       assert {:error, error} = Weather.run(params, %{})
-      assert error =~ "Invalid parameters"
-      assert error =~ "expected one of [:detailed, :summary, :text]"
+      assert %Jido.Action.Error.ExecutionFailureError{} = error
+      assert error.message =~ "Invalid parameters"
+      assert error.message =~ "expected one of [:detailed, :summary, :text]"
     end
   end
 

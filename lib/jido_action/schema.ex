@@ -9,6 +9,8 @@ defmodule Jido.Action.Schema do
   - JSON Schema generation (for AI tools)
   """
 
+  alias Jido.Action.Error
+
   @type t :: NimbleOptions.schema() | struct() | []
 
   @doc """
@@ -47,10 +49,21 @@ defmodule Jido.Action.Schema do
   @spec validate(t(), map() | keyword()) :: {:ok, map()} | {:error, term()}
   def validate(schema, data) do
     case schema_type(schema) do
-      :empty -> {:ok, data}
-      :nimble -> validate_nimble(schema, data)
-      :zoi -> validate_zoi(schema, data)
-      :unknown -> {:error, "Unsupported schema type"}
+      :empty ->
+        {:ok, data}
+
+      :nimble ->
+        validate_nimble(schema, data)
+
+      :zoi ->
+        validate_zoi(schema, data)
+
+      :unknown ->
+        {:error,
+         Error.validation_error("Unsupported schema type", %{
+           reason: :unsupported_schema_type,
+           schema: inspect(schema)
+         })}
     end
   end
 
@@ -116,6 +129,9 @@ defmodule Jido.Action.Schema do
           module: module,
           errors: format_zoi_error_list(errors)
         })
+
+      %_{} = exception when is_exception(exception) ->
+        exception
 
       _ ->
         Jido.Action.Error.validation_error("Validation failed", %{

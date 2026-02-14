@@ -235,8 +235,7 @@ defmodule Jido.Instruction do
 
   ## Returns
     * `{:ok, %Instruction{}}` - Successfully created instruction
-    * `{:error, :missing_action}` - If action is not provided
-    * `{:error, :invalid_action}` - If action is not a module
+    * `{:error, %Jido.Action.Error.InvalidInputError{}}` - If action is missing or invalid
 
   ## Examples
 
@@ -247,10 +246,10 @@ defmodule Jido.Instruction do
       {:ok, %Instruction{action: MyAction}}
 
       iex> Instruction.new(%{params: %{value: 1}})
-      {:error, :missing_action}
+      {:error, %Jido.Action.Error.InvalidInputError{message: "Missing required :action for instruction"}}
   """
   @spec new(map() | keyword()) ::
-          {:ok, t()} | {:error, :missing_action | :invalid_action | term()}
+          {:ok, t()} | {:error, Exception.t()}
   def new(attrs) when is_list(attrs) do
     new(Map.new(attrs))
   end
@@ -264,7 +263,12 @@ defmodule Jido.Instruction do
     end
   end
 
-  def new(_), do: {:error, :missing_action}
+  def new(_),
+    do:
+      {:error,
+       Error.validation_error("Invalid instruction input. Expected map or keyword list.", %{
+         reason: :invalid_instruction_input
+       })}
 
   @doc """
   Normalizes a single instruction into an instruction struct. Unlike normalize/3,
@@ -504,11 +508,30 @@ defmodule Jido.Instruction do
 
   # Helpers for new/1
   defp validate_action_present(attrs) do
-    if Map.has_key?(attrs, :action), do: :ok, else: {:error, :missing_action}
+    if Map.has_key?(attrs, :action) do
+      :ok
+    else
+      {:error,
+       Error.validation_error("Missing required :action for instruction", %{
+         field: :action,
+         reason: :missing_action
+       })}
+    end
   end
 
   defp validate_action_is_atom(attrs) do
-    if is_atom(Map.get(attrs, :action)), do: :ok, else: {:error, :invalid_action}
+    action = Map.get(attrs, :action)
+
+    if is_atom(action) do
+      :ok
+    else
+      {:error,
+       Error.validation_error("Invalid :action for instruction; expected an atom module", %{
+         field: :action,
+         value: action,
+         reason: :invalid_action
+       })}
+    end
   end
 
   defp apply_defaults(attrs) do

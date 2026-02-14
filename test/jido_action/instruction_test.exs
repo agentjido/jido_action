@@ -226,15 +226,24 @@ defmodule Jido.InstructionTest do
     end
 
     test "returns error for missing action" do
-      assert {:error, :missing_action} = Instruction.new(%{params: %{value: 1}})
+      assert {:error, %Jido.Action.Error.InvalidInputError{} = error} =
+               Instruction.new(%{params: %{value: 1}})
+
+      assert error.details[:reason] == :missing_action
     end
 
     test "returns error for invalid action" do
-      assert {:error, :invalid_action} = Instruction.new(%{action: "not_a_module"})
+      assert {:error, %Jido.Action.Error.InvalidInputError{} = error} =
+               Instruction.new(%{action: "not_a_module"})
+
+      assert error.details[:reason] == :invalid_action
     end
 
     test "returns error for non-atom action" do
-      assert {:error, :invalid_action} = Instruction.new(%{action: 123})
+      assert {:error, %Jido.Action.Error.InvalidInputError{} = error} =
+               Instruction.new(%{action: 123})
+
+      assert error.details[:reason] == :invalid_action
     end
   end
 

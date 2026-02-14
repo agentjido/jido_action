@@ -13,6 +13,8 @@ defmodule Jido.Tools.Weather do
   - `Jido.Tools.Weather.CurrentConditions` - Get current conditions
   """
 
+  alias Jido.Action.Error
+
   use Jido.Action,
     name: "weather",
     description: "Get weather forecast using the National Weather Service API",
@@ -66,15 +68,15 @@ defmodule Jido.Tools.Weather do
     {:ok, weather_data}
   end
 
-  defp format_result(
-         {:error, %Jido.Action.Error.ExecutionFailureError{message: message}},
-         _format
-       ) do
-    {:error, "Failed to fetch weather: #{message}"}
-  end
-
   defp format_result({:error, reason}, _format) do
-    {:error, "Failed to fetch weather: #{inspect(reason)}"}
+    message =
+      case reason do
+        %_{} = exception when is_exception(exception) -> Exception.message(exception)
+        binary when is_binary(binary) -> binary
+        other -> inspect(other)
+      end
+
+    {:error, Error.execution_error("Failed to fetch weather: #{message}", %{reason: reason})}
   end
 
   @doc """
@@ -111,5 +113,9 @@ defmodule Jido.Tools.Weather do
   @dialyzer {:nowarn_function, handle_demo_result: 1}
   # credo:disable-for-next-line Credo.Check.Warning.IoInspect
   defp handle_demo_result({:ok, result}), do: IO.inspect(result, label: "Weather Data")
-  defp handle_demo_result({:error, error}), do: IO.puts("Error: #{error}")
+
+  defp handle_demo_result({:error, %_{} = error}) when is_exception(error),
+    do: IO.puts("Error: #{Exception.message(error)}")
+
+  defp handle_demo_result({:error, error}), do: IO.puts("Error: #{inspect(error)}")
 end

@@ -38,6 +38,27 @@ Each error type has its own struct:
 }
 ```
 
+### Runtime Error Contract
+
+At runtime, Jido execution and tool boundaries should return errors in this shape:
+
+```elixir
+{:error, %Exception{}}
+```
+
+Avoid returning bare atoms/strings/maps as `reason` across module boundaries. If legacy
+reason values are needed for compatibility, preserve them under `error.details.reason`.
+
+### Migration Notes
+
+- `Jido.Instruction.new/1` now returns `{:error, %Jido.Action.Error.InvalidInputError{}}`
+  for missing/invalid action input. Previous atom reasons are available as `details.reason`
+  (for example `:missing_action`, `:invalid_action`).
+- `Jido.Action.Schema.validate/2` now returns structured validation errors for unsupported
+  schema types instead of a bare string reason.
+- `Jido.Tools.Weather.run/2` now returns `ExecutionFailureError` on failure, with the
+  original failure value preserved under `details.reason`.
+
 ### Core Error Types
 
 #### Validation Errors
