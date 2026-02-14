@@ -47,6 +47,29 @@ defmodule JidoTest.Exec.AsyncMailboxHygieneTest do
     end
   end
 
+  describe "cancel/1 mailbox hygiene" do
+    test "cleans monitor and result messages when cancelling with async_ref monitor_ref" do
+      capture_log(fn ->
+        async_ref = Exec.run_async(BasicAction, %{value: 10})
+        Process.sleep(20)
+
+        assert :ok = Exec.cancel(async_ref)
+        assert_no_async_residue(async_ref.ref, async_ref.pid)
+      end)
+    end
+
+    test "supports legacy async_ref without monitor_ref and still cleans messages" do
+      capture_log(fn ->
+        async_ref = Exec.run_async(DelayAction, %{delay: 200}, %{}, timeout: 500)
+        legacy_async_ref = Map.take(async_ref, [:ref, :pid])
+
+        assert :ok = Exec.cancel(legacy_async_ref)
+        Process.sleep(20)
+        assert_no_async_residue(async_ref.ref, async_ref.pid)
+      end)
+    end
+  end
+
   defp assert_no_async_residue(ref, pid) do
     refute_receive {:action_async_result, ^ref, _}, 50
     refute_receive {:DOWN, _, :process, ^pid, _}, 50
