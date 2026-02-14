@@ -6,6 +6,8 @@ defmodule Jido.Tools.Weather.Geocode do
   Supports city/state, addresses, zipcodes, and other location formats.
   """
 
+  alias Jido.Action.Error
+
   use Jido.Action,
     name: "weather_geocode",
     description: "Convert a location string to lat,lng coordinates",
@@ -42,7 +44,12 @@ defmodule Jido.Tools.Weather.Geocode do
       response = Req.request!(req_options)
       transform_result(response.status, response.body, location)
     rescue
-      e -> {:error, "Geocoding HTTP error: #{Exception.message(e)}"}
+      e ->
+        {:error,
+         Error.execution_error("Geocoding HTTP error: #{Exception.message(e)}", %{
+           type: :geocode_http_error,
+           reason: e
+         })}
     end
   end
 
@@ -60,11 +67,20 @@ defmodule Jido.Tools.Weather.Geocode do
   end
 
   defp transform_result(200, [], location) do
-    {:error, "No results found for location: #{location}"}
+    {:error,
+     Error.execution_error("No geocoding results found for location: #{location}", %{
+       type: :geocode_no_results,
+       reason: %{location: location}
+     })}
   end
 
   defp transform_result(status, body, _location) do
-    {:error, "Geocoding API error (#{status}): #{inspect(body)}"}
+    {:error,
+     Error.execution_error("Geocoding API error (#{status})", %{
+       type: :geocode_request_failed,
+       status: status,
+       reason: %{status: status, body: body}
+     })}
   end
 
   defp parse_coordinate(value) when is_binary(value) do

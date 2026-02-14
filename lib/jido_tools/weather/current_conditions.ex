@@ -6,6 +6,8 @@ defmodule Jido.Tools.Weather.CurrentConditions do
   the latest conditions from the nearest station using ReqTool architecture.
   """
 
+  alias Jido.Action.Error
+
   use Jido.Action,
     name: "weather_current_conditions",
     description: "Get current weather conditions from nearest NWS observation station",
@@ -55,10 +57,23 @@ defmodule Jido.Tools.Weather.CurrentConditions do
           {:ok, stations}
 
         %{status: status, body: body} ->
-          {:error, "Failed to get observation stations (#{status}): #{inspect(body)}"}
+          {:error,
+           Error.execution_error("Failed to get observation stations (#{status})", %{
+             type: :observation_stations_request_failed,
+             status: status,
+             reason: %{status: status, body: body}
+           })}
       end
     rescue
-      e -> {:error, "HTTP error getting stations: #{Exception.message(e)}"}
+      e ->
+        {:error,
+         Error.execution_error(
+           "HTTP error getting observation stations: #{Exception.message(e)}",
+           %{
+             type: :observation_stations_http_error,
+             reason: e
+           }
+         )}
     end
   end
 
@@ -107,15 +122,32 @@ defmodule Jido.Tools.Weather.CurrentConditions do
           {:ok, conditions}
 
         %{status: status, body: body} ->
-          {:error, "Failed to get current conditions (#{status}): #{inspect(body)}"}
+          {:error,
+           Error.execution_error("Failed to get current conditions (#{status})", %{
+             type: :current_conditions_request_failed,
+             status: status,
+             reason: %{status: status, body: body}
+           })}
       end
     rescue
-      e -> {:error, "HTTP error getting conditions: #{Exception.message(e)}"}
+      e ->
+        {:error,
+         Error.execution_error(
+           "HTTP error getting current conditions: #{Exception.message(e)}",
+           %{
+             type: :current_conditions_http_error,
+             reason: e
+           }
+         )}
     end
   end
 
   defp get_current_conditions(nil) do
-    {:error, "No observation stations available"}
+    {:error,
+     Error.execution_error("No observation stations available", %{
+       type: :observation_stations_empty,
+       reason: :no_observation_stations
+     })}
   end
 
   defp format_measurement(%{"value" => nil}), do: nil

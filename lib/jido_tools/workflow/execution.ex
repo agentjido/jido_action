@@ -6,7 +6,7 @@ defmodule Jido.Tools.Workflow.Execution do
   alias Jido.Exec.Supervisors
   alias Jido.Instruction
 
-  @spec execute_workflow(list(), map(), map(), module()) :: {:ok, map()} | {:error, any()}
+  @spec execute_workflow(list(), map(), map(), module()) :: {:ok, map()} | {:error, Exception.t()}
   def execute_workflow(steps, params, context, module) do
     initial_acc = {:ok, params, %{}}
 
@@ -28,7 +28,10 @@ defmodule Jido.Tools.Workflow.Execution do
       {:ok, step_result} ->
         {:halt,
          {:error,
-          %{type: :invalid_step_result, message: "Expected map, got: #{inspect(step_result)}"}}}
+          Error.execution_error("Expected workflow step result to be a map", %{
+            type: :invalid_step_result,
+            reason: step_result
+          })}}
 
       {:error, reason} ->
         {:halt, {:error, reason}}
@@ -36,7 +39,7 @@ defmodule Jido.Tools.Workflow.Execution do
   end
 
   @doc false
-  @spec execute_step(tuple(), map(), map(), module()) :: {:ok, any()} | {:error, any()}
+  @spec execute_step(tuple(), map(), map(), module()) :: {:ok, any()} | {:error, Exception.t()}
   def execute_step(step, params, context, module) do
     case step do
       {:step, _metadata, [instruction]} ->
@@ -52,7 +55,11 @@ defmodule Jido.Tools.Workflow.Execution do
         execute_parallel(instructions, params, context, metadata, module)
 
       _ ->
-        {:error, %{type: :invalid_step, message: "Unknown step type: #{inspect(step)}"}}
+        {:error,
+         Error.execution_error("Unknown workflow step type", %{
+           type: :invalid_step,
+           reason: step
+         })}
     end
   end
 
@@ -63,10 +70,11 @@ defmodule Jido.Tools.Workflow.Execution do
 
       {:error, reason} ->
         {:error,
-         %{
+         Error.execution_error("Failed to normalize workflow instruction", %{
            type: :invalid_instruction,
-           message: "Failed to normalize instruction: #{inspect(reason)}"
-         }}
+           reason: reason,
+           instruction: instruction
+         })}
     end
   end
 
@@ -101,7 +109,7 @@ defmodule Jido.Tools.Workflow.Execution do
   end
 
   defp execute_branch(
-         _condition,
+         condition,
          _true_branch,
          _false_branch,
          _params,
@@ -110,10 +118,11 @@ defmodule Jido.Tools.Workflow.Execution do
          _module
        ) do
     {:error,
-     %{
+     Error.execution_error("Invalid or unhandled condition in workflow branch", %{
        type: :invalid_condition,
-       message: "Invalid or unhandled condition in branch #{inspect(metadata)}"
-     }}
+       reason: condition,
+       metadata: metadata
+     })}
   end
 
   defp execute_parallel(instructions, params, context, metadata, module) do
