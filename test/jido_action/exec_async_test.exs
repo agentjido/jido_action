@@ -11,12 +11,13 @@ defmodule JidoTest.ExecAsyncTest do
   @moduletag :capture_log
 
   describe "run_async/4" do
-    test "returns an async_ref with pid and ref" do
+    test "returns an async_ref with pid, ref, and owner" do
       capture_log(fn ->
         result = Exec.run_async(BasicAction, %{value: 5})
         assert is_map(result)
         assert is_pid(result.pid)
         assert is_reference(result.ref)
+        assert result.owner == self()
       end)
     end
   end
@@ -48,6 +49,23 @@ defmodule JidoTest.ExecAsyncTest do
                  Exec.await(async_ref, 50)
       end)
     end
+
+    test "returns a validation error for non-owner await attempts" do
+      capture_log(fn ->
+        caller = self()
+        async_ref = Exec.run_async(DelayAction, %{delay: 50}, %{}, timeout: 500)
+
+        spawn(fn ->
+          send(caller, {:non_owner_await, Exec.await(async_ref, 500)})
+        end)
+
+        assert_receive {:non_owner_await,
+                        {:error, %Jido.Action.Error.InvalidInputError{} = error}}
+
+        assert Exception.message(error) =~ "Only the owner process can await this async action"
+        assert {:ok, _result} = Exec.await(async_ref, 1_000)
+      end)
+    end
   end
 
   describe "cancel/1" do
@@ -77,15 +95,51 @@ defmodule JidoTest.ExecAsyncTest do
       end)
     end
 
+    test "returns a validation error for non-owner cancel by async_ref" do
+      capture_log(fn ->
+        caller = self()
+        async_ref = Exec.run_async(DelayAction, %{delay: 500}, %{}, timeout: 1_000)
+
+        spawn(fn ->
+          send(caller, {:non_owner_cancel_ref, Exec.cancel(async_ref)})
+        end)
+
+        assert_receive {:non_owner_cancel_ref,
+                        {:error, %Jido.Action.Error.InvalidInputError{} = error}}
+
+        assert Exception.message(error) =~ "Only the owner process can cancel this async action"
+        assert Process.alive?(async_ref.pid)
+        assert :ok = Exec.cancel(async_ref)
+      end)
+    end
+
+    test "returns a validation error for non-owner cancel by pid" do
+      capture_log(fn ->
+        caller = self()
+        async_ref = Exec.run_async(DelayAction, %{delay: 500}, %{}, timeout: 1_000)
+
+        spawn(fn ->
+          send(caller, {:non_owner_cancel_pid, Exec.cancel(async_ref.pid)})
+        end)
+
+        assert_receive {:non_owner_cancel_pid,
+                        {:error, %Jido.Action.Error.InvalidInputError{} = error}}
+
+        assert Exception.message(error) =~ "Only the owner process can cancel this async action"
+        assert Process.alive?(async_ref.pid)
+        assert :ok = Exec.cancel(async_ref.pid)
+      end)
+    end
+
     test "returns an error for invalid input" do
       assert {:error, %Jido.Action.Error.InvalidInputError{}} = Exec.cancel("invalid")
     end
   end
 
-  test "integration of run_async, await, and cancel" do
+  test "owner can still cancel after a non-owner await attempt" do
     capture_log(fn ->
       test_pid = self()
-      async_ref = Exec.run_async(DelayAction, %{delay: 2000}, %{}, timeout: 2000)
+      async_ref = Exec.run_async(DelayAction, %{delay: 2_000}, %{}, timeout: 2_000)
 
       spawn(fn ->
         result = Exec.await(async_ref, 100)
@@ -93,14 +147,14 @@ defmodule JidoTest.ExecAsyncTest do
       end)
 
       Process.sleep(50)
-      Exec.cancel(async_ref)
+      assert :ok = Exec.cancel(async_ref)
 
       receive do
         {:await_result, result} ->
-          assert {:error, %Jido.Action.Error.TimeoutError{} = error} = result
-          assert Exception.message(error) =~ "Async action timed out after 100ms"
+          assert {:error, %Jido.Action.Error.InvalidInputError{} = error} = result
+          assert Exception.message(error) =~ "Only the owner process can await this async action"
       after
-        2000 ->
+        2_000 ->
           flunk("Await did not complete in time")
       end
 

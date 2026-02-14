@@ -14,6 +14,7 @@ defmodule Jido.Exec.Async do
 
   @default_timeout 5000
   @cancel_wait_ms 100
+  @async_owner_key :jido_async_owner
 
   # Helper functions to get configuration values with fallbacks
   defp get_default_timeout,
@@ -41,6 +42,7 @@ defmodule Jido.Exec.Async do
   @type async_ref :: %{
           required(:ref) => reference(),
           required(:pid) => pid(),
+          optional(:owner) => pid(),
           optional(:monitor_ref) => reference()
         }
 
@@ -80,7 +82,7 @@ defmodule Jido.Exec.Async do
   @spec start(action(), params(), context(), run_opts()) :: async_ref()
   def start(action, params \\ %{}, context \\ %{}, opts \\ []) do
     ref = make_ref()
-    parent = self()
+    owner = self()
 
     # Resolve supervisor based on jido: option (defaults to global)
     task_sup = Supervisors.task_supervisor(opts)
@@ -89,15 +91,16 @@ defmodule Jido.Exec.Async do
     # If the supervisor is not running, this will raise an error.
     {:ok, pid} =
       Task.Supervisor.start_child(task_sup, fn ->
+        Process.put(@async_owner_key, owner)
         result = Jido.Exec.run(action, params, context, opts)
-        send(parent, {:action_async_result, ref, result})
+        send(owner, {:action_async_result, ref, result})
         result
       end)
 
     # Persist monitor_ref in async_ref so await can demonitor/flush deterministically.
     monitor_ref = Process.monitor(pid)
 
-    %{ref: ref, pid: pid, monitor_ref: monitor_ref}
+    %{ref: ref, pid: pid, owner: owner, monitor_ref: monitor_ref}
   end
 
   @doc """
@@ -131,11 +134,13 @@ defmodule Jido.Exec.Async do
   """
   @spec await(async_ref(), timeout()) :: exec_result
   def await(%{ref: ref, pid: pid} = async_ref, timeout) do
-    monitor_ref = Map.get_lazy(async_ref, :monitor_ref, fn -> Process.monitor(pid) end)
+    with :ok <- validate_owner(async_ref, :await) do
+      monitor_ref = Map.get_lazy(async_ref, :monitor_ref, fn -> Process.monitor(pid) end)
 
-    result = await_result(ref, pid, monitor_ref, timeout)
-    cleanup_after_await(ref, monitor_ref)
-    result
+      result = await_result(ref, pid, monitor_ref, timeout)
+      cleanup_after_await(ref, monitor_ref)
+      result
+    end
   end
 
   defp await_result(ref, pid, monitor_ref, timeout) do
@@ -201,15 +206,23 @@ defmodule Jido.Exec.Async do
   """
   @spec cancel(async_ref() | pid()) :: :ok | exec_error
   def cancel(%{ref: ref, pid: pid} = async_ref) do
-    monitor_ref = get_cancel_monitor_ref(async_ref, pid)
-    cancel_with_cleanup(ref, pid, monitor_ref)
+    with :ok <- validate_owner(async_ref, :cancel) do
+      monitor_ref = get_cancel_monitor_ref(async_ref, pid)
+      cancel_with_cleanup(ref, pid, monitor_ref)
+    end
   end
 
-  def cancel(%{pid: pid}), do: cancel(pid)
+  def cancel(%{pid: pid} = async_ref) do
+    with :ok <- validate_owner(async_ref, :cancel) do
+      cancel(pid)
+    end
+  end
 
   def cancel(pid) when is_pid(pid) do
-    monitor_ref = Process.monitor(pid)
-    cancel_with_cleanup(nil, pid, monitor_ref)
+    with :ok <- validate_pid_owner(pid, :cancel) do
+      monitor_ref = Process.monitor(pid)
+      cancel_with_cleanup(nil, pid, monitor_ref)
+    end
   end
 
   def cancel(_), do: {:error, Error.validation_error("Invalid async ref for cancellation")}
@@ -236,6 +249,50 @@ defmodule Jido.Exec.Async do
     after
       0 ->
         :ok
+    end
+  end
+
+  defp validate_owner(%{owner: owner}, operation) when is_pid(owner) do
+    validate_owner_pid(owner, operation)
+  end
+
+  defp validate_owner(_async_ref, _operation), do: :ok
+
+  defp validate_pid_owner(pid, operation) do
+    case get_pid_owner(pid) do
+      {:ok, owner} -> validate_owner_pid(owner, operation)
+      :unknown -> :ok
+    end
+  end
+
+  defp get_pid_owner(pid) do
+    case Process.info(pid, :dictionary) do
+      {:dictionary, dictionary} ->
+        case List.keyfind(dictionary, @async_owner_key, 0) do
+          {@async_owner_key, owner} when is_pid(owner) -> {:ok, owner}
+          _ -> :unknown
+        end
+
+      _ ->
+        :unknown
+    end
+  end
+
+  defp validate_owner_pid(owner, operation) do
+    caller = self()
+
+    if caller == owner do
+      :ok
+    else
+      {:error,
+       Error.validation_error(
+         "Only the owner process can #{operation} this async action",
+         %{
+           operation: operation,
+           owner: owner,
+           caller: caller
+         }
+       )}
     end
   end
 end
