@@ -1,6 +1,7 @@
 defmodule Jido.Tools.LuaEvalSupervisionTest do
   use ExUnit.Case, async: false
 
+  alias Jido.Action.Error
   alias Jido.Tools.LuaEval
 
   @context %{}
@@ -25,7 +26,9 @@ defmodule Jido.Tools.LuaEvalSupervisionTest do
       send(caller, :run)
       assert_new_supervisor_child(baseline_children)
 
-      assert_receive {:done, ^caller, {:error, %{type: :timeout, timeout_ms: 200}}}, 500
+      assert_receive {:done, ^caller, {:error, %Error.TimeoutError{} = error}}, 500
+      assert error.timeout == 200
+      assert error.details[:reason] == %{type: :timeout, timeout_ms: 200}
     end
 
     test "does not link Lua task to the caller process" do
@@ -50,7 +53,9 @@ defmodule Jido.Tools.LuaEvalSupervisionTest do
       links_during_execution = caller |> Process.info(:links) |> elem(1) |> MapSet.new()
       assert links_during_execution == baseline_links
 
-      assert_receive {:done, ^caller, {:error, %{type: :timeout, timeout_ms: 200}}}, 500
+      assert_receive {:done, ^caller, {:error, %Error.TimeoutError{} = error}}, 500
+      assert error.timeout == 200
+      assert error.details[:reason] == %{type: :timeout, timeout_ms: 200}
     end
   end
 

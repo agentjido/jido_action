@@ -267,7 +267,8 @@ defmodule JidoTest.Tools.WorkflowTest do
 
       result = InvalidStepWorkflow.execute_step({:invalid_type, [], []}, params, context)
       assert {:error, error} = result
-      assert error.type == :invalid_step
+      assert %Error.ExecutionFailureError{} = error
+      assert error.details[:type] == :invalid_step
     end
   end
 
@@ -338,7 +339,8 @@ defmodule JidoTest.Tools.WorkflowTest do
       context = %{}
 
       assert {:error, error} = InvalidBranchWorkflow.run(params, context)
-      assert error.type == :invalid_condition
+      assert %Error.ExecutionFailureError{} = error
+      assert error.details[:type] == :invalid_condition
     end
   end
 

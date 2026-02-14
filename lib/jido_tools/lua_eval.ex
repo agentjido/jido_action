@@ -48,8 +48,10 @@ defmodule Jido.Tools.LuaEval do
         code: "while true do end",
         timeout_ms: 50
       }, %{})
-      {:error, %{type: :timeout, timeout_ms: 50}}
+      {:error, %Jido.Action.Error.TimeoutError{timeout: 50}}
   """
+
+  alias Jido.Action.Error
 
   use Jido.Action,
     name: "lua_eval",
@@ -108,7 +110,7 @@ defmodule Jido.Tools.LuaEval do
 
         nil ->
           _ = Task.shutdown(task, :brutal_kill)
-          {:error, %{type: :timeout, timeout_ms: timeout_ms}}
+          timeout_error(timeout_ms)
       end
     else
       msg =
@@ -168,6 +170,18 @@ defmodule Jido.Tools.LuaEval do
   end
 
   defp return_error(type, message) do
-    {:error, %{type: type, message: message}}
+    {:error,
+     Error.execution_error(message, %{
+       type: type,
+       reason: %{type: type, message: message}
+     })}
+  end
+
+  defp timeout_error(timeout_ms) do
+    {:error,
+     Error.timeout_error("Lua execution timed out after #{timeout_ms}ms", %{
+       timeout: timeout_ms,
+       reason: %{type: :timeout, timeout_ms: timeout_ms}
+     })}
   end
 end

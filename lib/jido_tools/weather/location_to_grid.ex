@@ -6,6 +6,8 @@ defmodule Jido.Tools.Weather.LocationToGrid do
   Returns grid coordinates and forecast URLs needed for detailed weather information.
   """
 
+  alias Jido.Action.Error
+
   use Jido.Action,
     name: "weather_location_to_grid",
     description: "Convert location to NWS grid coordinates and forecast URLs",
@@ -41,7 +43,12 @@ defmodule Jido.Tools.Weather.LocationToGrid do
         response: %{status: response.status, body: response.body, headers: response.headers}
       })
     rescue
-      e -> {:error, "HTTP error: #{Exception.message(e)}"}
+      e ->
+        {:error,
+         Error.execution_error("HTTP error fetching grid location: #{Exception.message(e)}", %{
+           type: :location_to_grid_http_error,
+           reason: e
+         })}
     end
   end
 
@@ -70,10 +77,19 @@ defmodule Jido.Tools.Weather.LocationToGrid do
   end
 
   defp transform_result(%{response: %{status: status, body: body}}) when status != 200 do
-    {:error, "NWS API error (#{status}): #{inspect(body)}"}
+    {:error,
+     Error.execution_error("NWS API error (#{status})", %{
+       type: :location_to_grid_request_failed,
+       status: status,
+       reason: %{status: status, body: body}
+     })}
   end
 
   defp transform_result(_payload) do
-    {:error, "Unexpected response format"}
+    {:error,
+     Error.execution_error("Unexpected location-to-grid response format", %{
+       type: :location_to_grid_response_invalid,
+       reason: :unexpected_response_format
+     })}
   end
 end

@@ -35,6 +35,7 @@ defmodule Jido.Tools.ActionPlan do
   - `transform_result/1` (optional) - Transform the execution result
   """
 
+  alias Jido.Action.Error
   alias Jido.Exec
   alias Jido.Plan
 
@@ -51,7 +52,7 @@ defmodule Jido.Tools.ActionPlan do
 
   Takes the plan execution result and returns a transformed result.
   """
-  @callback transform_result(map()) :: {:ok, map()} | {:error, any()}
+  @callback transform_result(map()) :: {:ok, map()} | {:error, Exception.t() | term()}
 
   # Make transform_result optional
   @optional_callbacks [transform_result: 1]
@@ -78,7 +79,7 @@ defmodule Jido.Tools.ActionPlan do
         case execute_plan(plan, params, context) do
           {:ok, result} ->
             # Transform the result using the optional callback
-            transform_result(result)
+            normalize_transform_result(transform_result(result))
 
           {:error, reason} ->
             {:error, reason}
@@ -103,7 +104,7 @@ defmodule Jido.Tools.ActionPlan do
             execute_phases(phases, plan, params, context, %{})
 
           {:error, reason} ->
-            {:error, reason}
+            {:error, ensure_exception(reason, "Failed to resolve action plan execution phases")}
         end
       end
 
@@ -127,7 +128,7 @@ defmodule Jido.Tools.ActionPlan do
             execute_phases(remaining_phases, plan, updated_params, context, updated_results)
 
           {:error, reason} ->
-            {:error, reason}
+            {:error, ensure_exception(reason, "Action plan phase execution failed")}
         end
       end
 
@@ -139,7 +140,12 @@ defmodule Jido.Tools.ActionPlan do
           |> Enum.map(fn step_name ->
             case Map.get(plan.steps, step_name) do
               nil ->
-                {:error, %{type: :step_not_found, step_name: step_name}}
+                {:error,
+                 Error.execution_error("Action plan step not found", %{
+                   type: :step_not_found,
+                   step_name: step_name,
+                   reason: %{step_name: step_name}
+                 })}
 
               plan_instruction ->
                 execute_step(plan_instruction, params, context)
@@ -164,7 +170,7 @@ defmodule Jido.Tools.ActionPlan do
             {:ok, phase_results}
 
           {:error, reason} ->
-            {:error, reason}
+            {:error, ensure_exception(reason, "Action plan phase failed")}
         end
       end
 
@@ -183,20 +189,46 @@ defmodule Jido.Tools.ActionPlan do
 
           {:error, reason} ->
             {:error,
-             %{
+             Error.execution_error("Action plan step failed", %{
                type: :step_execution_failed,
                step_name: plan_instruction.name,
                reason: reason
-             }}
+             })}
 
           other ->
             {:error,
-             %{
+             Error.execution_error("Action plan step returned unexpected value", %{
                type: :invalid_result,
                step_name: plan_instruction.name,
-               message: "Action returned unexpected value: #{inspect(other)}"
-             }}
+               reason: other
+             })}
         end
+      end
+
+      defp normalize_transform_result(transform_result) do
+        case transform_result do
+          {:ok, result} ->
+            {:ok, result}
+
+          {:error, reason} ->
+            {:error, ensure_exception(reason, "Action plan result transformation failed")}
+
+          other ->
+            {:error,
+             Error.execution_error(
+               "transform_result/1 must return {:ok, result} or {:error, reason}",
+               %{
+                 type: :invalid_transform_result,
+                 reason: other
+               }
+             )}
+        end
+      end
+
+      defp ensure_exception(reason, _message) when is_exception(reason), do: reason
+
+      defp ensure_exception(reason, message) do
+        Error.execution_error(message, %{reason: reason})
       end
     end
   end

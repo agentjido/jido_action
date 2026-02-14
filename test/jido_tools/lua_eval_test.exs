@@ -1,6 +1,7 @@
 defmodule Jido.Tools.LuaEvalTest do
   use ExUnit.Case, async: true
 
+  alias Jido.Action.Error
   alias Jido.Tools.LuaEval
 
   @context %{}
@@ -66,29 +67,38 @@ defmodule Jido.Tools.LuaEvalTest do
 
   describe "error handling" do
     test "handles compile errors" do
-      assert {:error, %{type: :compile_error, message: message}} =
+      assert {:error, %Error.ExecutionFailureError{} = error} =
                LuaEval.run(%{code: "return 2 +"}, @context)
 
+      assert error.details[:type] == :compile_error
+      assert %{type: :compile_error, message: message} = error.details[:reason]
       assert is_binary(message)
     end
 
     test "handles runtime errors" do
-      assert {:error, %{type: :lua_error, message: message}} =
+      assert {:error, %Error.ExecutionFailureError{} = error} =
                LuaEval.run(%{code: "error('boom')"}, @context)
 
+      assert error.details[:type] == :lua_error
+      assert %{type: :lua_error, message: message} = error.details[:reason]
       assert message =~ "boom"
     end
 
     test "handles invalid operations" do
-      assert {:error, %{type: :lua_error, message: _}} =
+      assert {:error, %Error.ExecutionFailureError{} = error} =
                LuaEval.run(%{code: "return nil + 5"}, @context)
+
+      assert error.details[:type] == :lua_error
+      assert %{type: :lua_error, message: _} = error.details[:reason]
     end
   end
 
   describe "timeout enforcement" do
     test "enforces timeout on infinite loop" do
       params = %{code: "while true do end", timeout_ms: 50}
-      assert {:error, %{type: :timeout, timeout_ms: 50}} = LuaEval.run(params, @context)
+      assert {:error, %Error.TimeoutError{} = error} = LuaEval.run(params, @context)
+      assert error.timeout == 50
+      assert error.details[:reason] == %{type: :timeout, timeout_ms: 50}
     end
 
     test "allows execution within timeout" do
@@ -100,12 +110,14 @@ defmodule Jido.Tools.LuaEvalTest do
   describe "sandbox security" do
     test "blocks os.getenv by default" do
       params = %{code: "return os.getenv('HOME')"}
-      assert {:error, %{type: :lua_error}} = LuaEval.run(params, @context)
+      assert {:error, %Error.ExecutionFailureError{} = error} = LuaEval.run(params, @context)
+      assert error.details[:type] == :lua_error
     end
 
     test "blocks require by default" do
       params = %{code: "require('os')"}
-      assert {:error, %{type: :lua_error}} = LuaEval.run(params, @context)
+      assert {:error, %Error.ExecutionFailureError{} = error} = LuaEval.run(params, @context)
+      assert error.details[:type] == :lua_error
     end
 
     test "allows safe math operations" do
