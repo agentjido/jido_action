@@ -51,6 +51,7 @@ defmodule Jido.Exec do
   require Logger
 
   @default_timeout 30_000
+  @deadline_key :__jido_deadline_ms__
 
   # Helper functions to get configuration values with fallbacks
   defp get_default_timeout,
@@ -403,46 +404,53 @@ defmodule Jido.Exec do
 
     @spec do_run(action(), params(), context(), run_opts()) :: exec_result
     defp do_run(action, params, context, opts) do
-      timeout = Keyword.get(opts, :timeout, get_default_timeout())
       telemetry = Keyword.get(opts, :telemetry, :full)
 
-      result =
-        case telemetry do
-          :silent ->
-            execute_action_with_timeout(action, params, context, timeout)
-
-          _ ->
-            span_metadata = %{
-              action: action,
-              params: params,
-              context: context
-            }
-
-            :telemetry.span(
-              [:jido, :action],
-              span_metadata,
-              fn ->
-                result = execute_action_with_timeout(action, params, context, timeout, opts)
-                {result, %{}}
+      with {:ok, timeout, budgeted_context} <- resolve_timeout_budget(context, opts) do
+        result =
+          case telemetry do
+            :silent ->
+              if opts == [] do
+                execute_action_with_timeout(action, params, budgeted_context, timeout)
+              else
+                execute_action_with_timeout(action, params, budgeted_context, timeout, opts)
               end
-            )
+
+            _ ->
+              span_metadata = %{
+                action: action,
+                params: params,
+                context: budgeted_context
+              }
+
+              :telemetry.span(
+                [:jido, :action],
+                span_metadata,
+                fn ->
+                  result =
+                    execute_action_with_timeout(action, params, budgeted_context, timeout, opts)
+
+                  {result, %{}}
+                end
+              )
+          end
+
+        case result do
+          {:ok, _result} = success ->
+            success
+
+          {:ok, _result, _other} = success ->
+            success
+
+          {:error, %Jido.Action.Error.TimeoutError{}} = timeout_err ->
+            timeout_err
+
+          {:error, error, other} ->
+            handle_action_error(action, params, budgeted_context, {error, other}, opts)
+
+          {:error, error} ->
+            handle_action_error(action, params, budgeted_context, error, opts)
         end
-
-      case result do
-        {:ok, _result} = success ->
-          success
-
-        {:ok, _result, _other} = success ->
-          success
-
-        {:error, %Jido.Action.Error.TimeoutError{}} = timeout_err ->
-          timeout_err
-
-        {:error, error, other} ->
-          handle_action_error(action, params, context, {error, other}, opts)
-
-        {:error, error} ->
-          handle_action_error(action, params, context, error, opts)
       end
     end
 
@@ -464,7 +472,7 @@ defmodule Jido.Exec do
             non_neg_integer(),
             run_opts()
           ) :: exec_result
-    defp execute_action_with_timeout(action, params, context, timeout, opts \\ [])
+    defp execute_action_with_timeout(action, params, context, timeout, opts)
 
     defp execute_action_with_timeout(action, params, context, 0, opts) do
       execute_action(action, params, context, opts)
@@ -563,6 +571,64 @@ defmodule Jido.Exec do
 
     defp execute_action_with_timeout(action, params, context, _timeout, opts) do
       execute_action_with_timeout(action, params, context, get_default_timeout(), opts)
+    end
+
+    @spec execute_action_with_timeout(action(), params(), context(), non_neg_integer()) ::
+            exec_result
+    defp execute_action_with_timeout(action, params, context, timeout) do
+      execute_action_with_timeout(action, params, context, timeout, [])
+    end
+
+    defp resolve_timeout_budget(context, opts) do
+      timeout = resolve_timeout_opt(opts)
+      existing_deadline = Map.get(context, @deadline_key)
+
+      if timeout == 0 and not is_integer(existing_deadline) do
+        {:ok, timeout, context}
+      else
+        now = System.monotonic_time(:millisecond)
+
+        deadline =
+          cond do
+            is_integer(existing_deadline) and timeout > 0 ->
+              min(existing_deadline, now + timeout)
+
+            is_integer(existing_deadline) ->
+              existing_deadline
+
+            timeout > 0 ->
+              now + timeout
+
+            true ->
+              nil
+          end
+
+        case deadline do
+          deadline_ms when is_integer(deadline_ms) ->
+            remaining = deadline_ms - now
+
+            if remaining <= 0 do
+              {:error,
+               Error.timeout_error("Execution deadline exceeded before action dispatch", %{
+                 deadline_ms: deadline_ms,
+                 now_ms: now
+               })}
+            else
+              effective_timeout = if timeout == 0, do: remaining, else: min(timeout, remaining)
+              {:ok, effective_timeout, Map.put(context, @deadline_key, deadline_ms)}
+            end
+
+          _ ->
+            {:ok, timeout, context}
+        end
+      end
+    end
+
+    defp resolve_timeout_opt(opts) do
+      case Keyword.get(opts, :timeout, get_default_timeout()) do
+        timeout when is_integer(timeout) and timeout >= 0 -> timeout
+        _invalid -> get_default_timeout()
+      end
     end
 
     @spec execute_action(action(), params(), context(), run_opts()) :: exec_result

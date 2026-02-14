@@ -91,7 +91,7 @@ defmodule Jido.Tools.ReqTool do
           end
 
           # Helper function to make the actual HTTP request
-          defp make_request(params, _context) do
+          defp make_request(params, context) do
             # Build the request based on the method
             method = @req_opts[:method]
             url = @req_opts[:url]
@@ -122,9 +122,11 @@ defmodule Jido.Tools.ReqTool do
                       Keyword.put(req_options, :params, params)
                   end
 
-                # Execute the request
-                response = Req.request!(req_options)
-                {:ok, response}
+                with {:ok, bounded_req_options} <- apply_deadline_timeout(req_options, context) do
+                  # Execute the request
+                  response = Req.request!(bounded_req_options)
+                  {:ok, response}
+                end
               rescue
                 e -> {:error, Error.execution_error("HTTP request failed", %{exception: e})}
               end
@@ -134,6 +136,40 @@ defmodule Jido.Tools.ReqTool do
                  "Req library is required for ReqTool. Add {:req, \"~> 0.5\"} to your deps.",
                  %{dependency: :req}
                )}
+            end
+          end
+
+          defp apply_deadline_timeout(req_options, context) do
+            case context[:__jido_deadline_ms__] do
+              deadline_ms when is_integer(deadline_ms) ->
+                now = System.monotonic_time(:millisecond)
+                remaining = deadline_ms - now
+
+                if remaining <= 0 do
+                  {:error,
+                   Error.timeout_error(
+                     "Execution deadline exceeded before HTTP request dispatch",
+                     %{
+                       deadline_ms: deadline_ms,
+                       now_ms: now
+                     }
+                   )}
+                else
+                  {:ok, put_receive_timeout(req_options, remaining)}
+                end
+
+              _ ->
+                {:ok, req_options}
+            end
+          end
+
+          defp put_receive_timeout(req_options, remaining) do
+            case Keyword.get(req_options, :receive_timeout) do
+              timeout when is_integer(timeout) and timeout >= 0 ->
+                Keyword.put(req_options, :receive_timeout, min(timeout, remaining))
+
+              _ ->
+                Keyword.put(req_options, :receive_timeout, remaining)
             end
           end
 
