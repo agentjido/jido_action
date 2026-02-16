@@ -113,4 +113,39 @@ defmodule Jido.Action.SchemaJsonTest do
       assert result["properties"]["value"]["type"] == "number"
     end
   end
+
+  describe "to_json_schema/2 - strict mode" do
+    test "adds additionalProperties false to top-level object when strict" do
+      schema = [value: [type: :integer]]
+      result = Schema.to_json_schema(schema, strict: true)
+
+      assert result["additionalProperties"] == false
+    end
+
+    test "recursively sets additionalProperties false for nested map properties" do
+      schema = [config: [type: :map]]
+      result = Schema.to_json_schema(schema, strict: true)
+
+      assert result["additionalProperties"] == false
+      assert result["properties"]["config"]["additionalProperties"] == false
+    end
+
+    test "recursively sets additionalProperties false for objects in arrays" do
+      schema = [items: [type: {:list, :map}]]
+      result = Schema.to_json_schema(schema, strict: true)
+
+      assert result["additionalProperties"] == false
+      assert result["properties"]["items"]["items"]["additionalProperties"] == false
+    end
+
+    test "strict false preserves legacy schema output" do
+      schema = [config: [type: :map]]
+      legacy = Schema.to_json_schema(schema)
+      strict_false = Schema.to_json_schema(schema, strict: false)
+
+      assert strict_false == legacy
+      refute Map.has_key?(legacy, "additionalProperties")
+      refute Map.has_key?(legacy["properties"]["config"], "additionalProperties")
+    end
+  end
 end

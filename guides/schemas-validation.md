@@ -240,6 +240,9 @@ keys = Jido.Action.Schema.known_keys(schema)
 
 # Convert to JSON Schema (for AI tools)
 json_schema = Jido.Action.Schema.to_json_schema(schema)
+
+# Strict mode (recursive `additionalProperties: false` for all objects)
+strict_json_schema = Jido.Action.Schema.to_json_schema(schema, strict: true)
 ```
 
 ## Open/Partial Validation
@@ -307,6 +310,12 @@ tool = MyApp.Actions.SearchProducts.to_tool()
 #        "required" => ["query"]
 #      }
 #    }
+
+# Action.to_tool/0 emits strict schemas by default for modern LLM tool APIs
+# (recursive `additionalProperties: false` on all object schemas).
+
+# To opt out and keep legacy non-strict schema generation:
+legacy_tool = Jido.Action.Tool.to_tool(MyApp.Actions.SearchProducts, strict: false)
 ```
 
 See the [AI Integration Guide](ai-integration.md) for more details.

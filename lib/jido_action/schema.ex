@@ -81,9 +81,23 @@ defmodule Jido.Action.Schema do
     * Map representing the JSON Schema
   """
   @spec to_json_schema(t()) :: map()
-  def to_json_schema([]), do: %{"type" => "object", "properties" => %{}, "required" => []}
-  def to_json_schema(schema) when is_list(schema), do: nimble_to_json_schema(schema)
-  def to_json_schema(schema), do: Zoi.to_json_schema(schema)
+  def to_json_schema(schema), do: to_json_schema(schema, [])
+
+  @doc """
+  Converts a schema to JSON Schema format for AI tools with optional strictness controls.
+
+  ## Options
+    * `:strict` - when `true`, recursively sets `additionalProperties: false` on all
+      object schemas (default: `false`)
+  """
+  @spec to_json_schema(t(), keyword()) :: map()
+  def to_json_schema(schema, opts) do
+    strict? = Keyword.get(opts, :strict, false)
+
+    schema
+    |> base_json_schema()
+    |> maybe_apply_strict(strict?)
+  end
 
   @doc """
   Formats validation errors into Jido.Action.Error structs.
@@ -192,6 +206,77 @@ defmodule Jido.Action.Schema do
   end
 
   defp extract_zoi_keys(_), do: []
+
+  defp base_json_schema([]), do: %{"type" => "object", "properties" => %{}, "required" => []}
+  defp base_json_schema(schema) when is_list(schema), do: nimble_to_json_schema(schema)
+  defp base_json_schema(schema), do: Zoi.to_json_schema(schema)
+
+  defp maybe_apply_strict(schema, false), do: schema
+  defp maybe_apply_strict(schema, true), do: disallow_additional_properties(schema)
+
+  # Recursively set additionalProperties: false on all object schemas.
+  # Handles both atom-key and string-key schemas for compatibility with Zoi and Nimble.
+  defp disallow_additional_properties(%{type: :object} = schema) do
+    schema
+    |> Map.put(:additionalProperties, false)
+    |> traverse_schema_values(&disallow_additional_properties/1)
+  end
+
+  defp disallow_additional_properties(%{"type" => "object"} = schema) do
+    schema
+    |> Map.put("additionalProperties", false)
+    |> traverse_schema_values(&disallow_additional_properties/1)
+  end
+
+  defp disallow_additional_properties(schema) when is_map(schema) do
+    traverse_schema_values(schema, &disallow_additional_properties/1)
+  end
+
+  defp disallow_additional_properties(schema) when is_list(schema) do
+    Enum.map(schema, &disallow_additional_properties/1)
+  end
+
+  defp disallow_additional_properties(schema), do: schema
+
+  defp traverse_schema_values(schema, fun) do
+    schema
+    |> maybe_update_key(:properties, &map_property_schemas(&1, fun))
+    |> maybe_update_key("properties", &map_property_schemas(&1, fun))
+    |> maybe_update_key(:items, fun)
+    |> maybe_update_key("items", fun)
+    |> maybe_update_key(:allOf, &map_schema_list(&1, fun))
+    |> maybe_update_key("allOf", &map_schema_list(&1, fun))
+    |> maybe_update_key(:anyOf, &map_schema_list(&1, fun))
+    |> maybe_update_key("anyOf", &map_schema_list(&1, fun))
+    |> maybe_update_key(:oneOf, &map_schema_list(&1, fun))
+    |> maybe_update_key("oneOf", &map_schema_list(&1, fun))
+    |> maybe_update_key(:not, fun)
+    |> maybe_update_key("not", fun)
+    |> maybe_update_key(:if, fun)
+    |> maybe_update_key("if", fun)
+    |> maybe_update_key(:then, fun)
+    |> maybe_update_key("then", fun)
+    |> maybe_update_key(:else, fun)
+    |> maybe_update_key("else", fun)
+    |> maybe_update_key(:contains, fun)
+    |> maybe_update_key("contains", fun)
+  end
+
+  defp maybe_update_key(map, key, fun) do
+    case Map.fetch(map, key) do
+      {:ok, value} -> Map.put(map, key, fun.(value))
+      :error -> map
+    end
+  end
+
+  defp map_property_schemas(properties, fun) when is_map(properties) do
+    Map.new(properties, fn {key, value} -> {key, fun.(value)} end)
+  end
+
+  defp map_property_schemas(properties, _fun), do: properties
+
+  defp map_schema_list(value, fun) when is_list(value), do: Enum.map(value, fun)
+  defp map_schema_list(value, _fun), do: value
 
   defp nimble_to_json_schema(nimble_schema) do
     properties =
