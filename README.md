@@ -93,6 +93,21 @@ Jido.Action transforms ad-hoc functions into structured, validated, AI-compatibl
 
 ## Installation
 
+### Igniter Installation (Recommended)
+
+The fastest way to get started is with [Igniter](https://hex.pm/packages/igniter):
+
+```bash
+mix igniter.install jido_action
+```
+
+This automatically:
+- Adds `jido_action` to your dependencies
+- Configures default settings (timeout, retries, backoff)
+- Optionally generates an example action with `--example`
+
+### Manual Installation
+
 Add `jido_action` to your list of dependencies in `mix.exs`:
 
 ```elixir
