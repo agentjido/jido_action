@@ -304,7 +304,7 @@ defmodule Jido.Exec.Telemetry do
     struct
     |> Map.from_struct()
     |> do_sanitize(depth)
-    |> Map.put(:__struct__, struct.__struct__)
+    |> Map.put(:__struct__, inspect(struct.__struct__))
   end
 
   defp do_sanitize(value, depth) when is_map(value) do
