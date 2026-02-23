@@ -8,11 +8,13 @@ defmodule Jido.Action.Tool do
   ## Tool Formats
 
   - `to_tool/1` - Returns a generic tool map with name, description, function, and schema
+  - `to_tool/2` - Same as `to_tool/1` with JSON schema options (e.g., strict mode)
 
   ## Utility Functions
 
   - `convert_params_using_schema/2` - Normalizes LLM arguments (string keys → atom keys, type coercion)
   - `build_parameters_schema/1` - Converts action schema to JSON Schema format
+  - `build_parameters_schema/2` - Same as `build_parameters_schema/1` with schema options
   - `execute_action/3` - Executes an action with schema-based param conversion
   """
 
@@ -47,12 +49,15 @@ defmodule Jido.Action.Tool do
       }
   """
   @spec to_tool(module()) :: tool()
-  def to_tool(action) when is_atom(action) do
+  def to_tool(action) when is_atom(action), do: to_tool(action, [])
+
+  @spec to_tool(module(), keyword()) :: tool()
+  def to_tool(action, opts) when is_atom(action) and is_list(opts) do
     %{
       name: action.name(),
       description: action.description(),
       function: &execute_action(action, &1, &2),
-      parameters_schema: build_parameters_schema(action.schema())
+      parameters_schema: build_parameters_schema(action.schema(), opts)
     }
   end
 
@@ -167,7 +172,9 @@ defmodule Jido.Action.Tool do
     A map representing the parameters schema in a format compatible with LangChain.
   """
   @spec build_parameters_schema(Schema.t()) :: map()
-  def build_parameters_schema(schema) do
-    Schema.to_json_schema(schema)
-  end
+  def build_parameters_schema(schema), do: build_parameters_schema(schema, [])
+
+  @spec build_parameters_schema(Schema.t(), keyword()) :: map()
+  def build_parameters_schema(schema, opts) when is_list(opts),
+    do: Schema.to_json_schema(schema, opts)
 end

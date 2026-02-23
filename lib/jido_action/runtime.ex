@@ -1,8 +1,20 @@
 defmodule Jido.Action.Runtime do
-  @moduledoc false
+  @moduledoc """
+  Runtime validation helpers used by generated `Jido.Action` modules.
+
+  This module applies action lifecycle hooks around parameter and output
+  validation, preserving unknown keys so composable action chains can pass
+  through additional data.
+  """
 
   alias Jido.Action.Schema
 
+  @doc """
+  Validates action input parameters with lifecycle hooks.
+
+  Runs `on_before_validate_params/1`, validates only known schema keys,
+  preserves unknown keys, then runs `on_after_validate_params/1`.
+  """
   @spec validate_params(map(), module()) :: {:ok, map()} | {:error, any()}
   def validate_params(params, module) do
     with {:ok, params} <- module.on_before_validate_params(params),
@@ -11,6 +23,12 @@ defmodule Jido.Action.Runtime do
     end
   end
 
+  @doc """
+  Validates action output with lifecycle hooks.
+
+  Runs `on_before_validate_output/1`, validates only known output schema keys,
+  preserves unknown keys, then runs `on_after_validate_output/1`.
+  """
   @spec validate_output(map(), module()) :: {:ok, map()} | {:error, any()}
   def validate_output(output, module) do
     with {:ok, output} <- module.on_before_validate_output(output),

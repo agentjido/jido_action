@@ -451,7 +451,7 @@ defmodule Jido.Action do
 
       @doc "Converts the Action to an LLM-compatible tool format."
       def to_tool do
-        Tool.to_tool(__MODULE__)
+        Tool.to_tool(__MODULE__, strict: true)
       end
 
       @doc "Returns the Action metadata. Alias for to_json/0."

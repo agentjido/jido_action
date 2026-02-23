@@ -244,6 +244,42 @@ defmodule Jido.Action.ZoiSchemaTest do
       assert Map.has_key?(json_schema[:properties], :limit)
     end
 
+    test "strict mode recursively sets additionalProperties false for nested objects" do
+      schema =
+        Zoi.object(%{
+          config: Zoi.object(%{name: Zoi.string()}),
+          items: Zoi.list(Zoi.object(%{id: Zoi.string()}))
+        })
+
+      json_schema = Action.Schema.to_json_schema(schema, strict: true)
+
+      assert json_schema[:additionalProperties] == false
+      assert json_schema[:properties][:config][:additionalProperties] == false
+      assert json_schema[:properties][:items][:items][:additionalProperties] == false
+    end
+
+    test "strict mode handles mixed atom and string property keys" do
+      schema =
+        Zoi.object(%{
+          "string_outer" => Zoi.object(%{inner: Zoi.string()}),
+          atom_outer: Zoi.object(%{"inner2" => Zoi.string()})
+        })
+
+      json_schema = Action.Schema.to_json_schema(schema, strict: true)
+
+      assert json_schema[:additionalProperties] == false
+      assert json_schema[:properties]["string_outer"][:additionalProperties] == false
+      assert json_schema[:properties][:atom_outer][:additionalProperties] == false
+    end
+
+    test "strict false preserves default Zoi json schema output" do
+      schema = AIToolAction.schema()
+      legacy = Action.Schema.to_json_schema(schema)
+      strict_false = Action.Schema.to_json_schema(schema, strict: false)
+
+      assert strict_false == legacy
+    end
+
     test "provides action metadata" do
       assert AIToolAction.name() == "ai_tool_action"
       assert AIToolAction.description() == "Action for AI tool integration"

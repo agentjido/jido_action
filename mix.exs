@@ -1,7 +1,7 @@
 defmodule JidoAction.MixProject do
   use Mix.Project
 
-  @version "2.0.0-rc.4"
+  @version "2.0.0"
   @source_url "https://github.com/agentjido/jido_action"
   @description "Composable, validated actions for Elixir applications with built-in AI tool integration"
 
@@ -13,7 +13,7 @@ defmodule JidoAction.MixProject do
     [
       app: :jido_action,
       version: @version,
-      elixir: "~> 1.17",
+      elixir: "~> 1.18",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
@@ -223,7 +223,7 @@ defmodule JidoAction.MixProject do
       {:telemetry, "~> 1.3"},
       {:telemetry_metrics, "~> 1.1"},
       {:uniq, "~> 0.6.1"},
-      {:zoi, "~> 0.16"},
+      {:zoi, "~> 0.17"},
       {:splode, "~> 0.3.0"},
 
       # Skill & Action Dependencies for examples

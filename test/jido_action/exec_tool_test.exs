@@ -32,6 +32,30 @@ defmodule Jido.Action.ToolTest do
     end
   end
 
+  describe "to_tool/2 strict mode" do
+    test "to_tool/1 remains legacy non-strict by default" do
+      tool = Tool.to_tool(TestActions.BasicAction)
+      refute Map.has_key?(tool.parameters_schema, "additionalProperties")
+    end
+
+    test "applies strict additionalProperties recursively when enabled" do
+      tool = Tool.to_tool(TestActions.SchemaAction, strict: true)
+
+      assert tool.parameters_schema["additionalProperties"] == false
+      assert tool.parameters_schema["properties"]["map"]["additionalProperties"] == false
+    end
+
+    test "supports explicit strict false override" do
+      tool = Tool.to_tool(TestActions.BasicAction, strict: false)
+      refute Map.has_key?(tool.parameters_schema, "additionalProperties")
+    end
+
+    test "Action module to_tool/0 defaults to strict schemas" do
+      tool = TestActions.BasicAction.to_tool()
+      assert tool.parameters_schema["additionalProperties"] == false
+    end
+  end
+
   describe "execute_action/3" do
     # test "executes the action and returns JSON-encoded result" do
     #   params = %{"value" => 42}
@@ -184,9 +208,25 @@ defmodule Jido.Action.ToolTest do
                "required" => []
              }
     end
+
+    test "build_parameters_schema/2 applies strict mode recursively" do
+      schema = TestActions.SchemaAction.schema()
+      result = Tool.build_parameters_schema(schema, strict: true)
+
+      assert result["additionalProperties"] == false
+      assert result["properties"]["map"]["additionalProperties"] == false
+    end
+
+    test "build_parameters_schema/2 with strict false preserves legacy output" do
+      schema = TestActions.SchemaAction.schema()
+      legacy = Tool.build_parameters_schema(schema)
+      strict_false = Tool.build_parameters_schema(schema, strict: false)
+
+      assert strict_false == legacy
+    end
   end
 
   # Note: parameter_to_json_schema/1 and nimble_type_to_json_schema_type/1 are now
   # private implementation details in Jido.Action.Schema. The public API is
-  # Jido.Action.Schema.to_json_schema/1 which is tested via build_parameters_schema/1
+  # Jido.Action.Schema.to_json_schema/1 and /2 which are tested via build_parameters_schema/1 and /2
 end

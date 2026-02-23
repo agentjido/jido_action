@@ -66,9 +66,19 @@ This generates a tool definition map:
         "description" => "Include inactive users in results"
       }
     },
-    "required" => ["query"]
+    "required" => ["query"],
+    "additionalProperties" => false
   }
 }
+```
+
+`ActionModule.to_tool/0` now emits strict JSON Schema by default for tool parameters:
+- `additionalProperties: false` is applied recursively to all object schemas.
+
+If you need legacy non-strict schema generation for compatibility, call:
+
+```elixir
+legacy_tool = Jido.Action.Tool.to_tool(MyApp.Actions.SearchUsers, strict: false)
 ```
 
 ## Using with OpenAI
