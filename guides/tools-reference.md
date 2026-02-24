@@ -333,167 +333,10 @@ end
 **Optional Callback:**
 - `transform_result/1`: Override to transform the HTTP response result
 
-## GitHub Tools
+## External API Packs
 
-These tools use the Tentacat library to interact with the GitHub API. Requires a Tentacat client.
-
-### List Issues
-List all issues from a GitHub repository.
-
-```elixir
-client = Tentacat.Client.new(%{access_token: token})
-{:ok, result} = Jido.Tools.Github.Issues.List.run(%{
-  client: client,
-  owner: "octocat",
-  repo: "Hello-World"
-}, %{})
-# => {:ok, %{status: "success", data: [...], raw: [...]}}
-```
-
-**Parameters:**
-- `client` (any): The Tentacat client
-- `owner` (string): Repository owner
-- `repo` (string): Repository name
-
-### Create Issue
-Create a new GitHub issue.
-
-```elixir
-client = Tentacat.Client.new(%{access_token: token})
-{:ok, result} = Jido.Tools.Github.Issues.Create.run(%{
-  client: client,
-  owner: "octocat",
-  repo: "Hello-World",
-  title: "Bug Report",
-  body: "Description of the bug...",
-  labels: ["bug", "priority-high"],
-  assignee: "username",
-  milestone: "v1.0"
-}, %{})
-# => {:ok, %{status: "success", data: {...}, raw: {...}}}
-```
-
-**Parameters:**
-- `client` (any): The Tentacat client
-- `owner` (string): Repository owner
-- `repo` (string): Repository name
-- `title` (string): Issue title
-- `body` (string): Issue body
-- `assignee` (string): Issue assignee
-- `milestone` (string): Issue milestone
-- `labels` (array): Issue labels
-
-### Update Issue
-Update an existing GitHub issue.
-
-```elixir
-client = Tentacat.Client.new(%{access_token: token})
-{:ok, result} = Jido.Tools.Github.Issues.Update.run(%{
-  client: client,
-  owner: "octocat",
-  repo: "Hello-World",
-  number: 123,
-  state: "closed",
-  labels: ["bug", "resolved"]
-}, %{})
-# => {:ok, %{status: "success", data: {...}, raw: {...}}}
-```
-
-**Parameters:**
-- `client` (any): The Tentacat client
-- `owner` (string): Repository owner
-- `repo` (string): Repository name
-- `number` (integer): Issue number
-- `title` (string): New title
-- `body` (string): New body
-- `assignee` (string): New assignee
-- `state` (string): New state (open, closed)
-- `milestone` (string): New milestone
-- `labels` (array): New labels
-
-### Find Issue
-Find a specific issue by number.
-
-```elixir
-client = Tentacat.Client.new(%{access_token: token})
-{:ok, result} = Jido.Tools.Github.Issues.Find.run(%{
-  client: client,
-  owner: "octocat",
-  repo: "Hello-World",
-  number: 123
-}, %{})
-# => {:ok, %{status: "success", data: {...}, raw: {...}}}
-```
-
-**Parameters:**
-- `client` (any): The Tentacat client
-- `owner` (string): Repository owner
-- `repo` (string): Repository name
-- `number` (integer): Issue number
-
-### Filter Issues
-Filter repository issues by various criteria.
-
-```elixir
-client = Tentacat.Client.new(%{access_token: token})
-{:ok, result} = Jido.Tools.Github.Issues.Filter.run(%{
-  client: client,
-  owner: "octocat",
-  repo: "Hello-World",
-  state: "open",
-  assignee: "username",
-  labels: "bug,enhancement",
-  sort: "created",
-  direction: "desc"
-}, %{})
-# => {:ok, %{status: "success", data: [...], raw: [...]}}
-```
-
-**Parameters:**
-- `client` (any): The Tentacat client
-- `owner` (string): Repository owner
-- `repo` (string): Repository name
-- `state` (string): Issue state (open, closed, all)
-- `assignee` (string): Filter by assignee
-- `creator` (string): Filter by creator
-- `labels` (string): Filter by labels (comma-separated)
-- `sort` (string): Sort by (created, updated, comments)
-- `direction` (string): Sort direction (asc, desc)
-- `since` (string): Only show issues updated after this time
-
-## Weather Tools
-
-### Get Weather
-Fetch weather forecast using the National Weather Service API (no API key required).
-
-```elixir
-# Default format (text) - returns forecast string
-{:ok, forecast} = Jido.Tools.Weather.run(%{
-  location: "41.8781,-87.6298",  # Chicago coordinates
-  periods: 5,
-  format: :text
-}, %{})
-# => {:ok, "Tonight: Mostly Clear, Low: 45°F..."}
-
-# Map format - returns structured data
-{:ok, weather} = Jido.Tools.Weather.run(%{
-  location: "34.0522,-118.2437",  # Los Angeles
-  format: :map
-}, %{})
-# => {:ok, %{periods: [%{name: "Tonight", temperature: 65, ...}, ...]}}
-
-# Detailed format - includes all NWS data
-{:ok, weather} = Jido.Tools.Weather.run(%{
-  location: "40.7128,-74.0060",  # New York
-  format: :detailed,
-  periods: 3
-}, %{})
-```
-
-**Parameters:**
-- `location` (string, default: "41.8781,-87.6298"): Location as coordinates (lat,lng)
-- `periods` (integer, default: 5): Number of forecast periods to return
-- `format` (atom, default: :text): Output format (:text, :map, or :detailed)
+`jido_action` now focuses on core and generic tooling.
+For vendor/API-specific tools (GitHub, Weather, etc.), use `jido_lib`.
 
 ## Workflow Tools
 
@@ -563,27 +406,6 @@ end
 
 ## Advanced Tools
 
-### Simplebot
-A collection of simple robot simulation actions for testing and examples.
-
-Available actions:
-- `Move` - Move to a destination
-- `Idle` - Idle/wait
-- `DoWork` - Perform work (decreases battery)
-- `Report` - Report status
-- `Recharge` - Recharge battery to 100%
-
-```elixir
-{:ok, result} = Jido.Tools.Simplebot.Move.run(%{destination: :warehouse}, %{})
-# => {:ok, %{destination: :warehouse, location: :warehouse}}
-
-{:ok, result} = Jido.Tools.Simplebot.DoWork.run(%{battery_level: 80}, %{})
-# => {:ok, %{battery_level: 60}}  # Battery decreased by 15-25
-
-{:ok, result} = Jido.Tools.Simplebot.Recharge.run(%{battery_level: 20}, %{})
-# => {:ok, %{battery_level: 100}}
-```
-
 ### LuaEval
 Execute Lua code in a sandboxed VM.
 
@@ -629,7 +451,7 @@ params = %{
   priority: :high
 }
 
-{:ok, result} = Jido.Exec.run(Jido.Tools.ZoiExample, params)
+{:ok, result} = Jido.Exec.run(Jido.Examples.ZoiExample, params)
 result.user.email  # => "john@example.com"
 result.status      # => :approved
 ```
@@ -661,23 +483,21 @@ See the [Schemas & Validation Guide](schemas-validation.md) for more on Zoi sche
 
 ```elixir
 # Create a workflow action for parallel execution
-defmodule MyApp.WeatherComparison do
+defmodule MyApp.NumberPipeline do
   use Jido.Tools.ActionPlan,
-    name: "weather_comparison",
-    description: "Compare weather across cities"
+    name: "number_pipeline",
+    description: "Run arithmetic steps in parallel then aggregate"
 
   @impl Jido.Tools.ActionPlan
   def build(_params, _context) do
     Jido.Plan.new()
-    |> Jido.Plan.add(:weather_sf, Jido.Tools.Weather, %{location: "41.8781,-87.6298"})
-    |> Jido.Plan.add(:weather_ny, Jido.Tools.Weather, %{location: "40.7128,-74.0060"})
-    |> Jido.Plan.add(:weather_la, Jido.Tools.Weather, %{location: "34.0522,-118.2437"})
-    |> Jido.Plan.add(:compare, MyApp.Actions.CompareWeather, 
-        depends_on: [:weather_sf, :weather_ny, :weather_la])
+    |> Jido.Plan.add(:a, Jido.Tools.Arithmetic.Add, %{value: 2, amount: 3})
+    |> Jido.Plan.add(:b, Jido.Tools.Arithmetic.Multiply, %{value: 4, amount: 5})
+    |> Jido.Plan.add(:final, MyApp.Actions.Aggregate, depends_on: [:a, :b])
   end
 end
 
-{:ok, results} = MyApp.WeatherComparison.run(%{}, %{})
+{:ok, results} = MyApp.NumberPipeline.run(%{}, %{})
 ```
 
 ### Conditional Tool Usage
@@ -729,13 +549,13 @@ All tools automatically work with AI systems:
 ```elixir
 # Get tool definitions for AI
 tools = [
-  Jido.Tools.Weather.to_tool(),
+  Jido.Tools.LuaEval.to_tool(),
   Jido.Tools.Files.ReadFile.to_tool(),
   Jido.Tools.Arithmetic.Add.to_tool()
 ]
 
 # Tools are now available to AI for function calling
-# The AI can invoke: weather, read_file, add
+# The AI can invoke: lua_eval, read_file, add
 ```
 
 ## Best Practices

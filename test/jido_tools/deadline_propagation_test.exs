@@ -6,7 +6,6 @@ defmodule JidoTest.Tools.DeadlinePropagationTest do
   alias Jido.Action.Error
   alias Jido.Exec
   alias Jido.Tools.ReqTool
-  alias Jido.Tools.Weather.LocationToGrid
   alias JidoTest.TestActions.BasicAction
 
   setup :set_mimic_global
@@ -81,46 +80,6 @@ defmodule JidoTest.Tools.DeadlinePropagationTest do
              DeadlineReqAction.run(%{}, %{__jido_deadline_ms__: expired_deadline})
 
     assert Exception.message(error) =~ "Execution deadline exceeded before HTTP request dispatch"
-  end
-
-  test "exec propagates timeout budget through weather request actions" do
-    expect(Req, :request!, fn opts ->
-      assert is_integer(opts[:receive_timeout])
-      assert opts[:receive_timeout] > 0
-      assert opts[:receive_timeout] <= 30
-
-      %{
-        status: 200,
-        body: %{
-          "properties" => %{
-            "gridId" => "LOT",
-            "gridX" => 76,
-            "gridY" => 73,
-            "forecast" => "https://api.weather.gov/gridpoints/LOT/76,73/forecast",
-            "forecastHourly" => "https://api.weather.gov/gridpoints/LOT/76,73/forecast/hourly",
-            "forecastGridData" => "https://api.weather.gov/gridpoints/LOT/76,73",
-            "observationStations" => "https://api.weather.gov/gridpoints/LOT/76,73/stations",
-            "timeZone" => "America/Chicago",
-            "relativeLocation" => %{
-              "properties" => %{
-                "city" => "Chicago",
-                "state" => "IL"
-              }
-            }
-          }
-        },
-        headers: %{"content-type" => "application/geo+json"}
-      }
-    end)
-
-    assert {:ok, _result} =
-             Exec.run(
-               LocationToGrid,
-               %{location: "41.8781,-87.6298"},
-               %{},
-               timeout: 30,
-               max_retries: 0
-             )
   end
 
   test "workflow parallel timeout is capped by remaining deadline budget" do

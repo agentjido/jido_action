@@ -88,8 +88,8 @@ Jido.Action transforms ad-hoc functions into structured, validated, AI-compatibl
 ### **Comprehensive Tool Library**
 - 25+ pre-built actions for common operations
 - File system operations, HTTP requests, arithmetic
-- Weather APIs, GitHub integration, workflow primitives
-- Robot simulation tools for testing and examples
+- Workflow primitives plus runnable examples
+- External API tool packs available via the `jido_lib` ecosystem package
 
 ## Installation
 
@@ -312,17 +312,10 @@ Jido.Action comes with a comprehensive library of pre-built tools organized by c
 | Response Transform | Custom response transformation via callbacks | Data mapping, filtering |
 | Action Generation | Macro-based HTTP action creation | Rapid API client development |
 
-### External API Integration
-| Tool | Description | Use Case |
-|------|-------------|----------|
-| `Weather` | National Weather Service API integration | Weather data, forecasts |
-| `Github.Issues` | GitHub Issues API (create, list, filter) | Issue management |
-
-### Workflow & Simulation
+### Workflow
 | Tool | Description | Use Case |
 |------|-------------|----------|
 | `Workflow` | Multi-step workflow execution | Complex processes |
-| `Simplebot` | Robot simulation actions | Testing, examples |
 
 ### Specialized Tools
 | Tool | Description | Use Case |

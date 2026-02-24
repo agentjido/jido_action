@@ -5,11 +5,7 @@ Enum.each(
     :telemetry,
     System,
     Req,
-    Jido.Exec,
-    Tentacat.Issues,
-    Tentacat.Pulls,
-    Tentacat.Issues.Comments,
-    Tentacat.Hooks
+    Jido.Exec
   ],
   &Mimic.copy/1
 )

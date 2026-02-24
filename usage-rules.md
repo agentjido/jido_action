@@ -9,6 +9,7 @@ Use actions as the smallest validated unit of behavior, then compose execution p
 - Keep `run/2` contracts strict: `{:ok, result}` or `{:error, reason}`.
 - Use `Jido.Exec` for retries, timeouts, async control, and telemetry in production paths.
 - Keep action results deterministic where possible; isolate external IO.
+- Keep `jido_action` focused on core and generic tools; use `jido_lib` for vendor/API-specific packs.
 
 ## Library Author Patterns
 - Build thin domain actions: validate input -> call domain service -> normalize output.

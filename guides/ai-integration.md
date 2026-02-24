@@ -110,7 +110,7 @@ defmodule MyApp.AI.Assistant do
     MyApp.Actions.SearchUsers,
     MyApp.Actions.CreateUser,
     MyApp.Actions.SendEmail,
-    Jido.Tools.Weather,
+    Jido.Tools.Arithmetic.Add,
     Jido.Tools.Files.ReadFile
   ]
 
@@ -196,7 +196,7 @@ defmodule MyApp.AI.Agent do
         - Search for users
         - Create new users  
         - Send emails
-        - Check weather
+        - Add numbers
         - Read files
         
         Use the available tools to help users accomplish their tasks.
