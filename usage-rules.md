@@ -104,42 +104,15 @@ end
 {:ok, response} = MyApp.GetData.run(%{page: 1}, %{})
 ```
 
-### GitHub Tools
-```elixir
-client = Tentacat.Client.new(%{access_token: token})
-
-# List issues
-{:ok, issues} = Jido.Tools.Github.Issues.List.run(%{
-  client: client,
-  owner: "octocat",
-  repo: "Hello-World",
-  state: "open"
-}, %{})
-
-# Create issue
-{:ok, issue} = Jido.Tools.Github.Issues.Create.run(%{
-  client: client,
-  owner: "octocat",
-  repo: "Hello-World",
-  title: "Bug Report",
-  body: "Description..."
-}, %{})
-```
-
 ### Arithmetic
 ```elixir
 {:ok, result} = Jido.Tools.Arithmetic.Add.run(%{value: 5, amount: 3}, %{})
 # => {:ok, %{result: 8}}
 ```
 
-### Weather
-```elixir
-{:ok, weather} = Jido.Tools.Weather.run(%{
-  location: "37.7749,-122.4194",
-  periods: 3,
-  format: :map
-}, %{})
-```
+### External API Packs
+`jido_action` intentionally ships only core and generic tools.
+For vendor/API-specific tools (GitHub, Weather, etc.), use `jido_lib`.
 
 ## AI Integration
 Actions automatically convert to AI-compatible tool definitions:

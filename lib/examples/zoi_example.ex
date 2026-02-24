@@ -1,4 +1,4 @@
-defmodule Jido.Tools.ZoiExample do
+defmodule Jido.Examples.ZoiExample do
   @moduledoc """
   Production-quality example demonstrating Zoi schema features in Jido actions.
 
@@ -22,7 +22,7 @@ defmodule Jido.Tools.ZoiExample do
       ...>   priority: :high,
       ...>   metadata: %{source: "web"}
       ...> }
-      iex> {:ok, result} = Jido.Tools.ZoiExample.run(params, %{})
+      iex> {:ok, result} = Jido.Examples.ZoiExample.run(params, %{})
       iex> result.user.email
       "john@example.com"
       iex> result.status

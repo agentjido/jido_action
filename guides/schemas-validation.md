@@ -359,7 +359,7 @@ For Zoi schemas, errors include path information:
 
 ## Example: Complete Zoi Action
 
-See `Jido.Tools.ZoiExample` for a production-quality example demonstrating all Zoi features:
+See `Jido.Examples.ZoiExample` for a production-quality example demonstrating all Zoi features:
 
 ```elixir
 # Run the example
@@ -372,7 +372,7 @@ params = %{
   priority: :high
 }
 
-{:ok, result} = Jido.Exec.run(Jido.Tools.ZoiExample, params)
+{:ok, result} = Jido.Exec.run(Jido.Examples.ZoiExample, params)
 result.user.email  # => "john@example.com"
 result.status      # => :approved (high priority)
 ```

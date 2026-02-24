@@ -152,36 +152,16 @@ defmodule JidoAction.MixProject do
           Jido.Tools.Arithmetic,
           Jido.Tools.Basic,
           Jido.Tools.Files,
-          Jido.Tools.Simplebot,
-          Jido.Tools.Weather,
           Jido.Tools.Workflow
         ],
         "Actions: HTTP & Requests": [
-          Jido.Tools.Req,
           Jido.Tools.ReqTool
-        ],
-        "Actions: GitHub": [
-          Jido.Tools.Github.Issues,
-          Jido.Tools.Github.Issues.Create,
-          Jido.Tools.Github.Issues.Filter,
-          Jido.Tools.Github.Issues.Find,
-          Jido.Tools.Github.Issues.List,
-          Jido.Tools.Github.Issues.Update,
-          Jido.Tools.Github.Pulls,
-          Jido.Tools.Github.Pulls.Create,
-          Jido.Tools.Github.Pulls.Find,
-          Jido.Tools.Github.Pulls.List,
-          Jido.Tools.Github.Pulls.Update,
-          Jido.Tools.Github.IssueComments,
-          Jido.Tools.Github.IssueComments.Create,
-          Jido.Tools.Github.IssueComments.List,
-          Jido.Tools.Github.Webhooks,
-          Jido.Tools.Github.Webhooks.Create,
-          Jido.Tools.Github.Webhooks.List,
-          Jido.Tools.Github.Webhooks.Remove
         ],
         "Actions: Advanced": [
           Jido.Tools.ActionPlan
+        ],
+        Examples: [
+          Jido.Examples.ZoiExample
         ],
         "Error Types": [
           Jido.Action.Error.Config,
@@ -231,8 +211,6 @@ defmodule JidoAction.MixProject do
       {:libgraph, "~> 0.16.0"},
       {:lua, "~> 0.3"},
       {:req, "~> 0.5.10"},
-      {:tentacat, "~> 2.5"},
-      {:weather, "~> 0.4.0"},
 
       # Development & Test Dependencies
       {:git_ops, "~> 2.9", only: :dev, runtime: false},

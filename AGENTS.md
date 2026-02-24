@@ -22,7 +22,7 @@ This is an Elixir library for **composable action framework** with AI integratio
 - **Jido.Instruction** - Workflow composition system wrapping actions with params/context
 - **Jido.Action.Tool** - Converts actions to AI-compatible tool definitions (OpenAI function calling)
 - **Jido.Plan** - DAG (Directed Acyclic Graph) execution plans with dependency management
-- **Jido.Tools.\*** - 25+ pre-built tools (files, HTTP, arithmetic, GitHub, weather, workflow)
+- **Jido.Tools.\*** - 25+ pre-built tools (files, HTTP, arithmetic, workflow, examples)
 
 ## Instance Isolation
 
