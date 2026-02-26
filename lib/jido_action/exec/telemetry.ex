@@ -291,9 +291,15 @@ defmodule Jido.Exec.Telemetry do
   def sanitize_value(value), do: do_sanitize(value, 0)
 
   defp safe_inspect(value) do
-    value
-    |> sanitize_value()
-    |> inspect(@inspect_opts)
+    sanitized = sanitize_value(value)
+    inspect(sanitized, @inspect_opts)
+  rescue
+    _ ->
+      sanitized = sanitize_value(value)
+
+      sanitized
+      |> strip_struct_tags()
+      |> inspect(@inspect_opts)
   end
 
   defp do_sanitize(value, depth) when depth >= @max_depth do
@@ -304,7 +310,7 @@ defmodule Jido.Exec.Telemetry do
     struct
     |> Map.from_struct()
     |> do_sanitize(depth)
-    |> Map.put(:__struct__, inspect(struct.__struct__))
+    |> Map.put(:__sanitized_struct__, inspect(struct.__struct__))
   end
 
   defp do_sanitize(value, depth) when is_map(value) do
@@ -373,6 +379,20 @@ defmodule Jido.Exec.Telemetry do
   end
 
   defp sensitive_key?(key), do: sensitive_key?(inspect(key))
+
+  defp strip_struct_tags(%{__struct__: mod} = map) do
+    map
+    |> Map.delete(:__struct__)
+    |> Map.put(:__sanitized_struct__, mod)
+    |> Map.new(fn {k, v} -> {k, strip_struct_tags(v)} end)
+  end
+
+  defp strip_struct_tags(map) when is_map(map) do
+    Map.new(map, fn {k, v} -> {k, strip_struct_tags(v)} end)
+  end
+
+  defp strip_struct_tags(list) when is_list(list), do: Enum.map(list, &strip_struct_tags/1)
+  defp strip_struct_tags(value), do: value
 
   defp summarize_truncated(value) when is_map(value) do
     %{__truncated_depth__: @max_depth, type: :map, size: map_size(value)}

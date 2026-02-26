@@ -9,6 +9,10 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
     defstruct [:api_key, :note, :nested]
   end
 
+  defmodule CustomInspectStruct do
+    defstruct [:entries, :name]
+  end
+
   def handle_event(event, measurements, metadata, test_pid) do
     send(test_pid, {:telemetry_event, event, measurements, metadata})
   end
@@ -56,7 +60,7 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
     assert List.last(metadata.params.list) == %{__truncated_items__: 5}
     assert metadata.params.data.api_key == "[REDACTED]"
     assert metadata.params.data.nested.client_secret == "[REDACTED]"
-    assert metadata.params.data.__struct__ == inspect(CredentialsStruct)
+    assert metadata.params.data.__sanitized_struct__ == inspect(CredentialsStruct)
 
     assert get_in(metadata, [:params, :nested, :layer1, :layer2]) == %{
              __truncated_depth__: 4,
@@ -72,7 +76,7 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
     inspected_request = inspect(sanitized_request)
 
     refute is_struct(sanitized_request)
-    assert sanitized_request.__struct__ == "Req.Request"
+    assert sanitized_request.__sanitized_struct__ == "Req.Request"
 
     assert sanitized_request.headers == %{
              __truncated_depth__: 4,
@@ -100,6 +104,76 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
     assert {:ok, result_payload} = metadata.result
     assert result_payload.token == "[REDACTED]"
     assert String.contains?(result_payload.payload, "...(truncated 24 bytes)")
+  end
+
+  test "struct with custom Inspect at depth >= 4 does not crash safe_inspect" do
+    deep_struct =
+      %{
+        l1: %{
+          l2: %{
+            l3: %{
+              l4: %CustomInspectStruct{
+                entries: [1, 2, 3],
+                name: "test"
+              }
+            }
+          }
+        }
+      }
+
+    sanitized = Telemetry.sanitize_value(deep_struct)
+    l4 = get_in(sanitized, [:l1, :l2, :l3, :l4])
+
+    # At depth 4, the struct is truncated to a summary map
+    # size is 3 because map_size of a struct includes __struct__, :entries, and :name
+    assert l4 == %{__truncated_depth__: 4, type: :map, size: 3}
+  end
+
+  test "struct with custom Inspect at depth < 4 sanitizes without __struct__ key" do
+    shallow_struct =
+      %{
+        l1: %{
+          data: %CustomInspectStruct{
+            entries: [1, 2, 3],
+            name: "test"
+          }
+        }
+      }
+
+    sanitized = Telemetry.sanitize_value(shallow_struct)
+    data = get_in(sanitized, [:l1, :data])
+
+    # Struct tag is stored under __sanitized_struct__, not __struct__
+    refute Map.has_key?(data, :__struct__)
+    assert data.__sanitized_struct__ == inspect(CustomInspectStruct)
+    assert data.entries == [1, 2, 3]
+    assert data.name == "test"
+
+    # Inspecting the sanitized value does not crash
+    inspected = inspect(sanitized)
+    refute String.starts_with?(inspected, "#Inspect.Error<")
+  end
+
+  test "safe_inspect does not produce Inspect.Error for deeply nested custom structs" do
+    deep_struct =
+      %{
+        l1: %{
+          l2: %{
+            l3: %CustomInspectStruct{
+              entries: [1, 2, 3],
+              name: "test"
+            }
+          }
+        }
+      }
+
+    log =
+      capture_log(fn ->
+        Telemetry.cond_log_start(:notice, __MODULE__, deep_struct, %{})
+      end)
+
+    refute log =~ "Inspect.Error"
+    assert log =~ "__sanitized_struct__"
   end
 
   test "log helpers sanitize sensitive data and large payloads" do
