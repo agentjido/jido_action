@@ -291,13 +291,13 @@ defmodule Jido.Exec.Telemetry do
   def sanitize_value(value), do: do_sanitize(value, 0)
 
   defp safe_inspect(value) do
-    sanitized = sanitize_value(value)
-    inspect(sanitized, @inspect_opts)
+    value
+    |> sanitize_value()
+    |> inspect(@inspect_opts)
   rescue
     _ ->
-      sanitized = sanitize_value(value)
-
-      sanitized
+      value
+      |> sanitize_value()
       |> strip_struct_tags()
       |> inspect(@inspect_opts)
   end
