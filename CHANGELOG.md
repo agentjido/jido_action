@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- changelog -->
 
+## [v2.0.0](https://github.com/agentjido/jido_action/compare/v2.0.0-rc.5...v2.0.0) (2026-02-22)
+
+### Release Notes:
+
+* promote the 2.0.0 release candidate line to stable 2.0.0
+
+### Features:
+
+* add Igniter installer for automated package setup (#102)
+
+### Bug Fixes:
+
+* repair usage rules and doctor gate checks
+* add opt-in recursive strict JSON schema for tools (#101)
+
+### Changed:
+
+* require Elixir ~> 1.18
+* update installation docs to use `{:jido_action, "~> 2.0"}`
+
 ## [v2.0.0-rc.5](https://github.com/agentjido/jido_action/compare/v2.0.0-rc.4...v2.0.0-rc.5) (2026-02-16)
 
 

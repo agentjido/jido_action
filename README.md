@@ -113,7 +113,7 @@ Add `jido_action` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:jido_action, "~> 1.0"}
+    {:jido_action, "~> 2.0"}
   ]
 end
 ```

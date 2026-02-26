@@ -56,13 +56,31 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
     assert List.last(metadata.params.list) == %{__truncated_items__: 5}
     assert metadata.params.data.api_key == "[REDACTED]"
     assert metadata.params.data.nested.client_secret == "[REDACTED]"
-    assert metadata.params.data.__struct__ == CredentialsStruct
+    assert metadata.params.data.__struct__ == inspect(CredentialsStruct)
 
     assert get_in(metadata, [:params, :nested, :layer1, :layer2]) == %{
              __truncated_depth__: 4,
              type: :map,
              size: 1
            }
+  end
+
+  test "sanitize_value keeps deep structs inspect-safe" do
+    request = Req.new(url: "https://example.com", auth: {:bearer, "token-123"})
+    sanitized = Telemetry.sanitize_value(%{layer1: %{layer2: %{request: request}}})
+    sanitized_request = get_in(sanitized, [:layer1, :layer2, :request])
+    inspected_request = inspect(sanitized_request)
+
+    refute is_struct(sanitized_request)
+    assert sanitized_request.__struct__ == "Req.Request"
+
+    assert sanitized_request.headers == %{
+             __truncated_depth__: 4,
+             type: :map,
+             size: 0
+           }
+
+    refute String.starts_with?(inspected_request, "#Inspect.Error<")
   end
 
   test "emit_end_event sanitizes result payloads" do
