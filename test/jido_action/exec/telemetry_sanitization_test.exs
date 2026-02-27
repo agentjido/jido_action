@@ -9,6 +9,10 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
     defstruct [:api_key, :note, :nested]
   end
 
+  defmodule CustomInspectStruct do
+    defstruct [:entries, :name]
+  end
+
   def handle_event(event, measurements, metadata, test_pid) do
     send(test_pid, {:telemetry_event, event, measurements, metadata})
   end
@@ -100,6 +104,88 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
     assert {:ok, result_payload} = metadata.result
     assert result_payload.token == "[REDACTED]"
     assert String.contains?(result_payload.payload, "...(truncated 24 bytes)")
+  end
+
+  test "struct with custom Inspect at depth >= 4 does not crash safe_inspect" do
+    deep_struct =
+      %{
+        l1: %{
+          l2: %{
+            l3: %{
+              l4: %CustomInspectStruct{
+                entries: [1, 2, 3],
+                name: "test"
+              }
+            }
+          }
+        }
+      }
+
+    sanitized = Telemetry.sanitize_value(deep_struct)
+    l4 = get_in(sanitized, [:l1, :l2, :l3, :l4])
+
+    # At depth 4, the struct is truncated to a summary map
+    # size is 3 because map_size of a struct includes __struct__, :entries, and :name
+    assert l4 == %{__truncated_depth__: 4, type: :map, size: 3}
+  end
+
+  test "struct with custom Inspect at depth < 4 keeps __struct__ marker as string" do
+    shallow_struct =
+      %{
+        l1: %{
+          data: %CustomInspectStruct{
+            entries: [1, 2, 3],
+            name: "test"
+          }
+        }
+      }
+
+    sanitized = Telemetry.sanitize_value(shallow_struct)
+    data = get_in(sanitized, [:l1, :data])
+
+    assert data.__struct__ == inspect(CustomInspectStruct)
+    assert data.entries == [1, 2, 3]
+    assert data.name == "test"
+
+    # Inspecting the sanitized value does not crash
+    inspected = inspect(sanitized)
+    refute String.starts_with?(inspected, "#Inspect.Error<")
+  end
+
+  test "safe_inspect does not produce Inspect.Error for deeply nested custom structs" do
+    deep_struct =
+      %{
+        l1: %{
+          l2: %{
+            l3: %CustomInspectStruct{
+              entries: [1, 2, 3],
+              name: "test"
+            }
+          }
+        }
+      }
+
+    log =
+      capture_log(fn ->
+        Telemetry.cond_log_start(:notice, __MODULE__, deep_struct, %{})
+      end)
+
+    refute log =~ "Inspect.Error"
+    assert log =~ "__struct__"
+  end
+
+  test "safe_inspect keeps nested Zoi structs inspect-safe while preserving __struct__ marker" do
+    deep_struct = %{l1: %{l2: %{l3: %Zoi.Types.Map{fields: [foo: %Zoi.Types.String{}]}}}}
+
+    log =
+      capture_log(fn ->
+        Telemetry.cond_log_start(:notice, __MODULE__, deep_struct, %{})
+      end)
+
+    refute log =~ "Inspect.Error"
+    refute log =~ "__sanitized_struct__"
+    assert log =~ "__struct__"
+    assert log =~ "Zoi.Types.Map"
   end
 
   test "log helpers sanitize sensitive data and large payloads" do
