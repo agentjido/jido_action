@@ -310,7 +310,7 @@ defmodule Jido.Exec.Telemetry do
     struct
     |> Map.from_struct()
     |> do_sanitize(depth)
-    |> Map.put(:__sanitized_struct__, inspect(struct.__struct__))
+    |> Map.put(:__struct__, inspect(struct.__struct__))
   end
 
   defp do_sanitize(value, depth) when is_map(value) do
@@ -380,10 +380,12 @@ defmodule Jido.Exec.Telemetry do
 
   defp sensitive_key?(key), do: sensitive_key?(inspect(key))
 
+  defp normalize_struct_marker(mod) when is_atom(mod), do: inspect(mod)
+  defp normalize_struct_marker(mod), do: mod
+
   defp strip_struct_tags(%{__struct__: mod} = map) do
     map
-    |> Map.delete(:__struct__)
-    |> Map.put(:__sanitized_struct__, mod)
+    |> Map.put(:__struct__, normalize_struct_marker(mod))
     |> Map.new(fn {k, v} -> {k, strip_struct_tags(v)} end)
   end
 

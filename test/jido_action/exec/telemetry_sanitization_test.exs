@@ -60,7 +60,7 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
     assert List.last(metadata.params.list) == %{__truncated_items__: 5}
     assert metadata.params.data.api_key == "[REDACTED]"
     assert metadata.params.data.nested.client_secret == "[REDACTED]"
-    assert metadata.params.data.__sanitized_struct__ == inspect(CredentialsStruct)
+    assert metadata.params.data.__struct__ == inspect(CredentialsStruct)
 
     assert get_in(metadata, [:params, :nested, :layer1, :layer2]) == %{
              __truncated_depth__: 4,
@@ -76,7 +76,7 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
     inspected_request = inspect(sanitized_request)
 
     refute is_struct(sanitized_request)
-    assert sanitized_request.__sanitized_struct__ == "Req.Request"
+    assert sanitized_request.__struct__ == "Req.Request"
 
     assert sanitized_request.headers == %{
              __truncated_depth__: 4,
@@ -129,7 +129,7 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
     assert l4 == %{__truncated_depth__: 4, type: :map, size: 3}
   end
 
-  test "struct with custom Inspect at depth < 4 sanitizes without __struct__ key" do
+  test "struct with custom Inspect at depth < 4 keeps __struct__ marker as string" do
     shallow_struct =
       %{
         l1: %{
@@ -143,9 +143,7 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
     sanitized = Telemetry.sanitize_value(shallow_struct)
     data = get_in(sanitized, [:l1, :data])
 
-    # Struct tag is stored under __sanitized_struct__, not __struct__
-    refute Map.has_key?(data, :__struct__)
-    assert data.__sanitized_struct__ == inspect(CustomInspectStruct)
+    assert data.__struct__ == inspect(CustomInspectStruct)
     assert data.entries == [1, 2, 3]
     assert data.name == "test"
 
@@ -173,7 +171,21 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
       end)
 
     refute log =~ "Inspect.Error"
-    assert log =~ "__sanitized_struct__"
+    assert log =~ "__struct__"
+  end
+
+  test "safe_inspect keeps nested Zoi structs inspect-safe while preserving __struct__ marker" do
+    deep_struct = %{l1: %{l2: %{l3: %Zoi.Types.Map{fields: [foo: %Zoi.Types.String{}]}}}}
+
+    log =
+      capture_log(fn ->
+        Telemetry.cond_log_start(:notice, __MODULE__, deep_struct, %{})
+      end)
+
+    refute log =~ "Inspect.Error"
+    refute log =~ "__sanitized_struct__"
+    assert log =~ "__struct__"
+    assert log =~ "Zoi.Types.Map"
   end
 
   test "log helpers sanitize sensitive data and large payloads" do
