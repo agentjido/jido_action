@@ -14,7 +14,7 @@ defmodule Jido.Action.Schema do
   pass-through format. When a JSON Schema map is used:
 
   - Parameters are **not validated** at runtime (the schema is for the LLM only)
-  - `known_keys/1` extracts atom keys from `"properties"`
+  - `known_keys/1` extracts atom keys from `"properties"` without creating new atoms
   - `to_json_schema/1` returns the map unchanged
   """
 
@@ -83,10 +83,23 @@ defmodule Jido.Action.Schema do
   def known_keys(schema) when is_list(schema), do: Keyword.keys(schema)
 
   def known_keys(%{"type" => "object", "properties" => props}) when is_map(props) do
-    Enum.map(props, fn {k, _v} -> String.to_atom(k) end)
+    props
+    |> json_schema_known_key_forms_from_properties()
+    |> Enum.flat_map(fn
+      %{atom: atom} when is_atom(atom) and not is_nil(atom) -> [atom]
+      _ -> []
+    end)
   end
 
   def known_keys(schema), do: extract_zoi_keys(schema)
+
+  @doc false
+  @spec json_schema_known_key_forms(t()) :: [%{atom: atom() | nil, string: String.t()}]
+  def json_schema_known_key_forms(%{"type" => "object", "properties" => props})
+      when is_map(props),
+      do: json_schema_known_key_forms_from_properties(props)
+
+  def json_schema_known_key_forms(_schema), do: []
 
   @doc """
   Converts a schema to JSON Schema format for AI tools.
@@ -230,6 +243,34 @@ defmodule Jido.Action.Schema do
   end
 
   defp extract_zoi_keys(_), do: []
+
+  defp json_schema_known_key_forms_from_properties(properties) when is_map(properties) do
+    properties
+    |> Enum.reduce([], fn {raw_key, _schema}, acc ->
+      case normalize_json_schema_key_form(raw_key) do
+        nil -> acc
+        form -> [form | acc]
+      end
+    end)
+    |> Enum.reverse()
+    |> Enum.uniq_by(& &1.string)
+  end
+
+  defp normalize_json_schema_key_form(key) when is_atom(key) do
+    %{atom: key, string: Atom.to_string(key)}
+  end
+
+  defp normalize_json_schema_key_form(key) when is_binary(key) do
+    %{atom: to_existing_atom_safe(key), string: key}
+  end
+
+  defp normalize_json_schema_key_form(_), do: nil
+
+  defp to_existing_atom_safe(key) when is_binary(key) do
+    String.to_existing_atom(key)
+  rescue
+    ArgumentError -> nil
+  end
 
   defp base_json_schema([]), do: %{"type" => "object", "properties" => %{}, "required" => []}
   defp base_json_schema(schema) when is_list(schema), do: nimble_to_json_schema(schema)

@@ -11,6 +11,7 @@ defmodule Jido.Action.AtomSafetyTest do
   """
   use ExUnit.Case, async: false
 
+  alias Jido.Action.Schema
   alias Jido.Action.Tool
   alias Jido.Exec
   alias JidoTest.TestActions.SchemaAction
@@ -144,6 +145,23 @@ defmodule Jido.Action.AtomSafetyTest do
 
       assert atom_keys == [:param]
       assert length(string_keys) == 50
+    end
+  end
+
+  describe "Schema.known_keys/1 atom safety" do
+    test "does not create atoms from JSON Schema property names" do
+      atom_count_before = :erlang.system_info(:atom_count)
+
+      properties =
+        Map.new(1..2_000, fn i ->
+          {"json_schema_key_#{i}_#{System.unique_integer([:positive])}", %{"type" => "string"}}
+        end)
+
+      schema = %{"type" => "object", "properties" => properties}
+      assert Schema.known_keys(schema) == []
+
+      atom_count_after = :erlang.system_info(:atom_count)
+      assert atom_count_after - atom_count_before < 20
     end
   end
 

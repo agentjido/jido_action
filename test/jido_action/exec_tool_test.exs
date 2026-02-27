@@ -179,6 +179,25 @@ defmodule Jido.Action.ToolTest do
       assert result == %{temperature: 20.0}
       assert is_float(result.temperature)
     end
+
+    test "preserves nested map payloads for NimbleOptions map fields" do
+      params = %{
+        "payload" => %{"nested" => %{"value" => "raw"}},
+        "count" => "2"
+      }
+
+      schema = [
+        payload: [type: :map],
+        count: [type: :integer]
+      ]
+
+      result = Tool.convert_params_using_schema(params, schema)
+
+      assert result == %{
+               payload: %{"nested" => %{"value" => "raw"}},
+               count: 2
+             }
+    end
   end
 
   describe "build_parameters_schema/1" do

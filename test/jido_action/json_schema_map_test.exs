@@ -59,6 +59,41 @@ defmodule Jido.Action.JsonSchemaMapTest do
       schema = %{"type" => "object", "properties" => %{}}
       assert Schema.known_keys(schema) == []
     end
+
+    test "handles mixed key types without crashing" do
+      schema = %{
+        "type" => "object",
+        "properties" => %{
+          "limit" => %{"type" => "integer"},
+          123 => %{"type" => "integer"},
+          query: %{"type" => "string"}
+        }
+      }
+
+      keys = Schema.known_keys(schema)
+      assert Enum.sort(keys) == [:limit, :query]
+    end
+  end
+
+  describe "Schema.json_schema_known_key_forms/1" do
+    test "returns atom and string key forms without creating new atoms" do
+      dynamic_key = "json_schema_dynamic_key_#{System.unique_integer([:positive])}"
+
+      schema = %{
+        "type" => "object",
+        "properties" => %{
+          "query" => %{"type" => "string"},
+          dynamic_key => %{"type" => "string"},
+          limit: %{"type" => "integer"}
+        }
+      }
+
+      forms = Schema.json_schema_known_key_forms(schema)
+
+      assert %{atom: :query, string: "query"} in forms
+      assert %{atom: :limit, string: "limit"} in forms
+      assert %{atom: nil, string: ^dynamic_key} = Enum.find(forms, &(&1.string == dynamic_key))
+    end
   end
 
   describe "Schema.to_json_schema/1 with JSON Schema maps" do
@@ -111,6 +146,54 @@ defmodule Jido.Action.JsonSchemaMapTest do
       params = %{query: "elixir", limit: 10}
       result = Tool.convert_params_using_schema(params, @test_schema)
       assert result == %{query: "elixir", limit: 10}
+    end
+
+    test "prefers atom keys over string keys when both are provided" do
+      params = %{"query" => "string value", "limit" => 5, query: "atom value"}
+      result = Tool.convert_params_using_schema(params, @test_schema)
+      assert result == %{query: "atom value", limit: 5}
+    end
+
+    test "keeps known JSON keys as strings when no existing atom is available" do
+      dynamic_key = "json_schema_dynamic_#{System.unique_integer([:positive])}"
+
+      schema = %{
+        "type" => "object",
+        "properties" => %{
+          "query" => %{"type" => "string"},
+          dynamic_key => %{"type" => "string"}
+        }
+      }
+
+      params = %{"query" => "elixir", dynamic_key => "dynamic"}
+      result = Tool.convert_params_using_schema(params, schema)
+
+      assert result[:query] == "elixir"
+      assert result[dynamic_key] == "dynamic"
+    end
+
+    test "preserves nested object values unchanged while converting known top-level key" do
+      schema = %{
+        "type" => "object",
+        "properties" => %{
+          "filters" => %{
+            "type" => "object",
+            "properties" => %{
+              "tags" => %{"type" => "array", "items" => %{"type" => "string"}}
+            }
+          }
+        }
+      }
+
+      params = %{
+        "filters" => %{
+          "tags" => ["a", "b"],
+          "extra_nested" => "keep"
+        }
+      }
+
+      result = Tool.convert_params_using_schema(params, schema)
+      assert result == %{filters: %{"tags" => ["a", "b"], "extra_nested" => "keep"}}
     end
   end
 

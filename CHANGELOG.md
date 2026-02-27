@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- changelog -->
 
+## [Unreleased]
+
+### Bug Fixes:
+
+* schema: avoid unbounded atom creation from JSON Schema property keys
+* schema: handle mixed JSON Schema property key types without runtime crashes
+
+### Changed:
+
+* schema/tool/runtime: preserve JSON Schema compatibility semantics while adding atom-safe key handling
+* schema: add internal JSON Schema-to-Zoi bridge with explicit fallback for unsupported keywords
+
 ## [v2.0.0](https://github.com/agentjido/jido_action/compare/v2.0.0-rc.5...v2.0.0) (2026-02-22)
 
 ### Release Notes:

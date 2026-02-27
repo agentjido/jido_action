@@ -91,21 +91,49 @@ defmodule Jido.Action.Tool do
   Supports both atom and string input keys, and preserves unknown keys (open validation).
   """
   def convert_params_using_schema(params, schema) when is_map(params) do
-    schema_keys = Schema.known_keys(schema)
+    case Schema.schema_type(schema) do
+      :json_schema ->
+        convert_params_using_json_schema(params, schema)
 
+      _ ->
+        schema_keys = Schema.known_keys(schema)
+        convert_params_using_known_keys(params, schema, schema_keys)
+    end
+  end
+
+  defp convert_params_using_json_schema(params, schema) do
+    key_pairs =
+      schema
+      |> Schema.json_schema_known_key_forms()
+      |> Enum.flat_map(fn
+        %{atom: atom, string: string} when is_atom(atom) and not is_nil(atom) ->
+          [{atom, string}]
+
+        _ ->
+          []
+      end)
+
+    convert_params_using_key_pairs(params, schema, key_pairs)
+  end
+
+  defp convert_params_using_known_keys(params, schema, schema_keys) do
+    key_pairs = Enum.map(schema_keys, fn key -> {key, to_string(key)} end)
+    convert_params_using_key_pairs(params, schema, key_pairs)
+  end
+
+  defp convert_params_using_key_pairs(params, schema, key_pairs) do
     {known_converted, unknown_params} =
-      Enum.reduce(schema_keys, {%{}, params}, fn key, {known_acc, rest} ->
-        string_key = to_string(key)
-        {val_atom, rest} = Map.pop(rest, key, :__missing__)
+      Enum.reduce(key_pairs, {%{}, params}, fn {key, string_key}, {known_acc, rest} ->
+        {atom_value, rest} = Map.pop(rest, key, :__missing__)
 
         {value, rest} =
-          case val_atom do
+          case atom_value do
             :__missing__ ->
               Map.pop(rest, string_key, :__missing__)
 
             _ ->
-              {_val_string, rest2} = Map.pop(rest, string_key, :__missing__)
-              {val_atom, rest2}
+              {_dropped_string_value, rest2} = Map.pop(rest, string_key, :__missing__)
+              {atom_value, rest2}
           end
 
         case value do
