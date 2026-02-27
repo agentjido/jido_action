@@ -1,15 +1,9 @@
 defmodule Jido.Action.Schema.JsonSchemaBridge do
   @moduledoc false
 
-  @object_keywords MapSet.new([
-                     "type",
-                     "properties",
-                     "required",
-                     "additionalProperties",
-                     "description"
-                   ])
-  @array_keywords MapSet.new(["type", "items", "description"])
-  @primitive_keywords MapSet.new(["type", "enum", "description"])
+  @object_keywords ["type", "properties", "required", "additionalProperties", "description"]
+  @array_keywords ["type", "items", "description"]
+  @primitive_keywords ["type", "enum", "description"]
 
   @type fallback_reason ::
           :invalid_schema
@@ -125,7 +119,7 @@ defmodule Jido.Action.Schema.JsonSchemaBridge do
         field_key = choose_field_key(key, string_key, depth)
 
         field_schema =
-          if MapSet.member?(required_keys, string_key),
+          if Enum.member?(required_keys, string_key),
             do: zoi_schema,
             else: Zoi.optional(zoi_schema)
 
@@ -166,12 +160,12 @@ defmodule Jido.Action.Schema.JsonSchemaBridge do
   defp fetch_value(map, "enum"), do: Map.get(map, "enum", Map.get(map, :enum))
   defp fetch_value(map, key), do: Map.get(map, key)
 
-  defp parse_required(nil), do: {:ok, MapSet.new()}
-  defp parse_required([]), do: {:ok, MapSet.new()}
+  defp parse_required(nil), do: {:ok, []}
+  defp parse_required([]), do: {:ok, []}
 
   defp parse_required(required) when is_list(required) do
     if Enum.all?(required, &is_binary/1) do
-      {:ok, MapSet.new(required)}
+      {:ok, Enum.uniq(required)}
     else
       {:error, {:invalid_required, required}}
     end
@@ -189,7 +183,7 @@ defmodule Jido.Action.Schema.JsonSchemaBridge do
     |> Enum.reduce_while(:ok, fn key, :ok ->
       case normalize_property_key(key) do
         {:ok, normalized_key} ->
-          if MapSet.member?(allowed_keywords, normalized_key) do
+          if Enum.member?(allowed_keywords, normalized_key) do
             {:cont, :ok}
           else
             {:halt, {:error, {:unsupported_keyword, normalized_key}}}
