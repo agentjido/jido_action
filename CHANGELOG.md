@@ -7,19 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- changelog -->
 
-## [Unreleased]
-
-### Changed:
-
-* narrow `jido_action` to core and generic built-in tools and direct vendor/API-specific packs to `jido_lib`
-* move the Zoi sample action to `Jido.Examples.ZoiExample`
-
-### Removed:
-
-* built-in GitHub, Weather, and Simplebot tool packs from `jido_action`
-* `:tentacat` and `:weather` dependencies from the package
-* toolpack-specific tests and helper mocks tied to the removed integrations
-
 ## [v2.0.0](https://github.com/agentjido/jido_action/compare/v2.0.0-rc.5...v2.0.0) (2026-02-22)
 
 ### Release Notes:
