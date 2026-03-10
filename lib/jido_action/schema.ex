@@ -1,25 +1,39 @@
 defmodule Jido.Action.Schema do
   @moduledoc """
-  Unified schema validation interface supporting both NimbleOptions and Zoi.
+  Unified schema validation interface supporting NimbleOptions, Zoi, and JSON Schema maps.
 
   This adapter provides a consistent API for:
   - Schema validation
   - Key introspection
   - Error formatting
   - JSON Schema generation (for AI tools)
+
+  ## JSON Schema Maps
+
+  Plain JSON Schema maps (e.g. produced by `json_spec`) are supported as a
+  pass-through format. When a JSON Schema map is used:
+
+  - Parameters are **not validated** at runtime (the schema is for the LLM only)
+  - `known_keys/1` extracts atom keys from `"properties"` without creating new atoms
+  - `to_json_schema/1` returns the map unchanged
   """
 
-  @type t :: NimbleOptions.schema() | struct() | []
+  @type t :: NimbleOptions.schema() | struct() | map() | []
 
   @doc """
   Detects the type of schema.
 
   Returns `:nimble` for NimbleOptions keyword list schemas, `:zoi` for Zoi schemas,
-  `:empty` for empty lists, or `:unknown` for unsupported types.
+  `:json_schema` for plain JSON Schema maps, `:empty` for empty lists,
+  or `:unknown` for unsupported types.
   """
-  @spec schema_type(t()) :: :nimble | :zoi | :empty | :unknown
+  @spec schema_type(t()) :: :nimble | :zoi | :json_schema | :empty | :unknown
   def schema_type([]), do: :empty
   def schema_type(schema) when is_list(schema), do: :nimble
+
+  def schema_type(%{"type" => "object", "properties" => props} = _schema)
+      when is_map(props),
+      do: :json_schema
 
   def schema_type(schema) do
     if impl_for_zoi_type?(schema) do
@@ -50,6 +64,7 @@ defmodule Jido.Action.Schema do
       :empty -> {:ok, data}
       :nimble -> validate_nimble(schema, data)
       :zoi -> validate_zoi(schema, data)
+      :json_schema -> {:ok, data}
       :unknown -> {:error, "Unsupported schema type"}
     end
   end
@@ -66,7 +81,25 @@ defmodule Jido.Action.Schema do
   @spec known_keys(t()) :: [atom()]
   def known_keys([]), do: []
   def known_keys(schema) when is_list(schema), do: Keyword.keys(schema)
+
+  def known_keys(%{"type" => "object", "properties" => props}) when is_map(props) do
+    props
+    |> json_schema_known_key_forms_from_properties()
+    |> Enum.flat_map(fn
+      %{atom: atom} when is_atom(atom) and not is_nil(atom) -> [atom]
+      _ -> []
+    end)
+  end
+
   def known_keys(schema), do: extract_zoi_keys(schema)
+
+  @doc false
+  @spec json_schema_known_key_forms(t()) :: [%{atom: atom() | nil, string: String.t()}]
+  def json_schema_known_key_forms(%{"type" => "object", "properties" => props})
+      when is_map(props),
+      do: json_schema_known_key_forms_from_properties(props)
+
+  def json_schema_known_key_forms(_schema), do: []
 
   @doc """
   Converts a schema to JSON Schema format for AI tools.
@@ -157,11 +190,15 @@ defmodule Jido.Action.Schema do
 
   def validate_config_schema(value, _opts) when is_list(value), do: :ok
 
+  def validate_config_schema(%{"type" => "object", "properties" => props}, _opts)
+      when is_map(props),
+      do: :ok
+
   def validate_config_schema(value, _opts) do
     if impl_for_zoi_type?(value) do
       :ok
     else
-      {:error, "must be NimbleOptions schema or Zoi schema"}
+      {:error, "must be NimbleOptions schema, Zoi schema, or JSON Schema map"}
     end
   end
 
@@ -207,8 +244,39 @@ defmodule Jido.Action.Schema do
 
   defp extract_zoi_keys(_), do: []
 
+  defp json_schema_known_key_forms_from_properties(properties) when is_map(properties) do
+    properties
+    |> Enum.reduce([], fn {raw_key, _schema}, acc ->
+      case normalize_json_schema_key_form(raw_key) do
+        nil -> acc
+        form -> [form | acc]
+      end
+    end)
+    |> Enum.reverse()
+    |> Enum.uniq_by(& &1.string)
+  end
+
+  defp normalize_json_schema_key_form(key) when is_atom(key) do
+    %{atom: key, string: Atom.to_string(key)}
+  end
+
+  defp normalize_json_schema_key_form(key) when is_binary(key) do
+    %{atom: to_existing_atom_safe(key), string: key}
+  end
+
+  defp normalize_json_schema_key_form(_), do: nil
+
+  defp to_existing_atom_safe(key) when is_binary(key) do
+    String.to_existing_atom(key)
+  rescue
+    ArgumentError -> nil
+  end
+
   defp base_json_schema([]), do: %{"type" => "object", "properties" => %{}, "required" => []}
   defp base_json_schema(schema) when is_list(schema), do: nimble_to_json_schema(schema)
+
+  defp base_json_schema(%{"type" => "object", "properties" => _} = schema), do: schema
+
   defp base_json_schema(schema), do: Zoi.to_json_schema(schema)
 
   defp maybe_apply_strict(schema, false), do: schema

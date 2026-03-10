@@ -13,6 +13,15 @@ Jido Action supports two schema backends:
 
 Both are fully supported and can be used interchangeably. The `Jido.Action.Schema` adapter provides a unified interface.
 
+### JSON Schema Maps (Compatibility Bridge)
+
+Plain JSON Schema object maps are also accepted (for example from `json_spec`) as a
+compatibility bridge:
+
+- Runtime validation remains pass-through (`{:ok, data}`), preserving open validation semantics.
+- Known key extraction is atom-safe: it only uses existing atoms and never creates new ones from property names.
+- Tool conversion preserves unknown keys and still prefers atom input keys over string keys when both are provided.
+
 ## NimbleOptions Schemas
 
 NimbleOptions is the traditional choice for Elixir configuration validation. Use keyword lists to define your schema:
@@ -229,7 +238,7 @@ Behind the scenes, `Jido.Action.Schema` provides a unified interface:
 ```elixir
 # Detect schema type
 Jido.Action.Schema.schema_type(my_schema)
-# => :nimble | :zoi | :empty
+# => :nimble | :zoi | :json_schema | :empty
 
 # Validate data
 {:ok, validated} = Jido.Action.Schema.validate(schema, params)
