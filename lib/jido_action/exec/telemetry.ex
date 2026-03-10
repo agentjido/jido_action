@@ -316,12 +316,15 @@ defmodule Jido.Exec.Telemetry do
   defp do_sanitize(value, depth) when is_map(value) do
     value
     |> Map.to_list()
-    |> Enum.sort_by(fn {key, _value} -> inspect(key) end)
+    |> Enum.map(fn {key, raw_value} ->
+      {sanitize_key(key, depth + 1), key, raw_value}
+    end)
+    |> Enum.sort_by(fn {sanitized_key, _key, _value} -> inspect(sanitized_key) end)
     |> Enum.split(@max_collection_items)
     |> then(fn {kept, dropped} ->
       sanitized =
         kept
-        |> Enum.map(fn {key, raw_value} ->
+        |> Enum.map(fn {sanitized_key, key, raw_value} ->
           sanitized_value =
             if sensitive_key?(key) do
               @redacted_value
@@ -329,7 +332,7 @@ defmodule Jido.Exec.Telemetry do
               do_sanitize(raw_value, depth + 1)
             end
 
-          {key, sanitized_value}
+          {sanitized_key, sanitized_value}
         end)
         |> Map.new()
 
@@ -379,6 +382,12 @@ defmodule Jido.Exec.Telemetry do
   end
 
   defp sensitive_key?(key), do: sensitive_key?(inspect(key))
+
+  defp sanitize_key(key, _depth)
+       when is_atom(key) or is_binary(key) or is_number(key) or is_boolean(key) or is_nil(key),
+       do: key
+
+  defp sanitize_key(key, depth), do: do_sanitize(key, depth)
 
   defp normalize_struct_marker(mod) when is_atom(mod), do: inspect(mod)
   defp normalize_struct_marker(mod), do: mod

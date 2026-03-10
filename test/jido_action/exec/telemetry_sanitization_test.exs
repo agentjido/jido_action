@@ -4,6 +4,7 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
   import ExUnit.CaptureLog
 
   alias Jido.Exec.Telemetry
+  alias JidoTest.Support.RaisingInspectStruct
 
   defmodule CredentialsStruct do
     defstruct [:api_key, :note, :nested]
@@ -186,6 +187,25 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
     refute log =~ "__sanitized_struct__"
     assert log =~ "__struct__"
     assert log =~ "Zoi.Types.Map"
+  end
+
+  test "struct keys with raising Inspect implementations are sanitized before logging" do
+    struct_key = %RaisingInspectStruct{value: 1}
+    sanitized = Telemetry.sanitize_value(%{struct_key => :value})
+    [sanitized_key] = Map.keys(sanitized)
+
+    refute is_struct(sanitized_key)
+    assert sanitized_key.__struct__ == inspect(RaisingInspectStruct)
+    assert sanitized[sanitized_key] == :value
+
+    log =
+      capture_log(fn ->
+        Telemetry.cond_log_start(:notice, __MODULE__, %{struct_key => :value}, %{})
+      end)
+
+    refute log =~ "Inspect.Error"
+    assert log =~ "RaisingInspectStruct"
+    assert log =~ "=> :value"
   end
 
   test "log helpers sanitize sensitive data and large payloads" do
