@@ -7,6 +7,13 @@ This folder is the package-local Spec Led Development layer for Jido.Action.
 It captures package intent, core action contracts, execution behavior,
 AI tool integration, and workflow composition.
 
+## Workspace Files
+
+- `README.md`
+- `AGENTS.md`
+- `specs/*.spec.md`
+- `state.json`
+
 ## Current Subjects
 
 - `specs/spec_system.spec.md`

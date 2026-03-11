@@ -149,6 +149,14 @@
       },
       {
         "file": ".spec/specs/spec_system.spec.md",
+        "id": "spec.workspace.agents_present",
+        "priority": "must",
+        "stability": "stable",
+        "statement": "The repository shall include a .spec/AGENTS.md that gives local operating guidance for agents working inside the .spec workspace.",
+        "subject_id": "spec.system"
+      },
+      {
+        "file": ".spec/specs/spec_system.spec.md",
         "id": "spec.workspace.readme_present",
         "priority": "must",
         "stability": "stable",
@@ -389,6 +397,7 @@
           "summary": "Canonical workspace contract for authored specs and generated Spec Led state.",
           "surface": [
             ".spec/README.md",
+            ".spec/AGENTS.md",
             ".spec/specs/*.spec.md"
           ],
           "verification_minimum_strength": null
@@ -511,6 +520,15 @@
       },
       {
         "covers": [
+          "spec.workspace.agents_present"
+        ],
+        "file": ".spec/specs/spec_system.spec.md",
+        "kind": "source_file",
+        "subject_id": "spec.system",
+        "target": ".spec/AGENTS.md"
+      },
+      {
+        "covers": [
           "spec.workspace.state_generated"
         ],
         "file": ".spec/specs/spec_system.spec.md",
@@ -533,10 +551,10 @@
   "summary": {
     "exceptions": 0,
     "findings": 0,
-    "requirements": 20,
+    "requirements": 21,
     "scenarios": 6,
     "subjects": 7,
-    "verifications": 13
+    "verifications": 14
   },
   "verification": {
     "claims": [
@@ -750,14 +768,14 @@
         "verification_index": 0
       },
       {
-        "cover_id": "spec.workspace.state_generated",
+        "cover_id": "spec.workspace.agents_present",
         "file": ".spec/specs/spec_system.spec.md",
-        "kind": "command",
+        "kind": "source_file",
         "meets_minimum": true,
         "required_strength": "claimed",
-        "strength": "claimed",
+        "strength": "linked",
         "subject_id": "spec.system",
-        "target": "mix spec.plan",
+        "target": ".spec/AGENTS.md",
         "verification_index": 1
       },
       {
@@ -768,8 +786,19 @@
         "required_strength": "claimed",
         "strength": "claimed",
         "subject_id": "spec.system",
-        "target": "mix spec.verify",
+        "target": "mix spec.plan",
         "verification_index": 2
+      },
+      {
+        "cover_id": "spec.workspace.state_generated",
+        "file": ".spec/specs/spec_system.spec.md",
+        "kind": "command",
+        "meets_minimum": true,
+        "required_strength": "claimed",
+        "strength": "claimed",
+        "subject_id": "spec.system",
+        "target": "mix spec.verify",
+        "verification_index": 3
       }
     ],
     "cli_minimum_strength": null,
@@ -777,7 +806,7 @@
     "strength_summary": {
       "claimed": 2,
       "executed": 13,
-      "linked": 6
+      "linked": 7
     },
     "threshold_failures": 0
   },
