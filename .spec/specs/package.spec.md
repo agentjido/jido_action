@@ -31,8 +31,12 @@ surface:
   statement: The package shall expose AI-compatible tool conversion for actions.
   priority: must
   stability: stable
-- id: jido_action.package.workflow_composition
-  statement: The package shall let applications normalize instructions and compose them into dependency-aware plans.
+- id: jido_action.package.instructions
+  statement: The package shall let applications normalize instruction inputs into Jido.Instruction values.
+  priority: must
+  stability: stable
+- id: jido_action.package.plans
+  statement: The package shall let applications compose dependency-aware plans from normalized instructions.
   priority: must
   stability: stable
 ```
@@ -53,7 +57,11 @@ surface:
   covers:
     - jido_action.package.ai_tools
 - kind: source_file
-  target: .spec/specs/workflow_plans.spec.md
+  target: .spec/specs/instruction_normalization.spec.md
   covers:
-    - jido_action.package.workflow_composition
+    - jido_action.package.instructions
+- kind: source_file
+  target: .spec/specs/plan_graph.spec.md
+  covers:
+    - jido_action.package.plans
 ```

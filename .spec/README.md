@@ -14,7 +14,8 @@ AI tool integration, and workflow composition.
 - `specs/action_contract.spec.md`
 - `specs/execution_engine.spec.md`
 - `specs/ai_tools.spec.md`
-- `specs/workflow_plans.spec.md`
+- `specs/instruction_normalization.spec.md`
+- `specs/plan_graph.spec.md`
 
 ## Core Loop
 
