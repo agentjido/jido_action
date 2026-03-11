@@ -22,4 +22,5 @@ Use this folder to maintain authored Spec Led Development subjects and generated
 - Use file-backed verifications only when the target can carry stable `covers:` markers for every covered id.
 - Keep package specs pointed at smaller subject files rather than one umbrella spec when the runtime surface is broad.
 - Keep verification targets repository-root-relative.
-- Finish with `mix spec.verify --debug` and `mix spec.check`.
+- Finish with `mix spec.verify --debug`, `mix spec.check`, and `mix spec.diffcheck`.
+- Use `mix spec.report` when you need a coverage or weak-spot summary.

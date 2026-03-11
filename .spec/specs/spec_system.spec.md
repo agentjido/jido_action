@@ -10,8 +10,12 @@ summary: Canonical workspace contract for authored specs and generated Spec Led 
 surface:
   - .spec/README.md
   - .spec/AGENTS.md
+  - .spec/decisions/README.md
   - .spec/decisions/*.md
   - .spec/specs/*.spec.md
+  - .spec/state.json
+decisions:
+  - adr-0001
 ```
 
 ## Requirements
@@ -27,13 +31,13 @@ surface:
   priority: must
   stability: stable
 
-- id: spec.workspace.decisions_present
-  statement: The repository shall include a .spec/decisions workspace for durable cross-cutting ADRs while keeping current-truth specs separate from Git history.
+- id: spec.workspace.decisions_readme_present
+  statement: The repository shall include a .spec/decisions/README.md that explains when durable ADRs belong in the workspace.
   priority: must
   stability: stable
 
 - id: spec.workspace.state_generated
-  statement: When planning and verification run, the workspace shall generate .spec/state.json containing index and verification state.
+  statement: When planning and verification run, the workspace shall generate .spec/state.json containing indexed subjects, indexed decisions, and verification state.
   priority: must
   stability: stable
 ```
@@ -54,7 +58,7 @@ surface:
 - kind: source_file
   target: .spec/decisions/README.md
   covers:
-    - spec.workspace.decisions_present
+    - spec.workspace.decisions_readme_present
 
 - kind: command
   target: mix spec.plan

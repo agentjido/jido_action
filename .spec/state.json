@@ -1,4 +1,53 @@
 {
+  "decisions": {
+    "items": [
+      {
+        "affects": [
+          "spec.system",
+          "jido_action.package"
+        ],
+        "date": "2026-03-11",
+        "file": ".spec/decisions/adr-0001-declarative-current-truth.md",
+        "id": "adr-0001",
+        "status": "accepted",
+        "title": "Declarative Current Truth Only"
+      },
+      {
+        "affects": [
+          "jido_action.package",
+          "jido_action.exec.run_modes",
+          "jido_action.exec.reliability_controls",
+          "jido_action.exec.chains",
+          "jido_action.exec.isolation_mailbox",
+          "jido_action.exec.telemetry"
+        ],
+        "date": "2026-03-11",
+        "file": ".spec/decisions/adr-0002-jido-exec-subject-decomposition.md",
+        "id": "adr-0002",
+        "status": "accepted",
+        "title": "Jido.Exec Subject Decomposition"
+      },
+      {
+        "affects": [
+          "spec.system",
+          "jido_action.package",
+          "jido_action.action_contract",
+          "jido_action.exec.run_modes",
+          "jido_action.exec.reliability_controls",
+          "jido_action.exec.chains",
+          "jido_action.exec.isolation_mailbox",
+          "jido_action.exec.telemetry",
+          "jido_action.schema_adapters",
+          "jido_action.runtime_support"
+        ],
+        "date": "2026-03-11",
+        "file": ".spec/decisions/adr-0003-verification-strength-policy.md",
+        "id": "adr-0003",
+        "status": "accepted",
+        "title": "Verification Strength Policy"
+      }
+    ]
+  },
   "findings": [],
   "index": {
     "exceptions": [],
@@ -357,10 +406,10 @@
       },
       {
         "file": ".spec/specs/spec_system.spec.md",
-        "id": "spec.workspace.decisions_present",
+        "id": "spec.workspace.decisions_readme_present",
         "priority": "must",
         "stability": "stable",
-        "statement": "The repository shall include a .spec/decisions workspace for durable cross-cutting ADRs while keeping current-truth specs separate from Git history.",
+        "statement": "The repository shall include a .spec/decisions/README.md that explains when durable ADRs belong in the workspace.",
         "subject_id": "spec.system"
       },
       {
@@ -376,7 +425,7 @@
         "id": "spec.workspace.state_generated",
         "priority": "must",
         "stability": "stable",
-        "statement": "When planning and verification run, the workspace shall generate .spec/state.json containing index and verification state.",
+        "statement": "When planning and verification run, the workspace shall generate .spec/state.json containing indexed subjects, indexed decisions, and verification state.",
         "subject_id": "spec.system"
       }
     ],
@@ -495,6 +544,7 @@
         "file": ".spec/specs/action_contract.spec.md",
         "id": "jido_action.action_contract",
         "meta": {
+          "decisions": null,
           "id": "jido_action.action_contract",
           "kind": "module",
           "status": "active",
@@ -513,6 +563,7 @@
         "file": ".spec/specs/ai_tools.spec.md",
         "id": "jido_action.ai_tools",
         "meta": {
+          "decisions": null,
           "id": "jido_action.ai_tools",
           "kind": "contract",
           "status": "active",
@@ -530,6 +581,9 @@
         "file": ".spec/specs/exec_chains.spec.md",
         "id": "jido_action.exec.chains",
         "meta": {
+          "decisions": [
+            "adr-0002"
+          ],
           "id": "jido_action.exec.chains",
           "kind": "workflow",
           "status": "active",
@@ -546,6 +600,9 @@
         "file": ".spec/specs/exec_isolation_mailbox.spec.md",
         "id": "jido_action.exec.isolation_mailbox",
         "meta": {
+          "decisions": [
+            "adr-0002"
+          ],
           "id": "jido_action.exec.isolation_mailbox",
           "kind": "workflow",
           "status": "active",
@@ -564,6 +621,9 @@
         "file": ".spec/specs/exec_reliability_controls.spec.md",
         "id": "jido_action.exec.reliability_controls",
         "meta": {
+          "decisions": [
+            "adr-0002"
+          ],
           "id": "jido_action.exec.reliability_controls",
           "kind": "workflow",
           "status": "active",
@@ -582,6 +642,9 @@
         "file": ".spec/specs/exec_run_modes.spec.md",
         "id": "jido_action.exec.run_modes",
         "meta": {
+          "decisions": [
+            "adr-0002"
+          ],
           "id": "jido_action.exec.run_modes",
           "kind": "workflow",
           "status": "active",
@@ -601,6 +664,9 @@
         "file": ".spec/specs/exec_telemetry.spec.md",
         "id": "jido_action.exec.telemetry",
         "meta": {
+          "decisions": [
+            "adr-0002"
+          ],
           "id": "jido_action.exec.telemetry",
           "kind": "workflow",
           "status": "active",
@@ -618,6 +684,7 @@
         "file": ".spec/specs/instruction_normalization.spec.md",
         "id": "jido_action.instruction_normalization",
         "meta": {
+          "decisions": null,
           "id": "jido_action.instruction_normalization",
           "kind": "module",
           "status": "active",
@@ -634,6 +701,11 @@
         "file": ".spec/specs/package.spec.md",
         "id": "jido_action.package",
         "meta": {
+          "decisions": [
+            "adr-0001",
+            "adr-0002",
+            "adr-0003"
+          ],
           "id": "jido_action.package",
           "kind": "package",
           "status": "active",
@@ -658,6 +730,7 @@
         "file": ".spec/specs/plan_graph.spec.md",
         "id": "jido_action.plan_graph",
         "meta": {
+          "decisions": null,
           "id": "jido_action.plan_graph",
           "kind": "workflow",
           "status": "active",
@@ -674,6 +747,7 @@
         "file": ".spec/specs/runtime_support.spec.md",
         "id": "jido_action.runtime_support",
         "meta": {
+          "decisions": null,
           "id": "jido_action.runtime_support",
           "kind": "policy",
           "status": "active",
@@ -691,6 +765,7 @@
         "file": ".spec/specs/schema_adapters.spec.md",
         "id": "jido_action.schema_adapters",
         "meta": {
+          "decisions": null,
           "id": "jido_action.schema_adapters",
           "kind": "contract",
           "status": "active",
@@ -709,6 +784,9 @@
         "file": ".spec/specs/spec_system.spec.md",
         "id": "spec.system",
         "meta": {
+          "decisions": [
+            "adr-0001"
+          ],
           "id": "spec.system",
           "kind": "policy",
           "status": "active",
@@ -716,8 +794,10 @@
           "surface": [
             ".spec/README.md",
             ".spec/AGENTS.md",
+            ".spec/decisions/README.md",
             ".spec/decisions/*.md",
-            ".spec/specs/*.spec.md"
+            ".spec/specs/*.spec.md",
+            ".spec/state.json"
           ],
           "verification_minimum_strength": null
         },
@@ -975,7 +1055,7 @@
       },
       {
         "covers": [
-          "spec.workspace.decisions_present"
+          "spec.workspace.decisions_readme_present"
         ],
         "file": ".spec/specs/spec_system.spec.md",
         "kind": "source_file",
@@ -1004,6 +1084,8 @@
   },
   "specification_version": "1.0",
   "summary": {
+    "decision_parse_errors": 0,
+    "decisions": 3,
     "exceptions": 0,
     "findings": 0,
     "requirements": 47,
@@ -1509,7 +1591,7 @@
         "verification_index": 1
       },
       {
-        "cover_id": "spec.workspace.decisions_present",
+        "cover_id": "spec.workspace.decisions_readme_present",
         "file": ".spec/specs/spec_system.spec.md",
         "kind": "source_file",
         "meets_minimum": true,
@@ -1552,6 +1634,7 @@
     "threshold_failures": 0
   },
   "workspace": {
+    "decision_count": 3,
     "spec_count": 13
   }
 }

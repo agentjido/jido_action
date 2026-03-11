@@ -15,6 +15,8 @@ summary: Chain composition, interruption, and async supervision for Jido.Exec.Ch
 surface:
   - lib/jido_action/exec/chain.ex
   - guides/execution-engine.md
+decisions:
+  - adr-0002
 ```
 
 ## Requirements

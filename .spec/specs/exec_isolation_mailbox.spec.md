@@ -17,6 +17,8 @@ surface:
   - lib/jido_action/exec/compensation.ex
   - lib/jido_action/exec/supervisors.ex
   - guides/execution-engine.md
+decisions:
+  - adr-0002
 ```
 
 ## Requirements

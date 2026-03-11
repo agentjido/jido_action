@@ -56,6 +56,8 @@ This workspace is declarative and current-state only.
 4. update code, guides, or tests
 5. run `mix spec.verify --debug` for a fast structural pass
 6. run `mix spec.check` for the stricter local gate
+7. run `mix spec.diffcheck` when code, docs, or tests changed
+8. use `mix spec.report` when you want a coverage and weak-spot summary
 
 ## Verification Strength
 

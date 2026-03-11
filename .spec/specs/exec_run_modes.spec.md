@@ -18,6 +18,8 @@ surface:
   - lib/jido_action/exec/closure.ex
   - lib/jido_action/exec/validator.ex
   - guides/execution-engine.md
+decisions:
+  - adr-0002
 ```
 
 ## Requirements

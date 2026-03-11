@@ -16,6 +16,8 @@ surface:
   - lib/jido_action/exec.ex
   - lib/jido_action/exec/telemetry.ex
   - guides/execution-engine.md
+decisions:
+  - adr-0002
 ```
 
 ## Requirements

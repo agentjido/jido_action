@@ -3,7 +3,7 @@
 This folder stores durable architectural decision records for the Spec Led Development
 workspace.
 
-<!-- spec.workspace.decisions_present -->
+<!-- covers: spec.workspace.decisions_readme_present -->
 
 ## Use ADRs For
 

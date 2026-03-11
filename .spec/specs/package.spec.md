@@ -23,6 +23,10 @@ surface:
   - lib/jido_action/util.ex
   - lib/jido_instruction.ex
   - lib/jido_plan.ex
+decisions:
+  - adr-0001
+  - adr-0002
+  - adr-0003
 ```
 
 ## Requirements
