@@ -14,6 +14,7 @@ status: active
 summary: Package contract covering action definition, schema handling, execution runtime, AI tool conversion, and workflow composition.
 surface:
   - README.md
+  - mix.exs
   - lib/jido_action.ex
   - lib/jido_action/application.ex
   - lib/jido_action/error.ex
