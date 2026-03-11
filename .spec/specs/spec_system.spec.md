@@ -10,6 +10,7 @@ summary: Canonical workspace contract for authored specs and generated Spec Led 
 surface:
   - .spec/README.md
   - .spec/AGENTS.md
+  - .spec/decisions/*.md
   - .spec/specs/*.spec.md
 ```
 
@@ -22,7 +23,12 @@ surface:
   stability: stable
 
 - id: spec.workspace.agents_present
-  statement: The repository shall include a .spec/AGENTS.md that gives local operating guidance for agents working inside the .spec workspace.
+  statement: The repository shall include a .spec/AGENTS.md that gives local operating guidance for agents working inside the .spec workspace, including when to update ADRs.
+  priority: must
+  stability: stable
+
+- id: spec.workspace.decisions_present
+  statement: The repository shall include a .spec/decisions workspace for durable cross-cutting ADRs while keeping current-truth specs separate from Git history.
   priority: must
   stability: stable
 
@@ -44,6 +50,11 @@ surface:
   target: .spec/AGENTS.md
   covers:
     - spec.workspace.agents_present
+
+- kind: source_file
+  target: .spec/decisions/README.md
+  covers:
+    - spec.workspace.decisions_present
 
 - kind: command
   target: mix spec.plan
