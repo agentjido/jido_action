@@ -306,6 +306,13 @@ defmodule Jido.Exec.Telemetry do
     summarize_truncated(value)
   end
 
+  defp do_sanitize(%_{} = struct, depth) when depth + 1 >= @max_depth do
+    # At this depth, the struct's internal fields would hit max_depth
+    # and get truncated to summary maps. Re-attaching __struct__ after
+    # that produces a corrupted value. Convert to string instead.
+    inspect(struct)
+  end
+
   defp do_sanitize(%_{} = struct, depth) do
     struct
     |> Map.from_struct()
@@ -404,6 +411,10 @@ defmodule Jido.Exec.Telemetry do
 
   defp strip_struct_tags(list) when is_list(list), do: Enum.map(list, &strip_struct_tags/1)
   defp strip_struct_tags(value), do: value
+
+  defp summarize_truncated(%_{} = struct) do
+    inspect(struct)
+  end
 
   defp summarize_truncated(value) when is_map(value) do
     %{__truncated_depth__: @max_depth, type: :map, size: map_size(value)}
