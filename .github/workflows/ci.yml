@@ -10,15 +10,45 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
+env:
+  SPECLED_ACTION_REPOSITORY: specleddev/github-actions
+  SPECLED_ACTION_REF: chore/spec-led-prep
+  SPECLED_BACKEND_REPOSITORY: specleddev/spec_led_ex
+  SPECLED_BACKEND_REF: main
+
 jobs:
   lint:
     name: Lint
-    uses: agentjido/github-actions/.github/workflows/elixir-lint.yml@main
+    uses: ./.github/workflows/_vendor-elixir-lint.yml
 
   test:
     name: Test
-    uses: agentjido/github-actions/.github/workflows/elixir-test.yml@main
+    uses: ./.github/workflows/_vendor-elixir-test.yml
     with:
       otp_versions: '["27", "28"]'
       elixir_versions: '["1.18", "1.19"]'
       test_command: mix test
+
+  specs:
+    name: Specs
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Checkout Spec Led GitHub Actions
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SPECLED_ACTION_REPOSITORY }}
+          ref: ${{ env.SPECLED_ACTION_REF }}
+          path: .github/actions/specled-github-actions
+
+      - name: Run Spec Led checks
+        uses: ./.github/actions/specled-github-actions/verify
+        with:
+          backend_repo: ${{ env.SPECLED_BACKEND_REPOSITORY }}
+          backend_ref: ${{ env.SPECLED_BACKEND_REF }}
+          diffcheck: "true"
