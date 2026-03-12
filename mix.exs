@@ -235,6 +235,8 @@ defmodule JidoAction.MixProject do
       {:weather, "~> 0.4.0"},
 
       # Development & Test Dependencies
+      {:spec_led_ex,
+       github: "specleddev/specled_ex", branch: "main", only: [:dev, :test], runtime: false},
       {:git_ops, "~> 2.9", only: :dev, runtime: false},
       {:git_hooks, "~> 0.8", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test]},
