@@ -18,6 +18,15 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
     send(test_pid, {:telemetry_event, event, measurements, metadata})
   end
 
+  defp assert_struct_summary(summary, module, size) do
+    assert summary == %{
+             __truncated_depth__: 4,
+             type: :struct,
+             module: inspect(module),
+             size: size
+           }
+  end
+
   setup do
     test_pid = self()
     handler_id = "jido-telemetry-sanitization-#{System.unique_integer([:positive])}"
@@ -75,11 +84,7 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
     sanitized = Telemetry.sanitize_value(%{layer1: %{layer2: %{request: request}}})
     sanitized_request = get_in(sanitized, [:layer1, :layer2, :request])
 
-    # At depth 3, struct fields would hit max_depth so the struct
-    # is converted to its string representation instead of being decomposed
-    assert is_binary(sanitized_request)
-    assert sanitized_request =~ "Req.Request"
-    refute sanitized_request =~ "Inspect.Error"
+    assert_struct_summary(sanitized_request, Req.Request, map_size(request))
   end
 
   test "emit_end_event sanitizes result payloads" do
@@ -119,10 +124,7 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
     sanitized = Telemetry.sanitize_value(deep_struct)
     l4 = get_in(sanitized, [:l1, :l2, :l3, :l4])
 
-    # At depth 4, the struct is converted to its string representation
-    # rather than a generic truncation summary
-    assert is_binary(l4)
-    assert l4 =~ "CustomInspectStruct"
+    assert_struct_summary(l4, CustomInspectStruct, map_size(%CustomInspectStruct{}))
   end
 
   test "struct with custom Inspect at depth < 4 keeps __struct__ marker as string" do
@@ -168,9 +170,10 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
 
     refute log =~ "Inspect.Error"
     assert log =~ "CustomInspectStruct"
+    assert log =~ "type: :struct"
   end
 
-  test "safe_inspect keeps nested Zoi structs inspect-safe while preserving struct info" do
+  test "safe_inspect keeps nested Zoi structs inspect-safe while preserving module info" do
     deep_struct = %{l1: %{l2: %{l3: %Zoi.Types.Map{fields: [foo: %Zoi.Types.String{}]}}}}
 
     log =
@@ -179,7 +182,8 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
       end)
 
     refute log =~ "Inspect.Error"
-    assert log =~ "Zoi"
+    assert log =~ "Zoi.Types.Map"
+    assert log =~ "type: :struct"
   end
 
   test "struct keys with raising Inspect implementations are sanitized before logging" do
@@ -201,19 +205,51 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
     assert log =~ "=> :value"
   end
 
-  describe "leaf struct sanitization (DateTime, URI, etc.)" do
-    test "sanitize_value converts DateTime to string when near max depth" do
+  test "deep struct values are summarized without leaking sensitive fields or long binaries" do
+    long_string = String.duplicate("x", 300)
+
+    creds = %CredentialsStruct{
+      api_key: "api-123",
+      note: long_string,
+      nested: %{client_secret: "nested-secret"}
+    }
+
+    sanitized = Telemetry.sanitize_value(%{l1: %{l2: %{creds: creds}}})
+    creds_summary = get_in(sanitized, [:l1, :l2, :creds])
+
+    assert_struct_summary(creds_summary, CredentialsStruct, map_size(creds))
+
+    inspected = inspect(sanitized)
+    refute inspected =~ "api-123"
+    refute inspected =~ "nested-secret"
+    refute inspected =~ long_string
+  end
+
+  test "deep struct values with raising Inspect implementations stay inspect-safe" do
+    payload = %{l1: %{l2: %{bad: %RaisingInspectStruct{value: 1}}}}
+    sanitized = Telemetry.sanitize_value(payload)
+    bad_summary = get_in(sanitized, [:l1, :l2, :bad])
+
+    assert_struct_summary(bad_summary, RaisingInspectStruct, map_size(%RaisingInspectStruct{}))
+
+    log =
+      capture_log(fn ->
+        Telemetry.cond_log_start(:notice, __MODULE__, payload, %{})
+      end)
+
+    refute log =~ "Inspect.Error"
+    assert log =~ "RaisingInspectStruct"
+    assert log =~ "type: :struct"
+  end
+
+  describe "deep struct summarization (DateTime, URI, etc.)" do
+    test "sanitize_value summarizes DateTime when near max depth" do
       dt = DateTime.utc_now()
 
-      # At depth 3 (where microsecond tuple would previously be corrupted)
       deep = %{l1: %{l2: %{dt: dt}}}
       sanitized_deep = Telemetry.sanitize_value(deep)
       dt_sanitized = get_in(sanitized_deep, [:l1, :l2, :dt])
-      assert is_binary(dt_sanitized)
-      assert dt_sanitized =~ ~r/\d{4}-\d{2}-\d{2}/
-
-      # inspect should never crash
-      assert inspect(sanitized_deep) =~ ~r/\d{4}-\d{2}-\d{2}/
+      assert_struct_summary(dt_sanitized, DateTime, map_size(dt))
 
       # At shallow depth, struct is decomposed safely (fields don't hit max_depth)
       shallow = Telemetry.sanitize_value(%{dt: dt})
@@ -221,68 +257,60 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
       assert is_tuple(shallow.dt.microsecond)
     end
 
-    test "sanitize_value converts NaiveDateTime to string" do
+    test "sanitize_value summarizes NaiveDateTime" do
       ndt = NaiveDateTime.utc_now()
       sanitized = Telemetry.sanitize_value(%{l1: %{l2: %{ndt: ndt}}})
       ndt_sanitized = get_in(sanitized, [:l1, :l2, :ndt])
-      assert is_binary(ndt_sanitized)
-      assert ndt_sanitized =~ ~r/\d{4}-\d{2}-\d{2}/
+      assert_struct_summary(ndt_sanitized, NaiveDateTime, map_size(ndt))
     end
 
-    test "sanitize_value converts Date to string" do
+    test "sanitize_value summarizes Date" do
       d = Date.utc_today()
       sanitized = Telemetry.sanitize_value(%{l1: %{l2: %{d: d}}})
       d_sanitized = get_in(sanitized, [:l1, :l2, :d])
-      assert is_binary(d_sanitized)
-      assert d_sanitized =~ ~r/\d{4}-\d{2}-\d{2}/
+      assert_struct_summary(d_sanitized, Date, map_size(d))
     end
 
-    test "sanitize_value converts Time to string" do
+    test "sanitize_value summarizes Time" do
       t = Time.utc_now()
       sanitized = Telemetry.sanitize_value(%{l1: %{l2: %{t: t}}})
       t_sanitized = get_in(sanitized, [:l1, :l2, :t])
-      assert is_binary(t_sanitized)
-      assert t_sanitized =~ ~r/\d{2}:\d{2}:\d{2}/
+      assert_struct_summary(t_sanitized, Time, map_size(t))
     end
 
-    test "sanitize_value converts URI to string" do
+    test "sanitize_value summarizes URI" do
       uri = URI.parse("https://example.com/path?q=1")
       sanitized = Telemetry.sanitize_value(%{l1: %{l2: %{uri: uri}}})
       uri_sanitized = get_in(sanitized, [:l1, :l2, :uri])
-      assert is_binary(uri_sanitized)
-      assert uri_sanitized =~ "example.com"
+      assert_struct_summary(uri_sanitized, URI, map_size(uri))
     end
 
-    test "sanitize_value converts Regex to string" do
+    test "sanitize_value summarizes Regex" do
       regex = ~r/foo.*bar/i
       sanitized = Telemetry.sanitize_value(%{l1: %{l2: %{re: regex}}})
       re_sanitized = get_in(sanitized, [:l1, :l2, :re])
-      assert is_binary(re_sanitized)
-      assert re_sanitized =~ "foo.*bar"
+      assert_struct_summary(re_sanitized, Regex, map_size(regex))
     end
 
-    test "sanitize_value converts MapSet to string" do
+    test "sanitize_value summarizes MapSet" do
       ms = MapSet.new([1, 2, 3])
       sanitized = Telemetry.sanitize_value(%{l1: %{l2: %{ms: ms}}})
       ms_sanitized = get_in(sanitized, [:l1, :l2, :ms])
-      assert is_binary(ms_sanitized)
-      assert ms_sanitized =~ "MapSet"
+      assert_struct_summary(ms_sanitized, MapSet, map_size(ms))
     end
 
-    test "sanitize_value converts Range to string" do
+    test "sanitize_value summarizes Range" do
       range = 1..10
       sanitized = Telemetry.sanitize_value(%{l1: %{l2: %{r: range}}})
       r_sanitized = get_in(sanitized, [:l1, :l2, :r])
-      assert is_binary(r_sanitized)
-      assert r_sanitized =~ "1..10"
+      assert_struct_summary(r_sanitized, Range, map_size(range))
     end
 
-    test "sanitize_value converts Version to string" do
+    test "sanitize_value summarizes Version" do
       {:ok, ver} = Version.parse("1.2.3")
       sanitized = Telemetry.sanitize_value(%{l1: %{l2: %{v: ver}}})
       v_sanitized = get_in(sanitized, [:l1, :l2, :v])
-      assert is_binary(v_sanitized)
-      assert v_sanitized =~ "Version"
+      assert_struct_summary(v_sanitized, Version, map_size(ver))
     end
 
     test "safe_inspect on deeply nested structs containing DateTimes never crashes" do
@@ -304,13 +332,11 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
         end)
 
       refute log =~ "Inspect.Error"
-      refute log =~ "__truncated_depth__"
-      assert log =~ ~r/\d{4}-\d{2}-\d{2}/
+      assert log =~ "DateTime"
+      assert log =~ "type: :struct"
     end
 
     test "sanitized structs at truncation-triggering depth are safely inspectable and JSON-encodable" do
-      # At depth 3, struct fields would be at depth 4 (max_depth),
-      # so the struct is stringified instead of decomposed
       data = %{
         l1: %{
           l2: %{
@@ -330,9 +356,13 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
       sanitized = Telemetry.sanitize_value(data)
       l2 = get_in(sanitized, [:l1, :l2])
 
-      # All should be strings since they are structs at depth 3
+      # All should be typed truncation summaries for structs at depth 3
       for {_key, val} <- l2 do
-        assert is_binary(val), "Expected string, got: #{Kernel.inspect(val)}"
+        assert %{__truncated_depth__: 4, type: :struct, module: module, size: size} = val,
+               "Expected struct summary, got: #{Kernel.inspect(val)}"
+
+        assert is_binary(module)
+        assert is_integer(size)
       end
 
       # inspect should not crash
