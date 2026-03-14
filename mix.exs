@@ -208,7 +208,7 @@ defmodule JidoAction.MixProject do
 
       # Skill & Action Dependencies for examples
       {:abacus, "~> 2.1"},
-      {:libgraph, "~> 0.16.0"},
+      {:libgraph, "~> 0.16.1-mg.1", hex: :multigraph},
       {:lua, "~> 0.3"},
       {:req, "~> 0.5.10"},
 
