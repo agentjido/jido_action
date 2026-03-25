@@ -301,4 +301,58 @@ defmodule Jido.Action.ErrorTest do
       assert result == "%{error: \"bad\"}"
     end
   end
+
+  describe "to_ai_error_map/1" do
+    test "normalizes invalid input errors to the canonical AI envelope" do
+      error = Error.validation_error("must be positive", field: :count, value: -1)
+
+      assert %{
+               type: :validation_error,
+               message: "must be positive",
+               details: %{field: :count, value: -1},
+               retryable?: false
+             } = Error.to_ai_error_map(error)
+    end
+
+    test "normalizes timeout errors as retryable" do
+      error = Error.timeout_error("tool timed out", timeout: 15_000)
+
+      assert %{
+               type: :timeout,
+               message: "tool timed out",
+               details: %{timeout: 15_000},
+               retryable?: true
+             } = Error.to_ai_error_map(error)
+    end
+
+    test "preserves canonical map input while normalizing retryability" do
+      error = %{type: :rate_limited, message: "try again later", details: %{provider: :openai}}
+
+      assert %{
+               type: :rate_limited,
+               message: "try again later",
+               details: %{provider: :openai},
+               retryable?: true
+             } = Error.to_ai_error_map(error)
+    end
+
+    test "unwraps tagged error tuples" do
+      assert %{type: :execution_error, message: "boom", retryable?: true} =
+               Error.to_ai_error_map({:error, Error.execution_error("boom"), []})
+    end
+  end
+
+  describe "retryable?/1" do
+    test "matches timeout and transient action errors" do
+      assert Error.retryable?(Error.timeout_error("timed out", timeout: 500))
+      assert Error.retryable?(%{type: :rate_limited, message: "slow down"})
+      assert Error.retryable?(%{details: %{retry: true}})
+    end
+
+    test "rejects validation and configuration errors" do
+      refute Error.retryable?(Error.validation_error("invalid"))
+      refute Error.retryable?(Error.config_error("bad config"))
+      refute Error.retryable?(%{details: %{retry: false}})
+    end
+  end
 end
