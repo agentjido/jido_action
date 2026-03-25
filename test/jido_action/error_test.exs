@@ -302,8 +302,8 @@ defmodule Jido.Action.ErrorTest do
     end
   end
 
-  describe "to_ai_error_map/1" do
-    test "normalizes invalid input errors to the canonical AI envelope" do
+  describe "to_map/1" do
+    test "normalizes invalid input errors to a plain map" do
       error = Error.validation_error("must be positive", field: :count, value: -1)
 
       assert %{
@@ -311,7 +311,7 @@ defmodule Jido.Action.ErrorTest do
                message: "must be positive",
                details: %{field: :count, value: -1},
                retryable?: false
-             } = Error.to_ai_error_map(error)
+             } = Error.to_map(error)
     end
 
     test "normalizes timeout errors as retryable" do
@@ -322,7 +322,7 @@ defmodule Jido.Action.ErrorTest do
                message: "tool timed out",
                details: %{timeout: 15_000},
                retryable?: true
-             } = Error.to_ai_error_map(error)
+             } = Error.to_map(error)
     end
 
     test "preserves canonical map input while normalizing retryability" do
@@ -333,12 +333,17 @@ defmodule Jido.Action.ErrorTest do
                message: "try again later",
                details: %{provider: :openai},
                retryable?: true
-             } = Error.to_ai_error_map(error)
+             } = Error.to_map(error)
     end
 
     test "unwraps tagged error tuples" do
       assert %{type: :execution_error, message: "boom", retryable?: true} =
-               Error.to_ai_error_map({:error, Error.execution_error("boom"), []})
+               Error.to_map({:error, Error.execution_error("boom"), []})
+    end
+
+    test "normalizes non-binary messages into strings" do
+      assert %{type: :execution_error, message: "transient_error", retryable?: true} =
+               Error.to_map(%{type: :execution_error, message: :transient_error, details: %{}})
     end
   end
 

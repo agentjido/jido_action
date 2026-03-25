@@ -283,7 +283,7 @@ defmodule Jido.Action.Error do
     )
   end
 
-  @type ai_error_envelope :: %{
+  @type error_map :: %{
           type: atom(),
           message: String.t(),
           details: map(),
@@ -291,39 +291,37 @@ defmodule Jido.Action.Error do
         }
 
   @doc """
-  Converts action-layer errors into the canonical AI runtime error envelope.
+  Converts action-layer errors into a normalized plain map representation.
 
-  This preserves the action error type and message while normalizing the shape
-  expected by `jido_ai` at runtime boundaries.
+  This preserves the action error type and message while exposing a stable,
+  serializable shape that downstream packages can adapt to their own domains.
   """
-  @spec to_ai_error_map(term()) :: ai_error_envelope()
-  def to_ai_error_map({:error, reason, _effects}), do: to_ai_error_map(reason)
-  def to_ai_error_map({:error, reason}), do: to_ai_error_map(reason)
+  @spec to_map(term()) :: error_map()
+  def to_map({:error, reason, _effects}), do: to_map(reason)
+  def to_map({:error, reason}), do: to_map(reason)
 
-  def to_ai_error_map(%{type: type, message: message} = error)
-      when is_atom(type) and is_binary(message) do
+  def to_map(%{type: type, message: message} = error) when is_atom(type) do
     %{
       type: type,
-      message: message,
+      message: normalize_message(message),
       details: normalize_details(Map.get(error, :details, %{})),
       retryable?: normalize_retryable(error, type)
     }
   end
 
-  def to_ai_error_map(%{code: type, message: message} = error)
-      when is_atom(type) and is_binary(message) do
+  def to_map(%{code: type, message: message} = error) when is_atom(type) do
     %{
       type: type,
-      message: message,
+      message: normalize_message(message),
       details: normalize_details(Map.get(error, :details, %{})),
       retryable?: normalize_retryable(error, type)
     }
   end
 
-  def to_ai_error_map(%InvalidInputError{} = error) do
+  def to_map(%InvalidInputError{} = error) do
     %{
       type: :validation_error,
-      message: error.message,
+      message: normalize_message(error.message),
       details:
         error.details
         |> normalize_details()
@@ -333,19 +331,19 @@ defmodule Jido.Action.Error do
     }
   end
 
-  def to_ai_error_map(%ExecutionFailureError{} = error) do
+  def to_map(%ExecutionFailureError{} = error) do
     %{
       type: :execution_error,
-      message: error.message,
+      message: normalize_message(error.message),
       details: normalize_details(error.details),
       retryable?: normalize_retryable(error.details, :execution_error)
     }
   end
 
-  def to_ai_error_map(%TimeoutError{} = error) do
+  def to_map(%TimeoutError{} = error) do
     %{
       type: :timeout,
-      message: error.message,
+      message: normalize_message(error.message),
       details:
         error.details
         |> normalize_details()
@@ -354,37 +352,37 @@ defmodule Jido.Action.Error do
     }
   end
 
-  def to_ai_error_map(%ConfigurationError{} = error) do
+  def to_map(%ConfigurationError{} = error) do
     %{
       type: :configuration_error,
-      message: error.message,
+      message: normalize_message(error.message),
       details: normalize_details(error.details),
       retryable?: false
     }
   end
 
-  def to_ai_error_map(%InternalError{} = error) do
+  def to_map(%InternalError{} = error) do
     %{
       type: :internal_error,
-      message: error.message,
+      message: normalize_message(error.message),
       details: normalize_details(error.details),
       retryable?: false
     }
   end
 
-  def to_ai_error_map(%Internal.UnknownError{} = error) do
+  def to_map(%Internal.UnknownError{} = error) do
     %{
       type: :internal_error,
-      message: error.message,
+      message: normalize_message(error.message),
       details: normalize_details(error.details),
       retryable?: false
     }
   end
 
-  def to_ai_error_map(%{message: message} = error) when is_binary(message) do
+  def to_map(%{message: message} = error) when not is_nil(message) do
     %{
       type: :execution_error,
-      message: message,
+      message: normalize_message(message),
       details:
         error
         |> Map.from_struct()
@@ -394,19 +392,19 @@ defmodule Jido.Action.Error do
     }
   end
 
-  def to_ai_error_map(reason) when is_atom(reason) do
+  def to_map(reason) when is_atom(reason) do
     %{
       type: reason,
-      message: Atom.to_string(reason),
+      message: normalize_message(reason),
       details: %{},
       retryable?: retryable?(reason)
     }
   end
 
-  def to_ai_error_map(reason) do
+  def to_map(reason) do
     %{
       type: :execution_error,
-      message: inspect(reason),
+      message: normalize_message(reason),
       details: %{},
       retryable?: false
     }
@@ -513,6 +511,10 @@ defmodule Jido.Action.Error do
       true -> retryable_hint(Map.get(error, :details, error), default_retryable?(type))
     end
   end
+
+  defp normalize_message(message) when is_binary(message), do: message
+  defp normalize_message(message) when is_atom(message), do: Atom.to_string(message)
+  defp normalize_message(message), do: inspect(message)
 
   defp normalize_details(details) when is_map(details), do: details
   defp normalize_details(_details), do: %{}
