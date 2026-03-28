@@ -82,6 +82,14 @@
         "subject_id": "jido_action.package"
       },
       {
+        "file": ".spec/specs/package.spec.md",
+        "id": "jido_action.package.spec_pr_gate",
+        "priority": "should",
+        "stability": "evolving",
+        "statement": "Pull request CI shall run `mix spec.check` against the pull request base branch so Spec Led current truth and proof stay enforced in review.",
+        "subject_id": "jido_action.package"
+      },
+      {
         "file": ".spec/specs/scaffolding.spec.md",
         "id": "jido_action.scaffolding.examples_and_support",
         "priority": "should",
@@ -273,6 +281,7 @@
           "status": "active",
           "summary": "Package-level contract for action definition, execution, workflow normalization, planning, and AI tool integration.",
           "surface": [
+            ".github/workflows/specs.yml",
             "CHANGELOG.md",
             "CONTRIBUTING.md",
             "mix.exs",
@@ -485,6 +494,15 @@
       },
       {
         "covers": [
+          "jido_action.package.spec_pr_gate"
+        ],
+        "file": ".spec/specs/package.spec.md",
+        "kind": "workflow_file",
+        "subject_id": "jido_action.package",
+        "target": ".github/workflows/specs.yml"
+      },
+      {
+        "covers": [
           "jido_action.scaffolding.install_and_generators"
         ],
         "file": ".spec/specs/scaffolding.spec.md",
@@ -645,10 +663,10 @@
     "decisions": 1,
     "exceptions": 0,
     "findings": 0,
-    "requirements": 21,
+    "requirements": 22,
     "scenarios": 0,
     "subjects": 9,
-    "verifications": 22
+    "verifications": 23
   },
   "verification": {
     "claims": [
@@ -761,6 +779,17 @@
         "subject_id": "jido_action.package",
         "target": "README.md",
         "verification_index": 1
+      },
+      {
+        "cover_id": "jido_action.package.spec_pr_gate",
+        "file": ".spec/specs/package.spec.md",
+        "kind": "workflow_file",
+        "meets_minimum": true,
+        "required_strength": "claimed",
+        "strength": "linked",
+        "subject_id": "jido_action.package",
+        "target": ".github/workflows/specs.yml",
+        "verification_index": 2
       },
       {
         "cover_id": "jido_action.scaffolding.install_and_generators",
@@ -999,7 +1028,7 @@
     "strength_summary": {
       "claimed": 2,
       "executed": 18,
-      "linked": 11
+      "linked": 12
     },
     "threshold_failures": 0
   },

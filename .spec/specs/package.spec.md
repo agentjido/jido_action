@@ -12,6 +12,7 @@ kind: package
 status: active
 summary: Package-level contract for action definition, execution, workflow normalization, planning, and AI tool integration.
 surface:
+  - .github/workflows/specs.yml
   - CHANGELOG.md
   - CONTRIBUTING.md
   - mix.exs
@@ -40,6 +41,11 @@ decisions:
   statement: The README shall document installation plus quick-start usage for action definition, execution, workflow normalization, and AI tool integration.
   priority: should
   stability: evolving
+
+- id: jido_action.package.spec_pr_gate
+  statement: Pull request CI shall run `mix spec.check` against the pull request base branch so Spec Led current truth and proof stay enforced in review.
+  priority: should
+  stability: evolving
 ```
 
 ## Verification
@@ -55,4 +61,9 @@ decisions:
   target: README.md
   covers:
     - jido_action.package.readme_onboarding
+
+- kind: workflow_file
+  target: .github/workflows/specs.yml
+  covers:
+    - jido_action.package.spec_pr_gate
 ```
