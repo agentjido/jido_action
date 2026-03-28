@@ -2,14 +2,16 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-03-28T01:37:49Z",
+  "close_reason": "Completed by the subsystem-spec migration on feat/specled-beadwork-migration.",
   "created": "2026-03-28T01:12:09Z",
   "description": "Author a subject for execution behavior grounded in the existing exec tests, including retries, cancellation, timeout, and normalization semantics.",
   "id": "jido_act-izc.2",
   "labels": [],
   "parent": "jido_act-izc",
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "Spec Jido.Exec sync, async, retry, and timeout contracts",
   "type": "task",
-  "updated_at": "2026-03-28T01:12:09Z"
+  "updated_at": "2026-03-28T01:37:49Z"
 }
