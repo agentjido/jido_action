@@ -6,9 +6,15 @@
   "description": "Track the brownfield migration from ad hoc package docs/tests to authored Spec Led subjects with strict proof.",
   "id": "jido_act-izc",
   "labels": [],
+  "comments": [
+    {
+      "text": "Spec Led migration is complete on feat/specled-beadwork-migration: the repo now has subsystem subjects covering all library, guide, and test files, strict spec.check passes against main, and the branch is ready for PR review. The remaining open item is jido_act-izc.5, which tracks bw's current incompatibility with repositories that enable git extensions.worktreeConfig.",
+      "timestamp": "2026-03-28T01:37:49Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "Migrate jido_action to Spec Led Development",
   "type": "epic",
-  "updated_at": "2026-03-28T01:12:09Z"
+  "updated_at": "2026-03-28T01:37:49Z"
 }
