@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-03-28T01:12:09Z",
+  "description": "Track the brownfield migration from ad hoc package docs/tests to authored Spec Led subjects with strict proof.",
+  "id": "jido_act-izc",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "Migrate jido_action to Spec Led Development",
+  "type": "epic",
+  "updated_at": "2026-03-28T01:12:09Z"
+}
