@@ -1,3 +1,4 @@
+# covers: jido_action.scaffolding.examples_and_support
 defmodule Jido.Examples.ZoiExample do
   @moduledoc """
   Production-quality example demonstrating Zoi schema features in Jido actions.
