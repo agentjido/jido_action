@@ -203,10 +203,16 @@ defmodule Jido.ExecTimeoutTaskSupervisorTest do
       # Spawn multiple actions concurrently
       for i <- 1..5 do
         spawn(fn ->
+          delay =
+            case i do
+              1 -> 10
+              _ -> 200
+            end
+
           result =
             Exec.execute_action_with_timeout(
               ConcurrentAction,
-              %{id: i, delay: i * 50},
+              %{id: i, delay: delay},
               %{},
               75,
               log_level: :info
@@ -252,12 +258,21 @@ defmodule Jido.ExecTimeoutTaskSupervisorTest do
         Exec.execute_action_with_timeout(LeakTestAction, %{}, %{}, 50, log_level: :info)
       end
 
-      # Wait for cleanup
-      Process.sleep(100)
+      final_count = wait_for_process_count(initial_count, 5, 10)
 
-      final_count = length(Process.list())
       # Should be roughly the same (allow small variance for system processes)
       assert_in_delta initial_count, final_count, 5
+    end
+  end
+
+  defp wait_for_process_count(initial_count, tolerance, attempts_left) do
+    current_count = length(Process.list())
+
+    if abs(current_count - initial_count) <= tolerance or attempts_left == 0 do
+      current_count
+    else
+      Process.sleep(50)
+      wait_for_process_count(initial_count, tolerance, attempts_left - 1)
     end
   end
 end

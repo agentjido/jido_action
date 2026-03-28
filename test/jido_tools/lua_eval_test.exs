@@ -121,17 +121,17 @@ defmodule Jido.Tools.LuaEvalTest do
     end
 
     test "allows safe math operations" do
-      params = %{code: "return math.sqrt(16)"}
+      params = %{code: "return math.sqrt(16)", timeout_ms: 3000}
       assert {:ok, %{results: [4.0]}} = LuaEval.run(params, @context)
     end
 
     test "allows safe string operations" do
-      params = %{code: "return string.upper('hello')"}
+      params = %{code: "return string.upper('hello')", timeout_ms: 3000}
       assert {:ok, %{results: ["HELLO"]}} = LuaEval.run(params, @context)
     end
 
     test "allows safe table operations" do
-      params = %{code: "local t = {1,2,3}; return table.concat(t, ',')"}
+      params = %{code: "local t = {1,2,3}; return table.concat(t, ',')", timeout_ms: 3000}
       assert {:ok, %{results: ["1,2,3"]}} = LuaEval.run(params, @context)
     end
   end

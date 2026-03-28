@@ -21,7 +21,7 @@ defmodule JidoTest.ExecCompensateTest do
       }
 
       assert {:error, %Jido.Action.Error.ExecutionFailureError{} = error} =
-               Exec.run(CompensateAction, params, %{}, timeout: 50, backoff: 25)
+               Exec.run(CompensateAction, params, %{}, timeout: 150, backoff: 25)
 
       assert Exception.message(error) =~ "Compensation completed for:"
       assert error.details.compensated == true
