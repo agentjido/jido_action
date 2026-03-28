@@ -19,6 +19,22 @@ Thank you for your interest in contributing to Jido Action! This document provid
 5. Run quality checks: `mix quality`
 6. Submit a pull request
 
+## Spec Led Workflow
+
+Jido Action uses Spec Led to keep current truth and proof aligned as the package evolves. Start with the local guide in [`.spec/README.md`](.spec/README.md), and use the steps below as the minimum contributor loop.
+
+<!-- covers: jido_action.package.contributor_spec_workflow -->
+
+1. Prime spec context when you enter the repo or hand work to another agent: `mix spec.prime --base HEAD`
+2. Make the smallest code, docs, or test change that moves the behavior
+3. Run `mix spec.next` to see whether the change needs current-truth or proof updates
+4. If it says `needs subject updates`, update the right file in `.spec/specs/`
+5. If it says `needs decision update`, add or revise `.spec/decisions/*.md` only when the change is cross-cutting and durable
+6. Run `mix spec.validate` to refresh and verify the indexed state
+7. Run `mix spec.check --base <base-ref>` before opening a pull request. In this repo that is usually `origin/main`
+
+Use `mix spec.status` whenever you need a quick coverage or frontier summary while working.
+
 ## Code Style
 
 - Follow the existing code style and patterns
@@ -159,6 +175,9 @@ The hook will reject non-conforming commits, ensuring a clean changelog can be g
 - Use commit messages following conventional commits
 - Reference any related issues
 - Include tests and documentation updates
+- Update `.spec/` current truth and proof when behavior, docs, or verification changes
+- Preserve or add nearby `covers:` markers in docs and workflow files that verify spec requirements
+- Run `mix spec.check --base <base-ref>` and ensure it passes before requesting review
 - Ensure CI passes
 
 ## Maintenance Policy

@@ -46,6 +46,11 @@ decisions:
   statement: Pull request CI shall run `mix spec.check` against the pull request base branch so Spec Led current truth and proof stay enforced in review.
   priority: should
   stability: evolving
+
+- id: jido_action.package.contributor_spec_workflow
+  statement: CONTRIBUTING.md shall document the Spec Led contribution loop, including when to update `.spec/specs/`, when to revise `.spec/decisions/`, and the pre-PR `mix spec.check --base <base-ref>` step.
+  priority: should
+  stability: evolving
 ```
 
 ## Verification
@@ -66,4 +71,9 @@ decisions:
   target: .github/workflows/specs.yml
   covers:
     - jido_action.package.spec_pr_gate
+
+- kind: file
+  target: CONTRIBUTING.md
+  covers:
+    - jido_action.package.contributor_spec_workflow
 ```

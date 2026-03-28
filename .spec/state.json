@@ -67,6 +67,14 @@
       },
       {
         "file": ".spec/specs/package.spec.md",
+        "id": "jido_action.package.contributor_spec_workflow",
+        "priority": "should",
+        "stability": "evolving",
+        "statement": "CONTRIBUTING.md shall document the Spec Led contribution loop, including when to update `.spec/specs/`, when to revise `.spec/decisions/`, and the pre-PR `mix spec.check --base <base-ref>` step.",
+        "subject_id": "jido_action.package"
+      },
+      {
+        "file": ".spec/specs/package.spec.md",
         "id": "jido_action.package.core_surface",
         "priority": "must",
         "stability": "stable",
@@ -503,6 +511,15 @@
       },
       {
         "covers": [
+          "jido_action.package.contributor_spec_workflow"
+        ],
+        "file": ".spec/specs/package.spec.md",
+        "kind": "file",
+        "subject_id": "jido_action.package",
+        "target": "CONTRIBUTING.md"
+      },
+      {
+        "covers": [
           "jido_action.scaffolding.install_and_generators"
         ],
         "file": ".spec/specs/scaffolding.spec.md",
@@ -663,10 +680,10 @@
     "decisions": 1,
     "exceptions": 0,
     "findings": 0,
-    "requirements": 22,
+    "requirements": 23,
     "scenarios": 0,
     "subjects": 9,
-    "verifications": 23
+    "verifications": 24
   },
   "verification": {
     "claims": [
@@ -790,6 +807,17 @@
         "subject_id": "jido_action.package",
         "target": ".github/workflows/specs.yml",
         "verification_index": 2
+      },
+      {
+        "cover_id": "jido_action.package.contributor_spec_workflow",
+        "file": ".spec/specs/package.spec.md",
+        "kind": "file",
+        "meets_minimum": true,
+        "required_strength": "claimed",
+        "strength": "linked",
+        "subject_id": "jido_action.package",
+        "target": "CONTRIBUTING.md",
+        "verification_index": 3
       },
       {
         "cover_id": "jido_action.scaffolding.install_and_generators",
@@ -1028,7 +1056,7 @@
     "strength_summary": {
       "claimed": 2,
       "executed": 18,
-      "linked": 12
+      "linked": 13
     },
     "threshold_failures": 0
   },

@@ -1,6 +1,7 @@
 # `.spec`
 
 This folder is the package-local Spec Led layer.
+See [specled.dev](https://specled.dev) for the broader model, authoring guidance, and tooling context.
 
 <!-- spec.workspace.readme_present -->
 

@@ -187,8 +187,8 @@ defmodule JidoAction.MixProject do
       links: %{
         "Documentation" => "https://hexdocs.pm/jido_action",
         "GitHub" => @source_url,
-        "Website" => "https://agentjido.xyz",
-        "Discord" => "https://agentjido.xyz/discord",
+        "Website" => "https://jido.run",
+        "Discord" => "https://jido.run/discord",
         "Changelog" => "https://github.com/agentjido/jido_action/blob/main/CHANGELOG.md"
       }
     ]

@@ -8,7 +8,7 @@
 
 > **Composable, validated actions for Elixir applications with built-in AI tool integration**
 
-_`Jido.Action` is part of the [Jido](https://github.com/agentjido/jido) project. Learn more about Jido at [agentjido.xyz](https://agentjido.xyz)._
+_`Jido.Action` is part of the [Jido](https://github.com/agentjido/jido) project. Learn more about Jido at [jido.run](https://jido.run)._
 
 ## Overview
 
@@ -465,5 +465,5 @@ For information about dependency licenses, see the [LICENSE](LICENSE) file.
 
 - **Documentation**: [https://hexdocs.pm/jido_action](https://hexdocs.pm/jido_action)
 - **GitHub**: [https://github.com/agentjido/jido_action](https://github.com/agentjido/jido_action)
-- **AgentJido**: [https://agentjido.xyz](https://agentjido.xyz)
+- **Jido**: [https://jido.run](https://jido.run)
 - **Jido Workbench**: [https://github.com/agentjido/jido_workbench](https://github.com/agentjido/jido_workbench)
