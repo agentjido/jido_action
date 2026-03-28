@@ -224,7 +224,11 @@ defmodule JidoAction.MixProject do
       {:expublish, "~> 2.7", only: [:dev], runtime: false},
       {:mix_test_watch, "~> 1.0", only: [:dev, :test], runtime: false},
       {:mimic, "~> 2.0", only: :test},
-      {:spec_led_ex, git: "https://github.com/specleddev/specled_ex", branch: "main", only: [:dev, :test], runtime: false},
+      {:spec_led_ex,
+       git: "https://github.com/specleddev/specled_ex",
+       branch: "main",
+       only: [:dev, :test],
+       runtime: false},
       {:stream_data, "~> 1.0", only: [:dev, :test]},
 
       # Code generation
