@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-03-28T01:12:09Z",
+  "description": "The current main repo uses git extensions.worktreeConfig, which bw cannot open directly. Track a safe local workflow or upstream fix so beadwork works in this clone too.",
+  "id": "jido_act-izc.5",
+  "labels": [],
+  "parent": "jido_act-izc",
+  "priority": 2,
+  "status": "open",
+  "title": "Resolve beadwork worktreeConfig compatibility for local repo usage",
+  "type": "chore",
+  "updated_at": "2026-03-28T01:12:09Z"
+}
