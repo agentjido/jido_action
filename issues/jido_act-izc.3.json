@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-03-28T01:12:09Z",
+  "description": "Capture instruction normalization and plan/DAG behavior as authored subjects with proof linked to workflow tests.",
+  "id": "jido_act-izc.3",
+  "labels": [],
+  "parent": "jido_act-izc",
+  "priority": 1,
+  "status": "open",
+  "title": "Spec Jido.Instruction and Jido.Plan workflow contracts",
+  "type": "task",
+  "updated_at": "2026-03-28T01:12:09Z"
+}
