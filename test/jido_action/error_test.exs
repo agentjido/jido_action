@@ -4,6 +4,10 @@ defmodule Jido.Action.ErrorTest do
   alias Jido.Action.Error
   alias Jido.Action.Error.Internal.UnknownError
 
+  defmodule Reason do
+    defstruct [:message, :field, :meta]
+  end
+
   describe "error creation functions" do
     test "validation_error/2 creates InvalidInputError with details" do
       error = Error.validation_error("must be positive", field: :count, value: -1)
@@ -344,6 +348,44 @@ defmodule Jido.Action.ErrorTest do
     test "normalizes non-binary messages into strings" do
       assert %{type: :execution_error, message: "transient_error", retryable?: true} =
                Error.to_map(%{type: :execution_error, message: :transient_error, details: %{}})
+    end
+
+    test "normalizes plain message maps without assuming structs" do
+      error = %{
+        message: "connection refused",
+        code: 503,
+        reason: %Reason{message: "nested", field: :transport, meta: {:retry, 1}}
+      }
+
+      mapped = Error.to_map(error)
+
+      assert mapped.type == :execution_error
+      assert mapped.message == "connection refused"
+      assert mapped.details.code == 503
+      assert mapped.details.reason.__struct__ == inspect(Reason)
+      assert mapped.details.reason.field == :transport
+      assert mapped.details.reason.meta == [:retry, 1]
+      assert {:ok, _} = Jason.encode(mapped)
+    end
+
+    test "sanitizes structured execution details into Jason-safe maps" do
+      error =
+        Error.execution_error("boom", %{
+          reason: %Reason{message: "nested", field: :transport, meta: {:retry, 2}},
+          pair: {:error, %RuntimeError{message: "down"}}
+        })
+
+      mapped = Error.to_map(error)
+
+      assert mapped.details.reason.__struct__ == inspect(Reason)
+      assert mapped.details.reason.meta == [:retry, 2]
+
+      assert mapped.details.pair == [
+               :error,
+               %{__exception__: true, __struct__: inspect(RuntimeError), message: "down"}
+             ]
+
+      assert {:ok, _} = Jason.encode(mapped)
     end
   end
 

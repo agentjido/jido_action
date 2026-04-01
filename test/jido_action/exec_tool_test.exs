@@ -72,6 +72,45 @@ defmodule Jido.Action.ToolTest do
       assert {:error, error} = Tool.execute_action(TestActions.BasicAction, params, context)
       assert {:ok, %{"error" => _}} = Jason.decode(error)
     end
+
+    test "sanitizes successful structured results before JSON encoding" do
+      defmodule StructuredResultAction do
+        use Jido.Action,
+          name: "structured_result_action",
+          description: "Returns a structured result"
+
+        defmodule Result do
+          defstruct [:state, :meta]
+        end
+
+        def run(_params, _context) do
+          {:ok, %Result{state: :done, meta: {:ok, 1}}}
+        end
+      end
+
+      assert {:ok, result} = Tool.execute_action(StructuredResultAction, %{}, %{})
+      assert {:ok, decoded} = Jason.decode(result)
+      assert decoded["__struct__"] =~ "StructuredResultAction.Result"
+      assert decoded["state"] == "done"
+      assert decoded["meta"] == ["ok", 1]
+    end
+
+    test "returns JSON-encoded error when exception inspection is unsafe" do
+      defmodule UninspectableErrorAction do
+        use Jido.Action,
+          name: "uninspectable_error_action",
+          description: "Returns an uninspectable action error"
+
+        def run(_params, _context) do
+          {:error,
+           Jido.Action.Error.execution_error(%JidoTest.Support.RaisingInspectStruct{value: 1})}
+        end
+      end
+
+      assert {:error, error} = Tool.execute_action(UninspectableErrorAction, %{}, %{})
+      assert {:ok, %{"error" => message}} = Jason.decode(error)
+      assert message =~ "RaisingInspectStruct"
+    end
   end
 
   describe "convert_params_using_schema/2" do

@@ -8,27 +8,10 @@ defmodule Jido.Exec.Telemetry do
 
   import Jido.Action.Util, only: [cond_log: 3]
 
+  alias Jido.Action.Sanitizer
+
   require Logger
 
-  @redacted_value "[REDACTED]"
-  @max_depth 4
-  @max_collection_items 25
-  @max_binary_bytes 256
-  @sensitive_patterns [
-    "password",
-    "passwd",
-    "passphrase",
-    "secret",
-    "token",
-    "apikey",
-    "accesskey",
-    "privatekey",
-    "authorization",
-    "auth",
-    "cookie",
-    "session",
-    "credential"
-  ]
   @inspect_opts [charlists: :as_lists, printable_limit: :infinity, limit: :infinity]
 
   @doc """
@@ -288,150 +271,18 @@ defmodule Jido.Exec.Telemetry do
 
   @doc false
   @spec sanitize_value(any()) :: any()
-  def sanitize_value(value), do: do_sanitize(value, 0)
+  def sanitize_value(value), do: Sanitizer.sanitize_telemetry(value)
 
   defp safe_inspect(value) do
-    value
-    |> sanitize_value()
-    |> inspect(@inspect_opts)
+    inspect(sanitize_value(value), @inspect_opts)
   rescue
     _ ->
-      value
-      |> sanitize_value()
-      |> strip_struct_tags()
-      |> inspect(@inspect_opts)
+      fallback_safe_inspect(value)
   end
 
-  defp do_sanitize(value, depth) when depth >= @max_depth do
-    summarize_truncated(value)
-  end
-
-  defp do_sanitize(%_{} = struct, depth) when depth + 1 >= @max_depth do
-    summarize_truncated_struct(struct)
-  end
-
-  defp do_sanitize(%_{} = struct, depth) do
-    struct
-    |> Map.from_struct()
-    |> do_sanitize(depth)
-    |> Map.put(:__struct__, inspect(struct.__struct__))
-  end
-
-  defp do_sanitize(value, depth) when is_map(value) do
-    value
-    |> Map.to_list()
-    |> Enum.map(fn {key, raw_value} ->
-      {sanitize_key(key, depth + 1), key, raw_value}
-    end)
-    |> Enum.sort_by(fn {sanitized_key, _key, _value} -> inspect(sanitized_key) end)
-    |> Enum.split(@max_collection_items)
-    |> then(fn {kept, dropped} ->
-      sanitized =
-        kept
-        |> Enum.map(fn {sanitized_key, key, raw_value} ->
-          sanitized_value =
-            if sensitive_key?(key) do
-              @redacted_value
-            else
-              do_sanitize(raw_value, depth + 1)
-            end
-
-          {sanitized_key, sanitized_value}
-        end)
-        |> Map.new()
-
-      if dropped == [] do
-        sanitized
-      else
-        Map.put(sanitized, :__truncated_fields__, length(dropped))
-      end
-    end)
-  end
-
-  defp do_sanitize(value, depth) when is_list(value) do
-    {kept, dropped} = Enum.split(value, @max_collection_items)
-    sanitized = Enum.map(kept, &do_sanitize(&1, depth + 1))
-
-    if dropped == [] do
-      sanitized
-    else
-      sanitized ++ [%{__truncated_items__: length(dropped)}]
-    end
-  end
-
-  defp do_sanitize(value, depth) when is_tuple(value) do
-    value
-    |> Tuple.to_list()
-    |> do_sanitize(depth)
-    |> List.to_tuple()
-  end
-
-  defp do_sanitize(value, _depth) when is_binary(value) do
-    if byte_size(value) > @max_binary_bytes do
-      kept = binary_part(value, 0, @max_binary_bytes)
-      truncated = byte_size(value) - @max_binary_bytes
-      "#{kept}...(truncated #{truncated} bytes)"
-    else
-      value
-    end
-  end
-
-  defp do_sanitize(value, _depth), do: value
-
-  defp sensitive_key?(key) when is_atom(key), do: sensitive_key?(Atom.to_string(key))
-
-  defp sensitive_key?(key) when is_binary(key) do
-    normalized = key |> String.downcase() |> String.replace(~r/[^a-z0-9]/u, "")
-    Enum.any?(@sensitive_patterns, &String.contains?(normalized, &1))
-  end
-
-  defp sensitive_key?(key), do: sensitive_key?(inspect(key))
-
-  defp sanitize_key(key, _depth)
-       when is_atom(key) or is_binary(key) or is_number(key) or is_boolean(key) or is_nil(key),
-       do: key
-
-  defp sanitize_key(key, depth), do: do_sanitize(key, depth)
-
-  defp normalize_struct_marker(mod) when is_atom(mod), do: inspect(mod)
-  defp normalize_struct_marker(mod), do: mod
-
-  defp strip_struct_tags(%{__struct__: mod} = map) do
-    map
-    |> Map.put(:__struct__, normalize_struct_marker(mod))
-    |> Map.new(fn {k, v} -> {k, strip_struct_tags(v)} end)
-  end
-
-  defp strip_struct_tags(map) when is_map(map) do
-    Map.new(map, fn {k, v} -> {k, strip_struct_tags(v)} end)
-  end
-
-  defp strip_struct_tags(list) when is_list(list), do: Enum.map(list, &strip_struct_tags/1)
-  defp strip_struct_tags(value), do: value
-
-  defp summarize_truncated(%_{} = struct), do: summarize_truncated_struct(struct)
-
-  defp summarize_truncated(value) when is_map(value) do
-    %{__truncated_depth__: @max_depth, type: :map, size: map_size(value)}
-  end
-
-  defp summarize_truncated(value) when is_list(value) do
-    %{__truncated_depth__: @max_depth, type: :list, size: length(value)}
-  end
-
-  defp summarize_truncated(value) when is_tuple(value) do
-    %{__truncated_depth__: @max_depth, type: :tuple, size: tuple_size(value)}
-  end
-
-  defp summarize_truncated(value) when is_binary(value), do: do_sanitize(value, @max_depth - 1)
-  defp summarize_truncated(value), do: value
-
-  defp summarize_truncated_struct(struct) do
-    %{
-      __truncated_depth__: @max_depth,
-      type: :struct,
-      module: inspect(struct.__struct__),
-      size: map_size(struct)
-    }
+  defp fallback_safe_inspect(value) do
+    inspect(Sanitizer.sanitize(value), @inspect_opts)
+  rescue
+    _ -> "[uninspectable value]"
   end
 end

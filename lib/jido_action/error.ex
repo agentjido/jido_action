@@ -56,6 +56,8 @@ defmodule Jido.Action.Error do
     ],
     unknown_error: __MODULE__.Internal.UnknownError
 
+  alias Jido.Action.Sanitizer
+
   # Error class modules for Splode - these are for classification/aggregation only.
   # Use the concrete exception structs (ending in `Error`) for raising/matching.
 
@@ -326,7 +328,7 @@ defmodule Jido.Action.Error do
         error.details
         |> normalize_details()
         |> maybe_put(:field, error.field)
-        |> maybe_put(:value, error.value),
+        |> maybe_put(:value, Sanitizer.sanitize(error.value)),
       retryable?: false
     }
   end
@@ -383,11 +385,7 @@ defmodule Jido.Action.Error do
     %{
       type: :execution_error,
       message: normalize_message(message),
-      details:
-        error
-        |> Map.from_struct()
-        |> Map.drop([:__exception__, :message])
-        |> normalize_details(),
+      details: error |> extract_message_details() |> normalize_details(),
       retryable?: normalize_retryable(error, :execution_error)
     }
   end
@@ -514,10 +512,34 @@ defmodule Jido.Action.Error do
 
   defp normalize_message(message) when is_binary(message), do: message
   defp normalize_message(message) when is_atom(message), do: Atom.to_string(message)
-  defp normalize_message(message), do: inspect(message)
+  defp normalize_message(message), do: safe_inspect(message)
 
-  defp normalize_details(details) when is_map(details), do: details
+  defp normalize_details(details) when is_map(details) do
+    case Sanitizer.sanitize(details) do
+      sanitized when is_map(sanitized) -> sanitized
+      _ -> %{}
+    end
+  end
+
+  defp normalize_details(details) when is_list(details) do
+    if Keyword.keyword?(details) do
+      details
+      |> Enum.into(%{})
+      |> normalize_details()
+    else
+      %{}
+    end
+  end
+
   defp normalize_details(_details), do: %{}
+
+  defp extract_message_details(%_{} = error) do
+    error
+    |> Map.from_struct()
+    |> Map.drop([:__exception__, :message])
+  end
+
+  defp extract_message_details(%{} = error), do: Map.delete(error, :message)
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
@@ -567,4 +589,13 @@ defmodule Jido.Action.Error do
   end
 
   defp extract_retry_value(_), do: nil
+
+  defp safe_inspect(value) do
+    inspect(value)
+  rescue
+    _ ->
+      value
+      |> Sanitizer.sanitize()
+      |> inspect()
+  end
 end

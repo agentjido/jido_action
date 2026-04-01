@@ -618,6 +618,41 @@ defmodule JidoTest.ExecCoverageTest do
       end)
     end
 
+    test "nested struct details stay rich in exec but sanitize through Error.to_map/1" do
+      defmodule NestedStructErrorAction do
+        use Jido.Action,
+          name: "nested_struct_error",
+          description: "Returns a map error with nested struct details"
+
+        defmodule Reason do
+          defstruct [:message, :field, :meta]
+        end
+
+        def run(_params, _context) do
+          {:error,
+           %{
+             message: "connection refused",
+             inner: %Reason{message: "nested", field: :transport, meta: {:retry, 2}}
+           }}
+        end
+      end
+
+      capture_log(fn ->
+        assert {:error, %Error.ExecutionFailureError{} = err} =
+                 Exec.run(NestedStructErrorAction, %{}, %{}, [])
+
+        assert is_struct(err.details[:inner])
+        assert Atom.to_string(err.details[:inner].__struct__) =~ "NestedStructErrorAction.Reason"
+
+        mapped = Error.to_map(err)
+
+        assert mapped.details.inner.__struct__ =~ "NestedStructErrorAction.Reason"
+        assert mapped.details.inner.field == :transport
+        assert mapped.details.inner.meta == [:retry, 2]
+        assert {:ok, _} = Jason.encode(mapped)
+      end)
+    end
+
     test "atom error produces string message" do
       defmodule AtomErrorAction do
         use Jido.Action,

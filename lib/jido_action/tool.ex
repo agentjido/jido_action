@@ -5,6 +5,11 @@ defmodule Jido.Action.Tool do
   This module allows Jido Actions to be converted into standardized tool maps
   that can be used by various AI integration layers.
 
+  Tool execution preserves the legacy `{:ok, json}` / `{:error, json}` contract.
+  Successful results are sanitized before JSON encoding, and failures still
+  serialize as `%{"error" => binary}` payloads with sanitizer-backed fallback
+  when raw inspection is unsafe.
+
   ## Tool Formats
 
   - `to_tool/1` - Returns a generic tool map with name, description, function, and schema
@@ -18,7 +23,7 @@ defmodule Jido.Action.Tool do
   - `execute_action/3` - Executes an action with schema-based param conversion
   """
 
-  alias Jido.Action.Schema
+  alias Jido.Action.{Error, Sanitizer, Schema}
 
   @type tool :: %{
           name: String.t(),
@@ -65,6 +70,8 @@ defmodule Jido.Action.Tool do
   Executes an action and formats the result for tool output.
 
   This function is typically used as the function value in the tool representation.
+  Error payloads intentionally remain the legacy `%{"error" => binary}` JSON
+  shape for compatibility.
   """
   @spec execute_action(module(), map(), map()) :: {:ok, String.t()} | {:error, String.t()}
   def execute_action(action, params, context) do
@@ -74,13 +81,13 @@ defmodule Jido.Action.Tool do
 
     case Jido.Exec.run(action, converted_params, safe_context) do
       {:ok, result} ->
-        {:ok, Jason.encode!(result)}
+        {:ok, result |> Sanitizer.sanitize() |> Jason.encode!()}
 
       {:error, %_{} = error} when is_exception(error) ->
-        {:error, Jason.encode!(%{error: inspect(error)})}
+        {:error, encode_error_payload(error_message(error))}
 
       {:error, reason} ->
-        {:error, Jason.encode!(%{error: inspect(reason)})}
+        {:error, encode_error_payload(reason_message(reason))}
     end
   end
 
@@ -205,4 +212,24 @@ defmodule Jido.Action.Tool do
   @spec build_parameters_schema(Schema.t(), keyword()) :: map()
   def build_parameters_schema(schema, opts) when is_list(opts),
     do: Schema.to_json_schema(schema, opts)
+
+  defp encode_error_payload(message), do: Jason.encode!(%{error: message})
+
+  defp error_message(error) do
+    inspect(error)
+  rescue
+    _ ->
+      error
+      |> Error.to_map()
+      |> inspect()
+  end
+
+  defp reason_message(reason) do
+    inspect(reason)
+  rescue
+    _ ->
+      reason
+      |> Sanitizer.sanitize()
+      |> inspect()
+  end
 end
