@@ -590,6 +590,34 @@ defmodule JidoTest.ExecCoverageTest do
       end)
     end
 
+    test "struct error with message key produces plain-map details" do
+      defmodule StructErrorWithMessageAction do
+        use Jido.Action,
+          name: "struct_error_with_message",
+          description: "Returns a struct error with message and field"
+
+        defmodule Reason do
+          defstruct [:message, :field]
+        end
+
+        def run(_params, _context) do
+          {:error, %Reason{message: "connection refused", field: :transport}}
+        end
+      end
+
+      capture_log(fn ->
+        assert {:error, %Error.ExecutionFailureError{} = err} =
+                 Exec.run(StructErrorWithMessageAction, %{}, %{}, [])
+
+        assert err.message == "connection refused"
+        assert err.details[:field] == :transport
+        refute is_struct(err.details)
+        refute Map.has_key?(err.details, :__struct__)
+        assert {:ok, _} = Jason.encode(err.details)
+        assert {:ok, _} = Jason.encode(Error.to_map(err))
+      end)
+    end
+
     test "atom error produces string message" do
       defmodule AtomErrorAction do
         use Jido.Action,

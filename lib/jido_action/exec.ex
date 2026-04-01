@@ -685,6 +685,15 @@ defmodule Jido.Exec do
       {:error, error}
     end
 
+    defp extract_error_fields(%{message: message} = reason)
+         when is_struct(reason) and is_binary(message) do
+      {message, struct_error_details(reason)}
+    end
+
+    defp extract_error_fields(%{message: message} = reason) when is_struct(reason) do
+      {inspect(message), struct_error_details(reason)}
+    end
+
     defp extract_error_fields(%{message: message} = reason) when is_binary(message) do
       {message, Map.delete(reason, :message)}
     end
@@ -697,6 +706,12 @@ defmodule Jido.Exec do
     defp extract_error_fields(reason) when is_atom(reason), do: {Atom.to_string(reason), %{}}
     defp extract_error_fields(reason) when is_map(reason), do: {inspect(reason), reason}
     defp extract_error_fields(reason), do: {inspect(reason), %{}}
+
+    defp struct_error_details(reason) do
+      reason
+      |> Map.from_struct()
+      |> Map.drop([:__exception__, :message])
+    end
 
     # Validate output and log success, with optional extra data
     defp validate_and_log_success(action, result, log_level, opts, other) do
