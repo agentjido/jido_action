@@ -25,6 +25,7 @@ Each major package surface owns its code, guides, and tests in one durable subje
 - `jido_action.package` for the package-level contract and shared repo harness files
 - `jido_action.action` for `use Jido.Action` metadata, lifecycle, and tool conversion
 - `jido_action.exec` for execution/runtime policy
+- `jido_action.sanitizer` for shared transport and telemetry sanitization of arbitrary runtime terms
 - `jido_action.schema` for schema adapters and JSON Schema handling
 - `jido_action.workflow` for instructions, plans, and workflow/action-plan helpers
 - `jido_action.tools` for built-in tool actions
@@ -34,6 +35,11 @@ Each major package surface owns its code, guides, and tests in one durable subje
 Future spec work should extend one of these subjects before introducing a new one. A new
 subject is appropriate only when the behavior defines a distinct, durable boundary that does
 not fit an existing subsystem.
+
+Shared infrastructure that becomes a public package surface across multiple subsystems may
+also warrant its own subject once it carries distinct runtime guarantees. The sanitizer
+boundary falls into that category because it defines the reusable transport and telemetry
+contract consumed by error handling, tool execution, and execution observability.
 
 Package-level current truth may also co-own outward-facing contracts that span subsystem
 boundaries, while the subsystem subject continues to own the detailed mechanics. When a

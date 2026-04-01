@@ -26,6 +26,11 @@ decisions:
   statement: Jido.Action.Error shall provide concrete exception structs and helper constructors for validation, execution, timeout, configuration, and internal errors, with normalized mapping suitable for cross-package handling.
   priority: must
   stability: stable
+
+- id: jido_action.error_handling.transport_safe_error_maps
+  statement: Jido.Action.Error.to_map/1 shall normalize action errors into maps whose `:details` payload is transport-safe recursive data for maps, structs, exceptions, tuples, and nested runtime terms without mutating the original in-process error value.
+  priority: must
+  stability: stable
 ```
 
 ## Verification
@@ -36,4 +41,5 @@ decisions:
   execute: true
   covers:
     - jido_action.error_handling.normalized_errors
+    - jido_action.error_handling.transport_safe_error_maps
 ```

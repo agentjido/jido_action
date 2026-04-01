@@ -42,6 +42,14 @@
         "subject_id": "jido_action.action"
       },
       {
+        "file": ".spec/specs/action.spec.md",
+        "id": "jido_action.action.tool_execution_json_contract",
+        "priority": "should",
+        "stability": "evolving",
+        "statement": "Jido.Action.Tool.execute_action/3 shall preserve the legacy `{:ok, json}` and `{:error, json}` contract while emitting sanitized success payloads and binary error payloads even when raw failure inspection is unsafe.",
+        "subject_id": "jido_action.action"
+      },
+      {
         "file": ".spec/specs/error_handling.spec.md",
         "id": "jido_action.error_handling.normalized_errors",
         "priority": "must",
@@ -50,11 +58,19 @@
         "subject_id": "jido_action.error_handling"
       },
       {
+        "file": ".spec/specs/error_handling.spec.md",
+        "id": "jido_action.error_handling.transport_safe_error_maps",
+        "priority": "must",
+        "stability": "stable",
+        "statement": "Jido.Action.Error.to_map/1 shall normalize action errors into maps whose `:details` payload is transport-safe recursive data for maps, structs, exceptions, tuples, and nested runtime terms without mutating the original in-process error value.",
+        "subject_id": "jido_action.error_handling"
+      },
+      {
         "file": ".spec/specs/exec.spec.md",
         "id": "jido_action.exec.error_result_normalization",
         "priority": "must",
         "stability": "stable",
-        "statement": "When an action returns `{:error, reason}` without an exception struct, Jido.Exec shall return an `ExecutionFailureError` with a string message and preserve structured map details for downstream handling.",
+        "statement": "When an action returns `{:error, reason}` without an exception struct, Jido.Exec shall return an `ExecutionFailureError` with a string message and preserve structured top-level details from plain maps and message-bearing structs for downstream handling.",
         "subject_id": "jido_action.exec"
       },
       {
@@ -74,6 +90,14 @@
         "subject_id": "jido_action.exec"
       },
       {
+        "file": ".spec/specs/exec.spec.md",
+        "id": "jido_action.exec.telemetry_value_sanitization",
+        "priority": "must",
+        "stability": "stable",
+        "statement": "The execution engine telemetry layer shall sanitize runtime values with redaction, truncation, tuple preservation, inspect-safe summaries, and no crashes on arbitrary nested runtime terms.",
+        "subject_id": "jido_action.exec"
+      },
+      {
         "file": ".spec/specs/package.spec.md",
         "id": "jido_action.package.contributor_spec_workflow",
         "priority": "should",
@@ -86,7 +110,7 @@
         "id": "jido_action.package.core_surface",
         "priority": "must",
         "stability": "stable",
-        "statement": "The package shall provide Jido.Action, Jido.Exec, Jido.Instruction, Jido.Plan, and Jido.Action.Tool as the core surface for defining actions, executing them, normalizing workflow instructions, planning DAG workflows, and exposing AI-compatible tool definitions, with action behaviour callbacks serving as the stable type contract for generated action modules.",
+        "statement": "The package shall provide Jido.Action, Jido.Exec, Jido.Instruction, Jido.Plan, and Jido.Action.Tool as the core surface for defining actions, executing them, normalizing workflow instructions, planning DAG workflows, and exposing AI-compatible tool definitions, with action behaviour callbacks serving as the stable type contract for generated action modules and tool execution preserving the legacy JSON string contract.",
         "subject_id": "jido_action.package"
       },
       {
@@ -94,7 +118,7 @@
         "id": "jido_action.package.execution_failure_surface",
         "priority": "should",
         "stability": "evolving",
-        "statement": "The package-level execution surface shall expose runtime failures as normalized exception structs with string messages and structured details suitable for downstream handling.",
+        "statement": "The package-level execution surface shall expose runtime failures as normalized exception structs with string messages and structured, transport-safe details suitable for downstream handling and JSON encoding.",
         "subject_id": "jido_action.package"
       },
       {
@@ -112,6 +136,22 @@
         "stability": "evolving",
         "statement": "Pull request CI shall run `mix spec.check` against the pull request base branch so Spec Led current truth and proof stay enforced in review.",
         "subject_id": "jido_action.package"
+      },
+      {
+        "file": ".spec/specs/sanitizer.spec.md",
+        "id": "jido_action.sanitizer.telemetry_profile",
+        "priority": "must",
+        "stability": "stable",
+        "statement": "Jido.Action.Sanitizer shall provide a telemetry profile that preserves execution telemetry semantics for redaction, truncation, tuple handling, inspect-safe summaries, and bounded traversal of nested runtime terms.",
+        "subject_id": "jido_action.sanitizer"
+      },
+      {
+        "file": ".spec/specs/sanitizer.spec.md",
+        "id": "jido_action.sanitizer.transport_profile",
+        "priority": "must",
+        "stability": "stable",
+        "statement": "Jido.Action.Sanitizer shall recursively convert arbitrary runtime terms into Jason-safe plain data for transport boundaries, preserving struct and exception provenance as explicit markers and avoiding crashes on inspect-hostile or unsupported leaves.",
+        "subject_id": "jido_action.sanitizer"
       },
       {
         "file": ".spec/specs/scaffolding.spec.md",
@@ -324,6 +364,25 @@
         "title": "Jido Action Package"
       },
       {
+        "file": ".spec/specs/sanitizer.spec.md",
+        "id": "jido_action.sanitizer",
+        "meta": {
+          "decisions": [
+            "jido_action.spec_migration"
+          ],
+          "id": "jido_action.sanitizer",
+          "kind": "module",
+          "status": "active",
+          "summary": "Shared transport and telemetry sanitization for arbitrary runtime terms used across Jido Action boundaries.",
+          "surface": [
+            "lib/jido_action/sanitizer.ex",
+            "test/jido_action/sanitizer_test.exs"
+          ],
+          "verification_minimum_strength": null
+        },
+        "title": "Jido.Action.Sanitizer"
+      },
+      {
         "file": ".spec/specs/scaffolding.spec.md",
         "id": "jido_action.scaffolding",
         "meta": {
@@ -457,7 +516,8 @@
         "covers": [
           "jido_action.action.metadata_contract",
           "jido_action.action.schema_validation",
-          "jido_action.action.tool_bridge"
+          "jido_action.action.tool_bridge",
+          "jido_action.action.tool_execution_json_contract"
         ],
         "execute": true,
         "file": ".spec/specs/action.spec.md",
@@ -467,7 +527,8 @@
       },
       {
         "covers": [
-          "jido_action.error_handling.normalized_errors"
+          "jido_action.error_handling.normalized_errors",
+          "jido_action.error_handling.transport_safe_error_maps"
         ],
         "execute": true,
         "file": ".spec/specs/error_handling.spec.md",
@@ -490,7 +551,8 @@
       {
         "covers": [
           "jido_action.exec.sync_async_engine",
-          "jido_action.exec.reliability_controls"
+          "jido_action.exec.reliability_controls",
+          "jido_action.exec.telemetry_value_sanitization"
         ],
         "execute": true,
         "file": ".spec/specs/exec.spec.md",
@@ -544,6 +606,27 @@
         "kind": "file",
         "subject_id": "jido_action.package",
         "target": "CONTRIBUTING.md"
+      },
+      {
+        "covers": [
+          "jido_action.sanitizer.transport_profile",
+          "jido_action.sanitizer.telemetry_profile"
+        ],
+        "execute": true,
+        "file": ".spec/specs/sanitizer.spec.md",
+        "kind": "command",
+        "subject_id": "jido_action.sanitizer",
+        "target": "mix test test/jido_action/sanitizer_test.exs"
+      },
+      {
+        "covers": [
+          "jido_action.sanitizer.telemetry_profile"
+        ],
+        "execute": true,
+        "file": ".spec/specs/sanitizer.spec.md",
+        "kind": "command",
+        "subject_id": "jido_action.sanitizer",
+        "target": "mix test test/jido_action/exec/telemetry_sanitization_test.exs"
       },
       {
         "covers": [
@@ -707,10 +790,10 @@
     "decisions": 1,
     "exceptions": 0,
     "findings": 0,
-    "requirements": 25,
+    "requirements": 30,
     "scenarios": 0,
-    "subjects": 9,
-    "verifications": 25
+    "subjects": 10,
+    "verifications": 27
   },
   "verification": {
     "claims": [
@@ -748,7 +831,29 @@
         "verification_index": 0
       },
       {
+        "cover_id": "jido_action.action.tool_execution_json_contract",
+        "file": ".spec/specs/action.spec.md",
+        "kind": "command",
+        "meets_minimum": true,
+        "required_strength": "claimed",
+        "strength": "executed",
+        "subject_id": "jido_action.action",
+        "target": "mix test test/jido_action/action_test.exs test/jido_action/on_after_run_test.exs test/jido_action/exec_tool_test.exs test/jido_action/util_test.exs",
+        "verification_index": 0
+      },
+      {
         "cover_id": "jido_action.error_handling.normalized_errors",
+        "file": ".spec/specs/error_handling.spec.md",
+        "kind": "command",
+        "meets_minimum": true,
+        "required_strength": "claimed",
+        "strength": "executed",
+        "subject_id": "jido_action.error_handling",
+        "target": "mix test test/jido_action/error_test.exs",
+        "verification_index": 0
+      },
+      {
+        "cover_id": "jido_action.error_handling.transport_safe_error_maps",
         "file": ".spec/specs/error_handling.spec.md",
         "kind": "command",
         "meets_minimum": true,
@@ -814,6 +919,17 @@
         "verification_index": 1
       },
       {
+        "cover_id": "jido_action.exec.telemetry_value_sanitization",
+        "file": ".spec/specs/exec.spec.md",
+        "kind": "command",
+        "meets_minimum": true,
+        "required_strength": "claimed",
+        "strength": "executed",
+        "subject_id": "jido_action.exec",
+        "target": "mix test test/jido_action/exec/async_mailbox_hygiene_test.exs test/jido_action/exec/chain_test.exs test/jido_action/exec/chain_interrupt_test.exs test/jido_action/exec/chain_supervision_test.exs test/jido_action/exec/closure_test.exs test/jido_action/exec/compensation_mailbox_hygiene_test.exs test/jido_action/exec/instance_isolation_test.exs test/jido_action/exec/telemetry_sanitization_test.exs",
+        "verification_index": 1
+      },
+      {
         "cover_id": "jido_action.package.core_surface",
         "file": ".spec/specs/package.spec.md",
         "kind": "command",
@@ -867,6 +983,39 @@
         "subject_id": "jido_action.package",
         "target": "CONTRIBUTING.md",
         "verification_index": 4
+      },
+      {
+        "cover_id": "jido_action.sanitizer.telemetry_profile",
+        "file": ".spec/specs/sanitizer.spec.md",
+        "kind": "command",
+        "meets_minimum": true,
+        "required_strength": "claimed",
+        "strength": "executed",
+        "subject_id": "jido_action.sanitizer",
+        "target": "mix test test/jido_action/sanitizer_test.exs",
+        "verification_index": 0
+      },
+      {
+        "cover_id": "jido_action.sanitizer.transport_profile",
+        "file": ".spec/specs/sanitizer.spec.md",
+        "kind": "command",
+        "meets_minimum": true,
+        "required_strength": "claimed",
+        "strength": "executed",
+        "subject_id": "jido_action.sanitizer",
+        "target": "mix test test/jido_action/sanitizer_test.exs",
+        "verification_index": 0
+      },
+      {
+        "cover_id": "jido_action.sanitizer.telemetry_profile",
+        "file": ".spec/specs/sanitizer.spec.md",
+        "kind": "command",
+        "meets_minimum": true,
+        "required_strength": "claimed",
+        "strength": "executed",
+        "subject_id": "jido_action.sanitizer",
+        "target": "mix test test/jido_action/exec/telemetry_sanitization_test.exs",
+        "verification_index": 1
       },
       {
         "cover_id": "jido_action.scaffolding.install_and_generators",
@@ -1104,13 +1253,13 @@
     "default_minimum_strength": "claimed",
     "strength_summary": {
       "claimed": 2,
-      "executed": 20,
+      "executed": 26,
       "linked": 13
     },
     "threshold_failures": 0
   },
   "workspace": {
     "decision_count": 1,
-    "spec_count": 9
+    "spec_count": 10
   }
 }

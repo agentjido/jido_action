@@ -141,7 +141,6 @@ defmodule Jido.Action.Sanitizer do
   defp inspect_key(key) when is_binary(key), do: key
   defp inspect_key(key) when is_atom(key), do: Atom.to_string(key)
   defp inspect_key(key) when is_number(key) or is_boolean(key), do: to_string(key)
-  defp inspect_key(nil), do: "nil"
   defp inspect_key(key), do: safe_inspect(key)
 
   defp maybe_put_exception_marker(map, struct) do

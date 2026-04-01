@@ -39,7 +39,12 @@ decisions:
   stability: stable
 
 - id: jido_action.exec.error_result_normalization
-  statement: When an action returns `{:error, reason}` without an exception struct, Jido.Exec shall return an `ExecutionFailureError` with a string message and preserve structured map details for downstream handling.
+  statement: When an action returns `{:error, reason}` without an exception struct, Jido.Exec shall return an `ExecutionFailureError` with a string message and preserve structured top-level details from plain maps and message-bearing structs for downstream handling.
+  priority: must
+  stability: stable
+
+- id: jido_action.exec.telemetry_value_sanitization
+  statement: The execution engine telemetry layer shall sanitize runtime values with redaction, truncation, tuple preservation, inspect-safe summaries, and no crashes on arbitrary nested runtime terms.
   priority: must
   stability: stable
 ```
@@ -61,4 +66,5 @@ decisions:
   covers:
     - jido_action.exec.sync_async_engine
     - jido_action.exec.reliability_controls
+    - jido_action.exec.telemetry_value_sanitization
 ```

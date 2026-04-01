@@ -43,6 +43,11 @@ decisions:
   statement: Actions shall convert declared schemas into AI tool parameter schemas and coerce known tool inputs without discarding unknown keys.
   priority: should
   stability: evolving
+
+- id: jido_action.action.tool_execution_json_contract
+  statement: Jido.Action.Tool.execute_action/3 shall preserve the legacy `{:ok, json}` and `{:error, json}` contract while emitting sanitized success payloads and binary error payloads even when raw failure inspection is unsafe.
+  priority: should
+  stability: evolving
 ```
 
 ## Verification
@@ -55,4 +60,5 @@ decisions:
     - jido_action.action.metadata_contract
     - jido_action.action.schema_validation
     - jido_action.action.tool_bridge
+    - jido_action.action.tool_execution_json_contract
 ```

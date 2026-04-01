@@ -33,12 +33,12 @@ decisions:
 
 ```spec-requirements
 - id: jido_action.package.core_surface
-  statement: The package shall provide Jido.Action, Jido.Exec, Jido.Instruction, Jido.Plan, and Jido.Action.Tool as the core surface for defining actions, executing them, normalizing workflow instructions, planning DAG workflows, and exposing AI-compatible tool definitions, with action behaviour callbacks serving as the stable type contract for generated action modules.
+  statement: The package shall provide Jido.Action, Jido.Exec, Jido.Instruction, Jido.Plan, and Jido.Action.Tool as the core surface for defining actions, executing them, normalizing workflow instructions, planning DAG workflows, and exposing AI-compatible tool definitions, with action behaviour callbacks serving as the stable type contract for generated action modules and tool execution preserving the legacy JSON string contract.
   priority: must
   stability: stable
 
 - id: jido_action.package.execution_failure_surface
-  statement: The package-level execution surface shall expose runtime failures as normalized exception structs with string messages and structured details suitable for downstream handling.
+  statement: The package-level execution surface shall expose runtime failures as normalized exception structs with string messages and structured, transport-safe details suitable for downstream handling and JSON encoding.
   priority: should
   stability: evolving
 
