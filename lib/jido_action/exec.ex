@@ -670,10 +670,12 @@ defmodule Jido.Exec do
       {:error, error}
     end
 
-    # Handle generic errors
+    # Handle generic errors — normalize reason into a well-formed
+    # ExecutionFailureError with a string message and structured details.
     defp handle_action_result({:error, reason}, action, log_level, _opts) do
       Telemetry.cond_log_error(log_level, action, reason)
-      {:error, Error.execution_error(reason)}
+      {message, details} = extract_error_fields(reason)
+      {:error, Error.execution_error(message, details)}
     end
 
     # Handle unexpected return shapes
@@ -682,6 +684,19 @@ defmodule Jido.Exec do
       Telemetry.cond_log_error(log_level, action, error)
       {:error, error}
     end
+
+    defp extract_error_fields(%{message: message} = reason) when is_binary(message) do
+      {message, Map.delete(reason, :message)}
+    end
+
+    defp extract_error_fields(%{message: message} = reason) do
+      {inspect(message), Map.delete(reason, :message)}
+    end
+
+    defp extract_error_fields(reason) when is_binary(reason), do: {reason, %{}}
+    defp extract_error_fields(reason) when is_atom(reason), do: {Atom.to_string(reason), %{}}
+    defp extract_error_fields(reason) when is_map(reason), do: {inspect(reason), reason}
+    defp extract_error_fields(reason), do: {inspect(reason), %{}}
 
     # Validate output and log success, with optional extra data
     defp validate_and_log_success(action, result, log_level, opts, other) do

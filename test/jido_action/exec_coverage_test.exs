@@ -547,6 +547,86 @@ defmodule JidoTest.ExecCoverageTest do
                  Exec.run(StructNoMessageAction, %{}, %{}, [])
       end)
     end
+
+    test "map error with message key produces string message and preserves details" do
+      defmodule MapErrorWithMessageAction do
+        use Jido.Action,
+          name: "map_error_with_message",
+          description: "Returns a map error with message and type"
+
+        def run(_params, _context) do
+          {:error, %{type: :transport, message: "connection refused"}}
+        end
+      end
+
+      capture_log(fn ->
+        assert {:error, %Error.ExecutionFailureError{} = err} =
+                 Exec.run(MapErrorWithMessageAction, %{}, %{}, [])
+
+        assert err.message == "connection refused"
+        assert is_binary(err.message)
+        assert err.details[:type] == :transport
+      end)
+    end
+
+    test "map error without message key uses inspect as message" do
+      defmodule MapErrorNoMessageAction do
+        use Jido.Action,
+          name: "map_error_no_message",
+          description: "Returns a map error without message key"
+
+        def run(_params, _context) do
+          {:error, %{code: 503, reason: :unavailable}}
+        end
+      end
+
+      capture_log(fn ->
+        assert {:error, %Error.ExecutionFailureError{} = err} =
+                 Exec.run(MapErrorNoMessageAction, %{}, %{}, [])
+
+        assert is_binary(err.message)
+        assert err.details[:code] == 503
+        assert err.details[:reason] == :unavailable
+      end)
+    end
+
+    test "atom error produces string message" do
+      defmodule AtomErrorAction do
+        use Jido.Action,
+          name: "atom_error",
+          description: "Returns an atom error"
+
+        def run(_params, _context) do
+          {:error, :econnrefused}
+        end
+      end
+
+      capture_log(fn ->
+        assert {:error, %Error.ExecutionFailureError{} = err} =
+                 Exec.run(AtomErrorAction, %{}, %{}, [])
+
+        assert is_binary(err.message)
+      end)
+    end
+
+    test "string error produces string message" do
+      defmodule StringErrorAction do
+        use Jido.Action,
+          name: "string_error",
+          description: "Returns a string error"
+
+        def run(_params, _context) do
+          {:error, "something went wrong"}
+        end
+      end
+
+      capture_log(fn ->
+        assert {:error, %Error.ExecutionFailureError{} = err} =
+                 Exec.run(StringErrorAction, %{}, %{}, [])
+
+        assert err.message == "something went wrong"
+      end)
+    end
   end
 
   describe "telemetry options coverage" do
