@@ -37,6 +37,11 @@ decisions:
   statement: The execution engine shall apply retries, timeout handling, cancellation cleanup, compensation, telemetry, and instance-scoped supervisor/config behavior where those policies are configured.
   priority: must
   stability: stable
+
+- id: jido_action.exec.error_result_normalization
+  statement: When an action returns `{:error, reason}` without an exception struct, Jido.Exec shall return an `ExecutionFailureError` with a string message and preserve structured map details for downstream handling.
+  priority: must
+  stability: stable
 ```
 
 ## Verification
@@ -48,6 +53,7 @@ decisions:
   covers:
     - jido_action.exec.sync_async_engine
     - jido_action.exec.reliability_controls
+    - jido_action.exec.error_result_normalization
 
 - kind: command
   target: mix test test/jido_action/exec/async_mailbox_hygiene_test.exs test/jido_action/exec/chain_test.exs test/jido_action/exec/chain_interrupt_test.exs test/jido_action/exec/chain_supervision_test.exs test/jido_action/exec/closure_test.exs test/jido_action/exec/compensation_mailbox_hygiene_test.exs test/jido_action/exec/instance_isolation_test.exs test/jido_action/exec/telemetry_sanitization_test.exs

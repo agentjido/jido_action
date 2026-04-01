@@ -35,6 +35,11 @@ Future spec work should extend one of these subjects before introducing a new on
 subject is appropriate only when the behavior defines a distinct, durable boundary that does
 not fit an existing subsystem.
 
+Package-level current truth may also co-own outward-facing contracts that span subsystem
+boundaries, while the subsystem subject continues to own the detailed mechanics. When a
+change materially affects both a subsystem surface and the package-level contract, update
+both authored subjects together instead of forcing the behavior into only one subject.
+
 ## Consequences
 
 - Branch guidance can treat most changes as updates to a known subsystem instead of recurring

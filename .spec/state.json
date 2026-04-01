@@ -51,6 +51,14 @@
       },
       {
         "file": ".spec/specs/exec.spec.md",
+        "id": "jido_action.exec.error_result_normalization",
+        "priority": "must",
+        "stability": "stable",
+        "statement": "When an action returns `{:error, reason}` without an exception struct, Jido.Exec shall return an `ExecutionFailureError` with a string message and preserve structured map details for downstream handling.",
+        "subject_id": "jido_action.exec"
+      },
+      {
+        "file": ".spec/specs/exec.spec.md",
         "id": "jido_action.exec.reliability_controls",
         "priority": "must",
         "stability": "stable",
@@ -79,6 +87,14 @@
         "priority": "must",
         "stability": "stable",
         "statement": "The package shall provide Jido.Action, Jido.Exec, Jido.Instruction, Jido.Plan, and Jido.Action.Tool as the core surface for defining actions, executing them, normalizing workflow instructions, planning DAG workflows, and exposing AI-compatible tool definitions.",
+        "subject_id": "jido_action.package"
+      },
+      {
+        "file": ".spec/specs/package.spec.md",
+        "id": "jido_action.package.execution_failure_surface",
+        "priority": "should",
+        "stability": "evolving",
+        "statement": "The package-level execution surface shall expose runtime failures as normalized exception structs with string messages and structured details suitable for downstream handling.",
         "subject_id": "jido_action.package"
       },
       {
@@ -462,7 +478,8 @@
       {
         "covers": [
           "jido_action.exec.sync_async_engine",
-          "jido_action.exec.reliability_controls"
+          "jido_action.exec.reliability_controls",
+          "jido_action.exec.error_result_normalization"
         ],
         "execute": true,
         "file": ".spec/specs/exec.spec.md",
@@ -490,6 +507,16 @@
         "kind": "command",
         "subject_id": "jido_action.package",
         "target": "mix test test/jido_action/action_test.exs test/jido_action/instruction_test.exs test/jido/plan_test.exs test/jido_action/exec_tool_test.exs"
+      },
+      {
+        "covers": [
+          "jido_action.package.execution_failure_surface"
+        ],
+        "execute": true,
+        "file": ".spec/specs/package.spec.md",
+        "kind": "command",
+        "subject_id": "jido_action.package",
+        "target": "mix test test/jido_action/exec_return_shape_test.exs test/jido_action/exec_coverage_test.exs test/jido_action/error_test.exs"
       },
       {
         "covers": [
@@ -680,10 +707,10 @@
     "decisions": 1,
     "exceptions": 0,
     "findings": 0,
-    "requirements": 23,
+    "requirements": 25,
     "scenarios": 0,
     "subjects": 9,
-    "verifications": 24
+    "verifications": 25
   },
   "verification": {
     "claims": [
@@ -729,6 +756,17 @@
         "strength": "executed",
         "subject_id": "jido_action.error_handling",
         "target": "mix test test/jido_action/error_test.exs",
+        "verification_index": 0
+      },
+      {
+        "cover_id": "jido_action.exec.error_result_normalization",
+        "file": ".spec/specs/exec.spec.md",
+        "kind": "command",
+        "meets_minimum": true,
+        "required_strength": "claimed",
+        "strength": "executed",
+        "subject_id": "jido_action.exec",
+        "target": "mix test test/jido_action/exec_run_test.exs test/jido_action/exec_async_test.exs test/jido_action/exec_task_test.exs test/jido_action/exec_execute_test.exs test/jido_action/exec_integration_test.exs test/jido_action/exec_config_test.exs test/jido_action/exec_timeout_task_supervisor_test.exs test/jido_action/exec_retry_policy_test.exs test/jido_action/exec_return_shape_test.exs test/jido_action/exec_do_run_test.exs test/jido_action/exec_compensate_test.exs test/jido_action/exec_output_validation_test.exs test/jido_action/exec_final_coverage_test.exs test/jido_action/exec_misc_coverage_test.exs test/jido_action/exec_coverage_test.exs",
         "verification_index": 0
       },
       {
@@ -787,6 +825,17 @@
         "verification_index": 0
       },
       {
+        "cover_id": "jido_action.package.execution_failure_surface",
+        "file": ".spec/specs/package.spec.md",
+        "kind": "command",
+        "meets_minimum": true,
+        "required_strength": "claimed",
+        "strength": "executed",
+        "subject_id": "jido_action.package",
+        "target": "mix test test/jido_action/exec_return_shape_test.exs test/jido_action/exec_coverage_test.exs test/jido_action/error_test.exs",
+        "verification_index": 1
+      },
+      {
         "cover_id": "jido_action.package.readme_onboarding",
         "file": ".spec/specs/package.spec.md",
         "kind": "readme_file",
@@ -795,7 +844,7 @@
         "strength": "linked",
         "subject_id": "jido_action.package",
         "target": "README.md",
-        "verification_index": 1
+        "verification_index": 2
       },
       {
         "cover_id": "jido_action.package.spec_pr_gate",
@@ -806,7 +855,7 @@
         "strength": "linked",
         "subject_id": "jido_action.package",
         "target": ".github/workflows/specs.yml",
-        "verification_index": 2
+        "verification_index": 3
       },
       {
         "cover_id": "jido_action.package.contributor_spec_workflow",
@@ -817,7 +866,7 @@
         "strength": "linked",
         "subject_id": "jido_action.package",
         "target": "CONTRIBUTING.md",
-        "verification_index": 3
+        "verification_index": 4
       },
       {
         "cover_id": "jido_action.scaffolding.install_and_generators",
@@ -1055,7 +1104,7 @@
     "default_minimum_strength": "claimed",
     "strength_summary": {
       "claimed": 2,
-      "executed": 18,
+      "executed": 20,
       "linked": 13
     },
     "threshold_failures": 0

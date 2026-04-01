@@ -37,6 +37,11 @@ decisions:
   priority: must
   stability: stable
 
+- id: jido_action.package.execution_failure_surface
+  statement: The package-level execution surface shall expose runtime failures as normalized exception structs with string messages and structured details suitable for downstream handling.
+  priority: should
+  stability: evolving
+
 - id: jido_action.package.readme_onboarding
   statement: The README shall document installation plus quick-start usage for action definition, execution, workflow normalization, and AI tool integration.
   priority: should
@@ -61,6 +66,12 @@ decisions:
   execute: true
   covers:
     - jido_action.package.core_surface
+
+- kind: command
+  target: mix test test/jido_action/exec_return_shape_test.exs test/jido_action/exec_coverage_test.exs test/jido_action/error_test.exs
+  execute: true
+  covers:
+    - jido_action.package.execution_failure_surface
 
 - kind: readme_file
   target: README.md
