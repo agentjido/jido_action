@@ -22,7 +22,7 @@
         "id": "jido_action.action.metadata_contract",
         "priority": "must",
         "stability": "stable",
-        "statement": "use Jido.Action shall define named action modules that expose action metadata, declared schemas, and JSON-friendly metadata accessors.",
+        "statement": "use Jido.Action shall define named action modules that expose action metadata, declared schemas, JSON-friendly metadata accessors, and overridable lifecycle callbacks whose contracts are defined by the Jido.Action behaviour callbacks.",
         "subject_id": "jido_action.action"
       },
       {
@@ -78,7 +78,7 @@
         "id": "jido_action.package.core_surface",
         "priority": "must",
         "stability": "stable",
-        "statement": "The package shall provide Jido.Action, Jido.Exec, Jido.Instruction, Jido.Plan, and Jido.Action.Tool as the core surface for defining actions, executing them, normalizing workflow instructions, planning DAG workflows, and exposing AI-compatible tool definitions.",
+        "statement": "The package shall provide Jido.Action, Jido.Exec, Jido.Instruction, Jido.Plan, and Jido.Action.Tool as the core surface for defining actions, executing them, normalizing workflow instructions, planning DAG workflows, and exposing AI-compatible tool definitions, with action behaviour callbacks serving as the stable type contract for generated action modules.",
         "subject_id": "jido_action.package"
       },
       {

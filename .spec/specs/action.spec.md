@@ -30,7 +30,7 @@ decisions:
 
 ```spec-requirements
 - id: jido_action.action.metadata_contract
-  statement: use Jido.Action shall define named action modules that expose action metadata, declared schemas, and JSON-friendly metadata accessors.
+  statement: use Jido.Action shall define named action modules that expose action metadata, declared schemas, JSON-friendly metadata accessors, and overridable lifecycle callbacks whose contracts are defined by the Jido.Action behaviour callbacks.
   priority: must
   stability: stable
 

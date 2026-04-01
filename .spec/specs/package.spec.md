@@ -33,7 +33,7 @@ decisions:
 
 ```spec-requirements
 - id: jido_action.package.core_surface
-  statement: The package shall provide Jido.Action, Jido.Exec, Jido.Instruction, Jido.Plan, and Jido.Action.Tool as the core surface for defining actions, executing them, normalizing workflow instructions, planning DAG workflows, and exposing AI-compatible tool definitions.
+  statement: The package shall provide Jido.Action, Jido.Exec, Jido.Instruction, Jido.Plan, and Jido.Action.Tool as the core surface for defining actions, executing them, normalizing workflow instructions, planning DAG workflows, and exposing AI-compatible tool definitions, with action behaviour callbacks serving as the stable type contract for generated action modules.
   priority: must
   stability: stable
 
