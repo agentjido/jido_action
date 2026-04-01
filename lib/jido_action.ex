@@ -480,7 +480,11 @@ defmodule Jido.Action do
 
       The `run/2` function must be implemented in the module using Jido.Action.
       """
-      @spec run(map(), map()) :: {:ok, map()} | {:ok, map(), any()} | {:error, any()}
+      # Note: @spec annotations are intentionally omitted from these default
+      # implementations. The @callback declarations (below) define the type
+      # contracts. Adding @spec here causes dialyzer `extra_range` warnings in
+      # consumer modules that don't override these functions, because the spec
+      # includes {:error, _} but the default only returns {:ok, _}.
       def run(params, context) do
         "run/2 must be implemented in in your Action"
         |> Error.config_error()
@@ -488,27 +492,21 @@ defmodule Jido.Action do
       end
 
       @doc "Lifecycle hook called before parameter validation."
-      @spec on_before_validate_params(map()) :: {:ok, map()} | {:error, any()}
       def on_before_validate_params(params), do: {:ok, params}
 
       @doc "Lifecycle hook called after parameter validation."
-      @spec on_after_validate_params(map()) :: {:ok, map()} | {:error, any()}
       def on_after_validate_params(params), do: {:ok, params}
 
       @doc "Lifecycle hook called before output validation."
-      @spec on_before_validate_output(map()) :: {:ok, map()} | {:error, any()}
       def on_before_validate_output(output), do: {:ok, output}
 
       @doc "Lifecycle hook called after output validation."
-      @spec on_after_validate_output(map()) :: {:ok, map()} | {:error, any()}
       def on_after_validate_output(output), do: {:ok, output}
 
       @doc "Lifecycle hook called after Action execution."
-      @spec on_after_run({:ok, map()} | {:error, any()}) :: {:ok, map()} | {:error, any()}
       def on_after_run(result), do: result
 
       @doc "Lifecycle hook called when an error occurs."
-      @spec on_error(map(), any(), map(), keyword()) :: {:ok, map()} | {:error, any()}
       def on_error(failed_params, _error, _context, _opts), do: {:ok, failed_params}
 
       defoverridable on_before_validate_params: 1,
