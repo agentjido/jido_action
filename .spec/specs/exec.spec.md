@@ -23,6 +23,7 @@ surface:
   - test/jido_action/exec/*.exs
 decisions:
   - jido_action.spec_migration
+  - jido_action.cross_subject_ci_stabilization
 ```
 
 ## Requirements
@@ -34,7 +35,7 @@ decisions:
   stability: stable
 
 - id: jido_action.exec.reliability_controls
-  statement: The execution engine shall apply retries, timeout handling, cancellation cleanup, compensation, telemetry, and instance-scoped supervisor/config behavior where those policies are configured.
+  statement: The execution engine shall apply retries, timeout handling, cancellation cleanup, compensation, telemetry, and instance-scoped supervisor/config behavior where those policies are configured, including routing timeout cleanup checks through isolated supervisors when verification needs to avoid ambient shared tasks.
   priority: must
   stability: stable
 

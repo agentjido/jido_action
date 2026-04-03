@@ -27,6 +27,7 @@ surface:
   - lib/jido_plan.ex
 decisions:
   - jido_action.spec_migration
+  - jido_action.cross_subject_ci_stabilization
 ```
 
 ## Requirements
