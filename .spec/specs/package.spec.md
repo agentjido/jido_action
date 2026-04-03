@@ -10,7 +10,7 @@ Define the package-level contract that the repository documents and tests today.
 id: jido_action.package
 kind: package
 status: active
-summary: Package-level contract for action definition, execution, workflow normalization, planning, and AI tool integration.
+summary: Package-level contract for action definition, execution, workflow normalization, planning, AI tool integration, and publishable dependency packaging.
 surface:
   - .github/workflows/specs.yml
   - CHANGELOG.md
@@ -47,6 +47,11 @@ decisions:
   priority: should
   stability: evolving
 
+- id: jido_action.package.publishable_dependency_graph
+  statement: The package manifest shall resolve on Hex with a publishable dependency graph for workflow planning, using the direct `multigraph` package instead of aliasing a package into the `:libgraph` OTP app slot.
+  priority: should
+  stability: evolving
+
 - id: jido_action.package.spec_pr_gate
   statement: Pull request CI shall run `mix spec.check` against the pull request base branch so Spec Led current truth and proof stay enforced in review.
   priority: should
@@ -77,6 +82,12 @@ decisions:
   target: README.md
   covers:
     - jido_action.package.readme_onboarding
+
+- kind: command
+  target: MIX_ENV=prod mix deps.get
+  execute: true
+  covers:
+    - jido_action.package.publishable_dependency_graph
 
 - kind: workflow_file
   target: .github/workflows/specs.yml
