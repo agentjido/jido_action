@@ -425,7 +425,6 @@ defmodule Jido.Action.Schema do
 
   defp normalize_enum_values(choices, _type), do: choices
 
-  defp maybe_add_description(schema, nil), do: schema
   defp maybe_add_description(schema, desc), do: Map.put(schema, "description", desc)
 
   defp maybe_add_enum(schema, nil), do: schema
