@@ -5,13 +5,14 @@ defmodule Jido.ExecTaskTest do
   use Private
 
   alias Jido.Exec
+  alias JidoTest.TestActions.NakedTaskAction
   alias JidoTest.TestActions.SpawnerAction
   alias JidoTest.TestActions.TaskAction
 
   @moduletag :capture_log
   describe "spawning multiple processes" do
     test "handles action spawning multiple processes" do
-      result = Exec.execute_action_with_timeout(SpawnerAction, %{count: 10}, %{}, 1000)
+      result = Exec.execute_action_with_timeout(SpawnerAction, %{count: 10}, %{}, 1000, [])
       assert {:ok, %{result: "Multi-process action completed"}} = result
       # Ensure no lingering processes
       :timer.sleep(150)
@@ -26,13 +27,12 @@ defmodule Jido.ExecTaskTest do
           NakedTaskAction,
           %{count: 2},
           %{},
-          # Short timeout to force error
-          100
+          # Detached processes should not block action completion
+          100,
+          []
         )
 
-      assert {:error, error} = result
-      assert is_exception(error)
-      assert error.__struct__ == Jido.Action.Error.ExecutionFailureError
+      assert {:ok, %{result: "Multi-process action completed"}} = result
     end
 
     test "properly cleans up linked tasks when task group is terminated" do
@@ -46,7 +46,8 @@ defmodule Jido.ExecTaskTest do
           %{count: 1, delay: 5000},
           %{},
           # Short timeout to force termination
-          100
+          100,
+          []
         )
 
       # Should timeout
@@ -71,7 +72,8 @@ defmodule Jido.ExecTaskTest do
           %{count: 5, delay: 5000},
           %{},
           # Short timeout
-          100
+          100,
+          []
         )
 
       assert {:error, _} = result

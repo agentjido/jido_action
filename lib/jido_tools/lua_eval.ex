@@ -97,19 +97,29 @@ defmodule Jido.Tools.LuaEval do
   def run(params, _context) do
     if Code.ensure_loaded?(Lua) do
       timeout_ms = Map.get(params, :timeout_ms, 1000)
+      parent = self()
+      ref = make_ref()
 
-      task = Task.Supervisor.async_nolink(Jido.Action.TaskSupervisor, fn -> do_run(params) end)
+      {:ok, pid} =
+        Task.Supervisor.start_child(Jido.Action.TaskSupervisor, fn ->
+          send(parent, {:lua_eval_result, ref, do_run(params)})
+        end)
 
-      case Task.yield(task, timeout_ms) do
-        {:ok, res} ->
-          res
+      monitor_ref = Process.monitor(pid)
+
+      case await_lua_result(ref, pid, monitor_ref, timeout_ms) do
+        {:ok, result} ->
+          cleanup_lua_task(ref, monitor_ref)
+          result
 
         {:exit, reason} ->
-          _ = Task.shutdown(task, :brutal_kill)
+          cleanup_lua_task(ref, monitor_ref)
           return_error(:lua_error, "Lua task exited: #{inspect(reason)}")
 
-        nil ->
-          _ = Task.shutdown(task, :brutal_kill)
+        :timeout ->
+          _ = Process.exit(pid, :kill)
+          wait_for_lua_down(monitor_ref, pid, 100)
+          cleanup_lua_task(ref, monitor_ref)
           timeout_error(timeout_ms)
       end
     else
@@ -117,6 +127,51 @@ defmodule Jido.Tools.LuaEval do
         "Lua library (:lua) is not available. Add {:lua, \"~> 0.3\"} to your deps and run mix deps.get"
 
       return_error(:dependency_error, msg)
+    end
+  end
+
+  defp await_lua_result(ref, pid, monitor_ref, timeout_ms) do
+    receive do
+      {:lua_eval_result, ^ref, result} ->
+        {:ok, result}
+
+      {:DOWN, ^monitor_ref, :process, ^pid, reason} ->
+        case reason do
+          :normal ->
+            receive do
+              {:lua_eval_result, ^ref, result} -> {:ok, result}
+            after
+              0 -> {:exit, reason}
+            end
+
+          _ ->
+            {:exit, reason}
+        end
+    after
+      timeout_ms ->
+        :timeout
+    end
+  end
+
+  defp wait_for_lua_down(monitor_ref, pid, wait_ms) do
+    receive do
+      {:DOWN, ^monitor_ref, :process, ^pid, _reason} -> :ok
+    after
+      wait_ms -> :ok
+    end
+  end
+
+  defp cleanup_lua_task(ref, monitor_ref) do
+    Process.demonitor(monitor_ref, [:flush])
+    flush_lua_results(ref)
+  end
+
+  defp flush_lua_results(ref) do
+    receive do
+      {:lua_eval_result, ^ref, _result} ->
+        flush_lua_results(ref)
+    after
+      0 -> :ok
     end
   end
 

@@ -427,11 +427,15 @@ Configure defaults in your application:
 config :jido_action,
   default_timeout: 10_000,
   default_max_retries: 3,
-  default_backoff: 500
+  default_backoff: 500,
+  default_log_level: :info
 ```
 
-If any of these values are invalid at runtime (non-integer or negative), Jido logs a warning and
-falls back to the built-in defaults instead of crashing. See [Configuration Guide](guides/configuration.md#runtime-config-validation-and-fallback).
+`default_log_level` sets Jido's execution log threshold. Per-call `log_level` options override it,
+and the application's global Logger configuration still acts as the final backend filter.
+
+If any of these values are invalid at runtime, Jido logs a warning and falls back to the built-in
+defaults instead of crashing. See [Configuration Guide](guides/configuration.md#runtime-config-validation-and-fallback).
 
 ### Instance Isolation (Multi-Tenant)
 

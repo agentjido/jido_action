@@ -14,6 +14,7 @@ summary: Shared transport and telemetry sanitization for arbitrary runtime terms
 surface:
   - lib/jido_action/sanitizer.ex
   - test/jido_action/sanitizer_test.exs
+  - test/jido_action/exec/telemetry_sanitization_test.exs
 decisions:
   - jido_action.spec_migration
 ```
@@ -27,7 +28,7 @@ decisions:
   stability: stable
 
 - id: jido_action.sanitizer.telemetry_profile
-  statement: Jido.Action.Sanitizer shall provide a telemetry profile that preserves execution telemetry semantics for redaction, truncation, tuple handling, inspect-safe summaries, and bounded traversal of nested runtime terms.
+  statement: Jido.Action.Sanitizer shall provide a telemetry profile that preserves execution telemetry semantics for redaction, truncation, tuple handling, inspect-safe summaries, bounded traversal of nested runtime terms, and additive outcome metadata emitted by the execution telemetry layer.
   priority: must
   stability: stable
 ```

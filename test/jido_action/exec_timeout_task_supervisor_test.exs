@@ -253,7 +253,7 @@ defmodule Jido.ExecTimeoutTaskSupervisorTest do
 
       start_supervised!({Task.Supervisor, name: LeakIsolation.TaskSupervisor})
 
-      initial_count = task_supervisor_active_count(LeakIsolation.TaskSupervisor)
+      initial_count = wait_for_stable_task_supervisor_count(LeakIsolation.TaskSupervisor, 3, 20)
 
       # Run several actions that timeout
       for _ <- 1..10 do
@@ -264,7 +264,7 @@ defmodule Jido.ExecTimeoutTaskSupervisorTest do
       end
 
       final_count =
-        wait_for_task_supervisor_count(LeakIsolation.TaskSupervisor, initial_count, 10)
+        wait_for_task_supervisor_count(LeakIsolation.TaskSupervisor, initial_count, 20)
 
       assert final_count == initial_count
     end
@@ -284,6 +284,47 @@ defmodule Jido.ExecTimeoutTaskSupervisorTest do
     else
       Process.sleep(50)
       wait_for_task_supervisor_count(supervisor, expected_count, attempts_left - 1)
+    end
+  end
+
+  defp wait_for_stable_task_supervisor_count(supervisor, required_matches, attempts_left) do
+    current_count = task_supervisor_active_count(supervisor)
+
+    wait_for_stable_task_supervisor_count(
+      supervisor,
+      current_count,
+      required_matches - 1,
+      attempts_left - 1
+    )
+  end
+
+  defp wait_for_stable_task_supervisor_count(
+         _supervisor,
+         current_count,
+         matches_left,
+         attempts_left
+       )
+       when matches_left <= 0 or attempts_left <= 0,
+       do: current_count
+
+  defp wait_for_stable_task_supervisor_count(
+         supervisor,
+         previous_count,
+         matches_left,
+         attempts_left
+       ) do
+    Process.sleep(50)
+    current_count = task_supervisor_active_count(supervisor)
+
+    if current_count == previous_count do
+      wait_for_stable_task_supervisor_count(
+        supervisor,
+        current_count,
+        matches_left - 1,
+        attempts_left - 1
+      )
+    else
+      wait_for_stable_task_supervisor_count(supervisor, current_count, 2, attempts_left - 1)
     end
   end
 end

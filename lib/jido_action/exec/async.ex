@@ -26,10 +26,10 @@ defmodule Jido.Exec.Async do
         value
 
       invalid ->
-        Logger.warning(
+        Logger.warning(fn ->
           "Invalid :jido_action config for #{inspect(key)}: #{inspect(invalid)}. " <>
             "Expected a non-negative integer; using fallback #{fallback}."
-        )
+        end)
 
         fallback
     end

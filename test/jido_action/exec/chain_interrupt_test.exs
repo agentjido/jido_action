@@ -114,7 +114,7 @@ defmodule JidoTest.Exec.ChainInterruptTest do
           assert Exception.message(error) =~ "Validation error"
         end)
 
-      assert log =~ "Exec in chain failed"
+      assert log =~ "Action JidoTest.TestActions.ErrorAction failed"
     end
 
     test "handles empty action list with interrupt check" do

@@ -34,6 +34,11 @@ decisions:
   statement: The repository shall include a production-quality Zoi example plus maintainer-facing FAQ and PR triage guides to support adoption and ongoing maintenance.
   priority: should
   stability: evolving
+
+- id: jido_action.scaffolding.support_guide_observability_examples
+  statement: Maintainer-facing FAQ and support guides shall keep production observability examples aligned with the current execution contract, including additive action telemetry examples and sanitized success-path logging guidance.
+  priority: should
+  stability: evolving
 ```
 
 ## Verification
@@ -63,6 +68,7 @@ decisions:
   target: guides/faq.md
   covers:
     - jido_action.scaffolding.examples_and_support
+    - jido_action.scaffolding.support_guide_observability_examples
 
 - kind: guide_file
   target: guides/pr-68-triage.md

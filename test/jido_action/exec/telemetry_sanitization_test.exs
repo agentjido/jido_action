@@ -3,7 +3,9 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
 
   import ExUnit.CaptureLog
 
+  alias Jido.Exec
   alias Jido.Exec.Telemetry
+  alias JidoTest.TestActions.BasicAction
   alias JidoTest.Support.RaisingInspectStruct
 
   defmodule CredentialsStruct do
@@ -43,7 +45,7 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
     :ok
   end
 
-  test "emit_start_event redacts sensitive keys and caps payload size" do
+  test "emit_start_event preserves rich metadata for compatibility" do
     long_string = String.duplicate("x", 300)
 
     params = %{
@@ -63,19 +65,10 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
 
     assert_receive {:telemetry_event, [:jido, :action, :start], _measurements, metadata}
 
-    assert metadata.params.password == "[REDACTED]"
-    assert metadata.context["authorization"] == "[REDACTED]"
-    assert String.contains?(metadata.context["note"], "...(truncated 44 bytes)")
-    assert length(metadata.params.list) == 26
-    assert List.last(metadata.params.list) == %{__truncated_items__: 5}
-    assert metadata.params.data.api_key == "[REDACTED]"
-    assert metadata.params.data.nested.client_secret == "[REDACTED]"
-    assert metadata.params.data.__struct__ == inspect(CredentialsStruct)
-
-    assert get_in(metadata, [:params, :nested, :layer1, :layer2]) == %{
-             __truncated_depth__: 4,
-             type: :map,
-             size: 1
+    assert metadata == %{
+             action: __MODULE__,
+             params: params,
+             context: context
            }
   end
 
@@ -87,23 +80,72 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
     assert_struct_summary(sanitized_request, Req.Request, map_size(request))
   end
 
-  test "emit_end_event sanitizes result payloads" do
+  test "emit_end_event keeps rich metadata and adds outcome summary" do
     long_string = String.duplicate("z", 280)
+    params = %{input: 1}
+    context = %{secret: "hidden"}
+    result = {:ok, %{token: "tok-123", payload: long_string}}
 
     assert :ok =
              Telemetry.emit_end_event(
                __MODULE__,
-               %{input: 1},
-               %{secret: "hidden"},
-               {:ok, %{token: "tok-123", payload: long_string}}
+               params,
+               context,
+               result
              )
 
     assert_receive {:telemetry_event, [:jido, :action, :stop], _measurements, metadata}
 
-    assert metadata.context.secret == "[REDACTED]"
-    assert {:ok, result_payload} = metadata.result
-    assert result_payload.token == "[REDACTED]"
-    assert String.contains?(result_payload.payload, "...(truncated 24 bytes)")
+    assert metadata == %{
+             action: __MODULE__,
+             params: params,
+             context: context,
+             result: result,
+             outcome: :ok
+           }
+  end
+
+  test "emit_end_event keeps rich metadata on errors and adds summary fields" do
+    params = %{input: 1}
+    context = %{secret: "hidden"}
+    result = {:error, Jido.Action.Error.execution_error("boom", %{token: "tok-123"})}
+
+    assert :ok =
+             Telemetry.emit_end_event(
+               __MODULE__,
+               params,
+               context,
+               result
+             )
+
+    assert_receive {:telemetry_event, [:jido, :action, :stop], _measurements, metadata}
+
+    assert metadata.action == __MODULE__
+    assert metadata.params == params
+    assert metadata.context == context
+    assert metadata.result == result
+    assert metadata.outcome == :error
+    assert metadata.error_type == :execution_error
+    assert metadata.retryable? == true
+  end
+
+  test "Exec.run emits additive span metadata on start and stop events" do
+    params = %{value: 7}
+    context = %{secret: "hidden"}
+
+    assert {:ok, %{value: 7}} = Exec.run(BasicAction, params, context)
+
+    assert_receive {:telemetry_event, [:jido, :action, :start], _measurements, start_metadata}
+    assert start_metadata.action == BasicAction
+    assert start_metadata.params == params
+    assert start_metadata.context.secret == "hidden"
+
+    assert_receive {:telemetry_event, [:jido, :action, :stop], _measurements, stop_metadata}
+    assert stop_metadata.action == BasicAction
+    assert stop_metadata.params == params
+    assert stop_metadata.context.secret == "hidden"
+    assert stop_metadata.result == {:ok, %{value: 7}}
+    assert stop_metadata.outcome == :ok
   end
 
   test "struct with custom Inspect at depth >= 4 does not crash safe_inspect" do
@@ -164,8 +206,8 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
       }
 
     log =
-      capture_log(fn ->
-        Telemetry.cond_log_start(:notice, __MODULE__, deep_struct, %{})
+      capture_log([level: :debug], fn ->
+        Telemetry.cond_log_start(:debug, __MODULE__, deep_struct, %{})
       end)
 
     refute log =~ "Inspect.Error"
@@ -177,8 +219,8 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
     deep_struct = %{l1: %{l2: %{l3: %Zoi.Types.Map{fields: [foo: %Zoi.Types.String{}]}}}}
 
     log =
-      capture_log(fn ->
-        Telemetry.cond_log_start(:notice, __MODULE__, deep_struct, %{})
+      capture_log([level: :debug], fn ->
+        Telemetry.cond_log_start(:debug, __MODULE__, deep_struct, %{})
       end)
 
     refute log =~ "Inspect.Error"
@@ -196,8 +238,8 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
     assert sanitized[sanitized_key] == :value
 
     log =
-      capture_log(fn ->
-        Telemetry.cond_log_start(:notice, __MODULE__, %{struct_key => :value}, %{})
+      capture_log([level: :debug], fn ->
+        Telemetry.cond_log_start(:debug, __MODULE__, %{struct_key => :value}, %{})
       end)
 
     refute log =~ "Inspect.Error"
@@ -233,8 +275,8 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
     assert_struct_summary(bad_summary, RaisingInspectStruct, map_size(%RaisingInspectStruct{}))
 
     log =
-      capture_log(fn ->
-        Telemetry.cond_log_start(:notice, __MODULE__, payload, %{})
+      capture_log([level: :debug], fn ->
+        Telemetry.cond_log_start(:debug, __MODULE__, payload, %{})
       end)
 
     refute log =~ "Inspect.Error"
@@ -327,8 +369,8 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
       }
 
       log =
-        capture_log(fn ->
-          Telemetry.cond_log_start(:notice, __MODULE__, deep, %{})
+        capture_log([level: :debug], fn ->
+          Telemetry.cond_log_start(:debug, __MODULE__, deep, %{})
         end)
 
       refute log =~ "Inspect.Error"
@@ -378,7 +420,7 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
     long_string = String.duplicate("a", 300)
 
     log =
-      capture_log(fn ->
+      capture_log([level: :debug], fn ->
         Telemetry.log_execution_start(
           __MODULE__,
           %{api_key: "api-secret", payload: long_string},
@@ -393,7 +435,7 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
         )
 
         Telemetry.cond_log_start(
-          :notice,
+          :debug,
           __MODULE__,
           %{authorization: "Bearer 123"},
           %{client_secret: "very-secret"}

@@ -68,6 +68,91 @@ defmodule JidoTest.ExecReturnShapeTest do
       end)
     end
 
+    test "normalizes retryable atom errors with structured retry hints" do
+      defmodule RetryableAtomErrorAction do
+        use Jido.Action, name: "retryable_atom_error"
+
+        def run(_params, _context), do: {:error, :transient_error}
+      end
+
+      capture_log(fn ->
+        assert {:error, %Error.ExecutionFailureError{} = error} =
+                 Exec.run(RetryableAtomErrorAction, %{}, %{})
+
+        assert Error.to_map(error) == %{
+                 type: :execution_error,
+                 message: "transient_error",
+                 details: %{reason: :transient_error, retry: true},
+                 retryable?: true
+               }
+      end)
+    end
+
+    test "normalizes arbitrary atom errors consistently" do
+      defmodule NonRetryableAtomErrorAction do
+        use Jido.Action, name: "non_retryable_atom_error"
+
+        def run(_params, _context), do: {:error, :badarg}
+      end
+
+      capture_log(fn ->
+        assert {:error, %Error.ExecutionFailureError{} = error} =
+                 Exec.run(NonRetryableAtomErrorAction, %{}, %{})
+
+        assert Error.to_map(error) == %{
+                 type: :execution_error,
+                 message: "badarg",
+                 details: %{reason: :badarg, retry: false},
+                 retryable?: false
+               }
+      end)
+    end
+
+    test "normalizes raw error tuples with directives into execution errors" do
+      defmodule RawDirectiveErrorAction do
+        use Jido.Action, name: "raw_directive_error"
+
+        def run(_params, _context), do: {:error, :transient_error, %{directive: "retry"}}
+      end
+
+      capture_log(fn ->
+        assert {:error, %Error.ExecutionFailureError{} = error, %{directive: "retry"}} =
+                 Exec.run(RawDirectiveErrorAction, %{}, %{})
+
+        assert Error.to_map(error) == %{
+                 type: :execution_error,
+                 message: "transient_error",
+                 details: %{reason: :transient_error, retry: true},
+                 retryable?: true
+               }
+      end)
+    end
+
+    test "accepts deprecated error_normalization option as a compatibility shim" do
+      defmodule DeprecatedErrorNormalizationAction do
+        use Jido.Action, name: "deprecated_error_normalization"
+
+        def run(_params, _context), do: {:error, :transient_error}
+      end
+
+      log =
+        capture_log(fn ->
+          assert {:error, %Error.ExecutionFailureError{} = error} =
+                   Exec.run(DeprecatedErrorNormalizationAction, %{}, %{},
+                     error_normalization: :legacy
+                   )
+
+          assert Error.to_map(error) == %{
+                   type: :execution_error,
+                   message: "transient_error",
+                   details: %{reason: :transient_error, retry: true},
+                   retryable?: true
+                 }
+        end)
+
+      assert log =~ "Execution option :error_normalization=:legacy is deprecated and ignored"
+    end
+
     test "rejects :ok atom - unexpected shape" do
       defmodule AtomOkAction do
         use Jido.Action, name: "atom_ok"

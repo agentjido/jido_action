@@ -40,6 +40,7 @@ defmodule Jido.Exec do
   use Private
 
   alias Jido.Action.Error
+  alias Jido.Action.Util
   alias Jido.Exec.Async
   alias Jido.Exec.Compensation
   alias Jido.Exec.Retry
@@ -52,6 +53,8 @@ defmodule Jido.Exec do
 
   @default_timeout 30_000
   @deadline_key :__jido_deadline_ms__
+  @valid_error_normalization_modes [:legacy, :granular]
+  @deprecated_error_normalization_key :error_normalization
 
   # Helper functions to get configuration values with fallbacks
   defp get_default_timeout,
@@ -63,10 +66,10 @@ defmodule Jido.Exec do
         value
 
       invalid ->
-        Logger.warning(
+        Logger.warning(fn ->
           "Invalid :jido_action config for #{inspect(key)}: #{inspect(invalid)}. " <>
             "Expected a non-negative integer; using fallback #{fallback}."
-        )
+        end)
 
         fallback
     end
@@ -75,7 +78,7 @@ defmodule Jido.Exec do
   @type action :: module()
   @type params :: map()
   @type context :: map()
-  @type run_opts :: [timeout: non_neg_integer(), jido: atom()]
+  @type run_opts :: keyword()
   @type async_ref :: %{
           required(:ref) => reference(),
           required(:pid) => pid(),
@@ -107,7 +110,9 @@ defmodule Jido.Exec do
     - `:timeout` - Maximum time (in ms) allowed for the Action to complete (configurable via `:jido_action, :default_timeout`).
     - `:max_retries` - Maximum number of retry attempts (configurable via `:jido_action, :default_max_retries`).
     - `:backoff` - Initial backoff time in milliseconds, doubles with each retry (configurable via `:jido_action, :default_backoff`).
-    - `:log_level` - Override the global Logger level for this specific action. Accepts #{inspect(Logger.levels())}.
+    - `:log_level` - Override the Jido execution log threshold for this specific action. Accepts #{inspect(Logger.levels())}. Global Logger config still applies.
+    - `:telemetry` - `:full` (default) or `:silent` for action span emission.
+    - `:error_normalization` - Deprecated compatibility shim. Accepted and ignored; canonical structured execution error normalization is always used.
     - `:jido` - Optional instance name for isolation. Routes execution through instance-scoped supervisors (e.g., `MyApp.Jido.TaskSupervisor`).
 
   ## Action Metadata in Context
@@ -159,7 +164,8 @@ defmodule Jido.Exec do
   def run(action, params \\ %{}, context \\ %{}, opts \\ [])
 
   def run(action, params, context, opts) when is_atom(action) and is_list(opts) do
-    log_level = Keyword.get(opts, :log_level, :info)
+    opts = apply_compat_opts(opts)
+    log_level = Util.resolve_log_level(opts)
 
     with {:ok, normalized_params} <- normalize_params(params),
          {:ok, normalized_context} <- normalize_context(context),
@@ -168,24 +174,22 @@ defmodule Jido.Exec do
       enhanced_context =
         Map.put(normalized_context, :action_metadata, action.__action_metadata__())
 
-      Telemetry.cond_log_start(log_level, action, validated_params, enhanced_context)
-
       do_run_with_retry(action, validated_params, enhanced_context, opts)
     else
       {:error, reason} ->
-        Telemetry.cond_log_failure(log_level, inspect(reason))
+        Telemetry.cond_log_failure(log_level, reason)
         {:error, reason}
     end
   rescue
     e in [FunctionClauseError, BadArityError, BadFunctionError] ->
-      log_level = Keyword.get(opts, :log_level, :info)
+      log_level = Util.resolve_log_level(opts)
       Telemetry.cond_log_function_error(log_level, e)
 
       {:error,
        Error.validation_error("Invalid action module: #{Telemetry.extract_safe_error_message(e)}")}
 
     e ->
-      log_level = Keyword.get(opts, :log_level, :info)
+      log_level = Util.resolve_log_level(opts)
       Telemetry.cond_log_unexpected_error(log_level, e)
 
       {:error,
@@ -194,7 +198,7 @@ defmodule Jido.Exec do
        )}
   catch
     kind, reason ->
-      log_level = Keyword.get(opts, :log_level, :info)
+      log_level = Util.resolve_log_level(opts)
       Telemetry.cond_log_caught_error(log_level, reason)
 
       {:error, Error.internal_error("Caught #{kind}: #{inspect(reason)}")}
@@ -408,33 +412,27 @@ defmodule Jido.Exec do
 
     @spec do_run(action(), params(), context(), run_opts()) :: exec_result
     defp do_run(action, params, context, opts) do
-      telemetry = Keyword.get(opts, :telemetry, :full)
+      telemetry = resolve_telemetry_mode(opts)
 
       with {:ok, timeout, budgeted_context} <- resolve_timeout_budget(context, opts) do
+        execute_with_timeout = fn ->
+          execute_action_with_timeout(action, params, budgeted_context, timeout, opts)
+        end
+
         result =
           case telemetry do
             :silent ->
-              if opts == [] do
-                execute_action_with_timeout(action, params, budgeted_context, timeout)
-              else
-                execute_action_with_timeout(action, params, budgeted_context, timeout, opts)
-              end
+              execute_with_timeout.()
 
-            _ ->
-              span_metadata = %{
-                action: action,
-                params: params,
-                context: budgeted_context
-              }
-
+            :full ->
               :telemetry.span(
                 [:jido, :action],
-                span_metadata,
+                Telemetry.span_start_metadata(action, params, budgeted_context, opts),
                 fn ->
-                  result =
-                    execute_action_with_timeout(action, params, budgeted_context, timeout, opts)
+                  result = execute_with_timeout.()
 
-                  {result, %{}}
+                  {result,
+                   Telemetry.span_stop_metadata(action, params, budgeted_context, result, opts)}
                 end
               )
           end
@@ -530,22 +528,7 @@ defmodule Jido.Exec do
         after
           timeout ->
             _ = Task.Supervisor.terminate_child(task_sup, pid)
-
-            # Best-effort wait for termination to avoid leaking processes in slow CI runners.
-            receive do
-              {:DOWN, ^monitor_ref, :process, ^pid, _reason} -> :ok
-            after
-              100 -> :ok
-            end
-
-            Process.demonitor(monitor_ref, [:flush])
-
-            # Flush any late result message (race with timeout).
-            receive do
-              {:execute_action_result, ^ref, _result} -> :ok
-            after
-              0 -> :ok
-            end
+            cleanup_timeout_task(ref, monitor_ref, pid)
 
             :timeout
         end
@@ -577,10 +560,36 @@ defmodule Jido.Exec do
       execute_action_with_timeout(action, params, context, get_default_timeout(), opts)
     end
 
-    @spec execute_action_with_timeout(action(), params(), context(), non_neg_integer()) ::
-            exec_result
-    defp execute_action_with_timeout(action, params, context, timeout) do
-      execute_action_with_timeout(action, params, context, timeout, [])
+    defp cleanup_timeout_task(ref, monitor_ref, pid) do
+      wait_for_task_down(monitor_ref, pid, 100)
+      Process.demonitor(monitor_ref, [:flush])
+      flush_execute_action_results(ref)
+    end
+
+    defp wait_for_task_down(monitor_ref, pid, wait_ms) do
+      receive do
+        {:DOWN, ^monitor_ref, :process, ^pid, _reason} ->
+          :ok
+      after
+        wait_ms ->
+          if Process.alive?(pid), do: Process.exit(pid, :kill)
+
+          receive do
+            {:DOWN, ^monitor_ref, :process, ^pid, _reason} -> :ok
+          after
+            wait_ms -> :ok
+          end
+      end
+    end
+
+    defp flush_execute_action_results(ref) do
+      receive do
+        {:execute_action_result, ^ref, _result} ->
+          flush_execute_action_results(ref)
+      after
+        0 ->
+          :ok
+      end
     end
 
     defp resolve_timeout_budget(context, opts) do
@@ -635,10 +644,87 @@ defmodule Jido.Exec do
       end
     end
 
+    defp apply_compat_opts(opts) do
+      maybe_warn_deprecated_error_normalization_opt(opts)
+      maybe_warn_deprecated_error_normalization_config()
+      opts
+    end
+
+    defp maybe_warn_deprecated_error_normalization_opt(opts) do
+      case Keyword.fetch(opts, @deprecated_error_normalization_key) do
+        {:ok, mode} when mode in @valid_error_normalization_modes ->
+          warn_deprecated_error_normalization_once(
+            {:opt, mode},
+            "Execution option :error_normalization=#{inspect(mode)} is deprecated and ignored. " <>
+              "Jido.Exec now uses the canonical structured execution error shape unconditionally."
+          )
+
+        {:ok, invalid} ->
+          warn_deprecated_error_normalization_once(
+            {:opt, invalid},
+            "Execution option :error_normalization=#{inspect(invalid)} is deprecated and ignored. " <>
+              "Expected one of #{@valid_error_normalization_modes |> inspect()}; canonical normalization is always used."
+          )
+
+        :error ->
+          :ok
+      end
+    end
+
+    defp maybe_warn_deprecated_error_normalization_config do
+      case Application.get_env(:jido_action, @deprecated_error_normalization_key) do
+        nil ->
+          :ok
+
+        mode when mode in @valid_error_normalization_modes ->
+          warn_deprecated_error_normalization_once(
+            {:config, mode},
+            ":jido_action config :error_normalization=#{inspect(mode)} is deprecated and ignored. " <>
+              "Jido.Exec now uses the canonical structured execution error shape unconditionally."
+          )
+
+        invalid ->
+          warn_deprecated_error_normalization_once(
+            {:config, invalid},
+            ":jido_action config :error_normalization=#{inspect(invalid)} is deprecated and ignored. " <>
+              "Expected one of #{@valid_error_normalization_modes |> inspect()}; canonical normalization is always used."
+          )
+      end
+    end
+
+    defp warn_deprecated_error_normalization_once(key, message) do
+      warning_key = {__MODULE__, @deprecated_error_normalization_key, key}
+
+      unless :persistent_term.get(warning_key, false) do
+        Logger.warning(message)
+        :persistent_term.put(warning_key, true)
+      end
+
+      :ok
+    end
+
+    defp resolve_telemetry_mode(opts) do
+      case Keyword.fetch(opts, :telemetry) do
+        {:ok, mode} when mode in [:full, :silent] ->
+          mode
+
+        {:ok, invalid} ->
+          Logger.warning(fn ->
+            "Invalid execution :telemetry option: #{inspect(invalid)}. " <>
+              "Expected one of [:full, :silent]; using :full."
+          end)
+
+          :full
+
+        :error ->
+          :full
+      end
+    end
+
     @spec execute_action(action(), params(), context(), run_opts()) :: exec_result
     defp execute_action(action, params, context, opts) do
-      log_level = Keyword.get(opts, :log_level, :info)
-      Telemetry.cond_log_execution_debug(log_level, action, params, context)
+      log_level = Util.resolve_log_level(opts)
+      Telemetry.cond_log_start(log_level, action, params, context)
 
       action.run(params, context)
       |> handle_action_result(action, log_level, opts)
@@ -658,9 +744,16 @@ defmodule Jido.Exec do
     end
 
     # Handle errors with extra data
+    defp handle_action_result({:error, %_{} = error, other}, action, log_level, _opts)
+         when is_exception(error) do
+      Telemetry.cond_log_error(log_level, action, error)
+      {:error, error, other}
+    end
+
     defp handle_action_result({:error, reason, other}, action, log_level, _opts) do
       Telemetry.cond_log_error(log_level, action, reason)
-      {:error, reason, other}
+      {message, details} = extract_error_fields(reason)
+      {:error, Error.execution_error(message, details), other}
     end
 
     # Handle exception errors
@@ -703,7 +796,10 @@ defmodule Jido.Exec do
     end
 
     defp extract_error_fields(reason) when is_binary(reason), do: {reason, %{}}
-    defp extract_error_fields(reason) when is_atom(reason), do: {Atom.to_string(reason), %{}}
+
+    defp extract_error_fields(reason) when is_atom(reason),
+      do: {Atom.to_string(reason), %{reason: reason, retry: Error.retryable?(reason)}}
+
     defp extract_error_fields(reason) when is_map(reason), do: {inspect(reason), reason}
     defp extract_error_fields(reason), do: {inspect(reason), %{}}
 
@@ -746,7 +842,7 @@ defmodule Jido.Exec do
 
     # Handle exceptions raised during action execution
     defp handle_action_exception(e, stacktrace, action, opts) do
-      log_level = Keyword.get(opts, :log_level, :info)
+      log_level = Util.resolve_log_level(opts)
       Telemetry.cond_log_error(log_level, action, e)
 
       error_message = build_exception_message(e, action)

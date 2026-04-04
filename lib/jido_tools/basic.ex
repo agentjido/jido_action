@@ -49,16 +49,16 @@ defmodule Jido.Tools.Basic do
 
     @spec run(map(), map()) :: {:ok, map()}
     def run(params, _ctx) when map_size(params) == 0 do
-      Logger.info("Current time: #{DateTime.utc_now()}")
+      Logger.info(fn -> "Current time: #{DateTime.utc_now()}" end)
       {:ok, params}
     end
 
     def run(%{level: level, message: message} = params, _ctx) do
       case level do
-        :debug -> Logger.debug(message)
-        :info -> Logger.info(message)
-        :warning -> Logger.warning(message)
-        :error -> Logger.error(message)
+        :debug -> Logger.debug(fn -> message end)
+        :info -> Logger.info(fn -> message end)
+        :warning -> Logger.warning(fn -> message end)
+        :error -> Logger.error(fn -> message end)
       end
 
       {:ok, params}
@@ -78,7 +78,7 @@ defmodule Jido.Tools.Basic do
 
     @spec run(map(), map()) :: {:ok, map()}
     def run(%{todo: todo} = params, _ctx) do
-      Logger.debug("TODO Action: #{todo}")
+      Logger.debug(fn -> "TODO Action: #{todo}" end)
       {:ok, params}
     end
   end

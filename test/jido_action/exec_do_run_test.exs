@@ -50,7 +50,7 @@ defmodule JidoTest.ExecDoRunTest do
       verify!()
     end
 
-    test "executes action with minimal telemetry" do
+    test "falls back to full telemetry when mode is invalid" do
       stub(:telemetry, :execute, fn _, _, _ -> :ok end)
 
       log =
@@ -62,6 +62,7 @@ defmodule JidoTest.ExecDoRunTest do
                    )
         end)
 
+      assert log =~ "Invalid execution :telemetry option"
       assert log =~ "Starting execution of JidoTest.TestActions.BasicAction"
       assert log =~ "Finished execution of JidoTest.TestActions.BasicAction"
       verify!()

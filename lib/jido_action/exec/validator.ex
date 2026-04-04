@@ -6,9 +6,8 @@ defmodule Jido.Exec.Validator do
   that has been extracted from the main Exec module for better separation of concerns.
   """
 
-  import Jido.Action.Util, only: [cond_log: 3]
-
   alias Jido.Action.Error
+  alias Jido.Action.Util
 
   @doc """
   Validates that the given action module is valid and can be executed.
@@ -67,33 +66,39 @@ defmodule Jido.Exec.Validator do
   """
   @spec validate_output(module(), map(), keyword()) :: {:ok, map()} | {:error, Exception.t()}
   def validate_output(action, output, opts) do
-    log_level = Keyword.get(opts, :log_level, :info)
+    log_level = Util.resolve_log_level(opts)
 
     if function_exported?(action, :validate_output, 1) do
       case action.validate_output(output) do
         {:ok, validated_output} ->
-          cond_log(log_level, :debug, "Output validation succeeded for #{inspect(action)}")
+          Util.cond_log(log_level, :debug, fn ->
+            "Output validation succeeded for #{inspect(action)}"
+          end)
+
           {:ok, validated_output}
 
         {:error, reason} ->
-          cond_log(
+          Util.cond_log(
             log_level,
             :debug,
-            "Output validation failed for #{inspect(action)}: #{inspect(reason)}"
+            fn -> "Output validation failed for #{inspect(action)}: #{inspect(reason)}" end
           )
 
           {:error, reason}
 
         _ ->
-          cond_log(log_level, :debug, "Invalid return from action.validate_output/1")
+          Util.cond_log(log_level, :debug, fn ->
+            "Invalid return from action.validate_output/1"
+          end)
+
           {:error, Error.validation_error("Invalid return from action.validate_output/1")}
       end
     else
       # If action doesn't have validate_output/1, skip output validation
-      cond_log(
+      Util.cond_log(
         log_level,
         :debug,
-        "No output validation function found for #{inspect(action)}, skipping"
+        fn -> "No output validation function found for #{inspect(action)}, skipping" end
       )
 
       {:ok, output}

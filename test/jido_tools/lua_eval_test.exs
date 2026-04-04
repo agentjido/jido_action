@@ -86,7 +86,7 @@ defmodule Jido.Tools.LuaEvalTest do
 
     test "handles invalid operations" do
       assert {:error, %Error.ExecutionFailureError{} = error} =
-               LuaEval.run(%{code: "return nil + 5"}, @context)
+               LuaEval.run(%{code: "return nil + 5", timeout_ms: 3_000}, @context)
 
       assert error.details[:type] == :lua_error
       assert %{type: :lua_error, message: _} = error.details[:reason]

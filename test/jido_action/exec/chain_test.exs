@@ -121,12 +121,11 @@ defmodule JidoTest.Exec.ChainTest do
     test "logs debug messages for each action" do
       log =
         capture_log(fn ->
-          Chain.chain([Add, Multiply], %{value: 5}, timeout: 10)
+          Chain.chain([Add, Multiply], %{value: 5}, timeout: 10, log_level: :debug)
         end)
 
-      # assert log =~ "Executing action in chain"
-      assert log =~ "Executing JidoTest.TestActions.Add with params"
-      assert log =~ "Executing JidoTest.TestActions.Multiply with params"
+      assert log =~ "Starting execution of JidoTest.TestActions.Add"
+      assert log =~ "Starting execution of JidoTest.TestActions.Multiply"
     end
 
     test "logs warnings for failed actions" do
@@ -135,7 +134,6 @@ defmodule JidoTest.Exec.ChainTest do
           Chain.chain([Add, ErrorAction], %{value: 5, error_type: :runtime, timeout: 10})
         end)
 
-      assert log =~ "Exec in chain failed"
       assert log =~ "Action JidoTest.TestActions.ErrorAction failed"
     end
 

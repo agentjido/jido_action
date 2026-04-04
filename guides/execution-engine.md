@@ -38,7 +38,7 @@ Supervisor.start_link(children, strategy: :one_for_one)
   timeout: 10_000,          # 10 second timeout (default: 30_000)
   max_retries: 3,           # Retry 3 times on failure (default: 1)
   backoff: 250,             # Initial backoff in ms (default: 250)
-  log_level: :debug         # Override log level for this action
+  log_level: :debug         # Override Jido's execution log threshold for this action
 )
 
 # Execute from an Instruction struct
@@ -309,8 +309,7 @@ The execution engine emits comprehensive telemetry events using `:telemetry.span
   "jido-action-handler",
   [
     [:jido, :action, :start],
-    [:jido, :action, :stop],
-    [:jido, :action, :exception]
+    [:jido, :action, :stop]
   ],
   &handle_telemetry/4,
   %{}
@@ -319,28 +318,33 @@ The execution engine emits comprehensive telemetry events using `:telemetry.span
 def handle_telemetry(event, measurements, metadata, _config) do
   case event do
     [:jido, :action, :start] ->
-      Logger.info("Action started", 
+      Logger.debug("Action started",
         action: metadata.action,
+        jido: metadata[:jido],
         params: metadata.params,
         context: metadata.context
       )
     
     [:jido, :action, :stop] ->
-      Logger.info("Action completed", 
+      Logger.info("Action completed",
         action: metadata.action,
-        duration: measurements.duration
-      )
-    
-    [:jido, :action, :exception] ->
-      Logger.error("Action failed",
-        action: metadata.action,
-        kind: metadata.kind,
-        reason: metadata.reason,
-        duration: measurements.duration
+        duration: measurements.duration,
+        params: metadata.params,
+        context: metadata.context,
+        result: metadata[:result],
+        outcome: metadata.outcome,
+        error_type: metadata[:error_type],
+        retryable?: metadata[:retryable?]
       )
   end
 end
 ```
+
+Normal action failures are reported as `[:jido, :action, :stop]` events with
+`metadata.outcome == :error`. Existing rich execution metadata such as `params`, `context`,
+and `result` remains available alongside the normalized outcome summary fields. The `:exception`
+event is reserved for uncaught exceptions that escape the telemetry span, which should be rare
+in normal `Jido.Exec` execution.
 
 ### Disabling Telemetry
 

@@ -501,23 +501,23 @@ end
 # Attach error telemetry
 :telemetry.attach(
   "error-monitoring",
-  [:jido, :action, :exception],
+  [:jido, :action, :stop],
   &handle_error_telemetry/4,
   %{}
 )
 
 def handle_error_telemetry(_event, _measurements, metadata, _config) do
-  error = metadata.error
-  
-  case error do
-    %Jido.Action.Error.ExecutionFailureError{details: %{critical: true}} ->
-      send_alert(error)
-      
-    %Jido.Action.Error.TimeoutError{} ->
-      increment_timeout_counter(metadata.action)
-      
-    _ ->
-      log_error(error)
+  if metadata.outcome == :error do
+    case metadata.error_type do
+      :timeout ->
+        increment_timeout_counter(metadata.action)
+
+      :execution_error ->
+        send_alert(%{action: metadata.action, retryable?: metadata[:retryable?]})
+
+      _ ->
+        log_error(metadata)
+    end
   end
 end
 ```
