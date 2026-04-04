@@ -10,8 +10,6 @@ defmodule Jido.Exec.Validator do
 
   alias Jido.Action.Error
 
-  require Logger
-
   @doc """
   Validates that the given action module is valid and can be executed.
 

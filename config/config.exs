@@ -5,6 +5,7 @@ import Config
 if config_env() == :dev do
   config :git_hooks,
     auto_install: true,
+    project_path: File.cwd!(),
     verbose: true,
     hooks: [
       commit_msg: [

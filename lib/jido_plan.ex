@@ -360,15 +360,14 @@ defmodule Jido.Plan do
   defp validate_defined_dependencies(plan_instructions) do
     defined_steps =
       plan_instructions
-      |> Enum.map(& &1.name)
-      |> MapSet.new()
+      |> Map.new(&{&1.name, true})
 
     missing_dependencies_by_step =
       Enum.reduce(plan_instructions, %{}, fn plan_instruction, acc ->
         missing_dependencies =
           plan_instruction.depends_on
           |> Enum.uniq()
-          |> Enum.reject(&MapSet.member?(defined_steps, &1))
+          |> Enum.reject(&Map.has_key?(defined_steps, &1))
           |> Enum.sort()
 
         if missing_dependencies == [] do
@@ -384,7 +383,7 @@ defmodule Jido.Plan do
       {:error,
        Error.validation_error("Plan contains dependencies on undefined steps", %{
          missing_dependencies_by_step: missing_dependencies_by_step,
-         available_steps: defined_steps |> MapSet.to_list() |> Enum.sort()
+         available_steps: defined_steps |> Map.keys() |> Enum.sort()
        })}
     end
   end
