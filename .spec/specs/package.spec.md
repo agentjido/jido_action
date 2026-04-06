@@ -12,7 +12,6 @@ kind: package
 status: active
 summary: Package-level contract for action definition, execution, workflow normalization, planning, AI tool integration, publishable dependency packaging, and legacy-safe execution logging defaults.
 surface:
-  - .github/workflows/pr-title.yml
   - .github/workflows/specs.yml
   - CHANGELOG.md
   - CONTRIBUTING.md
@@ -66,11 +65,6 @@ decisions:
   priority: should
   stability: evolving
 
-- id: jido_action.package.pr_title_gate
-  statement: Pull request CI shall validate pull request titles against Conventional Commit format before review and merge.
-  priority: should
-  stability: evolving
-
 - id: jido_action.package.contributor_spec_workflow
   statement: CONTRIBUTING.md shall document the Spec Led contribution loop, including when to update `.spec/specs/`, when to revise `.spec/decisions/`, and the pre-PR `mix spec.check --base <base-ref>` step.
   priority: should
@@ -118,11 +112,6 @@ decisions:
   target: .github/workflows/specs.yml
   covers:
     - jido_action.package.spec_pr_gate
-
-- kind: workflow_file
-  target: .github/workflows/pr-title.yml
-  covers:
-    - jido_action.package.pr_title_gate
 
 - kind: file
   target: CONTRIBUTING.md

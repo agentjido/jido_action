@@ -134,7 +134,7 @@ The repo auto-installs a fast `commit-msg` hook when `git_hooks` compiles in `:d
 
 If your local `.git/hooks/commit-msg` script still `cd`s into an old absolute checkout path, rerun the command above once. The installed hook is generated relative to the active worktree so it works from the main checkout, linked worktrees, and detached worktrees.
 
-Local hook enforcement intentionally stays small and fast: only `commit-msg` runs locally. PR title validation plus test and quality checks remain enforced in GitHub Actions.
+Local hook enforcement intentionally stays small and fast: only `commit-msg` runs locally. Test and quality checks remain enforced in GitHub Actions.
 
 ### Commit Message Format
 

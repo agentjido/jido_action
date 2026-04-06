@@ -186,14 +186,6 @@
       },
       {
         "file": ".spec/specs/package.spec.md",
-        "id": "jido_action.package.pr_title_gate",
-        "priority": "should",
-        "stability": "evolving",
-        "statement": "Pull request CI shall validate pull request titles against Conventional Commit format before review and merge.",
-        "subject_id": "jido_action.package"
-      },
-      {
-        "file": ".spec/specs/package.spec.md",
         "id": "jido_action.package.publishable_dependency_graph",
         "priority": "should",
         "stability": "evolving",
@@ -452,7 +444,6 @@
           "status": "active",
           "summary": "Package-level contract for action definition, execution, workflow normalization, planning, AI tool integration, publishable dependency packaging, and legacy-safe execution logging defaults.",
           "surface": [
-            ".github/workflows/pr-title.yml",
             ".github/workflows/specs.yml",
             "CHANGELOG.md",
             "CONTRIBUTING.md",
@@ -733,15 +724,6 @@
       },
       {
         "covers": [
-          "jido_action.package.pr_title_gate"
-        ],
-        "file": ".spec/specs/package.spec.md",
-        "kind": "workflow_file",
-        "subject_id": "jido_action.package",
-        "target": ".github/workflows/pr-title.yml"
-      },
-      {
-        "covers": [
           "jido_action.package.contributor_spec_workflow",
           "jido_action.package.contributor_hook_workflow"
         ],
@@ -946,10 +928,10 @@
     "decisions": 3,
     "exceptions": 0,
     "findings": 0,
-    "requirements": 40,
+    "requirements": 39,
     "scenarios": 0,
     "subjects": 10,
-    "verifications": 31
+    "verifications": 30
   },
   "verification": {
     "claims": [
@@ -1174,17 +1156,6 @@
         "verification_index": 5
       },
       {
-        "cover_id": "jido_action.package.pr_title_gate",
-        "file": ".spec/specs/package.spec.md",
-        "kind": "workflow_file",
-        "meets_minimum": true,
-        "required_strength": "claimed",
-        "strength": "linked",
-        "subject_id": "jido_action.package",
-        "target": ".github/workflows/pr-title.yml",
-        "verification_index": 6
-      },
-      {
         "cover_id": "jido_action.package.contributor_hook_workflow",
         "file": ".spec/specs/package.spec.md",
         "kind": "file",
@@ -1193,7 +1164,7 @@
         "strength": "linked",
         "subject_id": "jido_action.package",
         "target": "CONTRIBUTING.md",
-        "verification_index": 7
+        "verification_index": 6
       },
       {
         "cover_id": "jido_action.package.contributor_spec_workflow",
@@ -1204,7 +1175,7 @@
         "strength": "linked",
         "subject_id": "jido_action.package",
         "target": "CONTRIBUTING.md",
-        "verification_index": 7
+        "verification_index": 6
       },
       {
         "cover_id": "jido_action.sanitizer.telemetry_profile",
@@ -1520,7 +1491,7 @@
     "strength_summary": {
       "claimed": 2,
       "executed": 33,
-      "linked": 16
+      "linked": 15
     },
     "threshold_failures": 0
   },
