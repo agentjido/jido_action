@@ -5,7 +5,9 @@ import Config
 if config_env() == :dev do
   config :git_hooks,
     auto_install: true,
-    project_path: File.cwd!(),
+    # git_hooks writes this value into the installed shell hook, so keep it
+    # relative to the active worktree instead of capturing an absolute path.
+    project_path: ".",
     verbose: true,
     hooks: [
       commit_msg: [

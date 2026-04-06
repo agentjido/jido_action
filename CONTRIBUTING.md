@@ -122,13 +122,19 @@ The CI pipeline enforces documentation standards - builds will fail if documenta
 
 ## Git Hooks and Conventional Commits
 
+<!-- covers: jido_action.package.contributor_hook_workflow -->
+
 We use [`git_hooks`](https://hex.pm/packages/git_hooks) to enforce commit message conventions:
 
 ```bash
-mix git_hooks.install
+mix deps.compile git_hooks --force
 ```
 
-This installs a `commit-msg` hook that validates your commit messages follow the [Conventional Commits](https://www.conventionalcommits.org/) specification.
+The repo auto-installs a fast `commit-msg` hook when `git_hooks` compiles in `:dev`. The command above is the explicit refresh path for existing clones and worktrees when you want to rewrite the installed hook immediately.
+
+If your local `.git/hooks/commit-msg` script still `cd`s into an old absolute checkout path, rerun the command above once. The installed hook is generated relative to the active worktree so it works from the main checkout, linked worktrees, and detached worktrees.
+
+Local hook enforcement intentionally stays small and fast: only `commit-msg` runs locally. PR title validation plus test and quality checks remain enforced in GitHub Actions.
 
 ### Commit Message Format
 
@@ -146,6 +152,8 @@ This installs a `commit-msg` hook that validates your commit messages follow the
 |------|-------------|
 | `feat` | A new feature |
 | `fix` | A bug fix |
+| `improvement` | A general improvement that is not a feature or fix |
+| `build` | Changes to build tooling or packaging |
 | `docs` | Documentation only changes |
 | `style` | Changes that don't affect code meaning |
 | `refactor` | Code change that neither fixes a bug nor adds a feature |
@@ -153,6 +161,7 @@ This installs a `commit-msg` hook that validates your commit messages follow the
 | `test` | Adding or correcting tests |
 | `chore` | Changes to build process or auxiliary tools |
 | `ci` | CI configuration changes |
+| `deps` | Dependency updates |
 
 ### Examples
 

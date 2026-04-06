@@ -146,6 +146,14 @@
       },
       {
         "file": ".spec/specs/package.spec.md",
+        "id": "jido_action.package.contributor_hook_workflow",
+        "priority": "should",
+        "stability": "evolving",
+        "statement": "CONTRIBUTING.md shall document the auto-installed `git_hooks` commit message workflow, including the explicit refresh command contributors can run to replace stale absolute-path hook scripts.",
+        "subject_id": "jido_action.package"
+      },
+      {
+        "file": ".spec/specs/package.spec.md",
         "id": "jido_action.package.contributor_spec_workflow",
         "priority": "should",
         "stability": "evolving",
@@ -174,6 +182,14 @@
         "priority": "should",
         "stability": "evolving",
         "statement": "The package-level execution surface shall keep routine execution traces quiet by default, require explicit `:log_level` opt-in for debug traces, and keep runtime inspection sanitization within the owning execution boundary instead of a package-wide logging facade.",
+        "subject_id": "jido_action.package"
+      },
+      {
+        "file": ".spec/specs/package.spec.md",
+        "id": "jido_action.package.pr_title_gate",
+        "priority": "should",
+        "stability": "evolving",
+        "statement": "Pull request CI shall validate pull request titles against Conventional Commit format before review and merge.",
         "subject_id": "jido_action.package"
       },
       {
@@ -436,9 +452,11 @@
           "status": "active",
           "summary": "Package-level contract for action definition, execution, workflow normalization, planning, AI tool integration, publishable dependency packaging, and legacy-safe execution logging defaults.",
           "surface": [
+            ".github/workflows/pr-title.yml",
             ".github/workflows/specs.yml",
             "CHANGELOG.md",
             "CONTRIBUTING.md",
+            "config/config.exs",
             "mix.exs",
             "README.md",
             "test/test_helper.exs",
@@ -715,7 +733,17 @@
       },
       {
         "covers": [
-          "jido_action.package.contributor_spec_workflow"
+          "jido_action.package.pr_title_gate"
+        ],
+        "file": ".spec/specs/package.spec.md",
+        "kind": "workflow_file",
+        "subject_id": "jido_action.package",
+        "target": ".github/workflows/pr-title.yml"
+      },
+      {
+        "covers": [
+          "jido_action.package.contributor_spec_workflow",
+          "jido_action.package.contributor_hook_workflow"
         ],
         "file": ".spec/specs/package.spec.md",
         "kind": "file",
@@ -918,10 +946,10 @@
     "decisions": 3,
     "exceptions": 0,
     "findings": 0,
-    "requirements": 38,
+    "requirements": 40,
     "scenarios": 0,
     "subjects": 10,
-    "verifications": 30
+    "verifications": 31
   },
   "verification": {
     "claims": [
@@ -1146,6 +1174,28 @@
         "verification_index": 5
       },
       {
+        "cover_id": "jido_action.package.pr_title_gate",
+        "file": ".spec/specs/package.spec.md",
+        "kind": "workflow_file",
+        "meets_minimum": true,
+        "required_strength": "claimed",
+        "strength": "linked",
+        "subject_id": "jido_action.package",
+        "target": ".github/workflows/pr-title.yml",
+        "verification_index": 6
+      },
+      {
+        "cover_id": "jido_action.package.contributor_hook_workflow",
+        "file": ".spec/specs/package.spec.md",
+        "kind": "file",
+        "meets_minimum": true,
+        "required_strength": "claimed",
+        "strength": "linked",
+        "subject_id": "jido_action.package",
+        "target": "CONTRIBUTING.md",
+        "verification_index": 7
+      },
+      {
         "cover_id": "jido_action.package.contributor_spec_workflow",
         "file": ".spec/specs/package.spec.md",
         "kind": "file",
@@ -1154,7 +1204,7 @@
         "strength": "linked",
         "subject_id": "jido_action.package",
         "target": "CONTRIBUTING.md",
-        "verification_index": 6
+        "verification_index": 7
       },
       {
         "cover_id": "jido_action.sanitizer.telemetry_profile",
@@ -1470,7 +1520,7 @@
     "strength_summary": {
       "claimed": 2,
       "executed": 33,
-      "linked": 14
+      "linked": 16
     },
     "threshold_failures": 0
   },
