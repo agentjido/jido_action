@@ -1,5 +1,7 @@
 # Actions
 
+<!-- covers: jido_action.action.effect_boundary_guidance -->
+
 **Prerequisites**: [Getting Started](getting-started.md) • [Your Second Action](your-second-action.md)
 
 Actions are the core building blocks of Jido Action - self-contained modules that define validated, observable operations with clear input/output contracts.
@@ -28,6 +30,14 @@ defmodule MyApp.Actions.Example do
   end
 end
 ```
+
+## Purity and I/O
+
+`Jido.Action` modules are reusable execution units. `run/2` may be pure or effectful depending on what the step needs to do.
+
+If the action needs data back now, doing I/O in `run/2` is fine. HTTP requests, database calls, and file system operations are all reasonable there when they are part of the action's job. If the effect should instead be owned by a runtime or integration layer, hand it off there rather than doing it inline.
+
+When you use actions inside `jido`, keep the purity guarantee attached to the agent or strategy `cmd/2` boundary. An individual action may still perform side effects when the runtime invokes it behind that boundary.
 
 ## Schema Definition
 

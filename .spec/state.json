@@ -4,6 +4,18 @@
       {
         "affects": [
           "jido_action.package",
+          "jido_action.action",
+          "jido_action.scaffolding"
+        ],
+        "date": "2026-04-06",
+        "file": ".spec/decisions/jido_action.action_effect_boundary_docs.md",
+        "id": "jido_action.action_effect_boundary_docs",
+        "status": "accepted",
+        "title": "Document the action effects boundary consistently across package, action, and FAQ surfaces"
+      },
+      {
+        "affects": [
+          "jido_action.package",
           "jido_action.exec"
         ],
         "date": "2026-04-03",
@@ -40,6 +52,14 @@
   "index": {
     "exceptions": [],
     "requirements": [
+      {
+        "file": ".spec/specs/action.spec.md",
+        "id": "jido_action.action.effect_boundary_guidance",
+        "priority": "should",
+        "stability": "evolving",
+        "statement": "The Jido.Action moduledoc and Actions guide shall state that an action's `run/2` may be pure or effectful, that inline I/O is acceptable when the step needs the result immediately, and that `jido` keeps its purity guarantee at the agent or strategy `cmd/2` boundary rather than on every invoked action.",
+        "subject_id": "jido_action.action"
+      },
       {
         "file": ".spec/specs/action.spec.md",
         "id": "jido_action.action.log_level_resolution",
@@ -189,7 +209,7 @@
         "id": "jido_action.package.readme_onboarding",
         "priority": "should",
         "stability": "evolving",
-        "statement": "The README shall document installation plus quick-start usage for action definition, execution, workflow normalization, and AI tool integration.",
+        "statement": "The README shall document installation plus quick-start usage for action definition, execution, workflow normalization, and AI tool integration, and it shall explicitly explain that an action's `run/2` may perform side effects while `jido` keeps its purity guarantee at the agent or strategy `cmd/2` boundary.",
         "subject_id": "jido_action.package"
       },
       {
@@ -230,6 +250,14 @@
         "priority": "should",
         "stability": "evolving",
         "statement": "The repository shall ship install and generator Mix tasks that compose Igniter behavior when available and raise clear dependency guidance when Igniter is unavailable.",
+        "subject_id": "jido_action.scaffolding"
+      },
+      {
+        "file": ".spec/specs/scaffolding.spec.md",
+        "id": "jido_action.scaffolding.support_guide_effect_boundary",
+        "priority": "should",
+        "stability": "evolving",
+        "statement": "The maintainer-facing FAQ shall directly answer whether actions may perform side effects or HTTP calls, including that inline I/O is acceptable when the step needs the result immediately and that `jido` keeps purity at the agent or strategy `cmd/2` boundary.",
         "subject_id": "jido_action.scaffolding"
       },
       {
@@ -352,7 +380,8 @@
         "id": "jido_action.action",
         "meta": {
           "decisions": [
-            "jido_action.spec_migration"
+            "jido_action.spec_migration",
+            "jido_action.action_effect_boundary_docs"
           ],
           "id": "jido_action.action",
           "kind": "module",
@@ -429,6 +458,7 @@
           "decisions": [
             "jido_action.spec_migration",
             "jido_action.cross_subject_ci_stabilization",
+            "jido_action.action_effect_boundary_docs",
             "jido_action.execution_logging_hygiene"
           ],
           "id": "jido_action.package",
@@ -479,7 +509,8 @@
         "id": "jido_action.scaffolding",
         "meta": {
           "decisions": [
-            "jido_action.spec_migration"
+            "jido_action.spec_migration",
+            "jido_action.action_effect_boundary_docs"
           ],
           "id": "jido_action.scaffolding",
           "kind": "package",
@@ -618,6 +649,24 @@
         "kind": "command",
         "subject_id": "jido_action.action",
         "target": "mix test test/jido_action/action_test.exs test/jido_action/on_after_run_test.exs test/jido_action/exec_tool_test.exs test/jido_action/util_test.exs"
+      },
+      {
+        "covers": [
+          "jido_action.action.effect_boundary_guidance"
+        ],
+        "file": ".spec/specs/action.spec.md",
+        "kind": "source_file",
+        "subject_id": "jido_action.action",
+        "target": "lib/jido_action.ex"
+      },
+      {
+        "covers": [
+          "jido_action.action.effect_boundary_guidance"
+        ],
+        "file": ".spec/specs/action.spec.md",
+        "kind": "guide_file",
+        "subject_id": "jido_action.action",
+        "target": "guides/actions-guide.md"
       },
       {
         "covers": [
@@ -782,7 +831,8 @@
       {
         "covers": [
           "jido_action.scaffolding.examples_and_support",
-          "jido_action.scaffolding.support_guide_observability_examples"
+          "jido_action.scaffolding.support_guide_observability_examples",
+          "jido_action.scaffolding.support_guide_effect_boundary"
         ],
         "file": ".spec/specs/scaffolding.spec.md",
         "kind": "guide_file",
@@ -915,13 +965,13 @@
   "specification_version": "1.0",
   "summary": {
     "decision_parse_errors": 0,
-    "decisions": 3,
+    "decisions": 4,
     "exceptions": 0,
     "findings": 0,
-    "requirements": 38,
+    "requirements": 40,
     "scenarios": 0,
     "subjects": 10,
-    "verifications": 30
+    "verifications": 32
   },
   "verification": {
     "claims": [
@@ -979,6 +1029,28 @@
         "subject_id": "jido_action.action",
         "target": "mix test test/jido_action/action_test.exs test/jido_action/on_after_run_test.exs test/jido_action/exec_tool_test.exs test/jido_action/util_test.exs",
         "verification_index": 0
+      },
+      {
+        "cover_id": "jido_action.action.effect_boundary_guidance",
+        "file": ".spec/specs/action.spec.md",
+        "kind": "source_file",
+        "meets_minimum": true,
+        "required_strength": "claimed",
+        "strength": "linked",
+        "subject_id": "jido_action.action",
+        "target": "lib/jido_action.ex",
+        "verification_index": 1
+      },
+      {
+        "cover_id": "jido_action.action.effect_boundary_guidance",
+        "file": ".spec/specs/action.spec.md",
+        "kind": "guide_file",
+        "meets_minimum": true,
+        "required_strength": "claimed",
+        "strength": "linked",
+        "subject_id": "jido_action.action",
+        "target": "guides/actions-guide.md",
+        "verification_index": 2
       },
       {
         "cover_id": "jido_action.error_handling.normalized_errors",
@@ -1245,6 +1317,17 @@
         "verification_index": 4
       },
       {
+        "cover_id": "jido_action.scaffolding.support_guide_effect_boundary",
+        "file": ".spec/specs/scaffolding.spec.md",
+        "kind": "guide_file",
+        "meets_minimum": true,
+        "required_strength": "claimed",
+        "strength": "linked",
+        "subject_id": "jido_action.scaffolding",
+        "target": "guides/faq.md",
+        "verification_index": 4
+      },
+      {
         "cover_id": "jido_action.scaffolding.support_guide_observability_examples",
         "file": ".spec/specs/scaffolding.spec.md",
         "kind": "guide_file",
@@ -1470,12 +1553,12 @@
     "strength_summary": {
       "claimed": 2,
       "executed": 33,
-      "linked": 14
+      "linked": 17
     },
     "threshold_failures": 0
   },
   "workspace": {
-    "decision_count": 3,
+    "decision_count": 4,
     "spec_count": 10
   }
 }

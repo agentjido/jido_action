@@ -24,6 +24,7 @@ surface:
   - test/jido_action/util_test.exs
 decisions:
   - jido_action.spec_migration
+  - jido_action.action_effect_boundary_docs
 ```
 
 ## Requirements
@@ -53,6 +54,11 @@ decisions:
   statement: Jido.Action.Util shall resolve execution log levels from per-call options and package configuration, warn on invalid configured or call-site values, and fall back to stable defaults so action and tool execution keeps predictable logging behavior.
   priority: should
   stability: evolving
+
+- id: jido_action.action.effect_boundary_guidance
+  statement: The Jido.Action moduledoc and Actions guide shall state that an action's `run/2` may be pure or effectful, that inline I/O is acceptable when the step needs the result immediately, and that `jido` keeps its purity guarantee at the agent or strategy `cmd/2` boundary rather than on every invoked action.
+  priority: should
+  stability: evolving
 ```
 
 ## Verification
@@ -67,4 +73,14 @@ decisions:
     - jido_action.action.tool_bridge
     - jido_action.action.tool_execution_json_contract
     - jido_action.action.log_level_resolution
+
+- kind: source_file
+  target: lib/jido_action.ex
+  covers:
+    - jido_action.action.effect_boundary_guidance
+
+- kind: guide_file
+  target: guides/actions-guide.md
+  covers:
+    - jido_action.action.effect_boundary_guidance
 ```

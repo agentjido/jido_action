@@ -20,6 +20,7 @@ surface:
   - guides/pr-68-triage.md
 decisions:
   - jido_action.spec_migration
+  - jido_action.action_effect_boundary_docs
 ```
 
 ## Requirements
@@ -37,6 +38,11 @@ decisions:
 
 - id: jido_action.scaffolding.support_guide_observability_examples
   statement: Maintainer-facing FAQ and support guides shall keep production observability examples aligned with the current execution contract, including additive action telemetry examples and sanitized success-path logging guidance.
+  priority: should
+  stability: evolving
+
+- id: jido_action.scaffolding.support_guide_effect_boundary
+  statement: The maintainer-facing FAQ shall directly answer whether actions may perform side effects or HTTP calls, including that inline I/O is acceptable when the step needs the result immediately and that `jido` keeps purity at the agent or strategy `cmd/2` boundary.
   priority: should
   stability: evolving
 ```
@@ -69,6 +75,7 @@ decisions:
   covers:
     - jido_action.scaffolding.examples_and_support
     - jido_action.scaffolding.support_guide_observability_examples
+    - jido_action.scaffolding.support_guide_effect_boundary
 
 - kind: guide_file
   target: guides/pr-68-triage.md

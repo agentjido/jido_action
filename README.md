@@ -16,6 +16,14 @@ _`Jido.Action` is part of the [Jido](https://github.com/agentjido/jido) project.
 
 Whether you're building microservices that need structured operations, implementing agent-based systems, or creating AI-powered applications that require reliable function calling, Jido.Action provides the foundation for robust, traceable, and scalable action-driven architecture.
 
+## Purity and Side Effects
+
+`Jido.Action` modules are reusable execution units. `run/2` may be pure or effectful depending on the job.
+
+Doing HTTP requests, database queries, file system work, or other I/O inside `run/2` is acceptable when the step needs that data back immediately to continue the workflow. When an effect should instead be owned by a runtime or integration boundary, hand it off there rather than doing it inline.
+
+When actions are used inside [`jido`](https://github.com/agentjido/jido), the purity guarantee belongs to the agent or strategy `cmd/2` boundary, not necessarily to each action that the runtime executes behind that boundary.
+
 ## Why Do I Need Actions?
 
 **Structured Operations in Elixir's Dynamic World**
