@@ -1,3 +1,4 @@
+# covers: jido_action.action.effect_boundary_guidance
 defmodule Jido.Action do
   @moduledoc """
   Defines a discrete, composable unit of functionality within the Jido system.
@@ -51,6 +52,14 @@ defmodule Jido.Action do
   - `c:on_before_validate_params/1`: Called before parameter validation.
   - `c:on_after_validate_params/1`: Called after parameter validation.
   - `c:on_after_run/1`: Called after the Action's main logic has executed.
+
+  ## Purity and Effects
+
+  `Jido.Action` modules are reusable execution units. `c:run/2` may be pure or effectful depending on the job.
+
+  Doing HTTP requests, database queries, file system work, or other I/O in `c:run/2` is acceptable when the action needs that result immediately to continue. If an effect should instead be owned by a runtime or integration layer, hand it off there rather than doing it inline.
+
+  When actions are used inside `jido`, the purity guarantee belongs to the agent or strategy `cmd/2` boundary, not necessarily to each action the runtime executes behind that boundary.
 
   ## Error Handling
 
