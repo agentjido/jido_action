@@ -28,6 +28,7 @@ surface:
 decisions:
   - jido_action.spec_migration
   - jido_action.cross_subject_ci_stabilization
+  - jido_action.action_effect_boundary_docs
   - jido_action.execution_logging_hygiene
 ```
 
@@ -50,7 +51,7 @@ decisions:
   stability: evolving
 
 - id: jido_action.package.readme_onboarding
-  statement: The README shall document installation plus quick-start usage for action definition, execution, workflow normalization, and AI tool integration.
+  statement: The README shall document installation plus quick-start usage for action definition, execution, workflow normalization, and AI tool integration, and it shall explicitly explain that an action's `run/2` may perform side effects while `jido` keeps its purity guarantee at the agent or strategy `cmd/2` boundary.
   priority: should
   stability: evolving
 
