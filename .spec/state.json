@@ -166,6 +166,14 @@
       },
       {
         "file": ".spec/specs/package.spec.md",
+        "id": "jido_action.package.contributor_hook_workflow",
+        "priority": "should",
+        "stability": "evolving",
+        "statement": "CONTRIBUTING.md shall document the auto-installed `git_hooks` commit message workflow, including the explicit refresh command contributors can run to replace stale absolute-path hook scripts.",
+        "subject_id": "jido_action.package"
+      },
+      {
+        "file": ".spec/specs/package.spec.md",
         "id": "jido_action.package.contributor_spec_workflow",
         "priority": "should",
         "stability": "evolving",
@@ -469,6 +477,7 @@
             ".github/workflows/specs.yml",
             "CHANGELOG.md",
             "CONTRIBUTING.md",
+            "config/config.exs",
             "mix.exs",
             "README.md",
             "test/test_helper.exs",
@@ -764,7 +773,8 @@
       },
       {
         "covers": [
-          "jido_action.package.contributor_spec_workflow"
+          "jido_action.package.contributor_spec_workflow",
+          "jido_action.package.contributor_hook_workflow"
         ],
         "file": ".spec/specs/package.spec.md",
         "kind": "file",
@@ -968,7 +978,7 @@
     "decisions": 4,
     "exceptions": 0,
     "findings": 0,
-    "requirements": 40,
+    "requirements": 41,
     "scenarios": 0,
     "subjects": 10,
     "verifications": 32
@@ -1216,6 +1226,17 @@
         "subject_id": "jido_action.package",
         "target": ".github/workflows/specs.yml",
         "verification_index": 5
+      },
+      {
+        "cover_id": "jido_action.package.contributor_hook_workflow",
+        "file": ".spec/specs/package.spec.md",
+        "kind": "file",
+        "meets_minimum": true,
+        "required_strength": "claimed",
+        "strength": "linked",
+        "subject_id": "jido_action.package",
+        "target": "CONTRIBUTING.md",
+        "verification_index": 6
       },
       {
         "cover_id": "jido_action.package.contributor_spec_workflow",
@@ -1553,7 +1574,7 @@
     "strength_summary": {
       "claimed": 2,
       "executed": 33,
-      "linked": 17
+      "linked": 18
     },
     "threshold_failures": 0
   },

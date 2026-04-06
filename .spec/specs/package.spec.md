@@ -15,6 +15,7 @@ surface:
   - .github/workflows/specs.yml
   - CHANGELOG.md
   - CONTRIBUTING.md
+  - config/config.exs
   - mix.exs
   - README.md
   - test/test_helper.exs
@@ -69,6 +70,11 @@ decisions:
   statement: CONTRIBUTING.md shall document the Spec Led contribution loop, including when to update `.spec/specs/`, when to revise `.spec/decisions/`, and the pre-PR `mix spec.check --base <base-ref>` step.
   priority: should
   stability: evolving
+
+- id: jido_action.package.contributor_hook_workflow
+  statement: CONTRIBUTING.md shall document the auto-installed `git_hooks` commit message workflow, including the explicit refresh command contributors can run to replace stale absolute-path hook scripts.
+  priority: should
+  stability: evolving
 ```
 
 ## Verification
@@ -112,4 +118,5 @@ decisions:
   target: CONTRIBUTING.md
   covers:
     - jido_action.package.contributor_spec_workflow
+    - jido_action.package.contributor_hook_workflow
 ```
