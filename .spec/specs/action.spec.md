@@ -48,6 +48,11 @@ decisions:
   statement: Jido.Action.Tool.execute_action/3 shall preserve the legacy `{:ok, json}` and `{:error, json}` contract while emitting sanitized success payloads and binary error payloads even when raw failure inspection is unsafe.
   priority: should
   stability: evolving
+
+- id: jido_action.action.log_level_resolution
+  statement: Jido.Action.Util shall resolve execution log levels from per-call options and package configuration, warn on invalid configured or call-site values, and fall back to stable defaults so action and tool execution keeps predictable logging behavior.
+  priority: should
+  stability: evolving
 ```
 
 ## Verification
@@ -61,4 +66,5 @@ decisions:
     - jido_action.action.schema_validation
     - jido_action.action.tool_bridge
     - jido_action.action.tool_execution_json_contract
+    - jido_action.action.log_level_resolution
 ```

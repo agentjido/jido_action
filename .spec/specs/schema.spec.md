@@ -36,6 +36,11 @@ decisions:
   statement: Schema handling shall translate declared schemas into tool-friendly JSON Schema, bridge supported JSON Schema subsets to Zoi when possible, and avoid unsafe atom creation when processing tool input.
   priority: must
   stability: stable
+
+- id: jido_action.schema.nimble_json_schema_annotations
+  statement: NimbleOptions schema export shall preserve required keys, infer JSON-friendly primitive and enum types, and emit per-property descriptions with a fallback placeholder when the schema author does not provide one.
+  priority: should
+  stability: stable
 ```
 
 ## Verification
@@ -47,6 +52,7 @@ decisions:
   covers:
     - jido_action.schema.unified_validation
     - jido_action.schema.safe_tool_translation
+    - jido_action.schema.nimble_json_schema_annotations
 
 - kind: command
   target: mix test test/jido_action/json_schema_map_test.exs test/jido_action/json_schema_bridge_test.exs test/jido_action/atom_safety_test.exs

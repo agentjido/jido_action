@@ -1,9 +1,27 @@
 defmodule JidoTest.Action.UtilTest do
-  use JidoTest.ActionCase, async: true
+  use JidoTest.ActionCase, async: false
 
   alias Jido.Action.Util
 
   @moduletag :capture_log
+
+  defp put_log_level_config(value) do
+    original = Application.get_env(:jido_action, :default_log_level)
+
+    if is_nil(value) do
+      Application.delete_env(:jido_action, :default_log_level)
+    else
+      Application.put_env(:jido_action, :default_log_level, value)
+    end
+
+    on_exit(fn ->
+      if is_nil(original) do
+        Application.delete_env(:jido_action, :default_log_level)
+      else
+        Application.put_env(:jido_action, :default_log_level, original)
+      end
+    end)
+  end
 
   describe "cond_log/4" do
     test "logs when threshold level equals message level" do
@@ -40,6 +58,54 @@ defmodule JidoTest.Action.UtilTest do
       for threshold <- valid_levels, message <- valid_levels do
         assert :ok = Util.cond_log(threshold, message, "test")
       end
+    end
+  end
+
+  describe "default_log_level/0" do
+    test "falls back to :info when app config is missing" do
+      put_log_level_config(nil)
+      assert Util.default_log_level() == :info
+    end
+
+    test "returns configured level when valid" do
+      put_log_level_config(:debug)
+      assert Util.default_log_level() == :debug
+    end
+
+    test "warns and falls back when config is invalid" do
+      put_log_level_config(:loud)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert Util.default_log_level() == :info
+        end)
+
+      assert log =~ "Invalid :jido_action config for :default_log_level"
+      assert log =~ ":loud"
+    end
+  end
+
+  describe "resolve_log_level/1" do
+    test "uses per-call override when valid" do
+      put_log_level_config(:info)
+      assert Util.resolve_log_level(log_level: :debug) == :debug
+    end
+
+    test "uses config default when no override is given" do
+      put_log_level_config(:warning)
+      assert Util.resolve_log_level([]) == :warning
+    end
+
+    test "warns and falls back to config default when override is invalid" do
+      put_log_level_config(:warning)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert Util.resolve_log_level(log_level: :verbose) == :warning
+        end)
+
+      assert log =~ "Invalid execution :log_level option"
+      assert log =~ ":verbose"
     end
   end
 

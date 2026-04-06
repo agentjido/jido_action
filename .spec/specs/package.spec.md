@@ -10,7 +10,7 @@ Define the package-level contract that the repository documents and tests today.
 id: jido_action.package
 kind: package
 status: active
-summary: Package-level contract for action definition, execution, workflow normalization, planning, AI tool integration, and publishable dependency packaging.
+summary: Package-level contract for action definition, execution, workflow normalization, planning, AI tool integration, publishable dependency packaging, and legacy-safe execution logging defaults.
 surface:
   - .github/workflows/specs.yml
   - CHANGELOG.md
@@ -28,6 +28,7 @@ surface:
 decisions:
   - jido_action.spec_migration
   - jido_action.cross_subject_ci_stabilization
+  - jido_action.execution_logging_hygiene
 ```
 
 ## Requirements
@@ -40,6 +41,11 @@ decisions:
 
 - id: jido_action.package.execution_failure_surface
   statement: The package-level execution surface shall expose runtime failures as normalized exception structs with string messages and structured, transport-safe details suitable for downstream handling and JSON encoding.
+  priority: should
+  stability: evolving
+
+- id: jido_action.package.execution_logging_defaults
+  statement: The package-level execution surface shall keep routine execution traces quiet by default, require explicit `:log_level` opt-in for debug traces, and keep runtime inspection sanitization within the owning execution boundary instead of a package-wide logging facade.
   priority: should
   stability: evolving
 
@@ -74,10 +80,16 @@ decisions:
     - jido_action.package.core_surface
 
 - kind: command
-  target: mix test test/jido_action/exec_return_shape_test.exs test/jido_action/exec_coverage_test.exs test/jido_action/error_test.exs
+  target: mix test test/jido_action/exec_return_shape_test.exs test/jido_action/error_test.exs
   execute: true
   covers:
     - jido_action.package.execution_failure_surface
+
+- kind: command
+  target: mix test test/jido_action/exec_integration_test.exs test/jido_action/exec/telemetry_sanitization_test.exs test/jido_action/exec/chain_test.exs
+  execute: true
+  covers:
+    - jido_action.package.execution_logging_defaults
 
 - kind: readme_file
   target: README.md

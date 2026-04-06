@@ -58,6 +58,22 @@ defmodule Jido.Action.Error do
 
   alias Jido.Action.Sanitizer
 
+  @retryable_reason_atoms [
+    :busy,
+    :closed,
+    :econnrefused,
+    :econnreset,
+    :enetdown,
+    :enetunreach,
+    :overloaded,
+    :rate_limited,
+    :service_unavailable,
+    :temporary_failure,
+    :temporary_unavailable,
+    :timeout,
+    :transient_error
+  ]
+
   # Error class modules for Splode - these are for classification/aggregation only.
   # Use the concrete exception structs (ending in `Error`) for raising/matching.
 
@@ -428,18 +444,18 @@ defmodule Jido.Action.Error do
   def retryable?(%{retryable: value}) when is_boolean(value), do: value
 
   def retryable?(%{type: type} = error) when is_atom(type) do
-    retryable_hint(Map.get(error, :details, error), default_retryable?(type))
+    retryable_hint(Map.get(error, :details, error), default_retryable_type?(type))
   end
 
   def retryable?(%{code: type} = error) when is_atom(type) do
-    retryable_hint(Map.get(error, :details, error), default_retryable?(type))
+    retryable_hint(Map.get(error, :details, error), default_retryable_type?(type))
   end
 
   def retryable?(%{} = map) do
     retryable_hint(map, true)
   end
 
-  def retryable?(reason) when is_atom(reason), do: default_retryable?(reason)
+  def retryable?(reason) when is_atom(reason), do: default_retryable_reason?(reason)
   def retryable?(_reason), do: true
 
   @doc """
@@ -506,7 +522,7 @@ defmodule Jido.Action.Error do
     cond do
       is_boolean(Map.get(error, :retryable?)) -> Map.get(error, :retryable?)
       is_boolean(Map.get(error, :retryable)) -> Map.get(error, :retryable)
-      true -> retryable_hint(Map.get(error, :details, error), default_retryable?(type))
+      true -> retryable_hint(Map.get(error, :details, error), default_retryable_type?(type))
     end
   end
 
@@ -544,8 +560,13 @@ defmodule Jido.Action.Error do
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
-  defp default_retryable?(type) when type in [:validation_error, :configuration_error], do: false
-  defp default_retryable?(_type), do: true
+  defp default_retryable_type?(type) when type in [:validation_error, :configuration_error],
+    do: false
+
+  defp default_retryable_type?(_type), do: true
+
+  defp default_retryable_reason?(reason) when reason in @retryable_reason_atoms, do: true
+  defp default_retryable_reason?(_reason), do: false
 
   defp retryable_hint(term, default) do
     case extract_retry_hint(term) do

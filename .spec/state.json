@@ -3,6 +3,29 @@
     "items": [
       {
         "affects": [
+          "jido_action.package",
+          "jido_action.exec"
+        ],
+        "date": "2026-04-03",
+        "file": ".spec/decisions/jido_action.cross_subject_ci_stabilization.md",
+        "id": "jido_action.cross_subject_ci_stabilization",
+        "status": "accepted",
+        "title": "Keep package graph fixes and exec verification stabilization together when CI exposes both"
+      },
+      {
+        "affects": [
+          "jido_action.exec",
+          "jido_action.package",
+          "jido_action.tools"
+        ],
+        "date": "2026-04-03",
+        "file": ".spec/decisions/jido_action.execution_logging_hygiene.md",
+        "id": "jido_action.execution_logging_hygiene",
+        "status": "accepted",
+        "title": "Keep execution logging local and legacy-safe"
+      },
+      {
+        "affects": [
           "repo.governance"
         ],
         "date": "2026-03-28",
@@ -17,6 +40,14 @@
   "index": {
     "exceptions": [],
     "requirements": [
+      {
+        "file": ".spec/specs/action.spec.md",
+        "id": "jido_action.action.log_level_resolution",
+        "priority": "should",
+        "stability": "evolving",
+        "statement": "Jido.Action.Util shall resolve execution log levels from per-call options and package configuration, warn on invalid configured or call-site values, and fall back to stable defaults so action and tool execution keeps predictable logging behavior.",
+        "subject_id": "jido_action.action"
+      },
       {
         "file": ".spec/specs/action.spec.md",
         "id": "jido_action.action.metadata_contract",
@@ -59,6 +90,14 @@
       },
       {
         "file": ".spec/specs/error_handling.spec.md",
+        "id": "jido_action.error_handling.retryable_hints",
+        "priority": "should",
+        "stability": "stable",
+        "statement": "Jido.Action.Error.retryable?/1 shall derive stable retryability hints from timeout errors, transient reason atoms, explicit retry flags, and normalized error types so downstream callers and guides can make consistent retry decisions.",
+        "subject_id": "jido_action.error_handling"
+      },
+      {
+        "file": ".spec/specs/error_handling.spec.md",
         "id": "jido_action.error_handling.transport_safe_error_maps",
         "priority": "must",
         "stability": "stable",
@@ -75,10 +114,18 @@
       },
       {
         "file": ".spec/specs/exec.spec.md",
+        "id": "jido_action.exec.logging_hygiene",
+        "priority": "should",
+        "stability": "evolving",
+        "statement": "Execution logging shall sanitize inspected runtime values at the execution boundary, keep routine start and success traces behind an explicit debug-level opt-in, and preserve warning or error visibility for invalid configuration and runtime failures.",
+        "subject_id": "jido_action.exec"
+      },
+      {
+        "file": ".spec/specs/exec.spec.md",
         "id": "jido_action.exec.reliability_controls",
         "priority": "must",
         "stability": "stable",
-        "statement": "The execution engine shall apply retries, timeout handling, cancellation cleanup, compensation, telemetry, and instance-scoped supervisor/config behavior where those policies are configured.",
+        "statement": "The execution engine shall apply retries, timeout handling, cancellation cleanup, compensation, telemetry, and instance-scoped supervisor/config behavior where those policies are configured, including routing timeout cleanup checks through isolated supervisors when verification needs to avoid ambient shared tasks.",
         "subject_id": "jido_action.exec"
       },
       {
@@ -123,6 +170,22 @@
       },
       {
         "file": ".spec/specs/package.spec.md",
+        "id": "jido_action.package.execution_logging_defaults",
+        "priority": "should",
+        "stability": "evolving",
+        "statement": "The package-level execution surface shall keep routine execution traces quiet by default, require explicit `:log_level` opt-in for debug traces, and keep runtime inspection sanitization within the owning execution boundary instead of a package-wide logging facade.",
+        "subject_id": "jido_action.package"
+      },
+      {
+        "file": ".spec/specs/package.spec.md",
+        "id": "jido_action.package.publishable_dependency_graph",
+        "priority": "should",
+        "stability": "evolving",
+        "statement": "The package manifest shall resolve on Hex with a publishable dependency graph for workflow planning, using the direct `multigraph` package instead of aliasing a package into the `:libgraph` OTP app slot.",
+        "subject_id": "jido_action.package"
+      },
+      {
+        "file": ".spec/specs/package.spec.md",
         "id": "jido_action.package.readme_onboarding",
         "priority": "should",
         "stability": "evolving",
@@ -142,7 +205,7 @@
         "id": "jido_action.sanitizer.telemetry_profile",
         "priority": "must",
         "stability": "stable",
-        "statement": "Jido.Action.Sanitizer shall provide a telemetry profile that preserves execution telemetry semantics for redaction, truncation, tuple handling, inspect-safe summaries, and bounded traversal of nested runtime terms.",
+        "statement": "Jido.Action.Sanitizer shall provide a telemetry profile that preserves execution telemetry semantics for redaction, truncation, tuple handling, inspect-safe summaries, bounded traversal of nested runtime terms, and additive outcome metadata emitted by the execution telemetry layer.",
         "subject_id": "jido_action.sanitizer"
       },
       {
@@ -168,6 +231,22 @@
         "stability": "evolving",
         "statement": "The repository shall ship install and generator Mix tasks that compose Igniter behavior when available and raise clear dependency guidance when Igniter is unavailable.",
         "subject_id": "jido_action.scaffolding"
+      },
+      {
+        "file": ".spec/specs/scaffolding.spec.md",
+        "id": "jido_action.scaffolding.support_guide_observability_examples",
+        "priority": "should",
+        "stability": "evolving",
+        "statement": "Maintainer-facing FAQ and support guides shall keep production observability examples aligned with the current execution contract, including additive action telemetry examples and sanitized success-path logging guidance.",
+        "subject_id": "jido_action.scaffolding"
+      },
+      {
+        "file": ".spec/specs/schema.spec.md",
+        "id": "jido_action.schema.nimble_json_schema_annotations",
+        "priority": "should",
+        "stability": "stable",
+        "statement": "NimbleOptions schema export shall preserve required keys, infer JSON-friendly primitive and enum types, and emit per-property descriptions with a fallback placeholder when the schema author does not provide one.",
+        "subject_id": "jido_action.schema"
       },
       {
         "file": ".spec/specs/schema.spec.md",
@@ -198,8 +277,16 @@
         "id": "jido_action.tools.policy_integration",
         "priority": "should",
         "stability": "evolving",
-        "statement": "Built-in tool actions shall cooperate with execution-policy concerns such as deadline propagation and Lua supervision where the tests exercise those boundaries.",
+        "statement": "Built-in tool actions shall cooperate with execution-policy concerns such as deadline propagation and Lua supervision and timeout cleanup where the tests exercise those boundaries.",
         "subject_id": "jido_action.tools"
+      },
+      {
+        "file": ".spec/specs/workflow.spec.md",
+        "id": "jido_action.workflow.dependency_validation_diagnostics",
+        "priority": "should",
+        "stability": "stable",
+        "statement": "Jido.Plan shall reject undefined step dependencies with deterministic validation details that identify missing dependencies by step and list the available step names needed to repair the plan definition.",
+        "subject_id": "jido_action.workflow"
       },
       {
         "file": ".spec/specs/workflow.spec.md",
@@ -312,12 +399,14 @@
         "id": "jido_action.exec",
         "meta": {
           "decisions": [
-            "jido_action.spec_migration"
+            "jido_action.spec_migration",
+            "jido_action.cross_subject_ci_stabilization",
+            "jido_action.execution_logging_hygiene"
           ],
           "id": "jido_action.exec",
           "kind": "workflow",
           "status": "active",
-          "summary": "Execution engine for action normalization, retries, timeouts, cancellation, compensation, telemetry, and instance-scoped supervision.",
+          "summary": "Execution engine for action normalization, retries, timeouts, cancellation, compensation, boundary-local telemetry sanitization, legacy-safe error normalization, and instance-scoped supervision.",
           "surface": [
             "lib/jido_action/application.ex",
             "lib/jido_action/runtime.ex",
@@ -338,12 +427,14 @@
         "id": "jido_action.package",
         "meta": {
           "decisions": [
-            "jido_action.spec_migration"
+            "jido_action.spec_migration",
+            "jido_action.cross_subject_ci_stabilization",
+            "jido_action.execution_logging_hygiene"
           ],
           "id": "jido_action.package",
           "kind": "package",
           "status": "active",
-          "summary": "Package-level contract for action definition, execution, workflow normalization, planning, and AI tool integration.",
+          "summary": "Package-level contract for action definition, execution, workflow normalization, planning, AI tool integration, publishable dependency packaging, and legacy-safe execution logging defaults.",
           "surface": [
             ".github/workflows/specs.yml",
             "CHANGELOG.md",
@@ -376,7 +467,8 @@
           "summary": "Shared transport and telemetry sanitization for arbitrary runtime terms used across Jido Action boundaries.",
           "surface": [
             "lib/jido_action/sanitizer.ex",
-            "test/jido_action/sanitizer_test.exs"
+            "test/jido_action/sanitizer_test.exs",
+            "test/jido_action/exec/telemetry_sanitization_test.exs"
           ],
           "verification_minimum_strength": null
         },
@@ -455,12 +547,13 @@
         "id": "jido_action.tools",
         "meta": {
           "decisions": [
-            "jido_action.spec_migration"
+            "jido_action.spec_migration",
+            "jido_action.execution_logging_hygiene"
           ],
           "id": "jido_action.tools",
           "kind": "module",
           "status": "active",
-          "summary": "Built-in Jido tool actions for basic utilities, arithmetic, files, HTTP requests, and Lua execution.",
+          "summary": "Built-in Jido tool actions for basic utilities, arithmetic, files, HTTP requests, and policy-aware Lua execution cleanup.",
           "surface": [
             "lib/jido_tools/arithmetic.ex",
             "lib/jido_tools/basic.ex",
@@ -517,7 +610,8 @@
           "jido_action.action.metadata_contract",
           "jido_action.action.schema_validation",
           "jido_action.action.tool_bridge",
-          "jido_action.action.tool_execution_json_contract"
+          "jido_action.action.tool_execution_json_contract",
+          "jido_action.action.log_level_resolution"
         ],
         "execute": true,
         "file": ".spec/specs/action.spec.md",
@@ -528,7 +622,8 @@
       {
         "covers": [
           "jido_action.error_handling.normalized_errors",
-          "jido_action.error_handling.transport_safe_error_maps"
+          "jido_action.error_handling.transport_safe_error_maps",
+          "jido_action.error_handling.retryable_hints"
         ],
         "execute": true,
         "file": ".spec/specs/error_handling.spec.md",
@@ -546,19 +641,19 @@
         "file": ".spec/specs/exec.spec.md",
         "kind": "command",
         "subject_id": "jido_action.exec",
-        "target": "mix test test/jido_action/exec_run_test.exs test/jido_action/exec_async_test.exs test/jido_action/exec_task_test.exs test/jido_action/exec_execute_test.exs test/jido_action/exec_integration_test.exs test/jido_action/exec_config_test.exs test/jido_action/exec_timeout_task_supervisor_test.exs test/jido_action/exec_retry_policy_test.exs test/jido_action/exec_return_shape_test.exs test/jido_action/exec_do_run_test.exs test/jido_action/exec_compensate_test.exs test/jido_action/exec_output_validation_test.exs test/jido_action/exec_final_coverage_test.exs test/jido_action/exec_misc_coverage_test.exs test/jido_action/exec_coverage_test.exs"
+        "target": "mix test test/jido_action/exec_run_test.exs test/jido_action/exec_async_test.exs test/jido_action/exec_integration_test.exs test/jido_action/exec_retry_policy_test.exs test/jido_action/exec_return_shape_test.exs"
       },
       {
         "covers": [
-          "jido_action.exec.sync_async_engine",
           "jido_action.exec.reliability_controls",
-          "jido_action.exec.telemetry_value_sanitization"
+          "jido_action.exec.telemetry_value_sanitization",
+          "jido_action.exec.logging_hygiene"
         ],
         "execute": true,
         "file": ".spec/specs/exec.spec.md",
         "kind": "command",
         "subject_id": "jido_action.exec",
-        "target": "mix test test/jido_action/exec/async_mailbox_hygiene_test.exs test/jido_action/exec/chain_test.exs test/jido_action/exec/chain_interrupt_test.exs test/jido_action/exec/chain_supervision_test.exs test/jido_action/exec/closure_test.exs test/jido_action/exec/compensation_mailbox_hygiene_test.exs test/jido_action/exec/instance_isolation_test.exs test/jido_action/exec/telemetry_sanitization_test.exs"
+        "target": "mix test test/jido_action/exec_timeout_task_supervisor_test.exs test/jido_action/exec/chain_test.exs test/jido_action/exec/telemetry_sanitization_test.exs"
       },
       {
         "covers": [
@@ -578,7 +673,17 @@
         "file": ".spec/specs/package.spec.md",
         "kind": "command",
         "subject_id": "jido_action.package",
-        "target": "mix test test/jido_action/exec_return_shape_test.exs test/jido_action/exec_coverage_test.exs test/jido_action/error_test.exs"
+        "target": "mix test test/jido_action/exec_return_shape_test.exs test/jido_action/error_test.exs"
+      },
+      {
+        "covers": [
+          "jido_action.package.execution_logging_defaults"
+        ],
+        "execute": true,
+        "file": ".spec/specs/package.spec.md",
+        "kind": "command",
+        "subject_id": "jido_action.package",
+        "target": "mix test test/jido_action/exec_integration_test.exs test/jido_action/exec/telemetry_sanitization_test.exs test/jido_action/exec/chain_test.exs"
       },
       {
         "covers": [
@@ -588,6 +693,16 @@
         "kind": "readme_file",
         "subject_id": "jido_action.package",
         "target": "README.md"
+      },
+      {
+        "covers": [
+          "jido_action.package.publishable_dependency_graph"
+        ],
+        "execute": true,
+        "file": ".spec/specs/package.spec.md",
+        "kind": "command",
+        "subject_id": "jido_action.package",
+        "target": "MIX_ENV=prod mix deps.get"
       },
       {
         "covers": [
@@ -666,7 +781,8 @@
       },
       {
         "covers": [
-          "jido_action.scaffolding.examples_and_support"
+          "jido_action.scaffolding.examples_and_support",
+          "jido_action.scaffolding.support_guide_observability_examples"
         ],
         "file": ".spec/specs/scaffolding.spec.md",
         "kind": "guide_file",
@@ -685,7 +801,8 @@
       {
         "covers": [
           "jido_action.schema.unified_validation",
-          "jido_action.schema.safe_tool_translation"
+          "jido_action.schema.safe_tool_translation",
+          "jido_action.schema.nimble_json_schema_annotations"
         ],
         "execute": true,
         "file": ".spec/specs/schema.spec.md",
@@ -706,6 +823,16 @@
       },
       {
         "covers": [
+          "jido_action.tools.builtin_actions"
+        ],
+        "execute": true,
+        "file": ".spec/specs/tools.spec.md",
+        "kind": "command",
+        "subject_id": "jido_action.tools",
+        "target": "mix test test/jido_tools/arithmetic_test.exs test/jido_tools/basic_test.exs test/jido_tools/files_test.exs test/jido_tools/req_test.exs"
+      },
+      {
+        "covers": [
           "jido_action.tools.builtin_actions",
           "jido_action.tools.policy_integration"
         ],
@@ -713,12 +840,13 @@
         "file": ".spec/specs/tools.spec.md",
         "kind": "command",
         "subject_id": "jido_action.tools",
-        "target": "mix test test/jido_tools/arithmetic_test.exs test/jido_tools/basic_test.exs test/jido_tools/files_test.exs test/jido_tools/req_test.exs test/jido_tools/lua_eval_test.exs test/jido_tools/lua_eval_supervision_test.exs test/jido_tools/deadline_propagation_test.exs"
+        "target": "mix test test/jido_tools/lua_eval_test.exs test/jido_tools/lua_eval_supervision_test.exs test/jido_tools/deadline_propagation_test.exs"
       },
       {
         "covers": [
           "jido_action.workflow.instruction_normalization",
-          "jido_action.workflow.plan_and_workflow_execution"
+          "jido_action.workflow.plan_and_workflow_execution",
+          "jido_action.workflow.dependency_validation_diagnostics"
         ],
         "execute": true,
         "file": ".spec/specs/workflow.spec.md",
@@ -787,16 +915,27 @@
   "specification_version": "1.0",
   "summary": {
     "decision_parse_errors": 0,
-    "decisions": 1,
+    "decisions": 3,
     "exceptions": 0,
     "findings": 0,
-    "requirements": 30,
+    "requirements": 38,
     "scenarios": 0,
     "subjects": 10,
-    "verifications": 27
+    "verifications": 30
   },
   "verification": {
     "claims": [
+      {
+        "cover_id": "jido_action.action.log_level_resolution",
+        "file": ".spec/specs/action.spec.md",
+        "kind": "command",
+        "meets_minimum": true,
+        "required_strength": "claimed",
+        "strength": "executed",
+        "subject_id": "jido_action.action",
+        "target": "mix test test/jido_action/action_test.exs test/jido_action/on_after_run_test.exs test/jido_action/exec_tool_test.exs test/jido_action/util_test.exs",
+        "verification_index": 0
+      },
       {
         "cover_id": "jido_action.action.metadata_contract",
         "file": ".spec/specs/action.spec.md",
@@ -853,6 +992,17 @@
         "verification_index": 0
       },
       {
+        "cover_id": "jido_action.error_handling.retryable_hints",
+        "file": ".spec/specs/error_handling.spec.md",
+        "kind": "command",
+        "meets_minimum": true,
+        "required_strength": "claimed",
+        "strength": "executed",
+        "subject_id": "jido_action.error_handling",
+        "target": "mix test test/jido_action/error_test.exs",
+        "verification_index": 0
+      },
+      {
         "cover_id": "jido_action.error_handling.transport_safe_error_maps",
         "file": ".spec/specs/error_handling.spec.md",
         "kind": "command",
@@ -871,7 +1021,7 @@
         "required_strength": "claimed",
         "strength": "executed",
         "subject_id": "jido_action.exec",
-        "target": "mix test test/jido_action/exec_run_test.exs test/jido_action/exec_async_test.exs test/jido_action/exec_task_test.exs test/jido_action/exec_execute_test.exs test/jido_action/exec_integration_test.exs test/jido_action/exec_config_test.exs test/jido_action/exec_timeout_task_supervisor_test.exs test/jido_action/exec_retry_policy_test.exs test/jido_action/exec_return_shape_test.exs test/jido_action/exec_do_run_test.exs test/jido_action/exec_compensate_test.exs test/jido_action/exec_output_validation_test.exs test/jido_action/exec_final_coverage_test.exs test/jido_action/exec_misc_coverage_test.exs test/jido_action/exec_coverage_test.exs",
+        "target": "mix test test/jido_action/exec_run_test.exs test/jido_action/exec_async_test.exs test/jido_action/exec_integration_test.exs test/jido_action/exec_retry_policy_test.exs test/jido_action/exec_return_shape_test.exs",
         "verification_index": 0
       },
       {
@@ -882,7 +1032,7 @@
         "required_strength": "claimed",
         "strength": "executed",
         "subject_id": "jido_action.exec",
-        "target": "mix test test/jido_action/exec_run_test.exs test/jido_action/exec_async_test.exs test/jido_action/exec_task_test.exs test/jido_action/exec_execute_test.exs test/jido_action/exec_integration_test.exs test/jido_action/exec_config_test.exs test/jido_action/exec_timeout_task_supervisor_test.exs test/jido_action/exec_retry_policy_test.exs test/jido_action/exec_return_shape_test.exs test/jido_action/exec_do_run_test.exs test/jido_action/exec_compensate_test.exs test/jido_action/exec_output_validation_test.exs test/jido_action/exec_final_coverage_test.exs test/jido_action/exec_misc_coverage_test.exs test/jido_action/exec_coverage_test.exs",
+        "target": "mix test test/jido_action/exec_run_test.exs test/jido_action/exec_async_test.exs test/jido_action/exec_integration_test.exs test/jido_action/exec_retry_policy_test.exs test/jido_action/exec_return_shape_test.exs",
         "verification_index": 0
       },
       {
@@ -893,29 +1043,29 @@
         "required_strength": "claimed",
         "strength": "executed",
         "subject_id": "jido_action.exec",
-        "target": "mix test test/jido_action/exec_run_test.exs test/jido_action/exec_async_test.exs test/jido_action/exec_task_test.exs test/jido_action/exec_execute_test.exs test/jido_action/exec_integration_test.exs test/jido_action/exec_config_test.exs test/jido_action/exec_timeout_task_supervisor_test.exs test/jido_action/exec_retry_policy_test.exs test/jido_action/exec_return_shape_test.exs test/jido_action/exec_do_run_test.exs test/jido_action/exec_compensate_test.exs test/jido_action/exec_output_validation_test.exs test/jido_action/exec_final_coverage_test.exs test/jido_action/exec_misc_coverage_test.exs test/jido_action/exec_coverage_test.exs",
+        "target": "mix test test/jido_action/exec_run_test.exs test/jido_action/exec_async_test.exs test/jido_action/exec_integration_test.exs test/jido_action/exec_retry_policy_test.exs test/jido_action/exec_return_shape_test.exs",
         "verification_index": 0
       },
       {
-        "cover_id": "jido_action.exec.reliability_controls",
+        "cover_id": "jido_action.exec.logging_hygiene",
         "file": ".spec/specs/exec.spec.md",
         "kind": "command",
         "meets_minimum": true,
         "required_strength": "claimed",
         "strength": "executed",
         "subject_id": "jido_action.exec",
-        "target": "mix test test/jido_action/exec/async_mailbox_hygiene_test.exs test/jido_action/exec/chain_test.exs test/jido_action/exec/chain_interrupt_test.exs test/jido_action/exec/chain_supervision_test.exs test/jido_action/exec/closure_test.exs test/jido_action/exec/compensation_mailbox_hygiene_test.exs test/jido_action/exec/instance_isolation_test.exs test/jido_action/exec/telemetry_sanitization_test.exs",
+        "target": "mix test test/jido_action/exec_timeout_task_supervisor_test.exs test/jido_action/exec/chain_test.exs test/jido_action/exec/telemetry_sanitization_test.exs",
         "verification_index": 1
       },
       {
-        "cover_id": "jido_action.exec.sync_async_engine",
+        "cover_id": "jido_action.exec.reliability_controls",
         "file": ".spec/specs/exec.spec.md",
         "kind": "command",
         "meets_minimum": true,
         "required_strength": "claimed",
         "strength": "executed",
         "subject_id": "jido_action.exec",
-        "target": "mix test test/jido_action/exec/async_mailbox_hygiene_test.exs test/jido_action/exec/chain_test.exs test/jido_action/exec/chain_interrupt_test.exs test/jido_action/exec/chain_supervision_test.exs test/jido_action/exec/closure_test.exs test/jido_action/exec/compensation_mailbox_hygiene_test.exs test/jido_action/exec/instance_isolation_test.exs test/jido_action/exec/telemetry_sanitization_test.exs",
+        "target": "mix test test/jido_action/exec_timeout_task_supervisor_test.exs test/jido_action/exec/chain_test.exs test/jido_action/exec/telemetry_sanitization_test.exs",
         "verification_index": 1
       },
       {
@@ -926,7 +1076,7 @@
         "required_strength": "claimed",
         "strength": "executed",
         "subject_id": "jido_action.exec",
-        "target": "mix test test/jido_action/exec/async_mailbox_hygiene_test.exs test/jido_action/exec/chain_test.exs test/jido_action/exec/chain_interrupt_test.exs test/jido_action/exec/chain_supervision_test.exs test/jido_action/exec/closure_test.exs test/jido_action/exec/compensation_mailbox_hygiene_test.exs test/jido_action/exec/instance_isolation_test.exs test/jido_action/exec/telemetry_sanitization_test.exs",
+        "target": "mix test test/jido_action/exec_timeout_task_supervisor_test.exs test/jido_action/exec/chain_test.exs test/jido_action/exec/telemetry_sanitization_test.exs",
         "verification_index": 1
       },
       {
@@ -948,8 +1098,19 @@
         "required_strength": "claimed",
         "strength": "executed",
         "subject_id": "jido_action.package",
-        "target": "mix test test/jido_action/exec_return_shape_test.exs test/jido_action/exec_coverage_test.exs test/jido_action/error_test.exs",
+        "target": "mix test test/jido_action/exec_return_shape_test.exs test/jido_action/error_test.exs",
         "verification_index": 1
+      },
+      {
+        "cover_id": "jido_action.package.execution_logging_defaults",
+        "file": ".spec/specs/package.spec.md",
+        "kind": "command",
+        "meets_minimum": true,
+        "required_strength": "claimed",
+        "strength": "executed",
+        "subject_id": "jido_action.package",
+        "target": "mix test test/jido_action/exec_integration_test.exs test/jido_action/exec/telemetry_sanitization_test.exs test/jido_action/exec/chain_test.exs",
+        "verification_index": 2
       },
       {
         "cover_id": "jido_action.package.readme_onboarding",
@@ -960,7 +1121,18 @@
         "strength": "linked",
         "subject_id": "jido_action.package",
         "target": "README.md",
-        "verification_index": 2
+        "verification_index": 3
+      },
+      {
+        "cover_id": "jido_action.package.publishable_dependency_graph",
+        "file": ".spec/specs/package.spec.md",
+        "kind": "command",
+        "meets_minimum": true,
+        "required_strength": "claimed",
+        "strength": "executed",
+        "subject_id": "jido_action.package",
+        "target": "MIX_ENV=prod mix deps.get",
+        "verification_index": 4
       },
       {
         "cover_id": "jido_action.package.spec_pr_gate",
@@ -971,7 +1143,7 @@
         "strength": "linked",
         "subject_id": "jido_action.package",
         "target": ".github/workflows/specs.yml",
-        "verification_index": 3
+        "verification_index": 5
       },
       {
         "cover_id": "jido_action.package.contributor_spec_workflow",
@@ -982,7 +1154,7 @@
         "strength": "linked",
         "subject_id": "jido_action.package",
         "target": "CONTRIBUTING.md",
-        "verification_index": 4
+        "verification_index": 6
       },
       {
         "cover_id": "jido_action.sanitizer.telemetry_profile",
@@ -1073,6 +1245,17 @@
         "verification_index": 4
       },
       {
+        "cover_id": "jido_action.scaffolding.support_guide_observability_examples",
+        "file": ".spec/specs/scaffolding.spec.md",
+        "kind": "guide_file",
+        "meets_minimum": true,
+        "required_strength": "claimed",
+        "strength": "linked",
+        "subject_id": "jido_action.scaffolding",
+        "target": "guides/faq.md",
+        "verification_index": 4
+      },
+      {
         "cover_id": "jido_action.scaffolding.examples_and_support",
         "file": ".spec/specs/scaffolding.spec.md",
         "kind": "guide_file",
@@ -1082,6 +1265,17 @@
         "subject_id": "jido_action.scaffolding",
         "target": "guides/pr-68-triage.md",
         "verification_index": 5
+      },
+      {
+        "cover_id": "jido_action.schema.nimble_json_schema_annotations",
+        "file": ".spec/specs/schema.spec.md",
+        "kind": "command",
+        "meets_minimum": true,
+        "required_strength": "claimed",
+        "strength": "executed",
+        "subject_id": "jido_action.schema",
+        "target": "mix test test/jido_action/zoi_schema_test.exs test/jido_action/schema_json_test.exs",
+        "verification_index": 0
       },
       {
         "cover_id": "jido_action.schema.safe_tool_translation",
@@ -1135,8 +1329,19 @@
         "required_strength": "claimed",
         "strength": "executed",
         "subject_id": "jido_action.tools",
-        "target": "mix test test/jido_tools/arithmetic_test.exs test/jido_tools/basic_test.exs test/jido_tools/files_test.exs test/jido_tools/req_test.exs test/jido_tools/lua_eval_test.exs test/jido_tools/lua_eval_supervision_test.exs test/jido_tools/deadline_propagation_test.exs",
+        "target": "mix test test/jido_tools/arithmetic_test.exs test/jido_tools/basic_test.exs test/jido_tools/files_test.exs test/jido_tools/req_test.exs",
         "verification_index": 0
+      },
+      {
+        "cover_id": "jido_action.tools.builtin_actions",
+        "file": ".spec/specs/tools.spec.md",
+        "kind": "command",
+        "meets_minimum": true,
+        "required_strength": "claimed",
+        "strength": "executed",
+        "subject_id": "jido_action.tools",
+        "target": "mix test test/jido_tools/lua_eval_test.exs test/jido_tools/lua_eval_supervision_test.exs test/jido_tools/deadline_propagation_test.exs",
+        "verification_index": 1
       },
       {
         "cover_id": "jido_action.tools.policy_integration",
@@ -1146,7 +1351,18 @@
         "required_strength": "claimed",
         "strength": "executed",
         "subject_id": "jido_action.tools",
-        "target": "mix test test/jido_tools/arithmetic_test.exs test/jido_tools/basic_test.exs test/jido_tools/files_test.exs test/jido_tools/req_test.exs test/jido_tools/lua_eval_test.exs test/jido_tools/lua_eval_supervision_test.exs test/jido_tools/deadline_propagation_test.exs",
+        "target": "mix test test/jido_tools/lua_eval_test.exs test/jido_tools/lua_eval_supervision_test.exs test/jido_tools/deadline_propagation_test.exs",
+        "verification_index": 1
+      },
+      {
+        "cover_id": "jido_action.workflow.dependency_validation_diagnostics",
+        "file": ".spec/specs/workflow.spec.md",
+        "kind": "command",
+        "meets_minimum": true,
+        "required_strength": "claimed",
+        "strength": "executed",
+        "subject_id": "jido_action.workflow",
+        "target": "mix test test/jido_action/instruction_test.exs test/jido/plan_test.exs test/jido/plan_coverage_test.exs test/jido/plan_missing_dependency_test.exs",
         "verification_index": 0
       },
       {
@@ -1253,13 +1469,13 @@
     "default_minimum_strength": "claimed",
     "strength_summary": {
       "claimed": 2,
-      "executed": 26,
-      "linked": 13
+      "executed": 33,
+      "linked": 14
     },
     "threshold_failures": 0
   },
   "workspace": {
-    "decision_count": 1,
+    "decision_count": 3,
     "spec_count": 10
   }
 }

@@ -350,6 +350,11 @@ defmodule Jido.Action.ErrorTest do
                Error.to_map(%{type: :execution_error, message: :transient_error, details: %{}})
     end
 
+    test "normalizes raw atom reasons with conservative retry defaults" do
+      assert %{type: :badarg, message: "badarg", retryable?: false} = Error.to_map(:badarg)
+      assert %{type: :timeout, message: "timeout", retryable?: true} = Error.to_map(:timeout)
+    end
+
     test "normalizes plain message maps without assuming structs" do
       error = %{
         message: "connection refused",
@@ -394,12 +399,14 @@ defmodule Jido.Action.ErrorTest do
       assert Error.retryable?(Error.timeout_error("timed out", timeout: 500))
       assert Error.retryable?(%{type: :rate_limited, message: "slow down"})
       assert Error.retryable?(%{details: %{retry: true}})
+      assert Error.retryable?(:transient_error)
     end
 
     test "rejects validation and configuration errors" do
       refute Error.retryable?(Error.validation_error("invalid"))
       refute Error.retryable?(Error.config_error("bad config"))
       refute Error.retryable?(%{details: %{retry: false}})
+      refute Error.retryable?(:badarg)
     end
   end
 end

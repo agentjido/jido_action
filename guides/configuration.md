@@ -19,7 +19,10 @@ config :jido_action,
   
   # Retry configuration
   default_max_retries: 1,       # Default retry attempts
-  default_backoff: 250          # Initial backoff in milliseconds (exponential, capped at 30s)
+  default_backoff: 250,         # Initial backoff in milliseconds (exponential, capped at 30s)
+
+  # Execution logging threshold
+  default_log_level: :info
 ```
 
 ### Environment-Specific Configuration
@@ -29,14 +32,16 @@ config :jido_action,
 import Config
 
 config :jido_action,
-  default_timeout: 60_000       # Longer timeouts in dev
+  default_timeout: 60_000,      # Longer timeouts in dev
+  default_log_level: :debug     # More verbose execution logs in dev
 
 # config/test.exs  
 import Config
 
 config :jido_action,
   default_timeout: 1_000,       # Faster timeouts in tests
-  default_max_retries: 0        # No retries in tests
+  default_max_retries: 0,       # No retries in tests
+  default_log_level: :warning   # Keep test logs quieter by default
 
 # config/prod.exs
 import Config
@@ -44,22 +49,25 @@ import Config
 config :jido_action,
   default_timeout: 30_000,
   default_max_retries: 3,       # More retries in production
-  default_backoff: 500          # Longer initial backoff
+  default_backoff: 500,         # Longer initial backoff
+  default_log_level: :info
 ```
 
 ## Runtime Configuration
 
 ### Runtime Config Validation and Fallback
 
-`Jido.Exec`, `Jido.Exec.Async`, and `Jido.Exec.Retry` validate runtime values for:
+`Jido.Exec`, `Jido.Exec.Async`, `Jido.Exec.Retry`, and `Jido.Action.Util` validate runtime values for:
 
 - `:default_timeout`
 - `:default_max_retries`
 - `:default_backoff`
+- `:default_log_level`
 
-Each value must be a non-negative integer.
+The timeout and retry settings must be non-negative integers.
+`default_log_level` must be a valid `Logger.level()`.
 
-If a value is invalid (for example `-1`, `:bad`, or `"5000"`), Jido:
+If a value is invalid (for example `-1`, `:bad`, `"5000"`, or `:verbose`), Jido:
 
 1. Logs a warning with the invalid value and config key.
 2. Uses the internal fallback default for that key.
@@ -69,8 +77,9 @@ Example warning behavior:
 
 ```elixir
 Application.put_env(:jido_action, :default_timeout, :bad_value)
+Application.put_env(:jido_action, :default_log_level, :verbose)
 
-# Exec/Async calls will warn and use fallback timeout.
+# Exec/Async calls will warn and use fallback defaults.
 {:ok, _result} = Jido.Exec.run(MyAction, %{input: "ok"}, %{})
 ```
 
@@ -115,7 +124,7 @@ Override settings when executing actions:
   timeout: 60_000,           # 60 second timeout
   max_retries: 5,            # 5 retries
   backoff: 500,              # 500ms initial backoff (doubles each retry)
-  log_level: :debug,         # Override log level
+  log_level: :debug,         # Override Jido's execution log threshold for this call
   telemetry: :silent         # Disable telemetry for this call
 )
 ```
@@ -124,8 +133,14 @@ Override settings when executing actions:
 - `:timeout` - Maximum time in ms for the action to complete (default: 30000)
 - `:max_retries` - Maximum retry attempts on failure (default: 1)
 - `:backoff` - Initial backoff time in ms, doubles with each retry (default: 250, capped at 30s)
-- `:log_level` - Override Logger level (`:debug`, `:info`, `:warning`, `:error`)
+- `:log_level` - Override Jido's execution log threshold for this call. Accepts `Logger.levels()`. Global Logger config still applies underneath.
 - `:telemetry` - Telemetry mode: `:full` (default) or `:silent`
+
+Execution log level precedence is:
+
+1. `opts[:log_level]`
+2. `config :jido_action, default_log_level: ...`
+3. built-in `:info`
 
 ### Configuration Access
 
@@ -157,9 +172,15 @@ end
 
 Jido Action emits telemetry events under the `[:jido, :action]` prefix using `:telemetry.span/3`:
 
-- `[:jido, :action, :start]` - Action execution begins
-- `[:jido, :action, :stop]` - Action execution completes successfully
-- `[:jido, :action, :exception]` - Action execution fails
+- `[:jido, :action, :start]` - Action execution begins with `action` and optional `jido`
+- `[:jido, :action, :stop]` - Action execution completes with bounded summary metadata (`action`, optional `jido`, `outcome`, and error summary fields when relevant)
+
+Regular action failures are represented as `:stop` events with `metadata.outcome == :error`.
+`[:jido, :action, :exception]` is reserved for uncaught exceptions that escape the telemetry span,
+which should be rare in normal `Jido.Exec` flows.
+
+Default execution telemetry intentionally excludes full `params`, `context`, `result`, and
+stacktrace payloads to keep metadata low-cardinality and avoid leaking sensitive runtime values.
 
 ### Custom Telemetry Handlers
 
@@ -173,8 +194,7 @@ def start(_type, _args) do
     "jido-action-handlers",
     [
       [:jido, :action, :start],
-      [:jido, :action, :stop], 
-      [:jido, :action, :exception]
+      [:jido, :action, :stop]
     ],
     &MyApp.Telemetry.handle_event/4,
     %{}
@@ -195,26 +215,34 @@ defmodule MyApp.Telemetry do
   require Logger
 
   def handle_event([:jido, :action, :start], _measurements, metadata, _config) do
-    Logger.info("Action started",
+    Logger.debug("Action started",
       action: metadata.action,
-      params: metadata.params
+      jido: metadata[:jido]
     )
   end
 
   def handle_event([:jido, :action, :stop], measurements, metadata, _config) do
-    Logger.info("Action completed",
-      action: metadata.action,
-      duration_ms: System.convert_time_unit(measurements.duration, :native, :millisecond)
-    )
-  end
+    duration_ms = System.convert_time_unit(measurements.duration, :native, :millisecond)
 
-  def handle_event([:jido, :action, :exception], measurements, metadata, _config) do
-    Logger.error("Action failed",
-      action: metadata.action,
-      kind: metadata.kind,
-      reason: metadata.reason,
-      duration_ms: System.convert_time_unit(measurements.duration, :native, :millisecond)
-    )
+    case metadata.outcome do
+      :ok ->
+        Logger.info("Action completed",
+          action: metadata.action,
+          duration_ms: duration_ms,
+          jido: metadata[:jido],
+          directive?: metadata[:directive?] == true
+        )
+
+      :error ->
+        Logger.error("Action failed",
+          action: metadata.action,
+          duration_ms: duration_ms,
+          jido: metadata[:jido],
+          error_type: metadata[:error_type],
+          retryable?: metadata[:retryable?] == true,
+          directive?: metadata[:directive?] == true
+        )
+    end
   end
 end
 ```
@@ -426,7 +454,7 @@ Passed to `Jido.Exec.run/4`:
 | `:timeout` | integer | 30000 | Action timeout in milliseconds |
 | `:max_retries` | integer | 1 | Number of retry attempts |
 | `:backoff` | integer | 250 | Initial backoff in ms |
-| `:log_level` | atom | :info | Logger level override |
+| `:log_level` | atom | `config(:jido_action, :default_log_level)` or `:info` | Jido execution log threshold override |
 | `:telemetry` | atom | :full | `:full` or `:silent` |
 | `:jido` | atom | nil | Instance name for multi-tenant isolation |
 

@@ -5,6 +5,7 @@ defmodule Jido.Action.Util do
 
   require Logger
 
+  @default_log_level :info
   @name_regex ~r/^[a-zA-Z][a-zA-Z0-9_]*$/
 
   @doc """
@@ -53,6 +54,60 @@ defmodule Jido.Action.Util do
 
       true ->
         :ok
+    end
+  end
+
+  @doc """
+  Returns the default execution log threshold for Jido.
+
+  This reads `:jido_action, :default_log_level` and falls back to `:info`
+  when the config value is missing or invalid.
+  """
+  @spec default_log_level() :: Logger.level()
+  def default_log_level do
+    case Application.get_env(:jido_action, :default_log_level, @default_log_level) do
+      level ->
+        if level in Logger.levels() do
+          level
+        else
+          Logger.warning(fn ->
+            "Invalid :jido_action config for :default_log_level: #{inspect(level)}. " <>
+              "Expected one of #{inspect(Logger.levels())}; using fallback #{inspect(@default_log_level)}."
+          end)
+
+          @default_log_level
+        end
+    end
+  end
+
+  @doc """
+  Resolves the execution log threshold for a call.
+
+  Precedence:
+
+  1. `opts[:log_level]`
+  2. `config :jido_action, default_log_level: ...`
+  3. built-in `:info`
+  """
+  @spec resolve_log_level(keyword()) :: Logger.level()
+  def resolve_log_level(opts \\ []) do
+    case Keyword.fetch(opts, :log_level) do
+      {:ok, level} ->
+        if level in Logger.levels() do
+          level
+        else
+          fallback = default_log_level()
+
+          Logger.warning(fn ->
+            "Invalid execution :log_level option: #{inspect(level)}. " <>
+              "Expected one of #{inspect(Logger.levels())}; using #{inspect(fallback)}."
+          end)
+
+          fallback
+        end
+
+      :error ->
+        default_log_level()
     end
   end
 

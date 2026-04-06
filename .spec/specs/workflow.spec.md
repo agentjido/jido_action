@@ -39,6 +39,11 @@ decisions:
   statement: Jido.Plan, Jido.Tools.Workflow, and Jido.Tools.ActionPlan shall model dependency-aware workflows and execute sequential, branched, parallel, and result-transforming action plans through Jido.Exec.
   priority: must
   stability: stable
+
+- id: jido_action.workflow.dependency_validation_diagnostics
+  statement: Jido.Plan shall reject undefined step dependencies with deterministic validation details that identify missing dependencies by step and list the available step names needed to repair the plan definition.
+  priority: should
+  stability: stable
 ```
 
 ## Verification
@@ -50,6 +55,7 @@ decisions:
   covers:
     - jido_action.workflow.instruction_normalization
     - jido_action.workflow.plan_and_workflow_execution
+    - jido_action.workflow.dependency_validation_diagnostics
 
 - kind: command
   target: mix test test/jido_tools/action_plan_test.exs test/jido_tools/workflow_test.exs test/jido_tools/workflow_parallel_policy_test.exs test/jido_tools/workflow_retry_policy_test.exs test/jido_action/examples/user_registration_workflow_test.exs
