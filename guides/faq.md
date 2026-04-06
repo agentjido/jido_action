@@ -33,6 +33,14 @@ Use regular functions for:
 - Helper utilities
 - Performance-critical code paths
 
+### Q: Can actions perform side effects or HTTP calls?
+
+**A:** Yes. An action's `run/2` may be pure or effectful.
+
+Use I/O in `run/2` when the step needs the result immediately, such as fetching data from an API, reading a file, or writing to an external service as part of the action's contract. If the effect should be owned by a runtime or integration layer instead, hand it off there rather than doing it inline.
+
+When actions are used inside `jido`, the purity guarantee belongs to the agent or strategy `cmd/2` boundary, not necessarily to each action that executes behind it.
+
 ### Q: Can I convert existing functions to actions?
 
 **A:** Yes! Here's a typical conversion:
