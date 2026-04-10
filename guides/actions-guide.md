@@ -1,7 +1,5 @@
 # Actions
 
-<!-- covers: jido_action.action.effect_boundary_guidance -->
-
 **Prerequisites**: [Getting Started](getting-started.md) • [Your Second Action](your-second-action.md)
 
 Actions are the core building blocks of Jido Action - self-contained modules that define validated, observable operations with clear input/output contracts.

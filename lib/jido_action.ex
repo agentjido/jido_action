@@ -1,4 +1,3 @@
-# covers: jido_action.action.effect_boundary_guidance
 defmodule Jido.Action do
   @moduledoc """
   Defines a discrete, composable unit of functionality within the Jido system.

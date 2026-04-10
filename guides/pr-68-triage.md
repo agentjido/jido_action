@@ -1,7 +1,5 @@
 # PR #68 Triage Plan
 
-<!-- covers: jido_action.scaffolding.examples_and_support -->
-
 This document tracks decomposition of draft PR [#68](https://github.com/agentjido/jido_action/pull/68) into focused, reviewable work.
 
 ## Snapshot

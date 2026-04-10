@@ -1,7 +1,5 @@
 # Frequently Asked Questions
 
-<!-- covers: jido_action.scaffolding.examples_and_support, jido_action.scaffolding.support_guide_observability_examples, jido_action.scaffolding.support_guide_effect_boundary -->
-
 Common questions and solutions for Jido Action development.
 
 ## Getting Started
