@@ -394,6 +394,49 @@ defmodule Jido.Action.ErrorTest do
     end
   end
 
+  describe "Jason.Encoder for error structs" do
+    test "InvalidInputError is directly JSON-encodable" do
+      error = Error.validation_error("bad input", field: :name, value: 123)
+      assert {:ok, json} = Jason.encode(error)
+      decoded = Jason.decode!(json)
+      assert decoded["message"] == "bad input"
+      assert decoded["field"] == "name"
+      # details excluded — may contain non-serializable terms
+      refute Map.has_key?(decoded, "details")
+    end
+
+    test "ExecutionFailureError is directly JSON-encodable" do
+      error = Error.execution_error("boom", %{stacktrace: [{Enum, :map, 2, []}]})
+      assert {:ok, json} = Jason.encode(error)
+      decoded = Jason.decode!(json)
+      assert decoded["message"] == "boom"
+      # details excluded — contains stacktrace tuples
+      refute Map.has_key?(decoded, "details")
+    end
+
+    test "TimeoutError is directly JSON-encodable" do
+      error = Error.timeout_error("timed out", timeout: 5000)
+      assert {:ok, json} = Jason.encode(error)
+      decoded = Jason.decode!(json)
+      assert decoded["message"] == "timed out"
+      assert decoded["timeout"] == 5000
+    end
+
+    test "ConfigurationError is directly JSON-encodable" do
+      error = Error.config_error("missing key", %{key: :api_url})
+      assert {:ok, json} = Jason.encode(error)
+      decoded = Jason.decode!(json)
+      assert decoded["message"] == "missing key"
+    end
+
+    test "InternalError is directly JSON-encodable" do
+      error = Error.internal_error("unexpected", %{reason: :unknown})
+      assert {:ok, json} = Jason.encode(error)
+      decoded = Jason.decode!(json)
+      assert decoded["message"] == "unexpected"
+    end
+  end
+
   describe "retryable?/1" do
     test "matches timeout and transient action errors" do
       assert Error.retryable?(Error.timeout_error("timed out", timeout: 500))
