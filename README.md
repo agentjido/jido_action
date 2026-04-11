@@ -101,8 +101,6 @@ Jido.Action transforms ad-hoc functions into structured, validated, AI-compatibl
 
 ## Installation
 
-<!-- covers: jido_action.package.readme_onboarding -->
-
 ### Igniter Installation (Recommended)
 
 The fastest way to get started is with [Igniter](https://hex.pm/packages/igniter):

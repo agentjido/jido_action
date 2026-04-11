@@ -1,4 +1,3 @@
-# covers: jido_action.scaffolding.install_and_generators
 if Code.ensure_loaded?(Igniter.Mix.Task) do
   defmodule Mix.Tasks.JidoAction.Install do
     @shortdoc "Installs and configures jido_action in your project"
