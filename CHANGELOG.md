@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- changelog -->
 
+## Unreleased
+
+### Bug Fixes:
+
+* rename `Graph` plan references to `Multigraph` and bump `multigraph` to `~> 0.16.1-mg.3` to avoid downstream release conflicts with `libgraph`
+
 ## [v2.2.1](https://github.com/agentjido/jido_action/compare/v2.2.0...v2.2.1) (2026-04-03)
 
 

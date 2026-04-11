@@ -256,7 +256,7 @@ defmodule Jido.Plan do
   Normalizes the Plan into a directed graph and list of PlanInstructions.
 
   ## Returns
-    * `{:ok, {graph, plan_instructions}}` - Graph and list of plan instructions
+    * `{:ok, {graph, plan_instructions}}` - Multigraph and list of plan instructions
     * `{:error, term()}` - If normalization fails
 
   ## Examples
@@ -265,7 +265,7 @@ defmodule Jido.Plan do
       iex> {:ok, {graph, plan_instructions}} = Plan.normalize(plan)
       iex> [%Plan.PlanInstruction{name: :step1}] = plan_instructions
   """
-  @spec normalize(t()) :: {:ok, {Graph.t(), [PlanInstruction.t()]}} | {:error, term()}
+  @spec normalize(t()) :: {:ok, {Multigraph.t(), [PlanInstruction.t()]}} | {:error, term()}
   def normalize(%__MODULE__{} = plan) do
     plan_instructions = Map.values(plan.steps)
 
@@ -279,7 +279,7 @@ defmodule Jido.Plan do
   @doc """
   Same as normalize/1 but raises on error.
   """
-  @spec normalize!(t()) :: {Graph.t(), [PlanInstruction.t()]} | no_return()
+  @spec normalize!(t()) :: {Multigraph.t(), [PlanInstruction.t()]} | no_return()
   def normalize!(%__MODULE__{} = plan) do
     case normalize(plan) do
       {:ok, result} -> result
@@ -299,7 +299,7 @@ defmodule Jido.Plan do
   @spec execution_phases(t()) :: {:ok, [[atom()]]} | {:error, term()}
   def execution_phases(%__MODULE__{} = plan) do
     with {:ok, {graph, _plan_instructions}} <- normalize(plan) do
-      phases = Graph.topsort(graph) |> build_execution_phases(graph)
+      phases = Multigraph.topsort(graph) |> build_execution_phases(graph)
       {:ok, phases}
     end
   end
@@ -389,19 +389,19 @@ defmodule Jido.Plan do
   end
 
   defp build_graph(plan_instructions) do
-    graph = Graph.new(type: :directed)
+    graph = Multigraph.new(type: :directed)
 
     # Add all vertices (steps)
     graph_with_vertices =
       Enum.reduce(plan_instructions, graph, fn plan_instruction, acc_graph ->
-        Graph.add_vertex(acc_graph, plan_instruction.name)
+        Multigraph.add_vertex(acc_graph, plan_instruction.name)
       end)
 
     # Add edges for dependencies
     graph_with_edges =
       Enum.reduce(plan_instructions, graph_with_vertices, fn plan_instruction, acc_graph ->
         Enum.reduce(plan_instruction.depends_on, acc_graph, fn dep, edge_graph ->
-          Graph.add_edge(edge_graph, dep, plan_instruction.name)
+          Multigraph.add_edge(edge_graph, dep, plan_instruction.name)
         end)
       end)
 
@@ -409,7 +409,7 @@ defmodule Jido.Plan do
   end
 
   defp validate_graph(graph) do
-    if Graph.is_acyclic?(graph) do
+    if Multigraph.is_acyclic?(graph) do
       :ok
     else
       case find_cycle(graph) do
@@ -429,13 +429,13 @@ defmodule Jido.Plan do
   # Dialyzer complains about MapSet opaque type but these are false positives
   @dialyzer {:nowarn_function, find_cycle: 1, find_cycle_dfs: 4, dfs_visit: 5, dfs_neighbors: 5}
 
-  @spec find_cycle(Graph.t()) :: [atom()] | nil
+  @spec find_cycle(Multigraph.t()) :: [atom()] | nil
   defp find_cycle(graph) do
-    vertices = Graph.vertices(graph)
+    vertices = Multigraph.vertices(graph)
     find_cycle_dfs(graph, vertices, MapSet.new(), MapSet.new())
   end
 
-  @spec find_cycle_dfs(Graph.t(), [atom()], MapSet.t(), MapSet.t()) :: [atom()] | nil
+  @spec find_cycle_dfs(Multigraph.t(), [atom()], MapSet.t(), MapSet.t()) :: [atom()] | nil
   defp find_cycle_dfs(_graph, [], _visited, _rec_stack), do: nil
 
   defp find_cycle_dfs(graph, [vertex | rest], visited, rec_stack) do
@@ -449,7 +449,7 @@ defmodule Jido.Plan do
     end
   end
 
-  @spec dfs_visit(Graph.t(), atom(), MapSet.t(), MapSet.t(), [atom()]) ::
+  @spec dfs_visit(Multigraph.t(), atom(), MapSet.t(), MapSet.t(), [atom()]) ::
           {:cycle, [atom()]} | {:ok, MapSet.t()}
   defp dfs_visit(graph, vertex, visited, rec_stack, path) do
     if MapSet.member?(rec_stack, vertex) do
@@ -457,7 +457,7 @@ defmodule Jido.Plan do
     else
       visited = MapSet.put(visited, vertex)
       rec_stack = MapSet.put(rec_stack, vertex)
-      neighbors = Graph.out_neighbors(graph, vertex)
+      neighbors = Multigraph.out_neighbors(graph, vertex)
 
       case dfs_neighbors(graph, neighbors, visited, rec_stack, [vertex | path]) do
         {:cycle, cycle_path} -> {:cycle, cycle_path}
@@ -466,7 +466,7 @@ defmodule Jido.Plan do
     end
   end
 
-  @spec dfs_neighbors(Graph.t(), [atom()], MapSet.t(), MapSet.t(), [atom()]) ::
+  @spec dfs_neighbors(Multigraph.t(), [atom()], MapSet.t(), MapSet.t(), [atom()]) ::
           {:cycle, [atom()]} | {:ok, MapSet.t()}
   defp dfs_neighbors(_graph, [], visited, _rec_stack, _path), do: {:ok, visited}
 
@@ -493,7 +493,7 @@ defmodule Jido.Plan do
   end
 
   defp calculate_depth(vertex, graph, known_depths) do
-    predecessors = Graph.in_neighbors(graph, vertex)
+    predecessors = Multigraph.in_neighbors(graph, vertex)
 
     if Enum.empty?(predecessors) do
       0

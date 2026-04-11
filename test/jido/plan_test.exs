@@ -274,7 +274,7 @@ defmodule Jido.PlanTest do
       {:ok, {graph, plan_instructions}} = Plan.normalize(plan)
 
       # Check that graph is properly constructed
-      assert Graph.num_edges(graph) == 1
+      assert Multigraph.num_edges(graph) == 1
       assert length(plan_instructions) == 2
 
       assert Enum.all?(plan_instructions, fn plan_instruction ->
@@ -410,8 +410,8 @@ defmodule Jido.PlanTest do
       # Normalize and validate
       {:ok, {graph, plan_instructions}} = Plan.normalize(plan)
 
-      assert Graph.num_vertices(graph) == 6
-      assert Graph.is_acyclic?(graph)
+      assert Multigraph.num_vertices(graph) == 6
+      assert Multigraph.is_acyclic?(graph)
 
       # Check execution phases
       {:ok, phases} = Plan.execution_phases(plan)
@@ -453,8 +453,8 @@ defmodule Jido.PlanTest do
       {:ok, {graph1, _}} = Plan.normalize(plan)
       {:ok, {graph2, _}} = Plan.normalize(plan2)
 
-      assert Graph.num_vertices(graph1) == Graph.num_vertices(graph2)
-      assert Graph.num_edges(graph1) == Graph.num_edges(graph2)
+      assert Multigraph.num_vertices(graph1) == Multigraph.num_vertices(graph2)
+      assert Multigraph.num_edges(graph1) == Multigraph.num_edges(graph2)
     end
   end
 
@@ -509,9 +509,9 @@ defmodule Jido.PlanTest do
       {:ok, {graph, _plan_instructions}} = Plan.normalize(plan)
 
       # Verify it's acyclic and has no edges
-      assert Graph.is_acyclic?(graph)
-      assert Graph.num_edges(graph) == 0
-      assert Graph.num_vertices(graph) == 1
+      assert Multigraph.is_acyclic?(graph)
+      assert Multigraph.num_edges(graph) == 0
+      assert Multigraph.num_vertices(graph) == 1
     end
 
     test "cycle detection handles complex acyclic graph" do
@@ -528,10 +528,10 @@ defmodule Jido.PlanTest do
       # This should successfully normalize without cycles, testing multiple DFS paths
       {:ok, {graph, _plan_instructions}} = Plan.normalize(plan)
 
-      assert Graph.is_acyclic?(graph)
-      assert Graph.num_vertices(graph) == 6
+      assert Multigraph.is_acyclic?(graph)
+      assert Multigraph.num_vertices(graph) == 6
       # root->branch1, root->branch2, branch1->leaf1, branch2->leaf2, leaf1->final, leaf2->final
-      assert Graph.num_edges(graph) == 6
+      assert Multigraph.num_edges(graph) == 6
     end
 
     test "validate_graph with no cycles returns :ok" do

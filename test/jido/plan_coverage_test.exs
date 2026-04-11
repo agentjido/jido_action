@@ -83,8 +83,8 @@ defmodule Jido.PlanCoverageTest do
       # This complex graph should normalize successfully and trigger various DFS paths
       {:ok, {graph, _plan_instructions}} = Plan.normalize(plan)
 
-      assert Graph.is_acyclic?(graph)
-      assert Graph.num_vertices(graph) == 6
+      assert Multigraph.is_acyclic?(graph)
+      assert Multigraph.num_vertices(graph) == 6
 
       # This should trigger multiple paths through the DFS algorithm
       {:ok, phases} = Plan.execution_phases(plan)
@@ -102,10 +102,10 @@ defmodule Jido.PlanCoverageTest do
       # All steps are independent, so should normalize successfully
       {:ok, {graph, _plan_instructions}} = Plan.normalize(plan)
 
-      assert Graph.is_acyclic?(graph)
+      assert Multigraph.is_acyclic?(graph)
       # No dependencies means no edges
-      assert Graph.num_edges(graph) == 0
-      assert Graph.num_vertices(graph) == 3
+      assert Multigraph.num_edges(graph) == 0
+      assert Multigraph.num_vertices(graph) == 3
 
       # All steps should be in the same phase since they're independent
       {:ok, phases} = Plan.execution_phases(plan)
