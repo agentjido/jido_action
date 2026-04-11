@@ -22,15 +22,18 @@ surface:
   - test/support/*.ex
   - usage-rules.md
   - lib/jido_action.ex
+  - lib/jido_action/error.ex
   - lib/jido_action/exec.ex
   - lib/jido_action/tool.ex
   - lib/jido_instruction.ex
   - lib/jido_plan.ex
+  - test/jido_action/error_test.exs
 decisions:
   - jido_action.spec_migration
   - jido_action.cross_subject_ci_stabilization
   - jido_action.action_effect_boundary_docs
   - jido_action.execution_logging_hygiene
+  - jido_action.error_struct_json_encoding
 ```
 
 ## Requirements
@@ -42,7 +45,7 @@ decisions:
   stability: stable
 
 - id: jido_action.package.execution_failure_surface
-  statement: The package-level execution surface shall expose runtime failures as normalized exception structs with string messages and structured, transport-safe details suitable for downstream handling and JSON encoding.
+  statement: The package-level execution surface shall expose runtime failures as normalized exception structs with string messages and directly Jason-encodable stable top-level fields, while routing full transport-safe details through Jido.Action.Error.to_map/1 for downstream handling.
   priority: should
   stability: evolving
 

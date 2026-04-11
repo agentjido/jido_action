@@ -26,6 +26,17 @@
       },
       {
         "affects": [
+          "jido_action.error_handling",
+          "jido_action.package"
+        ],
+        "date": "2026-04-10",
+        "file": ".spec/decisions/jido_action.error_struct_json_encoding.md",
+        "id": "jido_action.error_struct_json_encoding",
+        "status": "accepted",
+        "title": "Keep direct error JSON encoding shallow and preserve `to_map/1` as the full transport boundary"
+      },
+      {
+        "affects": [
           "jido_action.exec",
           "jido_action.package",
           "jido_action.tools"
@@ -99,6 +110,14 @@
         "stability": "evolving",
         "statement": "Jido.Action.Tool.execute_action/3 shall preserve the legacy `{:ok, json}` and `{:error, json}` contract while emitting sanitized success payloads and binary error payloads even when raw failure inspection is unsafe.",
         "subject_id": "jido_action.action"
+      },
+      {
+        "file": ".spec/specs/error_handling.spec.md",
+        "id": "jido_action.error_handling.direct_json_struct_fields",
+        "priority": "should",
+        "stability": "evolving",
+        "statement": "Jido.Action.Error shall let callers encode its concrete exception structs directly through Jason for stable top-level fields such as message, field, value, and timeout, while omitting raw `:details` values that may still contain non-JSON-safe runtime terms.",
+        "subject_id": "jido_action.error_handling"
       },
       {
         "file": ".spec/specs/error_handling.spec.md",
@@ -193,7 +212,7 @@
         "id": "jido_action.package.execution_failure_surface",
         "priority": "should",
         "stability": "evolving",
-        "statement": "The package-level execution surface shall expose runtime failures as normalized exception structs with string messages and structured, transport-safe details suitable for downstream handling and JSON encoding.",
+        "statement": "The package-level execution surface shall expose runtime failures as normalized exception structs with string messages and directly Jason-encodable stable top-level fields, while routing full transport-safe details through Jido.Action.Error.to_map/1 for downstream handling.",
         "subject_id": "jido_action.package"
       },
       {
@@ -416,12 +435,13 @@
         "id": "jido_action.error_handling",
         "meta": {
           "decisions": [
-            "jido_action.spec_migration"
+            "jido_action.spec_migration",
+            "jido_action.error_struct_json_encoding"
           ],
           "id": "jido_action.error_handling",
           "kind": "module",
           "status": "active",
-          "summary": "Centralized error classes, concrete exceptions, and normalization helpers for Jido action failures.",
+          "summary": "Centralized error classes, concrete exceptions, direct JSON encoding, and normalization helpers for Jido action failures.",
           "surface": [
             "lib/jido_action/error.ex",
             "guides/error-handling.md",
@@ -467,7 +487,8 @@
             "jido_action.spec_migration",
             "jido_action.cross_subject_ci_stabilization",
             "jido_action.action_effect_boundary_docs",
-            "jido_action.execution_logging_hygiene"
+            "jido_action.execution_logging_hygiene",
+            "jido_action.error_struct_json_encoding"
           ],
           "id": "jido_action.package",
           "kind": "package",
@@ -484,10 +505,12 @@
             "test/support/*.ex",
             "usage-rules.md",
             "lib/jido_action.ex",
+            "lib/jido_action/error.ex",
             "lib/jido_action/exec.ex",
             "lib/jido_action/tool.ex",
             "lib/jido_instruction.ex",
-            "lib/jido_plan.ex"
+            "lib/jido_plan.ex",
+            "test/jido_action/error_test.exs"
           ],
           "verification_minimum_strength": null
         },
@@ -680,6 +703,7 @@
       {
         "covers": [
           "jido_action.error_handling.normalized_errors",
+          "jido_action.error_handling.direct_json_struct_fields",
           "jido_action.error_handling.transport_safe_error_maps",
           "jido_action.error_handling.retryable_hints"
         ],
@@ -975,10 +999,10 @@
   "specification_version": "1.0",
   "summary": {
     "decision_parse_errors": 0,
-    "decisions": 4,
+    "decisions": 5,
     "exceptions": 0,
     "findings": 0,
-    "requirements": 41,
+    "requirements": 42,
     "scenarios": 0,
     "subjects": 10,
     "verifications": 32
@@ -1061,6 +1085,17 @@
         "subject_id": "jido_action.action",
         "target": "guides/actions-guide.md",
         "verification_index": 2
+      },
+      {
+        "cover_id": "jido_action.error_handling.direct_json_struct_fields",
+        "file": ".spec/specs/error_handling.spec.md",
+        "kind": "command",
+        "meets_minimum": true,
+        "required_strength": "claimed",
+        "strength": "executed",
+        "subject_id": "jido_action.error_handling",
+        "target": "mix test test/jido_action/error_test.exs",
+        "verification_index": 0
       },
       {
         "cover_id": "jido_action.error_handling.normalized_errors",
@@ -1573,13 +1608,13 @@
     "default_minimum_strength": "claimed",
     "strength_summary": {
       "claimed": 2,
-      "executed": 33,
+      "executed": 34,
       "linked": 18
     },
     "threshold_failures": 0
   },
   "workspace": {
-    "decision_count": 4,
+    "decision_count": 5,
     "spec_count": 10
   }
 }
