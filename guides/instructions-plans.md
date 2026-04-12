@@ -178,12 +178,12 @@ plan = Jido.Plan.new()
 
 ### Normalizing Plans
 
-Use `Jido.Plan.normalize/1` to convert a plan into a Graph and list of PlanInstructions:
+Use `Jido.Plan.normalize/1` to convert a plan into a `Multigraph` and list of PlanInstructions:
 
 ```elixir
 {:ok, {graph, plan_instructions}} = Jido.Plan.normalize(plan)
 
-# graph is a Graph.t() for DAG analysis
+# graph is a Multigraph.t() for DAG analysis
 # plan_instructions is a list of %Jido.Plan.PlanInstruction{}
 
 # Use normalize!/1 to raise on error
