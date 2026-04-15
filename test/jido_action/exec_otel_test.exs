@@ -1,7 +1,7 @@
 defmodule Jido.ExecOtelTest do
   @moduledoc """
-  Regression tests for OTel context propagation through Task.Supervisor in
-  `Jido.Exec.execute_action_with_timeout/5`.
+  Regression tests for OTel context propagation through Task.Supervisor when
+  `Jido.Exec.run/4` is invoked with a positive timeout.
 
   When timeout > 0, the action runs in a spawned child task. Without explicit
   propagation, the OTel process-dictionary context does not flow into the task
@@ -32,7 +32,7 @@ defmodule Jido.ExecOtelTest do
       OpenTelemetry.Ctx.attach(caller_ctx)
 
       assert {:ok, %{ctx_in_action: action_ctx}} =
-               Exec.execute_action_with_timeout(CaptureCtxAction, %{}, %{}, 1_000)
+               Exec.run(CaptureCtxAction, %{}, %{}, timeout: 1_000)
 
       assert OpenTelemetry.Ctx.get_value(action_ctx, :test_key, nil) == :test_value
     end
@@ -41,7 +41,7 @@ defmodule Jido.ExecOtelTest do
       OpenTelemetry.Ctx.attach(OpenTelemetry.Ctx.new())
 
       assert {:ok, %{ctx_in_action: action_ctx}} =
-               Exec.execute_action_with_timeout(CaptureCtxAction, %{}, %{}, 1_000)
+               Exec.run(CaptureCtxAction, %{}, %{}, timeout: 1_000)
 
       assert is_map(action_ctx)
     end
