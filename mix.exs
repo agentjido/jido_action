@@ -241,7 +241,7 @@ defmodule JidoAction.MixProject do
        only: [:dev, :test],
        runtime: false},
       {:stream_data, "~> 1.0", only: [:dev, :test]},
-      {:opentelemetry_api, "~> 1.4", only: :test},
+      {:opentelemetry_api, "~> 1.4", optional: true},
 
       # Code generation
       {:igniter, "~> 0.7", optional: true}

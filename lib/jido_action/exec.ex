@@ -23,6 +23,15 @@ defmodule Jido.Exec do
   - Telemetry integration for monitoring and tracing
   - Action cancellation and cleanup
 
+  ## OpenTelemetry
+
+  When the optional `:opentelemetry_api` dependency is present in the host
+  application, `Jido.Exec` propagates the caller's OpenTelemetry context across
+  the `Task.Supervisor` boundary used for timeout-enforced execution. This
+  keeps spans created inside an action correctly parented to spans started by
+  the caller. Hosts that do not depend on OpenTelemetry are unaffected — the
+  context helpers are no-ops when the module isn't loaded.
+
   ## Usage
 
   Basic action execution:
@@ -748,11 +757,10 @@ defmodule Jido.Exec do
       "An unexpected error occurred during execution of #{inspect(action)}: #{inspect(e)}"
     end
 
-    # OTel context propagation helpers — no-ops when OpenTelemetry isn't loaded
-    # (it's an optional dependency for host apps). The compile directive
-    # suppresses "undefined module" warnings; runtime check guards the calls.
-    @compile {:no_warn_undefined, OpenTelemetry.Ctx}
-
+    # OTel context propagation helpers — no-ops when OpenTelemetry isn't loaded.
+    # :opentelemetry_api is declared as an optional dep, so host apps that don't
+    # opt in won't have the module at runtime; the Code.ensure_loaded?/1 guard
+    # makes these calls safe in that case.
     defp otel_get_current_context do
       if Code.ensure_loaded?(OpenTelemetry.Ctx), do: OpenTelemetry.Ctx.get_current()
     end
