@@ -39,7 +39,7 @@ defmodule Jido.Exec.Async do
   @type action :: module()
   @type params :: map()
   @type context :: map()
-  @type run_opts :: [timeout: non_neg_integer(), jido: atom()]
+  @type run_opts :: Jido.Exec.run_opts()
   @type async_ref :: %{
           required(:ref) => reference(),
           required(:pid) => pid(),

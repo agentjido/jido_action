@@ -54,6 +54,32 @@ defmodule JidoTest.Exec.PropagationTest do
     def detach(_value), do: :ok
   end
 
+  defmodule ExplodingAttachPropagator do
+    @behaviour Jido.Exec.ContextPropagator
+
+    @impl true
+    def capture, do: :captured
+
+    @impl true
+    def attach(_value), do: raise("attach exploded")
+
+    @impl true
+    def detach(_value), do: :ok
+  end
+
+  defmodule ExplodingDetachPropagator do
+    @behaviour Jido.Exec.ContextPropagator
+
+    @impl true
+    def capture, do: :captured
+
+    @impl true
+    def attach(value), do: value
+
+    @impl true
+    def detach(_value), do: raise("detach exploded")
+  end
+
   defmodule ReportingAction do
     use Jido.Action,
       name: "propagation_reporting_action",
@@ -116,6 +142,47 @@ defmodule JidoTest.Exec.PropagationTest do
                  assert Process.get(@prop_key) == "parent-trace"
                  :ok
                end)
+
+      assert Process.get(@prop_key) == "worker-existing"
+    end
+
+    test "strict mode detaches already attached propagators when a later attach fails" do
+      Process.put(@prop_key, "parent-trace")
+
+      snapshot =
+        Propagation.capture(
+          context_propagators: [ProcessDictionaryPropagator, ExplodingAttachPropagator],
+          context_propagator_failure_mode: :strict
+        )
+
+      Process.put(@prop_key, "worker-existing")
+
+      assert_raise RuntimeError, ~r/context propagator attach\/1 failed/, fn ->
+        Propagation.with_attached(snapshot, fn ->
+          flunk("strict attach failure should abort before invoking the callback")
+        end)
+      end
+
+      assert Process.get(@prop_key) == "worker-existing"
+    end
+
+    test "strict mode continues detaching earlier propagators after a detach failure" do
+      Process.put(@prop_key, "parent-trace")
+
+      snapshot =
+        Propagation.capture(
+          context_propagators: [ProcessDictionaryPropagator, ExplodingDetachPropagator],
+          context_propagator_failure_mode: :strict
+        )
+
+      Process.put(@prop_key, "worker-existing")
+
+      assert_raise RuntimeError, ~r/context propagator detach\/1 failed/, fn ->
+        Propagation.with_attached(snapshot, fn ->
+          assert Process.get(@prop_key) == "parent-trace"
+          :ok
+        end)
+      end
 
       assert Process.get(@prop_key) == "worker-existing"
     end

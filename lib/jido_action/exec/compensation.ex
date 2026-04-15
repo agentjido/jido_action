@@ -16,7 +16,7 @@ defmodule Jido.Exec.Compensation do
   @type action :: module()
   @type params :: map()
   @type context :: map()
-  @type run_opts :: [timeout: non_neg_integer()]
+  @type run_opts :: Jido.Exec.run_opts()
   @type exec_result ::
           {:ok, map()}
           | {:ok, map(), any()}
