@@ -34,6 +34,7 @@
   "nimble_options": {:hex, :nimble_options, "1.1.1", "e3a492d54d85fc3fd7c5baf411d9d2852922f66e69476317787a7b2bb000a61b", [:mix], [], "hexpm", "821b2470ca9442c4b6984882fe9bb0389371b8ddec4d45a9504f00a66f650b44"},
   "nimble_parsec": {:hex, :nimble_parsec, "1.4.2", "8efba0122db06df95bfaa78f791344a89352ba04baedd3849593bfce4d0dc1c6", [:mix], [], "hexpm", "4b21398942dda052b403bbe1da991ccd03a053668d147d53fb8c4e0efe09c973"},
   "nimble_pool": {:hex, :nimble_pool, "1.1.0", "bf9c29fbdcba3564a8b800d1eeb5a3c58f36e1e11d7b7fb2e084a643f645f06b", [:mix], [], "hexpm", "af2e4e6b34197db81f7aad230c1118eac993acc0dae6bc83bac0126d4ae0813a"},
+  "opentelemetry_api": {:hex, :opentelemetry_api, "1.5.0", "1a676f3e3340cab81c763e939a42e11a70c22863f645aa06aafefc689b5550cf", [:mix, :rebar3], [], "hexpm", "f53ec8a1337ae4a487d43ac89da4bd3a3c99ddf576655d071deed8b56a2d5dda"},
   "owl": {:hex, :owl, "0.13.0", "26010e066d5992774268f3163506972ddac0a7e77bfe57fa42a250f24d6b876e", [:mix], [{:ucwidth, "~> 0.2", [hex: :ucwidth, repo: "hexpm", optional: true]}], "hexpm", "59bf9d11ce37a4db98f57cb68fbfd61593bf419ec4ed302852b6683d3d2f7475"},
   "private": {:hex, :private, "0.1.2", "da4add9f36c3818a9f849840ca43016c8ae7f76d7a46c3b2510f42dcc5632932", [:mix], [], "hexpm", "22ee01c3f450cf8d135da61e10ec59dde006238fab1ea039014791fc8f3ff075"},
   "recase": {:hex, :recase, "0.8.1", "ab98cd35857a86fa5ca99036f575241d71d77d9c2ab0c39aacf1c9b61f6f7d1d", [:mix], [], "hexpm", "9fd8d63e7e43bd9ea385b12364e305778b2bbd92537e95c4b2e26fc507d5e4c2"},

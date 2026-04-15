@@ -494,12 +494,19 @@ defmodule Jido.Exec do
       parent = self()
       ref = make_ref()
 
+      # Capture the current OTel context so the spawned task runs as a child
+      # of whatever span is active in the caller — otherwise spans created by
+      # the action are orphaned (root) spans in their own traces.
+      otel_ctx = otel_get_current_context()
+
       # Spawn process under the supervisor and send the result back explicitly.
       # This avoids relying on Task.yield/2 behavior/typing (Elixir 1.18+).
       {:ok, pid} =
         Task.Supervisor.start_child(task_sup, fn ->
           # Use the parent's group leader to ensure IO is properly captured
           Process.group_leader(self(), current_gl)
+
+          otel_attach_context(otel_ctx)
 
           result = execute_action(action, params, context, opts)
           send(parent, {:execute_action_result, ref, result})
@@ -739,6 +746,22 @@ defmodule Jido.Exec do
 
     defp build_exception_message(e, action) do
       "An unexpected error occurred during execution of #{inspect(action)}: #{inspect(e)}"
+    end
+
+    # OTel context propagation helpers — no-ops when OpenTelemetry isn't loaded
+    # (it's an optional dependency for host apps). The compile directive
+    # suppresses "undefined module" warnings; runtime check guards the calls.
+    @compile {:no_warn_undefined, OpenTelemetry.Ctx}
+
+    defp otel_get_current_context do
+      if Code.ensure_loaded?(OpenTelemetry.Ctx), do: OpenTelemetry.Ctx.get_current()
+    end
+
+    defp otel_attach_context(nil), do: :ok
+
+    defp otel_attach_context(ctx) do
+      if Code.ensure_loaded?(OpenTelemetry.Ctx), do: OpenTelemetry.Ctx.attach(ctx)
+      :ok
     end
   end
 end
