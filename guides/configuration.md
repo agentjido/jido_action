@@ -22,7 +22,13 @@ config :jido_action,
   default_backoff: 250,         # Initial backoff in milliseconds (exponential, capped at 30s)
 
   # Execution logging threshold
-  default_log_level: :info
+  default_log_level: :info,
+
+  # Optional runtime-context propagation across supervised execution
+  observability: [
+    context_propagators: [],
+    context_propagator_failure_mode: :warn
+  ]
 ```
 
 ### Environment-Specific Configuration
@@ -135,12 +141,57 @@ Override settings when executing actions:
 - `:backoff` - Initial backoff time in ms, doubles with each retry (default: 250, capped at 30s)
 - `:log_level` - Override Jido's execution log threshold for this call. Accepts `Logger.levels()`. Global Logger config still applies underneath.
 - `:telemetry` - Telemetry mode: `:full` (default) or `:silent`
+- `:context_propagators` - Context propagator modules captured before supervised task boundaries and reattached inside child processes
+- `:context_propagator_failure_mode` - `:warn` (default) to log and skip failures, or `:strict` to raise
 
 Execution log level precedence is:
 
 1. `opts[:log_level]`
 2. `config :jido_action, default_log_level: ...`
 3. built-in `:info`
+
+### Observability Context Propagation
+
+`Jido.Exec` can preserve process-local runtime context when execution crosses `Task.Supervisor`
+boundaries for timeout handling, `run_async/4`, compensation, and async chains.
+
+Configure propagators globally:
+
+```elixir
+config :jido_action,
+  observability: [
+    context_propagators: [MyApp.Observability.ContextPropagator],
+    context_propagator_failure_mode: :warn
+  ]
+```
+
+Or override them per execution:
+
+```elixir
+Jido.Exec.run(
+  MyApp.Actions.ProcessData,
+  %{data: "input"},
+  %{},
+  timeout: 5_000,
+  context_propagators: [MyApp.Observability.ContextPropagator],
+  context_propagator_failure_mode: :strict
+)
+```
+
+Each propagator module must implement:
+
+```elixir
+defmodule MyApp.Observability.ContextPropagator do
+  @behaviour Jido.Exec.ContextPropagator
+
+  def capture(), do: ...
+  def attach(captured), do: ...
+  def detach(attached), do: :ok
+end
+```
+
+This keeps `jido_action` observability-agnostic while allowing adapter packages such as
+OpenTelemetry bridges to preserve tracing context across supervised execution.
 
 ### Configuration Access
 
@@ -434,6 +485,7 @@ end
 | `:default_timeout` | non-negative integer | 30000 | Default action timeout in milliseconds (invalid values warn + fallback) |
 | `:default_max_retries` | non-negative integer | 1 | Default number of retry attempts (invalid values warn + fallback) |
 | `:default_backoff` | non-negative integer | 250 | Initial backoff time in ms (exponential, invalid values warn + fallback) |
+| `:observability` | keyword list | `[]` | Runtime context propagation config (`:context_propagators`, `:context_propagator_failure_mode`) |
 
 ### Action Compensation Config
 
@@ -456,6 +508,8 @@ Passed to `Jido.Exec.run/4`:
 | `:backoff` | integer | 250 | Initial backoff in ms |
 | `:log_level` | atom | `config(:jido_action, :default_log_level)` or `:info` | Jido execution log threshold override |
 | `:telemetry` | atom | :full | `:full` or `:silent` |
+| `:context_propagators` | list(module) | `config(:jido_action, :observability)[:context_propagators]` | Runtime context propagators captured before supervised execution |
+| `:context_propagator_failure_mode` | atom | `:warn` | `:warn` to skip failures, `:strict` to raise |
 | `:jido` | atom | nil | Instance name for multi-tenant isolation |
 
 ## Best Practices

@@ -76,6 +76,7 @@ async_ref = Jido.Exec.run_async(
 - `Jido.Exec.run_async/4` starts work under `Task.Supervisor`; with `jido: MyApp.Jido`, it routes to `MyApp.Jido.TaskSupervisor`.
 - The returned `async_ref` is tied to the caller mailbox that initiated `run_async/4`.
   Await/cancel from the same process to avoid waiting on messages that were delivered elsewhere.
+- Runtime context propagators configured through `config :jido_action, :observability` or per-execution opts are captured before supervised task boundaries and reattached inside async, timeout, compensation, and async-chain workers.
 - `Jido.Exec.await/2` performs deterministic cleanup:
   - waits for result or monitor `:DOWN`
   - on timeout, terminates the task

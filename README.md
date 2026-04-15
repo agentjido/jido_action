@@ -182,6 +182,7 @@ async_ref = Jido.Exec.run_async(MyApp.Actions.GreetUser, %{name: "Bob"})
 
 - `run_async/4` executes under `Task.Supervisor` (global or instance-scoped via `jido:`).
 - `async_ref` is mailbox-bound to the process that started the async call; await/cancel from that same process.
+- Runtime context propagators configured globally or per execution are captured before supervised task boundaries and reattached inside async, timeout, compensation, and async-chain workers.
 - `await/2` timeout kills the task and drains monitor/result mailbox residue before returning.
 - `cancel/1` sends `:shutdown`, waits a bounded grace period, and flushes monitor/result residue.
 

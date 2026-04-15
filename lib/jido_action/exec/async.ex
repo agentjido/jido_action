@@ -8,6 +8,7 @@ defmodule Jido.Exec.Async do
   use Private
 
   alias Jido.Action.Error
+  alias Jido.Exec.Propagation
   alias Jido.Exec.Supervisors
 
   require Logger
@@ -38,7 +39,7 @@ defmodule Jido.Exec.Async do
   @type action :: module()
   @type params :: map()
   @type context :: map()
-  @type run_opts :: [timeout: non_neg_integer(), jido: atom()]
+  @type run_opts :: Jido.Exec.run_opts()
   @type async_ref :: %{
           required(:ref) => reference(),
           required(:pid) => pid(),
@@ -86,15 +87,18 @@ defmodule Jido.Exec.Async do
 
     # Resolve supervisor based on jido: option (defaults to global)
     task_sup = Supervisors.task_supervisor(opts)
+    propagation = Propagation.capture(opts)
 
     # Start the task under the resolved TaskSupervisor.
     # If the supervisor is not running, this will raise an error.
     {:ok, pid} =
       Task.Supervisor.start_child(task_sup, fn ->
-        Process.put(@async_owner_key, owner)
-        result = Jido.Exec.run(action, params, context, opts)
-        send(owner, {:action_async_result, ref, result})
-        result
+        Propagation.with_attached(propagation, fn ->
+          Process.put(@async_owner_key, owner)
+          result = Jido.Exec.run(action, params, context, opts)
+          send(owner, {:action_async_result, ref, result})
+          result
+        end)
       end)
 
     # Persist monitor_ref in async_ref so await can demonitor/flush deterministically.

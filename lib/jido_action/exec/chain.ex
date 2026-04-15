@@ -20,6 +20,7 @@ defmodule Jido.Exec.Chain do
   alias Jido.Action.Error
   alias Jido.Action.Util
   alias Jido.Exec
+  alias Jido.Exec.Propagation
   alias Jido.Exec.Supervisors
 
   @type chain_action :: module() | {module(), keyword()}
@@ -65,7 +66,11 @@ defmodule Jido.Exec.Chain do
 
     if async do
       task_sup = Supervisors.task_supervisor(opts)
-      Task.Supervisor.async_nolink(task_sup, chain_fun)
+      propagation = Propagation.capture(opts)
+
+      Task.Supervisor.async_nolink(task_sup, fn ->
+        Propagation.with_attached(propagation, chain_fun)
+      end)
     else
       chain_fun.()
     end
