@@ -9,6 +9,7 @@ defmodule Jido.Exec.Compensation do
   use Private
 
   alias Jido.Action.Error
+  alias Jido.Exec.Propagation
   alias Jido.Exec.Supervisors
   alias Jido.Exec.Telemetry
 
@@ -106,18 +107,31 @@ defmodule Jido.Exec.Compensation do
 
       current_gl = Process.group_leader()
       task_sup = Supervisors.task_supervisor(opts)
+      propagation = Propagation.capture(opts)
       parent = self()
       ref = make_ref()
 
       compensation_run_opts =
         opts
-        |> Keyword.take([:timeout, :backoff, :telemetry, :jido])
+        |> Keyword.take([
+          :timeout,
+          :backoff,
+          :telemetry,
+          :jido,
+          :context_propagators,
+          :context_propagator_failure_mode
+        ])
         |> Keyword.put(:compensation_timeout, timeout)
 
       {:ok, pid} =
         Task.Supervisor.start_child(task_sup, fn ->
           Process.group_leader(self(), current_gl)
-          result = action.on_error(params, error, context, compensation_run_opts)
+
+          result =
+            Propagation.with_attached(propagation, fn ->
+              action.on_error(params, error, context, compensation_run_opts)
+            end)
+
           send(parent, {:compensation_result, ref, result})
         end)
 

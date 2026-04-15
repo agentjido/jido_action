@@ -43,6 +43,7 @@ defmodule Jido.Exec do
   alias Jido.Action.Util
   alias Jido.Exec.Async
   alias Jido.Exec.Compensation
+  alias Jido.Exec.Propagation
   alias Jido.Exec.Retry
   alias Jido.Exec.Supervisors
   alias Jido.Exec.Telemetry
@@ -112,6 +113,8 @@ defmodule Jido.Exec do
     - `:backoff` - Initial backoff time in milliseconds, doubles with each retry (configurable via `:jido_action, :default_backoff`).
     - `:log_level` - Override the Jido execution log threshold for this specific action. Accepts #{inspect(Logger.levels())}. Global Logger config still applies.
     - `:telemetry` - `:full` (default) or `:silent` for action span emission.
+    - `:context_propagators` - Runtime context propagator modules captured before supervised execution and reattached inside supervised tasks.
+    - `:context_propagator_failure_mode` - `:warn` (default) to skip failing propagators or `:strict` to raise when propagation callbacks fail.
     - `:error_normalization` - Deprecated compatibility shim. Accepted and ignored; canonical structured execution error normalization is always used.
     - `:jido` - Optional instance name for isolation. Routes execution through instance-scoped supervisors (e.g., `MyApp.Jido.TaskSupervisor`).
 
@@ -488,6 +491,7 @@ defmodule Jido.Exec do
 
       # Resolve supervisor based on jido: option (defaults to global)
       task_sup = Supervisors.task_supervisor(opts)
+      propagation = Propagation.capture(opts)
 
       parent = self()
       ref = make_ref()
@@ -499,7 +503,11 @@ defmodule Jido.Exec do
           # Use the parent's group leader to ensure IO is properly captured
           Process.group_leader(self(), current_gl)
 
-          result = execute_action(action, params, context, opts)
+          result =
+            Propagation.with_attached(propagation, fn ->
+              execute_action(action, params, context, opts)
+            end)
+
           send(parent, {:execute_action_result, ref, result})
         end)
 
