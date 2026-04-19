@@ -341,64 +341,89 @@ defmodule Jido.Action.Error do
     }
   end
 
-  def to_map(%InvalidInputError{} = error) do
+  def to_map(%InvalidInputError{
+        message: message,
+        field: field,
+        value: value,
+        details: details
+      }) do
     %{
       type: :validation_error,
-      message: normalize_message(error.message),
+      message: normalize_message(message),
       details:
-        error.details
+        details
         |> normalize_details()
-        |> maybe_put(:field, error.field)
-        |> maybe_put(:value, Sanitizer.sanitize(error.value)),
+        |> maybe_put(:field, field)
+        |> maybe_put(:value, Sanitizer.sanitize(value)),
       retryable?: false
     }
   end
 
-  def to_map(%ExecutionFailureError{} = error) do
+  def to_map(%ExecutionFailureError{message: message, details: details}) do
     %{
       type: :execution_error,
-      message: normalize_message(error.message),
-      details: normalize_details(error.details),
-      retryable?: normalize_retryable(error.details, :execution_error)
+      message: normalize_message(message),
+      details: normalize_details(details),
+      retryable?: normalize_retryable(details, :execution_error)
     }
   end
 
-  def to_map(%TimeoutError{} = error) do
+  def to_map(%TimeoutError{message: message, timeout: timeout, details: details}) do
     %{
       type: :timeout,
-      message: normalize_message(error.message),
+      message: normalize_message(message),
       details:
-        error.details
+        details
         |> normalize_details()
-        |> maybe_put(:timeout, error.timeout),
+        |> maybe_put(:timeout, timeout),
       retryable?: true
     }
   end
 
-  def to_map(%ConfigurationError{} = error) do
+  def to_map(%ConfigurationError{message: message, details: details}) do
     %{
       type: :configuration_error,
-      message: normalize_message(error.message),
-      details: normalize_details(error.details),
+      message: normalize_message(message),
+      details: normalize_details(details),
       retryable?: false
     }
   end
 
-  def to_map(%InternalError{} = error) do
+  def to_map(%InternalError{message: message, details: details}) do
     %{
       type: :internal_error,
-      message: normalize_message(error.message),
-      details: normalize_details(error.details),
+      message: normalize_message(message),
+      details: normalize_details(details),
       retryable?: false
     }
   end
 
-  def to_map(%Internal.UnknownError{} = error) do
+  def to_map(%Internal.UnknownError{message: message, details: details}) do
     %{
       type: :internal_error,
-      message: normalize_message(error.message),
-      details: normalize_details(error.details),
+      message: normalize_message(message),
+      details: normalize_details(details),
       retryable?: false
+    }
+  end
+
+  def to_map(%{__struct__: module} = error)
+      when is_atom(module) and
+             module in [
+               InvalidInputError,
+               ExecutionFailureError,
+               TimeoutError,
+               ConfigurationError,
+               InternalError,
+               Internal.UnknownError
+             ] do
+    type = pseudo_struct_type(module)
+
+    %{
+      type: type,
+      message: normalize_message(pseudo_struct_message(module, Map.get(error, :message))),
+      details: normalize_pseudo_struct_details(error),
+      retryable?: normalize_retryable(error, type)
     }
   end
 
@@ -554,13 +579,29 @@ defmodule Jido.Action.Error do
 
   defp normalize_details(_details), do: %{}
 
+  defp normalize_pseudo_struct_details(error) when is_map(error) do
+    base_details =
+      error
+      |> Map.get(:details, %{})
+      |> normalize_details()
+
+    extra_details =
+      error
+      |> Map.drop([:message, :details, :__struct__, :__exception__])
+      |> normalize_details()
+
+    Map.merge(base_details, extra_details)
+  end
+
   defp extract_message_details(%_{} = error) do
     error
     |> Map.from_struct()
     |> Map.drop([:__exception__, :message])
   end
 
-  defp extract_message_details(%{} = error), do: Map.delete(error, :message)
+  defp extract_message_details(%{} = error) do
+    Map.drop(error, [:message, :__struct__, :__exception__])
+  end
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
@@ -616,6 +657,21 @@ defmodule Jido.Action.Error do
 
   defp extract_retry_value(_), do: nil
 
+  defp pseudo_struct_type(InvalidInputError), do: :validation_error
+  defp pseudo_struct_type(ExecutionFailureError), do: :execution_error
+  defp pseudo_struct_type(TimeoutError), do: :timeout
+  defp pseudo_struct_type(ConfigurationError), do: :configuration_error
+  defp pseudo_struct_type(InternalError), do: :internal_error
+  defp pseudo_struct_type(Internal.UnknownError), do: :internal_error
+
+  defp pseudo_struct_message(_module, message) when not is_nil(message), do: message
+  defp pseudo_struct_message(InvalidInputError, nil), do: "Invalid input"
+  defp pseudo_struct_message(ExecutionFailureError, nil), do: "Execution failed"
+  defp pseudo_struct_message(TimeoutError, nil), do: "Action timed out"
+  defp pseudo_struct_message(ConfigurationError, nil), do: "Configuration error"
+  defp pseudo_struct_message(InternalError, nil), do: "Internal error"
+  defp pseudo_struct_message(Internal.UnknownError, nil), do: "Unknown error"
+
   defp safe_inspect(value) do
     inspect(value)
   rescue
@@ -623,5 +679,21 @@ defmodule Jido.Action.Error do
       value
       |> Sanitizer.sanitize()
       |> inspect()
+  end
+end
+
+defimpl Jason.Encoder,
+  for: [
+    Jido.Action.Error.InvalidInputError,
+    Jido.Action.Error.ExecutionFailureError,
+    Jido.Action.Error.TimeoutError,
+    Jido.Action.Error.ConfigurationError,
+    Jido.Action.Error.InternalError,
+    Jido.Action.Error.Internal.UnknownError
+  ] do
+  def encode(error, opts) when is_map(error) do
+    error
+    |> Jido.Action.Error.to_map()
+    |> Jason.Encode.map(opts)
   end
 end
