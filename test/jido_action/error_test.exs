@@ -394,6 +394,41 @@ defmodule Jido.Action.ErrorTest do
     end
   end
 
+  describe "Jason encoding" do
+    test "encodes action error structs through normalized generic maps" do
+      error =
+        Error.execution_error("boom", %{
+          reason: %Reason{message: "nested", field: :transport, meta: {:retry, 2}}
+        })
+
+      decoded = error |> Jason.encode!() |> Jason.decode!()
+
+      assert decoded["type"] == "execution_error"
+      assert decoded["message"] == "boom"
+      assert decoded["retryable?"] == true
+      assert decoded["details"]["reason"]["__struct__"] =~ "Reason"
+      assert decoded["details"]["reason"]["meta"] == ["retry", 2]
+    end
+
+    test "encodes malformed execution failure maps without crashing" do
+      malformed = %{
+        __struct__: Error.ExecutionFailureError,
+        __exception__: true,
+        details: %{},
+        tool_name: "list_directory"
+      }
+
+      decoded = malformed |> Jason.encode!() |> Jason.decode!()
+
+      assert decoded == %{
+               "type" => "execution_error",
+               "message" => "Execution failed",
+               "details" => %{"tool_name" => "list_directory"},
+               "retryable?" => true
+             }
+    end
+  end
+
   describe "retryable?/1" do
     test "matches timeout and transient action errors" do
       assert Error.retryable?(Error.timeout_error("timed out", timeout: 500))
