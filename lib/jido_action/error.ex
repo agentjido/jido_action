@@ -147,7 +147,6 @@ defmodule Jido.Action.Error do
   # Define specific error structs inline
   defmodule InvalidInputError do
     @moduledoc "Error for invalid input parameters"
-    @derive {Jason.Encoder, only: [:message, :field, :value]}
     defexception [:message, :field, :value, :details]
 
     @type t :: %__MODULE__{
@@ -172,7 +171,6 @@ defmodule Jido.Action.Error do
 
   defmodule ExecutionFailureError do
     @moduledoc "Error for runtime execution failures"
-    @derive {Jason.Encoder, only: [:message]}
     defexception [:message, :details]
 
     @type t :: %__MODULE__{
@@ -191,7 +189,6 @@ defmodule Jido.Action.Error do
 
   defmodule TimeoutError do
     @moduledoc "Error for action timeouts"
-    @derive {Jason.Encoder, only: [:message, :timeout]}
     defexception [:message, :timeout, :details]
 
     @type t :: %__MODULE__{
@@ -212,7 +209,6 @@ defmodule Jido.Action.Error do
 
   defmodule ConfigurationError do
     @moduledoc "Error for configuration issues"
-    @derive {Jason.Encoder, only: [:message]}
     defexception [:message, :details]
 
     @type t :: %__MODULE__{
@@ -231,7 +227,6 @@ defmodule Jido.Action.Error do
 
   defmodule InternalError do
     @moduledoc "Error for unexpected internal failures"
-    @derive {Jason.Encoder, only: [:message]}
     defexception [:message, :details]
 
     @type t :: %__MODULE__{
