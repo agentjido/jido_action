@@ -394,46 +394,60 @@ defmodule Jido.Action.ErrorTest do
     end
   end
 
-  describe "Jason.Encoder for error structs" do
-    test "InvalidInputError is directly JSON-encodable" do
+  describe "Jason encoding" do
+    test "encodes InvalidInputError through normalized generic maps" do
       error = Error.validation_error("bad input", field: :name, value: 123)
-      assert {:ok, json} = Jason.encode(error)
-      decoded = Jason.decode!(json)
+
+      decoded = error |> Jason.encode!() |> Jason.decode!()
+
+      assert decoded["type"] == "validation_error"
       assert decoded["message"] == "bad input"
-      assert decoded["field"] == "name"
-      # details excluded — may contain non-serializable terms
-      refute Map.has_key?(decoded, "details")
+      assert decoded["retryable?"] == false
+      assert decoded["details"] == %{"field" => "name", "value" => 123}
     end
 
-    test "ExecutionFailureError is directly JSON-encodable" do
-      error = Error.execution_error("boom", %{stacktrace: [{Enum, :map, 2, []}]})
-      assert {:ok, json} = Jason.encode(error)
-      decoded = Jason.decode!(json)
+    test "encodes action error structs through normalized generic maps" do
+      error =
+        Error.execution_error("boom", %{
+          reason: %Reason{message: "nested", field: :transport, meta: {:retry, 2}}
+        })
+
+      decoded = error |> Jason.encode!() |> Jason.decode!()
+
+      assert decoded["type"] == "execution_error"
       assert decoded["message"] == "boom"
-      # details excluded — contains stacktrace tuples
-      refute Map.has_key?(decoded, "details")
+      assert decoded["retryable?"] == true
+      assert decoded["details"]["reason"]["__struct__"] =~ "Reason"
+      assert decoded["details"]["reason"]["meta"] == ["retry", 2]
     end
 
-    test "TimeoutError is directly JSON-encodable" do
+    test "encodes TimeoutError through normalized generic maps" do
       error = Error.timeout_error("timed out", timeout: 5000)
-      assert {:ok, json} = Jason.encode(error)
-      decoded = Jason.decode!(json)
+
+      decoded = error |> Jason.encode!() |> Jason.decode!()
+
+      assert decoded["type"] == "timeout"
       assert decoded["message"] == "timed out"
-      assert decoded["timeout"] == 5000
+      assert decoded["retryable?"] == true
+      assert decoded["details"] == %{"timeout" => 5000}
     end
 
-    test "ConfigurationError is directly JSON-encodable" do
-      error = Error.config_error("missing key", %{key: :api_url})
-      assert {:ok, json} = Jason.encode(error)
-      decoded = Jason.decode!(json)
-      assert decoded["message"] == "missing key"
-    end
+    test "encodes malformed execution failure maps without crashing" do
+      malformed = %{
+        __struct__: Error.ExecutionFailureError,
+        __exception__: true,
+        details: %{},
+        tool_name: "list_directory"
+      }
 
-    test "InternalError is directly JSON-encodable" do
-      error = Error.internal_error("unexpected", %{reason: :unknown})
-      assert {:ok, json} = Jason.encode(error)
-      decoded = Jason.decode!(json)
-      assert decoded["message"] == "unexpected"
+      decoded = malformed |> Jason.encode!() |> Jason.decode!()
+
+      assert decoded == %{
+               "type" => "execution_error",
+               "message" => "Execution failed",
+               "details" => %{"tool_name" => "list_directory"},
+               "retryable?" => true
+             }
     end
   end
 
