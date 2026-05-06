@@ -463,6 +463,7 @@ defmodule Jido.Action.ErrorTest do
       refute Error.retryable?(Error.validation_error("invalid"))
       refute Error.retryable?(Error.config_error("bad config"))
       refute Error.retryable?(%{details: %{retry: false}})
+      refute Error.retryable?(%{details: %{"reason" => %{"retry" => false}}})
       refute Error.retryable?(:badarg)
     end
   end
