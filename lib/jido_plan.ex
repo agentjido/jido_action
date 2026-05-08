@@ -459,10 +459,7 @@ defmodule Jido.Plan do
       rec_stack = MapSet.put(rec_stack, vertex)
       neighbors = Multigraph.out_neighbors(graph, vertex)
 
-      case dfs_neighbors(graph, neighbors, visited, rec_stack, [vertex | path]) do
-        {:cycle, cycle_path} -> {:cycle, cycle_path}
-        {:ok, final_visited} -> {:ok, final_visited}
-      end
+      dfs_neighbors(graph, neighbors, visited, rec_stack, [vertex | path])
     end
   end
 

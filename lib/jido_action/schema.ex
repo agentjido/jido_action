@@ -220,10 +220,7 @@ defmodule Jido.Action.Schema do
   end
 
   defp validate_zoi(schema, data) do
-    case Zoi.parse(schema, data) do
-      {:ok, validated} -> {:ok, validated}
-      {:error, errors} -> {:error, errors}
-    end
+    Zoi.parse(schema, data)
   end
 
   defp extract_zoi_keys(%{__struct__: Zoi.Types.Map, fields: fields}) when is_map(fields) do
