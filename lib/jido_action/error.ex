@@ -632,10 +632,8 @@ defmodule Jido.Action.Error do
 
   defp extract_retry_hint(_), do: nil
 
-  defp extract_nested_reason(%{} = map) do
-    Map.get(map, :reason)
-  end
-
+  defp extract_nested_reason(%{reason: reason}), do: reason
+  defp extract_nested_reason(%{"reason" => reason}), do: reason
   defp extract_nested_reason(_), do: nil
 
   defp extract_retry_value(%{} = map) do
