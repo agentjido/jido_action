@@ -237,6 +237,93 @@ defmodule Jido.Action.ToolTest do
                count: 2
              }
     end
+
+    test "recursively converts string keys for nested Zoi map fields" do
+      schema =
+        Zoi.map(%{
+          attributes:
+            Zoi.map(%{
+              title: Zoi.string() |> Zoi.optional(),
+              description: Zoi.string() |> Zoi.optional() |> Zoi.default("")
+            }),
+          relationships:
+            Zoi.map(%{
+              workspace:
+                Zoi.map(%{
+                  data:
+                    Zoi.map(%{
+                      id: Zoi.uuid(),
+                      type: Zoi.string() |> Zoi.default("workspace")
+                    })
+                })
+            })
+        })
+
+      params = %{
+        "attributes" => %{
+          "title" => "Example",
+          "description" => "Nested keys are converted"
+        },
+        "relationships" => %{
+          "workspace" => %{
+            "data" => %{
+              "id" => "550e8400-e29b-41d4-a716-446655440000",
+              "type" => "workspace"
+            }
+          }
+        }
+      }
+
+      result = Tool.convert_params_using_schema(params, schema)
+
+      assert result == %{
+               attributes: %{
+                 title: "Example",
+                 description: "Nested keys are converted"
+               },
+               relationships: %{
+                 workspace: %{
+                   data: %{
+                     id: "550e8400-e29b-41d4-a716-446655440000",
+                     type: "workspace"
+                   }
+                 }
+               }
+             }
+
+      assert {:ok, _parsed} = Zoi.parse(schema, result)
+    end
+
+    test "recursively converts Zoi map fields inside lists" do
+      schema =
+        Zoi.map(%{
+          items:
+            Zoi.list(
+              Zoi.map(%{
+                id: Zoi.string(),
+                metadata: Zoi.map(%{rank: Zoi.integer()})
+              })
+            )
+        })
+
+      params = %{
+        "items" => [
+          %{"id" => "one", "metadata" => %{"rank" => 1}},
+          %{"id" => "two", "metadata" => %{"rank" => 2}}
+        ]
+      }
+
+      result = Tool.convert_params_using_schema(params, schema)
+
+      assert result == %{
+               items: [
+                 %{id: "one", metadata: %{rank: 1}},
+                 %{id: "two", metadata: %{rank: 2}}
+               ]
+             }
+
+      assert {:ok, _parsed} = Zoi.parse(schema, result)
+    end
   end
 
   describe "build_parameters_schema/1" do
