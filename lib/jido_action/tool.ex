@@ -102,6 +102,9 @@ defmodule Jido.Action.Tool do
       :json_schema ->
         convert_params_using_json_schema(params, schema)
 
+      :zoi ->
+        convert_params_using_zoi_schema(params, schema)
+
       _ ->
         schema_keys = Schema.known_keys(schema)
         convert_params_using_known_keys(params, schema, schema_keys)
@@ -129,6 +132,10 @@ defmodule Jido.Action.Tool do
   end
 
   defp convert_params_using_key_pairs(params, schema, key_pairs) do
+    convert_params_using_key_pairs(params, schema, key_pairs, &convert_value_with_schema/3)
+  end
+
+  defp convert_params_using_key_pairs(params, schema, key_pairs, convert_value) do
     {known_converted, unknown_params} =
       Enum.reduce(key_pairs, {%{}, params}, fn {key, string_key}, {known_acc, rest} ->
         {atom_value, rest} = Map.pop(rest, key, :__missing__)
@@ -148,12 +155,78 @@ defmodule Jido.Action.Tool do
             {known_acc, rest}
 
           _ ->
-            converted_value = convert_value_with_schema(schema, key, value)
+            converted_value = convert_value.(schema, key, value)
             {Map.put(known_acc, key, converted_value), rest}
         end
       end)
 
     Map.merge(unknown_params, known_converted)
+  end
+
+  defp convert_params_using_zoi_schema(params, schema) do
+    params
+    |> convert_params_using_json_object_schema(Schema.to_json_schema(schema))
+  end
+
+  defp convert_params_using_json_object_schema(params, schema) when is_map(params) do
+    case json_schema_properties(schema) do
+      properties when is_map(properties) ->
+        convert_params_using_json_object_properties(params, properties)
+
+      _ ->
+        params
+    end
+  end
+
+  defp convert_params_using_json_object_properties(params, properties) do
+    key_pairs = Map.keys(properties) |> Enum.map(&{&1, to_string(&1)})
+
+    convert_params_using_key_pairs(params, properties, key_pairs, fn properties, key, value ->
+      properties
+      |> Map.fetch!(key)
+      |> convert_json_schema_value(value)
+    end)
+  end
+
+  defp convert_json_schema_value(schema, value) when is_map(value) do
+    cond do
+      json_schema_type(schema) in [:object, "object"] ->
+        convert_params_using_json_object_schema(value, schema)
+
+      schemas = json_schema_composite_schemas(schema) ->
+        Enum.reduce(schemas, value, &convert_json_schema_value/2)
+
+      true ->
+        value
+    end
+  end
+
+  defp convert_json_schema_value(schema, value) when is_list(value) do
+    case {json_schema_type(schema), json_schema_items(schema)} do
+      {type, item_schema} when type in [:array, "array"] and is_map(item_schema) ->
+        Enum.map(value, &convert_json_schema_value(item_schema, &1))
+
+      _ ->
+        value
+    end
+  end
+
+  defp convert_json_schema_value(_schema, value), do: value
+
+  defp json_schema_type(schema), do: Map.get(schema, :type) || Map.get(schema, "type")
+
+  defp json_schema_properties(schema),
+    do: Map.get(schema, :properties) || Map.get(schema, "properties")
+
+  defp json_schema_items(schema), do: Map.get(schema, :items) || Map.get(schema, "items")
+
+  defp json_schema_composite_schemas(schema) do
+    Enum.find_value([:allOf, "allOf", :anyOf, "anyOf", :oneOf, "oneOf"], fn key ->
+      case Map.get(schema, key) do
+        schemas when is_list(schemas) -> schemas
+        _ -> nil
+      end
+    end)
   end
 
   defp convert_value_with_schema(schema, key, value) when is_list(schema) do
