@@ -42,10 +42,15 @@ defmodule Jido.Action.CatalogTest do
     def run(params, _context), do: {:ok, params}
   end
 
-  defmodule NotAnAction do
-    def name, do: "not_an_action"
+  defmodule CompatibleTool do
+    def name, do: "compatible_tool"
     def schema, do: []
     def run(params, _context), do: {:ok, params}
+  end
+
+  defmodule MissingRun do
+    def name, do: "missing_run"
+    def schema, do: []
   end
 
   describe "Entry" do
@@ -97,7 +102,7 @@ defmodule Jido.Action.CatalogTest do
       assert {:ok, entry} =
                Entry.new(%{
                  "id" => "custom",
-                 "module" => SendEmail,
+                 "module" => inspect(SendEmail),
                  "name" => "custom_email",
                  "visibility" => "internal",
                  "risk" => "medium",
@@ -105,16 +110,25 @@ defmodule Jido.Action.CatalogTest do
                })
 
       assert entry.id == "custom"
+      assert entry.module == SendEmail
       assert entry.visibility == :internal
       assert entry.risk == :medium
       assert entry.source == :runtime
     end
 
-    test "rejects non-action modules" do
-      assert {:error, _error} = Entry.from_module(NotAnAction)
+    test "supports local action-compatible modules" do
+      assert {:ok, entry} = Entry.from_module(CompatibleTool)
+
+      assert entry.module == CompatibleTool
+      assert entry.name == "compatible_tool"
+      assert entry.schema_kind == :empty
+    end
+
+    test "rejects incompatible local modules" do
+      assert {:error, _error} = Entry.from_module(MissingRun)
 
       assert {:error, _error} =
-               Entry.new(id: "fake", module: NotAnAction, name: "not_an_action")
+               Entry.new(id: "fake", module: MissingRun, name: "missing_run")
     end
 
     test "normalizes aliases before applying module overrides" do
@@ -157,6 +171,14 @@ defmodule Jido.Action.CatalogTest do
                  module: SendEmail,
                  name: "custom_email",
                  risk: :critical
+               )
+
+      assert {:error, _error} =
+               Entry.new(
+                 id: "custom",
+                 module: SendEmail,
+                 name: "custom_email",
+                 source: :remote
                )
     end
   end
@@ -210,6 +232,18 @@ defmodule Jido.Action.CatalogTest do
       assert {:ok, _entry} = Catalog.fetch(updated, "search_users")
     end
 
+    test "registers prebuilt entries with overrides" do
+      entry = Entry.new!(id: "email", module: SendEmail, name: "send_email")
+
+      catalog =
+        Catalog.new!(id: "test")
+        |> Catalog.register!(entry, visibility: :internal, risk: :medium)
+
+      assert {:ok, updated_entry} = Catalog.fetch(catalog, "email")
+      assert updated_entry.visibility == :internal
+      assert updated_entry.risk == :medium
+    end
+
     test "reports ambiguous name lookups" do
       first = Entry.new!(id: "first", module: SearchUsers, name: "duplicate")
       second = Entry.new!(id: "second", module: SendEmail, name: "duplicate")
@@ -252,6 +286,37 @@ defmodule Jido.Action.CatalogTest do
                )
 
       assert accounts_hit.entry.name == "search_users"
+
+      assert {:ok, [risk_hit]} = Catalog.search(catalog, filters: %{"risk" => "medium"})
+      assert risk_hit.entry.name == "send_email"
+
+      assert {:ok, []} = Catalog.search(catalog, filters: %{"unknown" => nil})
+    end
+
+    test "phrase matches are not penalized below scattered token matches" do
+      phrase_entry =
+        Entry.new!(
+          id: "phrase",
+          module: CompatibleTool,
+          name: "phrase",
+          description: "Delete user account"
+        )
+
+      scattered_entry =
+        Entry.new!(
+          id: "scattered",
+          module: CompatibleTool,
+          name: "scattered",
+          description: "Delete stale records from the user table and archive the account"
+        )
+
+      catalog =
+        Catalog.new!(id: "test")
+        |> Catalog.register!(phrase_entry)
+        |> Catalog.register!(scattered_entry)
+
+      assert {:ok, [first_hit | _]} = Catalog.search(catalog, "delete user account")
+      assert first_hit.entry.id == "phrase"
     end
 
     test "search defaults to public entries and can include internal entries" do

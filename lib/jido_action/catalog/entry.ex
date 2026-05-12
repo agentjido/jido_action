@@ -1,6 +1,6 @@
 defmodule Jido.Action.Catalog.Entry do
   @moduledoc """
-  Normalized metadata for one `Jido.Action` module in an action catalog.
+  Normalized metadata for one local action-compatible module in an action catalog.
 
   Entries are plain values. They are intended for inspection, filtering, search,
   documentation, and later projection into higher-level runtimes.
@@ -12,7 +12,7 @@ defmodule Jido.Action.Catalog.Entry do
   @schema_kind_values [:empty, :nimble, :zoi, :json_schema, :unknown]
   @visibility_values [:public, :internal, :hidden]
   @risk_values [:low, :medium, :high]
-  @source_values [:module, :runtime, :remote]
+  @source_values [:module, :runtime]
   @string_key_fields [
     :id,
     :module,
@@ -52,7 +52,7 @@ defmodule Jido.Action.Catalog.Entry do
             %{
               id: Zoi.string(description: "Stable catalog entry id"),
               module:
-                Zoi.atom(description: "Concrete Jido.Action module")
+                Zoi.atom(description: "Concrete local action-compatible module")
                 |> Zoi.refine({__MODULE__, :validate_action_module, []}),
               name: Zoi.string(description: "Machine-friendly action name"),
               title: Zoi.string(description: "Short human label") |> Zoi.optional(),
@@ -100,7 +100,7 @@ defmodule Jido.Action.Catalog.Entry do
                 |> Zoi.optional(),
               source:
                 Zoi.enum(@source_values,
-                  description: "Registration source: :module | :runtime | :remote"
+                  description: "Registration source: :module | :runtime"
                 )
                 |> Zoi.default(:module),
               metadata: Zoi.map(description: "Arbitrary extension metadata") |> Zoi.default(%{})
@@ -151,7 +151,7 @@ defmodule Jido.Action.Catalog.Entry do
   end
 
   @doc """
-  Builds a catalog entry from a `Jido.Action` module.
+  Builds a catalog entry from a local action-compatible module.
 
   Optional attributes override the module-derived metadata.
   """
@@ -195,9 +195,6 @@ defmodule Jido.Action.Catalog.Entry do
     case Code.ensure_compiled(module) do
       {:module, _} ->
         cond do
-          not action_behaviour?(module) ->
-            {:error, "must use Jido.Action"}
-
           not function_exported?(module, :name, 0) ->
             {:error, "must export name/0"}
 
@@ -360,6 +357,7 @@ defmodule Jido.Action.Catalog.Entry do
     attrs
     |> normalize_known_string_keys()
     |> normalize_attr_aliases()
+    |> normalize_module_value()
     |> normalize_enum_values()
   end
 
@@ -384,27 +382,37 @@ defmodule Jido.Action.Catalog.Entry do
 
   defp normalize_enum_value(value, _allowed_values), do: value
 
+  defp normalize_module_value(%{module: module} = attrs) when is_binary(module) do
+    case existing_module_atom(module) do
+      {:ok, module} -> Map.put(attrs, :module, module)
+      :error -> attrs
+    end
+  end
+
+  defp normalize_module_value(attrs), do: attrs
+
+  defp existing_module_atom(module) do
+    candidates =
+      case String.starts_with?(module, "Elixir.") do
+        true -> [module]
+        false -> [module, "Elixir." <> module]
+      end
+
+    Enum.find_value(candidates, :error, fn candidate ->
+      try do
+        {:ok, String.to_existing_atom(candidate)}
+      rescue
+        ArgumentError -> false
+      end
+    end)
+  end
+
   defp normalize_entry_schemas(%__MODULE__{} = entry) do
     %{
       entry
       | input_schema: normalize_schema(entry.input_schema),
         output_schema: normalize_schema(entry.output_schema)
     }
-  end
-
-  defp action_behaviour?(module) do
-    module
-    |> module_behaviours()
-    |> Enum.member?(Jido.Action)
-  end
-
-  defp module_behaviours(module) do
-    attributes = module.module_info(:attributes)
-
-    attributes
-    |> Keyword.get_values(:behaviour)
-    |> Kernel.++(Keyword.get_values(attributes, :behavior))
-    |> List.flatten()
   end
 
   defp drop_nil_values(attrs) do

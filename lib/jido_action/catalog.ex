@@ -12,6 +12,13 @@ defmodule Jido.Action.Catalog do
   alias Jido.Action.Catalog.Query
   alias Jido.Action.Error
 
+  @filter_enum_values %{
+    schema_kind: [:empty, :nimble, :zoi, :json_schema, :unknown],
+    visibility: [:public, :internal, :hidden],
+    risk: [:low, :medium, :high],
+    source: [:module, :runtime]
+  }
+
   @schema Zoi.struct(
             __MODULE__,
             %{
@@ -106,8 +113,9 @@ defmodule Jido.Action.Catalog do
           {:ok, t()} | {:error, Exception.t()}
   def register(catalog, entry, overrides \\ [])
 
-  def register(%__MODULE__{} = catalog, %Entry{} = entry, _overrides) do
-    with {:ok, entry} <- Entry.new(Map.from_struct(entry)) do
+  def register(%__MODULE__{} = catalog, %Entry{} = entry, overrides) do
+    with {:ok, attrs} <- merge_entry_overrides(entry, overrides),
+         {:ok, entry} <- Entry.new(attrs) do
       {:ok, put_entry(catalog, entry)}
     end
   end
@@ -193,7 +201,7 @@ defmodule Jido.Action.Catalog do
     with {:ok, query} <- Query.new(query_or_attrs) do
       hits =
         catalog
-        |> list()
+        |> entries()
         |> Enum.filter(&matches_filters?(&1, query))
         |> Enum.map(&score_entry(&1, query))
         |> Enum.reject(fn %{score: score} -> score <= 0.0 and has_text?(query) end)
@@ -219,6 +227,30 @@ defmodule Jido.Action.Catalog do
   defp put_entry(%__MODULE__{} = catalog, %Entry{} = entry) do
     %{catalog | entries: Map.put(catalog.entries, entry.id, entry)}
   end
+
+  defp entries(%__MODULE__{} = catalog), do: Map.values(catalog.entries)
+
+  defp merge_entry_overrides(%Entry{} = entry, overrides) do
+    with {:ok, overrides} <- normalize_entry_overrides(overrides) do
+      {:ok, Map.merge(Map.from_struct(entry), overrides)}
+    end
+  end
+
+  defp normalize_entry_overrides(overrides) when is_list(overrides) do
+    if Keyword.keyword?(overrides) do
+      {:ok, Map.new(overrides)}
+    else
+      {:error,
+       Error.validation_error("Invalid catalog registration", %{details: :invalid_overrides})}
+    end
+  end
+
+  defp normalize_entry_overrides(%{} = overrides), do: {:ok, overrides}
+
+  defp normalize_entry_overrides(_overrides),
+    do:
+      {:error,
+       Error.validation_error("Invalid catalog registration", %{details: :invalid_overrides})}
 
   defp normalize_entries_attr(attrs) do
     entries = Map.get(attrs, :entries, Map.get(attrs, "entries", %{}))
@@ -291,12 +323,18 @@ defmodule Jido.Action.Catalog do
     Enum.all?(required, &MapSet.member?(value_set, &1))
   end
 
+  defp map_filters_match?(_entry, filters) when map_size(filters) == 0, do: true
+
   defp map_filters_match?(entry, filters) do
+    entry_attrs = Map.from_struct(entry)
+
     Enum.all?(filters, fn {key, expected} ->
-      entry
-      |> Map.from_struct()
-      |> Map.get(normalize_filter_key(key))
-      |> Kernel.==(expected)
+      key = normalize_filter_key(key)
+
+      case Map.fetch(entry_attrs, key) do
+        {:ok, actual} -> actual == normalize_filter_value(key, expected)
+        :error -> false
+      end
     end)
   end
 
@@ -307,6 +345,15 @@ defmodule Jido.Action.Catalog do
   rescue
     ArgumentError -> key
   end
+
+  defp normalize_filter_value(key, value) when is_binary(value) do
+    case Map.fetch(@filter_enum_values, key) do
+      {:ok, allowed_values} -> Enum.find(allowed_values, value, &(Atom.to_string(&1) == value))
+      :error -> value
+    end
+  end
+
+  defp normalize_filter_value(_key, value), do: value
 
   defp has_text?(%Query{text: text}) when is_binary(text), do: String.trim(text) != ""
   defp has_text?(_query), do: false
@@ -359,7 +406,7 @@ defmodule Jido.Action.Catalog do
 
     cond do
       normalized == text -> exact_score
-      String.contains?(normalized, text) -> token_score * 2
+      String.contains?(normalized, text) -> max(token_score * 2, length(tokens) * token_score)
       true -> token_match_score(normalized, tokens, token_score)
     end
   end
