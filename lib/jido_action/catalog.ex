@@ -49,12 +49,14 @@ defmodule Jido.Action.Catalog do
   def new(%{} = attrs) do
     attrs = Map.put_new_lazy(attrs, :id, &Uniq.UUID.uuid7/0)
 
-    case Zoi.parse(@schema, attrs) do
-      {:ok, catalog} ->
-        {:ok, catalog}
+    with {:ok, attrs} <- normalize_entries_attr(attrs) do
+      case Zoi.parse(@schema, attrs) do
+        {:ok, catalog} ->
+          {:ok, catalog}
 
-      {:error, errors} ->
-        {:error, Error.validation_error("Invalid action catalog", %{details: errors})}
+        {:error, errors} ->
+          {:error, Error.validation_error("Invalid action catalog", %{details: errors})}
+      end
     end
   end
 
@@ -105,7 +107,9 @@ defmodule Jido.Action.Catalog do
   def register(catalog, entry, overrides \\ [])
 
   def register(%__MODULE__{} = catalog, %Entry{} = entry, _overrides) do
-    {:ok, put_entry(catalog, entry)}
+    with {:ok, entry} <- Entry.new(Map.from_struct(entry)) do
+      {:ok, put_entry(catalog, entry)}
+    end
   end
 
   def register(%__MODULE__{} = catalog, module, overrides) when is_atom(module) do
@@ -215,6 +219,47 @@ defmodule Jido.Action.Catalog do
   defp put_entry(%__MODULE__{} = catalog, %Entry{} = entry) do
     %{catalog | entries: Map.put(catalog.entries, entry.id, entry)}
   end
+
+  defp normalize_entries_attr(attrs) do
+    entries = Map.get(attrs, :entries, Map.get(attrs, "entries", %{}))
+
+    with {:ok, entries} <- normalize_entries(entries) do
+      attrs =
+        attrs
+        |> Map.delete("entries")
+        |> Map.put(:entries, entries)
+
+      {:ok, attrs}
+    end
+  end
+
+  defp normalize_entries(entries) when is_map(entries) do
+    Enum.reduce_while(entries, {:ok, %{}}, fn {key, value}, {:ok, acc} ->
+      case normalize_entry_value(value) do
+        {:ok, entry} ->
+          {:cont, {:ok, Map.put(acc, entry.id, entry)}}
+
+        {:error, reason} ->
+          {:halt,
+           {:error,
+            Error.validation_error("Invalid action catalog", %{
+              details: %{entries: %{key => reason}}
+            })}}
+      end
+    end)
+  end
+
+  defp normalize_entries(_entries) do
+    {:error,
+     Error.validation_error("Invalid action catalog", %{
+       details: %{entries: "must be a map of catalog entries"}
+     })}
+  end
+
+  defp normalize_entry_value(%Entry{} = entry), do: Entry.new(Map.from_struct(entry))
+  defp normalize_entry_value(%{} = attrs), do: Entry.new(attrs)
+  defp normalize_entry_value(attrs) when is_list(attrs), do: Entry.new(attrs)
+  defp normalize_entry_value(_attrs), do: {:error, :invalid_entry}
 
   defp fetch_by_name(catalog, name) do
     matches = catalog.entries |> Map.values() |> Enum.filter(&(&1.name == name))

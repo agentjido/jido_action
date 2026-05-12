@@ -42,6 +42,12 @@ defmodule Jido.Action.CatalogTest do
     def run(params, _context), do: {:ok, params}
   end
 
+  defmodule NotAnAction do
+    def name, do: "not_an_action"
+    def schema, do: []
+    def run(params, _context), do: {:ok, params}
+  end
+
   describe "Entry" do
     test "builds normalized metadata from an action module" do
       assert {:ok, entry} =
@@ -65,7 +71,9 @@ defmodule Jido.Action.CatalogTest do
       assert entry.schema_kind == :zoi
       assert entry.id == "#{inspect(SearchUsers)}:search_users@1.0.0"
       assert entry.input_schema["type"] == "object"
+      assert entry.input_schema["additionalProperties"] == false
       assert entry.output_schema["type"] == "object"
+      assert entry.output_schema["additionalProperties"] == false
     end
 
     test "supports raw attribute construction" do
@@ -84,6 +92,47 @@ defmodule Jido.Action.CatalogTest do
       assert entry.risk == :medium
       assert entry.metadata == %{owner: "ops"}
     end
+
+    test "rejects non-action modules" do
+      assert {:error, _error} = Entry.from_module(NotAnAction)
+
+      assert {:error, _error} =
+               Entry.new(id: "fake", module: NotAnAction, name: "not_an_action")
+    end
+
+    test "normalizes aliases before applying module overrides" do
+      assert {:ok, entry} =
+               Entry.from_module(SearchUsers,
+                 vsn: "2.0.0",
+                 schema:
+                   Zoi.object(%{
+                     override: Zoi.string(description: "Override value")
+                   })
+               )
+
+      assert entry.version == "2.0.0"
+      assert entry.id == "#{inspect(SearchUsers)}:search_users@2.0.0"
+      assert Map.has_key?(entry.input_schema["properties"], "override")
+      refute Map.has_key?(entry.input_schema["properties"], "query")
+    end
+
+    test "rejects unsupported enum values" do
+      assert {:error, _error} =
+               Entry.new(
+                 id: "custom",
+                 module: SendEmail,
+                 name: "custom_email",
+                 visibility: :private
+               )
+
+      assert {:error, _error} =
+               Entry.new(
+                 id: "custom",
+                 module: SendEmail,
+                 name: "custom_email",
+                 risk: :critical
+               )
+    end
   end
 
   describe "Catalog" do
@@ -97,6 +146,23 @@ defmodule Jido.Action.CatalogTest do
       assert catalog.id == "app-actions"
       assert catalog.name == "App Actions"
       assert Enum.map(Catalog.list(catalog), & &1.name) == ["search_users", "send_email"]
+    end
+
+    test "validates constructor entries" do
+      entry_attrs = %{
+        id: "email",
+        module: SendEmail,
+        name: "send_email"
+      }
+
+      assert {:ok, catalog} =
+               Catalog.new(id: "test", entries: %{"ignored-key" => entry_attrs})
+
+      assert Map.keys(catalog.entries) == ["email"]
+      assert [%Entry{name: "send_email"}] = Catalog.list(catalog)
+
+      assert {:error, _error} =
+               Catalog.new(id: "test", entries: %{"invalid" => "not-entry"})
     end
 
     test "registers, fetches, and unregisters entries by id or name" do
@@ -182,6 +248,8 @@ defmodule Jido.Action.CatalogTest do
       assert query.text == "users"
       assert query.visibility == [:public]
       assert query.limit == 10
+
+      assert {:error, _error} = Query.new(visibility: [:private])
 
       entry = Entry.new!(id: "entry", module: SearchUsers, name: "search_users")
       assert {:ok, hit} = Hit.new(entry: entry, score: 1.5, matches: %{name: 1.5})

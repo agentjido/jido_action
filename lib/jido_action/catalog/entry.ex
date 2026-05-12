@@ -9,11 +9,18 @@ defmodule Jido.Action.Catalog.Entry do
   alias Jido.Action.Error
   alias Jido.Action.Schema
 
+  @schema_kind_values [:empty, :nimble, :zoi, :json_schema, :unknown]
+  @visibility_values [:public, :internal, :hidden]
+  @risk_values [:low, :medium, :high]
+  @source_values [:module, :runtime, :remote]
+
   @schema Zoi.struct(
             __MODULE__,
             %{
               id: Zoi.string(description: "Stable catalog entry id"),
-              module: Zoi.atom(description: "Concrete Jido.Action module"),
+              module:
+                Zoi.atom(description: "Concrete Jido.Action module")
+                |> Zoi.refine({__MODULE__, :validate_action_module, []}),
               name: Zoi.string(description: "Machine-friendly action name"),
               title: Zoi.string(description: "Short human label") |> Zoi.optional(),
               description:
@@ -32,16 +39,20 @@ defmodule Jido.Action.Catalog.Entry do
               input_schema: Zoi.any(description: "Normalized input schema") |> Zoi.optional(),
               output_schema: Zoi.any(description: "Normalized output schema") |> Zoi.optional(),
               schema_kind:
-                Zoi.atom(description: "Input schema source/format") |> Zoi.default(:empty),
+                Zoi.enum(@schema_kind_values, description: "Input schema source/format")
+                |> Zoi.default(:empty),
               keywords:
                 Zoi.list(Zoi.string(), description: "Explicit search keywords") |> Zoi.default([]),
               examples:
                 Zoi.list(Zoi.map(), description: "Small input/output examples") |> Zoi.default([]),
               visibility:
-                Zoi.atom(description: "Visibility: :public | :internal | :hidden")
+                Zoi.enum(@visibility_values,
+                  description: "Visibility: :public | :internal | :hidden"
+                )
                 |> Zoi.default(:public),
               risk:
-                Zoi.atom(description: "Risk level: :low | :medium | :high") |> Zoi.default(:low),
+                Zoi.enum(@risk_values, description: "Risk level: :low | :medium | :high")
+                |> Zoi.default(:low),
               read_only?:
                 Zoi.boolean(description: "Whether execution is read-only") |> Zoi.default(false),
               requires_confirmation?:
@@ -55,7 +66,9 @@ defmodule Jido.Action.Catalog.Entry do
                 |> Zoi.min(0)
                 |> Zoi.optional(),
               source:
-                Zoi.atom(description: "Registration source: :module | :runtime | :remote")
+                Zoi.enum(@source_values,
+                  description: "Registration source: :module | :runtime | :remote"
+                )
                 |> Zoi.default(:module),
               metadata: Zoi.map(description: "Arbitrary extension metadata") |> Zoi.default(%{})
             },
@@ -86,7 +99,7 @@ defmodule Jido.Action.Catalog.Entry do
       |> drop_nil_values()
 
     case Zoi.parse(@schema, attrs) do
-      {:ok, entry} -> {:ok, entry}
+      {:ok, entry} -> {:ok, normalize_entry_schemas(entry)}
       {:error, errors} -> {:error, validation_error("Invalid catalog entry", errors)}
     end
   end
@@ -111,12 +124,16 @@ defmodule Jido.Action.Catalog.Entry do
   """
   @spec from_module(module(), map() | keyword()) :: {:ok, t()} | {:error, Exception.t()}
   def from_module(module, overrides \\ []) when is_atom(module) do
-    overrides = normalize_attrs(overrides)
+    overrides =
+      overrides
+      |> normalize_attrs()
+      |> normalize_attr_aliases()
 
-    with :ok <- validate_action_module(module),
+    with :ok <- ensure_action_module(module),
          {:ok, attrs} <- module_attrs(module) do
       attrs
       |> Map.merge(overrides)
+      |> refresh_derived_id(module, overrides)
       |> new()
     end
   end
@@ -132,27 +149,42 @@ defmodule Jido.Action.Catalog.Entry do
     end
   end
 
-  defp validate_action_module(module) do
+  @doc false
+  @spec validate_action_module(term(), keyword()) :: :ok | {:error, String.t()}
+  def validate_action_module(module, _opts \\ [])
+
+  def validate_action_module(module, _opts) when not is_atom(module) or is_nil(module),
+    do: {:error, "must be a module atom"}
+
+  def validate_action_module(module, _opts) do
     case Code.ensure_compiled(module) do
       {:module, _} ->
         cond do
+          not action_behaviour?(module) ->
+            {:error, "must use Jido.Action"}
+
           not function_exported?(module, :name, 0) ->
-            {:error,
-             validation_error("Invalid catalog action module", %{
-               module: module,
-               reason: :missing_name
-             })}
+            {:error, "must export name/0"}
 
           not function_exported?(module, :schema, 0) ->
-            {:error,
-             validation_error("Invalid catalog action module", %{
-               module: module,
-               reason: :missing_schema
-             })}
+            {:error, "must export schema/0"}
+
+          not function_exported?(module, :run, 2) ->
+            {:error, "must export run/2"}
 
           true ->
             :ok
         end
+
+      {:error, reason} ->
+        {:error, "could not compile module: #{inspect(reason)}"}
+    end
+  end
+
+  defp ensure_action_module(module) do
+    case validate_action_module(module) do
+      :ok ->
+        :ok
 
       {:error, reason} ->
         {:error,
@@ -214,6 +246,8 @@ defmodule Jido.Action.Catalog.Entry do
   defp stringify_json_schema(value) when is_list(value),
     do: Enum.map(value, &stringify_json_schema/1)
 
+  defp stringify_json_schema(value) when is_boolean(value), do: value
+  defp stringify_json_schema(nil), do: nil
   defp stringify_json_schema(value) when is_atom(value), do: Atom.to_string(value)
   defp stringify_json_schema(value), do: value
 
@@ -223,10 +257,28 @@ defmodule Jido.Action.Catalog.Entry do
   defp stable_id(module, name, nil), do: "#{inspect(module)}:#{name}"
   defp stable_id(module, name, version), do: "#{inspect(module)}:#{name}@#{version}"
 
+  defp refresh_derived_id(attrs, module, overrides) do
+    if Map.has_key?(overrides, :id) or Map.has_key?(overrides, "id") do
+      attrs
+    else
+      attrs
+      |> Map.put(
+        :id,
+        stable_id(
+          Map.get(attrs, :module, module),
+          Map.get(attrs, :name),
+          Map.get(attrs, :version)
+        )
+      )
+    end
+  end
+
   defp normalize_attr_aliases(attrs) do
     attrs
     |> maybe_rename(:vsn, :version)
+    |> maybe_rename("vsn", :version)
     |> maybe_rename(:schema, :input_schema)
+    |> maybe_rename("schema", :input_schema)
   end
 
   defp maybe_rename(attrs, from, to) do
@@ -244,6 +296,29 @@ defmodule Jido.Action.Catalog.Entry do
   defp normalize_attrs(attrs) when is_list(attrs), do: Map.new(attrs)
   defp normalize_attrs(%{} = attrs), do: attrs
   defp normalize_attrs(_attrs), do: %{}
+
+  defp normalize_entry_schemas(%__MODULE__{} = entry) do
+    %{
+      entry
+      | input_schema: normalize_schema(entry.input_schema),
+        output_schema: normalize_schema(entry.output_schema)
+    }
+  end
+
+  defp action_behaviour?(module) do
+    module
+    |> module_behaviours()
+    |> Enum.member?(Jido.Action)
+  end
+
+  defp module_behaviours(module) do
+    attributes = module.module_info(:attributes)
+
+    attributes
+    |> Keyword.get_values(:behaviour)
+    |> Kernel.++(Keyword.get_values(attributes, :behavior))
+    |> List.flatten()
+  end
 
   defp drop_nil_values(attrs) do
     Map.reject(attrs, fn {_key, value} -> is_nil(value) end)

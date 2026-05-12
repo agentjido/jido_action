@@ -5,6 +5,8 @@ defmodule Jido.Action.Catalog.Query do
 
   alias Jido.Action.Error
 
+  @visibility_values [:public, :internal, :hidden]
+
   @schema Zoi.struct(
             __MODULE__,
             %{
@@ -14,7 +16,10 @@ defmodule Jido.Action.Catalog.Query do
               capabilities:
                 Zoi.list(Zoi.string(), description: "Required capabilities") |> Zoi.default([]),
               visibility:
-                Zoi.list(Zoi.atom(), description: "Allowed visibility values")
+                Zoi.list(
+                  Zoi.enum(@visibility_values),
+                  description: "Allowed visibility values"
+                )
                 |> Zoi.default([:public]),
               limit:
                 Zoi.integer(description: "Maximum hits to return")
