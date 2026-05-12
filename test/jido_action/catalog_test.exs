@@ -93,6 +93,23 @@ defmodule Jido.Action.CatalogTest do
       assert entry.metadata == %{owner: "ops"}
     end
 
+    test "supports known string keys and string enum values" do
+      assert {:ok, entry} =
+               Entry.new(%{
+                 "id" => "custom",
+                 "module" => SendEmail,
+                 "name" => "custom_email",
+                 "visibility" => "internal",
+                 "risk" => "medium",
+                 "source" => "runtime"
+               })
+
+      assert entry.id == "custom"
+      assert entry.visibility == :internal
+      assert entry.risk == :medium
+      assert entry.source == :runtime
+    end
+
     test "rejects non-action modules" do
       assert {:error, _error} = Entry.from_module(NotAnAction)
 
@@ -104,16 +121,25 @@ defmodule Jido.Action.CatalogTest do
       assert {:ok, entry} =
                Entry.from_module(SearchUsers,
                  vsn: "2.0.0",
-                 schema:
-                   Zoi.object(%{
-                     override: Zoi.string(description: "Override value")
-                   })
+                 schema: [
+                   override: [
+                     type: :string,
+                     required: true,
+                     doc: "Override value"
+                   ]
+                 ]
                )
 
       assert entry.version == "2.0.0"
       assert entry.id == "#{inspect(SearchUsers)}:search_users@2.0.0"
+      assert entry.schema_kind == :nimble
       assert Map.has_key?(entry.input_schema["properties"], "override")
       refute Map.has_key?(entry.input_schema["properties"], "query")
+    end
+
+    test "rejects invalid module override attrs" do
+      assert {:error, _error} = Entry.from_module(SearchUsers, :bad_overrides)
+      assert {:error, _error} = Entry.from_module(SearchUsers, [:bad_override])
     end
 
     test "rejects unsupported enum values" do
@@ -240,6 +266,17 @@ defmodule Jido.Action.CatalogTest do
       assert {:ok, hits} = Catalog.search(catalog, visibility: [:public, :internal])
       assert Enum.map(hits, & &1.entry.name) == ["search_users", "send_email"]
     end
+
+    test "empty visibility filter matches no entries" do
+      catalog =
+        Catalog.new!(id: "test")
+        |> Catalog.register!(SearchUsers)
+        |> Catalog.register!(SendEmail, visibility: :hidden)
+
+      assert {:ok, []} = Catalog.search(catalog, visibility: [])
+      assert {:ok, hits} = Catalog.search(catalog, visibility: [:hidden])
+      assert Enum.map(hits, & &1.entry.name) == ["send_email"]
+    end
   end
 
   describe "Query and Hit" do
@@ -250,6 +287,9 @@ defmodule Jido.Action.CatalogTest do
       assert query.limit == 10
 
       assert {:error, _error} = Query.new(visibility: [:private])
+
+      assert {:ok, query} = Query.new(%{"visibility" => ["public", "internal"]})
+      assert query.visibility == [:public, :internal]
 
       entry = Entry.new!(id: "entry", module: SearchUsers, name: "search_users")
       assert {:ok, hit} = Hit.new(entry: entry, score: 1.5, matches: %{name: 1.5})

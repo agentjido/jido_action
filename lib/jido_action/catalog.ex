@@ -279,7 +279,6 @@ defmodule Jido.Action.Catalog do
       map_filters_match?(entry, query.filters)
   end
 
-  defp visibility_match?(_entry, []), do: true
   defp visibility_match?(entry, visibilities), do: entry.visibility in visibilities
 
   defp optional_equal?(_value, nil), do: true

@@ -6,6 +6,16 @@ defmodule Jido.Action.Catalog.Query do
   alias Jido.Action.Error
 
   @visibility_values [:public, :internal, :hidden]
+  @string_key_fields [
+    :text,
+    :namespace,
+    :tags,
+    :capabilities,
+    :visibility,
+    :limit,
+    :filters,
+    :metadata
+  ]
 
   @schema Zoi.struct(
             __MODULE__,
@@ -51,6 +61,8 @@ defmodule Jido.Action.Catalog.Query do
   def new(attrs) when is_list(attrs), do: attrs |> Map.new() |> new()
 
   def new(%{} = attrs) do
+    attrs = normalize_attr_map(attrs)
+
     case Zoi.parse(@schema, attrs) do
       {:ok, query} ->
         {:ok, query}
@@ -61,6 +73,46 @@ defmodule Jido.Action.Catalog.Query do
   end
 
   def new(_attrs), do: {:error, Error.validation_error("Invalid catalog query")}
+
+  defp normalize_attr_map(attrs) do
+    attrs
+    |> normalize_known_string_keys()
+    |> normalize_visibility()
+  end
+
+  defp normalize_known_string_keys(attrs) do
+    Enum.reduce(@string_key_fields, attrs, fn key, acc ->
+      maybe_rename(acc, Atom.to_string(key), key)
+    end)
+  end
+
+  defp maybe_rename(attrs, from, to) do
+    case Map.fetch(attrs, from) do
+      {:ok, value} ->
+        attrs
+        |> Map.delete(from)
+        |> Map.put_new(to, value)
+
+      :error ->
+        attrs
+    end
+  end
+
+  defp normalize_visibility(%{visibility: values} = attrs) when is_list(values) do
+    Map.put(attrs, :visibility, Enum.map(values, &normalize_visibility_value/1))
+  end
+
+  defp normalize_visibility(%{visibility: value} = attrs) do
+    Map.put(attrs, :visibility, [normalize_visibility_value(value)])
+  end
+
+  defp normalize_visibility(attrs), do: attrs
+
+  defp normalize_visibility_value(value) when is_binary(value) do
+    Enum.find(@visibility_values, value, &(Atom.to_string(&1) == value))
+  end
+
+  defp normalize_visibility_value(value), do: value
 
   @doc """
   Same as `new/1`, but raises on error.

@@ -13,6 +13,39 @@ defmodule Jido.Action.Catalog.Entry do
   @visibility_values [:public, :internal, :hidden]
   @risk_values [:low, :medium, :high]
   @source_values [:module, :runtime, :remote]
+  @string_key_fields [
+    :id,
+    :module,
+    :name,
+    :title,
+    :description,
+    :summary,
+    :namespace,
+    :package,
+    :version,
+    :category,
+    :tags,
+    :capabilities,
+    :input_schema,
+    :output_schema,
+    :schema_kind,
+    :keywords,
+    :examples,
+    :visibility,
+    :risk,
+    :read_only?,
+    :requires_confirmation?,
+    :scopes,
+    :timeout,
+    :source,
+    :metadata
+  ]
+  @enum_fields %{
+    schema_kind: @schema_kind_values,
+    visibility: @visibility_values,
+    risk: @risk_values,
+    source: @source_values
+  }
 
   @schema Zoi.struct(
             __MODULE__,
@@ -95,7 +128,7 @@ defmodule Jido.Action.Catalog.Entry do
   def new(%{} = attrs) do
     attrs =
       attrs
-      |> normalize_attr_aliases()
+      |> normalize_attr_map()
       |> drop_nil_values()
 
     case Zoi.parse(@schema, attrs) do
@@ -123,20 +156,22 @@ defmodule Jido.Action.Catalog.Entry do
   Optional attributes override the module-derived metadata.
   """
   @spec from_module(module(), map() | keyword()) :: {:ok, t()} | {:error, Exception.t()}
-  def from_module(module, overrides \\ []) when is_atom(module) do
-    overrides =
-      overrides
-      |> normalize_attrs()
-      |> normalize_attr_aliases()
+  def from_module(module, overrides \\ [])
 
-    with :ok <- ensure_action_module(module),
+  def from_module(module, overrides) when is_atom(module) do
+    with {:ok, overrides} <- normalize_overrides(overrides),
+         :ok <- ensure_action_module(module),
          {:ok, attrs} <- module_attrs(module) do
       attrs
       |> Map.merge(overrides)
       |> refresh_derived_id(module, overrides)
+      |> refresh_derived_schema_kind(overrides)
       |> new()
     end
   end
+
+  def from_module(_module, _overrides),
+    do: {:error, validation_error("Invalid catalog action module", :invalid_module)}
 
   @doc """
   Same as `from_module/2`, but raises on error.
@@ -293,9 +328,61 @@ defmodule Jido.Action.Catalog.Entry do
     end
   end
 
-  defp normalize_attrs(attrs) when is_list(attrs), do: Map.new(attrs)
-  defp normalize_attrs(%{} = attrs), do: attrs
-  defp normalize_attrs(_attrs), do: %{}
+  defp refresh_derived_schema_kind(attrs, overrides) do
+    if (Map.has_key?(overrides, :input_schema) or Map.has_key?(overrides, "input_schema")) and
+         not Map.has_key?(overrides, :schema_kind) and not Map.has_key?(overrides, "schema_kind") do
+      Map.put(attrs, :schema_kind, Schema.schema_type(Map.get(attrs, :input_schema)))
+    else
+      attrs
+    end
+  end
+
+  defp normalize_overrides(overrides) do
+    with {:ok, overrides} <- attrs_to_map(overrides) do
+      {:ok, normalize_attr_map(overrides)}
+    end
+  end
+
+  defp attrs_to_map(attrs) when is_list(attrs) do
+    if Keyword.keyword?(attrs) do
+      {:ok, Map.new(attrs)}
+    else
+      {:error, validation_error("Invalid catalog entry overrides", :invalid_overrides)}
+    end
+  end
+
+  defp attrs_to_map(%{} = attrs), do: {:ok, attrs}
+
+  defp attrs_to_map(_attrs),
+    do: {:error, validation_error("Invalid catalog entry overrides", :invalid_overrides)}
+
+  defp normalize_attr_map(attrs) do
+    attrs
+    |> normalize_known_string_keys()
+    |> normalize_attr_aliases()
+    |> normalize_enum_values()
+  end
+
+  defp normalize_known_string_keys(attrs) do
+    Enum.reduce(@string_key_fields, attrs, fn key, acc ->
+      maybe_rename(acc, Atom.to_string(key), key)
+    end)
+  end
+
+  defp normalize_enum_values(attrs) do
+    Enum.reduce(@enum_fields, attrs, fn {field, allowed_values}, acc ->
+      case Map.fetch(acc, field) do
+        {:ok, value} -> Map.put(acc, field, normalize_enum_value(value, allowed_values))
+        :error -> acc
+      end
+    end)
+  end
+
+  defp normalize_enum_value(value, allowed_values) when is_binary(value) do
+    Enum.find(allowed_values, value, &(Atom.to_string(&1) == value))
+  end
+
+  defp normalize_enum_value(value, _allowed_values), do: value
 
   defp normalize_entry_schemas(%__MODULE__{} = entry) do
     %{
