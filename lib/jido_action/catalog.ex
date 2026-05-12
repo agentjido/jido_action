@@ -355,6 +355,14 @@ defmodule Jido.Action.Catalog do
   defp has_text?(_query), do: false
 
   defp score_entry(%Entry{} = entry, %Query{} = query) do
+    if has_text?(query) do
+      score_text_entry(entry, query)
+    else
+      %{entry: entry, score: 1.0, reason: nil, matches: %{}}
+    end
+  end
+
+  defp score_text_entry(%Entry{} = entry, %Query{} = query) do
     text = normalize_text(query.text)
     tokens = text_tokens(text)
 
@@ -383,7 +391,7 @@ defmodule Jido.Action.Catalog do
 
     %{
       entry: entry,
-      score: if(has_text?(query), do: score, else: 1.0),
+      score: score,
       reason: reason_from_matches(matches),
       matches: matches
     }

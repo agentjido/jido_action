@@ -405,6 +405,25 @@ defmodule Jido.Action.CatalogTest do
       assert Enum.map(hits, & &1.entry.name) == ["search_users", "send_email"]
     end
 
+    test "filter-only search returns neutral hits without match metadata" do
+      entry = %Entry{
+        id: "expensive",
+        module: CompatibleTool,
+        name: "expensive",
+        input_schema: %{"description" => "expensive schema"},
+        output_schema: %{"description" => "expensive output"},
+        tags: ["expensive"]
+      }
+
+      catalog = %Catalog{id: "test", entries: %{entry.id => entry}}
+
+      assert {:ok, [hit]} = Catalog.search(catalog, tags: ["expensive"])
+      assert hit.entry.id == "expensive"
+      assert hit.score == 1.0
+      assert hit.reason == nil
+      assert hit.matches == %{}
+    end
+
     test "empty visibility filter matches no entries" do
       catalog =
         Catalog.new!(id: "test")
