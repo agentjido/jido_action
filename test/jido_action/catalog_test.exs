@@ -254,7 +254,14 @@ defmodule Jido.Action.CatalogTest do
           "visibility" => "internal",
           "risk" => "medium",
           "source" => "runtime",
-          "vsn" => "2.0.0"
+          "vsn" => "2.0.0",
+          "schema" => [
+            body: [
+              type: :string,
+              required: true,
+              doc: "Message body"
+            ]
+          ]
         })
 
       assert {:error, :not_found} = Catalog.fetch(catalog, "email")
@@ -262,6 +269,51 @@ defmodule Jido.Action.CatalogTest do
       assert updated_entry.visibility == :internal
       assert updated_entry.risk == :medium
       assert updated_entry.source == :runtime
+      assert updated_entry.version == "2.0.0"
+      assert updated_entry.schema_kind == :nimble
+      assert Map.has_key?(updated_entry.input_schema["properties"], "body")
+    end
+
+    test "refreshes derived metadata when registering prebuilt entries with overrides" do
+      entry = Entry.from_module!(SearchUsers)
+      updated_id = "#{inspect(SearchUsers)}:search_users@2.0.0"
+
+      catalog =
+        Catalog.new!(id: "test")
+        |> Catalog.register!(entry,
+          vsn: "2.0.0",
+          schema: [
+            override: [
+              type: :string,
+              required: true,
+              doc: "Override value"
+            ]
+          ]
+        )
+
+      assert {:error, :not_found} = Catalog.fetch(catalog, entry.id)
+      assert {:ok, updated_entry} = Catalog.fetch(catalog, updated_id)
+      assert updated_entry.version == "2.0.0"
+      assert updated_entry.schema_kind == :nimble
+      assert Map.has_key?(updated_entry.input_schema["properties"], "override")
+      refute Map.has_key?(updated_entry.input_schema["properties"], "query")
+    end
+
+    test "preserves custom entry ids when registering prebuilt entries with overrides" do
+      entry =
+        Entry.new!(
+          id: "custom-email",
+          module: SendEmail,
+          name: "send_email",
+          version: "1.0.0"
+        )
+
+      catalog =
+        Catalog.new!(id: "test")
+        |> Catalog.register!(entry, vsn: "2.0.0")
+
+      assert {:ok, updated_entry} = Catalog.fetch(catalog, "custom-email")
+      assert updated_entry.id == "custom-email"
       assert updated_entry.version == "2.0.0"
     end
 

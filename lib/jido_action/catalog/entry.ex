@@ -195,6 +195,8 @@ defmodule Jido.Action.Catalog.Entry do
       entry
       |> Map.from_struct()
       |> Map.merge(overrides)
+      |> refresh_overridden_id(entry, overrides)
+      |> refresh_derived_schema_kind(overrides)
       |> new()
     end
   end
@@ -317,6 +319,19 @@ defmodule Jido.Action.Catalog.Entry do
           Map.get(attrs, :version)
         )
       )
+    end
+  end
+
+  defp refresh_overridden_id(attrs, %__MODULE__{} = entry, overrides) do
+    cond do
+      Map.has_key?(overrides, :id) or Map.has_key?(overrides, "id") ->
+        attrs
+
+      entry.id == stable_id(entry.module, entry.name, entry.version) ->
+        refresh_derived_id(attrs, entry.module, overrides)
+
+      true ->
+        attrs
     end
   end
 
