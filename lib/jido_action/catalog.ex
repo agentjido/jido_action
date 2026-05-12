@@ -1,10 +1,29 @@
 defmodule Jido.Action.Catalog do
   @moduledoc """
-  A plain value-level catalog of `Jido.Action` modules.
+  A plain value-level catalog of local action-compatible modules.
 
   This is intentionally not a process-backed registry. It gives callers a small,
   serializable structure for collecting action metadata and doing deterministic,
   LLM-free lookup and search.
+
+  Catalog entries point at local compiled modules. A module is action-compatible
+  when it exports `name/0`, `schema/0`, and `run/2`; it does not have to depend on
+  this package's `use Jido.Action` macro.
+
+  The catalog does not execute selected entries. Callers should route execution
+  through their own runtime policy, such as `Jido.Exec`, `Jido.Action.Tool`, or a
+  higher-level package.
+
+  ## Examples
+
+      {:ok, catalog} =
+        Jido.Action.Catalog.from_modules(
+          [MyApp.Actions.SearchUsers],
+          id: "app-actions"
+        )
+
+      {:ok, hits} = Jido.Action.Catalog.search(catalog, "users")
+      [%Jido.Action.Catalog.Hit{} | _] = hits
   """
 
   alias Jido.Action.Catalog.Entry

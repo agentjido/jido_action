@@ -4,6 +4,10 @@ defmodule Jido.Action.Catalog.Entry do
 
   Entries are plain values. They are intended for inspection, filtering, search,
   documentation, and later projection into higher-level runtimes.
+
+  A module is action-compatible when it is available locally and exports
+  `name/0`, `schema/0`, and `run/2`. Catalogs do not support remote entries whose
+  implementation is not loaded in the current runtime.
   """
 
   alias Jido.Action.Error
