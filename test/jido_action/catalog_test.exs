@@ -244,6 +244,27 @@ defmodule Jido.Action.CatalogTest do
       assert updated_entry.risk == :medium
     end
 
+    test "registers prebuilt entries with serialized map overrides" do
+      entry = Entry.new!(id: "email", module: SendEmail, name: "send_email")
+
+      catalog =
+        Catalog.new!(id: "test")
+        |> Catalog.register!(entry, %{
+          "id" => "email-v2",
+          "visibility" => "internal",
+          "risk" => "medium",
+          "source" => "runtime",
+          "vsn" => "2.0.0"
+        })
+
+      assert {:error, :not_found} = Catalog.fetch(catalog, "email")
+      assert {:ok, updated_entry} = Catalog.fetch(catalog, "email-v2")
+      assert updated_entry.visibility == :internal
+      assert updated_entry.risk == :medium
+      assert updated_entry.source == :runtime
+      assert updated_entry.version == "2.0.0"
+    end
+
     test "reports ambiguous name lookups" do
       first = Entry.new!(id: "first", module: SearchUsers, name: "duplicate")
       second = Entry.new!(id: "second", module: SendEmail, name: "duplicate")

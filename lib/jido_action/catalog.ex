@@ -133,8 +133,7 @@ defmodule Jido.Action.Catalog do
   def register(catalog, entry, overrides \\ [])
 
   def register(%__MODULE__{} = catalog, %Entry{} = entry, overrides) do
-    with {:ok, attrs} <- merge_entry_overrides(entry, overrides),
-         {:ok, entry} <- Entry.new(attrs) do
+    with {:ok, entry} <- Entry.apply_overrides(entry, overrides) do
       {:ok, put_entry(catalog, entry)}
     end
   end
@@ -248,28 +247,6 @@ defmodule Jido.Action.Catalog do
   end
 
   defp entries(%__MODULE__{} = catalog), do: Map.values(catalog.entries)
-
-  defp merge_entry_overrides(%Entry{} = entry, overrides) do
-    with {:ok, overrides} <- normalize_entry_overrides(overrides) do
-      {:ok, Map.merge(Map.from_struct(entry), overrides)}
-    end
-  end
-
-  defp normalize_entry_overrides(overrides) when is_list(overrides) do
-    if Keyword.keyword?(overrides) do
-      {:ok, Map.new(overrides)}
-    else
-      {:error,
-       Error.validation_error("Invalid catalog registration", %{details: :invalid_overrides})}
-    end
-  end
-
-  defp normalize_entry_overrides(%{} = overrides), do: {:ok, overrides}
-
-  defp normalize_entry_overrides(_overrides),
-    do:
-      {:error,
-       Error.validation_error("Invalid catalog registration", %{details: :invalid_overrides})}
 
   defp normalize_entries_attr(attrs) do
     entries = Map.get(attrs, :entries, Map.get(attrs, "entries", %{}))

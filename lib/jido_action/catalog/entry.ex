@@ -189,6 +189,17 @@ defmodule Jido.Action.Catalog.Entry do
   end
 
   @doc false
+  @spec apply_overrides(t(), map() | keyword()) :: {:ok, t()} | {:error, Exception.t()}
+  def apply_overrides(%__MODULE__{} = entry, overrides) do
+    with {:ok, overrides} <- normalize_overrides(overrides) do
+      entry
+      |> Map.from_struct()
+      |> Map.merge(overrides)
+      |> new()
+    end
+  end
+
+  @doc false
   @spec validate_action_module(term(), keyword()) :: :ok | {:error, String.t()}
   def validate_action_module(module, _opts \\ [])
 
