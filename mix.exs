@@ -134,6 +134,10 @@ defmodule JidoAction.MixProject do
       groups_for_modules: [
         Core: [
           Jido.Action,
+          Jido.Action.Catalog,
+          Jido.Action.Catalog.Entry,
+          Jido.Action.Catalog.Hit,
+          Jido.Action.Catalog.Query,
           Jido.Action.Error,
           Jido.Action.Tool,
           Jido.Action.Util
