@@ -146,9 +146,8 @@ defmodule Jido.Action.Catalog do
   def merge(%__MODULE__{} = left, %__MODULE__{} = right, attrs) do
     with {:ok, attrs} <- normalize_merge_attrs(attrs),
          {:ok, entries} <- merge_entries(left.entries, right.entries) do
-      attrs
-      |> Map.put_new(:id, canonical_merge_id(entries))
-      |> Map.put(:entries, entries)
+      left
+      |> merged_catalog_attrs(right, entries, attrs)
       |> new()
     end
   end
@@ -302,7 +301,16 @@ defmodule Jido.Action.Catalog do
     if Map.has_key?(attrs, :entries) or Map.has_key?(attrs, "entries") do
       {:error, Error.validation_error("Invalid catalog merge", %{details: :entries_not_allowed})}
     else
-      {:ok, normalize_merge_attr_keys(attrs)}
+      attrs = normalize_merge_attr_keys(attrs)
+
+      case unknown_merge_attr_keys(attrs) do
+        [] ->
+          {:ok, attrs}
+
+        keys ->
+          {:error,
+           Error.validation_error("Invalid catalog merge", %{details: {:unknown_attrs, keys}})}
+      end
     end
   end
 
@@ -323,6 +331,48 @@ defmodule Jido.Action.Catalog do
           acc
       end
     end)
+  end
+
+  defp unknown_merge_attr_keys(attrs) do
+    attrs
+    |> Map.keys()
+    |> Enum.reject(&(&1 in @merge_attr_fields))
+  end
+
+  defp merged_catalog_attrs(%__MODULE__{} = left, %__MODULE__{} = right, entries, attrs) do
+    attrs
+    |> put_merge_id(left, right, entries)
+    |> put_shared_merge_attr(:name, left, right)
+    |> put_shared_merge_attr(:description, left, right)
+    |> put_shared_merge_attr(:version, left, right)
+    |> put_shared_merge_attr(:metadata, left, right)
+    |> Map.put(:entries, entries)
+  end
+
+  defp put_merge_id(attrs, left, right, entries) do
+    cond do
+      Map.has_key?(attrs, :id) ->
+        attrs
+
+      left.id == right.id ->
+        Map.put(attrs, :id, left.id)
+
+      true ->
+        Map.put(attrs, :id, canonical_merge_id(entries))
+    end
+  end
+
+  defp put_shared_merge_attr(attrs, key, left, right) do
+    cond do
+      Map.has_key?(attrs, key) ->
+        attrs
+
+      not is_nil(Map.fetch!(left, key)) and Map.fetch!(left, key) == Map.fetch!(right, key) ->
+        Map.put(attrs, key, Map.fetch!(left, key))
+
+      true ->
+        attrs
+    end
   end
 
   defp merge_entries(left_entries, right_entries) do

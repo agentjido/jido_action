@@ -212,6 +212,19 @@ defmodule Jido.Action.CatalogTest do
       assert Catalog.merge!(left_first, email) == left_first
     end
 
+    test "merge preserves identical catalog attrs" do
+      catalog =
+        Catalog.from_modules!([SearchUsers],
+          id: "users",
+          name: "Users",
+          description: "User actions",
+          version: "1.0.0",
+          metadata: %{owner: "accounts"}
+        )
+
+      assert Catalog.merge!(catalog, catalog) == catalog
+    end
+
     test "merges catalogs with explicit result attributes" do
       users = Catalog.from_modules!([SearchUsers], id: "users")
       email = Catalog.from_modules!([SendEmail], id: "email")
@@ -248,6 +261,7 @@ defmodule Jido.Action.CatalogTest do
 
       assert {:error, _error} = Catalog.merge(users, email, :bad_attrs)
       assert {:error, _error} = Catalog.merge(users, email, entries: %{})
+      assert {:error, _error} = Catalog.merge(users, email, unknown: true)
     end
 
     test "validates constructor entries" do
