@@ -37,6 +37,7 @@ defmodule Jido.Action.Catalog do
     risk: [:low, :medium, :high],
     source: [:module, :runtime]
   }
+  @merge_attr_fields [:id, :name, :description, :version, :metadata]
 
   @schema Zoi.struct(
             __MODULE__,
@@ -55,6 +56,7 @@ defmodule Jido.Action.Catalog do
 
   @type t :: unquote(Zoi.type_spec(@schema))
   @type entry_ref :: String.t() | Entry.t()
+  @type merge_attrs :: map() | keyword()
 
   @enforce_keys Zoi.Struct.enforce_keys(@schema)
   defstruct Zoi.Struct.struct_fields(@schema)
@@ -120,6 +122,46 @@ defmodule Jido.Action.Catalog do
   @spec from_modules!([module()], map() | keyword()) :: t() | no_return()
   def from_modules!(modules, attrs \\ []) do
     case from_modules(modules, attrs) do
+      {:ok, catalog} -> catalog
+      {:error, error} -> raise error
+    end
+  end
+
+  @doc """
+  Merges two catalogs into a canonical catalog.
+
+  Entry ids are the merge key. Duplicate ids are accepted only when both entries
+  are exactly equal; conflicting entries return an error instead of choosing a
+  side. When no `:id` is supplied, the merged catalog id is deterministically
+  derived from the sorted merged entry ids, making compatible merges
+  order-independent and idempotent.
+
+  Optional attributes such as `:id`, `:name`, `:description`, `:version`, and
+  `:metadata` are applied to the merged catalog. The merged entries always come
+  from the input catalogs.
+  """
+  @spec merge(t(), t(), merge_attrs()) :: {:ok, t()} | {:error, Exception.t()}
+  def merge(left, right, attrs \\ [])
+
+  def merge(%__MODULE__{} = left, %__MODULE__{} = right, attrs) do
+    with {:ok, attrs} <- normalize_merge_attrs(attrs),
+         {:ok, entries} <- merge_entries(left.entries, right.entries) do
+      attrs
+      |> Map.put_new(:id, canonical_merge_id(entries))
+      |> Map.put(:entries, entries)
+      |> new()
+    end
+  end
+
+  def merge(_left, _right, _attrs),
+    do: {:error, Error.validation_error("Invalid catalog merge")}
+
+  @doc """
+  Same as `merge/3`, but raises on error.
+  """
+  @spec merge!(t(), t(), merge_attrs()) :: t() | no_return()
+  def merge!(left, right, attrs \\ []) do
+    case merge(left, right, attrs) do
       {:ok, catalog} -> catalog
       {:error, error} -> raise error
     end
@@ -247,6 +289,72 @@ defmodule Jido.Action.Catalog do
   end
 
   defp entries(%__MODULE__{} = catalog), do: Map.values(catalog.entries)
+
+  defp normalize_merge_attrs(attrs) when is_list(attrs) do
+    if Keyword.keyword?(attrs) do
+      attrs |> Map.new() |> normalize_merge_attrs()
+    else
+      {:error, Error.validation_error("Invalid catalog merge", %{details: :invalid_attrs})}
+    end
+  end
+
+  defp normalize_merge_attrs(%{} = attrs) do
+    if Map.has_key?(attrs, :entries) or Map.has_key?(attrs, "entries") do
+      {:error, Error.validation_error("Invalid catalog merge", %{details: :entries_not_allowed})}
+    else
+      {:ok, normalize_merge_attr_keys(attrs)}
+    end
+  end
+
+  defp normalize_merge_attrs(_attrs),
+    do: {:error, Error.validation_error("Invalid catalog merge", %{details: :invalid_attrs})}
+
+  defp normalize_merge_attr_keys(attrs) do
+    Enum.reduce(@merge_attr_fields, attrs, fn key, acc ->
+      merge_attr_key = Atom.to_string(key)
+
+      case Map.fetch(acc, merge_attr_key) do
+        {:ok, value} ->
+          acc
+          |> Map.delete(merge_attr_key)
+          |> Map.put_new(key, value)
+
+        :error ->
+          acc
+      end
+    end)
+  end
+
+  defp merge_entries(left_entries, right_entries) do
+    Enum.reduce_while(right_entries, {:ok, left_entries}, fn {id, right_entry}, {:ok, acc} ->
+      case Map.fetch(acc, id) do
+        {:ok, ^right_entry} ->
+          {:cont, {:ok, acc}}
+
+        {:ok, left_entry} ->
+          {:halt,
+           {:error,
+            Error.validation_error("Conflicting catalog entries", %{
+              details: %{id: id, left: left_entry, right: right_entry}
+            })}}
+
+        :error ->
+          {:cont, {:ok, Map.put(acc, id, right_entry)}}
+      end
+    end)
+  end
+
+  defp canonical_merge_id(entries) do
+    digest =
+      entries
+      |> Map.keys()
+      |> Enum.sort()
+      |> Enum.join(<<0>>)
+      |> :erlang.md5()
+      |> Base.encode16(case: :lower)
+
+    "catalog:#{digest}"
+  end
 
   defp normalize_entries_attr(attrs) do
     entries = Map.get(attrs, :entries, Map.get(attrs, "entries", %{}))

@@ -196,6 +196,60 @@ defmodule Jido.Action.CatalogTest do
       assert Enum.map(Catalog.list(catalog), & &1.name) == ["search_users", "send_email"]
     end
 
+    test "merges catalogs canonically and idempotently" do
+      users = Catalog.from_modules!([SearchUsers], id: "users")
+      email = Catalog.from_modules!([SendEmail], id: "email")
+
+      assert {:ok, left_first} = Catalog.merge(users, email)
+      assert {:ok, right_first} = Catalog.merge(email, users)
+
+      assert left_first == right_first
+      assert left_first.id == right_first.id
+      assert left_first.id =~ ~r/^catalog:[0-9a-f]{32}$/
+      assert Enum.map(Catalog.list(left_first), & &1.name) == ["search_users", "send_email"]
+
+      assert Catalog.merge!(left_first, users) == left_first
+      assert Catalog.merge!(left_first, email) == left_first
+    end
+
+    test "merges catalogs with explicit result attributes" do
+      users = Catalog.from_modules!([SearchUsers], id: "users")
+      email = Catalog.from_modules!([SendEmail], id: "email")
+
+      merged =
+        Catalog.merge!(users, email, %{
+          "id" => "runtime-tools",
+          "name" => "Runtime Tools",
+          "metadata" => %{owner: "runtime"}
+        })
+
+      assert merged.id == "runtime-tools"
+      assert merged.name == "Runtime Tools"
+      assert merged.metadata == %{owner: "runtime"}
+      assert Enum.map(Catalog.list(merged), & &1.name) == ["search_users", "send_email"]
+    end
+
+    test "merge accepts identical duplicate entries and rejects conflicting duplicate ids" do
+      first = Entry.new!(id: "same", module: SearchUsers, name: "same")
+      duplicate = Entry.new!(id: "same", module: SearchUsers, name: "same")
+      conflict = Entry.new!(id: "same", module: SendEmail, name: "same")
+
+      first_catalog = Catalog.new!(id: "first") |> Catalog.register!(first)
+      duplicate_catalog = Catalog.new!(id: "duplicate") |> Catalog.register!(duplicate)
+      conflict_catalog = Catalog.new!(id: "conflict") |> Catalog.register!(conflict)
+
+      assert Catalog.merge!(first_catalog, duplicate_catalog).entries == first_catalog.entries
+      assert {:error, _error} = Catalog.merge(first_catalog, conflict_catalog)
+    end
+
+    test "merge rejects invalid result attrs" do
+      users = Catalog.from_modules!([SearchUsers], id: "users")
+      email = Catalog.from_modules!([SendEmail], id: "email")
+
+      assert {:error, _error} = Catalog.merge(users, email, :bad_attrs)
+      assert {:error, _error} = Catalog.merge(users, email, entries: %{})
+    end
+
     test "validates constructor entries" do
       entry_attrs = %{
         id: "email",

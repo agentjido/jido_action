@@ -84,6 +84,23 @@ Fetch by stable entry id or unique action name:
 
 If multiple entries share the same action name, name lookup returns an ambiguous result. Use stable ids for catalogs that intentionally contain multiple versions or variants of the same action.
 
+## Merging Catalogs
+
+Merge catalogs when different layers contribute local actions:
+
+```elixir
+{:ok, merged} =
+  Jido.Action.Catalog.merge(
+    base_catalog,
+    runtime_catalog,
+    id: "app-runtime-actions"
+  )
+```
+
+Merging is canonical and idempotent. Duplicate entry ids are accepted only when the entries are exactly equal. If two different entries use the same id, merge returns an error instead of choosing a side.
+
+When you do not pass an `:id`, the merged catalog id is derived from the sorted merged entry ids, so compatible merges are order-independent.
+
 ## Searching
 
 Search is deterministic and LLM-free:
