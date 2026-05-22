@@ -1,9 +1,20 @@
 defmodule Jido.Action.Schema.JsonSchemaBridge do
   @moduledoc false
 
+  alias Jido.Action.Schema
+
   @object_keywords ["type", "properties", "required", "additionalProperties", "description"]
   @array_keywords ["type", "items", "description"]
   @primitive_keywords ["type", "enum", "description"]
+  @atom_keyword_forms %{
+    "additionalProperties" => :additionalProperties,
+    "description" => :description,
+    "enum" => :enum,
+    "items" => :items,
+    "properties" => :properties,
+    "required" => :required,
+    "type" => :type
+  }
 
   @type fallback_reason ::
           :invalid_schema
@@ -146,19 +157,25 @@ defmodule Jido.Action.Schema.JsonSchemaBridge do
     end
   end
 
-  defp fetch_value(map, "type"), do: Map.get(map, "type", Map.get(map, :type))
-  defp fetch_value(map, "properties"), do: Map.get(map, "properties", Map.get(map, :properties))
-  defp fetch_value(map, "required"), do: Map.get(map, "required", Map.get(map, :required))
+  defp fetch_value(map, key) do
+    case Map.fetch(map, key) do
+      {:ok, value} -> value
+      :error -> fetch_atom_keyword_form(map, key)
+    end
+  end
 
-  defp fetch_value(map, "additionalProperties"),
-    do: Map.get(map, "additionalProperties", Map.get(map, :additionalProperties))
+  defp fetch_atom_keyword_form(map, key) do
+    case Map.fetch(@atom_keyword_forms, key) do
+      {:ok, atom_key} ->
+        case Map.fetch(map, atom_key) do
+          {:ok, value} -> value
+          :error -> nil
+        end
 
-  defp fetch_value(map, "description"),
-    do: Map.get(map, "description", Map.get(map, :description))
-
-  defp fetch_value(map, "items"), do: Map.get(map, "items", Map.get(map, :items))
-  defp fetch_value(map, "enum"), do: Map.get(map, "enum", Map.get(map, :enum))
-  defp fetch_value(map, key), do: Map.get(map, key)
+      :error ->
+        nil
+    end
+  end
 
   defp parse_required(nil), do: {:ok, []}
   defp parse_required([]), do: {:ok, []}
@@ -204,7 +221,7 @@ defmodule Jido.Action.Schema.JsonSchemaBridge do
 
   defp normalize_atom_precedence(params, schema) do
     schema
-    |> Jido.Action.Schema.json_schema_known_key_forms()
+    |> Schema.json_schema_known_key_forms()
     |> Enum.reduce(params, fn
       %{atom: atom, string: string}, acc when is_atom(atom) and not is_nil(atom) ->
         if Map.has_key?(acc, atom), do: Map.delete(acc, string), else: acc

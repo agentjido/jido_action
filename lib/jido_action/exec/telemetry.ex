@@ -344,9 +344,15 @@ defmodule Jido.Exec.Telemetry do
     do: Keyword.get(opts_or_context, :jido)
 
   defp extract_jido(opts_or_context) when is_map(opts_or_context),
-    do: Map.get(opts_or_context, :jido) || Map.get(opts_or_context, "jido")
+    do: map_value(opts_or_context, :jido)
 
   defp extract_jido(_), do: nil
+
+  defp map_value(map, atom_key) do
+    Enum.find_value([atom_key, Atom.to_string(atom_key)], fn key ->
+      Map.get(map, key)
+    end)
+  end
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)

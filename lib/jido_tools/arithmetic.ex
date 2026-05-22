@@ -74,7 +74,7 @@ defmodule Jido.Tools.Arithmetic do
       ]
 
     @spec run(map(), map()) :: {:ok, map()} | {:error, String.t()}
-    def run(%{value: _value, amount: amount}, _context) when amount == 0 or amount == 0.0 do
+    def run(%{amount: amount}, _context) when amount in [0, +0.0, -0.0] do
       {:error, "Cannot divide by zero"}
     end
 

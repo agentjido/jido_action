@@ -411,7 +411,7 @@ defmodule JidoTest.ExecCoverageTest do
   describe "exception handling in run/4" do
     test "handles various runtime errors" do
       # These errors are actually caught at a different level and become ExecutionFailureErrors
-      # Let's test that they are properly handled regardless
+      # This verifies they are properly handled regardless.
 
       defmodule BadArityAction do
         use Jido.Action,

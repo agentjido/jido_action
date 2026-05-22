@@ -214,7 +214,14 @@ defmodule Jido.Action.JsonSchemaMapTest do
 
       @impl true
       def run(params, _context) do
-        {:ok, %{query: params[:query] || params["query"], count: 0}}
+        {:ok, %{query: query_param(params), count: 0}}
+      end
+
+      defp query_param(params) do
+        case Map.fetch(params, :query) do
+          {:ok, query} -> query
+          :error -> Map.fetch!(params, "query")
+        end
       end
     end
 

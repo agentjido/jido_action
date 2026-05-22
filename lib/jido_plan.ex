@@ -497,8 +497,8 @@ defmodule Jido.Plan do
     else
       max_pred_depth =
         predecessors
-        |> Enum.map(fn pred -> Map.get(known_depths, pred, 0) end)
-        |> Enum.max()
+        |> Enum.max_by(fn pred -> Map.get(known_depths, pred, 0) end)
+        |> then(fn pred -> Map.get(known_depths, pred, 0) end)
 
       max_pred_depth + 1
     end

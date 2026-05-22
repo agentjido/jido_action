@@ -179,7 +179,7 @@ defmodule Jido.Action.Tool do
   end
 
   defp convert_params_using_json_object_properties(params, properties) do
-    key_pairs = Map.keys(properties) |> Enum.map(&{&1, to_string(&1)})
+    key_pairs = Enum.map(properties, fn {key, _schema} -> {key, to_string(key)} end)
 
     convert_params_using_key_pairs(params, properties, key_pairs, fn properties, key, value ->
       properties
@@ -213,12 +213,12 @@ defmodule Jido.Action.Tool do
 
   defp convert_json_schema_value(_schema, value), do: value
 
-  defp json_schema_type(schema), do: Map.get(schema, :type) || Map.get(schema, "type")
+  defp json_schema_type(schema), do: json_schema_field(schema, :type)
 
   defp json_schema_properties(schema),
-    do: Map.get(schema, :properties) || Map.get(schema, "properties")
+    do: json_schema_field(schema, :properties)
 
-  defp json_schema_items(schema), do: Map.get(schema, :items) || Map.get(schema, "items")
+  defp json_schema_items(schema), do: json_schema_field(schema, :items)
 
   defp json_schema_composite_schemas(schema) do
     Enum.find_value([:allOf, "allOf", :anyOf, "anyOf", :oneOf, "oneOf"], fn key ->
@@ -226,6 +226,12 @@ defmodule Jido.Action.Tool do
         schemas when is_list(schemas) -> schemas
         _ -> nil
       end
+    end)
+  end
+
+  defp json_schema_field(schema, atom_key) do
+    Enum.find_value([atom_key, Atom.to_string(atom_key)], fn key ->
+      Map.get(schema, key)
     end)
   end
 

@@ -134,6 +134,7 @@ defmodule Jido.Instruction do
   """
 
   alias Jido.Action.Error
+  alias Jido.Action.Schema.ErrorFormatter
   alias Jido.Instruction
 
   # Define Zoi schema for instruction
@@ -528,7 +529,7 @@ defmodule Jido.Instruction do
         error =
           Error.validation_error(
             "Invalid instruction configuration",
-            %{errors: format_zoi_errors(zoi_errors)}
+            %{errors: ErrorFormatter.format_errors(zoi_errors)}
           )
 
         {:error, error}
@@ -558,20 +559,6 @@ defmodule Jido.Instruction do
     |> then(fn
       {:ok, list} -> {:ok, Enum.reverse(list)}
       error -> error
-    end)
-  end
-
-  defp format_zoi_errors(errors) when is_list(errors) do
-    Enum.map(errors, fn
-      %{path: path, message: message} = error ->
-        %{
-          path: path,
-          message: message,
-          code: Map.get(error, :code)
-        }
-
-      error ->
-        %{message: inspect(error)}
     end)
   end
 

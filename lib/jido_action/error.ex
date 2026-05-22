@@ -565,7 +565,7 @@ defmodule Jido.Action.Error do
   defp normalize_details(details) when is_list(details) do
     if Keyword.keyword?(details) do
       details
-      |> Enum.into(%{})
+      |> Map.new()
       |> normalize_details()
     else
       %{}
@@ -637,10 +637,9 @@ defmodule Jido.Action.Error do
   defp extract_nested_reason(_), do: nil
 
   defp extract_retry_value(%{} = map) do
-    cond do
-      Map.has_key?(map, :retry) -> Map.get(map, :retry)
-      Map.has_key?(map, "retry") -> Map.get(map, "retry")
-      true -> nil
+    case fetch_map_value(map, [:retry, "retry"]) do
+      {:ok, value} -> value
+      :error -> nil
     end
   end
 
@@ -649,6 +648,15 @@ defmodule Jido.Action.Error do
   end
 
   defp extract_retry_value(_), do: nil
+
+  defp fetch_map_value(map, keys) do
+    Enum.find_value(keys, :error, fn key ->
+      case Map.fetch(map, key) do
+        {:ok, value} -> {:ok, value}
+        :error -> nil
+      end
+    end)
+  end
 
   defp pseudo_struct_type(InvalidInputError), do: :validation_error
   defp pseudo_struct_type(ExecutionFailureError), do: :execution_error

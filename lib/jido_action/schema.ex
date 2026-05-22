@@ -18,6 +18,8 @@ defmodule Jido.Action.Schema do
   - `to_json_schema/1` returns the map unchanged
   """
 
+  alias Jido.Action.Schema.ErrorFormatter
+
   @type t :: NimbleOptions.schema() | struct() | map() | []
 
   @doc """
@@ -161,7 +163,7 @@ defmodule Jido.Action.Schema do
         Jido.Action.Error.validation_error(message, %{
           context: context,
           module: module,
-          errors: format_zoi_error_list(errors)
+          errors: ErrorFormatter.format_errors(errors)
         })
 
       _ ->
@@ -437,19 +439,5 @@ defmodule Jido.Action.Schema do
       path: error.path,
       code: error.code
     })
-  end
-
-  defp format_zoi_error_list(errors) when is_list(errors) do
-    Enum.map(errors, fn
-      %{path: path, message: message} = error ->
-        %{
-          path: path,
-          message: message,
-          code: Map.get(error, :code)
-        }
-
-      error ->
-        %{message: inspect(error)}
-    end)
   end
 end

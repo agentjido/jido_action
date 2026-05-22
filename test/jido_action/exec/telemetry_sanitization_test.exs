@@ -3,10 +3,11 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
 
   import ExUnit.CaptureLog
 
+  alias Jido.Action.Error
   alias Jido.Exec
   alias Jido.Exec.Telemetry
-  alias JidoTest.TestActions.BasicAction
   alias JidoTest.Support.RaisingInspectStruct
+  alias JidoTest.TestActions.BasicAction
 
   defmodule CredentialsStruct do
     defstruct [:api_key, :note, :nested]
@@ -109,7 +110,7 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
   test "emit_end_event emits bounded error summary fields" do
     params = %{input: 1}
     context = %{secret: "hidden", jido: :tenant_a}
-    result = {:error, Jido.Action.Error.execution_error("boom", %{token: "tok-123"})}
+    result = {:error, Error.execution_error("boom", %{token: "tok-123"})}
 
     assert :ok =
              Telemetry.emit_end_event(

@@ -49,6 +49,8 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
 
     use Igniter.Mix.Task
 
+    @step_name_pattern ~r/^[A-Za-z_][A-Za-z0-9_]*$/
+
     @impl Igniter.Mix.Task
     def info(_argv, _composing_task) do
       %Igniter.Mix.Task.Info{
@@ -67,14 +69,14 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
           no_test: false
         ],
         aliases: [],
-        required: [:module_name, :steps]
+        required: [:steps]
       }
     end
 
     @impl Igniter.Mix.Task
     def igniter(igniter) do
       opts = igniter.args.options
-      [module_name_string] = igniter.args.positional.module_name
+      module_name_string = igniter.args.positional.module_name
 
       module_name = Igniter.Project.Module.parse(module_name_string)
       workflow_name = derive_workflow_name(module_name)
@@ -94,9 +96,17 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
     end
 
     defp parse_steps(steps_string) do
-      steps_string
-      |> String.split(",", trim: true)
-      |> Enum.map(&String.trim/1)
+      steps =
+        steps_string
+        |> String.split(",", trim: true)
+        |> Enum.map(&String.trim/1)
+        |> Enum.map(&validate_step_name!/1)
+
+      if steps == [] do
+        Mix.raise("--steps must include at least one workflow step")
+      end
+
+      steps
     end
 
     defp infer_root_namespace(module_name) do
@@ -130,19 +140,35 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
 
     defp build_plan_adds(steps, root_namespace) do
       steps
-      |> Enum.with_index()
-      |> Enum.map_join("\n", fn {step, index} ->
+      |> Enum.reduce({[], nil}, fn step, {lines, previous_step} ->
         action_module = "#{root_namespace}.Actions.#{Macro.camelize(step)}"
-        step_atom = String.to_atom(step)
+        step_ref = step_atom_literal(step)
 
-        if index == 0 do
-          "    |> Plan.add(:#{step_atom}, #{action_module})"
-        else
-          prev_step = Enum.at(steps, index - 1)
-          "    |> Plan.add(:#{step_atom}, #{action_module}, depends_on: :#{prev_step})"
-        end
+        line =
+          if is_nil(previous_step) do
+            "    |> Plan.add(#{step_ref}, #{action_module})"
+          else
+            "    |> Plan.add(#{step_ref}, #{action_module}, depends_on: #{step_atom_literal(previous_step)})"
+          end
+
+        {[line | lines], step}
       end)
+      |> elem(0)
+      |> Enum.reverse()
+      |> Enum.join("\n")
     end
+
+    defp validate_step_name!(step) do
+      if Regex.match?(@step_name_pattern, step) do
+        step
+      else
+        Mix.raise(
+          "Invalid workflow step name #{inspect(step)}. Step names must be valid unquoted atom names using letters, numbers, and underscores."
+        )
+      end
+    end
+
+    defp step_atom_literal(step), do: ":" <> step
 
     defp maybe_generate_test(igniter, _module_name, _workflow_name, true), do: igniter
 

@@ -407,7 +407,7 @@ defmodule Jido.Action.Catalog do
   end
 
   defp normalize_entries_attr(attrs) do
-    entries = Map.get(attrs, :entries, Map.get(attrs, "entries", %{}))
+    entries = fetch_attr(attrs, :entries, %{})
 
     with {:ok, entries} <- normalize_entries(entries) do
       attrs =
@@ -416,6 +416,19 @@ defmodule Jido.Action.Catalog do
         |> Map.put(:entries, entries)
 
       {:ok, attrs}
+    end
+  end
+
+  defp fetch_attr(attrs, atom_key, default) do
+    case Map.fetch(attrs, atom_key) do
+      {:ok, value} ->
+        value
+
+      :error ->
+        case Map.fetch(attrs, Atom.to_string(atom_key)) do
+          {:ok, value} -> value
+          :error -> default
+        end
     end
   end
 
@@ -448,7 +461,10 @@ defmodule Jido.Action.Catalog do
   defp normalize_entry_value(_attrs), do: {:error, :invalid_entry}
 
   defp fetch_by_name(catalog, name) do
-    matches = catalog.entries |> Map.values() |> Enum.filter(&(&1.name == name))
+    matches =
+      catalog.entries
+      |> Enum.filter(fn {_id, entry} -> entry.name == name end)
+      |> Enum.map(fn {_id, entry} -> entry end)
 
     case matches do
       [entry] -> {:ok, entry}
@@ -558,9 +574,7 @@ defmodule Jido.Action.Catalog do
   defp field_score(_value, "", _tokens, _exact_score, _token_score), do: 0.0
 
   defp field_score(values, text, tokens, exact_score, token_score) when is_list(values) do
-    values
-    |> Enum.map(&field_score(&1, text, tokens, exact_score, token_score))
-    |> Enum.sum()
+    Enum.sum_by(values, &field_score(&1, text, tokens, exact_score, token_score))
   end
 
   defp field_score(value, text, tokens, exact_score, token_score) when is_binary(value) do
@@ -608,9 +622,6 @@ defmodule Jido.Action.Catalog do
   defp reason_from_matches(matches) when map_size(matches) == 0, do: nil
 
   defp reason_from_matches(matches) do
-    matches
-    |> Map.keys()
-    |> Enum.map(&to_string/1)
-    |> Enum.join(", ")
+    Enum.map_join(matches, ", ", fn {field, _score} -> to_string(field) end)
   end
 end

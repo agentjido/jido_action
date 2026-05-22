@@ -219,14 +219,18 @@ defmodule Jido.Tools.LuaEval do
       {:ok, result}
     rescue
       e in Lua.CompilerException ->
-        return_error(:compile_error, Exception.message(e))
+        return_exception_error(:compile_error, e)
 
       e in Lua.RuntimeException ->
-        return_error(:lua_error, Exception.message(e))
+        return_exception_error(:lua_error, e)
 
       e ->
-        return_error(:lua_error, Exception.message(e))
+        return_exception_error(:lua_error, e)
     end
+  end
+
+  defp return_exception_error(type, exception) do
+    return_error(type, Exception.message(exception))
   end
 
   defp return_error(type, message) do

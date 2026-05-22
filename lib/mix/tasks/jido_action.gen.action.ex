@@ -59,14 +59,14 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
           no_test: false
         ],
         aliases: [],
-        required: [:module_name]
+        required: []
       }
     end
 
     @impl Igniter.Mix.Task
     def igniter(igniter) do
       opts = igniter.args.options
-      [module_name_string] = igniter.args.positional.module_name
+      module_name_string = igniter.args.positional.module_name
 
       module_name = Igniter.Project.Module.parse(module_name_string)
       action_name = derive_action_name(module_name)

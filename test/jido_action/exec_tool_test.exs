@@ -97,13 +97,15 @@ defmodule Jido.Action.ToolTest do
 
     test "returns JSON-encoded error when exception inspection is unsafe" do
       defmodule UninspectableErrorAction do
+        alias Jido.Action.Error
+        alias JidoTest.Support.RaisingInspectStruct
+
         use Jido.Action,
           name: "uninspectable_error_action",
           description: "Returns an uninspectable action error"
 
         def run(_params, _context) do
-          {:error,
-           Jido.Action.Error.execution_error(%JidoTest.Support.RaisingInspectStruct{value: 1})}
+          {:error, Error.execution_error(%RaisingInspectStruct{value: 1})}
         end
       end
 

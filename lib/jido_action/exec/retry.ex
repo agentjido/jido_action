@@ -10,9 +10,8 @@ defmodule Jido.Exec.Retry do
 
   alias Jido.Action.Error
   alias Jido.Action.Util
+  alias Jido.Exec.Config
   alias Jido.Exec.Telemetry
-
-  require Logger
 
   @doc """
   Calculate exponential backoff time for a retry attempt.
@@ -135,8 +134,8 @@ defmodule Jido.Exec.Retry do
   @spec default_retry_config() :: keyword()
   def default_retry_config do
     [
-      max_retries: resolve_non_neg_integer_config(:default_max_retries, 1),
-      backoff: resolve_non_neg_integer_config(:default_backoff, 250)
+      max_retries: Config.non_neg_integer(:default_max_retries, 1),
+      backoff: Config.non_neg_integer(:default_backoff, 250)
     ]
   end
 
@@ -159,21 +158,6 @@ defmodule Jido.Exec.Retry do
       max_retries: Keyword.get(opts, :max_retries, defaults[:max_retries]),
       backoff: Keyword.get(opts, :backoff, defaults[:backoff])
     ]
-  end
-
-  defp resolve_non_neg_integer_config(key, fallback) do
-    case Application.get_env(:jido_action, key, fallback) do
-      value when is_integer(value) and value >= 0 ->
-        value
-
-      invalid ->
-        Logger.warning(fn ->
-          "Invalid :jido_action config for #{inspect(key)}: #{inspect(invalid)}. " <>
-            "Expected a non-negative integer; using fallback #{fallback}."
-        end)
-
-        fallback
-    end
   end
 
   defp extract_retry_target({:error, reason, _other}), do: reason
