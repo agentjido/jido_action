@@ -4,7 +4,9 @@
 [![Hex Docs](https://img.shields.io/badge/hex-docs-lightgreen.svg)](https://hexdocs.pm/jido_action/)
 [![CI](https://github.com/agentjido/jido_action/actions/workflows/ci.yml/badge.svg)](https://github.com/agentjido/jido_action/actions/workflows/ci.yml)
 [![License](https://img.shields.io/hexpm/l/jido_action.svg)](https://github.com/agentjido/jido_action/blob/main/LICENSE)
-[![Coverage Status](https://coveralls.io/repos/github/agentjido/jido_action/badge.svg?branch=main)](https://coveralls.io/github/agentjido/jido_action?branch=main)
+[![Website](https://img.shields.io/badge/website-jido.run-0f172a.svg)](https://jido.run)
+[![Ecosystem](https://img.shields.io/badge/ecosystem-jido.run-0ea5e9.svg)](https://jido.run/ecosystem)
+[![Discord](https://img.shields.io/badge/discord-join-5865F2.svg?logo=discord&logoColor=white)](https://jido.run/discord)
 
 > **Composable, validated actions for Elixir applications with built-in AI tool integration**
 
@@ -477,4 +479,6 @@ For information about dependency licenses, see the [LICENSE](LICENSE) file.
 - **Documentation**: [https://hexdocs.pm/jido_action](https://hexdocs.pm/jido_action)
 - **GitHub**: [https://github.com/agentjido/jido_action](https://github.com/agentjido/jido_action)
 - **Jido**: [https://jido.run](https://jido.run)
+- **Ecosystem**: [https://jido.run/ecosystem](https://jido.run/ecosystem)
+- **Discord**: [https://jido.run/discord](https://jido.run/discord)
 - **Jido Workbench**: [https://github.com/agentjido/jido_workbench](https://github.com/agentjido/jido_workbench)
