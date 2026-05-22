@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- changelog -->
 
+## [v2.3.0](https://github.com/agentjido/jido_action/compare/v2.2.1...v2.3.0) (2026-05-22)
+
+
+
+
+### Features:
+
+* add canonical catalog merge by mikehostetler
+
+* add action catalog data structures by mikehostetler
+
+### Bug Fixes:
+
+* recursively convert nested Zoi tool params by mikehostetler
+
+* harden action error JSON encoding (#158) by mikehostetler
+
+* preserve runtime context across supervised execution (#156) by mikehostetler
+
+* migrate plan graph usage to multigraph (#150) by mikehostetler
+
+* derive Jason.Encoder for error structs (#147) by ryan-mckeeman-cfgi
+
+* repo: make git_hooks auto-install work across worktrees (#145) by mikehostetler
+
+* exec: normalize struct error details (#134) by mikehostetler
+
+* compat: clean up Elixir 1.20 compatibility by mikehostetler
+
+### Refactoring:
+
+* fix ex_slop findings by Danila Poyarkov
+
+* exec: align canonical observability contract (#140) by nshkrdotcom
+
 ## [v2.2.1](https://github.com/agentjido/jido_action/compare/v2.2.0...v2.2.1) (2026-04-03)
 
 
