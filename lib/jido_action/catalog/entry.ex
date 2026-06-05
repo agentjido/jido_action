@@ -2,8 +2,13 @@ defmodule Jido.Action.Catalog.Entry do
   @moduledoc """
   Normalized metadata for one local action-compatible module in an action catalog.
 
-  Entries are plain values. They are intended for inspection, filtering, search,
-  documentation, and later projection into higher-level runtimes.
+  Entries are plain values. They provide a consistent data shape for action
+  metadata, schemas, descriptive hints, documentation, and later projection into
+  higher-level runtimes.
+
+  Fields such as `:visibility`, `:risk`, `:read_only?`, and `:scopes` are
+  descriptive metadata only. The catalog layer does not enforce policy or
+  execute actions.
 
   A module is action-compatible when it is available locally and exports
   `name/0`, `schema/0`, and `run/2`. Catalogs do not support remote entries whose
@@ -17,46 +22,24 @@ defmodule Jido.Action.Catalog.Entry do
   @visibility_values [:public, :internal, :hidden]
   @risk_values [:low, :medium, :high]
   @source_values [:module, :runtime]
-  @string_key_fields [
-    :id,
-    :module,
-    :name,
-    :title,
-    :description,
-    :summary,
-    :namespace,
-    :package,
-    :version,
-    :category,
-    :tags,
-    :capabilities,
-    :input_schema,
-    :output_schema,
-    :schema_kind,
-    :keywords,
-    :examples,
-    :visibility,
-    :risk,
-    :read_only?,
-    :requires_confirmation?,
-    :scopes,
-    :timeout,
-    :source,
-    :metadata
-  ]
-  @enum_fields %{
-    schema_kind: @schema_kind_values,
-    visibility: @visibility_values,
-    risk: @risk_values,
-    source: @source_values
-  }
+  @schema_kind_enum Enum.map(@schema_kind_values, &{&1, Atom.to_string(&1)})
+  @visibility_enum Enum.map(@visibility_values, &{&1, Atom.to_string(&1)})
+  @risk_enum Enum.map(@risk_values, &{&1, Atom.to_string(&1)})
+  @source_enum Enum.map(@source_values, &{&1, Atom.to_string(&1)})
 
   @schema Zoi.struct(
             __MODULE__,
             %{
               id: Zoi.string(description: "Stable catalog entry id"),
               module:
-                Zoi.atom(description: "Concrete local action-compatible module")
+                Zoi.union(
+                  [
+                    Zoi.atom(),
+                    Zoi.string()
+                  ],
+                  description: "Concrete local action-compatible module"
+                )
+                |> Zoi.transform({__MODULE__, :normalize_action_module, []})
                 |> Zoi.refine({__MODULE__, :validate_action_module, []}),
               name: Zoi.string(description: "Machine-friendly action name"),
               title: Zoi.string(description: "Short human label") |> Zoi.optional(),
@@ -76,19 +59,26 @@ defmodule Jido.Action.Catalog.Entry do
               input_schema: Zoi.any(description: "Normalized input schema") |> Zoi.optional(),
               output_schema: Zoi.any(description: "Normalized output schema") |> Zoi.optional(),
               schema_kind:
-                Zoi.enum(@schema_kind_values, description: "Input schema source/format")
+                Zoi.enum(@schema_kind_enum,
+                  description: "Input schema source/format",
+                  coerce: true
+                )
                 |> Zoi.default(:empty),
               keywords:
                 Zoi.list(Zoi.string(), description: "Explicit search keywords") |> Zoi.default([]),
               examples:
                 Zoi.list(Zoi.map(), description: "Small input/output examples") |> Zoi.default([]),
               visibility:
-                Zoi.enum(@visibility_values,
-                  description: "Visibility: :public | :internal | :hidden"
+                Zoi.enum(@visibility_enum,
+                  description: "Visibility: :public | :internal | :hidden",
+                  coerce: true
                 )
                 |> Zoi.default(:public),
               risk:
-                Zoi.enum(@risk_values, description: "Risk level: :low | :medium | :high")
+                Zoi.enum(@risk_enum,
+                  description: "Risk level: :low | :medium | :high",
+                  coerce: true
+                )
                 |> Zoi.default(:low),
               read_only?:
                 Zoi.boolean(description: "Whether execution is read-only") |> Zoi.default(false),
@@ -103,8 +93,9 @@ defmodule Jido.Action.Catalog.Entry do
                 |> Zoi.min(0)
                 |> Zoi.optional(),
               source:
-                Zoi.enum(@source_values,
-                  description: "Registration source: :module | :runtime"
+                Zoi.enum(@source_enum,
+                  description: "Registration source: :module | :runtime",
+                  coerce: true
                 )
                 |> Zoi.default(:module),
               metadata: Zoi.map(description: "Arbitrary extension metadata") |> Zoi.default(%{})
@@ -127,12 +118,17 @@ defmodule Jido.Action.Catalog.Entry do
   Builds a catalog entry from raw attributes.
   """
   @spec new(map() | keyword()) :: {:ok, t()} | {:error, Exception.t()}
-  def new(attrs) when is_list(attrs), do: attrs |> Map.new() |> new()
+
+  def new(attrs) when is_list(attrs) do
+    with {:ok, attrs} <- attrs_to_map(attrs, "Invalid catalog entry", :invalid_attrs) do
+      new(attrs)
+    end
+  end
 
   def new(%{} = attrs) do
     attrs =
       attrs
-      |> normalize_attr_map()
+      |> normalize_attr_aliases()
       |> drop_nil_values()
 
     case Zoi.parse(@schema, attrs) do
@@ -187,6 +183,19 @@ defmodule Jido.Action.Catalog.Entry do
       {:error, error} -> raise error
     end
   end
+
+  @doc false
+  @spec normalize_action_module(term(), keyword()) :: {:ok, term()}
+  def normalize_action_module(module, _opts \\ [])
+
+  def normalize_action_module(module, _opts) when is_binary(module) do
+    case existing_module_atom(module) do
+      {:ok, module} -> {:ok, module}
+      :error -> {:ok, module}
+    end
+  end
+
+  def normalize_action_module(module, _opts), do: {:ok, module}
 
   @doc false
   @spec apply_overrides(t(), map() | keyword()) :: {:ok, t()} | {:error, Exception.t()}
@@ -314,9 +323,9 @@ defmodule Jido.Action.Catalog.Entry do
       |> Map.put(
         :id,
         stable_id(
-          Map.get(attrs, :module, module),
-          Map.get(attrs, :name),
-          Map.get(attrs, :version)
+          attr(attrs, :module) || module,
+          attr(attrs, :name),
+          attr(attrs, :version)
         )
       )
     end
@@ -356,9 +365,8 @@ defmodule Jido.Action.Catalog.Entry do
   end
 
   defp refresh_derived_schema_kind(attrs, overrides) do
-    if (Map.has_key?(overrides, :input_schema) or Map.has_key?(overrides, "input_schema")) and
-         not Map.has_key?(overrides, :schema_kind) and not Map.has_key?(overrides, "schema_kind") do
-      Map.put(attrs, :schema_kind, Schema.schema_type(Map.get(attrs, :input_schema)))
+    if attr?(overrides, :input_schema) and not attr?(overrides, :schema_kind) do
+      Map.put(attrs, :schema_kind, Schema.schema_type(attr(attrs, :input_schema)))
     else
       attrs
     end
@@ -366,60 +374,26 @@ defmodule Jido.Action.Catalog.Entry do
 
   defp normalize_overrides(overrides) do
     with {:ok, overrides} <- attrs_to_map(overrides) do
-      {:ok, normalize_attr_map(overrides)}
+      {:ok, normalize_attr_aliases(overrides)}
     end
   end
 
-  defp attrs_to_map(attrs) when is_list(attrs) do
+  defp attrs_to_map(attrs) do
+    attrs_to_map(attrs, "Invalid catalog entry overrides", :invalid_overrides)
+  end
+
+  defp attrs_to_map(attrs, message, details) when is_list(attrs) do
     if Keyword.keyword?(attrs) do
       {:ok, Map.new(attrs)}
     else
-      {:error, validation_error("Invalid catalog entry overrides", :invalid_overrides)}
+      {:error, validation_error(message, details)}
     end
   end
 
-  defp attrs_to_map(%{} = attrs), do: {:ok, attrs}
+  defp attrs_to_map(%{} = attrs, _message, _details), do: {:ok, attrs}
 
-  defp attrs_to_map(_attrs),
-    do: {:error, validation_error("Invalid catalog entry overrides", :invalid_overrides)}
-
-  defp normalize_attr_map(attrs) do
-    attrs
-    |> normalize_known_string_keys()
-    |> normalize_attr_aliases()
-    |> normalize_module_value()
-    |> normalize_enum_values()
-  end
-
-  defp normalize_known_string_keys(attrs) do
-    Enum.reduce(@string_key_fields, attrs, fn key, acc ->
-      maybe_rename(acc, Atom.to_string(key), key)
-    end)
-  end
-
-  defp normalize_enum_values(attrs) do
-    Enum.reduce(@enum_fields, attrs, fn {field, allowed_values}, acc ->
-      case Map.fetch(acc, field) do
-        {:ok, value} -> Map.put(acc, field, normalize_enum_value(value, allowed_values))
-        :error -> acc
-      end
-    end)
-  end
-
-  defp normalize_enum_value(value, allowed_values) when is_binary(value) do
-    Enum.find(allowed_values, value, &(Atom.to_string(&1) == value))
-  end
-
-  defp normalize_enum_value(value, _allowed_values), do: value
-
-  defp normalize_module_value(%{module: module} = attrs) when is_binary(module) do
-    case existing_module_atom(module) do
-      {:ok, module} -> Map.put(attrs, :module, module)
-      :error -> attrs
-    end
-  end
-
-  defp normalize_module_value(attrs), do: attrs
+  defp attrs_to_map(_attrs, message, details),
+    do: {:error, validation_error(message, details)}
 
   defp existing_module_atom(module) do
     candidates =
@@ -435,6 +409,14 @@ defmodule Jido.Action.Catalog.Entry do
         ArgumentError -> false
       end
     end)
+  end
+
+  defp attr(attrs, key) do
+    Map.get(attrs, key, Map.get(attrs, Atom.to_string(key)))
+  end
+
+  defp attr?(attrs, key) do
+    Map.has_key?(attrs, key) or Map.has_key?(attrs, Atom.to_string(key))
   end
 
   defp normalize_entry_schemas(%__MODULE__{} = entry) do

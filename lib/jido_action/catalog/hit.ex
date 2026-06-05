@@ -1,6 +1,9 @@
 defmodule Jido.Action.Catalog.Hit do
   @moduledoc """
   Ranked search hit returned from an action catalog query.
+
+  Hits are plain result values for local catalog search. A hit does not authorize
+  or execute the referenced entry.
   """
 
   alias Jido.Action.Error
@@ -31,7 +34,12 @@ defmodule Jido.Action.Catalog.Hit do
   Builds a catalog hit.
   """
   @spec new(map() | keyword()) :: {:ok, t()} | {:error, Exception.t()}
-  def new(attrs) when is_list(attrs), do: attrs |> Map.new() |> new()
+
+  def new(attrs) when is_list(attrs) do
+    with {:ok, attrs} <- attrs_to_map(attrs) do
+      new(attrs)
+    end
+  end
 
   def new(%{} = attrs) do
     attrs = Map.reject(attrs, fn {_key, value} -> is_nil(value) end)
@@ -46,6 +54,14 @@ defmodule Jido.Action.Catalog.Hit do
   end
 
   def new(_attrs), do: {:error, Error.validation_error("Invalid catalog hit")}
+
+  defp attrs_to_map(attrs) when is_list(attrs) do
+    if Keyword.keyword?(attrs) do
+      {:ok, Map.new(attrs)}
+    else
+      {:error, Error.validation_error("Invalid catalog hit", %{details: :invalid_attrs})}
+    end
+  end
 
   @doc """
   Same as `new/1`, but raises on error.

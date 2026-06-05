@@ -2,9 +2,18 @@
 
 **Prerequisites**: [Actions](actions-guide.md) • [Schemas & Validation](schemas-validation.md)
 
-Action catalogs are local, value-level registries for discovering and selecting actions. They describe action-compatible modules with normalized metadata and deterministic search, without introducing an LLM dependency or a process-backed registry.
+Action catalogs are local, value-level data contracts for describing available
+actions. They normalize action-compatible modules into stable metadata entries
+and provide deterministic helper functions for lookup, merge, and lexical
+search without introducing an LLM dependency or a process-backed registry.
 
-Catalogs are intentionally plain data structures. Build them, pass them through your own runtime, replace them between turns, or wrap them in a higher-level package such as `jido_ai` or `jidoka`.
+Catalogs are intentionally plain data structures. Build them, pass them through
+your own runtime, replace them between turns, or wrap them in a higher-level
+package such as `jido_ai` or `jidoka`.
+
+Catalog search and filters operate only on local catalog data. They do not
+authorize, route, project, or execute actions. Runtime policy belongs in the
+caller or in a higher-level package.
 
 ## Local Action Compatibility
 
@@ -17,6 +26,20 @@ A catalog entry points at a local compiled module. The module must expose the sa
 Modules created with `use Jido.Action` satisfy this contract. Higher-level packages may also provide modules that follow the same shape, such as a local `Jidoka.Tool` wrapper.
 
 Remote catalogs are not supported. If the action code is not available locally, the catalog cannot safely describe or execute it.
+
+## Entry Metadata
+
+Catalog entries preserve the released action catalog shape. Some fields describe
+the action module itself, such as `name`, `description`, `category`, `tags`,
+`version`, `input_schema`, and `output_schema`.
+
+Other fields, such as `visibility`, `risk`, `read_only?`,
+`requires_confirmation?`, `scopes`, `capabilities`, `keywords`, and `examples`,
+are descriptive hints for callers. The catalog stores and filters those values,
+but it does not enforce their meaning.
+
+Use `metadata` for caller-owned extensions that do not belong in the shared
+catalog contract.
 
 ## Building a Catalog
 
@@ -125,7 +148,8 @@ Search supports exact filters and metadata filters:
   )
 ```
 
-By default, search only returns public entries. Include additional visibility values explicitly:
+By default, search only returns public entries. This is a catalog-data default,
+not an authorization decision. Include additional visibility values explicitly:
 
 ```elixir
 Jido.Action.Catalog.search(catalog, visibility: [:public, :internal])
@@ -135,6 +159,10 @@ An empty visibility list matches no entries.
 
 ## Execution
 
-This first catalog layer does not execute actions. It selects and describes local action-compatible modules. Once a caller selects an entry, execution should still go through the normal action execution path for the calling layer, such as `Jido.Exec`, `Jido.Action.Tool`, or a higher-level runtime.
+This first catalog layer does not execute actions. It describes local
+action-compatible modules and provides pure data helpers. Once a caller selects
+an entry, execution should still go through the normal action execution path for
+the calling layer, such as `Jido.Exec`, `Jido.Action.Tool`, or a higher-level
+runtime.
 
 Keeping execution outside the catalog keeps this layer serializable, testable, and independent of runtime policy.

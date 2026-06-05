@@ -2,16 +2,19 @@ defmodule Jido.Action.Catalog do
   @moduledoc """
   A plain value-level catalog of local action-compatible modules.
 
-  This is intentionally not a process-backed registry. It gives callers a small,
-  serializable structure for collecting action metadata and doing deterministic,
-  LLM-free lookup and search.
+  This module defines the foundational catalog data contract for action
+  metadata. It gives callers a small, serializable structure for collecting
+  action entries plus pure helper functions for deterministic lookup, merge, and
+  lexical search.
 
   Catalog entries point at local compiled modules. A module is action-compatible
   when it exports `name/0`, `schema/0`, and `run/2`; it does not have to depend on
   this package's `use Jido.Action` macro.
 
-  The catalog does not execute selected entries. Callers should route execution
-  through their own runtime policy, such as `Jido.Exec`, `Jido.Action.Tool`, or a
+  A catalog is not a process-backed registry, policy engine, remote capability
+  source, or execution layer. Search and filtering are local data operations;
+  they do not authorize or run actions. Callers should route execution through
+  their own runtime policy, such as `Jido.Exec`, `Jido.Action.Tool`, or a
   higher-level package.
 
   ## Examples
@@ -72,10 +75,15 @@ defmodule Jido.Action.Catalog do
   """
   @spec new(map() | keyword()) :: {:ok, t()} | {:error, Exception.t()}
   def new(attrs \\ %{})
-  def new(attrs) when is_list(attrs), do: attrs |> Map.new() |> new()
+
+  def new(attrs) when is_list(attrs) do
+    with {:ok, attrs} <- attrs_to_map(attrs, "Invalid action catalog", :invalid_attrs) do
+      new(attrs)
+    end
+  end
 
   def new(%{} = attrs) do
-    attrs = Map.put_new_lazy(attrs, :id, &Uniq.UUID.uuid7/0)
+    attrs = put_default_id(attrs)
 
     with {:ok, attrs} <- normalize_entries_attr(attrs) do
       case Zoi.parse(@schema, attrs) do
@@ -319,17 +327,7 @@ defmodule Jido.Action.Catalog do
 
   defp normalize_merge_attr_keys(attrs) do
     Enum.reduce(@merge_attr_fields, attrs, fn key, acc ->
-      merge_attr_key = Atom.to_string(key)
-
-      case Map.fetch(acc, merge_attr_key) do
-        {:ok, value} ->
-          acc
-          |> Map.delete(merge_attr_key)
-          |> Map.put_new(key, value)
-
-        :error ->
-          acc
-      end
+      maybe_rename(acc, Atom.to_string(key), key)
     end)
   end
 
@@ -337,6 +335,34 @@ defmodule Jido.Action.Catalog do
     attrs
     |> Map.keys()
     |> Enum.reject(&(&1 in @merge_attr_fields))
+  end
+
+  defp put_default_id(attrs) do
+    if Map.has_key?(attrs, :id) or Map.has_key?(attrs, "id") do
+      attrs
+    else
+      Map.put(attrs, :id, Uniq.UUID.uuid7())
+    end
+  end
+
+  defp maybe_rename(attrs, from, to) do
+    case Map.fetch(attrs, from) do
+      {:ok, value} ->
+        attrs
+        |> Map.delete(from)
+        |> Map.put_new(to, value)
+
+      :error ->
+        attrs
+    end
+  end
+
+  defp attrs_to_map(attrs, message, details) when is_list(attrs) do
+    if Keyword.keyword?(attrs) do
+      {:ok, Map.new(attrs)}
+    else
+      {:error, Error.validation_error(message, %{details: details})}
+    end
   end
 
   defp merged_catalog_attrs(%__MODULE__{} = left, %__MODULE__{} = right, entries, attrs) do

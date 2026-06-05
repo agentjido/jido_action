@@ -156,6 +156,10 @@ defmodule Jido.Action.CatalogTest do
       assert {:error, _error} = Entry.from_module(SearchUsers, [:bad_override])
     end
 
+    test "rejects malformed keyword attrs without raising" do
+      assert {:error, _error} = Entry.new([:bad_attr])
+    end
+
     test "rejects unsupported enum values" do
       assert {:error, _error} =
                Entry.new(
@@ -279,6 +283,31 @@ defmodule Jido.Action.CatalogTest do
 
       assert {:error, _error} =
                Catalog.new(id: "test", entries: %{"invalid" => "not-entry"})
+    end
+
+    test "supports serialized catalog attrs with string keys" do
+      entry_attrs = %{
+        "id" => "email",
+        "module" => inspect(SendEmail),
+        "name" => "send_email"
+      }
+
+      assert {:ok, catalog} =
+               Catalog.new(%{
+                 "id" => "serialized",
+                 "name" => "Serialized Catalog",
+                 "entries" => %{"ignored-key" => entry_attrs},
+                 "metadata" => %{"owner" => "ops"}
+               })
+
+      assert catalog.id == "serialized"
+      assert catalog.name == "Serialized Catalog"
+      assert catalog.metadata == %{"owner" => "ops"}
+      assert [%Entry{id: "email", module: SendEmail, name: "send_email"}] = Catalog.list(catalog)
+    end
+
+    test "rejects malformed catalog keyword attrs without raising" do
+      assert {:error, _error} = Catalog.new([:bad_attr])
     end
 
     test "registers, fetches, and unregisters entries by id or name" do
@@ -520,6 +549,28 @@ defmodule Jido.Action.CatalogTest do
       assert {:ok, hit} = Hit.new(entry: entry, score: 1.5, matches: %{name: 1.5})
       assert hit.entry == entry
       assert hit.score == 1.5
+    end
+
+    test "supports serialized hit attrs with string keys" do
+      entry = Entry.new!(id: "entry", module: SearchUsers, name: "search_users")
+
+      assert {:ok, hit} =
+               Hit.new(%{
+                 "entry" => entry,
+                 "score" => 1.5,
+                 "reason" => "name",
+                 "matches" => %{"name" => 1.5}
+               })
+
+      assert hit.entry == entry
+      assert hit.score == 1.5
+      assert hit.reason == "name"
+      assert hit.matches == %{"name" => 1.5}
+    end
+
+    test "rejects malformed query and hit keyword attrs without raising" do
+      assert {:error, _error} = Query.new([:bad_attr])
+      assert {:error, _error} = Hit.new([:bad_attr])
     end
   end
 end

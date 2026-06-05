@@ -1,21 +1,16 @@
 defmodule Jido.Action.Catalog.Query do
   @moduledoc """
   Query value for filtering and searching an action catalog.
+
+  Queries are plain data used by `Jido.Action.Catalog.search/2`. They describe a
+  local filter operation only; they do not imply authorization, policy, or
+  execution behavior.
   """
 
   alias Jido.Action.Error
 
   @visibility_values [:public, :internal, :hidden]
-  @string_key_fields [
-    :text,
-    :namespace,
-    :tags,
-    :capabilities,
-    :visibility,
-    :limit,
-    :filters,
-    :metadata
-  ]
+  @visibility_enum Enum.map(@visibility_values, &{&1, Atom.to_string(&1)})
 
   @schema Zoi.struct(
             __MODULE__,
@@ -26,10 +21,14 @@ defmodule Jido.Action.Catalog.Query do
               capabilities:
                 Zoi.list(Zoi.string(), description: "Required capabilities") |> Zoi.default([]),
               visibility:
-                Zoi.list(
-                  Zoi.enum(@visibility_values),
+                Zoi.union(
+                  [
+                    Zoi.enum(@visibility_enum, coerce: true),
+                    Zoi.list(Zoi.enum(@visibility_enum, coerce: true))
+                  ],
                   description: "Allowed visibility values"
                 )
+                |> Zoi.transform({__MODULE__, :normalize_visibility, []})
                 |> Zoi.default([:public]),
               limit:
                 Zoi.integer(description: "Maximum hits to return")
@@ -58,11 +57,14 @@ defmodule Jido.Action.Catalog.Query do
   @spec new(map() | keyword() | String.t() | t()) :: {:ok, t()} | {:error, Exception.t()}
   def new(%__MODULE__{} = query), do: {:ok, query}
   def new(text) when is_binary(text), do: new(%{text: text})
-  def new(attrs) when is_list(attrs), do: attrs |> Map.new() |> new()
+
+  def new(attrs) when is_list(attrs) do
+    with {:ok, attrs} <- attrs_to_map(attrs) do
+      new(attrs)
+    end
+  end
 
   def new(%{} = attrs) do
-    attrs = normalize_attr_map(attrs)
-
     case Zoi.parse(@schema, attrs) do
       {:ok, query} ->
         {:ok, query}
@@ -74,45 +76,19 @@ defmodule Jido.Action.Catalog.Query do
 
   def new(_attrs), do: {:error, Error.validation_error("Invalid catalog query")}
 
-  defp normalize_attr_map(attrs) do
-    attrs
-    |> normalize_known_string_keys()
-    |> normalize_visibility()
-  end
-
-  defp normalize_known_string_keys(attrs) do
-    Enum.reduce(@string_key_fields, attrs, fn key, acc ->
-      maybe_rename(acc, Atom.to_string(key), key)
-    end)
-  end
-
-  defp maybe_rename(attrs, from, to) do
-    case Map.fetch(attrs, from) do
-      {:ok, value} ->
-        attrs
-        |> Map.delete(from)
-        |> Map.put_new(to, value)
-
-      :error ->
-        attrs
+  defp attrs_to_map(attrs) when is_list(attrs) do
+    if Keyword.keyword?(attrs) do
+      {:ok, Map.new(attrs)}
+    else
+      {:error, Error.validation_error("Invalid catalog query", %{details: :invalid_attrs})}
     end
   end
 
-  defp normalize_visibility(%{visibility: values} = attrs) when is_list(values) do
-    Map.put(attrs, :visibility, Enum.map(values, &normalize_visibility_value/1))
-  end
-
-  defp normalize_visibility(%{visibility: value} = attrs) do
-    Map.put(attrs, :visibility, [normalize_visibility_value(value)])
-  end
-
-  defp normalize_visibility(attrs), do: attrs
-
-  defp normalize_visibility_value(value) when is_binary(value) do
-    Enum.find(@visibility_values, value, &(Atom.to_string(&1) == value))
-  end
-
-  defp normalize_visibility_value(value), do: value
+  @doc false
+  @spec normalize_visibility(atom() | [atom()], keyword()) :: {:ok, [atom()]}
+  def normalize_visibility(values, _opts \\ [])
+  def normalize_visibility(values, _opts) when is_list(values), do: {:ok, values}
+  def normalize_visibility(value, _opts), do: {:ok, [value]}
 
   @doc """
   Same as `new/1`, but raises on error.
