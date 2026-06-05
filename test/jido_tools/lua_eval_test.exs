@@ -42,6 +42,16 @@ defmodule Jido.Tools.LuaEvalTest do
       params = %{code: "return a + b", globals: %{"a" => 10, "b" => 32}}
       assert {:ok, %{results: [42]}} = LuaEval.run(params, @context)
     end
+
+    test "returns a structured error for unsupported global values" do
+      params = %{code: "return bad", globals: %{"bad" => self()}}
+
+      assert {:error, %Error.ExecutionFailureError{} = error} = LuaEval.run(params, @context)
+      assert error.details[:type] == :lua_error
+      assert %{type: :lua_error, message: message} = error.details[:reason]
+      assert message =~ "Failed to encode"
+      refute message =~ "Lua task exited"
+    end
   end
 
   describe "return modes" do
@@ -151,6 +161,42 @@ defmodule Jido.Tools.LuaEvalTest do
       params = %{code: "local t = {1,2,3}; return table.concat(t, ',')", timeout_ms: 3000}
       assert {:ok, %{results: ["1,2,3"]}} = LuaEval.run(params, @context)
     end
+
+    test "allows unsafe libs when explicitly enabled" do
+      params = %{code: "return os.getenv('HOME')", enable_unsafe_libs: true, timeout_ms: 3000}
+
+      assert {:ok, %{results: [home]}} = LuaEval.run(params, @context)
+      assert is_binary(home)
+    end
+  end
+
+  describe "resource limits" do
+    test "limits nested Lua call depth" do
+      params = %{
+        code: "local function recurse() return recurse() end; return recurse()",
+        max_call_depth: 8,
+        timeout_ms: 1000
+      }
+
+      assert {:error, %Error.ExecutionFailureError{} = error} = LuaEval.run(params, @context)
+      assert error.details[:type] == :lua_error
+      assert %{type: :lua_error, message: message} = error.details[:reason]
+      assert message =~ "stack overflow"
+    end
+
+    @tag :capture_log
+    test "enforces max heap limit in the isolated Lua task" do
+      params = %{
+        code: "local t = {}; for i = 1, 1000000 do t[i] = i end; return #t",
+        max_heap_bytes: 1_000_000,
+        timeout_ms: 3000
+      }
+
+      assert {:error, %Error.ExecutionFailureError{} = error} = LuaEval.run(params, @context)
+      assert error.details[:type] == :lua_error
+      assert %{type: :lua_error, message: message} = error.details[:reason]
+      assert message =~ "Lua task exited"
+    end
   end
 
   describe "tool definition" do
@@ -168,6 +214,7 @@ defmodule Jido.Tools.LuaEvalTest do
       assert Map.has_key?(properties, "return_mode")
       assert Map.has_key?(properties, "enable_unsafe_libs")
       assert Map.has_key?(properties, "timeout_ms")
+      assert Map.has_key?(properties, "max_call_depth")
       assert Map.has_key?(properties, "max_heap_bytes")
     end
   end
