@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 * deps: update `:lua` dependency for Lua.ex 1.0 release-candidate compatibility
+* tools: normalize Lua VM setup and global encoding failures as structured Lua errors
 
 ## [v2.3.0](https://github.com/agentjido/jido_action/compare/v2.2.1...v2.3.0) (2026-05-22)
 

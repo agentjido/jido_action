@@ -22,7 +22,8 @@ defmodule Jido.Tools.LuaEval do
   - `string`, `math`, `table`
   - Basic Lua operations
 
-  Set `enable_unsafe_libs: true` to disable sandboxing (use with caution).
+  Set `enable_unsafe_libs: true` to disable Lua.ex capability sandboxing (use with
+  caution). Lua.ex 1.0 still has no host shell or host filesystem access.
   Set `max_call_depth` to a positive integer to cap nested Lua function calls.
 
   ## Examples
@@ -199,30 +200,13 @@ defmodule Jido.Tools.LuaEval do
       :erlang.process_flag(:max_heap_size, %{size: max_heap_bytes, kill: true})
     end
 
-    lua_opts =
-      if enable_unsafe_libs do
-        [sandboxed: []]
-      else
-        []
-      end
-
-    lua_opts =
-      if is_integer(max_call_depth) and max_call_depth > 0 do
-        Keyword.put(lua_opts, :max_call_depth, max_call_depth)
-      else
-        lua_opts
-      end
-
-    lua = Lua.new(lua_opts)
-
-    lua =
-      Enum.reduce(globals || %{}, lua, fn {k, v}, acc ->
-        {encoded, acc2} = Lua.encode!(acc, v)
-        path = if is_list(k), do: k, else: [k]
-        Lua.set!(acc2, path, encoded)
-      end)
-
     try do
+      lua =
+        enable_unsafe_libs
+        |> lua_options(max_call_depth)
+        |> Lua.new()
+        |> inject_globals(globals)
+
       {values, _state} = Lua.eval!(lua, code)
 
       result =
@@ -242,6 +226,30 @@ defmodule Jido.Tools.LuaEval do
       e ->
         return_error(:lua_error, Exception.message(e))
     end
+  end
+
+  defp lua_options(enable_unsafe_libs, max_call_depth) do
+    []
+    |> maybe_disable_sandbox(enable_unsafe_libs)
+    |> maybe_put_max_call_depth(max_call_depth)
+  end
+
+  defp maybe_disable_sandbox(opts, true), do: Keyword.put(opts, :sandboxed, [])
+  defp maybe_disable_sandbox(opts, _), do: opts
+
+  defp maybe_put_max_call_depth(opts, max_call_depth)
+       when is_integer(max_call_depth) and max_call_depth > 0 do
+    Keyword.put(opts, :max_call_depth, max_call_depth)
+  end
+
+  defp maybe_put_max_call_depth(opts, _), do: opts
+
+  defp inject_globals(lua, globals) do
+    Enum.reduce(globals || %{}, lua, fn {key, value}, acc ->
+      {encoded, acc2} = Lua.encode!(acc, value)
+      path = if is_list(key), do: key, else: [key]
+      Lua.set!(acc2, path, encoded)
+    end)
   end
 
   defp return_error(type, message) do

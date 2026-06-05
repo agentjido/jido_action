@@ -42,6 +42,16 @@ defmodule Jido.Tools.LuaEvalTest do
       params = %{code: "return a + b", globals: %{"a" => 10, "b" => 32}}
       assert {:ok, %{results: [42]}} = LuaEval.run(params, @context)
     end
+
+    test "returns a structured error for unsupported global values" do
+      params = %{code: "return bad", globals: %{"bad" => self()}}
+
+      assert {:error, %Error.ExecutionFailureError{} = error} = LuaEval.run(params, @context)
+      assert error.details[:type] == :lua_error
+      assert %{type: :lua_error, message: message} = error.details[:reason]
+      assert message =~ "Failed to encode"
+      refute message =~ "Lua task exited"
+    end
   end
 
   describe "return modes" do
