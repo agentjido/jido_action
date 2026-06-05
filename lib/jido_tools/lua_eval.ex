@@ -4,8 +4,9 @@ defmodule Jido.Tools.LuaEval do
 
   ## Features
 
-  - **Safe by default:** Uses tv-labs/lua's sandbox defaults to disable unsafe functions
+  - **Safe by default:** Uses Lua.ex sandbox defaults to disable unsafe functions
   - **Timeout protection:** Configurable timeout with task isolation
+  - **Call-depth protection:** Optional recursion guard for nested Lua calls
   - **Global injection:** Pass Elixir values into the Lua environment
   - **Flexible returns:** Return all values or just the first one
 
@@ -22,6 +23,7 @@ defmodule Jido.Tools.LuaEval do
   - Basic Lua operations
 
   Set `enable_unsafe_libs: true` to disable sandboxing (use with caution).
+  Set `max_call_depth` to a positive integer to cap nested Lua function calls.
 
   ## Examples
 
@@ -87,6 +89,11 @@ defmodule Jido.Tools.LuaEval do
         default: 1000,
         doc: "Execution timeout in milliseconds."
       ],
+      max_call_depth: [
+        type: :non_neg_integer,
+        default: 0,
+        doc: "Maximum nested Lua call depth (0 = disabled / infinity)."
+      ],
       max_heap_bytes: [
         type: :non_neg_integer,
         default: 0,
@@ -126,7 +133,7 @@ defmodule Jido.Tools.LuaEval do
       end
     else
       msg =
-        "Lua library (:lua) is not available. Add {:lua, \"~> 0.3\"} to your deps and run mix deps.get"
+        "Lua library (:lua) is not available. Add {:lua, \"~> 1.0.0-rc\"} to your deps and run mix deps.get"
 
       return_error(:dependency_error, msg)
     end
@@ -185,20 +192,28 @@ defmodule Jido.Tools.LuaEval do
     globals = Map.get(params, :globals, %{})
     return_mode = Map.get(params, :return_mode, :list)
     enable_unsafe_libs = Map.get(params, :enable_unsafe_libs, false)
+    max_call_depth = Map.get(params, :max_call_depth, 0)
     max_heap_bytes = Map.get(params, :max_heap_bytes, 0)
 
     if is_integer(max_heap_bytes) and max_heap_bytes > 0 do
       :erlang.process_flag(:max_heap_size, %{size: max_heap_bytes, kill: true})
     end
 
-    lua =
+    lua_opts =
       if enable_unsafe_libs do
-        # Explicitly disable sandboxing to allow unsafe libs
-        Lua.new(sandboxed: [])
+        [sandboxed: []]
       else
-        # Defaults sandbox unsafe functions (os/package/require/load/io/file/etc.)
-        Lua.new()
+        []
       end
+
+    lua_opts =
+      if is_integer(max_call_depth) and max_call_depth > 0 do
+        Keyword.put(lua_opts, :max_call_depth, max_call_depth)
+      else
+        lua_opts
+      end
+
+    lua = Lua.new(lua_opts)
 
     lua =
       Enum.reduce(globals || %{}, lua, fn {k, v}, acc ->

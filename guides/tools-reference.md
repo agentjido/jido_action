@@ -435,6 +435,7 @@ Execute Lua code in a sandboxed VM.
 - `return_mode` (atom, default: :list): :list returns all values, :first returns only first
 - `enable_unsafe_libs` (boolean, default: false): Enable unsafe libs (os/io/package)
 - `timeout_ms` (integer, default: 1000): Execution timeout in milliseconds
+- `max_call_depth` (integer, default: 0): Maximum nested Lua call depth (0 = disabled)
 - `max_heap_bytes` (integer, default: 0): Per-process heap limit (0 = disabled)
 
 ### ZoiExample

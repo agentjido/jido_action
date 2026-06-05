@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- changelog -->
 
+## Unreleased
+
+### Added
+
+* tools: add `max_call_depth` guard to `Jido.Tools.LuaEval`
+
+### Changed
+
+* deps: update `:lua` dependency for Lua.ex 1.0 release-candidate compatibility
+
 ## [v2.3.0](https://github.com/agentjido/jido_action/compare/v2.2.1...v2.3.0) (2026-05-22)
 
 
