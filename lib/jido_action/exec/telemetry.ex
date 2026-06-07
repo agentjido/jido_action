@@ -135,17 +135,17 @@ defmodule Jido.Exec.Telemetry do
   def extract_safe_error_message(error) do
     case error do
       %{message: %{message: inner_message}} when is_binary(inner_message) ->
-        inner_message
+        safe_message(inner_message)
 
       %{message: nil} ->
         ""
 
       %{message: message} when is_binary(message) ->
-        message
+        safe_message(message)
 
       %{message: message} when is_struct(message) ->
         if Map.has_key?(message, :message) and is_binary(message.message) do
-          message.message
+          safe_message(message.message)
         else
           safe_inspect(message)
         end
@@ -154,6 +154,8 @@ defmodule Jido.Exec.Telemetry do
         safe_inspect(error)
     end
   end
+
+  defp safe_message(message) when is_binary(message), do: Sanitizer.sanitize_telemetry(message)
 
   @doc """
   Conditional logging wrapper for start events.

@@ -249,7 +249,7 @@ defmodule Jido.Tools.LuaEval do
     return_mode = Map.get(params, :return_mode, :list)
     enable_unsafe_libs = Map.get(params, :enable_unsafe_libs, false)
     max_call_depth = Map.get(params, :max_call_depth, 0)
-    max_heap_bytes = Map.get(params, :max_heap_bytes, 0)
+    max_heap_bytes = Map.get(params, :max_heap_bytes, @default_max_heap_bytes)
 
     if is_integer(max_heap_bytes) and max_heap_bytes > 0 do
       :erlang.process_flag(:max_heap_size, %{

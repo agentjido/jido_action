@@ -101,4 +101,18 @@ defmodule Jido.Action.SanitizerTest do
              tail: %{password: "[REDACTED]"}
            }
   end
+
+  test "telemetry profile redacts sensitive assignments inside binary messages" do
+    sanitized =
+      Sanitizer.sanitize_telemetry(
+        "request failed api_key=api-secret password='hunter2' with Bearer abc.def"
+      )
+
+    assert sanitized =~ "api_key=[REDACTED]"
+    assert sanitized =~ "password=[REDACTED]"
+    assert sanitized =~ "Bearer [REDACTED]"
+    refute sanitized =~ "api-secret"
+    refute sanitized =~ "hunter2"
+    refute sanitized =~ "abc.def"
+  end
 end

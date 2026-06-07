@@ -27,6 +27,9 @@ defmodule Jido.Action.Sanitizer do
   @max_depth 4
   @max_collection_items 25
   @max_binary_bytes 256
+  @sensitive_assignment_key_pattern "password|passwd|passphrase|secret|token|api[_-]?key|apikey|access[_-]?key|accesskey|private[_-]?key|privatekey|authorization|auth|cookie|session|credential"
+  @sensitive_assignment_regex ~r/((?:"|')?(?:#{@sensitive_assignment_key_pattern})(?:"|')?\s*(?:=>|=|:)\s*)(?:"[^"]*"|'[^']*'|[^\s,;}\]]+)/i
+  @authorization_token_regex ~r/\b(Bearer|Basic)\s+[A-Za-z0-9._~+\/=-]+/i
   @sensitive_patterns [
     "password",
     "passwd",
@@ -249,13 +252,9 @@ defmodule Jido.Action.Sanitizer do
   end
 
   defp do_sanitize_telemetry(value, _depth, opts) when is_binary(value) do
-    if byte_size(value) > opts.max_binary_bytes do
-      kept = binary_part(value, 0, opts.max_binary_bytes)
-      truncated = byte_size(value) - opts.max_binary_bytes
-      "#{kept}...(truncated #{truncated} bytes)"
-    else
-      value
-    end
+    value
+    |> redact_sensitive_binary()
+    |> truncate_binary(opts)
   end
 
   defp do_sanitize_telemetry(value, _depth, _opts), do: value
@@ -274,6 +273,22 @@ defmodule Jido.Action.Sanitizer do
        do: key
 
   defp sanitize_telemetry_key(key, depth, opts), do: do_sanitize_telemetry(key, depth, opts)
+
+  defp redact_sensitive_binary(value) do
+    value
+    |> then(&Regex.replace(@sensitive_assignment_regex, &1, "\\1[REDACTED]"))
+    |> then(&Regex.replace(@authorization_token_regex, &1, "\\1 [REDACTED]"))
+  end
+
+  defp truncate_binary(value, opts) do
+    if byte_size(value) > opts.max_binary_bytes do
+      kept = binary_part(value, 0, opts.max_binary_bytes)
+      truncated = byte_size(value) - opts.max_binary_bytes
+      "#{kept}...(truncated #{truncated} bytes)"
+    else
+      value
+    end
+  end
 
   defp summarize_truncated(%_{} = struct, opts), do: summarize_truncated_struct(struct, opts)
 

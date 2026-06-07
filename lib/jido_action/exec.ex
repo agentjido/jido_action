@@ -804,22 +804,23 @@ defmodule Jido.Exec do
 
     defp extract_error_fields(%{message: message} = reason)
          when is_struct(reason) and is_binary(message) do
-      {message, struct_error_details(reason)}
+      {Telemetry.extract_safe_error_message(reason), struct_error_details(reason)}
     end
 
     defp extract_error_fields(%{message: message} = reason) when is_struct(reason) do
-      {inspect(message), struct_error_details(reason)}
+      {Telemetry.extract_safe_error_message(%{message: message}), struct_error_details(reason)}
     end
 
     defp extract_error_fields(%{message: message} = reason) when is_binary(message) do
-      {message, Map.delete(reason, :message)}
+      {Telemetry.extract_safe_error_message(reason), Map.delete(reason, :message)}
     end
 
     defp extract_error_fields(%{message: message} = reason) do
-      {inspect(message), Map.delete(reason, :message)}
+      {Telemetry.extract_safe_error_message(%{message: message}), Map.delete(reason, :message)}
     end
 
-    defp extract_error_fields(reason) when is_binary(reason), do: {reason, %{}}
+    defp extract_error_fields(reason) when is_binary(reason),
+      do: {Telemetry.extract_safe_error_message(%{message: reason}), %{}}
 
     defp extract_error_fields(reason) when is_atom(reason),
       do: {Atom.to_string(reason), %{reason: reason, retry: Error.retryable?(reason)}}

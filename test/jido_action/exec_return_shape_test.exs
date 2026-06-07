@@ -224,6 +224,44 @@ defmodule JidoTest.ExecReturnShapeTest do
       end)
     end
 
+    test "redacts sensitive values from raw string error messages" do
+      defmodule SensitiveStringErrorAction do
+        use Jido.Action, name: "sensitive_string_error"
+
+        def run(_params, _context) do
+          {:error, "token=raw-secret " <> String.duplicate("x", 300)}
+        end
+      end
+
+      capture_log(fn ->
+        assert {:error, %Error.ExecutionFailureError{message: message}} =
+                 Exec.run(SensitiveStringErrorAction, %{}, %{})
+
+        assert message =~ "token=[REDACTED]"
+        assert message =~ "truncated"
+        refute message =~ "raw-secret"
+      end)
+    end
+
+    test "redacts sensitive values from exception messages" do
+      defmodule SensitiveExceptionMessageAction do
+        use Jido.Action, name: "sensitive_exception_message"
+
+        def run(_params, _context) do
+          raise "api_key=exception-secret " <> String.duplicate("x", 300)
+        end
+      end
+
+      capture_log(fn ->
+        assert {:error, %Error.ExecutionFailureError{message: message}} =
+                 Exec.run(SensitiveExceptionMessageAction, %{}, %{})
+
+        assert message =~ "api_key=[REDACTED]"
+        assert message =~ "truncated"
+        refute message =~ "exception-secret"
+      end)
+    end
+
     test "rejects integer - unexpected shape" do
       defmodule IntegerResultAction do
         use Jido.Action, name: "integer_result"

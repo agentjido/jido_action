@@ -59,6 +59,31 @@ defmodule Jido.Tools.LuaEvalSupervisionTest do
       assert error.details[:reason] == %{type: :timeout, timeout_ms: 200}
     end
 
+    test "direct Lua execution applies the default heap cap" do
+      baseline_children = Task.Supervisor.children(Jido.Action.TaskSupervisor) |> MapSet.new()
+      parent = self()
+
+      caller =
+        spawn(fn ->
+          send(parent, {:ready, self()})
+
+          receive do
+            :run ->
+              result = LuaEval.run(%{code: "while true do end", timeout_ms: 200}, @context)
+              send(parent, {:done, self(), result})
+          end
+        end)
+
+      assert_receive {:ready, ^caller}
+      send(caller, :run)
+      lua_pid = await_new_supervisor_child(baseline_children)
+
+      assert_default_heap_cap(lua_pid)
+
+      assert_receive {:done, ^caller, {:error, %Error.TimeoutError{} = error}}, 500
+      assert error.timeout == 200
+    end
+
     test "kills Lua worker when the caller exits before the Lua timeout" do
       baseline_children = Task.Supervisor.children(Jido.Action.TaskSupervisor) |> MapSet.new()
       parent = self()
@@ -97,6 +122,34 @@ defmodule Jido.Tools.LuaEvalSupervisionTest do
 
       assert_supervisor_children_return_to(baseline_children)
     end
+  end
+
+  defp assert_default_heap_cap(pid, attempts_left \\ 20)
+
+  defp assert_default_heap_cap(pid, 0) do
+    flunk("Expected Lua worker #{inspect(pid)} to have the default max heap cap")
+  end
+
+  defp assert_default_heap_cap(pid, attempts_left) do
+    expected_size = default_heap_words()
+
+    case Process.info(pid, :max_heap_size) do
+      {:max_heap_size, %{kill: true, size: ^expected_size}} ->
+        :ok
+
+      {:max_heap_size, _max_heap_size} ->
+        Process.sleep(10)
+        assert_default_heap_cap(pid, attempts_left - 1)
+
+      nil ->
+        flunk("Lua worker #{inspect(pid)} exited before its heap cap could be inspected")
+    end
+  end
+
+  defp default_heap_words do
+    (64 * 1024 * 1024)
+    |> div(:erlang.system_info(:wordsize))
+    |> max(1)
   end
 
   defp assert_new_supervisor_child(baseline_children, attempts_left \\ 10)
