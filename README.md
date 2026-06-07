@@ -311,6 +311,10 @@ Jido.Action comes with a comprehensive library of pre-built tools organized by c
 | `MakeDirectory` | Create directories (recursive) | Setup operations |
 | `ListDirectory` | List directory contents with filtering | File discovery |
 
+File tools can be scoped with `config :jido_action, file_tool_roots: [...]` or per-run
+`%{allowed_file_roots: [...]}` context. Use roots before exposing these tools to agents or
+user-influenced requests.
+
 ### HTTP Operations (`Jido.Tools.ReqTool`)
 
 `ReqTool` is a specialized action that provides a behavior and macro for creating HTTP request actions using the Req library. It offers a standardized way to build HTTP-based actions with configurable URLs, methods, headers, and response processing.

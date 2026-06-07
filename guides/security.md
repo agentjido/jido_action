@@ -202,6 +202,23 @@ config :jido_action, :default_timeout, 30_000
 
 ### File System Restrictions
 
+If you use the built-in `Jido.Tools.Files.*` actions, scope them before exposing them to
+agent-selected or user-influenced calls:
+
+```elixir
+# config/runtime.exs
+config :jido_action, file_tool_roots: ["/srv/my_app/data"]
+
+# Per request, optionally narrower than the configured roots
+context = %{allowed_file_roots: ["/srv/my_app/data/uploads"]}
+Jido.Tools.Files.ReadFile.run(%{path: "profile.json"}, context)
+```
+
+When roots are present, relative paths resolve under the first allowed root. The file tools reject
+paths and symlinks that resolve outside the allowed roots, reject parent traversal in glob patterns,
+and refuse protected deletion targets such as `/`, the current working directory, and the current
+user's home directory.
+
 ```elixir
 defmodule MyApp.Actions.SecureFileOp do
   use Jido.Action,

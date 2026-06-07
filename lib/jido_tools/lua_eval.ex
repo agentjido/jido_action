@@ -58,6 +58,9 @@ defmodule Jido.Tools.LuaEval do
 
   alias Jido.Action.Error
 
+  @deadline_key :__jido_deadline_ms__
+  @default_max_heap_bytes 64 * 1024 * 1024
+
   use Jido.Action,
     name: "lua_eval",
     description: "Execute a Lua code string in a sandboxed VM and return the values.",
@@ -97,40 +100,48 @@ defmodule Jido.Tools.LuaEval do
       ],
       max_heap_bytes: [
         type: :non_neg_integer,
-        default: 0,
+        default: @default_max_heap_bytes,
         doc: "Per-process heap limit in bytes (0 = disabled)."
       ]
     ],
     output_schema: []
 
   @impl true
-  def run(params, _context) do
+  def run(params, context) do
     if Code.ensure_loaded?(Lua) do
-      timeout_ms = Map.get(params, :timeout_ms, 1000)
-      parent = self()
-      ref = make_ref()
+      requested_timeout_ms = Map.get(params, :timeout_ms, 1000)
 
-      {:ok, pid} =
-        Task.Supervisor.start_child(Jido.Action.TaskSupervisor, fn ->
-          send(parent, {:lua_eval_result, ref, do_run(params)})
-        end)
+      case effective_timeout_ms(requested_timeout_ms, context) do
+        {:ok, timeout_ms} ->
+          parent = self()
+          ref = make_ref()
 
-      monitor_ref = Process.monitor(pid)
+          {:ok, pid} =
+            Task.Supervisor.start_child(Jido.Action.TaskSupervisor, fn ->
+              send(parent, {:lua_eval_result, ref, do_run(params)})
+            end)
 
-      case await_lua_result(ref, pid, monitor_ref, timeout_ms) do
-        {:ok, result} ->
-          cleanup_lua_task(ref, monitor_ref)
-          result
+          watchdog_pid = start_lua_watchdog(parent, pid)
+          monitor_ref = Process.monitor(pid)
 
-        {:exit, reason} ->
-          cleanup_lua_task(ref, monitor_ref)
-          return_error(:lua_error, "Lua task exited: #{inspect(reason)}")
+          case await_lua_result(ref, pid, monitor_ref, timeout_ms) do
+            {:ok, result} ->
+              cleanup_lua_task(ref, monitor_ref, watchdog_pid)
+              result
 
-        :timeout ->
-          _ = Process.exit(pid, :kill)
-          wait_for_lua_down(monitor_ref, pid, 100)
-          cleanup_lua_task(ref, monitor_ref)
-          timeout_error(timeout_ms)
+            {:exit, reason} ->
+              cleanup_lua_task(ref, monitor_ref, watchdog_pid)
+              return_error(:lua_error, "Lua task exited: #{inspect(reason)}")
+
+            :timeout ->
+              _ = Process.exit(pid, :kill)
+              wait_for_lua_down(monitor_ref, pid, 100)
+              cleanup_lua_task(ref, monitor_ref, watchdog_pid)
+              timeout_error(timeout_ms)
+          end
+
+        {:error, error} ->
+          {:error, error}
       end
     else
       msg =
@@ -173,7 +184,8 @@ defmodule Jido.Tools.LuaEval do
       end
     end
 
-    defp cleanup_lua_task(ref, monitor_ref) do
+    defp cleanup_lua_task(ref, monitor_ref, watchdog_pid) do
+      send(watchdog_pid, :stop)
       Process.demonitor(monitor_ref, [:flush])
       flush_lua_results(ref)
     end
@@ -188,6 +200,49 @@ defmodule Jido.Tools.LuaEval do
     end
   end
 
+  defp start_lua_watchdog(parent, lua_pid) do
+    spawn(fn ->
+      parent_ref = Process.monitor(parent)
+      lua_ref = Process.monitor(lua_pid)
+
+      receive do
+        {:DOWN, ^parent_ref, :process, ^parent, _reason} ->
+          if Process.alive?(lua_pid), do: Process.exit(lua_pid, :kill)
+          Process.demonitor(lua_ref, [:flush])
+
+        {:DOWN, ^lua_ref, :process, ^lua_pid, _reason} ->
+          Process.demonitor(parent_ref, [:flush])
+
+        :stop ->
+          Process.demonitor(parent_ref, [:flush])
+          Process.demonitor(lua_ref, [:flush])
+      end
+    end)
+  end
+
+  defp effective_timeout_ms(timeout_ms, context) when is_map(context) do
+    case context[@deadline_key] do
+      deadline_ms when is_integer(deadline_ms) ->
+        now = System.monotonic_time(:millisecond)
+        remaining = deadline_ms - now
+
+        if remaining <= 0 do
+          {:error,
+           Error.timeout_error("Execution deadline exceeded before Lua dispatch", %{
+             deadline_ms: deadline_ms,
+             now_ms: now
+           })}
+        else
+          {:ok, min(timeout_ms, remaining)}
+        end
+
+      _ ->
+        {:ok, timeout_ms}
+    end
+  end
+
+  defp effective_timeout_ms(timeout_ms, _context), do: {:ok, timeout_ms}
+
   defp do_run(params) do
     code = Map.fetch!(params, :code)
     globals = Map.get(params, :globals, %{})
@@ -197,7 +252,11 @@ defmodule Jido.Tools.LuaEval do
     max_heap_bytes = Map.get(params, :max_heap_bytes, 0)
 
     if is_integer(max_heap_bytes) and max_heap_bytes > 0 do
-      :erlang.process_flag(:max_heap_size, %{size: max_heap_bytes, kill: true})
+      :erlang.process_flag(:max_heap_size, %{
+        size: bytes_to_heap_words(max_heap_bytes),
+        kill: true,
+        error_logger: false
+      })
     end
 
     try do
@@ -243,6 +302,12 @@ defmodule Jido.Tools.LuaEval do
   end
 
   defp maybe_put_max_call_depth(opts, _), do: opts
+
+  defp bytes_to_heap_words(bytes) do
+    bytes
+    |> div(:erlang.system_info(:wordsize))
+    |> max(1)
+  end
 
   defp inject_globals(lua, globals) do
     Enum.reduce(globals || %{}, lua, fn {key, value}, acc ->

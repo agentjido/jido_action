@@ -11,6 +11,74 @@ defmodule JidoTest.Actions.FilesTest do
     {:ok, tmp_dir: tmp_dir}
   end
 
+  describe "file root enforcement" do
+    test "resolves relative paths against the allowed root", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "data.txt")
+      File.write!(path, "safe")
+
+      assert {:ok, result} =
+               Files.ReadFile.run(%{path: "data.txt"}, %{allowed_file_roots: [tmp_dir]})
+
+      assert Path.basename(result.path) == "data.txt"
+      assert File.read!(result.path) == File.read!(path)
+      assert result.content == "safe"
+    end
+
+    test "rejects absolute paths outside allowed roots", %{tmp_dir: tmp_dir} do
+      outside = Path.join(System.tmp_dir!(), "jido_outside_#{System.unique_integer()}.txt")
+      File.write!(outside, "outside")
+      on_exit(fn -> File.rm(outside) end)
+
+      assert {:error, message} =
+               Files.ReadFile.run(%{path: outside}, %{allowed_file_roots: [tmp_dir]})
+
+      assert message =~ "outside allowed file roots"
+    end
+
+    test "rejects symlink escapes from allowed roots", %{tmp_dir: tmp_dir} do
+      outside = Path.join(System.tmp_dir!(), "jido_symlink_#{System.unique_integer()}.txt")
+      link = Path.join(tmp_dir, "link.txt")
+      File.write!(outside, "outside")
+      on_exit(fn -> File.rm(outside) end)
+
+      case File.ln_s(outside, link) do
+        :ok ->
+          assert {:error, message} =
+                   Files.ReadFile.run(%{path: "link.txt"}, %{allowed_file_roots: [tmp_dir]})
+
+          assert message =~ "outside allowed file roots"
+
+        {:error, _reason} ->
+          :ok
+      end
+    end
+
+    test "rejects parent traversal glob patterns when roots are enforced", %{tmp_dir: tmp_dir} do
+      assert {:error, message} =
+               Files.ListDirectory.run(
+                 %{path: tmp_dir, pattern: "../*.txt", recursive: true},
+                 %{allowed_file_roots: [tmp_dir]}
+               )
+
+      assert message =~ "cannot traverse parent directories"
+    end
+
+    test "checks both source and destination for copy operations", %{tmp_dir: tmp_dir} do
+      source = Path.join(tmp_dir, "source.txt")
+      outside = Path.join(System.tmp_dir!(), "jido_copy_#{System.unique_integer()}.txt")
+      File.write!(source, "copy")
+      on_exit(fn -> File.rm(outside) end)
+
+      assert {:error, message} =
+               Files.CopyFile.run(
+                 %{source: source, destination: outside},
+                 %{allowed_file_roots: [tmp_dir]}
+               )
+
+      assert message =~ "outside allowed file roots"
+    end
+  end
+
   describe "WriteFile" do
     test "writes content to a file with parent directory creation", %{tmp_dir: tmp_dir} do
       path = Path.join([tmp_dir, "subdir", "test.txt"])
@@ -226,6 +294,23 @@ defmodule JidoTest.Actions.FilesTest do
       # Cleanup: Reset permissions to allow cleanup
       File.chmod!(dir_path, 0o755)
       File.chmod!(file_path, 0o644)
+    end
+
+    test "refuses to force-delete a directory without recursive true", %{tmp_dir: tmp_dir} do
+      dir_path = Path.join(tmp_dir, "force_dir")
+      File.mkdir_p!(dir_path)
+      File.write!(Path.join(dir_path, "file.txt"), "keep")
+
+      assert {:error, message} =
+               Files.DeleteFile.run(%{path: dir_path, recursive: false, force: true}, %{})
+
+      assert message =~ "Refusing to force-delete directory"
+      assert File.exists?(Path.join(dir_path, "file.txt"))
+    end
+
+    test "refuses to recursively delete protected filesystem roots" do
+      assert {:error, message} = Files.DeleteFile.run(%{path: "/", recursive: true}, %{})
+      assert message =~ "Refusing to delete protected path"
     end
   end
 

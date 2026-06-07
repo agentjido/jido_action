@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- changelog -->
 
+## Unreleased
+
+### Security:
+
+* scope built-in file tools with optional root capabilities and safer delete guards
+
+* enforce default Lua heap limits and clean up Lua workers when callers exit
+
+* sanitize exceptional execution messages before returning them
+
 ## [v2.3.0](https://github.com/agentjido/jido_action/compare/v2.2.1...v2.3.0) (2026-05-22)
 
 

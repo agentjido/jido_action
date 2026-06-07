@@ -203,6 +203,27 @@ defmodule JidoTest.ExecReturnShapeTest do
       end)
     end
 
+    test "redacts sensitive values from unexpected return shape messages" do
+      defmodule SensitiveUnexpectedShapeAction do
+        use Jido.Action, name: "sensitive_unexpected_shape"
+
+        @dialyzer {:nowarn_function, run: 2}
+        def run(_params, _context) do
+          %{api_key: "api-secret", payload: String.duplicate("x", 300)}
+        end
+      end
+
+      capture_log(fn ->
+        assert {:error, %Error.ExecutionFailureError{message: message}} =
+                 Exec.run(SensitiveUnexpectedShapeAction, %{}, %{})
+
+        assert message =~ "Unexpected return shape"
+        assert message =~ "[REDACTED]"
+        assert message =~ "truncated"
+        refute message =~ "api-secret"
+      end)
+    end
+
     test "rejects integer - unexpected shape" do
       defmodule IntegerResultAction do
         use Jido.Action, name: "integer_result"
