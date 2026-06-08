@@ -227,7 +227,7 @@ defmodule JidoAction.MixProject do
       {:abacus, "~> 2.1"},
       {:multigraph, "~> 0.16.1-mg.3"},
       {:lua, "~> 1.0.0-rc"},
-      {:req, "~> 0.5.10"},
+      {:req, "~> 0.6.1"},
 
       # Development & Test Dependencies
       {:git_ops, "~> 2.9", only: :dev, runtime: false},
