@@ -204,7 +204,8 @@ defmodule Jido.Exec do
       log_level = Util.resolve_log_level(opts)
       Telemetry.cond_log_caught_error(log_level, reason)
 
-      {:error, Error.internal_error("Caught #{kind}: #{inspect(reason)}")}
+      {:error,
+       Error.internal_error("Caught #{kind}: #{Telemetry.extract_safe_error_message(reason)}")}
   end
 
   def run(action, _params, _context, _opts) do
@@ -326,14 +327,22 @@ defmodule Jido.Exec do
     defp normalize_params({:error, reason}), do: {:error, Error.validation_error(reason)}
 
     defp normalize_params(params),
-      do: {:error, Error.validation_error("Invalid params type: #{inspect(params)}")}
+      do:
+        {:error,
+         Error.validation_error(
+           "Invalid params type: #{Telemetry.extract_safe_error_message(params)}"
+         )}
 
     @spec normalize_context(context()) :: {:ok, map()} | {:error, Exception.t()}
     defp normalize_context(context) when is_map(context), do: {:ok, context}
     defp normalize_context(context) when is_list(context), do: {:ok, Map.new(context)}
 
     defp normalize_context(context),
-      do: {:error, Error.validation_error("Invalid context type: #{inspect(context)}")}
+      do:
+        {:error,
+         Error.validation_error(
+           "Invalid context type: #{Telemetry.extract_safe_error_message(context)}"
+         )}
 
     @spec do_run_with_retry(action(), params(), context(), run_opts()) :: exec_result
     defp do_run_with_retry(action, params, context, opts) do
@@ -547,10 +556,13 @@ defmodule Jido.Exec do
 
         {:exit, reason} ->
           {:error,
-           Error.execution_error("Task exited: #{inspect(reason)}", %{
-             reason: reason,
-             action: action
-           })}
+           Error.execution_error(
+             "Task exited: #{Telemetry.extract_safe_error_message(reason)}",
+             %{
+               reason: reason,
+               action: action
+             }
+           )}
 
         :timeout ->
           {:error,
@@ -781,35 +793,42 @@ defmodule Jido.Exec do
 
     # Handle unexpected return shapes
     defp handle_action_result(unexpected_result, action, log_level, _opts) do
-      error = Error.execution_error("Unexpected return shape: #{inspect(unexpected_result)}")
+      error =
+        Error.execution_error(
+          "Unexpected return shape: #{Telemetry.extract_safe_error_message(unexpected_result)}"
+        )
+
       Telemetry.cond_log_error(log_level, action, error)
       {:error, error}
     end
 
     defp extract_error_fields(%{message: message} = reason)
          when is_struct(reason) and is_binary(message) do
-      {message, struct_error_details(reason)}
+      {Telemetry.extract_safe_error_message(reason), struct_error_details(reason)}
     end
 
     defp extract_error_fields(%{message: message} = reason) when is_struct(reason) do
-      {inspect(message), struct_error_details(reason)}
+      {Telemetry.extract_safe_error_message(%{message: message}), struct_error_details(reason)}
     end
 
     defp extract_error_fields(%{message: message} = reason) when is_binary(message) do
-      {message, Map.delete(reason, :message)}
+      {Telemetry.extract_safe_error_message(reason), Map.delete(reason, :message)}
     end
 
     defp extract_error_fields(%{message: message} = reason) do
-      {inspect(message), Map.delete(reason, :message)}
+      {Telemetry.extract_safe_error_message(%{message: message}), Map.delete(reason, :message)}
     end
 
-    defp extract_error_fields(reason) when is_binary(reason), do: {reason, %{}}
+    defp extract_error_fields(reason) when is_binary(reason),
+      do: {Telemetry.extract_safe_error_message(%{message: reason}), %{}}
 
     defp extract_error_fields(reason) when is_atom(reason),
       do: {Atom.to_string(reason), %{reason: reason, retry: Error.retryable?(reason)}}
 
-    defp extract_error_fields(reason) when is_map(reason), do: {inspect(reason), reason}
-    defp extract_error_fields(reason), do: {inspect(reason), %{}}
+    defp extract_error_fields(reason) when is_map(reason),
+      do: {Telemetry.extract_safe_error_message(reason), reason}
+
+    defp extract_error_fields(reason), do: {Telemetry.extract_safe_error_message(reason), %{}}
 
     defp struct_error_details(reason) do
       reason
@@ -872,7 +891,7 @@ defmodule Jido.Exec do
     end
 
     defp build_exception_message(e, action) do
-      "An unexpected error occurred during execution of #{inspect(action)}: #{inspect(e)}"
+      "An unexpected error occurred during execution of #{inspect(action)}: #{Telemetry.extract_safe_error_message(e)}"
     end
   end
 end

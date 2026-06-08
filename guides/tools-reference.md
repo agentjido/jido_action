@@ -177,6 +177,25 @@ Square a number.
 
 ## File Operations
 
+Built-in file actions are unrestricted by default for backwards compatibility. To expose them to
+agents or untrusted callers, scope filesystem access with either application config or execution
+context:
+
+```elixir
+# Global ceiling
+config :jido_action, file_tool_roots: ["/srv/my_app/data"]
+
+# Per-run capability, optionally narrower than the global ceiling
+context = %{allowed_file_roots: ["/srv/my_app/data/uploads"]}
+Jido.Tools.Files.ReadFile.run(%{path: "report.json"}, context)
+```
+
+When roots are enforced, relative paths resolve under the first allowed root, symlinks that resolve
+outside the allowed roots are rejected, and glob patterns cannot traverse parent directories.
+`DeleteFile` also refuses protected targets such as `/`, the current working directory, and the
+current user's home directory. `force: true` no longer recursively removes directories unless
+`recursive: true` is also set.
+
 ### Read File
 Read contents from a file.
 
@@ -436,7 +455,7 @@ Execute Lua code in a sandboxed VM.
 - `enable_unsafe_libs` (boolean, default: false): Disable Lua.ex capability sandboxing; Lua.ex 1.0 still has no host shell or host filesystem access.
 - `timeout_ms` (integer, default: 1000): Execution timeout in milliseconds
 - `max_call_depth` (integer, default: 0): Maximum nested Lua call depth (0 = disabled)
-- `max_heap_bytes` (integer, default: 0): Per-process heap limit (0 = disabled)
+- `max_heap_bytes` (integer, default: 67108864): Per-process heap limit in bytes (0 = disabled)
 
 ### ZoiExample
 A production-quality example demonstrating Zoi schema features. Use this as a reference for building actions with complex validation.
