@@ -58,7 +58,7 @@ defmodule JidoAction.MixProject do
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      extra_applications: [:logger],
+      extra_applications: [:logger, :crypto],
       mod: {Jido.Action.Application, []}
     ]
   end
@@ -218,7 +218,6 @@ defmodule JidoAction.MixProject do
       {:nimble_options, "~> 1.1"},
       {:private, "~> 0.1.2"},
       {:telemetry, "~> 1.3"},
-      {:uniq, "~> 0.6.1"},
       {:zoi, "~> 0.17"},
       {:splode, "~> 0.3.0"},
 

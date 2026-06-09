@@ -41,6 +41,7 @@ defmodule Jido.Plan do
   """
 
   alias Jido.Action.Error
+  alias Jido.Action.ID
   alias Jido.Instruction
 
   @type step_def ::
@@ -115,7 +116,7 @@ defmodule Jido.Plan do
   @spec new(keyword()) :: t()
   def new(opts \\ []) do
     %__MODULE__{
-      id: Uniq.UUID.uuid7(),
+      id: ID.uuid7(),
       steps: %{},
       context: Keyword.get(opts, :context, %{})
     }
@@ -206,7 +207,7 @@ defmodule Jido.Plan do
     case Instruction.normalize_single(clean_step_def, plan.context, []) do
       {:ok, instruction} ->
         plan_instruction = %PlanInstruction{
-          id: Uniq.UUID.uuid7(),
+          id: ID.uuid7(),
           name: step_name,
           instruction: instruction,
           depends_on: depends_on,

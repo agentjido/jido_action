@@ -134,6 +134,7 @@ defmodule Jido.Instruction do
   """
 
   alias Jido.Action.Error
+  alias Jido.Action.ID
   alias Jido.Instruction
 
   # Define Zoi schema for instruction
@@ -513,7 +514,7 @@ defmodule Jido.Instruction do
 
   defp apply_defaults(attrs) do
     attrs
-    |> Map.put_new_lazy(:id, &Uniq.UUID.uuid7/0)
+    |> Map.put_new_lazy(:id, &ID.uuid7/0)
     |> Map.update(:params, %{}, fn v -> if is_nil(v), do: %{}, else: v end)
     |> Map.update(:context, %{}, fn v -> if is_nil(v), do: %{}, else: v end)
     |> Map.update(:opts, [], fn v -> if is_nil(v), do: [], else: v end)

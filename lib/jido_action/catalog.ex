@@ -30,6 +30,7 @@ defmodule Jido.Action.Catalog do
   alias Jido.Action.Catalog.Hit
   alias Jido.Action.Catalog.Query
   alias Jido.Action.Error
+  alias Jido.Action.ID
 
   @filter_enum_values %{
     schema_kind: [:empty, :nimble, :zoi, :json_schema, :unknown],
@@ -75,7 +76,7 @@ defmodule Jido.Action.Catalog do
   def new(attrs) when is_list(attrs), do: attrs |> Map.new() |> new()
 
   def new(%{} = attrs) do
-    attrs = Map.put_new_lazy(attrs, :id, &Uniq.UUID.uuid7/0)
+    attrs = Map.put_new_lazy(attrs, :id, &ID.uuid7/0)
 
     with {:ok, attrs} <- normalize_entries_attr(attrs) do
       case Zoi.parse(@schema, attrs) do

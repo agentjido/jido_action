@@ -124,14 +124,14 @@ defmodule Jido.PlanCoverageTest do
       }
 
       plan_instruction = %Plan.PlanInstruction{
-        id: Uniq.UUID.uuid7(),
+        id: Jido.Action.ID.uuid7(),
         name: :test_step,
         instruction: instruction,
         depends_on: [],
         opts: []
       }
 
-      plan = %Plan{id: Uniq.UUID.uuid7(), steps: %{test_step: plan_instruction}}
+      plan = %Plan{id: Jido.Action.ID.uuid7(), steps: %{test_step: plan_instruction}}
       result = Plan.to_keyword(plan)
       result_map = Map.new(result)
 
@@ -148,14 +148,14 @@ defmodule Jido.PlanCoverageTest do
       }
 
       plan_instruction = %Plan.PlanInstruction{
-        id: Uniq.UUID.uuid7(),
+        id: Jido.Action.ID.uuid7(),
         name: :test_step,
         instruction: instruction,
         depends_on: [],
         opts: []
       }
 
-      plan = %Plan{id: Uniq.UUID.uuid7(), steps: %{test_step: plan_instruction}}
+      plan = %Plan{id: Jido.Action.ID.uuid7(), steps: %{test_step: plan_instruction}}
       result = Plan.to_keyword(plan)
       result_map = Map.new(result)
 
@@ -207,14 +207,14 @@ defmodule Jido.PlanCoverageTest do
       }
 
       plan_instruction = %Plan.PlanInstruction{
-        id: Uniq.UUID.uuid7(),
+        id: Jido.Action.ID.uuid7(),
         name: :test_step,
         instruction: instruction,
         depends_on: [:step1],
         opts: []
       }
 
-      plan = %Plan{id: Uniq.UUID.uuid7(), steps: %{test_step: plan_instruction}}
+      plan = %Plan{id: Jido.Action.ID.uuid7(), steps: %{test_step: plan_instruction}}
       result = Plan.to_keyword(plan)
       result_map = Map.new(result)
 
