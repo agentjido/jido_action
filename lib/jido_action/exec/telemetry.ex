@@ -143,12 +143,10 @@ defmodule Jido.Exec.Telemetry do
       %{message: message} when is_binary(message) ->
         safe_message(message)
 
-      %{message: message} when is_struct(message) ->
-        if Map.has_key?(message, :message) and is_binary(message.message) do
-          safe_message(message.message)
-        else
-          safe_inspect(message)
-        end
+      %{message: %{message: nested_message} = message} when is_struct(message) ->
+        if is_binary(nested_message),
+          do: safe_message(nested_message),
+          else: safe_inspect(message)
 
       _ ->
         safe_inspect(error)
