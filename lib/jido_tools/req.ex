@@ -133,7 +133,7 @@ defmodule Jido.Tools.ReqTool do
             else
               {:error,
                Error.config_error(
-                 "Req library is required for ReqTool. Add {:req, \"~> 0.5\"} to your deps.",
+                 "Req library is required for ReqTool. Add {:req, \"~> 0.6.1\"} to your deps.",
                  %{dependency: :req}
                )}
             end

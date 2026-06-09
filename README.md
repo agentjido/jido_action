@@ -319,6 +319,8 @@ user-influenced requests.
 
 `ReqTool` is a specialized action that provides a behavior and macro for creating HTTP request actions using the Req library. It offers a standardized way to build HTTP-based actions with configurable URLs, methods, headers, and response processing.
 
+HTTP and Lua tools use optional dependencies. Add `{:req, "~> 0.6.1"}` when using `Jido.Tools.ReqTool`, and `{:lua, "~> 1.0.0-rc"}` when using `Jido.Tools.LuaEval`.
+
 | Tool | Description | Use Case |
 |------|-------------|----------|
 | HTTP Actions | GET, POST, PUT, DELETE requests with Req library | API integration, webhooks |

@@ -312,6 +312,8 @@ List directory contents.
 ### ReqTool (HTTP Request Builder)
 A behavior and macro for creating HTTP request actions using the Req library.
 
+Requires the optional dependency `{:req, "~> 0.6.1"}`.
+
 ```elixir
 # Define a custom HTTP action module
 defmodule MyApp.GetUser do
@@ -427,6 +429,8 @@ end
 
 ### LuaEval
 Execute Lua code in a sandboxed VM.
+
+Requires the optional dependency `{:lua, "~> 1.0.0-rc"}`.
 
 ```elixir
 # Simple arithmetic

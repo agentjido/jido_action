@@ -218,16 +218,14 @@ defmodule JidoAction.MixProject do
       {:nimble_options, "~> 1.1"},
       {:private, "~> 0.1.2"},
       {:telemetry, "~> 1.3"},
-      {:telemetry_metrics, "~> 1.1"},
       {:uniq, "~> 0.6.1"},
       {:zoi, "~> 0.17"},
       {:splode, "~> 0.3.0"},
 
       # Skill & Action Dependencies for examples
-      {:abacus, "~> 2.1"},
       {:multigraph, "~> 0.16.1-mg.3"},
-      {:lua, "~> 1.0.0-rc"},
-      {:req, "~> 0.6.1"},
+      {:lua, "~> 1.0.0-rc", optional: true},
+      {:req, "~> 0.6.1", optional: true},
 
       # Development & Test Dependencies
       {:git_ops, "~> 2.9", only: :dev, runtime: false},
@@ -235,10 +233,8 @@ defmodule JidoAction.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test]},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:mix_audit, "~> 2.0", only: [:dev, :test], runtime: false},
-      {:doctor, "~> 0.21", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       {:excoveralls, "~> 0.18.3", only: [:dev, :test]},
-      {:expublish, "~> 2.7", only: [:dev], runtime: false},
       {:mix_test_watch, "~> 1.0", only: [:dev, :test], runtime: false},
       {:mimic, "~> 2.0", only: :test},
       {:stream_data, "~> 1.0", only: [:dev, :test]},
