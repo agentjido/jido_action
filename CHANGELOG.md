@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- changelog -->
 
+## [v2.3.1](https://github.com/agentjido/jido_action/compare/v2.3.0...v2.3.1) (2026-06-09)
+
+
+
+
+### Bug Fixes:
+
+* simplify telemetry struct message handling by mikehostetler
+
+* satisfy Elixir 1.20 telemetry type checks by mikehostetler
+
+* security: harden built-in tool boundaries (#185) by mikehostetler
+
+* update LuaEval for Lua.ex 1.0 compatibility by mikehostetler
+
 ## [v2.3.0](https://github.com/agentjido/jido_action/compare/v2.2.1...v2.3.0) (2026-05-22)
 
 
