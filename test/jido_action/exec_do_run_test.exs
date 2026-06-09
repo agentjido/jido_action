@@ -32,14 +32,14 @@ defmodule JidoTest.ExecDoRunTest do
     {:ok, attempts_table: @attempts_table}
   end
 
-  describe "do_run/3" do
+  describe "run/4 telemetry" do
     test "executes action with full telemetry" do
       stub(:telemetry, :execute, fn _, _, _ -> :ok end)
 
       log =
         capture_log(fn ->
           assert {:ok, %{value: 5}} =
-                   Exec.do_run(BasicAction, %{value: 5}, %{},
+                   Exec.run(BasicAction, %{value: 5}, %{},
                      telemetry: :full,
                      log_level: :debug
                    )
@@ -56,7 +56,7 @@ defmodule JidoTest.ExecDoRunTest do
       log =
         capture_log(fn ->
           assert {:ok, %{value: 5}} =
-                   Exec.do_run(BasicAction, %{value: 5}, %{},
+                   Exec.run(BasicAction, %{value: 5}, %{},
                      telemetry: :minimal,
                      log_level: :debug
                    )
@@ -74,7 +74,7 @@ defmodule JidoTest.ExecDoRunTest do
       log =
         capture_log(fn ->
           assert {:ok, %{value: 5}} =
-                   Exec.do_run(BasicAction, %{value: 5}, %{},
+                   Exec.run(BasicAction, %{value: 5}, %{},
                      telemetry: :silent,
                      timeout: 0
                    )
@@ -90,7 +90,7 @@ defmodule JidoTest.ExecDoRunTest do
       log =
         capture_log(fn ->
           assert {:error, _} =
-                   Exec.do_run(ErrorAction, %{}, %{}, telemetry: :full, log_level: :debug)
+                   Exec.run(ErrorAction, %{}, %{}, telemetry: :full, log_level: :debug)
         end)
 
       assert log =~ "Starting execution of JidoTest.TestActions.ErrorAction"
@@ -99,13 +99,13 @@ defmodule JidoTest.ExecDoRunTest do
     end
   end
 
-  describe "do_run_with_retry/4" do
+  describe "run/4 retry policy" do
     test "succeeds on first try" do
       stub(:telemetry, :execute, fn _, _, _ -> :ok end)
 
       capture_log(fn ->
         assert {:ok, %{value: 5}} =
-                 Exec.do_run_with_retry(BasicAction, %{value: 5}, %{}, [])
+                 Exec.run(BasicAction, %{value: 5}, %{}, [])
       end)
 
       verify!()
@@ -116,7 +116,7 @@ defmodule JidoTest.ExecDoRunTest do
 
       capture_log(fn ->
         result =
-          Exec.do_run_with_retry(
+          Exec.run(
             RetryAction,
             %{max_attempts: 3, failure_type: :error},
             %{attempts_table: attempts_table},
@@ -136,7 +136,7 @@ defmodule JidoTest.ExecDoRunTest do
 
       capture_log(fn ->
         result =
-          Exec.do_run_with_retry(
+          Exec.run(
             RetryAction,
             %{max_attempts: 3, failure_type: :exception},
             %{attempts_table: attempts_table},
@@ -156,7 +156,7 @@ defmodule JidoTest.ExecDoRunTest do
 
       capture_log(fn ->
         result =
-          Exec.do_run_with_retry(
+          Exec.run(
             RetryAction,
             %{max_attempts: 5, failure_type: :error},
             %{attempts_table: attempts_table},

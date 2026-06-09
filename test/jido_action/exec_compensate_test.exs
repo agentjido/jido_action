@@ -2,7 +2,9 @@ defmodule JidoTest.ExecCompensateTest do
   use JidoTest.ActionCase, async: false
   use Mimic
 
+  alias Jido.Action.Error
   alias Jido.Exec
+  alias Jido.Exec.Compensation
   alias JidoTest.TestActions.CompensateAction
   alias JidoTest.TestActions.CrashingCompensateAction
   alias JidoTest.TestActions.OptsCapturingCompensateAction
@@ -10,6 +12,36 @@ defmodule JidoTest.ExecCompensateTest do
   @moduletag :capture_log
 
   setup :set_mimic_global
+
+  defmodule KeywordMetadataCompensationAction do
+    @moduledoc false
+
+    def __action_metadata__, do: [compensation: [enabled: true, timeout: 50]]
+
+    def on_error(_params, _error, _context, opts) do
+      {:ok, %{opts: opts}}
+    end
+  end
+
+  defmodule InvalidMetadataCompensationAction do
+    @moduledoc false
+
+    def __action_metadata__, do: [compensation: :invalid]
+
+    def on_error(_params, _error, _context, _opts) do
+      {:ok, %{}}
+    end
+  end
+
+  describe "enabled?/1" do
+    test "supports keyword-list compensation metadata" do
+      assert Compensation.enabled?(KeywordMetadataCompensationAction)
+    end
+
+    test "rejects invalid compensation metadata" do
+      refute Compensation.enabled?(InvalidMetadataCompensationAction)
+    end
+  end
 
   describe "do_run with compensation" do
     test "triggers compensation on action failure" do
@@ -171,6 +203,22 @@ defmodule JidoTest.ExecCompensateTest do
   end
 
   describe "opts passed to on_error/4" do
+    test "uses keyword metadata timeout when handling compensation directly" do
+      original_error = Error.execution_error("keyword compensation failure")
+
+      assert {:error, %Error.ExecutionFailureError{} = error} =
+               Compensation.handle_error(
+                 KeywordMetadataCompensationAction,
+                 %{},
+                 %{},
+                 original_error,
+                 []
+               )
+
+      assert error.details.compensated == true
+      assert error.details.compensation_result.opts[:compensation_timeout] == 50
+    end
+
     test "passes execution options to on_error callback" do
       params = %{should_fail: true, capture_pid: self()}
 

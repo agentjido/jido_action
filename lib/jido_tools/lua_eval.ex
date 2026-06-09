@@ -54,8 +54,6 @@ defmodule Jido.Tools.LuaEval do
       {:error, %Jido.Action.Error.TimeoutError{timeout: 50}}
   """
 
-  use Private
-
   alias Jido.Action.Error
 
   @deadline_key :__jido_deadline_ms__
@@ -151,52 +149,51 @@ defmodule Jido.Tools.LuaEval do
     end
   end
 
-  private do
-    defp await_lua_result(ref, pid, monitor_ref, timeout_ms) do
-      receive do
-        {:lua_eval_result, ^ref, result} ->
-          {:ok, result}
+  @doc false
+  def await_lua_result(ref, pid, monitor_ref, timeout_ms) do
+    receive do
+      {:lua_eval_result, ^ref, result} ->
+        {:ok, result}
 
-        {:DOWN, ^monitor_ref, :process, ^pid, :normal} ->
-          wait_for_lua_result(ref, 100)
+      {:DOWN, ^monitor_ref, :process, ^pid, :normal} ->
+        wait_for_lua_result(ref, 100)
 
-        {:DOWN, ^monitor_ref, :process, ^pid, reason} ->
-          {:exit, reason}
-      after
-        timeout_ms ->
-          :timeout
-      end
+      {:DOWN, ^monitor_ref, :process, ^pid, reason} ->
+        {:exit, reason}
+    after
+      timeout_ms ->
+        :timeout
     end
+  end
 
-    defp wait_for_lua_result(ref, wait_ms) do
-      receive do
-        {:lua_eval_result, ^ref, result} -> {:ok, result}
-      after
-        wait_ms -> {:exit, :normal}
-      end
+  defp wait_for_lua_result(ref, wait_ms) do
+    receive do
+      {:lua_eval_result, ^ref, result} -> {:ok, result}
+    after
+      wait_ms -> {:exit, :normal}
     end
+  end
 
-    defp wait_for_lua_down(monitor_ref, pid, wait_ms) do
-      receive do
-        {:DOWN, ^monitor_ref, :process, ^pid, _reason} -> :ok
-      after
-        wait_ms -> :ok
-      end
+  defp wait_for_lua_down(monitor_ref, pid, wait_ms) do
+    receive do
+      {:DOWN, ^monitor_ref, :process, ^pid, _reason} -> :ok
+    after
+      wait_ms -> :ok
     end
+  end
 
-    defp cleanup_lua_task(ref, monitor_ref, watchdog_pid) do
-      send(watchdog_pid, :stop)
-      Process.demonitor(monitor_ref, [:flush])
-      flush_lua_results(ref)
-    end
+  defp cleanup_lua_task(ref, monitor_ref, watchdog_pid) do
+    send(watchdog_pid, :stop)
+    Process.demonitor(monitor_ref, [:flush])
+    flush_lua_results(ref)
+  end
 
-    defp flush_lua_results(ref) do
-      receive do
-        {:lua_eval_result, ^ref, _result} ->
-          flush_lua_results(ref)
-      after
-        0 -> :ok
-      end
+  defp flush_lua_results(ref) do
+    receive do
+      {:lua_eval_result, ^ref, _result} ->
+        flush_lua_results(ref)
+    after
+      0 -> :ok
     end
   end
 
