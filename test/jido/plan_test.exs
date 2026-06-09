@@ -461,7 +461,7 @@ defmodule Jido.PlanTest do
   describe "PlanInstruction struct" do
     test "creates PlanInstruction with all fields" do
       plan_instruction = %Plan.PlanInstruction{
-        id: Uniq.UUID.uuid7(),
+        id: Jido.Action.ID.uuid7(),
         name: :test_step,
         instruction: %Instruction{action: TestActions.FetchAction},
         depends_on: [:other_step],

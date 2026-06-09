@@ -60,7 +60,7 @@ defmodule MyApp.Actions.CreateUser do
     {:ok, %{user_id: generate_id(), email: params.email}}
   end
   
-  defp generate_id, do: Uniq.UUID.uuid7()
+  defp generate_id, do: "user_#{:crypto.strong_rand_bytes(16) |> Base.url_encode64(padding: false)}"
 end
 ```
 
