@@ -153,6 +153,24 @@ defmodule JidoTest.ExecReturnShapeTest do
       assert log =~ "Execution option :error_normalization=:legacy is deprecated and ignored"
     end
 
+    test "warns for invalid deprecated error_normalization option values" do
+      defmodule InvalidDeprecatedErrorNormalizationAction do
+        use Jido.Action, name: "invalid_deprecated_error_normalization"
+
+        def run(_params, _context), do: {:ok, %{ok: true}}
+      end
+
+      log =
+        capture_log(fn ->
+          assert {:ok, %{ok: true}} =
+                   Exec.run(InvalidDeprecatedErrorNormalizationAction, %{}, %{},
+                     error_normalization: :unsupported
+                   )
+        end)
+
+      assert log =~ "Execution option :error_normalization=:unsupported is deprecated and ignored"
+    end
+
     test "rejects :ok atom - unexpected shape" do
       defmodule AtomOkAction do
         use Jido.Action, name: "atom_ok"

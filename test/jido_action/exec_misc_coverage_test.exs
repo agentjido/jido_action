@@ -9,6 +9,7 @@ defmodule JidoTest.ExecMiscCoverageTest do
 
   alias Jido.Action.Error
   alias Jido.Exec
+  alias JidoTest.TestActions.EchoAction
 
   @moduletag :capture_log
 
@@ -57,9 +58,9 @@ defmodule JidoTest.ExecMiscCoverageTest do
 
     test "normalize params with various invalid structures" do
       # Test edge cases in param normalization
-      assert {:error, %Error.InvalidInputError{}} = Exec.normalize_params(fn -> :function end)
-      assert {:error, %Error.InvalidInputError{}} = Exec.normalize_params(self())
-      assert {:error, %Error.InvalidInputError{}} = Exec.normalize_params(make_ref())
+      assert {:error, %Error.InvalidInputError{}} = Exec.run(EchoAction, fn -> :function end)
+      assert {:error, %Error.InvalidInputError{}} = Exec.run(EchoAction, self())
+      assert {:error, %Error.InvalidInputError{}} = Exec.run(EchoAction, make_ref())
     end
 
     test "compensation with specific timeout configurations" do

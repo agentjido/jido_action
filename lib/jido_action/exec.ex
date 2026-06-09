@@ -37,8 +37,6 @@ defmodule Jido.Exec do
 
   See `Jido.Action` for how to define an Action.
   """
-  use Private
-
   alias Jido.Action.Error
   alias Jido.Action.Util
   alias Jido.Exec.Async
@@ -316,582 +314,576 @@ defmodule Jido.Exec do
   @spec cancel(async_ref() | pid()) :: :ok | exec_error
   def cancel(async_ref_or_pid), do: Async.cancel(async_ref_or_pid)
 
-  # Private functions are exposed to the test suite
-  private do
-    @spec normalize_params(params()) :: {:ok, map()} | {:error, Exception.t()}
-    defp normalize_params(%_{} = error) when is_exception(error), do: {:error, error}
-    defp normalize_params(params) when is_map(params), do: {:ok, params}
-    defp normalize_params(params) when is_list(params), do: {:ok, Map.new(params)}
-    defp normalize_params({:ok, params}) when is_map(params), do: {:ok, params}
-    defp normalize_params({:ok, params}) when is_list(params), do: {:ok, Map.new(params)}
-    defp normalize_params({:error, reason}), do: {:error, Error.validation_error(reason)}
+  # Internal execution helpers.
+  @spec normalize_params(params()) :: {:ok, map()} | {:error, Exception.t()}
+  defp normalize_params(%_{} = error) when is_exception(error), do: {:error, error}
+  defp normalize_params(params) when is_map(params), do: {:ok, params}
+  defp normalize_params(params) when is_list(params), do: {:ok, Map.new(params)}
+  defp normalize_params({:ok, params}) when is_map(params), do: {:ok, params}
+  defp normalize_params({:ok, params}) when is_list(params), do: {:ok, Map.new(params)}
+  defp normalize_params({:error, reason}), do: {:error, Error.validation_error(reason)}
 
-    defp normalize_params(params),
-      do:
-        {:error,
-         Error.validation_error(
-           "Invalid params type: #{Telemetry.extract_safe_error_message(params)}"
-         )}
+  defp normalize_params(params),
+    do:
+      {:error,
+       Error.validation_error(
+         "Invalid params type: #{Telemetry.extract_safe_error_message(params)}"
+       )}
 
-    @spec normalize_context(context()) :: {:ok, map()} | {:error, Exception.t()}
-    defp normalize_context(context) when is_map(context), do: {:ok, context}
-    defp normalize_context(context) when is_list(context), do: {:ok, Map.new(context)}
+  @spec normalize_context(context()) :: {:ok, map()} | {:error, Exception.t()}
+  defp normalize_context(context) when is_map(context), do: {:ok, context}
+  defp normalize_context(context) when is_list(context), do: {:ok, Map.new(context)}
 
-    defp normalize_context(context),
-      do:
-        {:error,
-         Error.validation_error(
-           "Invalid context type: #{Telemetry.extract_safe_error_message(context)}"
-         )}
+  defp normalize_context(context),
+    do:
+      {:error,
+       Error.validation_error(
+         "Invalid context type: #{Telemetry.extract_safe_error_message(context)}"
+       )}
 
-    @spec do_run_with_retry(action(), params(), context(), run_opts()) :: exec_result
-    defp do_run_with_retry(action, params, context, opts) do
-      retry_opts = Retry.extract_retry_opts(opts)
-      max_retries = retry_opts[:max_retries]
-      backoff = retry_opts[:backoff]
-      do_run_with_retry(action, params, context, opts, 0, max_retries, backoff)
+  @spec do_run_with_retry(action(), params(), context(), run_opts()) :: exec_result
+  defp do_run_with_retry(action, params, context, opts) do
+    retry_opts = Retry.extract_retry_opts(opts)
+    max_retries = retry_opts[:max_retries]
+    backoff = retry_opts[:backoff]
+    do_run_with_retry(action, params, context, opts, 0, max_retries, backoff)
+  end
+
+  @spec do_run_with_retry(
+          action(),
+          params(),
+          context(),
+          run_opts(),
+          non_neg_integer(),
+          non_neg_integer(),
+          non_neg_integer()
+        ) :: exec_result
+  defp do_run_with_retry(action, params, context, opts, retry_count, max_retries, backoff) do
+    case do_run(action, params, context, opts) do
+      {:ok, result} ->
+        {:ok, result}
+
+      {:ok, result, other} ->
+        {:ok, result, other}
+
+      {:error, reason, other} ->
+        maybe_retry(
+          action,
+          params,
+          context,
+          opts,
+          retry_count,
+          max_retries,
+          backoff,
+          {:error, reason, other}
+        )
+
+      {:error, reason} ->
+        maybe_retry(
+          action,
+          params,
+          context,
+          opts,
+          retry_count,
+          max_retries,
+          backoff,
+          {:error, reason}
+        )
     end
+  end
 
-    @spec do_run_with_retry(
-            action(),
-            params(),
-            context(),
-            run_opts(),
-            non_neg_integer(),
-            non_neg_integer(),
-            non_neg_integer()
-          ) :: exec_result
-    defp do_run_with_retry(action, params, context, opts, retry_count, max_retries, backoff) do
-      case do_run(action, params, context, opts) do
-        {:ok, result} ->
-          {:ok, result}
+  defp maybe_retry(
+         action,
+         params,
+         context,
+         opts,
+         retry_count,
+         max_retries,
+         initial_backoff,
+         error
+       ) do
+    if Retry.should_retry?(error, retry_count, max_retries, opts) do
+      Retry.execute_retry(action, retry_count, max_retries, initial_backoff, opts, fn ->
+        do_run_with_retry(
+          action,
+          params,
+          context,
+          opts,
+          retry_count + 1,
+          max_retries,
+          initial_backoff
+        )
+      end)
+    else
+      error
+    end
+  end
 
-        {:ok, result, other} ->
-          {:ok, result, other}
+  @spec do_run(action(), params(), context(), run_opts()) :: exec_result
+  defp do_run(action, params, context, opts) do
+    telemetry = resolve_telemetry_mode(opts)
 
-        {:error, reason, other} ->
-          maybe_retry(
-            action,
-            params,
-            context,
-            opts,
-            retry_count,
-            max_retries,
-            backoff,
-            {:error, reason, other}
-          )
-
-        {:error, reason} ->
-          maybe_retry(
-            action,
-            params,
-            context,
-            opts,
-            retry_count,
-            max_retries,
-            backoff,
-            {:error, reason}
-          )
+    with {:ok, timeout, budgeted_context} <- resolve_timeout_budget(context, opts) do
+      execute_with_timeout = fn ->
+        execute_action_with_timeout(action, params, budgeted_context, timeout, opts)
       end
-    end
 
-    defp maybe_retry(
-           action,
-           params,
-           context,
-           opts,
-           retry_count,
-           max_retries,
-           initial_backoff,
-           error
-         ) do
-      if Retry.should_retry?(error, retry_count, max_retries, opts) do
-        Retry.execute_retry(action, retry_count, max_retries, initial_backoff, opts, fn ->
-          do_run_with_retry(
-            action,
-            params,
-            context,
-            opts,
-            retry_count + 1,
-            max_retries,
-            initial_backoff
-          )
-        end)
-      else
-        error
-      end
-    end
-
-    @spec do_run(action(), params(), context(), run_opts()) :: exec_result
-    defp do_run(action, params, context, opts) do
-      telemetry = resolve_telemetry_mode(opts)
-
-      with {:ok, timeout, budgeted_context} <- resolve_timeout_budget(context, opts) do
-        execute_with_timeout = fn ->
-          execute_action_with_timeout(action, params, budgeted_context, timeout, opts)
-        end
-
-        result =
-          case telemetry do
-            :silent ->
-              execute_with_timeout.()
-
-            :full ->
-              :telemetry.span(
-                [:jido, :action],
-                Telemetry.span_start_metadata(action, params, budgeted_context, opts),
-                fn ->
-                  result = execute_with_timeout.()
-
-                  {result,
-                   Telemetry.span_stop_metadata(action, params, budgeted_context, result, opts)}
-                end
-              )
-          end
-
-        case result do
-          {:ok, _result} = success ->
-            success
-
-          {:ok, _result, _other} = success ->
-            success
-
-          {:error, %Jido.Action.Error.TimeoutError{}} = timeout_err ->
-            timeout_err
-
-          {:error, error, other} ->
-            handle_action_error(action, params, budgeted_context, {error, other}, opts)
-
-          {:error, error} ->
-            handle_action_error(action, params, budgeted_context, error, opts)
-        end
-      end
-    end
-
-    @spec handle_action_error(
-            action(),
-            params(),
-            context(),
-            Exception.t() | {Exception.t(), any()},
-            run_opts()
-          ) :: exec_result
-    defp handle_action_error(action, params, context, error_or_tuple, opts) do
-      Compensation.handle_error(action, params, context, error_or_tuple, opts)
-    end
-
-    @spec execute_action_with_timeout(
-            action(),
-            params(),
-            context(),
-            non_neg_integer(),
-            run_opts()
-          ) :: exec_result
-    defp execute_action_with_timeout(action, params, context, timeout, opts)
-
-    defp execute_action_with_timeout(action, params, context, 0, opts) do
-      execute_action(action, params, context, opts)
-    end
-
-    @dialyzer {:nowarn_function, execute_action_with_timeout: 5}
-    defp execute_action_with_timeout(action, params, context, timeout, opts)
-         when is_integer(timeout) and timeout > 0 do
-      # Get the current process's group leader for IO routing
-      current_gl = Process.group_leader()
-
-      # Resolve supervisor based on jido: option (defaults to global)
-      task_sup = Supervisors.task_supervisor(opts)
-      propagation = Propagation.capture(opts)
-
-      parent = self()
-      ref = make_ref()
-
-      # Spawn process under the supervisor and send the result back explicitly.
-      # This avoids relying on Task.yield/2 behavior/typing (Elixir 1.18+).
-      {:ok, pid} =
-        Task.Supervisor.start_child(task_sup, fn ->
-          # Use the parent's group leader to ensure IO is properly captured
-          Process.group_leader(self(), current_gl)
-
-          result =
-            Propagation.with_attached(propagation, fn ->
-              execute_action(action, params, context, opts)
-            end)
-
-          send(parent, {:execute_action_result, ref, result})
-        end)
-
-      monitor_ref = Process.monitor(pid)
-
-      # Wait for completion, crash, or timeout.
       result =
-        receive do
-          {:execute_action_result, ^ref, result} ->
-            Process.demonitor(monitor_ref, [:flush])
-            {:ok, result}
+        case telemetry do
+          :silent ->
+            execute_with_timeout.()
 
-          {:DOWN, ^monitor_ref, :process, ^pid, reason} ->
-            # If the process exited normally, a result message may still be in flight.
-            case reason do
-              :normal ->
-                receive do
-                  {:execute_action_result, ^ref, result} -> {:ok, result}
-                after
-                  0 -> {:exit, reason}
-                end
+          :full ->
+            :telemetry.span(
+              [:jido, :action],
+              Telemetry.span_start_metadata(action, params, budgeted_context, opts),
+              fn ->
+                result = execute_with_timeout.()
 
-              _ ->
-                {:exit, reason}
-            end
-        after
-          timeout ->
-            _ = Task.Supervisor.terminate_child(task_sup, pid)
-            cleanup_timeout_task(ref, monitor_ref, pid)
-
-            :timeout
+                {result,
+                 Telemetry.span_stop_metadata(action, params, budgeted_context, result, opts)}
+              end
+            )
         end
 
       case result do
-        {:ok, result} ->
-          result
+        {:ok, _result} = success ->
+          success
 
-        {:exit, reason} ->
-          {:error,
-           Error.execution_error(
-             "Task exited: #{Telemetry.extract_safe_error_message(reason)}",
-             %{
-               reason: reason,
-               action: action
-             }
-           )}
+        {:ok, _result, _other} = success ->
+          success
 
-        :timeout ->
-          {:error,
-           Error.timeout_error(
-             "Action #{inspect(action)} timed out after #{timeout}ms",
-             %{
-               timeout: timeout,
-               action: action
-             }
-           )}
+        {:error, %Jido.Action.Error.TimeoutError{}} = timeout_err ->
+          timeout_err
+
+        {:error, error, other} ->
+          handle_action_error(action, params, budgeted_context, {error, other}, opts)
+
+        {:error, error} ->
+          handle_action_error(action, params, budgeted_context, error, opts)
       end
     end
+  end
 
-    defp execute_action_with_timeout(action, params, context, _timeout, opts) do
-      execute_action_with_timeout(action, params, context, get_default_timeout(), opts)
-    end
+  @spec handle_action_error(
+          action(),
+          params(),
+          context(),
+          Exception.t() | {Exception.t(), any()},
+          run_opts()
+        ) :: exec_result
+  defp handle_action_error(action, params, context, error_or_tuple, opts) do
+    Compensation.handle_error(action, params, context, error_or_tuple, opts)
+  end
 
-    defp cleanup_timeout_task(ref, monitor_ref, pid) do
-      wait_for_task_down(monitor_ref, pid, 100)
-      Process.demonitor(monitor_ref, [:flush])
-      flush_execute_action_results(ref)
-    end
+  @spec execute_action_with_timeout(
+          action(),
+          params(),
+          context(),
+          non_neg_integer(),
+          run_opts()
+        ) :: exec_result
+  defp execute_action_with_timeout(action, params, context, timeout, opts)
 
-    defp wait_for_task_down(monitor_ref, pid, wait_ms) do
-      receive do
-        {:DOWN, ^monitor_ref, :process, ^pid, _reason} ->
-          :ok
-      after
-        wait_ms ->
-          if Process.alive?(pid), do: Process.exit(pid, :kill)
+  defp execute_action_with_timeout(action, params, context, 0, opts) do
+    execute_action(action, params, context, opts)
+  end
 
-          receive do
-            {:DOWN, ^monitor_ref, :process, ^pid, _reason} -> :ok
-          after
-            wait_ms -> :ok
-          end
-      end
-    end
+  @dialyzer {:nowarn_function, execute_action_with_timeout: 5}
+  defp execute_action_with_timeout(action, params, context, timeout, opts)
+       when is_integer(timeout) and timeout > 0 do
+    # Get the current process's group leader for IO routing
+    current_gl = Process.group_leader()
 
-    defp flush_execute_action_results(ref) do
-      receive do
-        {:execute_action_result, ^ref, _result} ->
-          flush_execute_action_results(ref)
-      after
-        0 ->
-          :ok
-      end
-    end
+    # Resolve supervisor based on jido: option (defaults to global)
+    task_sup = Supervisors.task_supervisor(opts)
+    propagation = Propagation.capture(opts)
 
-    defp resolve_timeout_budget(context, opts) do
-      timeout = resolve_timeout_opt(opts)
-      existing_deadline = Map.get(context, @deadline_key)
+    parent = self()
+    ref = make_ref()
 
-      if timeout == 0 and not is_integer(existing_deadline) do
-        {:ok, timeout, context}
-      else
-        now = System.monotonic_time(:millisecond)
+    # Spawn process under the supervisor and send the result back explicitly.
+    # This avoids relying on Task.yield/2 behavior/typing (Elixir 1.18+).
+    {:ok, pid} =
+      Task.Supervisor.start_child(task_sup, fn ->
+        # Use the parent's group leader to ensure IO is properly captured
+        Process.group_leader(self(), current_gl)
 
-        deadline =
-          cond do
-            is_integer(existing_deadline) and timeout > 0 ->
-              min(existing_deadline, now + timeout)
-
-            is_integer(existing_deadline) ->
-              existing_deadline
-
-            timeout > 0 ->
-              now + timeout
-
-            true ->
-              nil
-          end
-
-        case deadline do
-          deadline_ms when is_integer(deadline_ms) ->
-            remaining = deadline_ms - now
-
-            if remaining <= 0 do
-              {:error,
-               Error.timeout_error("Execution deadline exceeded before action dispatch", %{
-                 deadline_ms: deadline_ms,
-                 now_ms: now
-               })}
-            else
-              effective_timeout = if timeout == 0, do: remaining, else: min(timeout, remaining)
-              {:ok, effective_timeout, Map.put(context, @deadline_key, deadline_ms)}
-            end
-
-          _ ->
-            {:ok, timeout, context}
-        end
-      end
-    end
-
-    defp resolve_timeout_opt(opts) do
-      case Keyword.get(opts, :timeout, get_default_timeout()) do
-        timeout when is_integer(timeout) and timeout >= 0 -> timeout
-        _invalid -> get_default_timeout()
-      end
-    end
-
-    defp apply_compat_opts(opts) do
-      maybe_warn_deprecated_error_normalization_opt(opts)
-      maybe_warn_deprecated_error_normalization_config()
-      opts
-    end
-
-    defp maybe_warn_deprecated_error_normalization_opt(opts) do
-      case Keyword.fetch(opts, @deprecated_error_normalization_key) do
-        {:ok, mode} when mode in @valid_error_normalization_modes ->
-          warn_deprecated_error_normalization_once(
-            {:opt, mode},
-            "Execution option :error_normalization=#{inspect(mode)} is deprecated and ignored. " <>
-              "Jido.Exec now uses the canonical structured execution error shape unconditionally."
-          )
-
-        {:ok, invalid} ->
-          warn_deprecated_error_normalization_once(
-            {:opt, invalid},
-            "Execution option :error_normalization=#{inspect(invalid)} is deprecated and ignored. " <>
-              "Expected one of #{@valid_error_normalization_modes |> inspect()}; canonical normalization is always used."
-          )
-
-        :error ->
-          :ok
-      end
-    end
-
-    defp maybe_warn_deprecated_error_normalization_config do
-      case Application.get_env(:jido_action, @deprecated_error_normalization_key) do
-        nil ->
-          :ok
-
-        mode when mode in @valid_error_normalization_modes ->
-          warn_deprecated_error_normalization_once(
-            {:config, mode},
-            ":jido_action config :error_normalization=#{inspect(mode)} is deprecated and ignored. " <>
-              "Jido.Exec now uses the canonical structured execution error shape unconditionally."
-          )
-
-        invalid ->
-          warn_deprecated_error_normalization_once(
-            {:config, invalid},
-            ":jido_action config :error_normalization=#{inspect(invalid)} is deprecated and ignored. " <>
-              "Expected one of #{@valid_error_normalization_modes |> inspect()}; canonical normalization is always used."
-          )
-      end
-    end
-
-    defp warn_deprecated_error_normalization_once(key, message) do
-      warning_key = {__MODULE__, @deprecated_error_normalization_key, key}
-
-      unless :persistent_term.get(warning_key, false) do
-        Logger.warning(message)
-        :persistent_term.put(warning_key, true)
-      end
-
-      :ok
-    end
-
-    defp resolve_telemetry_mode(opts) do
-      case Keyword.fetch(opts, :telemetry) do
-        {:ok, mode} when mode in [:full, :silent] ->
-          mode
-
-        {:ok, invalid} ->
-          Logger.warning(fn ->
-            "Invalid execution :telemetry option: #{inspect(invalid)}. " <>
-              "Expected one of [:full, :silent]; using :full."
+        result =
+          Propagation.with_attached(propagation, fn ->
+            execute_action(action, params, context, opts)
           end)
 
-          :full
+        send(parent, {:execute_action_result, ref, result})
+      end)
 
-        :error ->
-          :full
+    monitor_ref = Process.monitor(pid)
+
+    # Wait for completion, crash, or timeout.
+    result =
+      receive do
+        {:execute_action_result, ^ref, result} ->
+          Process.demonitor(monitor_ref, [:flush])
+          {:ok, result}
+
+        {:DOWN, ^monitor_ref, :process, ^pid, reason} ->
+          # If the process exited normally, a result message may still be in flight.
+          case reason do
+            :normal ->
+              receive do
+                {:execute_action_result, ^ref, result} -> {:ok, result}
+              after
+                0 -> {:exit, reason}
+              end
+
+            _ ->
+              {:exit, reason}
+          end
+      after
+        timeout ->
+          _ = Task.Supervisor.terminate_child(task_sup, pid)
+          cleanup_timeout_task(ref, monitor_ref, pid)
+
+          :timeout
+      end
+
+    case result do
+      {:ok, result} ->
+        result
+
+      {:exit, reason} ->
+        {:error,
+         Error.execution_error(
+           "Task exited: #{Telemetry.extract_safe_error_message(reason)}",
+           %{
+             reason: reason,
+             action: action
+           }
+         )}
+
+      :timeout ->
+        {:error,
+         Error.timeout_error(
+           "Action #{inspect(action)} timed out after #{timeout}ms",
+           %{
+             timeout: timeout,
+             action: action
+           }
+         )}
+    end
+  end
+
+  defp cleanup_timeout_task(ref, monitor_ref, pid) do
+    wait_for_task_down(monitor_ref, pid, 100)
+    Process.demonitor(monitor_ref, [:flush])
+    flush_execute_action_results(ref)
+  end
+
+  defp wait_for_task_down(monitor_ref, pid, wait_ms) do
+    receive do
+      {:DOWN, ^monitor_ref, :process, ^pid, _reason} ->
+        :ok
+    after
+      wait_ms ->
+        if Process.alive?(pid), do: Process.exit(pid, :kill)
+
+        receive do
+          {:DOWN, ^monitor_ref, :process, ^pid, _reason} -> :ok
+        after
+          wait_ms -> :ok
+        end
+    end
+  end
+
+  defp flush_execute_action_results(ref) do
+    receive do
+      {:execute_action_result, ^ref, _result} ->
+        flush_execute_action_results(ref)
+    after
+      0 ->
+        :ok
+    end
+  end
+
+  defp resolve_timeout_budget(context, opts) do
+    timeout = resolve_timeout_opt(opts)
+    existing_deadline = Map.get(context, @deadline_key)
+
+    if timeout == 0 and not is_integer(existing_deadline) do
+      {:ok, timeout, context}
+    else
+      now = System.monotonic_time(:millisecond)
+
+      deadline =
+        cond do
+          is_integer(existing_deadline) and timeout > 0 ->
+            min(existing_deadline, now + timeout)
+
+          is_integer(existing_deadline) ->
+            existing_deadline
+
+          timeout > 0 ->
+            now + timeout
+
+          true ->
+            nil
+        end
+
+      case deadline do
+        deadline_ms when is_integer(deadline_ms) ->
+          remaining = deadline_ms - now
+
+          if remaining <= 0 do
+            {:error,
+             Error.timeout_error("Execution deadline exceeded before action dispatch", %{
+               deadline_ms: deadline_ms,
+               now_ms: now
+             })}
+          else
+            effective_timeout = if timeout == 0, do: remaining, else: min(timeout, remaining)
+            {:ok, effective_timeout, Map.put(context, @deadline_key, deadline_ms)}
+          end
+
+        _ ->
+          {:ok, timeout, context}
       end
     end
+  end
 
-    @spec execute_action(action(), params(), context(), run_opts()) :: exec_result
-    defp execute_action(action, params, context, opts) do
-      log_level = Util.resolve_log_level(opts)
-      Telemetry.cond_log_start(log_level, action, params, context)
-
-      action.run(params, context)
-      |> handle_action_result(action, log_level, opts)
-    rescue
-      e ->
-        handle_action_exception(e, __STACKTRACE__, action, opts)
+  defp resolve_timeout_opt(opts) do
+    case Keyword.get(opts, :timeout, get_default_timeout()) do
+      timeout when is_integer(timeout) and timeout >= 0 -> timeout
+      _invalid -> get_default_timeout()
     end
+  end
 
-    # Handle successful results with extra data
-    defp handle_action_result({:ok, result, other}, action, log_level, opts) do
-      validate_and_log_success(action, result, log_level, opts, other)
-    end
+  defp apply_compat_opts(opts) do
+    maybe_warn_deprecated_error_normalization_opt(opts)
+    maybe_warn_deprecated_error_normalization_config()
+    opts
+  end
 
-    # Handle successful results
-    defp handle_action_result({:ok, result}, action, log_level, opts) do
-      validate_and_log_success(action, result, log_level, opts, nil)
-    end
-
-    # Handle errors with extra data
-    defp handle_action_result({:error, %_{} = error, other}, action, log_level, _opts)
-         when is_exception(error) do
-      Telemetry.cond_log_error(log_level, action, error)
-      {:error, error, other}
-    end
-
-    defp handle_action_result({:error, reason, other}, action, log_level, _opts) do
-      Telemetry.cond_log_error(log_level, action, reason)
-      {message, details} = extract_error_fields(reason)
-      {:error, Error.execution_error(message, details), other}
-    end
-
-    # Handle exception errors
-    defp handle_action_result({:error, %_{} = error}, action, log_level, _opts)
-         when is_exception(error) do
-      Telemetry.cond_log_error(log_level, action, error)
-      {:error, error}
-    end
-
-    # Handle generic errors — normalize reason into a well-formed
-    # ExecutionFailureError with a string message and structured details.
-    defp handle_action_result({:error, reason}, action, log_level, _opts) do
-      Telemetry.cond_log_error(log_level, action, reason)
-      {message, details} = extract_error_fields(reason)
-      {:error, Error.execution_error(message, details)}
-    end
-
-    # Handle unexpected return shapes
-    defp handle_action_result(unexpected_result, action, log_level, _opts) do
-      error =
-        Error.execution_error(
-          "Unexpected return shape: #{Telemetry.extract_safe_error_message(unexpected_result)}"
+  defp maybe_warn_deprecated_error_normalization_opt(opts) do
+    case Keyword.fetch(opts, @deprecated_error_normalization_key) do
+      {:ok, mode} when mode in @valid_error_normalization_modes ->
+        warn_deprecated_error_normalization_once(
+          {:opt, mode},
+          "Execution option :error_normalization=#{inspect(mode)} is deprecated and ignored. " <>
+            "Jido.Exec now uses the canonical structured execution error shape unconditionally."
         )
 
-      Telemetry.cond_log_error(log_level, action, error)
-      {:error, error}
+      {:ok, invalid} ->
+        warn_deprecated_error_normalization_once(
+          {:opt, invalid},
+          "Execution option :error_normalization=#{inspect(invalid)} is deprecated and ignored. " <>
+            "Expected one of #{@valid_error_normalization_modes |> inspect()}; canonical normalization is always used."
+        )
+
+      :error ->
+        :ok
+    end
+  end
+
+  defp maybe_warn_deprecated_error_normalization_config do
+    case Application.get_env(:jido_action, @deprecated_error_normalization_key) do
+      nil ->
+        :ok
+
+      mode when mode in @valid_error_normalization_modes ->
+        warn_deprecated_error_normalization_once(
+          {:config, mode},
+          ":jido_action config :error_normalization=#{inspect(mode)} is deprecated and ignored. " <>
+            "Jido.Exec now uses the canonical structured execution error shape unconditionally."
+        )
+
+      invalid ->
+        warn_deprecated_error_normalization_once(
+          {:config, invalid},
+          ":jido_action config :error_normalization=#{inspect(invalid)} is deprecated and ignored. " <>
+            "Expected one of #{@valid_error_normalization_modes |> inspect()}; canonical normalization is always used."
+        )
+    end
+  end
+
+  defp warn_deprecated_error_normalization_once(key, message) do
+    warning_key = {__MODULE__, @deprecated_error_normalization_key, key}
+
+    unless :persistent_term.get(warning_key, false) do
+      Logger.warning(message)
+      :persistent_term.put(warning_key, true)
     end
 
-    defp extract_error_fields(%{message: message} = reason)
-         when is_struct(reason) and is_binary(message) do
-      {Telemetry.extract_safe_error_message(reason), struct_error_details(reason)}
+    :ok
+  end
+
+  defp resolve_telemetry_mode(opts) do
+    case Keyword.fetch(opts, :telemetry) do
+      {:ok, mode} when mode in [:full, :silent] ->
+        mode
+
+      {:ok, invalid} ->
+        Logger.warning(fn ->
+          "Invalid execution :telemetry option: #{inspect(invalid)}. " <>
+            "Expected one of [:full, :silent]; using :full."
+        end)
+
+        :full
+
+      :error ->
+        :full
     end
+  end
 
-    defp extract_error_fields(%{message: message} = reason) when is_struct(reason) do
-      {Telemetry.extract_safe_error_message(%{message: message}), struct_error_details(reason)}
+  @spec execute_action(action(), params(), context(), run_opts()) :: exec_result
+  defp execute_action(action, params, context, opts) do
+    log_level = Util.resolve_log_level(opts)
+    Telemetry.cond_log_start(log_level, action, params, context)
+
+    action.run(params, context)
+    |> handle_action_result(action, log_level, opts)
+  rescue
+    e ->
+      handle_action_exception(e, __STACKTRACE__, action, opts)
+  end
+
+  # Handle successful results with extra data
+  defp handle_action_result({:ok, result, other}, action, log_level, opts) do
+    validate_and_log_success(action, result, log_level, opts, other)
+  end
+
+  # Handle successful results
+  defp handle_action_result({:ok, result}, action, log_level, opts) do
+    validate_and_log_success(action, result, log_level, opts, nil)
+  end
+
+  # Handle errors with extra data
+  defp handle_action_result({:error, %_{} = error, other}, action, log_level, _opts)
+       when is_exception(error) do
+    Telemetry.cond_log_error(log_level, action, error)
+    {:error, error, other}
+  end
+
+  defp handle_action_result({:error, reason, other}, action, log_level, _opts) do
+    Telemetry.cond_log_error(log_level, action, reason)
+    {message, details} = extract_error_fields(reason)
+    {:error, Error.execution_error(message, details), other}
+  end
+
+  # Handle exception errors
+  defp handle_action_result({:error, %_{} = error}, action, log_level, _opts)
+       when is_exception(error) do
+    Telemetry.cond_log_error(log_level, action, error)
+    {:error, error}
+  end
+
+  # Handle generic errors — normalize reason into a well-formed
+  # ExecutionFailureError with a string message and structured details.
+  defp handle_action_result({:error, reason}, action, log_level, _opts) do
+    Telemetry.cond_log_error(log_level, action, reason)
+    {message, details} = extract_error_fields(reason)
+    {:error, Error.execution_error(message, details)}
+  end
+
+  # Handle unexpected return shapes
+  defp handle_action_result(unexpected_result, action, log_level, _opts) do
+    error =
+      Error.execution_error(
+        "Unexpected return shape: #{Telemetry.extract_safe_error_message(unexpected_result)}"
+      )
+
+    Telemetry.cond_log_error(log_level, action, error)
+    {:error, error}
+  end
+
+  defp extract_error_fields(%{message: message} = reason)
+       when is_struct(reason) and is_binary(message) do
+    {Telemetry.extract_safe_error_message(reason), struct_error_details(reason)}
+  end
+
+  defp extract_error_fields(%{message: message} = reason) when is_struct(reason) do
+    {Telemetry.extract_safe_error_message(%{message: message}), struct_error_details(reason)}
+  end
+
+  defp extract_error_fields(%{message: message} = reason) when is_binary(message) do
+    {Telemetry.extract_safe_error_message(reason), Map.delete(reason, :message)}
+  end
+
+  defp extract_error_fields(%{message: message} = reason) do
+    {Telemetry.extract_safe_error_message(%{message: message}), Map.delete(reason, :message)}
+  end
+
+  defp extract_error_fields(reason) when is_binary(reason),
+    do: {Telemetry.extract_safe_error_message(%{message: reason}), %{}}
+
+  defp extract_error_fields(reason) when is_atom(reason),
+    do: {Atom.to_string(reason), %{reason: reason, retry: Error.retryable?(reason)}}
+
+  defp extract_error_fields(reason) when is_map(reason),
+    do: {Telemetry.extract_safe_error_message(reason), reason}
+
+  defp extract_error_fields(reason), do: {Telemetry.extract_safe_error_message(reason), %{}}
+
+  defp struct_error_details(reason) do
+    reason
+    |> Map.from_struct()
+    |> Map.drop([:__exception__, :message])
+  end
+
+  # Validate output and log success, with optional extra data
+  defp validate_and_log_success(action, result, log_level, opts, other) do
+    case Validator.validate_output(action, result, opts) do
+      {:ok, validated_result} ->
+        log_validated_success(action, validated_result, log_level, other)
+
+      {:error, validation_error} ->
+        log_validation_failure(action, validation_error, log_level, other)
     end
+  end
 
-    defp extract_error_fields(%{message: message} = reason) when is_binary(message) do
-      {Telemetry.extract_safe_error_message(reason), Map.delete(reason, :message)}
-    end
+  defp log_validated_success(action, validated_result, log_level, nil) do
+    Telemetry.cond_log_end(log_level, action, {:ok, validated_result})
+    {:ok, validated_result}
+  end
 
-    defp extract_error_fields(%{message: message} = reason) do
-      {Telemetry.extract_safe_error_message(%{message: message}), Map.delete(reason, :message)}
-    end
+  defp log_validated_success(action, validated_result, log_level, other) do
+    Telemetry.cond_log_end(log_level, action, {:ok, validated_result, other})
+    {:ok, validated_result, other}
+  end
 
-    defp extract_error_fields(reason) when is_binary(reason),
-      do: {Telemetry.extract_safe_error_message(%{message: reason}), %{}}
+  defp log_validation_failure(action, validation_error, log_level, nil) do
+    Telemetry.cond_log_validation_failure(log_level, action, validation_error)
+    {:error, validation_error}
+  end
 
-    defp extract_error_fields(reason) when is_atom(reason),
-      do: {Atom.to_string(reason), %{reason: reason, retry: Error.retryable?(reason)}}
+  defp log_validation_failure(action, validation_error, log_level, other) do
+    Telemetry.cond_log_validation_failure(log_level, action, validation_error)
+    {:error, validation_error, other}
+  end
 
-    defp extract_error_fields(reason) when is_map(reason),
-      do: {Telemetry.extract_safe_error_message(reason), reason}
+  # Handle exceptions raised during action execution
+  defp handle_action_exception(e, stacktrace, action, opts) do
+    log_level = Util.resolve_log_level(opts)
+    Telemetry.cond_log_error(log_level, action, e)
 
-    defp extract_error_fields(reason), do: {Telemetry.extract_safe_error_message(reason), %{}}
+    error_message = build_exception_message(e, action)
 
-    defp struct_error_details(reason) do
-      reason
-      |> Map.from_struct()
-      |> Map.drop([:__exception__, :message])
-    end
+    {:error,
+     Error.execution_error(error_message, %{
+       original_exception: e,
+       action: action,
+       stacktrace: stacktrace
+     })}
+  end
 
-    # Validate output and log success, with optional extra data
-    defp validate_and_log_success(action, result, log_level, opts, other) do
-      case Validator.validate_output(action, result, opts) do
-        {:ok, validated_result} ->
-          log_validated_success(action, validated_result, log_level, other)
+  defp build_exception_message(%RuntimeError{} = e, action) do
+    "Server error in #{inspect(action)}: #{Telemetry.extract_safe_error_message(e)}"
+  end
 
-        {:error, validation_error} ->
-          log_validation_failure(action, validation_error, log_level, other)
-      end
-    end
+  defp build_exception_message(%ArgumentError{} = e, action) do
+    "Argument error in #{inspect(action)}: #{Telemetry.extract_safe_error_message(e)}"
+  end
 
-    defp log_validated_success(action, validated_result, log_level, nil) do
-      Telemetry.cond_log_end(log_level, action, {:ok, validated_result})
-      {:ok, validated_result}
-    end
-
-    defp log_validated_success(action, validated_result, log_level, other) do
-      Telemetry.cond_log_end(log_level, action, {:ok, validated_result, other})
-      {:ok, validated_result, other}
-    end
-
-    defp log_validation_failure(action, validation_error, log_level, nil) do
-      Telemetry.cond_log_validation_failure(log_level, action, validation_error)
-      {:error, validation_error}
-    end
-
-    defp log_validation_failure(action, validation_error, log_level, other) do
-      Telemetry.cond_log_validation_failure(log_level, action, validation_error)
-      {:error, validation_error, other}
-    end
-
-    # Handle exceptions raised during action execution
-    defp handle_action_exception(e, stacktrace, action, opts) do
-      log_level = Util.resolve_log_level(opts)
-      Telemetry.cond_log_error(log_level, action, e)
-
-      error_message = build_exception_message(e, action)
-
-      {:error,
-       Error.execution_error(error_message, %{
-         original_exception: e,
-         action: action,
-         stacktrace: stacktrace
-       })}
-    end
-
-    defp build_exception_message(%RuntimeError{} = e, action) do
-      "Server error in #{inspect(action)}: #{Telemetry.extract_safe_error_message(e)}"
-    end
-
-    defp build_exception_message(%ArgumentError{} = e, action) do
-      "Argument error in #{inspect(action)}: #{Telemetry.extract_safe_error_message(e)}"
-    end
-
-    defp build_exception_message(e, action) do
-      "An unexpected error occurred during execution of #{inspect(action)}: #{Telemetry.extract_safe_error_message(e)}"
-    end
+  defp build_exception_message(e, action) do
+    "An unexpected error occurred during execution of #{inspect(action)}: #{Telemetry.extract_safe_error_message(e)}"
   end
 end

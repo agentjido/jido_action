@@ -1,7 +1,7 @@
 defmodule JidoTest.ExecCoverageTest do
   @moduledoc """
   Additional tests to improve coverage of lib/jido_action/exec.ex
-  Focuses on edge cases, error paths, and private functions not covered by existing tests.
+  Focuses on edge cases and error paths not covered by existing tests.
   """
 
   use JidoTest.ActionCase, async: false
@@ -14,6 +14,7 @@ defmodule JidoTest.ExecCoverageTest do
   alias Jido.Exec.Validator
   alias JidoTest.TestActions.BasicAction
   alias JidoTest.TestActions.DelayAction
+  alias JidoTest.TestActions.EchoAction
 
   @moduletag :capture_log
 
@@ -212,29 +213,29 @@ defmodule JidoTest.ExecCoverageTest do
 
     test "normalize_params with exception struct" do
       error = Error.validation_error("test error")
-      assert {:error, ^error} = Exec.normalize_params(error)
+      assert {:error, ^error} = Exec.run(EchoAction, error)
     end
 
     test "normalize_params with various invalid types" do
       # Test with atom (not covered)
-      assert {:error, %Error.InvalidInputError{}} = Exec.normalize_params(:invalid_atom)
+      assert {:error, %Error.InvalidInputError{}} = Exec.run(EchoAction, :invalid_atom)
 
       # Test with integer
-      assert {:error, %Error.InvalidInputError{}} = Exec.normalize_params(123)
+      assert {:error, %Error.InvalidInputError{}} = Exec.run(EchoAction, 123)
 
       # Test with tuple (not ok/error tuple)
-      assert {:error, %Error.InvalidInputError{}} = Exec.normalize_params({:something, "else"})
+      assert {:error, %Error.InvalidInputError{}} = Exec.run(EchoAction, {:something, "else"})
     end
 
     test "normalize_context with various invalid types" do
       # Test with atom
-      assert {:error, %Error.InvalidInputError{}} = Exec.normalize_context(:invalid_atom)
+      assert {:error, %Error.InvalidInputError{}} = Exec.run(EchoAction, %{}, :invalid_atom)
 
       # Test with integer
-      assert {:error, %Error.InvalidInputError{}} = Exec.normalize_context(123)
+      assert {:error, %Error.InvalidInputError{}} = Exec.run(EchoAction, %{}, 123)
 
       # Test with binary
-      assert {:error, %Error.InvalidInputError{}} = Exec.normalize_context("invalid_string")
+      assert {:error, %Error.InvalidInputError{}} = Exec.run(EchoAction, %{}, "invalid_string")
     end
 
     test "validate_action with module compilation failure" do

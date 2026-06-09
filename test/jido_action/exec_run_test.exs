@@ -10,6 +10,7 @@ defmodule JidoTest.ExecRunTest do
   alias Jido.Exec.Validator
   alias JidoTest.TestActions.BasicAction
   alias JidoTest.TestActions.DelayAction
+  alias JidoTest.TestActions.EchoAction
   alias JidoTest.TestActions.ErrorAction
   alias JidoTest.TestActions.IOAction
   alias JidoTest.TestActions.RetryAction
@@ -192,34 +193,34 @@ defmodule JidoTest.ExecRunTest do
   end
 
   describe "normalize_params/1" do
-    test "normalizes a map" do
+    test "run/4 accepts params as a map" do
       params = %{key: "value"}
-      assert {:ok, ^params} = Exec.normalize_params(params)
+      assert {:ok, %{params: ^params}} = Exec.run(EchoAction, params)
     end
 
-    test "normalizes a keyword list" do
+    test "run/4 accepts params as a keyword list" do
       params = [key: "value"]
-      assert {:ok, %{key: "value"}} = Exec.normalize_params(params)
+      assert {:ok, %{params: %{key: "value"}}} = Exec.run(EchoAction, params)
     end
 
-    test "normalizes {:ok, map}" do
+    test "run/4 accepts params as {:ok, map}" do
       params = {:ok, %{key: "value"}}
-      assert {:ok, %{key: "value"}} = Exec.normalize_params(params)
+      assert {:ok, %{params: %{key: "value"}}} = Exec.run(EchoAction, params)
     end
 
-    test "normalizes {:ok, keyword list}" do
+    test "run/4 accepts params as {:ok, keyword list}" do
       params = {:ok, [key: "value"]}
-      assert {:ok, %{key: "value"}} = Exec.normalize_params(params)
+      assert {:ok, %{params: %{key: "value"}}} = Exec.run(EchoAction, params)
     end
 
-    test "handles {:error, reason}" do
+    test "run/4 handles {:error, reason} params" do
       params = {:error, "some error"}
 
       assert {:error, %Jido.Action.Error.InvalidInputError{}} =
-               Exec.normalize_params(params)
+               Exec.run(EchoAction, params)
     end
 
-    test "passes through exception errors" do
+    test "run/4 passes through exception params" do
       errors = [
         Error.validation_error("validation failed"),
         Error.execution_error("execution failed"),
@@ -227,35 +228,35 @@ defmodule JidoTest.ExecRunTest do
       ]
 
       for error <- errors do
-        assert {:error, ^error} = Exec.normalize_params(error)
+        assert {:error, ^error} = Exec.run(EchoAction, error)
       end
     end
 
-    test "returns error for invalid params" do
+    test "run/4 returns error for invalid params" do
       params = "invalid"
 
       assert {:error, %Jido.Action.Error.InvalidInputError{message: "Invalid params type: " <> _}} =
-               Exec.normalize_params(params)
+               Exec.run(EchoAction, params)
     end
   end
 
   describe "normalize_context/1" do
-    test "normalizes a map" do
+    test "run/4 accepts context as a map" do
       context = %{key: "value"}
-      assert {:ok, ^context} = Exec.normalize_context(context)
+      assert {:ok, %{context: ^context}} = Exec.run(EchoAction, %{}, context, timeout: 0)
     end
 
-    test "normalizes a keyword list" do
+    test "run/4 accepts context as a keyword list" do
       context = [key: "value"]
-      assert {:ok, %{key: "value"}} = Exec.normalize_context(context)
+      assert {:ok, %{context: %{key: "value"}}} = Exec.run(EchoAction, %{}, context, timeout: 0)
     end
 
-    test "returns error for invalid context" do
+    test "run/4 returns error for invalid context" do
       context = "invalid"
 
       assert {:error,
               %Jido.Action.Error.InvalidInputError{message: "Invalid context type: " <> _}} =
-               Exec.normalize_context(context)
+               Exec.run(EchoAction, %{}, context)
     end
   end
 

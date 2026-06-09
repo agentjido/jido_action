@@ -1,6 +1,5 @@
 defmodule Jido.Tools.LuaEvalTest do
   use ExUnit.Case, async: true
-  use Private
 
   alias Jido.Action.Error
   alias Jido.Tools.LuaEval

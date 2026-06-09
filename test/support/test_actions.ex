@@ -20,6 +20,17 @@ defmodule JidoTest.TestActions do
     end
   end
 
+  defmodule EchoAction do
+    @moduledoc false
+    use Action,
+      name: "echo_action",
+      description: "Echoes normalized params and context for execution tests"
+
+    def run(params, context) do
+      {:ok, %{params: params, context: Map.delete(context, :action_metadata)}}
+    end
+  end
+
   defmodule RawResultAction do
     @moduledoc false
     use Action,
