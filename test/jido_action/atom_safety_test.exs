@@ -11,8 +11,6 @@ defmodule Jido.Action.AtomSafetyTest do
   """
   use ExUnit.Case, async: false
 
-  alias Jido.Action.Schema
-  alias Jido.Action.Tool
   alias Jido.Exec
   alias JidoTest.TestActions.EchoAction
   alias JidoTest.TestActions.SchemaAction
@@ -23,9 +21,6 @@ defmodule Jido.Action.AtomSafetyTest do
     # Warm up modules and schemas so their one-time atom creation
     # is not counted in the per-test measurements.
     _ = Exec.run(EchoAction, %{"warmup" => "1"})
-    _ = Tool.convert_params_using_schema(%{"warmup" => "1"}, warmup: [type: :string])
-    schema = Zoi.object(%{warmup: Zoi.string()}, coerce: true)
-    _ = Tool.convert_params_using_schema(%{"warmup" => "1"}, schema)
     :ok
   end
 
@@ -85,87 +80,6 @@ defmodule Jido.Action.AtomSafetyTest do
     end
   end
 
-  describe "Tool.convert_params_using_schema atom safety" do
-    test "only converts to known schema atoms and preserves unknown keys as strings" do
-      schema = [
-        known_param: [type: :string],
-        another_param: [type: :integer]
-      ]
-
-      atom_count_before = :erlang.system_info(:atom_count)
-
-      # Params with known and unknown keys
-      params = %{
-        "known_param" => "value1",
-        "another_param" => 42,
-        "unknown_param_1" => "preserved",
-        "unknown_param_2" => "preserved",
-        "unknown_param_3" => "preserved"
-      }
-
-      result = Tool.convert_params_using_schema(params, schema)
-
-      atom_count_after = :erlang.system_info(:atom_count)
-
-      # Should only create atoms for known schema keys (if not already existing)
-      # Not proportional to number of unknown keys
-      # Allowing more headroom for test overhead and compilation atoms
-      assert atom_count_after - atom_count_before < 100,
-             "Created #{atom_count_after - atom_count_before} atoms (expected < 100)"
-
-      # Known keys are converted to atoms, unknown keys remain as strings (open validation)
-      atom_keys = result |> Map.keys() |> Enum.filter(&is_atom/1) |> Enum.sort()
-      string_keys = result |> Map.keys() |> Enum.filter(&is_binary/1) |> Enum.sort()
-
-      assert atom_keys == [:another_param, :known_param]
-      assert string_keys == ["unknown_param_1", "unknown_param_2", "unknown_param_3"]
-    end
-
-    test "does not create atoms from arbitrary string keys" do
-      schema = [param: [type: :string]]
-
-      atom_count_before = :erlang.system_info(:atom_count)
-
-      # Create params with one valid key and many invalid keys (50 unique keys)
-      params =
-        Map.new(1..50, fn i ->
-          {"malicious_key_#{i}_#{:rand.uniform(1_000_000)}", "preserved"}
-        end)
-        |> Map.put("param", "valid")
-
-      result = Tool.convert_params_using_schema(params, schema)
-
-      atom_count_after = :erlang.system_info(:atom_count)
-
-      # Should not grow proportionally to number of extra keys
-      assert atom_count_after - atom_count_before < 20
-
-      # Schema key should be converted to atom, unknown keys preserved as strings
-      atom_keys = result |> Map.keys() |> Enum.filter(&is_atom/1)
-      string_keys = result |> Map.keys() |> Enum.filter(&is_binary/1)
-
-      assert atom_keys == [:param]
-      assert length(string_keys) == 50
-    end
-  end
-
-  describe "Schema.known_keys/1 atom safety" do
-    test "does not create atoms from JSON Schema property names" do
-      atom_count_before = :erlang.system_info(:atom_count)
-
-      properties =
-        Map.new(1..2_000, fn i ->
-          {"json_schema_key_#{i}_#{System.unique_integer([:positive])}", %{"type" => "string"}}
-        end)
-
-      schema = %{"type" => "object", "properties" => properties}
-      assert Schema.known_keys(schema) == []
-
-      atom_count_after = :erlang.system_info(:atom_count)
-      assert atom_count_after - atom_count_before < 20
-    end
-  end
-
   describe "malicious input scenarios" do
     test "attempt to exhaust atom table with many unique string keys" do
       atom_count_before = :erlang.system_info(:atom_count)
@@ -189,61 +103,6 @@ defmodule Jido.Action.AtomSafetyTest do
       # Result should still be a map with string keys
       assert is_map(result)
       assert map_size(result) == 10_000
-    end
-
-    test "attempt atom exhaustion via Tool.convert_params_using_schema" do
-      schema = [legit_param: [type: :string]]
-
-      atom_count_before = :erlang.system_info(:atom_count)
-
-      # Attacker sends many unknown parameters hoping for atom conversion
-      attack_params =
-        Map.new(1..5_000, fn i ->
-          {"attack_vector_#{i}_#{:rand.uniform(1_000_000)}", "malicious"}
-        end)
-        |> Map.put("legit_param", "legitimate value")
-
-      result = Tool.convert_params_using_schema(attack_params, schema)
-
-      atom_count_after = :erlang.system_info(:atom_count)
-
-      # Should not create thousands of atoms - allow for framework/library overhead
-      assert atom_count_after - atom_count_before < 500,
-             "Potential atom leak: #{atom_count_after - atom_count_before} atoms created from 5,000 malicious keys"
-
-      # Schema key should be atom, unknown keys preserved as strings (still atom-safe)
-      atom_keys = result |> Map.keys() |> Enum.filter(&is_atom/1)
-      string_keys = result |> Map.keys() |> Enum.filter(&is_binary/1)
-
-      assert atom_keys == [:legit_param]
-      assert length(string_keys) == 5_000
-    end
-
-    test "large params map with Zoi schema" do
-      # Test with Zoi schema as well
-      schema = Zoi.object(%{legit: Zoi.string()}, coerce: true)
-
-      atom_count_before = :erlang.system_info(:atom_count)
-
-      params =
-        Map.new(1..1_000, fn i ->
-          {"random_#{i}_#{:rand.uniform(1_000_000)}", "value"}
-        end)
-        |> Map.put("legit", "valid")
-
-      result = Tool.convert_params_using_schema(params, schema)
-
-      atom_count_after = :erlang.system_info(:atom_count)
-
-      assert atom_count_after - atom_count_before < 50,
-             "Zoi schema created #{atom_count_after - atom_count_before} atoms"
-
-      # Schema key should be atom, unknown keys preserved as strings
-      atom_keys = result |> Map.keys() |> Enum.filter(&is_atom/1)
-      string_keys = result |> Map.keys() |> Enum.filter(&is_binary/1)
-
-      assert atom_keys == [:legit]
-      assert length(string_keys) == 1_000
     end
   end
 

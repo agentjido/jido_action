@@ -82,13 +82,11 @@ defmodule JidoAction.MixProject do
         ],
         "Core Concepts": [
           "guides/actions-guide.md",
-          "guides/action-catalogs.md",
           "guides/schemas-validation.md",
           "guides/execution-engine.md",
           "guides/error-handling.md"
         ],
         "How-To Guides": [
-          "guides/ai-integration.md",
           "guides/configuration.md",
           "guides/security.md",
           "guides/testing.md"
@@ -108,12 +106,10 @@ defmodule JidoAction.MixProject do
         {"guides/your-second-action.md", title: "Your Second Action"},
         # Core Concepts
         {"guides/actions-guide.md", title: "Actions"},
-        {"guides/action-catalogs.md", title: "Action Catalogs"},
         {"guides/schemas-validation.md", title: "Schemas & Validation"},
         {"guides/execution-engine.md", title: "Execution Engine"},
         {"guides/error-handling.md", title: "Error Handling"},
         # How-To Guides
-        {"guides/ai-integration.md", title: "AI Integration"},
         {"guides/configuration.md", title: "Configuration"},
         {"guides/security.md", title: "Security"},
         {"guides/testing.md", title: "Testing"},
@@ -132,12 +128,7 @@ defmodule JidoAction.MixProject do
       groups_for_modules: [
         Core: [
           Jido.Action,
-          Jido.Action.Catalog,
-          Jido.Action.Catalog.Entry,
-          Jido.Action.Catalog.Hit,
-          Jido.Action.Catalog.Query,
           Jido.Action.Error,
-          Jido.Action.Tool,
           Jido.Action.Util
         ],
         "Schemas & Validation": [

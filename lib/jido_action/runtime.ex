@@ -67,26 +67,8 @@ defmodule Jido.Action.Runtime do
   end
 
   defp split_known_and_unknown(data, schema) do
-    case Schema.schema_type(schema) do
-      :json_schema ->
-        known_keys =
-          schema
-          |> Schema.json_schema_known_key_forms()
-          |> Enum.flat_map(fn
-            %{atom: atom, string: string} when is_atom(atom) and not is_nil(atom) ->
-              [atom, string]
-
-            %{string: string} ->
-              [string]
-          end)
-          |> Enum.uniq()
-
-        Map.split(data, known_keys)
-
-      _ ->
-        known_keys = Schema.known_keys(schema)
-        Map.split(data, known_keys)
-    end
+    known_keys = Schema.known_keys(schema)
+    Map.split(data, known_keys)
   end
 
   defp struct_to_map(value) when is_struct(value), do: Map.from_struct(value)
