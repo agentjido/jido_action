@@ -27,7 +27,8 @@ defmodule JidoTest.Exec.OutputValidationTest do
       assert {:error, %Jido.Action.Error.InvalidInputError{message: error_message}} =
                Exec.run(InvalidOutputAction, params, context)
 
-      assert error_message =~ "required :required_field option not found"
+      assert error_message =~ "required"
+      assert error_message =~ "required_field"
     end
 
     test "action without output schema succeeds without validation" do
@@ -66,7 +67,8 @@ defmodule JidoTest.Exec.OutputValidationTest do
       assert {:error, %Jido.Action.Error.InvalidInputError{message: error_message}} =
                Exec.await(async_ref)
 
-      assert error_message =~ "required :required_field option not found"
+      assert error_message =~ "required"
+      assert error_message =~ "required_field"
     end
 
     test "output validation works with action returning tuple with directive" do
@@ -74,9 +76,7 @@ defmodule JidoTest.Exec.OutputValidationTest do
       defmodule TupleOutputAction do
         use Jido.Action,
           name: "tuple_output_action",
-          output_schema: [
-            status: [type: :string, required: true]
-          ]
+          output_schema: Zoi.object(%{status: Zoi.string()})
 
         def run(_params, _context) do
           {:ok, %{status: "success", extra: "data"}, :continue}
@@ -93,9 +93,7 @@ defmodule JidoTest.Exec.OutputValidationTest do
       defmodule InvalidTupleOutputAction do
         use Jido.Action,
           name: "invalid_tuple_output_action",
-          output_schema: [
-            required_field: [type: :string, required: true]
-          ]
+          output_schema: Zoi.object(%{required_field: Zoi.string()})
 
         def run(_params, _context) do
           {:ok, %{wrong_field: "value"}, :continue}
@@ -127,9 +125,7 @@ defmodule JidoTest.Exec.OutputValidationTest do
       defmodule TypeErrorOutputAction do
         use Jido.Action,
           name: "type_error_output_action",
-          output_schema: [
-            count: [type: :integer, required: true]
-          ]
+          output_schema: Zoi.object(%{count: Zoi.integer()})
 
         def run(_params, _context) do
           {:ok, %{count: "not an integer"}}
@@ -139,8 +135,8 @@ defmodule JidoTest.Exec.OutputValidationTest do
       assert {:error, %Jido.Action.Error.InvalidInputError{message: error_message}} =
                Exec.run(TypeErrorOutputAction, %{}, %{})
 
-      assert error_message =~ "Action output"
       assert error_message =~ "count"
+      assert error_message =~ "expected integer"
     end
   end
 end

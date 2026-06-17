@@ -3,7 +3,6 @@ defmodule JidoTest.Exec.ActionTest do
   use ExUnitProperties
 
   alias Jido.Action
-  alias Jido.Action.Error
   alias JidoTest.TestActions.Add
   alias JidoTest.TestActions.ConcurrentAction
   alias JidoTest.TestActions.Divide
@@ -20,31 +19,12 @@ defmodule JidoTest.Exec.ActionTest do
 
   @moduletag :capture_log
 
-  describe "error formatting" do
-    test "format_config_error formats NimbleOptions.ValidationError" do
-      error = %NimbleOptions.ValidationError{keys_path: [:name], message: "is invalid"}
-      formatted = Error.format_nimble_config_error(error, "Action", __MODULE__)
-
-      assert formatted ==
-               "Invalid configuration given to use Jido.Action (#{__MODULE__}) for key [:name]: is invalid"
-    end
-
-    test "format_nimble_validation_error formats NimbleOptions.ValidationError" do
-      error = %NimbleOptions.ValidationError{keys_path: [:input], message: "is required"}
-      formatted = Error.format_nimble_validation_error(error, "Action", __MODULE__)
-      assert formatted == "Invalid parameters for Action (#{__MODULE__}) at [:input]: is required"
-    end
-  end
-
   describe "action creation and metadata" do
     test "creates a valid action with retained metadata" do
       assert FullAction.name() == "full_action"
       assert FullAction.description() == "A full action for testing"
-
-      assert FullAction.schema() == [
-               a: [type: :integer, required: true],
-               b: [type: :integer, required: true]
-             ]
+      assert Jido.Action.Schema.schema_type(FullAction.schema()) == :zoi
+      assert FullAction.schema() |> Jido.Action.Schema.known_keys() |> Enum.sort() == [:a, :b]
     end
 
     test "creates a valid action with no schema" do
@@ -59,7 +39,8 @@ defmodule JidoTest.Exec.ActionTest do
       assert {:error, %Jido.Action.Error.InvalidInputError{message: message}} =
                FullAction.validate_params(%{})
 
-      assert message =~ "required :a option not found"
+      assert message =~ "required"
+      assert message =~ "a"
     end
 
     test "validates parameter types" do
@@ -166,7 +147,8 @@ defmodule JidoTest.Exec.ActionTest do
       assert {:error, %Jido.Action.Error.InvalidInputError{message: message}} =
                OutputSchemaAction.validate_output(%{result: "test"})
 
-      assert message =~ "required :length option not found"
+      assert message =~ "required"
+      assert message =~ "length"
     end
 
     test "action without output schema skips validation" do

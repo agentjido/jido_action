@@ -316,9 +316,7 @@ defmodule JidoTest.ExecReturnShapeTest do
       defmodule OutputValidationAction do
         use Jido.Action,
           name: "output_validation",
-          output_schema: [
-            required_field: [type: :string, required: true]
-          ]
+          output_schema: Zoi.object(%{required_field: Zoi.string()})
 
         def run(%{return_type: :ok_valid}, _context) do
           {:ok, %{required_field: "valid"}}

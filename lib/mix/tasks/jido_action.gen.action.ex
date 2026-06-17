@@ -31,7 +31,7 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
       use Jido.Action,
         name: "send_email",
         description: "TODO: Add description",
-        schema: []
+        schema: Zoi.object(%{})
 
       @impl true
       def run(_params, _context) do
@@ -89,7 +89,7 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
         use Jido.Action,
           name: "#{action_name}",
           description: "TODO: Add description",
-          schema: []
+          schema: Zoi.object(%{})
 
         @impl true
         def run(_params, _context) do
