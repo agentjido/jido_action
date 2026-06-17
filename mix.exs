@@ -89,7 +89,6 @@ defmodule JidoAction.MixProject do
           "guides/error-handling.md"
         ],
         "How-To Guides": [
-          "guides/tools-reference.md",
           "guides/ai-integration.md",
           "guides/configuration.md",
           "guides/security.md",
@@ -116,7 +115,6 @@ defmodule JidoAction.MixProject do
         {"guides/instructions-plans.md", title: "Instructions & Plans"},
         {"guides/error-handling.md", title: "Error Handling"},
         # How-To Guides
-        {"guides/tools-reference.md", title: "Built-in Tools"},
         {"guides/ai-integration.md", title: "AI Integration"},
         {"guides/configuration.md", title: "Configuration"},
         {"guides/security.md", title: "Security"},
@@ -164,19 +162,6 @@ defmodule JidoAction.MixProject do
           Jido.Plan.PlanInstruction,
           Jido.Instruction
         ],
-        "Actions: Basic Tools": [
-          Jido.Tools.Arithmetic,
-          Jido.Tools.Basic,
-          Jido.Tools.Files,
-          Jido.Tools.Workflow
-        ],
-        "Actions: HTTP & Requests": [
-          Jido.Tools.ReqTool
-        ],
-        "Actions: Advanced": [
-          Jido.Tools.ActionPlan,
-          Jido.Tools.LuaEval
-        ],
         Examples: [
           Jido.Examples.ZoiExample
         ],
@@ -220,10 +205,8 @@ defmodule JidoAction.MixProject do
       {:zoi, "~> 0.17"},
       {:splode, "~> 0.3.0"},
 
-      # Skill & Action Dependencies for examples
+      # Workflow dependencies
       {:multigraph, "~> 0.16.1-mg.3"},
-      {:lua, "~> 0.4 or ~> 1.0.0-rc", optional: true},
-      {:req, "~> 0.6.1", optional: true},
 
       # Development & Test Dependencies
       {:git_ops, "~> 2.9", only: :dev, runtime: false},
