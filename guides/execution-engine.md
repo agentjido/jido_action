@@ -1,11 +1,24 @@
 # Execution Engine
 
-`Jido.Exec` runs one action with validation, timeout handling, retry policy, output validation, telemetry, and crash normalization.
+`Jido.Exec` runs one action, or one `%Jido.Instruction{}`, with validation, timeout handling, retry policy, output validation, telemetry, and crash normalization.
 
 ## Synchronous Execution
 
 ```elixir
 Jido.Exec.run(MyAction, params, context, timeout: 1_000, max_retries: 1)
+```
+
+Or execute a call frame:
+
+```elixir
+instruction = %Jido.Instruction{
+  action: MyAction,
+  params: params,
+  context: context,
+  opts: [timeout: 1_000]
+}
+
+Jido.Exec.run(instruction)
 ```
 
 Execution order:
