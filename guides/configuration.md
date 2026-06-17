@@ -1,538 +1,69 @@
-# Configuration Guide
+# Configuration
 
-**Prerequisites**: Basic Elixir configuration knowledge
+Most execution policy can be passed directly to `Jido.Exec.run/4` or `run_async/4`. Application configuration supplies defaults.
 
-Configure Jido Action's runtime behavior, timeouts, and application-specific settings for your environment.
-
-## Application Configuration
-
-### Basic Setup
-
-Add to your `config/config.exs`:
+## Execution Defaults
 
 ```elixir
-import Config
-
-config :jido_action,
-  # Global timeout in milliseconds (default: 30000)
-  default_timeout: 30_000,
-  
-  # Retry configuration
-  default_max_retries: 1,       # Default retry attempts
-  default_backoff: 250,         # Initial backoff in milliseconds (exponential, capped at 30s)
-
-  # Execution logging threshold
-  default_log_level: :info,
-
-  # Optional runtime-context propagation across supervised execution
-  observability: [
-    context_propagators: [],
-    context_propagator_failure_mode: :warn
-  ]
-```
-
-### Environment-Specific Configuration
-
-```elixir
-# config/dev.exs
-import Config
-
-config :jido_action,
-  default_timeout: 60_000,      # Longer timeouts in dev
-  default_log_level: :debug     # More verbose execution logs in dev
-
-# config/test.exs  
-import Config
-
-config :jido_action,
-  default_timeout: 1_000,       # Faster timeouts in tests
-  default_max_retries: 0,       # No retries in tests
-  default_log_level: :warning   # Keep test logs quieter by default
-
-# config/prod.exs
-import Config
-
 config :jido_action,
   default_timeout: 30_000,
-  default_max_retries: 3,       # More retries in production
-  default_backoff: 500,         # Longer initial backoff
+  default_max_retries: 1,
+  default_backoff: 250,
   default_log_level: :info
 ```
 
-## Runtime Configuration
+- `:default_timeout` - runtime budget in milliseconds.
+- `:default_max_retries` - retry attempts after the initial run.
+- `:default_backoff` - initial retry delay in milliseconds.
+- `:default_log_level` - default execution log level.
 
-### Runtime Config Validation and Fallback
+Invalid numeric config values fall back to built-in defaults.
 
-`Jido.Exec`, `Jido.Exec.Async`, `Jido.Exec.Retry`, and `Jido.Action.Util` validate runtime values for:
-
-- `:default_timeout`
-- `:default_max_retries`
-- `:default_backoff`
-- `:default_log_level`
-
-The timeout and retry settings must be non-negative integers.
-`default_log_level` must be a valid `Logger.level()`.
-
-If a value is invalid (for example `-1`, `:bad`, `"5000"`, or `:verbose`), Jido:
-
-1. Logs a warning with the invalid value and config key.
-2. Uses the internal fallback default for that key.
-3. Continues execution without crashing.
-
-Example warning behavior:
-
-```elixir
-Application.put_env(:jido_action, :default_timeout, :bad_value)
-Application.put_env(:jido_action, :default_log_level, :verbose)
-
-# Exec/Async calls will warn and use fallback defaults.
-{:ok, _result} = Jido.Exec.run(MyAction, %{input: "ok"}, %{})
-```
-
-### Per-Action Configuration
-
-Actions define compensation settings at compile time:
-
-```elixir
-defmodule MyApp.Actions.CriticalOperation do
-  use Jido.Action,
-    name: "critical_operation",
-    description: "An operation with compensation enabled",
-    compensation: [
-      enabled: true,
-      max_retries: 3,
-      timeout: 10_000
-    ],
-    schema: [data: [type: :string, required: true]]
-
-  def run(params, _context) do
-    {:ok, %{processed: params.data}}
-  end
-
-  # Called when an error occurs and compensation is enabled
-  def on_error(failed_params, error, context, opts) do
-    # Perform rollback logic
-    {:ok, %{rolled_back: true}}
-  end
-end
-```
-
-### Execution-Time Configuration
-
-Override settings when executing actions:
-
-```elixir
-# Override timeout and retries for specific execution
-{:ok, result} = Jido.Exec.run(
-  MyApp.Actions.SlowOperation,
-  %{data: "input"},
-  %{},
-  timeout: 60_000,           # 60 second timeout
-  max_retries: 5,            # 5 retries
-  backoff: 500,              # 500ms initial backoff (doubles each retry)
-  log_level: :debug,         # Override Jido's execution log threshold for this call
-  telemetry: :silent         # Disable telemetry for this call
-)
-```
-
-**Available execution options:**
-- `:timeout` - Maximum time in ms for the action to complete (default: 30000)
-- `:max_retries` - Maximum retry attempts on failure (default: 1)
-- `:backoff` - Initial backoff time in ms, doubles with each retry (default: 250, capped at 30s)
-- `:log_level` - Override Jido's execution log threshold for this call. Accepts `Logger.levels()`. Global Logger config still applies underneath.
-- `:telemetry` - Telemetry mode: `:full` (default) or `:silent`
-- `:context_propagators` - Context propagator modules captured before supervised task boundaries and reattached inside child processes
-- `:context_propagator_failure_mode` - `:warn` (default) to log and skip failures, or `:strict` to raise
-
-Execution log level precedence is:
-
-1. `opts[:log_level]`
-2. `config :jido_action, default_log_level: ...`
-3. built-in `:info`
-
-### Observability Context Propagation
-
-`Jido.Exec` can preserve process-local runtime context when execution crosses `Task.Supervisor`
-boundaries for timeout handling, `run_async/4`, compensation, and async chains.
-
-Configure propagators globally:
-
-```elixir
-config :jido_action,
-  observability: [
-    context_propagators: [MyApp.Observability.ContextPropagator],
-    context_propagator_failure_mode: :warn
-  ]
-```
-
-Or override them per execution:
+## Per-Call Overrides
 
 ```elixir
 Jido.Exec.run(
-  MyApp.Actions.ProcessData,
-  %{data: "input"},
-  %{},
-  timeout: 5_000,
-  context_propagators: [MyApp.Observability.ContextPropagator],
+  MyAction,
+  params,
+  context,
+  timeout: 2_000,
+  max_retries: 0,
+  backoff: 100,
+  log_level: :debug
+)
+```
+
+Per-call options win over application defaults.
+
+## Context Propagation
+
+Configure process-local runtime context propagation globally:
+
+```elixir
+config :jido_action, :observability,
+  context_propagators: [MyApp.TraceContext],
+  context_propagator_failure_mode: :warn
+```
+
+Or per call:
+
+```elixir
+Jido.Exec.run(
+  MyAction,
+  params,
+  context,
+  context_propagators: [MyApp.TraceContext],
   context_propagator_failure_mode: :strict
 )
 ```
 
-Each propagator module must implement:
+Propagators implement `Jido.Exec.ContextPropagator`.
+
+## Instance Isolation
+
+Pass `:jido` when an application needs isolated supervisors for a specific runtime instance:
 
 ```elixir
-defmodule MyApp.Observability.ContextPropagator do
-  @behaviour Jido.Exec.ContextPropagator
-
-  def capture(), do: ...
-  def attach(captured), do: ...
-  def detach(attached), do: :ok
-end
+Jido.Exec.run(MyAction, params, context, jido: MyApp.RuntimeInstance)
 ```
 
-This keeps `jido_action` observability-agnostic while allowing adapter packages such as
-OpenTelemetry bridges to preserve tracing context across supervised execution.
-
-### Configuration Access
-
-Access configuration in your actions:
-
-```elixir
-defmodule MyApp.Actions.ConfigAware do
-  use Jido.Action,
-    name: "config_aware",
-    schema: []
-
-  def run(params, _context) do
-    # Get application configuration
-    timeout = Application.get_env(:jido_action, :default_timeout, 30_000)
-    api_key = Application.get_env(:my_app, :api_key)
-    
-    # Use configuration in business logic
-    case make_api_call(params, api_key, timeout) do
-      {:ok, result} -> {:ok, result}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-end
-```
-
-## Telemetry Integration
-
-### Telemetry Events
-
-Jido Action emits telemetry events under the `[:jido, :action]` prefix using `:telemetry.span/3`:
-
-- `[:jido, :action, :start]` - Action execution begins with `action` and optional `jido`
-- `[:jido, :action, :stop]` - Action execution completes with bounded summary metadata (`action`, optional `jido`, `outcome`, and error summary fields when relevant)
-
-Regular action failures are represented as `:stop` events with `metadata.outcome == :error`.
-`[:jido, :action, :exception]` is reserved for uncaught exceptions that escape the telemetry span,
-which should be rare in normal `Jido.Exec` flows.
-
-Default execution telemetry intentionally excludes full `params`, `context`, `result`, and
-stacktrace payloads to keep metadata low-cardinality and avoid leaking sensitive runtime values.
-
-### Custom Telemetry Handlers
-
-Set up telemetry handlers for monitoring:
-
-```elixir
-# In your application.ex
-def start(_type, _args) do
-  # Attach telemetry handlers
-  :telemetry.attach_many(
-    "jido-action-handlers",
-    [
-      [:jido, :action, :start],
-      [:jido, :action, :stop]
-    ],
-    &MyApp.Telemetry.handle_event/4,
-    %{}
-  )
-  
-  # Start your supervision tree
-  children = [
-    {Task.Supervisor, name: Jido.Action.TaskSupervisor}
-  ]
-  Supervisor.start_link(children, strategy: :one_for_one)
-end
-```
-
-### Telemetry Handler Implementation
-
-```elixir
-defmodule MyApp.Telemetry do
-  require Logger
-
-  def handle_event([:jido, :action, :start], _measurements, metadata, _config) do
-    Logger.debug("Action started",
-      action: metadata.action,
-      jido: metadata[:jido]
-    )
-  end
-
-  def handle_event([:jido, :action, :stop], measurements, metadata, _config) do
-    duration_ms = System.convert_time_unit(measurements.duration, :native, :millisecond)
-
-    case metadata.outcome do
-      :ok ->
-        Logger.info("Action completed",
-          action: metadata.action,
-          duration_ms: duration_ms,
-          jido: metadata[:jido],
-          directive?: metadata[:directive?] == true
-        )
-
-      :error ->
-        Logger.error("Action failed",
-          action: metadata.action,
-          duration_ms: duration_ms,
-          jido: metadata[:jido],
-          error_type: metadata[:error_type],
-          retryable?: metadata[:retryable?] == true,
-          directive?: metadata[:directive?] == true
-        )
-    end
-  end
-end
-```
-
-## Task Supervisor Setup
-
-Async action execution requires a Task.Supervisor in your supervision tree:
-
-```elixir
-# In your application.ex
-def start(_type, _args) do
-  children = [
-    {Task.Supervisor, name: Jido.Action.TaskSupervisor}
-    # ... other children
-  ]
-  
-  Supervisor.start_link(children, strategy: :one_for_one)
-end
-```
-
-### Instance Isolation (Multi-Tenant)
-
-For multi-tenant applications, create instance-scoped supervisors:
-
-```elixir
-# In your application.ex or dynamic supervisor
-def start(_type, _args) do
-  children = [
-    # Global supervisor (always required)
-    {Task.Supervisor, name: Jido.Action.TaskSupervisor},
-    
-    # Instance-scoped supervisors for tenant isolation
-    {Task.Supervisor, name: TenantA.Jido.TaskSupervisor},
-    {Task.Supervisor, name: TenantB.Jido.TaskSupervisor}
-  ]
-  
-  Supervisor.start_link(children, strategy: :one_for_one)
-end
-```
-
-Execute actions with instance isolation:
-
-```elixir
-# Routes to TenantA.Jido.TaskSupervisor
-{:ok, result} = Jido.Exec.run(MyAction, params, context, jido: TenantA.Jido)
-
-# Routes to TenantB.Jido.TaskSupervisor
-{:ok, result} = Jido.Exec.run(MyAction, params, context, jido: TenantB.Jido)
-```
-
-**Key behaviors:**
-- When `jido:` is absent or `nil`, uses global `Jido.Action.TaskSupervisor`
-- When `jido: MyApp.Jido` is provided, uses `MyApp.Jido.TaskSupervisor`
-- Raises `ArgumentError` if instance supervisor is not running (no silent fallback)
-
-## Environment Variables
-
-Support runtime configuration via environment variables:
-
-```elixir
-# config/runtime.exs
-import Config
-
-config :jido_action,
-  default_timeout: String.to_integer(System.get_env("JIDO_DEFAULT_TIMEOUT", "30000")),
-  default_max_retries: String.to_integer(System.get_env("JIDO_MAX_RETRIES", "1")),
-  default_backoff: String.to_integer(System.get_env("JIDO_DEFAULT_BACKOFF", "250"))
-
-# Application-specific configuration
-config :my_app,
-  database_url: System.get_env("DATABASE_URL"),
-  api_key: System.get_env("API_KEY")
-```
-
-### Environment Variable Validation
-
-Validate required environment variables:
-
-```elixir
-defmodule MyApp.Config do
-  def validate_config! do
-    required_env_vars = [
-      "DATABASE_URL",
-      "API_KEY"
-    ]
-    
-    missing = Enum.filter(required_env_vars, fn var ->
-      System.get_env(var) == nil
-    end)
-    
-    unless Enum.empty?(missing) do
-      raise "Missing required environment variables: #{Enum.join(missing, ", ")}"
-    end
-    
-    :ok
-  end
-end
-
-# In application.ex
-def start(_type, _args) do
-  MyApp.Config.validate_config!()
-  # ... rest of startup
-end
-```
-
-## Custom Configuration Modules
-
-Create configuration modules for complex settings:
-
-```elixir
-defmodule MyApp.Config.Actions do
-  @default_timeout 30_000
-  @default_retries 1
-
-  def get_timeout(action_module) do
-    case action_module do
-      MyApp.Actions.SlowOperation -> 60_000
-      MyApp.Actions.QuickCheck -> 5_000
-      _ -> Application.get_env(:jido_action, :default_timeout, @default_timeout)
-    end
-  end
-
-  def get_retries(action_module) do
-    case action_module do
-      MyApp.Actions.CriticalOperation -> 5
-      MyApp.Actions.BestEffort -> 0
-      _ -> Application.get_env(:jido_action, :default_max_retries, @default_retries)
-    end
-  end
-end
-```
-
-## Testing Configuration
-
-### Test-Specific Settings
-
-```elixir
-# test/support/test_config.ex
-defmodule MyApp.TestConfig do
-  def setup_test_env do
-    # Override configuration for tests
-    Application.put_env(:jido_action, :default_timeout, 1_000)
-    Application.put_env(:jido_action, :default_max_retries, 0)
-    
-    # Mock external services
-    Application.put_env(:my_app, :api_base_url, "http://localhost:4002")
-  end
-end
-
-# In test_helper.exs
-MyApp.TestConfig.setup_test_env()
-```
-
-### Configuration in Tests
-
-```elixir
-defmodule MyApp.Actions.ConfigurableTest do
-  use ExUnit.Case
-  
-  setup do
-    # Save original config
-    original_timeout = Application.get_env(:jido_action, :default_timeout)
-    
-    on_exit(fn ->
-      # Restore original config
-      Application.put_env(:jido_action, :default_timeout, original_timeout)
-    end)
-    
-    %{original_timeout: original_timeout}
-  end
-  
-  test "respects custom timeout configuration" do
-    # Set test-specific timeout
-    Application.put_env(:jido_action, :default_timeout, 100)
-    
-    # Test action behavior with short timeout
-    assert {:error, %Jido.Action.Error.TimeoutError{}} = 
-      Jido.Exec.run(MyApp.Actions.SlowOperation, %{}, %{})
-  end
-end
-```
-
-## Configuration Reference
-
-### Application Config Keys
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `:default_timeout` | non-negative integer | 30000 | Default action timeout in milliseconds (invalid values warn + fallback) |
-| `:default_max_retries` | non-negative integer | 1 | Default number of retry attempts (invalid values warn + fallback) |
-| `:default_backoff` | non-negative integer | 250 | Initial backoff time in ms (exponential, invalid values warn + fallback) |
-| `:observability` | keyword list | `[]` | Runtime context propagation config (`:context_propagators`, `:context_propagator_failure_mode`) |
-
-### Action Compensation Config
-
-Defined at compile time in `use Jido.Action`:
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `:enabled` | boolean | false | Enable compensation on error |
-| `:max_retries` | integer | 1 | Compensation retry attempts |
-| `:timeout` | integer | 5000 | Compensation timeout in ms |
-
-### Execution Options
-
-Passed to `Jido.Exec.run/4`:
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `:timeout` | integer | 30000 | Action timeout in milliseconds |
-| `:max_retries` | integer | 1 | Number of retry attempts |
-| `:backoff` | integer | 250 | Initial backoff in ms |
-| `:log_level` | atom | `config(:jido_action, :default_log_level)` or `:info` | Jido execution log threshold override |
-| `:telemetry` | atom | :full | `:full` or `:silent` |
-| `:context_propagators` | list(module) | `config(:jido_action, :observability)[:context_propagators]` | Runtime context propagators captured before supervised execution |
-| `:context_propagator_failure_mode` | atom | `:warn` | `:warn` to skip failures, `:strict` to raise |
-| `:jido` | atom | nil | Instance name for multi-tenant isolation |
-
-## Best Practices
-
-### Configuration Organization
-- **Environment Separation**: Different configs for dev/test/prod
-- **Validation**: Validate required configuration at startup
-- **Defaults**: The library provides sensible defaults
-
-### Performance
-- **Timeouts**: Set appropriate timeouts for different environments
-- **Retries**: Configure retries based on expected failure rates
-- **Backoff**: Use exponential backoff to avoid thundering herd
-
-### Deployment
-- **Runtime Config**: Use `config/runtime.exs` for environment variables
-- **Task Supervisor**: Ensure `Jido.Action.TaskSupervisor` is in your supervision tree
-
-## Next Steps
-
-**→ [Testing Guide](testing.md)** - Testing configurations and environments  
-**→ [Error Handling Guide](error-handling.md)** - Error handling patterns  
-**→ [Execution Engine Guide](execution-engine.md)** - Async execution lifecycle and guarantees
-
----
-← [Error Handling Guide](error-handling.md) | **Next: [Testing Guide](testing.md)** →

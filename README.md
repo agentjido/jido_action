@@ -1,490 +1,127 @@
-# Jido.Action
+# Jido Action
 
-[![Hex.pm](https://img.shields.io/hexpm/v/jido_action.svg)](https://hex.pm/packages/jido_action)
-[![Hex Docs](https://img.shields.io/badge/hex-docs-lightgreen.svg)](https://hexdocs.pm/jido_action/)
-[![CI](https://github.com/agentjido/jido_action/actions/workflows/ci.yml/badge.svg)](https://github.com/agentjido/jido_action/actions/workflows/ci.yml)
-[![License](https://img.shields.io/hexpm/l/jido_action.svg)](https://github.com/agentjido/jido_action/blob/main/LICENSE)
-[![Website](https://img.shields.io/badge/website-jido.run-0f172a.svg)](https://jido.run)
-[![Ecosystem](https://img.shields.io/badge/ecosystem-jido.run-0ea5e9.svg)](https://jido.run/ecosystem)
-[![Discord](https://img.shields.io/badge/discord-join-5865F2.svg?logo=discord&logoColor=white)](https://jido.run/discord)
+`jido_action` defines validated leaf actions and runs them with hardened execution policy.
 
-> **Composable, validated actions for Elixir applications with built-in AI tool integration**
+V3 keeps this package focused on one boundary:
 
-_`Jido.Action` is part of the [Jido](https://github.com/agentjido/jido) project. Learn more about Jido at [jido.run](https://jido.run)._
+- `Jido.Action` defines a named action with Zoi input and output schemas.
+- `Jido.Exec` validates params, runs one action, applies timeout and retry policy, validates output, and normalizes crashes.
+- Async execution, cancellation, telemetry, context propagation, and instance-scoped supervisors remain in `Jido.Exec`.
 
-## Overview
+Higher-level orchestration and adapters should build on this leaf-action boundary instead of living inside this package.
 
-`Jido.Action` is a framework for building composable, validated actions in Elixir. It provides a standardized way to define discrete units of functionality that can be composed into complex workflows, validated at compile and runtime using NimbleOptions schemas, and seamlessly integrated with AI systems through automatic tool generation.
-
-Whether you're building microservices that need structured operations, implementing agent-based systems, or creating AI-powered applications that require reliable function calling, Jido.Action provides the foundation for robust, traceable, and scalable action-driven architecture.
-
-## Purity and Side Effects
-
-`Jido.Action` modules are reusable execution units. `run/2` may be pure or effectful depending on the job.
-
-Doing HTTP requests, database queries, file system work, or other I/O inside `run/2` is acceptable when the step needs that data back immediately to continue the workflow. When an effect should instead be owned by a runtime or integration boundary, hand it off there rather than doing it inline.
-
-When actions are used inside [`jido`](https://github.com/agentjido/jido), the purity guarantee belongs to the agent or strategy `cmd/2` boundary, not necessarily to each action that the runtime executes behind that boundary.
-
-## Why Do I Need Actions?
-
-**Structured Operations in Elixir's Dynamic World**
-
-Elixir excels at building fault-tolerant, concurrent systems, but as applications grow, you often need:
-
-- **Standardized Operation Format**: Raw function calls lack structure, validation, and metadata
-- **AI Tool Integration**: Converting functions to LLM-compatible tool definitions manually
-- **Workflow Composition**: Building complex multi-step processes from smaller units
-- **Parameter Validation**: Ensuring inputs are correct before expensive operations
-- **Error Handling**: Consistent error reporting across different operation types
-- **Runtime Introspection**: Understanding what operations are available and how they work
-
-```elixir
-# Traditional Elixir functions
-def process_order(order_id, user_id, options) do
-  # No validation, no metadata, no AI integration
-  # Error handling is inconsistent
-end
-
-# With Jido.Action
-defmodule ProcessOrder do
-  use Jido.Action,
-    name: "process_order",
-    description: "Processes a customer order with validation and tracking",
-    schema: [
-      order_id: [type: :string, required: true],
-      user_id: [type: :string, required: true],
-      priority: [type: {:in, [:low, :normal, :high]}, default: :normal]
-    ]
-
-  def run(params, context) do
-    # Params are pre-validated, action is AI-ready, errors are structured
-    {:ok, %{status: "processed", order_id: params.order_id}}
-  end
-end
-
-# Use directly or convert to AI tool
-ProcessOrder.to_tool()  # Ready for LLM integration
-```
-
-Jido.Action transforms ad-hoc functions into structured, validated, AI-compatible operations that scale from simple tasks to complex agent workflows.
-
-## Key Features
-
-### **Structured Action Definition**
-- Compile-time configuration validation
-- Runtime parameter validation with NimbleOptions or Zoi schemas
-- Rich metadata including descriptions, categories, and tags
-- Automatic JSON serialization support
-
-### **AI Tool Integration**
-- Automatic conversion to LLM-compatible tool format
-- OpenAI function calling compatible
-- Parameter schemas with validation and documentation
-- Seamless integration with AI agent frameworks
-
-### **Robust Execution Engine**
-- Synchronous and asynchronous execution via `Jido.Exec`
-- Automatic retries with exponential backoff
-- Timeout handling and cancellation
-- Comprehensive error handling and compensation
-
-### **Workflow Composition**
-- Instruction-based workflow definition via `Jido.Instruction`
-- Parameter normalization and context sharing
-- Action chaining and conditional execution
-- Built-in workflow primitives
-
-### **Comprehensive Tool Library**
-- 25+ pre-built actions for common operations
-- File system operations, HTTP requests, arithmetic
-- Workflow primitives plus runnable examples
-- External API tool packs available via the `jido_lib` ecosystem package
-
-## Installation
-
-### Igniter Installation (Recommended)
-
-The fastest way to get started is with [Igniter](https://hex.pm/packages/igniter):
-
-```bash
-mix igniter.install jido_action
-```
-
-This automatically:
-- Adds `jido_action` to your dependencies
-- Configures default settings (timeout, retries, backoff)
-- Optionally generates an example action with `--example`
-
-### Manual Installation
-
-Add `jido_action` to your list of dependencies in `mix.exs`:
+## Install
 
 ```elixir
 def deps do
   [
-    {:jido_action, "~> 2.0"}
+    {:jido_action, "~> 3.0"}
   ]
 end
 ```
 
-Then run:
-
-```bash
-mix deps.get
-```
-
-## Quick Start
-
-### 1. Define Your First Action
+## Define An Action
 
 ```elixir
 defmodule MyApp.Actions.GreetUser do
   use Jido.Action,
     name: "greet_user",
-    description: "Greets a user with a personalized message",
-    category: "communication",
-    tags: ["greeting", "user"],
-    vsn: "1.0.0",
-    schema: [
-      name: [type: :string, required: true, doc: "User's name"],
-      language: [type: {:in, ["en", "es", "fr"]}, default: "en", doc: "Greeting language"]
-    ]
+    description: "Builds a greeting for a user",
+    schema:
+      Zoi.object(%{
+        name: Zoi.string() |> Zoi.min(1),
+        excited?: Zoi.boolean() |> Zoi.default(false)
+      }),
+    output_schema:
+      Zoi.object(%{
+        greeting: Zoi.string()
+      })
 
   @impl true
-  def run(params, _context) do
-    greeting = case params.language do
-      "en" -> "Hello"
-      "es" -> "Hola" 
-      "fr" -> "Bonjour"
-    end
-    
-    {:ok, %{message: "#{greeting}, #{params.name}!"}}
+  def run(%{name: name, excited?: excited?}, _context) do
+    suffix = if excited?, do: "!", else: "."
+    {:ok, %{greeting: "Hello, #{name}#{suffix}"}}
   end
 end
 ```
 
-### 2. Execute Actions with Jido.Exec
+Public action functions:
+
+- `name/0`
+- `description/0`
+- `schema/0`
+- `output_schema/0`
+- `validate_params/1`
+- `validate_output/1`
+- `run/2`
+
+## Run An Action
 
 ```elixir
-# Synchronous execution
-{:ok, result} = Jido.Exec.run(MyApp.Actions.GreetUser, %{name: "Alice"})
-# => {:ok, %{message: "Hello, Alice!"}}
-
-# With validation error handling
-{:error, reason} = Jido.Exec.run(MyApp.Actions.GreetUser, %{invalid: "params"})
-# => {:error, %Jido.Action.Error{type: :validation_error, ...}}
-
-# Asynchronous execution
-async_ref = Jido.Exec.run_async(MyApp.Actions.GreetUser, %{name: "Bob"})
-{:ok, result} = Jido.Exec.await(async_ref)
+{:ok, result} =
+  Jido.Exec.run(
+    MyApp.Actions.GreetUser,
+    %{name: "Ada", excited?: true},
+    %{request_id: "req-123"},
+    timeout: 1_000,
+    max_retries: 1,
+    backoff: 100
+  )
 ```
 
-#### Async Contract
+`run/2` must return one of:
 
-- `run_async/4` executes under `Task.Supervisor` (global or instance-scoped via `jido:`).
-- `async_ref` is mailbox-bound to the process that started the async call; await/cancel from that same process.
-- Runtime context propagators configured globally or per execution are captured before supervised task boundaries and reattached inside async, timeout, compensation, and async-chain workers.
-- `await/2` timeout kills the task and drains monitor/result mailbox residue before returning.
-- `cancel/1` sends `:shutdown`, waits a bounded grace period, and flushes monitor/result residue.
+- `{:ok, result}`
+- `{:ok, result, extra}`
+- `{:error, reason}`
+- `{:error, reason, extra}`
 
-See the detailed contract in [Execution Engine Guide](guides/execution-engine.md#asynchronous-execution-contract).
+Three-tuple returns preserve the third value after output validation.
 
-### 3. Create Workflows with Jido.Instruction
-
-```elixir
-# Define a sequence of actions
-instructions = [
-  MyApp.Actions.ValidateUser,
-  {MyApp.Actions.GreetUser, %{name: "Alice", language: "es"}},
-  MyApp.Actions.LogActivity
-]
-
-# Normalize with shared context
-{:ok, workflow} = Jido.Instruction.normalize(instructions, %{
-  request_id: "req_123",
-  tenant_id: "tenant_456"
-})
-
-# Execute the workflow
-Enum.each(workflow, fn instruction ->
-  Jido.Exec.run(instruction.action, instruction.params, instruction.context)
-end)
-```
-
-### 4. AI Tool Integration
+## Async Execution
 
 ```elixir
-# Convert action to AI tool format
-tool_definition = MyApp.Actions.GreetUser.to_tool()
+ref = Jido.Exec.run_async(MyApp.Actions.GreetUser, %{name: "Ada"}, %{})
 
-# Returns LangChain-compatible tool definition:
-%{
-  name: "greet_user",
-  description: "Greets a user with a personalized message",
-  function: #Function<...>,  # Executes the action
-  parameters_schema: %{
-    "type" => "object",
-    "properties" => %{
-      "name" => %{"type" => "string", "description" => "User's name"},
-      "language" => %{
-        "type" => "string", 
-        "enum" => ["en", "es", "fr"],
-        "description" => "Greeting language"
-      }
-    },
-    "required" => ["name"]
-  }
-}
-
-# Use with AI frameworks - the function can be called directly
-# or convert to OpenAI format for function calling
-```
-
-## Core Components
-
-### Jido.Action
-The foundational behavior for defining structured, validated actions. Provides:
-- Compile-time configuration validation
-- Parameter and output schemas with validation
-- Lifecycle hooks for customization
-- Automatic AI tool format generation
-- JSON serialization support
-
-### Jido.Exec  
-The execution engine for running actions reliably. Features:
-- Synchronous and asynchronous execution
-- Automatic retries with exponential backoff
-- Timeout handling and process monitoring
-- Comprehensive error handling
-- Telemetry integration for monitoring
-- Instance isolation for multi-tenant applications
-
-### Jido.Instruction
-The workflow composition system for building complex operations. Enables:
-- Multiple input formats (modules, tuples, structs)
-- Parameter normalization and validation
-- Context sharing across actions
-- Action allowlist validation
-- Flexible workflow definition patterns
-
-### Jido.Plan
-DAG-based execution planning for complex workflows. Features:
-- Directed acyclic graph of action dependencies
-- Parallel execution phases based on dependency analysis
-- Builder pattern for constructing plans
-- Cycle detection and validation
-- Keyword list and programmatic plan construction
-
-## Bundled Tools
-
-Jido.Action comes with a comprehensive library of pre-built tools organized by category:
-
-### Core Utilities (`Jido.Tools.Basic`)
-| Tool | Description | Use Case |
-|------|-------------|----------|
-| `Sleep` | Pauses execution for specified duration | Delays, rate limiting |
-| `Log` | Logs messages with configurable levels | Debugging, monitoring |
-| `Todo` | Logs TODO items as placeholders | Development workflow |
-| `RandomSleep` | Random delay within specified range | Chaos testing, natural delays |
-| `Increment/Decrement` | Numeric operations | Counters, calculations |
-| `Noop` | No operation, returns input unchanged | Placeholder actions |
-| `Today` | Returns current date in specified format | Date operations |
-
-### Arithmetic Operations (`Jido.Tools.Arithmetic`)
-| Tool | Description | Use Case |
-|------|-------------|----------|
-| `Add` | Adds two numbers | Mathematical operations |
-| `Subtract` | Subtracts one number from another | Calculations |
-| `Multiply` | Multiplies two numbers | Math workflows |
-| `Divide` | Divides with zero-division handling | Safe arithmetic |
-| `Square` | Squares a number | Mathematical functions |
-
-### File System Operations (`Jido.Tools.Files`)
-| Tool | Description | Use Case |
-|------|-------------|----------|
-| `WriteFile` | Write content to files with options | File creation, logging |
-| `ReadFile` | Read file contents | Data processing |
-| `CopyFile` | Copy files between locations | Backup, deployment |
-| `MoveFile` | Move/rename files | File organization |
-| `DeleteFile` | Delete files/directories (recursive) | Cleanup operations |
-| `MakeDirectory` | Create directories (recursive) | Setup operations |
-| `ListDirectory` | List directory contents with filtering | File discovery |
-
-File tools can be scoped with `config :jido_action, file_tool_roots: [...]` or per-run
-`%{allowed_file_roots: [...]}` context. Use roots before exposing these tools to agents or
-user-influenced requests.
-
-### HTTP Operations (`Jido.Tools.ReqTool`)
-
-`ReqTool` is a specialized action that provides a behavior and macro for creating HTTP request actions using the Req library. It offers a standardized way to build HTTP-based actions with configurable URLs, methods, headers, and response processing.
-
-HTTP and Lua tools use optional dependencies. Add `{:req, "~> 0.6.1"}` when using `Jido.Tools.ReqTool`, and `{:lua, "~> 0.4 or ~> 1.0.0-rc"}` when using `Jido.Tools.LuaEval`.
-
-| Tool | Description | Use Case |
-|------|-------------|----------|
-| HTTP Actions | GET, POST, PUT, DELETE requests with Req library | API integration, webhooks |
-| JSON Support | Automatic JSON parsing and response handling | REST API clients |
-| Custom Headers | Configurable HTTP headers per action | Authentication, API keys |
-| Response Transform | Custom response transformation via callbacks | Data mapping, filtering |
-| Action Generation | Macro-based HTTP action creation | Rapid API client development |
-
-### Workflow
-| Tool | Description | Use Case |
-|------|-------------|----------|
-| `Workflow` | Multi-step workflow execution | Complex processes |
-
-### Specialized Tools
-| Tool | Description | Use Case |
-|------|-------------|----------|
-| Branch/Parallel | Conditional and parallel execution | Complex workflows |
-| Error Handling | Compensation and retry mechanisms | Fault tolerance |
-
-## Advanced Features
-
-### Error Handling and Compensation
-
-Actions support sophisticated error handling with optional compensation:
-
-```elixir
-defmodule RobustAction do
-  use Jido.Action,
-    name: "robust_action",
-    compensation: [
-      enabled: true,
-      max_retries: 3,
-      timeout: 5000
-    ]
-
-  def run(params, context) do
-    # Main action logic
-    {:ok, result}
-  end
-
-  # Called when errors occur if compensation is enabled
-  def on_error(failed_params, error, context, opts) do
-    # Perform rollback/cleanup operations
-    {:ok, %{compensated: true, original_error: error}}
-  end
+case Jido.Exec.await(ref, 5_000) do
+  {:ok, result} -> result
+  {:error, reason} -> {:failed, reason}
 end
 ```
 
-### Lifecycle Hooks
-
-Customize action behavior with lifecycle hooks:
+Cancel work that is no longer needed:
 
 ```elixir
-defmodule CustomAction do
-  use Jido.Action, name: "custom_action"
-
-  def on_before_validate_params(params) do
-    # Transform params before validation
-    {:ok, transformed_params}
-  end
-
-  def on_after_validate_params(params) do
-    # Enrich params after validation
-    {:ok, enriched_params}
-  end
-
-  def on_after_run({:ok, result}) do
-    # Post-process successful results
-    {:ok, enhanced_result}
-  end
-  
-  def on_after_run({:error, _} = error), do: error
-end
+:ok = Jido.Exec.cancel(ref)
 ```
 
-### Telemetry Integration
+## Runtime Policy
 
-Actions emit telemetry events for monitoring:
+`Jido.Exec.run/4` supports:
 
-```elixir
-# Attach telemetry handlers
-:telemetry.attach("action-handler", [:jido, :action, :stop], fn event, measurements, metadata, config ->
-  # Handle action completion events
-  Logger.info("Action completed: #{metadata.action}")
-end, %{})
-```
+- `:timeout` - max action runtime in milliseconds, `0` disables supervised timeout wrapping.
+- `:max_retries` - number of retry attempts after the first failure.
+- `:backoff` - initial retry delay in milliseconds, doubled per retry and capped.
+- `:log_level` - execution log level.
+- `:jido` - instance namespace for isolated supervisors.
+- `:context_propagators` - modules that capture and reattach process-local runtime context.
+- `:context_propagator_failure_mode` - `:warn` or `:strict`.
 
-## Testing
-
-Test actions directly or within the execution framework:
+Defaults can be configured with:
 
 ```elixir
-defmodule MyActionTest do
-  use ExUnit.Case
-
-  test "action validates parameters" do
-    assert {:error, _} = MyAction.validate_params(%{invalid: "params"})
-    assert {:ok, _} = MyAction.validate_params(%{valid: "params"})
-  end
-
-  test "action execution" do
-    assert {:ok, result} = Jido.Exec.run(MyAction, %{valid: "params"})
-    assert result.status == "success"
-  end
-
-  test "async action execution" do
-    async_ref = Jido.Exec.run_async(MyAction, %{valid: "params"})
-    assert {:ok, result} = Jido.Exec.await(async_ref, 5000)
-  end
-end
-```
-
-## Configuration
-
-Configure defaults in your application:
-
-```elixir
-# config/config.exs
 config :jido_action,
-  default_timeout: 10_000,
-  default_max_retries: 3,
-  default_backoff: 500,
-  default_log_level: :info
+  default_timeout: 30_000,
+  default_max_retries: 1,
+  default_backoff: 250
 ```
 
-`default_log_level` sets Jido's execution log threshold. Per-call `log_level` options override it,
-and the application's global Logger configuration still acts as the final backend filter.
+## Docs
 
-If any of these values are invalid at runtime, Jido logs a warning and falls back to the built-in
-defaults instead of crashing. See [Configuration Guide](guides/configuration.md#runtime-config-validation-and-fallback).
+Start with:
 
-### Instance Isolation (Multi-Tenant)
-
-For multi-tenant applications, route execution through instance-scoped supervisors:
-
-```elixir
-# Add instance supervisor to your supervision tree
-children = [
-  {Task.Supervisor, name: MyApp.Jido.TaskSupervisor}
-]
-
-# Execute with instance isolation
-{:ok, result} = Jido.Exec.run(MyAction, params, context, jido: MyApp.Jido)
-```
-
-When `jido: MyApp.Jido` is provided, all tasks spawn under `MyApp.Jido.TaskSupervisor` instead of the global supervisor, ensuring complete isolation between tenants.
-
-## Contributing
-
-We welcome contributions! Please see our [GitHub repository](https://github.com/agentjido/jido_action) for details.
-
-## License
-
-Copyright 2024-2025 Mike Hostetler
-
-Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
-
-For information about dependency licenses, see the [LICENSE](LICENSE) file.
-
-## Links
-
-- **Documentation**: [https://hexdocs.pm/jido_action](https://hexdocs.pm/jido_action)
-- **GitHub**: [https://github.com/agentjido/jido_action](https://github.com/agentjido/jido_action)
-- **Jido**: [https://jido.run](https://jido.run)
-- **Ecosystem**: [https://jido.run/ecosystem](https://jido.run/ecosystem)
-- **Discord**: [https://jido.run/discord](https://jido.run/discord)
-- **Jido Workbench**: [https://github.com/agentjido/jido_workbench](https://github.com/agentjido/jido_workbench)
+- [Getting Started](guides/getting-started.md)
+- [Actions](guides/actions-guide.md)
+- [Schemas & Validation](guides/schemas-validation.md)
+- [Execution Engine](guides/execution-engine.md)
+- [Error Handling](guides/error-handling.md)
