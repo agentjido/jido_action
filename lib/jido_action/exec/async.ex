@@ -2,8 +2,8 @@ defmodule Jido.Exec.Async do
   @moduledoc """
   Handles asynchronous execution of Actions using Task.Supervisor.
 
-  This module provides the core async implementation for Jido.Exec, 
-  managing task supervision, cleanup, and async lifecycle.
+  This module provides the core async implementation for Jido.Exec,
+  supervising and cleaning up async tasks.
   """
   alias Jido.Action.Error
   alias Jido.Exec.Propagation

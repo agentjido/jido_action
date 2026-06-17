@@ -1,104 +1,71 @@
-# Getting Started with Jido Action
+# Getting Started
 
-**Prerequisites**: Basic Elixir knowledge • Mix project setup
+This guide defines and runs one action.
 
-Jido Action is a composable action framework with AI integration for building autonomous agent systems and complex workflows. This guide will get you productive in 15 minutes.
-
-## Installation
-
-Add to your `mix.exs`:
+## Add The Dependency
 
 ```elixir
 def deps do
-  [{:jido_action, "~> 1.0"}]
+  [
+    {:jido_action, "~> 3.0"}
+  ]
 end
 ```
 
-Run `mix deps.get`.
-
-## Your First Action
-
-Create a simple email validator:
+## Create An Action
 
 ```elixir
-defmodule MyApp.Actions.ValidateEmail do
+defmodule MyApp.Actions.Add do
   use Jido.Action,
-    name: "validate_email",
-    description: "Validates email format",
-    schema: [
-      email: [type: :string, required: true, doc: "Email to validate"]
-    ]
+    name: "add",
+    description: "Adds two integers",
+    schema:
+      Zoi.object(%{
+        left: Zoi.integer(),
+        right: Zoi.integer()
+      }),
+    output_schema:
+      Zoi.object(%{
+        result: Zoi.integer()
+      })
 
-  def run(%{email: email}, _context) do
-    if String.contains?(email, "@") do
-      {:ok, %{valid: true, email: String.downcase(email)}}
-    else
-      {:error, Jido.Action.Error.execution_error("Invalid email format")}
-    end
+  @impl true
+  def run(%{left: left, right: right}, _context) do
+    {:ok, %{result: left + right}}
   end
 end
 ```
 
-## Execute Your Action
+## Validate Parameters
 
 ```elixir
-# Direct execution
-{:ok, result} = MyApp.Actions.ValidateEmail.run(%{email: "USER@EXAMPLE.COM"}, %{})
-# => {:ok, %{valid: true, email: "user@example.com"}}
-
-# With execution engine (production-ready)
-{:ok, result} = Jido.Exec.run(
-  MyApp.Actions.ValidateEmail,
-  %{email: "user@example.com"}, 
-  %{},
-  timeout: 5000,
-  max_retries: 2
-)
+{:ok, params} = MyApp.Actions.Add.validate_params(%{left: 1, right: 2})
+{:error, error} = MyApp.Actions.Add.validate_params(%{left: "1", right: 2})
 ```
 
-## Use Built-in Tools
+Validation returns `Jido.Action.Error.InvalidInputError` on failure.
 
-Jido Action includes 25+ pre-built actions:
+## Run With Policy
 
 ```elixir
-# File operations  
-{:ok, _} = Jido.Exec.run(Jido.Tools.Files.WriteFile, %{
-  path: "/tmp/test.txt",
-  content: "Hello World!",
-  create_dirs: false,
-  mode: :write
-})
-
-# Arithmetic
-{:ok, result} = Jido.Exec.run(Jido.Tools.Arithmetic.Add, %{value: 5, amount: 3})
-# => {:ok, %{result: 8}}
+{:ok, %{result: 3}} =
+  Jido.Exec.run(
+    MyApp.Actions.Add,
+    %{left: 1, right: 2},
+    %{},
+    timeout: 1_000,
+    max_retries: 0
+  )
 ```
 
-## Chain Actions Together
+`Jido.Exec` validates input before calling `run/2`, validates output after success, and normalizes exits, throws, and exceptions into action errors.
+
+## Run Asynchronously
 
 ```elixir
-# Sequential execution with data flow
-{:ok, final_result} = Jido.Exec.Chain.chain(
-  [MyApp.Actions.ValidateEmail, MyApp.Actions.SendWelcomeEmail],
-  %{email: "user@example.com"},
-  context: %{user_id: "123"}
-)
+ref = Jido.Exec.run_async(MyApp.Actions.Add, %{left: 1, right: 2}, %{})
+{:ok, %{result: 3}} = Jido.Exec.await(ref, 5_000)
 ```
 
-## Next Steps
+Use `Jido.Exec.cancel/1` when the result is no longer needed.
 
-**→ [Your Second Action](your-second-action.md)** - Add schemas, error handling, and tests  
-**→ [Actions](actions-guide.md)** - Understand the framework architecture  
-**→ [Built-in Tools](tools-reference.md)** - Explore all available tools
-
-## Sample Repository
-
-Clone the example project:
-```bash
-git clone https://github.com/agentjido/jido_action_examples
-cd jido_action_examples
-mix deps.get && mix test
-```
-
----
-**Next: [Your Second Action](your-second-action.md)** →

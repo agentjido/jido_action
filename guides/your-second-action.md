@@ -1,266 +1,63 @@
 # Your Second Action
 
-**Prerequisites**: [Getting Started](getting-started.md) • Basic action creation
-
-This tutorial builds a more sophisticated action with schema validation, error handling, and comprehensive testing.
-
-## The Task: User Registration
-
-We'll create an action that validates user registration data, demonstrating:
-- Complex schema validation
-- Structured error handling  
-- Lifecycle hooks
-- Comprehensive testing
-
-## Step 1: Define the Schema
+This example shows defaults, output validation, and an explicit side effect boundary.
 
 ```elixir
 defmodule MyApp.Actions.RegisterUser do
   use Jido.Action,
     name: "register_user",
-    description: "Validates and registers a new user",
-    schema: [
-      email: [
-        type: :string, 
-        required: true,
-        doc: "User's email address"
-      ],
-      password: [
-        type: :string, 
-        required: true,
-        doc: "User's password (min 8 chars)"
-      ],
-      age: [
-        type: :integer, 
-        required: true,
-        doc: "User's age (minimum 13)"
-      ],
-      terms_accepted: [
-        type: :boolean,
-        default: false,
-        doc: "Terms of service acceptance"
-      ]
-    ]
-```
+    description: "Registers a user record",
+    schema:
+      Zoi.object(%{
+        email:
+          Zoi.string()
+          |> Zoi.trim()
+          |> Zoi.to_downcase()
+          |> Zoi.regex(Zoi.Regexes.email()),
+        display_name:
+          Zoi.string()
+          |> Zoi.trim()
+          |> Zoi.min(1),
+        send_welcome?: Zoi.boolean() |> Zoi.default(true)
+      }),
+    output_schema:
+      Zoi.object(%{
+        id: Zoi.string(),
+        email: Zoi.string(),
+        welcome_sent?: Zoi.boolean()
+      })
 
-## Step 2: Add Validation Logic
-
-```elixir
+  @impl true
   def run(params, context) do
-    with {:ok, validated} <- validate_business_rules(params),
-         {:ok, user} <- create_user(validated, context) do
-      {:ok, %{
-        user_id: user.id,
-        email: user.email,
-        registered_at: DateTime.utc_now()
-      }}
-    end
-  end
+    repo = Map.fetch!(context, :repo)
+    mailer = Map.fetch!(context, :mailer)
 
-  defp validate_business_rules(params) do
-    cond do
-      not String.contains?(params.email, "@") ->
-        {:error, Jido.Action.Error.execution_error("Invalid email format")}
-      
-      String.length(params.password) < 8 ->
-        {:error, Jido.Action.Error.execution_error("Password too short")}
+    with {:ok, user} <- repo.insert_user(params) do
+      welcome_sent? =
+        if params.send_welcome? do
+          :ok = mailer.deliver_welcome(user.email)
+          true
+        else
+          false
+        end
 
-      params.age < 13 ->
-        {:error, Jido.Action.Error.execution_error("Must be at least 13 years old")}
-      
-      not params.terms_accepted ->
-        {:error, Jido.Action.Error.execution_error("Terms must be accepted")}
-      
-      true ->
-        {:ok, params}
-    end
-  end
-
-  defp create_user(params, _context) do
-    # Simulate user creation
-    user_id = "user_#{:rand.uniform(10000)}"
-    {:ok, %{id: user_id, email: params.email}}
-  end
-```
-
-## Step 3: Add Lifecycle Hooks
-
-```elixir
-  @impl true
-  def on_before_validate_params(params) do
-    # Normalize email before validation
-    normalized = Map.update(params, :email, "", &String.downcase/1)
-    {:ok, normalized}
-  end
-
-  @impl true  
-  def on_after_run({:ok, result}) do
-    # Log successful registration
-    IO.puts("User registered: #{result.user_id}")
-    {:ok, result}
-  end
-
-  def on_after_run({:error, _} = error), do: error
-
-  @impl true
-  def on_error(failed_params, error, _context, _opts) do
-    # Log registration failure (no compensation needed)
-    IO.puts("Registration failed for #{failed_params[:email]}: #{error.message}")
-    {:ok, %{error_logged: true}}
-  end
-end
-```
-
-## Step 4: Test Your Action
-
-Create `test/actions/register_user_test.exs`:
-
-```elixir
-defmodule MyApp.Actions.RegisterUserTest do
-  use ExUnit.Case
-
-  alias MyApp.Actions.RegisterUser
-  alias Jido.Exec
-
-  describe "register_user via Exec.run/4" do
-    test "succeeds with valid input" do
-      params = %{
-        email: "user@example.com",
-        password: "securepass123", 
-        age: 25,
-        terms_accepted: true
-      }
-      
-      assert {:ok, result} = Exec.run(RegisterUser, params)
-      assert String.starts_with?(result.user_id, "user_")
-      assert result.email == "user@example.com"
-      assert result.registered_at
-    end
-
-    test "normalizes email case via lifecycle hook" do
-      params = %{
-        email: "USER@EXAMPLE.COM",
-        password: "securepass123",
-        age: 25, 
-        terms_accepted: true
-      }
-      
-      assert {:ok, result} = Exec.run(RegisterUser, params)
-      assert result.email == "user@example.com"
-    end
-
-    test "rejects invalid email" do
-      params = %{
-        email: "invalid-email",
-        password: "securepass123",
-        age: 25,
-        terms_accepted: true
-      }
-      
-      assert {:error, error} = Exec.run(RegisterUser, params)
-      assert error.message =~ "Invalid email format"
-    end
-
-    test "rejects short password" do
-      params = %{
-        email: "user@example.com", 
-        password: "short",
-        age: 25,
-        terms_accepted: true
-      }
-      
-      assert {:error, error} = Exec.run(RegisterUser, params)
-      assert error.message =~ "Password too short"
-    end
-
-    test "rejects underage users" do
-      params = %{
-        email: "user@example.com",
-        password: "securepass123", 
-        age: 12,
-        terms_accepted: true
-      }
-      
-      assert {:error, error} = Exec.run(RegisterUser, params)
-      assert error.message =~ "Must be at least 13 years old"
-    end
-
-    test "requires terms acceptance" do
-      params = %{
-        email: "user@example.com",
-        password: "securepass123",
-        age: 25,
-        terms_accepted: false
-      }
-      
-      assert {:error, error} = Exec.run(RegisterUser, params)
-      assert error.message =~ "Terms must be accepted"
-    end
-
-    test "requires all mandatory fields" do
-      params = %{email: "user@example.com"}
-      
-      assert {:error, _error} = Exec.run(RegisterUser, params)
+      {:ok, %{id: user.id, email: user.email, welcome_sent?: welcome_sent?}}
     end
   end
 end
 ```
 
-## Step 5: Run Tests
-
-```bash
-mix test test/actions/register_user_test.exs
-```
-
-Expected output:
-```
-Compiling 1 file (.ex)
-.......
-
-Finished in 0.05 seconds (0.00s async, 0.05s sync)
-7 tests, 0 failures
-```
-
-## Step 6: Use with Execution Engine
+Run it with explicit policy:
 
 ```elixir
-# With retries and timeout
-{:ok, result} = Jido.Exec.run(
+Jido.Exec.run(
   MyApp.Actions.RegisterUser,
-  %{
-    email: "user@example.com",
-    password: "securepass123",
-    age: 25,
-    terms_accepted: true
-  },
-  %{request_id: "req_123"},
-  timeout: 5000,
-  max_retries: 2
+  %{email: "ADA@example.com", display_name: "Ada"},
+  %{repo: MyApp.Repo, mailer: MyApp.Mailer},
+  timeout: 2_000,
+  max_retries: 0
 )
-
-# Async execution
-async_ref = Jido.Exec.run_async(
-  MyApp.Actions.RegisterUser,
-  params,
-  %{}
-)
-
-{:ok, result} = Jido.Exec.await(async_ref, 10_000)
 ```
 
-## What You've Learned
+Because registration writes state and sends email, retries are disabled here. If your action is idempotent, set a retry policy that matches the operation.
 
-- **Schema Definition** - Complex validation with types, constraints, and docs  
-- **Error Handling** - Structured errors with helpful messages  
-- **Lifecycle Hooks** - Data normalization and logging  
-- **Testing Patterns** - Comprehensive test coverage using `Jido.Exec.run/4`
-- **Production Usage** - Execution engine features
-
-## Next Steps
-
-**-> [Actions](actions-guide.md)** - Deep dive into framework architecture  
-**-> [Error Handling Guide](error-handling.md)** - Advanced error patterns  
-**-> [Testing Guide](testing.md)** - More testing strategies
-
----
-[← Getting Started](getting-started.md) | [Next: Actions →](actions-guide.md)

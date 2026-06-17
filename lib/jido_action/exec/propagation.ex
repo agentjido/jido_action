@@ -3,8 +3,7 @@ defmodule Jido.Exec.Propagation do
   Resolves and applies runtime-context propagators across supervised execution.
 
   `jido_action` uses this helper to preserve ambient process-local state when it
-  crosses `Task.Supervisor` boundaries for timeouts, async execution,
-  compensation, and async chains.
+  crosses `Task.Supervisor` boundaries for timeouts and async execution.
   """
 
   require Logger

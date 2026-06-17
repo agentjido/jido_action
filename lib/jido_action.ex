@@ -87,9 +87,8 @@ defmodule Jido.Action do
 
   > **Note on Validation:** The validation process for Actions is intentionally open.
   > Only fields specified in the schema and output_schema are validated. Unspecified
-  > fields are not validated, allowing for easier Action composition. This approach
-  > enables Actions to accept and pass along additional parameters that may be required
-  > by other Actions in a chain without causing validation errors.
+  > fields are not validated, allowing callers to pass additional parameters without
+  > causing validation errors.
   >
   > Output validation works the same way - only fields specified in the output_schema
   > are validated, allowing Actions to return additional data that may be used by

@@ -1,35 +1,33 @@
 # Jido Action Usage Rules
 
-## Intent
-Use actions as the smallest validated unit of behavior, then compose execution policy with `Jido.Exec` and workflow tools.
+## Scope
 
-## Core Contracts
-- Define actions with `use Jido.Action` and clear metadata (`name`, `description`, schema).
-- Use **Zoi-first** schemas for new work; keep NimbleOptions for compatibility paths.
-- Keep `run/2` contracts strict: `{:ok, result}` or `{:error, reason}`.
-- Use `Jido.Exec` for retries, timeouts, async control, and telemetry in production paths.
-- Keep action results deterministic where possible; isolate external IO.
-- Keep `jido_action` focused on core and generic tools; use `jido_lib` for vendor/API-specific packs.
+Use `jido_action` for leaf actions: one named module, one validated parameter map, one `run/2` callback, and one result.
 
-## Library Author Patterns
-- Build thin domain actions: validate input -> call domain service -> normalize output.
-- Wrap external APIs/filesystem/DB calls in dedicated actions instead of inline process logic.
-- Compose multi-step workflows with `Jido.Instruction` and `Jido.Plan` rather than custom pipelines.
-- Expose tool-facing actions with stable names and schemas via `Jido.Action.Tool`.
+Keep higher-level orchestration outside this package.
 
-## QA Patterns
-- Test validation failures, success path, and error path separately.
-- For async execution, assert cleanup/timeout behavior via `Jido.Exec` APIs.
-- Run `mix q` (`mix quality`) before release and keep docs/changelog in sync.
+## Action Definitions
 
-## Avoid
-- Calling `run/2` directly in production orchestration when execution policy matters.
-- New schema contracts without validation metadata.
-- Hidden side effects that are not visible in params/context/result.
+- Use `use Jido.Action` for public actions.
+- Provide stable `name` and useful `description` values.
+- Use Zoi schemas for `schema` and `output_schema`; omit them or use `[]` only when validation is intentionally empty.
+- Keep `run/2` strict: return `{:ok, result}`, `{:ok, result, extra}`, `{:error, reason}`, or `{:error, reason, extra}`.
+- Keep side effects explicit inside `run/2` and make them easy to test.
 
-## References
-- `README.md`
-- `guides/`
-- `AGENTS.md`
-- https://hexdocs.pm/jido_action
-- https://hexdocs.pm/usage_rules/readme.html#usage-rules
+## Execution
+
+- Use `Jido.Exec.run/4` when retry, timeout, telemetry, output validation, crash normalization, or context propagation matters.
+- Use `run_async/4`, `await/1`, `await/2`, and `cancel/1` for supervised async work.
+- Pass request state through `context`; do not rely on hidden process state unless a context propagator is configured.
+- Configure defaults with `:default_timeout`, `:default_max_retries`, and `:default_backoff`.
+
+## Validation
+
+- Validate inputs with `validate_params/1` or by running through `Jido.Exec`.
+- Validate outputs with `validate_output/1` or by running through `Jido.Exec`.
+- Unknown keys are preserved; only keys declared in the Zoi schema are validated.
+- Prefer precise schemas with defaults for optional runtime policy values.
+
+## Package Boundary
+
+Keep this package focused on defining, validating, and executing one action at a time. Put higher-level orchestration, adapter-specific conversion, and bundled domain actions in separate packages.
