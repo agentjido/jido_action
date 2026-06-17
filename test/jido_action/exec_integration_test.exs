@@ -253,7 +253,7 @@ defmodule JidoTest.ExecIntegrationTest do
             backoff: 10
           )
 
-        assert {:error, %Error.InternalError{}} = result
+        assert {:error, %Error.ExecutionFailureError{}} = result
       end)
     end
   end

@@ -18,8 +18,11 @@ defmodule Jido.Action.Error do
     `ExecutionFailureError`, `TimeoutError`, `ConfigurationError`, `InternalError`.
     These are the types you raise, rescue, and pattern match in application code.
 
-  For cross-package handling, use `Jido.Error.to_map/1` and match on the
-  normalized `:type` atom (e.g. `:timeout`, `:validation_error`, `:execution_error`).
+  For cross-package handling, use `Jido.Action.Error.to_map/1` and match on the
+  normalized `:type` atom. The public type set is intentionally small:
+  `:validation_error`, `:configuration_error`, `:execution_error`, `:timeout`,
+  and `:internal_error`. Domain-specific reasons are carried in `:details`,
+  usually as `:kind` or `:reason`.
 
   ## Error Classes
 
@@ -56,23 +59,14 @@ defmodule Jido.Action.Error do
     ],
     unknown_error: __MODULE__.Internal.UnknownError
 
-  alias Jido.Action.Sanitizer
-
-  @retryable_reason_atoms [
-    :busy,
-    :closed,
-    :econnrefused,
-    :econnreset,
-    :enetdown,
-    :enetunreach,
-    :overloaded,
-    :rate_limited,
-    :service_unavailable,
-    :temporary_failure,
-    :temporary_unavailable,
+  @canonical_error_types [
+    :validation_error,
+    :configuration_error,
+    :execution_error,
     :timeout,
-    :transient_error
+    :internal_error
   ]
+  @inspect_opts [charlists: :as_lists, printable_limit: :infinity, limit: :infinity]
 
   # Error class modules for Splode - these are for classification/aggregation only.
   # Use the concrete exception structs (ending in `Error`) for raising/matching.
@@ -319,20 +313,32 @@ defmodule Jido.Action.Error do
   def to_map({:error, reason}), do: to_map(reason)
 
   def to_map(%{type: type, message: message} = error) when is_atom(type) do
+    canonical_type = canonical_error_type(type)
+
     %{
-      type: type,
+      type: canonical_type,
       message: normalize_message(message),
-      details: normalize_details(Map.get(error, :details, %{})),
-      retryable?: normalize_retryable(error, type)
+      details:
+        error
+        |> Map.get(:details, %{})
+        |> normalize_details()
+        |> maybe_put_kind(type, canonical_type),
+      retryable?: normalize_retryable(error, canonical_type)
     }
   end
 
   def to_map(%{code: type, message: message} = error) when is_atom(type) do
+    canonical_type = canonical_error_type(type)
+
     %{
-      type: type,
+      type: canonical_type,
       message: normalize_message(message),
-      details: normalize_details(Map.get(error, :details, %{})),
-      retryable?: normalize_retryable(error, type)
+      details:
+        error
+        |> Map.get(:details, %{})
+        |> normalize_details()
+        |> maybe_put_kind(type, canonical_type),
+      retryable?: normalize_retryable(error, canonical_type)
     }
   end
 
@@ -349,7 +355,7 @@ defmodule Jido.Action.Error do
         details
         |> normalize_details()
         |> maybe_put(:field, field)
-        |> maybe_put(:value, Sanitizer.sanitize(value)),
+        |> maybe_put(:value, normalize_detail_value(value)),
       retryable?: false
     }
   end
@@ -359,7 +365,7 @@ defmodule Jido.Action.Error do
       type: :execution_error,
       message: normalize_message(message),
       details: normalize_details(details),
-      retryable?: normalize_retryable(details, :execution_error)
+      retryable?: execution_retryable?(details)
     }
   end
 
@@ -433,9 +439,9 @@ defmodule Jido.Action.Error do
 
   def to_map(reason) when is_atom(reason) do
     %{
-      type: reason,
+      type: :execution_error,
       message: normalize_message(reason),
-      details: %{},
+      details: %{reason: reason},
       retryable?: retryable?(reason)
     }
   end
@@ -461,9 +467,9 @@ defmodule Jido.Action.Error do
   def retryable?(%InvalidInputError{}), do: false
   def retryable?(%ConfigurationError{}), do: false
   def retryable?(%TimeoutError{}), do: true
-  def retryable?(%ExecutionFailureError{details: details}), do: retryable_hint(details, true)
-  def retryable?(%InternalError{details: details}), do: retryable_hint(details, true)
-  def retryable?(%Internal.UnknownError{details: details}), do: retryable_hint(details, true)
+  def retryable?(%ExecutionFailureError{details: details}), do: execution_retryable?(details)
+  def retryable?(%InternalError{details: details}), do: retryable_hint(details, false)
+  def retryable?(%Internal.UnknownError{details: details}), do: retryable_hint(details, false)
 
   def retryable?(%{retryable?: value}) when is_boolean(value), do: value
   def retryable?(%{retryable: value}) when is_boolean(value), do: value
@@ -480,7 +486,7 @@ defmodule Jido.Action.Error do
     retryable_hint(map, true)
   end
 
-  def retryable?(reason) when is_atom(reason), do: default_retryable_reason?(reason)
+  def retryable?(reason) when is_atom(reason), do: retryable_hint(%{reason: reason}, false)
   def retryable?(_reason), do: true
 
   defp normalize_retryable(error, type) do
@@ -496,7 +502,7 @@ defmodule Jido.Action.Error do
   defp normalize_message(message), do: safe_inspect(message)
 
   defp normalize_details(details) when is_map(details) do
-    case Sanitizer.sanitize(details) do
+    case normalize_detail_value(details) do
       sanitized when is_map(sanitized) -> sanitized
       _ -> %{}
     end
@@ -541,13 +547,31 @@ defmodule Jido.Action.Error do
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
-  defp default_retryable_type?(type) when type in [:validation_error, :configuration_error],
-    do: false
+  defp maybe_put_kind(map, original_type, canonical_type) do
+    if original_type in @canonical_error_types or canonical_type != :execution_error do
+      map
+    else
+      Map.put_new(map, :kind, original_type)
+    end
+  end
 
+  defp canonical_error_type(type) when type in @canonical_error_types, do: type
+  defp canonical_error_type(:config_error), do: :configuration_error
+  defp canonical_error_type(:invalid_input), do: :validation_error
+  defp canonical_error_type(:invalid_input_error), do: :validation_error
+  defp canonical_error_type(:timeout_error), do: :timeout
+  defp canonical_error_type(:execution_failure), do: :execution_error
+  defp canonical_error_type(:execution_failure_error), do: :execution_error
+  defp canonical_error_type(:internal), do: :internal_error
+  defp canonical_error_type(_type), do: :execution_error
+
+  defp default_retryable_type?(type)
+       when type in [:validation_error, :configuration_error, :internal_error],
+       do: false
+
+  defp default_retryable_type?(:timeout), do: true
+  defp default_retryable_type?(:execution_error), do: true
   defp default_retryable_type?(_type), do: true
-
-  defp default_retryable_reason?(reason) when reason in @retryable_reason_atoms, do: true
-  defp default_retryable_reason?(_reason), do: false
 
   defp retryable_hint(term, default) do
     case extract_retry_hint(term) do
@@ -555,6 +579,16 @@ defmodule Jido.Action.Error do
       value -> value != false
     end
   end
+
+  defp execution_retryable?(%{reason: reason} = details) when is_atom(reason) do
+    retryable_hint(details, false)
+  end
+
+  defp execution_retryable?(%{"reason" => reason} = details) when is_atom(reason) do
+    retryable_hint(details, false)
+  end
+
+  defp execution_retryable?(details), do: retryable_hint(details, true)
 
   defp extract_retry_hint(%{details: details}) do
     case extract_retry_value(details) do
@@ -610,9 +644,145 @@ defmodule Jido.Action.Error do
   rescue
     _ ->
       value
-      |> Sanitizer.sanitize()
+      |> normalize_detail_value()
       |> inspect()
   end
+
+  defp normalize_detail_value(value)
+
+  defp normalize_detail_value(value)
+       when is_nil(value) or is_boolean(value) or is_number(value) or is_atom(value) or
+              is_binary(value),
+       do: value
+
+  defp normalize_detail_value(%_{} = struct) do
+    struct
+    |> Map.from_struct()
+    |> normalize_detail_map()
+    |> Map.put(:__struct__, normalize_struct_marker(struct.__struct__))
+    |> maybe_put_exception_marker(struct)
+  end
+
+  defp normalize_detail_value(value) when is_map(value), do: normalize_detail_map(value)
+
+  defp normalize_detail_value(value) when is_list(value) do
+    case list_parts(value) do
+      {:proper, items} ->
+        Enum.map(items, &normalize_detail_value/1)
+
+      {:improper, items, tail} ->
+        %{
+          __type__: :improper_list,
+          items: Enum.map(items, &normalize_detail_value/1),
+          tail: normalize_detail_value(tail)
+        }
+    end
+  end
+
+  defp normalize_detail_value(value) when is_tuple(value) do
+    value
+    |> Tuple.to_list()
+    |> Enum.map(&normalize_detail_value/1)
+  end
+
+  defp normalize_detail_value(value) when is_pid(value),
+    do: List.to_string(:erlang.pid_to_list(value))
+
+  defp normalize_detail_value(value) when is_reference(value),
+    do: List.to_string(:erlang.ref_to_list(value))
+
+  defp normalize_detail_value(value) when is_port(value),
+    do: List.to_string(:erlang.port_to_list(value))
+
+  defp normalize_detail_value(value), do: inspect_detail_value(value)
+
+  defp normalize_detail_map(map) do
+    map
+    |> Map.to_list()
+    |> Enum.map(fn {key, value} ->
+      normalized_key = normalize_detail_key(key)
+      {normalized_key, inspect_detail_value(normalized_key), normalize_detail_value(value)}
+    end)
+    |> Enum.sort_by(fn {_normalized_key, sort_key, _normalized_value} -> sort_key end)
+    |> Enum.map(fn {normalized_key, _sort_key, normalized_value} ->
+      {normalized_key, normalized_value}
+    end)
+    |> Map.new()
+  end
+
+  defp normalize_detail_key(key)
+       when is_atom(key) or is_binary(key) or is_number(key) or is_boolean(key) or is_nil(key),
+       do: key
+
+  defp normalize_detail_key(key) do
+    key
+    |> normalize_detail_value()
+    |> inspect_detail_key()
+  end
+
+  defp inspect_detail_key(key) when is_binary(key), do: key
+  defp inspect_detail_key(key) when is_atom(key), do: Atom.to_string(key)
+  defp inspect_detail_key(key) when is_number(key) or is_boolean(key), do: to_string(key)
+  defp inspect_detail_key(key), do: inspect_detail_value(key)
+
+  defp maybe_put_exception_marker(map, struct) do
+    if is_exception(struct) do
+      Map.put(map, :__exception__, true)
+    else
+      map
+    end
+  end
+
+  defp normalize_struct_marker(mod) when is_atom(mod), do: inspect(mod)
+
+  defp inspect_detail_value(value) do
+    inspect(value, @inspect_opts)
+  rescue
+    _ -> fallback_detail_inspect(value)
+  end
+
+  defp fallback_detail_inspect(value) when is_function(value), do: "#Function<uninspectable>"
+
+  defp fallback_detail_inspect(value) when is_pid(value),
+    do: List.to_string(:erlang.pid_to_list(value))
+
+  defp fallback_detail_inspect(value) when is_reference(value),
+    do: List.to_string(:erlang.ref_to_list(value))
+
+  defp fallback_detail_inspect(value) when is_port(value),
+    do: List.to_string(:erlang.port_to_list(value))
+
+  defp fallback_detail_inspect(%_{} = struct) do
+    "#Struct<#{normalize_struct_marker(struct.__struct__)}>"
+  end
+
+  defp fallback_detail_inspect(value) when is_map(value), do: "#Map<size=#{map_size(value)}>"
+
+  defp fallback_detail_inspect(value) when is_list(value) do
+    case list_parts(value) do
+      {:proper, items} ->
+        "#List<size=#{length(items)}>"
+
+      {:improper, items, tail} ->
+        "#ImproperList<size=#{length(items)}, tail=#{inspect_detail_value(tail)}>"
+    end
+  end
+
+  defp fallback_detail_inspect(value) when is_tuple(value),
+    do: "#Tuple<size=#{tuple_size(value)}>"
+
+  defp fallback_detail_inspect(value) when is_binary(value), do: value
+  defp fallback_detail_inspect(value) when is_atom(value), do: Atom.to_string(value)
+  defp fallback_detail_inspect(value) when is_number(value), do: to_string(value)
+  defp fallback_detail_inspect(value) when is_boolean(value), do: to_string(value)
+  defp fallback_detail_inspect(nil), do: "nil"
+  defp fallback_detail_inspect(_value), do: "#Term<uninspectable>"
+
+  defp list_parts(list), do: do_list_parts(list, [])
+
+  defp do_list_parts([], acc), do: {:proper, Enum.reverse(acc)}
+  defp do_list_parts([head | tail], acc), do: do_list_parts(tail, [head | acc])
+  defp do_list_parts(tail, acc), do: {:improper, Enum.reverse(acc), tail}
 end
 
 defimpl Jason.Encoder,

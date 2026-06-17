@@ -68,7 +68,7 @@ defmodule JidoTest.ExecReturnShapeTest do
       end)
     end
 
-    test "normalizes retryable atom errors with structured retry hints" do
+    test "normalizes atom errors as opaque execution reasons" do
       defmodule RetryableAtomErrorAction do
         use Jido.Action, name: "retryable_atom_error"
 
@@ -82,8 +82,8 @@ defmodule JidoTest.ExecReturnShapeTest do
         assert Error.to_map(error) == %{
                  type: :execution_error,
                  message: "transient_error",
-                 details: %{reason: :transient_error, retry: true},
-                 retryable?: true
+                 details: %{reason: :transient_error},
+                 retryable?: false
                }
       end)
     end
@@ -102,7 +102,7 @@ defmodule JidoTest.ExecReturnShapeTest do
         assert Error.to_map(error) == %{
                  type: :execution_error,
                  message: "badarg",
-                 details: %{reason: :badarg, retry: false},
+                 details: %{reason: :badarg},
                  retryable?: false
                }
       end)
@@ -122,8 +122,8 @@ defmodule JidoTest.ExecReturnShapeTest do
         assert Error.to_map(error) == %{
                  type: :execution_error,
                  message: "transient_error",
-                 details: %{reason: :transient_error, retry: true},
-                 retryable?: true
+                 details: %{reason: :transient_error},
+                 retryable?: false
                }
       end)
     end
@@ -145,8 +145,8 @@ defmodule JidoTest.ExecReturnShapeTest do
           assert Error.to_map(error) == %{
                    type: :execution_error,
                    message: "transient_error",
-                   details: %{reason: :transient_error, retry: true},
-                   retryable?: true
+                   details: %{reason: :transient_error},
+                   retryable?: false
                  }
         end)
 

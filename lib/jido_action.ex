@@ -134,16 +134,44 @@ defmodule Jido.Action do
                               description:
                                 "A Zoi schema for validating the Action's input parameters."
                             )
-                            |> Zoi.refine({Jido.Action.Schema, :validate_config_schema, []})
+                            |> Zoi.refine({__MODULE__, :validate_config_schema, []})
                             |> Zoi.default([]),
                           output_schema:
                             Zoi.any(
                               description:
                                 "A Zoi schema for validating the Action's output. Only specified fields are validated."
                             )
-                            |> Zoi.refine({Jido.Action.Schema, :validate_config_schema, []})
+                            |> Zoi.refine({__MODULE__, :validate_config_schema, []})
                             |> Zoi.default([])
                         })
+
+  @doc false
+  @spec validate_config_schema(term(), keyword()) :: :ok | {:error, String.t()}
+  def validate_config_schema(value, _opts \\ [])
+
+  def validate_config_schema([], _opts), do: :ok
+
+  def validate_config_schema(value, _opts) do
+    if zoi_schema?(value) do
+      :ok
+    else
+      {:error, "must be a Zoi schema"}
+    end
+  end
+
+  @doc false
+  @spec validate_params_for(map(), module()) ::
+          {:ok, map()} | {:error, Error.InvalidInputError.t()}
+  def validate_params_for(params, module) do
+    validate_data(module.schema(), params, "Action", module)
+  end
+
+  @doc false
+  @spec validate_output_for(map(), module()) ::
+          {:ok, map()} | {:error, Error.InvalidInputError.t()}
+  def validate_output_for(output, module) do
+    validate_data(module.output_schema(), output, "Action output", module)
+  end
 
   @validate_params_doc """
   Validates the input parameters for the Action.
@@ -236,7 +264,6 @@ defmodule Jido.Action do
       Module.register_attribute(__MODULE__, :jido_allow_nested_exec, persist: false)
 
       alias Jido.Action
-      alias Jido.Action.Runtime
       alias Jido.Action.Util
       alias Jido.Signal
 
@@ -331,11 +358,11 @@ defmodule Jido.Action do
     quote location: :keep do
       @doc unquote(validate_params_doc)
       @spec validate_params(map()) :: {:ok, map()} | {:error, String.t()}
-      def validate_params(params), do: Runtime.validate_params(params, __MODULE__)
+      def validate_params(params), do: Action.validate_params_for(params, __MODULE__)
 
       @doc unquote(validate_output_doc)
       @spec validate_output(map()) :: {:ok, map()} | {:error, String.t()}
-      def validate_output(output), do: Runtime.validate_output(output, __MODULE__)
+      def validate_output(output), do: Action.validate_output_for(output, __MODULE__)
     end
   end
 
@@ -404,7 +431,7 @@ defmodule Jido.Action do
     nested Jido action execution inside #{inspect(env.module)}.run/2
 
     Calling Jido.Exec.#{function}/#{exec_arity_label(function)} inside an action makes composition opaque.
-    Keep actions as leaf nodes and move orchestration to the caller or runtime.
+    Keep actions as leaf nodes and move composition to Jido.Flow/Jido.Exec.
 
     Set @jido_allow_nested_exec true before run/2 if this action is intentionally an orchestrator.
     """
@@ -459,5 +486,80 @@ defmodule Jido.Action do
     "Actions should not be defined at runtime"
     |> Error.config_error()
     |> then(&{:error, &1})
+  end
+
+  defp validate_data([], data, _context, _module), do: {:ok, data}
+
+  defp validate_data(schema, data, context, module) do
+    if zoi_schema?(schema) do
+      {known_data, unknown_data} = split_known_and_unknown(data, schema)
+
+      schema
+      |> Zoi.parse(known_data)
+      |> handle_validation_result(unknown_data, context, module)
+    else
+      {:error,
+       Error.validation_error("Unsupported schema type", %{
+         context: context,
+         module: module
+       })}
+    end
+  end
+
+  defp handle_validation_result({:ok, validated}, unknown, _context, _module) do
+    validated = if is_struct(validated), do: Map.from_struct(validated), else: validated
+    {:ok, Map.merge(unknown, validated)}
+  end
+
+  defp handle_validation_result({:error, errors}, _unknown, context, module) do
+    {:error, format_validation_errors(errors, context, module)}
+  end
+
+  defp split_known_and_unknown(data, schema) do
+    Map.split(data, schema_keys(schema))
+  end
+
+  defp schema_keys([]), do: []
+
+  defp schema_keys(%{__struct__: Zoi.Types.Map, fields: fields}) when is_map(fields) do
+    Map.keys(fields)
+  end
+
+  defp schema_keys(%{__struct__: Zoi.Types.Map, fields: fields}) when is_list(fields) do
+    Keyword.keys(fields)
+  end
+
+  defp schema_keys(%{__struct__: Zoi.Types.Struct, fields: fields}) when is_map(fields) do
+    Map.keys(fields)
+  end
+
+  defp schema_keys(%{__struct__: Zoi.Types.Struct, fields: fields}) when is_list(fields) do
+    Keyword.keys(fields)
+  end
+
+  defp schema_keys(_schema), do: []
+
+  defp format_validation_errors(errors, context, module) do
+    Error.validation_error(Zoi.prettify_errors(errors), %{
+      context: context,
+      module: module,
+      errors: Enum.map(errors, &format_zoi_error/1)
+    })
+  end
+
+  defp format_zoi_error(%{path: path, message: message} = error) do
+    %{
+      path: path,
+      message: message,
+      code: Map.get(error, :code)
+    }
+  end
+
+  defp format_zoi_error(error), do: %{message: inspect(error)}
+
+  defp zoi_schema?(value) do
+    is_struct(value) && Zoi.Type.impl_for(value) != nil
+  rescue
+    _ -> false
   end
 end

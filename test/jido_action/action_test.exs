@@ -23,8 +23,8 @@ defmodule JidoTest.Exec.ActionTest do
     test "creates a valid action with retained metadata" do
       assert FullAction.name() == "full_action"
       assert FullAction.description() == "A full action for testing"
-      assert Jido.Action.Schema.schema_type(FullAction.schema()) == :zoi
-      assert FullAction.schema() |> Jido.Action.Schema.known_keys() |> Enum.sort() == [:a, :b]
+      assert %Zoi.Types.Map{fields: fields} = FullAction.schema()
+      assert fields |> field_keys() |> Enum.sort() == [:a, :b]
     end
 
     test "creates a valid action with no schema" do
@@ -156,4 +156,7 @@ defmodule JidoTest.Exec.ActionTest do
       assert result.anything == "goes"
     end
   end
+
+  defp field_keys(fields) when is_map(fields), do: Map.keys(fields)
+  defp field_keys(fields) when is_list(fields), do: Keyword.keys(fields)
 end
