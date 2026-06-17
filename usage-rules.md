@@ -12,6 +12,7 @@ Keep higher-level orchestration outside this package.
 - Provide stable `name` and useful `description` values.
 - Use Zoi schemas for `schema` and `output_schema`; omit them or use `[]` only when validation is intentionally empty.
 - Keep `run/2` strict: return `{:ok, result}`, `{:ok, result, extra}`, `{:error, reason}`, or `{:error, reason, extra}`.
+- Keep `run/2` as a leaf node. Calling `Jido.Exec.run/4` or `run_async/4` inside `run/2` emits a compile-time warning; set `@jido_allow_nested_exec true` before `run/2` only for intentional orchestrator actions.
 - Keep side effects explicit inside `run/2` and make them easy to test.
 
 ## Execution
