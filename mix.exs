@@ -84,6 +84,7 @@ defmodule JidoAction.MixProject do
           "guides/actions-guide.md",
           "guides/schemas-validation.md",
           "guides/execution-engine.md",
+          "guides/flows-runtime.md",
           "guides/error-handling.md"
         ],
         "How-To Guides": [
@@ -107,6 +108,7 @@ defmodule JidoAction.MixProject do
         {"guides/actions-guide.md", title: "Actions"},
         {"guides/schemas-validation.md", title: "Schemas & Validation"},
         {"guides/execution-engine.md", title: "Execution Engine"},
+        {"guides/flows-runtime.md", title: "Flows & Runtime"},
         {"guides/error-handling.md", title: "Error Handling"},
         # How-To Guides
         {"guides/configuration.md", title: "Configuration"},
@@ -126,24 +128,25 @@ defmodule JidoAction.MixProject do
       groups_for_modules: [
         Core: [
           Jido.Action,
+          Jido.Flow,
+          Jido.Flow.Step,
           Jido.Action.Error,
           Jido.Instruction,
           Jido.Action.Util
-        ],
-        "Schemas & Validation": [
-          Jido.Action.Runtime,
-          Jido.Action.Schema
         ],
         "Execution Engine": [
           Jido.Exec,
           Jido.Exec.Async,
           Jido.Exec.Closure,
+          Jido.Exec.Result,
+          Jido.Exec.Runner,
           Jido.Exec.Retry,
           Jido.Exec.Supervisors,
           Jido.Exec.Telemetry,
           Jido.Exec.Validator
         ],
         Examples: [
+          Jido.Examples.FlowExample,
           Jido.Examples.ZoiExample
         ],
         "Error Types": [
@@ -183,6 +186,7 @@ defmodule JidoAction.MixProject do
       {:jason, "~> 1.4"},
       {:telemetry, "~> 1.3"},
       {:zoi, "~> 0.17"},
+      {:runic, "~> 0.1.0-alpha.8"},
       {:splode, "~> 0.3.0"},
 
       # Development & Test Dependencies
