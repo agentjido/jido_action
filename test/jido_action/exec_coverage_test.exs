@@ -163,34 +163,6 @@ defmodule JidoTest.ExecCoverageTest do
     end
   end
 
-  describe "Instruction struct execution coverage" do
-    test "run/1 with Instruction struct" do
-      instruction = %Jido.Instruction{
-        action: BasicAction,
-        params: %{value: 42},
-        context: %{test: "context"},
-        opts: [timeout: 1000, log_level: :debug]
-      }
-
-      capture_log(fn ->
-        assert {:ok, %{value: 42}} = Exec.run(instruction)
-      end)
-    end
-
-    test "run/1 with Instruction struct using all defaults" do
-      instruction = %Jido.Instruction{
-        action: BasicAction,
-        params: %{value: 100},
-        context: %{},
-        opts: []
-      }
-
-      capture_log(fn ->
-        assert {:ok, %{value: 100}} = Exec.run(instruction)
-      end)
-    end
-  end
-
   describe "error handling edge cases" do
     test "run/4 with non-atom action" do
       assert {:error, %Error.InvalidInputError{}} =

@@ -10,7 +10,6 @@ defmodule Jido.Exec do
   - **Jido.Exec.Retry** - Exponential backoff and retry logic
   - **Jido.Exec.Compensation** - Error handling and compensation
   - **Jido.Exec.Async** - Asynchronous execution management
-  - **Jido.Exec.Chain** - Sequential action execution
   - **Jido.Exec.Closure** - Action closures with pre-applied context
 
   ## Core Features
@@ -46,7 +45,6 @@ defmodule Jido.Exec do
   alias Jido.Exec.Supervisors
   alias Jido.Exec.Telemetry
   alias Jido.Exec.Validator
-  alias Jido.Instruction
 
   require Logger
 
@@ -151,17 +149,7 @@ defmodule Jido.Exec do
       #   end
       # end
   """
-  @spec run(Instruction.t()) :: exec_result()
   @spec run(action(), params(), context(), run_opts()) :: exec_result()
-  def run(%Instruction{} = instruction) do
-    run(
-      instruction.action,
-      instruction.params,
-      instruction.context,
-      instruction.opts
-    )
-  end
-
   def run(action, params \\ %{}, context \\ %{}, opts \\ [])
 
   def run(action, params, context, opts) when is_atom(action) and is_list(opts) do

@@ -85,7 +85,6 @@ defmodule JidoAction.MixProject do
           "guides/action-catalogs.md",
           "guides/schemas-validation.md",
           "guides/execution-engine.md",
-          "guides/instructions-plans.md",
           "guides/error-handling.md"
         ],
         "How-To Guides": [
@@ -112,7 +111,6 @@ defmodule JidoAction.MixProject do
         {"guides/action-catalogs.md", title: "Action Catalogs"},
         {"guides/schemas-validation.md", title: "Schemas & Validation"},
         {"guides/execution-engine.md", title: "Execution Engine"},
-        {"guides/instructions-plans.md", title: "Instructions & Plans"},
         {"guides/error-handling.md", title: "Error Handling"},
         # How-To Guides
         {"guides/ai-integration.md", title: "AI Integration"},
@@ -149,18 +147,12 @@ defmodule JidoAction.MixProject do
         "Execution Engine": [
           Jido.Exec,
           Jido.Exec.Async,
-          Jido.Exec.Chain,
           Jido.Exec.Closure,
           Jido.Exec.Compensation,
           Jido.Exec.Retry,
           Jido.Exec.Supervisors,
           Jido.Exec.Telemetry,
           Jido.Exec.Validator
-        ],
-        "Planning & Workflows": [
-          Jido.Plan,
-          Jido.Plan.PlanInstruction,
-          Jido.Instruction
         ],
         Examples: [
           Jido.Examples.ZoiExample
@@ -204,9 +196,6 @@ defmodule JidoAction.MixProject do
       {:telemetry, "~> 1.3"},
       {:zoi, "~> 0.17"},
       {:splode, "~> 0.3.0"},
-
-      # Workflow dependencies
-      {:multigraph, "~> 0.16.1-mg.3"},
 
       # Development & Test Dependencies
       {:git_ops, "~> 2.9", only: :dev, runtime: false},
