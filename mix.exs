@@ -127,6 +127,7 @@ defmodule JidoAction.MixProject do
         Core: [
           Jido.Action,
           Jido.Action.Error,
+          Jido.Instruction,
           Jido.Action.Util
         ],
         "Schemas & Validation": [

@@ -17,6 +17,7 @@ Keep higher-level orchestration outside this package.
 ## Execution
 
 - Use `Jido.Exec.run/4` when retry, timeout, telemetry, output validation, crash normalization, or context propagation matters.
+- Use `Jido.Instruction` when one requested action call needs to be represented as data before execution.
 - Use `run_async/4`, `await/1`, `await/2`, and `cancel/1` for supervised async work.
 - Pass request state through `context`; do not rely on hidden process state unless a context propagator is configured.
 - Configure defaults with `:default_timeout`, `:default_max_retries`, and `:default_backoff`.

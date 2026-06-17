@@ -5,6 +5,7 @@
 V3 keeps this package focused on one boundary:
 
 - `Jido.Action` defines a named action with Zoi input and output schemas.
+- `Jido.Instruction` captures one requested action call as data.
 - `Jido.Exec` validates params, runs one action, applies timeout and retry policy, validates output, and normalizes crashes.
 - Async execution, cancellation, telemetry, context propagation, and instance-scoped supervisors remain in `Jido.Exec`.
 
@@ -77,6 +78,25 @@ Public action functions:
 - `{:error, reason, extra}`
 
 Three-tuple returns preserve the third value after output validation.
+
+## Capture A Call Frame
+
+Use `Jido.Instruction` when the intent to run an action needs to be passed,
+logged, queued, or enriched before execution.
+
+```elixir
+instruction =
+  Jido.Instruction.new!(
+    action: MyApp.Actions.GreetUser,
+    params: %{name: "Ada"},
+    context: %{request_id: "req-123"},
+    opts: [timeout: 1_000]
+  )
+
+{:ok, result} = Jido.Exec.run(instruction)
+```
+
+An instruction is one action call frame. It is not a workflow or program.
 
 ## Async Execution
 

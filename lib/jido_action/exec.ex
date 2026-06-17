@@ -43,6 +43,7 @@ defmodule Jido.Exec do
   alias Jido.Exec.Supervisors
   alias Jido.Exec.Telemetry
   alias Jido.Exec.Validator
+  alias Jido.Instruction
 
   require Logger
 
@@ -70,7 +71,7 @@ defmodule Jido.Exec do
     end
   end
 
-  @type action :: module()
+  @type action :: module() | Instruction.t()
   @type params :: map()
   @type context :: map()
   @type run_opts :: keyword()
@@ -131,6 +132,19 @@ defmodule Jido.Exec do
   """
   @spec run(action(), params(), context(), run_opts()) :: exec_result()
   def run(action, params \\ %{}, context \\ %{}, opts \\ [])
+
+  def run(%Instruction{} = instruction, params, context, opts) when is_list(opts) do
+    with {:ok, normalized_params} <- normalize_params(params),
+         {:ok, normalized_context} <- normalize_context(context),
+         {:ok, normalized_instruction} <- Instruction.normalize_single(instruction) do
+      run(
+        normalized_instruction.action,
+        Map.merge(normalized_instruction.params, normalized_params),
+        Map.merge(normalized_instruction.context, normalized_context),
+        Keyword.merge(normalized_instruction.opts, opts)
+      )
+    end
+  end
 
   def run(action, params, context, opts) when is_atom(action) and is_list(opts) do
     opts = apply_compat_opts(opts)
