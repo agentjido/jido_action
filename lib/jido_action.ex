@@ -64,56 +64,6 @@ defmodule Jido.Action do
 
   Errors are wrapped in `Jido.Action.Error` structs for uniform error reporting across the system.
 
-  ## AI Tool Example
-
-  Actions can be converted to LLM compatible tools for use with LLM-based systems. This is particularly
-  useful when building AI agents that need to interact with your system's capabilities:
-
-      # Define a weather action
-      iex> defmodule WeatherAction do
-      ...>   use Jido.Action,
-      ...>     name: "get_weather",
-      ...>     description: "Gets the current weather for a location",
-      ...>     category: "weather",
-      ...>     tags: ["weather", "location"],
-      ...>     vsn: "1.0.0",
-      ...>     schema: [
-      ...>       location: [
-      ...>         type: :string,
-      ...>         required: true,
-      ...>         doc: "The city or location to get weather for"
-      ...>       ]
-      ...>     ]
-      ...>
-      ...>   @impl true
-      ...>   def run(params, _context) do
-      ...>     # Weather API logic here
-      ...>     {:ok, %{temperature: 72, conditions: "sunny"}}
-      ...>   end
-      ...> end
-      {:module, WeatherAction, ...}
-
-      # Convert to tool format
-      iex> WeatherAction.to_tool()
-      %{
-        "name" => "get_weather",
-        "description" => "Gets the current weather for a location",
-        "parameters" => %{
-          "type" => "object",
-          "properties" => %{
-            "location" => %{
-              "type" => "string",
-              "description" => "The city or location to get weather for"
-            }
-          },
-          "required" => ["location"]
-        }
-      }
-
-  This tool definition can then be used with AI systems like OpenAI's function calling
-  or other LLM frameworks that support tool/function specifications. The schema and
-  validation ensure the AI system receives proper parameter constraints.
-
   ## Testing
 
   Actions can be tested directly by calling their `run/2` function with test parameters and context:
@@ -164,8 +114,6 @@ defmodule Jido.Action do
   """
 
   alias Jido.Action.Error
-  alias Jido.Action.Tool
-
   # Define Zoi schema for Action metadata
   @schema Zoi.struct(
             __MODULE__,
@@ -454,11 +402,6 @@ defmodule Jido.Action do
           schema: schema(),
           output_schema: output_schema()
         }
-      end
-
-      @doc "Converts the Action to an LLM-compatible tool format."
-      def to_tool do
-        Tool.to_tool(__MODULE__, strict: true)
       end
 
       @doc "Returns the Action metadata. Alias for to_json/0."
