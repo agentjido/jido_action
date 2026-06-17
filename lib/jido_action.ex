@@ -340,7 +340,6 @@ defmodule Jido.Action do
       alias Jido.Action
       alias Jido.Action.Runtime
       alias Jido.Action.Util
-      alias Jido.Instruction
       alias Jido.Signal
 
       # Convert opts to map for Zoi validation (including nested keyword lists)

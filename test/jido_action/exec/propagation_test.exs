@@ -5,7 +5,6 @@ defmodule JidoTest.Exec.PropagationTest do
 
   alias Jido.Action.Error
   alias Jido.Exec
-  alias Jido.Exec.Chain
   alias Jido.Exec.Propagation
 
   @prop_key :jido_test_runtime_context
@@ -238,25 +237,6 @@ defmodule JidoTest.Exec.PropagationTest do
       assert_receive {:compensation_context, "comp-trace", compensation_pid}
       refute compensation_pid == self()
       assert error.details.compensation_context == %{propagated: "comp-trace"}
-    end
-
-    test "propagates runtime context into async chain execution" do
-      Process.put(@prop_key, "chain-trace")
-
-      task =
-        Chain.chain(
-          [ReportingAction],
-          %{label: :chain, test_pid: self()},
-          async: true,
-          timeout: 100,
-          context_propagators: [ProcessDictionaryPropagator]
-        )
-
-      assert %Task{} = task
-      assert_receive {:propagated_context, :chain, "chain-trace", action_pid}
-      refute action_pid == self()
-      refute action_pid == task.pid
-      assert {:ok, %{propagated: "chain-trace"}} = Task.await(task, 1_000)
     end
   end
 
