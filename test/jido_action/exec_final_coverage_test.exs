@@ -247,30 +247,6 @@ defmodule JidoTest.ExecFinalCoverageTest do
                  Exec.run(NoValidateOutputAction, %{value: 42}, %{}, [])
       end)
     end
-
-    test "compensation edge cases with timeout from opts" do
-      # Test compensation timeout coming from execution options
-      defmodule CompensationOptsAction do
-        use Jido.Action,
-          name: "compensation_opts",
-          description: "Action testing compensation with opts",
-          compensation: [enabled: true]
-
-        def run(_params, _context) do
-          {:error, Error.execution_error("test error")}
-        end
-
-        def on_error(_params, _error, _context, _opts) do
-          Process.sleep(200)
-          {:ok, %{compensated: true}}
-        end
-      end
-
-      capture_log(fn ->
-        assert {:error, %Error.ExecutionFailureError{}} =
-                 Exec.run(CompensationOptsAction, %{}, %{}, timeout: 100)
-      end)
-    end
   end
 
   describe "telemetry and monitoring coverage" do

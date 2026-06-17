@@ -25,7 +25,7 @@ defmodule JidoTest.TestActions do
       description: "Echoes normalized params and context for execution tests"
 
     def run(params, context) do
-      {:ok, %{params: params, context: Map.delete(context, :action_metadata)}}
+      {:ok, %{params: params, context: context}}
     end
   end
 
@@ -116,19 +116,8 @@ defmodule JidoTest.TestActions do
         value: [type: :integer, required: true]
       ]
 
-    @impl true
     def run(%{input: input}, _context) do
       {:ok, %{value: input}}
-    end
-
-    @impl true
-    def on_before_validate_output(output) do
-      {:ok, Map.put(output, :preprocessed, true)}
-    end
-
-    @impl true
-    def on_after_validate_output(output) do
-      {:ok, Map.put(output, :postprocessed, true)}
     end
   end
 
@@ -137,58 +126,16 @@ defmodule JidoTest.TestActions do
     use Action,
       name: "full_action",
       description: "A full action for testing",
-      category: "test",
-      tags: ["test", "full"],
-      vsn: "1.0.0",
       schema: [
         a: [type: :integer, required: true],
         b: [type: :integer, required: true]
       ]
 
     @impl true
-    def on_before_validate_params(params) do
-      with {:ok, a} <- validate_positive_integer(params[:a]),
-           {:ok, b} <- validate_multiple_of_two(params[:b]) do
-        {:ok, %{params | a: a, b: b}}
-      end
-    end
-
-    defp validate_positive_integer(value) when is_integer(value) and value > 0, do: {:ok, value}
-
-    defp validate_positive_integer(_),
-      do: {:error, Error.validation_error("Parameter 'a' must be a positive integer")}
-
-    defp validate_multiple_of_two(value) when is_integer(value) and rem(value, 2) == 0,
-      do: {:ok, value}
-
-    defp validate_multiple_of_two(_),
-      do: {:error, Error.validation_error("Parameter 'b' must be a multiple of 2")}
-
-    @impl true
-    def on_after_validate_params(params) do
-      params =
-        params
-        |> Map.put(:timestamp, System.system_time(:millisecond))
-        |> Map.put(:id, :rand.uniform(1000))
-
-      {:ok, params}
-    end
-
-    @impl true
     def run(params, _context) do
       result = params.a + params.b
       {:ok, Map.put(params, :result, result)}
     end
-
-    @impl true
-    def on_after_run({:ok, result}) do
-      {:ok, Map.put(result, :execution_time, System.system_time(:millisecond) - result.timestamp)}
-    end
-
-    def on_after_run({:error, _} = error), do: error
-
-    @impl true
-    def on_error(failed_params, _error, _context, _opts), do: {:ok, failed_params}
   end
 
   defmodule CompensateAction do
@@ -196,7 +143,6 @@ defmodule JidoTest.TestActions do
     use Action,
       name: "compensate_action",
       description: "Action that tests compensation behavior",
-      compensation: [enabled: true, max_retries: 3, timeout: 50],
       schema: [
         should_fail: [type: :boolean, required: true],
         compensation_should_fail: [type: :boolean, default: false],
@@ -210,85 +156,6 @@ defmodule JidoTest.TestActions do
 
     def run(_params, _context) do
       {:ok, %{result: "CompensateAction completed"}}
-    end
-
-    def on_error(params, error, context, _opts) do
-      if params.compensation_should_fail do
-        {:error, Error.execution_error("Compensation failed")}
-      else
-        if params.delay > 0, do: Process.sleep(params.delay)
-
-        {_top_level_fields, remaining_fields} = Map.split(params, [:test_value])
-
-        {:ok,
-         Map.merge(remaining_fields, %{
-           compensated: true,
-           original_error: error,
-           compensation_context: context,
-           test_value: params[:test_value]
-         })}
-      end
-    end
-  end
-
-  defmodule CrashingCompensateAction do
-    @moduledoc false
-    use Action,
-      name: "crashing_compensate_action",
-      description: "Action that crashes during compensation",
-      compensation: [enabled: true, timeout: 100],
-      schema: [
-        should_fail: [type: :boolean, required: true],
-        crash_type: [type: :atom, default: :raise]
-      ]
-
-    def run(%{should_fail: true}, _context) do
-      {:error, Error.execution_error("Intentional failure")}
-    end
-
-    def run(_params, _context) do
-      {:ok, %{result: "Completed"}}
-    end
-
-    def on_error(%{crash_type: :raise}, _error, _context, _opts) do
-      raise "Compensation crashed"
-    end
-
-    def on_error(%{crash_type: :badarith}, _error, _context, _opts) do
-      _ = 1 / 0
-    end
-
-    def on_error(%{crash_type: :exit}, _error, _context, _opts) do
-      exit(:compensation_exit)
-    end
-
-    def on_error(_params, _error, _context, _opts) do
-      {:ok, %{compensated: true}}
-    end
-  end
-
-  defmodule OptsCapturingCompensateAction do
-    @moduledoc false
-    use Action,
-      name: "opts_capturing_compensate_action",
-      description: "Action that captures opts passed to on_error",
-      compensation: [enabled: true, timeout: 100],
-      schema: [
-        should_fail: [type: :boolean, required: true],
-        capture_pid: [type: :any, required: true]
-      ]
-
-    def run(%{should_fail: true}, _context) do
-      {:error, Error.execution_error("Intentional failure")}
-    end
-
-    def run(_params, _context) do
-      {:ok, %{result: "Completed"}}
-    end
-
-    def on_error(%{capture_pid: pid}, _error, _context, opts) do
-      send(pid, {:compensation_opts, opts})
-      {:ok, %{compensated: true, captured_opts: opts}}
     end
   end
 
@@ -1065,11 +932,10 @@ defmodule JidoTest.TestActions do
     use Action,
       name: "metadata_action",
       description: "Demonstrates action metadata",
-      vsn: "87.52.1",
       schema: []
 
     def run(_params, context) do
-      {:ok, %{metadata: context.action_metadata}}
+      {:ok, %{context: context}}
     end
   end
 end

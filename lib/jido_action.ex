@@ -12,23 +12,18 @@ defmodule Jido.Action do
   - Compile-time configuration validation
   - Runtime input parameter validation
   - Consistent error handling and formatting
-  - Extensible lifecycle hooks
-  - JSON serialization support
 
   ## Usage
 
   To define a new Action, use the `Jido.Action` behavior in your module:
 
-    defmodule MyAction do
-      use Jido.Action,
-        name: "my_action",
-        description: "Performs my action",
-        category: "processing",
-        tags: ["example", "demo"],
-        vsn: "1.0.0",
-        schema: [
-          input: [type: :string, required: true]
-        ],
+      defmodule MyAction do
+        use Jido.Action,
+          name: "my_action",
+          description: "Performs my action",
+          schema: [
+            input: [type: :string, required: true]
+          ],
         output_schema: [
           result: [type: :string, required: true]
         ]
@@ -45,12 +40,6 @@ defmodule Jido.Action do
   Implementing modules must define the following callback:
 
   - `c:run/2`: Executes the main logic of the Action.
-
-  Optional callbacks for custom behavior:
-
-  - `c:on_before_validate_params/1`: Called before parameter validation.
-  - `c:on_after_validate_params/1`: Called after parameter validation.
-  - `c:on_after_run/1`: Called after the Action's main logic has executed.
 
   ## Purity and Effects
 
@@ -122,9 +111,6 @@ defmodule Jido.Action do
                 Zoi.string(description: "The name of the Action")
                 |> Zoi.refine({Jido.Action.Util, :validate_name, []}),
               description: Zoi.string(description: "Description") |> Zoi.optional(),
-              category: Zoi.string(description: "Category") |> Zoi.optional(),
-              tags: Zoi.list(Zoi.string(), description: "Tags") |> Zoi.default([]),
-              vsn: Zoi.string(description: "Version") |> Zoi.optional(),
               schema:
                 Zoi.any(description: "NimbleOptions or Zoi schema for validating Action input")
                 |> Zoi.default([]),
@@ -150,24 +136,6 @@ defmodule Jido.Action do
                           description:
                             Zoi.string(description: "A description of what the Action does.")
                             |> Zoi.optional(),
-                          category:
-                            Zoi.string(description: "The category of the Action.")
-                            |> Zoi.optional(),
-                          tags:
-                            Zoi.list(Zoi.string(),
-                              description: "A list of tags associated with the Action."
-                            )
-                            |> Zoi.default([]),
-                          vsn:
-                            Zoi.string(description: "The version of the Action.")
-                            |> Zoi.optional(),
-                          compensation:
-                            Zoi.object(%{
-                              enabled: Zoi.boolean() |> Zoi.default(false),
-                              max_retries: Zoi.integer() |> Zoi.min(0) |> Zoi.default(1),
-                              timeout: Zoi.integer() |> Zoi.min(0) |> Zoi.default(5000)
-                            })
-                            |> Zoi.default(%{enabled: false, max_retries: 1, timeout: 5000}),
                           schema:
                             Zoi.any(
                               description:
@@ -234,13 +202,6 @@ defmodule Jido.Action do
 
   - `name` (required) - The name of the Action. Must contain only letters, numbers, and underscores.
   - `description` (optional) - A description of what the Action does.
-  - `category` (optional) - The category of the Action.
-  - `tags` (optional, default: []) - A list of tags associated with the Action.
-  - `vsn` (optional) - The version of the Action.
-  - `compensation` (optional, default: %{enabled: false, max_retries: 1, timeout: 5000}) - Compensation configuration with keys:
-    - `enabled` (default: false) - Whether compensation is enabled
-    - `max_retries` (default: 1) - Reserved for future use (compensation retries not yet implemented)
-    - `timeout` (default: 5000) - Timeout in milliseconds for compensation execution
   - `schema` (optional, default: []) - A NimbleOptions or Zoi schema for validating the Action's input parameters.
   - `output_schema` (optional, default: []) - A NimbleOptions or Zoi schema for validating the Action's output. Only specified fields are validated.
 
@@ -278,9 +239,8 @@ defmodule Jido.Action do
       end
 
     metadata_ast = action_metadata_ast(schema_ast, output_schema_ast)
-    serialization_ast = action_serialization_ast()
     validation_ast = action_validation_ast(validate_params_doc, validate_output_doc)
-    run_and_hooks_ast = action_run_and_hooks_ast()
+    run_ast = action_run_ast()
 
     quote location: :keep do
       @behaviour Jido.Action
@@ -293,8 +253,7 @@ defmodule Jido.Action do
       # Convert opts to map for Zoi validation (including nested keyword lists)
       opts_map =
         if is_list(unquote(opts_ast)) and Keyword.keyword?(unquote(opts_ast)) do
-          unquote(opts_ast)
-          |> Map.new(&Util.convert_nested_opt/1)
+          Map.new(unquote(opts_ast))
         else
           unquote(opts_ast)
         end
@@ -322,9 +281,8 @@ defmodule Jido.Action do
           @validated_opts Map.drop(validated_opts, [:schema, :output_schema])
 
           unquote(metadata_ast)
-          unquote(serialization_ast)
           unquote(validation_ast)
-          unquote(run_and_hooks_ast)
+          unquote(run_ast)
 
         {:error, errors} ->
           message =
@@ -354,15 +312,6 @@ defmodule Jido.Action do
 
       @doc "Returns the description of the Action."
       def description, do: @validated_opts[:description]
-
-      @doc "Returns the category of the Action."
-      def category, do: @validated_opts[:category]
-
-      @doc "Returns the tags associated with the Action."
-      def tags, do: @validated_opts[:tags]
-
-      @doc "Returns the version of the Action."
-      def vsn, do: @validated_opts[:vsn]
     end
   end
 
@@ -388,29 +337,6 @@ defmodule Jido.Action do
     end
   end
 
-  defp action_serialization_ast do
-    quote location: :keep do
-      @doc "Returns the Action metadata as a JSON-serializable map."
-      def to_json do
-        %{
-          name: @validated_opts[:name],
-          description: @validated_opts[:description],
-          category: @validated_opts[:category],
-          tags: @validated_opts[:tags],
-          vsn: @validated_opts[:vsn],
-          compensation: @validated_opts[:compensation],
-          schema: schema(),
-          output_schema: output_schema()
-        }
-      end
-
-      @doc "Returns the Action metadata. Alias for to_json/0."
-      def __action_metadata__ do
-        to_json()
-      end
-    end
-  end
-
   defp action_validation_ast(validate_params_doc, validate_output_doc) do
     quote location: :keep do
       @doc unquote(validate_params_doc)
@@ -423,7 +349,7 @@ defmodule Jido.Action do
     end
   end
 
-  defp action_run_and_hooks_ast do
+  defp action_run_ast do
     quote location: :keep do
       @doc """
       Executes the Action with the given parameters and context.
@@ -441,31 +367,7 @@ defmodule Jido.Action do
         |> then(&{:error, &1})
       end
 
-      @doc "Lifecycle hook called before parameter validation."
-      def on_before_validate_params(params), do: {:ok, params}
-
-      @doc "Lifecycle hook called after parameter validation."
-      def on_after_validate_params(params), do: {:ok, params}
-
-      @doc "Lifecycle hook called before output validation."
-      def on_before_validate_output(output), do: {:ok, output}
-
-      @doc "Lifecycle hook called after output validation."
-      def on_after_validate_output(output), do: {:ok, output}
-
-      @doc "Lifecycle hook called after Action execution."
-      def on_after_run(result), do: result
-
-      @doc "Lifecycle hook called when an error occurs."
-      def on_error(failed_params, _error, _context, _opts), do: {:ok, failed_params}
-
-      defoverridable on_before_validate_params: 1,
-                     on_after_validate_params: 1,
-                     on_before_validate_output: 1,
-                     on_after_validate_output: 1,
-                     run: 2,
-                     on_after_run: 1,
-                     on_error: 4
+      defoverridable run: 2
     end
   end
 
@@ -484,130 +386,10 @@ defmodule Jido.Action do
   - `{:ok, result}` where `result` is a map containing the action's output.
   - `{:ok, result, extras}` where `result` is a map and `extras` is additional data (e.g., directives).
   - `{:error, reason}` where `reason` describes why the action failed.
+  - `{:error, reason, extras}` where `extras` is additional data (e.g., directives).
   """
   @callback run(params :: map(), context :: map()) ::
-              {:ok, map()} | {:ok, map(), any()} | {:error, any()}
-
-  @doc """
-  Called before parameter validation.
-
-  This optional callback allows for pre-processing of input parameters
-  before they are validated against the Action's schema.
-
-  ## Parameters
-
-  - `params`: A map of raw input parameters.
-
-  ## Returns
-
-  - `{:ok, modified_params}` where `modified_params` is a map of potentially modified parameters.
-  - `{:error, reason}` if pre-processing fails.
-  """
-  @callback on_before_validate_params(params :: map()) :: {:ok, map()} | {:error, any()}
-
-  @doc """
-  Called after parameter validation.
-
-  This optional callback allows for post-processing of validated parameters
-  before they are passed to the `run/2` function.
-
-  ## Parameters
-
-  - `params`: A map of validated input parameters.
-
-  ## Returns
-
-  - `{:ok, modified_params}` where `modified_params` is a map of potentially modified parameters.
-  - `{:error, reason}` if post-processing fails.
-  """
-  @callback on_after_validate_params(params :: map()) :: {:ok, map()} | {:error, any()}
-
-  @doc """
-  Called before output validation.
-
-  This optional callback allows for pre-processing of action output
-  before it is validated against the Action's output schema.
-
-  ## Parameters
-
-  - `output`: A map of raw action output.
-
-  ## Returns
-
-  - `{:ok, modified_output}` where `modified_output` is a map of potentially modified output.
-  - `{:error, reason}` if pre-processing fails.
-  """
-  @callback on_before_validate_output(output :: map()) :: {:ok, map()} | {:error, any()}
-
-  @doc """
-  Called after output validation.
-
-  This optional callback allows for post-processing of validated output
-  before it is returned to the caller.
-
-  ## Parameters
-
-  - `output`: A map of validated action output.
-
-  ## Returns
-
-  - `{:ok, modified_output}` where `modified_output` is a map of potentially modified output.
-  - `{:error, reason}` if post-processing fails.
-  """
-  @callback on_after_validate_output(output :: map()) :: {:ok, map()} | {:error, any()}
-
-  @doc """
-  Called after the Action's main logic has executed.
-
-  This optional callback allows for post-processing of the Action's result
-  before it is returned to the caller.
-
-  ## Parameters
-
-  - `result`: The result map returned by the `run/2` function.
-
-  ## Returns
-
-  - `{:ok, modified_result}` where `modified_result` is a potentially modified result map.
-  - `{:error, reason}` if post-processing fails.
-  """
-  @callback on_after_run(result :: {:ok, map()} | {:error, any()}) ::
-              {:ok, map()} | {:error, any()}
-
-  @doc """
-  Handles errors and performs compensation when enabled.
-
-  Called when an error occurs during Action execution if compensation is enabled
-  in the Action's configuration.
-
-  ## Parameters
-
-  - `failed_params`: The parameters that were passed to the failed execution
-  - `error`: The Error struct describing what went wrong
-  - `context`: The execution context at the time of failure
-  - `opts`: Additional options for compensation handling
-
-  ## Returns
-
-  - `{:ok, result}` if compensation succeeded
-  - `{:error, reason}` if compensation failed
-
-  ## Examples
-
-      def on_error(params, error, context, opts) do
-        # Perform compensation logic
-        case rollback_changes(params) do
-          :ok -> {:ok, %{compensated: true, original_error: error}}
-          {:error, reason} -> {:error, "Compensation failed: \#{reason}"}
-        end
-      end
-  """
-  @callback on_error(
-              failed_params :: map(),
-              error :: Exception.t(),
-              context :: map(),
-              opts :: keyword()
-            ) :: {:ok, map()} | {:error, Exception.t()}
+              {:ok, map()} | {:ok, map(), any()} | {:error, any()} | {:error, any(), any()}
 
   @doc """
   Raises an error indicating that Actions cannot be defined at runtime.

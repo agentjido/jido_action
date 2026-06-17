@@ -39,14 +39,14 @@ defmodule JidoTest.Exec.OutputValidationTest do
       assert result.here == 123
     end
 
-    test "output validation with callbacks" do
+    test "output validation without lifecycle callbacks" do
       params = %{input: 42}
       context = %{}
 
       assert {:ok, result} = Exec.run(OutputCallbackAction, params, context)
       assert result.value == 42
-      assert result.preprocessed == true
-      assert result.postprocessed == true
+      refute Map.has_key?(result, :preprocessed)
+      refute Map.has_key?(result, :postprocessed)
     end
 
     test "output validation with async execution" do
@@ -141,29 +141,6 @@ defmodule JidoTest.Exec.OutputValidationTest do
 
       assert error_message =~ "Action output"
       assert error_message =~ "count"
-    end
-
-    test "output validation callback errors are handled" do
-      defmodule CallbackErrorOutputAction do
-        use Jido.Action,
-          name: "callback_error_output_action",
-          output_schema: [
-            value: [type: :string, required: true]
-          ]
-
-        alias Jido.Action.Error
-
-        def run(_params, _context) do
-          {:ok, %{value: "test"}}
-        end
-
-        def on_before_validate_output(_output) do
-          {:error, Error.validation_error("Callback failed")}
-        end
-      end
-
-      assert {:error, %Jido.Action.Error.InvalidInputError{message: "Callback failed"}} =
-               Exec.run(CallbackErrorOutputAction, %{}, %{})
     end
   end
 end

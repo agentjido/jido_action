@@ -3,7 +3,6 @@ defmodule JidoTest.Exec.PropagationTest do
 
   import ExUnit.CaptureLog
 
-  alias Jido.Action.Error
   alias Jido.Exec
   alias Jido.Exec.Propagation
 
@@ -91,27 +90,6 @@ defmodule JidoTest.Exec.PropagationTest do
       value = Process.get(@prop_key)
       send(test_pid, {:propagated_context, label, value, self()})
       {:ok, %{label: label, propagated: value}}
-    end
-  end
-
-  defmodule CompensationReportingAction do
-    use Jido.Action,
-      name: "propagation_compensation_action",
-      description: "Reports propagated runtime context during compensation",
-      compensation: [enabled: true, timeout: 100]
-
-    @prop_key :jido_test_runtime_context
-
-    @impl true
-    def run(_params, _context) do
-      {:error, Error.execution_error("compensation trigger")}
-    end
-
-    @impl true
-    def on_error(%{test_pid: test_pid}, _error, _context, _opts) do
-      value = Process.get(@prop_key)
-      send(test_pid, {:compensation_context, value, self()})
-      {:ok, %{compensation_context: %{propagated: value}}}
     end
   end
 
@@ -220,23 +198,6 @@ defmodule JidoTest.Exec.PropagationTest do
       refute action_pid == self()
       refute action_pid == async_ref.pid
       assert {:ok, %{propagated: "async-trace"}} = Exec.await(async_ref, 1_000)
-    end
-
-    test "propagates runtime context into compensation callbacks" do
-      Process.put(@prop_key, "comp-trace")
-
-      assert {:error, %Jido.Action.Error.ExecutionFailureError{} = error} =
-               Exec.run(
-                 CompensationReportingAction,
-                 %{test_pid: self()},
-                 %{},
-                 timeout: 100,
-                 context_propagators: [ProcessDictionaryPropagator]
-               )
-
-      assert_receive {:compensation_context, "comp-trace", compensation_pid}
-      refute compensation_pid == self()
-      assert error.details.compensation_context == %{propagated: "comp-trace"}
     end
   end
 

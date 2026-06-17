@@ -52,9 +52,6 @@ defmodule Jido.Examples.ZoiExample do
   use Jido.Action,
     name: "zoi_example",
     description: "Demonstrates Zoi schema capabilities with user registration validation",
-    category: "examples",
-    tags: ["zoi", "validation", "example"],
-    vsn: "2.0.0",
     schema:
       Zoi.object(%{
         user:

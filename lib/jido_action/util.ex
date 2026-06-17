@@ -213,29 +213,4 @@ defmodule Jido.Action.Util do
   @spec wrap_error(any()) :: {:error, any()}
   def wrap_error({:error, _} = error), do: error
   def wrap_error(reason), do: {:error, reason}
-
-  @doc """
-  Converts nested keyword lists to maps for specific option keys.
-
-  Used during Action configuration to convert nested keyword lists (e.g., compensation)
-  into maps for Zoi validation.
-
-  ## Examples
-
-      iex> convert_nested_opt({:compensation, [enabled: true, max_retries: 3]})
-      {:compensation, %{enabled: true, max_retries: 3}}
-
-      iex> convert_nested_opt({:name, "my_action"})
-      {:name, "my_action"}
-  """
-  @spec convert_nested_opt({atom(), any()}) :: {atom(), any()}
-  def convert_nested_opt({key, value}) when is_list(value) and key in [:compensation] do
-    if Keyword.keyword?(value) do
-      {key, Map.new(value)}
-    else
-      {key, value}
-    end
-  end
-
-  def convert_nested_opt(other), do: other
 end
