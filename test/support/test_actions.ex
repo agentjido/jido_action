@@ -469,7 +469,7 @@ defmodule JidoTest.TestActions do
       if attempts < max_attempts do
         # Simulate failure based on the failure_type
         case failure_type do
-          :error -> {:error, Error.internal_error("Retry needed")}
+          :error -> {:error, Error.execution_error("Retry needed")}
           :exception -> raise "Retry exception"
         end
       else

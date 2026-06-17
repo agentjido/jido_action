@@ -10,6 +10,17 @@
 - `Jido.Action.Error.TimeoutError` - action exceeded its runtime budget.
 - `Jido.Action.Error.InternalError` - unexpected internal failure.
 
+Serialized errors use a small canonical `:type` set:
+
+- `:validation_error`
+- `:configuration_error`
+- `:execution_error`
+- `:timeout`
+- `:internal_error`
+
+Specific runtime or adapter reasons belong in `details.kind` or
+`details.reason`, not in the top-level `type`.
+
 ## Returning Errors
 
 Actions can return any reason:
@@ -46,7 +57,11 @@ else
 end
 ```
 
-Validation and configuration errors are not retryable. Timeout and execution failures usually are retryable.
+Validation and configuration errors are not retryable. Timeout and structured
+execution failures usually are retryable. Raw atom reasons such as
+`:econnreset` or `:transient_error` are normalized as opaque execution reasons
+and are not retryable unless the action returns an explicit retry hint, for
+example `Jido.Action.Error.execution_error("temporary", retry: true)`.
 
 ## Serialization
 
@@ -58,3 +73,14 @@ error
 |> Jason.encode!()
 ```
 
+Noncanonical map or atom reasons are folded into the stable shape:
+
+```elixir
+Jido.Action.Error.to_map(:econnreset)
+# %{
+#   type: :execution_error,
+#   message: "econnreset",
+#   details: %{reason: :econnreset},
+#   retryable?: false
+# }
+```

@@ -43,18 +43,6 @@ defmodule Jido.Instruction do
   @type action_params :: map()
   @type action_context :: map()
   @type action_opts :: keyword()
-  @type action_tuple ::
-          {action_module(), action_params() | keyword() | nil}
-          | {action_module(), action_params() | keyword() | nil,
-             action_context() | keyword() | nil}
-          | {
-              action_module(),
-              action_params() | keyword() | nil,
-              action_context() | keyword() | nil,
-              action_opts() | nil
-            }
-  @type instruction_input :: action_module() | action_tuple() | t()
-  @type instruction_list :: [instruction_input()]
 
   @enforce_keys Zoi.Struct.enforce_keys(@schema)
   defstruct Zoi.Struct.struct_fields(@schema)
@@ -106,130 +94,6 @@ defmodule Jido.Instruction do
   end
 
   @doc """
-  Normalizes one instruction input into a `%Jido.Instruction{}`.
-
-  Accepted inputs:
-
-  - `%Jido.Instruction{}`
-  - an action module
-  - `{action, params}`
-  - `{action, params, context}`
-  - `{action, params, context, opts}`
-  """
-  @spec normalize_single(instruction_input(), action_context() | keyword() | nil, action_opts()) ::
-          {:ok, t()} | {:error, term()}
-  def normalize_single(input, context \\ %{}, opts \\ [])
-
-  def normalize_single(%__MODULE__{} = instruction, context, opts) do
-    with {:ok, instruction_params} <- normalize_params(instruction.params),
-         {:ok, instruction_context} <- normalize_context(instruction.context),
-         {:ok, extra_context} <- normalize_context(context),
-         {:ok, instruction_opts} <- normalize_opts(instruction.opts),
-         {:ok, extra_opts} <- normalize_opts(opts) do
-      new(%{
-        id: instruction.id,
-        action: instruction.action,
-        params: instruction_params,
-        context: Map.merge(instruction_context, extra_context),
-        opts: Keyword.merge(instruction_opts, extra_opts)
-      })
-    end
-  end
-
-  def normalize_single(action, context, opts) when is_atom(action) and not is_nil(action) do
-    with {:ok, normalized_context} <- normalize_context(context),
-         {:ok, normalized_opts} <- normalize_opts(opts) do
-      new(%{action: action, params: %{}, context: normalized_context, opts: normalized_opts})
-    end
-  end
-
-  def normalize_single({action, params}, context, opts)
-      when is_atom(action) and not is_nil(action) do
-    build(action, params, context, opts)
-  end
-
-  def normalize_single({action, params, item_context}, context, opts)
-      when is_atom(action) and not is_nil(action) do
-    with {:ok, normalized_context} <- normalize_context(context),
-         {:ok, normalized_item_context} <- normalize_context(item_context) do
-      build(action, params, Map.merge(normalized_item_context, normalized_context), opts)
-    end
-  end
-
-  def normalize_single({action, params, item_context, item_opts}, context, opts)
-      when is_atom(action) and not is_nil(action) do
-    with {:ok, normalized_context} <- normalize_context(context),
-         {:ok, normalized_item_context} <- normalize_context(item_context),
-         {:ok, normalized_opts} <- normalize_opts(opts),
-         {:ok, normalized_item_opts} <- normalize_opts(item_opts) do
-      build(
-        action,
-        params,
-        Map.merge(normalized_item_context, normalized_context),
-        Keyword.merge(normalized_item_opts, normalized_opts)
-      )
-    end
-  end
-
-  def normalize_single(invalid, _context, _opts), do: invalid_instruction_error(invalid)
-
-  @doc """
-  Normalizes one instruction or a flat list of instructions.
-  """
-  @spec normalize(
-          instruction_input() | instruction_list(),
-          action_context() | keyword() | nil,
-          action_opts()
-        ) ::
-          {:ok, [t()]} | {:error, term()}
-  def normalize(input, context \\ %{}, opts \\ [])
-
-  def normalize(instructions, context, opts) when is_list(instructions) do
-    with :ok <- validate_no_nested_lists(instructions) do
-      instructions
-      |> Enum.reduce_while({:ok, []}, fn instruction, {:ok, acc} ->
-        case normalize_single(instruction, context, opts) do
-          {:ok, normalized} -> {:cont, {:ok, [normalized | acc]}}
-          error -> {:halt, error}
-        end
-      end)
-      |> case do
-        {:ok, normalized} -> {:ok, Enum.reverse(normalized)}
-        error -> error
-      end
-    end
-  end
-
-  def normalize(instruction, context, opts) do
-    case normalize_single(instruction, context, opts) do
-      {:ok, normalized} -> {:ok, [normalized]}
-      error -> error
-    end
-  end
-
-  @doc """
-  Normalizes input or raises on failure.
-  """
-  @spec normalize!(
-          instruction_input() | instruction_list(),
-          action_context() | keyword() | nil,
-          action_opts()
-        ) ::
-          [t()] | no_return()
-  def normalize!(input, context \\ %{}, opts \\ []) do
-    case normalize(input, context, opts) do
-      {:ok, instructions} ->
-        instructions
-
-      {:error, error} when is_exception(error) ->
-        raise error
-
-      {:error, reason} ->
-        raise Error.execution_error("Invalid instruction format", %{reason: reason})
-    end
-  end
-
-  @doc """
   Validates that all instructions reference allowed action modules.
   """
   @spec validate_allowed_actions(t() | [t()], [module()]) :: :ok | {:error, Exception.t()}
@@ -254,19 +118,6 @@ defmodule Jido.Instruction do
            allowed_actions: allowed_actions
          }
        )}
-    end
-  end
-
-  defp build(action, params, context, opts) do
-    with {:ok, normalized_params} <- normalize_params(params),
-         {:ok, normalized_context} <- normalize_context(context),
-         {:ok, normalized_opts} <- normalize_opts(opts) do
-      new(%{
-        action: action,
-        params: normalized_params,
-        context: normalized_context,
-        opts: normalized_opts
-      })
     end
   end
 
@@ -313,17 +164,6 @@ defmodule Jido.Instruction do
          Error.validation_error("Invalid instruction configuration", %{
            errors: format_zoi_errors(errors)
          })}
-    end
-  end
-
-  defp validate_no_nested_lists(instructions) do
-    if Enum.any?(instructions, &is_list/1) do
-      {:error,
-       Error.execution_error("Invalid instruction format: nested lists are not allowed", %{
-         instructions: instructions
-       })}
-    else
-      :ok
     end
   end
 
@@ -387,10 +227,6 @@ defmodule Jido.Instruction do
   defp normalize_opts(invalid) do
     {:error,
      Error.execution_error("Invalid opts format. Opts must be a keyword list.", %{opts: invalid})}
-  end
-
-  defp invalid_instruction_error(invalid) do
-    {:error, Error.execution_error("Invalid instruction format", %{instruction: invalid})}
   end
 
   defp format_zoi_errors(errors) when is_list(errors) do

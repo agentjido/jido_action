@@ -83,6 +83,53 @@ defmodule JidoTest.Exec.TelemetrySanitizationTest do
     assert_struct_summary(sanitized_request, Req.Request, map_size(request))
   end
 
+  test "sanitize_value preserves redaction, truncation, and tuple semantics" do
+    payload = %{
+      password: "secret",
+      list: Enum.to_list(1..30),
+      tuple: {:ok, %{token: "inner-secret"}},
+      nested: %{l1: %{l2: %{l3: %{l4: %{token: "too-deep"}}}}}
+    }
+
+    sanitized = Telemetry.sanitize_value(payload)
+
+    assert sanitized.password == "[REDACTED]"
+    assert length(sanitized.list) == 26
+    assert List.last(sanitized.list) == %{__truncated_items__: 5}
+    assert sanitized.tuple == {:ok, %{token: "[REDACTED]"}}
+
+    assert get_in(sanitized, [:nested, :l1, :l2, :l3]) == %{
+             __truncated_depth__: 4,
+             type: :map,
+             size: 1
+           }
+  end
+
+  test "sanitize_value handles improper lists without raising" do
+    sanitized =
+      Telemetry.sanitize_value(%{improper: [%{token: "secret"} | %{password: "hidden"}]})
+
+    assert sanitized.improper == %{
+             __type__: :improper_list,
+             items: [%{token: "[REDACTED]"}],
+             tail: %{password: "[REDACTED]"}
+           }
+  end
+
+  test "sanitize_value redacts sensitive assignments inside binary messages" do
+    sanitized =
+      Telemetry.sanitize_value(
+        "request failed api_key=api-secret password='hunter2' with Bearer abc.def"
+      )
+
+    assert sanitized =~ "api_key=[REDACTED]"
+    assert sanitized =~ "password=[REDACTED]"
+    assert sanitized =~ "Bearer [REDACTED]"
+    refute sanitized =~ "api-secret"
+    refute sanitized =~ "hunter2"
+    refute sanitized =~ "abc.def"
+  end
+
   test "emit_end_event emits low-cardinality success metadata" do
     long_string = String.duplicate("z", 280)
     params = %{input: 1, token: "tok-123"}

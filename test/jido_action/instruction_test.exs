@@ -52,6 +52,10 @@ defmodule Jido.InstructionTest do
       assert {:error, %Jido.Action.Error.ExecutionFailureError{}} =
                Instruction.new(action: BasicAction, opts: %{timeout: 1_000})
     end
+
+    test "does not accept tuple instruction shims" do
+      assert {:error, :missing_action} = Instruction.new({BasicAction, %{value: 1}})
+    end
   end
 
   describe "new!/1" do
@@ -64,100 +68,6 @@ defmodule Jido.InstructionTest do
     test "raises on invalid input" do
       assert_raise Jido.Action.Error.InvalidInputError, fn ->
         Instruction.new!(params: %{value: 1})
-      end
-    end
-  end
-
-  describe "normalize_single/3" do
-    test "normalizes an instruction struct and merges context and opts" do
-      instruction = %Instruction{
-        action: BasicAction,
-        params: %{value: 1},
-        context: %{local: true},
-        opts: [timeout: 500]
-      }
-
-      assert {:ok, normalized} =
-               Instruction.normalize_single(instruction, %{request_id: "req-1"}, timeout: 1_000)
-
-      assert normalized.action == BasicAction
-      assert normalized.params == %{value: 1}
-      assert normalized.context == %{local: true, request_id: "req-1"}
-      assert normalized.opts == [timeout: 1_000]
-      assert is_binary(normalized.id)
-    end
-
-    test "normalizes a bare action module" do
-      assert {:ok, instruction} = Instruction.normalize_single(BasicAction)
-      assert instruction.action == BasicAction
-      assert instruction.params == %{}
-      assert instruction.context == %{}
-    end
-
-    test "normalizes action tuples" do
-      assert {:ok, instruction} =
-               Instruction.normalize_single(
-                 {BasicAction, [value: 42], [local: true], [timeout: 250]},
-                 %{request_id: "req-1"},
-                 timeout: 1_000
-               )
-
-      assert instruction.action == BasicAction
-      assert instruction.params == %{value: 42}
-      assert instruction.context == %{local: true, request_id: "req-1"}
-      assert instruction.opts == [timeout: 1_000]
-    end
-
-    test "rejects invalid input" do
-      assert {:error, %Jido.Action.Error.ExecutionFailureError{}} =
-               Instruction.normalize_single(123)
-
-      assert {:error, %Jido.Action.Error.ExecutionFailureError{}} =
-               Instruction.normalize_single({BasicAction, "invalid"})
-    end
-  end
-
-  describe "normalize/3" do
-    test "normalizes a single instruction into a list" do
-      assert {:ok, [instruction]} = Instruction.normalize({BasicAction, %{value: 1}})
-      assert instruction.action == BasicAction
-      assert instruction.params == %{value: 1}
-    end
-
-    test "normalizes a flat list of mixed instruction inputs" do
-      assert {:ok, [first, second, third]} =
-               Instruction.normalize(
-                 [
-                   BasicAction,
-                   {NoSchema, %{data: "test"}},
-                   %Instruction{action: BasicAction, params: %{value: 5}}
-                 ],
-                 %{request_id: "req-1"}
-               )
-
-      assert first.action == BasicAction
-      assert first.context == %{request_id: "req-1"}
-      assert second.action == NoSchema
-      assert second.params == %{data: "test"}
-      assert third.params == %{value: 5}
-      assert third.context == %{request_id: "req-1"}
-    end
-
-    test "rejects nested lists" do
-      assert {:error, %Jido.Action.Error.ExecutionFailureError{}} =
-               Instruction.normalize([BasicAction, [NoSchema]])
-    end
-  end
-
-  describe "normalize!/3" do
-    test "returns normalized instructions" do
-      assert [%Instruction{action: BasicAction, params: %{value: 1}}] =
-               Instruction.normalize!({BasicAction, %{value: 1}})
-    end
-
-    test "raises on invalid input" do
-      assert_raise Jido.Action.Error.ExecutionFailureError, fn ->
-        Instruction.normalize!(123)
       end
     end
   end

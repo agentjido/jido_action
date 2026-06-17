@@ -46,7 +46,9 @@ Use `max_retries: 0` for non-idempotent effects unless the action is explicitly 
 
 Context often carries request metadata, credentials, tenant identifiers, or tracing state. Pass only what the action needs, and do not include secrets in error details.
 
-Use `Jido.Action.Sanitizer` or your own redaction before logging arbitrary params, context, or errors.
+`Jido.Exec` keeps its own execution logs and telemetry payloads bounded. Apply your own
+domain-specific redaction before logging arbitrary params, context, or errors outside the
+execution boundary.
 
 ## Prefer Existing Atoms
 
@@ -55,4 +57,3 @@ Do not create atoms from untrusted input. Keep user-provided identifiers as stri
 ## Async Cleanup
 
 For long-running or async work, test timeout and cancellation cleanup. `Jido.Exec` supervises action execution, but actions that spawn their own processes remain responsible for cleaning them up.
-

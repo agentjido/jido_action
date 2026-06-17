@@ -3,6 +3,7 @@ defmodule Jido.Action.ErrorTest do
 
   alias Jido.Action.Error
   alias Jido.Action.Error.Internal.UnknownError
+  alias JidoTest.Support.RaisingInspectStruct
 
   defmodule Reason do
     defstruct [:message, :field, :meta]
@@ -251,13 +252,13 @@ defmodule Jido.Action.ErrorTest do
              } = Error.to_map(error)
     end
 
-    test "preserves canonical map input while normalizing retryability" do
+    test "normalizes noncanonical map types into execution details" do
       error = %{type: :rate_limited, message: "try again later", details: %{provider: :openai}}
 
       assert %{
-               type: :rate_limited,
+               type: :execution_error,
                message: "try again later",
-               details: %{provider: :openai},
+               details: %{provider: :openai, kind: :rate_limited},
                retryable?: true
              } = Error.to_map(error)
     end
@@ -273,8 +274,21 @@ defmodule Jido.Action.ErrorTest do
     end
 
     test "normalizes raw atom reasons with conservative retry defaults" do
-      assert %{type: :badarg, message: "badarg", retryable?: false} = Error.to_map(:badarg)
-      assert %{type: :timeout, message: "timeout", retryable?: true} = Error.to_map(:timeout)
+      assert %{
+               type: :execution_error,
+               message: "badarg",
+               details: %{reason: :badarg},
+               retryable?: false
+             } =
+               Error.to_map(:badarg)
+
+      assert %{
+               type: :execution_error,
+               message: "timeout",
+               details: %{reason: :timeout},
+               retryable?: false
+             } =
+               Error.to_map(:timeout)
     end
 
     test "normalizes plain message maps without assuming structs" do
@@ -312,6 +326,44 @@ defmodule Jido.Action.ErrorTest do
                %{__exception__: true, __struct__: inspect(RuntimeError), message: "down"}
              ]
 
+      assert {:ok, _} = Jason.encode(mapped)
+    end
+
+    test "normalizes opaque execution details without exposing a sanitizer API" do
+      error =
+        Error.execution_error("boom", %{
+          pid: self(),
+          ref: make_ref(),
+          fun: fn -> :ok end,
+          improper: [1 | 2]
+        })
+
+      mapped = Error.to_map(error)
+
+      assert is_binary(mapped.details.pid)
+      assert is_binary(mapped.details.ref)
+      assert is_binary(mapped.details.fun)
+
+      assert mapped.details.improper == %{
+               __type__: :improper_list,
+               items: [1],
+               tail: 2
+             }
+
+      assert {:ok, _} = Jason.encode(mapped)
+    end
+
+    test "normalizes non-scalar detail keys and inspect-hostile structs" do
+      key = %RaisingInspectStruct{value: 1}
+      error = Error.execution_error("boom", %{key => %{nested: %RaisingInspectStruct{value: 2}}})
+
+      mapped = Error.to_map(error)
+      [normalized_key] = Map.keys(mapped.details)
+
+      assert is_binary(normalized_key)
+      assert normalized_key =~ "RaisingInspectStruct"
+      assert mapped.details[normalized_key].nested.__struct__ == inspect(RaisingInspectStruct)
+      assert mapped.details[normalized_key].nested.value == 2
       assert {:ok, _} = Jason.encode(mapped)
     end
   end
@@ -374,18 +426,20 @@ defmodule Jido.Action.ErrorTest do
   end
 
   describe "retryable?/1" do
-    test "matches timeout and transient action errors" do
+    test "matches timeout and explicitly retryable action errors" do
       assert Error.retryable?(Error.timeout_error("timed out", timeout: 500))
       assert Error.retryable?(%{type: :rate_limited, message: "slow down"})
       assert Error.retryable?(%{details: %{retry: true}})
-      assert Error.retryable?(:transient_error)
+      assert Error.retryable?(Error.execution_error("retry", retry: true))
     end
 
     test "rejects validation and configuration errors" do
       refute Error.retryable?(Error.validation_error("invalid"))
       refute Error.retryable?(Error.config_error("bad config"))
+      refute Error.retryable?(Error.internal_error("internal"))
       refute Error.retryable?(%{details: %{retry: false}})
       refute Error.retryable?(%{details: %{"reason" => %{"retry" => false}}})
+      refute Error.retryable?(:transient_error)
       refute Error.retryable?(:badarg)
     end
   end
