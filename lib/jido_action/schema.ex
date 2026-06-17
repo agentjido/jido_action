@@ -1,6 +1,6 @@
 defmodule Jido.Action.Schema do
   @moduledoc """
-  Unified schema validation interface supporting NimbleOptions and Zoi schemas.
+  Zoi-backed schema validation interface for actions.
 
   This adapter provides a consistent API for:
   - Schema validation
@@ -8,17 +8,16 @@ defmodule Jido.Action.Schema do
   - Error formatting
   """
 
-  @type t :: NimbleOptions.schema() | struct() | []
+  @type t :: struct() | []
 
   @doc """
   Detects the type of schema.
 
-  Returns `:nimble` for NimbleOptions keyword list schemas, `:zoi` for Zoi schemas,
-  `:empty` for empty lists, or `:unknown` for unsupported types.
+  Returns `:zoi` for Zoi schemas, `:empty` for empty lists, or `:unknown`
+  for unsupported types.
   """
-  @spec schema_type(t()) :: :nimble | :zoi | :empty | :unknown
+  @spec schema_type(term()) :: :zoi | :empty | :unknown
   def schema_type([]), do: :empty
-  def schema_type(schema) when is_list(schema), do: :nimble
 
   def schema_type(schema) do
     if impl_for_zoi_type?(schema) do
@@ -31,12 +30,11 @@ defmodule Jido.Action.Schema do
   @doc """
   Validates data against a schema.
 
-  For NimbleOptions schemas, returns `{:ok, map()}` with validated data as a map.
-  For Zoi schemas, returns `{:ok, struct()}` with the validated struct.
+  For Zoi schemas, returns `{:ok, map()}` with the validated data.
   For empty schemas, returns the data unchanged.
 
   ## Parameters
-    * `schema` - NimbleOptions schema (keyword list) or Zoi schema
+    * `schema` - Zoi schema or empty list
     * `data` - Data to validate (map or keyword list)
 
   ## Returns
@@ -47,7 +45,6 @@ defmodule Jido.Action.Schema do
   def validate(schema, data) do
     case schema_type(schema) do
       :empty -> {:ok, data}
-      :nimble -> validate_nimble(schema, data)
       :zoi -> validate_zoi(schema, data)
       :unknown -> {:error, "Unsupported schema type"}
     end
@@ -57,14 +54,13 @@ defmodule Jido.Action.Schema do
   Extracts all known keys from a schema.
 
   ## Parameters
-    * `schema` - NimbleOptions schema or Zoi schema
+    * `schema` - Zoi schema or empty list
 
   ## Returns
     * List of atom keys defined in the schema
   """
-  @spec known_keys(t()) :: [atom()]
+  @spec known_keys(term()) :: [atom()]
   def known_keys([]), do: []
-  def known_keys(schema) when is_list(schema), do: Keyword.keys(schema)
 
   def known_keys(schema), do: extract_zoi_keys(schema)
 
@@ -72,7 +68,7 @@ defmodule Jido.Action.Schema do
   Formats validation errors into Jido.Action.Error structs.
 
   ## Parameters
-    * `error` - The error from validation (NimbleOptions.ValidationError, Zoi.Error, or list)
+    * `error` - The error from validation (Zoi.Error or list)
     * `context` - Context string describing where the error occurred
     * `module` - The module where the error occurred
 
@@ -83,11 +79,6 @@ defmodule Jido.Action.Schema do
           Jido.Action.Error.InvalidInputError.t()
   def format_error(error, context, module) do
     case error do
-      %NimbleOptions.ValidationError{} = nimble_error ->
-        nimble_error
-        |> Jido.Action.Error.format_nimble_validation_error(context, module)
-        |> Jido.Action.Error.validation_error()
-
       %Zoi.Error{} = zoi_error ->
         format_zoi_error(zoi_error, context, module)
 
@@ -124,13 +115,13 @@ defmodule Jido.Action.Schema do
   @spec validate_config_schema(term(), keyword()) :: :ok | {:error, String.t()}
   def validate_config_schema(value, _opts \\ [])
 
-  def validate_config_schema(value, _opts) when is_list(value), do: :ok
+  def validate_config_schema([], _opts), do: :ok
 
   def validate_config_schema(value, _opts) do
     if impl_for_zoi_type?(value) do
       :ok
     else
-      {:error, "must be NimbleOptions schema or Zoi schema"}
+      {:error, "must be a Zoi schema"}
     end
   end
 
@@ -140,15 +131,6 @@ defmodule Jido.Action.Schema do
     is_struct(value) && Zoi.Type.impl_for(value) != nil
   rescue
     _ -> false
-  end
-
-  defp validate_nimble(schema, data) do
-    data_kw = if is_map(data), do: Enum.to_list(data), else: data
-
-    case NimbleOptions.validate(data_kw, schema) do
-      {:ok, validated_kw} -> {:ok, Map.new(validated_kw)}
-      {:error, error} -> {:error, error}
-    end
   end
 
   defp validate_zoi(schema, data) do

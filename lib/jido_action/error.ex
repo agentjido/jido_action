@@ -483,66 +483,6 @@ defmodule Jido.Action.Error do
   def retryable?(reason) when is_atom(reason), do: default_retryable_reason?(reason)
   def retryable?(_reason), do: true
 
-  @doc """
-  Formats a NimbleOptions configuration error for display.
-  Used when configuration validation fails during compilation.
-  """
-  @spec format_nimble_config_error(
-          NimbleOptions.ValidationError.t() | any(),
-          String.t(),
-          module()
-        ) ::
-          String.t()
-  def format_nimble_config_error(
-        %NimbleOptions.ValidationError{keys_path: [], message: message},
-        module_type,
-        module
-      ) do
-    "Invalid configuration given to use Jido.#{module_type} (#{module}): #{message}"
-  end
-
-  def format_nimble_config_error(
-        %NimbleOptions.ValidationError{keys_path: keys_path, message: message},
-        module_type,
-        module
-      ) do
-    "Invalid configuration given to use Jido.#{module_type} (#{module}) for key #{inspect(keys_path)}: #{message}"
-  end
-
-  def format_nimble_config_error(error, _module_type, _module) when is_binary(error), do: error
-  def format_nimble_config_error(error, _module_type, _module), do: inspect(error)
-
-  @doc """
-  Formats a NimbleOptions validation error for parameter validation.
-  Used when validating runtime parameters.
-  """
-  @spec format_nimble_validation_error(
-          NimbleOptions.ValidationError.t() | any(),
-          String.t(),
-          module()
-        ) ::
-          String.t()
-  def format_nimble_validation_error(
-        %NimbleOptions.ValidationError{keys_path: [], message: message},
-        module_type,
-        module
-      ) do
-    "Invalid parameters for #{module_type} (#{module}): #{message}"
-  end
-
-  def format_nimble_validation_error(
-        %NimbleOptions.ValidationError{keys_path: keys_path, message: message},
-        module_type,
-        module
-      ) do
-    "Invalid parameters for #{module_type} (#{module}) at #{inspect(keys_path)}: #{message}"
-  end
-
-  def format_nimble_validation_error(error, _module_type, _module) when is_binary(error),
-    do: error
-
-  def format_nimble_validation_error(error, _module_type, _module), do: inspect(error)
-
   defp normalize_retryable(error, type) do
     cond do
       is_boolean(Map.get(error, :retryable?)) -> Map.get(error, :retryable?)

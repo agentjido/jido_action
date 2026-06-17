@@ -3,7 +3,7 @@ defmodule JidoAction.MixProject do
 
   @version "2.3.1"
   @source_url "https://github.com/agentjido/jido_action"
-  @description "Composable, validated actions for Elixir applications with built-in AI tool integration"
+  @description "Validated leaf actions and execution policies for Elixir applications"
 
   def vsn do
     @version
@@ -182,7 +182,6 @@ defmodule JidoAction.MixProject do
   defp deps do
     [
       {:jason, "~> 1.4"},
-      {:nimble_options, "~> 1.1"},
       {:telemetry, "~> 1.3"},
       {:zoi, "~> 0.17"},
       {:splode, "~> 0.3.0"},

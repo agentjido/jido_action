@@ -219,18 +219,7 @@ defmodule Jido.Action.ZoiSchemaTest do
     end
   end
 
-  describe "Interoperability with NimbleOptions" do
-    defmodule LegacyAction do
-      use Action,
-        name: "legacy",
-        description: "NimbleOptions action",
-        schema: [value: [type: :integer, required: true]]
-
-      def run(params, _context) do
-        {:ok, %{doubled: params.value * 2}}
-      end
-    end
-
+  describe "zoi-only execution" do
     defmodule ModernAction do
       use Action,
         name: "modern",
@@ -242,20 +231,9 @@ defmodule Jido.Action.ZoiSchemaTest do
       end
     end
 
-    test "NimbleOptions actions still work" do
-      assert {:ok, result} = Exec.run(LegacyAction, %{value: 5}, %{})
-      assert result.doubled == 10
-    end
-
     test "Zoi actions work" do
       assert {:ok, result} = Exec.run(ModernAction, %{value: 5}, %{})
       assert result.tripled == 15
-    end
-
-    test "both work together" do
-      {:ok, legacy_result} = Exec.run(LegacyAction, %{value: 10}, %{})
-      {:ok, modern_result} = Exec.run(ModernAction, %{value: legacy_result.doubled}, %{})
-      assert modern_result.tripled == 60
     end
   end
 end

@@ -9,9 +9,7 @@ defmodule JidoTest.TestActions do
     use Action,
       name: "basic_action",
       description: "A basic action for testing",
-      schema: [
-        value: [type: :integer, required: true]
-      ]
+      schema: Zoi.object(%{value: Zoi.integer()})
 
     def run(%{value: value}, _context) do
       {:ok, %{value: value}}
@@ -33,9 +31,7 @@ defmodule JidoTest.TestActions do
     @moduledoc false
     use Action,
       name: "raw_result_action",
-      schema: [
-        value: [type: :integer, required: true]
-      ]
+      schema: Zoi.object(%{value: Zoi.integer()})
 
     @dialyzer {:nowarn_function, run: 2}
     def run(%{value: value}, _context) do
@@ -69,13 +65,8 @@ defmodule JidoTest.TestActions do
     use Action,
       name: "output_schema_action",
       description: "Action that validates output with schema",
-      schema: [
-        input: [type: :string, required: true]
-      ],
-      output_schema: [
-        result: [type: :string, required: true],
-        length: [type: :integer, required: true]
-      ]
+      schema: Zoi.object(%{input: Zoi.string()}),
+      output_schema: Zoi.object(%{result: Zoi.string(), length: Zoi.integer()})
 
     def run(%{input: input}, _context) do
       {:ok, %{result: String.upcase(input), length: String.length(input), extra: "not validated"}}
@@ -87,9 +78,7 @@ defmodule JidoTest.TestActions do
     use Action,
       name: "invalid_output_action",
       description: "Action that returns invalid output",
-      output_schema: [
-        required_field: [type: :string, required: true]
-      ]
+      output_schema: Zoi.object(%{required_field: Zoi.string()})
 
     def run(_params, _context) do
       {:ok, %{wrong_field: "this will fail validation"}}
@@ -112,9 +101,7 @@ defmodule JidoTest.TestActions do
     use Action,
       name: "output_callback_action",
       description: "Action that uses output validation callbacks",
-      output_schema: [
-        value: [type: :integer, required: true]
-      ]
+      output_schema: Zoi.object(%{value: Zoi.integer()})
 
     def run(%{input: input}, _context) do
       {:ok, %{value: input}}
@@ -126,10 +113,7 @@ defmodule JidoTest.TestActions do
     use Action,
       name: "full_action",
       description: "A full action for testing",
-      schema: [
-        a: [type: :integer, required: true],
-        b: [type: :integer, required: true]
-      ]
+      schema: Zoi.object(%{a: Zoi.integer(), b: Zoi.integer()})
 
     @impl true
     def run(params, _context) do
@@ -143,12 +127,13 @@ defmodule JidoTest.TestActions do
     use Action,
       name: "compensate_action",
       description: "Action that tests compensation behavior",
-      schema: [
-        should_fail: [type: :boolean, required: true],
-        compensation_should_fail: [type: :boolean, default: false],
-        delay: [type: :non_neg_integer, default: 0],
-        test_value: [type: :string, default: ""]
-      ]
+      schema:
+        Zoi.object(%{
+          should_fail: Zoi.boolean(),
+          compensation_should_fail: Zoi.boolean() |> Zoi.default(false),
+          delay: Zoi.integer() |> Zoi.min(0) |> Zoi.default(0),
+          test_value: Zoi.string() |> Zoi.default("")
+        })
 
     def run(%{should_fail: true}, _context) do
       {:error, Error.execution_error("Intentional failure")}
@@ -218,7 +203,7 @@ defmodule JidoTest.TestActions do
     @moduledoc false
     use Jido.Action,
       name: "slow_killed_action",
-      schema: []
+      schema: Zoi.object(%{})
 
     @impl true
     @dialyzer {:nowarn_function, run: 2}
@@ -296,10 +281,7 @@ defmodule JidoTest.TestActions do
     use Action,
       name: "add_one",
       description: "Adds 1 to the input value",
-      schema: [
-        value: [type: :integer, required: true],
-        amount: [type: :integer, default: 1]
-      ]
+      schema: Zoi.object(%{value: Zoi.integer(), amount: Zoi.integer() |> Zoi.default(1)})
 
     def run(%{value: value, amount: amount}, _context) do
       {:ok, %{value: value + amount}}
@@ -311,10 +293,7 @@ defmodule JidoTest.TestActions do
     use Action,
       name: "multiply",
       description: "Multiplies the input value by 2",
-      schema: [
-        value: [type: :integer, required: true],
-        amount: [type: :integer, default: 2]
-      ]
+      schema: Zoi.object(%{value: Zoi.integer(), amount: Zoi.integer() |> Zoi.default(2)})
 
     def run(%{value: value, amount: amount}, _context) do
       {:ok, %{value: value * amount}}
@@ -333,10 +312,7 @@ defmodule JidoTest.TestActions do
     use Action,
       name: "subtract",
       description: "Subtracts second value from first value",
-      schema: [
-        value: [type: :integer, required: true],
-        amount: [type: :integer, default: 1]
-      ]
+      schema: Zoi.object(%{value: Zoi.integer(), amount: Zoi.integer() |> Zoi.default(1)})
 
     def run(%{value: value, amount: amount}, _context) do
       {:ok, %{value: value - amount}}
@@ -348,10 +324,7 @@ defmodule JidoTest.TestActions do
     use Action,
       name: "divide",
       description: "Divides first value by second value",
-      schema: [
-        value: [type: :float, required: true],
-        amount: [type: :float, default: 2]
-      ]
+      schema: Zoi.object(%{value: Zoi.float(), amount: Zoi.float() |> Zoi.default(2.0)})
 
     def run(%{value: value, amount: amount}, _context) when amount != 0 do
       {:ok, %{value: value / amount}}
@@ -367,9 +340,7 @@ defmodule JidoTest.TestActions do
     use Action,
       name: "square",
       description: "Squares the input value",
-      schema: [
-        value: [type: :integer, required: true]
-      ]
+      schema: Zoi.object(%{value: Zoi.integer()})
 
     def run(%{value: value}, _context) do
       {:ok, %{value: value * value}}
@@ -381,10 +352,7 @@ defmodule JidoTest.TestActions do
     use Action,
       name: "write_file",
       description: "Writes a file to the filesystem",
-      schema: [
-        file_name: [type: :string, required: true],
-        content: [type: :string, required: true]
-      ]
+      schema: Zoi.object(%{file_name: Zoi.string(), content: Zoi.string()})
 
     def run(%{file_name: file_name, content: _content} = params, _context) do
       # Simulate file writing
@@ -397,16 +365,25 @@ defmodule JidoTest.TestActions do
     use Action,
       name: "schema_action",
       description: "A action with a complex schema and custom validation",
-      schema: [
-        string: [type: :string],
-        integer: [type: :integer],
-        atom: [type: :atom],
-        boolean: [type: :boolean],
-        list: [type: {:list, :string}],
-        keyword_list: [type: :keyword_list],
-        map: [type: :map],
-        custom: [type: {:custom, __MODULE__, :validate_custom, []}]
-      ]
+      schema:
+        Zoi.object(%{
+          string: Zoi.string() |> Zoi.optional(),
+          integer: Zoi.integer() |> Zoi.optional(),
+          atom: Zoi.atom() |> Zoi.optional(),
+          boolean: Zoi.boolean() |> Zoi.optional(),
+          list: Zoi.list(Zoi.string()) |> Zoi.optional(),
+          keyword_list: Zoi.keyword(Zoi.any()) |> Zoi.optional(),
+          map: Zoi.map() |> Zoi.optional(),
+          custom:
+            Zoi.string()
+            |> Zoi.refine(fn value ->
+              case __MODULE__.validate_custom(value) do
+                {:ok, _atom} -> :ok
+                {:error, reason} -> {:error, reason}
+              end
+            end)
+            |> Zoi.optional()
+        })
 
     # WARNING: This uses String.to_atom which is UNSAFE in production!
     # This creates new atoms from user input, which can lead to atom table exhaustion DoS.
@@ -425,9 +402,10 @@ defmodule JidoTest.TestActions do
     use Action,
       name: "delay_action",
       description: "Simulates a delay in action",
-      schema: [
-        delay: [type: :integer, default: 1000, doc: "Delay in milliseconds"]
-      ]
+      schema:
+        Zoi.object(%{
+          delay: Zoi.integer(description: "Delay in milliseconds") |> Zoi.default(1000)
+        })
 
     def run(%{delay: delay}, _context) do
       Process.sleep(delay)
@@ -440,9 +418,7 @@ defmodule JidoTest.TestActions do
     use Action,
       name: "context_aware_action",
       description: "Uses context in its action",
-      schema: [
-        input: [type: :string, required: true]
-      ]
+      schema: Zoi.object(%{input: Zoi.string()})
 
     def run(%{input: input}, context) do
       {:ok, %{result: "#{input} processed with context: #{inspect(context)}"}}
@@ -454,9 +430,7 @@ defmodule JidoTest.TestActions do
     use Action,
       name: "result_action",
       description: "Returns configurable result types",
-      schema: [
-        result_type: [type: {:in, [:success, :failure, :raw]}, required: true]
-      ]
+      schema: Zoi.object(%{result_type: Zoi.enum([:success, :failure, :raw])})
 
     def run(%{result_type: :success}, _context) do
       {:ok, %{result: "success"}}
@@ -478,10 +452,11 @@ defmodule JidoTest.TestActions do
     use Action,
       name: "retry_action",
       description: "Simulates an action with configurable retry behavior",
-      schema: [
-        max_attempts: [type: :integer, default: 3],
-        failure_type: [type: {:in, [:error, :exception]}, default: :error]
-      ]
+      schema:
+        Zoi.object(%{
+          max_attempts: Zoi.integer() |> Zoi.default(3),
+          failure_type: Zoi.enum([:error, :exception]) |> Zoi.default(:error)
+        })
 
     @spec run(map(), map()) :: {:ok, map()} | {:error, any()}
     def run(%{max_attempts: max_attempts, failure_type: failure_type}, context) do
@@ -527,9 +502,7 @@ defmodule JidoTest.TestActions do
     use Action,
       name: "rate_limited_action",
       description: "Demonstrates rate limiting functionality",
-      schema: [
-        action: [type: :string, required: true]
-      ]
+      schema: Zoi.object(%{action: Zoi.string()})
 
     @max_requests 5
     # 1 minute in milliseconds
@@ -566,10 +539,11 @@ defmodule JidoTest.TestActions do
     use Action,
       name: "streaming_action",
       description: "Showcases streaming or chunked data processing",
-      schema: [
-        chunk_size: [type: :integer, default: 10],
-        total_items: [type: :integer, default: 100]
-      ]
+      schema:
+        Zoi.object(%{
+          chunk_size: Zoi.integer() |> Zoi.default(10),
+          total_items: Zoi.integer() |> Zoi.default(100)
+        })
 
     def run(%{chunk_size: chunk_size, total_items: total_items}, _context) do
       stream =
@@ -592,9 +566,7 @@ defmodule JidoTest.TestActions do
     use Action,
       name: "concurrent_action",
       description: "Showcases concurrent processing of multiple inputs",
-      schema: [
-        inputs: [type: {:list, :integer}, required: true]
-      ]
+      schema: Zoi.object(%{inputs: Zoi.list(Zoi.integer())})
 
     def run(%{inputs: inputs}, _context) do
       results =
@@ -623,10 +595,11 @@ defmodule JidoTest.TestActions do
     use Action,
       name: "io_action",
       description: "Showcases various IO operations",
-      schema: [
-        input: [type: :any, required: true, default: %{foo: "bar"}],
-        operation: [type: {:in, [:puts, :inspect, :write]}, required: true]
-      ]
+      schema:
+        Zoi.object(%{
+          input: Zoi.any() |> Zoi.default(%{foo: "bar"}),
+          operation: Zoi.enum([:puts, :inspect, :write])
+        })
 
     @impl true
     def run(%{input: _input, operation: :inspect} = params, _context) do
@@ -648,134 +621,17 @@ defmodule JidoTest.TestActions do
     end
   end
 
-  # defmodule EnqueueAction do
-  #   @moduledoc false
-  #   use Action,
-  #     name: "enqueue_action",
-  #     description: "Enqueues another action based on params",
-  #     schema: [
-  #       action: [type: :atom, required: true],
-  #       params: [type: :map, default: %{}]
-  #     ]
-
-  #   def run(%{action: action, params: params}, _context) do
-  #     directive = %Jido.Agent.Directive.Enqueue{
-  #       action: action,
-  #       params: params,
-  #       context: %{}
-  #     }
-
-  #     {:ok, %{}, directive}
-  #   end
-  # end
-
-  # defmodule RegisterAction do
-  #   @moduledoc false
-  #   use Action,
-  #     name: "register_action",
-  #     description: "Registers a new action module",
-  #     schema: [
-  #       action_module: [type: :atom, required: true]
-  #     ]
-
-  #   def run(%{action_module: action_module}, _context) do
-  #     directive = %Jido.Agent.Directive.RegisterAction{
-  #       action_module: action_module
-  #     }
-
-  #     {:ok, %{}, directive}
-  #   end
-  # end
-
-  # defmodule DeregisterAction do
-  #   @moduledoc false
-  #   use Action,
-  #     name: "deregister_action",
-  #     description: "Deregisters an existing action module",
-  #     schema: [
-  #       action_module: [type: :atom, required: true]
-  #     ]
-
-  #   def run(%{action_module: action_module}, _context) do
-  #     # Prevent deregistering this module
-  #     if action_module == __MODULE__ do
-  #       {:error, :cannot_deregister_self}
-  #     else
-  #       directive = %Jido.Agent.Directive.DeregisterAction{
-  #         action_module: action_module
-  #       }
-
-  #       {:ok, %{}, directive}
-  #     end
-  #   end
-  # end
-
-  # defmodule SpawnChild do
-  #   @moduledoc false
-  #   use Action,
-  #     name: "spawn_child",
-  #     description: "Spawns a child process under the agent's supervisor",
-  #     schema: [
-  #       module: [type: :atom, required: true],
-  #       args: [type: :any, required: true]
-  #     ]
-
-  #   def run(%{module: module, args: args}, _context) do
-  #     directive = %Jido.Agent.Directive.Spawn{
-  #       module: module,
-  #       args: args
-  #     }
-
-  #     {:ok, %{}, directive}
-  #   end
-  # end
-
-  # defmodule KillChild do
-  #   @moduledoc false
-  #   use Action,
-  #     name: "kill_child",
-  #     description: "Terminates a child process",
-  #     schema: [
-  #       pid: [type: :pid, required: true]
-  #     ]
-
-  #   def run(%{pid: pid}, _context) do
-  #     directive = %Jido.Agent.Directive.Kill{
-  #       pid: pid
-  #     }
-
-  #     {:ok, %{}, directive}
-  #   end
-  # end
-
-  # defmodule ErrorDirective do
-  #   @moduledoc false
-  #   use Action,
-  #     name: "error_directive",
-  #     description: "Raises an error",
-  #     schema: []
-
-  #   def run(%{action: action, params: params}, _context) do
-  #     directive = %Jido.Agent.Directive.Enqueue{
-  #       action: action,
-  #       params: params,
-  #       context: %{}
-  #     }
-
-  #     {:error, Error.internal_server_error("Simulated error"), directive}
-  #   end
-  # end
-
   defmodule FormatUser do
     @moduledoc false
     use Action,
       name: "format_user",
       description: "Formats user data",
-      schema: [
-        name: [type: :string, required: true, doc: "User's full name"],
-        email: [type: :string, required: true, doc: "User's email address"],
-        age: [type: :integer, required: true, doc: "User's age"]
-      ]
+      schema:
+        Zoi.object(%{
+          name: Zoi.string(description: "User's full name"),
+          email: Zoi.string(description: "User's email address"),
+          age: Zoi.integer(description: "User's age")
+        })
 
     def run(params, _context) do
       %{name: name, email: email, age: age} = params
@@ -795,10 +651,7 @@ defmodule JidoTest.TestActions do
     use Action,
       name: "enrich_user_data",
       description: "Adds additional user information",
-      schema: [
-        formatted_name: [type: :string, required: true],
-        email: [type: :string, required: true]
-      ]
+      schema: Zoi.object(%{formatted_name: Zoi.string(), email: Zoi.string()})
 
     def run(%{formatted_name: name, email: email}, _context) do
       {:ok,
@@ -825,10 +678,7 @@ defmodule JidoTest.TestActions do
     use Action,
       name: "notify_user",
       description: "Sends welcome notification to user",
-      schema: [
-        email: [type: :string, required: true],
-        username: [type: :string, required: true]
-      ]
+      schema: Zoi.object(%{email: Zoi.string(), username: Zoi.string()})
 
     def run(%{email: email, username: username}, _context) do
       # In a real app, you'd send an actual email
@@ -843,67 +693,6 @@ defmodule JidoTest.TestActions do
        }}
     end
   end
-
-  # defmodule MultiDirectiveAction do
-  #   @moduledoc false
-  #   use Jido.Action,
-  #     name: "multi_directive_action"
-
-  #   alias Jido.Agent.Directive.{Enqueue, Spawn, Kill}
-
-  #   @impl true
-  #   def run(%{type: :agent}, _context) do
-  #     directives = [
-  #       %Enqueue{
-  #         action: JidoTest.TestActions.NoSchema,
-  #         params: %{value: 1},
-  #         context: %{}
-  #       },
-  #       %Enqueue{
-  #         action: JidoTest.TestActions.Add,
-  #         params: %{value: 3, amount: 1},
-  #         context: %{}
-  #       }
-  #     ]
-
-  #     {:ok, %{}, directives}
-  #   end
-
-  #   def run(%{type: :server}, _context) do
-  #     directives = [
-  #       %Spawn{
-  #         module: __MODULE__,
-  #         args: []
-  #       },
-  #       %Kill{
-  #         pid: self()
-  #       }
-  #     ]
-
-  #     {:ok, %{}, directives}
-  #   end
-
-  #   def run(%{type: :mixed}, _context) do
-  #     directives = [
-  #       %Enqueue{
-  #         action: :action1,
-  #         params: %{},
-  #         context: %{}
-  #       },
-  #       %Spawn{
-  #         module: __MODULE__,
-  #         args: []
-  #       }
-  #     ]
-
-  #     {:ok, %{}, directives}
-  #   end
-
-  #   def run(_params, _context) do
-  #     # Default to agent directives for backwards compatibility
-  #     run(%{type: :agent}, %{})
-  #   end
-  # end
 
   defmodule StateCheckAction do
     @moduledoc false
@@ -932,7 +721,7 @@ defmodule JidoTest.TestActions do
     use Action,
       name: "metadata_action",
       description: "Demonstrates action metadata",
-      schema: []
+      schema: Zoi.object(%{})
 
     def run(_params, context) do
       {:ok, %{context: context}}

@@ -1,11 +1,9 @@
 defmodule Jido.Action do
   @moduledoc """
-  Defines a discrete, composable unit of functionality within the Jido system.
+  Defines a discrete, validated unit of functionality within the Jido system.
 
-  Each Action represents a delayed computation that can be composed with others
-  to build complex workflows. Actions are defined at compile-time
-  and provide a consistent interface for validating inputs, executing workflows,
-  and handling results.
+  Actions are defined at compile-time and provide a consistent interface for
+  validating inputs, executing one unit of work, and handling results.
 
   ## Features
 
@@ -21,12 +19,8 @@ defmodule Jido.Action do
         use Jido.Action,
           name: "my_action",
           description: "Performs my action",
-          schema: [
-            input: [type: :string, required: true]
-          ],
-        output_schema: [
-          result: [type: :string, required: true]
-        ]
+          schema: Zoi.object(%{input: Zoi.string()}),
+          output_schema: Zoi.object(%{result: Zoi.string()})
 
       @impl true
       def run(params, _context) do
@@ -112,10 +106,10 @@ defmodule Jido.Action do
                 |> Zoi.refine({Jido.Action.Util, :validate_name, []}),
               description: Zoi.string(description: "Description") |> Zoi.optional(),
               schema:
-                Zoi.any(description: "NimbleOptions or Zoi schema for validating Action input")
+                Zoi.any(description: "Zoi schema for validating Action input")
                 |> Zoi.default([]),
               output_schema:
-                Zoi.any(description: "NimbleOptions or Zoi schema for validating Action output")
+                Zoi.any(description: "Zoi schema for validating Action output")
                 |> Zoi.default([])
             },
             coerce: true
@@ -139,14 +133,14 @@ defmodule Jido.Action do
                           schema:
                             Zoi.any(
                               description:
-                                "A NimbleOptions or Zoi schema for validating the Action's input parameters."
+                                "A Zoi schema for validating the Action's input parameters."
                             )
                             |> Zoi.refine({Jido.Action.Schema, :validate_config_schema, []})
                             |> Zoi.default([]),
                           output_schema:
                             Zoi.any(
                               description:
-                                "A NimbleOptions or Zoi schema for validating the Action's output. Only specified fields are validated."
+                                "A Zoi schema for validating the Action's output. Only specified fields are validated."
                             )
                             |> Zoi.refine({Jido.Action.Schema, :validate_config_schema, []})
                             |> Zoi.default([])
@@ -160,15 +154,13 @@ defmodule Jido.Action do
       iex> defmodule ExampleAction do
       ...>   use Jido.Action,
       ...>     name: "example_action",
-      ...>     schema: [
-      ...>       input: [type: :string, required: true]
-      ...>     ]
+      ...>     schema: Zoi.object(%{input: Zoi.string()})
       ...> end
       ...> ExampleAction.validate_params(%{input: "test"})
       {:ok, %{input: "test"}}
 
       iex> ExampleAction.validate_params(%{})
-      {:error, "Invalid parameters for Action: Required key :input not found"}
+      {:error, "Validation failed"}
 
   """
 
@@ -180,15 +172,13 @@ defmodule Jido.Action do
       iex> defmodule ExampleAction do
       ...>   use Jido.Action,
       ...>     name: "example_action",
-      ...>     output_schema: [
-      ...>       result: [type: :string, required: true]
-      ...>     ]
+      ...>     output_schema: Zoi.object(%{result: Zoi.string()})
       ...> end
       ...> ExampleAction.validate_output(%{result: "test", extra: "ignored"})
       {:ok, %{result: "test", extra: "ignored"}}
 
       iex> ExampleAction.validate_output(%{extra: "ignored"})
-      {:error, "Invalid output for Action: Required key :result not found"}
+      {:error, "Validation failed"}
 
   """
 
@@ -202,18 +192,16 @@ defmodule Jido.Action do
 
   - `name` (required) - The name of the Action. Must contain only letters, numbers, and underscores.
   - `description` (optional) - A description of what the Action does.
-  - `schema` (optional, default: []) - A NimbleOptions or Zoi schema for validating the Action's input parameters.
-  - `output_schema` (optional, default: []) - A NimbleOptions or Zoi schema for validating the Action's output. Only specified fields are validated.
+  - `schema` (optional, default: []) - A Zoi schema for validating the Action's input parameters.
+  - `output_schema` (optional, default: []) - A Zoi schema for validating the Action's output. Only specified fields are validated.
 
   ## Examples
 
       defmodule MyAction do
         use Jido.Action,
           name: "my_action",
-          description: "Performs a specific ",
-          schema: [
-            input: [type: :string, required: true]
-          ]
+          description: "Performs a specific task",
+          schema: Zoi.object(%{input: Zoi.string()})
 
         @impl true
         def run(params, _context) do
