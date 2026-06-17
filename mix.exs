@@ -220,10 +220,8 @@ defmodule JidoAction.MixProject do
       {:zoi, "~> 0.17"},
       {:splode, "~> 0.3.0"},
 
-      # Skill & Action Dependencies for examples
+      # Workflow dependencies
       {:multigraph, "~> 0.16.1-mg.3"},
-      {:lua, "~> 0.4 or ~> 1.0.0-rc", optional: true},
-      {:req, "~> 0.7.2", optional: true},
 
       # Development & Test Dependencies
       {:git_ops, "~> 2.9", only: :dev, runtime: false},
