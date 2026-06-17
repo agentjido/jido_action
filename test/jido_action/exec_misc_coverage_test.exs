@@ -63,30 +63,6 @@ defmodule JidoTest.ExecMiscCoverageTest do
       assert {:error, %Error.InvalidInputError{}} = Exec.run(EchoAction, make_ref())
     end
 
-    test "compensation with specific timeout configurations" do
-      defmodule SpecificTimeoutCompAction do
-        use Jido.Action,
-          name: "specific_timeout_comp",
-          description: "Compensation with specific timeout",
-          compensation: [enabled: true, timeout: 50]
-
-        def run(_params, _context) do
-          {:error, Error.execution_error("compensation test")}
-        end
-
-        def on_error(_params, _error, _context, _opts) do
-          # Sleep longer than timeout
-          Process.sleep(100)
-          {:ok, %{compensated: true}}
-        end
-      end
-
-      capture_log(fn ->
-        assert {:error, %Error.ExecutionFailureError{}} =
-                 Exec.run(SpecificTimeoutCompAction, %{}, %{})
-      end)
-    end
-
     test "task cleanup and process group management" do
       # Create an action that will trigger task cleanup
       defmodule CleanupTestAction do

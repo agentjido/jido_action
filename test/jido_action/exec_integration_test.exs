@@ -7,7 +7,7 @@ defmodule JidoTest.ExecIntegrationTest do
   - Happy path async execution  
   - Timeout scenarios
   - Retry scenarios with failing actions
-  - Compensation scenarios with on_error/4
+  - Plain success and failure scenarios
   """
   use JidoTest.ActionCase, async: false
   use Mimic
@@ -258,42 +258,22 @@ defmodule JidoTest.ExecIntegrationTest do
     end
   end
 
-  describe "Compensation scenarios with on_error/4" do
-    test "compensating action handles failure successfully" do
-      capture_log(fn ->
-        # Action should fail but compensation should succeed
-        result =
-          Exec.run(
-            CompensateAction,
-            %{should_fail: true, compensation_should_fail: false, test_value: "recovery_test"},
-            %{original_context: "preserved"}
-          )
-
-        # Compensation returns error with details about successful compensation
-        assert {:error, %Error.ExecutionFailureError{} = error} = result
-        assert Exception.message(error) =~ "Compensation completed for:"
-        assert error.details.compensated == true
-        assert is_exception(error.details.original_error)
-        assert error.details.test_value == "recovery_test"
-        assert Map.has_key?(error.details, :compensation_context)
-      end)
-    end
-
-    test "compensation itself can fail" do
+  describe "plain failure and success scenarios" do
+    test "failing action returns the original execution error" do
       capture_log(fn ->
         result =
           Exec.run(
             CompensateAction,
-            %{should_fail: true, compensation_should_fail: true},
+            %{should_fail: true, compensation_should_fail: false},
             %{test_context: "failure"}
           )
 
-        assert {:error, %Error.ExecutionFailureError{}} = result
-        assert Exception.message(elem(result, 1)) =~ "Compensation failed for:"
+        assert {:error, %Error.ExecutionFailureError{} = error} = result
+        assert Exception.message(error) =~ "Intentional failure"
       end)
     end
 
-    test "successful action doesn't trigger compensation" do
+    test "successful action returns normally" do
       capture_log(fn ->
         result =
           Exec.run(
@@ -306,7 +286,7 @@ defmodule JidoTest.ExecIntegrationTest do
       end)
     end
 
-    test "async compensation works correctly" do
+    test "async failure preserves execution error" do
       capture_log(fn ->
         async_ref =
           Exec.run_async(
@@ -315,14 +295,10 @@ defmodule JidoTest.ExecIntegrationTest do
             %{async_context: "test"}
           )
 
-        # Async compensation also returns error with compensation details
         result = Exec.await(async_ref, 2_000)
 
-        # Due to timeout in compensation (delay: 50, timeout: 50), compensation may timeout
         assert {:error, %Error.ExecutionFailureError{} = error} = result
-        # Could be either successful compensation or compensation timeout
-        assert Exception.message(error) =~ "Compensation"
-        assert is_exception(error.details.original_error)
+        assert Exception.message(error) =~ "Intentional failure"
       end)
     end
   end
@@ -392,9 +368,8 @@ defmodule JidoTest.ExecIntegrationTest do
   end
 
   describe "Complex integration scenarios" do
-    test "full workflow with retries, compensation, and async" do
+    test "full workflow with retries and async failure" do
       capture_log(fn ->
-        # Start async action that will fail and trigger compensation
         async_ref =
           Exec.run_async(
             CompensateAction,
@@ -404,11 +379,8 @@ defmodule JidoTest.ExecIntegrationTest do
             backoff: 25
           )
 
-        # Should get compensated result in error format
         assert {:error, %Error.ExecutionFailureError{} = error} = Exec.await(async_ref, 3_000)
-        assert Exception.message(error) =~ "Compensation completed for:"
-        assert error.details.compensated == true
-        assert error.details.test_value == "complex_test"
+        assert Exception.message(error) =~ "Intentional failure"
       end)
     end
 
@@ -436,10 +408,8 @@ defmodule JidoTest.ExecIntegrationTest do
         success_count = Enum.count(results, fn {_, result} -> match?({:ok, _}, result) end)
         error_count = Enum.count(results, fn {_, result} -> match?({:error, _}, result) end)
 
-        # BasicAction + CompensateAction (compensated)
-        assert success_count >= 2
-        # ErrorAction
-        assert error_count >= 1
+        assert success_count == 2
+        assert error_count == 2
       end)
     end
   end

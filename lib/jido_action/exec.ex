@@ -8,7 +8,6 @@ defmodule Jido.Exec do
   - **Jido.Exec.Validator** - Parameter and output validation
   - **Jido.Exec.Telemetry** - Logging and telemetry events
   - **Jido.Exec.Retry** - Exponential backoff and retry logic
-  - **Jido.Exec.Compensation** - Error handling and compensation
   - **Jido.Exec.Async** - Asynchronous execution management
   - **Jido.Exec.Closure** - Action closures with pre-applied context
 
@@ -18,7 +17,7 @@ defmodule Jido.Exec do
   - Automatic retries with exponential backoff
   - Timeout handling for long-running actions
   - Parameter and context normalization
-  - Comprehensive error handling and compensation
+  - Comprehensive error handling
   - Telemetry integration for monitoring and tracing
   - Action cancellation and cleanup
 
@@ -39,7 +38,6 @@ defmodule Jido.Exec do
   alias Jido.Action.Error
   alias Jido.Action.Util
   alias Jido.Exec.Async
-  alias Jido.Exec.Compensation
   alias Jido.Exec.Propagation
   alias Jido.Exec.Retry
   alias Jido.Exec.Supervisors
@@ -114,12 +112,6 @@ defmodule Jido.Exec do
     - `:error_normalization` - Deprecated compatibility shim. Accepted and ignored; canonical structured execution error normalization is always used.
     - `:jido` - Optional instance name for isolation. Routes execution through instance-scoped supervisors (e.g., `MyApp.Jido.TaskSupervisor`).
 
-  ## Action Metadata in Context
-
-  The action's metadata (name, description, category, tags, version, etc.) is made available
-  to the action's `run/2` function via the `context` parameter under the `:action_metadata` key.
-  This allows actions to access their own metadata when needed.
-
   ## Returns
 
   - `{:ok, result}` if the Action executes successfully.
@@ -136,18 +128,6 @@ defmodule Jido.Exec do
       iex> Jido.Exec.run(MyAction, %{input: "value"}, %{}, log_level: :debug)
       {:ok, %{result: "processed value"}}
 
-      # Access action metadata in the action:
-      # defmodule MyAction do
-      #   use Jido.Action,
-      #     name: "my_action",
-      #     description: "Example action",
-      #     vsn: "1.0.0"
-      #
-      #   def run(_params, context) do
-      #     metadata = context.action_metadata
-      #     {:ok, %{name: metadata.name, version: metadata.vsn}}
-      #   end
-      # end
   """
   @spec run(action(), params(), context(), run_opts()) :: exec_result()
   def run(action, params \\ %{}, context \\ %{}, opts \\ [])
@@ -160,10 +140,7 @@ defmodule Jido.Exec do
          {:ok, normalized_context} <- normalize_context(context),
          :ok <- Validator.validate_action(action),
          {:ok, validated_params} <- Validator.validate_params(action, normalized_params) do
-      enhanced_context =
-        Map.put(normalized_context, :action_metadata, action.__action_metadata__())
-
-      do_run_with_retry(action, validated_params, enhanced_context, opts)
+      do_run_with_retry(action, validated_params, normalized_context, opts)
     else
       {:error, reason} ->
         Telemetry.cond_log_failure(log_level, reason)
@@ -444,24 +421,13 @@ defmodule Jido.Exec do
         {:error, %Jido.Action.Error.TimeoutError{}} = timeout_err ->
           timeout_err
 
-        {:error, error, other} ->
-          handle_action_error(action, params, budgeted_context, {error, other}, opts)
+        {:error, _error, _other} = error ->
+          error
 
-        {:error, error} ->
-          handle_action_error(action, params, budgeted_context, error, opts)
+        {:error, _error} = error ->
+          error
       end
     end
-  end
-
-  @spec handle_action_error(
-          action(),
-          params(),
-          context(),
-          Exception.t() | {Exception.t(), any()},
-          run_opts()
-        ) :: exec_result
-  defp handle_action_error(action, params, context, error_or_tuple, opts) do
-    Compensation.handle_error(action, params, context, error_or_tuple, opts)
   end
 
   @spec execute_action_with_timeout(

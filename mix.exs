@@ -139,7 +139,6 @@ defmodule JidoAction.MixProject do
           Jido.Exec,
           Jido.Exec.Async,
           Jido.Exec.Closure,
-          Jido.Exec.Compensation,
           Jido.Exec.Retry,
           Jido.Exec.Supervisors,
           Jido.Exec.Telemetry,

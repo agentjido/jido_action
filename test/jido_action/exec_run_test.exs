@@ -179,17 +179,6 @@ defmodule JidoTest.ExecRunTest do
       assert io =~ "operation"
       assert io =~ "inspect"
     end
-
-    test "passes metadata to the action context" do
-      result =
-        Exec.run(JidoTest.TestActions.MetadataAction, %{}, %{}, timeout: 1000, log_level: :debug)
-
-      assert {:ok, %{metadata: metadata}} = result
-      assert metadata[:name] == "metadata_action"
-      assert metadata[:description] == "Demonstrates action metadata"
-      assert metadata[:vsn] == "87.52.1"
-      assert metadata[:schema] == []
-    end
   end
 
   describe "normalize_params/1" do
