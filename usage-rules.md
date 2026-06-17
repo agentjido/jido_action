@@ -2,9 +2,13 @@
 
 ## Scope
 
-Use `jido_action` for leaf actions: one named module, one validated parameter map, one `run/2` callback, and one result.
+Use `jido_action` for leaf actions and explicit flow composition:
 
-Keep higher-level orchestration outside this package.
+- `Jido.Action` defines one named module, one validated parameter map, one `run/2` callback, and one result.
+- `Jido.Flow` composes actions and native Runic stateful components.
+- `Jido.Exec` executes actions, instructions, and flows through Runic where composition is involved.
+
+Keep action bodies as leaf nodes. Put composition in `Jido.Flow`, not inside `run/2`.
 
 ## Action Definitions
 
@@ -23,6 +27,16 @@ Keep higher-level orchestration outside this package.
 - Pass request state through `context`; do not rely on hidden process state unless a context propagator is configured.
 - Configure defaults with `:default_timeout`, `:default_max_retries`, and `:default_backoff`.
 
+## Flow Composition
+
+- Use `Jido.Flow.new/1` to create a composition value.
+- Use `Jido.Flow.step/4` for leaf action steps. The `:after` option declares dependency edges.
+- Use `Jido.Flow.component/4` only for native Runic components such as accumulators and state machines.
+- Use `Jido.Exec.run/3` for in-process flow execution.
+- Use `Jido.Exec.Runner.start_link/1` plus `Jido.Exec.start_flow/3`, `resume/3`, `results/2`, `workflow/2`, `checkpoint/2`, and `stop/2` for Runner-backed execution.
+- Do not model arbitrary cyclic graph edges as the first API. Prefer repeated runtime resumes, bounded runtime cycles, and Runic stateful components.
+- Set `:max_cycles` when running reactive flows that may continue producing runnable generations.
+
 ## Validation
 
 - Validate inputs with `validate_params/1` or by running through `Jido.Exec`.
@@ -32,4 +46,4 @@ Keep higher-level orchestration outside this package.
 
 ## Package Boundary
 
-Keep this package focused on defining, validating, and executing one action at a time. Put higher-level orchestration, adapter-specific conversion, and bundled domain actions in separate packages.
+Keep bundled domain actions and adapter-specific conversions in separate packages. Use `Jido.Flow` and `Jido.Exec` for in-package composition and stateful execution.

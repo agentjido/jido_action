@@ -79,3 +79,12 @@ Valid action returns are:
 - `{:error, reason, extra}`
 
 Unexpected return values become `Jido.Action.Error.ExecutionFailureError`.
+
+## Flow Execution
+
+Use `Jido.Exec.run/3` when the execution target is a `Jido.Flow`, not one
+action. The flow path uses Runic for composition while each action step invokes
+one action attempt at the leaf boundary.
+
+See [Flows & Exec](flows-runtime.md) for flow construction, managed Runner
+execution, and loop guidance.

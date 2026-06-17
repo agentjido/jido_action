@@ -40,14 +40,23 @@ defmodule Jido.Exec do
   alias Jido.Exec.Async
   alias Jido.Exec.Propagation
   alias Jido.Exec.Retry
+  alias Jido.Exec.Result
   alias Jido.Exec.Supervisors
   alias Jido.Exec.Telemetry
   alias Jido.Exec.Validator
+  alias Jido.Flow
   alias Jido.Instruction
+  alias Runic.Runner
+  alias Runic.Workflow
+  alias Runic.Workflow.PolicyDriver
+  alias Runic.Workflow.Runnable
+  alias Runic.Workflow.SchedulerPolicy
 
   require Logger
 
   @default_timeout 30_000
+  @default_max_cycles 1_000
+  @no_input :__jido_exec_no_input__
   @deadline_key :__jido_deadline_ms__
   @valid_error_normalization_modes [:legacy, :granular]
   @deprecated_error_normalization_key :error_normalization
@@ -72,6 +81,7 @@ defmodule Jido.Exec do
   end
 
   @type action :: module() | Instruction.t()
+  @type executable :: action() | Flow.t() | Workflow.t()
   @type params :: map()
   @type context :: map()
   @type run_opts :: keyword()
@@ -130,18 +140,39 @@ defmodule Jido.Exec do
       {:ok, %{result: "processed value"}}
 
   """
-  @spec run(action(), params(), context(), run_opts()) :: exec_result()
+  @spec run(executable(), params(), context() | run_opts(), run_opts()) ::
+          exec_result() | {:ok, Result.t()} | {:error, Result.t()}
   def run(action, params \\ %{}, context \\ %{}, opts \\ [])
 
+  def run(%Flow{} = flow, input, opts, []) when is_list(opts), do: run_flow(flow, input, opts)
+
+  def run(%Flow{} = flow, input, context, []) when is_map(context) and map_size(context) == 0,
+    do: run_flow(flow, input, [])
+
+  def run(%Workflow{} = workflow, input, opts, []) when is_list(opts),
+    do: run_flow(workflow, input, opts)
+
+  def run(%Workflow{} = workflow, input, context, [])
+      when is_map(context) and map_size(context) == 0,
+      do: run_flow(workflow, input, [])
+
+  def run(%Instruction{} = instruction, opts, context, [])
+      when is_list(opts) and is_map(context) and map_size(context) == 0 do
+    run(instruction, %{}, %{}, opts)
+  end
+
   def run(%Instruction{} = instruction, params, context, opts) when is_list(opts) do
-    with {:ok, normalized_params} <- normalize_params(params),
+    with {:ok, instruction_params} <- normalize_params(instruction.params || %{}),
+         {:ok, instruction_context} <- normalize_context(instruction.context || %{}),
+         {:ok, instruction_opts} <- normalize_run_opts(instruction.opts || []),
+         {:ok, normalized_params} <- normalize_params(params),
          {:ok, normalized_context} <- normalize_context(context),
-         {:ok, normalized_instruction} <- Instruction.normalize_single(instruction) do
+         :ok <- Validator.validate_action(instruction.action) do
       run(
-        normalized_instruction.action,
-        Map.merge(normalized_instruction.params, normalized_params),
-        Map.merge(normalized_instruction.context, normalized_context),
-        Keyword.merge(normalized_instruction.opts, opts)
+        instruction.action,
+        Map.merge(instruction_params, normalized_params),
+        Map.merge(instruction_context, normalized_context),
+        Keyword.merge(instruction_opts, opts)
       )
     end
   end
@@ -293,7 +324,592 @@ defmodule Jido.Exec do
   @spec cancel(async_ref() | pid()) :: :ok | exec_error
   def cancel(async_ref_or_pid), do: Async.cancel(async_ref_or_pid)
 
+  @doc false
+  @spec invoke_action_once(action(), params(), context(), run_opts()) :: exec_result()
+  def invoke_action_once(action, params \\ %{}, context \\ %{}, opts \\ [])
+
+  def invoke_action_once(%Instruction{} = instruction, params, context, opts)
+      when is_list(opts) do
+    with {:ok, instruction_params} <- normalize_params(instruction.params || %{}),
+         {:ok, instruction_context} <- normalize_context(instruction.context || %{}),
+         {:ok, instruction_opts} <- normalize_run_opts(instruction.opts || []),
+         {:ok, normalized_params} <- normalize_params(params),
+         {:ok, normalized_context} <- normalize_context(context),
+         :ok <- Validator.validate_action(instruction.action) do
+      invoke_action_once(
+        instruction.action,
+        Map.merge(instruction_params, normalized_params),
+        Map.merge(instruction_context, normalized_context),
+        Keyword.merge(instruction_opts, opts)
+      )
+    end
+  end
+
+  def invoke_action_once(action, params, context, opts) when is_atom(action) and is_list(opts) do
+    opts = apply_compat_opts(opts)
+    log_level = Util.resolve_log_level(opts)
+
+    with {:ok, normalized_params} <- normalize_params(params),
+         {:ok, normalized_context} <- normalize_context(context),
+         :ok <- Validator.validate_action(action),
+         {:ok, validated_params} <- Validator.validate_params(action, normalized_params) do
+      do_invoke_action_once(action, validated_params, normalized_context, opts)
+    else
+      {:error, reason} ->
+        Telemetry.cond_log_failure(log_level, reason)
+        {:error, reason}
+    end
+  rescue
+    e in [FunctionClauseError, BadArityError, BadFunctionError] ->
+      log_level = Util.resolve_log_level(opts)
+      Telemetry.cond_log_function_error(log_level, e)
+
+      {:error,
+       Error.validation_error("Invalid action module: #{Telemetry.extract_safe_error_message(e)}")}
+
+    e ->
+      log_level = Util.resolve_log_level(opts)
+      Telemetry.cond_log_unexpected_error(log_level, e)
+
+      {:error,
+       Error.internal_error(
+         "An unexpected error occurred: #{Telemetry.extract_safe_error_message(e)}"
+       )}
+  catch
+    kind, reason ->
+      log_level = Util.resolve_log_level(opts)
+      Telemetry.cond_log_caught_error(log_level, reason)
+
+      {:error,
+       Error.internal_error("Caught #{kind}: #{Telemetry.extract_safe_error_message(reason)}")}
+  end
+
+  def invoke_action_once(action, _params, _context, _opts) do
+    {:error, Error.validation_error("Expected action to be a module, got: #{inspect(action)}")}
+  end
+
+  @doc """
+  Performs one Runic prepare/dispatch/apply cycle.
+
+  If `input` is supplied it is planned into the workflow before dispatch. When
+  the workflow has no runnable work, the returned result has status `:ok`.
+  """
+  @spec step(Flow.t() | Workflow.t(), term(), keyword()) ::
+          {:ok, Result.t()} | {:error, Result.t()}
+  def step(flow_or_workflow, input \\ @no_input, opts \\ [])
+
+  def step(flow_or_workflow, opts, []) when is_list(opts) do
+    step(flow_or_workflow, @no_input, opts)
+  end
+
+  def step(flow_or_workflow, input, opts) when is_list(opts) do
+    with {:ok, workflow} <- normalize_workflow(flow_or_workflow) do
+      workflow
+      |> configure_workflow(opts)
+      |> maybe_plan_input(input)
+      |> do_step(opts, 1)
+    end
+  end
+
+  @doc """
+  Continues an existing workflow with new input and runs it to quiescence.
+  """
+  @spec resume(Flow.t() | Workflow.t(), term(), keyword()) ::
+          {:ok, Result.t()} | {:error, Result.t()}
+  def resume(flow_or_workflow, input), do: resume(flow_or_workflow, input, [])
+
+  def resume(runner, flow_id, input) when is_atom(runner) do
+    resume(runner, flow_id, input, [])
+  end
+
+  def resume(flow_or_workflow, input, opts) when is_list(opts) do
+    run_flow(flow_or_workflow, input, opts)
+  end
+
+  @doc """
+  Returns runtime results from a `Jido.Exec.Result`, `Jido.Flow`, or raw
+  `Runic.Workflow`.
+  """
+  @spec results(Result.t() | Flow.t() | Workflow.t(), keyword()) :: term()
+  def results(result_or_workflow), do: results(result_or_workflow, [])
+
+  def results(runner, flow_id) when is_atom(runner), do: results(runner, flow_id, [])
+
+  def results(%Result{results: results}, []), do: results
+  def results(%Result{workflow: workflow}, opts), do: results(workflow, opts)
+
+  def results(flow_or_workflow, opts) when is_list(opts) do
+    workflow = Flow.to_workflow(flow_or_workflow)
+    components = Keyword.get(opts, :components)
+
+    cond do
+      Keyword.get(opts, :raw, false) ->
+        Workflow.raw_productions(workflow)
+
+      is_list(components) ->
+        Workflow.results(workflow, components, opts)
+
+      true ->
+        Workflow.results(workflow, nil, opts)
+    end
+  end
+
+  @doc """
+  Returns durable and in-memory events associated with a result or workflow.
+  """
+  @spec events(Result.t() | Flow.t() | Workflow.t(), keyword()) :: [term()]
+  def events(result_or_workflow, opts \\ [])
+  def events(%Result{events: events}, []), do: events
+  def events(%Result{workflow: workflow}, opts), do: events(workflow, opts)
+
+  def events(flow_or_workflow, _opts) do
+    flow_or_workflow
+    |> Flow.to_workflow()
+    |> Workflow.event_log()
+  rescue
+    _ -> []
+  catch
+    _, _ -> []
+  end
+
+  @doc """
+  Returns a compact execution summary for a result, flow, or workflow.
+  """
+  @spec summary(Result.t() | Flow.t() | Workflow.t()) :: map()
+  def summary(%Result{workflow: workflow, status: status, cycles: cycles, error: error}) do
+    workflow
+    |> summary()
+    |> Map.merge(%{status: status, cycles: cycles, error: error})
+  end
+
+  def summary(flow_or_workflow) do
+    workflow = Flow.to_workflow(flow_or_workflow)
+
+    %{
+      total_nodes: workflow |> Workflow.components() |> map_size(),
+      facts_produced: workflow |> Workflow.facts() |> length(),
+      satisfied?: not Workflow.is_runnable?(workflow),
+      productions: workflow |> Workflow.raw_productions() |> length()
+    }
+  end
+
+  @doc """
+  Walks a produced fact's ancestry through the workflow.
+  """
+  @spec provenance(Result.t() | Flow.t() | Workflow.t(), term()) ::
+          {:ok, [Runic.Workflow.Fact.t()]} | {:error, :not_found}
+  def provenance(%Result{workflow: workflow}, fact_hash), do: provenance(workflow, fact_hash)
+
+  def provenance(flow_or_workflow, fact_hash) do
+    facts =
+      flow_or_workflow
+      |> Flow.to_workflow()
+      |> Workflow.facts()
+      |> Map.new(&{&1.hash, &1})
+
+    case Map.fetch(facts, fact_hash) do
+      {:ok, fact} -> {:ok, build_provenance_chain(fact, facts, [])}
+      :error -> {:error, :not_found}
+    end
+  end
+
+  @doc """
+  Starts a flow under a managed Runic runner.
+  """
+  @spec start_flow(atom(), term(), Flow.t() | Workflow.t(), keyword()) ::
+          DynamicSupervisor.on_start_child()
+  def start_flow(runner, flow_id, flow_or_workflow, opts \\ []) when is_list(opts) do
+    workflow =
+      flow_or_workflow
+      |> Flow.to_workflow()
+      |> configure_workflow(opts)
+
+    Runner.start_workflow(runner, flow_id, workflow, opts)
+  end
+
+  @doc """
+  Feeds input to a managed flow.
+  """
+  @spec resume(atom(), term(), term(), keyword()) :: :ok | {:error, term()}
+  def resume(runner, flow_id, input, opts) when is_list(opts) do
+    Runner.run(runner, flow_id, input, opts)
+  end
+
+  @doc """
+  Returns managed flow results.
+  """
+  @spec results(atom(), term(), keyword()) :: {:ok, term()} | {:error, term()}
+  def results(runner, flow_id, opts) when is_atom(runner) and is_list(opts) do
+    if opts == [] do
+      Runner.get_results(runner, flow_id)
+    else
+      Runner.get_results(runner, flow_id, opts)
+    end
+  end
+
+  @doc """
+  Returns a managed Runic workflow.
+  """
+  @spec workflow(atom(), term()) :: {:ok, Workflow.t()} | {:error, term()}
+  def workflow(runner, flow_id), do: Runner.get_workflow(runner, flow_id)
+
+  @doc """
+  Persists the current managed flow state when the runner store supports it.
+  """
+  @spec checkpoint(atom(), term()) :: :ok | {:error, term()}
+  def checkpoint(runner, flow_id), do: Runner.checkpoint(runner, flow_id)
+
+  @doc """
+  Stops a managed flow.
+  """
+  @spec stop(atom(), term(), keyword()) :: :ok | {:error, term()}
+  def stop(runner, flow_id, opts \\ []) when is_list(opts), do: Runner.stop(runner, flow_id, opts)
+
   # Internal execution helpers.
+  @spec run_flow(Flow.t() | Workflow.t(), term(), keyword()) ::
+          {:ok, Result.t()} | {:error, Result.t()}
+  defp run_flow(flow_or_workflow, input, opts) when is_list(opts) do
+    max_cycles = Keyword.get(opts, :max_cycles, @default_max_cycles)
+
+    with {:ok, workflow} <- normalize_workflow(flow_or_workflow),
+         :ok <- validate_max_cycles(max_cycles) do
+      workflow
+      |> configure_workflow(opts)
+      |> maybe_plan_input(input)
+      |> run_until_idle(0, max_cycles, opts)
+    end
+  end
+
+  @spec do_step(Workflow.t(), keyword(), non_neg_integer()) ::
+          {:ok, Result.t()} | {:error, Result.t()}
+  defp do_step(%Workflow{} = workflow, opts, cycles) do
+    if Workflow.is_runnable?(workflow) do
+      {prepared_workflow, runnables} = Workflow.prepare_for_dispatch(workflow)
+      {executed, events} = execute_runnables(runnables, prepared_workflow, opts)
+      workflow = apply_runnables(prepared_workflow, executed)
+
+      case Enum.find(executed, &match?(%Runnable{status: :failed}, &1)) do
+        nil ->
+          {:ok, Result.new(workflow, :ok, cycles: cycles, events: events(workflow) ++ events)}
+
+        %Runnable{} = runnable ->
+          error = failed_runnable_error(runnable)
+          {:error, Result.new(workflow, :error, cycles: cycles, error: error, events: events)}
+      end
+    else
+      {:ok, Result.new(workflow, :ok, cycles: 0)}
+    end
+  end
+
+  defp run_until_idle(%Workflow{} = workflow, cycles, max_cycles, opts) do
+    cond do
+      not Workflow.is_runnable?(workflow) ->
+        {:ok, Result.new(workflow, :ok, cycles: cycles)}
+
+      cycles >= max_cycles ->
+        error =
+          Error.execution_error("flow exceeded max dispatch cycles", %{
+            max_cycles: max_cycles,
+            cycles: cycles
+          })
+
+        {:error, Result.new(workflow, :max_cycles, cycles: cycles, error: error)}
+
+      true ->
+        case do_step(workflow, opts, cycles + 1) do
+          {:ok, %Result{workflow: workflow}} ->
+            run_until_idle(workflow, cycles + 1, max_cycles, opts)
+
+          {:error, %Result{} = result} ->
+            {:error, result}
+        end
+    end
+  end
+
+  defp execute_runnables(runnables, workflow, opts) do
+    runnables
+    |> Enum.map(fn runnable ->
+      execute_runnable(runnable, workflow, opts)
+    end)
+    |> Enum.map(fn
+      {%Runnable{} = runnable, events} -> {runnable, events}
+      %Runnable{} = runnable -> {runnable, []}
+    end)
+    |> Enum.unzip()
+  end
+
+  defp execute_runnable(%Runnable{} = runnable, %Workflow{} = workflow, opts) do
+    policy = resolve_scheduler_policy(runnable, workflow, opts)
+    policy_opts = policy_driver_opts(policy, opts)
+
+    result =
+      try do
+        PolicyDriver.execute(runnable, policy, policy_opts)
+      rescue
+        exception ->
+          Runnable.fail(runnable, format_runnable_exception(runnable, exception, __STACKTRACE__))
+      catch
+        kind, reason ->
+          Runnable.fail(runnable, format_runnable_catch(runnable, kind, reason))
+      end
+
+    case result do
+      {%Runnable{} = runnable, _events} = evented_result ->
+        emit_runnable_telemetry(runnable)
+        evented_result
+
+      %Runnable{} = runnable ->
+        emit_runnable_telemetry(runnable)
+        runnable
+    end
+  end
+
+  defp apply_runnables(%Workflow{} = workflow, runnables) do
+    Enum.reduce(runnables, workflow, fn %Runnable{} = runnable, acc ->
+      Workflow.apply_runnable(acc, runnable)
+    end)
+  end
+
+  defp normalize_workflow(%Flow{} = flow), do: {:ok, Flow.to_workflow(flow)}
+  defp normalize_workflow(%Workflow{} = workflow), do: {:ok, workflow}
+
+  defp normalize_workflow(other) do
+    {:error,
+     Error.validation_error("expected a Jido.Flow or Runic.Workflow", %{
+       value: other
+     })}
+  end
+
+  defp validate_max_cycles(max_cycles) when is_integer(max_cycles) and max_cycles > 0, do: :ok
+
+  defp validate_max_cycles(max_cycles) do
+    {:error,
+     Error.validation_error(":max_cycles must be a positive integer", %{
+       max_cycles: max_cycles
+     })}
+  end
+
+  defp configure_workflow(%Workflow{} = workflow, opts) do
+    workflow
+    |> maybe_put_run_context(Keyword.get(opts, :run_context))
+    |> maybe_merge_scheduler_policies(opts)
+  end
+
+  defp maybe_plan_input(%Workflow{} = workflow, @no_input), do: workflow
+  defp maybe_plan_input(%Workflow{} = workflow, input), do: Workflow.plan_eagerly(workflow, input)
+
+  defp maybe_put_run_context(%Workflow{} = workflow, nil), do: workflow
+
+  defp maybe_put_run_context(%Workflow{} = workflow, context) when is_map(context) do
+    Workflow.put_run_context(workflow, context)
+  end
+
+  defp maybe_put_run_context(%Workflow{} = workflow, _context), do: workflow
+
+  defp maybe_merge_scheduler_policies(%Workflow{} = workflow, opts) do
+    runtime_policies = Keyword.get(opts, :scheduler_policies, [])
+    base_policies = workflow.scheduler_policies || []
+    policies = SchedulerPolicy.merge_policies(runtime_policies, base_policies)
+
+    Workflow.set_scheduler_policies(workflow, policies)
+  end
+
+  defp resolve_scheduler_policy(%Runnable{} = runnable, %Workflow{} = workflow, opts) do
+    policy_opts =
+      %{}
+      |> Map.merge(Map.new(app_policy_opts()))
+      |> Map.merge(Map.new(node_policy_opts(runnable)))
+      |> Map.merge(Map.new(matched_workflow_policy_opts(runnable, workflow.scheduler_policies)))
+      |> Map.merge(Map.new(policy_opts_from_exec_opts(opts)))
+
+    SchedulerPolicy.new(policy_opts)
+  end
+
+  defp policy_driver_opts(%SchedulerPolicy{execution_mode: :durable}, opts),
+    do: Keyword.put(opts, :emit_events, true)
+
+  defp policy_driver_opts(_policy, opts), do: opts
+
+  defp app_policy_opts do
+    []
+    |> maybe_put_policy(:timeout_ms, config_timeout_ms())
+    |> maybe_put_policy(:max_retries, config_non_neg_integer(:default_max_retries))
+    |> maybe_put_policy(:base_delay_ms, config_non_neg_integer(:default_backoff))
+    |> maybe_default_backoff()
+  end
+
+  defp node_policy_opts(%Runnable{node: %{exec_opts: exec_opts}}) when is_list(exec_opts) do
+    policy_opts_from_exec_opts(exec_opts)
+  end
+
+  defp node_policy_opts(_runnable), do: []
+
+  defp policy_opts_from_exec_opts(opts) when is_list(opts) do
+    []
+    |> maybe_put_policy(:timeout_ms, exec_timeout_ms(opts))
+    |> maybe_put_policy(:max_retries, Keyword.get(opts, :max_retries))
+    |> maybe_put_policy(:backoff, exec_backoff_strategy(opts))
+    |> maybe_put_policy(:base_delay_ms, exec_base_delay_ms(opts))
+    |> maybe_put_policy(:max_delay_ms, Keyword.get(opts, :max_delay_ms))
+    |> maybe_put_policy(:on_failure, Keyword.get(opts, :on_failure))
+    |> maybe_put_policy(:fallback, Keyword.get(opts, :fallback))
+    |> maybe_put_policy(:execution_mode, Keyword.get(opts, :execution_mode))
+    |> maybe_put_policy(:priority, Keyword.get(opts, :priority))
+    |> maybe_put_policy(:executor, Keyword.get(opts, :executor))
+    |> maybe_put_policy(:executor_opts, Keyword.get(opts, :executor_opts))
+  end
+
+  defp maybe_put_policy(opts, _key, nil), do: opts
+  defp maybe_put_policy(opts, _key, :unset), do: opts
+  defp maybe_put_policy(opts, key, value), do: Keyword.put(opts, key, value)
+
+  defp matched_workflow_policy_opts(_runnable, []), do: []
+
+  defp matched_workflow_policy_opts(%Runnable{node: node}, policies) when is_list(policies) do
+    case Enum.find(policies, fn {matcher, _policy_map} -> policy_matches?(matcher, node) end) do
+      {_matcher, policy_map} -> policy_map
+      nil -> []
+    end
+  end
+
+  defp policy_matches?(:default, _node), do: true
+
+  defp policy_matches?(name, %{name: name}) when is_atom(name) or is_binary(name), do: true
+  defp policy_matches?(name, _node) when is_atom(name) or is_binary(name), do: false
+
+  defp policy_matches?({:name, %Regex{} = regex}, %{name: name}) when is_binary(name),
+    do: Regex.match?(regex, name)
+
+  defp policy_matches?({:name, %Regex{} = regex}, %{name: name}) when is_atom(name),
+    do: Regex.match?(regex, Atom.to_string(name))
+
+  defp policy_matches?({:name, %Regex{}}, _node), do: false
+
+  defp policy_matches?({:type, module}, node) when is_atom(module),
+    do: match?(%{__struct__: ^module}, node)
+
+  defp policy_matches?({:type, modules}, %{__struct__: struct}) when is_list(modules),
+    do: struct in modules
+
+  defp policy_matches?(fun, node) when is_function(fun, 1) do
+    fun.(node)
+  rescue
+    _ -> false
+  catch
+    _, _ -> false
+  end
+
+  defp policy_matches?(_matcher, _node), do: false
+
+  defp maybe_default_backoff(opts) do
+    if Keyword.has_key?(opts, :base_delay_ms) and not Keyword.has_key?(opts, :backoff) do
+      Keyword.put(opts, :backoff, :exponential)
+    else
+      opts
+    end
+  end
+
+  defp config_timeout_ms do
+    case Application.fetch_env(:jido_action, :default_timeout) do
+      {:ok, 0} -> :infinity
+      {:ok, value} when is_integer(value) and value > 0 -> value
+      _ -> nil
+    end
+  end
+
+  defp config_non_neg_integer(key) do
+    case Application.fetch_env(:jido_action, key) do
+      {:ok, value} when is_integer(value) and value >= 0 -> value
+      _ -> nil
+    end
+  end
+
+  defp exec_timeout_ms(opts) do
+    cond do
+      Keyword.has_key?(opts, :timeout_ms) ->
+        Keyword.get(opts, :timeout_ms)
+
+      Keyword.has_key?(opts, :timeout) ->
+        case Keyword.get(opts, :timeout) do
+          0 -> :infinity
+          value -> value
+        end
+
+      true ->
+        nil
+    end
+  end
+
+  defp exec_backoff_strategy(opts) do
+    case Keyword.get(opts, :backoff) do
+      value when value in [:none, :linear, :exponential, :jitter] -> value
+      value when is_integer(value) and value > 0 -> :exponential
+      0 -> :none
+      _ -> nil
+    end
+  end
+
+  defp exec_base_delay_ms(opts) do
+    case Keyword.get(opts, :backoff) do
+      value when is_integer(value) and value >= 0 -> value
+      _ -> Keyword.get(opts, :base_delay_ms)
+    end
+  end
+
+  defp failed_runnable_error(%Runnable{} = runnable) do
+    Error.execution_error("flow runnable failed", %{
+      runnable_id: runnable.id,
+      node: runnable_node_name(runnable),
+      reason: runnable.error
+    })
+  end
+
+  defp runnable_node_name(%Runnable{node: %{name: name}}) when not is_nil(name), do: name
+  defp runnable_node_name(%Runnable{node: %{hash: hash}}) when not is_nil(hash), do: hash
+  defp runnable_node_name(%Runnable{node: node}), do: inspect(node)
+
+  defp format_runnable_exception(%Runnable{} = runnable, exception, stacktrace) do
+    %{
+      node: runnable_node_name(runnable),
+      exception: exception,
+      message: Exception.format(:error, exception, stacktrace)
+    }
+  end
+
+  defp format_runnable_catch(%Runnable{} = runnable, kind, reason) do
+    %{
+      node: runnable_node_name(runnable),
+      kind: kind,
+      reason: reason,
+      message: "caught #{kind}: #{inspect(reason)}"
+    }
+  end
+
+  defp emit_runnable_telemetry(%Runnable{} = runnable) do
+    :telemetry.execute(
+      [:jido, :flow, :runnable, runnable.status],
+      %{system_time: System.system_time()},
+      %{node: runnable.node, runnable_id: runnable.id}
+    )
+  rescue
+    _ -> :ok
+  catch
+    _, _ -> :ok
+  end
+
+  defp build_provenance_chain(
+         %Runic.Workflow.Fact{ancestry: {_producer_hash, parent_hash}} = fact,
+         facts,
+         acc
+       ) do
+    case Map.fetch(facts, parent_hash) do
+      {:ok, parent} -> build_provenance_chain(parent, facts, [fact | acc])
+      :error -> [fact | acc]
+    end
+  end
+
+  defp build_provenance_chain(%Runic.Workflow.Fact{} = fact, _facts, acc), do: [fact | acc]
+
   @spec normalize_params(params()) :: {:ok, map()} | {:error, Exception.t()}
   defp normalize_params(%_{} = error) when is_exception(error), do: {:error, error}
   defp normalize_params(params) when is_map(params), do: {:ok, params}
@@ -319,6 +935,20 @@ defmodule Jido.Exec do
        Error.validation_error(
          "Invalid context type: #{Telemetry.extract_safe_error_message(context)}"
        )}
+
+  defp normalize_run_opts(opts) when is_list(opts) do
+    if Keyword.keyword?(opts) do
+      {:ok, opts}
+    else
+      {:error,
+       Error.validation_error("Invalid opts type: #{Telemetry.extract_safe_error_message(opts)}")}
+    end
+  end
+
+  defp normalize_run_opts(opts) do
+    {:error,
+     Error.validation_error("Invalid opts type: #{Telemetry.extract_safe_error_message(opts)}")}
+  end
 
   @spec do_run_with_retry(action(), params(), context(), run_opts()) :: exec_result
   defp do_run_with_retry(action, params, context, opts) do
@@ -395,6 +1025,28 @@ defmodule Jido.Exec do
       end)
     else
       error
+    end
+  end
+
+  @spec do_invoke_action_once(action(), params(), context(), run_opts()) :: exec_result
+  defp do_invoke_action_once(action, params, context, opts) do
+    telemetry = resolve_telemetry_mode(opts)
+
+    invoke = fn -> execute_action(action, params, context, opts) end
+
+    case telemetry do
+      :silent ->
+        invoke.()
+
+      :full ->
+        :telemetry.span(
+          [:jido, :action],
+          Telemetry.span_start_metadata(action, params, context, opts),
+          fn ->
+            result = invoke.()
+            {result, Telemetry.span_stop_metadata(action, params, context, result, opts)}
+          end
+        )
     end
   end
 
@@ -784,7 +1436,7 @@ defmodule Jido.Exec do
     do: {Telemetry.extract_safe_error_message(%{message: reason}), %{}}
 
   defp extract_error_fields(reason) when is_atom(reason),
-    do: {Atom.to_string(reason), %{reason: reason, retry: Error.retryable?(reason)}}
+    do: {Atom.to_string(reason), %{reason: reason}}
 
   defp extract_error_fields(reason) when is_map(reason),
     do: {Telemetry.extract_safe_error_message(reason), reason}

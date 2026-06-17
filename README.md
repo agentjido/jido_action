@@ -2,14 +2,14 @@
 
 `jido_action` defines validated leaf actions and runs them with hardened execution policy.
 
-V3 keeps this package focused on one boundary:
+V3 keeps the action boundary small while adding a stateful composition layer:
 
 - `Jido.Action` defines a named action with Zoi input and output schemas.
 - `Jido.Instruction` captures one requested action call as data.
-- `Jido.Exec` validates params, runs one action, applies timeout and retry policy, validates output, and normalizes crashes.
-- Async execution, cancellation, telemetry, context propagation, and instance-scoped supervisors remain in `Jido.Exec`.
+- `Jido.Flow` composes leaf actions and native Runic components.
+- `Jido.Exec` executes actions, instructions, and flows. Action validation stays at the leaf; flow retry, timeout, fallback, and stepping use Runic policy.
 
-Higher-level orchestration and adapters should build on this leaf-action boundary instead of living inside this package.
+Actions are still leaves: `run/2` computes one action result; `Jido.Flow` composes actions; `Jido.Exec` executes the composition.
 
 ## Install
 
@@ -98,6 +98,44 @@ instruction =
 
 An instruction is one action call frame. It is not a workflow or program.
 
+## Compose A Flow
+
+Use `Jido.Flow` when multiple leaf actions need to run as a stateful composition.
+Each action step wraps one `Jido.Instruction` and receives either the initial
+runtime input or the upstream step result.
+
+```elixir
+flow =
+  Jido.Flow.new(:greeting)
+  |> Jido.Flow.step(:greet, MyApp.Actions.GreetUser)
+  |> Jido.Flow.step(:decorate, MyApp.Actions.DecorateGreeting, after: :greet)
+
+{:ok, result} = Jido.Exec.run(flow, %{name: "Ada"})
+
+[%{message: message}] = Runic.Workflow.raw_productions(result.workflow, :decorate)
+```
+
+Fan-in dependencies use Runic joins. A downstream action receives the joined
+values as `%{input: values}` unless it has static params that satisfy its schema.
+
+Use `Jido.Flow.component/4` for native Runic components such as accumulators and
+state machines:
+
+```elixir
+counter = Runic.accumulator(0, fn value, state -> state + value end, name: :counter)
+
+flow =
+  Jido.Flow.new(:counter)
+  |> Jido.Flow.component(:counter, counter)
+
+{:ok, result} = Jido.Exec.run(flow, 2)
+{:ok, result} = result.workflow |> Jido.Flow.from_workflow() |> Jido.Exec.run(3)
+```
+
+Arbitrary cyclic graph edges are not the first Jido API. Model loops through
+runtime cycles, repeated `Jido.Exec.resume/3` calls, and Runic stateful
+components. Use `:max_cycles` to bound reactive execution.
+
 ## Async Execution
 
 ```elixir
@@ -144,4 +182,5 @@ Start with:
 - [Actions](guides/actions-guide.md)
 - [Schemas & Validation](guides/schemas-validation.md)
 - [Execution Engine](guides/execution-engine.md)
+- [Flows & Runtime](guides/flows-runtime.md)
 - [Error Handling](guides/error-handling.md)

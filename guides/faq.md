@@ -40,4 +40,4 @@ Pass needed data in the `context` map. For process-local state such as tracing c
 
 ## Where Should Higher-Level Orchestration Live?
 
-Build higher-level orchestration in application code or separate packages that call `Jido.Exec.run/4` for each leaf action.
+Use `Jido.Flow` for in-package composition of leaf actions and native Runic stateful components. Keep adapter-specific conversions, bundled domain actions, agent strategy, and signal handling in separate packages.
