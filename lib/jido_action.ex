@@ -231,6 +231,9 @@ defmodule Jido.Action do
 
     quote location: :keep do
       @behaviour Jido.Action
+      @on_definition Jido.Action
+
+      Module.register_attribute(__MODULE__, :jido_allow_nested_exec, persist: false)
 
       alias Jido.Action
       alias Jido.Action.Runtime
@@ -357,6 +360,60 @@ defmodule Jido.Action do
       defoverridable run: 2
     end
   end
+
+  @doc false
+  def __on_definition__(env, :def, :run, args, _guards, body) when length(args) == 2 do
+    if Module.get_attribute(env.module, :jido_allow_nested_exec) do
+      :ok
+    else
+      body
+      |> nested_exec_calls(env)
+      |> Enum.each(&warn_nested_exec(env, &1))
+    end
+  end
+
+  def __on_definition__(_env, _kind, _name, _args, _guards, _body), do: :ok
+
+  defp nested_exec_calls(body, env) do
+    {_body, calls} =
+      Macro.prewalk(body, [], fn
+        {{:., dot_meta, [target_ast, function]}, call_meta, call_args} = node, acc
+        when function in [:run, :run_async] and is_list(call_args) ->
+          if expands_to_exec?(target_ast, env) do
+            line = Keyword.get(call_meta, :line) || Keyword.get(dot_meta, :line) || env.line
+            {node, [%{function: function, line: line} | acc]}
+          else
+            {node, acc}
+          end
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    Enum.reverse(calls)
+  end
+
+  defp expands_to_exec?(target_ast, env) do
+    Macro.expand(target_ast, env) == Jido.Exec
+  rescue
+    _ -> false
+  end
+
+  defp warn_nested_exec(env, %{function: function, line: line}) do
+    message = """
+    nested Jido action execution inside #{inspect(env.module)}.run/2
+
+    Calling Jido.Exec.#{function}/#{exec_arity_label(function)} inside an action makes composition opaque.
+    Keep actions as leaf nodes and move orchestration to the caller or runtime.
+
+    Set @jido_allow_nested_exec true before run/2 if this action is intentionally an orchestrator.
+    """
+
+    IO.warn(message, [{env.module, :run, 2, [file: env.file, line: line]}])
+  end
+
+  defp exec_arity_label(:run), do: "4"
+  defp exec_arity_label(:run_async), do: "4"
 
   @doc """
   Executes the Action with the given parameters and context.
