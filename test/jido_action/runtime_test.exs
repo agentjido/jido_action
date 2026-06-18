@@ -25,8 +25,8 @@ defmodule JidoTest.ExecFlowTest do
 
     assert facts_produced > 0
     assert Flow.node_map(flow).add.action == Add
-    assert Exec.results(workflow, raw: true) == [%{value: 6}]
-    assert Exec.results(workflow).add == [%{value: 6}]
+    assert Exec.results(result, raw: true) == [%{value: 6}]
+    assert Exec.results(result).add == [%{value: 6}]
   end
 
   test "runs a linear flow across multiple dispatch generations" do
@@ -130,13 +130,10 @@ defmodule JidoTest.ExecFlowTest do
       Flow.new(:stateful)
       |> Flow.accumulate(:counter, 0, {FlowFunctions, :sum})
 
-    assert {:ok, %Result{workflow: workflow}} = Exec.run(flow, 2)
+    assert {:ok, %Result{workflow: workflow} = result} = Exec.run(flow, 2)
     assert 2 in Workflow.raw_productions(workflow, :counter)
 
-    assert {:ok, %Result{workflow: workflow}} =
-             workflow
-             |> Flow.from_workflow()
-             |> Exec.run(3)
+    assert {:ok, %Result{workflow: workflow}} = Exec.resume(result, 3)
 
     assert 5 in Workflow.raw_productions(workflow, :counter)
   end
@@ -160,9 +157,9 @@ defmodule JidoTest.ExecFlowTest do
       |> Workflow.add(machine)
       |> Flow.from_workflow()
 
-    assert {:ok, %Result{workflow: workflow}} = Exec.run(flow, :tick)
-    assert {:ok, %Result{workflow: workflow}} = Exec.run(Flow.from_workflow(workflow), :tick)
-    assert {:ok, %Result{workflow: workflow}} = Exec.run(Flow.from_workflow(workflow), :tick)
+    assert {:ok, %Result{} = result} = Exec.run(flow, :tick)
+    assert {:ok, %Result{} = result} = Exec.resume(result, :tick)
+    assert {:ok, %Result{workflow: workflow}} = Exec.resume(result, :tick)
 
     assert :done in Workflow.raw_productions(workflow)
   end
