@@ -16,10 +16,7 @@ defmodule Jido.Flow.Step do
             __MODULE__,
             %{
               name:
-                Zoi.union([
-                  Zoi.atom(),
-                  Zoi.string()
-                ])
+                Zoi.atom()
                 |> Zoi.refine({Validator, :validate_component_name, []}),
               hash: Zoi.integer(description: "Runtime Runic node hash"),
               instruction: Zoi.struct(Instruction, description: "Normalized action invocation"),
@@ -160,6 +157,7 @@ end
 
 defimpl Runic.Workflow.Invokable, for: Jido.Flow.Step do
   alias Jido.Action.Error
+  alias Jido.Action.Output
   alias Runic.Workflow
   alias Runic.Workflow.Events.{ActivationConsumed, FactProduced}
   alias Runic.Workflow.{CausalContext, Fact, Runnable}
@@ -252,14 +250,31 @@ defimpl Runic.Workflow.Invokable, for: Jido.Flow.Step do
     end
   end
 
-  defp normalize_result({:ok, result}, action), do: validate_output(action, result)
+  defp normalize_result({:ok, %Output{} = output}, _action), do: validate_output_envelope(output)
 
-  defp normalize_result({:ok, result, directives}, action) do
+  defp normalize_result({:ok, result}, action) when is_map(result) and not is_struct(result),
+    do: validate_output(action, result)
+
+  defp normalize_result({:ok, %Output{} = output, directives}, _action) do
+    case validate_output_envelope(output) do
+      {:ok, output} -> {:ok, output, directives}
+      {:error, reason} -> {:error, reason, directives}
+    end
+  end
+
+  defp normalize_result({:ok, result, directives}, action)
+       when is_map(result) and not is_struct(result) do
     case validate_output(action, result) do
       {:ok, result} -> {:ok, result, directives}
       {:error, reason} -> {:error, reason, directives}
     end
   end
+
+  defp normalize_result({:ok, _result} = other, _action),
+    do: unexpected_return(other)
+
+  defp normalize_result({:ok, _result, directives} = other, _action),
+    do: {:error, unexpected_return_error(other), directives}
 
   defp normalize_result({:error, %_{} = error}, _action) when is_exception(error),
     do: {:error, error}
@@ -272,9 +287,9 @@ defimpl Runic.Workflow.Invokable, for: Jido.Flow.Step do
   defp normalize_result({:error, reason, directives}, _action),
     do: {:error, normalize_error(reason), directives}
 
-  defp normalize_result(other, _action) do
-    {:error, Error.execution_error("unexpected action return shape", %{value: other})}
-  end
+  defp normalize_result(other, _action), do: unexpected_return(other)
+
+  defp validate_output_envelope(%Output{} = output), do: Output.validate(output)
 
   defp validate_output(action, result) do
     case action.validate_output(result) do
@@ -287,6 +302,12 @@ defimpl Runic.Workflow.Invokable, for: Jido.Flow.Step do
       other ->
         {:error, Error.validation_error("invalid validate_output/1 return", %{value: other})}
     end
+  end
+
+  defp unexpected_return(other), do: {:error, unexpected_return_error(other)}
+
+  defp unexpected_return_error(other) do
+    Error.execution_error("unexpected action return shape", %{value: other})
   end
 
   defp normalize_error(%_{} = error) when is_exception(error), do: error

@@ -24,6 +24,22 @@ defmodule JidoTest.ExecApiTest do
       assert result.workflow.name == :add
     end
 
+    test "action execution accepts explicit atom names without interning strings" do
+      assert {:ok, %Result{} = result} =
+               Exec.run(Add, %{value: 3, amount: 2}, name: :explicit_add)
+
+      assert result.status == :ok
+      assert Exec.results(result).explicit_add == [%{value: 5}]
+      assert result.workflow.name == :explicit_add
+
+      string_name = "exec_untrusted_#{System.unique_integer([:positive])}"
+      refute existing_atom?(string_name)
+
+      assert {:error, error} = Exec.run(Add, %{value: 3, amount: 2}, name: string_name)
+      assert Exception.message(error) =~ "must be an atom"
+      refute existing_atom?(string_name)
+    end
+
     test "instruction execution runs as a one-step flow with runtime input" do
       instruction =
         Instruction.new!(
@@ -36,6 +52,11 @@ defmodule JidoTest.ExecApiTest do
 
       assert result.status == :ok
       assert Exec.results(result).add == [%{value: 5}]
+
+      assert {:ok, %Result{} = named_result} =
+               Exec.run(instruction, %{value: 3}, name: :instruction_add)
+
+      assert Exec.results(named_result).instruction_add == [%{value: 5}]
     end
 
     test "instruction execution treats explicit nil input as an empty runtime fact" do
@@ -109,16 +130,14 @@ defmodule JidoTest.ExecApiTest do
         )
 
       assert {:ok, %Result{} = instruction_result} =
-               Exec.run(instruction, %{}, run_context: %{context_echo: %{runtime: true}})
+               Exec.run(instruction, %{}, run_context: %{runtime: true})
 
       assert Exec.results(instruction_result).context_echo == [
                %{value: 7, static: true, runtime: true}
              ]
 
       assert {:ok, %Result{} = action_result} =
-               Exec.run(ContextEcho, %{value: 8},
-                 run_context: %{context_echo: %{static: false, runtime: true}}
-               )
+               Exec.run(ContextEcho, %{value: 8}, run_context: %{static: false, runtime: true})
 
       assert Exec.results(action_result).context_echo == [
                %{value: 8, static: false, runtime: true}
@@ -188,17 +207,13 @@ defmodule JidoTest.ExecApiTest do
       flow = Flow.from_action(ContextEcho, %{value: 4}, name: :context_echo)
 
       assert {:ok, %Result{} = flow_result} =
-               Exec.step(flow, %{}, run_context: %{context_echo: %{static: false, runtime: true}})
+               Exec.step(flow, %{}, run_context: %{static: false, runtime: true})
 
       assert {:ok, %Result{} = instruction_result} =
-               Exec.step(instruction, %{},
-                 run_context: %{context_echo: %{static: false, runtime: true}}
-               )
+               Exec.step(instruction, %{}, run_context: %{static: false, runtime: true})
 
       assert {:ok, %Result{} = action_result} =
-               Exec.step(ContextEcho, %{value: 5},
-                 run_context: %{context_echo: %{static: false, runtime: true}}
-               )
+               Exec.step(ContextEcho, %{value: 5}, run_context: %{static: false, runtime: true})
 
       assert Exec.results(flow_result).context_echo == [%{value: 4, static: false, runtime: true}]
 
@@ -233,7 +248,7 @@ defmodule JidoTest.ExecApiTest do
       assert {:error, %Result{status: :max_cycles} = maxed} =
                Exec.run(bounded, %{value: 1}, max_cycles: 1)
 
-      assert {:ok, %Result{} = resumed_maxed} = Exec.resume(maxed, nil)
+      assert {:ok, %Result{} = resumed_maxed} = Exec.resume(maxed)
       assert Exec.results(resumed_maxed).again == [%{value: 3}]
     end
 
@@ -250,7 +265,17 @@ defmodule JidoTest.ExecApiTest do
       assert Exception.message(error) =~ "cannot resume failed execution result"
 
       assert {:error, %Jido.Action.Error.InvalidInputError{} = error} =
+               Exec.resume(result)
+
+      assert Exception.message(error) =~ "cannot resume failed execution result"
+
+      assert {:error, %Jido.Action.Error.InvalidInputError{} = error} =
                Exec.resume(flow, %{})
+
+      assert Exception.message(error) =~ "expected a Jido.Exec.Result"
+
+      assert {:error, %Jido.Action.Error.InvalidInputError{} = error} =
+               Exec.resume(flow)
 
       assert Exception.message(error) =~ "expected a Jido.Exec.Result"
 
@@ -258,6 +283,13 @@ defmodule JidoTest.ExecApiTest do
                Exec.resume(flow, %{}, [])
 
       assert Exception.message(error) =~ "expected a Jido.Exec.Result"
+    end
+
+    defp existing_atom?(name) do
+      _atom = :erlang.binary_to_existing_atom(name)
+      true
+    rescue
+      ArgumentError -> false
     end
   end
 end

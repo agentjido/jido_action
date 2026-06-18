@@ -3,10 +3,19 @@ defmodule JidoTest.ExecActionBoundaryTest do
 
   import ExUnit.CaptureIO
 
+  alias Jido.Action.Output
   alias Jido.Exec
   alias Jido.Exec.Result
   alias Jido.Flow
-  alias JidoTest.TestActions.{ErrorAction, IOAction, KilledAction, StreamingAction}
+
+  alias JidoTest.TestActions.{
+    ErrorAction,
+    IOAction,
+    KilledAction,
+    OpaqueOutputWithDirective,
+    RawOutputAction,
+    StreamingAction
+  }
 
   describe "action invocation boundary" do
     test "rejects non-tuple action return values without running output validation" do
@@ -101,6 +110,34 @@ defmodule JidoTest.ExecActionBoundaryTest do
       assert [%{stream: stream}] = result.results.streaming
       assert %Stream{} = stream
       assert Enum.to_list(stream) == [3, 7, 11, 15, 19]
+    end
+
+    test "explicit abnormal outputs are returned unchanged in Exec results" do
+      assert {:ok, %Result{} = result} = Exec.run(RawOutputAction, %{})
+
+      assert Exec.results(result).raw_output_action == [
+               %Output{kind: :raw, value: [1, 2, 3], meta: %{source: :test}}
+             ]
+    end
+
+    test "directive-bearing abnormal outputs preserve result and directives" do
+      assert {:ok, %Result{} = result} = Exec.run(OpaqueOutputWithDirective, %{})
+
+      assert [%Output{kind: :opaque, value: {:external, pid}, meta: %{}}] =
+               Exec.results(result).opaque_output_with_directive
+
+      assert is_pid(pid)
+
+      assert [
+               %{
+                 step: :opaque_output_with_directive,
+                 status: :ok,
+                 directives: %{next: :flow},
+                 fact_hash: fact_hash
+               }
+             ] = result.directives
+
+      refute is_nil(fact_hash)
     end
 
     test "routes action IO to the caller while executing under timeout policy" do

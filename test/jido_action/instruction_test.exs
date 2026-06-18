@@ -163,6 +163,27 @@ defmodule Jido.InstructionTest do
     test "derives action names from module names" do
       assert Instruction.derive_action_name(Add) == :add
     end
+
+    test "does not create new atoms for derived action names" do
+      module =
+        Module.concat(__MODULE__, :"GeneratedActionName#{System.unique_integer([:positive])}")
+
+      derived_name =
+        module
+        |> Module.split()
+        |> List.last()
+        |> Macro.underscore()
+
+      refute existing_atom?(derived_name)
+
+      assert_raise ArgumentError,
+                   ~r/could not derive action name without creating a new atom/,
+                   fn ->
+                     Instruction.derive_action_name(module)
+                   end
+
+      refute existing_atom?(derived_name)
+    end
   end
 
   describe "new!/1" do
@@ -183,5 +204,12 @@ defmodule Jido.InstructionTest do
         Instruction.new!(action: BasicAction, params: 123)
       end
     end
+  end
+
+  defp existing_atom?(name) do
+    _atom = :erlang.binary_to_existing_atom(name)
+    true
+  rescue
+    ArgumentError -> false
   end
 end

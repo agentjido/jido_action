@@ -160,20 +160,20 @@ defmodule JidoTest.FlowTest do
     assert %Flow{flow: [%{after: :parent}]} =
              Flow.new(%{flow: [%{type: :step, name: :child, action: Add, after: :parent}]})
 
-    assert %Flow{flow: [%{after: ["left", :right]}]} =
+    assert %Flow{flow: [%{after: [:left, :right]}]} =
              Flow.new(%{
-               flow: [%{type: :step, name: :child, action: Add, after: ["left", :right]}]
+               flow: [%{type: :step, name: :child, action: Add, after: [:left, :right]}]
              })
 
     assert_raise ArgumentError, ~r/cannot be an empty list/, fn ->
       Flow.new(%{flow: [%{type: :step, name: :child, action: Add, after: []}]})
     end
 
-    assert_raise ArgumentError, ~r/must contain only atom or string names/, fn ->
+    assert_raise ArgumentError, ~r/must contain only atom names/, fn ->
       Flow.new(%{flow: [%{type: :step, name: :child, action: Add, after: [:ok, nil]}]})
     end
 
-    assert_raise ArgumentError, ~r/must be an atom or string/, fn ->
+    assert_raise ArgumentError, ~r/must be an atom/, fn ->
       Flow.new(%{flow: [%{type: :step, name: :child, action: Add, after: 123}]})
     end
   end
@@ -193,7 +193,7 @@ defmodule JidoTest.FlowTest do
       Flow.new(%{flow: [%{type: :step, name: :bad, action: nil, after: nil}]})
     end
 
-    assert_raise ArgumentError, ~r/invalid enum value: expected one of/, fn ->
+    assert_raise ArgumentError, ~r/Flow IR uses atom keys for structural fields/, fn ->
       Flow.new(%{flow: [%{"type" => "unknown", "name" => "bad"}]})
     end
 
@@ -250,86 +250,105 @@ defmodule JidoTest.FlowTest do
     end
   end
 
-  test "normalizes string-keyed IR entries for projection inputs" do
+  test "rejects string-keyed Flow structural IR" do
+    assert_raise ArgumentError, ~r/Flow IR uses atom keys for structural fields/, fn ->
+      Flow.new(%{"name" => :projected, "flow" => []})
+    end
+
+    assert_raise ArgumentError, ~r/Flow IR uses atom keys for structural fields/, fn ->
+      Flow.new(%{
+        flow: [
+          %{"type" => :step, "name" => :add, "action" => Add, "params" => %{amount: 1}}
+        ]
+      })
+    end
+  end
+
+  test "preserves action params and context payload keys" do
     child =
       Workflow.new(:child)
       |> Workflow.add(Step.new(Add, %{amount: 1}, name: :child_add))
 
     flow =
       Flow.new(%{
-        "name" => "projected",
-        "flow" => [
+        name: :projected,
+        flow: [
           %{
-            "type" => "step",
-            "name" => "add",
-            "action" => Add,
-            "params" => %{"amount" => 1},
-            "context" => nil
+            type: :step,
+            name: :add,
+            action: Add,
+            params: %{"amount" => 1},
+            context: %{"trace_id" => "trace"}
           },
           %{
-            "type" => "map",
-            "name" => "double_each",
-            "mapper" => &FlowFunctions.double/1
+            type: :map,
+            name: :double_each,
+            mapper: &FlowFunctions.double/1
           },
           %{
-            "type" => "reduce",
-            "name" => "sum",
-            "init" => 0,
-            "reducer" => {:mfa, FlowFunctions, :sum},
-            "map" => "double_each",
-            "after" => "double_each"
+            type: :reduce,
+            name: :sum,
+            init: 0,
+            reducer: {:mfa, FlowFunctions, :sum},
+            map: :double_each,
+            after: :double_each
           },
           %{
-            "type" => "accumulate",
-            "name" => "counter",
-            "init" => 0,
-            "reducer" => {FlowFunctions, :sum}
+            type: :accumulate,
+            name: :counter,
+            init: 0,
+            reducer: {FlowFunctions, :sum}
           },
           %{
-            "type" => "workflow",
-            "name" => "child",
-            "workflow" => child,
-            "after" => "add"
+            type: :workflow,
+            name: :child,
+            workflow: child,
+            after: :add
           }
         ]
       })
 
     assert [
-             %{type: :step, name: "add", params: %{"amount" => 1}, context: %{}},
-             %{type: :map, name: "double_each", mapper: {FlowFunctions, :double}},
-             %{type: :reduce, name: "sum", reducer: {:mfa, FlowFunctions, :sum}},
-             %{type: :accumulate, name: "counter", reducer: {FlowFunctions, :sum}},
-             %{type: :workflow, name: "child", workflow: ^child}
+             %{
+               type: :step,
+               name: :add,
+               params: %{"amount" => 1},
+               context: %{"trace_id" => "trace"}
+             },
+             %{type: :map, name: :double_each, mapper: {FlowFunctions, :double}},
+             %{type: :reduce, name: :sum, reducer: {:mfa, FlowFunctions, :sum}},
+             %{type: :accumulate, name: :counter, reducer: {FlowFunctions, :sum}},
+             %{type: :workflow, name: :child, workflow: ^child}
            ] = flow.flow
   end
 
   test "returns normalized flow IR as a plain map" do
     flow =
       Flow.new(%{
-        "name" => "projected",
-        "flow" => [
+        name: :projected,
+        flow: [
           %{
-            "type" => "map",
-            "name" => "double_each",
-            "mapper" => &FlowFunctions.double/1
+            type: :map,
+            name: :double_each,
+            mapper: &FlowFunctions.double/1
           }
         ],
-        "policies" => [{"double_each", %{max_retries: 1}}]
+        policies: [{:double_each, %{max_retries: 1}}]
       })
 
     assert %{
-             name: "projected",
+             name: :projected,
              flow: [
                %{
                  type: :map,
-                 name: "double_each",
+                 name: :double_each,
                  mapper: {FlowFunctions, :double},
                  inputs: nil,
                  outputs: nil,
                  after: nil
                }
              ],
-             policies: [{"double_each", %{max_retries: 1}}]
+             policies: [{:double_each, %{max_retries: 1}}]
            } = Flow.to_map(flow)
 
     refute is_struct(Flow.to_map(flow), Flow)

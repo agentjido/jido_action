@@ -4,7 +4,7 @@ defmodule JidoTest.ExecRuntimeOptionsTest do
   alias Jido.Exec
   alias Jido.Exec.Result
   alias Jido.Flow
-  alias JidoTest.TestActions.{Add, Flaky}
+  alias JidoTest.TestActions.{Add, ContextEcho, Flaky}
   alias Runic.Workflow
   alias Runic.Workflow.RunnableCompleted
   alias Runic.Workflow.RunnableDispatched
@@ -56,6 +56,37 @@ defmodule JidoTest.ExecRuntimeOptionsTest do
                Exec.run(Add, %{value: 1, amount: 1}, deadline_ms: 1, deadline_at: deadline_at)
 
       assert Exec.results(deadline_result).add == [%{value: 2}]
+    end
+
+    test "normalizes flat run context to global Jido action context" do
+      flow =
+        Flow.new(:flat_context)
+        |> Flow.step(:left, ContextEcho, params: %{value: 1}, context: %{static: true})
+        |> Flow.step(:right, ContextEcho, params: %{value: 2}, context: %{static: false})
+
+      assert {:ok, %Result{} = result} =
+               Exec.run(flow, %{}, run_context: %{runtime: true})
+
+      assert Exec.results(result).left == [%{value: 1, static: true, runtime: true}]
+      assert Exec.results(result).right == [%{value: 2, static: false, runtime: true}]
+    end
+
+    test "preserves explicit Runic-shaped run context" do
+      flow =
+        Flow.new(:runic_context)
+        |> Flow.step(:left, ContextEcho, params: %{value: 1}, context: %{static: true})
+        |> Flow.step(:right, ContextEcho, params: %{value: 2}, context: %{static: false})
+
+      assert {:ok, %Result{} = result} =
+               Exec.run(flow, %{},
+                 run_context: %{
+                   _global: %{runtime: true},
+                   right: %{runtime: false}
+                 }
+               )
+
+      assert Exec.results(result).left == [%{value: 1, static: true, runtime: true}]
+      assert Exec.results(result).right == [%{value: 2, static: false, runtime: false}]
     end
 
     test "accepts scheduler policy structs and keyword runtime overrides" do

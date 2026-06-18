@@ -55,7 +55,7 @@ defmodule Jido.Exec.Result do
     %{
       workflow: workflow,
       status: status,
-      results: Keyword.get_lazy(opts, :results, fn -> Workflow.results(workflow) end),
+      results: Keyword.get_lazy(opts, :results, fn -> workflow_results(workflow) end),
       events: Keyword.get_lazy(opts, :events, fn -> workflow_events(workflow) end),
       cycles: Keyword.get(opts, :cycles, 0),
       error: Keyword.get(opts, :error),
@@ -100,6 +100,27 @@ defmodule Jido.Exec.Result do
      )}
   end
 
+  @doc false
+  @spec workflow_results(Workflow.t(), keyword()) :: term()
+  def workflow_results(%Workflow{} = workflow, opts \\ []) when is_list(opts) do
+    if Keyword.get(opts, :raw, false) do
+      Workflow.raw_productions(workflow)
+    else
+      opts = Keyword.drop(opts, [:raw])
+      components = Keyword.get(opts, :components)
+      query_opts = Keyword.delete(opts, :components)
+
+      results =
+        if is_list(components) do
+          Workflow.results(workflow, components, query_opts)
+        else
+          Workflow.results(workflow, nil, query_opts)
+        end
+
+      filter_internal_results(workflow, results)
+    end
+  end
+
   defp parse_result!(attrs) do
     case Zoi.parse(@schema, attrs) do
       {:ok, result} ->
@@ -113,6 +134,25 @@ defmodule Jido.Exec.Result do
   defp workflow_events(%Workflow{} = workflow) do
     Workflow.event_log(workflow)
   end
+
+  defp filter_internal_results(%Workflow{} = workflow, results) when is_map(results) do
+    visible_names = visible_component_names(workflow)
+
+    Map.filter(results, fn {name, _value} ->
+      MapSet.member?(visible_names, name)
+    end)
+  end
+
+  defp visible_component_names(%Workflow{} = workflow) do
+    workflow
+    |> Workflow.components()
+    |> Enum.reject(&internal_component?/1)
+    |> Enum.map(fn {name, _component} -> name end)
+    |> MapSet.new()
+  end
+
+  defp internal_component?({_name, %Runic.Workflow.Step{name: "step_" <> _suffix}}), do: true
+  defp internal_component?(_component), do: false
 
   defp failed_runnable_error(%Runnable{} = runnable) do
     Error.execution_error("flow runnable failed", %{
