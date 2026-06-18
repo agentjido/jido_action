@@ -77,7 +77,7 @@ defmodule Jido.Action.IDTest do
       end
 
       assert_raise FunctionClauseError, fn ->
-        ID.uuid7("0", <<0::80>>)
+        apply(ID, :uuid7, ["0", <<0::80>>])
       end
     end
 
@@ -91,7 +91,7 @@ defmodule Jido.Action.IDTest do
       end
 
       assert_raise FunctionClauseError, fn ->
-        ID.uuid7(0, :not_binary)
+        apply(ID, :uuid7, [0, :not_binary])
       end
     end
 
