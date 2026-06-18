@@ -6,6 +6,7 @@ defmodule JidoTest.ExecFlowTest do
   alias Jido.Exec
   alias Jido.Exec.Result
   alias Jido.Flow
+  alias JidoTest.TestActions.FlowFunctions
   alias JidoTest.TestActions.{Add, Double, Fail, Flaky, Slow, SumJoined}
   alias Runic.Workflow
 
@@ -125,8 +126,9 @@ defmodule JidoTest.ExecFlowTest do
   end
 
   test "stateful components preserve state across repeated runtime resumes" do
-    counter = Runic.accumulator(0, fn value, state -> state + value end, name: :counter)
-    flow = Flow.new(:stateful) |> Flow.component(:counter, counter)
+    flow =
+      Flow.new(:stateful)
+      |> Flow.accumulate(:counter, 0, {FlowFunctions, :sum})
 
     assert {:ok, %Result{workflow: workflow}} = Exec.run(flow, 2)
     assert 2 in Workflow.raw_productions(workflow, :counter)
@@ -153,7 +155,10 @@ defmodule JidoTest.ExecFlowTest do
         ]
       )
 
-    flow = Flow.new(:machine) |> Flow.component(:counter_machine, machine)
+    flow =
+      Workflow.new(:machine)
+      |> Workflow.add(machine)
+      |> Flow.from_workflow()
 
     assert {:ok, %Result{workflow: workflow}} = Exec.run(flow, :tick)
     assert {:ok, %Result{workflow: workflow}} = Exec.run(Flow.from_workflow(workflow), :tick)

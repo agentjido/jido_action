@@ -388,7 +388,7 @@ defmodule Jido.Exec do
   defp do_results(%Result{workflow: workflow}, opts), do: do_results(workflow, opts)
 
   defp do_results(flow_or_workflow, opts) when is_list(opts) do
-    workflow = Flow.to_workflow(flow_or_workflow)
+    workflow = result_workflow(flow_or_workflow)
     components = Keyword.get(opts, :components)
 
     cond do
@@ -408,7 +408,7 @@ defmodule Jido.Exec do
 
   defp do_events(flow_or_workflow, _opts) do
     flow_or_workflow
-    |> Flow.to_workflow()
+    |> result_workflow()
     |> Workflow.event_log()
   rescue
     _ -> []
@@ -423,7 +423,7 @@ defmodule Jido.Exec do
   end
 
   defp do_summary(flow_or_workflow) do
-    workflow = Flow.to_workflow(flow_or_workflow)
+    workflow = result_workflow(flow_or_workflow)
 
     %{
       total_nodes: workflow |> Workflow.components() |> map_size(),
@@ -439,7 +439,7 @@ defmodule Jido.Exec do
   defp do_provenance(flow_or_workflow, fact_hash) do
     facts =
       flow_or_workflow
-      |> Flow.to_workflow()
+      |> result_workflow()
       |> Workflow.facts()
       |> Map.new(&{&1.hash, &1})
 
@@ -461,6 +461,9 @@ defmodule Jido.Exec do
   end
 
   defp build_provenance_chain(%Runic.Workflow.Fact{} = fact, _facts, acc), do: [fact | acc]
+
+  defp result_workflow(%Flow{} = flow), do: Flow.to_workflow(flow)
+  defp result_workflow(%Workflow{} = workflow), do: workflow
 
   defp unsupported_executable(value) do
     {:error,
