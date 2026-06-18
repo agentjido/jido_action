@@ -121,10 +121,7 @@ defmodule Jido.Action do
 
   @action_config_schema Zoi.object(%{
                           name:
-                            Zoi.string(
-                              description:
-                                "The name of the Action. Must contain only letters, numbers, and underscores."
-                            )
+                            Zoi.string(description: "The non-blank metadata name of the Action.")
                             |> Zoi.refine({Jido.Action.Util, :validate_name, []}),
                           description:
                             Zoi.string(description: "A description of what the Action does.")
@@ -217,7 +214,7 @@ defmodule Jido.Action do
 
   ## Options
 
-  - `name` (required) - The name of the Action. Must contain only letters, numbers, and underscores.
+  - `name` (required) - The non-blank metadata name of the Action.
   - `description` (optional) - A description of what the Action does.
   - `schema` (optional, default: []) - A Zoi schema for validating the Action's input parameters.
   - `output_schema` (optional, default: []) - A Zoi schema for validating the Action's output. Only specified fields are validated.

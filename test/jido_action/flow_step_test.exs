@@ -4,6 +4,7 @@ defmodule JidoTest.FlowStepTest do
   alias Jido.Exec
   alias Jido.Flow
   alias Jido.Flow.Step
+  alias Jido.Instruction
   alias Runic.Workflow
   alias Runic.Workflow.PolicyDriver
   alias Runic.Workflow.SchedulerPolicy
@@ -68,6 +69,52 @@ defmodule JidoTest.FlowStepTest do
     def run(_params, _context), do: {:ok, %{value: "bad"}}
   end
 
+  defmodule ManualNoSchema do
+    def run(params, _context), do: {:ok, params}
+    def validate_params(params), do: {:ok, params}
+    def validate_output(output), do: {:ok, output}
+  end
+
+  defmodule InvalidValidateParamsReturn do
+    def run(params, _context), do: {:ok, params}
+    def validate_params(_params), do: :ok
+    def validate_output(output), do: {:ok, output}
+  end
+
+  defmodule InvalidValidateOutputReturn do
+    def run(params, _context), do: {:ok, params}
+    def validate_params(params), do: {:ok, params}
+    def validate_output(_output), do: :ok
+  end
+
+  defmodule UnexpectedReturn do
+    def run(_params, _context), do: :ok
+    def validate_params(params), do: {:ok, params}
+    def validate_output(output), do: {:ok, output}
+  end
+
+  defmodule RaisingAction do
+    def run(_params, _context), do: raise("boom")
+    def validate_params(params), do: {:ok, params}
+    def validate_output(output), do: {:ok, output}
+  end
+
+  defmodule ErrorMapAction do
+    def run(_params, _context), do: {:error, %{message: "mapped failure", code: :mapped}}
+    def validate_params(params), do: {:ok, params}
+    def validate_output(output), do: {:ok, output}
+  end
+
+  defmodule MissingRun do
+    def validate_params(params), do: {:ok, params}
+    def validate_output(output), do: {:ok, output}
+  end
+
+  defmodule MissingValidateOutput do
+    def run(params, _context), do: {:ok, params}
+    def validate_params(params), do: {:ok, params}
+  end
+
   test "executes a Jido action through Runic prepare and execute" do
     step = Step.new(Add, %{amount: 2}, name: :add)
 
@@ -78,6 +125,70 @@ defmodule JidoTest.FlowStepTest do
 
     assert executed.status == :completed
     assert executed.result.value == %{value: 5}
+  end
+
+  test "step hashes are structural without instruction ids" do
+    left = Step.new(Add, %{amount: 2}, name: :add)
+    right = Step.new(Add, %{amount: 2}, name: :add)
+
+    assert left.hash == right.hash
+    refute Map.has_key?(left.instruction, :id)
+    refute Map.has_key?(right.instruction, :id)
+  end
+
+  test "builds from an instruction and merges params and context" do
+    instruction =
+      Instruction.new!(
+        action: Add,
+        params: %{amount: 1},
+        context: %{trace_id: "base"}
+      )
+
+    step =
+      Step.new(instruction, %{amount: 3},
+        name: "add",
+        context: %{tenant_id: "tenant"}
+      )
+
+    assert step.action == Add
+    assert step.params == %{amount: 3}
+    assert step.context == %{trace_id: "base", tenant_id: "tenant"}
+  end
+
+  test "rejects invalid constructor inputs" do
+    assert_raise ArgumentError, ~r/unknown flow step options/, fn ->
+      Step.new(Add, %{}, name: :add, retry: true)
+    end
+
+    assert_raise ArgumentError, ~r/expected params to be a map or keyword list/, fn ->
+      Step.new(Add, 123, name: :add)
+    end
+
+    assert_raise ArgumentError, ~r/expected context to be a map or keyword list/, fn ->
+      Step.new(Add, %{}, name: :add, context: 123)
+    end
+
+    assert_raise ArgumentError, ~r/expected a map or keyword list/, fn ->
+      Step.new(Add, [:not, :keyword], name: :add)
+    end
+
+    assert_raise ArgumentError, ~r/expected an action module or %Jido.Instruction{}/, fn ->
+      Step.new(nil, %{})
+    end
+  end
+
+  test "validates action module callback contracts" do
+    assert {:error, missing_run} = Step.validate_action(MissingRun)
+    assert missing_run.details.reason == "missing run/2"
+
+    assert {:error, missing_output} = Step.validate_action(MissingValidateOutput)
+    assert missing_output.details.reason == "missing validate_output/1"
+
+    assert {:error, unloaded} = Step.validate_action(Module.concat(__MODULE__, MissingModule))
+    assert unloaded.message == "action module could not be loaded"
+
+    assert {:error, invalid} = Step.validate_action("not a module")
+    assert invalid.message =~ "expected an action module"
   end
 
   test "merges static params with fact params and runtime context" do
@@ -166,12 +277,63 @@ defmodule JidoTest.FlowStepTest do
     assert %Jido.Action.Error.InvalidInputError{} = executed.error
   end
 
+  test "marks invalid action callback returns as failed runnables" do
+    params_step = Step.new(InvalidValidateParamsReturn, %{}, name: :bad_params)
+    output_step = Step.new(InvalidValidateOutputReturn, %{}, name: :bad_output)
+    return_step = Step.new(UnexpectedReturn, %{}, name: :bad_return)
+
+    assert %{status: :failed, error: params_error} = params_step |> prepare(%{}) |> execute()
+    assert params_error.message == "invalid validate_params/1 return"
+
+    assert %{status: :failed, error: output_error} = output_step |> prepare(%{}) |> execute()
+    assert output_error.message == "invalid validate_output/1 return"
+
+    assert %{status: :failed, error: return_error} = return_step |> prepare(%{}) |> execute()
+    assert return_error.message == "unexpected action return shape"
+  end
+
+  test "normalizes raised actions and map-shaped errors" do
+    raised = Step.new(RaisingAction, %{}, name: :raising) |> prepare(%{}) |> execute()
+    mapped = Step.new(ErrorMapAction, %{}, name: :mapped) |> prepare(%{}) |> execute()
+
+    assert raised.status == :failed
+    assert raised.error.message == "action raised during invocation"
+    assert %RuntimeError{message: "boom"} = raised.error.details.reason
+
+    assert mapped.status == :failed
+    assert mapped.error.message == "mapped failure"
+    assert mapped.error.details == %{code: :mapped}
+  end
+
   test "derives Zoi schema ports from required action keys" do
     step = Step.new(Add, %{}, name: :add)
 
     assert Keyword.has_key?(step.inputs, :value)
     refute Keyword.has_key?(step.inputs, :amount)
     assert Keyword.has_key?(step.outputs, :value)
+  end
+
+  test "falls back to default ports when action schemas are unavailable" do
+    step = Step.new(ManualNoSchema, %{}, name: :manual)
+
+    assert step.inputs == [input: [type: :any, doc: "Input to the action"]]
+    assert step.outputs == [result: [type: :any, doc: "Action result"]]
+  end
+
+  test "exposes Runic component and transmutable protocol behavior" do
+    step = Step.new(Add, %{amount: 2}, name: :add)
+
+    assert Runic.Component.connectable?(step, step)
+    assert Runic.Component.hash(step) == step.hash
+    assert Runic.Component.inputs(step) == step.inputs
+    assert Runic.Component.outputs(step) == step.outputs
+
+    assert %Step{} = Code.eval_quoted(Runic.Component.source(step)) |> elem(0)
+
+    assert Runic.Transmutable.to_component(step) == step
+    assert %Workflow{} = workflow = Runic.Transmutable.to_workflow(step)
+    assert %{add: ^step} = Workflow.components(workflow)
+    assert Runic.Transmutable.transmute(step) == workflow
   end
 
   defp prepare(%Step{} = step, input) do

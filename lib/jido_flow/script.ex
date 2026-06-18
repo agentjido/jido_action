@@ -18,7 +18,7 @@ defmodule Jido.Flow.Script do
       end
   """
 
-  alias Jido.Action.Error
+  alias Jido.Action.{Error, Util}
   alias Jido.Flow
   alias Jido.Flow.Step
 
@@ -257,29 +257,39 @@ defmodule Jido.Flow.Script do
 
   defp decode_dependency(value_ast), do: decode_name(value_ast, :after)
 
-  defp decode_name({@atom_tag, value}, field), do: validate_name(value, field)
-  defp decode_name(value, field) when is_binary(value), do: validate_name(value, field)
+  defp decode_name({@atom_tag, value}, field), do: validate_script_name(value, field)
+  defp decode_name(value, field) when is_binary(value), do: validate_script_name(value, field)
 
   defp decode_name(_value, field) do
     validation_error("#{field} name must be a string or atom literal", %{field: field})
   end
 
-  defp validate_name(value, field) do
+  defp validate_script_name(value, field) do
     max_string_bytes = @default_max_string_bytes
 
-    cond do
-      value == "" ->
-        validation_error("#{field} name cannot be empty", %{field: field})
-
-      byte_size(value) > max_string_bytes ->
+    with :ok <- validate_script_component_name(value, field) do
+      if byte_size(value) > max_string_bytes do
         validation_error("#{field} name is too large", %{
           field: field,
           max_bytes: max_string_bytes,
           byte_size: byte_size(value)
         })
-
-      true ->
+      else
         {:ok, value}
+      end
+    end
+  end
+
+  defp validate_script_component_name(value, field) do
+    case Util.validate_component_name(value) do
+      :ok ->
+        :ok
+
+      {:error, "cannot be empty"} ->
+        validation_error("#{field} name cannot be empty", %{field: field})
+
+      {:error, reason} ->
+        validation_error("#{field} name #{reason}", %{field: field})
     end
   end
 

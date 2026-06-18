@@ -139,62 +139,58 @@ defmodule JidoTest.Action.UtilTest do
   end
 
   describe "validate_name/1" do
-    test "validates names that start with a letter" do
+    test "validates non-blank string names" do
       assert :ok = Util.validate_name("valid_name")
       assert :ok = Util.validate_name("ValidName")
       assert :ok = Util.validate_name("a")
       assert :ok = Util.validate_name("A")
     end
 
-    test "validates names with letters, numbers, and underscores" do
+    test "validates names with external or display-oriented punctuation" do
       assert :ok = Util.validate_name("valid_name_123")
       assert :ok = Util.validate_name("TestAction42")
-
-      assert :ok = Util.validate_name("action_name_with_underscores")
+      assert :ok = Util.validate_name("billing.charge-card")
+      assert :ok = Util.validate_name("Send Email")
+      assert :ok = Util.validate_name("checkout/v2")
     end
 
-    test "rejects names that start with numbers" do
-      assert {:error,
-              "The name must start with a letter and contain only letters, numbers, and underscores."} =
-               Util.validate_name("123invalid")
+    test "rejects blank strings" do
+      assert {:error, "Action name cannot be blank."} = Util.validate_name("")
+      assert {:error, "Action name cannot be blank."} = Util.validate_name(" \t\n")
     end
 
-    test "rejects names that start with underscores" do
-      assert {:error,
-              "The name must start with a letter and contain only letters, numbers, and underscores."} =
-               Util.validate_name("_invalid")
-    end
-
-    test "rejects names with hyphens" do
-      assert {:error,
-              "The name must start with a letter and contain only letters, numbers, and underscores."} =
-               Util.validate_name("invalid-name")
-    end
-
-    test "rejects names with spaces" do
-      assert {:error,
-              "The name must start with a letter and contain only letters, numbers, and underscores."} =
-               Util.validate_name("invalid name")
-    end
-
-    test "rejects names with special characters" do
-      assert {:error,
-              "The name must start with a letter and contain only letters, numbers, and underscores."} =
-               Util.validate_name("invalid@name")
-    end
-
-    test "rejects empty strings" do
-      assert {:error,
-              "The name must start with a letter and contain only letters, numbers, and underscores."} =
-               Util.validate_name("")
+    test "rejects overly large strings" do
+      assert {:error, "Action name cannot exceed 256 bytes."} =
+               Util.validate_name(String.duplicate("a", 257))
     end
 
     test "rejects non-binary inputs" do
-      assert {:error, "Invalid name format."} = Util.validate_name(nil)
-      assert {:error, "Invalid name format."} = Util.validate_name(123)
-      assert {:error, "Invalid name format."} = Util.validate_name(:atom)
-      assert {:error, "Invalid name format."} = Util.validate_name(%{})
-      assert {:error, "Invalid name format."} = Util.validate_name([])
+      assert {:error, "Action name must be a string."} = Util.validate_name(nil)
+      assert {:error, "Action name must be a string."} = Util.validate_name(123)
+      assert {:error, "Action name must be a string."} = Util.validate_name(:atom)
+      assert {:error, "Action name must be a string."} = Util.validate_name(%{})
+      assert {:error, "Action name must be a string."} = Util.validate_name([])
+    end
+  end
+
+  describe "validate_component_name/1" do
+    test "accepts non-nil atoms and non-empty strings" do
+      assert :ok = Util.validate_component_name(:step_name)
+      assert :ok = Util.validate_component_name("step_name")
+    end
+
+    test "rejects nil, empty strings, and unsupported values" do
+      assert {:error, "cannot be nil"} = Util.validate_component_name(nil)
+      assert {:error, "cannot be empty"} = Util.validate_component_name("")
+      assert {:error, "must be an atom or string"} = Util.validate_component_name(123)
+    end
+  end
+
+  describe "validate_optional_component_name/1" do
+    test "accepts nil and delegates non-nil names" do
+      assert :ok = Util.validate_optional_component_name(nil)
+      assert :ok = Util.validate_optional_component_name(:step_name)
+      assert {:error, "cannot be empty"} = Util.validate_optional_component_name("")
     end
   end
 

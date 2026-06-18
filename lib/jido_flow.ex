@@ -2,38 +2,118 @@ defmodule Jido.Flow do
   @moduledoc """
   Explicit composition of Jido actions.
 
-  A flow is a thin Jido-facing wrapper around a `Runic.Workflow`. It describes
-  how action leaves and native Runic components are connected, while
-  `Jido.Exec` owns execution.
+  A flow is the Jido-owned intermediate representation for composing action
+  leaves and Runic components. `Jido.Exec` owns execution by projecting this IR
+  into a `Runic.Workflow` at the runtime boundary.
   """
 
+  alias Jido.Action.Util
   alias Jido.Flow.Step
   alias Runic.Workflow
 
-  defstruct [:name, :workflow]
+  @name_schema Zoi.any(description: "Flow name")
+               |> Zoi.refine({Util, :validate_optional_component_name, []})
+
+  @required_name_schema Zoi.any(description: "Flow entry name")
+                        |> Zoi.refine({Util, :validate_component_name, []})
+
+  @dependency_schema Zoi.any(description: "Parent entry dependency")
+                     |> Zoi.refine({__MODULE__, :validate_dependency, []})
+                     |> Zoi.default(nil)
+
+  @entry_schema Zoi.map(%{
+                  type: Zoi.enum([:step, :component, :workflow]),
+                  name: @required_name_schema,
+                  component: Zoi.any(description: "Jido step or Runic component"),
+                  after: @dependency_schema
+                })
+                |> Zoi.refine({__MODULE__, :validate_entry, []})
+
+  @schema Zoi.struct(
+            __MODULE__,
+            %{
+              name: @name_schema |> Zoi.default(nil),
+              flow:
+                Zoi.list(@entry_schema, description: "Ordered flow IR entries")
+                |> Zoi.default([]),
+              policies:
+                Zoi.list(Zoi.any(), description: "Runic scheduler policies")
+                |> Zoi.default([])
+            },
+            coerce: true
+          )
 
   @type name :: atom() | String.t() | nil
-  @type dependency :: atom() | String.t() | [atom() | String.t()]
-  @type t :: %__MODULE__{name: name(), workflow: Workflow.t()}
+  @type dependency :: atom() | String.t() | [atom() | String.t()] | nil
+  @type entry_type :: :step | :component | :workflow
+  @type entry :: %{
+          required(:type) => entry_type(),
+          required(:name) => atom() | String.t(),
+          required(:component) => Step.t() | struct(),
+          required(:after) => dependency()
+        }
+  @type t :: unquote(Zoi.type_spec(@schema))
+
+  @enforce_keys Zoi.Struct.enforce_keys(@schema)
+  defstruct Zoi.Struct.struct_fields(@schema)
+
+  @doc false
+  @spec validate_dependency(term(), keyword()) :: :ok | {:error, String.t()}
+  def validate_dependency(value, _opts \\ [])
+  def validate_dependency(nil, _opts), do: :ok
+
+  def validate_dependency(values, opts) when is_list(values) do
+    cond do
+      values == [] ->
+        {:error, "cannot be an empty list"}
+
+      Enum.all?(values, &(Util.validate_component_name(&1, opts) == :ok)) ->
+        :ok
+
+      true ->
+        {:error, "must contain only atom or string names"}
+    end
+  end
+
+  def validate_dependency(value, opts), do: Util.validate_component_name(value, opts)
+
+  @doc false
+  @spec validate_entry(term(), keyword()) :: :ok | {:error, String.t()}
+  def validate_entry(%{type: :step, component: %Step{}}, _opts), do: :ok
+  def validate_entry(%{type: :component, component: %{__struct__: _}}, _opts), do: :ok
+  def validate_entry(%{type: :workflow, component: %Workflow{}}, _opts), do: :ok
+
+  def validate_entry(%{type: :step}, _opts),
+    do: {:error, "step entries must contain a Jido.Flow.Step component"}
+
+  def validate_entry(%{type: :component}, _opts),
+    do: {:error, "component entries must contain a struct component"}
+
+  def validate_entry(%{type: :workflow}, _opts),
+    do: {:error, "workflow entries must contain a Runic.Workflow component"}
+
+  def validate_entry(_entry, _opts), do: {:error, "must be a flow entry map"}
 
   @doc """
   Creates an empty flow.
   """
-  @spec new(name() | keyword()) :: t()
+  @spec new(name() | map() | keyword()) :: t()
   def new(name_or_opts \\ nil)
 
   def new(opts) when is_list(opts) do
     opts
-    |> Keyword.get(:name)
+    |> Map.new()
     |> new()
   end
 
-  def new(nil) do
-    from_workflow(Workflow.new())
+  def new(%{} = attrs) do
+    parse_flow!(attrs)
   end
 
+  def new(nil), do: parse_flow!(%{name: nil})
+
   def new(name) when is_atom(name) or is_binary(name) do
-    from_workflow(Workflow.new(name))
+    parse_flow!(%{name: name})
   end
 
   @doc """
@@ -50,7 +130,7 @@ defmodule Jido.Flow do
 
     flow_name
     |> new()
-    |> add_component(flow_name, step, nil)
+    |> add_entry(:step, flow_name, step, nil)
   end
 
   @doc """
@@ -62,18 +142,35 @@ defmodule Jido.Flow do
   end
 
   @doc """
-  Wraps an existing Runic workflow as a flow.
+  Wraps an existing Runic workflow as a runtime-only flow entry.
   """
   @spec from_workflow(Workflow.t()) :: t()
   def from_workflow(%Workflow{} = workflow) do
-    %__MODULE__{name: workflow.name, workflow: workflow}
+    parse_flow!(%{
+      name: workflow.name,
+      flow: [
+        %{
+          type: :workflow,
+          name: workflow.name,
+          component: workflow,
+          after: nil
+        }
+      ]
+    })
   end
 
   @doc """
-  Returns the underlying Runic workflow.
+  Projects a Jido flow into a Runic workflow.
   """
   @spec to_workflow(t() | Workflow.t()) :: Workflow.t()
-  def to_workflow(%__MODULE__{workflow: %Workflow{} = workflow}), do: workflow
+  def to_workflow(%__MODULE__{} = flow) do
+    {workflow, entries} = base_workflow(flow)
+
+    entries
+    |> Enum.reduce(workflow, &project_entry/2)
+    |> apply_scheduler_policies(flow.policies)
+  end
+
   def to_workflow(%Workflow{} = workflow), do: workflow
 
   @doc """
@@ -94,7 +191,7 @@ defmodule Jido.Flow do
       action_or_instruction
       |> Step.new(params, Keyword.put(opts, :name, name))
 
-    add_component(flow, name, node, after_dep)
+    add_entry(flow, :step, name, node, after_dep)
   end
 
   @doc """
@@ -108,32 +205,32 @@ defmodule Jido.Flow do
       |> Jido.Flow.policy(:load_cart, %{max_retries: 1, backoff: :none})
   """
   @spec policy(t(), term(), map() | keyword() | struct()) :: t()
-  def policy(%__MODULE__{workflow: workflow} = flow, matcher, policy) do
-    policies = Map.get(workflow, :scheduler_policies, [])
-    scheduler_policy = {matcher, normalize_scheduler_policy!(policy)}
-
-    %{flow | workflow: Workflow.set_scheduler_policies(workflow, policies ++ [scheduler_policy])}
+  def policy(%__MODULE__{} = flow, matcher, policy) do
+    parse_flow!(%{
+      flow
+      | policies: flow.policies ++ [{matcher, normalize_scheduler_policy!(policy)}]
+    })
   end
 
   @doc """
   Adds a native Runic component to the flow.
 
-  This is the advanced escape hatch for stateful Runic components such as
-  accumulators, FSMs, and state machines.
+  This is the advanced escape hatch for Runic primitives such as maps, reduces,
+  accumulators, FSMs, state machines, and custom components.
   """
   @spec component(t(), atom() | String.t(), struct(), keyword()) :: t()
   def component(%__MODULE__{} = flow, name, component, opts \\ []) when is_list(opts) do
     {after_dep, _opts} = Keyword.pop(opts, :after)
-    validate_component_name!(component, name)
+    validate_component_name_match!(component, name)
     component = maybe_name_component(component, name)
-    add_component(flow, name, component, after_dep)
+    add_entry(flow, :component, name, component, after_dep)
   end
 
   @doc """
-  Validates that the value is a flow with a Runic workflow.
+  Validates that the value is a Jido flow or wraps a Runic workflow as one.
   """
   @spec validate(term()) :: {:ok, t()} | {:error, term()}
-  def validate(%__MODULE__{workflow: %Workflow{}} = flow), do: {:ok, flow}
+  def validate(%__MODULE__{} = flow), do: {:ok, parse_flow!(flow)}
   def validate(%Workflow{} = workflow), do: {:ok, from_workflow(workflow)}
   def validate(other), do: {:error, {:invalid_flow, other}}
 
@@ -177,33 +274,93 @@ defmodule Jido.Flow do
     %{nodes: include_edge_nodes(nodes, edges), edges: edges}
   end
 
-  defp add_component(%__MODULE__{workflow: workflow} = flow, name, component, after_dep) do
-    ensure_available_name!(workflow, name)
+  defp parse_flow!(%__MODULE__{} = flow), do: parse_flow!(Map.from_struct(flow))
 
-    workflow =
-      case after_dep do
-        nil -> Workflow.add(workflow, component)
-        dep -> Workflow.add(workflow, component, to: dep)
-      end
+  defp parse_flow!(attrs) when is_map(attrs) do
+    case Zoi.parse(@schema, attrs) do
+      {:ok, flow} ->
+        flow
 
-    %{flow | name: workflow.name, workflow: workflow}
+      {:error, errors} ->
+        raise ArgumentError, "invalid flow:\n" <> Zoi.prettify_errors(errors)
+    end
   end
 
-  defp ensure_available_name!(%Workflow{components: components}, name) do
-    if Map.has_key?(components, name) do
+  defp add_entry(%__MODULE__{} = flow, type, name, component, after_dep) do
+    ensure_available_name!(flow, name)
+
+    entry = %{
+      type: type,
+      name: name,
+      component: component,
+      after: after_dep
+    }
+
+    parse_flow!(%{flow | flow: flow.flow ++ [entry]})
+  end
+
+  defp base_workflow(%__MODULE__{name: name, flow: flow_entries}) do
+    case flow_entries do
+      [%{type: :workflow, component: %Workflow{} = workflow, after: nil} | entries] ->
+        {workflow, entries}
+
+      entries ->
+        {new_workflow(name), entries}
+    end
+  end
+
+  defp new_workflow(nil), do: Workflow.new()
+  defp new_workflow(name), do: Workflow.new(name)
+
+  defp project_entry(
+         %{type: :workflow, component: %Workflow{} = child, after: after_dep},
+         workflow
+       ) do
+    add_component_to_workflow(workflow, child, after_dep)
+  end
+
+  defp project_entry(%{component: component, after: after_dep}, workflow) do
+    add_component_to_workflow(workflow, component, after_dep)
+  end
+
+  defp add_component_to_workflow(%Workflow{} = workflow, component, nil) do
+    Workflow.add(workflow, component)
+  end
+
+  defp add_component_to_workflow(%Workflow{} = workflow, component, after_dep) do
+    Workflow.add(workflow, component, to: after_dep)
+  end
+
+  defp apply_scheduler_policies(%Workflow{} = workflow, []), do: workflow
+
+  defp apply_scheduler_policies(%Workflow{} = workflow, policies) do
+    existing_policies = Map.get(workflow, :scheduler_policies, [])
+    Workflow.set_scheduler_policies(workflow, existing_policies ++ policies)
+  end
+
+  defp ensure_available_name!(%__MODULE__{flow: entries}, name) do
+    if Enum.any?(entries, &entry_named?(&1, name)) do
       raise ArgumentError, "flow already contains a component named #{inspect(name)}"
     end
   end
 
-  defp validate_component_name!(%{name: nil}, _name), do: :ok
-  defp validate_component_name!(%{name: name}, name), do: :ok
+  defp entry_named?(%{name: name}, name), do: true
 
-  defp validate_component_name!(%{name: component_name}, flow_name) do
+  defp entry_named?(%{type: :workflow, component: %Workflow{components: components}}, name) do
+    Map.has_key?(components, name)
+  end
+
+  defp entry_named?(_entry, _name), do: false
+
+  defp validate_component_name_match!(%{name: nil}, _name), do: :ok
+  defp validate_component_name_match!(%{name: name}, name), do: :ok
+
+  defp validate_component_name_match!(%{name: component_name}, flow_name) do
     raise ArgumentError,
           "component name #{inspect(component_name)} does not match flow name #{inspect(flow_name)}"
   end
 
-  defp validate_component_name!(_component, _name), do: :ok
+  defp validate_component_name_match!(_component, _name), do: :ok
 
   defp maybe_name_component(%{name: nil} = component, name), do: %{component | name: name}
   defp maybe_name_component(component, _name), do: component
@@ -237,9 +394,9 @@ defmodule Jido.Flow do
     }
   end
 
-  defp node_info(component) do
+  defp node_info(%{__struct__: struct} = component) do
     %{
-      type: component.__struct__,
+      type: struct,
       name: Map.get(component, :name),
       inputs: safe_ports(component, :inputs),
       outputs: safe_ports(component, :outputs)
