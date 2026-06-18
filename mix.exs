@@ -113,8 +113,7 @@ defmodule JidoAction.MixProject do
           Jido.Flow,
           Jido.Flow.Step,
           Jido.Action.Error,
-          Jido.Instruction,
-          Jido.Action.Util
+          Jido.Instruction
         ],
         "Flow Runtime": [
           Jido.Exec,

@@ -99,6 +99,35 @@ defmodule Jido.ActionTest do
   end
 
   describe "configuration schema validation" do
+    test "validates non-blank string action names" do
+      assert :ok = Action.validate_name("valid_name")
+      assert :ok = Action.validate_name("ValidName")
+      assert :ok = Action.validate_name("a")
+      assert :ok = Action.validate_name("A")
+    end
+
+    test "validates action names with external or display-oriented punctuation" do
+      assert :ok = Action.validate_name("valid_name_123")
+      assert :ok = Action.validate_name("TestAction42")
+      assert :ok = Action.validate_name("billing.charge-card")
+      assert :ok = Action.validate_name("Send Email")
+      assert :ok = Action.validate_name("checkout/v2")
+    end
+
+    test "rejects invalid action names" do
+      assert {:error, "Action name cannot be blank."} = Action.validate_name("")
+      assert {:error, "Action name cannot be blank."} = Action.validate_name(" \t\n")
+
+      assert {:error, "Action name cannot exceed 256 bytes."} =
+               Action.validate_name(String.duplicate("a", 257))
+
+      assert {:error, "Action name must be a string."} = Action.validate_name(nil)
+      assert {:error, "Action name must be a string."} = Action.validate_name(123)
+      assert {:error, "Action name must be a string."} = Action.validate_name(:atom)
+      assert {:error, "Action name must be a string."} = Action.validate_name(%{})
+      assert {:error, "Action name must be a string."} = Action.validate_name([])
+    end
+
     test "accepts empty schema sentinel and Zoi schemas" do
       assert :ok = Action.validate_config_schema([])
       assert :ok = Action.validate_config_schema(Zoi.object(%{value: Zoi.integer()}))

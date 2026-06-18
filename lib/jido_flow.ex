@@ -566,7 +566,7 @@ defmodule Jido.Flow do
     %{
       type: :jido_action,
       name: step.name,
-      action: step.action,
+      action: step.instruction.action,
       inputs: step.inputs,
       outputs: step.outputs
     }
