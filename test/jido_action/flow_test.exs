@@ -5,34 +5,9 @@ defmodule JidoTest.FlowTest do
 
   alias Jido.Flow
   alias Jido.Flow.Step
+  alias JidoTest.TestActions.{Add, Double, NamedComponent, NotAnAction}
   alias Runic.Workflow
   alias Runic.Workflow.SchedulerPolicy
-
-  defmodule Add do
-    use Jido.Action,
-      name: "flow_add",
-      schema: Zoi.object(%{value: Zoi.integer(), amount: Zoi.integer() |> Zoi.default(1)}),
-      output_schema: Zoi.object(%{value: Zoi.integer()})
-
-    def run(%{value: value, amount: amount}, _context), do: {:ok, %{value: value + amount}}
-  end
-
-  defmodule Double do
-    use Jido.Action,
-      name: "flow_double",
-      schema: Zoi.object(%{value: Zoi.integer()}),
-      output_schema: Zoi.object(%{value: Zoi.integer()})
-
-    def run(%{value: value}, _context), do: {:ok, %{value: value * 2}}
-  end
-
-  defmodule NotAnAction do
-    def run(_params, _context), do: {:ok, %{}}
-  end
-
-  defmodule NamedComponent do
-    defstruct [:name, :hash]
-  end
 
   test "builds a flow with action steps and dependencies" do
     flow =
@@ -71,6 +46,24 @@ defmodule JidoTest.FlowTest do
                }
              ],
              policies: []
+           } = flow
+  end
+
+  test "builds flows from keyword options and derives single-action names" do
+    assert %Flow{name: :keyword, flow: []} = Flow.new(name: :keyword)
+
+    flow = Flow.from_action(Add, amount: 4)
+
+    assert %Flow{
+             name: :add,
+             flow: [
+               %{
+                 type: :step,
+                 name: :add,
+                 component: %Step{name: :add, action: Add, params: %{amount: 4}},
+                 after: nil
+               }
+             ]
            } = flow
   end
 
@@ -135,6 +128,25 @@ defmodule JidoTest.FlowTest do
              Workflow.get_component(Flow.to_workflow(flow), :counter)
   end
 
+  test "returns node metadata for native Runic components" do
+    counter = Runic.accumulator(0, fn value, state -> state + value end, name: :counter)
+
+    assert %{
+             counter: %{
+               type: Runic.Workflow.Accumulator,
+               name: :counter,
+               inputs: inputs,
+               outputs: outputs
+             }
+           } =
+             Flow.new(:stateful)
+             |> Flow.component(:counter, counter)
+             |> Flow.node_map()
+
+    assert is_list(inputs)
+    assert is_list(outputs)
+  end
+
   test "projects native Runic map and reduce primitives" do
     map = Runic.map(fn value -> value * 2 end, name: :double_each)
     reduce = Runic.reduce(0, fn value, acc -> value + acc end, name: :sum, map: :double_each)
@@ -151,6 +163,34 @@ defmodule JidoTest.FlowTest do
       |> Workflow.react_until_satisfied()
 
     assert 12 in Workflow.raw_productions(workflow, :sum)
+  end
+
+  test "projects nested workflow entries after preceding entries" do
+    child =
+      Workflow.new(:child)
+      |> Workflow.add(Step.new(Add, %{amount: 1}, name: :child_add))
+
+    flow =
+      Flow.new(%{
+        name: :parent,
+        flow: [
+          %{
+            type: :step,
+            name: :first,
+            component: Step.new(Add, %{amount: 2}, name: :first),
+            after: nil
+          },
+          %{type: :workflow, name: :child, component: child, after: :first}
+        ]
+      })
+
+    workflow = Flow.to_workflow(flow)
+
+    assert %{first: %Step{}, child_add: %Step{}} = Workflow.components(workflow)
+
+    assert Enum.any?(Flow.graph(workflow).edges, fn edge ->
+             edge.from == :first and edge.to == :child_add
+           end)
   end
 
   test "keeps scheduler policies as flow data before Runic projection" do

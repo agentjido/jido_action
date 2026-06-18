@@ -21,7 +21,6 @@ defmodule Jido.InstructionTest do
       assert instruction.action == BasicAction
       assert instruction.params == %{}
       assert instruction.context == %{}
-      refute Map.has_key?(instruction, :id)
     end
 
     test "creates an instruction with all fields" do

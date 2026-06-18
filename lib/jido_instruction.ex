@@ -58,8 +58,12 @@ defmodule Jido.Instruction do
     with :ok <- validate_action_present(attrs),
          :ok <- validate_action_is_atom(attrs),
          {:ok, normalized_attrs} <- normalize_attrs(attrs) do
-      normalized_attrs
-      |> parse_with_zoi()
+      {:ok,
+       %__MODULE__{
+         action: normalized_attrs.action,
+         params: normalized_attrs.params,
+         context: normalized_attrs.context
+       }}
     end
   end
 
@@ -98,19 +102,6 @@ defmodule Jido.Instruction do
        attrs
        |> Map.put(:params, params)
        |> Map.put(:context, context)}
-    end
-  end
-
-  defp parse_with_zoi(attrs) do
-    case Zoi.parse(@schema, attrs) do
-      {:ok, instruction} ->
-        {:ok, instruction}
-
-      {:error, errors} ->
-        {:error,
-         Error.validation_error("Invalid instruction configuration", %{
-           errors: format_zoi_errors(errors)
-         })}
     end
   end
 
@@ -158,16 +149,5 @@ defmodule Jido.Instruction do
        context: invalid,
        expected_format: "%{key: value} or [key: value]"
      })}
-  end
-
-  defp format_zoi_errors(errors) when is_list(errors) do
-    Enum.map(errors, fn
-      %{path: path, message: message} = error ->
-        %{
-          path: path,
-          message: message,
-          code: Map.get(error, :code)
-        }
-    end)
   end
 end
