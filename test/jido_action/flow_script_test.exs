@@ -5,29 +5,8 @@ defmodule JidoTest.FlowScriptTest do
   alias Jido.Exec
   alias Jido.Flow
   alias Jido.Flow.Script
+  alias JidoTest.TestActions.{Add, Double}
   alias Runic.Workflow
-
-  defmodule Add do
-    use Jido.Action,
-      name: "flow_script_add",
-      schema:
-        Zoi.object(%{
-          value: Zoi.integer(),
-          amount: Zoi.integer() |> Zoi.default(1)
-        }),
-      output_schema: Zoi.object(%{value: Zoi.integer()})
-
-    def run(%{value: value, amount: amount}, _context), do: {:ok, %{value: value + amount}}
-  end
-
-  defmodule Double do
-    use Jido.Action,
-      name: "flow_script_double",
-      schema: Zoi.object(%{value: Zoi.integer()}),
-      output_schema: Zoi.object(%{value: Zoi.integer()})
-
-    def run(%{value: value}, _context), do: {:ok, %{value: value * 2}}
-  end
 
   test "compiles and runs a simple step flow from string module references" do
     source = """

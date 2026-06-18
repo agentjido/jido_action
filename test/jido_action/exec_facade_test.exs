@@ -6,6 +6,7 @@ defmodule JidoTest.ExecFacadeTest do
   alias Jido.Exec
   alias Jido.Exec.Result
   alias Jido.Flow
+  alias JidoTest.TestActions.{Add, Flaky}
   alias JidoTest.TestActions.ErrorAction
   alias JidoTest.TestActions.IOAction
   alias JidoTest.TestActions.KilledAction
@@ -13,37 +14,6 @@ defmodule JidoTest.ExecFacadeTest do
   alias Runic.Workflow.RunnableCompleted
   alias Runic.Workflow.RunnableDispatched
   alias Runic.Workflow
-
-  defmodule Add do
-    use Jido.Action,
-      name: "facade_add",
-      schema:
-        Zoi.object(%{
-          value: Zoi.integer(),
-          amount: Zoi.integer() |> Zoi.default(1)
-        }),
-      output_schema: Zoi.object(%{value: Zoi.integer()})
-
-    def run(%{value: value, amount: amount}, _context), do: {:ok, %{value: value + amount}}
-  end
-
-  defmodule Flaky do
-    use Jido.Action,
-      name: "facade_flaky",
-      schema: Zoi.object(%{key: Zoi.any()}),
-      output_schema: Zoi.object(%{attempts: Zoi.integer()})
-
-    def run(%{key: key}, _context) do
-      attempts = :persistent_term.get({__MODULE__, key}, 0) + 1
-      :persistent_term.put({__MODULE__, key}, attempts)
-
-      if attempts < 2 do
-        {:error, :transient_error}
-      else
-        {:ok, %{attempts: attempts}}
-      end
-    end
-  end
 
   describe "run/3 facade dispatch" do
     test "flow execution returns a Jido.Exec.Result" do

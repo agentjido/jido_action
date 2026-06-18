@@ -5,114 +5,50 @@ defmodule JidoTest.FlowStepTest do
   alias Jido.Flow
   alias Jido.Flow.Step
   alias Jido.Instruction
+
+  alias JidoTest.TestActions.{
+    Add,
+    ContextEcho,
+    EmptyDirective,
+    ErrorExceptionAction,
+    ErrorExceptionWithDirective,
+    ErrorMapAction,
+    ErrorTupleAction,
+    ErrorWithDirective,
+    ErrorWithEmptyDirective,
+    InvalidFlowOutput,
+    InvalidOutputWithDirective,
+    InvalidValidateOutputReturn,
+    InvalidValidateParamsReturn,
+    ManualNoSchema,
+    MissingRun,
+    MissingValidateOutput,
+    OptionalInput,
+    RaisingAction,
+    ScalarSchema,
+    UnexpectedReturn,
+    ValidateParamsError,
+    WithDirective
+  }
+
   alias Runic.Workflow
   alias Runic.Workflow.PolicyDriver
   alias Runic.Workflow.SchedulerPolicy
 
-  defmodule Add do
-    use Jido.Action,
-      name: "flow_step_add",
-      schema:
-        Zoi.object(%{
-          value: Zoi.integer(),
-          amount: Zoi.integer() |> Zoi.default(1)
-        }),
-      output_schema: Zoi.object(%{value: Zoi.integer()})
+  test "builds default names and normalizes optional maps" do
+    derived = Step.new(Add, [amount: 2], context: [trace_id: "trace"])
+    nil_params = Step.new(Add, nil, name: :add)
 
-    def run(%{value: value, amount: amount}, _context), do: {:ok, %{value: value + amount}}
+    assert derived.name == :add
+    assert derived.params == %{amount: 2}
+    assert derived.context == %{trace_id: "trace"}
+    assert nil_params.params == %{}
   end
 
-  defmodule ContextEcho do
-    use Jido.Action,
-      name: "flow_step_context_echo",
-      schema: Zoi.object(%{value: Zoi.integer()}),
-      output_schema:
-        Zoi.object(%{
-          value: Zoi.integer(),
-          static: Zoi.boolean() |> Zoi.optional(),
-          runtime: Zoi.boolean() |> Zoi.optional()
-        })
-
-    def run(%{value: value}, context) do
-      {:ok,
-       %{
-         value: value,
-         static: Map.get(context, :static),
-         runtime: Map.get(context, :runtime)
-       }}
+  test "rejects invalid step names through struct validation" do
+    assert_raise ArgumentError, ~r/invalid flow step/, fn ->
+      Step.new(Add, %{}, name: "")
     end
-  end
-
-  defmodule WithDirective do
-    use Jido.Action,
-      name: "flow_step_with_directive",
-      schema: Zoi.object(%{value: Zoi.integer()}),
-      output_schema: Zoi.object(%{value: Zoi.integer()})
-
-    def run(%{value: value}, _context), do: {:ok, %{value: value}, %{next: :flow}}
-  end
-
-  defmodule ErrorWithDirective do
-    use Jido.Action,
-      name: "flow_step_error_with_directive",
-      schema: Zoi.object(%{}),
-      output_schema: Zoi.object(%{})
-
-    def run(_params, _context), do: {:error, :transient_error, %{next: :retry}}
-  end
-
-  defmodule InvalidOutput do
-    use Jido.Action,
-      name: "flow_step_invalid_output",
-      output_schema: Zoi.object(%{value: Zoi.integer()})
-
-    def run(_params, _context), do: {:ok, %{value: "bad"}}
-  end
-
-  defmodule ManualNoSchema do
-    def run(params, _context), do: {:ok, params}
-    def validate_params(params), do: {:ok, params}
-    def validate_output(output), do: {:ok, output}
-  end
-
-  defmodule InvalidValidateParamsReturn do
-    def run(params, _context), do: {:ok, params}
-    def validate_params(_params), do: :ok
-    def validate_output(output), do: {:ok, output}
-  end
-
-  defmodule InvalidValidateOutputReturn do
-    def run(params, _context), do: {:ok, params}
-    def validate_params(params), do: {:ok, params}
-    def validate_output(_output), do: :ok
-  end
-
-  defmodule UnexpectedReturn do
-    def run(_params, _context), do: :ok
-    def validate_params(params), do: {:ok, params}
-    def validate_output(output), do: {:ok, output}
-  end
-
-  defmodule RaisingAction do
-    def run(_params, _context), do: raise("boom")
-    def validate_params(params), do: {:ok, params}
-    def validate_output(output), do: {:ok, output}
-  end
-
-  defmodule ErrorMapAction do
-    def run(_params, _context), do: {:error, %{message: "mapped failure", code: :mapped}}
-    def validate_params(params), do: {:ok, params}
-    def validate_output(output), do: {:ok, output}
-  end
-
-  defmodule MissingRun do
-    def validate_params(params), do: {:ok, params}
-    def validate_output(output), do: {:ok, output}
-  end
-
-  defmodule MissingValidateOutput do
-    def run(params, _context), do: {:ok, params}
-    def validate_params(params), do: {:ok, params}
   end
 
   test "executes a Jido action through Runic prepare and execute" do
@@ -125,6 +61,20 @@ defmodule JidoTest.FlowStepTest do
 
     assert executed.status == :completed
     assert executed.result.value == %{value: 5}
+  end
+
+  test "invokes a Jido action through the Runic invokable protocol" do
+    step = Step.new(Add, %{amount: 2}, name: :add)
+
+    workflow =
+      Workflow.new(:invoke)
+      |> Workflow.add(step)
+      |> Workflow.plan_eagerly(%{value: 3})
+
+    [fact] = Workflow.facts(workflow)
+
+    assert %Workflow{} = workflow = Runic.Workflow.Invokable.invoke(step, workflow, fact)
+    assert Workflow.raw_productions(workflow, :add) == [%{value: 5}]
   end
 
   test "step hashes are structural without instruction ids" do
@@ -189,6 +139,13 @@ defmodule JidoTest.FlowStepTest do
 
     assert {:error, invalid} = Step.validate_action("not a module")
     assert invalid.message =~ "expected an action module"
+  end
+
+  test "marks parameter validation errors as failed runnables" do
+    step = Step.new(ValidateParamsError, %{}, name: :bad_params)
+
+    assert %{status: :failed, error: error} = step |> prepare(%{}) |> execute()
+    assert error.message == "bad params"
   end
 
   test "merges static params with fact params and runtime context" do
@@ -266,7 +223,7 @@ defmodule JidoTest.FlowStepTest do
   end
 
   test "marks invalid action output as a failed runnable" do
-    step = Step.new(InvalidOutput, %{}, name: :invalid_output)
+    step = Step.new(InvalidFlowOutput, %{}, name: :invalid_output)
 
     executed =
       step
@@ -275,6 +232,20 @@ defmodule JidoTest.FlowStepTest do
 
     assert executed.status == :failed
     assert %Jido.Action.Error.InvalidInputError{} = executed.error
+  end
+
+  test "preserves directives when three-tuple output validation fails" do
+    step = Step.new(InvalidOutputWithDirective, %{}, name: :invalid_output_directive)
+
+    executed =
+      step
+      |> prepare(%{})
+      |> execute()
+
+    assert executed.status == :failed
+    assert executed.error.details.jido_directives == %{next: :repair}
+    assert executed.error.details.jido_step == :invalid_output_directive
+    assert %Jido.Action.Error.InvalidInputError{} = executed.error.details.reason
   end
 
   test "marks invalid action callback returns as failed runnables" do
@@ -290,6 +261,38 @@ defmodule JidoTest.FlowStepTest do
 
     assert %{status: :failed, error: return_error} = return_step |> prepare(%{}) |> execute()
     assert return_error.message == "unexpected action return shape"
+  end
+
+  test "normalizes exception and tuple error returns" do
+    direct_exception = Step.new(ErrorExceptionAction, %{}, name: :direct_exception)
+    tuple_reason = Step.new(ErrorTupleAction, %{}, name: :tuple_reason)
+
+    assert %{status: :failed, error: %RuntimeError{message: "direct failure"}} =
+             direct_exception |> prepare(%{}) |> execute()
+
+    assert %{status: :failed, error: tuple_error} = tuple_reason |> prepare(%{}) |> execute()
+    assert tuple_error.message == "action invocation failed"
+    assert tuple_error.details.reason == {:bad, :shape}
+  end
+
+  test "normalizes directive-bearing exception and empty directive returns" do
+    exception_directive = Step.new(ErrorExceptionWithDirective, %{}, name: :exception_directive)
+    empty_error = Step.new(ErrorWithEmptyDirective, %{}, name: :empty_error)
+    empty_success = Step.new(EmptyDirective, %{value: 1}, name: :empty_success)
+
+    assert %{status: :failed, error: exception_error} =
+             exception_directive |> prepare(%{}) |> execute()
+
+    assert exception_error.message == "directive failure"
+    assert exception_error.details.jido_directives == %{next: :retry}
+    assert exception_error.details.jido_step == :exception_directive
+
+    assert %{status: :failed, error: empty_error} = empty_error |> prepare(%{}) |> execute()
+    assert empty_error.message == "empty_directive"
+    refute Map.has_key?(empty_error.details, :jido_directives)
+
+    assert %{status: :completed, result: result} = empty_success |> prepare(%{}) |> execute()
+    assert result.meta == %{}
   end
 
   test "normalizes raised actions and map-shaped errors" do
@@ -311,6 +314,16 @@ defmodule JidoTest.FlowStepTest do
     assert Keyword.has_key?(step.inputs, :value)
     refute Keyword.has_key?(step.inputs, :amount)
     assert Keyword.has_key?(step.outputs, :value)
+  end
+
+  test "derives ports from optional and scalar schemas" do
+    optional = Step.new(OptionalInput, %{}, name: :optional)
+    scalar = Step.new(ScalarSchema, %{}, name: :scalar)
+
+    assert Keyword.has_key?(optional.inputs, :value)
+    refute Keyword.has_key?(optional.inputs, :label)
+    assert scalar.inputs == [input: [type: :any, doc: "Input to the action"]]
+    assert scalar.outputs == [result: [type: :any, doc: "Action result"]]
   end
 
   test "falls back to default ports when action schemas are unavailable" do

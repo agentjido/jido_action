@@ -6,80 +6,8 @@ defmodule JidoTest.ExecFlowTest do
   alias Jido.Exec
   alias Jido.Exec.Result
   alias Jido.Flow
+  alias JidoTest.TestActions.{Add, Double, Fail, Flaky, Slow, SumJoined}
   alias Runic.Workflow
-
-  defmodule Add do
-    use Jido.Action,
-      name: "runtime_add",
-      schema:
-        Zoi.object(%{
-          value: Zoi.integer(),
-          amount: Zoi.integer() |> Zoi.default(1)
-        }),
-      output_schema: Zoi.object(%{value: Zoi.integer()})
-
-    def run(%{value: value, amount: amount}, _context), do: {:ok, %{value: value + amount}}
-  end
-
-  defmodule Double do
-    use Jido.Action,
-      name: "runtime_double",
-      schema: Zoi.object(%{value: Zoi.integer()}),
-      output_schema: Zoi.object(%{value: Zoi.integer()})
-
-    def run(%{value: value}, _context), do: {:ok, %{value: value * 2}}
-  end
-
-  defmodule SumJoined do
-    use Jido.Action,
-      name: "runtime_sum_joined",
-      schema: Zoi.object(%{input: Zoi.list(Zoi.map(Zoi.any(), Zoi.any()))}),
-      output_schema: Zoi.object(%{value: Zoi.integer()})
-
-    def run(%{input: values}, _context) do
-      total = Enum.reduce(values, 0, fn %{value: value}, acc -> acc + value end)
-      {:ok, %{value: total}}
-    end
-  end
-
-  defmodule Fail do
-    use Jido.Action,
-      name: "runtime_fail",
-      schema: Zoi.object(%{}),
-      output_schema: Zoi.object(%{})
-
-    def run(_params, _context), do: {:error, "boom"}
-  end
-
-  defmodule Flaky do
-    use Jido.Action,
-      name: "runtime_flaky",
-      schema: Zoi.object(%{key: Zoi.any()}),
-      output_schema: Zoi.object(%{attempts: Zoi.integer()})
-
-    def run(%{key: key}, _context) do
-      attempts = :persistent_term.get({__MODULE__, key}, 0) + 1
-      :persistent_term.put({__MODULE__, key}, attempts)
-
-      if attempts < 2 do
-        {:error, :transient_error}
-      else
-        {:ok, %{attempts: attempts}}
-      end
-    end
-  end
-
-  defmodule Slow do
-    use Jido.Action,
-      name: "runtime_slow",
-      schema: Zoi.object(%{}),
-      output_schema: Zoi.object(%{done: Zoi.boolean()})
-
-    def run(_params, _context) do
-      Process.sleep(200)
-      {:ok, %{done: true}}
-    end
-  end
 
   test "runs a single-step flow" do
     flow = Flow.new(:single) |> Flow.step(:add, Add, params: %{amount: 4})
