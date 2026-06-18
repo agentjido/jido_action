@@ -21,7 +21,7 @@ defmodule Jido.Flow.Step do
                   Zoi.string()
                 ])
                 |> Zoi.refine({Validator, :validate_component_name, []}),
-              hash: Zoi.integer(description: "Stable flow step hash"),
+              hash: Zoi.integer(description: "Runtime Runic node hash"),
               instruction: Zoi.struct(Instruction, description: "Normalized action invocation"),
               inputs:
                 Zoi.keyword(Zoi.any(), description: "Runic input ports")

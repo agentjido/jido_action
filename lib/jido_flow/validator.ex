@@ -40,7 +40,8 @@ defmodule Jido.Flow.Validator do
 
   @doc false
   @spec validate_entry(term(), keyword()) :: :ok | {:error, String.t()}
-  def validate_entry(%{type: :step, action: action}, _opts), do: validate_action(action)
+  def validate_entry(%{type: :step, action: action}, _opts),
+    do: Instruction.validate_action_module(action)
 
   def validate_entry(%{type: :map, mapper: mapper}, _opts), do: validate_callable(mapper, 1)
 
@@ -53,13 +54,6 @@ defmodule Jido.Flow.Validator do
 
   def validate_entry(%{type: :workflow}, _opts),
     do: {:error, "workflow entries must contain a Runic.Workflow"}
-
-  defp validate_action(action) do
-    case Instruction.validate_action_contract(action) do
-      :ok -> :ok
-      {:error, error} -> {:error, Exception.message(error)}
-    end
-  end
 
   defp validate_callable(value, arity) when is_function(value, arity),
     do: {:error, "must be an external function/#{arity} capture or MFA tuple"}

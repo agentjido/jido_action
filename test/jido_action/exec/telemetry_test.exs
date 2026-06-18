@@ -71,7 +71,7 @@ defmodule JidoTest.ExecTelemetryTest do
     end
 
     test "emits error metadata for failed action runnables" do
-      flow = Flow.from_action(ErrorAction, %{type: :error}, name: :failing_action)
+      flow = Flow.from_action(ErrorAction, %{error_type: :error}, name: :failing_action)
 
       assert {:error, %Result{status: :error}} =
                silence_logger(fn -> Exec.run(flow, %{}) end)

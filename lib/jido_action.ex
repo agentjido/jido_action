@@ -99,29 +99,6 @@ defmodule Jido.Action do
 
   @max_action_name_bytes 256
 
-  # Define Zoi schema for Action metadata
-  @schema Zoi.struct(
-            __MODULE__,
-            %{
-              name:
-                Zoi.string(description: "The name of the Action")
-                |> Zoi.refine({__MODULE__, :validate_name, []}),
-              description: Zoi.string(description: "Description") |> Zoi.optional(),
-              schema:
-                Zoi.any(description: "Zoi schema for validating Action input")
-                |> Zoi.default([]),
-              output_schema:
-                Zoi.any(description: "Zoi schema for validating Action output")
-                |> Zoi.default([])
-            },
-            coerce: true
-          )
-
-  @type t :: unquote(Zoi.type_spec(@schema))
-
-  @enforce_keys Zoi.Struct.enforce_keys(@schema)
-  defstruct Zoi.Struct.struct_fields(@schema)
-
   @action_config_schema Zoi.object(%{
                           name:
                             Zoi.string(description: "The non-blank metadata name of the Action.")
@@ -376,11 +353,13 @@ defmodule Jido.Action do
   defp action_validation_ast(validate_params_doc, validate_output_doc) do
     quote location: :keep do
       @doc unquote(validate_params_doc)
-      @spec validate_params(map()) :: {:ok, map()} | {:error, String.t()}
+      @spec validate_params(map()) ::
+              {:ok, map()} | {:error, Jido.Action.Error.InvalidInputError.t()}
       def validate_params(params), do: Action.validate_params_for(params, __MODULE__)
 
       @doc unquote(validate_output_doc)
-      @spec validate_output(map()) :: {:ok, map()} | {:error, String.t()}
+      @spec validate_output(map()) ::
+              {:ok, map()} | {:error, Jido.Action.Error.InvalidInputError.t()}
       def validate_output(output), do: Action.validate_output_for(output, __MODULE__)
     end
   end

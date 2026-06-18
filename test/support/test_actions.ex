@@ -103,7 +103,7 @@ defmodule JidoTest.TestActions do
       raise "Custom error"
     end
 
-    def run(%{type: :throw}, _context) do
+    def run(%{error_type: :throw}, _context) do
       throw("Action threw an error")
     end
 
@@ -195,11 +195,11 @@ defmodule JidoTest.TestActions do
     @moduledoc false
     use Action,
       name: "slow",
-      schema: Zoi.object(%{}),
+      schema: Zoi.object(%{delay: Zoi.integer() |> Zoi.default(200)}),
       output_schema: Zoi.object(%{done: Zoi.boolean()})
 
-    def run(_params, _context) do
-      Process.sleep(200)
+    def run(%{delay: delay}, _context) do
+      Process.sleep(delay)
       {:ok, %{done: true}}
     end
   end

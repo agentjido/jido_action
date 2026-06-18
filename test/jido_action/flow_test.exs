@@ -123,7 +123,11 @@ defmodule JidoTest.FlowTest do
              ]
            } = Flow.from_workflow(workflow)
 
-    assert {:ok, %Flow{flow: [%{workflow: ^workflow}]}} = Flow.validate(workflow)
+    assert_raise ArgumentError, ~r/runtime-only workflow entries/, fn ->
+      workflow
+      |> Flow.from_workflow()
+      |> Flow.to_map()
+    end
   end
 
   test "projects empty flows to empty Runic workflows" do
@@ -139,9 +143,13 @@ defmodule JidoTest.FlowTest do
     end
   end
 
-  test "rejects invalid action modules" do
+  test "keeps action contract validation at the Runic projection boundary" do
+    flow = Flow.new(:bad) |> Flow.step(:bad, NotAnAction)
+
+    assert %Flow{flow: [%{action: NotAnAction}]} = flow
+
     assert_raise ArgumentError, ~r/not a valid Jido action/, fn ->
-      Flow.new(:bad) |> Flow.step(:bad, NotAnAction)
+      Flow.to_workflow(flow)
     end
   end
 
@@ -181,7 +189,7 @@ defmodule JidoTest.FlowTest do
       Flow.new(%{flow: :bad})
     end
 
-    assert_raise ArgumentError, ~r/expected an action module/, fn ->
+    assert_raise ArgumentError, ~r/cannot be nil/, fn ->
       Flow.new(%{flow: [%{type: :step, name: :bad, action: nil, after: nil}]})
     end
 
@@ -564,7 +572,7 @@ defmodule JidoTest.FlowTest do
 
     assert %{first: %Step{}, child_add: %Step{}} = Workflow.components(workflow)
 
-    assert Enum.any?(Flow.graph(workflow).edges, fn edge ->
+    assert Enum.any?(Flow.graph(flow).edges, fn edge ->
              edge.from == :first and edge.to == :child_add
            end)
   end
@@ -634,12 +642,24 @@ defmodule JidoTest.FlowTest do
   test "validates flow input values" do
     flow = Flow.new(:valid)
     workflow = Flow.to_workflow(flow)
+    invalid_flow = %Flow{name: "", flow: [], policies: []}
 
     assert {:ok, ^flow} = Flow.validate(flow)
-
-    assert {:ok, %Flow{name: :valid, flow: [%{type: :workflow, workflow: ^workflow}]}} =
-             Flow.validate(workflow)
-
+    assert {:error, {:invalid_flow, ^workflow}} = Flow.validate(workflow)
     assert {:error, {:invalid_flow, :nope}} = Flow.validate(:nope)
+    assert {:error, %ArgumentError{message: message}} = Flow.validate(invalid_flow)
+    assert message =~ "invalid flow"
+  end
+
+  test "raw Runic workflows only enter Flow through from_workflow" do
+    workflow =
+      Workflow.new(:raw)
+      |> Workflow.add(Step.new(Add, %{amount: 1}, name: :add))
+
+    assert %Flow{flow: [%{type: :workflow, workflow: ^workflow}]} = Flow.from_workflow(workflow)
+
+    assert_raise FunctionClauseError, fn -> apply(Flow, :components, [workflow]) end
+    assert_raise FunctionClauseError, fn -> apply(Flow, :node_map, [workflow]) end
+    assert_raise FunctionClauseError, fn -> apply(Flow, :graph, [workflow]) end
   end
 end

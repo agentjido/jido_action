@@ -49,7 +49,15 @@ defmodule Jido.Flow do
 
   @type name :: atom() | String.t() | nil
   @type dependency :: atom() | String.t() | [atom() | String.t()] | nil
-  @type callable :: function() | callable_ref()
+  @typedoc """
+  Callable reference for Flow primitives.
+
+  External captures such as `&MyModule.my_fun/1` are accepted and normalized to
+  `{MyModule, :my_fun}`. Anonymous closures are rejected so flow entries remain
+  data-oriented.
+  """
+  @type callable :: external_capture() | callable_ref()
+  @type external_capture :: function()
   @type callable_ref :: {module(), atom()} | {:mfa, module(), atom()}
   @type entry_type :: :step | :map | :reduce | :accumulate | :workflow
 
@@ -166,10 +174,14 @@ defmodule Jido.Flow do
 
   @doc """
   Returns the normalized Flow IR as a plain map.
+
+  Runtime-only workflow entries created by `from_workflow/1` cannot be converted
+  to map IR because they contain live `Runic.Workflow` structs.
   """
   @spec to_map(t()) :: %{name: name(), flow: [entry()], policies: list()}
   def to_map(%__MODULE__{} = flow) do
     flow = parse_flow!(flow)
+    reject_runtime_workflow_entries!(flow)
 
     %{
       name: flow.name,
@@ -209,6 +221,8 @@ defmodule Jido.Flow do
 
   @doc """
   Adds a map primitive to the flow.
+
+  The mapper must be an external function capture or MFA tuple.
   """
   @spec map(t(), atom() | String.t(), callable(), keyword()) :: t()
   def map(%__MODULE__{} = flow, name, mapper, opts \\ []) do
@@ -228,6 +242,8 @@ defmodule Jido.Flow do
 
   @doc """
   Adds a reduce primitive to the flow.
+
+  The reducer must be an external function capture or MFA tuple.
   """
   @spec reduce(t(), atom() | String.t(), term(), callable(), keyword()) :: t()
   def reduce(%__MODULE__{} = flow, name, init, reducer, opts \\ []) do
@@ -249,6 +265,8 @@ defmodule Jido.Flow do
 
   @doc """
   Adds an accumulator primitive to the flow.
+
+  The reducer must be an external function capture or MFA tuple.
   """
   @spec accumulate(t(), atom() | String.t(), term(), callable(), keyword()) :: t()
   def accumulate(%__MODULE__{} = flow, name, init, reducer, opts \\ []) do
@@ -286,29 +304,33 @@ defmodule Jido.Flow do
   end
 
   @doc """
-  Validates that the value is a Jido flow or wraps a Runic workflow as one.
+  Validates that the value is a Jido flow.
   """
   @spec validate(term()) :: {:ok, t()} | {:error, term()}
-  def validate(%__MODULE__{} = flow), do: {:ok, parse_flow!(flow)}
-  def validate(%Workflow{} = workflow), do: {:ok, from_workflow(workflow)}
+  def validate(%__MODULE__{} = flow) do
+    {:ok, parse_flow!(flow)}
+  rescue
+    error in [ArgumentError] -> {:error, error}
+  end
+
   def validate(other), do: {:error, {:invalid_flow, other}}
 
   @doc """
   Returns Runic components keyed by component name.
   """
-  @spec components(t() | Workflow.t()) :: map()
-  def components(flow_or_workflow) do
-    flow_or_workflow
-    |> projection_workflow()
+  @spec components(t()) :: map()
+  def components(%__MODULE__{} = flow) do
+    flow
+    |> to_workflow()
     |> Workflow.components()
   end
 
   @doc """
   Returns Jido-oriented component metadata keyed by component name.
   """
-  @spec node_map(t() | Workflow.t()) :: map()
-  def node_map(flow_or_workflow) do
-    flow_or_workflow
+  @spec node_map(t()) :: map()
+  def node_map(%__MODULE__{} = flow) do
+    flow
     |> components()
     |> Map.new(fn {name, component} ->
       {name, node_info(component)}
@@ -319,14 +341,14 @@ defmodule Jido.Flow do
   Returns a compact graph projection suitable for tests, diagnostics, and
   developer tooling.
   """
-  @spec graph(t() | Workflow.t()) :: %{nodes: [map()], edges: [map()]}
-  def graph(flow_or_workflow) do
-    workflow = projection_workflow(flow_or_workflow)
+  @spec graph(t()) :: %{nodes: [map()], edges: [map()]}
+  def graph(%__MODULE__{} = flow) do
+    workflow = to_workflow(flow)
 
     nodes =
       workflow
-      |> node_map()
-      |> Enum.map(fn {name, info} -> Map.put(info, :id, name) end)
+      |> Workflow.components()
+      |> Enum.map(fn {name, component} -> Map.put(node_info(component), :id, name) end)
 
     edges = graph_edges(workflow)
 
@@ -344,6 +366,13 @@ defmodule Jido.Flow do
 
       {:error, errors} ->
         raise ArgumentError, "invalid flow:\n" <> Zoi.prettify_errors(errors)
+    end
+  end
+
+  defp reject_runtime_workflow_entries!(%__MODULE__{flow: entries}) do
+    if Enum.any?(entries, &match?(%{type: :workflow}, &1)) do
+      raise ArgumentError,
+            "runtime-only workflow entries cannot be converted with Jido.Flow.to_map/1"
     end
   end
 
@@ -371,8 +400,8 @@ defmodule Jido.Flow do
           type: :step,
           name: name,
           action: get_field(entry, :action, nil),
-          params: Instruction.normalize_map!(get_field(entry, :params, %{}), :params),
-          context: Instruction.normalize_map!(get_field(entry, :context, %{}), :context),
+          params: normalize_map!(get_field(entry, :params, %{}), :params),
+          context: normalize_map!(get_field(entry, :context, %{}), :context),
           after: after_dep
         }
 
@@ -427,6 +456,21 @@ defmodule Jido.Flow do
   end
 
   defp normalize_entry!(_entry), do: raise(ArgumentError, "flow entries must be maps")
+
+  defp normalize_map!(nil, _field), do: %{}
+  defp normalize_map!(value, _field) when is_map(value), do: value
+
+  defp normalize_map!(value, _field) when is_list(value) do
+    if Keyword.keyword?(value) do
+      Map.new(value)
+    else
+      raise ArgumentError, "expected a map or keyword list, got: #{inspect(value)}"
+    end
+  end
+
+  defp normalize_map!(value, field) do
+    raise ArgumentError, "expected #{field} to be a map or keyword list, got: #{inspect(value)}"
+  end
 
   defp normalize_entry_type(type) when type in [:step, :map, :reduce, :accumulate, :workflow],
     do: type
@@ -619,9 +663,6 @@ defmodule Jido.Flow do
   defp component_id(%{name: name}) when not is_nil(name), do: name
   defp component_id(%{hash: hash}) when not is_nil(hash), do: hash
   defp component_id(component), do: inspect(component)
-
-  defp projection_workflow(%__MODULE__{} = flow), do: to_workflow(flow)
-  defp projection_workflow(%Workflow{} = workflow), do: workflow
 
   defp get_field(map, key, default) do
     Map.get(map, key, Map.get(map, Atom.to_string(key), default))

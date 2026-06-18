@@ -106,21 +106,15 @@ defmodule Jido.Instruction do
     |> String.to_atom()
   end
 
-  @doc false
   @spec normalize_map!(term(), atom()) :: map()
-  def normalize_map!(nil, _field), do: %{}
-  def normalize_map!(value, _field) when is_map(value), do: value
+  defp normalize_map!(value, field) do
+    case normalize_map_field(value, field) do
+      {:ok, map} ->
+        map
 
-  def normalize_map!(value, _field) when is_list(value) do
-    if Keyword.keyword?(value) do
-      Map.new(value)
-    else
-      raise ArgumentError, "expected a map or keyword list, got: #{inspect(value)}"
+      {:error, _error} ->
+        raise ArgumentError, normalize_map_message(value, field)
     end
-  end
-
-  def normalize_map!(value, field) do
-    raise ArgumentError, "expected #{field} to be a map or keyword list, got: #{inspect(value)}"
   end
 
   @doc """
@@ -205,8 +199,8 @@ defmodule Jido.Instruction do
   defp validate_action_is_atom(_attrs), do: {:error, :invalid_action}
 
   defp normalize_attrs(attrs) do
-    with {:ok, params} <- normalize_params(Map.get(attrs, :params, %{})),
-         {:ok, context} <- normalize_context(Map.get(attrs, :context, %{})) do
+    with {:ok, params} <- normalize_map_field(Map.get(attrs, :params, %{}), :params),
+         {:ok, context} <- normalize_map_field(Map.get(attrs, :context, %{}), :context) do
       {:ok,
        attrs
        |> Map.put(:params, params)
@@ -214,49 +208,35 @@ defmodule Jido.Instruction do
     end
   end
 
-  defp normalize_params(nil), do: {:ok, %{}}
-  defp normalize_params(params) when is_map(params), do: {:ok, params}
+  defp normalize_map_field(nil, _field), do: {:ok, %{}}
+  defp normalize_map_field(value, _field) when is_map(value), do: {:ok, value}
 
-  defp normalize_params(params) when is_list(params) do
-    if Keyword.keyword?(params) do
-      {:ok, Map.new(params)}
+  defp normalize_map_field(value, field) when is_list(value) do
+    if Keyword.keyword?(value) do
+      {:ok, Map.new(value)}
     else
-      {:error,
-       Error.execution_error("Invalid params format. Params must be a map or keyword list.", %{
-         params: params,
-         expected_format: "%{key: value} or [key: value]"
-       })}
+      invalid_map_field(field, value)
     end
   end
 
-  defp normalize_params(invalid) do
+  defp normalize_map_field(value, field), do: invalid_map_field(field, value)
+
+  defp invalid_map_field(field, value) do
+    label = Atom.to_string(field)
+
     {:error,
-     Error.execution_error("Invalid params format. Params must be a map or keyword list.", %{
-       params: invalid,
-       expected_format: "%{key: value} or [key: value]"
-     })}
-  end
-
-  defp normalize_context(nil), do: {:ok, %{}}
-  defp normalize_context(context) when is_map(context), do: {:ok, context}
-
-  defp normalize_context(context) when is_list(context) do
-    if Keyword.keyword?(context) do
-      {:ok, Map.new(context)}
-    else
-      {:error,
-       Error.execution_error("Invalid context format. Context must be a map or keyword list.", %{
-         context: context,
+     Error.execution_error(
+       "Invalid #{label} format. #{String.capitalize(label)} must be a map or keyword list.",
+       %{
+         field => value,
          expected_format: "%{key: value} or [key: value]"
-       })}
-    end
+       }
+     )}
   end
 
-  defp normalize_context(invalid) do
-    {:error,
-     Error.execution_error("Invalid context format. Context must be a map or keyword list.", %{
-       context: invalid,
-       expected_format: "%{key: value} or [key: value]"
-     })}
-  end
+  defp normalize_map_message(value, _field) when is_list(value),
+    do: "expected a map or keyword list, got: #{inspect(value)}"
+
+  defp normalize_map_message(value, field),
+    do: "expected #{field} to be a map or keyword list, got: #{inspect(value)}"
 end
