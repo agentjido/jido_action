@@ -1,13 +1,26 @@
 defmodule Jido.Flow.Validator do
   @moduledoc false
 
-  alias Jido.Action.Util
-  alias Jido.Flow.Step
+  alias Jido.Instruction
   alias Runic.Workflow
 
   @doc false
+  @spec validate_component_name(term(), keyword()) :: :ok | {:error, String.t()}
+  def validate_component_name(value, _opts \\ [])
+  def validate_component_name(value, _opts) when is_atom(value) and not is_nil(value), do: :ok
+  def validate_component_name(value, _opts) when is_binary(value) and value != "", do: :ok
+  def validate_component_name(value, _opts) when is_atom(value), do: {:error, "cannot be nil"}
+  def validate_component_name(value, _opts) when is_binary(value), do: {:error, "cannot be empty"}
+  def validate_component_name(_value, _opts), do: {:error, "must be an atom or string"}
+
+  @doc false
+  @spec validate_optional_component_name(term(), keyword()) :: :ok | {:error, String.t()}
+  def validate_optional_component_name(value, _opts \\ [])
+  def validate_optional_component_name(nil, _opts), do: :ok
+  def validate_optional_component_name(value, opts), do: validate_component_name(value, opts)
+
+  @doc false
   @spec validate_dependency(term(), keyword()) :: :ok | {:error, String.t()}
-  def validate_dependency(value, _opts \\ [])
   def validate_dependency(nil, _opts), do: :ok
 
   def validate_dependency(values, opts) when is_list(values) do
@@ -15,7 +28,7 @@ defmodule Jido.Flow.Validator do
       values == [] ->
         {:error, "cannot be an empty list"}
 
-      Enum.all?(values, &(Util.validate_component_name(&1, opts) == :ok)) ->
+      Enum.all?(values, &(validate_component_name(&1, opts) == :ok)) ->
         :ok
 
       true ->
@@ -23,7 +36,7 @@ defmodule Jido.Flow.Validator do
     end
   end
 
-  def validate_dependency(value, opts), do: Util.validate_component_name(value, opts)
+  def validate_dependency(value, opts), do: validate_component_name(value, opts)
 
   @doc false
   @spec validate_entry(term(), keyword()) :: :ok | {:error, String.t()}
@@ -42,7 +55,7 @@ defmodule Jido.Flow.Validator do
     do: {:error, "workflow entries must contain a Runic.Workflow"}
 
   defp validate_action(action) do
-    case Step.validate_action(action) do
+    case Instruction.validate_action_contract(action) do
       :ok -> :ok
       {:error, error} -> {:error, Exception.message(error)}
     end

@@ -22,7 +22,6 @@ defmodule JidoTest.FlowStepTest do
     InvalidValidateParamsReturn,
     ManualNoSchema,
     MissingRun,
-    MissingValidateOutput,
     OptionalInput,
     RaisingAction,
     ScalarSchema,
@@ -114,6 +113,10 @@ defmodule JidoTest.FlowStepTest do
       apply(Step, :new, [Add, %{}, :invalid])
     end
 
+    assert_raise ArgumentError, ~r/flow step options must be a keyword list/, fn ->
+      Step.new(Add, %{}, [:not, :keyword])
+    end
+
     assert_raise ArgumentError, ~r/expected params to be a map or keyword list/, fn ->
       Step.new(Add, 123, name: :add)
     end
@@ -129,20 +132,10 @@ defmodule JidoTest.FlowStepTest do
     assert_raise ArgumentError, ~r/expected an action module or %Jido.Instruction{}/, fn ->
       Step.new(nil, %{})
     end
-  end
 
-  test "validates action module callback contracts" do
-    assert {:error, missing_run} = Step.validate_action(MissingRun)
-    assert missing_run.details.reason == "missing run/2"
-
-    assert {:error, missing_output} = Step.validate_action(MissingValidateOutput)
-    assert missing_output.details.reason == "missing validate_output/1"
-
-    assert {:error, unloaded} = Step.validate_action(Module.concat(__MODULE__, MissingModule))
-    assert unloaded.message == "action module could not be loaded"
-
-    assert {:error, invalid} = Step.validate_action("not a module")
-    assert invalid.message =~ "expected an action module"
+    assert_raise ArgumentError, ~r/not a valid Jido action/, fn ->
+      Step.new(MissingRun, %{}, name: :missing_run)
+    end
   end
 
   test "marks parameter validation errors as failed runnables" do

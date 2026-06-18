@@ -173,27 +173,6 @@ defmodule JidoTest.Action.UtilTest do
     end
   end
 
-  describe "validate_component_name/1" do
-    test "accepts non-nil atoms and non-empty strings" do
-      assert :ok = Util.validate_component_name(:step_name)
-      assert :ok = Util.validate_component_name("step_name")
-    end
-
-    test "rejects nil, empty strings, and unsupported values" do
-      assert {:error, "cannot be nil"} = Util.validate_component_name(nil)
-      assert {:error, "cannot be empty"} = Util.validate_component_name("")
-      assert {:error, "must be an atom or string"} = Util.validate_component_name(123)
-    end
-  end
-
-  describe "validate_optional_component_name/1" do
-    test "accepts nil and delegates non-nil names" do
-      assert :ok = Util.validate_optional_component_name(nil)
-      assert :ok = Util.validate_optional_component_name(:step_name)
-      assert {:error, "cannot be empty"} = Util.validate_optional_component_name("")
-    end
-  end
-
   describe "normalize_result/1" do
     test "normalizes nested ok tuples" do
       assert {:ok, "value"} = Util.normalize_result({:ok, {:ok, "value"}})
