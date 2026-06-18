@@ -63,6 +63,32 @@ defmodule JidoTest.ExecResultTest do
       assert {:error, :not_found} = Exec.provenance(result, :missing_fact)
     end
 
+    test "result and event refresh options make cached versus live reads explicit" do
+      flow = Flow.from_action(Add, %{amount: 2}, name: :add)
+
+      assert {:ok, %Result{workflow: workflow}} = Exec.run(flow, %{value: 3})
+
+      result =
+        Result.new(workflow, :ok,
+          results: %{cached: true},
+          events: [:cached_event]
+        )
+
+      assert Exec.results(result) == %{cached: true}
+      assert Exec.results(result, refresh: false) == %{cached: true}
+      assert Exec.results(result, refresh: true) == %{add: [%{value: 5}]}
+      assert Exec.results(result, raw: true) == [%{value: 5}]
+
+      assert Exec.events(result) == [:cached_event]
+      assert Exec.events(result, refresh: false) == [:cached_event]
+      assert Exec.events(result, refresh: true) != [:cached_event]
+
+      assert {:error, %Jido.Action.Error.InvalidInputError{} = error} =
+               Exec.events(result, raw: true)
+
+      assert Exception.message(error) =~ "unsupported event options"
+    end
+
     test "reject non-result values in result helper functions" do
       assert {:error, %Jido.Action.Error.InvalidInputError{} = error} = Exec.results(:not_result)
       assert Exception.message(error) == "expected a Jido.Exec.Result"

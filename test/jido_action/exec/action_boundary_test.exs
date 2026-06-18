@@ -46,7 +46,7 @@ defmodule JidoTest.ExecActionBoundaryTest do
     end
 
     test "contains thrown values from actions" do
-      flow = Flow.from_action(ErrorAction, %{type: :throw}, name: :throwing_action)
+      flow = Flow.from_action(ErrorAction, %{error_type: :throw}, name: :throwing_action)
 
       assert {:error, %Result{status: :error, error: error}} =
                silence_logger(fn ->

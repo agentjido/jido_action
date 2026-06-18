@@ -118,7 +118,7 @@ defmodule Jido.InstructionTest do
       end
 
       assert_raise ArgumentError, ~r/expected params to be a map or keyword list/, fn ->
-        Instruction.normalize!(Add, 123)
+        apply(Instruction, :normalize!, [Add, 123])
       end
 
       assert_raise ArgumentError, ~r/expected a map or keyword list/, fn ->
@@ -126,7 +126,7 @@ defmodule Jido.InstructionTest do
       end
 
       assert_raise ArgumentError, ~r/expected context to be a map or keyword list/, fn ->
-        Instruction.normalize!(Add, %{}, 123)
+        apply(Instruction, :normalize!, [Add, %{}, 123])
       end
     end
   end

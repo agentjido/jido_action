@@ -38,6 +38,15 @@ defmodule JidoTest.ExecApiTest do
       assert Exec.results(result).add == [%{value: 5}]
     end
 
+    test "instruction execution treats explicit nil input as an empty runtime fact" do
+      instruction = Instruction.new!(action: NoParamsAction)
+
+      assert {:ok, %Result{} = result} = Exec.run(instruction, nil)
+
+      assert result.cycles == 1
+      assert Exec.results(result).no_params_action == [%{result: "No params"}]
+    end
+
     test "raw Runic workflow execution is not supported directly" do
       workflow =
         Flow.new(:facade_workflow)
@@ -161,7 +170,7 @@ defmodule JidoTest.ExecApiTest do
     end
 
     test "failed action steps return error results from one dispatch cycle" do
-      flow = Flow.from_action(ErrorAction, %{type: :error}, name: :bad_step)
+      flow = Flow.from_action(ErrorAction, %{error_type: :error}, name: :bad_step)
 
       assert {:error, %Result{status: :error, cycles: 1, error: error}} =
                silence_logger(fn -> Exec.step(flow, %{}) end)
@@ -229,7 +238,8 @@ defmodule JidoTest.ExecApiTest do
     end
 
     test "rejects failed results and non-result inputs" do
-      flow = Flow.new(:failed_resume) |> Flow.step(:bad, ErrorAction, params: %{type: :error})
+      flow =
+        Flow.new(:failed_resume) |> Flow.step(:bad, ErrorAction, params: %{error_type: :error})
 
       assert {:error, %Result{status: :error} = result} =
                silence_logger(fn -> Exec.run(flow, %{}) end)

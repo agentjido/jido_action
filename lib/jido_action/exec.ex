@@ -120,7 +120,9 @@ defmodule Jido.Exec do
   def results(other), do: unsupported_result(other)
 
   def results(%Result{} = result, opts) when is_list(opts) do
-    do_results(result, opts)
+    with :ok <- validate_result_options(opts) do
+      do_results(result, opts)
+    end
   end
 
   def results(other, _opts), do: unsupported_result(other)
@@ -130,7 +132,13 @@ defmodule Jido.Exec do
   """
   @spec events(Result.t(), keyword()) :: [term()] | {:error, Exception.t()}
   def events(result, opts \\ [])
-  def events(%Result{} = result, opts) when is_list(opts), do: do_events(result, opts)
+
+  def events(%Result{} = result, opts) when is_list(opts) do
+    with :ok <- validate_event_options(opts) do
+      do_events(result, opts)
+    end
+  end
+
   def events(other, _opts), do: unsupported_result(other)
 
   @doc """
@@ -347,10 +355,7 @@ defmodule Jido.Exec do
   end
 
   defp start_execution_worker(work) do
-    case Process.whereis(Jido.Action.TaskSupervisor) do
-      nil -> Task.start(work)
-      _pid -> Task.Supervisor.start_child(Jido.Action.TaskSupervisor, work)
-    end
+    Task.Supervisor.start_child(Jido.Action.TaskSupervisor, work)
   end
 
   defp run_policy_driver(%Runnable{} = runnable, %SchedulerPolicy{} = policy, driver_opts) do
@@ -359,26 +364,8 @@ defmodule Jido.Exec do
     try do
       {:ok, PolicyDriver.execute(runnable, policy, driver_opts)}
     rescue
-      error in [CaseClauseError] ->
-        case error.term do
-          {:exit, reason} ->
-            {:error,
-             Error.execution_error("runnable execution exited", %{kind: :exit, reason: reason})}
-
-          _other ->
-            {:error,
-             Error.execution_error("runnable execution raised", %{
-               reason: error,
-               stacktrace: __STACKTRACE__
-             })}
-        end
-
       error ->
-        {:error,
-         Error.execution_error("runnable execution raised", %{
-           reason: error,
-           stacktrace: __STACKTRACE__
-         })}
+        {:error, normalize_policy_driver_exception(error, __STACKTRACE__)}
     catch
       kind, reason ->
         {:error,
@@ -389,6 +376,19 @@ defmodule Jido.Exec do
     after
       Process.flag(:trap_exit, trap_exit?)
     end
+  end
+
+  # Runic's timeout path currently lets Task.yield/2 exits surface as a
+  # CaseClauseError. Keep that adapter isolated at the Runic boundary.
+  defp normalize_policy_driver_exception(%CaseClauseError{term: {:exit, reason}}, _stacktrace) do
+    Error.execution_error("runnable execution exited", %{kind: :exit, reason: reason})
+  end
+
+  defp normalize_policy_driver_exception(error, stacktrace) do
+    Error.execution_error("runnable execution raised", %{
+      reason: error,
+      stacktrace: stacktrace
+    })
   end
 
   defp await_execution_worker(ref, monitor_ref, pid) do
@@ -536,7 +536,35 @@ defmodule Jido.Exec do
   defp valid_scheduler_policy?(policy) when is_list(policy), do: Keyword.keyword?(policy)
   defp valid_scheduler_policy?(_policy), do: false
 
-  defp do_results(%Result{results: results}, []), do: results
+  defp validate_result_options(opts),
+    do: validate_option_keys(opts, [:refresh, :raw, :components], "result")
+
+  defp validate_event_options(opts), do: validate_option_keys(opts, [:refresh], "event")
+
+  defp validate_option_keys(opts, allowed, label) do
+    unknown = Keyword.keys(opts) -- allowed
+
+    if unknown == [] do
+      :ok
+    else
+      {:error,
+       Error.validation_error("unsupported #{label} options", %{
+         options: unknown,
+         allowed: allowed
+       })}
+    end
+  end
+
+  defp do_results(%Result{results: results, workflow: workflow}, opts) when is_list(opts) do
+    query_opts = Keyword.delete(opts, :refresh)
+
+    if query_opts == [] and not Keyword.get(opts, :refresh, false) do
+      results
+    else
+      do_results(workflow, query_opts)
+    end
+  end
+
   defp do_results(%Result{workflow: workflow}, opts), do: do_results(workflow, opts)
 
   defp do_results(flow_or_workflow, opts) when is_list(opts) do
@@ -555,7 +583,14 @@ defmodule Jido.Exec do
     end
   end
 
-  defp do_events(%Result{events: events}, []), do: events
+  defp do_events(%Result{events: events, workflow: workflow}, opts) when is_list(opts) do
+    if Keyword.get(opts, :refresh, false) do
+      do_events(workflow, [])
+    else
+      events
+    end
+  end
+
   defp do_events(%Result{workflow: workflow}, opts), do: do_events(workflow, opts)
 
   defp do_events(flow_or_workflow, _opts) do
@@ -627,6 +662,7 @@ defmodule Jido.Exec do
   end
 
   defp one_step_input(@no_input), do: %{}
+  defp one_step_input(nil), do: %{}
   defp one_step_input(input), do: input
 
   defp unsupported_executable(value) do

@@ -127,42 +127,30 @@ defmodule Jido.Exec.Result do
   defp runnable_node_name(%Runnable{node: node}), do: inspect(node)
 
   defp workflow_directives(%Workflow{} = workflow) do
-    component_names = component_names_by_hash(workflow)
-
     workflow
     |> Workflow.facts()
-    |> Enum.flat_map(&fact_directives(&1, component_names))
+    |> Enum.flat_map(&fact_directives/1)
   end
 
-  defp component_names_by_hash(%Workflow{} = workflow) do
-    workflow
-    |> Workflow.components()
-    |> Map.new(fn {name, hash} -> {hash, name} end)
-  end
-
-  defp fact_directives(
-         %Runic.Workflow.Fact{hash: fact_hash, meta: meta, ancestry: {producer_hash, _}},
-         component_names
-       )
+  defp fact_directives(%Runic.Workflow.Fact{hash: fact_hash, meta: meta})
        when is_map(meta) do
-    case Map.get(meta, :jido_directives) do
-      nil ->
-        []
-
-      directives ->
-        [
-          %{
-            step:
-              Map.get(meta, :jido_step, Map.get(component_names, producer_hash, producer_hash)),
-            status: Map.get(meta, :jido_status, :ok),
-            fact_hash: fact_hash,
-            directives: directives
-          }
-        ]
+    with {:ok, directives} <- Map.fetch(meta, :jido_directives),
+         {:ok, step} <- Map.fetch(meta, :jido_step),
+         {:ok, status} <- Map.fetch(meta, :jido_status) do
+      [
+        %{
+          step: step,
+          status: status,
+          fact_hash: fact_hash,
+          directives: directives
+        }
+      ]
+    else
+      :error -> []
     end
   end
 
-  defp fact_directives(_fact, _component_names), do: []
+  defp fact_directives(_fact), do: []
 
   defp failed_runnable_directives(%Runnable{error: error, node: node}) do
     error
