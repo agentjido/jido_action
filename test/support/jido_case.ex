@@ -7,16 +7,8 @@ defmodule JidoTest.ActionCase do
 
   using do
     quote do
-      # Import test helpers
-
       import JidoTest.ActionCase
-      import JidoTest.Helpers.Assertions
     end
-  end
-
-  setup _tags do
-    # Setup any test state or fixtures needed
-    :ok
   end
 
   @doc """
@@ -52,36 +44,5 @@ defmodule JidoTest.ActionCase do
   def create_module(module, quoted) do
     assert {:module, ^module, _bytecode, _term} =
              Module.create(module, quoted, Macro.Env.location(__ENV__))
-  end
-
-  @doc """
-  Runs an action through the direct action contract used by focused action tests.
-  """
-  def run_action(action, params, context \\ %{}) do
-    with {:ok, params} <- action.validate_params(params),
-         {:ok, result} <- action.run(params, context) do
-      action.validate_output(result)
-    end
-  end
-
-  @doc """
-  Stop the given process with a non-normal exit reason.
-  Can accept either a PID or registered name.
-  """
-  def shutdown_test_process(pid, reason \\ :shutdown)
-
-  def shutdown_test_process(pid, reason) when is_pid(pid) do
-    Process.unlink(pid)
-    Process.exit(pid, reason)
-
-    ref = Process.monitor(pid)
-    assert_receive {:DOWN, ^ref, _, _, _}, 5_000
-  end
-
-  def shutdown_test_process(name, reason) when is_atom(name) do
-    case Process.whereis(name) do
-      nil -> :ok
-      pid -> shutdown_test_process(pid, reason)
-    end
   end
 end
