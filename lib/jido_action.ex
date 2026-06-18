@@ -96,13 +96,16 @@ defmodule Jido.Action do
   """
 
   alias Jido.Action.Error
+
+  @max_action_name_bytes 256
+
   # Define Zoi schema for Action metadata
   @schema Zoi.struct(
             __MODULE__,
             %{
               name:
                 Zoi.string(description: "The name of the Action")
-                |> Zoi.refine({Jido.Action.Util, :validate_name, []}),
+                |> Zoi.refine({__MODULE__, :validate_name, []}),
               description: Zoi.string(description: "Description") |> Zoi.optional(),
               schema:
                 Zoi.any(description: "Zoi schema for validating Action input")
@@ -122,7 +125,7 @@ defmodule Jido.Action do
   @action_config_schema Zoi.object(%{
                           name:
                             Zoi.string(description: "The non-blank metadata name of the Action.")
-                            |> Zoi.refine({Jido.Action.Util, :validate_name, []}),
+                            |> Zoi.refine({__MODULE__, :validate_name, []}),
                           description:
                             Zoi.string(description: "A description of what the Action does.")
                             |> Zoi.optional(),
@@ -141,6 +144,27 @@ defmodule Jido.Action do
                             |> Zoi.refine({__MODULE__, :validate_config_schema, []})
                             |> Zoi.default([])
                         })
+
+  @doc false
+  @spec validate_name(term(), keyword()) :: :ok | {:error, String.t()}
+  def validate_name(name, _opts \\ [])
+
+  def validate_name(name, _opts) when is_binary(name) do
+    cond do
+      String.trim(name) == "" ->
+        {:error, "Action name cannot be blank."}
+
+      byte_size(name) > @max_action_name_bytes ->
+        {:error, "Action name cannot exceed #{@max_action_name_bytes} bytes."}
+
+      true ->
+        :ok
+    end
+  end
+
+  def validate_name(_name, _opts) do
+    {:error, "Action name must be a string."}
+  end
 
   @doc false
   @spec validate_config_schema(term(), keyword()) :: :ok | {:error, String.t()}
@@ -261,8 +285,6 @@ defmodule Jido.Action do
       Module.register_attribute(__MODULE__, :jido_allow_nested_exec, persist: false)
 
       alias Jido.Action
-      alias Jido.Action.Util
-      alias Jido.Signal
 
       # Convert opts to map for Zoi validation (including nested keyword lists)
       opts_map =

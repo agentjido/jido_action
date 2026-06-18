@@ -39,9 +39,9 @@ defmodule JidoTest.FlowStepTest do
     nil_params = Step.new(Add, nil, name: :add)
 
     assert derived.name == :add
-    assert derived.params == %{amount: 2}
-    assert derived.context == %{trace_id: "trace"}
-    assert nil_params.params == %{}
+    assert derived.instruction.params == %{amount: 2}
+    assert derived.instruction.context == %{trace_id: "trace"}
+    assert nil_params.instruction.params == %{}
   end
 
   test "rejects invalid step names through struct validation" do
@@ -83,6 +83,9 @@ defmodule JidoTest.FlowStepTest do
     assert left.hash == right.hash
     refute Map.has_key?(left.instruction, :id)
     refute Map.has_key?(right.instruction, :id)
+    refute Map.has_key?(left, :action)
+    refute Map.has_key?(left, :params)
+    refute Map.has_key?(left, :context)
   end
 
   test "builds from an instruction and merges params and context" do
@@ -99,9 +102,9 @@ defmodule JidoTest.FlowStepTest do
         context: %{tenant_id: "tenant"}
       )
 
-    assert step.action == Add
-    assert step.params == %{amount: 3}
-    assert step.context == %{trace_id: "base", tenant_id: "tenant"}
+    assert step.instruction.action == Add
+    assert step.instruction.params == %{amount: 3}
+    assert step.instruction.context == %{trace_id: "base", tenant_id: "tenant"}
   end
 
   test "rejects invalid constructor inputs" do

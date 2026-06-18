@@ -23,11 +23,6 @@ defmodule Jido.Flow.Step do
                 |> Zoi.refine({Validator, :validate_component_name, []}),
               hash: Zoi.integer(description: "Stable flow step hash"),
               instruction: Zoi.struct(Instruction, description: "Normalized action invocation"),
-              action:
-                Zoi.atom(description: "Action module to execute")
-                |> Zoi.refine({Instruction, :validate_action_module, []}),
-              params: Zoi.map(description: "Static action parameters"),
-              context: Zoi.map(description: "Static action context"),
               inputs:
                 Zoi.keyword(Zoi.any(), description: "Runic input ports")
                 |> Zoi.default([]),
@@ -71,9 +66,6 @@ defmodule Jido.Flow.Step do
       name: name,
       hash: step_hash(instruction, name),
       instruction: instruction,
-      action: instruction.action,
-      params: instruction.params,
-      context: instruction.context,
       inputs: derive_inputs(instruction.action),
       outputs: derive_outputs(instruction.action)
     }
@@ -198,12 +190,16 @@ defimpl Runic.Workflow.Invokable, for: Jido.Flow.Step do
   end
 
   def execute(%Jido.Flow.Step{} = step, %Runnable{input_fact: fact} = runnable) do
+    instruction = step.instruction
+
     params =
-      Map.merge(step.params, fact_params(fact.value), fn _key, _static, runtime -> runtime end)
+      Map.merge(instruction.params, fact_params(fact.value), fn _key, _static, runtime ->
+        runtime
+      end)
 
-    context = Map.merge(step.context, run_context(runnable))
+    context = Map.merge(instruction.context, run_context(runnable))
 
-    case invoke_once(step.action, params, context) do
+    case invoke_once(instruction.action, params, context) do
       {:ok, result} ->
         complete(runnable, step, fact, result, nil)
 
@@ -405,12 +401,14 @@ defimpl Runic.Component, for: Jido.Flow.Step do
   end
 
   def source(step) do
+    instruction = step.instruction
+
     quote do
       Jido.Flow.Step.new(
-        unquote(step.action),
-        unquote(Macro.escape(step.params)),
+        unquote(instruction.action),
+        unquote(Macro.escape(instruction.params)),
         name: unquote(step.name),
-        context: unquote(Macro.escape(step.context))
+        context: unquote(Macro.escape(instruction.context))
       )
     end
   end
