@@ -7,7 +7,7 @@ V3 keeps the action boundary small while adding a stateful composition layer:
 - `Jido.Action` defines a named action with Zoi input and output schemas.
 - `Jido.Instruction` captures one requested action call as data.
 - `Jido.Flow` composes leaf actions and native Runic components.
-- `Jido.Exec` executes `Jido.Flow` and raw `Runic.Workflow` values. Retry, timeout, fallback, async, durable execution, and stepping use Runic policy.
+- `Jido.Exec` executes actions, instructions, and flows. Retry, timeout, fallback, async, durable execution, and stepping use Runic policy.
 
 Actions are leaves: `run/2` computes one action result; `Jido.Flow` composes actions; `Jido.Exec` executes the composition.
 

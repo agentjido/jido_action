@@ -2,121 +2,210 @@ defmodule Jido.Exec do
   @moduledoc """
   Runic-backed execution facade for Jido flows.
 
-  `Jido.Exec` accepts `Jido.Flow` and raw `Runic.Workflow` values only. Direct
-  action execution is intentionally not a runtime concern here; actions are leaf
-  components invoked by `Jido.Flow.Step` while retry, timeout, fallback,
-  scheduling, and durable execution are owned by Runic.
+  `Jido.Exec` accepts Jido action modules, `Jido.Instruction` values, and
+  `Jido.Flow` values. Bare actions and instructions are normalized into
+  one-step flows; composed flows are projected into Runic workflows at the
+  runtime boundary. Retry, timeout, fallback, scheduling, and durable execution
+  are owned by Runic.
   """
 
   alias Jido.Action.Error
-  alias Jido.Exec.Result
+  alias Jido.Exec.{Result, Telemetry}
   alias Jido.Flow
+  alias Jido.Instruction
   alias Runic.Workflow
   alias Runic.Workflow.{Fact, PolicyDriver, Runnable, SchedulerPolicy}
 
   @no_input {__MODULE__, :no_input}
 
-  @type executable :: Flow.t() | Workflow.t()
+  @type executable :: module() | Instruction.t() | Flow.t()
   @type run_opts :: keyword()
 
   @doc """
-  Executes a flow or Runic workflow to quiescence.
+  Executes an action, instruction, or flow to quiescence.
 
-  Runtime execution options are Runic workflow options. Use `run/3` with an
-  explicit input when input is present. Use `:run_context` for
+  Bare actions are converted to one-step flows with empty params. Instructions
+  are converted to one-step flows using their embedded params and context.
+  Runtime execution options are Runic workflow options. Use `:run_context` for
   runtime context and `:scheduler_policies` for runtime policy overrides.
   """
   @spec run(executable()) :: {:ok, Result.t()} | {:error, Result.t()} | {:error, Exception.t()}
-  def run(%Flow{} = flow), do: run_workflow(flow, @no_input, [])
-  def run(%Workflow{} = workflow), do: run_workflow(workflow, @no_input, [])
+  def run(%Flow{} = flow), do: run_flow(flow, @no_input, [])
+  def run(%Instruction{} = instruction), do: run_instruction(instruction, @no_input, [])
+  def run(action) when is_atom(action) and not is_nil(action), do: run_action(action, %{}, [])
   def run(other), do: unsupported_executable(other)
 
   @spec run(executable(), term()) ::
           {:ok, Result.t()} | {:error, Result.t()} | {:error, Exception.t()}
-  def run(%Flow{} = flow, input), do: run_workflow(flow, input, [])
-  def run(%Workflow{} = workflow, input), do: run_workflow(workflow, input, [])
+  def run(%Flow{} = flow, input), do: run_flow(flow, input, [])
+  def run(%Instruction{} = instruction, input), do: run_instruction(instruction, input, [])
+
+  def run(action, params) when is_atom(action) and not is_nil(action),
+    do: run_action(action, params, [])
+
   def run(other, _input), do: unsupported_executable(other)
 
   @spec run(executable(), term(), run_opts()) ::
           {:ok, Result.t()} | {:error, Result.t()} | {:error, Exception.t()}
   def run(%Flow{} = flow, input, opts) when is_list(opts),
-    do: run_workflow(flow, input, opts)
+    do: run_flow(flow, input, opts)
 
-  def run(%Workflow{} = workflow, input, opts) when is_list(opts),
-    do: run_workflow(workflow, input, opts)
+  def run(%Instruction{} = instruction, input, opts) when is_list(opts),
+    do: run_instruction(instruction, input, opts)
+
+  def run(action, params, opts) when is_atom(action) and not is_nil(action) and is_list(opts),
+    do: run_action(action, params, opts)
 
   def run(other, _input, _opts), do: unsupported_executable(other)
 
   @doc """
   Performs one Runic prepare/dispatch/apply cycle.
   """
-  @spec step(Flow.t() | Workflow.t()) ::
+  @spec step(executable()) ::
           {:ok, Result.t()} | {:error, Result.t()} | {:error, Exception.t()}
-  def step(flow_or_workflow), do: step_workflow(flow_or_workflow, @no_input, [])
+  def step(%Flow{} = flow), do: step_flow(flow, @no_input, [])
+  def step(%Instruction{} = instruction), do: step_instruction(instruction, @no_input, [])
+  def step(action) when is_atom(action) and not is_nil(action), do: step_action(action, %{}, [])
+  def step(other), do: unsupported_executable(other)
 
-  @spec step(Flow.t() | Workflow.t(), term(), keyword()) ::
+  @spec step(executable(), term()) ::
           {:ok, Result.t()} | {:error, Result.t()} | {:error, Exception.t()}
-  def step(flow_or_workflow, input, opts) when is_list(opts) do
-    step_workflow(flow_or_workflow, input, opts)
-  end
+  def step(%Flow{} = flow, input), do: step_flow(flow, input, [])
+  def step(%Instruction{} = instruction, input), do: step_instruction(instruction, input, [])
 
-  @doc """
-  Continues a local flow or workflow with new input and runs it to quiescence.
-  """
-  @spec resume(Flow.t() | Workflow.t(), term(), keyword()) ::
+  def step(action, params) when is_atom(action) and not is_nil(action),
+    do: step_action(action, params, [])
+
+  def step(other, _input), do: unsupported_executable(other)
+
+  @spec step(executable(), term(), keyword()) ::
           {:ok, Result.t()} | {:error, Result.t()} | {:error, Exception.t()}
-  def resume(flow_or_workflow, input), do: resume(flow_or_workflow, input, [])
+  def step(%Flow{} = flow, input, opts) when is_list(opts), do: step_flow(flow, input, opts)
 
-  def resume(flow_or_workflow, input, opts) when is_list(opts) do
-    run_workflow(flow_or_workflow, input, opts)
-  end
+  def step(%Instruction{} = instruction, input, opts) when is_list(opts),
+    do: step_instruction(instruction, input, opts)
 
-  @doc """
-  Returns runtime results from a result, flow, or raw Runic workflow.
-  """
-  @spec results(Result.t() | Flow.t() | Workflow.t(), keyword()) :: term()
-  def results(result_or_workflow), do: results(result_or_workflow, [])
+  def step(action, params, opts) when is_atom(action) and not is_nil(action) and is_list(opts),
+    do: step_action(action, params, opts)
 
-  def results(result_or_workflow, opts) when is_list(opts) do
-    do_results(result_or_workflow, opts)
-  end
+  def step(other, _input, _opts), do: unsupported_executable(other)
 
   @doc """
-  Returns durable and in-memory events associated with a result or workflow.
+  Continues a local execution result with new input and runs it to quiescence.
   """
-  @spec events(Result.t() | Flow.t() | Workflow.t(), keyword()) :: [term()]
-  def events(result_or_workflow, opts \\ []) do
-    do_events(result_or_workflow, opts)
+  @spec resume(Result.t(), term(), keyword()) ::
+          {:ok, Result.t()} | {:error, Result.t()} | {:error, Exception.t()}
+  def resume(%Result{} = result, input), do: resume(result, input, [])
+  def resume(other, _input), do: unsupported_result(other)
+
+  def resume(%Result{status: status} = result, input, opts)
+      when status in [:ok, :max_cycles] and is_list(opts) do
+    run_workflow(result.workflow, input, opts)
   end
 
-  @doc """
-  Returns a compact execution summary for a result, flow, or workflow.
-  """
-  @spec summary(Result.t() | Flow.t() | Workflow.t()) :: map()
-  def summary(result_or_workflow), do: do_summary(result_or_workflow)
-
-  @doc """
-  Walks a produced fact's ancestry through the workflow.
-  """
-  @spec provenance(Result.t() | Flow.t() | Workflow.t(), term()) ::
-          {:ok, [Runic.Workflow.Fact.t()]} | {:error, :not_found}
-  def provenance(result_or_workflow, fact_hash) do
-    do_provenance(result_or_workflow, fact_hash)
+  def resume(%Result{status: status}, _input, opts) when is_list(opts) do
+    {:error,
+     Error.validation_error("cannot resume failed execution result", %{
+       status: status
+     })}
   end
 
-  defp run_workflow(flow_or_workflow, input, opts) do
-    with {:ok, workflow} <- normalize_workflow(flow_or_workflow),
-         :ok <- validate_run_context(Keyword.get(opts, :run_context)),
-         :ok <- validate_max_cycles(Keyword.get(opts, :max_cycles, :infinity)) do
+  def resume(other, _input, _opts), do: unsupported_result(other)
+
+  @doc """
+  Returns runtime results from an execution result.
+  """
+  @spec results(Result.t(), keyword()) :: term()
+  def results(%Result{} = result), do: results(result, [])
+  def results(other), do: unsupported_result(other)
+
+  def results(%Result{} = result, opts) when is_list(opts) do
+    do_results(result, opts)
+  end
+
+  def results(other, _opts), do: unsupported_result(other)
+
+  @doc """
+  Returns durable and in-memory events associated with an execution result.
+  """
+  @spec events(Result.t(), keyword()) :: [term()] | {:error, Exception.t()}
+  def events(result, opts \\ [])
+  def events(%Result{} = result, opts) when is_list(opts), do: do_events(result, opts)
+  def events(other, _opts), do: unsupported_result(other)
+
+  @doc """
+  Returns a compact execution summary for an execution result.
+  """
+  @spec summary(Result.t()) :: map() | {:error, Exception.t()}
+  def summary(%Result{} = result), do: do_summary(result)
+  def summary(other), do: unsupported_result(other)
+
+  @doc """
+  Walks a produced fact's ancestry through the result workflow.
+  """
+  @spec provenance(Result.t(), term()) ::
+          {:ok, [Runic.Workflow.Fact.t()]} | {:error, :not_found} | {:error, Exception.t()}
+  def provenance(%Result{} = result, fact_hash) do
+    do_provenance(result, fact_hash)
+  end
+
+  def provenance(other, _fact_hash), do: unsupported_result(other)
+
+  defp run_flow(%Flow{} = flow, input, opts) do
+    flow
+    |> Flow.to_workflow()
+    |> run_workflow(input, opts)
+  rescue
+    error in [ArgumentError] ->
+      {:error, Error.validation_error(Exception.message(error), %{value: flow})}
+  end
+
+  defp run_instruction(%Instruction{} = instruction, input, opts) do
+    with {:ok, flow} <- one_step_flow(instruction) do
+      run_flow(flow, one_step_input(input), opts)
+    end
+  end
+
+  defp run_action(action, params, opts) do
+    with {:ok, flow} <- one_step_flow(action, params) do
+      run_flow(flow, %{}, opts)
+    end
+  end
+
+  defp step_flow(%Flow{} = flow, input, opts) do
+    flow
+    |> Flow.to_workflow()
+    |> step_workflow(input, opts)
+  rescue
+    error in [ArgumentError] ->
+      {:error, Error.validation_error(Exception.message(error), %{value: flow})}
+  end
+
+  defp step_instruction(%Instruction{} = instruction, input, opts) do
+    with {:ok, flow} <- one_step_flow(instruction) do
+      step_flow(flow, one_step_input(input), opts)
+    end
+  end
+
+  defp step_action(action, params, opts) do
+    with {:ok, flow} <- one_step_flow(action, params) do
+      step_flow(flow, %{}, opts)
+    end
+  end
+
+  defp run_workflow(%Workflow{} = workflow, input, opts) do
+    with :ok <- validate_run_context(Keyword.get(opts, :run_context)),
+         :ok <- validate_max_cycles(Keyword.get(opts, :max_cycles, :infinity)),
+         :ok <- validate_scheduler_options(opts) do
       workflow
       |> start_workflow(input, opts)
       |> continue_workflow(opts, 0)
     end
   end
 
-  defp step_workflow(flow_or_workflow, input, opts) do
-    with {:ok, workflow} <- normalize_workflow(flow_or_workflow),
-         :ok <- validate_run_context(Keyword.get(opts, :run_context)) do
+  defp step_workflow(%Workflow{} = workflow, input, opts) do
+    with :ok <- validate_run_context(Keyword.get(opts, :run_context)),
+         :ok <- validate_scheduler_options(opts) do
       workflow
       |> start_workflow(input, opts)
       |> execute_cycle(opts, 0)
@@ -183,7 +272,7 @@ defmodule Jido.Exec do
 
     {workflow, failed_runnable} =
       Enum.reduce(runnables, {workflow, nil}, fn runnable, {workflow, failed} ->
-        {executed, runnable_events} = execute_runnable(runnable, policies, driver_opts)
+        {executed, runnable_events} = execute_runnable(runnable, policies, driver_opts, opts)
 
         workflow =
           workflow
@@ -203,14 +292,39 @@ defmodule Jido.Exec do
     end
   end
 
-  defp execute_runnable(%Runnable{} = runnable, policies, driver_opts) do
+  defp execute_runnable(%Runnable{} = runnable, policies, driver_opts, opts) do
     policy = SchedulerPolicy.resolve(runnable, policies)
     driver_opts = Keyword.put(driver_opts, :emit_events, true)
 
-    runnable
-    |> execute_runnable_in_worker(policy, driver_opts)
-    |> normalize_worker_result(runnable)
+    result =
+      case action_span_context(runnable, opts) do
+        {action, context, span_opts} ->
+          Telemetry.span(action, context, span_opts, fn ->
+            execute_runnable_in_worker(runnable, policy, driver_opts)
+          end)
+
+        nil ->
+          execute_runnable_in_worker(runnable, policy, driver_opts)
+      end
+
+    normalize_worker_result(result, runnable)
   end
+
+  defp action_span_context(
+         %Runnable{
+           node: %Jido.Flow.Step{instruction: instruction},
+           context: %{run_context: run_context}
+         },
+         opts
+       )
+       when is_map(run_context) do
+    context = Map.merge(instruction.context, run_context)
+    span_opts = Keyword.take(opts, [:jido])
+
+    {instruction.action, context, span_opts}
+  end
+
+  defp action_span_context(_runnable, _opts), do: nil
 
   defp execute_runnable_in_worker(
          %Runnable{} = runnable,
@@ -295,8 +409,6 @@ defmodule Jido.Exec do
   defp normalize_worker_result({:ok, {%Runnable{} = runnable, events}}, _original),
     do: {runnable, events}
 
-  defp normalize_worker_result({:ok, %Runnable{} = runnable}, _original), do: {runnable, []}
-
   defp normalize_worker_result({:error, %_{} = reason}, %Runnable{} = runnable)
        when is_exception(reason),
        do: {Runnable.fail(runnable, reason), []}
@@ -332,8 +444,6 @@ defmodule Jido.Exec do
     if Keyword.keyword?(policy), do: Map.new(policy), else: policy
   end
 
-  defp normalize_scheduler_policy(policy), do: policy
-
   defp policy_driver_opts(opts) do
     opts
     |> maybe_put_deadline_at()
@@ -360,10 +470,6 @@ defmodule Jido.Exec do
     end
   end
 
-  defp normalize_workflow(%Flow{} = flow), do: {:ok, Flow.to_workflow(flow)}
-  defp normalize_workflow(%Workflow{} = workflow), do: {:ok, workflow}
-  defp normalize_workflow(other), do: unsupported_executable(other)
-
   defp validate_run_context(nil), do: :ok
   defp validate_run_context(context) when is_map(context), do: :ok
 
@@ -383,6 +489,52 @@ defmodule Jido.Exec do
        max_cycles: max_cycles
      })}
   end
+
+  defp validate_scheduler_options(opts) do
+    with :ok <- validate_scheduler_policies(Keyword.get(opts, :scheduler_policies)),
+         :ok <-
+           validate_scheduler_policies_mode(Keyword.get(opts, :scheduler_policies_mode, :merge)) do
+      :ok
+    end
+  end
+
+  defp validate_scheduler_policies(nil), do: :ok
+
+  defp validate_scheduler_policies(policies) when is_list(policies) do
+    if Enum.all?(policies, &valid_scheduler_policy_entry?/1) do
+      :ok
+    else
+      {:error,
+       Error.validation_error(
+         ":scheduler_policies must be a list of {matcher, policy} tuples using map, keyword, or SchedulerPolicy values",
+         %{scheduler_policies: policies}
+       )}
+    end
+  end
+
+  defp validate_scheduler_policies(policies) do
+    {:error,
+     Error.validation_error(":scheduler_policies must be a list", %{
+       scheduler_policies: policies
+     })}
+  end
+
+  defp validate_scheduler_policies_mode(mode) when mode in [:merge, :replace], do: :ok
+
+  defp validate_scheduler_policies_mode(mode) do
+    {:error,
+     Error.validation_error(":scheduler_policies_mode must be :merge or :replace", %{
+       scheduler_policies_mode: mode
+     })}
+  end
+
+  defp valid_scheduler_policy_entry?({_matcher, policy}), do: valid_scheduler_policy?(policy)
+  defp valid_scheduler_policy_entry?(_entry), do: false
+
+  defp valid_scheduler_policy?(%SchedulerPolicy{}), do: true
+  defp valid_scheduler_policy?(policy) when is_map(policy), do: true
+  defp valid_scheduler_policy?(policy) when is_list(policy), do: Keyword.keyword?(policy)
+  defp valid_scheduler_policy?(_policy), do: false
 
   defp do_results(%Result{results: results}, []), do: results
   defp do_results(%Result{workflow: workflow}, opts), do: do_results(workflow, opts)
@@ -410,10 +562,6 @@ defmodule Jido.Exec do
     flow_or_workflow
     |> result_workflow()
     |> Workflow.event_log()
-  rescue
-    _ -> []
-  catch
-    _, _ -> []
   end
 
   defp do_summary(%Result{workflow: workflow, status: status, cycles: cycles, error: error}) do
@@ -462,13 +610,37 @@ defmodule Jido.Exec do
 
   defp build_provenance_chain(%Runic.Workflow.Fact{} = fact, _facts, acc), do: [fact | acc]
 
-  defp result_workflow(%Flow{} = flow), do: Flow.to_workflow(flow)
   defp result_workflow(%Workflow{} = workflow), do: workflow
+
+  defp one_step_flow(%Instruction{} = instruction) do
+    {:ok, Flow.from_action(instruction)}
+  rescue
+    error in [ArgumentError] ->
+      {:error, Error.validation_error(Exception.message(error), %{value: instruction})}
+  end
+
+  defp one_step_flow(action, params) when is_atom(action) and not is_nil(action) do
+    {:ok, Flow.from_action(action, params)}
+  rescue
+    error in [ArgumentError] ->
+      {:error, Error.validation_error(Exception.message(error), %{value: action})}
+  end
+
+  defp one_step_input(@no_input), do: %{}
+  defp one_step_input(input), do: input
 
   defp unsupported_executable(value) do
     {:error,
      Error.validation_error(
-       "expected a Jido.Flow or Runic.Workflow",
+       "expected a Jido.Action module, Jido.Instruction, or Jido.Flow",
+       %{value: value}
+     )}
+  end
+
+  defp unsupported_result(value) do
+    {:error,
+     Error.validation_error(
+       "expected a Jido.Exec.Result",
        %{value: value}
      )}
   end

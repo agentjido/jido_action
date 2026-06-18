@@ -112,10 +112,6 @@ defmodule Jido.Exec.Result do
 
   defp workflow_events(%Workflow{} = workflow) do
     Workflow.event_log(workflow)
-  rescue
-    _ -> Map.get(workflow, :runnable_events, [])
-  catch
-    _, _ -> Map.get(workflow, :runnable_events, [])
   end
 
   defp failed_runnable_error(%Runnable{} = runnable) do
@@ -151,9 +147,6 @@ defmodule Jido.Exec.Result do
        when is_map(meta) do
     case Map.get(meta, :jido_directives) do
       nil ->
-        []
-
-      [] ->
         []
 
       directives ->
@@ -193,9 +186,6 @@ defmodule Jido.Exec.Result do
        when is_map(details) do
     case Map.get(details, :jido_directives) do
       nil ->
-        nil
-
-      [] ->
         nil
 
       directives ->
