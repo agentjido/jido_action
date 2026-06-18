@@ -6,7 +6,7 @@ defmodule Jido.Action.Util do
   require Logger
 
   @default_log_level :info
-  @name_regex ~r/^[a-zA-Z][a-zA-Z0-9_]*$/
+  @max_action_name_bytes 256
 
   @doc """
   Conditionally logs a message based on comparing threshold and message log levels.
@@ -112,9 +112,10 @@ defmodule Jido.Action.Util do
   end
 
   @doc """
-  Validates the name of a Action.
+  Validates the metadata name of an Action.
 
-  The name must contain only letters, numbers, and underscores.
+  Action names are compile-time string metadata. They must be non-blank and
+  bounded, but they are not required to be slugs or Elixir identifiers.
 
   ## Parameters
 
@@ -127,28 +128,54 @@ defmodule Jido.Action.Util do
 
   ## Examples
 
-      iex> Jido.Action.validate_name("valid_name_123")
+      iex> Jido.Action.Util.validate_name("billing.charge-card")
       :ok
 
-      iex> Jido.Action.validate_name("invalid-name")
-      {:error, "The name must contain only letters, numbers, and underscores."}
+      iex> Jido.Action.Util.validate_name(" ")
+      {:error, "Action name cannot be blank."}
 
   """
   @spec validate_name(any(), keyword()) :: :ok | {:error, String.t()}
   def validate_name(name, _opts \\ [])
 
   def validate_name(name, _opts) when is_binary(name) do
-    if Regex.match?(@name_regex, name) do
-      :ok
-    else
-      {:error,
-       "The name must start with a letter and contain only letters, numbers, and underscores."}
+    cond do
+      String.trim(name) == "" ->
+        {:error, "Action name cannot be blank."}
+
+      byte_size(name) > @max_action_name_bytes ->
+        {:error, "Action name cannot exceed #{@max_action_name_bytes} bytes."}
+
+      true ->
+        :ok
     end
   end
 
   def validate_name(_name, _opts) do
-    {:error, "Invalid name format."}
+    {:error, "Action name must be a string."}
   end
+
+  @doc """
+  Validates a component name used by Flow and Runic-backed structures.
+
+  Component names may be non-nil atoms or non-empty strings. This is looser than
+  action names because Runic components are referenced by atom or string keys.
+  """
+  @spec validate_component_name(term(), keyword()) :: :ok | {:error, String.t()}
+  def validate_component_name(value, _opts \\ [])
+  def validate_component_name(value, _opts) when is_atom(value) and not is_nil(value), do: :ok
+  def validate_component_name(value, _opts) when is_binary(value) and value != "", do: :ok
+  def validate_component_name(value, _opts) when is_atom(value), do: {:error, "cannot be nil"}
+  def validate_component_name(value, _opts) when is_binary(value), do: {:error, "cannot be empty"}
+  def validate_component_name(_value, _opts), do: {:error, "must be an atom or string"}
+
+  @doc """
+  Validates an optional component name.
+  """
+  @spec validate_optional_component_name(term(), keyword()) :: :ok | {:error, String.t()}
+  def validate_optional_component_name(value, _opts \\ [])
+  def validate_optional_component_name(nil, _opts), do: :ok
+  def validate_optional_component_name(value, opts), do: validate_component_name(value, opts)
 
   @doc """
   Normalizes nested result tuples to single-level tuples.

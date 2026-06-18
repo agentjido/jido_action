@@ -21,34 +21,30 @@ defmodule Jido.InstructionTest do
       assert instruction.action == BasicAction
       assert instruction.params == %{}
       assert instruction.context == %{}
-      assert is_binary(instruction.id)
+      refute Map.has_key?(instruction, :id)
     end
 
     test "creates an instruction with all fields" do
       assert {:ok, instruction} =
                Instruction.new(%{
-                 id: "instruction-1",
                  action: BasicAction,
                  params: [value: 42],
                  context: [request_id: "req-1"]
                })
 
-      assert instruction.id == "instruction-1"
       assert instruction.action == BasicAction
       assert instruction.params == %{value: 42}
       assert instruction.context == %{request_id: "req-1"}
     end
 
-    test "normalizes nil id, params, and context" do
+    test "normalizes nil params and context" do
       assert {:ok, instruction} =
                Instruction.new(%{
-                 id: nil,
                  action: BasicAction,
                  params: nil,
                  context: nil
                })
 
-      assert is_binary(instruction.id)
       assert instruction.params == %{}
       assert instruction.context == %{}
     end
@@ -75,18 +71,6 @@ defmodule Jido.InstructionTest do
                Instruction.new(action: BasicAction, context: 123)
 
       assert context_message =~ "Invalid context format"
-    end
-
-    test "rejects invalid id values through schema parsing" do
-      assert {:error,
-              %Jido.Action.Error.InvalidInputError{
-                message: "Invalid instruction configuration",
-                details: %{errors: [error]}
-              }} = Instruction.new(action: BasicAction, id: 123)
-
-      assert error.path == [:id]
-      assert error.code == :invalid_type
-      assert error.message =~ "expected string"
     end
 
     test "does not accept tuple instruction shims" do

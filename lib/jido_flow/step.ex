@@ -9,6 +9,7 @@ defmodule Jido.Flow.Step do
   scheduler.
   """
 
+  alias Jido.Action.Util
   alias Jido.Action.Error
   alias Jido.Instruction
 
@@ -20,7 +21,7 @@ defmodule Jido.Flow.Step do
                   Zoi.atom(),
                   Zoi.string()
                 ])
-                |> Zoi.refine({__MODULE__, :validate_name, []}),
+                |> Zoi.refine({Util, :validate_component_name, []}),
               hash: Zoi.integer(description: "Stable flow step hash"),
               instruction: Zoi.struct(Instruction, description: "Normalized action invocation"),
               action:
@@ -42,15 +43,6 @@ defmodule Jido.Flow.Step do
 
   @enforce_keys Zoi.Struct.enforce_keys(@schema)
   defstruct Zoi.Struct.struct_fields(@schema)
-
-  @doc false
-  @spec validate_name(term(), keyword()) :: :ok | {:error, String.t()}
-  def validate_name(value, _opts \\ [])
-  def validate_name(value, _opts) when is_atom(value) and not is_nil(value), do: :ok
-  def validate_name(value, _opts) when is_binary(value) and value != "", do: :ok
-  def validate_name(value, _opts) when is_atom(value), do: {:error, "cannot be nil"}
-  def validate_name(value, _opts) when is_binary(value), do: {:error, "cannot be empty"}
-  def validate_name(_value, _opts), do: {:error, "must be an atom or string"}
 
   @doc """
   Creates a flow step from an action module or `%Jido.Instruction{}`.
@@ -102,7 +94,6 @@ defmodule Jido.Flow.Step do
 
   defp build_instruction!(%Instruction{} = instruction, params, context) do
     Instruction.new!(%{
-      id: instruction.id,
       action: instruction.action,
       params: Map.merge(normalize_map!(instruction.params || %{}, :params), params),
       context: Map.merge(normalize_map!(instruction.context || %{}, :context), context)

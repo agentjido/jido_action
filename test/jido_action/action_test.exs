@@ -89,7 +89,7 @@ defmodule Jido.ActionTest do
         Code.compile_string("""
         defmodule #{inspect(module)} do
           use Jido.Action,
-            name: "invalid action name"
+            name: "   "
         end
         """)
       end

@@ -16,14 +16,10 @@ defmodule Jido.Instruction do
   """
 
   alias Jido.Action.Error
-  alias Jido.Action.ID
 
   @schema Zoi.struct(
             __MODULE__,
             %{
-              id:
-                Zoi.string(description: "Unique instruction identifier")
-                |> Zoi.optional(),
               action:
                 Zoi.atom(description: "Action module to execute")
                 |> Zoi.refine({__MODULE__, :validate_action_module, []}),
@@ -51,7 +47,7 @@ defmodule Jido.Instruction do
   @doc """
   Creates an instruction from a map or keyword list.
 
-  `:action` is required. `:id`, `:params`, and `:context` are optional.
+  `:action` is required. `:params` and `:context` are optional.
   Params and context may be maps or keyword lists.
   """
   @spec new(map() | keyword()) ::
@@ -63,7 +59,6 @@ defmodule Jido.Instruction do
          :ok <- validate_action_is_atom(attrs),
          {:ok, normalized_attrs} <- normalize_attrs(attrs) do
       normalized_attrs
-      |> apply_defaults()
       |> parse_with_zoi()
     end
   end
@@ -102,20 +97,8 @@ defmodule Jido.Instruction do
       {:ok,
        attrs
        |> Map.put(:params, params)
-       |> Map.put(:context, context)
-       |> Map.delete(:opts)}
+       |> Map.put(:context, context)}
     end
-  end
-
-  defp apply_defaults(attrs) do
-    attrs
-    |> Map.update(:id, ID.uuid7(), fn
-      nil -> ID.uuid7()
-      id -> id
-    end)
-    |> Map.put_new_lazy(:id, &ID.uuid7/0)
-    |> Map.put_new(:params, %{})
-    |> Map.put_new(:context, %{})
   end
 
   defp parse_with_zoi(attrs) do
