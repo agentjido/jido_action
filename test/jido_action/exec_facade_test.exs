@@ -62,7 +62,7 @@ defmodule JidoTest.ExecFacadeTest do
       )
 
       for value <- [:ok, "result", %{value: 1}, [1, 2, 3]] do
-        flow = Flow.single(module, %{value: value}, name: :weird_return)
+        flow = Flow.from_action(module, %{value: value}, name: :weird_return)
 
         assert {:error,
                 %Result{
@@ -81,7 +81,7 @@ defmodule JidoTest.ExecFacadeTest do
     end
 
     test "contains thrown values from actions" do
-      flow = Flow.single(ErrorAction, %{type: :throw}, name: :throwing_action)
+      flow = Flow.from_action(ErrorAction, %{type: :throw}, name: :throwing_action)
 
       assert {:error, %Result{status: :error, error: error}} =
                silence_logger(fn ->
@@ -96,7 +96,7 @@ defmodule JidoTest.ExecFacadeTest do
     end
 
     test "contains untrappable action exits without taking down the caller" do
-      flow = Flow.single(KilledAction, %{}, name: :killed_action)
+      flow = Flow.from_action(KilledAction, %{}, name: :killed_action)
 
       assert {:error, %Result{status: :error, error: error}} =
                silence_logger(fn ->
@@ -113,7 +113,7 @@ defmodule JidoTest.ExecFacadeTest do
     test "contains untrappable action exits from timeout-isolated policy tasks" do
       flow =
         KilledAction
-        |> Flow.single(%{}, name: :killed_action)
+        |> Flow.from_action(%{}, name: :killed_action)
         |> Flow.policy(:killed_action, %{timeout_ms: 1_000})
 
       assert {:error, %Result{status: :error, error: error}} =
@@ -129,7 +129,8 @@ defmodule JidoTest.ExecFacadeTest do
     end
 
     test "streams survive flow execution and remain lazy" do
-      flow = Flow.single(StreamingAction, %{chunk_size: 2, total_items: 10}, name: :streaming)
+      flow =
+        Flow.from_action(StreamingAction, %{chunk_size: 2, total_items: 10}, name: :streaming)
 
       assert {:ok, %Result{} = result} = Exec.run(flow, %{})
       assert [%{stream: stream}] = result.results.streaming
@@ -140,7 +141,7 @@ defmodule JidoTest.ExecFacadeTest do
     test "routes action IO to the caller while executing under timeout policy" do
       flow =
         IOAction
-        |> Flow.single(%{input: "test output", operation: :puts}, name: :io_action)
+        |> Flow.from_action(%{input: "test output", operation: :puts}, name: :io_action)
         |> Flow.policy(:io_action, %{timeout_ms: 1_000})
 
       io =

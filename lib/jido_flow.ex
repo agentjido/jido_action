@@ -3,12 +3,15 @@ defmodule Jido.Flow do
   Explicit composition of Jido actions.
 
   A flow is the Jido-owned intermediate representation for composing action
-  leaves and Runic components. `Jido.Exec` owns execution by projecting this IR
-  into a `Runic.Workflow` at the runtime boundary.
+  leaves and supported flow primitives. `Jido.Exec` owns execution by projecting
+  this IR into a `Runic.Workflow` at the runtime boundary.
   """
 
   alias Jido.Action.Util
+  alias Jido.Flow.Compiler
   alias Jido.Flow.Step
+  alias Jido.Flow.Validator
+  alias Jido.Instruction
   alias Runic.Workflow
 
   @name_schema Zoi.any(description: "Flow name")
@@ -18,16 +21,18 @@ defmodule Jido.Flow do
                         |> Zoi.refine({Util, :validate_component_name, []})
 
   @dependency_schema Zoi.any(description: "Parent entry dependency")
-                     |> Zoi.refine({__MODULE__, :validate_dependency, []})
+                     |> Zoi.refine({Validator, :validate_dependency, []})
                      |> Zoi.default(nil)
 
-  @entry_schema Zoi.map(%{
-                  type: Zoi.enum([:step, :component, :workflow]),
-                  name: @required_name_schema,
-                  component: Zoi.any(description: "Jido step or Runic component"),
-                  after: @dependency_schema
-                })
-                |> Zoi.refine({__MODULE__, :validate_entry, []})
+  @entry_schema Zoi.map(
+                  %{
+                    type: Zoi.enum([:step, :map, :reduce, :accumulate, :workflow]),
+                    name: @required_name_schema,
+                    after: @dependency_schema
+                  },
+                  unrecognized_keys: :preserve
+                )
+                |> Zoi.refine({Validator, :validate_entry, []})
 
   @schema Zoi.struct(
             __MODULE__,
@@ -45,54 +50,62 @@ defmodule Jido.Flow do
 
   @type name :: atom() | String.t() | nil
   @type dependency :: atom() | String.t() | [atom() | String.t()] | nil
-  @type entry_type :: :step | :component | :workflow
-  @type entry :: %{
-          required(:type) => entry_type(),
+  @type callable :: function() | callable_ref()
+  @type callable_ref :: {module(), atom()} | {:mfa, module(), atom()}
+  @type entry_type :: :step | :map | :reduce | :accumulate | :workflow
+
+  @type step_entry :: %{
+          required(:type) => :step,
           required(:name) => atom() | String.t(),
-          required(:component) => Step.t() | struct(),
+          required(:action) => module(),
+          required(:params) => map(),
+          required(:context) => map(),
           required(:after) => dependency()
         }
+
+  @type map_entry :: %{
+          required(:type) => :map,
+          required(:name) => atom() | String.t(),
+          required(:mapper) => callable_ref(),
+          required(:inputs) => keyword() | nil,
+          required(:outputs) => keyword() | nil,
+          required(:after) => dependency()
+        }
+
+  @type reduce_entry :: %{
+          required(:type) => :reduce,
+          required(:name) => atom() | String.t(),
+          required(:init) => term(),
+          required(:reducer) => callable_ref(),
+          required(:map) => atom() | String.t() | nil,
+          required(:inputs) => keyword() | nil,
+          required(:outputs) => keyword() | nil,
+          required(:after) => dependency()
+        }
+
+  @type accumulate_entry :: %{
+          required(:type) => :accumulate,
+          required(:name) => atom() | String.t(),
+          required(:init) => term(),
+          required(:reducer) => callable_ref(),
+          required(:inputs) => keyword() | nil,
+          required(:outputs) => keyword() | nil,
+          required(:after) => dependency()
+        }
+
+  @type workflow_entry :: %{
+          required(:type) => :workflow,
+          required(:name) => atom() | String.t(),
+          required(:workflow) => Workflow.t(),
+          required(:after) => dependency()
+        }
+
+  @type entry ::
+          step_entry() | map_entry() | reduce_entry() | accumulate_entry() | workflow_entry()
   @type t :: unquote(Zoi.type_spec(@schema))
 
   @enforce_keys Zoi.Struct.enforce_keys(@schema)
   defstruct Zoi.Struct.struct_fields(@schema)
-
-  @doc false
-  @spec validate_dependency(term(), keyword()) :: :ok | {:error, String.t()}
-  def validate_dependency(value, _opts \\ [])
-  def validate_dependency(nil, _opts), do: :ok
-
-  def validate_dependency(values, opts) when is_list(values) do
-    cond do
-      values == [] ->
-        {:error, "cannot be an empty list"}
-
-      Enum.all?(values, &(Util.validate_component_name(&1, opts) == :ok)) ->
-        :ok
-
-      true ->
-        {:error, "must contain only atom or string names"}
-    end
-  end
-
-  def validate_dependency(value, opts), do: Util.validate_component_name(value, opts)
-
-  @doc false
-  @spec validate_entry(term(), keyword()) :: :ok | {:error, String.t()}
-  def validate_entry(%{type: :step, component: %Step{}}, _opts), do: :ok
-  def validate_entry(%{type: :component, component: %{__struct__: _}}, _opts), do: :ok
-  def validate_entry(%{type: :workflow, component: %Workflow{}}, _opts), do: :ok
-
-  def validate_entry(%{type: :step}, _opts),
-    do: {:error, "step entries must contain a Jido.Flow.Step component"}
-
-  def validate_entry(%{type: :component}, _opts),
-    do: {:error, "component entries must contain a struct component"}
-
-  def validate_entry(%{type: :workflow}, _opts),
-    do: {:error, "workflow entries must contain a Runic.Workflow component"}
-
-  def validate_entry(_entry, _opts), do: {:error, "must be a flow entry map"}
 
   @doc """
   Creates an empty flow.
@@ -118,27 +131,15 @@ defmodule Jido.Flow do
 
   @doc """
   Builds a one-step flow from an action module or `%Jido.Instruction{}`.
-
-  This is explicit single-action runtime sugar: callers still execute the
-  returned flow through `Jido.Exec`, so runtime policy remains Runic-owned.
   """
-  @spec from_action(module() | Jido.Instruction.t(), map() | keyword(), keyword()) :: t()
+  @spec from_action(module() | Instruction.t(), map() | keyword(), keyword()) :: t()
   def from_action(action_or_instruction, params \\ %{}, opts \\ []) when is_list(opts) do
-    {name, step_opts} = Keyword.pop(opts, :name)
-    step = Step.new(action_or_instruction, params, Keyword.put(step_opts, :name, name))
-    flow_name = name || step.name
+    {name, opts} = Keyword.pop(opts, :name)
+    entry = step_entry(name, action_or_instruction, params, opts)
 
-    flow_name
+    entry.name
     |> new()
-    |> add_entry(:step, flow_name, step, nil)
-  end
-
-  @doc """
-  Alias for `from_action/3`.
-  """
-  @spec single(module() | Jido.Instruction.t(), map() | keyword(), keyword()) :: t()
-  def single(action_or_instruction, params \\ %{}, opts \\ []) when is_list(opts) do
-    from_action(action_or_instruction, params, opts)
+    |> add_entry(entry)
   end
 
   @doc """
@@ -152,7 +153,7 @@ defmodule Jido.Flow do
         %{
           type: :workflow,
           name: workflow.name,
-          component: workflow,
+          workflow: workflow,
           after: nil
         }
       ]
@@ -162,16 +163,8 @@ defmodule Jido.Flow do
   @doc """
   Projects a Jido flow into a Runic workflow.
   """
-  @spec to_workflow(t() | Workflow.t()) :: Workflow.t()
-  def to_workflow(%__MODULE__{} = flow) do
-    {workflow, entries} = base_workflow(flow)
-
-    entries
-    |> Enum.reduce(workflow, &project_entry/2)
-    |> apply_scheduler_policies(flow.policies)
-  end
-
-  def to_workflow(%Workflow{} = workflow), do: workflow
+  @spec to_workflow(t()) :: Workflow.t()
+  def to_workflow(%__MODULE__{} = flow), do: Compiler.to_workflow(flow)
 
   @doc """
   Adds a Jido action step to the flow.
@@ -182,16 +175,77 @@ defmodule Jido.Flow do
   - `:params` - static params merged before runtime fact params.
   - `:context` - static execution context.
   """
-  @spec step(t(), atom() | String.t(), module() | Jido.Instruction.t(), keyword()) :: t()
+  @spec step(t(), atom() | String.t(), module() | Instruction.t(), keyword()) :: t()
   def step(%__MODULE__{} = flow, name, action_or_instruction, opts \\ []) when is_list(opts) do
     {after_dep, opts} = Keyword.pop(opts, :after)
     {params, opts} = Keyword.pop(opts, :params, %{})
 
-    node =
-      action_or_instruction
-      |> Step.new(params, Keyword.put(opts, :name, name))
+    entry =
+      name
+      |> step_entry(action_or_instruction, params, opts)
+      |> Map.put(:after, after_dep)
 
-    add_entry(flow, :step, name, node, after_dep)
+    add_entry(flow, entry)
+  end
+
+  @doc """
+  Adds a map primitive to the flow.
+  """
+  @spec map(t(), atom() | String.t(), callable(), keyword()) :: t()
+  def map(%__MODULE__{} = flow, name, mapper, opts \\ []) do
+    {after_dep, opts} = primitive_opts!(opts, [:inputs, :outputs], :map)
+
+    entry = %{
+      type: :map,
+      name: name,
+      mapper: mapper,
+      inputs: Keyword.get(opts, :inputs),
+      outputs: Keyword.get(opts, :outputs),
+      after: after_dep
+    }
+
+    add_entry(flow, entry)
+  end
+
+  @doc """
+  Adds a reduce primitive to the flow.
+  """
+  @spec reduce(t(), atom() | String.t(), term(), callable(), keyword()) :: t()
+  def reduce(%__MODULE__{} = flow, name, init, reducer, opts \\ []) do
+    {after_dep, opts} = primitive_opts!(opts, [:map, :inputs, :outputs], :reduce)
+
+    entry = %{
+      type: :reduce,
+      name: name,
+      init: init,
+      reducer: reducer,
+      map: Keyword.get(opts, :map),
+      inputs: Keyword.get(opts, :inputs),
+      outputs: Keyword.get(opts, :outputs),
+      after: after_dep
+    }
+
+    add_entry(flow, entry)
+  end
+
+  @doc """
+  Adds an accumulator primitive to the flow.
+  """
+  @spec accumulate(t(), atom() | String.t(), term(), callable(), keyword()) :: t()
+  def accumulate(%__MODULE__{} = flow, name, init, reducer, opts \\ []) do
+    {after_dep, opts} = primitive_opts!(opts, [:inputs, :outputs], :accumulate)
+
+    entry = %{
+      type: :accumulate,
+      name: name,
+      init: init,
+      reducer: reducer,
+      inputs: Keyword.get(opts, :inputs),
+      outputs: Keyword.get(opts, :outputs),
+      after: after_dep
+    }
+
+    add_entry(flow, entry)
   end
 
   @doc """
@@ -213,20 +267,6 @@ defmodule Jido.Flow do
   end
 
   @doc """
-  Adds a native Runic component to the flow.
-
-  This is the advanced escape hatch for Runic primitives such as maps, reduces,
-  accumulators, FSMs, state machines, and custom components.
-  """
-  @spec component(t(), atom() | String.t(), struct(), keyword()) :: t()
-  def component(%__MODULE__{} = flow, name, component, opts \\ []) when is_list(opts) do
-    {after_dep, _opts} = Keyword.pop(opts, :after)
-    validate_component_name_match!(component, name)
-    component = maybe_name_component(component, name)
-    add_entry(flow, :component, name, component, after_dep)
-  end
-
-  @doc """
   Validates that the value is a Jido flow or wraps a Runic workflow as one.
   """
   @spec validate(term()) :: {:ok, t()} | {:error, term()}
@@ -240,7 +280,7 @@ defmodule Jido.Flow do
   @spec components(t() | Workflow.t()) :: map()
   def components(flow_or_workflow) do
     flow_or_workflow
-    |> to_workflow()
+    |> projection_workflow()
     |> Workflow.components()
   end
 
@@ -262,7 +302,7 @@ defmodule Jido.Flow do
   """
   @spec graph(t() | Workflow.t()) :: %{nodes: [map()], edges: [map()]}
   def graph(flow_or_workflow) do
-    workflow = to_workflow(flow_or_workflow)
+    workflow = projection_workflow(flow_or_workflow)
 
     nodes =
       workflow
@@ -277,6 +317,8 @@ defmodule Jido.Flow do
   defp parse_flow!(%__MODULE__{} = flow), do: parse_flow!(Map.from_struct(flow))
 
   defp parse_flow!(attrs) when is_map(attrs) do
+    attrs = normalize_attrs!(attrs)
+
     case Zoi.parse(@schema, attrs) do
       {:ok, flow} ->
         flow
@@ -286,56 +328,170 @@ defmodule Jido.Flow do
     end
   end
 
-  defp add_entry(%__MODULE__{} = flow, type, name, component, after_dep) do
-    ensure_available_name!(flow, name)
-
-    entry = %{
-      type: type,
-      name: name,
-      component: component,
-      after: after_dep
+  defp normalize_attrs!(attrs) do
+    %{
+      name: get_field(attrs, :name, nil),
+      flow:
+        attrs
+        |> get_field(:flow, [])
+        |> Enum.map(&normalize_entry!/1),
+      policies: get_field(attrs, :policies, [])
     }
-
-    parse_flow!(%{flow | flow: flow.flow ++ [entry]})
   end
 
-  defp base_workflow(%__MODULE__{name: name, flow: flow_entries}) do
-    case flow_entries do
-      [%{type: :workflow, component: %Workflow{} = workflow, after: nil} | entries] ->
-        {workflow, entries}
+  defp normalize_entry!(entry) when is_map(entry) do
+    type = entry |> get_field(:type, nil) |> normalize_entry_type()
+    name = get_field(entry, :name, nil)
+    after_dep = get_field(entry, :after, nil)
 
-      entries ->
-        {new_workflow(name), entries}
+    case type do
+      :step ->
+        %{
+          type: :step,
+          name: name,
+          action: get_field(entry, :action, nil),
+          params: normalize_map!(get_field(entry, :params, %{}), :params),
+          context: normalize_map!(get_field(entry, :context, %{}), :context),
+          after: after_dep
+        }
+
+      :map ->
+        %{
+          type: :map,
+          name: name,
+          mapper: get_field(entry, :mapper, nil) |> normalize_callable(1),
+          inputs: get_field(entry, :inputs, nil),
+          outputs: get_field(entry, :outputs, nil),
+          after: after_dep
+        }
+
+      :reduce ->
+        %{
+          type: :reduce,
+          name: name,
+          init: get_field(entry, :init, nil),
+          reducer: get_field(entry, :reducer, nil) |> normalize_callable(2),
+          map: get_field(entry, :map, nil),
+          inputs: get_field(entry, :inputs, nil),
+          outputs: get_field(entry, :outputs, nil),
+          after: after_dep
+        }
+
+      :accumulate ->
+        %{
+          type: :accumulate,
+          name: name,
+          init: get_field(entry, :init, nil),
+          reducer: get_field(entry, :reducer, nil) |> normalize_callable(2),
+          inputs: get_field(entry, :inputs, nil),
+          outputs: get_field(entry, :outputs, nil),
+          after: after_dep
+        }
+
+      :workflow ->
+        %{
+          type: :workflow,
+          name: name,
+          workflow: get_field(entry, :workflow, nil),
+          after: after_dep
+        }
+
+      _ ->
+        %{
+          type: type,
+          name: name,
+          after: after_dep
+        }
     end
   end
 
-  defp new_workflow(nil), do: Workflow.new()
-  defp new_workflow(name), do: Workflow.new(name)
+  defp normalize_entry!(_entry), do: raise(ArgumentError, "flow entries must be maps")
 
-  defp project_entry(
-         %{type: :workflow, component: %Workflow{} = child, after: after_dep},
-         workflow
-       ) do
-    add_component_to_workflow(workflow, child, after_dep)
+  defp normalize_entry_type(type) when type in [:step, :map, :reduce, :accumulate, :workflow],
+    do: type
+
+  defp normalize_entry_type(type) when is_binary(type) do
+    case type do
+      "step" -> :step
+      "map" -> :map
+      "reduce" -> :reduce
+      "accumulate" -> :accumulate
+      "workflow" -> :workflow
+      _ -> type
+    end
   end
 
-  defp project_entry(%{component: component, after: after_dep}, workflow) do
-    add_component_to_workflow(workflow, component, after_dep)
+  defp normalize_entry_type(type), do: type
+
+  defp step_entry(name, action_or_instruction, params, opts) do
+    {context, opts} = Keyword.pop(opts, :context, %{})
+
+    if opts != [] do
+      raise ArgumentError, "unknown flow step options: #{inspect(Keyword.keys(opts))}"
+    end
+
+    params = normalize_map!(params, :params)
+    context = normalize_map!(context, :context)
+    instruction = build_instruction!(action_or_instruction, params, context)
+
+    %{
+      type: :step,
+      name: name || derive_name(instruction.action),
+      action: instruction.action,
+      params: instruction.params,
+      context: instruction.context,
+      after: nil
+    }
   end
 
-  defp add_component_to_workflow(%Workflow{} = workflow, component, nil) do
-    Workflow.add(workflow, component)
+  defp build_instruction!(%Instruction{} = instruction, params, context) do
+    Instruction.new!(%{
+      action: instruction.action,
+      params: Map.merge(normalize_map!(instruction.params || %{}, :params), params),
+      context: Map.merge(normalize_map!(instruction.context || %{}, :context), context)
+    })
   end
 
-  defp add_component_to_workflow(%Workflow{} = workflow, component, after_dep) do
-    Workflow.add(workflow, component, to: after_dep)
+  defp build_instruction!(action, params, context)
+       when is_atom(action) and not is_nil(action) do
+    Instruction.new!(%{action: action, params: params, context: context})
   end
 
-  defp apply_scheduler_policies(%Workflow{} = workflow, []), do: workflow
+  defp build_instruction!(other, _params, _context) do
+    raise ArgumentError,
+          "expected an action module or %Jido.Instruction{}, got: #{inspect(other)}"
+  end
 
-  defp apply_scheduler_policies(%Workflow{} = workflow, policies) do
-    existing_policies = Map.get(workflow, :scheduler_policies, [])
-    Workflow.set_scheduler_policies(workflow, existing_policies ++ policies)
+  defp add_entry(%__MODULE__{} = flow, entry) do
+    ensure_available_name!(flow, entry.name)
+    parse_flow!(%{flow | flow: flow.flow ++ [entry]})
+  end
+
+  defp primitive_opts!(opts, allowed_runic_opts, primitive) when is_list(opts) do
+    if not Keyword.keyword?(opts) do
+      raise ArgumentError, "Flow.#{primitive} options must be a keyword list"
+    end
+
+    {after_dep, runic_opts} = Keyword.pop(opts, :after)
+    primitive_name = "Flow.#{primitive}"
+
+    if Keyword.has_key?(runic_opts, :name) do
+      raise ArgumentError,
+            "#{primitive_name} options must not include :name; pass the name as the second argument"
+    end
+
+    unknown = Keyword.keys(runic_opts) -- allowed_runic_opts
+
+    if unknown != [] do
+      raise ArgumentError,
+            "unknown #{primitive_name} options: #{inspect(unknown)}"
+    end
+
+    {after_dep, runic_opts}
+  end
+
+  defp primitive_opts!(_opts, _allowed_runic_opts, primitive) do
+    raise ArgumentError, "Flow.#{primitive} options must be a keyword list"
   end
 
   defp ensure_available_name!(%__MODULE__{flow: entries}, name) do
@@ -346,24 +502,58 @@ defmodule Jido.Flow do
 
   defp entry_named?(%{name: name}, name), do: true
 
-  defp entry_named?(%{type: :workflow, component: %Workflow{components: components}}, name) do
+  defp entry_named?(%{type: :workflow, workflow: %Workflow{components: components}}, name) do
     Map.has_key?(components, name)
   end
 
   defp entry_named?(_entry, _name), do: false
 
-  defp validate_component_name_match!(%{name: nil}, _name), do: :ok
-  defp validate_component_name_match!(%{name: name}, name), do: :ok
+  defp normalize_callable(nil, _arity), do: nil
+  defp normalize_callable({module, function}, _arity), do: {module, function}
+  defp normalize_callable({:mfa, module, function}, _arity), do: {:mfa, module, function}
 
-  defp validate_component_name_match!(%{name: component_name}, flow_name) do
-    raise ArgumentError,
-          "component name #{inspect(component_name)} does not match flow name #{inspect(flow_name)}"
+  defp normalize_callable(fun, arity) when is_function(fun, arity) do
+    case external_function(fun, arity) do
+      {:ok, module, function} -> {module, function}
+      :error -> fun
+    end
   end
 
-  defp validate_component_name_match!(_component, _name), do: :ok
+  defp normalize_callable(other, _arity), do: other
 
-  defp maybe_name_component(%{name: nil} = component, name), do: %{component | name: name}
-  defp maybe_name_component(component, _name), do: component
+  defp external_function(fun, arity) do
+    with {:type, :external} <- Function.info(fun, :type),
+         {:module, module} <- Function.info(fun, :module),
+         {:name, function} <- Function.info(fun, :name),
+         {:arity, ^arity} <- Function.info(fun, :arity) do
+      {:ok, module, function}
+    else
+      _ -> :error
+    end
+  end
+
+  defp normalize_map!(nil, _field), do: %{}
+  defp normalize_map!(value, _field) when is_map(value), do: value
+
+  defp normalize_map!(value, _field) when is_list(value) do
+    if Keyword.keyword?(value) do
+      Map.new(value)
+    else
+      raise ArgumentError, "expected a map or keyword list, got: #{inspect(value)}"
+    end
+  end
+
+  defp normalize_map!(value, field) do
+    raise ArgumentError, "expected #{field} to be a map or keyword list, got: #{inspect(value)}"
+  end
+
+  defp derive_name(action) do
+    action
+    |> Module.split()
+    |> List.last()
+    |> Macro.underscore()
+    |> String.to_atom()
+  end
 
   defp normalize_scheduler_policy!(%Runic.Workflow.SchedulerPolicy{} = policy),
     do: Map.from_struct(policy)
@@ -449,4 +639,11 @@ defmodule Jido.Flow do
   defp component_id(%{name: name}) when not is_nil(name), do: name
   defp component_id(%{hash: hash}) when not is_nil(hash), do: hash
   defp component_id(component), do: inspect(component)
+
+  defp projection_workflow(%__MODULE__{} = flow), do: to_workflow(flow)
+  defp projection_workflow(%Workflow{} = workflow), do: workflow
+
+  defp get_field(map, key, default) do
+    Map.get(map, key, Map.get(map, Atom.to_string(key), default))
+  end
 end

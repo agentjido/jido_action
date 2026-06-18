@@ -198,7 +198,7 @@ defmodule JidoTest.FlowStepTest do
   end
 
   test "projects successful three-tuple directives into Exec result" do
-    flow = Flow.single(WithDirective, %{value: 9}, name: :directive)
+    flow = Flow.from_action(WithDirective, %{value: 9}, name: :directive)
 
     assert {:ok, result} = Exec.run(flow, %{})
     assert result.results.directive == [%{value: 9}]
@@ -210,7 +210,7 @@ defmodule JidoTest.FlowStepTest do
   end
 
   test "projects error three-tuple directives into Exec result" do
-    flow = Flow.single(ErrorWithDirective, %{}, name: :error_directive)
+    flow = Flow.from_action(ErrorWithDirective, %{}, name: :error_directive)
 
     assert {:error, result} =
              silence_logger(fn ->

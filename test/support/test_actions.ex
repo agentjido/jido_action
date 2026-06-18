@@ -4,6 +4,14 @@ defmodule JidoTest.TestActions do
   alias Jido.Action
   alias Jido.Action.Error
 
+  defmodule FlowFunctions do
+    @moduledoc false
+
+    def identity(value), do: value
+    def double(value), do: value * 2
+    def sum(value, acc), do: value + acc
+  end
+
   defmodule BasicAction do
     @moduledoc false
     use Action,
