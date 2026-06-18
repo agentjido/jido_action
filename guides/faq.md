@@ -10,7 +10,7 @@ Action `schema` and `output_schema` accept Zoi schemas. Empty validation can be 
 
 ## Should I Call `run/2` Directly?
 
-Direct calls are fine for narrow unit tests. Use `Jido.Exec.run/4` for production paths and integration tests that need validation, retries, timeout handling, telemetry, output validation, or crash normalization.
+Yes, for one action. Validate params and output explicitly when that boundary matters. Use `Jido.Flow` plus `Jido.Exec.run/3` when you need Runic runtime policy.
 
 ## How Do I Add Optional Params?
 
@@ -32,11 +32,7 @@ No. Unknown keys are preserved and merged back into the validated map. Only decl
 
 ## How Do Retries Work?
 
-`Jido.Exec` retries retryable failures while `:max_retries` allows it. Validation and configuration errors are not retryable. Timeout and execution failures usually are retryable.
-
-## How Do I Preserve Request Context In Async Execution?
-
-Pass needed data in the `context` map. For process-local state such as tracing context, configure modules that implement `Jido.Exec.ContextPropagator`.
+Retries are Runic scheduler policy. Use `Jido.Flow.policy/3` for named flow components or pass runtime `:scheduler_policies` to `Jido.Exec.run/3`.
 
 ## Where Should Higher-Level Orchestration Live?
 

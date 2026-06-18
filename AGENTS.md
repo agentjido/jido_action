@@ -1,46 +1,51 @@
-# AGENTS.md - Jido.Action Guide
+# AGENTS.md
 
-## Intent
-Build composable, validated actions that can run standalone or through Jido execution policies.
+## Branch Context
 
-## Runtime Baseline
-- Elixir `~> 1.18`
-- OTP `27+` (release QA baseline)
+This branch is an exploratory spike for Jido Action v3: a heavily curated,
+trimmed down, focused rebuild of `Jido.Action`, `Jido.Instruction`, and
+`Jido.Exec` on top of Runic.
 
-## Commands
-- `mix test` (default alias excludes `:flaky`)
-- `mix test --include flaky` (full suite)
-- `mix q` or `mix quality` (`format --check-formatted`, `compile --warnings-as-errors`, `credo`, `dialyzer`)
-- `mix coveralls.html` (coverage report)
-- `mix docs` (local docs)
+The branch also introduces `Jido.Flow`, a Runic-backed data structure for
+capturing action composition.
 
-## Architecture Snapshot
-- `Jido.Action`: action behavior/macro and metadata contract
-- `Jido.Exec`: sync/async execution, retries, timeout, cancellation
-- `Jido.Instruction`: normalized action envelope (`action`, `params`, `context`)
-- `Jido.Plan`: DAG workflow planning/execution
-- `Jido.Action.Tool` and `Jido.Tools.*`: LLM tool bridge and built-in actions
-- Instance isolation via `jido:` option and instance-scoped supervisors
+## Working Mode
 
-## Standards
-- Use **Zoi-first** schemas for new actions; keep NimbleOptions for compatibility paths only
-- Keep `run/2` return contracts strict: `{:ok, result}` or `{:error, reason}`
-- Route production execution through `Jido.Exec` when retry/timeout/telemetry policy matters
-- Keep side effects explicit and isolated
-- Add concise `@moduledoc`, public `@doc`, and `@spec` for public APIs
+- Use TDD exclusively for analysis and iteration.
+- Establish the current test and coverage baseline before changing behavior.
+- Keep meaningful test coverage for touched modules.
+- Prefer focused tests around the module being changed, then run the broader
+  suite when the change can affect shared behavior.
+- This is a spike. Ignore release hygiene unless explicitly requested.
+- Do not spend time on docs, changelog, package metadata, Dialyzer, Hex release
+  tasks, or similar release preparation unless explicitly requested.
 
-## Testing and QA
-- Test schema validation, success path, and error path independently
-- For async behavior, assert task/mailbox cleanup semantics instead of timing guesses
-- Avoid log-only assertions unless log output is part of the contract
+## Runtime Targets
 
-## Release Hygiene
-- Keep semver ranges stable (`~> 2.0` for Jido ecosystem peers)
-- Use Conventional Commits
-- Do not modify `CHANGELOG.md`; release notes are generated from Git history during release, so keep changes focused on proper Conventional Commits.
+- Target OTP 29.
+- Target Elixir 1.20.
 
-## References
-- `README.md`
-- `usage-rules.md`
-- `guides/`
-- https://hexdocs.pm/jido_action
+## Dependency Policy
+
+Keep production dependencies focused. The only intended direct production
+dependencies are:
+
+- `jason`
+- `telemetry`
+- `zoi`
+- `runic`
+- `splode`
+
+Do not add direct production dependencies outside this set without an explicit
+request. Dev and test dependencies should remain pragmatic and support the TDD
+workflow.
+
+## Design Direction
+
+- Keep the rebuilt surface area slim and explicit.
+- Favor Runic-backed data flow primitives over legacy execution abstractions.
+- Treat `Jido.Instruction` as a small action call frame, not a workflow or
+  execution policy container.
+- Treat `Jido.Flow` as the composition structure for action graphs and scripts.
+- Avoid preserving compatibility shims unless they are intentionally part of the
+  v3 target behavior.

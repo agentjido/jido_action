@@ -72,16 +72,16 @@ defmodule Jido.Action do
         end
       end
 
-  For testing Actions in a more complete runtime environment, including signal routing, state
-  management, and error handling, use `Jido.Exec`. This provides a full test harness for
-  validating Action behavior within s:
+  `Jido.Exec` is reserved for Runic-backed flow execution. Direct action calls
+  stay explicit:
 
-      test "weather action in " do
-        {:ok, result} = Exec.run(WeatherAction, %{location: "Seattle"})
+      test "weather action validates explicitly" do
+        {:ok, params} = WeatherAction.validate_params(%{location: "Seattle"})
+        {:ok, result} = WeatherAction.run(params, %{})
+        {:ok, result} = WeatherAction.validate_output(result)
+
         assert result.weather_data.temperature > 0
       end
-
-  See `Jido.Exec` documentation for more details on action-based testing.
 
   ## Parameter and Output Validation
 
@@ -404,11 +404,11 @@ defmodule Jido.Action do
   defp nested_exec_calls(body, env) do
     {_body, calls} =
       Macro.prewalk(body, [], fn
-        {{:., dot_meta, [target_ast, function]}, call_meta, call_args} = node, acc
-        when function in [:run, :run_async] and is_list(call_args) ->
+        {{:., dot_meta, [target_ast, :run]}, call_meta, call_args} = node, acc
+        when is_list(call_args) ->
           if expands_to_exec?(target_ast, env) do
             line = Keyword.get(call_meta, :line) || Keyword.get(dot_meta, :line) || env.line
-            {node, [%{function: function, line: line} | acc]}
+            {node, [%{line: line} | acc]}
           else
             {node, acc}
           end
@@ -420,17 +420,13 @@ defmodule Jido.Action do
     Enum.reverse(calls)
   end
 
-  defp expands_to_exec?(target_ast, env) do
-    Macro.expand(target_ast, env) == Jido.Exec
-  rescue
-    _ -> false
-  end
+  defp expands_to_exec?(target_ast, env), do: Macro.expand(target_ast, env) == Jido.Exec
 
-  defp warn_nested_exec(env, %{function: function, line: line}) do
+  defp warn_nested_exec(env, %{line: line}) do
     message = """
     nested Jido action execution inside #{inspect(env.module)}.run/2
 
-    Calling Jido.Exec.#{function}/#{exec_arity_label(function)} inside an action makes composition opaque.
+    Calling Jido.Exec.run inside an action makes composition opaque.
     Keep actions as leaf nodes and move composition to Jido.Flow/Jido.Exec.
 
     Set @jido_allow_nested_exec true before run/2 if this action is intentionally an orchestrator.
@@ -438,9 +434,6 @@ defmodule Jido.Action do
 
     IO.warn(message, [{env.module, :run, 2, [file: env.file, line: line]}])
   end
-
-  defp exec_arity_label(:run), do: "4"
-  defp exec_arity_label(:run_async), do: "4"
 
   @doc """
   Executes the Action with the given parameters and context.
@@ -519,18 +512,8 @@ defmodule Jido.Action do
     Map.split(data, schema_keys(schema))
   end
 
-  defp schema_keys([]), do: []
-
-  defp schema_keys(%{__struct__: Zoi.Types.Map, fields: fields}) when is_map(fields) do
-    Map.keys(fields)
-  end
-
   defp schema_keys(%{__struct__: Zoi.Types.Map, fields: fields}) when is_list(fields) do
     Keyword.keys(fields)
-  end
-
-  defp schema_keys(%{__struct__: Zoi.Types.Struct, fields: fields}) when is_map(fields) do
-    Map.keys(fields)
   end
 
   defp schema_keys(%{__struct__: Zoi.Types.Struct, fields: fields}) when is_list(fields) do
@@ -555,11 +538,5 @@ defmodule Jido.Action do
     }
   end
 
-  defp format_zoi_error(error), do: %{message: inspect(error)}
-
-  defp zoi_schema?(value) do
-    is_struct(value) && Zoi.Type.impl_for(value) != nil
-  rescue
-    _ -> false
-  end
+  defp zoi_schema?(value), do: is_struct(value) && Zoi.Type.impl_for(value) != nil
 end

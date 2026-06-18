@@ -26,10 +26,8 @@ defmodule JidoAction.MixProject do
       homepage_url: @source_url,
       package: package(),
       docs: docs(),
-
-      # Coverage
       test_coverage: [
-        tool: ExCoveralls
+        summary: [threshold: 0]
       ],
 
       # Dialyzer
@@ -37,20 +35,6 @@ defmodule JidoAction.MixProject do
         plt_local_path: "priv/plts/project.plt",
         plt_core_path: "priv/plts/core.plt",
         plt_add_apps: [:mix]
-      ]
-    ]
-  end
-
-  def cli do
-    [
-      preferred_envs: [
-        coveralls: :test,
-        "coveralls.github": :test,
-        "coveralls.lcov": :test,
-        "coveralls.detail": :test,
-        "coveralls.post": :test,
-        "coveralls.html": :test,
-        "coveralls.cobertura": :test
       ]
     ]
   end
@@ -83,7 +67,6 @@ defmodule JidoAction.MixProject do
         "Core Concepts": [
           "guides/actions-guide.md",
           "guides/schemas-validation.md",
-          "guides/execution-engine.md",
           "guides/flows-runtime.md",
           "guides/error-handling.md"
         ],
@@ -107,7 +90,6 @@ defmodule JidoAction.MixProject do
         # Core Concepts
         {"guides/actions-guide.md", title: "Actions"},
         {"guides/schemas-validation.md", title: "Schemas & Validation"},
-        {"guides/execution-engine.md", title: "Execution Engine"},
         {"guides/flows-runtime.md", title: "Flows & Runtime"},
         {"guides/error-handling.md", title: "Error Handling"},
         # How-To Guides
@@ -134,16 +116,9 @@ defmodule JidoAction.MixProject do
           Jido.Instruction,
           Jido.Action.Util
         ],
-        "Execution Engine": [
+        "Flow Runtime": [
           Jido.Exec,
-          Jido.Exec.Async,
-          Jido.Exec.Closure,
-          Jido.Exec.Result,
-          Jido.Exec.Runner,
-          Jido.Exec.Retry,
-          Jido.Exec.Supervisors,
-          Jido.Exec.Telemetry,
-          Jido.Exec.Validator
+          Jido.Exec.Result
         ],
         Examples: [
           Jido.Examples.FlowExample,
@@ -196,13 +171,12 @@ defmodule JidoAction.MixProject do
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:mix_audit, "~> 2.0", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
-      {:excoveralls, "~> 0.18.3", only: [:dev, :test]},
       {:mix_test_watch, "~> 1.0", only: [:dev, :test], runtime: false},
       {:mimic, "~> 2.0", only: :test},
       {:stream_data, "~> 1.0", only: [:dev, :test]},
 
       # Code generation
-      {:igniter, "~> 0.7", optional: true}
+      {:igniter, "~> 0.7", only: [:dev, :test], runtime: false, optional: true}
     ]
   end
 

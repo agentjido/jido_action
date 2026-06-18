@@ -47,17 +47,14 @@ defmodule MyApp.Actions.RegisterUser do
 end
 ```
 
-Run it with explicit policy:
+Run it directly:
 
 ```elixir
-Jido.Exec.run(
-  MyApp.Actions.RegisterUser,
-  %{email: "ADA@example.com", display_name: "Ada"},
-  %{repo: MyApp.Repo, mailer: MyApp.Mailer},
-  timeout: 2_000,
-  max_retries: 0
-)
+{:ok, params} =
+  MyApp.Actions.RegisterUser.validate_params(%{email: "ADA@example.com", display_name: "Ada"})
+
+{:ok, result} =
+  MyApp.Actions.RegisterUser.run(params, %{repo: MyApp.Repo, mailer: MyApp.Mailer})
 ```
 
-Because registration writes state and sends email, retries are disabled here. If your action is idempotent, set a retry policy that matches the operation.
-
+When this action is used inside a flow, put retry and timeout behavior in the step's Runic scheduler policy.

@@ -229,33 +229,6 @@ defmodule JidoTest.TestActions do
     end
   end
 
-  defmodule TaskAction do
-    @moduledoc false
-    use Action,
-      name: "task_action",
-      description: "Runs multiple concurrent tasks"
-
-    def run(%{count: count, delay: delay, link_to_group?: _link_to_group?}, _context) do
-      tasks =
-        for _ <- 1..count do
-          Task.Supervisor.async_nolink(Jido.Action.TaskSupervisor, fn ->
-            Process.sleep(delay)
-            {:ok, %{result: "Task completed"}}
-          end)
-        end
-
-      try do
-        results = Task.await_many(tasks, delay * 2)
-        {:ok, %{results: results}}
-      catch
-        :exit, _ ->
-          {:error, "Tasks failed to complete"}
-      end
-    end
-
-    def run(_, context), do: run(%{count: 1, delay: 250, link_to_group?: false}, context)
-  end
-
   defmodule NakedTaskAction do
     @moduledoc false
     use Action,

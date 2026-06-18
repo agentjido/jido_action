@@ -1,23 +1,17 @@
-defmodule JidoTest.Exec.ActionTest do
+defmodule Jido.ActionTest do
   use JidoTest.ActionCase, async: true
   use ExUnitProperties
 
   alias Jido.Action
   alias JidoTest.TestActions.Add
-  alias JidoTest.TestActions.ConcurrentAction
   alias JidoTest.TestActions.Divide
   alias JidoTest.TestActions.ErrorAction
   alias JidoTest.TestActions.FullAction
-  alias JidoTest.TestActions.LongRunningAction
   alias JidoTest.TestActions.Multiply
   alias JidoTest.TestActions.NoOutputSchemaAction
   alias JidoTest.TestActions.NoSchema
   alias JidoTest.TestActions.OutputSchemaAction
-  alias JidoTest.TestActions.RateLimitedAction
-  alias JidoTest.TestActions.StreamingAction
   alias JidoTest.TestActions.Subtract
-
-  @moduletag :capture_log
 
   describe "action creation and metadata" do
     test "creates a valid action with retained metadata" do
@@ -31,6 +25,85 @@ defmodule JidoTest.Exec.ActionTest do
       assert NoSchema.name() == "add_two"
       assert NoSchema.description() == "Adds 2 to the input value"
       assert NoSchema.schema() == []
+    end
+
+    test "runtime compiled action exposes metadata and default run error" do
+      module = unique_module("RuntimeDefaultAction")
+
+      create_module(
+        module,
+        quote do
+          use Jido.Action,
+            name: "runtime_default_action",
+            description: "Runtime default action"
+        end
+      )
+
+      assert module.name() == "runtime_default_action"
+      assert module.description() == "Runtime default action"
+      assert module.schema() == []
+      assert module.output_schema() == []
+
+      assert {:error, %Jido.Action.Error.ConfigurationError{message: message}} =
+               module.run(%{}, %{})
+
+      assert message =~ "run/2 must be implemented"
+    end
+
+    test "runtime compiled action supports non-literal options" do
+      module = unique_module("RuntimeDynamicOptionsAction")
+      schema = Zoi.object(%{value: Zoi.integer()})
+      output_schema = Zoi.object(%{doubled: Zoi.integer()})
+
+      create_module(
+        module,
+        quote do
+          opts = [
+            name: "runtime_dynamic_options_action",
+            schema: unquote(Macro.escape(schema)),
+            output_schema: unquote(Macro.escape(output_schema))
+          ]
+
+          use Jido.Action, opts
+
+          @impl true
+          def run(%{value: value}, _context), do: {:ok, %{doubled: value * 2}}
+        end
+      )
+
+      assert module.name() == "runtime_dynamic_options_action"
+
+      assert {:ok, %{value: 3, extra: "kept"}} =
+               module.validate_params(%{value: 3, extra: "kept"})
+
+      assert {:ok, %{doubled: 6, extra: "kept"}} =
+               module.validate_output(%{doubled: 6, extra: "kept"})
+
+      assert {:ok, %{doubled: 6}} = module.run(%{value: 3}, %{})
+    end
+
+    test "invalid action configuration raises at compile time" do
+      module = unique_module("InvalidActionConfig")
+
+      assert_raise CompileError, ~r/Action configuration validation failed/, fn ->
+        Code.compile_string("""
+        defmodule #{inspect(module)} do
+          use Jido.Action,
+            name: "invalid action name"
+        end
+        """)
+      end
+    end
+  end
+
+  describe "configuration schema validation" do
+    test "accepts empty schema sentinel and Zoi schemas" do
+      assert :ok = Action.validate_config_schema([])
+      assert :ok = Action.validate_config_schema(Zoi.object(%{value: Zoi.integer()}))
+    end
+
+    test "rejects non-Zoi schemas" do
+      assert {:error, "must be a Zoi schema"} = Action.validate_config_schema(%{})
     end
   end
 
@@ -48,6 +121,75 @@ defmodule JidoTest.Exec.ActionTest do
                FullAction.validate_params(%{a: "not an integer", b: 2})
 
       assert message =~ "expected integer"
+    end
+
+    test "preserves unknown parameters after validation" do
+      assert {:ok, params} = FullAction.validate_params(%{a: 1, b: 2, trace_id: "trace-1"})
+      assert params == %{a: 1, b: 2, trace_id: "trace-1"}
+    end
+
+    test "supports struct schemas when validating params" do
+      params_module = unique_module("StructParams")
+      action_module = unique_module("StructSchemaAction")
+
+      create_module(
+        params_module,
+        quote do
+          defstruct [:value]
+        end
+      )
+
+      schema = Zoi.struct(params_module, [value: Zoi.integer()], coerce: true)
+
+      create_module(
+        action_module,
+        quote do
+          use Jido.Action,
+            name: "struct_schema_action",
+            schema: unquote(Macro.escape(schema))
+
+          @impl true
+          def run(params, _context), do: {:ok, params}
+        end
+      )
+
+      assert {:ok, %{value: 42, extra: "kept"}} =
+               action_module.validate_params(%{value: 42, extra: "kept"})
+    end
+
+    test "returns validation error for unsupported schema types" do
+      module = unique_module("UnsupportedSchemaAction")
+
+      create_module(
+        module,
+        quote do
+          def schema, do: :not_a_zoi_schema
+        end
+      )
+
+      assert {:error, %Jido.Action.Error.InvalidInputError{message: message, details: details}} =
+               Action.validate_params_for(%{value: 1}, module)
+
+      assert message == "Unsupported schema type"
+      assert details.context == "Action"
+      assert details.module == module
+    end
+
+    test "returns validation error for non-object Zoi schemas" do
+      module = unique_module("ScalarSchemaAction")
+
+      create_module(
+        module,
+        quote do
+          def schema, do: Zoi.integer()
+        end
+      )
+
+      assert {:error, %Jido.Action.Error.InvalidInputError{message: message, details: details}} =
+               Action.validate_params_for(%{value: 1}, module)
+
+      assert message =~ "expected integer"
+      assert [%{path: [], code: :invalid_type}] = details.errors
     end
   end
 
@@ -88,6 +230,12 @@ defmodule JidoTest.Exec.ActionTest do
       assert is_exception(error)
       assert Exception.message(error) =~ "Actions should not be defined at runtime"
     end
+
+    test "new/1 returns an error tuple" do
+      assert {:error, error} = Action.new(%{name: "runtime"})
+      assert is_exception(error)
+      assert Exception.message(error) =~ "Actions should not be defined at runtime"
+    end
   end
 
   describe "property-based tests" do
@@ -102,34 +250,6 @@ defmodule JidoTest.Exec.ActionTest do
         assert result.b == b
         assert result.result == a + b
       end
-    end
-  end
-
-  describe "advanced actions" do
-    test "long running action" do
-      assert {:ok, "Exec completed"} = LongRunningAction.run(%{}, %{})
-    end
-
-    test "rate limited action" do
-      Enum.each(1..5, fn _ ->
-        assert {:ok, _} = RateLimitedAction.run(%{action: "test"}, %{})
-      end)
-
-      assert {:error, "Rate limit exceeded. Please try again later."} =
-               RateLimitedAction.run(%{action: "test"}, %{})
-    end
-
-    test "streaming action" do
-      assert {:ok, %{stream: stream}} =
-               StreamingAction.run(%{chunk_size: 2, total_items: 10}, %{})
-
-      assert Enum.to_list(stream) == [3, 7, 11, 15, 19]
-    end
-
-    test "concurrent action" do
-      assert {:ok, %{results: results}} = ConcurrentAction.run(%{inputs: [1, 2, 3, 4, 5]}, %{})
-      assert length(results) == 5
-      assert Enum.all?(results, fn r -> r in [2, 4, 6, 8, 10] end)
     end
   end
 

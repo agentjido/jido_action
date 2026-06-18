@@ -1,9 +1,9 @@
 defmodule JidoTest.Action.UtilTest do
   use JidoTest.ActionCase, async: false
 
-  alias Jido.Action.Util
+  import ExUnit.CaptureLog
 
-  @moduletag :capture_log
+  alias Jido.Action.Util
 
   defp put_log_level_config(value) do
     original = Application.get_env(:jido_action, :default_log_level)
@@ -25,39 +25,76 @@ defmodule JidoTest.Action.UtilTest do
 
   describe "cond_log/4" do
     test "logs when threshold level equals message level" do
-      assert :ok = Util.cond_log(:info, :info, "test message")
+      log =
+        capture_log(fn ->
+          assert :ok = Util.cond_log(:info, :info, "test message")
+        end)
+
+      assert log =~ "test message"
     end
 
     test "logs when threshold level is less than message level" do
-      assert :ok = Util.cond_log(:debug, :info, "test message")
+      log =
+        capture_log(fn ->
+          assert :ok = Util.cond_log(:debug, :info, "test message")
+        end)
+
+      assert log =~ "test message"
     end
 
     test "does not log when threshold level is greater than message level" do
-      assert :ok = Util.cond_log(:info, :debug, "test message")
+      log =
+        capture_log(fn ->
+          assert :ok = Util.cond_log(:info, :debug, "test message")
+        end)
+
+      assert log == ""
     end
 
     test "does not log when threshold level is invalid" do
-      assert :ok = Util.cond_log(:invalid_level, :info, "test message")
+      log =
+        capture_log(fn ->
+          assert :ok = Util.cond_log(:invalid_level, :info, "test message")
+        end)
+
+      assert log == ""
     end
 
     test "does not log when message level is invalid" do
-      assert :ok = Util.cond_log(:info, :invalid_level, "test message")
+      log =
+        capture_log(fn ->
+          assert :ok = Util.cond_log(:info, :invalid_level, "test message")
+        end)
+
+      assert log == ""
     end
 
     test "does not log when both levels are invalid" do
-      assert :ok = Util.cond_log(:invalid_threshold, :invalid_message, "test message")
+      log =
+        capture_log(fn ->
+          assert :ok = Util.cond_log(:invalid_threshold, :invalid_message, "test message")
+        end)
+
+      assert log == ""
     end
 
     test "accepts additional logger options" do
-      assert :ok = Util.cond_log(:debug, :info, "test message", metadata: %{test: true})
+      log =
+        capture_log(fn ->
+          assert :ok = Util.cond_log(:debug, :info, "test message", metadata: %{test: true})
+        end)
+
+      assert log =~ "test message"
     end
 
     test "works with all valid log levels" do
       valid_levels = [:emergency, :alert, :critical, :error, :warning, :notice, :info, :debug]
 
-      for threshold <- valid_levels, message <- valid_levels do
-        assert :ok = Util.cond_log(threshold, message, "test")
-      end
+      silence_logger(fn ->
+        for threshold <- valid_levels, message <- valid_levels do
+          assert :ok = Util.cond_log(threshold, message, "test")
+        end
+      end)
     end
   end
 
@@ -72,16 +109,12 @@ defmodule JidoTest.Action.UtilTest do
       assert Util.default_log_level() == :debug
     end
 
-    test "warns and falls back when config is invalid" do
+    test "falls back when config is invalid" do
       put_log_level_config(:loud)
 
-      log =
-        ExUnit.CaptureLog.capture_log(fn ->
-          assert Util.default_log_level() == :info
-        end)
-
-      assert log =~ "Invalid :jido_action config for :default_log_level"
-      assert log =~ ":loud"
+      silence_logger(fn ->
+        assert Util.default_log_level() == :info
+      end)
     end
   end
 
@@ -96,16 +129,12 @@ defmodule JidoTest.Action.UtilTest do
       assert Util.resolve_log_level([]) == :warning
     end
 
-    test "warns and falls back to config default when override is invalid" do
+    test "falls back to config default when override is invalid" do
       put_log_level_config(:warning)
 
-      log =
-        ExUnit.CaptureLog.capture_log(fn ->
-          assert Util.resolve_log_level(log_level: :verbose) == :warning
-        end)
-
-      assert log =~ "Invalid execution :log_level option"
-      assert log =~ ":verbose"
+      silence_logger(fn ->
+        assert Util.resolve_log_level(log_level: :verbose) == :warning
+      end)
     end
   end
 

@@ -9,7 +9,7 @@ defmodule Jido.Flow.Step do
   scheduler.
   """
 
-  alias Jido.Exec.Validator
+  alias Jido.Action.Error
   alias Jido.Instruction
 
   @schema Zoi.struct(
@@ -28,9 +28,6 @@ defmodule Jido.Flow.Step do
                 |> Zoi.refine({Instruction, :validate_action_module, []}),
               params: Zoi.map(description: "Static action parameters"),
               context: Zoi.map(description: "Static action context"),
-              exec_opts:
-                Zoi.keyword(Zoi.any(), description: "Execution options")
-                |> Zoi.default([]),
               inputs:
                 Zoi.keyword(Zoi.any(), description: "Runic input ports")
                 |> Zoi.default([]),
@@ -63,9 +60,6 @@ defmodule Jido.Flow.Step do
   - `:name` - step name. Defaults to the action module's last segment.
   - `:context` - static action context. Runtime context can still be supplied by
     `Jido.Exec`.
-  - `:exec_opts` - options used for the one-shot action invocation and Runic
-    scheduler policy derivation.
-  - any remaining options are also treated as execution options.
   """
   @spec new(module() | Instruction.t(), map() | keyword(), keyword()) :: t()
   def new(action_or_instruction, params \\ %{}, opts \\ []) when is_list(opts) do
@@ -73,11 +67,13 @@ defmodule Jido.Flow.Step do
 
     {name, opts} = Keyword.pop(opts, :name)
     {context, opts} = Keyword.pop(opts, :context, %{})
-    {explicit_exec_opts, opts} = Keyword.pop(opts, :exec_opts, [])
+
+    if opts != [] do
+      raise ArgumentError, "unknown flow step options: #{inspect(Keyword.keys(opts))}"
+    end
 
     context = normalize_map!(context, :context)
-    exec_opts = Keyword.merge(opts, normalize_opts!(explicit_exec_opts, :exec_opts))
-    instruction = build_instruction!(action_or_instruction, params, context, exec_opts)
+    instruction = build_instruction!(action_or_instruction, params, context)
     validate_action!(instruction.action)
     name = name || derive_name(instruction.action)
 
@@ -88,7 +84,6 @@ defmodule Jido.Flow.Step do
       action: instruction.action,
       params: instruction.params,
       context: instruction.context,
-      exec_opts: instruction.opts,
       inputs: derive_inputs(instruction.action),
       outputs: derive_outputs(instruction.action)
     }
@@ -105,44 +100,76 @@ defmodule Jido.Flow.Step do
     end
   end
 
-  defp build_instruction!(%Instruction{} = instruction, params, context, exec_opts) do
+  defp build_instruction!(%Instruction{} = instruction, params, context) do
     Instruction.new!(%{
       id: instruction.id,
       action: instruction.action,
       params: Map.merge(normalize_map!(instruction.params || %{}, :params), params),
-      context: Map.merge(normalize_map!(instruction.context || %{}, :context), context),
-      opts: Keyword.merge(normalize_opts!(instruction.opts || [], :opts), exec_opts)
+      context: Map.merge(normalize_map!(instruction.context || %{}, :context), context)
     })
   end
 
-  defp build_instruction!(action, params, context, exec_opts)
+  defp build_instruction!(action, params, context)
        when is_atom(action) and not is_nil(action) do
     Instruction.new!(%{
       action: action,
       params: params,
-      context: context,
-      opts: exec_opts
+      context: context
     })
   end
 
-  defp build_instruction!(other, _params, _context, _exec_opts) do
+  defp build_instruction!(other, _params, _context) do
     raise ArgumentError,
           "expected an action module or %Jido.Instruction{}, got: #{inspect(other)}"
   end
 
   defp validate_action!(action) do
-    with :ok <- Validator.validate_action(action),
-         true <- function_exported?(action, :validate_params, 1),
-         true <- function_exported?(action, :validate_output, 1) do
+    with :ok <- validate_action(action) do
       :ok
     else
       {:error, error} ->
         raise ArgumentError, Exception.message(error)
-
-      false ->
-        raise ArgumentError,
-              "Module #{inspect(action)} is not a valid Jido action: missing validation functions"
     end
+  end
+
+  @doc false
+  @spec validate_action(term()) :: :ok | {:error, Exception.t()}
+  def validate_action(action) when is_atom(action) and not is_nil(action) do
+    case Code.ensure_loaded(action) do
+      {:module, _module} ->
+        cond do
+          not function_exported?(action, :run, 2) ->
+            invalid_action(action, "missing run/2")
+
+          not function_exported?(action, :validate_params, 1) ->
+            invalid_action(action, "missing validate_params/1")
+
+          not function_exported?(action, :validate_output, 1) ->
+            invalid_action(action, "missing validate_output/1")
+
+          true ->
+            :ok
+        end
+
+      {:error, reason} ->
+        {:error,
+         Error.validation_error("action module could not be loaded", %{
+           action: action,
+           reason: reason
+         })}
+    end
+  end
+
+  def validate_action(action) do
+    {:error, Error.validation_error("expected an action module, got: #{inspect(action)}")}
+  end
+
+  defp invalid_action(action, reason) do
+    {:error,
+     Error.validation_error("module is not a valid Jido action", %{
+       action: action,
+       reason: reason
+     })}
   end
 
   defp derive_name(action) do
@@ -159,8 +186,7 @@ defmodule Jido.Flow.Step do
       name,
       instruction.action,
       instruction.params,
-      instruction.context,
-      instruction.opts
+      instruction.context
     })
   end
 
@@ -244,26 +270,17 @@ defmodule Jido.Flow.Step do
   defp normalize_map!(value, field) do
     raise ArgumentError, "expected #{field} to be a map or keyword list, got: #{inspect(value)}"
   end
-
-  defp normalize_opts!(nil, _field), do: []
-
-  defp normalize_opts!(value, _field) when is_list(value) do
-    if Keyword.keyword?(value) do
-      value
-    else
-      raise ArgumentError, "expected a keyword list, got: #{inspect(value)}"
-    end
-  end
-
-  defp normalize_opts!(value, field) do
-    raise ArgumentError, "expected #{field} to be a keyword list, got: #{inspect(value)}"
-  end
 end
 
 defimpl Runic.Workflow.Invokable, for: Jido.Flow.Step do
+  alias Jido.Action.Error
   alias Runic.Workflow
   alias Runic.Workflow.Events.{ActivationConsumed, FactProduced}
   alias Runic.Workflow.{CausalContext, Fact, Runnable}
+
+  @directive_meta_key :jido_directives
+  @directive_step_meta_key :jido_step
+  @directive_status_meta_key :jido_status
 
   def match_or_execute(_step), do: :execute
 
@@ -292,23 +309,112 @@ defimpl Runic.Workflow.Invokable, for: Jido.Flow.Step do
 
     context = Map.merge(step.context, run_context(runnable))
 
-    case Jido.Exec.invoke_action_once(step.action, params, context, step.exec_opts) do
+    case invoke_once(step.action, params, context) do
       {:ok, result} ->
-        complete(runnable, step, fact, result)
+        complete(runnable, step, fact, result, nil)
 
-      {:ok, result, extra} ->
-        complete(runnable, step, fact, %{result: result, extra: extra})
+      {:ok, result, directives} ->
+        complete(runnable, step, fact, result, directives)
 
       {:error, reason} ->
         Runnable.fail(runnable, reason)
 
-      {:error, reason, extra} ->
-        Runnable.fail(runnable, {reason, extra})
+      {:error, reason, directives} ->
+        Runnable.fail(runnable, with_directives(reason, step, :error, directives))
     end
   end
 
-  defp complete(%Runnable{} = runnable, step, %Fact{} = input_fact, value) do
-    result_fact = Fact.new(value: value, ancestry: {step.hash, input_fact.hash})
+  defp invoke_once(action, params, context) do
+    with :ok <- Jido.Flow.Step.validate_action(action),
+         {:ok, params} <- validate_params(action, params) do
+      action
+      |> apply(:run, [params, context])
+      |> normalize_result(action)
+    end
+  rescue
+    error ->
+      {:error,
+       Error.execution_error("action raised during invocation", %{
+         action: action,
+         reason: error,
+         stacktrace: __STACKTRACE__
+       })}
+  catch
+    kind, reason ->
+      {:error,
+       Error.execution_error("action exited during invocation", %{
+         action: action,
+         kind: kind,
+         reason: reason
+       })}
+  end
+
+  defp validate_params(action, params) do
+    case action.validate_params(params) do
+      {:ok, params} ->
+        {:ok, params}
+
+      {:error, reason} ->
+        {:error, reason}
+
+      other ->
+        {:error, Error.validation_error("invalid validate_params/1 return", %{value: other})}
+    end
+  end
+
+  defp normalize_result({:ok, result}, action), do: validate_output(action, result)
+
+  defp normalize_result({:ok, result, directives}, action) do
+    case validate_output(action, result) do
+      {:ok, result} -> {:ok, result, directives}
+      {:error, reason} -> {:error, reason, directives}
+    end
+  end
+
+  defp normalize_result({:error, %_{} = error}, _action) when is_exception(error),
+    do: {:error, error}
+
+  defp normalize_result({:error, %_{} = error, directives}, _action) when is_exception(error),
+    do: {:error, error, directives}
+
+  defp normalize_result({:error, reason}, _action), do: {:error, normalize_error(reason)}
+
+  defp normalize_result({:error, reason, directives}, _action),
+    do: {:error, normalize_error(reason), directives}
+
+  defp normalize_result(other, _action) do
+    {:error, Error.execution_error("unexpected action return shape", %{value: other})}
+  end
+
+  defp validate_output(action, result) do
+    case action.validate_output(result) do
+      {:ok, result} ->
+        {:ok, result}
+
+      {:error, reason} ->
+        {:error, reason}
+
+      other ->
+        {:error, Error.validation_error("invalid validate_output/1 return", %{value: other})}
+    end
+  end
+
+  defp normalize_error(%_{} = error) when is_exception(error), do: error
+
+  defp normalize_error(reason) when is_atom(reason),
+    do: Error.execution_error(Atom.to_string(reason), %{reason: reason})
+
+  defp normalize_error(reason) when is_binary(reason), do: Error.execution_error(reason)
+
+  defp normalize_error(%{message: message} = reason),
+    do: Error.execution_error(to_string(message), Map.delete(reason, :message))
+
+  defp normalize_error(reason),
+    do: Error.execution_error("action invocation failed", %{reason: reason})
+
+  defp complete(%Runnable{} = runnable, step, %Fact{} = input_fact, value, directives) do
+    meta = directive_meta(step, :ok, directives)
+    result_fact = Fact.new(value: value, ancestry: {step.hash, input_fact.hash}, meta: meta)
     Runnable.complete(runnable, result_fact, events(step, input_fact, result_fact, runnable))
   end
 
@@ -319,7 +425,8 @@ defimpl Runic.Workflow.Invokable, for: Jido.Flow.Step do
         value: result_fact.value,
         ancestry: result_fact.ancestry,
         producer_label: :produced,
-        weight: ancestry_depth(runnable) + 1
+        weight: ancestry_depth(runnable) + 1,
+        meta: result_fact.meta
       },
       %ActivationConsumed{
         fact_hash: input_fact.hash,
@@ -339,6 +446,38 @@ defimpl Runic.Workflow.Invokable, for: Jido.Flow.Step do
 
   defp fact_params(value) when is_map(value), do: value
   defp fact_params(value), do: %{input: value}
+
+  defp directive_meta(_step, _status, nil), do: %{}
+  defp directive_meta(_step, _status, []), do: %{}
+
+  defp directive_meta(step, status, directives) do
+    %{
+      @directive_meta_key => directives,
+      @directive_step_meta_key => step.name,
+      @directive_status_meta_key => status
+    }
+  end
+
+  defp with_directives(reason, _step, _status, nil), do: reason
+  defp with_directives(reason, _step, _status, []), do: reason
+
+  defp with_directives(
+         %Jido.Action.Error.ExecutionFailureError{details: details} = error,
+         step,
+         status,
+         directives
+       ) do
+    %{error | details: Map.merge(details || %{}, directive_meta(step, status, directives))}
+  end
+
+  defp with_directives(reason, step, status, directives) do
+    Error.execution_error(Exception.message(normalize_error(reason)), %{
+      :reason => reason,
+      @directive_meta_key => directives,
+      @directive_step_meta_key => step.name,
+      @directive_status_meta_key => status
+    })
+  end
 end
 
 defimpl Runic.Component, for: Jido.Flow.Step do
@@ -377,8 +516,7 @@ defimpl Runic.Component, for: Jido.Flow.Step do
         unquote(step.action),
         unquote(Macro.escape(step.params)),
         name: unquote(step.name),
-        context: unquote(Macro.escape(step.context)),
-        exec_opts: unquote(Macro.escape(step.exec_opts))
+        context: unquote(Macro.escape(step.context))
       )
     end
   end

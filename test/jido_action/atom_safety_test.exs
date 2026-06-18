@@ -9,9 +9,8 @@ defmodule Jido.Action.AtomSafetyTest do
   global counter. Running async would cause interference from other tests
   creating atoms concurrently.
   """
-  use ExUnit.Case, async: false
+  use JidoTest.ActionCase, async: false
 
-  alias Jido.Exec
   alias JidoTest.TestActions.EchoAction
   alias JidoTest.TestActions.SchemaAction
 
@@ -20,7 +19,7 @@ defmodule Jido.Action.AtomSafetyTest do
   setup_all do
     # Warm up modules and schemas so their one-time atom creation
     # is not counted in the per-test measurements.
-    _ = Exec.run(EchoAction, %{"warmup" => "1"})
+    _ = run_action(EchoAction, %{"warmup" => "1"})
     :ok
   end
 
@@ -35,7 +34,7 @@ defmodule Jido.Action.AtomSafetyTest do
         end)
 
       # Normalize should not create atoms
-      {:ok, %{params: normalized}} = Exec.run(EchoAction, params)
+      {:ok, %{params: normalized}} = run_action(EchoAction, params)
 
       atom_count_after = :erlang.system_info(:atom_count)
 
@@ -57,13 +56,13 @@ defmodule Jido.Action.AtomSafetyTest do
       # Use pre-existing atoms
       params = [test_key_1: "value1", test_key_2: "value2", test_key_3: "value3"]
 
-      {:ok, %{params: normalized}} = Exec.run(EchoAction, params)
+      {:ok, %{params: normalized}} = run_action(EchoAction, params)
 
       atom_count_after = :erlang.system_info(:atom_count)
 
       # Should not create significant new atoms
       assert atom_count_after - atom_count_before < 10
-      assert is_map(normalized)
+      assert Keyword.keyword?(normalized)
     end
 
     test "preserves string keys without converting to atoms" do
@@ -72,7 +71,7 @@ defmodule Jido.Action.AtomSafetyTest do
         "another_user_key" => "another_value"
       }
 
-      {:ok, %{params: normalized}} = Exec.run(EchoAction, params)
+      {:ok, %{params: normalized}} = run_action(EchoAction, params)
 
       # String keys should remain as strings
       assert Map.has_key?(normalized, "user_input_key")
@@ -91,7 +90,7 @@ defmodule Jido.Action.AtomSafetyTest do
         end)
 
       # Normalize should not create atoms
-      {:ok, %{params: result}} = Exec.run(EchoAction, malicious_params)
+      {:ok, %{params: result}} = run_action(EchoAction, malicious_params)
 
       atom_count_after = :erlang.system_info(:atom_count)
 

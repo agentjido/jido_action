@@ -1,6 +1,6 @@
 # Testing
 
-Test actions at two levels: direct `run/2` unit tests and `Jido.Exec` integration tests.
+Test actions at two levels: direct action tests and flow runtime tests.
 
 ## Direct Unit Tests
 
@@ -34,33 +34,16 @@ end
 
 Do the same for `validate_output/1` when the action declares `output_schema`.
 
-## Exec Tests
+## Flow Runtime Tests
 
-Use `Jido.Exec` when testing timeout, retry, output validation, context propagation, async behavior, or crash normalization.
+Use `Jido.Exec` when testing Runic-backed flow composition and scheduler policy.
 
 ```elixir
-test "runs through Exec" do
-  assert {:ok, %{result: 3}} =
-           Jido.Exec.run(Add, %{left: 1, right: 2}, %{}, timeout: 1_000)
+test "runs through a flow" do
+  flow = Jido.Flow.new(:math) |> Jido.Flow.step(:add, Add)
+  assert {:ok, result} = Jido.Exec.run(flow, %{left: 1, right: 2})
+  assert Jido.Exec.results(result).add == [%{result: 3}]
 end
-```
-
-## Async Tests
-
-Assert cleanup behavior directly instead of relying on timing guesses.
-
-```elixir
-test "awaits async action" do
-  ref = Jido.Exec.run_async(Add, %{left: 1, right: 2}, %{})
-  assert {:ok, %{result: 3}} = Jido.Exec.await(ref, 5_000)
-end
-```
-
-For cancellation:
-
-```elixir
-ref = Jido.Exec.run_async(SlowAction, %{}, %{}, timeout: 10_000)
-assert :ok = Jido.Exec.cancel(ref)
 ```
 
 ## Error Tests
@@ -68,9 +51,8 @@ assert :ok = Jido.Exec.cancel(ref)
 Prefer asserting error structs and important message fragments.
 
 ```elixir
-assert {:error, %Jido.Action.Error.TimeoutError{}} =
-         Jido.Exec.run(SlowAction, %{}, %{}, timeout: 10)
+assert {:error, %Jido.Action.Error.InvalidInputError{}} =
+         Add.validate_params(%{left: "1", right: 2})
 ```
 
 Avoid log-only assertions unless log output is part of the contract.
-

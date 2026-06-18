@@ -458,8 +458,8 @@ defmodule Jido.Action.Error do
   @doc """
   Returns whether the given action-layer error should be considered retryable.
 
-  This mirrors execution-engine retry behavior so downstream packages can make
-  the same decision without duplicating action-specific heuristics.
+  This is a conservative classification helper for adapters and integrations.
+  Runtime retry decisions belong to Runic scheduler policy.
   """
   @spec retryable?(term()) :: boolean()
   def retryable?({:error, reason, _effects}), do: retryable?(reason)
@@ -592,7 +592,7 @@ defmodule Jido.Action.Error do
 
   defp extract_retry_hint(%{details: details}) do
     case extract_retry_value(details) do
-      nil -> details |> extract_nested_reason() |> extract_retry_hint()
+      nil -> extract_retry_hint(details)
       value -> value
     end
   end
@@ -601,6 +601,15 @@ defmodule Jido.Action.Error do
     case extract_retry_value(map) do
       nil -> map |> extract_nested_reason() |> extract_retry_hint()
       value -> value
+    end
+  end
+
+  defp extract_retry_hint(keyword) when is_list(keyword) do
+    if Keyword.keyword?(keyword) do
+      case extract_retry_value(keyword) do
+        nil -> keyword |> Keyword.get(:reason) |> extract_retry_hint()
+        value -> value
+      end
     end
   end
 

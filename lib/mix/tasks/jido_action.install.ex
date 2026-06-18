@@ -19,13 +19,10 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
 
     ## What this task does
 
-    1. Adds default configuration for jido_action to `config/config.exs`
-    2. Optionally generates an example action module
+    1. Optionally generates an example action module
     """
 
     use Igniter.Mix.Task
-
-    alias Igniter.Project.Config
 
     @impl Igniter.Mix.Task
     def info(_argv, _composing_task) do
@@ -54,31 +51,7 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
     def igniter(igniter) do
       opts = igniter.args.options
 
-      igniter
-      |> add_default_config()
-      |> maybe_generate_example(opts[:example])
-    end
-
-    defp add_default_config(igniter) do
-      igniter
-      |> Config.configure_new(
-        "config.exs",
-        :jido_action,
-        [:default_timeout],
-        30_000
-      )
-      |> Config.configure_new(
-        "config.exs",
-        :jido_action,
-        [:default_max_retries],
-        1
-      )
-      |> Config.configure_new(
-        "config.exs",
-        :jido_action,
-        [:default_backoff],
-        250
-      )
+      maybe_generate_example(igniter, opts[:example])
     end
 
     defp maybe_generate_example(igniter, true) do

@@ -34,10 +34,12 @@ end
 
 ## Bound Runtime
 
-Run production actions through `Jido.Exec` with timeouts and retry limits.
+Use Runic scheduler policy when production flows need timeouts and retry limits.
 
 ```elixir
-Jido.Exec.run(MyAction, params, context, timeout: 2_000, max_retries: 1)
+flow
+|> Jido.Flow.step(:call_api, MyAction)
+|> Jido.Flow.policy(:call_api, %{timeout_ms: 2_000, max_retries: 1, backoff: :none})
 ```
 
 Use `max_retries: 0` for non-idempotent effects unless the action is explicitly safe to retry.
@@ -46,14 +48,10 @@ Use `max_retries: 0` for non-idempotent effects unless the action is explicitly 
 
 Context often carries request metadata, credentials, tenant identifiers, or tracing state. Pass only what the action needs, and do not include secrets in error details.
 
-`Jido.Exec` keeps its own execution logs and telemetry payloads bounded. Apply your own
-domain-specific redaction before logging arbitrary params, context, or errors outside the
-execution boundary.
+Apply domain-specific redaction before logging arbitrary params, context, or errors outside the execution boundary.
 
 ## Prefer Existing Atoms
 
 Do not create atoms from untrusted input. Keep user-provided identifiers as strings or use `String.to_existing_atom/1` only for a bounded, preloaded set.
 
-## Async Cleanup
-
-For long-running or async work, test timeout and cancellation cleanup. `Jido.Exec` supervises action execution, but actions that spawn their own processes remain responsible for cleaning them up.
+Actions that spawn their own processes remain responsible for cleaning them up.

@@ -37,6 +37,31 @@ defmodule Jido.Flow do
   end
 
   @doc """
+  Builds a one-step flow from an action module or `%Jido.Instruction{}`.
+
+  This is explicit single-action runtime sugar: callers still execute the
+  returned flow through `Jido.Exec`, so runtime policy remains Runic-owned.
+  """
+  @spec from_action(module() | Jido.Instruction.t(), map() | keyword(), keyword()) :: t()
+  def from_action(action_or_instruction, params \\ %{}, opts \\ []) when is_list(opts) do
+    {name, step_opts} = Keyword.pop(opts, :name)
+    step = Step.new(action_or_instruction, params, Keyword.put(step_opts, :name, name))
+    flow_name = name || step.name
+
+    flow_name
+    |> new()
+    |> add_component(flow_name, step, nil)
+  end
+
+  @doc """
+  Alias for `from_action/3`.
+  """
+  @spec single(module() | Jido.Instruction.t(), map() | keyword(), keyword()) :: t()
+  def single(action_or_instruction, params \\ %{}, opts \\ []) when is_list(opts) do
+    from_action(action_or_instruction, params, opts)
+  end
+
+  @doc """
   Wraps an existing Runic workflow as a flow.
   """
   @spec from_workflow(Workflow.t()) :: t()
@@ -59,8 +84,6 @@ defmodule Jido.Flow do
   - `:after` - parent step name or list of parent step names.
   - `:params` - static params merged before runtime fact params.
   - `:context` - static execution context.
-  - `:exec_opts` - options used for action invocation and Runic policy derivation.
-  - any remaining options are also treated as execution options.
   """
   @spec step(t(), atom() | String.t(), module() | Jido.Instruction.t(), keyword()) :: t()
   def step(%__MODULE__{} = flow, name, action_or_instruction, opts \\ []) when is_list(opts) do
@@ -72,6 +95,24 @@ defmodule Jido.Flow do
       |> Step.new(params, Keyword.put(opts, :name, name))
 
     add_component(flow, name, node, after_dep)
+  end
+
+  @doc """
+  Adds a Runic scheduler policy to the flow by matcher.
+
+  Policies are runtime configuration, not step data. Matchers and policy maps
+  follow `Runic.Workflow.SchedulerPolicy` conventions, for example:
+
+      flow
+      |> Jido.Flow.step(:load_cart, MyApp.LoadCart)
+      |> Jido.Flow.policy(:load_cart, %{max_retries: 1, backoff: :none})
+  """
+  @spec policy(t(), term(), map() | keyword() | struct()) :: t()
+  def policy(%__MODULE__{workflow: workflow} = flow, matcher, policy) do
+    policies = Map.get(workflow, :scheduler_policies, [])
+    scheduler_policy = {matcher, normalize_scheduler_policy!(policy)}
+
+    %{flow | workflow: Workflow.set_scheduler_policies(workflow, policies ++ [scheduler_policy])}
   end
 
   @doc """
@@ -166,6 +207,25 @@ defmodule Jido.Flow do
 
   defp maybe_name_component(%{name: nil} = component, name), do: %{component | name: name}
   defp maybe_name_component(component, _name), do: component
+
+  defp normalize_scheduler_policy!(%Runic.Workflow.SchedulerPolicy{} = policy),
+    do: Map.from_struct(policy)
+
+  defp normalize_scheduler_policy!(policy) when is_map(policy), do: policy
+
+  defp normalize_scheduler_policy!(policy) when is_list(policy) do
+    if Keyword.keyword?(policy) do
+      Map.new(policy)
+    else
+      raise ArgumentError,
+            "expected scheduler policy to be a keyword list, got: #{inspect(policy)}"
+    end
+  end
+
+  defp normalize_scheduler_policy!(policy) do
+    raise ArgumentError,
+          "expected scheduler policy to be a map, keyword list, or Runic.Workflow.SchedulerPolicy, got: #{inspect(policy)}"
+  end
 
   defp node_info(%Step{} = step) do
     %{

@@ -43,11 +43,15 @@ Three-tuple errors preserve the third value:
 
 ## Exceptions And Exits
 
-`Jido.Exec` catches exceptions, throws, and abnormal exits from supervised execution and returns structured error tuples. Direct `run/2` calls do not add that protection.
+Direct `run/2` calls do not add supervision or crash isolation. When actions
+run inside a `Jido.Flow`, `Jido.Flow.Step` converts exceptions, throws, and
+exits into structured action errors so Runic can record the failed runnable and
+apply scheduler policy.
 
 ## Retryability
 
-Use `Jido.Action.Error.retryable?/1` to apply the same retry decision logic as `Jido.Exec`.
+Use `Jido.Action.Error.retryable?/1` when adapter code needs a conservative
+classification for an action-layer error.
 
 ```elixir
 if Jido.Action.Error.retryable?(reason) do
