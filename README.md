@@ -1,15 +1,15 @@
 # Jido Action
 
-`jido_action` defines validated leaf actions and runs them with hardened execution policy.
+`jido_action` defines validated leaf actions and composes them into Runic-backed flows.
 
 V3 keeps the action boundary small while adding a stateful composition layer:
 
 - `Jido.Action` defines a named action with Zoi input and output schemas.
 - `Jido.Instruction` captures one requested action call as data.
 - `Jido.Flow` composes leaf actions and native Runic components.
-- `Jido.Exec` executes actions, instructions, and flows. Action validation stays at the leaf; flow retry, timeout, fallback, and stepping use Runic policy.
+- `Jido.Exec` executes `Jido.Flow` and raw `Runic.Workflow` values. Retry, timeout, fallback, async, durable execution, and stepping use Runic policy.
 
-Actions are still leaves: `run/2` computes one action result; `Jido.Flow` composes actions; `Jido.Exec` executes the composition.
+Actions are leaves: `run/2` computes one action result; `Jido.Flow` composes actions; `Jido.Exec` executes the composition.
 
 ## Install
 
@@ -56,18 +56,12 @@ Public action functions:
 - `validate_output/1`
 - `run/2`
 
-## Run An Action
+## Validate And Run An Action
 
 ```elixir
-{:ok, result} =
-  Jido.Exec.run(
-    MyApp.Actions.GreetUser,
-    %{name: "Ada", excited?: true},
-    %{request_id: "req-123"},
-    timeout: 1_000,
-    max_retries: 1,
-    backoff: 100
-  )
+{:ok, params} = MyApp.Actions.GreetUser.validate_params(%{name: "Ada", excited?: true})
+{:ok, result} = MyApp.Actions.GreetUser.run(params, %{request_id: "req-123"})
+{:ok, result} = MyApp.Actions.GreetUser.validate_output(result)
 ```
 
 `run/2` must return one of:
@@ -77,7 +71,7 @@ Public action functions:
 - `{:error, reason}`
 - `{:error, reason, extra}`
 
-Three-tuple returns preserve the third value after output validation.
+Three-tuple returns are consumed by flow steps when an action is used inside a flow.
 
 ## Capture A Call Frame
 
@@ -89,14 +83,11 @@ instruction =
   Jido.Instruction.new!(
     action: MyApp.Actions.GreetUser,
     params: %{name: "Ada"},
-    context: %{request_id: "req-123"},
-    opts: [timeout: 1_000]
+    context: %{request_id: "req-123"}
   )
-
-{:ok, result} = Jido.Exec.run(instruction)
 ```
 
-An instruction is one action call frame. It is not a workflow or program.
+An instruction is one action call frame. It is not a workflow, program, or runtime.
 
 ## Compose A Flow
 
@@ -136,42 +127,15 @@ Arbitrary cyclic graph edges are not the first Jido API. Model loops through
 runtime cycles, repeated `Jido.Exec.resume/3` calls, and Runic stateful
 components. Use `:max_cycles` to bound reactive execution.
 
-## Async Execution
-
-```elixir
-ref = Jido.Exec.run_async(MyApp.Actions.GreetUser, %{name: "Ada"}, %{})
-
-case Jido.Exec.await(ref, 5_000) do
-  {:ok, result} -> result
-  {:error, reason} -> {:failed, reason}
-end
-```
-
-Cancel work that is no longer needed:
-
-```elixir
-:ok = Jido.Exec.cancel(ref)
-```
-
 ## Runtime Policy
 
-`Jido.Exec.run/4` supports:
-
-- `:timeout` - max action runtime in milliseconds, `0` disables supervised timeout wrapping.
-- `:max_retries` - number of retry attempts after the first failure.
-- `:backoff` - initial retry delay in milliseconds, doubled per retry and capped.
-- `:log_level` - execution log level.
-- `:jido` - instance namespace for isolated supervisors.
-- `:context_propagators` - modules that capture and reattach process-local runtime context.
-- `:context_propagator_failure_mode` - `:warn` or `:strict`.
-
-Defaults can be configured with:
+Use Runic scheduler policies on flows, workflows, or runtime calls:
 
 ```elixir
-config :jido_action,
-  default_timeout: 30_000,
-  default_max_retries: 1,
-  default_backoff: 250
+flow =
+  Jido.Flow.new(:greeting)
+  |> Jido.Flow.step(:greet, MyApp.Actions.GreetUser)
+  |> Jido.Flow.policy(:greet, %{max_retries: 1, backoff: :none, timeout_ms: 1_000})
 ```
 
 ## Docs
@@ -181,6 +145,5 @@ Start with:
 - [Getting Started](guides/getting-started.md)
 - [Actions](guides/actions-guide.md)
 - [Schemas & Validation](guides/schemas-validation.md)
-- [Execution Engine](guides/execution-engine.md)
 - [Flows & Runtime](guides/flows-runtime.md)
 - [Error Handling](guides/error-handling.md)

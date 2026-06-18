@@ -1,6 +1,8 @@
 defmodule JidoTest.FlowStepTest do
   use JidoTest.ActionCase, async: false
 
+  alias Jido.Exec
+  alias Jido.Flow
   alias Jido.Flow.Step
   alias Runic.Workflow
   alias Runic.Workflow.PolicyDriver
@@ -94,7 +96,7 @@ defmodule JidoTest.FlowStepTest do
     assert executed.result.value == %{value: 7, static: true, runtime: true}
   end
 
-  test "preserves successful three-tuple returns as result and extra" do
+  test "preserves successful three-tuple directives as fact metadata" do
     step = Step.new(WithDirective, %{}, name: :directive)
 
     executed =
@@ -103,19 +105,53 @@ defmodule JidoTest.FlowStepTest do
       |> execute()
 
     assert executed.status == :completed
-    assert executed.result.value == %{result: %{value: 9}, extra: %{next: :flow}}
+    assert executed.result.value == %{value: 9}
+    assert executed.result.meta.jido_directives == %{next: :flow}
+    assert executed.result.meta.jido_step == :directive
+    assert executed.result.meta.jido_status == :ok
   end
 
-  test "preserves error three-tuple returns in the failed runnable" do
+  test "preserves error three-tuple directives on the failed runnable error" do
     step = Step.new(ErrorWithDirective, %{}, name: :error_directive)
 
     executed =
-      step
-      |> prepare(%{})
-      |> execute()
+      silence_logger(fn ->
+        step
+        |> prepare(%{})
+        |> execute()
+      end)
 
     assert executed.status == :failed
-    assert {%Jido.Action.Error.ExecutionFailureError{}, %{next: :retry}} = executed.error
+    assert %Jido.Action.Error.ExecutionFailureError{details: details} = executed.error
+    assert details.reason == :transient_error
+    assert details.jido_directives == %{next: :retry}
+    assert details.jido_step == :error_directive
+    assert details.jido_status == :error
+  end
+
+  test "projects successful three-tuple directives into Exec result" do
+    flow = Flow.single(WithDirective, %{value: 9}, name: :directive)
+
+    assert {:ok, result} = Exec.run(flow, %{})
+    assert result.results.directive == [%{value: 9}]
+
+    assert [%{step: :directive, status: :ok, directives: %{next: :flow}, fact_hash: fact_hash}] =
+             result.directives
+
+    refute is_nil(fact_hash)
+  end
+
+  test "projects error three-tuple directives into Exec result" do
+    flow = Flow.single(ErrorWithDirective, %{}, name: :error_directive)
+
+    assert {:error, result} =
+             silence_logger(fn ->
+               Exec.run(flow, %{})
+             end)
+
+    assert result.directives == [
+             %{step: :error_directive, status: :error, directives: %{next: :retry}}
+           ]
   end
 
   test "marks invalid action output as a failed runnable" do

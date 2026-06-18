@@ -1,13 +1,19 @@
 defmodule Jido.InstructionTest do
   use JidoTest.ActionCase, async: true
 
-  alias Jido.Exec
   alias Jido.Instruction
   alias JidoTest.TestActions.BasicAction
-  alias JidoTest.TestActions.EchoAction
-  alias JidoTest.TestActions.NoSchema
 
-  @moduletag :capture_log
+  describe "validate_action_module/1" do
+    test "accepts non-nil atoms" do
+      assert :ok = Instruction.validate_action_module(BasicAction)
+    end
+
+    test "rejects nil and non-atoms" do
+      assert {:error, "cannot be nil"} = Instruction.validate_action_module(nil)
+      assert {:error, "must be an atom"} = Instruction.validate_action_module("not_a_module")
+    end
+  end
 
   describe "new/1" do
     test "creates an instruction with defaults" do
@@ -15,7 +21,6 @@ defmodule Jido.InstructionTest do
       assert instruction.action == BasicAction
       assert instruction.params == %{}
       assert instruction.context == %{}
-      assert instruction.opts == []
       assert is_binary(instruction.id)
     end
 
@@ -25,15 +30,27 @@ defmodule Jido.InstructionTest do
                  id: "instruction-1",
                  action: BasicAction,
                  params: [value: 42],
-                 context: [request_id: "req-1"],
-                 opts: [timeout: 1_000]
+                 context: [request_id: "req-1"]
                })
 
       assert instruction.id == "instruction-1"
       assert instruction.action == BasicAction
       assert instruction.params == %{value: 42}
       assert instruction.context == %{request_id: "req-1"}
-      assert instruction.opts == [timeout: 1_000]
+    end
+
+    test "normalizes nil id, params, and context" do
+      assert {:ok, instruction} =
+               Instruction.new(%{
+                 id: nil,
+                 action: BasicAction,
+                 params: nil,
+                 context: nil
+               })
+
+      assert is_binary(instruction.id)
+      assert instruction.params == %{}
+      assert instruction.context == %{}
     end
 
     test "rejects missing and invalid action values" do
@@ -42,15 +59,34 @@ defmodule Jido.InstructionTest do
       assert {:error, :invalid_action} = Instruction.new(%{action: nil})
     end
 
-    test "rejects invalid params, context, and opts" do
+    test "rejects invalid params and context" do
       assert {:error, %Jido.Action.Error.ExecutionFailureError{}} =
                Instruction.new(action: BasicAction, params: ["not", "keyword"])
 
       assert {:error, %Jido.Action.Error.ExecutionFailureError{}} =
                Instruction.new(action: BasicAction, context: ["not", "keyword"])
 
-      assert {:error, %Jido.Action.Error.ExecutionFailureError{}} =
-               Instruction.new(action: BasicAction, opts: %{timeout: 1_000})
+      assert {:error, %Jido.Action.Error.ExecutionFailureError{message: params_message}} =
+               Instruction.new(action: BasicAction, params: 123)
+
+      assert params_message =~ "Invalid params format"
+
+      assert {:error, %Jido.Action.Error.ExecutionFailureError{message: context_message}} =
+               Instruction.new(action: BasicAction, context: 123)
+
+      assert context_message =~ "Invalid context format"
+    end
+
+    test "rejects invalid id values through schema parsing" do
+      assert {:error,
+              %Jido.Action.Error.InvalidInputError{
+                message: "Invalid instruction configuration",
+                details: %{errors: [error]}
+              }} = Instruction.new(action: BasicAction, id: 123)
+
+      assert error.path == [:id]
+      assert error.code == :invalid_type
+      assert error.message =~ "expected string"
     end
 
     test "does not accept tuple instruction shims" do
@@ -70,70 +106,11 @@ defmodule Jido.InstructionTest do
         Instruction.new!(params: %{value: 1})
       end
     end
-  end
 
-  describe "validate_allowed_actions/2" do
-    test "accepts allowed actions" do
-      instructions = [
-        %Instruction{action: BasicAction},
-        %Instruction{action: NoSchema}
-      ]
-
-      assert :ok = Instruction.validate_allowed_actions(instructions, [BasicAction, NoSchema])
-    end
-
-    test "rejects disallowed actions" do
-      assert {:error, %Jido.Action.Error.ConfigurationError{message: message}} =
-               Instruction.validate_allowed_actions(%Instruction{action: NoSchema}, [BasicAction])
-
-      assert message =~ "Actions not allowed"
-      assert message =~ "NoSchema"
-    end
-  end
-
-  describe "Exec.run/4" do
-    test "executes an instruction" do
-      instruction =
-        Instruction.new!(
-          action: BasicAction,
-          params: %{value: 42},
-          context: %{request_id: "req-1"},
-          opts: [timeout: 1_000]
-        )
-
-      assert {:ok, %{value: 42}} = Exec.run(instruction)
-    end
-
-    test "merges params, context, and opts overrides" do
-      instruction =
-        Instruction.new!(
-          action: EchoAction,
-          params: %{from_instruction: true, override: "instruction"},
-          context: %{local: true, override: "instruction"},
-          opts: [timeout: 1_000]
-        )
-
-      assert {:ok, %{params: params, context: context}} =
-               Exec.run(
-                 instruction,
-                 %{from_call: true, override: "call"},
-                 %{request_id: "req-1", override: "call"},
-                 timeout: 0
-               )
-
-      assert params == %{from_instruction: true, from_call: true, override: "call"}
-      assert context == %{local: true, request_id: "req-1", override: "call"}
-    end
-  end
-
-  describe "Exec.run_async/4" do
-    test "executes an instruction asynchronously" do
-      instruction = Instruction.new!(action: BasicAction, params: %{value: 10})
-
-      instruction
-      |> Exec.run_async()
-      |> Exec.await(5_000)
-      |> then(fn result -> assert {:ok, %{value: 10}} = result end)
+    test "raises underlying exception errors" do
+      assert_raise Jido.Action.Error.ExecutionFailureError, ~r/Invalid params format/, fn ->
+        Instruction.new!(action: BasicAction, params: 123)
+      end
     end
   end
 end

@@ -291,6 +291,15 @@ defmodule Jido.Action.ErrorTest do
                Error.to_map(:timeout)
     end
 
+    test "normalizes arbitrary non-atom reasons as non-retryable execution errors" do
+      assert Error.to_map("plain failure") == %{
+               type: :execution_error,
+               message: "plain failure",
+               details: %{},
+               retryable?: false
+             }
+    end
+
     test "normalizes plain message maps without assuming structs" do
       error = %{
         message: "connection refused",
@@ -353,6 +362,164 @@ defmodule Jido.Action.ErrorTest do
       assert {:ok, _} = Jason.encode(mapped)
     end
 
+    test "unwraps two- and three-tuple error results" do
+      assert %{type: :configuration_error, message: "bad config", retryable?: false} =
+               Error.to_map({:error, Error.config_error("bad config")})
+
+      assert %{type: :timeout, message: "too slow", retryable?: true} =
+               Error.to_map({:error, Error.timeout_error("too slow"), %{directive: :retry}})
+    end
+
+    test "normalizes canonical alias types and code maps" do
+      cases = [
+        {%{type: :config_error, message: "bad config"}, :configuration_error, false},
+        {%{type: :invalid_input, message: "bad input"}, :validation_error, false},
+        {%{type: :invalid_input_error, message: "bad input"}, :validation_error, false},
+        {%{type: :timeout_error, message: "slow"}, :timeout, true},
+        {%{type: :execution_failure, message: "boom"}, :execution_error, true},
+        {%{type: :execution_failure_error, message: "boom"}, :execution_error, true},
+        {%{type: :internal, message: "oops"}, :internal_error, false},
+        {%{code: :timeout_error, message: "slow"}, :timeout, true}
+      ]
+
+      for {input, type, retryable?} <- cases do
+        assert %{type: ^type, retryable?: ^retryable?} = Error.to_map(input)
+      end
+    end
+
+    test "honors explicit retryable flags while normalizing maps" do
+      assert %{retryable?: false} =
+               Error.to_map(%{
+                 type: :execution_error,
+                 message: "boom",
+                 retryable?: false,
+                 details: %{retry: true}
+               })
+
+      assert %{retryable?: true} =
+               Error.to_map(%{
+                 type: :validation_error,
+                 message: "invalid",
+                 retryable: true
+               })
+    end
+
+    test "normalizes remaining concrete action errors" do
+      assert %{
+               type: :configuration_error,
+               message: "missing",
+               details: %{key: :url},
+               retryable?: false
+             } = Error.to_map(Error.config_error("missing", key: :url))
+
+      assert %{
+               type: :internal_error,
+               message: "internal",
+               details: %{retry: true},
+               retryable?: false
+             } = Error.to_map(Error.internal_error("internal", retry: true))
+
+      assert %{
+               type: :internal_error,
+               message: "unknown",
+               details: %{source: :splode},
+               retryable?: false
+             } =
+               Error.to_map(
+                 UnknownError.exception(message: "unknown", details: %{source: :splode})
+               )
+    end
+
+    test "normalizes pseudo-struct action errors defensively" do
+      cases = [
+        {Error.InvalidInputError, :validation_error, "Invalid input", false},
+        {Error.ExecutionFailureError, :execution_error, "Execution failed", true},
+        {Error.TimeoutError, :timeout, "Action timed out", true},
+        {Error.ConfigurationError, :configuration_error, "Configuration error", false},
+        {Error.InternalError, :internal_error, "Internal error", false},
+        {UnknownError, :internal_error, "Unknown error", false}
+      ]
+
+      for {module, type, message, retryable?} <- cases do
+        malformed = %{
+          __struct__: module,
+          __exception__: true,
+          details: %{nested: :detail},
+          extra: "kept"
+        }
+
+        assert %{
+                 type: ^type,
+                 message: ^message,
+                 details: %{nested: :detail, extra: "kept"},
+                 retryable?: ^retryable?
+               } = Error.to_map(malformed)
+      end
+    end
+
+    test "normalizes pseudo-struct action errors with explicit messages" do
+      malformed = %{
+        __struct__: Error.TimeoutError,
+        __exception__: true,
+        message: "custom timeout",
+        timeout: 250
+      }
+
+      assert %{
+               type: :timeout,
+               message: "custom timeout",
+               details: %{timeout: 250},
+               retryable?: true
+             } = Error.to_map(malformed)
+    end
+
+    test "normalizes keyword and invalid detail containers" do
+      assert %{
+               details: %{reason: :rate_limited, retry: false},
+               retryable?: false
+             } =
+               Error.to_map(%{
+                 type: :execution_error,
+                 message: "rate limited",
+                 details: [reason: :rate_limited, retry: false]
+               })
+
+      assert %{details: %{}} ==
+               Error.to_map(%{
+                 type: :execution_error,
+                 message: "bad details",
+                 details: [:not, :a, :keyword]
+               })
+               |> Map.take([:details])
+
+      assert %{details: %{}} ==
+               Error.to_map(%{type: :execution_error, message: "bad details", details: "nope"})
+               |> Map.take([:details])
+    end
+
+    test "extracts details from top-level message structs" do
+      mapped =
+        Error.to_map(%Reason{message: "struct failed", field: :transport, meta: {:retry, 1}})
+
+      assert mapped.type == :execution_error
+      assert mapped.message == "struct failed"
+      assert mapped.details.field == :transport
+      assert mapped.details.meta == [:retry, 1]
+    end
+
+    test "normalizes non-binary inspect-hostile messages" do
+      mapped =
+        Error.to_map(%{
+          type: :execution_error,
+          message: %RaisingInspectStruct{value: 1},
+          details: %{values: [1, {:two, 2}, %{three: 3}]}
+        })
+
+      assert mapped.message =~ "RaisingInspectStruct"
+      assert mapped.details.values == [1, [:two, 2], %{three: 3}]
+      assert {:ok, _} = Jason.encode(mapped)
+    end
+
     test "normalizes non-scalar detail keys and inspect-hostile structs" do
       key = %RaisingInspectStruct{value: 1}
       error = Error.execution_error("boom", %{key => %{nested: %RaisingInspectStruct{value: 2}}})
@@ -406,6 +573,21 @@ defmodule Jido.Action.ErrorTest do
       assert decoded["details"] == %{"timeout" => 5000}
     end
 
+    test "encodes remaining concrete action errors through normalized generic maps" do
+      errors = [
+        {Error.config_error("bad config"), "configuration_error", false},
+        {Error.internal_error("internal"), "internal_error", false},
+        {UnknownError.exception(message: "unknown"), "internal_error", false}
+      ]
+
+      for {error, type, retryable?} <- errors do
+        decoded = error |> Jason.encode!() |> Jason.decode!()
+
+        assert decoded["type"] == type
+        assert decoded["retryable?"] == retryable?
+      end
+    end
+
     test "encodes malformed execution failure maps without crashing" do
       malformed = %{
         __struct__: Error.ExecutionFailureError,
@@ -431,12 +613,27 @@ defmodule Jido.Action.ErrorTest do
       assert Error.retryable?(%{type: :rate_limited, message: "slow down"})
       assert Error.retryable?(%{details: %{retry: true}})
       assert Error.retryable?(Error.execution_error("retry", retry: true))
+      assert Error.retryable?({:error, Error.timeout_error("timed out")})
+      assert Error.retryable?(%{retryable?: true})
+      assert Error.retryable?(%{retryable: true})
+      assert Error.retryable?(%{code: :timeout_error, details: %{}})
+      assert Error.retryable?(%{details: [reason: %{retry: true}]})
+      assert Error.retryable?(%{details: :opaque})
+      assert Error.retryable?("opaque failure")
     end
 
     test "rejects validation and configuration errors" do
       refute Error.retryable?(Error.validation_error("invalid"))
       refute Error.retryable?(Error.config_error("bad config"))
       refute Error.retryable?(Error.internal_error("internal"))
+      refute Error.retryable?(UnknownError.exception(details: %{retry: false}))
+      refute Error.retryable?({:error, Error.validation_error("invalid"), []})
+      refute Error.retryable?(%{retryable?: false})
+      refute Error.retryable?(%{retryable: false})
+      refute Error.retryable?(%{type: :validation_error, details: %{}})
+      refute Error.to_map(Error.execution_error("badarg", %{reason: :badarg})).retryable?
+      refute Error.to_map(Error.execution_error("badarg", %{"reason" => :badarg})).retryable?
+      refute Error.retryable?(%{details: [reason: %{retry: false}]})
       refute Error.retryable?(%{details: %{retry: false}})
       refute Error.retryable?(%{details: %{"reason" => %{"retry" => false}}})
       refute Error.retryable?(:transient_error)

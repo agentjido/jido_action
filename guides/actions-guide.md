@@ -55,11 +55,12 @@ Only declared keys are validated. Unknown keys are preserved so callers can carr
 
 ## Execution
 
-Prefer `Jido.Exec.run/4` for production execution:
+Call actions directly after validation, or compose them into a `Jido.Flow` and run the flow through `Jido.Exec`:
 
 ```elixir
-Jido.Exec.run(MyAction, params, context, timeout: 2_000, max_retries: 1)
+{:ok, params} = MyAction.validate_params(params)
+{:ok, result} = MyAction.run(params, context)
+{:ok, result} = MyAction.validate_output(result)
 ```
 
-Directly calling `run/2` is useful in narrow unit tests when validation and execution policy are not under test.
-
+Runtime policy such as retry, timeout, fallback, durable execution, and async dispatch belongs to Runic scheduler policies on flows, not to direct action calls.

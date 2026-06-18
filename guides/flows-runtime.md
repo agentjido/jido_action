@@ -106,16 +106,17 @@ flows that may continue producing work.
 Managed execution delegates to `Runic.Runner`:
 
 ```elixir
-{:ok, _pid} = Jido.Exec.Runner.start_link(name: MyApp.FlowRunner)
-{:ok, _worker} = Jido.Exec.start_flow(MyApp.FlowRunner, :checkout, flow)
+{:ok, _pid} = Runic.Runner.start_link(name: MyApp.FlowRunner)
+{:ok, _worker} =
+  Runic.Runner.start_workflow(MyApp.FlowRunner, :checkout, Jido.Flow.to_workflow(flow))
 
-:ok = Jido.Exec.resume(MyApp.FlowRunner, :checkout, %{cart_id: "cart_123"})
-{:ok, results} = Jido.Exec.results(MyApp.FlowRunner, :checkout)
-{:ok, workflow} = Jido.Exec.workflow(MyApp.FlowRunner, :checkout)
+:ok = Runic.Runner.run(MyApp.FlowRunner, :checkout, %{cart_id: "cart_123"})
+{:ok, results} = Runic.Runner.get_results(MyApp.FlowRunner, :checkout)
+{:ok, workflow} = Runic.Runner.get_workflow(MyApp.FlowRunner, :checkout)
 ```
 
-Use `checkpoint/2` when the configured Runner store supports persistence and
-`stop/2` when the managed flow should shut down.
+Use `Runic.Runner.checkpoint/2` when the configured Runner store supports
+persistence and `Runic.Runner.stop/3` when the managed flow should shut down.
 
 ## Loops
 
@@ -133,10 +134,10 @@ This keeps actions as leaves while still allowing stateful flow behavior.
 `jido_action`:
 
 - replace program/workflow bridge usage with `Jido.Flow`
-- replace direct Runner wrappers with `Jido.Exec` and `Jido.Exec.Runner`
+- use `Jido.Exec` for local flow execution and `Runic.Runner` for managed flow execution
 - keep action calls represented by `Jido.Instruction`
-- keep retries, timeouts, validation, telemetry, and crash normalization in
-  `Jido.Exec`
+- keep retries, timeouts, fallback, scheduling, and durable execution in Runic
+- keep direct action calls as plain validation plus `run/2`
 
 Do not move agent strategy, signals, child workers, or directive execution into
 this layer.

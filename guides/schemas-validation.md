@@ -52,7 +52,7 @@ output_schema:
   })
 ```
 
-`Jido.Exec` validates output only for successful `{:ok, result}` or `{:ok, result, extra}` returns. The third value in a three-tuple is preserved.
+Flow steps validate output only for successful `{:ok, result}` or `{:ok, result, extra}` returns. The third value in a three-tuple is preserved.
 
 ## Unknown Keys
 
@@ -79,4 +79,3 @@ end
 ```
 
 The error details include context, module, and normalized Zoi error data.
-

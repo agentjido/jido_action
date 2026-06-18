@@ -45,27 +45,17 @@ end
 
 Validation returns `Jido.Action.Error.InvalidInputError` on failure.
 
-## Run With Policy
+## Run Directly
 
 ```elixir
+{:ok, params} = MyApp.Actions.Add.validate_params(%{left: 1, right: 2})
 {:ok, %{result: 3}} =
-  Jido.Exec.run(
-    MyApp.Actions.Add,
-    %{left: 1, right: 2},
-    %{},
-    timeout: 1_000,
-    max_retries: 0
-  )
+  MyApp.Actions.Add.run(params, %{})
 ```
 
-`Jido.Exec` validates input before calling `run/2`, validates output after success, and normalizes exits, throws, and exceptions into action errors.
+Use `Jido.Flow` and `Jido.Exec` when you need Runic runtime policy:
 
-## Run Asynchronously
-
-```elixir
-ref = Jido.Exec.run_async(MyApp.Actions.Add, %{left: 1, right: 2}, %{})
-{:ok, %{result: 3}} = Jido.Exec.await(ref, 5_000)
 ```
-
-Use `Jido.Exec.cancel/1` when the result is no longer needed.
-
+flow = Jido.Flow.new(:math) |> Jido.Flow.step(:add, MyApp.Actions.Add)
+{:ok, result} = Jido.Exec.run(flow, %{left: 1, right: 2})
+```

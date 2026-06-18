@@ -1,69 +1,21 @@
 # Configuration
 
-Most execution policy can be passed directly to `Jido.Exec.run/4` or `run_async/4`. Application configuration supplies defaults.
+`jido_action` no longer owns execution policy configuration. Runtime policy is Runic policy.
 
-## Execution Defaults
-
-```elixir
-config :jido_action,
-  default_timeout: 30_000,
-  default_max_retries: 1,
-  default_backoff: 250,
-  default_log_level: :info
-```
-
-- `:default_timeout` - runtime budget in milliseconds.
-- `:default_max_retries` - retry attempts after the initial run.
-- `:default_backoff` - initial retry delay in milliseconds.
-- `:default_log_level` - default execution log level.
-
-Invalid numeric config values fall back to built-in defaults.
-
-## Per-Call Overrides
+Use `Jido.Flow.policy/3`, workflow scheduler policies on the underlying `Runic.Workflow`, or runtime `:scheduler_policies` when calling `Jido.Exec.run/3`.
 
 ```elixir
-Jido.Exec.run(
-  MyAction,
-  params,
-  context,
-  timeout: 2_000,
-  max_retries: 0,
-  backoff: 100,
-  log_level: :debug
-)
+flow =
+  Jido.Flow.new(:checkout)
+  |> Jido.Flow.step(:reserve_inventory, MyApp.Actions.ReserveInventory)
+  |> Jido.Flow.policy(:reserve_inventory, %{
+    max_retries: 1,
+    backoff: :none,
+    timeout_ms: 2_000
+  })
+
+{:ok, result} =
+  Jido.Exec.run(flow, %{cart_id: "cart_123"},
+    run_context: %{_global: %{request_id: "req_123"}}
+  )
 ```
-
-Per-call options win over application defaults.
-
-## Context Propagation
-
-Configure process-local runtime context propagation globally:
-
-```elixir
-config :jido_action, :observability,
-  context_propagators: [MyApp.TraceContext],
-  context_propagator_failure_mode: :warn
-```
-
-Or per call:
-
-```elixir
-Jido.Exec.run(
-  MyAction,
-  params,
-  context,
-  context_propagators: [MyApp.TraceContext],
-  context_propagator_failure_mode: :strict
-)
-```
-
-Propagators implement `Jido.Exec.ContextPropagator`.
-
-## Instance Isolation
-
-Pass `:jido` when an application needs isolated supervisors for a specific runtime instance:
-
-```elixir
-Jido.Exec.run(MyAction, params, context, jido: MyApp.RuntimeInstance)
-```
-

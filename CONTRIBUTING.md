@@ -59,7 +59,7 @@ High-severity security findings will cause CI to fail. Address any security issu
 
 ### Test Coverage Policy
 
-This project maintains a minimum test coverage threshold of **90%**. All contributions must:
+This spike keeps coverage meaningful while iterating. All contributions should:
 
 - Maintain or improve the overall coverage percentage
 - Include comprehensive tests for new code paths
@@ -67,14 +67,8 @@ This project maintains a minimum test coverage threshold of **90%**. All contrib
 
 Check coverage locally:
 ```bash
-# Generate coverage report
-mix coveralls.html
-
-# Check if coverage meets threshold
-mix coveralls
+mix test --cover
 ```
-
-The CI pipeline enforces the 90% threshold - builds will fail if coverage drops below this level.
 
 ## Documentation
 

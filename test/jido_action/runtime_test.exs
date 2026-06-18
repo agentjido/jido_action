@@ -5,7 +5,6 @@ defmodule JidoTest.ExecFlowTest do
 
   alias Jido.Exec
   alias Jido.Exec.Result
-  alias Jido.Exec.Runner
   alias Jido.Flow
   alias Runic.Workflow
 
@@ -70,6 +69,18 @@ defmodule JidoTest.ExecFlowTest do
     end
   end
 
+  defmodule Slow do
+    use Jido.Action,
+      name: "runtime_slow",
+      schema: Zoi.object(%{}),
+      output_schema: Zoi.object(%{done: Zoi.boolean()})
+
+    def run(_params, _context) do
+      Process.sleep(200)
+      {:ok, %{done: true}}
+    end
+  end
+
   test "runs a single-step flow" do
     flow = Flow.new(:single) |> Flow.step(:add, Add, params: %{amount: 4})
 
@@ -116,7 +127,9 @@ defmodule JidoTest.ExecFlowTest do
 
     assert {:error,
             %Result{status: :error, error: %Jido.Action.Error.ExecutionFailureError{} = error}} =
-             Exec.run(flow, %{})
+             silence_logger(fn ->
+               Exec.run(flow, %{})
+             end)
 
     assert error.message == "flow runnable failed"
     assert error.details.node == :fail
@@ -128,13 +141,42 @@ defmodule JidoTest.ExecFlowTest do
     :persistent_term.erase(term_key)
 
     try do
-      flow = Flow.new(:retry) |> Flow.step(:flaky, Flaky, exec_opts: [max_retries: 1, backoff: 0])
+      flow =
+        Flow.new(:retry)
+        |> Flow.step(:flaky, Flaky)
+        |> Flow.policy(:flaky, %{max_retries: 1, backoff: :none})
 
-      assert {:ok, %Result{workflow: workflow}} = Exec.run(flow, %{key: key})
+      assert {:ok, %Result{workflow: workflow}} =
+               silence_logger(fn ->
+                 Exec.run(flow, %{key: key})
+               end)
+
       assert Workflow.raw_productions(workflow, :flaky) == [%{attempts: 2}]
     after
       :persistent_term.erase(term_key)
     end
+  end
+
+  test "uses Runic timeout policy inside flow steps" do
+    flow =
+      Flow.new(:timeout)
+      |> Flow.step(:slow, Slow)
+      |> Flow.policy(:slow, %{timeout_ms: 10, max_retries: 0, backoff: :none})
+
+    started_at = System.monotonic_time(:millisecond)
+
+    assert {:error,
+            %Result{status: :error, error: %Jido.Action.Error.ExecutionFailureError{} = error}} =
+             silence_logger(fn ->
+               Exec.run(flow, %{})
+             end)
+
+    elapsed_ms = System.monotonic_time(:millisecond) - started_at
+
+    assert elapsed_ms < 150
+    assert error.message == "flow runnable failed"
+    assert error.details.node == :slow
+    assert error.details.reason == {:timeout, 10}
   end
 
   test "returns a structured error when max_cycles is exceeded" do
@@ -190,36 +232,5 @@ defmodule JidoTest.ExecFlowTest do
     assert {:ok, %Result{workflow: workflow}} = Exec.run(Flow.from_workflow(workflow), :tick)
 
     assert :done in Workflow.raw_productions(workflow)
-  end
-
-  test "managed runner starts, resumes, returns results, checkpoints, and stops" do
-    runner = :"jido_runtime_test_#{System.unique_integer([:positive])}"
-    flow_id = {:flow, System.unique_integer([:positive])}
-
-    flow = Flow.new(:managed) |> Flow.step(:add, Add, params: %{amount: 5})
-
-    assert {:ok, _pid} = Runner.start_link(name: runner)
-    assert {:ok, _pid} = Exec.start_flow(runner, flow_id, flow)
-    assert :ok = Exec.resume(runner, flow_id, %{value: 1})
-
-    assert {:ok, workflow} = wait_for_idle(runner, flow_id)
-    assert Workflow.raw_productions(workflow, :add) == [%{value: 6}]
-    assert {:ok, [%{value: 6}]} = Exec.results(runner, flow_id)
-    assert :ok = Exec.checkpoint(runner, flow_id)
-    assert :ok = Exec.stop(runner, flow_id, persist: false)
-  end
-
-  defp wait_for_idle(runner, flow_id, attempts \\ 50)
-  defp wait_for_idle(_runner, _flow_id, 0), do: flunk("managed workflow did not become idle")
-
-  defp wait_for_idle(runner, flow_id, attempts) do
-    {:ok, workflow} = Exec.workflow(runner, flow_id)
-
-    if Workflow.is_runnable?(workflow) do
-      Process.sleep(20)
-      wait_for_idle(runner, flow_id, attempts - 1)
-    else
-      {:ok, workflow}
-    end
   end
 end

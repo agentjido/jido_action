@@ -1,292 +1,309 @@
-# Jido Runic Exec Plan
+# Jido Runic Exec Status
 
-## Intent
+This note records the current execution architecture after the Runic refactor.
+The purpose is to keep `jido_action` from regrowing a second runtime beside
+Runic.
 
-Use Runic as the execution engine while keeping Jido's public model small,
-consistent, and functional.
+## Current Shape
 
-The target concepts are:
+`Jido.Exec` is a Runic-backed facade for flows and raw workflows. It is not a
+direct action runtime.
 
-- `Jido.Action` - validated leaf contract.
-- `Jido.Instruction` - data form of one action invocation.
-- `Jido.Flow` - Jido-native composition value backed by Runic workflow state.
-- `Jido.Exec` - execution facade for actions, instructions, and flows.
+It accepts:
 
-Runic should remain powerful and visible through advanced options and native
-components, but Runic-specific bridge modules should not become separate public
-Jido concepts.
+- `%Jido.Flow{}`
+- `%Runic.Workflow{}`
 
-## Functional Definitions
+It returns:
 
-- `invoke` - call one action once.
-- `attempt` - execute one Runic runnable attempt.
-- `step` - perform one Runic prepare/dispatch/apply cycle.
-- `run` - repeat steps until quiescence, error, halt, or bound.
-- `resume` - continue an existing workflow with new input.
+- `{:ok, %Jido.Exec.Result{}}`
+- `{:error, %Jido.Exec.Result{}}`
+- `{:error, exception}` for validation errors before Runic execution starts
 
-These terms should guide function names, docs, telemetry, and tests.
+The facade surface is intentionally small:
 
-## Target Public Surface
+- `run/1`, `run/2`, and `run/3` execute a flow or workflow to quiescence.
+- `step/1` advances an existing workflow once without new input.
+- `step/3` advances once with explicit input and Runic options.
+- `resume/2` and `resume/3` continue a flow or workflow with new input.
+- `results/1-2`, `events/1-2`, `summary/1`, and `provenance/2` are thin
+  Jido projections over Runic workflow state.
 
-```elixir
-Jido.Exec.run(action, params, context, opts)
-Jido.Exec.run(%Jido.Instruction{}, opts)
-Jido.Exec.run(%Jido.Flow{}, input, opts)
-
-Jido.Exec.step(flow_or_workflow, input \\ nil, opts \\ [])
-Jido.Exec.resume(workflow, input, opts)
-Jido.Exec.results(result_or_workflow, opts)
-Jido.Exec.events(result_or_workflow, opts)
-Jido.Exec.summary(result_or_workflow)
-Jido.Exec.provenance(result_or_workflow, fact_hash)
-```
-
-Runner lifecycle should be explicit if exposed:
+`Jido.Exec.run/2` now treats its second argument as input, including keyword
+lists. Runtime options require `run/3`.
 
 ```elixir
-Jido.Exec.Runner.start_link(opts)
+Jido.Exec.run(flow, [value: 1])
+Jido.Exec.run(flow, %{value: 1}, scheduler_policies: [{:step, %{max_retries: 1}}])
 ```
 
-Avoid `Jido.Exec.start_link/1` unless `Jido.Exec` itself becomes the supervised
-execution engine process.
+`Jido.Exec` uses Hex `runic` public APIs. It does not require the local Runic
+PR that added `Runic.Workflow.RunResult` or `Runic.Workflow.PolicyProvider`.
 
-## Result Shape
+The only module left under `lib/jido_action/exec/` is `Jido.Exec.Result`.
 
-Introduce a Jido result value instead of returning raw Runic workflow state from
-every facade function:
+## Boundary Model
+
+The intended ownership is:
+
+- `Jido.Action`: defines one leaf action contract.
+- `Jido.Instruction`: describes one action call frame: action, params, context.
+- `Jido.Flow.Step`: adapts one instruction into a Runic component.
+- `Jido.Flow`: composes Jido action steps and native Runic components.
+- `Jido.Exec`: runs flows/workflows through Runic and projects results.
+- Runic: owns scheduling, retries, timeouts, fallback, stepping, durable
+  execution, managed runners, and runtime policy.
+
+Raw action execution remains the action module's own contract:
 
 ```elixir
-%Jido.Exec.Result{
-  workflow: workflow,
-  status: :ok | :error | :halted | :max_cycles,
-  results: results,
-  events: events,
-  cycles: cycles,
-  error: error
-}
+{:ok, params} = MyAction.validate_params(params)
+{:ok, output} = MyAction.run(params, context)
+{:ok, output} = MyAction.validate_output(output)
 ```
 
-The result should expose the underlying workflow for advanced Runic usage while
-giving Jido a stable return shape for documentation and compatibility.
+That path has no Jido-owned retry, timeout, async, telemetry, supervision, or
+runtime policy.
 
-## Responsibility Boundaries
+## Implemented Cuts
 
-### Jido Owns
+The following old runtime pieces have been removed:
 
-- Action module contract.
-- Zoi input validation.
-- Zoi output validation.
-- Jido return shape normalization.
-- Jido error structs.
-- Jido telemetry metadata.
-- `Jido.Instruction` normalization.
-- Jido-facing flow construction.
+- direct action `Jido.Exec.run/4`
+- async `run_async/await/cancel`
+- action-level retry and timeout wrappers
+- action execution telemetry
+- context propagator behaviours and no-op propagators
+- task supervisors
+- execution validator/helper modules
+- `Jido.Exec.Introspection`
+- `Jido.Action.Invoke`
 
-### Runic Owns
+The old policy-shaped option slots were also removed:
 
-- Workflow graph state.
-- Runnable prepare/execute/apply mechanics.
-- Dependency activation.
-- Joins, fan-in, stateful components, and state machines.
-- Scheduler policies.
-- Runnable retry and timeout.
-- Fallbacks and failure modes.
-- Runner dispatch, stores, checkpointing, and durable events.
+- `Jido.Instruction.opts`
+- `Jido.Flow.Step.exec_opts`
+- `Jido.Flow.Step.scheduler_policy`
 
-### Jido.Exec Owns
-
-- Translating Jido executable values into Runic execution.
-- Translating Jido options into Runic scheduler policies.
-- Driving step/run/resume semantics.
-- Returning Jido-shaped execution results.
-- Preserving backwards-compatible single-action execution APIs.
-
-## Policy Ownership
-
-Long term, Runic should own retry and timeout policy.
-
-The current single-action `Jido.Exec` retry/timeout loop should be replaced by a
-one-shot action invocation called from Runic runnable execution.
-
-Target behavior:
-
-```text
-Runic retries the runnable.
-Jido invokes the action once per runnable attempt.
-```
-
-Avoid this double policy stack:
-
-```text
-Runic retries N times * Jido.Exec retries M times
-```
-
-## One-Shot Action Invocation
-
-Extract the current leaf-action execution logic into an internal function:
+`Jido.Exec.Result.status` now reflects current local Runic statuses only:
 
 ```elixir
-invoke_action_once(action, params, context, opts)
+:ok | :error | :max_cycles
 ```
 
-It owns:
+## Flow Step Invocation
 
-- normalize params and context
-- validate action module
-- validate params
+`Jido.Flow.Step` contains the only action invocation adapter.
+
+It does:
+
+- validate that the action module is loaded and implements the Jido action
+  surface
+- merge static step params with the incoming Runic fact value
+- merge static step context with Runic `run_context`
+- call `validate_params/1`
 - call `run/2`
-- validate output
-- normalize return shape
-- normalize exceptions
-- emit Jido action telemetry
+- validate successful output with `validate_output/1`
+- normalize exceptions, exits, throws, invalid return shapes, and action error
+  reasons into Jido errors
 
-It must not own:
+It does not do:
 
 - retry
 - timeout
-- async orchestration
-- flow stepping
-- runner lifecycle
+- async
+- telemetry
+- supervision
+- cancellation
+- fallback
 
-`Jido.Flow.Step` should call this one-shot invocation, not the full public
-`Jido.Exec.run/4` facade.
+Those remain Runic policy concerns. This is the key rule: the step adapter may
+perform one action attempt, but it must not become an action runtime.
 
-## Option Translation
+## Directives
 
-Backwards-compatible action options should translate into Runic policy:
-
-```elixir
-timeout: 5_000
-max_retries: 2
-backoff: 250
-```
-
-becomes a default scheduler policy for Jido flow steps.
-
-Policy precedence should be explicit:
-
-```text
-step opts > flow scheduler policies > flow step opts > app config defaults
-```
-
-This precedence needs tests.
-
-## Introspection Placement
-
-Remove separate public `Jido.Runic.Introspection`.
-
-Static flow introspection belongs on `Jido.Flow`:
+Actions may return three-tuples:
 
 ```elixir
-Jido.Flow.components(flow)
-Jido.Flow.node_map(flow)
-Jido.Flow.graph(flow)
+{:ok, result, directives}
+{:error, reason, directives}
 ```
 
-Runtime introspection belongs on `Jido.Exec` or `Jido.Exec.Result`:
+The data plane remains the validated action result. Directives are preserved as
+control-plane metadata.
+
+Successful directive flow:
+
+- `validate_output/1` validates `result`
+- the produced Runic fact value is `result`
+- directives are stored in fact/event metadata
+- `Jido.Exec.Result.directives` projects them as flat entries
+
+Failed directive flow:
+
+- the runnable fails with the normalized action error
+- directives are attached to the normalized error details
+- `Jido.Exec.Result.directives` exposes them without executing them
+
+Current projection shape:
 
 ```elixir
-Jido.Exec.results(result_or_workflow)
-Jido.Exec.events(result_or_workflow)
-Jido.Exec.summary(result_or_workflow)
-Jido.Exec.provenance(result_or_workflow, fact_hash)
+%Jido.Exec.Result{
+  directives: [
+    %{step: :send_email, status: :ok, fact_hash: fact_hash, directives: directives}
+  ]
+}
 ```
 
-## Runnable Execution Placement
+`jido_action` preserves directives; it does not interpret or execute them.
 
-Remove separate public `Jido.Runic.RunnableExecution`.
+## Single Action Sugar
 
-Use Runic's `PolicyDriver` from `Jido.Exec.step/3` so runnable retry, timeout,
-fallback, and durable events are all handled by Runic.
+Direct actions are not accepted by `Jido.Exec`.
 
-Any remaining crash normalization should be private to `Jido.Exec` or handled by
-Runic policy execution.
-
-## Non-Determinism
-
-`Jido.Exec` should expose non-determinism instead of hiding it.
-
-A step is:
-
-```text
-workflow_state + input/event + execution_policy
-  -> runnable_set
-  -> executed_runnables
-  -> events
-  -> new_workflow_state
-```
-
-The guarantee:
-
-```text
-Exec deterministically applies known runnable results to workflow state.
-Exec does not make concurrent work, external I/O, retries, timeouts, or LLM calls deterministic.
-```
-
-For non-deterministic flows, the durable record is workflow state, runnable
-events, and produced facts.
-
-## Async And Runner
-
-`Jido.Exec.run_async/4`, `await/1,2`, and `cancel/1` can remain for
-single-action compatibility.
-
-The preferred async and managed execution path for flows should be Runner-backed:
+The supported ergonomic path is explicit one-step flow construction:
 
 ```elixir
-Jido.Exec.Runner.start_link(opts)
-Jido.Exec.start_flow(runner, flow_id, flow, opts)
-Jido.Exec.resume(runner, flow_id, input, opts)
-Jido.Exec.results(runner, flow_id, opts)
-Jido.Exec.checkpoint(runner, flow_id)
-Jido.Exec.stop(runner, flow_id, opts)
+flow = Jido.Flow.single(MyAction, %{value: 1}, context: %{tenant_id: "t1"})
+{:ok, result} = Jido.Exec.run(flow, %{})
 ```
 
-This keeps the process boundary explicit while keeping `Jido.Exec` as the
-execution facade.
+`Jido.Flow.from_action/3` and `Jido.Flow.single/3` compile an action module or
+`%Jido.Instruction{}` into a one-step Runic workflow. The return shape stays
+`%Jido.Exec.Result{}` because execution still goes through Runic.
 
-## Migration Plan
+This avoids reviving the old direct action tuple API while keeping the useful
+"run one action through policy" ergonomics available.
 
-1. Move flow execution facade behavior from `Jido.Runtime` into `Jido.Exec`.
-2. Add `Jido.Exec.Result`.
-3. Extract one-shot action invocation from the current `Jido.Exec.run/4`.
-4. Change `Jido.Flow.Step` to invoke actions once instead of calling the full
-   public `Jido.Exec.run/4`.
-5. Translate legacy `timeout`, `max_retries`, and `backoff` options into Runic
-   scheduler policies.
-6. Replace the custom runnable execution helper with Runic `PolicyDriver`.
-7. Fold static introspection into `Jido.Flow`.
-8. Fold runtime introspection into `Jido.Exec` or `Jido.Exec.Result`.
-9. Introduce explicit runner lifecycle under `Jido.Exec.Runner` if needed.
-10. Deprecate or remove `Jido.Runtime`.
-11. Update README, usage rules, and guides around the final four concepts:
-    `Action`, `Instruction`, `Flow`, and `Exec`.
+## Runtime Policy
 
-## Suggested Commit Order
+Runic owns retry, timeout, fallback, scheduling, durable execution, and managed
+runner behavior.
 
-1. `refactor: move flow execution facade into jido exec`
-2. `feat: add jido exec result`
-3. `refactor: extract one-shot action invocation`
-4. `refactor: execute flow steps through one-shot invocation`
-5. `refactor: translate exec policy options to runic policies`
-6. `refactor: replace runnable execution helper with runic policy driver`
-7. `refactor: fold runic introspection into flow and exec`
-8. `docs: document runic-powered exec architecture`
+Jido can provide policy to Runic through:
 
-## End State
+- `Jido.Flow.policy/3`, keyed by component name, type, or Runic matcher
+- workflow scheduler policies on the underlying `%Runic.Workflow{}`
+- runtime `:scheduler_policies` passed to `Jido.Exec.run/3` or `step/3`
 
-```text
-Jido.Action       leaf contract
-Jido.Instruction  invocation data
-Jido.Flow         composition and workflow state
-Jido.Exec         Runic-powered execution facade
-Runic             execution engine underneath
-```
+The tested precedence is:
 
-Guiding rule:
+1. Runic defaults
+2. named flow/workflow scheduler policy
+3. runtime `:scheduler_policies`
 
-```text
-Jido names the domain.
-Runic powers execution.
-Exec is the bridge.
-```
+The important proof is that `Jido.Flow.Step` participates in Runic policy:
+
+- retry policy retries failed action attempts
+- timeout policy interrupts a blocking action attempt and returns a failed
+  runnable instead of hanging the caller
+
+Zack's Runic PR feedback reinforced this boundary: scheduling/runtime policy
+belongs outside functional components. `Jido.Flow.Step` is named so external
+Runic policy can match it; it does not expose a component-owned policy provider.
+
+## Remaining Sharp Edges
+
+### Jido Owns Result Projection
+
+Hex Runic returns updated workflows from `react/3` and
+`react_until_satisfied/3`, not structured run results. To keep relying on Hex,
+`Jido.Exec` runs a narrow public-API loop:
+
+- prepare runnables through `Runic.Workflow.prepare_for_dispatch/1`
+- execute each runnable through `Runic.Workflow.PolicyDriver`
+- apply results with `Runic.Workflow.apply_runnable/2`
+- project status, errors, cycles, events, and directives into
+  `Jido.Exec.Result`
+
+This is not a second scheduler. Runic still owns runnable policy execution. The
+risk is that Jido's loop could drift from Runic's own `react/3` semantics if
+Runic changes its dispatch/apply contract.
+
+### Flow Step Is A Small But Important Boundary
+
+The action invocation code now lives in `Jido.Flow.Step`. That is simpler than a
+separate internal invoke module, but it also concentrates several concerns in
+one file: schema, Runic protocols, port derivation, and one-attempt invocation.
+
+This is acceptable only while the invocation code stays policy-free. If retry,
+timeout, async, telemetry, fallback, or cancellation reappears here, the old
+runtime is coming back under a new name.
+
+### Directives Need A Downstream Owner
+
+The current design preserves directives but does not define their semantics.
+That is the right boundary for this package, but another package or layer must
+decide what a directive means.
+
+Open questions for that layer:
+
+- Are directives ordered globally, per step, or per fact?
+- Are directives durable events, signals, instructions, or agent commands?
+- Should failed-step directives be visible to fallback handlers?
+- Should directives be typed structs instead of arbitrary terms?
+
+Until those answers exist, `Jido.Exec.Result.directives` should remain a
+projection, not a command bus.
+
+### Context Is Still A Thin Map
+
+`Jido.Instruction.context`, `Jido.Flow.Step.context`, and Runic `run_context`
+are merged into one action context map.
+
+That is pragmatic, but it is not a rich context propagation model. If tracing,
+tenancy, cancellation, deadlines, or security boundaries become first-class
+runtime concerns, prefer Runic-owned context/deadline mechanisms over adding
+another Jido propagator layer.
+
+### Managed Runner APIs Stay In Runic
+
+`Jido.Exec` is local execution sugar. Managed lifecycle APIs should stay on
+Runic unless Jido has a concrete domain projection to add.
+
+The current guidance is:
+
+- use `Jido.Flow` to build the workflow
+- use `Jido.Exec` for local execution and result projection
+- use `Runic.Runner` directly for managed workflow lifecycle
+
+### Flow Script Is Still Experimental
+
+`Jido.Flow.Script` is an untrusted-input parser spike. It compiles restricted
+Elixir-shaped syntax into `Jido.Flow`; it does not evaluate, compile,
+macro-expand, or invoke user code.
+
+It should remain separate from the execution refactor until the IR and control
+flow model are settled.
+
+## Non-Goals
+
+- Reintroducing direct action tuple-compatible `Jido.Exec.run/4`.
+- Reintroducing `run_async/await/cancel`.
+- Recreating action-level retry/timeout outside Runic.
+- Reintroducing context propagator behaviours in `jido_action`.
+- Treating `jido_action` as an agent runtime.
+- Promoting a public action invocation API.
+- Adding tuple-compatible shims for the old direct action `Jido.Exec` API.
+- Treating action directives as workflow data-plane values.
+
+## Verification
+
+The refactor is covered by focused tests for:
+
+- flow and raw Runic workflow facade dispatch
+- rejection of direct action execution through `Jido.Exec`
+- one-step flow sugar
+- three-tuple directive preservation for success and error paths
+- Runic retry policy over `Jido.Flow.Step`
+- Runic timeout policy over `Jido.Flow.Step`
+- max-cycle errors
+- result schema validation
+- policy precedence
+- flow script compilation
+
+The strongest regression tests are:
+
+- `test/jido_action/runtime_test.exs`
+- `test/jido_action/flow_step_test.exs`
+- `test/jido_action/exec_facade_test.exs`

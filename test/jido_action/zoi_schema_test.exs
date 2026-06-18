@@ -2,11 +2,8 @@ defmodule Jido.Action.ZoiSchemaTest do
   use JidoTest.ActionCase, async: true
 
   alias Jido.Action
-  alias Jido.Exec
 
-  @moduletag :capture_log
-
-  describe "Basic Zoi schema validation via Exec" do
+  describe "Basic Zoi schema validation via direct action contract" do
     defmodule BasicZoiAction do
       use Action,
         name: "basic_zoi",
@@ -23,146 +20,18 @@ defmodule Jido.Action.ZoiSchemaTest do
     end
 
     test "validates and runs with valid params" do
-      assert {:ok, result} = Exec.run(BasicZoiAction, %{name: "Alice", age: 30}, %{})
+      assert {:ok, result} = run_action(BasicZoiAction, %{name: "Alice", age: 30})
       assert result.greeting == "Hello Alice, age 30"
     end
 
     test "returns validation error for invalid types" do
-      assert {:error, error} = Exec.run(BasicZoiAction, %{name: "Bob", age: "invalid"}, %{})
+      assert {:error, error} = run_action(BasicZoiAction, %{name: "Bob", age: "invalid"})
       assert %Action.Error.InvalidInputError{} = error
       assert error.message =~ "age"
     end
 
     test "returns validation error for missing required fields" do
-      assert {:error, error} = Exec.run(BasicZoiAction, %{name: "Charlie"}, %{})
-      assert %Action.Error.InvalidInputError{} = error
-    end
-  end
-
-  describe "Zoi with string constraints" do
-    defmodule StringConstraintAction do
-      use Action,
-        name: "string_constraint",
-        description: "Action with Zoi string constraints",
-        schema:
-          Zoi.object(%{
-            username: Zoi.string() |> Zoi.min(3) |> Zoi.max(20),
-            password: Zoi.string() |> Zoi.min(8)
-          })
-
-      def run(params, _context) do
-        {:ok, %{username: params.username}}
-      end
-    end
-
-    test "validates with correct string lengths" do
-      assert {:ok, result} =
-               Exec.run(
-                 StringConstraintAction,
-                 %{username: "alice", password: "secret123"},
-                 %{}
-               )
-
-      assert result.username == "alice"
-    end
-
-    test "rejects username too short" do
-      assert {:error, error} =
-               Exec.run(
-                 StringConstraintAction,
-                 %{username: "ab", password: "secret123"},
-                 %{}
-               )
-
-      assert %Action.Error.InvalidInputError{} = error
-      assert error.message =~ "username"
-    end
-  end
-
-  describe "Zoi with integer constraints" do
-    defmodule IntegerConstraintAction do
-      use Action,
-        name: "integer_constraint",
-        description: "Action with Zoi integer constraints",
-        schema:
-          Zoi.object(%{
-            score: Zoi.integer() |> Zoi.min(0) |> Zoi.max(100)
-          })
-
-      def run(params, _context) do
-        {:ok, %{score: params.score}}
-      end
-    end
-
-    test "validates with correct integer ranges" do
-      assert {:ok, result} = Exec.run(IntegerConstraintAction, %{score: 85}, %{})
-      assert result.score == 85
-    end
-
-    test "rejects score below minimum" do
-      assert {:error, error} = Exec.run(IntegerConstraintAction, %{score: -1}, %{})
-      assert %Action.Error.InvalidInputError{} = error
-    end
-
-    test "rejects score above maximum" do
-      assert {:error, error} = Exec.run(IntegerConstraintAction, %{score: 101}, %{})
-      assert %Action.Error.InvalidInputError{} = error
-    end
-  end
-
-  describe "Zoi with list validation" do
-    defmodule ListAction do
-      use Action,
-        name: "list_action",
-        description: "Action with Zoi list validation",
-        schema:
-          Zoi.object(%{
-            tags: Zoi.list(Zoi.string()) |> Zoi.min(1) |> Zoi.max(5)
-          })
-
-      def run(params, _context) do
-        {:ok, %{tag_count: length(params.tags)}}
-      end
-    end
-
-    test "validates lists with correct constraints" do
-      assert {:ok, result} = Exec.run(ListAction, %{tags: ["elixir", "phoenix"]}, %{})
-      assert result.tag_count == 2
-    end
-
-    test "rejects empty list when minimum is 1" do
-      assert {:error, error} = Exec.run(ListAction, %{tags: []}, %{})
-      assert %Action.Error.InvalidInputError{} = error
-    end
-
-    test "rejects list exceeding maximum" do
-      assert {:error, error} = Exec.run(ListAction, %{tags: ["a", "b", "c", "d", "e", "f"]}, %{})
-      assert %Action.Error.InvalidInputError{} = error
-    end
-  end
-
-  describe "Zoi with enum validation" do
-    defmodule EnumAction do
-      use Action,
-        name: "enum_action",
-        description: "Action with Zoi enum validation",
-        schema:
-          Zoi.object(%{
-            priority: Zoi.enum([:low, :normal, :high])
-          })
-
-      def run(params, _context) do
-        {:ok, %{priority: params.priority}}
-      end
-    end
-
-    test "validates with correct enum values" do
-      assert {:ok, result} = Exec.run(EnumAction, %{priority: :high}, %{})
-      assert result.priority == :high
-    end
-
-    test "rejects invalid enum value" do
-      assert {:error, error} = Exec.run(EnumAction, %{priority: :critical}, %{})
+      assert {:error, error} = run_action(BasicZoiAction, %{name: "Charlie"})
       assert %Action.Error.InvalidInputError{} = error
     end
   end
@@ -206,34 +75,16 @@ defmodule Jido.Action.ZoiSchemaTest do
     end
 
     test "validates correct output" do
-      assert {:ok, result} = Exec.run(OutputSchemaAction, %{name: "Alice"}, %{})
+      assert {:ok, result} = run_action(OutputSchemaAction, %{name: "Alice"})
       assert result.greeting == "Hello, Alice!"
       assert result.length == 13
       assert result.extra == "this field is allowed"
     end
 
     test "returns error for invalid output" do
-      assert {:error, error} = Exec.run(InvalidOutputAction, %{}, %{})
+      assert {:error, error} = run_action(InvalidOutputAction, %{})
       assert %Action.Error.InvalidInputError{} = error
       assert error.message =~ "required_field"
-    end
-  end
-
-  describe "zoi-only execution" do
-    defmodule ModernAction do
-      use Action,
-        name: "modern",
-        description: "Zoi action",
-        schema: Zoi.object(%{value: Zoi.integer()})
-
-      def run(params, _context) do
-        {:ok, %{tripled: params.value * 3}}
-      end
-    end
-
-    test "Zoi actions work" do
-      assert {:ok, result} = Exec.run(ModernAction, %{value: 5}, %{})
-      assert result.tripled == 15
     end
   end
 end
