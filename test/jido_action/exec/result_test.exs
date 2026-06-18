@@ -4,7 +4,7 @@ defmodule JidoTest.ExecResultTest do
   alias Jido.Exec
   alias Jido.Exec.Result
   alias Jido.Flow
-  alias JidoTest.TestActions.Add
+  alias JidoTest.TestActions.{Add, FlowFunctions}
   alias Runic.Workflow
 
   describe "result schema" do
@@ -89,6 +89,27 @@ defmodule JidoTest.ExecResultTest do
       assert Exception.message(error) =~ "unsupported event options"
     end
 
+    test "default results hide Runic internal primitive nodes" do
+      flow =
+        Flow.new(:map_projection)
+        |> Flow.map(:double_each, {FlowFunctions, :double})
+
+      assert {:ok, %Result{} = result} = Exec.run(flow, [1, 2, 3])
+
+      internal_names =
+        result.workflow
+        |> Workflow.components()
+        |> Map.keys()
+        |> Enum.filter(&internal_runic_name?/1)
+
+      assert internal_names != []
+      assert Exec.results(result) == %{double_each: [2, 4, 6]}
+      assert Exec.results(result, raw: false) == %{double_each: [2, 4, 6]}
+      assert Exec.results(result, refresh: true) == %{double_each: [2, 4, 6]}
+      assert Exec.results(result, components: internal_names) == %{}
+      assert Exec.results(result, raw: true) == [2, 4, 6]
+    end
+
     test "reject non-result values in result helper functions" do
       assert {:error, %Jido.Action.Error.InvalidInputError{} = error} = Exec.results(:not_result)
       assert Exception.message(error) == "expected a Jido.Exec.Result"
@@ -110,4 +131,7 @@ defmodule JidoTest.ExecResultTest do
       assert Exception.message(error) == "expected a Jido.Exec.Result"
     end
   end
+
+  defp internal_runic_name?("step_" <> _suffix), do: true
+  defp internal_runic_name?(_name), do: false
 end

@@ -8,10 +8,8 @@ defmodule Jido.Flow.Validator do
   @spec validate_component_name(term(), keyword()) :: :ok | {:error, String.t()}
   def validate_component_name(value, _opts \\ [])
   def validate_component_name(value, _opts) when is_atom(value) and not is_nil(value), do: :ok
-  def validate_component_name(value, _opts) when is_binary(value) and value != "", do: :ok
   def validate_component_name(value, _opts) when is_atom(value), do: {:error, "cannot be nil"}
-  def validate_component_name(value, _opts) when is_binary(value), do: {:error, "cannot be empty"}
-  def validate_component_name(_value, _opts), do: {:error, "must be an atom or string"}
+  def validate_component_name(_value, _opts), do: {:error, "must be an atom"}
 
   @doc false
   @spec validate_optional_component_name(term(), keyword()) :: :ok | {:error, String.t()}
@@ -32,7 +30,7 @@ defmodule Jido.Flow.Validator do
         :ok
 
       true ->
-        {:error, "must contain only atom or string names"}
+        {:error, "must contain only atom names"}
     end
   end
 

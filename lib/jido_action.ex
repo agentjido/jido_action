@@ -95,7 +95,7 @@ defmodule Jido.Action do
   > downstream Actions or systems.
   """
 
-  alias Jido.Action.Error
+  alias Jido.Action.{Error, Output}
 
   @max_action_name_bytes 256
 
@@ -447,11 +447,16 @@ defmodule Jido.Action do
 
   - `{:ok, result}` where `result` is a map containing the action's output.
   - `{:ok, result, extras}` where `result` is a map and `extras` is additional data (e.g., directives).
+  - `{:ok, output}` where `output` is an explicit `Jido.Action.Output` envelope for raw, stream, batch, or opaque success values.
+  - `{:ok, output, extras}` where `output` is an explicit `Jido.Action.Output` envelope and `extras` is additional data.
   - `{:error, reason}` where `reason` describes why the action failed.
   - `{:error, reason, extras}` where `extras` is additional data (e.g., directives).
   """
   @callback run(params :: map(), context :: map()) ::
-              {:ok, map()} | {:ok, map(), any()} | {:error, any()} | {:error, any(), any()}
+              {:ok, map() | Output.t()}
+              | {:ok, map() | Output.t(), any()}
+              | {:error, any()}
+              | {:error, any(), any()}
 
   @doc """
   Raises an error indicating that Actions cannot be defined at runtime.

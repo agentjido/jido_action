@@ -2,12 +2,16 @@ defmodule JidoTest.FlowStepTest do
   use JidoTest.ActionCase, async: false
 
   alias Jido.Exec
+  alias Jido.Action.Output
   alias Jido.Flow
   alias Jido.Flow.Step
   alias Jido.Instruction
 
   alias JidoTest.TestActions.{
     Add,
+    BareListSuccess,
+    BareStreamSuccess,
+    BatchOutputAction,
     ContextEcho,
     EmptyDirective,
     ErrorExceptionAction,
@@ -20,11 +24,15 @@ defmodule JidoTest.FlowStepTest do
     InvalidOutputWithDirective,
     InvalidValidateOutputReturn,
     InvalidValidateParamsReturn,
+    MalformedOutputEnvelope,
     ManualNoSchema,
     MissingRun,
+    OpaqueOutputWithDirective,
     OptionalInput,
+    RawOutputAction,
     RaisingAction,
     ScalarSchema,
+    StreamOutputAction,
     UnexpectedReturn,
     ValidateParamsError,
     WithDirective
@@ -98,7 +106,7 @@ defmodule JidoTest.FlowStepTest do
 
     step =
       Step.new(instruction, %{amount: 3},
-        name: "add",
+        name: :add,
         context: %{tenant_id: "tenant"}
       )
 
@@ -232,6 +240,60 @@ defmodule JidoTest.FlowStepTest do
 
     assert executed.status == :failed
     assert %Jido.Action.Error.InvalidInputError{} = executed.error
+  end
+
+  test "bypasses output schema for explicit abnormal output envelopes" do
+    raw = Step.new(RawOutputAction, %{}, name: :raw) |> prepare(%{}) |> execute()
+    stream = Step.new(StreamOutputAction, %{}, name: :stream) |> prepare(%{}) |> execute()
+    batch = Step.new(BatchOutputAction, %{}, name: :batch) |> prepare(%{}) |> execute()
+
+    assert raw.status == :completed
+    assert raw.result.value == %Output{kind: :raw, value: [1, 2, 3], meta: %{source: :test}}
+
+    assert stream.status == :completed
+    assert %Output{kind: :stream, value: stream_value, meta: %{}} = stream.result.value
+    assert Enum.to_list(stream_value) == [2, 4, 6]
+
+    assert batch.status == :completed
+
+    assert batch.result.value == %Output{
+             kind: :batch,
+             value: [%{value: 1}, %{value: 2}],
+             meta: %{}
+           }
+  end
+
+  test "preserves directives for abnormal output envelopes" do
+    step = Step.new(OpaqueOutputWithDirective, %{}, name: :opaque_directive)
+
+    executed =
+      step
+      |> prepare(%{})
+      |> execute()
+
+    assert executed.status == :completed
+    assert %Output{kind: :opaque, value: {:external, pid}, meta: %{}} = executed.result.value
+    assert is_pid(pid)
+    assert executed.result.meta.jido_directives == %{next: :flow}
+    assert executed.result.meta.jido_step == :opaque_directive
+    assert executed.result.meta.jido_status == :ok
+  end
+
+  test "rejects malformed envelopes and bare abnormal successes" do
+    malformed = Step.new(MalformedOutputEnvelope, %{}, name: :malformed)
+    bare_list = Step.new(BareListSuccess, %{}, name: :bare_list)
+    bare_stream = Step.new(BareStreamSuccess, %{}, name: :bare_stream)
+
+    assert %{status: :failed, error: malformed_error} = malformed |> prepare(%{}) |> execute()
+    assert malformed_error.message == "invalid action output envelope"
+
+    assert %{status: :failed, error: list_error} = bare_list |> prepare(%{}) |> execute()
+    assert list_error.message == "unexpected action return shape"
+    assert list_error.details.value == {:ok, [1, 2, 3]}
+
+    assert %{status: :failed, error: stream_error} = bare_stream |> prepare(%{}) |> execute()
+    assert stream_error.message == "unexpected action return shape"
+    assert match?({:ok, %Stream{}}, stream_error.details.value)
   end
 
   test "preserves directives when three-tuple output validation fails" do

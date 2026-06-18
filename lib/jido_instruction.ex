@@ -99,11 +99,17 @@ defmodule Jido.Instruction do
   @doc false
   @spec derive_action_name(module()) :: atom()
   def derive_action_name(action) do
-    action
-    |> Module.split()
-    |> List.last()
-    |> Macro.underscore()
-    |> String.to_atom()
+    derived_name =
+      action
+      |> Module.split()
+      |> List.last()
+      |> Macro.underscore()
+
+    String.to_existing_atom(derived_name)
+  rescue
+    ArgumentError ->
+      raise ArgumentError,
+            "could not derive action name without creating a new atom from #{inspect(action)}; pass an explicit atom name"
   end
 
   @spec normalize_map!(term(), atom()) :: map()

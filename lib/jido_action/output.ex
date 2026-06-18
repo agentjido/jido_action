@@ -1,0 +1,128 @@
+defmodule Jido.Action.Output do
+  @moduledoc """
+  Explicit envelope for abnormal successful action outputs.
+
+  Normal action success values are map-shaped and validated by the action's
+  `output_schema`. Use this envelope only when a successful action must return
+  a raw, stream, batch, or opaque value intentionally.
+  """
+
+  alias Jido.Action.Error
+
+  @kinds [:raw, :stream, :batch, :opaque]
+
+  @schema Zoi.struct(
+            __MODULE__,
+            %{
+              kind: Zoi.enum(@kinds, description: "Abnormal output kind"),
+              value: Zoi.any(description: "Abnormal output value"),
+              meta: Zoi.map(description: "Output metadata") |> Zoi.default(%{})
+            },
+            coerce: true
+          )
+
+  @type kind :: :raw | :stream | :batch | :opaque
+  @type t :: unquote(Zoi.type_spec(@schema))
+
+  @enforce_keys Zoi.Struct.enforce_keys(@schema)
+  defstruct Zoi.Struct.struct_fields(@schema)
+
+  @doc """
+  Builds an explicit raw output envelope.
+  """
+  @spec raw(term(), keyword()) :: t()
+  def raw(value, opts \\ []), do: build!(:raw, value, opts)
+
+  @doc """
+  Builds an explicit stream output envelope.
+  """
+  @spec stream(Enumerable.t(), keyword()) :: t()
+  def stream(enumerable, opts \\ []), do: build!(:stream, enumerable, opts)
+
+  @doc """
+  Builds an explicit batch output envelope.
+  """
+  @spec batch(list(), keyword()) :: t()
+  def batch(values, opts \\ []), do: build!(:batch, values, opts)
+
+  @doc """
+  Builds an explicit opaque output envelope.
+  """
+  @spec opaque(term(), keyword()) :: t()
+  def opaque(value, opts \\ []), do: build!(:opaque, value, opts)
+
+  @doc false
+  @spec validate(term()) :: {:ok, t()} | {:error, Error.InvalidInputError.t()}
+  def validate(%__MODULE__{} = output) do
+    output
+    |> Map.from_struct()
+    |> parse()
+    |> validate_kind_value(output)
+  end
+
+  def validate(output), do: invalid(output)
+
+  defp build!(kind, value, opts) do
+    meta = meta_opts!(opts)
+
+    case validate(%__MODULE__{kind: kind, value: value, meta: meta}) do
+      {:ok, output} ->
+        output
+
+      {:error, error} ->
+        raise ArgumentError, Exception.message(error)
+    end
+  end
+
+  defp meta_opts!(opts) when is_list(opts) do
+    unless Keyword.keyword?(opts) do
+      raise ArgumentError, "invalid action output envelope"
+    end
+
+    {meta, opts} = Keyword.pop(opts, :meta, %{})
+
+    if opts != [] do
+      raise ArgumentError, "invalid action output envelope"
+    end
+
+    meta
+  end
+
+  defp meta_opts!(_opts), do: raise(ArgumentError, "invalid action output envelope")
+
+  defp parse(attrs) do
+    case Zoi.parse(@schema, attrs) do
+      {:ok, output} ->
+        {:ok, output}
+
+      {:error, errors} ->
+        {:error, errors}
+    end
+  end
+
+  defp validate_kind_value({:ok, %__MODULE__{kind: :stream, value: value} = output}, original) do
+    if Enumerable.impl_for(value) do
+      {:ok, output}
+    else
+      invalid(original)
+    end
+  end
+
+  defp validate_kind_value({:ok, %__MODULE__{kind: :batch, value: value} = output}, original) do
+    if is_list(value) do
+      {:ok, output}
+    else
+      invalid(original)
+    end
+  end
+
+  defp validate_kind_value({:ok, %__MODULE__{} = output}, _original), do: {:ok, output}
+  defp validate_kind_value({:error, _errors}, original), do: invalid(original)
+
+  defp invalid(value) do
+    {:error,
+     Error.validation_error("invalid action output envelope", %{
+       value: value
+     })}
+  end
+end

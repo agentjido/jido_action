@@ -26,8 +26,11 @@ defmodule Jido.Exec do
 
   Bare actions are converted to one-step flows with empty params. Instructions
   are converted to one-step flows using their embedded params and context.
-  Runtime execution options are Runic workflow options. Use `:run_context` for
-  runtime context and `:scheduler_policies` for runtime policy overrides.
+  Use `:run_context` for runtime context and `:scheduler_policies` for runtime
+  policy overrides. Flat `:run_context` maps are treated as global Jido action
+  context. Runic-shaped context remains available with `:_global` or
+  component-name keys. Bare actions and instructions may pass `:name` to choose
+  the one-step flow component name explicitly.
   """
   @spec run(executable()) :: {:ok, Result.t()} | {:error, Result.t()} | {:error, Exception.t()}
   def run(%Flow{} = flow), do: run_flow(flow, @no_input, [])
@@ -91,8 +94,15 @@ defmodule Jido.Exec do
   def step(other, _input, _opts), do: unsupported_executable(other)
 
   @doc """
-  Continues a local execution result with new input and runs it to quiescence.
+  Continues a local execution result and runs it to quiescence.
+
+  If no input is supplied, queued work resumes without adding a new runtime
+  fact. Supplying input appends a new fact before continuing.
   """
+  @spec resume(Result.t()) :: {:ok, Result.t()} | {:error, Result.t()} | {:error, Exception.t()}
+  def resume(%Result{} = result), do: resume(result, @no_input, [])
+  def resume(other), do: unsupported_result(other)
+
   @spec resume(Result.t(), term(), keyword()) ::
           {:ok, Result.t()} | {:error, Result.t()} | {:error, Exception.t()}
   def resume(%Result{} = result, input), do: resume(result, input, [])
@@ -169,13 +179,19 @@ defmodule Jido.Exec do
   end
 
   defp run_instruction(%Instruction{} = instruction, input, opts) do
-    with {:ok, flow} <- one_step_flow(instruction) do
+    {name, opts} = Keyword.pop(opts, :name)
+
+    with :ok <- validate_direct_action_contract(instruction.action),
+         {:ok, flow} <- one_step_flow(instruction, name) do
       run_flow(flow, one_step_input(input), opts)
     end
   end
 
   defp run_action(action, params, opts) do
-    with {:ok, flow} <- one_step_flow(action, params) do
+    {name, opts} = Keyword.pop(opts, :name)
+
+    with :ok <- validate_direct_action_contract(action),
+         {:ok, flow} <- one_step_flow(action, params, name) do
       run_flow(flow, %{}, opts)
     end
   end
@@ -190,13 +206,19 @@ defmodule Jido.Exec do
   end
 
   defp step_instruction(%Instruction{} = instruction, input, opts) do
-    with {:ok, flow} <- one_step_flow(instruction) do
+    {name, opts} = Keyword.pop(opts, :name)
+
+    with :ok <- validate_direct_action_contract(instruction.action),
+         {:ok, flow} <- one_step_flow(instruction, name) do
       step_flow(flow, one_step_input(input), opts)
     end
   end
 
   defp step_action(action, params, opts) do
-    with {:ok, flow} <- one_step_flow(action, params) do
+    {name, opts} = Keyword.pop(opts, :name)
+
+    with :ok <- validate_direct_action_contract(action),
+         {:ok, flow} <- one_step_flow(action, params, name) do
       step_flow(flow, %{}, opts)
     end
   end
@@ -235,9 +257,26 @@ defmodule Jido.Exec do
 
   defp maybe_apply_run_context(workflow, opts) do
     case Keyword.get(opts, :run_context) do
-      nil -> workflow
-      context when is_map(context) -> Workflow.put_run_context(workflow, context)
+      nil ->
+        workflow
+
+      context when is_map(context) ->
+        Workflow.put_run_context(workflow, normalize_run_context(workflow, context))
     end
+  end
+
+  defp normalize_run_context(%Workflow{} = workflow, context) do
+    if runic_context?(workflow, context) do
+      context
+    else
+      %{_global: context}
+    end
+  end
+
+  defp runic_context?(%Workflow{} = workflow, context) do
+    Map.has_key?(context, :_global) or
+      Map.has_key?(context, "_global") or
+      Enum.any?(Map.keys(Workflow.components(workflow)), &Map.has_key?(context, &1))
   end
 
   defp maybe_plan_input(%Workflow{} = workflow, @no_input), do: workflow
@@ -569,18 +608,8 @@ defmodule Jido.Exec do
 
   defp do_results(flow_or_workflow, opts) when is_list(opts) do
     workflow = result_workflow(flow_or_workflow)
-    components = Keyword.get(opts, :components)
 
-    cond do
-      Keyword.get(opts, :raw, false) ->
-        Workflow.raw_productions(workflow)
-
-      is_list(components) ->
-        Workflow.results(workflow, components, opts)
-
-      true ->
-        Workflow.results(workflow, nil, opts)
-    end
+    Result.workflow_results(workflow, opts)
   end
 
   defp do_events(%Result{events: events, workflow: workflow}, opts) when is_list(opts) do
@@ -647,18 +676,31 @@ defmodule Jido.Exec do
 
   defp result_workflow(%Workflow{} = workflow), do: workflow
 
-  defp one_step_flow(%Instruction{} = instruction) do
-    {:ok, Flow.from_action(instruction)}
+  defp one_step_flow(%Instruction{} = instruction, name) do
+    {:ok, Flow.from_action(instruction, %{}, one_step_name_opts(name))}
   rescue
     error in [ArgumentError] ->
       {:error, Error.validation_error(Exception.message(error), %{value: instruction})}
   end
 
-  defp one_step_flow(action, params) when is_atom(action) and not is_nil(action) do
-    {:ok, Flow.from_action(action, params)}
+  defp one_step_flow(action, params, name) when is_atom(action) and not is_nil(action) do
+    {:ok, Flow.from_action(action, params, one_step_name_opts(name))}
   rescue
     error in [ArgumentError] ->
       {:error, Error.validation_error(Exception.message(error), %{value: action})}
+  end
+
+  defp one_step_name_opts(nil), do: []
+  defp one_step_name_opts(name), do: [name: name]
+
+  defp validate_direct_action_contract(action) do
+    case Instruction.validate_action_contract(action) do
+      :ok ->
+        :ok
+
+      {:error, error} ->
+        {:error, error}
+    end
   end
 
   defp one_step_input(@no_input), do: %{}

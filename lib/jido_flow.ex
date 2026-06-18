@@ -47,8 +47,8 @@ defmodule Jido.Flow do
             coerce: true
           )
 
-  @type name :: atom() | String.t() | nil
-  @type dependency :: atom() | String.t() | [atom() | String.t()] | nil
+  @type name :: atom() | nil
+  @type dependency :: atom() | [atom()] | nil
   @typedoc """
   Callable reference for Flow primitives.
 
@@ -63,7 +63,7 @@ defmodule Jido.Flow do
 
   @type step_entry :: %{
           required(:type) => :step,
-          required(:name) => atom() | String.t(),
+          required(:name) => atom(),
           required(:action) => module(),
           required(:params) => map(),
           required(:context) => map(),
@@ -72,7 +72,7 @@ defmodule Jido.Flow do
 
   @type map_entry :: %{
           required(:type) => :map,
-          required(:name) => atom() | String.t(),
+          required(:name) => atom(),
           required(:mapper) => callable_ref(),
           required(:inputs) => keyword() | nil,
           required(:outputs) => keyword() | nil,
@@ -81,10 +81,10 @@ defmodule Jido.Flow do
 
   @type reduce_entry :: %{
           required(:type) => :reduce,
-          required(:name) => atom() | String.t(),
+          required(:name) => atom(),
           required(:init) => term(),
           required(:reducer) => callable_ref(),
-          required(:map) => atom() | String.t() | nil,
+          required(:map) => atom() | nil,
           required(:inputs) => keyword() | nil,
           required(:outputs) => keyword() | nil,
           required(:after) => dependency()
@@ -92,7 +92,7 @@ defmodule Jido.Flow do
 
   @type accumulate_entry :: %{
           required(:type) => :accumulate,
-          required(:name) => atom() | String.t(),
+          required(:name) => atom(),
           required(:init) => term(),
           required(:reducer) => callable_ref(),
           required(:inputs) => keyword() | nil,
@@ -102,7 +102,7 @@ defmodule Jido.Flow do
 
   @type workflow_entry :: %{
           required(:type) => :workflow,
-          required(:name) => atom() | String.t(),
+          required(:name) => atom(),
           required(:workflow) => Workflow.t(),
           required(:after) => dependency()
         }
@@ -134,8 +134,12 @@ defmodule Jido.Flow do
 
   def new(nil), do: parse_flow!(%{name: nil})
 
-  def new(name) when is_atom(name) or is_binary(name) do
+  def new(name) when is_atom(name) do
     parse_flow!(%{name: name})
+  end
+
+  def new(name) when is_binary(name) do
+    raise ArgumentError, "flow name must be an atom, got: #{inspect(name)}"
   end
 
   @doc """
@@ -205,7 +209,7 @@ defmodule Jido.Flow do
   - `:params` - static params merged before runtime fact params.
   - `:context` - static execution context.
   """
-  @spec step(t(), atom() | String.t(), module() | Instruction.t(), keyword()) :: t()
+  @spec step(t(), atom(), module() | Instruction.t(), keyword()) :: t()
   def step(%__MODULE__{} = flow, name, action_or_instruction, opts \\ []) do
     opts = keyword_opts!(opts, "Flow.step options")
     {after_dep, opts} = Keyword.pop(opts, :after)
@@ -224,7 +228,7 @@ defmodule Jido.Flow do
 
   The mapper must be an external function capture or MFA tuple.
   """
-  @spec map(t(), atom() | String.t(), callable(), keyword()) :: t()
+  @spec map(t(), atom(), callable(), keyword()) :: t()
   def map(%__MODULE__{} = flow, name, mapper, opts \\ []) do
     {after_dep, opts} = primitive_opts!(opts, [:inputs, :outputs], :map)
 
@@ -245,7 +249,7 @@ defmodule Jido.Flow do
 
   The reducer must be an external function capture or MFA tuple.
   """
-  @spec reduce(t(), atom() | String.t(), term(), callable(), keyword()) :: t()
+  @spec reduce(t(), atom(), term(), callable(), keyword()) :: t()
   def reduce(%__MODULE__{} = flow, name, init, reducer, opts \\ []) do
     {after_dep, opts} = primitive_opts!(opts, [:map, :inputs, :outputs], :reduce)
 
@@ -268,7 +272,7 @@ defmodule Jido.Flow do
 
   The reducer must be an external function capture or MFA tuple.
   """
-  @spec accumulate(t(), atom() | String.t(), term(), callable(), keyword()) :: t()
+  @spec accumulate(t(), atom(), term(), callable(), keyword()) :: t()
   def accumulate(%__MODULE__{} = flow, name, init, reducer, opts \\ []) do
     {after_dep, opts} = primitive_opts!(opts, [:inputs, :outputs], :accumulate)
 
@@ -358,6 +362,7 @@ defmodule Jido.Flow do
   defp parse_flow!(%__MODULE__{} = flow), do: parse_flow!(Map.from_struct(flow))
 
   defp parse_flow!(attrs) when is_map(attrs) do
+    reject_string_keys!(attrs, "flow")
     attrs = normalize_attrs!(attrs)
 
     case Zoi.parse(@schema, attrs) do
@@ -378,9 +383,9 @@ defmodule Jido.Flow do
 
   defp normalize_attrs!(attrs) do
     %{
-      name: get_field(attrs, :name, nil),
-      flow: attrs |> get_field(:flow, []) |> normalize_entries(),
-      policies: get_field(attrs, :policies, [])
+      name: Map.get(attrs, :name),
+      flow: attrs |> Map.get(:flow, []) |> normalize_entries(),
+      policies: Map.get(attrs, :policies, [])
     }
   end
 
@@ -390,18 +395,20 @@ defmodule Jido.Flow do
   defp normalize_entries(entries), do: entries
 
   defp normalize_entry!(entry) when is_map(entry) do
-    type = entry |> get_field(:type, nil) |> normalize_entry_type()
-    name = get_field(entry, :name, nil)
-    after_dep = get_field(entry, :after, nil)
+    reject_string_keys!(entry, "flow entry")
+
+    type = entry |> Map.get(:type) |> normalize_entry_type()
+    name = Map.get(entry, :name)
+    after_dep = Map.get(entry, :after)
 
     case type do
       :step ->
         %{
           type: :step,
           name: name,
-          action: get_field(entry, :action, nil),
-          params: normalize_map!(get_field(entry, :params, %{}), :params),
-          context: normalize_map!(get_field(entry, :context, %{}), :context),
+          action: Map.get(entry, :action),
+          params: normalize_map!(Map.get(entry, :params, %{}), :params),
+          context: normalize_map!(Map.get(entry, :context, %{}), :context),
           after: after_dep
         }
 
@@ -409,9 +416,9 @@ defmodule Jido.Flow do
         %{
           type: :map,
           name: name,
-          mapper: get_field(entry, :mapper, nil) |> normalize_callable(1),
-          inputs: get_field(entry, :inputs, nil),
-          outputs: get_field(entry, :outputs, nil),
+          mapper: entry |> Map.get(:mapper) |> normalize_callable(1),
+          inputs: Map.get(entry, :inputs),
+          outputs: Map.get(entry, :outputs),
           after: after_dep
         }
 
@@ -419,11 +426,11 @@ defmodule Jido.Flow do
         %{
           type: :reduce,
           name: name,
-          init: get_field(entry, :init, nil),
-          reducer: get_field(entry, :reducer, nil) |> normalize_callable(2),
-          map: get_field(entry, :map, nil),
-          inputs: get_field(entry, :inputs, nil),
-          outputs: get_field(entry, :outputs, nil),
+          init: Map.get(entry, :init),
+          reducer: entry |> Map.get(:reducer) |> normalize_callable(2),
+          map: Map.get(entry, :map),
+          inputs: Map.get(entry, :inputs),
+          outputs: Map.get(entry, :outputs),
           after: after_dep
         }
 
@@ -431,10 +438,10 @@ defmodule Jido.Flow do
         %{
           type: :accumulate,
           name: name,
-          init: get_field(entry, :init, nil),
-          reducer: get_field(entry, :reducer, nil) |> normalize_callable(2),
-          inputs: get_field(entry, :inputs, nil),
-          outputs: get_field(entry, :outputs, nil),
+          init: Map.get(entry, :init),
+          reducer: entry |> Map.get(:reducer) |> normalize_callable(2),
+          inputs: Map.get(entry, :inputs),
+          outputs: Map.get(entry, :outputs),
           after: after_dep
         }
 
@@ -442,7 +449,7 @@ defmodule Jido.Flow do
         %{
           type: :workflow,
           name: name,
-          workflow: get_field(entry, :workflow, nil),
+          workflow: Map.get(entry, :workflow),
           after: after_dep
         }
 
@@ -470,20 +477,6 @@ defmodule Jido.Flow do
 
   defp normalize_map!(value, field) do
     raise ArgumentError, "expected #{field} to be a map or keyword list, got: #{inspect(value)}"
-  end
-
-  defp normalize_entry_type(type) when type in [:step, :map, :reduce, :accumulate, :workflow],
-    do: type
-
-  defp normalize_entry_type(type) when is_binary(type) do
-    case type do
-      "step" -> :step
-      "map" -> :map
-      "reduce" -> :reduce
-      "accumulate" -> :accumulate
-      "workflow" -> :workflow
-      _ -> type
-    end
   end
 
   defp normalize_entry_type(type), do: type
@@ -664,7 +657,14 @@ defmodule Jido.Flow do
   defp component_id(%{hash: hash}) when not is_nil(hash), do: hash
   defp component_id(component), do: inspect(component)
 
-  defp get_field(map, key, default) do
-    Map.get(map, key, Map.get(map, Atom.to_string(key), default))
+  defp reject_string_keys!(map, context) do
+    case Enum.find(Map.keys(map), &is_binary/1) do
+      nil ->
+        :ok
+
+      key ->
+        raise ArgumentError,
+              "Flow IR uses atom keys for structural fields, got string key #{inspect(key)} in #{context}"
+    end
   end
 end

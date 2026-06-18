@@ -3,6 +3,7 @@ defmodule JidoTest.TestActions do
 
   alias Jido.Action
   alias Jido.Action.Error
+  alias Jido.Action.Output
 
   defmodule FlowFunctions do
     @moduledoc false
@@ -262,6 +263,69 @@ defmodule JidoTest.TestActions do
       output_schema: Zoi.object(%{value: Zoi.integer()})
 
     def run(_params, _context), do: {:ok, %{value: "bad"}, %{next: :repair}}
+  end
+
+  defmodule RawOutputAction do
+    @moduledoc false
+    use Action,
+      name: "raw_output_action",
+      output_schema: Zoi.object(%{required: Zoi.string()})
+
+    def run(_params, _context), do: {:ok, Output.raw([1, 2, 3], meta: %{source: :test})}
+  end
+
+  defmodule StreamOutputAction do
+    @moduledoc false
+    use Action,
+      name: "stream_output_action",
+      output_schema: Zoi.object(%{required: Zoi.string()})
+
+    def run(_params, _context), do: {:ok, Output.stream(Stream.map(1..3, &(&1 * 2)))}
+  end
+
+  defmodule BatchOutputAction do
+    @moduledoc false
+    use Action,
+      name: "batch_output_action",
+      output_schema: Zoi.object(%{required: Zoi.string()})
+
+    def run(_params, _context), do: {:ok, Output.batch([%{value: 1}, %{value: 2}])}
+  end
+
+  defmodule OpaqueOutputWithDirective do
+    @moduledoc false
+    use Action,
+      name: "opaque_output_with_directive",
+      output_schema: Zoi.object(%{required: Zoi.string()})
+
+    def run(_params, _context), do: {:ok, Output.opaque({:external, self()}), %{next: :flow}}
+  end
+
+  defmodule MalformedOutputEnvelope do
+    @moduledoc false
+    use Action,
+      name: "malformed_output_envelope",
+      output_schema: Zoi.object(%{})
+
+    def run(_params, _context), do: {:ok, %Output{kind: :batch, value: :not_a_list, meta: %{}}}
+  end
+
+  defmodule BareListSuccess do
+    @moduledoc false
+    use Action,
+      name: "bare_list_success",
+      output_schema: Zoi.object(%{})
+
+    def run(_params, _context), do: {:ok, [1, 2, 3]}
+  end
+
+  defmodule BareStreamSuccess do
+    @moduledoc false
+    use Action,
+      name: "bare_stream_success",
+      output_schema: Zoi.object(%{})
+
+    def run(_params, _context), do: {:ok, Stream.map(1..3, & &1)}
   end
 
   defmodule OptionalInput do
