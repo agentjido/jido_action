@@ -114,6 +114,8 @@ defmodule Jido.Flow do
   def new(name_or_opts \\ nil)
 
   def new(opts) when is_list(opts) do
+    opts = keyword_opts!(opts, "Flow.new options")
+
     opts
     |> Map.new()
     |> new()
@@ -133,7 +135,8 @@ defmodule Jido.Flow do
   Builds a one-step flow from an action module or `%Jido.Instruction{}`.
   """
   @spec from_action(module() | Instruction.t(), map() | keyword(), keyword()) :: t()
-  def from_action(action_or_instruction, params \\ %{}, opts \\ []) when is_list(opts) do
+  def from_action(action_or_instruction, params \\ %{}, opts \\ []) do
+    opts = keyword_opts!(opts, "Flow.from_action options")
     {name, opts} = Keyword.pop(opts, :name)
     entry = step_entry(name, action_or_instruction, params, opts)
 
@@ -147,17 +150,33 @@ defmodule Jido.Flow do
   """
   @spec from_workflow(Workflow.t()) :: t()
   def from_workflow(%Workflow{} = workflow) do
+    entry_name = workflow.name || :workflow
+
     parse_flow!(%{
       name: workflow.name,
       flow: [
         %{
           type: :workflow,
-          name: workflow.name,
+          name: entry_name,
           workflow: workflow,
           after: nil
         }
       ]
     })
+  end
+
+  @doc """
+  Returns the normalized Flow IR as a plain map.
+  """
+  @spec to_map(t()) :: %{name: name(), flow: [entry()], policies: list()}
+  def to_map(%__MODULE__{} = flow) do
+    flow = parse_flow!(flow)
+
+    %{
+      name: flow.name,
+      flow: flow.flow,
+      policies: flow.policies
+    }
   end
 
   @doc """
@@ -176,7 +195,8 @@ defmodule Jido.Flow do
   - `:context` - static execution context.
   """
   @spec step(t(), atom() | String.t(), module() | Instruction.t(), keyword()) :: t()
-  def step(%__MODULE__{} = flow, name, action_or_instruction, opts \\ []) when is_list(opts) do
+  def step(%__MODULE__{} = flow, name, action_or_instruction, opts \\ []) do
+    opts = keyword_opts!(opts, "Flow.step options")
     {after_dep, opts} = Keyword.pop(opts, :after)
     {params, opts} = Keyword.pop(opts, :params, %{})
 
@@ -331,13 +351,15 @@ defmodule Jido.Flow do
   defp normalize_attrs!(attrs) do
     %{
       name: get_field(attrs, :name, nil),
-      flow:
-        attrs
-        |> get_field(:flow, [])
-        |> Enum.map(&normalize_entry!/1),
+      flow: attrs |> get_field(:flow, []) |> normalize_entries(),
       policies: get_field(attrs, :policies, [])
     }
   end
+
+  defp normalize_entries(entries) when is_list(entries),
+    do: Enum.map(entries, &normalize_entry!/1)
+
+  defp normalize_entries(entries), do: entries
 
   defp normalize_entry!(entry) when is_map(entry) do
     type = entry |> get_field(:type, nil) |> normalize_entry_type()
@@ -468,9 +490,7 @@ defmodule Jido.Flow do
   end
 
   defp primitive_opts!(opts, allowed_runic_opts, primitive) when is_list(opts) do
-    if not Keyword.keyword?(opts) do
-      raise ArgumentError, "Flow.#{primitive} options must be a keyword list"
-    end
+    opts = keyword_opts!(opts, "Flow.#{primitive} options")
 
     {after_dep, runic_opts} = Keyword.pop(opts, :after)
     primitive_name = "Flow.#{primitive}"
@@ -492,6 +512,18 @@ defmodule Jido.Flow do
 
   defp primitive_opts!(_opts, _allowed_runic_opts, primitive) do
     raise ArgumentError, "Flow.#{primitive} options must be a keyword list"
+  end
+
+  defp keyword_opts!(opts, context) when is_list(opts) do
+    if Keyword.keyword?(opts) do
+      opts
+    else
+      raise ArgumentError, "#{context} must be a keyword list, got: #{inspect(opts)}"
+    end
+  end
+
+  defp keyword_opts!(opts, context) do
+    raise ArgumentError, "#{context} must be a keyword list, got: #{inspect(opts)}"
   end
 
   defp ensure_available_name!(%__MODULE__{flow: entries}, name) do

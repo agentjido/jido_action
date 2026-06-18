@@ -54,7 +54,8 @@ defmodule Jido.Flow.Step do
     `Jido.Exec`.
   """
   @spec new(module() | Instruction.t(), map() | keyword(), keyword()) :: t()
-  def new(action_or_instruction, params \\ %{}, opts \\ []) when is_list(opts) do
+  def new(action_or_instruction, params \\ %{}, opts \\ []) do
+    opts = keyword_opts!(opts)
     params = normalize_map!(params, :params)
 
     {name, opts} = Keyword.pop(opts, :name)
@@ -260,6 +261,18 @@ defmodule Jido.Flow.Step do
 
   defp normalize_map!(value, field) do
     raise ArgumentError, "expected #{field} to be a map or keyword list, got: #{inspect(value)}"
+  end
+
+  defp keyword_opts!(opts) when is_list(opts) do
+    if Keyword.keyword?(opts) do
+      opts
+    else
+      raise ArgumentError, "flow step options must be a keyword list, got: #{inspect(opts)}"
+    end
+  end
+
+  defp keyword_opts!(opts) do
+    raise ArgumentError, "flow step options must be a keyword list, got: #{inspect(opts)}"
   end
 end
 

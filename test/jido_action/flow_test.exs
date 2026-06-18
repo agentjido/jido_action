@@ -113,6 +113,19 @@ defmodule JidoTest.FlowTest do
            } = flow
   end
 
+  test "wraps unnamed Runic workflows" do
+    workflow = Workflow.new()
+
+    assert %Flow{
+             name: nil,
+             flow: [
+               %{type: :workflow, name: :workflow, workflow: ^workflow, after: nil}
+             ]
+           } = Flow.from_workflow(workflow)
+
+    assert {:ok, %Flow{flow: [%{workflow: ^workflow}]}} = Flow.validate(workflow)
+  end
+
   test "projects empty flows to empty Runic workflows" do
     assert %Workflow{name: nil, components: components} = Flow.new() |> Flow.to_workflow()
     assert components == %{}
@@ -158,6 +171,16 @@ defmodule JidoTest.FlowTest do
   end
 
   test "rejects malformed flow entries" do
+    assert_raise ArgumentError, ~r/Flow.new options must be a keyword list/, fn ->
+      Flow.new([:bad])
+    end
+
+    assert %Flow{flow: []} = Flow.new(%{flow: nil})
+
+    assert_raise ArgumentError, ~r/invalid type: expected array/, fn ->
+      Flow.new(%{flow: :bad})
+    end
+
     assert_raise ArgumentError, ~r/expected an action module/, fn ->
       Flow.new(%{flow: [%{type: :step, name: :bad, action: nil, after: nil}]})
     end
@@ -270,6 +293,38 @@ defmodule JidoTest.FlowTest do
              %{type: :accumulate, name: "counter", reducer: {FlowFunctions, :sum}},
              %{type: :workflow, name: "child", workflow: ^child}
            ] = flow.flow
+  end
+
+  test "returns normalized flow IR as a plain map" do
+    flow =
+      Flow.new(%{
+        "name" => "projected",
+        "flow" => [
+          %{
+            "type" => "map",
+            "name" => "double_each",
+            "mapper" => &FlowFunctions.double/1
+          }
+        ],
+        "policies" => [{"double_each", %{max_retries: 1}}]
+      })
+
+    assert %{
+             name: "projected",
+             flow: [
+               %{
+                 type: :map,
+                 name: "double_each",
+                 mapper: {FlowFunctions, :double},
+                 inputs: nil,
+                 outputs: nil,
+                 after: nil
+               }
+             ],
+             policies: [{"double_each", %{max_retries: 1}}]
+           } = Flow.to_map(flow)
+
+    refute is_struct(Flow.to_map(flow), Flow)
   end
 
   test "adds map primitives as Jido flow entries" do
@@ -461,6 +516,14 @@ defmodule JidoTest.FlowTest do
     assert_raise ArgumentError, ~r/unknown flow step options/, fn ->
       Flow.new(:bad)
       |> Flow.step(:add, Add, retry: true)
+    end
+
+    assert_raise ArgumentError, ~r/Flow.step options must be a keyword list/, fn ->
+      apply(Flow, :step, [Flow.new(:bad), :add, Add, :invalid])
+    end
+
+    assert_raise ArgumentError, ~r/Flow.from_action options must be a keyword list/, fn ->
+      apply(Flow, :from_action, [Add, %{}, :invalid])
     end
 
     assert_raise ArgumentError, ~r/expected params to be a map or keyword list/, fn ->
