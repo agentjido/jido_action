@@ -110,6 +110,10 @@ defmodule JidoTest.FlowStepTest do
       Step.new(Add, %{}, name: :add, retry: true)
     end
 
+    assert_raise ArgumentError, ~r/flow step options must be a keyword list/, fn ->
+      apply(Step, :new, [Add, %{}, :invalid])
+    end
+
     assert_raise ArgumentError, ~r/expected params to be a map or keyword list/, fn ->
       Step.new(Add, 123, name: :add)
     end

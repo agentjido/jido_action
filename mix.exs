@@ -34,7 +34,7 @@ defmodule JidoAction.MixProject do
       dialyzer: [
         plt_local_path: "priv/plts/project.plt",
         plt_core_path: "priv/plts/core.plt",
-        plt_add_apps: [:mix]
+        plt_add_apps: [:mix, :igniter]
       ]
     ]
   end
