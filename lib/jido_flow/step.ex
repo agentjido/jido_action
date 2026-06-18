@@ -9,8 +9,7 @@ defmodule Jido.Flow.Step do
   scheduler.
   """
 
-  alias Jido.Action.Util
-  alias Jido.Action.Error
+  alias Jido.Flow.Validator
   alias Jido.Instruction
 
   @schema Zoi.struct(
@@ -21,7 +20,7 @@ defmodule Jido.Flow.Step do
                   Zoi.atom(),
                   Zoi.string()
                 ])
-                |> Zoi.refine({Util, :validate_component_name, []}),
+                |> Zoi.refine({Validator, :validate_component_name, []}),
               hash: Zoi.integer(description: "Stable flow step hash"),
               instruction: Zoi.struct(Instruction, description: "Normalized action invocation"),
               action:
@@ -56,7 +55,6 @@ defmodule Jido.Flow.Step do
   @spec new(module() | Instruction.t(), map() | keyword(), keyword()) :: t()
   def new(action_or_instruction, params \\ %{}, opts \\ []) do
     opts = keyword_opts!(opts)
-    params = normalize_map!(params, :params)
 
     {name, opts} = Keyword.pop(opts, :name)
     {context, opts} = Keyword.pop(opts, :context, %{})
@@ -65,10 +63,9 @@ defmodule Jido.Flow.Step do
       raise ArgumentError, "unknown flow step options: #{inspect(Keyword.keys(opts))}"
     end
 
-    context = normalize_map!(context, :context)
-    instruction = build_instruction!(action_or_instruction, params, context)
-    validate_action!(instruction.action)
-    name = name || derive_name(instruction.action)
+    instruction = Instruction.normalize!(action_or_instruction, params, context)
+    Instruction.validate_action_contract!(instruction.action)
+    name = name || Instruction.derive_action_name(instruction.action)
 
     %{
       name: name,
@@ -91,85 +88,6 @@ defmodule Jido.Flow.Step do
       {:error, errors} ->
         raise ArgumentError, "invalid flow step:\n" <> Zoi.prettify_errors(errors)
     end
-  end
-
-  defp build_instruction!(%Instruction{} = instruction, params, context) do
-    Instruction.new!(%{
-      action: instruction.action,
-      params: Map.merge(normalize_map!(instruction.params || %{}, :params), params),
-      context: Map.merge(normalize_map!(instruction.context || %{}, :context), context)
-    })
-  end
-
-  defp build_instruction!(action, params, context)
-       when is_atom(action) and not is_nil(action) do
-    Instruction.new!(%{
-      action: action,
-      params: params,
-      context: context
-    })
-  end
-
-  defp build_instruction!(other, _params, _context) do
-    raise ArgumentError,
-          "expected an action module or %Jido.Instruction{}, got: #{inspect(other)}"
-  end
-
-  defp validate_action!(action) do
-    with :ok <- validate_action(action) do
-      :ok
-    else
-      {:error, error} ->
-        raise ArgumentError, Exception.message(error)
-    end
-  end
-
-  @doc false
-  @spec validate_action(term()) :: :ok | {:error, Exception.t()}
-  def validate_action(action) when is_atom(action) and not is_nil(action) do
-    case Code.ensure_loaded(action) do
-      {:module, _module} ->
-        cond do
-          not function_exported?(action, :run, 2) ->
-            invalid_action(action, "missing run/2")
-
-          not function_exported?(action, :validate_params, 1) ->
-            invalid_action(action, "missing validate_params/1")
-
-          not function_exported?(action, :validate_output, 1) ->
-            invalid_action(action, "missing validate_output/1")
-
-          true ->
-            :ok
-        end
-
-      {:error, reason} ->
-        {:error,
-         Error.validation_error("action module could not be loaded", %{
-           action: action,
-           reason: reason
-         })}
-    end
-  end
-
-  def validate_action(action) do
-    {:error, Error.validation_error("expected an action module, got: #{inspect(action)}")}
-  end
-
-  defp invalid_action(action, reason) do
-    {:error,
-     Error.validation_error("module is not a valid Jido action", %{
-       action: action,
-       reason: reason
-     })}
-  end
-
-  defp derive_name(action) do
-    action
-    |> Module.split()
-    |> List.last()
-    |> Macro.underscore()
-    |> String.to_atom()
   end
 
   defp step_hash(%Instruction{} = instruction, name) do
@@ -208,8 +126,6 @@ defmodule Jido.Flow.Step do
           {key, [type: :any, doc: Atom.to_string(key)]}
         end)
     end
-  rescue
-    _ -> default_ports(default_name, default_doc)
   end
 
   defp port_keys(schema, :output), do: schema_keys(schema)
@@ -219,13 +135,6 @@ defmodule Jido.Flow.Step do
     fields
     |> Enum.reject(fn {_key, field_schema} -> optional_input_port?(field_schema) end)
     |> Keyword.keys()
-  end
-
-  defp port_keys(%{__struct__: struct, fields: fields}, :input)
-       when struct in [Zoi.Types.Map, Zoi.Types.Struct] and is_map(fields) do
-    fields
-    |> Enum.reject(fn {_key, field_schema} -> optional_input_port?(field_schema) end)
-    |> Enum.map(fn {key, _field_schema} -> key end)
   end
 
   defp port_keys(schema, :input), do: schema_keys(schema)
@@ -240,28 +149,9 @@ defmodule Jido.Flow.Step do
        when struct in [Zoi.Types.Map, Zoi.Types.Struct] and is_list(fields),
        do: Keyword.keys(fields)
 
-  defp schema_keys(%{__struct__: struct, fields: fields})
-       when struct in [Zoi.Types.Map, Zoi.Types.Struct] and is_map(fields),
-       do: Map.keys(fields)
-
   defp schema_keys(_schema), do: []
 
   defp default_ports(name, doc), do: [{name, [type: :any, doc: doc]}]
-
-  defp normalize_map!(nil, _field), do: %{}
-  defp normalize_map!(value, _field) when is_map(value), do: value
-
-  defp normalize_map!(value, _field) when is_list(value) do
-    if Keyword.keyword?(value) do
-      Map.new(value)
-    else
-      raise ArgumentError, "expected a map or keyword list, got: #{inspect(value)}"
-    end
-  end
-
-  defp normalize_map!(value, field) do
-    raise ArgumentError, "expected #{field} to be a map or keyword list, got: #{inspect(value)}"
-  end
 
   defp keyword_opts!(opts) when is_list(opts) do
     if Keyword.keyword?(opts) do
@@ -329,7 +219,7 @@ defimpl Runic.Workflow.Invokable, for: Jido.Flow.Step do
   end
 
   defp invoke_once(action, params, context) do
-    with :ok <- Jido.Flow.Step.validate_action(action),
+    with :ok <- Jido.Instruction.validate_action_contract(action),
          {:ok, params} <- validate_params(action, params) do
       action
       |> apply(:run, [params, context])

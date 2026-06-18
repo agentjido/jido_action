@@ -156,28 +156,6 @@ defmodule Jido.Action.Util do
   end
 
   @doc """
-  Validates a component name used by Flow and Runic-backed structures.
-
-  Component names may be non-nil atoms or non-empty strings. This is looser than
-  action names because Runic components are referenced by atom or string keys.
-  """
-  @spec validate_component_name(term(), keyword()) :: :ok | {:error, String.t()}
-  def validate_component_name(value, _opts \\ [])
-  def validate_component_name(value, _opts) when is_atom(value) and not is_nil(value), do: :ok
-  def validate_component_name(value, _opts) when is_binary(value) and value != "", do: :ok
-  def validate_component_name(value, _opts) when is_atom(value), do: {:error, "cannot be nil"}
-  def validate_component_name(value, _opts) when is_binary(value), do: {:error, "cannot be empty"}
-  def validate_component_name(_value, _opts), do: {:error, "must be an atom or string"}
-
-  @doc """
-  Validates an optional component name.
-  """
-  @spec validate_optional_component_name(term(), keyword()) :: :ok | {:error, String.t()}
-  def validate_optional_component_name(value, _opts \\ [])
-  def validate_optional_component_name(nil, _opts), do: :ok
-  def validate_optional_component_name(value, opts), do: validate_component_name(value, opts)
-
-  @doc """
   Normalizes nested result tuples to single-level tuples.
 
   This function handles cases where callbacks or functions return nested tuples

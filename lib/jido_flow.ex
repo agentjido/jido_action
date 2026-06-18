@@ -7,7 +7,6 @@ defmodule Jido.Flow do
   this IR into a `Runic.Workflow` at the runtime boundary.
   """
 
-  alias Jido.Action.Util
   alias Jido.Flow.Compiler
   alias Jido.Flow.Step
   alias Jido.Flow.Validator
@@ -15,10 +14,10 @@ defmodule Jido.Flow do
   alias Runic.Workflow
 
   @name_schema Zoi.any(description: "Flow name")
-               |> Zoi.refine({Util, :validate_optional_component_name, []})
+               |> Zoi.refine({Validator, :validate_optional_component_name, []})
 
   @required_name_schema Zoi.any(description: "Flow entry name")
-                        |> Zoi.refine({Util, :validate_component_name, []})
+                        |> Zoi.refine({Validator, :validate_component_name, []})
 
   @dependency_schema Zoi.any(description: "Parent entry dependency")
                      |> Zoi.refine({Validator, :validate_dependency, []})
@@ -372,8 +371,8 @@ defmodule Jido.Flow do
           type: :step,
           name: name,
           action: get_field(entry, :action, nil),
-          params: normalize_map!(get_field(entry, :params, %{}), :params),
-          context: normalize_map!(get_field(entry, :context, %{}), :context),
+          params: Instruction.normalize_map!(get_field(entry, :params, %{}), :params),
+          context: Instruction.normalize_map!(get_field(entry, :context, %{}), :context),
           after: after_dep
         }
 
@@ -452,36 +451,16 @@ defmodule Jido.Flow do
       raise ArgumentError, "unknown flow step options: #{inspect(Keyword.keys(opts))}"
     end
 
-    params = normalize_map!(params, :params)
-    context = normalize_map!(context, :context)
-    instruction = build_instruction!(action_or_instruction, params, context)
+    instruction = Instruction.normalize!(action_or_instruction, params, context)
 
     %{
       type: :step,
-      name: name || derive_name(instruction.action),
+      name: name || Instruction.derive_action_name(instruction.action),
       action: instruction.action,
       params: instruction.params,
       context: instruction.context,
       after: nil
     }
-  end
-
-  defp build_instruction!(%Instruction{} = instruction, params, context) do
-    Instruction.new!(%{
-      action: instruction.action,
-      params: Map.merge(normalize_map!(instruction.params || %{}, :params), params),
-      context: Map.merge(normalize_map!(instruction.context || %{}, :context), context)
-    })
-  end
-
-  defp build_instruction!(action, params, context)
-       when is_atom(action) and not is_nil(action) do
-    Instruction.new!(%{action: action, params: params, context: context})
-  end
-
-  defp build_instruction!(other, _params, _context) do
-    raise ArgumentError,
-          "expected an action module or %Jido.Instruction{}, got: #{inspect(other)}"
   end
 
   defp add_entry(%__MODULE__{} = flow, entry) do
@@ -564,29 +543,6 @@ defmodule Jido.Flow do
     end
   end
 
-  defp normalize_map!(nil, _field), do: %{}
-  defp normalize_map!(value, _field) when is_map(value), do: value
-
-  defp normalize_map!(value, _field) when is_list(value) do
-    if Keyword.keyword?(value) do
-      Map.new(value)
-    else
-      raise ArgumentError, "expected a map or keyword list, got: #{inspect(value)}"
-    end
-  end
-
-  defp normalize_map!(value, field) do
-    raise ArgumentError, "expected #{field} to be a map or keyword list, got: #{inspect(value)}"
-  end
-
-  defp derive_name(action) do
-    action
-    |> Module.split()
-    |> List.last()
-    |> Macro.underscore()
-    |> String.to_atom()
-  end
-
   defp normalize_scheduler_policy!(%Runic.Workflow.SchedulerPolicy{} = policy),
     do: Map.from_struct(policy)
 
@@ -620,17 +576,9 @@ defmodule Jido.Flow do
     %{
       type: struct,
       name: Map.get(component, :name),
-      inputs: safe_ports(component, :inputs),
-      outputs: safe_ports(component, :outputs)
+      inputs: Runic.Component.inputs(component),
+      outputs: Runic.Component.outputs(component)
     }
-  end
-
-  defp safe_ports(component, function) do
-    apply(Runic.Component, function, [component])
-  rescue
-    _ -> []
-  catch
-    _, _ -> []
   end
 
   defp graph_edges(%Workflow{graph: graph}) do
