@@ -251,10 +251,6 @@ defmodule Jido.Action do
         {nil, nil}
       end
 
-    metadata_ast = action_metadata_ast(schema_ast, output_schema_ast)
-    validation_ast = action_validation_ast(validate_params_doc, validate_output_doc)
-    run_ast = action_run_ast()
-
     quote location: :keep do
       @behaviour Jido.Action
       @on_definition Jido.Action
@@ -293,9 +289,53 @@ defmodule Jido.Action do
           # Store validated opts without schemas to avoid closure serialization
           @validated_opts Map.drop(validated_opts, [:schema, :output_schema])
 
-          unquote(metadata_ast)
-          unquote(validation_ast)
-          unquote(run_ast)
+          @doc "Returns the name of the Action."
+          def name, do: @validated_opts[:name]
+
+          @doc "Returns the description of the Action."
+          def description, do: @validated_opts[:description]
+
+          @doc "Returns the input schema of the Action."
+          if unquote(schema_ast) do
+            def schema, do: unquote(schema_ast)
+          else
+            def schema, do: @__jido_schema__
+          end
+
+          @doc "Returns the output schema of the Action."
+          if unquote(output_schema_ast) do
+            def output_schema, do: unquote(output_schema_ast)
+          else
+            def output_schema, do: @__jido_output_schema__
+          end
+
+          @doc unquote(validate_params_doc)
+          @spec validate_params(map()) ::
+                  {:ok, map()} | {:error, Jido.Action.Error.InvalidInputError.t()}
+          def validate_params(params), do: Action.validate_params_for(params, __MODULE__)
+
+          @doc unquote(validate_output_doc)
+          @spec validate_output(map()) ::
+                  {:ok, map()} | {:error, Jido.Action.Error.InvalidInputError.t()}
+          def validate_output(output), do: Action.validate_output_for(output, __MODULE__)
+
+          @doc """
+          Executes the Action with the given parameters and context.
+
+          The `run/2` function must be implemented in the module using Jido.Action.
+          """
+          # Note: @spec annotations are intentionally omitted from these default
+          # implementations. The @callback declarations (below) define the type
+          # contracts. Adding @spec here causes dialyzer `extra_range` warnings in
+          # consumer modules that don't override these functions, because the spec
+          # includes {:error, _} but the default only returns {:ok, _}.
+          def run(params, context) do
+            "run/2 must be implemented in in your Action"
+            |> Error.config_error()
+            |> then(&{:error, &1})
+          end
+
+          defoverridable run: 2
 
         {:error, errors} ->
           message =
@@ -307,82 +347,6 @@ defmodule Jido.Action do
 
           raise CompileError, description: message, file: __ENV__.file, line: __ENV__.line
       end
-    end
-  end
-
-  defp action_metadata_ast(schema_ast, output_schema_ast) do
-    quote location: :keep do
-      unquote(basic_metadata_functions_ast())
-      unquote(schema_function_ast(schema_ast))
-      unquote(output_schema_function_ast(output_schema_ast))
-    end
-  end
-
-  defp basic_metadata_functions_ast do
-    quote location: :keep do
-      @doc "Returns the name of the Action."
-      def name, do: @validated_opts[:name]
-
-      @doc "Returns the description of the Action."
-      def description, do: @validated_opts[:description]
-    end
-  end
-
-  defp schema_function_ast(schema_ast) do
-    quote location: :keep do
-      @doc "Returns the input schema of the Action."
-      if unquote(schema_ast) do
-        def schema, do: unquote(schema_ast)
-      else
-        def schema, do: @__jido_schema__
-      end
-    end
-  end
-
-  defp output_schema_function_ast(output_schema_ast) do
-    quote location: :keep do
-      @doc "Returns the output schema of the Action."
-      if unquote(output_schema_ast) do
-        def output_schema, do: unquote(output_schema_ast)
-      else
-        def output_schema, do: @__jido_output_schema__
-      end
-    end
-  end
-
-  defp action_validation_ast(validate_params_doc, validate_output_doc) do
-    quote location: :keep do
-      @doc unquote(validate_params_doc)
-      @spec validate_params(map()) ::
-              {:ok, map()} | {:error, Jido.Action.Error.InvalidInputError.t()}
-      def validate_params(params), do: Action.validate_params_for(params, __MODULE__)
-
-      @doc unquote(validate_output_doc)
-      @spec validate_output(map()) ::
-              {:ok, map()} | {:error, Jido.Action.Error.InvalidInputError.t()}
-      def validate_output(output), do: Action.validate_output_for(output, __MODULE__)
-    end
-  end
-
-  defp action_run_ast do
-    quote location: :keep do
-      @doc """
-      Executes the Action with the given parameters and context.
-
-      The `run/2` function must be implemented in the module using Jido.Action.
-      """
-      # Note: @spec annotations are intentionally omitted from these default
-      # implementations. The @callback declarations (below) define the type
-      # contracts. Adding @spec here causes dialyzer `extra_range` warnings in
-      # consumer modules that don't override these functions, because the spec
-      # includes {:error, _} but the default only returns {:ok, _}.
-      def run(params, context) do
-        "run/2 must be implemented in in your Action"
-        |> Error.config_error()
-        |> then(&{:error, &1})
-      end
-
-      defoverridable run: 2
     end
   end
 
