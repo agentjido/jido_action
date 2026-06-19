@@ -7,6 +7,12 @@ alias Jido.Examples.Support
 
 Support.ensure!()
 
+defmodule Jido.Examples.TelemetryCollector do
+  def handle_event(event, measurements, metadata, pid) do
+    send(pid, {:telemetry_event, event, measurements, metadata})
+  end
+end
+
 handler_id = "jido-example-telemetry-#{System.unique_integer([:positive])}"
 parent = self()
 
@@ -14,9 +20,7 @@ parent = self()
   :telemetry.attach_many(
     handler_id,
     [[:jido, :action, :start], [:jido, :action, :stop]],
-    fn event, measurements, metadata, pid ->
-      send(pid, {:telemetry_event, event, measurements, metadata})
-    end,
+    &Jido.Examples.TelemetryCollector.handle_event/4,
     parent
   )
 

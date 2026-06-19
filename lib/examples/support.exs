@@ -74,6 +74,33 @@ defmodule Jido.Examples.Support do
     Jido.Flow.from_action(Jido.Examples.Actions.Add, %{amount: 2}, name: :raw_add)
     |> Jido.Flow.to_workflow()
   end
+
+  @script_atoms [
+    :script_steps_and_primitives,
+    :script_accumulate,
+    :script_bad_value,
+    :add,
+    :amount,
+    :counter,
+    :double_each,
+    :from,
+    :items,
+    :load_items,
+    :map,
+    :params,
+    :path,
+    :sum,
+    :Jido,
+    :Examples,
+    :Actions,
+    :Functions,
+    :Add,
+    :LoadItems,
+    :String,
+    :to_integer
+  ]
+
+  def script_atoms(extra \\ []), do: Enum.uniq(@script_atoms ++ extra)
 end
 
 defmodule Jido.Examples.Functions do
@@ -156,6 +183,15 @@ defmodule Jido.Examples.Actions.CountInput do
     output_schema: Zoi.object(%{count: Zoi.integer()})
 
   def run(%{input: values}, _context), do: {:ok, %{count: length(values)}}
+end
+
+defmodule Jido.Examples.Actions.LoadItems do
+  use Jido.Action,
+    name: "load_items",
+    schema: Zoi.object(%{items: Zoi.list(Zoi.any())}),
+    output_schema: Zoi.object(%{items: Zoi.list(Zoi.any())})
+
+  def run(%{items: items}, _context), do: {:ok, %{items: items}}
 end
 
 defmodule Jido.Examples.Actions.NormalizeOrder do
