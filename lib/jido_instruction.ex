@@ -46,21 +46,27 @@ defmodule Jido.Instruction do
   def validate_action_module(_value, _opts), do: {:error, "must be an atom"}
 
   @doc false
-  @spec normalize!(module() | t(), map() | keyword(), map() | keyword()) :: t()
+  @spec normalize!(term(), map() | keyword(), map() | keyword()) :: t()
   def normalize!(action_or_instruction, params \\ %{}, context \\ %{}) do
     params = normalize_map!(params, :params)
     context = normalize_map!(context, :context)
-    build_instruction!(action_or_instruction, params, context)
-  end
 
-  @doc false
-  @spec validate_action_contract!(term()) :: :ok | no_return()
-  def validate_action_contract!(action) do
-    with :ok <- validate_action_contract(action) do
-      :ok
-    else
-      {:error, error} ->
-        raise ArgumentError, Exception.message(error)
+    cond do
+      is_struct(action_or_instruction, __MODULE__) ->
+        instruction = action_or_instruction
+
+        new!(%{
+          action: instruction.action,
+          params: Map.merge(normalize_map!(instruction.params || %{}, :params), params),
+          context: Map.merge(normalize_map!(instruction.context || %{}, :context), context)
+        })
+
+      is_atom(action_or_instruction) and not is_nil(action_or_instruction) ->
+        new!(%{action: action_or_instruction, params: params, context: context})
+
+      true ->
+        raise ArgumentError,
+              "expected an action module or %Jido.Instruction{}, got: #{inspect(action_or_instruction)}"
     end
   end
 
@@ -133,19 +139,20 @@ defmodule Jido.Instruction do
           {:ok, t()} | {:error, :missing_action | :invalid_action | Exception.t()}
   def new(attrs) when is_list(attrs), do: attrs |> Map.new() |> new()
 
-  def new(%{} = attrs) do
-    with :ok <- validate_action_present(attrs),
-         :ok <- validate_action_is_atom(attrs),
-         {:ok, normalized_attrs} <- normalize_attrs(attrs) do
+  def new(%{action: action} = attrs) when is_atom(action) and not is_nil(action) do
+    with {:ok, params} <- normalize_map_field(Map.get(attrs, :params, %{}), :params),
+         {:ok, context} <- normalize_map_field(Map.get(attrs, :context, %{}), :context) do
       {:ok,
        %__MODULE__{
-         action: normalized_attrs.action,
-         params: normalized_attrs.params,
-         context: normalized_attrs.context
+         action: action,
+         params: params,
+         context: context
        }}
     end
   end
 
+  def new(%{action: _action}), do: {:error, :invalid_action}
+  def new(%{}), do: {:error, :missing_action}
   def new(_attrs), do: {:error, :missing_action}
 
   @doc """
@@ -165,26 +172,15 @@ defmodule Jido.Instruction do
     end
   end
 
-  defp build_instruction!(%__MODULE__{} = instruction, params, context) do
-    new!(%{
-      action: instruction.action,
-      params: Map.merge(normalize_map!(instruction.params || %{}, :params), params),
-      context: Map.merge(normalize_map!(instruction.context || %{}, :context), context)
-    })
-  end
-
-  defp build_instruction!(action, params, context)
-       when is_atom(action) and not is_nil(action) do
-    new!(%{
-      action: action,
-      params: params,
-      context: context
-    })
-  end
-
-  defp build_instruction!(other, _params, _context) do
-    raise ArgumentError,
-          "expected an action module or %Jido.Instruction{}, got: #{inspect(other)}"
+  @doc false
+  @spec validate_action_contract!(term()) :: :ok | no_return()
+  def validate_action_contract!(action) do
+    with :ok <- validate_action_contract(action) do
+      :ok
+    else
+      {:error, error} ->
+        raise ArgumentError, Exception.message(error)
+    end
   end
 
   defp invalid_action_contract(action, reason) do
@@ -193,25 +189,6 @@ defmodule Jido.Instruction do
        action: action,
        reason: reason
      })}
-  end
-
-  defp validate_action_present(attrs) do
-    if Map.has_key?(attrs, :action), do: :ok, else: {:error, :missing_action}
-  end
-
-  defp validate_action_is_atom(%{action: action}) when is_atom(action) and not is_nil(action),
-    do: :ok
-
-  defp validate_action_is_atom(_attrs), do: {:error, :invalid_action}
-
-  defp normalize_attrs(attrs) do
-    with {:ok, params} <- normalize_map_field(Map.get(attrs, :params, %{}), :params),
-         {:ok, context} <- normalize_map_field(Map.get(attrs, :context, %{}), :context) do
-      {:ok,
-       attrs
-       |> Map.put(:params, params)
-       |> Map.put(:context, context)}
-    end
   end
 
   defp normalize_map_field(nil, _field), do: {:ok, %{}}
