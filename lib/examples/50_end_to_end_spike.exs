@@ -15,17 +15,10 @@ flow =
   |> Flow.policy(:add, %{execution_mode: :durable})
 
 ir = Flow.to_map(flow)
+round_trip = Flow.new(ir)
+true = Flow.to_map(round_trip) == ir
 
-json_projection = %{
-  ir
-  | policies:
-      Enum.map(ir.policies, fn {matcher, policy} ->
-        %{matcher: matcher, policy: policy}
-      end)
-}
-
-json = Jason.encode!(json_projection)
-result = Support.ok!(Exec.run(flow, %{value: 6}, jido: :example))
+result = Support.ok!(Exec.run(round_trip, %{value: 6}, jido: :example))
 
 %{add: [%{value: 10}]} = Exec.results(result)
 [%{directives: %{route: :next}}] = result.directives
@@ -41,8 +34,7 @@ Support.print(
   "50 end-to-end spike",
   %{
     ir: ir,
-    json_projection: json_projection,
-    json_bytes: byte_size(json),
+    round_trip?: Flow.to_map(round_trip) == ir,
     results: Exec.results(result),
     directives: result.directives,
     events: length(Exec.events(result)),

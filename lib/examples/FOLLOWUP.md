@@ -1,7 +1,7 @@
 # Jido Action v3 Examples Follow-Up
 
 This note captures what the `lib/examples` scripts exposed while building and
-running the 51-example ad-hoc suite. The examples should stay ad-hoc for now:
+running the numbered ad-hoc suite. The examples should stay ad-hoc for now:
 they are exploratory scripts, not a formal test harness, docs site, or release
 artifact. Their value is in quickly pressure-testing behavior and making design
 friction visible.
@@ -33,7 +33,7 @@ Reasons:
   supported contracts.
 - They can be noisy and verbose in ways tests should not be.
 - They can include exploratory scenarios such as process exits, raw Runic
-  projections, JSON projection failures, and telemetry inspection.
+  projections, Elixir-term IR boundaries, and telemetry inspection.
 - They can change quickly as `Jido.Flow` and `Jido.Exec` settle.
 
 What not to do yet:
@@ -58,7 +58,7 @@ Settled enough for now:
 - Abnormal successful action outputs use `Jido.Action.Output`.
 - Bare scalar, list, stream, or struct success values remain invalid return
   shapes unless wrapped in `Jido.Action.Output`.
-- `Jido.Flow.to_map/1` is still Elixir-term IR, not a JSON/YAML transport
+- `Jido.Flow.to_map/1` is still Elixir-term IR, not an external transport
   format.
 - Flow IR structural keys and component identifiers are atom-only.
 - String-keyed Flow structural maps are rejected instead of normalized.
@@ -71,10 +71,10 @@ Settled enough for now:
 
 Most useful next pressure points:
 
-- Add a projection/extraction primitive for feeding action output fields into
-  Runic map/reduce pipelines.
-- Decide whether future scripting gets a separate adapter, compiler, or builder
-  layer over the atom-keyed Elixir-term IR.
+- Keep pressure-testing `Flow.project/3` and `Flow.extract/3` as the explicit
+  bridge from map-shaped action outputs into Runic primitives.
+- Keep the scripting layer lossless over the atom-keyed Elixir-term IR without
+  turning the Flow IR itself into a transport format.
 - Decide whether provenance should get a step-aware Jido projection.
 
 ## 1. Run Context Shape
@@ -254,29 +254,29 @@ Flow.map(:score_each, {Scoring, :score}, after: {:load_items, :items})
 - Should primitive inputs support paths into prior action outputs?
 - Should `Output.batch(values)` be projectable by kind, or should projection
   only target map fields?
-- Should this wait until JSON/YAML/script projections are designed?
+- Should projection stay Elixir-term IR only until a separate external adapter
+  exists?
 
 ## 3. Flow IR Is Elixir-Term IR
 
 ### What The Examples Exposed
 
-`36_json_safe_ir.exs`, `37_non_json_safe_ir.exs`, and
+`36_elixir_term_ir.exs`, `37_term_ir_not_wire_format.exs`, and
 `50_end_to_end_spike.exs` show that `Flow.to_map/1` is a useful Elixir-term IR,
-but not a clean JSON/YAML IR.
+not a wire or transport format.
 
 Examples:
 
-- modules encode through Jason as strings
-- policies are tuples
-- fallback functions cannot be JSON-encoded
-- MFA/capture references need explicit projection
+- modules remain modules
+- policies can contain Elixir-only values such as functions
+- MFA/capture references remain explicit Elixir terms
 - runtime-only workflows are rejected by `to_map/1`
 
 ### Current Interpretation
 
 This is the intended direction for now. `Flow.to_map/1` is the internal
-normalized Elixir-term shape, not a transport format. JSON/YAML/script
-projection should wait.
+normalized Elixir-term shape, not a transport format. External wire projection
+should wait.
 
 The risk is naming. `to_map/1` can sound like "plain serializable map" when it
 really means "normalized Elixir-term representation."
@@ -290,7 +290,7 @@ Keep `to_map/1` as Elixir-term IR:
 - policies remain Elixir terms
 - runtime-only workflows remain rejected by `to_map/1`
 
-Do not make `to_map/1` JSON-safe in this spike.
+Do not make `to_map/1` transport-safe in this spike.
 
 ### Remaining Risk
 
@@ -308,7 +308,7 @@ Flow.to_term(flow)
 - Should future external projections be separate modules/functions rather than
   options on `to_map/1`?
 - Should examples 36-38 keep warning about external encoding limits, or should
-  JSON-oriented examples move out until there is a real adapter?
+  they only demonstrate the hardened Elixir-term boundary?
 
 ## 4. String Keys In Flow Shape vs Action Params
 
@@ -363,7 +363,7 @@ The better split:
 
 ### Remaining Friction
 
-If script/YAML inputs become a target later, both structural keys and
+If external string input becomes a target later, both structural keys and
 string-keyed params will need a separate decoding story. That should happen
 through action schemas or an explicit projection adapter, not through
 `Jido.Flow` blindly rewriting payload keys.
@@ -402,9 +402,8 @@ Flow.new(%{"flow" => [%{"type" => "step", "name" => "add"}]})
   external maps? Current answer: maybe, but not in `Jido.Flow`.
 - Should `Flow.to_map/1` guarantee atom-keyed structural fields as part of the
   Elixir-term IR contract? Current answer: yes.
-- Should examples include a future scripting adapter concept without
-  implementing JSON/YAML? Current answer: only if it helps pressure-test the
-  boundary without becoming docs.
+- Should examples include future adapter concepts? Current answer: only if they
+  help pressure-test the boundary without becoming docs.
 
 ## 5. Resume Without Input
 
@@ -618,6 +617,11 @@ Example:
 `49_flow_observability_telemetry.exs` was straightforward. The action span
 boundary is usable and low-cardinality.
 
+The example originally attached an anonymous handler. Telemetry warns about
+local or anonymous functions because code upgrades cannot replace them safely.
+The example now uses a named callback module, which is the better idiom even
+for an ad-hoc script.
+
 ### Current Interpretation
 
 This validates the earlier decision to preserve action telemetry shape while
@@ -639,6 +643,47 @@ Potential later additions:
 - Is action telemetry enough for v3?
 - Do we need flow-level events, or should Runic events cover that?
 - Should telemetry include flow/step names, or is action module enough?
+
+## 11. Example Support And Scripting DX
+
+### What The Examples Exposed
+
+The newer script examples drifted ahead of shared support. `52_project_action_output.exs`
+needed a reusable `LoadItems` action, and the script examples needed a shared
+`allowed_atoms` list. Once those lived in `support.exs`, the examples became
+smaller and easier to scan.
+
+The atom allow-list is the right safety boundary, but it is also visible
+friction. Example authors must remember to add flow names, step names, module
+segments, and function names. That is good pressure: the future scripting layer
+needs explicit affordances for safe atom creation or safe compilation context.
+
+`53_script_steps_and_primitives.exs` also exposed that map primitive output
+ordering is not a good display contract. The flow reduces to the expected sum,
+but the raw `double_each` list can print in engine-dependent order. Examples
+should assert stable downstream facts or sort display-only values when order is
+not the behavior under test.
+
+### Current Interpretation
+
+These are mostly developer-experience issues around examples and scripting, not
+core failures in `Jido.Flow`.
+
+The real package signal is:
+
+- shared support should hold reusable example actions
+- script parsing should keep atom creation explicit
+- map/fan-out examples should avoid implying deterministic ordering unless
+  Runic guarantees it
+
+### Feedback Prompts
+
+- Should `Flow.Script.parse/2` support a named allow-list profile, or should
+  callers always pass `allowed_atoms` directly?
+- Should script examples sort fan-out outputs before printing, or is it better
+  to let the nondeterminism stay visible?
+- Should `support.exs` keep collecting reusable example modules, or should
+  complex examples define local modules even if that adds boilerplate?
 
 ## Suggested Next Refinement Order
 
