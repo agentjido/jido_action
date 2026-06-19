@@ -11,6 +11,10 @@ defmodule JidoTest.TestActions do
     def identity(value), do: value
     def double(value), do: value * 2
     def sum(value, acc), do: value + acc
+    def enterprise?(%{tier: :enterprise}), do: true
+    def enterprise?(_value), do: false
+    def premium?(%{tier: :premium}), do: true
+    def premium?(_value), do: false
   end
 
   defmodule BasicAction do
@@ -161,6 +165,16 @@ defmodule JidoTest.TestActions do
       total = Enum.reduce(values, 0, fn %{value: value}, acc -> acc + value end)
       {:ok, %{value: total}}
     end
+  end
+
+  defmodule LoadItems do
+    @moduledoc false
+    use Action,
+      name: "load_items",
+      schema: Zoi.object(%{items: Zoi.list(Zoi.integer())}),
+      output_schema: Zoi.object(%{items: Zoi.list(Zoi.integer())})
+
+    def run(%{items: items}, _context), do: {:ok, %{items: items}}
   end
 
   defmodule Fail do

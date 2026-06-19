@@ -1,11 +1,12 @@
 defmodule JidoTest.FlowTest do
   use JidoTest.ActionCase, async: true
 
+  alias Jido.Exec
   alias Jido.Flow
   alias Jido.Flow.Step
   alias Jido.Instruction
   alias JidoTest.TestActions.FlowFunctions
-  alias JidoTest.TestActions.{Add, Double, NotAnAction}
+  alias JidoTest.TestActions.{Add, Double, LoadItems, NotAnAction}
   alias Runic.Workflow
   alias Runic.Workflow.SchedulerPolicy
 
@@ -424,6 +425,104 @@ defmodule JidoTest.FlowTest do
       |> Workflow.react_until_satisfied()
 
     assert 12 in Workflow.raw_productions(workflow, :sum)
+  end
+
+  test "adds project entries as explicit Flow IR" do
+    flow =
+      Flow.new(:projection)
+      |> Flow.step(:load_items, LoadItems, params: %{items: [1, 2, 3]})
+      |> Flow.project(:items, from: :load_items, path: [:items])
+
+    assert [
+             %{type: :step, name: :load_items},
+             %{
+               type: :project,
+               name: :items,
+               from: :load_items,
+               path: [:items],
+               mode: :value,
+               after: :load_items
+             }
+           ] = flow.flow
+
+    assert %{
+             flow: [
+               %{type: :step, name: :load_items},
+               %{type: :project, name: :items, from: :load_items, path: [:items], mode: :value}
+             ]
+           } = Flow.to_map(flow)
+  end
+
+  test "projects action output fields into map reduce primitives" do
+    workflow =
+      Flow.new(:project_map_reduce)
+      |> Flow.step(:load_items, LoadItems, params: %{items: [1, 2, 3]})
+      |> Flow.project(:items, from: :load_items, path: [:items])
+      |> Flow.map(:double_each, {FlowFunctions, :double}, after: :items)
+      |> Flow.reduce(:sum, 0, {FlowFunctions, :sum}, after: :double_each, map: :double_each)
+      |> Flow.to_workflow()
+      |> Workflow.plan_eagerly(%{})
+      |> Workflow.react_until_satisfied()
+
+    assert Workflow.raw_productions(workflow, :items) == [[1, 2, 3]]
+    assert Enum.sort(Workflow.raw_productions(workflow, :double_each)) == [2, 4, 6]
+    assert 12 in Workflow.raw_productions(workflow, :sum)
+  end
+
+  test "fails project runnables with clear missing path errors" do
+    flow =
+      Flow.new(:missing_projection)
+      |> Flow.step(:load_items, LoadItems, params: %{items: [1]})
+      |> Flow.project(:missing, from: :load_items, path: [:missing])
+
+    assert {:error, result} = silence_logger(fn -> Exec.run(flow, %{}) end)
+    assert result.error.details.node == :missing
+    assert %ArgumentError{} = reason = result.error.details.reason
+    assert Exception.message(reason) =~ "project path [:missing] not found"
+  end
+
+  test "rejects project entries that reference unknown source components" do
+    flow =
+      Flow.new(:bad_project_source)
+      |> Flow.project(:items, from: :missing, path: [:items])
+
+    assert_raise ArgumentError, ~r/project entry :items references unknown source :missing/, fn ->
+      Flow.to_workflow(flow)
+    end
+  end
+
+  test "validates project entries and options" do
+    assert_raise ArgumentError, ~r/Flow.project options must be a keyword list/, fn ->
+      apply(Flow, :project, [Flow.new(:bad), :items, :invalid])
+    end
+
+    assert_raise ArgumentError, ~r/unknown Flow.project options: \[:after\]/, fn ->
+      Flow.new(:bad)
+      |> Flow.project(:items, from: :load_items, path: [:items], after: :load_items)
+    end
+
+    assert_raise ArgumentError, ~r/from must be an atom/, fn ->
+      Flow.new(:bad)
+      |> Flow.project(:items, from: "load_items", path: [:items])
+    end
+
+    assert_raise ArgumentError, ~r/path must be a non-empty list/, fn ->
+      Flow.new(:bad)
+      |> Flow.project(:items, from: :load_items, path: [])
+    end
+
+    assert_raise ArgumentError, ~r/path must contain only atoms or non-negative integers/, fn ->
+      Flow.new(:bad)
+      |> Flow.project(:items, from: :load_items, path: ["items"])
+    end
+
+    assert_raise ArgumentError, ~r/mode must be :value/, fn ->
+      Flow.new(%{
+        flow: [
+          %{type: :project, name: :items, from: :load_items, path: [:items], mode: :batch}
+        ]
+      })
+    end
   end
 
   test "projects reduce primitives over enumerable input without map fan-in" do
