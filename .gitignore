@@ -22,6 +22,9 @@ jido_action-*.tar
 # Temporary files, for example, from tests.
 /tmp/
 
+# Exploratory ad-hoc examples.
+/lib/examples/
+
 # Elixir LS
 .elixir_ls/
 

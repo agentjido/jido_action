@@ -23,10 +23,25 @@ defmodule Jido.Flow do
                      |> Zoi.refine({Validator, :validate_dependency, []})
                      |> Zoi.default(nil)
 
+  @entry_types [
+    :step,
+    :project,
+    :map,
+    :reduce,
+    :accumulate,
+    :workflow,
+    :chain,
+    :fanout,
+    :collect,
+    :debug,
+    :trace,
+    :switch
+  ]
+
   @entry_schema Zoi.map(
                   %{
-                    type: Zoi.enum([:step, :map, :reduce, :accumulate, :workflow]),
-                    name: @required_name_schema,
+                    type: Zoi.enum(@entry_types),
+                    name: @name_schema,
                     after: @dependency_schema
                   },
                   unrecognized_keys: :preserve
@@ -40,6 +55,12 @@ defmodule Jido.Flow do
               flow:
                 Zoi.list(@entry_schema, description: "Ordered flow IR entries")
                 |> Zoi.default([]),
+              inputs:
+                Zoi.list(@required_name_schema, description: "Declared runtime input keys")
+                |> Zoi.default([]),
+              return:
+                Zoi.any(description: "Flow return projection")
+                |> Zoi.default(nil),
               policies:
                 Zoi.list(Zoi.any(), description: "Runic scheduler policies")
                 |> Zoi.default([])
@@ -49,6 +70,12 @@ defmodule Jido.Flow do
 
   @type name :: atom() | nil
   @type dependency :: atom() | [atom()] | nil
+  @type value_ref ::
+          {:input, atom()}
+          | {:result, atom()}
+          | {:result, atom(), [atom() | non_neg_integer()]}
+          | {:value, term()}
+          | {:element, atom()}
   @typedoc """
   Callable reference for Flow primitives.
 
@@ -59,7 +86,19 @@ defmodule Jido.Flow do
   @type callable :: external_capture() | callable_ref()
   @type external_capture :: function()
   @type callable_ref :: {module(), atom()} | {:mfa, module(), atom()}
-  @type entry_type :: :step | :map | :reduce | :accumulate | :workflow
+  @type entry_type ::
+          :step
+          | :project
+          | :map
+          | :reduce
+          | :accumulate
+          | :workflow
+          | :chain
+          | :fanout
+          | :collect
+          | :debug
+          | :trace
+          | :switch
 
   @type step_entry :: %{
           required(:type) => :step,
@@ -74,9 +113,19 @@ defmodule Jido.Flow do
           required(:type) => :map,
           required(:name) => atom(),
           required(:mapper) => callable_ref(),
+          optional(:source) => value_ref(),
           required(:inputs) => keyword() | nil,
           required(:outputs) => keyword() | nil,
           required(:after) => dependency()
+        }
+
+  @type project_entry :: %{
+          required(:type) => :project,
+          required(:name) => atom(),
+          required(:from) => atom(),
+          required(:path) => [atom() | non_neg_integer()],
+          required(:mode) => :value,
+          required(:after) => atom()
         }
 
   @type reduce_entry :: %{
@@ -84,6 +133,7 @@ defmodule Jido.Flow do
           required(:name) => atom(),
           required(:init) => term(),
           required(:reducer) => callable_ref(),
+          optional(:source) => value_ref(),
           required(:map) => atom() | nil,
           required(:inputs) => keyword() | nil,
           required(:outputs) => keyword() | nil,
@@ -95,6 +145,7 @@ defmodule Jido.Flow do
           required(:name) => atom(),
           required(:init) => term(),
           required(:reducer) => callable_ref(),
+          optional(:source) => value_ref(),
           required(:inputs) => keyword() | nil,
           required(:outputs) => keyword() | nil,
           required(:after) => dependency()
@@ -107,8 +158,67 @@ defmodule Jido.Flow do
           required(:after) => dependency()
         }
 
+  @type chain_entry :: %{
+          required(:type) => :chain,
+          required(:name) => atom() | nil,
+          required(:flow) => [entry()],
+          required(:after) => dependency()
+        }
+
+  @type fanout_entry :: %{
+          required(:type) => :fanout,
+          required(:name) => atom() | nil,
+          required(:from) => atom(),
+          required(:flow) => [entry()],
+          required(:after) => dependency()
+        }
+
+  @type collect_entry :: %{
+          required(:type) => :collect,
+          required(:name) => atom(),
+          required(:arguments) => %{atom() => value_ref()},
+          required(:after) => dependency()
+        }
+
+  @type debug_entry :: %{
+          required(:type) => :debug,
+          required(:name) => atom(),
+          required(:source) => value_ref() | nil,
+          required(:label) => String.t() | nil,
+          required(:limit) => pos_integer() | nil,
+          required(:after) => dependency()
+        }
+
+  @type trace_entry :: %{
+          required(:type) => :trace,
+          required(:name) => atom(),
+          required(:source) => value_ref() | nil,
+          required(:after) => dependency()
+        }
+
+  @type switch_entry :: %{
+          required(:type) => :switch,
+          required(:name) => atom(),
+          required(:on) => value_ref(),
+          required(:matches) => [map()],
+          required(:default) => term(),
+          required(:return?) => boolean(),
+          required(:after) => dependency()
+        }
+
   @type entry ::
-          step_entry() | map_entry() | reduce_entry() | accumulate_entry() | workflow_entry()
+          step_entry()
+          | project_entry()
+          | map_entry()
+          | reduce_entry()
+          | accumulate_entry()
+          | workflow_entry()
+          | chain_entry()
+          | fanout_entry()
+          | collect_entry()
+          | debug_entry()
+          | trace_entry()
+          | switch_entry()
   @type t :: unquote(Zoi.type_spec(@schema))
 
   @enforce_keys Zoi.Struct.enforce_keys(@schema)
@@ -182,7 +292,13 @@ defmodule Jido.Flow do
   Runtime-only workflow entries created by `from_workflow/1` cannot be converted
   to map IR because they contain live `Runic.Workflow` structs.
   """
-  @spec to_map(t()) :: %{name: name(), flow: [entry()], policies: list()}
+  @spec to_map(t()) :: %{
+          name: name(),
+          flow: [entry()],
+          inputs: [atom()],
+          return: value_ref() | atom() | nil,
+          policies: list()
+        }
   def to_map(%__MODULE__{} = flow) do
     flow = parse_flow!(flow)
     reject_runtime_workflow_entries!(flow)
@@ -190,6 +306,8 @@ defmodule Jido.Flow do
     %{
       name: flow.name,
       flow: flow.flow,
+      inputs: flow.inputs,
+      return: flow.return,
       policies: flow.policies
     }
   end
@@ -224,18 +342,54 @@ defmodule Jido.Flow do
   end
 
   @doc """
+  Adds a projection step to the flow.
+
+  Projection is explicit data movement. It selects a path from a prior component
+  output and emits the selected value as the next fact.
+
+  Required options:
+
+  - `:from` - source component name.
+  - `:path` - non-empty list of atom map keys or non-negative list indexes.
+  """
+  @spec project(t(), atom(), keyword()) :: t()
+  def project(%__MODULE__{} = flow, name, opts \\ []) do
+    opts = keyword_opts!(opts, "Flow.project options")
+
+    {from, opts} = Keyword.pop(opts, :from)
+    {path, opts} = Keyword.pop(opts, :path)
+    {mode, opts} = Keyword.pop(opts, :mode, :value)
+
+    if opts != [] do
+      raise ArgumentError, "unknown Flow.project options: #{inspect(Keyword.keys(opts))}"
+    end
+
+    add_entry(flow, %{
+      type: :project,
+      name: name,
+      from: from,
+      path: path,
+      mode: mode,
+      after: from
+    })
+  end
+
+  @doc """
   Adds a map primitive to the flow.
 
   The mapper must be an external function capture or MFA tuple.
   """
   @spec map(t(), atom(), callable(), keyword()) :: t()
   def map(%__MODULE__{} = flow, name, mapper, opts \\ []) do
-    {after_dep, opts} = primitive_opts!(opts, [:inputs, :outputs], :map)
+    {after_dep, opts} = primitive_opts!(opts, [:inputs, :outputs, :over], :map)
+    {over_dep, opts} = Keyword.pop(opts, :over)
+    after_dep = after_dep || over_dep
 
     entry = %{
       type: :map,
       name: name,
       mapper: mapper,
+      source: source_from_over(over_dep),
       inputs: Keyword.get(opts, :inputs),
       outputs: Keyword.get(opts, :outputs),
       after: after_dep
@@ -251,14 +405,18 @@ defmodule Jido.Flow do
   """
   @spec reduce(t(), atom(), term(), callable(), keyword()) :: t()
   def reduce(%__MODULE__{} = flow, name, init, reducer, opts \\ []) do
-    {after_dep, opts} = primitive_opts!(opts, [:map, :inputs, :outputs], :reduce)
+    {after_dep, opts} = primitive_opts!(opts, [:map, :inputs, :outputs, :over], :reduce)
+    {over_dep, opts} = Keyword.pop(opts, :over)
+    after_dep = after_dep || over_dep
+    map_name = Keyword.get(opts, :map) || over_dep
 
     entry = %{
       type: :reduce,
       name: name,
       init: init,
       reducer: reducer,
-      map: Keyword.get(opts, :map),
+      source: source_from_over(over_dep),
+      map: map_name,
       inputs: Keyword.get(opts, :inputs),
       outputs: Keyword.get(opts, :outputs),
       after: after_dep
@@ -274,13 +432,16 @@ defmodule Jido.Flow do
   """
   @spec accumulate(t(), atom(), term(), callable(), keyword()) :: t()
   def accumulate(%__MODULE__{} = flow, name, init, reducer, opts \\ []) do
-    {after_dep, opts} = primitive_opts!(opts, [:inputs, :outputs], :accumulate)
+    {after_dep, opts} = primitive_opts!(opts, [:inputs, :outputs, :over], :accumulate)
+    {over_dep, opts} = Keyword.pop(opts, :over)
+    after_dep = after_dep || over_dep
 
     entry = %{
       type: :accumulate,
       name: name,
       init: init,
       reducer: reducer,
+      source: source_from_over(over_dep),
       inputs: Keyword.get(opts, :inputs),
       outputs: Keyword.get(opts, :outputs),
       after: after_dep
@@ -385,6 +546,8 @@ defmodule Jido.Flow do
     %{
       name: Map.get(attrs, :name),
       flow: attrs |> Map.get(:flow, []) |> normalize_entries(),
+      inputs: Map.get(attrs, :inputs, []),
+      return: Map.get(attrs, :return),
       policies: Map.get(attrs, :policies, [])
     }
   end
@@ -412,11 +575,25 @@ defmodule Jido.Flow do
           after: after_dep
         }
 
+      :project ->
+        from = Map.get(entry, :from)
+        after_dep = if is_atom(from), do: from, else: nil
+
+        %{
+          type: :project,
+          name: name,
+          from: from,
+          path: Map.get(entry, :path),
+          mode: Map.get(entry, :mode, :value),
+          after: after_dep
+        }
+
       :map ->
         %{
           type: :map,
           name: name,
           mapper: entry |> Map.get(:mapper) |> normalize_callable(1),
+          source: Map.get(entry, :source),
           inputs: Map.get(entry, :inputs),
           outputs: Map.get(entry, :outputs),
           after: after_dep
@@ -428,6 +605,7 @@ defmodule Jido.Flow do
           name: name,
           init: Map.get(entry, :init),
           reducer: entry |> Map.get(:reducer) |> normalize_callable(2),
+          source: Map.get(entry, :source),
           map: Map.get(entry, :map),
           inputs: Map.get(entry, :inputs),
           outputs: Map.get(entry, :outputs),
@@ -440,6 +618,7 @@ defmodule Jido.Flow do
           name: name,
           init: Map.get(entry, :init),
           reducer: entry |> Map.get(:reducer) |> normalize_callable(2),
+          source: Map.get(entry, :source),
           inputs: Map.get(entry, :inputs),
           outputs: Map.get(entry, :outputs),
           after: after_dep
@@ -450,6 +629,62 @@ defmodule Jido.Flow do
           type: :workflow,
           name: name,
           workflow: Map.get(entry, :workflow),
+          after: after_dep
+        }
+
+      :chain ->
+        %{
+          type: :chain,
+          name: name,
+          flow: entry |> Map.get(:flow, []) |> normalize_entries(),
+          after: after_dep
+        }
+
+      :fanout ->
+        from = Map.get(entry, :from)
+
+        %{
+          type: :fanout,
+          name: name,
+          from: from,
+          flow: entry |> Map.get(:flow, []) |> normalize_entries(),
+          after: after_dep || from
+        }
+
+      :collect ->
+        %{
+          type: :collect,
+          name: name,
+          arguments: normalize_map!(Map.get(entry, :arguments, %{}), :arguments),
+          after: after_dep
+        }
+
+      :debug ->
+        %{
+          type: :debug,
+          name: name,
+          source: Map.get(entry, :source),
+          label: Map.get(entry, :label),
+          limit: Map.get(entry, :limit),
+          after: after_dep
+        }
+
+      :trace ->
+        %{
+          type: :trace,
+          name: name,
+          source: Map.get(entry, :source),
+          after: after_dep
+        }
+
+      :switch ->
+        %{
+          type: :switch,
+          name: name,
+          on: Map.get(entry, :on),
+          matches: Map.get(entry, :matches, []),
+          default: Map.get(entry, :default),
+          return?: Map.get(entry, :return?, false),
           after: after_dep
         }
 
@@ -529,6 +764,10 @@ defmodule Jido.Flow do
   defp primitive_opts!(_opts, _allowed_runic_opts, primitive) do
     raise ArgumentError, "Flow.#{primitive} options must be a keyword list"
   end
+
+  defp source_from_over(nil), do: nil
+  defp source_from_over(name) when is_atom(name), do: {:result, name}
+  defp source_from_over(_other), do: nil
 
   defp keyword_opts!(opts, context) when is_list(opts) do
     if Keyword.keyword?(opts) do
