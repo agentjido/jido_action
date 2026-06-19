@@ -9,7 +9,7 @@ defmodule Jido.Flow.Compiler do
   @spec to_workflow(Flow.t()) :: Workflow.t()
   def to_workflow(%Flow{} = flow) do
     {workflow, entries} = base_workflow(flow)
-    entries = entries |> expand_entries() |> wire_sources()
+    entries = entries |> expand_entries() |> lower_over_entries() |> wire_sources()
 
     entries
     |> validate_project_sources!(workflow)
@@ -113,6 +113,48 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp expand_entry(entry), do: [entry]
+
+  defp lower_over_entries(entries) do
+    Enum.flat_map(entries, &lower_over_entry/1)
+  end
+
+  defp lower_over_entry(%{type: type, over: nil} = entry)
+       when type in [:map, :reduce, :accumulate],
+       do: [Map.delete(entry, :over)]
+
+  defp lower_over_entry(%{type: type, over: over} = entry)
+       when type in [:map, :reduce, :accumulate] do
+    case over do
+      name when is_atom(name) and not is_nil(name) ->
+        [
+          entry
+          |> Map.delete(:over)
+          |> Map.put(:source, {:result, name})
+          |> put_default_after(name)
+        ]
+
+      {name, opts} when is_atom(name) and not is_nil(name) and is_list(opts) ->
+        from = Keyword.fetch!(opts, :from)
+        path = Keyword.fetch!(opts, :path)
+
+        [
+          %{
+            type: :project,
+            name: name,
+            from: from,
+            path: path,
+            mode: :value,
+            after: from
+          },
+          entry
+          |> Map.delete(:over)
+          |> Map.put(:source, {:result, name})
+          |> put_default_after(name)
+        ]
+    end
+  end
+
+  defp lower_over_entry(entry), do: [entry]
 
   defp wire_chain(entries, initial_after) do
     {_last_name, wired} =

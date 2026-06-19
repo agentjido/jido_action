@@ -8,6 +8,7 @@ defmodule Jido.Flow do
   """
 
   alias Jido.Flow.Compiler
+  alias Jido.Flow.Ref
   alias Jido.Flow.Step
   alias Jido.Flow.Validator
   alias Jido.Instruction
@@ -71,11 +72,8 @@ defmodule Jido.Flow do
   @type name :: atom() | nil
   @type dependency :: atom() | [atom()] | nil
   @type value_ref ::
-          {:input, atom()}
-          | {:result, atom()}
-          | {:result, atom(), [atom() | non_neg_integer()]}
-          | {:value, term()}
-          | {:element, atom()}
+          Ref.value_ref()
+  @type over_ref :: Ref.over_ref()
   @typedoc """
   Callable reference for Flow primitives.
 
@@ -114,6 +112,7 @@ defmodule Jido.Flow do
           required(:name) => atom(),
           required(:mapper) => callable_ref(),
           optional(:source) => value_ref(),
+          optional(:over) => over_ref() | nil,
           required(:inputs) => keyword() | nil,
           required(:outputs) => keyword() | nil,
           required(:after) => dependency()
@@ -134,6 +133,7 @@ defmodule Jido.Flow do
           required(:init) => term(),
           required(:reducer) => callable_ref(),
           optional(:source) => value_ref(),
+          optional(:over) => over_ref() | nil,
           required(:map) => atom() | nil,
           required(:inputs) => keyword() | nil,
           required(:outputs) => keyword() | nil,
@@ -146,6 +146,7 @@ defmodule Jido.Flow do
           required(:init) => term(),
           required(:reducer) => callable_ref(),
           optional(:source) => value_ref(),
+          optional(:over) => over_ref() | nil,
           required(:inputs) => keyword() | nil,
           required(:outputs) => keyword() | nil,
           required(:after) => dependency()
@@ -383,16 +384,16 @@ defmodule Jido.Flow do
   def map(%__MODULE__{} = flow, name, mapper, opts \\ []) do
     {after_dep, opts} = primitive_opts!(opts, [:inputs, :outputs, :over], :map)
     {over_dep, opts} = Keyword.pop(opts, :over)
-    after_dep = after_dep || over_dep
 
     entry = %{
       type: :map,
       name: name,
       mapper: mapper,
-      source: source_from_over(over_dep),
+      source: nil,
+      over: over_dep,
       inputs: Keyword.get(opts, :inputs),
       outputs: Keyword.get(opts, :outputs),
-      after: after_dep
+      after: after_dep || Ref.over_dependency(over_dep)
     }
 
     add_entry(flow, entry)
@@ -407,19 +408,18 @@ defmodule Jido.Flow do
   def reduce(%__MODULE__{} = flow, name, init, reducer, opts \\ []) do
     {after_dep, opts} = primitive_opts!(opts, [:map, :inputs, :outputs, :over], :reduce)
     {over_dep, opts} = Keyword.pop(opts, :over)
-    after_dep = after_dep || over_dep
-    map_name = Keyword.get(opts, :map) || over_dep
 
     entry = %{
       type: :reduce,
       name: name,
       init: init,
       reducer: reducer,
-      source: source_from_over(over_dep),
-      map: map_name,
+      source: nil,
+      over: over_dep,
+      map: Keyword.get(opts, :map),
       inputs: Keyword.get(opts, :inputs),
       outputs: Keyword.get(opts, :outputs),
-      after: after_dep
+      after: after_dep || Ref.over_dependency(over_dep)
     }
 
     add_entry(flow, entry)
@@ -434,17 +434,17 @@ defmodule Jido.Flow do
   def accumulate(%__MODULE__{} = flow, name, init, reducer, opts \\ []) do
     {after_dep, opts} = primitive_opts!(opts, [:inputs, :outputs, :over], :accumulate)
     {over_dep, opts} = Keyword.pop(opts, :over)
-    after_dep = after_dep || over_dep
 
     entry = %{
       type: :accumulate,
       name: name,
       init: init,
       reducer: reducer,
-      source: source_from_over(over_dep),
+      source: nil,
+      over: over_dep,
       inputs: Keyword.get(opts, :inputs),
       outputs: Keyword.get(opts, :outputs),
-      after: after_dep
+      after: after_dep || Ref.over_dependency(over_dep)
     }
 
     add_entry(flow, entry)
@@ -594,6 +594,7 @@ defmodule Jido.Flow do
           name: name,
           mapper: entry |> Map.get(:mapper) |> normalize_callable(1),
           source: Map.get(entry, :source),
+          over: Map.get(entry, :over),
           inputs: Map.get(entry, :inputs),
           outputs: Map.get(entry, :outputs),
           after: after_dep
@@ -606,6 +607,7 @@ defmodule Jido.Flow do
           init: Map.get(entry, :init),
           reducer: entry |> Map.get(:reducer) |> normalize_callable(2),
           source: Map.get(entry, :source),
+          over: Map.get(entry, :over),
           map: Map.get(entry, :map),
           inputs: Map.get(entry, :inputs),
           outputs: Map.get(entry, :outputs),
@@ -619,6 +621,7 @@ defmodule Jido.Flow do
           init: Map.get(entry, :init),
           reducer: entry |> Map.get(:reducer) |> normalize_callable(2),
           source: Map.get(entry, :source),
+          over: Map.get(entry, :over),
           inputs: Map.get(entry, :inputs),
           outputs: Map.get(entry, :outputs),
           after: after_dep
@@ -764,10 +767,6 @@ defmodule Jido.Flow do
   defp primitive_opts!(_opts, _allowed_runic_opts, primitive) do
     raise ArgumentError, "Flow.#{primitive} options must be a keyword list"
   end
-
-  defp source_from_over(nil), do: nil
-  defp source_from_over(name) when is_atom(name), do: {:result, name}
-  defp source_from_over(_other), do: nil
 
   defp keyword_opts!(opts, context) when is_list(opts) do
     if Keyword.keyword?(opts) do

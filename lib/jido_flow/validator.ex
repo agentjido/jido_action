@@ -1,6 +1,8 @@
 defmodule Jido.Flow.Validator do
   @moduledoc false
 
+  alias Jido.Flow.Ref
+  alias Jido.Flow.Switch.Branch
   alias Jido.Instruction
   alias Runic.Workflow
 
@@ -53,16 +55,28 @@ defmodule Jido.Flow.Validator do
     end
   end
 
-  def validate_entry(%{type: :map, name: name, mapper: mapper}, opts) do
-    with :ok <- validate_component_name(name, opts), do: validate_callable(mapper, 1)
+  def validate_entry(%{type: :map, name: name, mapper: mapper} = entry, opts) do
+    with :ok <- validate_component_name(name, opts),
+         :ok <- validate_callable(mapper, 1),
+         :ok <- validate_source_and_over(entry, opts) do
+      :ok
+    end
   end
 
-  def validate_entry(%{type: :reduce, name: name, reducer: reducer}, opts) do
-    with :ok <- validate_component_name(name, opts), do: validate_callable(reducer, 2)
+  def validate_entry(%{type: :reduce, name: name, reducer: reducer} = entry, opts) do
+    with :ok <- validate_component_name(name, opts),
+         :ok <- validate_callable(reducer, 2),
+         :ok <- validate_source_and_over(entry, opts) do
+      :ok
+    end
   end
 
-  def validate_entry(%{type: :accumulate, name: name, reducer: reducer}, opts) do
-    with :ok <- validate_component_name(name, opts), do: validate_callable(reducer, 2)
+  def validate_entry(%{type: :accumulate, name: name, reducer: reducer} = entry, opts) do
+    with :ok <- validate_component_name(name, opts),
+         :ok <- validate_callable(reducer, 2),
+         :ok <- validate_source_and_over(entry, opts) do
+      :ok
+    end
   end
 
   def validate_entry(%{type: :workflow, name: name, workflow: %Workflow{}}, opts),
@@ -82,18 +96,30 @@ defmodule Jido.Flow.Validator do
     do: {:error, "fanout entries must contain from and flow"}
 
   def validate_entry(%{type: :collect, name: name, arguments: arguments}, opts)
-      when is_map(arguments),
-      do: validate_component_name(name, opts)
+      when is_map(arguments) do
+    with :ok <- validate_component_name(name, opts) do
+      validate_argument_refs(arguments, opts)
+    end
+  end
 
   def validate_entry(%{type: :collect}, _opts),
     do: {:error, "collect entries must contain arguments"}
 
-  def validate_entry(%{type: type, name: name}, opts) when type in [:debug, :trace],
-    do: validate_component_name(name, opts)
+  def validate_entry(%{type: type, name: name} = entry, opts) when type in [:debug, :trace] do
+    with :ok <- validate_component_name(name, opts) do
+      validate_optional_value_ref(Map.get(entry, :source), opts)
+    end
+  end
 
-  def validate_entry(%{type: :switch, name: name, matches: matches}, opts)
-      when is_list(matches),
-      do: validate_component_name(name, opts)
+  def validate_entry(%{type: :switch, name: name, matches: matches} = entry, opts)
+      when is_list(matches) do
+    with :ok <- validate_component_name(name, opts),
+         :ok <- validate_value_ref(Map.get(entry, :on), opts),
+         :ok <- validate_switch_matches(matches, opts),
+         :ok <- validate_switch_return(Map.get(entry, :return?)) do
+      validate_switch_default(Map.get(entry, :default), opts)
+    end
+  end
 
   def validate_entry(%{type: :switch}, _opts),
     do: {:error, "switch entries must contain matches"}
@@ -132,25 +158,80 @@ defmodule Jido.Flow.Validator do
     end
   end
 
-  defp validate_project_path(path, _opts) when is_list(path) do
-    cond do
-      path == [] ->
-        {:error, "path must be a non-empty list"}
-
-      Enum.all?(path, &project_path_part?/1) ->
-        :ok
-
-      true ->
-        {:error, "path must contain only atoms or non-negative integers"}
-    end
-  end
-
-  defp validate_project_path(_path, _opts), do: {:error, "path must be a non-empty list"}
-
-  defp project_path_part?(value) when is_atom(value) and not is_nil(value), do: true
-  defp project_path_part?(value) when is_integer(value) and value >= 0, do: true
-  defp project_path_part?(_value), do: false
+  defp validate_project_path(path, _opts), do: Ref.validate_path(path)
 
   defp validate_project_mode(:value), do: :ok
   defp validate_project_mode(_mode), do: {:error, "mode must be :value"}
+
+  defp validate_source_and_over(entry, opts) do
+    source = Map.get(entry, :source)
+    over = Map.get(entry, :over)
+
+    cond do
+      not is_nil(source) and not is_nil(over) ->
+        {:error, "must contain only one of source or over"}
+
+      not is_nil(source) ->
+        validate_value_ref(source, opts)
+
+      true ->
+        validate_over(over, opts)
+    end
+  end
+
+  defp validate_optional_value_ref(nil, _opts), do: :ok
+  defp validate_optional_value_ref(value, opts), do: validate_value_ref(value, opts)
+
+  defp validate_argument_refs(arguments, opts) do
+    Enum.reduce_while(arguments, :ok, fn
+      {name, value}, :ok when is_atom(name) and not is_nil(name) ->
+        case validate_value_ref(value, opts) do
+          :ok -> {:cont, :ok}
+          {:error, reason} -> {:halt, {:error, "argument #{inspect(name)} #{reason}"}}
+        end
+
+      {_name, _value}, :ok ->
+        {:halt, {:error, "argument names must be atoms"}}
+    end)
+  end
+
+  defp validate_value_ref(value, _opts), do: Ref.validate(value)
+
+  defp validate_over(over, _opts) do
+    case Ref.normalize_over(over) do
+      {:ok, _normalized} ->
+        :ok
+
+      {:error, "over expects an atom or {:name, from: :source, path: [...]}"} ->
+        {:error, "over must be an atom or {:name, from: :source, path: [...]}"}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp validate_switch_matches([], _opts), do: {:error, "switch matches cannot be empty"}
+
+  defp validate_switch_matches(matches, opts) do
+    Enum.reduce_while(matches, :ok, fn match, :ok ->
+      case validate_switch_match(match, opts) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp validate_switch_match(%{name: name, predicate: predicate} = match, opts) do
+    with :ok <- validate_component_name(name, opts),
+         :ok <- validate_callable(predicate, 1) do
+      Branch.validate_match(match)
+    end
+  end
+
+  defp validate_switch_match(_match, _opts), do: {:error, "switch matches must be maps"}
+
+  defp validate_switch_default(default, _opts), do: Branch.validate_default(default)
+
+  defp validate_switch_return(value) when is_boolean(value), do: :ok
+  defp validate_switch_return(_value), do: {:error, "switch return must be a boolean"}
 end

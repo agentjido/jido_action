@@ -6,7 +6,7 @@ defmodule JidoTest.FlowTest do
   alias Jido.Flow.Step
   alias Jido.Instruction
   alias JidoTest.TestActions.FlowFunctions
-  alias JidoTest.TestActions.{Add, Double, LoadItems, NotAnAction}
+  alias JidoTest.TestActions.{Add, ContextEcho, Double, LoadItems, NotAnAction}
   alias Runic.Workflow
   alias Runic.Workflow.SchedulerPolicy
 
@@ -467,6 +467,146 @@ defmodule JidoTest.FlowTest do
     assert Workflow.raw_productions(workflow, :items) == [[1, 2, 3]]
     assert Enum.sort(Workflow.raw_productions(workflow, :double_each)) == [2, 4, 6]
     assert 12 in Workflow.raw_productions(workflow, :sum)
+  end
+
+  test "keeps over references in Flow IR and lowers them at the Runic boundary" do
+    flow =
+      Flow.new(:over_projection)
+      |> Flow.step(:load_items, LoadItems, params: %{items: [1, 2, 3]})
+      |> Flow.map(:double_each, {FlowFunctions, :double},
+        over: {:items, from: :load_items, path: [:items]}
+      )
+      |> Flow.reduce(:sum, 0, {FlowFunctions, :sum}, over: :double_each)
+
+    assert [
+             %{type: :step, name: :load_items},
+             %{
+               type: :map,
+               name: :double_each,
+               over: {:items, from: :load_items, path: [:items]},
+               source: nil,
+               after: :items
+             },
+             %{type: :reduce, name: :sum, over: :double_each, map: nil}
+           ] = Flow.to_map(flow).flow
+
+    workflow = Flow.to_workflow(flow)
+
+    assert %{items: %Runic.Workflow.Step{}, double_each: %Runic.Workflow.Map{}} =
+             Workflow.components(workflow)
+
+    assert {:ok, result} = Exec.run(flow, %{})
+    assert Exec.results(result).sum == [12]
+  end
+
+  test "validates over references as exclusive primitive source declarations" do
+    assert_raise ArgumentError, ~r/must contain only one of source or over/, fn ->
+      Flow.new(%{
+        flow: [
+          %{
+            type: :map,
+            name: :double_each,
+            mapper: {FlowFunctions, :double},
+            source: {:result, :items},
+            over: :items
+          }
+        ]
+      })
+    end
+
+    assert_raise ArgumentError, ~r/path must be a non-empty list/, fn ->
+      Flow.new(:bad_over)
+      |> Flow.map(:double_each, {FlowFunctions, :double},
+        over: {:items, from: :load_items, path: []}
+      )
+    end
+  end
+
+  test "runs switch entries from direct Flow IR" do
+    flow =
+      Flow.new(%{
+        name: :direct_switch,
+        flow: [
+          %{
+            type: :switch,
+            name: :route,
+            on: {:input, :order},
+            matches: [
+              %{name: :premium, predicate: {FlowFunctions, :premium?}, then: :premium}
+            ],
+            default: :standard,
+            return?: true
+          }
+        ]
+      })
+
+    assert {:ok, result} = Exec.run(flow, %{order: %{tier: :premium}})
+    assert Exec.results(result).route == [:premium]
+
+    assert {:ok, result} = Exec.run(flow, %{order: %{tier: :standard}})
+    assert Exec.results(result).route == [:standard]
+  end
+
+  test "passes runtime context through block switch branch flows" do
+    flow =
+      Flow.new(%{
+        name: :switch_context,
+        flow: [
+          %{
+            type: :switch,
+            name: :route,
+            on: {:input, :order},
+            matches: [
+              %{
+                name: :premium,
+                predicate: {FlowFunctions, :premium?},
+                flow: [
+                  %{
+                    type: :step,
+                    name: :echo,
+                    action: ContextEcho,
+                    params: %{},
+                    context: %{static: true},
+                    after: nil
+                  }
+                ],
+                return: {:result, :echo}
+              }
+            ],
+            default: :standard,
+            return?: false
+          }
+        ]
+      })
+
+    assert {:ok, result} =
+             Exec.run(flow, %{order: %{tier: :premium, value: 3}}, run_context: %{runtime: true})
+
+    assert Exec.results(result).route == [%{value: 3, runtime: true, static: true}]
+  end
+
+  test "rejects ambiguous switch match IR" do
+    assert_raise ArgumentError, ~r/switch matches must contain only one of then or flow/, fn ->
+      Flow.new(%{
+        name: :bad_switch,
+        flow: [
+          %{
+            type: :switch,
+            name: :route,
+            on: {:input, :order},
+            matches: [
+              %{
+                name: :premium,
+                predicate: {FlowFunctions, :premium?},
+                then: :premium,
+                flow: []
+              }
+            ],
+            return?: true
+          }
+        ]
+      })
+    end
   end
 
   test "fails project runnables with clear missing path errors" do
