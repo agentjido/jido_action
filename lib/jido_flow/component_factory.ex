@@ -3,7 +3,7 @@ defmodule Jido.Flow.ComponentFactory do
 
   require Runic
 
-  alias Jido.Flow.Step
+  alias Jido.Flow.{Step, Switch}
 
   @doc false
   def to_runic!(%{type: :step} = entry) do
@@ -71,10 +71,7 @@ defmodule Jido.Flow.ComponentFactory do
     )
   end
 
-  def to_runic!(%{type: :switch, name: name}) do
-    raise ArgumentError,
-          "switch entry #{inspect(name)} is Flow IR only until runtime branching is implemented"
-  end
+  def to_runic!(%{type: :switch} = entry), do: Switch.new(entry)
 
   @doc false
   def apply_mapper(mapper, value), do: apply_callable(mapper, [value])
