@@ -30,3 +30,7 @@ jido_action-*.tar
 
 # Dialyzer PLT files
 /priv/plts/
+
+# Compound Engineering local config
+.compound-engineering/
+.codex
