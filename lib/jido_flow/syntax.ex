@@ -144,6 +144,7 @@ defmodule Jido.Flow.Syntax do
         input: input
       }
       |> maybe_put_binding(Keyword.get(opts, :bind))
+      |> maybe_put_after(Keyword.get(opts, :after))
 
     add(
       syntax,
@@ -165,4 +166,7 @@ defmodule Jido.Flow.Syntax do
 
   defp maybe_put_binding(attrs, nil), do: attrs
   defp maybe_put_binding(attrs, binding), do: Map.put(attrs, :binding, binding)
+
+  defp maybe_put_after(attrs, nil), do: attrs
+  defp maybe_put_after(attrs, after_targets), do: Map.put(attrs, :after, after_targets)
 end

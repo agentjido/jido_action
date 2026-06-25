@@ -141,6 +141,53 @@ defmodule Jido.Flow.ParserTest do
       assert Flow.to_map(flow).return == %{type: :result, node: :audit_quote, path: [:total]}
     end
 
+    test "parses explicit after targets in keyword step options" do
+      source = """
+      flow do
+        loaded =
+          step :load_quote, JidoTest.TestActions.EchoParamsAction,
+            with: shape(%{id: input(:quote_id)})
+
+        step :independent, JidoTest.TestActions.EchoParamsAction,
+          with: shape(%{event: "side"})
+
+        audit =
+          step :audit_quote, JidoTest.TestActions.EchoParamsAction,
+            with: shape(%{event: "quoted"}),
+            after: [:load_quote, loaded]
+
+        return audit
+      end
+      """
+
+      assert {:ok, flow} = Flow.parse(source, name: "explicit_after_flow")
+      assert [load_quote, independent, audit_quote] = Flow.to_map(flow).nodes
+
+      assert load_quote.deps == []
+      assert independent.deps == []
+      assert audit_quote.deps == [:load_quote]
+      assert audit_quote.input == %{event: %{type: :value, value: "quoted"}}
+    end
+
+    test "parses after before with in keyword step options" do
+      source = """
+      flow do
+        loaded = step :load_quote, JidoTest.TestActions.EchoParamsAction, with: %{}
+
+        audit =
+          step :audit_quote, JidoTest.TestActions.EchoParamsAction,
+            after: loaded,
+            with: shape(%{event: "quoted"})
+
+        return audit
+      end
+      """
+
+      assert {:ok, flow} = Flow.parse(source, name: "explicit_after_order_flow")
+      assert [_load_quote, audit_quote] = Flow.to_map(flow).nodes
+      assert audit_quote.deps == [:load_quote]
+    end
+
     test "rejects arbitrary local function calls outside the Flow subset" do
       source = """
       flow do
@@ -187,7 +234,16 @@ defmodule Jido.Flow.ParserTest do
     test "rejects unsupported step options" do
       cases = [
         {:bind, "step :add_one, JidoTest.TestActions.Add, %{value: input(:value)}, bind: :added"},
-        {:unknown, "step :add_one, JidoTest.TestActions.Add, with: %{}, after: :other"},
+        {:trailing_after, "step :add_one, JidoTest.TestActions.Add, %{}, after: :other"},
+        {:after_without_with, "step :add_one, JidoTest.TestActions.Add, after: :other"},
+        {:unknown_keyword, "step :add_one, JidoTest.TestActions.Add, with: %{}, unknown: true"},
+        {:duplicate_with,
+         "step :add_one, JidoTest.TestActions.Add, with: %{}, with: %{other: input(:value)}"},
+        {:duplicate_after,
+         """
+         step :load, JidoTest.TestActions.Add, with: %{}
+         step :add_one, JidoTest.TestActions.Add, with: %{}, after: :load, after: :load
+         """},
         {:missing_input, "step :add_one, JidoTest.TestActions.Add"}
       ]
 
@@ -198,6 +254,31 @@ defmodule Jido.Flow.ParserTest do
                  Flow.parse(source, name: "bad")
 
         assert message =~ "unsupported flow DSL step options"
+      end
+    end
+
+    test "rejects unsupported explicit after targets" do
+      cases = [
+        {:select, "after: select(loaded, :id)"},
+        {:shape, "after: shape(%{})"},
+        {:remote_call, "after: System.system_time()"},
+        {:dot_projection, "after: loaded.value"},
+        {:keyword_list, "after: [loaded: :bad]"}
+      ]
+
+      for {_kind, option} <- cases do
+        source = """
+        flow do
+          loaded = step :load_quote, JidoTest.TestActions.EchoParamsAction, with: %{}
+          step :audit_quote, JidoTest.TestActions.EchoParamsAction, with: %{}, #{option}
+          return result(:audit_quote)
+        end
+        """
+
+        assert {:error, %InvalidInputError{message: message}} =
+                 Flow.parse(source, name: "bad")
+
+        assert message =~ "unsupported flow DSL after target"
       end
     end
 

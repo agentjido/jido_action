@@ -199,6 +199,78 @@ defmodule JidoTest.FlowFixtures do
     """
   end
 
+  def explicit_edge_syntax do
+    Syntax.new(
+      name: "explicit_edge_flow",
+      description: "Orders audit after loading without data dependency"
+    )
+    |> Syntax.step(
+      :load_quote,
+      EchoParamsAction,
+      Syntax.shape(%{id: Syntax.input(:quote_id)}),
+      bind: :loaded
+    )
+    |> Syntax.step(
+      :independent,
+      EchoParamsAction,
+      Syntax.shape(%{event: "side"})
+    )
+    |> Syntax.step(
+      :audit_quote,
+      EchoParamsAction,
+      Syntax.shape(%{event: "quoted"}),
+      bind: :audit,
+      after: [:load_quote, Syntax.binding(:loaded)]
+    )
+    |> Syntax.return(Syntax.binding(:audit))
+  end
+
+  def explicit_edge_builder do
+    Builder.new(
+      name: "explicit_edge_flow",
+      description: "Orders audit after loading without data dependency"
+    )
+    |> Builder.step(
+      :load_quote,
+      EchoParamsAction,
+      Builder.shape(%{id: Builder.input(:quote_id)}),
+      bind: :loaded
+    )
+    |> Builder.step(
+      :independent,
+      EchoParamsAction,
+      Builder.shape(%{event: "side"})
+    )
+    |> Builder.step(
+      :audit_quote,
+      EchoParamsAction,
+      Builder.shape(%{event: "quoted"}),
+      bind: :audit,
+      after: [:load_quote, Builder.binding(:loaded)]
+    )
+    |> Builder.return(Builder.binding(:audit))
+  end
+
+  def explicit_edge_source do
+    """
+    flow do
+      loaded =
+        step :load_quote, JidoTest.TestActions.EchoParamsAction,
+          with: shape(%{id: input(:quote_id)})
+
+      step :independent, JidoTest.TestActions.EchoParamsAction,
+        with: shape(%{event: "side"})
+
+      audit =
+        step :audit_quote, JidoTest.TestActions.EchoParamsAction,
+          with: shape(%{event: "quoted"}),
+          after: [:load_quote, loaded]
+
+      return audit
+    end
+    """
+  end
+
   def math_canonical_map do
     %{
       type: :flow,
@@ -291,6 +363,37 @@ defmodule JidoTest.FlowFixtures do
         }
       ],
       return: %{type: :result, node: :audit_quote, path: [:total]}
+    }
+  end
+
+  def explicit_edge_canonical_map do
+    %{
+      type: :flow,
+      name: "explicit_edge_flow",
+      description: "Orders audit after loading without data dependency",
+      schema: [],
+      output_schema: [],
+      nodes: [
+        %{
+          name: :load_quote,
+          action: EchoParamsAction,
+          input: %{id: %{type: :input, path: [:quote_id]}},
+          deps: []
+        },
+        %{
+          name: :independent,
+          action: EchoParamsAction,
+          input: %{event: %{type: :value, value: "side"}},
+          deps: []
+        },
+        %{
+          name: :audit_quote,
+          action: EchoParamsAction,
+          input: %{event: %{type: :value, value: "quoted"}},
+          deps: [:load_quote]
+        }
+      ],
+      return: %{type: :result, node: :audit_quote, path: []}
     }
   end
 end

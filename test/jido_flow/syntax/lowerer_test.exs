@@ -354,6 +354,148 @@ defmodule Jido.Flow.Syntax.LowererTest do
       assert double_provenance.provenance.binding == :doubled
     end
 
+    test "lowers explicit after targets to canonical deps without source-order deps" do
+      syntax =
+        Syntax.new(name: "explicit_edges")
+        |> Syntax.step(:load_cart, EchoParamsAction, %{cart_id: Syntax.input(:cart_id)},
+          bind: :cart_handle
+        )
+        |> Syntax.step(:independent, EchoParamsAction, %{event: "side"})
+        |> Syntax.step(
+          :audit_cart,
+          EchoParamsAction,
+          Syntax.shape(%{event: "loaded"}),
+          after: [:load_cart, Syntax.binding(:cart_handle), :load_cart]
+        )
+        |> Syntax.return(Syntax.result(:audit_cart))
+
+      assert {:ok, flow} = Lowerer.lower(syntax)
+      assert [load_cart, independent, audit_cart] = Flow.to_map(flow).nodes
+
+      assert load_cart.deps == []
+      assert independent.deps == []
+      assert audit_cart.deps == [:load_cart]
+      assert audit_cart.input == %{event: %{type: :value, value: "loaded"}}
+      refute inspect(Flow.to_map(flow)) =~ "cart_handle"
+    end
+
+    test "dedupes explicit after targets with implicit data dependencies" do
+      syntax =
+        Syntax.new(name: "deduped_edges")
+        |> Syntax.step(:load_quote, EchoParamsAction, %{id: Syntax.input(:quote_id)},
+          bind: :quote
+        )
+        |> Syntax.step(
+          :audit_quote,
+          EchoParamsAction,
+          Syntax.shape(%{quote_id: Syntax.select(Syntax.binding(:quote), :id)}),
+          after: Syntax.binding(:quote)
+        )
+        |> Syntax.return(Syntax.result(:audit_quote))
+
+      assert {:ok, flow} = Lowerer.lower(syntax)
+      assert [_load_quote, audit_quote] = Flow.to_map(flow).nodes
+
+      assert audit_quote.deps == [:load_quote]
+
+      assert audit_quote.input.quote_id == %{
+               type: :result,
+               node: :load_quote,
+               path: [:id]
+             }
+    end
+
+    test "treats an explicit nil after attr as empty deps" do
+      syntax =
+        Syntax.new(name: "nil_after")
+        |> Syntax.add(
+          Syntax.operation(:step, %{
+            name: :audit,
+            action: EchoParamsAction,
+            input: %{},
+            after: nil
+          })
+        )
+        |> Syntax.return(Syntax.result(:audit))
+
+      assert {:ok, flow} = Lowerer.lower(syntax)
+      assert [%{deps: []}] = Flow.to_map(flow).nodes
+    end
+
+    test "rejects invalid explicit after step targets" do
+      cases = [
+        {:future_step,
+         Syntax.new(name: "future_after")
+         |> Syntax.step(:audit, EchoParamsAction, %{}, after: :load_quote)
+         |> Syntax.step(:load_quote, EchoParamsAction, %{})
+         |> Syntax.return(Syntax.result(:audit)), "explicit dependency before it is bound",
+         %{step: :audit, dependency: :load_quote}},
+        {:unknown_step,
+         Syntax.new(name: "unknown_after")
+         |> Syntax.step(:audit, EchoParamsAction, %{}, after: :missing)
+         |> Syntax.return(Syntax.result(:audit)), "unknown explicit dependency",
+         %{step: :audit, dependency: :missing}},
+        {:self_step,
+         Syntax.new(name: "self_after")
+         |> Syntax.step(:audit, EchoParamsAction, %{}, after: :audit)
+         |> Syntax.return(Syntax.result(:audit)),
+         "explicit dependency cannot reference current step",
+         %{step: :audit, dependency: :audit}},
+        {:future_binding,
+         Syntax.new(name: "future_binding_after")
+         |> Syntax.step(:audit, EchoParamsAction, %{}, after: Syntax.binding(:quote))
+         |> Syntax.step(:load_quote, EchoParamsAction, %{}, bind: :quote)
+         |> Syntax.return(Syntax.result(:audit)), "binding reference before it is bound",
+         %{step: :audit, binding: :quote}},
+        {:unknown_binding,
+         Syntax.new(name: "unknown_binding_after")
+         |> Syntax.step(:audit, EchoParamsAction, %{}, after: Syntax.binding(:missing))
+         |> Syntax.return(Syntax.result(:audit)), "unknown binding handle",
+         %{step: :audit, binding: :missing}},
+        {:self_binding,
+         Syntax.new(name: "self_binding_after")
+         |> Syntax.step(:audit, EchoParamsAction, %{},
+           bind: :audit_handle,
+           after: Syntax.binding(:audit_handle)
+         )
+         |> Syntax.return(Syntax.result(:audit)),
+         "explicit dependency cannot reference current binding",
+         %{step: :audit, binding: :audit_handle}},
+        {:expression_target,
+         Syntax.new(name: "expression_after")
+         |> Syntax.step(:load_quote, EchoParamsAction, %{})
+         |> Syntax.step(:audit, EchoParamsAction, %{},
+           after: Syntax.select(Syntax.input(:id), :x)
+         )
+         |> Syntax.return(Syntax.result(:audit)),
+         "after targets must be step names or binding handles", %{step: :audit, type: :select}},
+        {:ref_target,
+         Syntax.new(name: "ref_after")
+         |> Syntax.step(:load_quote, EchoParamsAction, %{})
+         |> Syntax.step(:audit, EchoParamsAction, %{}, after: Ref.result(:load_quote))
+         |> Syntax.return(Syntax.result(:audit)),
+         "after targets must be step names or binding handles", %{step: :audit, type: :result}},
+        {:map_target,
+         Syntax.new(name: "map_after")
+         |> Syntax.step(:load_quote, EchoParamsAction, %{})
+         |> Syntax.step(:audit, EchoParamsAction, %{}, after: %{target: :load_quote})
+         |> Syntax.return(Syntax.result(:audit)),
+         "after targets must be step names or binding handles",
+         %{step: :audit, target: %{target: :load_quote}}}
+      ]
+
+      for {_case_name, syntax, expected_message, expected_details} <- cases do
+        assert {:error, %InvalidInputError{message: message, details: details}} =
+                 Lowerer.lower(syntax)
+
+        assert message =~ expected_message
+
+        for {key, value} <- expected_details do
+          assert Map.fetch!(details, key) == value
+        end
+      end
+    end
+
     test "rejects an unknown binding handle" do
       syntax =
         Syntax.new(name: "unknown_binding")

@@ -94,6 +94,24 @@ defmodule Jido.Integration.FlowParityTest do
     assert module.to_map() == Jido.Flow.to_map(parser_flow)
   end
 
+  test "macro, parser, builder, and direct syntax explicit-edge flows produce equal canonical maps" do
+    module = create_explicit_edge_flow_module("ParserParityExplicitEdgeFlow")
+
+    assert {:ok, direct_flow} = Lowerer.lower(FlowFixtures.explicit_edge_syntax())
+    assert {:ok, builder_flow} = Builder.build(FlowFixtures.explicit_edge_builder())
+
+    assert {:ok, parser_flow} =
+             Jido.Flow.parse(FlowFixtures.explicit_edge_source(),
+               name: "explicit_edge_flow",
+               description: "Orders audit after loading without data dependency"
+             )
+
+    assert module.to_map() == FlowFixtures.explicit_edge_canonical_map()
+    assert module.to_map() == Jido.Flow.to_map(direct_flow)
+    assert module.to_map() == Jido.Flow.to_map(builder_flow)
+    assert module.to_map() == Jido.Flow.to_map(parser_flow)
+  end
+
   test "parser canonical maps remain equal across formatting differences" do
     formatted_source = """
     flow do
@@ -270,6 +288,27 @@ defmodule Jido.Integration.FlowParityTest do
              Jido.Exec.run(builder_flow, input, %{})
   end
 
+  test "executing equivalent explicit-edge flows returns the audit result" do
+    module = create_explicit_edge_flow_module("ExecutionParityExplicitEdgeFlow")
+    input = %{quote_id: "quote-1"}
+
+    assert {:ok, builder_flow} = Builder.build(FlowFixtures.explicit_edge_builder())
+
+    assert {:ok, parser_flow} =
+             Jido.Flow.parse(FlowFixtures.explicit_edge_source(),
+               name: "explicit_edge_flow",
+               description: "Orders audit after loading without data dependency"
+             )
+
+    assert {:ok, %{event: "quoted"}} = Jido.Exec.run(builder_flow, input, %{})
+
+    assert Jido.Exec.run(module, input, %{}) ==
+             Jido.Exec.run(builder_flow, input, %{})
+
+    assert Jido.Exec.run(parser_flow, input, %{}) ==
+             Jido.Exec.run(builder_flow, input, %{})
+  end
+
   property "builder and syntax-lowered maps agree for simple Add chains" do
     check all(
             amounts <- list_of(integer(1..5), min_length: 1, max_length: 5),
@@ -321,6 +360,36 @@ defmodule Jido.Integration.FlowParityTest do
             )
 
           return(select(audit, :total))
+        end
+      end
+    )
+
+    module
+  end
+
+  defp create_explicit_edge_flow_module(prefix) do
+    module = unique_module(prefix)
+
+    create_module(
+      module,
+      quote do
+        use Jido.Flow,
+          name: "explicit_edge_flow",
+          description: "Orders audit after loading without data dependency"
+
+        flow do
+          loaded =
+            step(:load_quote, unquote(EchoParamsAction), with: shape(%{id: input(:quote_id)}))
+
+          step(:independent, unquote(EchoParamsAction), with: shape(%{event: "side"}))
+
+          audit =
+            step(:audit_quote, unquote(EchoParamsAction),
+              with: shape(%{event: "quoted"}),
+              after: [:load_quote, loaded]
+            )
+
+          return(audit)
         end
       end
     )
