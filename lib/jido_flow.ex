@@ -31,6 +31,107 @@ defmodule Jido.Flow do
   @enforce_keys Zoi.Struct.enforce_keys(@schema)
   defstruct Zoi.Struct.struct_fields(@schema)
 
+  defmacro __using__(opts_ast) do
+    {schema_ast, output_schema_ast} =
+      if is_list(opts_ast) do
+        {Keyword.get(opts_ast, :schema), Keyword.get(opts_ast, :output_schema)}
+      else
+        {nil, nil}
+      end
+
+    quote location: :keep do
+      @behaviour Jido.Action
+      @before_compile Jido.Flow
+
+      import Jido.Flow.DSL, only: [flow: 1]
+
+      opts_map =
+        if is_list(unquote(opts_ast)) and Keyword.keyword?(unquote(opts_ast)) do
+          Map.new(unquote(opts_ast))
+        else
+          unquote(opts_ast)
+        end
+
+      case Jido.Flow.__validate_config__(opts_map) do
+        {:ok, validated_opts} ->
+          @__jido_flow_schema__ Map.get(validated_opts, :schema, [])
+          @__jido_flow_output_schema__ Map.get(validated_opts, :output_schema, [])
+
+          if unquote(is_nil(schema_ast)) do
+            @__jido_schema__ Map.get(validated_opts, :schema, [])
+          end
+
+          if unquote(is_nil(output_schema_ast)) do
+            @__jido_output_schema__ Map.get(validated_opts, :output_schema, [])
+          end
+
+          @__jido_flow_opts__ Map.drop(validated_opts, [:schema, :output_schema])
+
+          def name, do: @__jido_flow_opts__[:name]
+          def description, do: @__jido_flow_opts__[:description]
+
+          if unquote(schema_ast) do
+            def schema, do: unquote(schema_ast)
+          else
+            def schema, do: @__jido_schema__
+          end
+
+          if unquote(output_schema_ast) do
+            def output_schema, do: unquote(output_schema_ast)
+          else
+            def output_schema, do: @__jido_output_schema__
+          end
+
+          def validate_params(params), do: Jido.Action.validate_params_for(params, __MODULE__)
+          def validate_output(output), do: Jido.Action.validate_output_for(output, __MODULE__)
+
+        {:error, error} ->
+          raise CompileError,
+            description: "Flow configuration validation failed: #{Exception.message(error)}",
+            file: __ENV__.file,
+            line: __ENV__.line
+      end
+    end
+  end
+
+  defmacro __before_compile__(env) do
+    opts = Module.get_attribute(env.module, :__jido_flow_opts__)
+    schema = Module.get_attribute(env.module, :__jido_flow_schema__)
+    output_schema = Module.get_attribute(env.module, :__jido_flow_output_schema__)
+    operations = Module.get_attribute(env.module, :__jido_flow_operations__) || []
+
+    syntax =
+      Jido.Flow.Syntax.new(
+        name: opts[:name],
+        description: opts[:description],
+        schema: schema,
+        output_schema: output_schema
+      )
+
+    syntax = %{syntax | operations: operations}
+
+    flow =
+      case Jido.Flow.Syntax.Lowerer.lower(syntax) do
+        {:ok, flow} ->
+          flow
+
+        {:error, error} ->
+          raise CompileError,
+            description: Exception.message(error),
+            file: env.file,
+            line: env.line
+      end
+
+    escaped_flow = Macro.escape(flow)
+
+    quote do
+      def flow, do: unquote(escaped_flow)
+      def to_map(opts \\ []), do: Jido.Flow.to_map(flow(), opts)
+      def compile, do: Jido.Flow.compile(flow())
+      def run(params, context), do: Jido.Exec.run(flow(), params, context)
+    end
+  end
+
   @doc """
   Builds and validates a canonical Flow artifact.
   """
@@ -99,6 +200,12 @@ defmodule Jido.Flow do
   end
 
   @doc false
+  @spec compile(t()) :: {:error, Exception.t()}
+  def compile(%__MODULE__{}) do
+    {:error, Error.config_error("Jido.Flow.compile/1 is not implemented yet")}
+  end
+
+  @doc false
   @spec validate(t()) :: {:ok, t()} | {:error, Exception.t()}
   def validate(%__MODULE__{} = flow) do
     with :ok <- validate_duplicate_nodes(flow.nodes),
@@ -106,6 +213,28 @@ defmodule Jido.Flow do
          :ok <- validate_known_result_refs(flow) do
       {:ok, normalize_node_deps(flow)}
     end
+  end
+
+  @doc false
+  @spec __validate_config__(map()) :: {:ok, map()} | {:error, Exception.t()}
+  def __validate_config__(%{} = attrs) do
+    with {:ok, name} <- validate_name(Map.get(attrs, :name)),
+         {:ok, description} <- validate_description(Map.get(attrs, :description)),
+         {:ok, schema} <- validate_schema(Map.get(attrs, :schema, []), "schema"),
+         {:ok, output_schema} <-
+           validate_schema(Map.get(attrs, :output_schema, []), "output_schema") do
+      {:ok,
+       %{
+         name: name,
+         description: description,
+         schema: schema,
+         output_schema: output_schema
+       }}
+    end
+  end
+
+  def __validate_config__(_attrs) do
+    {:error, Error.validation_error("flow configuration must be a map")}
   end
 
   defp validate_name(name) when is_binary(name) do
