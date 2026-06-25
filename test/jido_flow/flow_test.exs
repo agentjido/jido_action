@@ -219,6 +219,26 @@ defmodule Jido.FlowTest do
       assert details.node == :add_one
       assert details.dependency == :missing
     end
+
+    test "rejects explicit node deps pointing at unknown steps" do
+      attrs = [
+        name: "bad",
+        nodes: [
+          [
+            name: :audit,
+            action: Add,
+            input: %{value: Ref.input(:value)},
+            deps: [:missing]
+          ]
+        ],
+        return: Ref.result(:audit, :value)
+      ]
+
+      assert {:error, %InvalidInputError{message: message, details: details}} = Flow.new(attrs)
+      assert message =~ "node input points to an unknown step"
+      assert details.node == :audit
+      assert details.dependency == :missing
+    end
   end
 
   describe "new!/1" do

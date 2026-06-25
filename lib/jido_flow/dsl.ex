@@ -50,11 +50,12 @@ defmodule Jido.Flow.DSL do
   defp parse_step(meta, [name_ast, action_ast, input_ast], env, binding) do
     name = parse_atom!(name_ast, "step name", meta, env)
     action = parse_action_module!(action_ast, env)
-    input = parse_step_input!(input_ast, env)
+    {input, after_targets} = parse_step_input_and_after!(input_ast, env)
 
     attrs =
       %{name: name, action: action, input: input}
       |> maybe_put_binding(binding)
+      |> maybe_put_after(after_targets)
 
     Syntax.operation(:step, attrs, provenance: provenance_from_meta(meta))
   end
@@ -177,24 +178,80 @@ defmodule Jido.Flow.DSL do
     unsupported!("unsupported flow DSL expression: #{Macro.to_string(value)}", value, env)
   end
 
-  defp parse_step_input!([with: input_ast], env), do: parse_expression(input_ast, env)
-
-  defp parse_step_input!(options, env) when is_list(options) do
+  defp parse_step_input_and_after!(options, env) when is_list(options) do
     if Keyword.keyword?(options) do
-      unsupported!(
-        "unsupported flow DSL step options: #{Macro.to_string(options)}",
-        options,
-        env
-      )
+      parse_step_options!(options, env)
     else
-      parse_expression(options, env)
+      {parse_expression(options, env), nil}
     end
   end
 
-  defp parse_step_input!(input_ast, env), do: parse_expression(input_ast, env)
+  defp parse_step_input_and_after!(input_ast, env), do: {parse_expression(input_ast, env), nil}
+
+  defp parse_step_options!(options, env) do
+    with :ok <- validate_step_options!(options, env) do
+      input = options |> Keyword.fetch!(:with) |> parse_expression(env)
+
+      after_targets =
+        case Keyword.fetch(options, :after) do
+          {:ok, targets} -> parse_after_targets!(targets, env)
+          :error -> nil
+        end
+
+      {input, after_targets}
+    end
+  end
+
+  defp validate_step_options!(options, env) do
+    allowed_keys = [:with, :after]
+    keys = Keyword.keys(options)
+    duplicate_key = duplicate_step_option_key(keys, allowed_keys)
+
+    cond do
+      Enum.any?(keys, &(&1 not in allowed_keys)) ->
+        unsupported_step_options!(options, env)
+
+      not Keyword.has_key?(options, :with) ->
+        unsupported_step_options!(options, env)
+
+      duplicate_key ->
+        unsupported_step_options!(Keyword.take(options, [duplicate_key]), env)
+
+      true ->
+        :ok
+    end
+  end
+
+  defp duplicate_step_option_key(keys, allowed_keys) do
+    Enum.find(allowed_keys, fn allowed_key ->
+      Enum.count(keys, &(&1 == allowed_key)) > 1
+    end)
+  end
+
+  defp parse_after_targets!(targets, env) when is_list(targets) do
+    if Keyword.keyword?(targets) do
+      unsupported_after_target!(targets, env)
+    else
+      Enum.map(targets, &parse_after_target!(&1, env))
+    end
+  end
+
+  defp parse_after_targets!(target, env), do: parse_after_target!(target, env)
+
+  defp parse_after_target!(target, _env) when is_atom(target) and not is_nil(target), do: target
+
+  defp parse_after_target!({name, meta, context}, _env)
+       when is_atom(name) and is_list(meta) and (is_atom(context) or is_nil(context)) do
+    Syntax.binding(name)
+  end
+
+  defp parse_after_target!(target, env), do: unsupported_after_target!(target, env)
 
   defp maybe_put_binding(attrs, nil), do: attrs
   defp maybe_put_binding(attrs, binding), do: Map.put(attrs, :binding, binding)
+
+  defp maybe_put_after(attrs, nil), do: attrs
+  defp maybe_put_after(attrs, after_targets), do: Map.put(attrs, :after, after_targets)
 
   defp provenance_from_meta(meta) do
     case Keyword.get(meta, :line) do
@@ -207,6 +264,14 @@ defmodule Jido.Flow.DSL do
     unsupported!(
       "unsupported flow DSL step options: #{Macro.to_string(statement)}",
       statement,
+      env
+    )
+  end
+
+  defp unsupported_after_target!(target, env) do
+    unsupported!(
+      "unsupported flow DSL after target: #{Macro.to_string(target)}",
+      target,
       env
     )
   end

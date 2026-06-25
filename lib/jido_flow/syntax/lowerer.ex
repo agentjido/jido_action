@@ -13,6 +13,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
           seen: MapSet.t(atom()),
           bindings: %{optional(atom()) => atom()},
           all_bindings: MapSet.t(atom()),
+          all_steps: MapSet.t(atom()),
           return: Ref.t() | nil
         }
 
@@ -54,6 +55,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
         seen: MapSet.new(),
         bindings: %{},
         all_bindings: operations |> binding_aliases() |> MapSet.new(),
+        all_steps: operations |> step_names() |> MapSet.new(),
         return: nil
       }
 
@@ -70,14 +72,17 @@ defmodule Jido.Flow.Syntax.Lowerer do
     step_name = Map.get(attrs, :name)
     binding = Map.get(attrs, :binding)
     input_expr = Map.get(attrs, :input, %{})
+    after_targets = Map.get(attrs, :after, [])
 
     with :ok <- validate_no_self_reference(input_expr, binding, step_name),
+         {:ok, explicit_deps} <- resolve_after_targets(after_targets, state, step_name, binding),
          {:ok, input} <- resolve_expr(input_expr, state, step_name),
          {:ok, node} <-
            Node.new(
              name: step_name,
              action: Map.get(attrs, :action),
              input: input,
+             deps: explicit_deps,
              provenance: maybe_put_binding(provenance, binding)
            ) do
       {:ok,
@@ -185,6 +190,68 @@ defmodule Jido.Flow.Syntax.Lowerer do
   end
 
   defp resolve_expr(value, _state, _step), do: {:ok, Ref.value(value)}
+
+  defp resolve_after_targets(nil, _state, _step, _binding), do: {:ok, []}
+
+  defp resolve_after_targets(targets, state, step, binding) do
+    targets = if is_list(targets), do: targets, else: [targets]
+
+    Enum.reduce_while(targets, {:ok, []}, fn target, {:ok, acc} ->
+      case resolve_after_target(target, state, step, binding) do
+        {:ok, dependency} -> {:cont, {:ok, [dependency | acc]}}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+    |> case do
+      {:ok, dependencies} -> {:ok, dependencies |> Enum.reverse() |> Enum.uniq()}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp resolve_after_target(target, state, step, _binding)
+       when is_atom(target) and not is_nil(target) do
+    cond do
+      target == step ->
+        self_dependency_error(step, target)
+
+      MapSet.member?(state.seen, target) ->
+        {:ok, target}
+
+      MapSet.member?(state.all_steps, target) ->
+        explicit_dependency_before_bound_error(step, target)
+
+      true ->
+        unknown_explicit_dependency_error(step, target)
+    end
+  end
+
+  defp resolve_after_target(%Expr{type: :binding, binding: target_binding}, state, step, binding) do
+    cond do
+      target_binding == binding ->
+        self_binding_dependency_error(step, target_binding)
+
+      Map.has_key?(state.bindings, target_binding) ->
+        {:ok, Map.fetch!(state.bindings, target_binding)}
+
+      MapSet.member?(state.all_bindings, target_binding) ->
+        binding_before_bound_error(step, target_binding)
+
+      true ->
+        unknown_binding_error(step, target_binding)
+    end
+  end
+
+  defp resolve_after_target(%Expr{type: type}, _state, step, _binding) do
+    unsupported_after_target_error(step, type)
+  end
+
+  defp resolve_after_target(%Ref{type: type}, _state, step, _binding) do
+    unsupported_after_target_error(step, type)
+  end
+
+  defp resolve_after_target(target, _state, step, _binding) do
+    unsupported_after_target_error(step, target)
+  end
 
   defp validate_return_ref(%Ref{type: :result} = ref), do: {:ok, ref}
 
@@ -391,6 +458,60 @@ defmodule Jido.Flow.Syntax.Lowerer do
      Error.validation_error("unknown binding handle: #{inspect(binding)}", %{
        step: step,
        binding: binding
+     })}
+  end
+
+  defp explicit_dependency_before_bound_error(step, dependency) do
+    {:error,
+     Error.validation_error("explicit dependency before it is bound: #{inspect(dependency)}", %{
+       step: step,
+       dependency: dependency
+     })}
+  end
+
+  defp unknown_explicit_dependency_error(step, dependency) do
+    {:error,
+     Error.validation_error("unknown explicit dependency: #{inspect(dependency)}", %{
+       step: step,
+       dependency: dependency
+     })}
+  end
+
+  defp self_dependency_error(step, dependency) do
+    {:error,
+     Error.validation_error(
+       "explicit dependency cannot reference current step: #{inspect(dependency)}",
+       %{
+         step: step,
+         dependency: dependency
+       }
+     )}
+  end
+
+  defp self_binding_dependency_error(step, binding) do
+    {:error,
+     Error.validation_error(
+       "explicit dependency cannot reference current binding: #{inspect(binding)}",
+       %{
+         step: step,
+         binding: binding
+       }
+     )}
+  end
+
+  defp unsupported_after_target_error(step, type) when is_atom(type) do
+    {:error,
+     Error.validation_error("after targets must be step names or binding handles", %{
+       step: step,
+       type: type
+     })}
+  end
+
+  defp unsupported_after_target_error(step, target) do
+    {:error,
+     Error.validation_error("after targets must be step names or binding handles", %{
+       step: step,
+       target: target
      })}
   end
 end

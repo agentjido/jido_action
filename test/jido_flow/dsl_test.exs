@@ -243,6 +243,76 @@ defmodule Jido.Flow.DSLTest do
       assert module.to_map().return == %{type: :result, node: :audit_quote, path: [:total]}
     end
 
+    test "supports explicit after targets in keyword step options" do
+      module = unique_module("ExplicitAfterFlow")
+
+      create_module(
+        module,
+        quote do
+          use Jido.Flow, name: "explicit_after_flow"
+
+          flow do
+            loaded =
+              step(:load_quote, unquote(EchoParamsAction), with: shape(%{id: input(:quote_id)}))
+
+            step(:independent, unquote(EchoParamsAction), with: shape(%{event: "side"}))
+
+            audit =
+              step(:audit_quote, unquote(EchoParamsAction),
+                with: shape(%{event: "quoted"}),
+                after: [:load_quote, loaded]
+              )
+
+            return(audit)
+          end
+        end
+      )
+
+      assert [load_quote, independent, audit_quote] = module.to_map().nodes
+
+      assert load_quote.deps == []
+      assert independent.deps == []
+      assert audit_quote.deps == [:load_quote]
+      assert audit_quote.input == %{event: %{type: :value, value: "quoted"}}
+    end
+
+    test "supports after before with in keyword step options" do
+      module = unique_module("ExplicitAfterOptionOrderFlow")
+
+      create_module(
+        module,
+        quote do
+          use Jido.Flow, name: "explicit_after_order_flow"
+
+          flow do
+            loaded = step(:load_quote, unquote(EchoParamsAction), with: %{})
+
+            audit =
+              step(:audit_quote, unquote(EchoParamsAction),
+                after: loaded,
+                with: shape(%{event: "quoted"})
+              )
+
+            return(audit)
+          end
+        end
+      )
+
+      assert [_load_quote, audit_quote] = module.to_map().nodes
+      assert audit_quote.deps == [:load_quote]
+    end
+
+    test "uses empty provenance when step metadata has no source line" do
+      ast = {:step, [], [:echo, EchoParamsAction, [with: {:%{}, [], []}]]}
+
+      assert [
+               %Jido.Flow.Syntax.Operation{
+                 kind: :step,
+                 provenance: %{}
+               }
+             ] = Jido.Flow.DSL.__parse_block__(ast, __ENV__)
+    end
+
     test "rejects unsupported projection and shape expressions at compile time" do
       cases = [
         {:computed_shape,
@@ -311,6 +381,30 @@ defmodule Jido.Flow.DSLTest do
       assert node.input.config == %{type: :value, value: %{path: [:payload, "value"]}}
       assert node.input.metadata_path == %{type: :input, path: [%{field: :value}]}
       assert module.to_map().return == %{type: :result, node: :add_one, path: []}
+    end
+
+    test "rejects unsupported explicit after targets at compile time" do
+      module = unique_module("UnsupportedAfterTargetFlow")
+
+      assert_raise CompileError, ~r/unsupported flow DSL after target/, fn ->
+        create_module(
+          module,
+          quote do
+            use Jido.Flow, name: "unsupported_after_target_flow"
+
+            flow do
+              loaded = step(:load_quote, unquote(EchoParamsAction), with: %{})
+
+              step(:audit_quote, unquote(EchoParamsAction),
+                with: %{},
+                after: select(loaded, :id)
+              )
+
+              return(result(:audit_quote))
+            end
+          end
+        )
+      end
     end
 
     test "rejects unsupported result node expressions" do

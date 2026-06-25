@@ -55,6 +55,35 @@ defmodule Jido.Flow.CompilerTest do
       assert component_order(workflow) == [:add_one, :double]
     end
 
+    test "compiles explicit canonical deps in dependency order" do
+      flow =
+        Flow.new!(
+          name: "explicit_edges",
+          nodes: [
+            Node.new!(
+              name: :audit_quote,
+              action: EchoParamsAction,
+              input: %{event: Ref.value("quoted")},
+              deps: [:load_quote]
+            ),
+            Node.new!(
+              name: :load_quote,
+              action: EchoParamsAction,
+              input: %{id: Ref.input(:quote_id)}
+            ),
+            Node.new!(
+              name: :independent,
+              action: EchoParamsAction,
+              input: %{event: Ref.value("side")}
+            )
+          ],
+          return: Ref.result(:audit_quote)
+        )
+
+      assert {:ok, workflow} = Flow.compile(flow)
+      assert component_order(workflow) == [:load_quote, :audit_quote, :independent]
+    end
+
     test "rejects dependency graphs that cannot be topologically ordered" do
       flow =
         Flow.new!(

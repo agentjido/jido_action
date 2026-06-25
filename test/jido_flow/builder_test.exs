@@ -36,5 +36,26 @@ defmodule Jido.Flow.BuilderTest do
 
       assert Builder.shape(data) == Syntax.shape(data)
     end
+
+    test "builder passes explicit after targets to syntax" do
+      after_targets = [:load_cart, Builder.binding(:quote)]
+
+      builder =
+        Builder.new(name: "explicit_edges")
+        |> Builder.step(:audit_quote, JidoTest.TestActions.Add, %{event: "quoted"},
+          after: after_targets
+        )
+
+      assert [
+               %Syntax.Operation{
+                 kind: :step,
+                 attrs: %{
+                   name: :audit_quote,
+                   action: JidoTest.TestActions.Add,
+                   after: ^after_targets
+                 }
+               }
+             ] = Builder.syntax(builder).operations
+    end
   end
 end

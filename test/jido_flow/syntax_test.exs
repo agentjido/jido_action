@@ -43,6 +43,25 @@ defmodule Jido.Flow.SyntaxTest do
                }
              ] = syntax.operations
     end
+
+    test "stores explicit after targets on steps" do
+      after_targets = [:load_cart, Syntax.binding(:quote)]
+
+      syntax =
+        Syntax.new(name: "explicit_edges")
+        |> Syntax.step(:audit_quote, Add, %{event: "quoted"}, after: after_targets)
+
+      assert [
+               %Syntax.Operation{
+                 kind: :step,
+                 attrs: %{
+                   name: :audit_quote,
+                   action: Add,
+                   after: ^after_targets
+                 }
+               }
+             ] = syntax.operations
+    end
   end
 
   describe "projection and shape expressions" do
