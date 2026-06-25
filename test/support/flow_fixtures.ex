@@ -109,6 +109,76 @@ defmodule JidoTest.FlowFixtures do
     """
   end
 
+  def annotated_syntax do
+    Syntax.new(
+      name: "annotated_flow",
+      description: "Annotates a step without changing semantics"
+    )
+    |> Syntax.step(
+      :add_one,
+      Add,
+      %{
+        value: Syntax.input(:value),
+        amount: Syntax.value(1)
+      },
+      bind: :added,
+      label: "Add one",
+      tags: [:math, "example"],
+      note: "Visible only in provenance"
+    )
+    |> Syntax.return(Syntax.binding(:added))
+  end
+
+  def annotated_builder do
+    Builder.new(
+      name: "annotated_flow",
+      description: "Annotates a step without changing semantics"
+    )
+    |> Builder.step(
+      :add_one,
+      Add,
+      %{
+        value: Builder.input(:value),
+        amount: Builder.value(1)
+      },
+      bind: :added,
+      label: "Add one",
+      tags: [:math, "example"],
+      note: "Visible only in provenance"
+    )
+    |> Builder.return(Builder.binding(:added))
+  end
+
+  def annotated_source do
+    """
+    flow do
+      added =
+        step :add_one, JidoTest.TestActions.Add,
+          with: %{value: input(:value), amount: value(1)},
+          label: "Add one",
+          tags: [:math, "example"],
+          note: "Visible only in provenance"
+
+      return added
+    end
+    """
+  end
+
+  def stored_annotated_source do
+    """
+    flow do
+      added =
+        step :add_one, "add",
+          with: %{value: input(:value), amount: value(1)},
+          label: "Add one",
+          tags: [:math, "example"],
+          note: "Visible only in provenance"
+
+      return added
+    end
+    """
+  end
+
   def projection_syntax do
     Syntax.new(
       name: "projection_flow",
@@ -596,6 +666,28 @@ defmodule JidoTest.FlowFixtures do
         }
       ],
       return: %{type: :result, node: :double, path: []}
+    }
+  end
+
+  def annotated_canonical_map do
+    %{
+      type: :flow,
+      name: "annotated_flow",
+      description: "Annotates a step without changing semantics",
+      schema: [],
+      output_schema: [],
+      nodes: [
+        %{
+          name: :add_one,
+          action: Add,
+          input: %{
+            value: %{type: :input, path: [:value]},
+            amount: %{type: :value, value: 1}
+          },
+          deps: []
+        }
+      ],
+      return: %{type: :result, node: :add_one, path: []}
     }
   end
 

@@ -177,7 +177,7 @@ defmodule Jido.Flow.Syntax do
 
     add(
       syntax,
-      operation(:step, attrs, provenance: Keyword.get(opts, :provenance, %{}))
+      operation(:step, attrs, provenance: provenance_from_options(opts))
     )
   end
 
@@ -198,4 +198,21 @@ defmodule Jido.Flow.Syntax do
 
   defp maybe_put_after(attrs, nil), do: attrs
   defp maybe_put_after(attrs, after_targets), do: Map.put(attrs, :after, after_targets)
+
+  defp provenance_from_options(opts) do
+    provenance = Keyword.get(opts, :provenance, %{})
+
+    if is_map(provenance) do
+      Map.merge(provenance, annotation_options(opts))
+    else
+      provenance
+    end
+  end
+
+  defp annotation_options(opts) do
+    opts
+    |> Keyword.take([:label, :tags, :note])
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
 end

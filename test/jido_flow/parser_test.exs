@@ -24,6 +24,20 @@ defmodule Jido.Flow.ParserTest do
       assert message =~ "flow name must be a string"
     end
 
+    test "keeps trusted parser profile as the default" do
+      opts = [
+        name: "math_flow",
+        description: "Adds one and doubles the result",
+        profile: :trusted
+      ]
+
+      assert {:ok, default_flow} =
+               Flow.parse(FlowFixtures.math_source(), Keyword.delete(opts, :profile))
+
+      assert {:ok, trusted_flow} = Flow.parse(FlowFixtures.math_source(), opts)
+      assert Flow.to_map(trusted_flow) == Flow.to_map(default_flow)
+    end
+
     test "rejects non-string source" do
       assert {:error, %InvalidInputError{message: message}} = Flow.parse(:not_source, name: "bad")
       assert message =~ "flow source must be a string"
@@ -58,11 +72,39 @@ defmodule Jido.Flow.ParserTest do
       assert message =~ "flow parser options must be a map or keyword list"
     end
 
+    test "rejects unsupported parser profiles before lowering" do
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Flow.parse(FlowFixtures.math_source(), name: "bad", profile: :unsafe)
+
+      assert message =~ "unsupported flow parser profile"
+      assert details.profile == :unsafe
+    end
+
     test "rejects invalid flow config supplied through parser options" do
       assert {:error, %InvalidInputError{message: message}} =
                Flow.parse(FlowFixtures.math_source(), name: " ")
 
       assert message =~ "Action name cannot be blank"
+    end
+
+    test "stored parser profile rejects source atoms that do not already exist" do
+      atom_name = "__jido_flow_stored_new_atom_#{System.unique_integer([:positive])}"
+
+      assert_raise ArgumentError, fn -> String.to_existing_atom(atom_name) end
+
+      source = """
+      flow do
+        step :#{atom_name}, JidoTest.TestActions.Add, with: %{}
+        return result(:#{atom_name})
+      end
+      """
+
+      assert {:error, %InvalidInputError{message: message}} =
+               Flow.parse(source, name: "bad", profile: :stored)
+
+      assert message =~ "invalid flow source"
+      assert message =~ "unsafe atom"
+      assert_raise ArgumentError, fn -> String.to_existing_atom(atom_name) end
     end
 
     test "parses binding assignments, with input, and return by binding" do
@@ -80,6 +122,116 @@ defmodule Jido.Flow.ParserTest do
       assert add_one.input.amount == %{type: :value, value: 1}
       assert double.input == %{type: :result, node: :add_one, path: []}
       assert Flow.to_map(flow).return == %{type: :result, node: :double, path: []}
+    end
+
+    test "parses step annotations as provenance only" do
+      assert {:ok, flow} =
+               Flow.parse(FlowFixtures.annotated_source(),
+                 name: "annotated_flow",
+                 description: "Annotates a step without changing semantics"
+               )
+
+      assert Flow.to_map(flow) == FlowFixtures.annotated_canonical_map()
+      assert [%{provenance: provenance}] = Flow.to_map(flow, provenance: true).nodes
+      assert provenance.label == "Add one"
+      assert provenance.tags == ["math", "example"]
+      assert provenance.note == "Visible only in provenance"
+      assert is_integer(provenance.line)
+      assert is_integer(provenance.column)
+    end
+
+    test "stored parser profile resolves registered action identifiers" do
+      assert {:ok, flow} =
+               Flow.parse(FlowFixtures.stored_annotated_source(),
+                 name: "annotated_flow",
+                 description: "Annotates a step without changing semantics",
+                 profile: :stored,
+                 actions: %{"add" => JidoTest.TestActions.Add}
+               )
+
+      assert Flow.to_map(flow) == FlowFixtures.annotated_canonical_map()
+      assert {:ok, %{value: 4}} = Jido.Exec.run(flow, %{value: 3}, %{})
+
+      assert [%{provenance: provenance}] = Flow.to_map(flow, provenance: true).nodes
+
+      assert Map.take(provenance, [:label, :tags, :note]) == %{
+               label: "Add one",
+               tags: ["math", "example"],
+               note: "Visible only in provenance"
+             }
+    end
+
+    test "stored parser profile accepts keyword action registries" do
+      source = """
+      flow do
+        step :add_one, :add, with: %{value: input(:value), amount: value(1)}
+        return result(:add_one)
+      end
+      """
+
+      assert {:ok, flow} =
+               Flow.parse(source,
+                 name: "annotated_flow",
+                 description: "Annotates a step without changing semantics",
+                 profile: :stored,
+                 actions: [add: JidoTest.TestActions.Add]
+               )
+
+      assert Flow.to_map(flow) == FlowFixtures.annotated_canonical_map()
+    end
+
+    test "stored parser profile rejects unregistered action identifiers" do
+      source = """
+      flow do
+        step :add_one, "missing", with: %{}
+        return result(:add_one)
+      end
+      """
+
+      assert {:error, %InvalidInputError{message: message}} =
+               Flow.parse(source, name: "bad", profile: :stored, actions: %{})
+
+      assert message =~ "unknown flow action identifier"
+      assert message =~ "missing"
+    end
+
+    test "stored parser profile rejects direct action module aliases" do
+      source = """
+      flow do
+        step :add_one, JidoTest.TestActions.Add, with: %{}
+        return result(:add_one)
+      end
+      """
+
+      assert {:error, %InvalidInputError{message: message}} =
+               Flow.parse(source,
+                 name: "bad",
+                 profile: :stored,
+                 actions: %{"add" => JidoTest.TestActions.Add}
+               )
+
+      assert message =~ "stored flow action modules must use registered identifiers"
+    end
+
+    test "stored parser profile rejects invalid action registries" do
+      cases = [
+        [:bad],
+        %{123 => JidoTest.TestActions.Add},
+        %{"add" => "not_module"},
+        :bad
+      ]
+
+      for actions <- cases do
+        assert {:error, %InvalidInputError{message: message, details: details}} =
+                 Flow.parse(FlowFixtures.stored_annotated_source(),
+                   name: "bad",
+                   profile: :stored,
+                   actions: actions
+                 )
+
+        assert message =~ "flow action registry must map string or atom identifiers to modules"
+        assert details.actions == actions
+      end
     end
 
     test "parses root list step input expressions" do
@@ -306,6 +458,52 @@ defmodule Jido.Flow.ParserTest do
                  Flow.parse(source, name: "bad")
 
         assert message =~ "unsupported flow DSL step options"
+      end
+    end
+
+    test "rejects computed step annotation values" do
+      cases = [
+        {:label, ~s|label: String.upcase("bad")|},
+        {:tags, "tags: [System.system_time()]"},
+        {:note, ~s|note: String.upcase("bad")|}
+      ]
+
+      for {_kind, option} <- cases do
+        source = """
+        flow do
+          step :bad, JidoTest.TestActions.Add, with: %{}, #{option}
+          return result(:bad)
+        end
+        """
+
+        assert {:error, %InvalidInputError{message: message}} =
+                 Flow.parse(source, name: "bad")
+
+        assert message =~ "unsupported flow DSL"
+      end
+    end
+
+    test "rejects invalid literal step annotation values" do
+      cases = [
+        {:label, "label: :bad"},
+        {:note, "note: 123"},
+        {:tags_keyword, "tags: [bad: :tag]"},
+        {:tags_value, "tags: [1]"},
+        {:tags_shape, "tags: :bad"}
+      ]
+
+      for {_kind, option} <- cases do
+        source = """
+        flow do
+          step :bad, JidoTest.TestActions.Add, with: %{}, #{option}
+          return result(:bad)
+        end
+        """
+
+        assert {:error, %InvalidInputError{message: message}} =
+                 Flow.parse(source, name: "bad")
+
+        assert message =~ "unsupported flow DSL annotation"
       end
     end
 

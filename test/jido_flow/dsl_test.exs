@@ -105,6 +105,37 @@ defmodule Jido.Flow.DSLTest do
       assert module.to_map().return == %{type: :result, node: :double, path: []}
     end
 
+    test "supports step annotations as provenance only" do
+      module = unique_module("AnnotatedFlow")
+
+      create_module(
+        module,
+        quote do
+          use Jido.Flow,
+            name: "annotated_flow",
+            description: "Annotates a step without changing semantics"
+
+          flow do
+            added =
+              step(:add_one, unquote(Add),
+                with: %{value: input(:value), amount: value(1)},
+                label: "Add one",
+                tags: [:math, "example"],
+                note: "Visible only in provenance"
+              )
+
+            return(added)
+          end
+        end
+      )
+
+      assert module.to_map() == FlowFixtures.annotated_canonical_map()
+      assert [%{provenance: provenance}] = module.to_map(provenance: true).nodes
+      assert provenance.label == "Add one"
+      assert provenance.tags == ["math", "example"]
+      assert provenance.note == "Visible only in provenance"
+    end
+
     test "rejects bind step options at compile time" do
       module = unique_module("BindOptionFlow")
 
@@ -120,6 +151,32 @@ defmodule Jido.Flow.DSLTest do
             end
           end
         )
+      end
+    end
+
+    test "rejects computed step annotation values at compile time" do
+      cases = [
+        {:label, quote(do: step(:bad, unquote(Add), with: %{}, label: String.upcase("bad")))},
+        {:tags, quote(do: step(:bad, unquote(Add), with: %{}, tags: [System.system_time()]))},
+        {:note, quote(do: step(:bad, unquote(Add), with: %{}, note: String.upcase("bad")))}
+      ]
+
+      for {case_name, statement} <- cases do
+        module = unique_module("ComputedAnnotation#{case_name}")
+
+        assert_raise CompileError, ~r/unsupported flow DSL/, fn ->
+          create_module(
+            module,
+            quote do
+              use Jido.Flow, name: "computed_annotation_flow"
+
+              flow do
+                unquote(statement)
+                return(result(:bad))
+              end
+            end
+          )
+        end
       end
     end
 

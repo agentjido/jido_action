@@ -82,6 +82,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
     with :ok <- validate_no_self_reference(input_expr, binding, step_name),
          {:ok, explicit_deps} <- resolve_after_targets(after_targets, state, step_name, binding),
          {:ok, input} <- resolve_expr(input_expr, state, step_name),
+         {:ok, provenance} <- normalize_step_provenance(provenance, step_name),
          {:ok, node} <-
            Node.new(
              name: step_name,
@@ -594,6 +595,79 @@ defmodule Jido.Flow.Syntax.Lowerer do
 
   defp maybe_bind(bindings, nil, _node), do: bindings
   defp maybe_bind(bindings, binding, node), do: Map.put(bindings, binding, node)
+
+  defp normalize_step_provenance(provenance, step) when is_map(provenance) do
+    with {:ok, provenance} <- normalize_annotation_string(provenance, :label, step),
+         {:ok, provenance} <- normalize_annotation_string(provenance, :note, step),
+         {:ok, provenance} <- normalize_annotation_tags(provenance, step) do
+      {:ok, provenance}
+    end
+  end
+
+  defp normalize_step_provenance(provenance, _step), do: {:ok, provenance}
+
+  defp normalize_annotation_string(provenance, field, step) do
+    case Map.fetch(provenance, field) do
+      :error ->
+        {:ok, provenance}
+
+      {:ok, value} when is_binary(value) ->
+        {:ok, provenance}
+
+      {:ok, value} ->
+        {:error,
+         Error.validation_error("step annotation #{field} must be a string", %{
+           step: step,
+           field: field,
+           value: value
+         })}
+    end
+  end
+
+  defp normalize_annotation_tags(provenance, step) do
+    case Map.fetch(provenance, :tags) do
+      :error ->
+        {:ok, provenance}
+
+      {:ok, tags} when is_list(tags) ->
+        normalize_tags(tags, step)
+        |> case do
+          {:ok, tags} -> {:ok, Map.put(provenance, :tags, tags)}
+          {:error, error} -> {:error, error}
+        end
+
+      {:ok, value} ->
+        {:error,
+         Error.validation_error("step annotation tags must be a list", %{
+           step: step,
+           field: :tags,
+           value: value
+         })}
+    end
+  end
+
+  defp normalize_tags(tags, step) do
+    Enum.reduce_while(tags, {:ok, []}, fn
+      tag, {:ok, acc} when is_binary(tag) ->
+        {:cont, {:ok, [tag | acc]}}
+
+      tag, {:ok, acc} when is_atom(tag) and not is_nil(tag) ->
+        {:cont, {:ok, [Atom.to_string(tag) | acc]}}
+
+      tag, {:ok, _acc} ->
+        {:halt,
+         {:error,
+          Error.validation_error("step annotation tags must be strings or atoms", %{
+            step: step,
+            field: :tags,
+            value: tag
+          })}}
+    end)
+    |> case do
+      {:ok, tags} -> {:ok, Enum.reverse(tags)}
+      {:error, error} -> {:error, error}
+    end
+  end
 
   defp result_before_bound_error(step, dependency) do
     {:error,
