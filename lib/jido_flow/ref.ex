@@ -9,15 +9,21 @@ defmodule Jido.Flow.Ref do
   @type kind :: :input | :result | :value
   @type path :: [atom() | String.t() | integer()]
 
-  @type t :: %__MODULE__{
-          type: kind(),
-          node: atom() | nil,
-          path: path(),
-          value: term()
-        }
+  @schema Zoi.struct(
+            __MODULE__,
+            %{
+              type: Zoi.enum([:input, :result, :value], description: "Reference type"),
+              node: Zoi.atom(description: "Result node name") |> Zoi.optional(),
+              path: Zoi.list(Zoi.any(), description: "Nested value path") |> Zoi.default([]),
+              value: Zoi.any(description: "Literal value") |> Zoi.optional()
+            },
+            coerce: true
+          )
 
-  @enforce_keys [:type]
-  defstruct [:type, :node, :value, path: []]
+  @type t :: unquote(Zoi.type_spec(@schema))
+
+  @enforce_keys Zoi.Struct.enforce_keys(@schema)
+  defstruct Zoi.Struct.struct_fields(@schema)
 
   @doc """
   Builds a reference to a value in the Flow input.

@@ -6,16 +6,22 @@ defmodule Jido.Flow.Node do
   alias Jido.Action.Error
   alias Jido.Flow.Ref
 
-  @type t :: %__MODULE__{
-          name: atom(),
-          action: module(),
-          input: map(),
-          deps: [atom()],
-          provenance: map()
-        }
+  @schema Zoi.struct(
+            __MODULE__,
+            %{
+              name: Zoi.atom(description: "Flow step name"),
+              action: Zoi.atom(description: "Action module"),
+              input: Zoi.map(description: "Step input expression map") |> Zoi.default(%{}),
+              deps: Zoi.list(Zoi.atom(), description: "Step dependencies") |> Zoi.default([]),
+              provenance: Zoi.map(description: "Non-semantic provenance") |> Zoi.default(%{})
+            },
+            coerce: true
+          )
 
-  @enforce_keys [:name, :action]
-  defstruct [:name, :action, input: %{}, deps: [], provenance: %{}]
+  @type t :: unquote(Zoi.type_spec(@schema))
+
+  @enforce_keys Zoi.Struct.enforce_keys(@schema)
+  defstruct Zoi.Struct.struct_fields(@schema)
 
   @doc """
   Builds a Flow node from keyword or map attributes.

@@ -12,26 +12,24 @@ defmodule Jido.Flow do
   alias Jido.Flow.{Node, Ref}
   alias Jido.Instruction
 
-  @type t :: %__MODULE__{
-          name: String.t(),
-          description: String.t() | nil,
-          schema: term(),
-          output_schema: term(),
-          nodes: [Node.t()],
-          return: Ref.t(),
-          provenance: map()
-        }
+  @schema Zoi.struct(
+            __MODULE__,
+            %{
+              name: Zoi.string(description: "Flow name"),
+              description: Zoi.string(description: "Flow description") |> Zoi.optional(),
+              schema: Zoi.any(description: "Flow input schema") |> Zoi.default([]),
+              output_schema: Zoi.any(description: "Flow output schema") |> Zoi.default([]),
+              nodes: Zoi.list(Zoi.any(), description: "Canonical Flow nodes") |> Zoi.default([]),
+              return: Zoi.any(description: "Declared return reference"),
+              provenance: Zoi.map(description: "Non-semantic provenance") |> Zoi.default(%{})
+            },
+            coerce: true
+          )
 
-  @enforce_keys [:name, :nodes, :return]
-  defstruct [
-    :name,
-    :return,
-    description: nil,
-    schema: [],
-    output_schema: [],
-    nodes: [],
-    provenance: %{}
-  ]
+  @type t :: unquote(Zoi.type_spec(@schema))
+
+  @enforce_keys Zoi.Struct.enforce_keys(@schema)
+  defstruct Zoi.Struct.struct_fields(@schema)
 
   @doc """
   Builds and validates a canonical Flow artifact.
