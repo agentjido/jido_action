@@ -271,6 +271,220 @@ defmodule JidoTest.FlowFixtures do
     """
   end
 
+  def branch_group_syntax do
+    Syntax.new(
+      name: "branch_group_flow",
+      description: "Groups static branches without changing runtime semantics"
+    )
+    |> Syntax.step(
+      :load_cart,
+      EchoParamsAction,
+      Syntax.shape(%{
+        cart_id: Syntax.input(:cart_id),
+        items: Syntax.input(:items)
+      }),
+      bind: :cart
+    )
+    |> Syntax.parallel([
+      Syntax.branch(:alpha, [
+        syntax_step(
+          :price_cart,
+          EchoParamsAction,
+          Syntax.shape(%{
+            cart_id: Syntax.select(Syntax.binding(:cart), :cart_id),
+            total: Syntax.input(:total)
+          }),
+          bind: :priced
+        ),
+        syntax_step(
+          :audit_price,
+          EchoParamsAction,
+          Syntax.shape(%{event: "priced"}),
+          after: Syntax.binding(:priced)
+        )
+      ]),
+      Syntax.branch(:beta, [
+        syntax_step(
+          :reserve_inventory,
+          EchoParamsAction,
+          Syntax.shape(%{
+            cart_id: Syntax.select(Syntax.binding(:cart), :cart_id),
+            items: Syntax.select(Syntax.binding(:cart), :items)
+          }),
+          bind: :reserved
+        )
+      ])
+    ])
+    |> Syntax.step(:post_group_independent, EchoParamsAction, Syntax.shape(%{event: "side"}))
+    |> Syntax.step(
+      :finalize,
+      EchoParamsAction,
+      Syntax.shape(%{
+        priced: Syntax.binding(:priced),
+        reserved: Syntax.binding(:reserved)
+      }),
+      bind: :final
+    )
+    |> Syntax.return(Syntax.binding(:final))
+  end
+
+  def branch_group_flattened_syntax do
+    Syntax.new(
+      name: "branch_group_flow",
+      description: "Groups static branches without changing runtime semantics"
+    )
+    |> Syntax.step(
+      :load_cart,
+      EchoParamsAction,
+      Syntax.shape(%{
+        cart_id: Syntax.input(:cart_id),
+        items: Syntax.input(:items)
+      }),
+      bind: :cart
+    )
+    |> Syntax.step(
+      :price_cart,
+      EchoParamsAction,
+      Syntax.shape(%{
+        cart_id: Syntax.select(Syntax.binding(:cart), :cart_id),
+        total: Syntax.input(:total)
+      }),
+      bind: :priced
+    )
+    |> Syntax.step(
+      :audit_price,
+      EchoParamsAction,
+      Syntax.shape(%{event: "priced"}),
+      after: Syntax.binding(:priced)
+    )
+    |> Syntax.step(
+      :reserve_inventory,
+      EchoParamsAction,
+      Syntax.shape(%{
+        cart_id: Syntax.select(Syntax.binding(:cart), :cart_id),
+        items: Syntax.select(Syntax.binding(:cart), :items)
+      }),
+      bind: :reserved
+    )
+    |> Syntax.step(:post_group_independent, EchoParamsAction, Syntax.shape(%{event: "side"}))
+    |> Syntax.step(
+      :finalize,
+      EchoParamsAction,
+      Syntax.shape(%{
+        priced: Syntax.binding(:priced),
+        reserved: Syntax.binding(:reserved)
+      }),
+      bind: :final
+    )
+    |> Syntax.return(Syntax.binding(:final))
+  end
+
+  def branch_group_builder do
+    Builder.new(
+      name: "branch_group_flow",
+      description: "Groups static branches without changing runtime semantics"
+    )
+    |> Builder.step(
+      :load_cart,
+      EchoParamsAction,
+      Builder.shape(%{
+        cart_id: Builder.input(:cart_id),
+        items: Builder.input(:items)
+      }),
+      bind: :cart
+    )
+    |> Builder.parallel([
+      Builder.branch(:alpha, [
+        syntax_step(
+          :price_cart,
+          EchoParamsAction,
+          Builder.shape(%{
+            cart_id: Builder.select(Builder.binding(:cart), :cart_id),
+            total: Builder.input(:total)
+          }),
+          bind: :priced
+        ),
+        syntax_step(
+          :audit_price,
+          EchoParamsAction,
+          Builder.shape(%{event: "priced"}),
+          after: Builder.binding(:priced)
+        )
+      ]),
+      Builder.branch(:beta, [
+        syntax_step(
+          :reserve_inventory,
+          EchoParamsAction,
+          Builder.shape(%{
+            cart_id: Builder.select(Builder.binding(:cart), :cart_id),
+            items: Builder.select(Builder.binding(:cart), :items)
+          }),
+          bind: :reserved
+        )
+      ])
+    ])
+    |> Builder.step(:post_group_independent, EchoParamsAction, Builder.shape(%{event: "side"}))
+    |> Builder.step(
+      :finalize,
+      EchoParamsAction,
+      Builder.shape(%{
+        priced: Builder.binding(:priced),
+        reserved: Builder.binding(:reserved)
+      }),
+      bind: :final
+    )
+    |> Builder.return(Builder.binding(:final))
+  end
+
+  def branch_group_source do
+    """
+    flow do
+      cart =
+        step :load_cart, JidoTest.TestActions.EchoParamsAction,
+          with: shape(%{
+            cart_id: input(:cart_id),
+            items: input(:items)
+          })
+
+      parallel do
+        branch :alpha do
+          priced =
+            step :price_cart, JidoTest.TestActions.EchoParamsAction,
+              with: shape(%{
+                cart_id: select(cart, :cart_id),
+                total: input(:total)
+              })
+
+          step :audit_price, JidoTest.TestActions.EchoParamsAction,
+            with: shape(%{event: "priced"}),
+            after: priced
+        end
+
+        branch :beta do
+          reserved =
+            step :reserve_inventory, JidoTest.TestActions.EchoParamsAction,
+              with: shape(%{
+                cart_id: select(cart, :cart_id),
+                items: select(cart, :items)
+              })
+        end
+      end
+
+      step :post_group_independent, JidoTest.TestActions.EchoParamsAction,
+        with: shape(%{event: "side"})
+
+      final =
+        step :finalize, JidoTest.TestActions.EchoParamsAction,
+          with: shape(%{
+            priced: priced,
+            reserved: reserved
+          })
+
+      return final
+    end
+    """
+  end
+
   def math_canonical_map do
     %{
       type: :flow,
@@ -395,5 +609,73 @@ defmodule JidoTest.FlowFixtures do
       ],
       return: %{type: :result, node: :audit_quote, path: []}
     }
+  end
+
+  def branch_group_canonical_map do
+    %{
+      type: :flow,
+      name: "branch_group_flow",
+      description: "Groups static branches without changing runtime semantics",
+      schema: [],
+      output_schema: [],
+      nodes: [
+        %{
+          name: :load_cart,
+          action: EchoParamsAction,
+          input: %{
+            cart_id: %{type: :input, path: [:cart_id]},
+            items: %{type: :input, path: [:items]}
+          },
+          deps: []
+        },
+        %{
+          name: :price_cart,
+          action: EchoParamsAction,
+          input: %{
+            cart_id: %{type: :result, node: :load_cart, path: [:cart_id]},
+            total: %{type: :input, path: [:total]}
+          },
+          deps: [:load_cart]
+        },
+        %{
+          name: :audit_price,
+          action: EchoParamsAction,
+          input: %{event: %{type: :value, value: "priced"}},
+          deps: [:price_cart]
+        },
+        %{
+          name: :reserve_inventory,
+          action: EchoParamsAction,
+          input: %{
+            cart_id: %{type: :result, node: :load_cart, path: [:cart_id]},
+            items: %{type: :result, node: :load_cart, path: [:items]}
+          },
+          deps: [:load_cart]
+        },
+        %{
+          name: :post_group_independent,
+          action: EchoParamsAction,
+          input: %{event: %{type: :value, value: "side"}},
+          deps: []
+        },
+        %{
+          name: :finalize,
+          action: EchoParamsAction,
+          input: %{
+            priced: %{type: :result, node: :price_cart, path: []},
+            reserved: %{type: :result, node: :reserve_inventory, path: []}
+          },
+          deps: [:price_cart, :reserve_inventory]
+        }
+      ],
+      return: %{type: :result, node: :finalize, path: []}
+    }
+  end
+
+  defp syntax_step(name, action, input, opts) do
+    Syntax.new(name: "branch")
+    |> Syntax.step(name, action, input, opts)
+    |> Map.fetch!(:operations)
+    |> List.first()
   end
 end

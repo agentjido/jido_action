@@ -302,6 +302,106 @@ defmodule Jido.Flow.DSLTest do
       assert audit_quote.deps == [:load_quote]
     end
 
+    test "supports static parallel branch groups" do
+      module = unique_module("StaticParallelFlow")
+
+      create_module(
+        module,
+        quote do
+          use Jido.Flow, name: "static_parallel_flow"
+
+          flow do
+            cart = step(:load_cart, unquote(EchoParamsAction), with: %{cart_id: input(:cart_id)})
+
+            parallel do
+              branch :alpha do
+                priced = step(:price_cart, unquote(EchoParamsAction), with: cart)
+              end
+
+              branch :beta do
+                reserved = step(:reserve_inventory, unquote(EchoParamsAction), with: cart)
+              end
+            end
+
+            final =
+              step(:finalize, unquote(EchoParamsAction),
+                with: shape(%{priced: priced, reserved: reserved})
+              )
+
+            return(final)
+          end
+        end
+      )
+
+      assert [load_cart, price_cart, reserve_inventory, finalize] = module.to_map().nodes
+      assert load_cart.deps == []
+      assert price_cart.deps == [:load_cart]
+      assert reserve_inventory.deps == [:load_cart]
+      assert finalize.deps == [:price_cart, :reserve_inventory]
+
+      refute inspect(module.to_map()) =~ "alpha"
+      refute inspect(module.to_map()) =~ "beta"
+
+      assert [
+               _load_cart_provenance,
+               %{provenance: %{branch: :alpha}},
+               %{provenance: %{branch: :beta}},
+               _finalize_provenance
+             ] = module.to_map(provenance: true).nodes
+    end
+
+    test "rejects unsupported branch group forms at compile time" do
+      cases = [
+        {:parallel_without_block, quote(do: parallel(:bad)), ~r/unsupported flow DSL parallel/},
+        {:branch_without_name,
+         quote do
+           parallel do
+             branch do
+               step(:price_cart, unquote(EchoParamsAction), with: %{})
+             end
+           end
+         end, ~r/unsupported flow DSL branch/},
+        {:return_in_branch,
+         quote do
+           parallel do
+             branch :alpha do
+               return(result(:price_cart))
+             end
+           end
+         end, ~r/parallel branches may contain only step operations/},
+        {:nested_parallel,
+         quote do
+           parallel do
+             branch :alpha do
+               parallel do
+                 branch :nested do
+                   step(:price_cart, unquote(EchoParamsAction), with: %{})
+                 end
+               end
+             end
+           end
+         end, ~r/parallel branches may contain only step operations/}
+      ]
+
+      for {case_name, statement, expected} <- cases do
+        module = unique_module("UnsupportedBranchGroup#{case_name}")
+
+        assert_raise CompileError, expected, fn ->
+          create_module(
+            module,
+            quote do
+              use Jido.Flow, name: "unsupported_branch_group_flow"
+
+              flow do
+                unquote(statement)
+                return(result(:price_cart))
+              end
+            end
+          )
+        end
+      end
+    end
+
     test "uses empty provenance when step metadata has no source line" do
       ast = {:step, [], [:echo, EchoParamsAction, [with: {:%{}, [], []}]]}
 

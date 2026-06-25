@@ -188,6 +188,54 @@ defmodule Jido.Flow.ParserTest do
       assert audit_quote.deps == [:load_quote]
     end
 
+    test "parses static parallel branch groups" do
+      source = """
+      flow do
+        cart =
+          step :load_cart, JidoTest.TestActions.EchoParamsAction,
+            with: %{cart_id: input(:cart_id)}
+
+        parallel do
+          branch :alpha do
+            priced =
+              step :price_cart, JidoTest.TestActions.EchoParamsAction,
+                with: cart
+          end
+
+          branch :beta do
+            reserved =
+              step :reserve_inventory, JidoTest.TestActions.EchoParamsAction,
+                with: cart
+          end
+        end
+
+        final =
+          step :finalize, JidoTest.TestActions.EchoParamsAction,
+            with: shape(%{priced: priced, reserved: reserved})
+
+        return final
+      end
+      """
+
+      assert {:ok, flow} = Flow.parse(source, name: "static_parallel_flow")
+
+      assert [load_cart, price_cart, reserve_inventory, finalize] = Flow.to_map(flow).nodes
+      assert load_cart.deps == []
+      assert price_cart.deps == [:load_cart]
+      assert reserve_inventory.deps == [:load_cart]
+      assert finalize.deps == [:price_cart, :reserve_inventory]
+
+      refute inspect(Flow.to_map(flow)) =~ "alpha"
+      refute inspect(Flow.to_map(flow)) =~ "beta"
+
+      assert [
+               _load_cart_provenance,
+               %{provenance: %{branch: :alpha}},
+               %{provenance: %{branch: :beta}},
+               _finalize_provenance
+             ] = Flow.to_map(flow, provenance: true).nodes
+    end
+
     test "rejects arbitrary local function calls outside the Flow subset" do
       source = """
       flow do
@@ -254,6 +302,57 @@ defmodule Jido.Flow.ParserTest do
                  Flow.parse(source, name: "bad")
 
         assert message =~ "unsupported flow DSL step options"
+      end
+    end
+
+    test "rejects unsupported branch group forms" do
+      cases = [
+        {:parallel_without_block, "parallel :bad", "unsupported flow DSL parallel"},
+        {:branch_without_name,
+         """
+         parallel do
+           branch do
+             step :price_cart, JidoTest.TestActions.EchoParamsAction, with: %{}
+           end
+         end
+         """, "unsupported flow DSL branch"},
+        {:return_in_branch,
+         """
+         parallel do
+           branch :alpha do
+             return result(:price_cart)
+           end
+         end
+         """, "parallel branches may contain only step operations"},
+        {:nested_parallel,
+         """
+         parallel do
+           branch :alpha do
+             parallel do
+               branch :nested do
+                 step :price_cart, JidoTest.TestActions.EchoParamsAction, with: %{}
+               end
+             end
+           end
+         end
+         """, "parallel branches may contain only step operations"},
+        {:remote_call_in_branch,
+         """
+         parallel do
+           branch :alpha do
+             String.upcase("x")
+           end
+         end
+         """, "unsupported flow DSL operation"}
+      ]
+
+      for {_kind, form, expected_message} <- cases do
+        source = "flow do\n#{form}\nreturn result(:price_cart)\nend"
+
+        assert {:error, %InvalidInputError{message: message}} =
+                 Flow.parse(source, name: "bad")
+
+        assert message =~ expected_message
       end
     end
 

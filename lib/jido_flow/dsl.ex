@@ -35,6 +35,27 @@ defmodule Jido.Flow.DSL do
     )
   end
 
+  defp parse_statement({:parallel, meta, [[do: block]]}, env) do
+    branches =
+      block
+      |> block_expressions()
+      |> Enum.map(&parse_branch(&1, env))
+
+    Syntax.operation(:parallel, %{branches: branches}, provenance: provenance_from_meta(meta))
+  end
+
+  defp parse_statement({:parallel, meta, args}, env) do
+    unsupported!(
+      "unsupported flow DSL parallel: #{Macro.to_string({:parallel, meta, args})}",
+      {
+        :parallel,
+        meta,
+        args
+      },
+      env
+    )
+  end
+
   defp parse_statement({:step, meta, args}, env) do
     parse_step(meta, args, env, nil)
   end
@@ -45,6 +66,21 @@ defmodule Jido.Flow.DSL do
 
   defp parse_statement(statement, env) do
     unsupported!("unsupported flow DSL operation: #{Macro.to_string(statement)}", statement, env)
+  end
+
+  defp parse_branch({:branch, meta, [name_ast, [do: block]]}, env) do
+    name = parse_atom!(name_ast, "branch name", meta, env)
+
+    operations =
+      block
+      |> block_expressions()
+      |> Enum.map(&parse_statement(&1, env))
+
+    Syntax.branch(name, operations, provenance: provenance_from_meta(meta))
+  end
+
+  defp parse_branch(branch, env) do
+    unsupported!("unsupported flow DSL branch: #{Macro.to_string(branch)}", branch, env)
   end
 
   defp parse_step(meta, [name_ast, action_ast, input_ast], env, binding) do

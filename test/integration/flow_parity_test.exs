@@ -112,6 +112,40 @@ defmodule Jido.Integration.FlowParityTest do
     assert module.to_map() == Jido.Flow.to_map(parser_flow)
   end
 
+  test "macro, parser, builder, and direct syntax branch-group flows produce equal canonical maps" do
+    module = create_branch_group_flow_module("ParserParityBranchGroupFlow")
+
+    assert {:ok, direct_flow} = Lowerer.lower(FlowFixtures.branch_group_syntax())
+    assert {:ok, flattened_flow} = Lowerer.lower(FlowFixtures.branch_group_flattened_syntax())
+    assert {:ok, builder_flow} = Builder.build(FlowFixtures.branch_group_builder())
+
+    assert {:ok, parser_flow} =
+             Jido.Flow.parse(FlowFixtures.branch_group_source(),
+               name: "branch_group_flow",
+               description: "Groups static branches without changing runtime semantics"
+             )
+
+    assert module.to_map() == FlowFixtures.branch_group_canonical_map()
+    assert module.to_map() == Jido.Flow.to_map(direct_flow)
+    assert module.to_map() == Jido.Flow.to_map(flattened_flow)
+    assert module.to_map() == Jido.Flow.to_map(builder_flow)
+    assert module.to_map() == Jido.Flow.to_map(parser_flow)
+
+    refute inspect(module.to_map()) =~ "alpha"
+    refute inspect(module.to_map()) =~ "beta"
+
+    provenance_map = Jido.Flow.to_map(direct_flow, provenance: true)
+
+    assert [
+             _load_cart,
+             %{provenance: %{branch: :alpha}},
+             %{provenance: %{branch: :alpha}},
+             %{provenance: %{branch: :beta}},
+             _post_group_independent,
+             _finalize
+           ] = provenance_map.nodes
+  end
+
   test "parser canonical maps remain equal across formatting differences" do
     formatted_source = """
     flow do
@@ -161,14 +195,14 @@ defmodule Jido.Integration.FlowParityTest do
   test "unsupported operation fixtures fail across macro, parser, and builder surfaces" do
     builder_syntax =
       Syntax.new(name: "bad")
-      |> Syntax.add(Syntax.operation(:parallel, branches: []))
+      |> Syntax.add(Syntax.operation(:choose, branches: []))
 
     assert {:error, builder_error} = Lowerer.lower(builder_syntax)
     assert Jido.Action.Error.to_map(builder_error).type == :validation_error
 
     parser_source = """
     flow do
-      parallel :bad
+      choose :bad
     end
     """
 
@@ -184,7 +218,7 @@ defmodule Jido.Integration.FlowParityTest do
           use Jido.Flow, name: "bad"
 
           flow do
-            parallel(:bad)
+            choose(:bad)
           end
         end
       )
@@ -309,6 +343,32 @@ defmodule Jido.Integration.FlowParityTest do
              Jido.Exec.run(builder_flow, input, %{})
   end
 
+  test "executing equivalent branch-group flows returns the fan-in result" do
+    module = create_branch_group_flow_module("ExecutionParityBranchGroupFlow")
+    input = %{cart_id: "cart-1", items: [%{sku: "sku-1"}], total: 42}
+
+    assert {:ok, builder_flow} = Builder.build(FlowFixtures.branch_group_builder())
+
+    assert {:ok, parser_flow} =
+             Jido.Flow.parse(FlowFixtures.branch_group_source(),
+               name: "branch_group_flow",
+               description: "Groups static branches without changing runtime semantics"
+             )
+
+    expected = %{
+      priced: %{cart_id: "cart-1", total: 42},
+      reserved: %{cart_id: "cart-1", items: [%{sku: "sku-1"}]}
+    }
+
+    assert {:ok, ^expected} = Jido.Exec.run(builder_flow, input, %{})
+
+    assert Jido.Exec.run(module, input, %{}) ==
+             Jido.Exec.run(builder_flow, input, %{})
+
+    assert Jido.Exec.run(parser_flow, input, %{}) ==
+             Jido.Exec.run(builder_flow, input, %{})
+  end
+
   property "builder and syntax-lowered maps agree for simple Add chains" do
     check all(
             amounts <- list_of(integer(1..5), min_length: 1, max_length: 5),
@@ -390,6 +450,74 @@ defmodule Jido.Integration.FlowParityTest do
             )
 
           return(audit)
+        end
+      end
+    )
+
+    module
+  end
+
+  defp create_branch_group_flow_module(prefix) do
+    module = unique_module(prefix)
+
+    create_module(
+      module,
+      quote do
+        use Jido.Flow,
+          name: "branch_group_flow",
+          description: "Groups static branches without changing runtime semantics"
+
+        flow do
+          cart =
+            step(:load_cart, unquote(EchoParamsAction),
+              with:
+                shape(%{
+                  cart_id: input(:cart_id),
+                  items: input(:items)
+                })
+            )
+
+          parallel do
+            branch :alpha do
+              priced =
+                step(:price_cart, unquote(EchoParamsAction),
+                  with:
+                    shape(%{
+                      cart_id: select(cart, :cart_id),
+                      total: input(:total)
+                    })
+                )
+
+              step(:audit_price, unquote(EchoParamsAction),
+                with: shape(%{event: "priced"}),
+                after: priced
+              )
+            end
+
+            branch :beta do
+              reserved =
+                step(:reserve_inventory, unquote(EchoParamsAction),
+                  with:
+                    shape(%{
+                      cart_id: select(cart, :cart_id),
+                      items: select(cart, :items)
+                    })
+                )
+            end
+          end
+
+          step(:post_group_independent, unquote(EchoParamsAction), with: shape(%{event: "side"}))
+
+          final =
+            step(:finalize, unquote(EchoParamsAction),
+              with:
+                shape(%{
+                  priced: priced,
+                  reserved: reserved
+                })
+            )
+
+          return(final)
         end
       end
     )

@@ -84,4 +84,35 @@ defmodule Jido.Flow.SyntaxTest do
       assert %Syntax.Expr{type: :shape, data: ^data} = Syntax.shape(data)
     end
   end
+
+  describe "branch grouping operations" do
+    test "builds named branch operations with ordered step operations" do
+      step = Syntax.operation(:step, %{name: :price_cart, action: Add, input: %{}})
+
+      assert %Syntax.Operation{
+               kind: :branch,
+               attrs: %{name: :pricing, operations: [^step]},
+               provenance: %{line: 12}
+             } = Syntax.branch(:pricing, [step], provenance: %{line: 12})
+    end
+
+    test "stores parallel groups with named branches" do
+      pricing = Syntax.branch(:pricing, [Syntax.operation(:step, %{name: :price_cart})])
+
+      inventory =
+        Syntax.branch(:inventory, [Syntax.operation(:step, %{name: :reserve_inventory})])
+
+      syntax =
+        Syntax.new(name: "branching")
+        |> Syntax.parallel([pricing, inventory], provenance: %{line: 10})
+
+      assert [
+               %Syntax.Operation{
+                 kind: :parallel,
+                 attrs: %{branches: [^pricing, ^inventory]},
+                 provenance: %{line: 10}
+               }
+             ] = syntax.operations
+    end
+  end
 end
