@@ -9,6 +9,8 @@ defmodule Jido.Flow.RefTest do
       assert Ref.input("value").path == ["value"]
       assert Ref.input(0).path == [0]
       assert Ref.input(nil).path == []
+      assert Ref.context(:trace_id).path == [:trace_id]
+      assert Ref.context(nil).path == []
       assert Ref.result(:step, nil).path == []
     end
 
@@ -22,6 +24,11 @@ defmodule Jido.Flow.RefTest do
                type: :result,
                node: :load,
                path: [:value]
+             }
+
+      assert Ref.to_map(Ref.context([:tenant, "id", 0])) == %{
+               type: :context,
+               path: [:tenant, "id", 0]
              }
 
       assert Ref.to_map(Ref.value(%{amount: 2})) == %{

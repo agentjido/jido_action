@@ -18,6 +18,7 @@ defmodule Jido.Flow.SyntaxTest do
   describe "path expressions" do
     test "normalize nil paths to empty lists" do
       assert %Syntax.Expr{type: :input, path: []} = Syntax.input(nil)
+      assert %Syntax.Expr{type: :context, path: []} = Syntax.context(nil)
       assert %Syntax.Expr{type: :result, node: :add_one, path: []} = Syntax.result(:add_one, nil)
     end
   end
@@ -66,7 +67,7 @@ defmodule Jido.Flow.SyntaxTest do
 
   describe "projection and shape expressions" do
     test "builds select expressions over projection-capable sources" do
-      source = Syntax.input(:payload)
+      source = Syntax.context(:payload)
 
       assert %Syntax.Expr{
                type: :select,
@@ -78,7 +79,7 @@ defmodule Jido.Flow.SyntaxTest do
     test "builds shape expressions without lowering the data" do
       data = %{
         total: Syntax.select(Syntax.binding(:quote), :total),
-        metadata: [Syntax.input(:trace_id), "literal"]
+        metadata: [Syntax.context(:trace_id), "literal"]
       }
 
       assert %Syntax.Expr{type: :shape, data: ^data} = Syntax.shape(data)

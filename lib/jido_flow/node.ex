@@ -127,6 +127,7 @@ defmodule Jido.Flow.Node do
   end
 
   defp validate_input_expression(%Ref{type: :input}, _path), do: :ok
+  defp validate_input_expression(%Ref{type: :context}, _path), do: :ok
 
   defp validate_input_expression(%Ref{type: :result, node: node}, _path)
        when is_atom(node) and not is_nil(node),

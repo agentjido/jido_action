@@ -207,6 +207,85 @@ defmodule Jido.Flow.CompilerTest do
       assert Flow.to_map(flow) == canonical
     end
 
+    test "resolves context refs through the existing path traversal contract" do
+      flow =
+        Flow.new!(
+          name: "context_refs",
+          nodes: [
+            Node.new!(
+              name: :echo,
+              action: EchoParamsAction,
+              input: %{
+                trace_id: Ref.context(:trace_id),
+                tenant_id: Ref.context([:tenant, :id]),
+                string_key: Ref.context(:string_key),
+                list_value: Ref.context([:items, 0, :value]),
+                missing: Ref.context([:missing, :nested]),
+                full_context: Ref.context(nil)
+              }
+            )
+          ],
+          return: Ref.result(:echo)
+        )
+
+      context = %{
+        "string_key" => "string-value",
+        trace_id: "trace-1",
+        tenant: %{id: "tenant-1"},
+        items: [%{value: 42}]
+      }
+
+      assert {:ok, result} = Compiler.run(flow, %{}, context)
+
+      assert result == %{
+               trace_id: "trace-1",
+               tenant_id: "tenant-1",
+               string_key: "string-value",
+               list_value: 42,
+               missing: nil,
+               full_context: context
+             }
+    end
+
+    test "context ref params change by runtime context while canonical maps stay stable" do
+      flow =
+        Flow.new!(
+          name: "context_stability",
+          nodes: [
+            Node.new!(
+              name: :echo,
+              action: EchoParamsAction,
+              input: %{trace_id: Ref.context(:trace_id)}
+            )
+          ],
+          return: Ref.result(:echo, :trace_id)
+        )
+
+      canonical = Flow.to_map(flow)
+
+      assert {:ok, "trace-1"} = Compiler.run(flow, %{}, %{trace_id: "trace-1"})
+      assert {:ok, "trace-2"} = Compiler.run(flow, %{}, %{trace_id: "trace-2"})
+      assert Flow.to_map(flow) == canonical
+    end
+
+    test "keeps the original runtime context when params also include context-derived values" do
+      flow =
+        Flow.new!(
+          name: "context_params_and_action_context",
+          nodes: [
+            Node.new!(
+              name: :echo,
+              action: ContextEcho,
+              input: %{value: Ref.context(:value)}
+            )
+          ],
+          return: Ref.result(:echo)
+        )
+
+      assert {:ok, %{value: 3, trace_id: "trace-1"}} =
+               Compiler.run(flow, %{}, %{value: 3, trace_id: "trace-1"})
+    end
+
     test "ignores action extras from successful step result tuples" do
       flow =
         Flow.new!(

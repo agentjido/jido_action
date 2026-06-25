@@ -58,18 +58,51 @@ defmodule Jido.Flow.NodeTest do
 
       assert Node.to_map(input_ref_node).input == %{type: :input, path: [:payload]}
 
+      assert {:ok, context_ref_node} =
+               Node.new(name: :audit, action: Add, input: Ref.context(:trace_id))
+
+      assert Node.result_deps(context_ref_node) == []
+      assert Node.to_map(context_ref_node).input == %{type: :context, path: [:trace_id]}
+
       assert {:ok, list_node} =
-               Node.new(name: :list, action: Add, input: [Ref.result(:add_one), 2])
+               Node.new(
+                 name: :list,
+                 action: Add,
+                 input: [Ref.result(:add_one), Ref.context(:trace_id), 2]
+               )
 
       assert Node.result_deps(list_node) == [:add_one]
 
       assert Node.to_map(list_node).input == [
                %{type: :result, node: :add_one, path: []},
+               %{type: :context, path: [:trace_id]},
                %{type: :value, value: 2}
              ]
 
       assert {:ok, literal_node} = Node.new(name: :literal, action: Add, input: 42)
       assert Node.to_map(literal_node).input == %{type: :value, value: 42}
+    end
+
+    test "accepts context refs in nested input without deriving dependencies" do
+      assert {:ok, node} =
+               Node.new(
+                 name: :audit,
+                 action: Add,
+                 input: %{
+                   trace: Ref.context(:trace_id),
+                   tenant: %{id: Ref.context([:tenant, :id])},
+                   tags: [Ref.context(:tag), "literal"]
+                 },
+                 deps: [:explicit_dep]
+               )
+
+      assert Node.result_deps(node) == [:explicit_dep]
+
+      assert Node.to_map(node).input == %{
+               trace: %{type: :context, path: [:trace_id]},
+               tenant: %{id: %{type: :context, path: [:tenant, :id]}},
+               tags: [%{type: :context, path: [:tag]}, %{type: :value, value: "literal"}]
+             }
     end
 
     test "rejects malformed node configuration" do
@@ -126,6 +159,17 @@ defmodule Jido.Flow.NodeTest do
       assert message =~ "node input contains unsupported expression"
       assert details.path == []
       assert details.expression == Date
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Node.new(
+                 name: :bad,
+                 action: Add,
+                 input: %Ref{type: :unknown, path: [], node: nil, value: nil}
+               )
+
+      assert message =~ "node input contains invalid ref"
+      assert details.path == []
+      assert details.type == :unknown
     end
 
     test "raises validation errors from new!/1" do
