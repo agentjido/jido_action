@@ -7,11 +7,29 @@ defmodule Jido.ExecTest do
   alias Jido.Flow.{Builder, Node, Ref}
   alias Jido.Instruction
   alias JidoTest.FlowFixtures
-  alias JidoTest.TestActions.{Add, ContextEcho, Divide, ErrorAction}
+
+  alias JidoTest.TestActions.{
+    Add,
+    ContextEcho,
+    Divide,
+    ErrorAction,
+    ExtrasAction,
+    ThrowingAction,
+    UnsupportedResult
+  }
 
   describe "run/3 with action modules" do
     test "executes a leaf action with input and context validation" do
       assert {:ok, %{value: 6}} = Exec.run(Add, %{value: 5}, %{trace_id: "trace"})
+    end
+
+    test "normalizes keyword input and context for leaf actions" do
+      assert {:ok, %{value: 6}} = Exec.run(Add, [value: 5], trace_id: "trace")
+    end
+
+    test "preserves action extras from leaf actions" do
+      assert {:ok, %{value: 5}, %{trace_id: "trace"}} =
+               Exec.run(ExtrasAction, %{value: 5}, %{trace_id: "trace"})
     end
 
     test "validates action params before calling run" do
@@ -27,6 +45,24 @@ defmodule Jido.ExecTest do
 
       refute message =~ "Runic"
     end
+
+    test "converts unsupported action result shapes to execution errors" do
+      assert {:error, %ExecutionFailureError{message: message, details: details}} =
+               Exec.run(UnsupportedResult)
+
+      assert message =~ "action returned an unsupported result"
+      assert details.action == UnsupportedResult
+      assert details.result == :not_a_result_tuple
+    end
+
+    test "converts thrown action values to execution errors" do
+      assert {:error, %ExecutionFailureError{message: message, details: details}} =
+               Exec.run(ThrowingAction)
+
+      assert message =~ "action throw"
+      assert details.action == ThrowingAction
+      assert details.reason == :thrown_value
+    end
   end
 
   describe "run/3 with instructions" do
@@ -41,12 +77,51 @@ defmodule Jido.ExecTest do
       assert {:ok, %{value: 8}} =
                Exec.run(instruction, %{amount: 3}, %{tenant_id: "tenant"})
     end
+
+    test "returns validation errors when instruction call-site input is invalid" do
+      instruction = Instruction.new!(action: Add)
+
+      assert {:error, %InvalidInputError{message: message}} =
+               Exec.run(instruction, :not_params, %{})
+
+      assert message =~ "expected params to be a map or keyword list"
+    end
   end
 
   describe "run/3 with flows" do
     test "executes a Flow artifact" do
       assert {:ok, flow} = Builder.build(FlowFixtures.math_builder())
       assert {:ok, 8} = Exec.run(flow, %{value: 3}, %{})
+    end
+
+    test "normalizes nil and keyword input or context for Flow artifacts" do
+      assert {:ok, flow} = Builder.build(FlowFixtures.math_builder())
+
+      assert {:ok, 8} = Exec.run(flow, [value: 3], [])
+
+      empty_flow =
+        Flow.new!(
+          name: "empty_input",
+          nodes: [
+            Node.new!(name: :constant, action: Add, input: %{value: Ref.value(1)})
+          ],
+          return: Ref.result(:constant, :value)
+        )
+
+      assert {:ok, 2} = Exec.run(empty_flow, nil, nil)
+    end
+
+    test "rejects invalid Flow input and context shapes" do
+      assert {:ok, flow} = Builder.build(FlowFixtures.math_builder())
+
+      assert {:error, %InvalidInputError{message: message}} = Exec.run(flow, :not_input, %{})
+      assert message =~ "input must be a map or keyword list"
+
+      assert {:error, %InvalidInputError{message: message}} = Exec.run(flow, %{}, :not_context)
+      assert message =~ "context must be a map or keyword list"
+
+      assert {:error, %InvalidInputError{message: message}} = Exec.run(flow, [:not_keyword], %{})
+      assert message =~ "expected a map or keyword list"
     end
 
     test "executes a Flow module and the equivalent Flow artifact with the same result" do

@@ -1,4 +1,4 @@
-defmodule Jido.FlowParityTest do
+defmodule Jido.Integration.FlowParityTest do
   use JidoTest.ActionCase, async: true
   use ExUnitProperties
 
