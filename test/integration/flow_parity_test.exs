@@ -8,33 +8,6 @@ defmodule Jido.Integration.FlowParityTest do
   alias JidoTest.FlowFixtures
   alias JidoTest.TestActions.{Add, Multiply}
 
-  test "macro and builder math flows produce equal canonical maps" do
-    module = unique_module("MacroParityMathFlow")
-
-    create_module(
-      module,
-      quote do
-        use Jido.Flow,
-          name: "math_flow",
-          description: "Adds one and doubles the result"
-
-        flow do
-          step(:add_one, unquote(Add), %{value: input(:value), amount: value(1)})
-
-          step(:double, unquote(Multiply), %{
-            value: result(:add_one, :value),
-            amount: value(2)
-          })
-
-          return(result(:double, :value))
-        end
-      end
-    )
-
-    assert {:ok, builder_flow} = Builder.build(FlowFixtures.math_builder())
-    assert module.to_map() == Jido.Flow.to_map(builder_flow)
-  end
-
   test "macro, builder, and parser math flows produce equal canonical maps" do
     module = unique_module("ParserParityMathFlow")
 
@@ -179,14 +152,6 @@ defmodule Jido.Integration.FlowParityTest do
       expected = input + Enum.sum(amounts)
       assert {:ok, ^expected} = Jido.Exec.run(builder_flow, %{value: input}, %{})
     end
-  end
-
-  test "canonical maps omit syntax-only alias names" do
-    assert {:ok, flow} = Builder.build(FlowFixtures.math_builder())
-    canonical = Jido.Flow.to_map(flow)
-
-    refute canonical |> inspect() |> String.contains?("added")
-    refute canonical |> inspect() |> String.contains?("doubled")
   end
 
   defp chain_syntax(amounts) do

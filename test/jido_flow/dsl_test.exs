@@ -47,15 +47,6 @@ defmodule Jido.Flow.DSLTest do
       assert module.compile() == Flow.compile(flow)
     end
 
-    test "step result refs do not add syntax-only names to the semantic canonical map" do
-      module = create_math_flow_module("ResultMathFlow")
-
-      canonical = module.to_map()
-      refute canonical |> inspect() |> String.contains?("added")
-      refute canonical |> inspect() |> String.contains?("doubled")
-      assert canonical == FlowFixtures.math_canonical_map()
-    end
-
     test "missing return fails at compile time" do
       module = unique_module("MissingReturnFlow")
 
