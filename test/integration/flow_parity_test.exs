@@ -8,365 +8,85 @@ defmodule Jido.Integration.FlowParityTest do
   alias JidoTest.FlowFixtures
   alias JidoTest.TestActions.{Add, EchoParamsAction, Multiply}
 
-  test "macro, builder, and parser math flows produce equal canonical maps" do
-    module = unique_module("ParserParityMathFlow")
-
-    create_module(
-      module,
-      quote do
-        use Jido.Flow,
-          name: "math_flow",
-          description: "Adds one and doubles the result"
-
-        flow do
-          step(:add_one, unquote(Add), %{value: input(:value), amount: value(1)})
-
-          step(:double, unquote(Multiply), %{
-            value: result(:add_one, :value),
-            amount: value(2)
-          })
-
-          return(result(:double, :value))
-        end
+  describe "authoring parity" do
+    test "supported surfaces produce equal canonical maps" do
+      for scenario <- flow_cases() do
+        assert_canonical_parity(scenario)
       end
-    )
+    end
 
-    assert {:ok, builder_flow} = Builder.build(FlowFixtures.math_builder())
+    test "branch grouping lowers away except for provenance" do
+      assert {:ok, grouped_flow} = Lowerer.lower(FlowFixtures.branch_group_syntax())
+      assert {:ok, flattened_flow} = Lowerer.lower(FlowFixtures.branch_group_flattened_syntax())
 
-    assert {:ok, parser_flow} =
-             Jido.Flow.parse(FlowFixtures.math_source(),
-               name: "math_flow",
-               description: "Adds one and doubles the result"
-             )
+      semantic_map = Jido.Flow.to_map(grouped_flow)
 
-    assert module.to_map() == Jido.Flow.to_map(builder_flow)
-    assert module.to_map() == Jido.Flow.to_map(parser_flow)
-  end
+      assert semantic_map == FlowFixtures.branch_group_canonical_map()
+      assert semantic_map == Jido.Flow.to_map(flattened_flow)
 
-  test "macro, parser, builder, and direct syntax binding flows produce equal canonical maps" do
-    module = unique_module("ParserParityBindingFlow")
+      refute inspect(semantic_map) =~ "alpha"
+      refute inspect(semantic_map) =~ "beta"
 
-    create_module(
-      module,
-      quote do
-        use Jido.Flow,
-          name: "binding_flow",
-          description: "Adds one and doubles the whole result"
+      assert [
+               _load_cart,
+               %{provenance: %{branch: :alpha}},
+               %{provenance: %{branch: :alpha}},
+               %{provenance: %{branch: :beta}},
+               _post_group_independent,
+               _finalize
+             ] = Jido.Flow.to_map(grouped_flow, provenance: true).nodes
+    end
 
-        flow do
-          added = step(:add_one, unquote(Add), with: %{value: input(:value), amount: value(1)})
-          doubled = step(:double, unquote(Multiply), with: added)
-          return(doubled)
-        end
+    test "parser canonical maps remain stable across formatting variations" do
+      for scenario <- parser_format_cases() do
+        assert {:ok, parser_flow} = Jido.Flow.parse(scenario.source, scenario.opts)
+        assert {:ok, formatted_flow} = Jido.Flow.parse(scenario.formatted_source, scenario.opts)
+
+        assert Jido.Flow.to_map(formatted_flow) == Jido.Flow.to_map(parser_flow),
+               "#{scenario.label} parser formatting changed canonical map"
       end
-    )
-
-    assert {:ok, direct_flow} = Lowerer.lower(FlowFixtures.binding_syntax())
-    assert {:ok, builder_flow} = Builder.build(FlowFixtures.binding_builder())
-
-    assert {:ok, parser_flow} =
-             Jido.Flow.parse(FlowFixtures.binding_source(),
-               name: "binding_flow",
-               description: "Adds one and doubles the whole result"
-             )
-
-    assert module.to_map() == FlowFixtures.binding_canonical_map()
-    assert module.to_map() == Jido.Flow.to_map(direct_flow)
-    assert module.to_map() == Jido.Flow.to_map(builder_flow)
-    assert module.to_map() == Jido.Flow.to_map(parser_flow)
-  end
-
-  test "macro, parser, builder, and direct syntax projection flows produce equal canonical maps" do
-    module = create_projection_flow_module("ParserParityProjectionFlow")
-
-    assert {:ok, direct_flow} = Lowerer.lower(FlowFixtures.projection_syntax())
-    assert {:ok, builder_flow} = Builder.build(FlowFixtures.projection_builder())
-
-    assert {:ok, parser_flow} =
-             Jido.Flow.parse(FlowFixtures.projection_source(),
-               name: "projection_flow",
-               description: "Projects selected fields into an audit payload"
-             )
-
-    assert module.to_map() == FlowFixtures.projection_canonical_map()
-    assert module.to_map() == Jido.Flow.to_map(direct_flow)
-    assert module.to_map() == Jido.Flow.to_map(builder_flow)
-    assert module.to_map() == Jido.Flow.to_map(parser_flow)
-  end
-
-  test "macro, parser, builder, and direct syntax explicit-edge flows produce equal canonical maps" do
-    module = create_explicit_edge_flow_module("ParserParityExplicitEdgeFlow")
-
-    assert {:ok, direct_flow} = Lowerer.lower(FlowFixtures.explicit_edge_syntax())
-    assert {:ok, builder_flow} = Builder.build(FlowFixtures.explicit_edge_builder())
-
-    assert {:ok, parser_flow} =
-             Jido.Flow.parse(FlowFixtures.explicit_edge_source(),
-               name: "explicit_edge_flow",
-               description: "Orders audit after loading without data dependency"
-             )
-
-    assert module.to_map() == FlowFixtures.explicit_edge_canonical_map()
-    assert module.to_map() == Jido.Flow.to_map(direct_flow)
-    assert module.to_map() == Jido.Flow.to_map(builder_flow)
-    assert module.to_map() == Jido.Flow.to_map(parser_flow)
-  end
-
-  test "macro, parser, builder, and direct syntax branch-group flows produce equal canonical maps" do
-    module = create_branch_group_flow_module("ParserParityBranchGroupFlow")
-
-    assert {:ok, direct_flow} = Lowerer.lower(FlowFixtures.branch_group_syntax())
-    assert {:ok, flattened_flow} = Lowerer.lower(FlowFixtures.branch_group_flattened_syntax())
-    assert {:ok, builder_flow} = Builder.build(FlowFixtures.branch_group_builder())
-
-    assert {:ok, parser_flow} =
-             Jido.Flow.parse(FlowFixtures.branch_group_source(),
-               name: "branch_group_flow",
-               description: "Groups static branches without changing runtime semantics"
-             )
-
-    assert module.to_map() == FlowFixtures.branch_group_canonical_map()
-    assert module.to_map() == Jido.Flow.to_map(direct_flow)
-    assert module.to_map() == Jido.Flow.to_map(flattened_flow)
-    assert module.to_map() == Jido.Flow.to_map(builder_flow)
-    assert module.to_map() == Jido.Flow.to_map(parser_flow)
-
-    refute inspect(module.to_map()) =~ "alpha"
-    refute inspect(module.to_map()) =~ "beta"
-
-    provenance_map = Jido.Flow.to_map(direct_flow, provenance: true)
-
-    assert [
-             _load_cart,
-             %{provenance: %{branch: :alpha}},
-             %{provenance: %{branch: :alpha}},
-             %{provenance: %{branch: :beta}},
-             _post_group_independent,
-             _finalize
-           ] = provenance_map.nodes
-  end
-
-  test "parser canonical maps remain equal across formatting differences" do
-    formatted_source = """
-    flow do
-      step :add_one, JidoTest.TestActions.Add, %{
-        amount: value(1),
-        value: input(:value)
-      }
-
-      step :double, JidoTest.TestActions.Multiply,
-        %{amount: value(2), value: result(:add_one, :value)}
-
-      return result(:double, :value)
     end
-    """
 
-    opts = [name: "math_flow", description: "Adds one and doubles the result"]
+    test "unsupported operations fail consistently across surfaces" do
+      builder_syntax =
+        Syntax.new(name: "bad")
+        |> Syntax.add(Syntax.operation(:choose, branches: []))
 
-    assert {:ok, parser_flow} = Jido.Flow.parse(FlowFixtures.math_source(), opts)
-    assert {:ok, formatted_flow} = Jido.Flow.parse(formatted_source, opts)
-    assert Jido.Flow.to_map(parser_flow) == Jido.Flow.to_map(formatted_flow)
-  end
+      assert {:error, builder_error} = Lowerer.lower(builder_syntax)
+      assert Jido.Action.Error.to_map(builder_error).type == :validation_error
 
-  test "binding parser canonical maps remain equal across formatting differences" do
-    formatted_source = """
-    flow do
-      added =
-        step :add_one,
-          JidoTest.TestActions.Add,
-          with: %{
-            amount: value(1),
-            value: input(:value)
-          }
+      parser_source = """
+      flow do
+        choose :bad
+      end
+      """
 
-      doubled = step :double, JidoTest.TestActions.Multiply, with: added
+      assert {:error, parser_error} = Jido.Flow.parse(parser_source, name: "bad")
+      assert Jido.Action.Error.to_map(parser_error).type == :validation_error
 
-      return doubled
-    end
-    """
+      module = unique_module("UnsupportedParityFlow")
 
-    opts = [name: "binding_flow", description: "Adds one and doubles the whole result"]
+      assert_raise CompileError, ~r/unsupported flow DSL operation/, fn ->
+        create_module(
+          module,
+          quote do
+            use Jido.Flow, name: "bad"
 
-    assert {:ok, parser_flow} = Jido.Flow.parse(FlowFixtures.binding_source(), opts)
-    assert {:ok, formatted_flow} = Jido.Flow.parse(formatted_source, opts)
-    assert Jido.Flow.to_map(parser_flow) == Jido.Flow.to_map(formatted_flow)
-  end
-
-  test "unsupported operation fixtures fail across macro, parser, and builder surfaces" do
-    builder_syntax =
-      Syntax.new(name: "bad")
-      |> Syntax.add(Syntax.operation(:choose, branches: []))
-
-    assert {:error, builder_error} = Lowerer.lower(builder_syntax)
-    assert Jido.Action.Error.to_map(builder_error).type == :validation_error
-
-    parser_source = """
-    flow do
-      choose :bad
-    end
-    """
-
-    assert {:error, parser_error} = Jido.Flow.parse(parser_source, name: "bad")
-    assert Jido.Action.Error.to_map(parser_error).type == :validation_error
-
-    module = unique_module("UnsupportedParityFlow")
-
-    assert_raise CompileError, ~r/unsupported flow DSL operation/, fn ->
-      create_module(
-        module,
-        quote do
-          use Jido.Flow, name: "bad"
-
-          flow do
-            choose(:bad)
+            flow do
+              choose(:bad)
+            end
           end
-        end
-      )
+        )
+      end
     end
   end
 
-  test "executing equivalent builder, macro, and parser flows returns the same result" do
-    module = unique_module("ExecutionParityMathFlow")
-
-    create_module(
-      module,
-      quote do
-        use Jido.Flow,
-          name: "math_flow",
-          description: "Adds one and doubles the result"
-
-        flow do
-          step(:add_one, unquote(Add), %{value: input(:value), amount: value(1)})
-
-          step(:double, unquote(Multiply), %{
-            value: result(:add_one, :value),
-            amount: value(2)
-          })
-
-          return(result(:double, :value))
-        end
+  describe "execution parity" do
+    test "supported surfaces return the same values" do
+      for scenario <- flow_cases() do
+        assert_execution_parity(scenario)
       end
-    )
-
-    assert {:ok, builder_flow} = Builder.build(FlowFixtures.math_builder())
-
-    assert {:ok, parser_flow} =
-             Jido.Flow.parse(FlowFixtures.math_source(),
-               name: "math_flow",
-               description: "Adds one and doubles the result"
-             )
-
-    assert {:ok, 8} = Jido.Exec.run(builder_flow, %{value: 3}, %{})
-
-    assert Jido.Exec.run(module, %{value: 3}, %{}) ==
-             Jido.Exec.run(builder_flow, %{value: 3}, %{})
-
-    assert Jido.Exec.run(parser_flow, %{value: 3}, %{}) ==
-             Jido.Exec.run(builder_flow, %{value: 3}, %{})
-  end
-
-  test "executing equivalent binding flows returns the same whole-result output" do
-    module = unique_module("ExecutionParityBindingFlow")
-
-    create_module(
-      module,
-      quote do
-        use Jido.Flow,
-          name: "binding_flow",
-          description: "Adds one and doubles the whole result"
-
-        flow do
-          added = step(:add_one, unquote(Add), with: %{value: input(:value), amount: value(1)})
-          doubled = step(:double, unquote(Multiply), with: added)
-          return(doubled)
-        end
-      end
-    )
-
-    assert {:ok, builder_flow} = Builder.build(FlowFixtures.binding_builder())
-
-    assert {:ok, parser_flow} =
-             Jido.Flow.parse(FlowFixtures.binding_source(),
-               name: "binding_flow",
-               description: "Adds one and doubles the whole result"
-             )
-
-    assert {:ok, %{value: 8}} = Jido.Exec.run(builder_flow, %{value: 3}, %{})
-
-    assert Jido.Exec.run(module, %{value: 3}, %{}) ==
-             Jido.Exec.run(builder_flow, %{value: 3}, %{})
-
-    assert Jido.Exec.run(parser_flow, %{value: 3}, %{}) ==
-             Jido.Exec.run(builder_flow, %{value: 3}, %{})
-  end
-
-  test "executing equivalent projection flows extracts nested values and returns the selection" do
-    module = create_projection_flow_module("ExecutionParityProjectionFlow")
-
-    input = %{quote_id: "quote-1", items: [%{id: "item-1", price: 42}], tag: "priority"}
-
-    assert {:ok, builder_flow} = Builder.build(FlowFixtures.projection_builder())
-
-    assert {:ok, parser_flow} =
-             Jido.Flow.parse(FlowFixtures.projection_source(),
-               name: "projection_flow",
-               description: "Projects selected fields into an audit payload"
-             )
-
-    assert {:ok, 42} = Jido.Exec.run(builder_flow, input, %{})
-
-    assert Jido.Exec.run(module, input, %{}) ==
-             Jido.Exec.run(builder_flow, input, %{})
-
-    assert Jido.Exec.run(parser_flow, input, %{}) ==
-             Jido.Exec.run(builder_flow, input, %{})
-  end
-
-  test "executing equivalent explicit-edge flows returns the audit result" do
-    module = create_explicit_edge_flow_module("ExecutionParityExplicitEdgeFlow")
-    input = %{quote_id: "quote-1"}
-
-    assert {:ok, builder_flow} = Builder.build(FlowFixtures.explicit_edge_builder())
-
-    assert {:ok, parser_flow} =
-             Jido.Flow.parse(FlowFixtures.explicit_edge_source(),
-               name: "explicit_edge_flow",
-               description: "Orders audit after loading without data dependency"
-             )
-
-    assert {:ok, %{event: "quoted"}} = Jido.Exec.run(builder_flow, input, %{})
-
-    assert Jido.Exec.run(module, input, %{}) ==
-             Jido.Exec.run(builder_flow, input, %{})
-
-    assert Jido.Exec.run(parser_flow, input, %{}) ==
-             Jido.Exec.run(builder_flow, input, %{})
-  end
-
-  test "executing equivalent branch-group flows returns the fan-in result" do
-    module = create_branch_group_flow_module("ExecutionParityBranchGroupFlow")
-    input = %{cart_id: "cart-1", items: [%{sku: "sku-1"}], total: 42}
-
-    assert {:ok, builder_flow} = Builder.build(FlowFixtures.branch_group_builder())
-
-    assert {:ok, parser_flow} =
-             Jido.Flow.parse(FlowFixtures.branch_group_source(),
-               name: "branch_group_flow",
-               description: "Groups static branches without changing runtime semantics"
-             )
-
-    expected = %{
-      priced: %{cart_id: "cart-1", total: 42},
-      reserved: %{cart_id: "cart-1", items: [%{sku: "sku-1"}]}
-    }
-
-    assert {:ok, ^expected} = Jido.Exec.run(builder_flow, input, %{})
-
-    assert Jido.Exec.run(module, input, %{}) ==
-             Jido.Exec.run(builder_flow, input, %{})
-
-    assert Jido.Exec.run(parser_flow, input, %{}) ==
-             Jido.Exec.run(builder_flow, input, %{})
+    end
   end
 
   property "builder and syntax-lowered maps agree for simple Add chains" do
@@ -385,139 +105,350 @@ defmodule Jido.Integration.FlowParityTest do
     end
   end
 
-  defp create_projection_flow_module(prefix) do
-    module = unique_module(prefix)
+  defp assert_canonical_parity(scenario) do
+    expected = scenario.canonical.()
 
-    create_module(
-      module,
-      quote do
-        use Jido.Flow,
+    for {surface, actual} <- canonical_surface_maps(scenario) do
+      assert actual == expected, "#{scenario.label} #{surface} canonical map diverged"
+    end
+  end
+
+  defp assert_execution_parity(scenario) do
+    expected = {:ok, scenario.expected}
+
+    for {surface, flow} <- executable_flows(scenario) do
+      assert Jido.Exec.run(flow, scenario.input, %{}) == expected,
+             "#{scenario.label} #{surface} execution diverged"
+    end
+  end
+
+  defp canonical_surface_maps(scenario) do
+    module = scenario.module.("CanonicalParity#{scenario.module_suffix}")
+
+    [
+      macro: module.to_map(),
+      direct_syntax: scenario.syntax.() |> lower_flow!() |> Jido.Flow.to_map(),
+      builder: scenario.builder.() |> build_flow!() |> Jido.Flow.to_map(),
+      parser: scenario.source.() |> parse_flow!(scenario.opts) |> Jido.Flow.to_map()
+    ] ++ equivalent_syntax_maps(scenario)
+  end
+
+  defp equivalent_syntax_maps(scenario) do
+    scenario
+    |> Map.get(:equivalent_syntaxes, [])
+    |> Enum.map(fn {surface, syntax_fun} ->
+      {surface, syntax_fun.() |> lower_flow!() |> Jido.Flow.to_map()}
+    end)
+  end
+
+  defp executable_flows(scenario) do
+    module = scenario.module.("ExecutionParity#{scenario.module_suffix}")
+
+    [
+      macro: module.flow(),
+      direct_syntax: scenario.syntax.() |> lower_flow!(),
+      builder: scenario.builder.() |> build_flow!(),
+      parser: scenario.source.() |> parse_flow!(scenario.opts)
+    ]
+  end
+
+  defp lower_flow!(syntax) do
+    assert {:ok, flow} = Lowerer.lower(syntax)
+    flow
+  end
+
+  defp build_flow!(builder) do
+    assert {:ok, flow} = Builder.build(builder)
+    flow
+  end
+
+  defp parse_flow!(source, opts) do
+    assert {:ok, flow} = Jido.Flow.parse(source, opts)
+    flow
+  end
+
+  defp flow_cases do
+    [
+      %{
+        label: "math",
+        module_suffix: "MathFlow",
+        module: &create_math_flow_module/1,
+        opts: [name: "math_flow", description: "Adds one and doubles the result"],
+        syntax: &FlowFixtures.math_syntax/0,
+        builder: &FlowFixtures.math_builder/0,
+        source: &FlowFixtures.math_source/0,
+        canonical: &FlowFixtures.math_canonical_map/0,
+        input: %{value: 3},
+        expected: 8
+      },
+      %{
+        label: "binding",
+        module_suffix: "BindingFlow",
+        module: &create_binding_flow_module/1,
+        opts: [name: "binding_flow", description: "Adds one and doubles the whole result"],
+        syntax: &FlowFixtures.binding_syntax/0,
+        builder: &FlowFixtures.binding_builder/0,
+        source: &FlowFixtures.binding_source/0,
+        canonical: &FlowFixtures.binding_canonical_map/0,
+        input: %{value: 3},
+        expected: %{value: 8}
+      },
+      %{
+        label: "projection",
+        module_suffix: "ProjectionFlow",
+        module: &create_projection_flow_module/1,
+        opts: [
           name: "projection_flow",
           description: "Projects selected fields into an audit payload"
+        ],
+        syntax: &FlowFixtures.projection_syntax/0,
+        builder: &FlowFixtures.projection_builder/0,
+        source: &FlowFixtures.projection_source/0,
+        canonical: &FlowFixtures.projection_canonical_map/0,
+        input: %{quote_id: "quote-1", items: [%{id: "item-1", price: 42}], tag: "priority"},
+        expected: 42
+      },
+      %{
+        label: "explicit-edge",
+        module_suffix: "ExplicitEdgeFlow",
+        module: &create_explicit_edge_flow_module/1,
+        opts: [
+          name: "explicit_edge_flow",
+          description: "Orders audit after loading without data dependency"
+        ],
+        syntax: &FlowFixtures.explicit_edge_syntax/0,
+        builder: &FlowFixtures.explicit_edge_builder/0,
+        source: &FlowFixtures.explicit_edge_source/0,
+        canonical: &FlowFixtures.explicit_edge_canonical_map/0,
+        input: %{quote_id: "quote-1"},
+        expected: %{event: "quoted"}
+      },
+      %{
+        label: "branch-group",
+        module_suffix: "BranchGroupFlow",
+        module: &create_branch_group_flow_module/1,
+        opts: [
+          name: "branch_group_flow",
+          description: "Groups static branches without changing runtime semantics"
+        ],
+        syntax: &FlowFixtures.branch_group_syntax/0,
+        equivalent_syntaxes: [
+          flattened_syntax: &FlowFixtures.branch_group_flattened_syntax/0
+        ],
+        builder: &FlowFixtures.branch_group_builder/0,
+        source: &FlowFixtures.branch_group_source/0,
+        canonical: &FlowFixtures.branch_group_canonical_map/0,
+        input: %{cart_id: "cart-1", items: [%{sku: "sku-1"}], total: 42},
+        expected: %{
+          priced: %{cart_id: "cart-1", total: 42},
+          reserved: %{cart_id: "cart-1", items: [%{sku: "sku-1"}]}
+        }
+      }
+    ]
+  end
 
+  defp parser_format_cases do
+    [
+      %{
+        label: "math",
+        source: FlowFixtures.math_source(),
+        opts: [name: "math_flow", description: "Adds one and doubles the result"],
+        formatted_source: """
         flow do
-          loaded =
-            step(:load_quote, unquote(EchoParamsAction),
-              with:
-                shape(%{
-                  quote: %{
-                    id: input(:quote_id),
-                    pricing: %{total: input([:items, 0, :price])}
-                  },
-                  tags: [input(:tag)]
-                })
-            )
+          step :add_one, JidoTest.TestActions.Add, %{
+            amount: value(1),
+            value: input(:value)
+          }
 
-          audit =
-            step(:audit_quote, unquote(EchoParamsAction),
-              with:
-                shape(%{
-                  quote_id: select(loaded, [:quote, :id]),
-                  total: select(select(loaded, [:quote, :pricing]), :total),
-                  first_item_id: select(input(:items), [0, :id]),
-                  tag: select(loaded, [:tags, 0])
-                })
-            )
+          step :double, JidoTest.TestActions.Multiply,
+            %{amount: value(2), value: result(:add_one, :value)}
 
-          return(select(audit, :total))
+          return result(:double, :value)
         end
+        """
+      },
+      %{
+        label: "binding",
+        source: FlowFixtures.binding_source(),
+        opts: [name: "binding_flow", description: "Adds one and doubles the whole result"],
+        formatted_source: """
+        flow do
+          added =
+            step :add_one,
+              JidoTest.TestActions.Add,
+              with: %{
+                amount: value(1),
+                value: input(:value)
+              }
+
+          doubled = step :double, JidoTest.TestActions.Multiply, with: added
+
+          return doubled
+        end
+        """
+      }
+    ]
+  end
+
+  defp create_math_flow_module(prefix) do
+    create_flow_module(
+      prefix,
+      "math_flow",
+      "Adds one and doubles the result",
+      quote do
+        step(:add_one, unquote(Add), %{value: input(:value), amount: value(1)})
+
+        step(:double, unquote(Multiply), %{
+          value: result(:add_one, :value),
+          amount: value(2)
+        })
+
+        return(result(:double, :value))
       end
     )
+  end
 
-    module
+  defp create_binding_flow_module(prefix) do
+    create_flow_module(
+      prefix,
+      "binding_flow",
+      "Adds one and doubles the whole result",
+      quote do
+        added = step(:add_one, unquote(Add), with: %{value: input(:value), amount: value(1)})
+        doubled = step(:double, unquote(Multiply), with: added)
+        return(doubled)
+      end
+    )
+  end
+
+  defp create_projection_flow_module(prefix) do
+    create_flow_module(
+      prefix,
+      "projection_flow",
+      "Projects selected fields into an audit payload",
+      quote do
+        loaded =
+          step(:load_quote, unquote(EchoParamsAction),
+            with:
+              shape(%{
+                quote: %{
+                  id: input(:quote_id),
+                  pricing: %{total: input([:items, 0, :price])}
+                },
+                tags: [input(:tag)]
+              })
+          )
+
+        audit =
+          step(:audit_quote, unquote(EchoParamsAction),
+            with:
+              shape(%{
+                quote_id: select(loaded, [:quote, :id]),
+                total: select(select(loaded, [:quote, :pricing]), :total),
+                first_item_id: select(input(:items), [0, :id]),
+                tag: select(loaded, [:tags, 0])
+              })
+          )
+
+        return(select(audit, :total))
+      end
+    )
   end
 
   defp create_explicit_edge_flow_module(prefix) do
-    module = unique_module(prefix)
-
-    create_module(
-      module,
+    create_flow_module(
+      prefix,
+      "explicit_edge_flow",
+      "Orders audit after loading without data dependency",
       quote do
-        use Jido.Flow,
-          name: "explicit_edge_flow",
-          description: "Orders audit after loading without data dependency"
+        loaded =
+          step(:load_quote, unquote(EchoParamsAction), with: shape(%{id: input(:quote_id)}))
 
-        flow do
-          loaded =
-            step(:load_quote, unquote(EchoParamsAction), with: shape(%{id: input(:quote_id)}))
+        step(:independent, unquote(EchoParamsAction), with: shape(%{event: "side"}))
 
-          step(:independent, unquote(EchoParamsAction), with: shape(%{event: "side"}))
+        audit =
+          step(:audit_quote, unquote(EchoParamsAction),
+            with: shape(%{event: "quoted"}),
+            after: [:load_quote, loaded]
+          )
 
-          audit =
-            step(:audit_quote, unquote(EchoParamsAction),
-              with: shape(%{event: "quoted"}),
-              after: [:load_quote, loaded]
-            )
-
-          return(audit)
-        end
+        return(audit)
       end
     )
-
-    module
   end
 
   defp create_branch_group_flow_module(prefix) do
+    create_flow_module(
+      prefix,
+      "branch_group_flow",
+      "Groups static branches without changing runtime semantics",
+      quote do
+        cart =
+          step(:load_cart, unquote(EchoParamsAction),
+            with:
+              shape(%{
+                cart_id: input(:cart_id),
+                items: input(:items)
+              })
+          )
+
+        parallel do
+          branch :alpha do
+            priced =
+              step(:price_cart, unquote(EchoParamsAction),
+                with:
+                  shape(%{
+                    cart_id: select(cart, :cart_id),
+                    total: input(:total)
+                  })
+              )
+
+            step(:audit_price, unquote(EchoParamsAction),
+              with: shape(%{event: "priced"}),
+              after: priced
+            )
+          end
+
+          branch :beta do
+            reserved =
+              step(:reserve_inventory, unquote(EchoParamsAction),
+                with:
+                  shape(%{
+                    cart_id: select(cart, :cart_id),
+                    items: select(cart, :items)
+                  })
+              )
+          end
+        end
+
+        step(:post_group_independent, unquote(EchoParamsAction), with: shape(%{event: "side"}))
+
+        final =
+          step(:finalize, unquote(EchoParamsAction),
+            with:
+              shape(%{
+                priced: priced,
+                reserved: reserved
+              })
+          )
+
+        return(final)
+      end
+    )
+  end
+
+  defp create_flow_module(prefix, name, description, quoted_flow) do
     module = unique_module(prefix)
 
     create_module(
       module,
       quote do
         use Jido.Flow,
-          name: "branch_group_flow",
-          description: "Groups static branches without changing runtime semantics"
+          name: unquote(name),
+          description: unquote(description)
 
         flow do
-          cart =
-            step(:load_cart, unquote(EchoParamsAction),
-              with:
-                shape(%{
-                  cart_id: input(:cart_id),
-                  items: input(:items)
-                })
-            )
-
-          parallel do
-            branch :alpha do
-              priced =
-                step(:price_cart, unquote(EchoParamsAction),
-                  with:
-                    shape(%{
-                      cart_id: select(cart, :cart_id),
-                      total: input(:total)
-                    })
-                )
-
-              step(:audit_price, unquote(EchoParamsAction),
-                with: shape(%{event: "priced"}),
-                after: priced
-              )
-            end
-
-            branch :beta do
-              reserved =
-                step(:reserve_inventory, unquote(EchoParamsAction),
-                  with:
-                    shape(%{
-                      cart_id: select(cart, :cart_id),
-                      items: select(cart, :items)
-                    })
-                )
-            end
-          end
-
-          step(:post_group_independent, unquote(EchoParamsAction), with: shape(%{event: "side"}))
-
-          final =
-            step(:finalize, unquote(EchoParamsAction),
-              with:
-                shape(%{
-                  priced: priced,
-                  reserved: reserved
-                })
-            )
-
-          return(final)
+          unquote(quoted_flow)
         end
       end
     )
