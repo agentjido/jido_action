@@ -1,4 +1,4 @@
-defmodule Jido.FlowParserTest do
+defmodule Jido.Flow.ParserTest do
   use JidoTest.ActionCase, async: true
 
   alias Jido.Action.Error.InvalidInputError
@@ -14,6 +14,47 @@ defmodule Jido.FlowParserTest do
                )
 
       assert Flow.to_map(flow) == FlowFixtures.math_canonical_map()
+    end
+
+    test "rejects non-string source" do
+      assert {:error, %InvalidInputError{message: message}} = Flow.parse(:not_source, name: "bad")
+      assert message =~ "flow source must be a string"
+    end
+
+    test "rejects invalid Elixir syntax with source line metadata" do
+      source = """
+      flow do
+        step :bad,
+      end
+      """
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Flow.parse(source, name: "bad")
+
+      assert message =~ "invalid flow source"
+      assert Keyword.fetch!(details.line, :line) == 3
+    end
+
+    test "rejects source without a single flow block" do
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Flow.parse("input(:value)", name: "bad")
+
+      assert message =~ "flow source must contain a single flow do block"
+      assert details.form == "input(:value)"
+    end
+
+    test "rejects invalid parser options before lowering" do
+      assert {:error, %InvalidInputError{message: message}} =
+               Flow.parse(FlowFixtures.math_source(), :not_options)
+
+      assert message =~ "flow parser options must be a map or keyword list"
+    end
+
+    test "rejects invalid flow config supplied through parser options" do
+      assert {:error, %InvalidInputError{message: message}} =
+               Flow.parse(FlowFixtures.math_source(), name: " ")
+
+      assert message =~ "Action name cannot be blank"
     end
 
     test "rejects arbitrary local function calls outside the Flow subset" do

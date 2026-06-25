@@ -158,4 +158,54 @@ defmodule JidoTest.TestActions do
 
     def run(%{value: value}, _context), do: {:ok, %{value: Integer.to_string(value)}}
   end
+
+  defmodule ExtrasAction do
+    @moduledoc false
+    use Action,
+      name: "extras_action",
+      description: "Returns a normal action output with extras",
+      schema: Zoi.object(%{value: Zoi.integer()}),
+      output_schema: Zoi.object(%{value: Zoi.integer()})
+
+    def run(%{value: value}, context) do
+      {:ok, %{value: value}, %{trace_id: Map.get(context, :trace_id)}}
+    end
+  end
+
+  defmodule UnsupportedResult do
+    @moduledoc false
+    use Action,
+      name: "unsupported_result",
+      description: "Returns an unsupported action result shape"
+
+    def run(_params, _context), do: :not_a_result_tuple
+  end
+
+  defmodule ThrowingAction do
+    @moduledoc false
+    use Action,
+      name: "throwing_action",
+      description: "Throws during execution"
+
+    def run(_params, _context), do: throw(:thrown_value)
+  end
+
+  defmodule OutputEnvelopeAction do
+    @moduledoc false
+    use Action,
+      name: "output_envelope_action",
+      description: "Returns an explicit action output envelope",
+      schema: Zoi.object(%{value: Zoi.integer()})
+
+    def run(%{value: value}, _context) do
+      {:ok, Jido.Action.Output.raw(%{value: value}, meta: %{source: :test})}
+    end
+  end
+
+  defmodule AtomValidationAction do
+    @moduledoc false
+    def validate_params(_params), do: {:error, :bad_params}
+    def validate_output(output), do: {:ok, output}
+    def run(params, _context), do: {:ok, params}
+  end
 end

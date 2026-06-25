@@ -1,4 +1,4 @@
-defmodule Jido.FlowDSLTest do
+defmodule Jido.Flow.DSLTest do
   use JidoTest.ActionCase, async: true
 
   alias Jido.Flow

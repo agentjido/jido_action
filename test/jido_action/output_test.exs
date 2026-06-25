@@ -1,4 +1,4 @@
-defmodule JidoTest.ActionOutputTest do
+defmodule Jido.Action.OutputTest do
   use JidoTest.ActionCase, async: true
 
   alias Jido.Action.Output

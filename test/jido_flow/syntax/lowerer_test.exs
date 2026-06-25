@@ -1,9 +1,8 @@
-defmodule Jido.FlowBuilderTest do
+defmodule Jido.Flow.Syntax.LowererTest do
   use JidoTest.ActionCase, async: true
 
   alias Jido.Action.Error.InvalidInputError
   alias Jido.Flow
-  alias Jido.Flow.Builder
   alias Jido.Flow.Syntax
   alias Jido.Flow.Syntax.Lowerer
   alias JidoTest.FlowFixtures
@@ -25,6 +24,18 @@ defmodule Jido.FlowBuilderTest do
 
       assert message =~ "unsupported flow syntax operation"
       assert details.kind == :parallel
+    end
+
+    test "rejects malformed operation values" do
+      syntax =
+        Syntax.new(name: "bad")
+        |> Map.put(:operations, [:not_an_operation])
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Lowerer.lower(syntax)
+
+      assert message =~ "unsupported flow syntax operation"
+      assert details.operation == :not_an_operation
     end
 
     test "rejects result references before they are bound" do
@@ -57,6 +68,16 @@ defmodule Jido.FlowBuilderTest do
       assert details.operation == :return
     end
 
+    test "rejects returns that do not resolve to result refs" do
+      syntax =
+        Syntax.new(name: "bad")
+        |> Syntax.step(:add_one, Add, %{value: Syntax.input(:value)})
+        |> Syntax.return(Syntax.value(:not_a_result))
+
+      assert {:error, %InvalidInputError{message: message}} = Lowerer.lower(syntax)
+      assert message =~ "return must resolve to a result ref"
+    end
+
     test "accepts structured maps whose leaves are supported refs or literals" do
       syntax =
         Syntax.new(name: "structured")
@@ -76,35 +97,22 @@ defmodule Jido.FlowBuilderTest do
                literal: %{type: :value, value: %{amount: 1}}
              }
     end
-  end
 
-  describe "builder" do
-    test "does not expose variable binding aliases in the first foundation" do
-      refute function_exported?(Syntax, :var, 1)
-      refute function_exported?(Syntax, :var, 2)
-      refute function_exported?(Syntax, :bind, 3)
-      refute function_exported?(Builder, :var, 1)
-      refute function_exported?(Builder, :var, 2)
-      refute function_exported?(Builder, :bind, 3)
-    end
+    test "lowers lists while preserving order and nested refs" do
+      syntax =
+        Syntax.new(name: "list_input")
+        |> Syntax.step(:add_one, Add, %{
+          values: [Syntax.input(:value), Syntax.value(2)]
+        })
+        |> Syntax.return(Syntax.result(:add_one))
 
-    test "builder-created syntax and direct syntax emit equal canonical maps" do
-      assert {:ok, direct_flow} = Lowerer.lower(FlowFixtures.math_syntax())
-      assert {:ok, builder_flow} = Builder.build(FlowFixtures.math_builder())
+      assert {:ok, flow} = Lowerer.lower(syntax)
+      assert [node] = Flow.to_map(flow).nodes
 
-      assert Flow.to_map(builder_flow) == Flow.to_map(direct_flow)
-      assert Flow.to_map(builder_flow) == FlowFixtures.math_canonical_map()
-    end
-
-    test "builder syntax cannot shortcut the canonical map" do
-      assert builder = FlowFixtures.math_builder()
-      assert %Syntax{} = Builder.syntax(builder)
-      assert {:ok, flow} = Builder.build(builder)
-
-      canonical = Flow.to_map(flow)
-      refute Map.has_key?(canonical, :bindings)
-      refute canonical |> inspect() |> String.contains?("added")
-      refute canonical |> inspect() |> String.contains?("builder")
+      assert node.input.values == [
+               %{type: :input, path: [:value]},
+               %{type: :value, value: 2}
+             ]
     end
   end
 end
