@@ -96,9 +96,9 @@ defmodule Jido.Flow.Compiler do
 
   defp run_node(node, state) do
     with {:ok, params} <- resolve_expr(node.input, state),
-         {:ok, params} <- node.action.validate_params(params),
+         {:ok, params} <- validate_step_input(node, params),
          {:ok, output} <- call_action(node, params, state.context),
-         {:ok, output} <- validate_output(node, output) do
+         {:ok, output} <- validate_step_output(node, output) do
       put_in(state, [:results, node.name], output)
     else
       {:error, error} -> %{state | error: normalize_error(error)}
@@ -124,6 +124,7 @@ defmodule Jido.Flow.Compiler do
          Error.execution_error("action returned an unsupported result", %{
            action: node.action,
            node: node.name,
+           phase: :step_execution,
            result: other
          })}
     end
@@ -133,6 +134,7 @@ defmodule Jido.Flow.Compiler do
        Error.execution_error(Exception.message(exception), %{
          action: node.action,
          node: node.name,
+         phase: :step_execution,
          exception: exception.__struct__
        })}
   catch
@@ -141,12 +143,49 @@ defmodule Jido.Flow.Compiler do
        Error.execution_error("action #{kind}", %{
          action: node.action,
          node: node.name,
+         phase: :step_execution,
          reason: reason
        })}
   end
 
-  defp validate_output(_node, %Output{} = output), do: Output.validate(output)
-  defp validate_output(node, output), do: node.action.validate_output(output)
+  defp validate_step_input(node, params) do
+    node.action.validate_params(params)
+    |> tag_step_validation_error(:step_input, node)
+  end
+
+  defp validate_step_output(node, %Output{} = output) do
+    output
+    |> Output.validate()
+    |> tag_step_validation_error(:step_output, node)
+  end
+
+  defp validate_step_output(node, output) do
+    node.action.validate_output(output)
+    |> tag_step_validation_error(:step_output, node)
+  end
+
+  defp tag_step_validation_error({:ok, value}, _phase, _node), do: {:ok, value}
+
+  defp tag_step_validation_error({:error, error}, phase, node) when is_exception(error) do
+    details =
+      error
+      |> Map.get(:details, %{})
+      |> Map.put(:phase, phase)
+      |> Map.put(:node, node.name)
+      |> Map.put(:action, node.action)
+
+    {:error, Error.validation_error(Exception.message(error), details)}
+  end
+
+  defp tag_step_validation_error({:error, reason}, phase, node) do
+    {:error,
+     Error.validation_error(to_error_message(reason), %{
+       phase: phase,
+       node: node.name,
+       action: node.action,
+       reason: reason
+     })}
+  end
 
   defp resolve_expr(%Ref{type: :input, path: path}, state),
     do: {:ok, fetch_path(state.input, path)}
@@ -227,4 +266,8 @@ defmodule Jido.Flow.Compiler do
     _exception ->
       Error.execution_error("action execution failed", %{reason: reason})
   end
+
+  defp to_error_message(message) when is_binary(message), do: message
+  defp to_error_message(message) when is_atom(message), do: Atom.to_string(message)
+  defp to_error_message(message), do: inspect(message)
 end

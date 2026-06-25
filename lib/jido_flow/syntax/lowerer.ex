@@ -171,7 +171,10 @@ defmodule Jido.Flow.Syntax.Lowerer do
     {:error, Error.validation_error("return must resolve to a result ref")}
   end
 
-  defp require_return(nil), do: {:error, Error.validation_error("return ref is required")}
+  defp require_return(nil) do
+    {:error, Error.validation_error("return ref is required", %{operation: :return})}
+  end
+
   defp require_return(%Ref{} = ref), do: {:ok, ref}
 
   defp result_before_bound_error(step, dependency) do

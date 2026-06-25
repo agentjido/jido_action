@@ -97,6 +97,13 @@ defmodule Jido.FlowCompileTest do
                Compiler.run(flow, %{value: "bad"}, %{})
 
       assert message =~ "expected integer"
+
+      assert {:error, %InvalidInputError{details: details}} =
+               Compiler.run(flow, %{value: "bad"}, %{})
+
+      assert details.phase == :step_input
+      assert details.node == :add_one
+      assert details.action == Add
     end
 
     test "returns existing action validation errors for invalid step output" do
@@ -113,6 +120,13 @@ defmodule Jido.FlowCompileTest do
                Compiler.run(flow, %{value: 3}, %{})
 
       assert message =~ "expected integer"
+
+      assert {:error, %InvalidInputError{details: details}} =
+               Compiler.run(flow, %{value: 3}, %{})
+
+      assert details.phase == :step_output
+      assert details.node == :invalid
+      assert details.action == InvalidOutput
     end
   end
 

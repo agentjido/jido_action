@@ -68,7 +68,9 @@ defmodule Jido.ExecTest do
               %{
                 value: var(:added, :value),
                 amount: value(2)
-              }, bind: :doubled)
+              },
+              bind: :doubled
+            )
 
             return(var(:doubled, :value))
           end
@@ -112,10 +114,31 @@ defmodule Jido.ExecTest do
           return: Ref.result(:echo, :trace_id)
         )
 
-      assert {:error, %InvalidInputError{message: message}} =
+      assert {:error, %InvalidInputError{message: message, details: details}} =
                Exec.run(flow, %{value: 3}, %{trace_id: "trace"})
 
       assert message =~ "expected integer"
+      assert details.phase == :flow_output
+      assert details.context == "Flow output"
+    end
+
+    test "validates Flow input schema before compiling execution" do
+      flow =
+        Flow.new!(
+          name: "input_schema",
+          schema: Zoi.object(%{value: Zoi.integer()}),
+          nodes: [
+            Node.new!(name: :echo, action: ContextEcho, input: %{value: Ref.input(:value)})
+          ],
+          return: Ref.result(:echo, :value)
+        )
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Exec.run(flow, %{value: "bad"}, %{trace_id: "trace"})
+
+      assert message =~ "expected integer"
+      assert details.phase == :flow_input
+      assert details.context == "Flow"
     end
   end
 
