@@ -26,6 +26,18 @@ defmodule Jido.Action.OutputTest do
       end
 
       assert_raise ArgumentError, ~r/invalid action output envelope/, fn ->
+        Output.raw(:value, [:not_keyword])
+      end
+
+      assert_raise ArgumentError, ~r/invalid action output envelope/, fn ->
+        Output.raw(:value, meta: %{}, unexpected: true)
+      end
+
+      assert_raise ArgumentError, ~r/invalid action output envelope/, fn ->
+        Output.raw(:value, :not_opts)
+      end
+
+      assert_raise ArgumentError, ~r/invalid action output envelope/, fn ->
         Output.stream(:not_enumerable)
       end
 
@@ -42,6 +54,12 @@ defmodule Jido.Action.OutputTest do
     end
 
     test "reports malformed output envelopes" do
+      assert {:error, %Jido.Action.Error.InvalidInputError{} = error} =
+               Output.validate(:not_an_output)
+
+      assert Exception.message(error) == "invalid action output envelope"
+      assert error.details.value == :not_an_output
+
       assert {:error, %Jido.Action.Error.InvalidInputError{} = error} =
                Output.validate(%Output{kind: :batch, value: :not_a_list, meta: %{}})
 

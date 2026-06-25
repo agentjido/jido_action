@@ -12,10 +12,16 @@ defmodule Jido.Flow.Syntax do
     @schema Zoi.struct(
               __MODULE__,
               %{
-                type: Zoi.enum([:input, :value, :result], description: "Expression type"),
+                type:
+                  Zoi.enum([:input, :value, :result, :binding, :select, :shape],
+                    description: "Expression type"
+                  ),
                 node: Zoi.atom(description: "Result node name") |> Zoi.optional(),
+                binding: Zoi.atom(description: "Source binding alias") |> Zoi.optional(),
+                source: Zoi.any(description: "Projection source expression") |> Zoi.optional(),
                 path: Zoi.list(Zoi.any(), description: "Nested value path") |> Zoi.default([]),
-                value: Zoi.any(description: "Literal value") |> Zoi.optional()
+                value: Zoi.any(description: "Literal value") |> Zoi.optional(),
+                data: Zoi.any(description: "Structured shape data") |> Zoi.optional()
               },
               coerce: true
             )
@@ -82,10 +88,10 @@ defmodule Jido.Flow.Syntax do
   @doc """
   Builds a generic syntax operation.
   """
-  @spec operation(atom(), map() | keyword()) :: Operation.t()
-  def operation(kind, attrs \\ []) when is_atom(kind) do
+  @spec operation(atom(), map() | keyword(), keyword()) :: Operation.t()
+  def operation(kind, attrs \\ [], opts \\ []) when is_atom(kind) do
     attrs = if is_list(attrs), do: Map.new(attrs), else: attrs
-    %Operation{kind: kind, attrs: attrs}
+    %Operation{kind: kind, attrs: attrs, provenance: Keyword.get(opts, :provenance, %{})}
   end
 
   @doc """
@@ -109,17 +115,39 @@ defmodule Jido.Flow.Syntax do
   end
 
   @doc """
+  Builds a source-level binding expression.
+  """
+  @spec binding(atom()) :: Expr.t()
+  def binding(name), do: %Expr{type: :binding, binding: name}
+
+  @doc """
+  Builds a projection expression over an existing Flow source.
+  """
+  @spec select(term(), term()) :: Expr.t()
+  def select(source, path), do: %Expr{type: :select, source: source, path: normalize_path(path)}
+
+  @doc """
+  Builds a readability-only structured data expression.
+  """
+  @spec shape(term()) :: Expr.t()
+  def shape(data), do: %Expr{type: :shape, data: data}
+
+  @doc """
   Appends a step operation.
   """
-  @spec step(t(), atom(), module(), map()) :: t()
-  def step(%__MODULE__{} = syntax, name, action, input) do
-    add(
-      syntax,
-      operation(:step, %{
+  @spec step(t(), atom(), module(), term(), keyword()) :: t()
+  def step(%__MODULE__{} = syntax, name, action, input, opts \\ []) do
+    attrs =
+      %{
         name: name,
         action: action,
         input: input
-      })
+      }
+      |> maybe_put_binding(Keyword.get(opts, :bind))
+
+    add(
+      syntax,
+      operation(:step, attrs, provenance: Keyword.get(opts, :provenance, %{}))
     )
   end
 
@@ -134,4 +162,7 @@ defmodule Jido.Flow.Syntax do
   defp normalize_path(nil), do: []
   defp normalize_path(path) when is_list(path), do: path
   defp normalize_path(path), do: [path]
+
+  defp maybe_put_binding(attrs, nil), do: attrs
+  defp maybe_put_binding(attrs, binding), do: Map.put(attrs, :binding, binding)
 end

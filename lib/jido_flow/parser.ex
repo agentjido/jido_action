@@ -76,9 +76,8 @@ defmodule Jido.Flow.Parser do
     })
   end
 
-  defp format_parse_error(message, token) when is_binary(message) do
+  defp format_parse_error(error, token) do
+    message = if is_binary(error), do: error, else: inspect(error)
     "#{message} #{inspect(token)}"
   end
-
-  defp format_parse_error(error, token), do: "#{inspect(error)} #{inspect(token)}"
 end

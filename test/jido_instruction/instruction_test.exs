@@ -2,7 +2,14 @@ defmodule Jido.InstructionTest do
   use JidoTest.ActionCase, async: true
 
   alias Jido.Instruction
-  alias JidoTest.TestActions.{Add, BasicAction, MissingRun, MissingValidateOutput}
+
+  alias JidoTest.TestActions.{
+    Add,
+    BasicAction,
+    MissingRun,
+    MissingValidateOutput,
+    MissingValidateParams
+  }
 
   describe "validate_action_module/1" do
     test "accepts non-nil atoms" do
@@ -137,6 +144,11 @@ defmodule Jido.InstructionTest do
 
       assert {:error, missing_run} = Instruction.validate_action_contract(MissingRun)
       assert missing_run.details.reason == "missing run/2"
+
+      assert {:error, missing_params} =
+               Instruction.validate_action_contract(MissingValidateParams)
+
+      assert missing_params.details.reason == "missing validate_params/1"
 
       assert {:error, missing_output} =
                Instruction.validate_action_contract(MissingValidateOutput)

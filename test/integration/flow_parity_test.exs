@@ -6,7 +6,7 @@ defmodule Jido.Integration.FlowParityTest do
   alias Jido.Flow.Syntax
   alias Jido.Flow.Syntax.Lowerer
   alias JidoTest.FlowFixtures
-  alias JidoTest.TestActions.{Add, Multiply}
+  alias JidoTest.TestActions.{Add, EchoParamsAction, Multiply}
 
   test "macro, builder, and parser math flows produce equal canonical maps" do
     module = unique_module("ParserParityMathFlow")
@@ -43,6 +43,57 @@ defmodule Jido.Integration.FlowParityTest do
     assert module.to_map() == Jido.Flow.to_map(parser_flow)
   end
 
+  test "macro, parser, builder, and direct syntax binding flows produce equal canonical maps" do
+    module = unique_module("ParserParityBindingFlow")
+
+    create_module(
+      module,
+      quote do
+        use Jido.Flow,
+          name: "binding_flow",
+          description: "Adds one and doubles the whole result"
+
+        flow do
+          added = step(:add_one, unquote(Add), with: %{value: input(:value), amount: value(1)})
+          doubled = step(:double, unquote(Multiply), with: added)
+          return(doubled)
+        end
+      end
+    )
+
+    assert {:ok, direct_flow} = Lowerer.lower(FlowFixtures.binding_syntax())
+    assert {:ok, builder_flow} = Builder.build(FlowFixtures.binding_builder())
+
+    assert {:ok, parser_flow} =
+             Jido.Flow.parse(FlowFixtures.binding_source(),
+               name: "binding_flow",
+               description: "Adds one and doubles the whole result"
+             )
+
+    assert module.to_map() == FlowFixtures.binding_canonical_map()
+    assert module.to_map() == Jido.Flow.to_map(direct_flow)
+    assert module.to_map() == Jido.Flow.to_map(builder_flow)
+    assert module.to_map() == Jido.Flow.to_map(parser_flow)
+  end
+
+  test "macro, parser, builder, and direct syntax projection flows produce equal canonical maps" do
+    module = create_projection_flow_module("ParserParityProjectionFlow")
+
+    assert {:ok, direct_flow} = Lowerer.lower(FlowFixtures.projection_syntax())
+    assert {:ok, builder_flow} = Builder.build(FlowFixtures.projection_builder())
+
+    assert {:ok, parser_flow} =
+             Jido.Flow.parse(FlowFixtures.projection_source(),
+               name: "projection_flow",
+               description: "Projects selected fields into an audit payload"
+             )
+
+    assert module.to_map() == FlowFixtures.projection_canonical_map()
+    assert module.to_map() == Jido.Flow.to_map(direct_flow)
+    assert module.to_map() == Jido.Flow.to_map(builder_flow)
+    assert module.to_map() == Jido.Flow.to_map(parser_flow)
+  end
+
   test "parser canonical maps remain equal across formatting differences" do
     formatted_source = """
     flow do
@@ -61,6 +112,30 @@ defmodule Jido.Integration.FlowParityTest do
     opts = [name: "math_flow", description: "Adds one and doubles the result"]
 
     assert {:ok, parser_flow} = Jido.Flow.parse(FlowFixtures.math_source(), opts)
+    assert {:ok, formatted_flow} = Jido.Flow.parse(formatted_source, opts)
+    assert Jido.Flow.to_map(parser_flow) == Jido.Flow.to_map(formatted_flow)
+  end
+
+  test "binding parser canonical maps remain equal across formatting differences" do
+    formatted_source = """
+    flow do
+      added =
+        step :add_one,
+          JidoTest.TestActions.Add,
+          with: %{
+            amount: value(1),
+            value: input(:value)
+          }
+
+      doubled = step :double, JidoTest.TestActions.Multiply, with: added
+
+      return doubled
+    end
+    """
+
+    opts = [name: "binding_flow", description: "Adds one and doubles the whole result"]
+
+    assert {:ok, parser_flow} = Jido.Flow.parse(FlowFixtures.binding_source(), opts)
     assert {:ok, formatted_flow} = Jido.Flow.parse(formatted_source, opts)
     assert Jido.Flow.to_map(parser_flow) == Jido.Flow.to_map(formatted_flow)
   end
@@ -138,6 +213,63 @@ defmodule Jido.Integration.FlowParityTest do
              Jido.Exec.run(builder_flow, %{value: 3}, %{})
   end
 
+  test "executing equivalent binding flows returns the same whole-result output" do
+    module = unique_module("ExecutionParityBindingFlow")
+
+    create_module(
+      module,
+      quote do
+        use Jido.Flow,
+          name: "binding_flow",
+          description: "Adds one and doubles the whole result"
+
+        flow do
+          added = step(:add_one, unquote(Add), with: %{value: input(:value), amount: value(1)})
+          doubled = step(:double, unquote(Multiply), with: added)
+          return(doubled)
+        end
+      end
+    )
+
+    assert {:ok, builder_flow} = Builder.build(FlowFixtures.binding_builder())
+
+    assert {:ok, parser_flow} =
+             Jido.Flow.parse(FlowFixtures.binding_source(),
+               name: "binding_flow",
+               description: "Adds one and doubles the whole result"
+             )
+
+    assert {:ok, %{value: 8}} = Jido.Exec.run(builder_flow, %{value: 3}, %{})
+
+    assert Jido.Exec.run(module, %{value: 3}, %{}) ==
+             Jido.Exec.run(builder_flow, %{value: 3}, %{})
+
+    assert Jido.Exec.run(parser_flow, %{value: 3}, %{}) ==
+             Jido.Exec.run(builder_flow, %{value: 3}, %{})
+  end
+
+  test "executing equivalent projection flows extracts nested values and returns the selection" do
+    module = create_projection_flow_module("ExecutionParityProjectionFlow")
+
+    input = %{quote_id: "quote-1", items: [%{id: "item-1", price: 42}], tag: "priority"}
+
+    assert {:ok, builder_flow} = Builder.build(FlowFixtures.projection_builder())
+
+    assert {:ok, parser_flow} =
+             Jido.Flow.parse(FlowFixtures.projection_source(),
+               name: "projection_flow",
+               description: "Projects selected fields into an audit payload"
+             )
+
+    assert {:ok, 42} = Jido.Exec.run(builder_flow, input, %{})
+
+    assert Jido.Exec.run(module, input, %{}) ==
+             Jido.Exec.run(builder_flow, input, %{})
+
+    assert Jido.Exec.run(parser_flow, input, %{}) ==
+             Jido.Exec.run(builder_flow, input, %{})
+  end
+
   property "builder and syntax-lowered maps agree for simple Add chains" do
     check all(
             amounts <- list_of(integer(1..5), min_length: 1, max_length: 5),
@@ -152,6 +284,48 @@ defmodule Jido.Integration.FlowParityTest do
       expected = input + Enum.sum(amounts)
       assert {:ok, ^expected} = Jido.Exec.run(builder_flow, %{value: input}, %{})
     end
+  end
+
+  defp create_projection_flow_module(prefix) do
+    module = unique_module(prefix)
+
+    create_module(
+      module,
+      quote do
+        use Jido.Flow,
+          name: "projection_flow",
+          description: "Projects selected fields into an audit payload"
+
+        flow do
+          loaded =
+            step(:load_quote, unquote(EchoParamsAction),
+              with:
+                shape(%{
+                  quote: %{
+                    id: input(:quote_id),
+                    pricing: %{total: input([:items, 0, :price])}
+                  },
+                  tags: [input(:tag)]
+                })
+            )
+
+          audit =
+            step(:audit_quote, unquote(EchoParamsAction),
+              with:
+                shape(%{
+                  quote_id: select(loaded, [:quote, :id]),
+                  total: select(select(loaded, [:quote, :pricing]), :total),
+                  first_item_id: select(input(:items), [0, :id]),
+                  tag: select(loaded, [:tags, 0])
+                })
+            )
+
+          return(select(audit, :total))
+        end
+      end
+    )
+
+    module
   end
 
   defp chain_syntax(amounts) do

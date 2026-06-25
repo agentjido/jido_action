@@ -9,13 +9,21 @@ defmodule Jido.Flow.CompilerTest do
 
   alias JidoTest.TestActions.{
     Add,
+    AtomErrorAction,
     AtomValidationAction,
     ContextEcho,
+    EchoParamsAction,
     ErrorAction,
+    ErrorWithExtrasAction,
+    ExceptionErrorAction,
+    ExtrasAction,
+    FullAction,
     InvalidOutput,
     Multiply,
     OutputEnvelopeAction,
+    RawExceptionErrorAction,
     ThrowingAction,
+    TupleErrorAction,
     UnsupportedResult
   }
 
@@ -35,6 +43,15 @@ defmodule Jido.Flow.CompilerTest do
       assert {:ok, flow} = Jido.Flow.Builder.build(FlowFixtures.math_builder())
       assert {:ok, workflow} = Flow.compile(flow)
 
+      assert component_order(workflow) == [:add_one, :double]
+    end
+
+    test "compiles root result-ref inputs in dependency order" do
+      assert {:ok, flow} = Jido.Flow.Builder.build(FlowFixtures.binding_builder())
+      assert [_add_one, double] = Flow.to_map(flow).nodes
+      assert double.deps == [:add_one]
+
+      assert {:ok, workflow} = Flow.compile(flow)
       assert component_order(workflow) == [:add_one, :double]
     end
 
@@ -81,9 +98,36 @@ defmodule Jido.Flow.CompilerTest do
   end
 
   describe "run/3" do
+    test "uses an empty context by default" do
+      assert {:ok, 4} = Compiler.run(one_step_flow(), %{value: 3})
+    end
+
     test "executes the compiled workflow and extracts the declared return" do
       assert {:ok, flow} = Jido.Flow.Builder.build(FlowFixtures.math_builder())
       assert {:ok, 8} = Compiler.run(flow, %{value: 3}, %{})
+    end
+
+    test "executes a binding-first flow with whole-result step input" do
+      assert {:ok, flow} = Jido.Flow.Builder.build(FlowFixtures.binding_builder())
+
+      assert {:ok, %{value: 8}} = Compiler.run(flow, %{value: 3}, %{})
+    end
+
+    test "returns an execution error when execution produces no final state" do
+      flow = %Flow{
+        name: "empty",
+        description: nil,
+        schema: [],
+        output_schema: [],
+        nodes: [],
+        return: Ref.result(:missing),
+        provenance: %{}
+      }
+
+      assert {:error, %ExecutionFailureError{message: message}} =
+               Compiler.run(flow, %{}, %{})
+
+      assert message =~ "flow execution produced no final state"
     end
 
     test "rejects non-map input or context" do
@@ -118,6 +162,149 @@ defmodule Jido.Flow.CompilerTest do
       assert {:ok, "trace-1"} = Compiler.run(flow, %{value: 3}, %{trace_id: "trace-1"})
       assert {:ok, "trace-2"} = Compiler.run(flow, %{value: 3}, %{trace_id: "trace-2"})
       assert Flow.to_map(flow) == canonical
+    end
+
+    test "ignores action extras from successful step result tuples" do
+      flow =
+        Flow.new!(
+          name: "extras",
+          nodes: [
+            Node.new!(name: :extras, action: ExtrasAction, input: %{value: Ref.input(:value)})
+          ],
+          return: Ref.result(:extras, :value)
+        )
+
+      assert {:ok, 3} = Compiler.run(flow, %{value: 3}, %{trace_id: "trace"})
+    end
+
+    test "normalizes three-element action error tuples with step metadata" do
+      flow =
+        Flow.new!(
+          name: "error_with_extras",
+          nodes: [
+            Node.new!(
+              name: :bad,
+              action: ErrorWithExtrasAction,
+              input: %{reason: Ref.value(:bad_with_extras)}
+            )
+          ],
+          return: Ref.result(:bad)
+        )
+
+      assert {:error, %ExecutionFailureError{message: message, details: details}} =
+               Compiler.run(flow, %{}, %{})
+
+      assert message == "bad_with_extras"
+      assert details.phase == :step_execution
+      assert details.node == :bad
+      assert details.action == ErrorWithExtrasAction
+      assert details.reason == :bad_with_extras
+    end
+
+    test "resolves list expressions and literal values in step input" do
+      flow =
+        Flow.new!(
+          name: "list_input",
+          nodes: [
+            Node.new!(
+              name: :echo,
+              action: EchoParamsAction,
+              input: %{
+                items: [Ref.input(:value), Ref.value(2), 3],
+                literal: 4
+              }
+            )
+          ],
+          return: Ref.result(:echo, :items)
+        )
+
+      assert {:ok, [1, 2, 3]} = Compiler.run(flow, %{value: 1}, %{})
+    end
+
+    test "resolves integer path segments through input and result lists" do
+      flow =
+        Flow.new!(
+          name: "list_path_refs",
+          nodes: [
+            Node.new!(
+              name: :source,
+              action: EchoParamsAction,
+              input: %{items: Ref.input(:items)}
+            ),
+            Node.new!(
+              name: :pick,
+              action: EchoParamsAction,
+              input: %{
+                input_value: Ref.input([:items, 0, :value]),
+                result_value: Ref.result(:source, [:items, 1, :value])
+              }
+            )
+          ],
+          return: Ref.result(:pick)
+        )
+
+      input = %{items: [%{value: 42}, %{value: 84}]}
+
+      assert {:ok, %{input_value: 42, result_value: 84}} = Compiler.run(flow, input, %{})
+    end
+
+    test "executes projection-shaped flows through existing path traversal" do
+      assert {:ok, flow} = Jido.Flow.Builder.build(FlowFixtures.projection_builder())
+
+      input = %{quote_id: "quote-1", items: [%{id: "item-1", price: 42}], tag: "priority"}
+
+      assert {:ok, 42} = Compiler.run(flow, input, %{})
+    end
+
+    test "returns validation errors for malformed refs inside nested inputs" do
+      malformed_ref = %Ref{type: :unsupported}
+
+      flow = %Flow{
+        name: "malformed_ref",
+        description: nil,
+        schema: [],
+        output_schema: [],
+        nodes: [
+          %Node{
+            name: :echo,
+            action: EchoParamsAction,
+            input: %{values: [malformed_ref]},
+            deps: [],
+            provenance: %{}
+          }
+        ],
+        return: Ref.result(:echo),
+        provenance: %{}
+      }
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Compiler.run(flow, %{}, %{})
+
+      assert message =~ "unsupported flow ref type"
+      assert details.type == :unsupported
+    end
+
+    test "returns nil for missing and non-map nested return paths" do
+      missing_nested_return =
+        Flow.new!(
+          name: "missing_nested_return",
+          nodes: [
+            Node.new!(name: :add_one, action: Add, input: %{value: Ref.input(:value)})
+          ],
+          return: Ref.result(:add_one, [:missing, :nested])
+        )
+
+      non_map_nested_return =
+        Flow.new!(
+          name: "non_map_nested_return",
+          nodes: [
+            Node.new!(name: :add_one, action: Add, input: %{value: Ref.input(:value)})
+          ],
+          return: Ref.result(:add_one, [:value, :nested])
+        )
+
+      assert {:ok, nil} = Compiler.run(missing_nested_return, %{value: 3}, %{})
+      assert {:ok, nil} = Compiler.run(non_map_nested_return, %{value: 3}, %{})
     end
 
     test "returns existing action validation errors for invalid step input" do
@@ -195,6 +382,65 @@ defmodule Jido.Flow.CompilerTest do
       assert details.reason == "Validation error"
     end
 
+    test "preserves exception action errors returned by steps" do
+      flow =
+        Flow.new!(
+          name: "exception_error",
+          nodes: [
+            Node.new!(name: :bad, action: ExceptionErrorAction)
+          ],
+          return: Ref.result(:bad)
+        )
+
+      assert {:error, %ExecutionFailureError{message: message, details: details}} =
+               Compiler.run(flow, %{}, %{})
+
+      assert message == "already wrapped"
+      assert details.source == :test
+      assert details.phase == :step_execution
+      assert details.node == :bad
+      assert details.action == ExceptionErrorAction
+    end
+
+    test "preserves raw exception action errors returned by steps" do
+      flow =
+        Flow.new!(
+          name: "raw_exception_error",
+          nodes: [
+            Node.new!(name: :bad, action: RawExceptionErrorAction)
+          ],
+          return: Ref.result(:bad)
+        )
+
+      assert {:error, %RuntimeError{message: "raw exception"}} = Compiler.run(flow, %{}, %{})
+    end
+
+    test "normalizes atom and tuple action error reasons" do
+      atom_error_flow =
+        Flow.new!(
+          name: "atom_error",
+          nodes: [
+            Node.new!(name: :bad, action: AtomErrorAction)
+          ],
+          return: Ref.result(:bad)
+        )
+
+      tuple_error_flow =
+        Flow.new!(
+          name: "tuple_error",
+          nodes: [
+            Node.new!(name: :bad, action: TupleErrorAction)
+          ],
+          return: Ref.result(:bad)
+        )
+
+      assert {:error, %ExecutionFailureError{message: "bad_atom"}} =
+               Compiler.run(atom_error_flow, %{}, %{})
+
+      assert {:error, %ExecutionFailureError{message: "{:bad, :tuple}"}} =
+               Compiler.run(tuple_error_flow, %{}, %{})
+    end
+
     test "returns execution errors for thrown action values" do
       flow =
         Flow.new!(
@@ -230,6 +476,57 @@ defmodule Jido.Flow.CompilerTest do
 
       assert {:ok, %Output{kind: :raw, value: %{value: 3}, meta: %{source: :test}}} =
                Compiler.run(flow, %{value: 3}, %{})
+    end
+
+    test "passes whole-result output envelopes unchanged to the next step" do
+      flow =
+        Flow.new!(
+          name: "output_envelope_passthrough",
+          nodes: [
+            Node.new!(
+              name: :envelope,
+              action: OutputEnvelopeAction,
+              input: %{value: Ref.input(:value)}
+            ),
+            Node.new!(
+              name: :echo,
+              action: EchoParamsAction,
+              input: Ref.result(:envelope)
+            )
+          ],
+          return: Ref.result(:echo)
+        )
+
+      assert {:ok, %Output{kind: :raw, value: %{value: 3}, meta: %{source: :test}}} =
+               Compiler.run(flow, %{value: 3}, %{})
+    end
+
+    test "returns step validation metadata for invalid whole-result params" do
+      flow =
+        Flow.new!(
+          name: "invalid_whole_result_params",
+          nodes: [
+            Node.new!(
+              name: :add_one,
+              action: Add,
+              input: %{value: Ref.input(:value), amount: Ref.value(1)}
+            ),
+            Node.new!(
+              name: :full,
+              action: FullAction,
+              input: Ref.result(:add_one)
+            )
+          ],
+          return: Ref.result(:full)
+        )
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Compiler.run(flow, %{value: 3}, %{})
+
+      assert message =~ "required"
+      assert details.phase == :step_input
+      assert details.node == :full
+      assert details.action == FullAction
     end
 
     test "normalizes non-exception validation failures with step metadata" do
