@@ -178,6 +178,9 @@ defmodule Jido.Flow.Compiler do
   defp resolve_expr(%Ref{type: :input, path: path}, state),
     do: {:ok, fetch_path(state.input, path)}
 
+  defp resolve_expr(%Ref{type: :context, path: path}, state),
+    do: {:ok, fetch_path(state.context, path)}
+
   defp resolve_expr(%Ref{type: :value, value: value}, _state), do: {:ok, value}
 
   defp resolve_expr(%Ref{type: :result, node: node, path: path}, state) do

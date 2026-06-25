@@ -2,6 +2,7 @@ defmodule Jido.Integration.FlowParityTest do
   use JidoTest.ActionCase, async: true
   use ExUnitProperties
 
+  alias Jido.Action.Error
   alias Jido.Flow.Builder
   alias Jido.Flow.Syntax
   alias Jido.Flow.Syntax.Lowerer
@@ -37,6 +38,39 @@ defmodule Jido.Integration.FlowParityTest do
              ] = Jido.Flow.to_map(grouped_flow, provenance: true).nodes
     end
 
+    test "context fixture keeps runtime values out of canonical maps" do
+      flow = FlowFixtures.context_builder() |> build_flow!()
+      canonical = Jido.Flow.to_map(flow)
+
+      assert canonical == FlowFixtures.context_canonical_map()
+      assert inspect(canonical) =~ "context"
+      refute inspect(canonical) =~ "context-trace"
+
+      input = %{user_id: "user-1", trace_id: "input-trace"}
+
+      assert {:ok, first_result} =
+               Jido.Exec.run(flow, input, %{trace_id: "context-trace-1", tenant: %{id: "t-1"}})
+
+      assert {:ok, second_result} =
+               Jido.Exec.run(flow, input, %{trace_id: "context-trace-2", tenant: %{id: "t-2"}})
+
+      assert first_result == %{
+               user_id: "user-1",
+               input_trace_id: "input-trace",
+               context_trace_id: "context-trace-1",
+               tenant_id: "t-1"
+             }
+
+      assert second_result == %{
+               user_id: "user-1",
+               input_trace_id: "input-trace",
+               context_trace_id: "context-trace-2",
+               tenant_id: "t-2"
+             }
+
+      assert Jido.Flow.to_map(flow) == canonical
+    end
+
     test "parser canonical maps remain stable across formatting variations" do
       for scenario <- parser_format_cases() do
         assert {:ok, parser_flow} = Jido.Flow.parse(scenario.source, scenario.opts)
@@ -53,7 +87,7 @@ defmodule Jido.Integration.FlowParityTest do
         |> Syntax.add(Syntax.operation(:choose, branches: []))
 
       assert {:error, builder_error} = Lowerer.lower(builder_syntax)
-      assert Jido.Action.Error.to_map(builder_error).type == :validation_error
+      assert Error.to_map(builder_error).type == :validation_error
 
       parser_source = """
       flow do
@@ -62,7 +96,7 @@ defmodule Jido.Integration.FlowParityTest do
       """
 
       assert {:error, parser_error} = Jido.Flow.parse(parser_source, name: "bad")
-      assert Jido.Action.Error.to_map(parser_error).type == :validation_error
+      assert Error.to_map(parser_error).type == :validation_error
 
       module = unique_module("UnsupportedParityFlow")
 
@@ -115,9 +149,10 @@ defmodule Jido.Integration.FlowParityTest do
 
   defp assert_execution_parity(scenario) do
     expected = {:ok, scenario.expected}
+    context = Map.get(scenario, :context, %{})
 
     for {surface, flow} <- executable_flows(scenario) do
-      assert Jido.Exec.run(flow, scenario.input, %{}) == expected,
+      assert Jido.Exec.run(flow, scenario.input, context) == expected,
              "#{scenario.label} #{surface} execution diverged"
     end
   end
@@ -207,6 +242,27 @@ defmodule Jido.Integration.FlowParityTest do
         canonical: &FlowFixtures.projection_canonical_map/0,
         input: %{quote_id: "quote-1", items: [%{id: "item-1", price: 42}], tag: "priority"},
         expected: 42
+      },
+      %{
+        label: "context",
+        module_suffix: "ContextFlow",
+        module: &create_context_flow_module/1,
+        opts: [
+          name: "context_flow",
+          description: "Shapes runtime context into an audit payload"
+        ],
+        syntax: &FlowFixtures.context_syntax/0,
+        builder: &FlowFixtures.context_builder/0,
+        source: &FlowFixtures.context_source/0,
+        canonical: &FlowFixtures.context_canonical_map/0,
+        input: %{user_id: "user-1", trace_id: "input-trace"},
+        context: %{trace_id: "context-trace", tenant: %{id: "tenant-1"}},
+        expected: %{
+          user_id: "user-1",
+          input_trace_id: "input-trace",
+          context_trace_id: "context-trace",
+          tenant_id: "tenant-1"
+        }
       },
       %{
         label: "explicit-edge",
@@ -370,6 +426,28 @@ defmodule Jido.Integration.FlowParityTest do
           step(:audit_quote, unquote(EchoParamsAction),
             with: shape(%{event: "quoted"}),
             after: [:load_quote, loaded]
+          )
+
+        return(audit)
+      end
+    )
+  end
+
+  defp create_context_flow_module(prefix) do
+    create_flow_module(
+      prefix,
+      "context_flow",
+      "Shapes runtime context into an audit payload",
+      quote do
+        audit =
+          step(:audit_request, unquote(EchoParamsAction),
+            with:
+              shape(%{
+                user_id: input(:user_id),
+                input_trace_id: input(:trace_id),
+                context_trace_id: context(:trace_id),
+                tenant_id: select(context(:tenant), :id)
+              })
           )
 
         return(audit)

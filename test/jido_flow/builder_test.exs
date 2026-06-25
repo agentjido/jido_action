@@ -29,10 +29,15 @@ defmodule Jido.Flow.BuilderTest do
     end
 
     test "builder exposes projection and shape helpers" do
+      assert Builder.context(:trace_id) == Syntax.context(:trace_id)
+
       assert Builder.select(Builder.input(:payload), [:items, 0, :id]) ==
                Syntax.select(Syntax.input(:payload), [:items, 0, :id])
 
-      data = %{total: Builder.select(Builder.binding(:quote), :total)}
+      data = %{
+        total: Builder.select(Builder.binding(:quote), :total),
+        trace_id: Builder.context(:trace_id)
+      }
 
       assert Builder.shape(data) == Syntax.shape(data)
     end

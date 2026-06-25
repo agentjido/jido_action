@@ -118,7 +118,9 @@ defmodule Jido.Flow.ParserTest do
             with: shape(%{
               quote_id: select(loaded, [:quote, :id]),
               total: select(select(loaded, [:quote, :pricing]), :total),
-              first_item_id: select(input(:items), [0, :id])
+              first_item_id: select(input(:items), [0, :id]),
+              tenant_id: select(context(:tenant), :id),
+              trace_id: context(:trace_id)
             })
 
         return select(audit, :total)
@@ -135,7 +137,9 @@ defmodule Jido.Flow.ParserTest do
                  node: :load_quote,
                  path: [:quote, :pricing, :total]
                },
-               first_item_id: %{type: :input, path: [:items, 0, :id]}
+               first_item_id: %{type: :input, path: [:items, 0, :id]},
+               tenant_id: %{type: :context, path: [:tenant, :id]},
+               trace_id: %{type: :context, path: [:trace_id]}
              }
 
       assert Flow.to_map(flow).return == %{type: :result, node: :audit_quote, path: [:total]}
@@ -479,7 +483,7 @@ defmodule Jido.Flow.ParserTest do
          """, "unsupported flow DSL expression"},
         {:value_source,
          "step :bad, JidoTest.TestActions.EchoParamsAction, with: %{x: select(value(%{}), :id)}",
-         "select source must resolve to an input or result ref"}
+         "select source must resolve to an input, context, or result ref"}
       ]
 
       for {_kind, form, expected_message} <- cases do
@@ -489,6 +493,30 @@ defmodule Jido.Flow.ParserTest do
                  Flow.parse(source, name: "bad")
 
         assert message =~ expected_message
+      end
+    end
+
+    test "rejects unsupported context expressions" do
+      cases = [
+        {:missing_arg,
+         "step :bad, JidoTest.TestActions.EchoParamsAction, with: %{trace_id: context()}"},
+        {:extra_arg,
+         "step :bad, JidoTest.TestActions.EchoParamsAction, with: %{trace_id: context(:a, :b)}"},
+        {:computed_path,
+         "step :bad, JidoTest.TestActions.EchoParamsAction, with: %{trace_id: context(System.system_time())}"},
+        {:remote_call_path,
+         "step :bad, JidoTest.TestActions.EchoParamsAction, with: %{trace_id: context(String.length(\"x\"))}"},
+        {:keyword_path,
+         "step :bad, JidoTest.TestActions.EchoParamsAction, with: %{trace_id: context([a: :b])}"}
+      ]
+
+      for {_kind, form} <- cases do
+        source = "flow do\n#{form}\nreturn result(:bad)\nend"
+
+        assert {:error, %InvalidInputError{message: message}} =
+                 Flow.parse(source, name: "bad")
+
+        assert message =~ "unsupported flow DSL expression"
       end
     end
 

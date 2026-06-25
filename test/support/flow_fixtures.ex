@@ -199,6 +199,61 @@ defmodule JidoTest.FlowFixtures do
     """
   end
 
+  def context_syntax do
+    Syntax.new(
+      name: "context_flow",
+      description: "Shapes runtime context into an audit payload"
+    )
+    |> Syntax.step(
+      :audit_request,
+      EchoParamsAction,
+      Syntax.shape(%{
+        user_id: Syntax.input(:user_id),
+        input_trace_id: Syntax.input(:trace_id),
+        context_trace_id: Syntax.context(:trace_id),
+        tenant_id: Syntax.select(Syntax.context(:tenant), :id)
+      }),
+      bind: :audit
+    )
+    |> Syntax.return(Syntax.binding(:audit))
+  end
+
+  def context_builder do
+    Builder.new(
+      name: "context_flow",
+      description: "Shapes runtime context into an audit payload"
+    )
+    |> Builder.step(
+      :audit_request,
+      EchoParamsAction,
+      Builder.shape(%{
+        user_id: Builder.input(:user_id),
+        input_trace_id: Builder.input(:trace_id),
+        context_trace_id: Builder.context(:trace_id),
+        tenant_id: Builder.select(Builder.context(:tenant), :id)
+      }),
+      bind: :audit
+    )
+    |> Builder.return(Builder.binding(:audit))
+  end
+
+  def context_source do
+    """
+    flow do
+      audit =
+        step :audit_request, JidoTest.TestActions.EchoParamsAction,
+          with: shape(%{
+            user_id: input(:user_id),
+            input_trace_id: input(:trace_id),
+            context_trace_id: context(:trace_id),
+            tenant_id: select(context(:tenant), :id)
+          })
+
+      return audit
+    end
+    """
+  end
+
   def explicit_edge_syntax do
     Syntax.new(
       name: "explicit_edge_flow",
@@ -577,6 +632,30 @@ defmodule JidoTest.FlowFixtures do
         }
       ],
       return: %{type: :result, node: :audit_quote, path: [:total]}
+    }
+  end
+
+  def context_canonical_map do
+    %{
+      type: :flow,
+      name: "context_flow",
+      description: "Shapes runtime context into an audit payload",
+      schema: [],
+      output_schema: [],
+      nodes: [
+        %{
+          name: :audit_request,
+          action: EchoParamsAction,
+          input: %{
+            user_id: %{type: :input, path: [:user_id]},
+            input_trace_id: %{type: :input, path: [:trace_id]},
+            context_trace_id: %{type: :context, path: [:trace_id]},
+            tenant_id: %{type: :context, path: [:tenant, :id]}
+          },
+          deps: []
+        }
+      ],
+      return: %{type: :result, node: :audit_request, path: []}
     }
   end
 

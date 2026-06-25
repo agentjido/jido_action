@@ -13,7 +13,7 @@ defmodule Jido.Flow.Syntax do
               __MODULE__,
               %{
                 type:
-                  Zoi.enum([:input, :value, :result, :binding, :select, :shape],
+                  Zoi.enum([:input, :context, :value, :result, :binding, :select, :shape],
                     description: "Expression type"
                   ),
                 node: Zoi.atom(description: "Result node name") |> Zoi.optional(),
@@ -99,6 +99,12 @@ defmodule Jido.Flow.Syntax do
   """
   @spec input(term()) :: Expr.t()
   def input(path), do: %Expr{type: :input, path: normalize_path(path)}
+
+  @doc """
+  Builds a runtime context expression.
+  """
+  @spec context(term()) :: Expr.t()
+  def context(path), do: %Expr{type: :context, path: normalize_path(path)}
 
   @doc """
   Builds a literal value expression.

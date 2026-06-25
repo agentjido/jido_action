@@ -104,6 +104,10 @@ defmodule Jido.Flow.DSL do
     Syntax.input(parse_path!(path_ast, env))
   end
 
+  defp parse_expression({:context, _meta, [path_ast]}, env) do
+    Syntax.context(parse_path!(path_ast, env))
+  end
+
   defp parse_expression({:value, _meta, [value_ast]}, env) do
     Syntax.value(parse_literal!(value_ast, env))
   end

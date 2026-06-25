@@ -219,7 +219,9 @@ defmodule Jido.Flow.DSLTest do
                   shape(%{
                     quote_id: select(loaded, [:quote, :id]),
                     total: select(select(loaded, [:quote, :pricing]), :total),
-                    first_item_id: select(input(:items), [0, :id])
+                    first_item_id: select(input(:items), [0, :id]),
+                    tenant_id: select(context(:tenant), :id),
+                    trace_id: context(:trace_id)
                   })
               )
 
@@ -237,7 +239,9 @@ defmodule Jido.Flow.DSLTest do
                  node: :load_quote,
                  path: [:quote, :pricing, :total]
                },
-               first_item_id: %{type: :input, path: [:items, 0, :id]}
+               first_item_id: %{type: :input, path: [:items, 0, :id]},
+               tenant_id: %{type: :context, path: [:tenant, :id]},
+               trace_id: %{type: :context, path: [:trace_id]}
              }
 
       assert module.to_map().return == %{type: :result, node: :audit_quote, path: [:total]}
@@ -432,7 +436,7 @@ defmodule Jido.Flow.DSLTest do
          ), ~r/unsupported flow DSL expression/},
         {:value_source,
          quote(do: step(:bad, unquote(EchoParamsAction), with: %{x: select(value(%{}), :id)})),
-         ~r/select source must resolve to an input or result ref/}
+         ~r/select source must resolve to an input, context, or result ref/}
       ]
 
       for {case_name, statements, expected} <- cases do
@@ -443,6 +447,47 @@ defmodule Jido.Flow.DSLTest do
             module,
             quote do
               use Jido.Flow, name: "unsupported_projection_flow"
+
+              flow do
+                unquote(statements)
+                return(result(:bad))
+              end
+            end
+          )
+        end
+      end
+    end
+
+    test "rejects unsupported context expressions at compile time" do
+      cases = [
+        {:missing_arg,
+         quote(do: step(:bad, unquote(EchoParamsAction), with: %{trace_id: context()}))},
+        {:extra_arg,
+         quote(do: step(:bad, unquote(EchoParamsAction), with: %{trace_id: context(:a, :b)}))},
+        {:computed_path,
+         quote(
+           do:
+             step(:bad, unquote(EchoParamsAction),
+               with: %{trace_id: context(System.system_time())}
+             )
+         )},
+        {:remote_call_path,
+         quote(
+           do:
+             step(:bad, unquote(EchoParamsAction), with: %{trace_id: context(String.length("x"))})
+         )},
+        {:keyword_path,
+         quote(do: step(:bad, unquote(EchoParamsAction), with: %{trace_id: context(a: :b)}))}
+      ]
+
+      for {case_name, statements} <- cases do
+        module = unique_module("UnsupportedContext#{case_name}")
+
+        assert_raise CompileError, ~r/unsupported flow DSL expression/, fn ->
+          create_module(
+            module,
+            quote do
+              use Jido.Flow, name: "unsupported_context_flow"
 
               flow do
                 unquote(statements)

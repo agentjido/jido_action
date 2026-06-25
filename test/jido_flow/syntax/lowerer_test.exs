@@ -85,6 +85,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
         |> Syntax.step(:add_one, Add, %{
           nested: %{
             input: Syntax.input([:payload, :value]),
+            context: Syntax.context(:trace_id),
             literal: Syntax.value(%{amount: 1})
           }
         })
@@ -95,6 +96,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
 
       assert node.input.nested == %{
                input: %{type: :input, path: [:payload, :value]},
+               context: %{type: :context, path: [:trace_id]},
                literal: %{type: :value, value: %{amount: 1}}
              }
     end
@@ -163,6 +165,8 @@ defmodule Jido.Flow.Syntax.LowererTest do
                 :total
               ),
             first_item_id: Syntax.select(Syntax.input(:items), [0, :id]),
+            tenant_id: Syntax.select(Syntax.context(:tenant), :id),
+            trace_id: Syntax.context(:trace_id),
             tag: Syntax.select(Syntax.binding(:loaded), [:tags, 0])
           }),
           bind: :audit
@@ -188,6 +192,8 @@ defmodule Jido.Flow.Syntax.LowererTest do
                  path: [:quote, :pricing, :total]
                },
                first_item_id: %{type: :input, path: [:items, 0, :id]},
+               tenant_id: %{type: :context, path: [:tenant, :id]},
+               trace_id: %{type: :context, path: [:trace_id]},
                tag: %{type: :result, node: :load_quote, path: [:tags, 0]}
              }
 
@@ -234,7 +240,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
       assert {:error, %InvalidInputError{message: message, details: details}} =
                Lowerer.lower(syntax)
 
-      assert message =~ "select source must resolve to an input or result ref"
+      assert message =~ "select source must resolve to an input, context, or result ref"
       assert details.step == :echo
       assert details.type == :value
     end
@@ -254,7 +260,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
         assert {:error, %InvalidInputError{message: message, details: details}} =
                  Lowerer.lower(syntax)
 
-        assert message =~ "select source must resolve to an input or result ref"
+        assert message =~ "select source must resolve to an input, context, or result ref"
         assert details.step == :echo
         assert details.type == type
       end
@@ -804,6 +810,10 @@ defmodule Jido.Flow.Syntax.LowererTest do
          Syntax.new(name: "reserved_shape_binding")
          |> Syntax.step(:add_one, Add, %{}, bind: :shape)
          |> Syntax.return(Syntax.result(:add_one)), "reserved binding alias", :shape},
+        {:reserved_context_binding,
+         Syntax.new(name: "reserved_context_binding")
+         |> Syntax.step(:add_one, Add, %{}, bind: :context)
+         |> Syntax.return(Syntax.result(:add_one)), "reserved binding alias", :context},
         {:wildcard_binding,
          Syntax.new(name: "wildcard_binding")
          |> Syntax.step(:add_one, Add, %{}, bind: :_)

@@ -24,6 +24,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
                        :step,
                        :return,
                        :input,
+                       :context,
                        :value,
                        :result,
                        :select,
@@ -149,6 +150,10 @@ defmodule Jido.Flow.Syntax.Lowerer do
   end
 
   defp resolve_expr(%Expr{type: :input, path: path}, _state, _step), do: {:ok, Ref.input(path)}
+
+  defp resolve_expr(%Expr{type: :context, path: path}, _state, _step),
+    do: {:ok, Ref.context(path)}
+
   defp resolve_expr(%Expr{type: :value, value: value}, _state, _step), do: {:ok, Ref.value(value)}
 
   defp resolve_expr(%Expr{type: :result, node: node, path: path}, state, step) do
@@ -377,13 +382,14 @@ defmodule Jido.Flow.Syntax.Lowerer do
     end)
   end
 
-  defp validate_select_source(%Ref{type: type} = ref, _step) when type in [:input, :result] do
+  defp validate_select_source(%Ref{type: type} = ref, _step)
+       when type in [:input, :context, :result] do
     {:ok, ref}
   end
 
   defp validate_select_source(source, step) do
     {:error,
-     Error.validation_error("select source must resolve to an input or result ref", %{
+     Error.validation_error("select source must resolve to an input, context, or result ref", %{
        step: step,
        type: select_source_type(source)
      })}

@@ -168,6 +168,39 @@ defmodule Jido.FlowTest do
       assert flow.provenance == %{}
     end
 
+    test "accepts context refs in node inputs without adding normalized deps" do
+      assert {:ok, flow} =
+               Flow.new(
+                 name: "context",
+                 nodes: [
+                   [
+                     name: :audit,
+                     action: Add,
+                     input: %{
+                       value: Ref.context(:trace_id),
+                       amount: 1
+                     }
+                   ]
+                 ],
+                 return: Ref.result(:audit, :value)
+               )
+
+      assert [node] = flow.nodes
+      assert node.deps == []
+
+      assert Flow.to_map(flow).nodes == [
+               %{
+                 name: :audit,
+                 action: Add,
+                 input: %{
+                   value: %{type: :context, path: [:trace_id]},
+                   amount: %{type: :value, value: 1}
+                 },
+                 deps: []
+               }
+             ]
+    end
+
     test "rejects invalid top-level configuration shapes" do
       assert {:error, %InvalidInputError{message: "flow configuration must be a map"}} =
                Flow.new(:not_attrs)
@@ -186,6 +219,9 @@ defmodule Jido.FlowTest do
 
       assert {:error, %InvalidInputError{message: "return must be a result ref"}} =
                Flow.new(name: "bad", nodes: [add_node()], return: Ref.value(:not_a_result))
+
+      assert {:error, %InvalidInputError{message: "return must be a result ref"}} =
+               Flow.new(name: "bad", nodes: [add_node()], return: Ref.context(:trace_id))
 
       assert {:error, %InvalidInputError{message: "flow provenance must be a map"}} =
                Flow.new(

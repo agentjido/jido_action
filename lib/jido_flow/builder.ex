@@ -42,6 +42,9 @@ defmodule Jido.Flow.Builder do
   defdelegate input(path), to: Syntax
 
   @doc false
+  defdelegate context(path), to: Syntax
+
+  @doc false
   defdelegate value(value), to: Syntax
 
   @doc false
