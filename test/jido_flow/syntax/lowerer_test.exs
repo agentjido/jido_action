@@ -18,13 +18,13 @@ defmodule Jido.Flow.Syntax.LowererTest do
     test "rejects unsupported syntax operations with the operation kind" do
       syntax =
         Syntax.new(name: "bad")
-        |> Syntax.add(Syntax.operation(:parallel, branches: []))
+        |> Syntax.add(Syntax.operation(:choose, branches: []))
 
       assert {:error, %InvalidInputError{message: message, details: details}} =
                Lowerer.lower(syntax)
 
       assert message =~ "unsupported flow syntax operation"
-      assert details.kind == :parallel
+      assert details.kind == :choose
     end
 
     test "rejects malformed operation values" do
@@ -422,6 +422,201 @@ defmodule Jido.Flow.Syntax.LowererTest do
       assert [%{deps: []}] = Flow.to_map(flow).nodes
     end
 
+    test "lowers branch groups to ordinary nodes without implicit sibling or barrier deps" do
+      syntax =
+        Syntax.new(name: "branching")
+        |> Syntax.step(:load_cart, EchoParamsAction, %{cart_id: Syntax.input(:cart_id)},
+          bind: :cart
+        )
+        |> Syntax.parallel([
+          Syntax.branch(:alpha, [
+            step_operation(:price_cart, EchoParamsAction, Syntax.binding(:cart), bind: :priced),
+            step_operation(
+              :audit_price,
+              EchoParamsAction,
+              Syntax.shape(%{event: "priced"}),
+              after: Syntax.binding(:priced)
+            )
+          ]),
+          Syntax.branch(:beta, [
+            step_operation(:reserve_inventory, EchoParamsAction, Syntax.binding(:cart),
+              bind: :reserved
+            )
+          ])
+        ])
+        |> Syntax.step(
+          :finalize,
+          EchoParamsAction,
+          Syntax.shape(%{
+            priced: Syntax.binding(:priced),
+            reserved: Syntax.binding(:reserved)
+          }),
+          bind: :final
+        )
+        |> Syntax.step(:post_group_independent, EchoParamsAction, Syntax.shape(%{event: "side"}))
+        |> Syntax.return(Syntax.binding(:final))
+
+      assert {:ok, flow} = Lowerer.lower(syntax)
+
+      assert [
+               load_cart,
+               price_cart,
+               audit_price,
+               reserve_inventory,
+               finalize,
+               post_group_independent
+             ] = Flow.to_map(flow).nodes
+
+      assert load_cart.deps == []
+      assert price_cart.deps == [:load_cart]
+      assert audit_price.deps == [:price_cart]
+      assert reserve_inventory.deps == [:load_cart]
+      assert finalize.deps == [:price_cart, :reserve_inventory]
+      assert post_group_independent.deps == []
+
+      semantic_map = Flow.to_map(flow)
+      refute inspect(semantic_map) =~ "alpha"
+      refute inspect(semantic_map) =~ "beta"
+
+      provenance_map = Flow.to_map(flow, provenance: true)
+
+      assert [
+               _load_cart_provenance,
+               %{provenance: %{branch: :alpha}},
+               %{provenance: %{branch: :alpha}},
+               %{provenance: %{branch: :beta}},
+               _finalize_provenance,
+               _post_group_independent_provenance
+             ] = provenance_map.nodes
+    end
+
+    test "rejects sibling branch dependencies inside a parallel group" do
+      cases = [
+        {:sibling_binding,
+         [
+           Syntax.branch(:pricing, [
+             step_operation(:price_cart, EchoParamsAction, %{}, bind: :priced)
+           ]),
+           Syntax.branch(:inventory, [
+             step_operation(:reserve_inventory, EchoParamsAction, Syntax.binding(:priced))
+           ])
+         ], "binding reference before it is bound",
+         %{step: :reserve_inventory, binding: :priced}},
+        {:sibling_after,
+         [
+           Syntax.branch(:pricing, [
+             step_operation(:price_cart, EchoParamsAction, %{})
+           ]),
+           Syntax.branch(:inventory, [
+             step_operation(:reserve_inventory, EchoParamsAction, %{}, after: :price_cart)
+           ])
+         ], "explicit dependency before it is bound",
+         %{step: :reserve_inventory, dependency: :price_cart}},
+        {:sibling_result,
+         [
+           Syntax.branch(:pricing, [
+             step_operation(:price_cart, EchoParamsAction, %{})
+           ]),
+           Syntax.branch(:inventory, [
+             step_operation(:reserve_inventory, EchoParamsAction, %{
+               priced: Syntax.result(:price_cart)
+             })
+           ])
+         ], "result reference before it is bound",
+         %{step: :reserve_inventory, dependency: :price_cart}}
+      ]
+
+      for {_case_name, branches, expected_message, expected_details} <- cases do
+        syntax =
+          Syntax.new(name: "bad_parallel")
+          |> Syntax.parallel(branches)
+          |> Syntax.return(Syntax.result(:reserve_inventory))
+
+        assert {:error, %InvalidInputError{message: message, details: details}} =
+                 Lowerer.lower(syntax)
+
+        assert message =~ expected_message
+
+        for {key, value} <- expected_details do
+          assert Map.fetch!(details, key) == value
+        end
+      end
+    end
+
+    test "rejects duplicate branch names in one parallel group" do
+      syntax =
+        Syntax.new(name: "duplicate_branch")
+        |> Syntax.parallel([
+          Syntax.branch(:pricing, []),
+          Syntax.branch(:pricing, [])
+        ])
+        |> Syntax.return(Syntax.result(:price_cart))
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Lowerer.lower(syntax)
+
+      assert message =~ "duplicate branch name"
+      assert details.branch == :pricing
+    end
+
+    test "rejects malformed parallel branch structures" do
+      cases = [
+        {:branches_not_list, %{branches: :not_a_list}, "parallel branches must be a list",
+         %{branches: :not_a_list}},
+        {:invalid_branch_name, %{branches: [Syntax.branch("pricing", [])]},
+         "branch name must be a non-nil atom", %{branch: "pricing"}},
+        {:branch_operations_not_list,
+         %{branches: [Syntax.operation(:branch, %{name: :pricing, operations: :not_a_list})]},
+         "branch operations must be a list", %{branch: :pricing, operations: :not_a_list}},
+        {:non_branch_operation, %{branches: [Syntax.operation(:step, %{name: :price_cart})]},
+         "parallel groups may contain only branch operations", %{kind: :step}},
+        {:non_branch_value, %{branches: [:not_a_branch]},
+         "parallel groups may contain only branch operations", %{branch: :not_a_branch}},
+        {:non_step_branch_value, %{branches: [Syntax.branch(:pricing, [:not_a_step])]},
+         "parallel branches may contain only step operations",
+         %{branch: :pricing, operation: :not_a_step}}
+      ]
+
+      for {_case_name, attrs, expected_message, expected_details} <- cases do
+        syntax =
+          Syntax.new(name: "malformed_parallel")
+          |> Syntax.add(Syntax.operation(:parallel, attrs))
+          |> Syntax.return(Syntax.result(:price_cart))
+
+        assert {:error, %InvalidInputError{message: message, details: details}} =
+                 Lowerer.lower(syntax)
+
+        assert message =~ expected_message
+
+        for {key, value} <- expected_details do
+          assert Map.fetch!(details, key) == value
+        end
+      end
+    end
+
+    test "rejects non-step operations inside parallel branches" do
+      cases = [
+        {:return, Syntax.operation(:return, %{expr: Syntax.result(:price_cart)})},
+        {:parallel, Syntax.operation(:parallel, %{branches: []})}
+      ]
+
+      for {kind, operation} <- cases do
+        syntax =
+          Syntax.new(name: "bad_branch_operation")
+          |> Syntax.parallel([
+            Syntax.branch(:pricing, [operation])
+          ])
+          |> Syntax.return(Syntax.result(:price_cart))
+
+        assert {:error, %InvalidInputError{message: message, details: details}} =
+                 Lowerer.lower(syntax)
+
+        assert message =~ "parallel branches may contain only step operations"
+        assert details.branch == :pricing
+        assert details.kind == kind
+      end
+    end
+
     test "rejects invalid explicit after step targets" do
       cases = [
         {:future_step,
@@ -639,5 +834,12 @@ defmodule Jido.Flow.Syntax.LowererTest do
       assert {:error, %InvalidInputError{message: message}} = Lowerer.lower(syntax)
       assert message =~ "node name must be a non-nil atom"
     end
+  end
+
+  defp step_operation(name, action, input, opts \\ []) do
+    Syntax.new(name: "branch")
+    |> Syntax.step(name, action, input, opts)
+    |> Map.fetch!(:operations)
+    |> List.first()
   end
 end

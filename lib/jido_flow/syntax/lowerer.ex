@@ -14,6 +14,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
           bindings: %{optional(atom()) => atom()},
           all_bindings: MapSet.t(atom()),
           all_steps: MapSet.t(atom()),
+          branch: atom() | nil,
           return: Ref.t() | nil
         }
 
@@ -26,7 +27,9 @@ defmodule Jido.Flow.Syntax.Lowerer do
                        :value,
                        :result,
                        :select,
-                       :shape
+                       :shape,
+                       :parallel,
+                       :branch
                      ])
 
   @doc """
@@ -56,6 +59,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
         bindings: %{},
         all_bindings: operations |> binding_aliases() |> MapSet.new(),
         all_steps: operations |> step_names() |> MapSet.new(),
+        branch: nil,
         return: nil
       }
 
@@ -83,7 +87,10 @@ defmodule Jido.Flow.Syntax.Lowerer do
              action: Map.get(attrs, :action),
              input: input,
              deps: explicit_deps,
-             provenance: maybe_put_binding(provenance, binding)
+             provenance:
+               provenance
+               |> maybe_put_binding(binding)
+               |> maybe_put_branch(state.branch)
            ) do
       {:ok,
        %{
@@ -91,6 +98,33 @@ defmodule Jido.Flow.Syntax.Lowerer do
          | nodes: [node | state.nodes],
            seen: MapSet.put(state.seen, node.name),
            bindings: maybe_bind(state.bindings, binding, node.name)
+       }}
+    end
+  end
+
+  defp lower_operation(%Operation{kind: :parallel, attrs: attrs}, state) do
+    with {:ok, branches} <- validate_parallel_branches(Map.get(attrs, :branches, [])),
+         {:ok, branch_states} <- lower_parallel_branches(branches, state) do
+      new_nodes =
+        branch_states
+        |> Enum.flat_map(fn branch_state -> Enum.reverse(branch_state.nodes) end)
+
+      seen =
+        Enum.reduce(branch_states, state.seen, fn branch_state, acc ->
+          MapSet.union(acc, branch_state.seen)
+        end)
+
+      bindings =
+        Enum.reduce(branch_states, state.bindings, fn branch_state, acc ->
+          Map.merge(acc, branch_state.bindings)
+        end)
+
+      {:ok,
+       %{
+         state
+         | nodes: Enum.reverse(new_nodes) ++ state.nodes,
+           seen: seen,
+           bindings: bindings
        }}
     end
   end
@@ -259,6 +293,90 @@ defmodule Jido.Flow.Syntax.Lowerer do
     {:error, Error.validation_error("return must resolve to a result ref")}
   end
 
+  defp validate_parallel_branches(branches) when is_list(branches) do
+    with :ok <- validate_branch_shapes(branches),
+         :ok <- validate_duplicate_branch_names(branches) do
+      {:ok, branches}
+    end
+  end
+
+  defp validate_parallel_branches(branches) do
+    {:error, Error.validation_error("parallel branches must be a list", %{branches: branches})}
+  end
+
+  defp validate_branch_shapes(branches) do
+    Enum.reduce_while(branches, :ok, fn
+      %Operation{kind: :branch, attrs: attrs}, :ok ->
+        name = Map.get(attrs, :name)
+        operations = Map.get(attrs, :operations)
+
+        cond do
+          not valid_branch_name?(name) ->
+            {:halt, branch_name_error(name)}
+
+          not is_list(operations) ->
+            {:halt, branch_operations_error(name, operations)}
+
+          true ->
+            {:cont, :ok}
+        end
+
+      %Operation{kind: kind}, :ok ->
+        {:halt, parallel_branch_operation_error(kind)}
+
+      branch, :ok ->
+        {:halt, parallel_branch_value_error(branch)}
+    end)
+  end
+
+  defp validate_duplicate_branch_names(branches) do
+    branch_names = Enum.map(branches, fn %Operation{attrs: attrs} -> Map.fetch!(attrs, :name) end)
+
+    case Enum.find(branch_names, fn name -> Enum.count(branch_names, &(&1 == name)) > 1 end) do
+      nil ->
+        :ok
+
+      branch ->
+        {:error,
+         Error.validation_error("duplicate branch name: #{inspect(branch)}", %{branch: branch})}
+    end
+  end
+
+  defp valid_branch_name?(name), do: is_atom(name) and not is_nil(name)
+
+  defp lower_parallel_branches(branches, state) do
+    Enum.reduce_while(branches, {:ok, []}, fn branch, {:ok, acc} ->
+      %Operation{attrs: %{name: branch_name, operations: operations}} = branch
+
+      branch_state = %{
+        state
+        | nodes: [],
+          branch: branch_name
+      }
+
+      case lower_branch_operations(operations, branch_state) do
+        {:ok, branch_state} -> {:cont, {:ok, acc ++ [branch_state]}}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+  end
+
+  defp lower_branch_operations(operations, state) do
+    Enum.reduce_while(operations, {:ok, state}, fn
+      %Operation{kind: :step} = operation, {:ok, state} ->
+        case lower_operation(operation, state) do
+          {:ok, state} -> {:cont, {:ok, state}}
+          {:error, error} -> {:halt, {:error, error}}
+        end
+
+      %Operation{kind: kind}, {:ok, state} ->
+        {:halt, branch_step_operation_error(state.branch, kind)}
+
+      operation, {:ok, state} ->
+        {:halt, branch_step_value_error(state.branch, operation)}
+    end)
+  end
+
   defp validate_select_source(%Ref{type: type} = ref, _step) when type in [:input, :result] do
     {:ok, ref}
   end
@@ -316,31 +434,62 @@ defmodule Jido.Flow.Syntax.Lowerer do
 
   defp binding_aliases(operations) do
     operations
-    |> Enum.flat_map(fn
-      %Operation{kind: :step, attrs: attrs} ->
-        case Map.get(attrs, :binding) do
-          nil -> []
-          binding -> [binding]
-        end
-
-      _operation ->
-        []
+    |> step_operations()
+    |> Enum.flat_map(fn %Operation{attrs: attrs} ->
+      case Map.get(attrs, :binding) do
+        nil -> []
+        binding -> [binding]
+      end
     end)
   end
 
   defp step_names(operations) do
     operations
-    |> Enum.flat_map(fn
-      %Operation{kind: :step, attrs: attrs} ->
-        case Map.get(attrs, :name) do
-          name when is_atom(name) and not is_nil(name) -> [name]
-          _name -> []
-        end
+    |> step_operations()
+    |> Enum.flat_map(fn %Operation{attrs: attrs} ->
+      case Map.get(attrs, :name) do
+        name when is_atom(name) and not is_nil(name) -> [name]
+        _name -> []
+      end
+    end)
+  end
+
+  defp step_operations(operations) when is_list(operations) do
+    Enum.flat_map(operations, fn
+      %Operation{kind: :step} = operation ->
+        [operation]
+
+      %Operation{kind: :parallel, attrs: attrs} ->
+        attrs
+        |> Map.get(:branches, [])
+        |> branch_step_operations()
 
       _operation ->
         []
     end)
   end
+
+  defp step_operations(_operations), do: []
+
+  defp branch_step_operations(branches) when is_list(branches) do
+    Enum.flat_map(branches, fn
+      %Operation{kind: :branch, attrs: attrs} ->
+        attrs
+        |> Map.get(:operations, [])
+        |> direct_step_operations()
+
+      _branch ->
+        []
+    end)
+  end
+
+  defp branch_step_operations(_branches), do: []
+
+  defp direct_step_operations(operations) when is_list(operations) do
+    Enum.filter(operations, &match?(%Operation{kind: :step}, &1))
+  end
+
+  defp direct_step_operations(_operations), do: []
 
   defp validate_binding_alias_shapes(aliases) do
     case Enum.find(aliases, &(not is_atom(&1) or is_nil(&1))) do
@@ -434,6 +583,9 @@ defmodule Jido.Flow.Syntax.Lowerer do
   defp maybe_put_binding(provenance, nil), do: provenance
   defp maybe_put_binding(provenance, binding), do: Map.put(provenance, :binding, binding)
 
+  defp maybe_put_branch(provenance, nil), do: provenance
+  defp maybe_put_branch(provenance, branch), do: Map.put(provenance, :branch, branch)
+
   defp maybe_bind(bindings, nil, _node), do: bindings
   defp maybe_bind(bindings, binding, node), do: Map.put(bindings, binding, node)
 
@@ -512,6 +664,46 @@ defmodule Jido.Flow.Syntax.Lowerer do
      Error.validation_error("after targets must be step names or binding handles", %{
        step: step,
        target: target
+     })}
+  end
+
+  defp branch_name_error(branch) do
+    {:error, Error.validation_error("branch name must be a non-nil atom", %{branch: branch})}
+  end
+
+  defp branch_operations_error(branch, operations) do
+    {:error,
+     Error.validation_error("branch operations must be a list", %{
+       branch: branch,
+       operations: operations
+     })}
+  end
+
+  defp parallel_branch_operation_error(kind) do
+    {:error,
+     Error.validation_error("parallel groups may contain only branch operations", %{kind: kind})}
+  end
+
+  defp parallel_branch_value_error(branch) do
+    {:error,
+     Error.validation_error("parallel groups may contain only branch operations", %{
+       branch: branch
+     })}
+  end
+
+  defp branch_step_operation_error(branch, kind) do
+    {:error,
+     Error.validation_error("parallel branches may contain only step operations", %{
+       branch: branch,
+       kind: kind
+     })}
+  end
+
+  defp branch_step_value_error(branch, operation) do
+    {:error,
+     Error.validation_error("parallel branches may contain only step operations", %{
+       branch: branch,
+       operation: operation
      })}
   end
 end

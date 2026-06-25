@@ -133,6 +133,29 @@ defmodule Jido.Flow.Syntax do
   def shape(data), do: %Expr{type: :shape, data: data}
 
   @doc """
+  Builds a named branch operation for static branch grouping.
+  """
+  @spec branch(atom(), [Operation.t()], keyword()) :: Operation.t()
+  def branch(name, operations, opts \\ []) do
+    operation(
+      :branch,
+      %{name: name, operations: operations},
+      provenance: Keyword.get(opts, :provenance, %{})
+    )
+  end
+
+  @doc """
+  Appends a static parallel grouping operation.
+  """
+  @spec parallel(t(), [Operation.t()], keyword()) :: t()
+  def parallel(%__MODULE__{} = syntax, branches, opts \\ []) do
+    add(
+      syntax,
+      operation(:parallel, %{branches: branches}, provenance: Keyword.get(opts, :provenance, %{}))
+    )
+  end
+
+  @doc """
   Appends a step operation.
   """
   @spec step(t(), atom(), module(), term(), keyword()) :: t()

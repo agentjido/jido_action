@@ -84,6 +84,20 @@ defmodule Jido.Flow.CompilerTest do
       assert component_order(workflow) == [:load_quote, :audit_quote, :independent]
     end
 
+    test "compiles branch-grouped flows by actual deps without synthetic joins" do
+      assert {:ok, flow} = Jido.Flow.Builder.build(FlowFixtures.branch_group_builder())
+      assert {:ok, workflow} = Flow.compile(flow)
+
+      assert component_order(workflow) == [
+               :load_cart,
+               :price_cart,
+               :audit_price,
+               :reserve_inventory,
+               :post_group_independent,
+               :finalize
+             ]
+    end
+
     test "rejects dependency graphs that cannot be topologically ordered" do
       flow =
         Flow.new!(

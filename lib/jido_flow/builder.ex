@@ -56,6 +56,17 @@ defmodule Jido.Flow.Builder do
   @doc false
   defdelegate shape(data), to: Syntax
 
+  @doc false
+  defdelegate branch(name, operations, opts \\ []), to: Syntax
+
+  @doc """
+  Appends a static parallel grouping operation.
+  """
+  @spec parallel(t(), [Syntax.Operation.t()], keyword()) :: t()
+  def parallel(%__MODULE__{syntax: syntax} = builder, branches, opts \\ []) do
+    %{builder | syntax: Syntax.parallel(syntax, branches, opts)}
+  end
+
   @doc """
   Appends a step operation.
   """

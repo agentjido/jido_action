@@ -57,5 +57,24 @@ defmodule Jido.Flow.BuilderTest do
                }
              ] = Builder.syntax(builder).operations
     end
+
+    test "builder exposes branch grouping helpers" do
+      step = Syntax.operation(:step, %{name: :price_cart, action: JidoTest.TestActions.Add})
+      branch = Builder.branch(:pricing, [step])
+
+      builder =
+        Builder.new(name: "branching")
+        |> Builder.parallel([branch], provenance: %{line: 9})
+
+      assert branch == Syntax.branch(:pricing, [step])
+
+      assert [
+               %Syntax.Operation{
+                 kind: :parallel,
+                 attrs: %{branches: [^branch]},
+                 provenance: %{line: 9}
+               }
+             ] = Builder.syntax(builder).operations
+    end
   end
 end
