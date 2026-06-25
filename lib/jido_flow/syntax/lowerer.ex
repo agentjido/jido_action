@@ -10,7 +10,6 @@ defmodule Jido.Flow.Syntax.Lowerer do
 
   @type state :: %{
           nodes: [Node.t()],
-          bindings: %{atom() => Ref.t()},
           seen: MapSet.t(atom()),
           return: Ref.t() | nil
         }
@@ -35,7 +34,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
   end
 
   defp lower_operations(operations) do
-    initial_state = %{nodes: [], bindings: %{}, seen: MapSet.new(), return: nil}
+    initial_state = %{nodes: [], seen: MapSet.new(), return: nil}
 
     Enum.reduce_while(operations, {:ok, initial_state}, fn operation, {:ok, state} ->
       case lower_operation(operation, state) do
@@ -55,23 +54,13 @@ defmodule Jido.Flow.Syntax.Lowerer do
              action: Map.get(attrs, :action),
              input: input,
              provenance: Map.get(attrs, :provenance, %{})
-           ),
-         {:ok, bindings} <-
-           maybe_bind(Map.get(attrs, :bind), Ref.result(node.name), state.bindings) do
+           ) do
       {:ok,
        %{
          state
          | nodes: [node | state.nodes],
-           bindings: bindings,
            seen: MapSet.put(state.seen, node.name)
        }}
-    end
-  end
-
-  defp lower_operation(%Operation{kind: :bind, attrs: attrs}, state) do
-    with {:ok, ref} <- resolve_expr(Map.get(attrs, :expr), state, nil),
-         {:ok, bindings} <- bind_result(Map.get(attrs, :name), ref, state.bindings) do
-      {:ok, %{state | bindings: bindings}}
     end
   end
 
@@ -105,20 +94,6 @@ defmodule Jido.Flow.Syntax.Lowerer do
     end
   end
 
-  defp resolve_expr(%Expr{type: :var, name: name, path: path}, state, step) do
-    case Map.fetch(state.bindings, name) do
-      {:ok, %Ref{type: :result, node: node, path: base_path}} ->
-        resolve_expr(%Expr{type: :result, node: node, path: base_path ++ path}, state, step)
-
-      :error ->
-        {:error,
-         Error.validation_error("unknown flow variable binding: #{inspect(name)}", %{
-           step: step,
-           binding: name
-         })}
-    end
-  end
-
   defp resolve_expr(%Ref{type: :result, node: node, path: path}, state, step) do
     resolve_expr(%Expr{type: :result, node: node, path: path}, state, step)
   end
@@ -148,22 +123,6 @@ defmodule Jido.Flow.Syntax.Lowerer do
   end
 
   defp resolve_expr(value, _state, _step), do: {:ok, Ref.value(value)}
-
-  defp maybe_bind(nil, _ref, bindings), do: {:ok, bindings}
-  defp maybe_bind(name, ref, bindings), do: bind_result(name, ref, bindings)
-
-  defp bind_result(name, %Ref{type: :result} = ref, bindings)
-       when is_atom(name) and not is_nil(name) do
-    {:ok, Map.put(bindings, name, ref)}
-  end
-
-  defp bind_result(name, %Ref{}, _bindings) when is_atom(name) and not is_nil(name) do
-    {:error, Error.validation_error("flow variable bindings must point to result refs")}
-  end
-
-  defp bind_result(_name, _ref, _bindings) do
-    {:error, Error.validation_error("flow variable binding name must be a non-nil atom")}
-  end
 
   defp validate_return_ref(%Ref{type: :result} = ref), do: {:ok, ref}
 

@@ -15,7 +15,8 @@ defmodule Jido.Exec do
   @doc """
   Runs an executable Jido artifact.
   """
-  @spec run(term(), map(), map()) :: {:ok, term()} | {:error, Exception.t()}
+  @spec run(term(), map(), map()) ::
+          {:ok, term()} | {:ok, term(), term()} | {:error, Exception.t()}
   def run(executable, input \\ %{}, context \\ %{})
 
   def run(%Instruction{} = instruction, input, context) do

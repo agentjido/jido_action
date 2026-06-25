@@ -27,7 +27,7 @@ defmodule Jido.Flow.Node do
   Builds a Flow node from keyword or map attributes.
   """
   @spec new(map() | keyword() | t()) :: {:ok, t()} | {:error, Exception.t()}
-  def new(%__MODULE__{} = node), do: {:ok, normalize_deps(node)}
+  def new(%__MODULE__{} = node), do: node |> Map.from_struct() |> new()
   def new(attrs) when is_list(attrs), do: attrs |> Map.new() |> new()
 
   def new(%{} = attrs) do
@@ -87,10 +87,6 @@ defmodule Jido.Flow.Node do
     |> Enum.sort()
   end
 
-  defp normalize_deps(%__MODULE__{} = node) do
-    %{node | deps: node |> result_deps()}
-  end
-
   defp validate_name(name) when is_atom(name) and not is_nil(name), do: {:ok, name}
 
   defp validate_name(_name) do
@@ -104,7 +100,12 @@ defmodule Jido.Flow.Node do
   end
 
   defp validate_input(nil), do: {:ok, %{}}
-  defp validate_input(input) when is_map(input), do: {:ok, input}
+
+  defp validate_input(input) when is_map(input) and not is_struct(input) do
+    with :ok <- validate_input_expression(input, []) do
+      {:ok, input}
+    end
+  end
 
   defp validate_input(_input) do
     {:error, Error.validation_error("node input must be a map")}
@@ -128,6 +129,52 @@ defmodule Jido.Flow.Node do
   defp validate_provenance(_provenance) do
     {:error, Error.validation_error("node provenance must be a map")}
   end
+
+  defp validate_input_expression(%Ref{type: :input}, _path), do: :ok
+
+  defp validate_input_expression(%Ref{type: :result, node: node}, _path)
+       when is_atom(node) and not is_nil(node),
+       do: :ok
+
+  defp validate_input_expression(%Ref{type: :value}, _path), do: :ok
+
+  defp validate_input_expression(%Ref{type: type}, path) do
+    {:error,
+     Error.validation_error("node input contains invalid ref", %{
+       path: path,
+       type: type
+     })}
+  end
+
+  defp validate_input_expression(%{} = map, path) when not is_struct(map) do
+    Enum.reduce_while(map, :ok, fn {key, value}, :ok ->
+      case validate_input_expression(value, path ++ [key]) do
+        :ok -> {:cont, :ok}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+  end
+
+  defp validate_input_expression(list, path) when is_list(list) do
+    list
+    |> Enum.with_index()
+    |> Enum.reduce_while(:ok, fn {value, index}, :ok ->
+      case validate_input_expression(value, path ++ [index]) do
+        :ok -> {:cont, :ok}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+  end
+
+  defp validate_input_expression(%{__struct__: module}, path) do
+    {:error,
+     Error.validation_error("node input contains unsupported expression", %{
+       path: path,
+       expression: module
+     })}
+  end
+
+  defp validate_input_expression(_value, _path), do: :ok
 
   defp expression_to_map(%Ref{} = ref), do: Ref.to_map(ref)
 

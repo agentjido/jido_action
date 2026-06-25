@@ -3,7 +3,7 @@ defmodule Jido.FlowTest do
 
   alias Jido.Action.Error.InvalidInputError
   alias Jido.Flow
-  alias Jido.Flow.{Node, Ref}
+  alias Jido.Flow.{Node, Ref, Syntax}
   alias JidoTest.TestActions.{Add, MissingRun}
 
   describe "new/1" do
@@ -90,6 +90,61 @@ defmodule Jido.FlowTest do
       assert details.node == :broken
       assert details.action == MissingRun
       assert details.reason == "missing run/2"
+    end
+
+    test "rejects malformed canonical node inputs" do
+      attrs = [
+        name: "bad",
+        nodes: [
+          [
+            name: :add_one,
+            action: Add,
+            input: %{value: Syntax.input(:value), amount: Ref.value(1)}
+          ]
+        ],
+        return: Ref.result(:add_one, :value)
+      ]
+
+      assert {:error, %InvalidInputError{message: message, details: details}} = Flow.new(attrs)
+      assert message =~ "node input contains unsupported expression"
+      assert details.path == [:value]
+      assert details.expression == Syntax.Expr
+
+      node = %Node{
+        name: :add_one,
+        action: Add,
+        input: %{value: Syntax.input(:value), amount: Ref.value(1)},
+        deps: [],
+        provenance: %{}
+      }
+
+      attrs = [
+        name: "bad",
+        nodes: [node],
+        return: Ref.result(:add_one, :value)
+      ]
+
+      assert {:error, %InvalidInputError{message: message, details: details}} = Flow.new(attrs)
+      assert message =~ "node input contains unsupported expression"
+      assert details.path == [:value]
+      assert details.expression == Syntax.Expr
+
+      attrs = [
+        name: "bad",
+        nodes: [
+          [
+            name: :add_one,
+            action: Add,
+            input: %{value: %Ref{type: :unknown, node: nil, path: [], value: nil}}
+          ]
+        ],
+        return: Ref.result(:add_one, :value)
+      ]
+
+      assert {:error, %InvalidInputError{message: message, details: details}} = Flow.new(attrs)
+      assert message =~ "node input contains invalid ref"
+      assert details.path == [:value]
+      assert details.type == :unknown
     end
 
     test "keeps provenance out of the canonical semantic map unless requested" do
