@@ -30,4 +30,38 @@ defmodule Jido.FlowParityTest do
     assert {:ok, builder_flow} = Builder.build(FlowFixtures.math_builder())
     assert module.to_map() == Jido.Flow.to_map(builder_flow)
   end
+
+  test "macro, builder, and parser math flows produce equal canonical maps" do
+    module = unique_module("ParserParityMathFlow")
+
+    create_module(
+      module,
+      quote do
+        use Jido.Flow,
+          name: "math_flow",
+          description: "Adds one and doubles the result"
+
+        flow do
+          step(:add_one, unquote(Add), %{value: input(:value), amount: value(1)}, bind: :added)
+
+          step(:double, unquote(Multiply), %{value: var(:added, :value), amount: value(2)},
+            bind: :doubled
+          )
+
+          return(var(:doubled, :value))
+        end
+      end
+    )
+
+    assert {:ok, builder_flow} = Builder.build(FlowFixtures.math_builder())
+
+    assert {:ok, parser_flow} =
+             Jido.Flow.parse(FlowFixtures.math_source(),
+               name: "math_flow",
+               description: "Adds one and doubles the result"
+             )
+
+    assert module.to_map() == Jido.Flow.to_map(builder_flow)
+    assert module.to_map() == Jido.Flow.to_map(parser_flow)
+  end
 end

@@ -199,6 +199,12 @@ defmodule Jido.Flow do
     end
   end
 
+  @doc """
+  Parses trusted developer Flow source into a canonical Flow artifact.
+  """
+  @spec parse(String.t(), map() | keyword()) :: {:ok, t()} | {:error, Exception.t()}
+  def parse(source, opts \\ []), do: Jido.Flow.Parser.parse(source, opts)
+
   @doc false
   @spec compile(t()) :: {:error, Exception.t()}
   def compile(%__MODULE__{}) do
