@@ -45,6 +45,18 @@ defmodule Jido.FlowBuilderTest do
       assert details.dependency == :add_one
     end
 
+    test "missing return errors identify the return declaration" do
+      syntax =
+        Syntax.new(name: "bad")
+        |> Syntax.step(:add_one, Add, %{value: Syntax.input(:value)})
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Lowerer.lower(syntax)
+
+      assert message =~ "return ref is required"
+      assert details.operation == :return
+    end
+
     test "accepts structured maps whose leaves are supported refs or literals" do
       syntax =
         Syntax.new(name: "structured")

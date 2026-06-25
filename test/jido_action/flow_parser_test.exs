@@ -103,5 +103,20 @@ defmodule Jido.FlowParserTest do
       assert message =~ "unsupported flow DSL operation"
       assert details.line == 3
     end
+
+    test "provenance can be inspected without changing the semantic map" do
+      assert {:ok, flow} =
+               Flow.parse(FlowFixtures.math_source(),
+                 name: "math_flow",
+                 description: "Adds one and doubles the result"
+               )
+
+      semantic = Flow.to_map(flow)
+      provenance = Flow.to_map(flow, provenance: true)
+
+      assert semantic == FlowFixtures.math_canonical_map()
+      assert Map.has_key?(provenance, :provenance)
+      refute Map.has_key?(semantic, :provenance)
+    end
   end
 end

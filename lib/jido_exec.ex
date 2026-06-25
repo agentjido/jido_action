@@ -27,9 +27,10 @@ defmodule Jido.Exec do
   def run(%Flow{} = flow, input, context) do
     with {:ok, input} <- normalize_map(input, :input),
          {:ok, context} <- normalize_map(context, :context),
-         {:ok, input} <- validate_data(flow.schema, input, "Flow", flow),
+         {:ok, input} <- validate_data(flow.schema, input, "Flow", flow, :flow_input),
          {:ok, output} <- Flow.Compiler.run(flow, input, context),
-         {:ok, output} <- validate_data(flow.output_schema, output, "Flow output", flow) do
+         {:ok, output} <-
+           validate_data(flow.output_schema, output, "Flow output", flow, :flow_output) do
       {:ok, output}
     end
   end
@@ -134,18 +135,19 @@ defmodule Jido.Exec do
     {:error, Error.validation_error("#{field} must be a map or keyword list")}
   end
 
-  defp validate_data([], data, _context, _subject), do: {:ok, data}
+  defp validate_data([], data, _context, _subject, _phase), do: {:ok, data}
 
-  defp validate_data(schema, data, context, subject) do
+  defp validate_data(schema, data, context, subject, phase) do
     if zoi_schema?(schema) do
       schema
       |> parse_schema(data)
-      |> handle_validation_result(data, schema, context, subject)
+      |> handle_validation_result(data, schema, context, subject, phase)
     else
       {:error,
        Error.validation_error("Unsupported schema type", %{
          context: context,
-         subject: subject
+         subject: subject,
+         phase: phase
        })}
     end
   end
@@ -159,7 +161,14 @@ defmodule Jido.Exec do
     end
   end
 
-  defp handle_validation_result({{:ok, validated}, unknown}, _data, schema, _context, _subject) do
+  defp handle_validation_result(
+         {{:ok, validated}, unknown},
+         _data,
+         schema,
+         _context,
+         _subject,
+         _phase
+       ) do
     validated = if is_struct(validated), do: Map.from_struct(validated), else: validated
 
     if is_map(validated) and object_schema?(schema) do
@@ -169,11 +178,19 @@ defmodule Jido.Exec do
     end
   end
 
-  defp handle_validation_result({{:error, errors}, _unknown}, _data, _schema, context, subject) do
+  defp handle_validation_result(
+         {{:error, errors}, _unknown},
+         _data,
+         _schema,
+         context,
+         subject,
+         phase
+       ) do
     {:error,
      Error.validation_error(Zoi.prettify_errors(errors), %{
        context: context,
        subject: subject,
+       phase: phase,
        errors: Enum.map(errors, &format_zoi_error/1)
      })}
   end
