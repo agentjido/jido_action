@@ -16,14 +16,18 @@ defmodule JidoTest.FlowFixtures do
       %{
         value: Syntax.input(:value),
         amount: Syntax.value(1)
-      }, bind: :added)
+      },
+      bind: :added
+    )
     |> Syntax.step(
       :double,
       Multiply,
       %{
         value: Syntax.var(:added, :value),
         amount: Syntax.value(2)
-      }, bind: :doubled)
+      },
+      bind: :doubled
+    )
     |> Syntax.return(Syntax.var(:doubled, :value))
   end
 
@@ -38,15 +42,29 @@ defmodule JidoTest.FlowFixtures do
       %{
         value: Builder.input(:value),
         amount: Builder.value(1)
-      }, bind: :added)
+      },
+      bind: :added
+    )
     |> Builder.step(
       :double,
       Multiply,
       %{
         value: Builder.var(:added, :value),
         amount: Builder.value(2)
-      }, bind: :doubled)
+      },
+      bind: :doubled
+    )
     |> Builder.return(Builder.var(:doubled, :value))
+  end
+
+  def math_source do
+    """
+    flow do
+      step :add_one, JidoTest.TestActions.Add, %{value: input(:value), amount: value(1)}, bind: :added
+      step :double, JidoTest.TestActions.Multiply, %{value: var(:added, :value), amount: value(2)}, bind: :doubled
+      return var(:doubled, :value)
+    end
+    """
   end
 
   def math_canonical_map do

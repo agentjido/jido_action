@@ -26,7 +26,7 @@ defmodule Jido.Flow.DSL do
     [name_ast, action_ast, input_ast | rest] = args
     opts_ast = List.first(rest) || []
     name = parse_atom!(name_ast, "step name", meta, env)
-    action = Macro.expand(action_ast, env)
+    action = parse_action_module!(action_ast, env)
     input = parse_expression(input_ast, env)
     opts = parse_opts!(opts_ast, meta, env)
 
@@ -107,6 +107,16 @@ defmodule Jido.Flow.DSL do
 
   defp parse_atom!(ast, label, _meta, env) do
     unsupported!("unsupported flow DSL #{label}: #{Macro.to_string(ast)}", ast, env)
+  end
+
+  defp parse_action_module!(module, _env) when is_atom(module) and not is_nil(module), do: module
+
+  defp parse_action_module!({:__aliases__, _meta, parts}, _env) do
+    Module.concat(parts)
+  end
+
+  defp parse_action_module!(ast, env) do
+    unsupported!("unsupported flow DSL action module: #{Macro.to_string(ast)}", ast, env)
   end
 
   defp parse_literal!(value, _env)
