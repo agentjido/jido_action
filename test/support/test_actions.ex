@@ -134,4 +134,28 @@ defmodule JidoTest.TestActions do
 
     def run(_params, _context), do: raise("Cannot divide by zero")
   end
+
+  defmodule ContextEcho do
+    @moduledoc false
+    use Action,
+      name: "context_echo",
+      description: "Echoes runtime context",
+      schema: Zoi.object(%{value: Zoi.integer()}),
+      output_schema: Zoi.object(%{value: Zoi.integer(), trace_id: Zoi.string()})
+
+    def run(%{value: value}, %{trace_id: trace_id}) do
+      {:ok, %{value: value, trace_id: trace_id}}
+    end
+  end
+
+  defmodule InvalidOutput do
+    @moduledoc false
+    use Action,
+      name: "invalid_output",
+      description: "Returns invalid output for validation tests",
+      schema: Zoi.object(%{value: Zoi.integer()}),
+      output_schema: Zoi.object(%{value: Zoi.integer()})
+
+    def run(%{value: value}, _context), do: {:ok, %{value: Integer.to_string(value)}}
+  end
 end
