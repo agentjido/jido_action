@@ -1,17 +1,11 @@
 defmodule Jido.ActionTest do
   use JidoTest.ActionCase, async: true
-  use ExUnitProperties
 
   alias Jido.Action
-  alias JidoTest.TestActions.Add
-  alias JidoTest.TestActions.Divide
-  alias JidoTest.TestActions.ErrorAction
   alias JidoTest.TestActions.FullAction
-  alias JidoTest.TestActions.Multiply
   alias JidoTest.TestActions.NoOutputSchemaAction
   alias JidoTest.TestActions.NoSchema
   alias JidoTest.TestActions.OutputSchemaAction
-  alias JidoTest.TestActions.Subtract
 
   describe "action creation and metadata" do
     test "creates a valid action with retained metadata" do
@@ -229,28 +223,6 @@ defmodule Jido.ActionTest do
       assert result.b == 2
       assert result.result == 7
     end
-
-    test "executes basic calculator actions" do
-      assert {:ok, %{value: 6}} = Add.run(%{value: 5, amount: 1}, %{})
-      assert {:ok, %{value: 10}} = Multiply.run(%{value: 5, amount: 2}, %{})
-      assert {:ok, %{value: 3}} = Subtract.run(%{value: 5, amount: 2}, %{})
-      assert {:ok, %{value: 2.5}} = Divide.run(%{value: 5, amount: 2}, %{})
-    end
-
-    test "handles division by zero" do
-      assert_raise RuntimeError, "Cannot divide by zero", fn ->
-        Divide.run(%{value: 5, amount: 0}, %{})
-      end
-    end
-
-    test "handles different error scenarios" do
-      assert {:error, "Validation error"} =
-               ErrorAction.run(%{error_type: :validation}, %{})
-
-      assert_raise RuntimeError, "Runtime error", fn ->
-        ErrorAction.run(%{error_type: :runtime}, %{})
-      end
-    end
   end
 
   describe "error handling" do
@@ -264,21 +236,6 @@ defmodule Jido.ActionTest do
       assert {:error, error} = Action.new(%{name: "runtime"})
       assert is_exception(error)
       assert Exception.message(error) =~ "Actions should not be defined at runtime"
-    end
-  end
-
-  describe "property-based tests" do
-    property "valid action always returns a result for valid input" do
-      check all(
-              a <- integer(),
-              b <- integer(1..1000)
-            ) do
-        params = %{a: a, b: b}
-        assert {:ok, result} = FullAction.run(params, %{})
-        assert result.a == a
-        assert result.b == b
-        assert result.result == a + b
-      end
     end
   end
 

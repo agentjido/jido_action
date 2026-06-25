@@ -111,16 +111,6 @@ defmodule JidoTest.TestActions do
     def run(%{value: value, amount: amount}, _context), do: {:ok, %{value: value * amount}}
   end
 
-  defmodule Subtract do
-    @moduledoc false
-    use Action,
-      name: "subtract",
-      description: "Subtracts second value from first value",
-      schema: Zoi.object(%{value: Zoi.integer(), amount: Zoi.integer() |> Zoi.default(1)})
-
-    def run(%{value: value, amount: amount}, _context), do: {:ok, %{value: value - amount}}
-  end
-
   defmodule Divide do
     @moduledoc false
     use Action,

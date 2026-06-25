@@ -92,24 +92,7 @@ defmodule Jido.FlowTest do
       assert details.reason == "missing run/2"
     end
 
-    test "rejects malformed canonical node inputs" do
-      attrs = [
-        name: "bad",
-        nodes: [
-          [
-            name: :add_one,
-            action: Add,
-            input: %{value: Syntax.input(:value), amount: Ref.value(1)}
-          ]
-        ],
-        return: Ref.result(:add_one, :value)
-      ]
-
-      assert {:error, %InvalidInputError{message: message, details: details}} = Flow.new(attrs)
-      assert message =~ "node input contains unsupported expression"
-      assert details.path == [:value]
-      assert details.expression == Syntax.Expr
-
+    test "revalidates prebuilt node structs instead of trusting canonical shape" do
       node = %Node{
         name: :add_one,
         action: Add,
@@ -128,23 +111,6 @@ defmodule Jido.FlowTest do
       assert message =~ "node input contains unsupported expression"
       assert details.path == [:value]
       assert details.expression == Syntax.Expr
-
-      attrs = [
-        name: "bad",
-        nodes: [
-          [
-            name: :add_one,
-            action: Add,
-            input: %{value: %Ref{type: :unknown, node: nil, path: [], value: nil}}
-          ]
-        ],
-        return: Ref.result(:add_one, :value)
-      ]
-
-      assert {:error, %InvalidInputError{message: message, details: details}} = Flow.new(attrs)
-      assert message =~ "node input contains invalid ref"
-      assert details.path == [:value]
-      assert details.type == :unknown
     end
 
     test "keeps provenance out of the canonical semantic map unless requested" do

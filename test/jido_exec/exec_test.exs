@@ -46,6 +46,15 @@ defmodule Jido.ExecTest do
       refute message =~ "Runic"
     end
 
+    test "converts raised leaf action exceptions to execution errors" do
+      assert {:error, %ExecutionFailureError{message: message, details: details}} =
+               Exec.run(ErrorAction, %{error_type: :runtime}, %{})
+
+      assert message =~ "Runtime error"
+      assert details.action == ErrorAction
+      assert details.exception == RuntimeError
+    end
+
     test "converts unsupported action result shapes to execution errors" do
       assert {:error, %ExecutionFailureError{message: message, details: details}} =
                Exec.run(UnsupportedResult)
