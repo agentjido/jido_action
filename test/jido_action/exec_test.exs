@@ -60,19 +60,18 @@ defmodule Jido.ExecTest do
             description: "Adds one and doubles the result"
 
           flow do
-            step(:add_one, unquote(Add), %{value: input(:value), amount: value(1)}, bind: :added)
+            step(:add_one, unquote(Add), %{value: input(:value), amount: value(1)})
 
             step(
               :double,
               unquote(JidoTest.TestActions.Multiply),
               %{
-                value: var(:added, :value),
+                value: result(:add_one, :value),
                 amount: value(2)
-              },
-              bind: :doubled
+              }
             )
 
-            return(var(:doubled, :value))
+            return(result(:double, :value))
           end
         end
       )

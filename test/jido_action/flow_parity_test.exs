@@ -19,13 +19,14 @@ defmodule Jido.FlowParityTest do
           description: "Adds one and doubles the result"
 
         flow do
-          step(:add_one, unquote(Add), %{value: input(:value), amount: value(1)}, bind: :added)
+          step(:add_one, unquote(Add), %{value: input(:value), amount: value(1)})
 
-          step(:double, unquote(Multiply), %{value: var(:added, :value), amount: value(2)},
-            bind: :doubled
-          )
+          step(:double, unquote(Multiply), %{
+            value: result(:add_one, :value),
+            amount: value(2)
+          })
 
-          return(var(:doubled, :value))
+          return(result(:double, :value))
         end
       end
     )
@@ -45,13 +46,14 @@ defmodule Jido.FlowParityTest do
           description: "Adds one and doubles the result"
 
         flow do
-          step(:add_one, unquote(Add), %{value: input(:value), amount: value(1)}, bind: :added)
+          step(:add_one, unquote(Add), %{value: input(:value), amount: value(1)})
 
-          step(:double, unquote(Multiply), %{value: var(:added, :value), amount: value(2)},
-            bind: :doubled
-          )
+          step(:double, unquote(Multiply), %{
+            value: result(:add_one, :value),
+            amount: value(2)
+          })
 
-          return(var(:doubled, :value))
+          return(result(:double, :value))
         end
       end
     )
@@ -74,13 +76,12 @@ defmodule Jido.FlowParityTest do
       step :add_one, JidoTest.TestActions.Add, %{
         amount: value(1),
         value: input(:value)
-      }, bind: :added
+      }
 
       step :double, JidoTest.TestActions.Multiply,
-        %{amount: value(2), value: var(:added, :value)},
-        bind: :doubled
+        %{amount: value(2), value: result(:add_one, :value)}
 
-      return var(:doubled, :value)
+      return result(:double, :value)
     end
     """
 
@@ -135,13 +136,14 @@ defmodule Jido.FlowParityTest do
           description: "Adds one and doubles the result"
 
         flow do
-          step(:add_one, unquote(Add), %{value: input(:value), amount: value(1)}, bind: :added)
+          step(:add_one, unquote(Add), %{value: input(:value), amount: value(1)})
 
-          step(:double, unquote(Multiply), %{value: var(:added, :value), amount: value(2)},
-            bind: :doubled
-          )
+          step(:double, unquote(Multiply), %{
+            value: result(:add_one, :value),
+            amount: value(2)
+          })
 
-          return(var(:doubled, :value))
+          return(result(:double, :value))
         end
       end
     )
@@ -179,7 +181,7 @@ defmodule Jido.FlowParityTest do
     end
   end
 
-  test "canonical maps omit syntax-only variable bindings" do
+  test "canonical maps omit syntax-only alias names" do
     assert {:ok, flow} = Builder.build(FlowFixtures.math_builder())
     canonical = Jido.Flow.to_map(flow)
 
@@ -197,16 +199,14 @@ defmodule Jido.FlowParityTest do
           if index == 1 do
             Syntax.input(:value)
           else
-            Syntax.var(:"step_#{index - 1}", :value)
+            Syntax.result(:"add_#{index - 1}", :value)
           end
 
         acc
-        |> Syntax.step(:"add_#{index}", Add, %{value: input, amount: Syntax.value(amount)},
-          bind: :"step_#{index}"
-        )
+        |> Syntax.step(:"add_#{index}", Add, %{value: input, amount: Syntax.value(amount)})
       end)
     end)
-    |> Syntax.return(Syntax.var(:"step_#{length(amounts)}", :value))
+    |> Syntax.return(Syntax.result(:"add_#{length(amounts)}", :value))
   end
 
   defp chain_builder(amounts) do
@@ -219,15 +219,13 @@ defmodule Jido.FlowParityTest do
           if index == 1 do
             Builder.input(:value)
           else
-            Builder.var(:"step_#{index - 1}", :value)
+            Builder.result(:"add_#{index - 1}", :value)
           end
 
         acc
-        |> Builder.step(:"add_#{index}", Add, %{value: input, amount: Builder.value(amount)},
-          bind: :"step_#{index}"
-        )
+        |> Builder.step(:"add_#{index}", Add, %{value: input, amount: Builder.value(amount)})
       end)
     end)
-    |> Builder.return(Builder.var(:"step_#{length(amounts)}", :value))
+    |> Builder.return(Builder.result(:"add_#{length(amounts)}", :value))
   end
 end

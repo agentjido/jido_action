@@ -12,9 +12,8 @@ defmodule Jido.Flow.Syntax do
     @schema Zoi.struct(
               __MODULE__,
               %{
-                type: Zoi.enum([:input, :value, :result, :var], description: "Expression type"),
+                type: Zoi.enum([:input, :value, :result], description: "Expression type"),
                 node: Zoi.atom(description: "Result node name") |> Zoi.optional(),
-                name: Zoi.atom(description: "Variable binding name") |> Zoi.optional(),
                 path: Zoi.list(Zoi.any(), description: "Nested value path") |> Zoi.default([]),
                 value: Zoi.any(description: "Literal value") |> Zoi.optional()
               },
@@ -110,35 +109,18 @@ defmodule Jido.Flow.Syntax do
   end
 
   @doc """
-  Builds a variable binding expression.
-  """
-  @spec var(atom(), term()) :: Expr.t()
-  def var(name, path \\ []) when is_atom(name) and not is_nil(name) do
-    %Expr{type: :var, name: name, path: normalize_path(path)}
-  end
-
-  @doc """
   Appends a step operation.
   """
-  @spec step(t(), atom(), module(), map(), keyword()) :: t()
-  def step(%__MODULE__{} = syntax, name, action, input, opts \\ []) do
-    attrs =
-      %{
+  @spec step(t(), atom(), module(), map()) :: t()
+  def step(%__MODULE__{} = syntax, name, action, input) do
+    add(
+      syntax,
+      operation(:step, %{
         name: name,
         action: action,
         input: input
-      }
-      |> maybe_put(:bind, Keyword.get(opts, :bind))
-
-    add(syntax, operation(:step, attrs))
-  end
-
-  @doc """
-  Appends a variable binding operation.
-  """
-  @spec bind(t(), atom(), term()) :: t()
-  def bind(%__MODULE__{} = syntax, name, expr) do
-    add(syntax, operation(:bind, %{name: name, expr: expr}))
+      })
+    )
   end
 
   @doc """
@@ -152,7 +134,4 @@ defmodule Jido.Flow.Syntax do
   defp normalize_path(nil), do: []
   defp normalize_path(path) when is_list(path), do: path
   defp normalize_path(path), do: [path]
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

@@ -21,8 +21,8 @@ defmodule Jido.FlowDSLTest do
             output_schema: unquote(Macro.escape(output_schema))
 
           flow do
-            step(:add_one, unquote(Add), %{value: input(:value), amount: value(1)}, bind: :added)
-            return(var(:added, :value))
+            step(:add_one, unquote(Add), %{value: input(:value), amount: value(1)})
+            return(result(:add_one, :value))
           end
         end
       )
@@ -47,8 +47,8 @@ defmodule Jido.FlowDSLTest do
       assert module.compile() == Flow.compile(flow)
     end
 
-    test "variable bindings do not leak into the semantic canonical map" do
-      module = create_math_flow_module("BindingMathFlow")
+    test "step result refs do not add syntax-only names to the semantic canonical map" do
+      module = create_math_flow_module("ResultMathFlow")
 
       canonical = module.to_map()
       refute canonical |> inspect() |> String.contains?("added")
@@ -91,6 +91,24 @@ defmodule Jido.FlowDSLTest do
       end
     end
 
+    test "bind aliases fail at compile time for now" do
+      module = unique_module("BindAliasFlow")
+
+      assert_raise CompileError, ~r/unsupported flow DSL step options/, fn ->
+        create_module(
+          module,
+          quote do
+            use Jido.Flow, name: "bind_alias_flow"
+
+            flow do
+              step(:add_one, unquote(Add), %{value: input(:value)}, bind: :added)
+              return(result(:add_one, :value))
+            end
+          end
+        )
+      end
+    end
+
     test "generated run delegates through Jido.Exec" do
       module = create_math_flow_module("DelegatingMathFlow")
 
@@ -110,13 +128,14 @@ defmodule Jido.FlowDSLTest do
           description: "Adds one and doubles the result"
 
         flow do
-          step(:add_one, unquote(Add), %{value: input(:value), amount: value(1)}, bind: :added)
+          step(:add_one, unquote(Add), %{value: input(:value), amount: value(1)})
 
-          step(:double, unquote(Multiply), %{value: var(:added, :value), amount: value(2)},
-            bind: :doubled
-          )
+          step(:double, unquote(Multiply), %{
+            value: result(:add_one, :value),
+            amount: value(2)
+          })
 
-          return(var(:doubled, :value))
+          return(result(:double, :value))
         end
       end
     )

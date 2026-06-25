@@ -79,6 +79,15 @@ defmodule Jido.FlowBuilderTest do
   end
 
   describe "builder" do
+    test "does not expose variable binding aliases in the first foundation" do
+      refute function_exported?(Syntax, :var, 1)
+      refute function_exported?(Syntax, :var, 2)
+      refute function_exported?(Syntax, :bind, 3)
+      refute function_exported?(Builder, :var, 1)
+      refute function_exported?(Builder, :var, 2)
+      refute function_exported?(Builder, :bind, 3)
+    end
+
     test "builder-created syntax and direct syntax emit equal canonical maps" do
       assert {:ok, direct_flow} = Lowerer.lower(FlowFixtures.math_syntax())
       assert {:ok, builder_flow} = Builder.build(FlowFixtures.math_builder())

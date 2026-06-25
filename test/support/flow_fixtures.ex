@@ -16,19 +16,17 @@ defmodule JidoTest.FlowFixtures do
       %{
         value: Syntax.input(:value),
         amount: Syntax.value(1)
-      },
-      bind: :added
+      }
     )
     |> Syntax.step(
       :double,
       Multiply,
       %{
-        value: Syntax.var(:added, :value),
+        value: Syntax.result(:add_one, :value),
         amount: Syntax.value(2)
-      },
-      bind: :doubled
+      }
     )
-    |> Syntax.return(Syntax.var(:doubled, :value))
+    |> Syntax.return(Syntax.result(:double, :value))
   end
 
   def math_builder do
@@ -42,27 +40,25 @@ defmodule JidoTest.FlowFixtures do
       %{
         value: Builder.input(:value),
         amount: Builder.value(1)
-      },
-      bind: :added
+      }
     )
     |> Builder.step(
       :double,
       Multiply,
       %{
-        value: Builder.var(:added, :value),
+        value: Builder.result(:add_one, :value),
         amount: Builder.value(2)
-      },
-      bind: :doubled
+      }
     )
-    |> Builder.return(Builder.var(:doubled, :value))
+    |> Builder.return(Builder.result(:double, :value))
   end
 
   def math_source do
     """
     flow do
-      step :add_one, JidoTest.TestActions.Add, %{value: input(:value), amount: value(1)}, bind: :added
-      step :double, JidoTest.TestActions.Multiply, %{value: var(:added, :value), amount: value(2)}, bind: :doubled
-      return var(:doubled, :value)
+      step :add_one, JidoTest.TestActions.Add, %{value: input(:value), amount: value(1)}
+      step :double, JidoTest.TestActions.Multiply, %{value: result(:add_one, :value), amount: value(2)}
+      return result(:double, :value)
     end
     """
   end

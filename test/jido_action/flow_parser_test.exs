@@ -57,7 +57,7 @@ defmodule Jido.FlowParserTest do
       end
     end
 
-    test "rejects unknown variable references" do
+    test "rejects variable alias references for now" do
       source = """
       flow do
         step :add_one, JidoTest.TestActions.Add, %{value: var(:missing, :value)}
@@ -65,11 +65,9 @@ defmodule Jido.FlowParserTest do
       end
       """
 
-      assert {:error, %InvalidInputError{message: message, details: details}} =
-               Flow.parse(source, name: "bad")
+      assert {:error, %InvalidInputError{message: message}} = Flow.parse(source, name: "bad")
 
-      assert message =~ "unknown flow variable binding"
-      assert details.binding == :missing
+      assert message =~ "unsupported flow DSL expression"
     end
 
     test "parses source as data and never executes it" do

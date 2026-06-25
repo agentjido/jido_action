@@ -22,21 +22,20 @@ defmodule Jido.Flow.DSL do
   defp block_expressions({:__block__, _meta, expressions}), do: expressions
   defp block_expressions(expression), do: [expression]
 
-  defp parse_statement({:step, meta, args}, env) when length(args) in [3, 4] do
-    [name_ast, action_ast, input_ast | rest] = args
-    opts_ast = List.first(rest) || []
+  defp parse_statement({:step, meta, [name_ast, action_ast, input_ast]}, env) do
     name = parse_atom!(name_ast, "step name", meta, env)
     action = parse_action_module!(action_ast, env)
     input = parse_expression(input_ast, env)
-    opts = parse_opts!(opts_ast, meta, env)
 
     Syntax.operation(:step, %{name: name, action: action, input: input})
-    |> put_optional_attr(:bind, Keyword.get(opts, :bind))
   end
 
-  defp parse_statement({:bind, meta, [name_ast, expr_ast]}, env) do
-    name = parse_atom!(name_ast, "binding name", meta, env)
-    Syntax.operation(:bind, %{name: name, expr: parse_expression(expr_ast, env)})
+  defp parse_statement({:step, _meta, args} = statement, env) when length(args) > 3 do
+    unsupported!(
+      "unsupported flow DSL step options: #{Macro.to_string(statement)}",
+      statement,
+      env
+    )
   end
 
   defp parse_statement({:return, _meta, [expr_ast]}, env) do
@@ -63,14 +62,6 @@ defmodule Jido.Flow.DSL do
     Syntax.result(parse_atom!(node_ast, "result node", [], env), parse_path!(path_ast, env))
   end
 
-  defp parse_expression({:var, _meta, [name_ast]}, env) do
-    Syntax.var(parse_atom!(name_ast, "binding name", [], env))
-  end
-
-  defp parse_expression({:var, _meta, [name_ast, path_ast]}, env) do
-    Syntax.var(parse_atom!(name_ast, "binding name", [], env), parse_path!(path_ast, env))
-  end
-
   defp parse_expression({:%{}, _meta, pairs}, env) do
     Map.new(pairs, fn {key_ast, value_ast} ->
       {parse_literal!(key_ast, env), parse_expression(value_ast, env)}
@@ -87,12 +78,6 @@ defmodule Jido.Flow.DSL do
       expression,
       env
     )
-  end
-
-  defp parse_opts!(opts, _meta, _env) when is_list(opts), do: opts
-
-  defp parse_opts!(opts, _meta, env) do
-    unsupported!("unsupported flow DSL options: #{Macro.to_string(opts)}", opts, env)
   end
 
   defp parse_path!(path, _env) when is_atom(path) or is_binary(path) or is_integer(path), do: path
@@ -135,12 +120,6 @@ defmodule Jido.Flow.DSL do
 
   defp parse_literal!(value, env) do
     unsupported!("unsupported flow DSL expression: #{Macro.to_string(value)}", value, env)
-  end
-
-  defp put_optional_attr(%Syntax.Operation{} = operation, _key, nil), do: operation
-
-  defp put_optional_attr(%Syntax.Operation{} = operation, key, value) do
-    %{operation | attrs: Map.put(operation.attrs, key, value)}
   end
 
   defp unsupported!(message, ast, env) do

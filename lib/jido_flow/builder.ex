@@ -47,23 +47,12 @@ defmodule Jido.Flow.Builder do
   @doc false
   defdelegate result(node, path \\ []), to: Syntax
 
-  @doc false
-  defdelegate var(name, path \\ []), to: Syntax
-
   @doc """
   Appends a step operation.
   """
-  @spec step(t(), atom(), module(), map(), keyword()) :: t()
-  def step(%__MODULE__{syntax: syntax} = builder, name, action, input, opts \\ []) do
-    %{builder | syntax: Syntax.step(syntax, name, action, input, opts)}
-  end
-
-  @doc """
-  Appends a variable binding operation.
-  """
-  @spec bind(t(), atom(), term()) :: t()
-  def bind(%__MODULE__{syntax: syntax} = builder, name, expr) do
-    %{builder | syntax: Syntax.bind(syntax, name, expr)}
+  @spec step(t(), atom(), module(), map()) :: t()
+  def step(%__MODULE__{syntax: syntax} = builder, name, action, input) do
+    %{builder | syntax: Syntax.step(syntax, name, action, input)}
   end
 
   @doc """
