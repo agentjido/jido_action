@@ -72,7 +72,7 @@ defmodule Jido.Exec do
 
     with :ok <- Instruction.validate_action_contract(action),
          {:ok, params} <- action.validate_params(instruction.params),
-         {:ok, output, extras} <- call_action(action, params, instruction.context),
+         {:ok, output, extras} <- invoke_action(action, params, instruction.context),
          {:ok, output} <- validate_action_output(action, output) do
       case extras do
         :none -> {:ok, output}
@@ -81,7 +81,10 @@ defmodule Jido.Exec do
     end
   end
 
-  defp call_action(action, params, context) do
+  @doc false
+  @spec invoke_action(module(), map(), map()) ::
+          {:ok, term(), term() | :none} | {:error, Exception.t()}
+  def invoke_action(action, params, context) do
     case action.run(params, context) do
       {:ok, output} ->
         {:ok, output, :none}

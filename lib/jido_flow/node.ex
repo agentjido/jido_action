@@ -11,7 +11,7 @@ defmodule Jido.Flow.Node do
             %{
               name: Zoi.atom(description: "Flow step name"),
               action: Zoi.atom(description: "Action module"),
-              input: Zoi.map(description: "Step input expression map") |> Zoi.default(%{}),
+              input: Zoi.any(description: "Step input expression") |> Zoi.default(%{}),
               deps: Zoi.list(Zoi.atom(), description: "Step dependencies") |> Zoi.default([]),
               provenance: Zoi.map(description: "Non-semantic provenance") |> Zoi.default(%{})
             },
@@ -101,14 +101,10 @@ defmodule Jido.Flow.Node do
 
   defp validate_input(nil), do: {:ok, %{}}
 
-  defp validate_input(input) when is_map(input) and not is_struct(input) do
+  defp validate_input(input) do
     with :ok <- validate_input_expression(input, []) do
       {:ok, input}
     end
-  end
-
-  defp validate_input(_input) do
-    {:error, Error.validation_error("node input must be a map")}
   end
 
   defp validate_deps(nil), do: {:ok, []}

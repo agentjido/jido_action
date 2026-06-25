@@ -10,13 +10,24 @@ defmodule Jido.ExecTest do
 
   alias JidoTest.TestActions.{
     Add,
+    AtomErrorAction,
     ContextEcho,
     Divide,
+    EchoParamsAction,
     ErrorAction,
+    ErrorWithExtrasAction,
+    ExceptionErrorAction,
     ExtrasAction,
+    OutputEnvelopeAction,
     ThrowingAction,
+    TupleErrorAction,
     UnsupportedResult
   }
+
+  defmodule StructInput do
+    @moduledoc false
+    defstruct [:value]
+  end
 
   describe "run/3 with action modules" do
     test "executes a leaf action with input and context validation" do
@@ -32,6 +43,11 @@ defmodule Jido.ExecTest do
                Exec.run(ExtrasAction, %{value: 5}, %{trace_id: "trace"})
     end
 
+    test "validates explicit output envelopes from leaf actions" do
+      assert {:ok, %Jido.Action.Output{kind: :raw, value: %{value: 3}, meta: %{source: :test}}} =
+               Exec.run(OutputEnvelopeAction, %{value: 3}, %{})
+    end
+
     test "validates action params before calling run" do
       assert {:error, %InvalidInputError{message: message}} =
                Exec.run(Add, %{value: "bad"}, %{})
@@ -44,6 +60,30 @@ defmodule Jido.ExecTest do
                Exec.run(ErrorAction, %{error_type: :validation}, %{})
 
       refute message =~ "Runic"
+    end
+
+    test "normalizes three-element action error tuples" do
+      assert {:error, %ExecutionFailureError{message: message, details: details}} =
+               Exec.run(ErrorWithExtrasAction, %{reason: :bad_with_extras}, %{})
+
+      assert message == "bad_with_extras"
+      assert details.reason == :bad_with_extras
+    end
+
+    test "preserves exception action errors returned by leaf actions" do
+      assert {:error, %ExecutionFailureError{message: message, details: details}} =
+               Exec.run(ExceptionErrorAction, %{}, %{})
+
+      assert message == "already wrapped"
+      assert details.source == :test
+    end
+
+    test "normalizes atom and tuple action error reasons" do
+      assert {:error, %ExecutionFailureError{message: "bad_atom"}} =
+               Exec.run(AtomErrorAction, %{}, %{})
+
+      assert {:error, %ExecutionFailureError{message: "{:bad, :tuple}"}} =
+               Exec.run(TupleErrorAction, %{}, %{})
     end
 
     test "converts raised leaf action exceptions to execution errors" do
@@ -101,6 +141,11 @@ defmodule Jido.ExecTest do
     test "executes a Flow artifact" do
       assert {:ok, flow} = Builder.build(FlowFixtures.math_builder())
       assert {:ok, 8} = Exec.run(flow, %{value: 3}, %{})
+    end
+
+    test "executes a binding-first Flow artifact with whole-result input" do
+      assert {:ok, flow} = Builder.build(FlowFixtures.binding_builder())
+      assert {:ok, %{value: 8}} = Exec.run(flow, %{value: 3}, %{})
     end
 
     test "normalizes nil and keyword input or context for Flow artifacts" do
@@ -205,6 +250,20 @@ defmodule Jido.ExecTest do
       assert details.context == "Flow output"
     end
 
+    test "accepts scalar Flow output schemas when the return value matches" do
+      flow =
+        Flow.new!(
+          name: "scalar_output",
+          output_schema: Zoi.integer(),
+          nodes: [
+            Node.new!(name: :add_one, action: Add, input: %{value: Ref.input(:value)})
+          ],
+          return: Ref.result(:add_one, :value)
+        )
+
+      assert {:ok, 4} = Exec.run(flow, %{value: 3}, %{})
+    end
+
     test "validates Flow input schema before compiling execution" do
       flow =
         Flow.new!(
@@ -223,10 +282,91 @@ defmodule Jido.ExecTest do
       assert details.phase == :flow_input
       assert details.context == "Flow"
     end
+
+    test "validates scalar Flow input schemas against map input" do
+      flow =
+        Flow.new!(
+          name: "scalar_input_schema",
+          schema: Zoi.integer(),
+          nodes: [
+            Node.new!(name: :add_one, action: Add, input: %{value: Ref.input(:value)})
+          ],
+          return: Ref.result(:add_one, :value)
+        )
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Exec.run(flow, %{value: 3}, %{})
+
+      assert message =~ "expected integer"
+      assert details.phase == :flow_input
+      assert details.context == "Flow"
+    end
+
+    test "keeps unknown flow input fields after object schema validation" do
+      flow =
+        Flow.new!(
+          name: "object_schema_input",
+          schema: Zoi.object(%{value: Zoi.integer()}),
+          nodes: [
+            Node.new!(
+              name: :echo,
+              action: EchoParamsAction,
+              input: %{value: Ref.input(:value), extra: Ref.input(:extra)}
+            )
+          ],
+          return: Ref.result(:echo, :extra)
+        )
+
+      assert {:ok, "kept"} = Exec.run(flow, %{value: 3, extra: "kept"}, %{})
+    end
+
+    test "keeps unknown flow input fields after struct schema validation" do
+      flow =
+        Flow.new!(
+          name: "struct_schema_input",
+          schema: Zoi.struct(StructInput, [value: Zoi.integer()], coerce: true),
+          nodes: [
+            Node.new!(
+              name: :echo,
+              action: EchoParamsAction,
+              input: %{value: Ref.input(:value), extra: Ref.input(:extra)}
+            )
+          ],
+          return: Ref.result(:echo, :extra)
+        )
+
+      assert {:ok, "kept"} = Exec.run(flow, %{value: 3, extra: "kept"}, %{})
+    end
+
+    test "handles map schemas without explicit field lists" do
+      flow =
+        Flow.new!(
+          name: "dynamic_map_schema_input",
+          schema: Zoi.map(Zoi.string(), Zoi.integer()),
+          nodes: [
+            Node.new!(
+              name: :echo,
+              action: EchoParamsAction,
+              input: %{"value" => Ref.input("value")}
+            )
+          ],
+          return: Ref.result(:echo, "value")
+        )
+
+      assert {:ok, 3} = Exec.run(flow, %{"value" => 3}, %{})
+    end
   end
 
   test "rejects unknown executable values with a configuration error" do
     assert {:error, %ConfigurationError{message: message}} = Exec.run(:not_a_real_executable)
     assert message =~ "unknown executable"
+  end
+
+  test "rejects unsupported executable values with a configuration error" do
+    assert {:error, %ConfigurationError{message: message, details: details}} =
+             Exec.run("not executable")
+
+    assert message =~ "unknown executable"
+    assert details.executable == "not executable"
   end
 end

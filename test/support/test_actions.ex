@@ -95,6 +95,12 @@ defmodule JidoTest.TestActions do
     def validate_output(output), do: {:ok, output}
   end
 
+  defmodule MissingValidateParams do
+    @moduledoc false
+    def run(params, _context), do: {:ok, params}
+    def validate_output(output), do: {:ok, output}
+  end
+
   defmodule MissingValidateOutput do
     @moduledoc false
     def run(params, _context), do: {:ok, params}
@@ -197,5 +203,50 @@ defmodule JidoTest.TestActions do
     def validate_params(_params), do: {:error, :bad_params}
     def validate_output(output), do: {:ok, output}
     def run(params, _context), do: {:ok, params}
+  end
+
+  defmodule EchoParamsAction do
+    @moduledoc false
+    use Action, name: "echo_params_action"
+
+    def run(params, _context), do: {:ok, params}
+  end
+
+  defmodule ErrorWithExtrasAction do
+    @moduledoc false
+    use Action, name: "error_with_extras_action"
+
+    def run(%{reason: reason}, _context), do: {:error, reason, %{ignored: true}}
+    def run(_params, _context), do: {:error, :bad_with_extras, %{ignored: true}}
+  end
+
+  defmodule ExceptionErrorAction do
+    @moduledoc false
+    use Action, name: "exception_error_action"
+
+    def run(_params, _context) do
+      {:error, Jido.Action.Error.execution_error("already wrapped", %{source: :test})}
+    end
+  end
+
+  defmodule RawExceptionErrorAction do
+    @moduledoc false
+    use Action, name: "raw_exception_error_action"
+
+    def run(_params, _context), do: {:error, %RuntimeError{message: "raw exception"}}
+  end
+
+  defmodule AtomErrorAction do
+    @moduledoc false
+    use Action, name: "atom_error_action"
+
+    def run(_params, _context), do: {:error, :bad_atom}
+  end
+
+  defmodule TupleErrorAction do
+    @moduledoc false
+    use Action, name: "tuple_error_action"
+
+    def run(_params, _context), do: {:error, {:bad, :tuple}}
   end
 end

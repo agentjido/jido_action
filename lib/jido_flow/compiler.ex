@@ -5,6 +5,7 @@ defmodule Jido.Flow.Compiler do
 
   alias Jido.Action.Error
   alias Jido.Action.Output
+  alias Jido.Exec
   alias Jido.Flow
   alias Jido.Flow.Ref
   alias Runic.Workflow
@@ -106,46 +107,33 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp call_action(node, params, context) do
-    case node.action.run(params, context) do
-      {:ok, output} ->
-        {:ok, output}
+    node.action
+    |> Exec.invoke_action(params, context)
+    |> drop_action_extras()
+    |> tag_step_execution_error(node)
+  end
 
-      {:ok, output, _extras} ->
-        {:ok, output}
+  defp drop_action_extras({:ok, output, _extras}), do: {:ok, output}
+  defp drop_action_extras({:error, error}), do: {:error, error}
 
-      {:error, reason} ->
-        {:error, normalize_action_error(node, reason)}
+  defp tag_step_execution_error({:ok, output}, _node), do: {:ok, output}
 
-      {:error, reason, _extras} ->
-        {:error, normalize_action_error(node, reason)}
+  defp tag_step_execution_error({:error, error}, node) when is_exception(error) do
+    {:error, put_step_details(error, node)}
+  end
 
-      other ->
-        {:error,
-         Error.execution_error("action returned an unsupported result", %{
-           action: node.action,
-           node: node.name,
-           phase: :step_execution,
-           result: other
-         })}
-    end
-  rescue
-    exception ->
-      {:error,
-       Error.execution_error(Exception.message(exception), %{
-         action: node.action,
-         node: node.name,
-         phase: :step_execution,
-         exception: exception.__struct__
-       })}
-  catch
-    kind, reason ->
-      {:error,
-       Error.execution_error("action #{kind}", %{
-         action: node.action,
-         node: node.name,
-         phase: :step_execution,
-         reason: reason
-       })}
+  defp put_step_details(%{details: details} = error, node) when is_map(details) do
+    %{error | details: Map.merge(details, step_details(node))}
+  end
+
+  defp put_step_details(error, _node), do: error
+
+  defp step_details(node) do
+    %{
+      phase: :step_execution,
+      node: node.name,
+      action: node.action
+    }
   end
 
   defp validate_step_input(node, params) do
@@ -196,6 +184,10 @@ defmodule Jido.Flow.Compiler do
     {:ok, state.results |> Map.get(node) |> fetch_path(path)}
   end
 
+  defp resolve_expr(%Ref{type: type}, _state) do
+    {:error, Error.validation_error("unsupported flow ref type: #{inspect(type)}", %{type: type})}
+  end
+
   defp resolve_expr(%{} = map, state) do
     Enum.reduce_while(map, {:ok, %{}}, fn {key, value}, {:ok, acc} ->
       case resolve_expr(value, state) do
@@ -243,6 +235,12 @@ defmodule Jido.Flow.Compiler do
     |> fetch_path(rest)
   end
 
+  defp fetch_path(value, [key | rest]) when is_list(value) and is_integer(key) and key >= 0 do
+    value
+    |> Enum.at(key)
+    |> fetch_path(rest)
+  end
+
   defp fetch_path(_value, _path), do: nil
 
   defp fetch_key(map, key) do
@@ -256,17 +254,6 @@ defmodule Jido.Flow.Compiler do
       true ->
         nil
     end
-  end
-
-  defp normalize_action_error(_node, error) when is_exception(error), do: error
-
-  defp normalize_action_error(node, reason) do
-    Error.execution_error(to_error_message(reason), %{
-      action: node.action,
-      node: node.name,
-      phase: :step_execution,
-      reason: reason
-    })
   end
 
   defp to_error_message(message) when is_binary(message), do: message
