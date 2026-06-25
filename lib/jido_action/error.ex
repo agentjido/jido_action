@@ -46,16 +46,16 @@ defmodule Jido.Action.Error do
       # Create timeout error
       {:error, timeout} = Jido.Action.Error.timeout_error("Action timed out after 30s", timeout: 30000)
 
-      # Convert any value to a proper error
-      {:error, normalized} = Jido.Action.Error.to_error("Something went wrong")
+      # Convert any value to a stable plain-map representation
+      normalized = Jido.Action.Error.to_map("Something went wrong")
   """
   use Splode,
     # Error class modules for Splode
     error_classes: [
-      invalid: Invalid,
-      execution: Execution,
-      config: Config,
-      internal: Internal
+      invalid: __MODULE__.Invalid,
+      execution: __MODULE__.Execution,
+      config: __MODULE__.Config,
+      internal: __MODULE__.Internal
     ],
     unknown_error: __MODULE__.Internal.UnknownError
 
@@ -121,27 +121,31 @@ defmodule Jido.Action.Error do
     defmodule UnknownError do
       @moduledoc false
       # This module exists only to satisfy Splode's unknown_error requirement.
-      defexception [:message, :details]
+      use Splode.Error,
+        class: :internal,
+        fields: [message: "Unknown error", error: nil, details: %{}]
 
       @type t :: %__MODULE__{
               message: String.t(),
+              error: any() | nil,
               details: map()
             }
 
-      @impl true
-      def exception(opts) do
-        %__MODULE__{
-          message: Keyword.get(opts, :message, "Unknown error"),
-          details: Keyword.get(opts, :details, %{})
-        }
-      end
+      def message(%{error: error}) when not is_nil(error), do: unknown_message(error)
+      def message(%{message: message}), do: message
+
+      defp unknown_message(message) when is_binary(message), do: message
+      defp unknown_message(message) when is_atom(message), do: Atom.to_string(message)
+      defp unknown_message(message), do: inspect(message)
     end
   end
 
   # Define specific error structs inline
   defmodule InvalidInputError do
     @moduledoc "Error for invalid input parameters"
-    defexception [:message, :field, :value, :details]
+    use Splode.Error,
+      class: :invalid,
+      fields: [message: "Invalid input", field: nil, value: nil, details: %{}]
 
     @type t :: %__MODULE__{
             message: String.t(),
@@ -149,92 +153,55 @@ defmodule Jido.Action.Error do
             value: any() | nil,
             details: map()
           }
-
-    @impl true
-    def exception(opts) do
-      message = Keyword.get(opts, :message, "Invalid input")
-
-      %__MODULE__{
-        message: message,
-        field: Keyword.get(opts, :field),
-        value: Keyword.get(opts, :value),
-        details: Keyword.get(opts, :details, %{})
-      }
-    end
   end
 
   defmodule ExecutionFailureError do
     @moduledoc "Error for runtime execution failures"
-    defexception [:message, :details]
+    use Splode.Error,
+      class: :execution,
+      fields: [message: "Execution failed", details: %{}]
 
     @type t :: %__MODULE__{
             message: String.t(),
             details: map()
           }
-
-    @impl true
-    def exception(opts) do
-      %__MODULE__{
-        message: Keyword.get(opts, :message, "Execution failed"),
-        details: Keyword.get(opts, :details, %{})
-      }
-    end
   end
 
   defmodule TimeoutError do
     @moduledoc "Error for action timeouts"
-    defexception [:message, :timeout, :details]
+    use Splode.Error,
+      class: :execution,
+      fields: [message: "Action timed out", timeout: nil, details: %{}]
 
     @type t :: %__MODULE__{
             message: String.t(),
             timeout: non_neg_integer() | nil,
             details: map()
           }
-
-    @impl true
-    def exception(opts) do
-      %__MODULE__{
-        message: Keyword.get(opts, :message, "Action timed out"),
-        timeout: Keyword.get(opts, :timeout),
-        details: Keyword.get(opts, :details, %{})
-      }
-    end
   end
 
   defmodule ConfigurationError do
     @moduledoc "Error for configuration issues"
-    defexception [:message, :details]
+    use Splode.Error,
+      class: :config,
+      fields: [message: "Configuration error", details: %{}]
 
     @type t :: %__MODULE__{
             message: String.t(),
             details: map()
           }
-
-    @impl true
-    def exception(opts) do
-      %__MODULE__{
-        message: Keyword.get(opts, :message, "Configuration error"),
-        details: Keyword.get(opts, :details, %{})
-      }
-    end
   end
 
   defmodule InternalError do
     @moduledoc "Error for unexpected internal failures"
-    defexception [:message, :details]
+    use Splode.Error,
+      class: :internal,
+      fields: [message: "Internal error", details: %{}]
 
     @type t :: %__MODULE__{
             message: String.t(),
             details: map()
           }
-
-    @impl true
-    def exception(opts) do
-      %__MODULE__{
-        message: Keyword.get(opts, :message, "Internal error"),
-        details: Keyword.get(opts, :details, %{})
-      }
-    end
   end
 
   @doc """
@@ -242,6 +209,8 @@ defmodule Jido.Action.Error do
   """
   @spec validation_error(String.t(), map()) :: InvalidInputError.t()
   def validation_error(message, details \\ %{}) do
+    details = normalize_constructor_details(details)
+
     InvalidInputError.exception(
       message: message,
       field: details[:field],
@@ -255,6 +224,8 @@ defmodule Jido.Action.Error do
   """
   @spec execution_error(String.t(), map()) :: ExecutionFailureError.t()
   def execution_error(message, details \\ %{}) do
+    details = normalize_constructor_details(details)
+
     ExecutionFailureError.exception(
       message: message,
       details: details
@@ -266,6 +237,8 @@ defmodule Jido.Action.Error do
   """
   @spec config_error(String.t(), map()) :: ConfigurationError.t()
   def config_error(message, details \\ %{}) do
+    details = normalize_constructor_details(details)
+
     ConfigurationError.exception(
       message: message,
       details: details
@@ -277,6 +250,8 @@ defmodule Jido.Action.Error do
   """
   @spec timeout_error(String.t(), map()) :: TimeoutError.t()
   def timeout_error(message, details \\ %{}) do
+    details = normalize_constructor_details(details)
+
     TimeoutError.exception(
       message: message,
       timeout: details[:timeout],
@@ -289,6 +264,8 @@ defmodule Jido.Action.Error do
   """
   @spec internal_error(String.t(), map()) :: InternalError.t()
   def internal_error(message, details \\ %{}) do
+    details = normalize_constructor_details(details)
+
     InternalError.exception(
       message: message,
       details: details
@@ -399,10 +376,10 @@ defmodule Jido.Action.Error do
     }
   end
 
-  def to_map(%Internal.UnknownError{message: message, details: details}) do
+  def to_map(%Internal.UnknownError{message: _message, details: details} = error) do
     %{
       type: :internal_error,
-      message: normalize_message(message),
+      message: error |> Exception.message() |> normalize_message(),
       details: normalize_details(details),
       retryable?: false
     }
@@ -496,6 +473,14 @@ defmodule Jido.Action.Error do
       true -> retryable_hint(Map.get(error, :details, error), default_retryable_type?(type))
     end
   end
+
+  defp normalize_constructor_details(details) when is_map(details), do: details
+
+  defp normalize_constructor_details(details) when is_list(details) do
+    if Keyword.keyword?(details), do: Map.new(details), else: %{}
+  end
+
+  defp normalize_constructor_details(_details), do: %{}
 
   defp normalize_message(message) when is_binary(message), do: message
   defp normalize_message(message) when is_atom(message), do: Atom.to_string(message)

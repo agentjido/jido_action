@@ -11,6 +11,7 @@ defmodule Jido.Flow.CompilerTest do
     Add,
     AtomValidationAction,
     ContextEcho,
+    ErrorAction,
     InvalidOutput,
     Multiply,
     OutputEnvelopeAction,
@@ -168,6 +169,30 @@ defmodule Jido.Flow.CompilerTest do
       assert details.node == :bad
       assert details.action == UnsupportedResult
       assert details.result == :not_a_result_tuple
+    end
+
+    test "returns execution errors for action error tuples with step metadata" do
+      flow =
+        Flow.new!(
+          name: "action_error",
+          nodes: [
+            Node.new!(
+              name: :bad,
+              action: ErrorAction,
+              input: %{error_type: Ref.value(:validation)}
+            )
+          ],
+          return: Ref.result(:bad)
+        )
+
+      assert {:error, %ExecutionFailureError{message: message, details: details}} =
+               Compiler.run(flow, %{}, %{})
+
+      assert message == "Validation error"
+      assert details.phase == :step_execution
+      assert details.node == :bad
+      assert details.action == ErrorAction
+      assert details.reason == "Validation error"
     end
 
     test "returns execution errors for thrown action values" do

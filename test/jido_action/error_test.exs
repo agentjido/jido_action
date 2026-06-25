@@ -229,6 +229,46 @@ defmodule Jido.Action.ErrorTest do
     end
   end
 
+  describe "Splode compatibility" do
+    test "to_error/1 preserves concrete action errors" do
+      error = Error.execution_error("boom", step: :process)
+
+      assert %Error.ExecutionFailureError{message: "boom", details: details} =
+               Error.to_error(error)
+
+      assert details == %{step: :process}
+    end
+
+    test "to_error/1 converts raw reasons without losing the message" do
+      error = Error.to_error("external failure")
+
+      assert %UnknownError{} = error
+
+      assert Error.to_map(error) == %{
+               type: :internal_error,
+               message: "external failure",
+               details: %{},
+               retryable?: false
+             }
+    end
+
+    test "to_class/1 aggregates concrete action errors by configured precedence" do
+      error =
+        Error.to_class([
+          Error.execution_error("execution failed"),
+          Error.validation_error("invalid input")
+        ])
+
+      assert %Error.Invalid{} = error
+      assert error.class == :invalid
+
+      assert error.errors |> Enum.map(& &1.__struct__) |> Enum.sort() == [
+               Error.ExecutionFailureError,
+               Error.InvalidInputError
+             ]
+    end
+  end
+
   describe "to_map/1" do
     test "normalizes invalid input errors to a plain map" do
       error = Error.validation_error("must be positive", field: :count, value: -1)

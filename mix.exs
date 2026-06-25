@@ -27,6 +27,15 @@ defmodule JidoAction.MixProject do
       package: package(),
       docs: docs(),
       test_coverage: [
+        ignore_modules: [
+          ~r/^Inspect\.JidoTest\./,
+          ~r/^JidoTest\./,
+          ~r/^Mix\.Tasks\./,
+          Jido.Action.Error.Config,
+          Jido.Action.Error.Execution,
+          Jido.Action.Error.Internal,
+          Jido.Action.Error.Invalid
+        ],
         summary: [threshold: 0]
       ],
 
