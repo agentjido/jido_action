@@ -101,7 +101,7 @@ defmodule Jido.Flow.Compiler do
          {:ok, output} <- validate_step_output(node, output) do
       put_in(state, [:results, node.name], output)
     else
-      {:error, error} -> %{state | error: normalize_error(error)}
+      {:error, error} -> %{state | error: error}
     end
   end
 
@@ -114,10 +114,10 @@ defmodule Jido.Flow.Compiler do
         {:ok, output}
 
       {:error, reason} ->
-        {:error, reason}
+        {:error, normalize_action_error(node, reason)}
 
       {:error, reason, _extras} ->
-        {:error, reason}
+        {:error, normalize_action_error(node, reason)}
 
       other ->
         {:error,
@@ -258,13 +258,15 @@ defmodule Jido.Flow.Compiler do
     end
   end
 
-  defp normalize_error(error) when is_exception(error), do: error
+  defp normalize_action_error(_node, error) when is_exception(error), do: error
 
-  defp normalize_error(reason) do
-    Error.to_error(reason)
-  rescue
-    _exception ->
-      Error.execution_error("action execution failed", %{reason: reason})
+  defp normalize_action_error(node, reason) do
+    Error.execution_error(to_error_message(reason), %{
+      action: node.action,
+      node: node.name,
+      phase: :step_execution,
+      reason: reason
+    })
   end
 
   defp to_error_message(message) when is_binary(message), do: message
