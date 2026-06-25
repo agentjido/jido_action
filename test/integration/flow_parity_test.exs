@@ -38,6 +38,48 @@ defmodule Jido.Integration.FlowParityTest do
              ] = Jido.Flow.to_map(grouped_flow, provenance: true).nodes
     end
 
+    test "step annotations stay in provenance across authoring surfaces" do
+      scenario = Enum.find(flow_cases(), &(&1.label == "annotated"))
+
+      expected = %{
+        label: "Add one",
+        tags: ["math", "example"],
+        note: "Visible only in provenance"
+      }
+
+      for {surface, flow} <- executable_flows(scenario) do
+        assert Jido.Flow.to_map(flow) == FlowFixtures.annotated_canonical_map(),
+               "#{surface} annotations changed semantic map"
+
+        assert [%{provenance: provenance}] = Jido.Flow.to_map(flow, provenance: true).nodes
+
+        assert Map.take(provenance, [:label, :tags, :note]) == expected,
+               "#{surface} annotations changed provenance"
+      end
+    end
+
+    test "stored source resolves registered actions to the trusted canonical map" do
+      opts = [
+        name: "annotated_flow",
+        description: "Annotates a step without changing semantics"
+      ]
+
+      assert {:ok, trusted_flow} = Jido.Flow.parse(FlowFixtures.annotated_source(), opts)
+
+      assert {:ok, stored_flow} =
+               Jido.Flow.parse(
+                 FlowFixtures.stored_annotated_source(),
+                 Keyword.merge(opts,
+                   profile: :stored,
+                   actions: %{"add" => Add}
+                 )
+               )
+
+      assert Jido.Flow.to_map(stored_flow) == FlowFixtures.annotated_canonical_map()
+      assert Jido.Flow.to_map(stored_flow) == Jido.Flow.to_map(trusted_flow)
+      assert {:ok, %{value: 4}} = Jido.Exec.run(stored_flow, %{value: 3}, %{})
+    end
+
     test "context fixture keeps runtime values out of canonical maps" do
       flow = FlowFixtures.context_builder() |> build_flow!()
       canonical = Jido.Flow.to_map(flow)
@@ -229,6 +271,21 @@ defmodule Jido.Integration.FlowParityTest do
         expected: %{value: 8}
       },
       %{
+        label: "annotated",
+        module_suffix: "AnnotatedFlow",
+        module: &create_annotated_flow_module/1,
+        opts: [
+          name: "annotated_flow",
+          description: "Annotates a step without changing semantics"
+        ],
+        syntax: &FlowFixtures.annotated_syntax/0,
+        builder: &FlowFixtures.annotated_builder/0,
+        source: &FlowFixtures.annotated_source/0,
+        canonical: &FlowFixtures.annotated_canonical_map/0,
+        input: %{value: 3},
+        expected: %{value: 4}
+      },
+      %{
         label: "projection",
         module_suffix: "ProjectionFlow",
         module: &create_projection_flow_module/1,
@@ -342,6 +399,33 @@ defmodule Jido.Integration.FlowParityTest do
           return doubled
         end
         """
+      },
+      %{
+        label: "annotated",
+        source: FlowFixtures.annotated_source(),
+        opts: [
+          name: "annotated_flow",
+          description: "Annotates a step without changing semantics"
+        ],
+        formatted_source: """
+        flow do
+          added =
+            step :add_one,
+              JidoTest.TestActions.Add,
+              note: "Visible only in provenance",
+              tags: [
+                :math,
+                "example"
+              ],
+              label: "Add one",
+              with: %{
+                amount: value(1),
+                value: input(:value)
+              }
+
+          return added
+        end
+        """
       }
     ]
   end
@@ -373,6 +457,25 @@ defmodule Jido.Integration.FlowParityTest do
         added = step(:add_one, unquote(Add), with: %{value: input(:value), amount: value(1)})
         doubled = step(:double, unquote(Multiply), with: added)
         return(doubled)
+      end
+    )
+  end
+
+  defp create_annotated_flow_module(prefix) do
+    create_flow_module(
+      prefix,
+      "annotated_flow",
+      "Annotates a step without changing semantics",
+      quote do
+        added =
+          step(:add_one, unquote(Add),
+            with: %{value: input(:value), amount: value(1)},
+            label: "Add one",
+            tags: [:math, "example"],
+            note: "Visible only in provenance"
+          )
+
+        return(added)
       end
     )
   end

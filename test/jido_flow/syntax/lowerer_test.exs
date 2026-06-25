@@ -360,6 +360,85 @@ defmodule Jido.Flow.Syntax.LowererTest do
       assert double_provenance.provenance.binding == :doubled
     end
 
+    test "keeps step annotations in provenance only" do
+      annotated =
+        Syntax.new(name: "annotated_flow")
+        |> Syntax.step(:add_one, Add, %{value: Syntax.input(:value)},
+          bind: :added,
+          label: "Add one",
+          tags: [:math, "example"],
+          note: "Visible only in provenance",
+          provenance: %{line: 12}
+        )
+        |> Syntax.return(Syntax.binding(:added))
+
+      unannotated =
+        Syntax.new(name: "annotated_flow")
+        |> Syntax.step(:add_one, Add, %{value: Syntax.input(:value)})
+        |> Syntax.return(Syntax.result(:add_one))
+
+      assert {:ok, annotated_flow} = Lowerer.lower(annotated)
+      assert {:ok, unannotated_flow} = Lowerer.lower(unannotated)
+
+      assert Flow.to_map(annotated_flow) == Flow.to_map(unannotated_flow)
+
+      assert [%{provenance: provenance}] = Flow.to_map(annotated_flow, provenance: true).nodes
+      assert provenance.line == 12
+      assert provenance.binding == :added
+      assert provenance.label == "Add one"
+      assert provenance.tags == ["math", "example"]
+      assert provenance.note == "Visible only in provenance"
+    end
+
+    test "keeps step annotations alongside branch provenance" do
+      syntax =
+        Syntax.new(name: "annotated_branch")
+        |> Syntax.parallel([
+          Syntax.branch(:alpha, [
+            step_operation(:price_cart, EchoParamsAction, %{},
+              label: "Price cart",
+              tags: [:pricing]
+            )
+          ])
+        ])
+        |> Syntax.return(Syntax.result(:price_cart))
+
+      assert {:ok, flow} = Lowerer.lower(syntax)
+      assert [%{provenance: provenance}] = Flow.to_map(flow, provenance: true).nodes
+      assert provenance.branch == :alpha
+      assert provenance.label == "Price cart"
+      assert provenance.tags == ["pricing"]
+    end
+
+    test "rejects invalid step annotation values" do
+      cases = [
+        {:label, %{label: :not_a_string}, "step annotation label must be a string"},
+        {:note, %{note: [:not, :a, :string]}, "step annotation note must be a string"},
+        {:tags, %{tags: :not_a_list}, "step annotation tags must be a list"},
+        {:tags, %{tags: ["ok", 123]}, "step annotation tags must be strings or atoms"}
+      ]
+
+      for {field, provenance, expected_message} <- cases do
+        syntax =
+          Syntax.new(name: "bad_annotation")
+          |> Syntax.add(
+            Syntax.operation(
+              :step,
+              %{name: :add_one, action: Add, input: %{}},
+              provenance: provenance
+            )
+          )
+          |> Syntax.return(Syntax.result(:add_one))
+
+        assert {:error, %InvalidInputError{message: message, details: details}} =
+                 Lowerer.lower(syntax)
+
+        assert message =~ expected_message
+        assert details.step == :add_one
+        assert details.field == field
+      end
+    end
+
     test "lowers explicit after targets to canonical deps without source-order deps" do
       syntax =
         Syntax.new(name: "explicit_edges")

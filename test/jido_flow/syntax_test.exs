@@ -63,6 +63,30 @@ defmodule Jido.Flow.SyntaxTest do
                }
              ] = syntax.operations
     end
+
+    test "stores annotation options as step provenance" do
+      syntax =
+        Syntax.new(name: "annotated")
+        |> Syntax.step(:add_one, Add, %{value: Syntax.input(:value)},
+          label: "Add one",
+          tags: ["math", :example],
+          note: "Visible only in provenance",
+          provenance: %{line: 7}
+        )
+
+      assert [
+               %Syntax.Operation{
+                 kind: :step,
+                 attrs: %{name: :add_one, action: Add},
+                 provenance: %{
+                   line: 7,
+                   label: "Add one",
+                   tags: ["math", :example],
+                   note: "Visible only in provenance"
+                 }
+               }
+             ] = syntax.operations
+    end
   end
 
   describe "projection and shape expressions" do

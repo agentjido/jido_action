@@ -13,21 +13,30 @@ defmodule Jido.Flow.DSL do
   end
 
   @doc false
-  def __parse_block__(block, env) do
+  def __parse_block__(block, env, context \\ %{}) do
+    context = parser_context(context)
+
     block
     |> block_expressions()
-    |> Enum.map(&parse_statement(&1, env))
+    |> Enum.map(&parse_statement(&1, env, context))
+  end
+
+  defp parser_context(%{} = context) do
+    %{
+      profile: Map.get(context, :profile, :trusted),
+      actions: Map.get(context, :actions, %{})
+    }
   end
 
   defp block_expressions({:__block__, _meta, expressions}), do: expressions
   defp block_expressions(expression), do: [expression]
 
-  defp parse_statement({:=, meta, [binding_ast, {:step, step_meta, args}]}, env) do
+  defp parse_statement({:=, meta, [binding_ast, {:step, step_meta, args}]}, env, context) do
     binding = parse_binding_lhs!(binding_ast, meta, env)
-    parse_step(step_meta, args, env, binding)
+    parse_step(step_meta, args, env, binding, context)
   end
 
-  defp parse_statement({:=, _meta, _args} = statement, env) do
+  defp parse_statement({:=, _meta, _args} = statement, env, _context) do
     unsupported!(
       "unsupported flow DSL binding assignment: #{Macro.to_string(statement)}",
       statement,
@@ -35,16 +44,16 @@ defmodule Jido.Flow.DSL do
     )
   end
 
-  defp parse_statement({:parallel, meta, [[do: block]]}, env) do
+  defp parse_statement({:parallel, meta, [[do: block]]}, env, context) do
     branches =
       block
       |> block_expressions()
-      |> Enum.map(&parse_branch(&1, env))
+      |> Enum.map(&parse_branch(&1, env, context))
 
     Syntax.operation(:parallel, %{branches: branches}, provenance: provenance_from_meta(meta))
   end
 
-  defp parse_statement({:parallel, meta, args}, env) do
+  defp parse_statement({:parallel, meta, args}, env, _context) do
     unsupported!(
       "unsupported flow DSL parallel: #{Macro.to_string({:parallel, meta, args})}",
       {
@@ -56,47 +65,52 @@ defmodule Jido.Flow.DSL do
     )
   end
 
-  defp parse_statement({:step, meta, args}, env) do
-    parse_step(meta, args, env, nil)
+  defp parse_statement({:step, meta, args}, env, context) do
+    parse_step(meta, args, env, nil, context)
   end
 
-  defp parse_statement({:return, _meta, [expr_ast]}, env) do
+  defp parse_statement({:return, _meta, [expr_ast]}, env, _context) do
     Syntax.operation(:return, %{expr: parse_expression(expr_ast, env)})
   end
 
-  defp parse_statement(statement, env) do
+  defp parse_statement(statement, env, _context) do
     unsupported!("unsupported flow DSL operation: #{Macro.to_string(statement)}", statement, env)
   end
 
-  defp parse_branch({:branch, meta, [name_ast, [do: block]]}, env) do
+  defp parse_branch({:branch, meta, [name_ast, [do: block]]}, env, context) do
     name = parse_atom!(name_ast, "branch name", meta, env)
 
     operations =
       block
       |> block_expressions()
-      |> Enum.map(&parse_statement(&1, env))
+      |> Enum.map(&parse_statement(&1, env, context))
 
     Syntax.branch(name, operations, provenance: provenance_from_meta(meta))
   end
 
-  defp parse_branch(branch, env) do
+  defp parse_branch(branch, env, _context) do
     unsupported!("unsupported flow DSL branch: #{Macro.to_string(branch)}", branch, env)
   end
 
-  defp parse_step(meta, [name_ast, action_ast, input_ast], env, binding) do
+  defp parse_step(meta, [name_ast, action_ast, input_ast], env, binding, context) do
     name = parse_atom!(name_ast, "step name", meta, env)
-    action = parse_action_module!(action_ast, env)
-    {input, after_targets} = parse_step_input_and_after!(input_ast, env)
+    action = parse_action_module!(action_ast, meta, env, context)
+    {input, after_targets, annotations} = parse_step_input_and_after!(input_ast, env)
 
     attrs =
       %{name: name, action: action, input: input}
       |> maybe_put_binding(binding)
       |> maybe_put_after(after_targets)
 
-    Syntax.operation(:step, attrs, provenance: provenance_from_meta(meta))
+    provenance =
+      meta
+      |> provenance_from_meta()
+      |> Map.merge(annotations)
+
+    Syntax.operation(:step, attrs, provenance: provenance)
   end
 
-  defp parse_step(meta, args, env, _binding) do
+  defp parse_step(meta, args, env, _binding, _context) do
     unsupported_step_options!({:step, meta, args}, env)
   end
 
@@ -190,13 +204,36 @@ defmodule Jido.Flow.DSL do
     )
   end
 
-  defp parse_action_module!(module, _env) when is_atom(module) and not is_nil(module), do: module
+  defp parse_action_module!(identifier, step_meta, env, %{profile: :stored, actions: actions})
+       when is_binary(identifier) or (is_atom(identifier) and not is_nil(identifier)) do
+    case Map.fetch(actions, identifier) do
+      {:ok, action} ->
+        action
 
-  defp parse_action_module!({:__aliases__, _meta, parts}, _env) do
+      :error ->
+        unknown_action_identifier!(identifier, step_meta, env)
+    end
+  end
+
+  defp parse_action_module!({:__aliases__, _meta, _parts} = ast, _step_meta, env, %{
+         profile: :stored
+       }) do
+    unsupported!(
+      "stored flow action modules must use registered identifiers: #{Macro.to_string(ast)}",
+      ast,
+      env
+    )
+  end
+
+  defp parse_action_module!(module, _step_meta, _env, _context)
+       when is_atom(module) and not is_nil(module),
+       do: module
+
+  defp parse_action_module!({:__aliases__, _meta, parts}, _step_meta, _env, _context) do
     Module.concat(parts)
   end
 
-  defp parse_action_module!(ast, env) do
+  defp parse_action_module!(ast, _step_meta, env, _context) do
     unsupported!("unsupported flow DSL action module: #{Macro.to_string(ast)}", ast, env)
   end
 
@@ -222,11 +259,12 @@ defmodule Jido.Flow.DSL do
     if Keyword.keyword?(options) do
       parse_step_options!(options, env)
     else
-      {parse_expression(options, env), nil}
+      {parse_expression(options, env), nil, %{}}
     end
   end
 
-  defp parse_step_input_and_after!(input_ast, env), do: {parse_expression(input_ast, env), nil}
+  defp parse_step_input_and_after!(input_ast, env),
+    do: {parse_expression(input_ast, env), nil, %{}}
 
   defp parse_step_options!(options, env) do
     with :ok <- validate_step_options!(options, env) do
@@ -238,12 +276,14 @@ defmodule Jido.Flow.DSL do
           :error -> nil
         end
 
-      {input, after_targets}
+      annotations = parse_step_annotations!(options, env)
+
+      {input, after_targets, annotations}
     end
   end
 
   defp validate_step_options!(options, env) do
-    allowed_keys = [:with, :after]
+    allowed_keys = [:with, :after, :label, :tags, :note]
     keys = Keyword.keys(options)
     duplicate_key = duplicate_step_option_key(keys, allowed_keys)
 
@@ -260,6 +300,43 @@ defmodule Jido.Flow.DSL do
       true ->
         :ok
     end
+  end
+
+  defp parse_step_annotations!(options, env) do
+    options
+    |> Keyword.take([:label, :tags, :note])
+    |> Enum.map(fn {field, value_ast} ->
+      {field, parse_step_annotation!(field, value_ast, env)}
+    end)
+    |> Map.new()
+  end
+
+  defp parse_step_annotation!(field, value_ast, env) when field in [:label, :note] do
+    value = parse_literal!(value_ast, env)
+
+    if is_binary(value) do
+      value
+    else
+      unsupported_annotation!(field, value_ast, env)
+    end
+  end
+
+  defp parse_step_annotation!(:tags, tags_ast, env) when is_list(tags_ast) do
+    if Keyword.keyword?(tags_ast) do
+      unsupported_annotation!(:tags, tags_ast, env)
+    else
+      tags = Enum.map(tags_ast, &parse_literal!(&1, env))
+
+      if Enum.all?(tags, &(is_binary(&1) or (is_atom(&1) and not is_nil(&1)))) do
+        tags
+      else
+        unsupported_annotation!(:tags, tags_ast, env)
+      end
+    end
+  end
+
+  defp parse_step_annotation!(field, value_ast, env) do
+    unsupported_annotation!(field, value_ast, env)
   end
 
   defp duplicate_step_option_key(keys, allowed_keys) do
@@ -294,10 +371,9 @@ defmodule Jido.Flow.DSL do
   defp maybe_put_after(attrs, after_targets), do: Map.put(attrs, :after, after_targets)
 
   defp provenance_from_meta(meta) do
-    case Keyword.get(meta, :line) do
-      nil -> %{}
-      line -> %{line: line}
-    end
+    meta
+    |> Keyword.take([:line, :column])
+    |> Map.new()
   end
 
   defp unsupported_step_options!(statement, env) do
@@ -312,6 +388,22 @@ defmodule Jido.Flow.DSL do
     unsupported!(
       "unsupported flow DSL after target: #{Macro.to_string(target)}",
       target,
+      env
+    )
+  end
+
+  defp unknown_action_identifier!(identifier, meta, env) do
+    unsupported_with_meta!(
+      "unknown flow action identifier: #{inspect(identifier)}",
+      meta,
+      env
+    )
+  end
+
+  defp unsupported_annotation!(field, value, env) do
+    unsupported!(
+      "unsupported flow DSL annotation #{field}: #{Macro.to_string(value)}",
+      value,
       env
     )
   end

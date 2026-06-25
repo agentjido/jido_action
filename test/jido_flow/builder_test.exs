@@ -28,6 +28,22 @@ defmodule Jido.Flow.BuilderTest do
       assert Flow.to_map(builder_flow) == FlowFixtures.binding_canonical_map()
     end
 
+    test "builder passes annotation options to syntax provenance" do
+      assert builder = FlowFixtures.annotated_builder()
+
+      assert %Syntax.Operation{provenance: provenance} =
+               Enum.find(Builder.syntax(builder).operations, &(&1.kind == :step))
+
+      assert provenance.label == "Add one"
+      assert provenance.tags == [:math, "example"]
+      assert provenance.note == "Visible only in provenance"
+
+      assert {:ok, flow} = Builder.build(builder)
+      assert Flow.to_map(flow) == FlowFixtures.annotated_canonical_map()
+      assert [%{provenance: lowered_provenance}] = Flow.to_map(flow, provenance: true).nodes
+      assert lowered_provenance.tags == ["math", "example"]
+    end
+
     test "builder exposes projection and shape helpers" do
       assert Builder.context(:trace_id) == Syntax.context(:trace_id)
 
