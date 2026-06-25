@@ -4,8 +4,8 @@ defmodule Jido.Instruction do
 
   `Jido.Instruction` captures intent to run an action with params and context.
   It does not represent a workflow, graph, program, source artifact, or
-  execution policy. Construction validates the invocation shape; Flow runtime
-  paths can explicitly validate the action callback contract before execution.
+  execution policy. Construction validates the invocation shape; callers can
+  explicitly validate the action callback contract before execution.
 
       %Jido.Instruction{
         action: MyApp.Actions.SendEmail,
@@ -13,7 +13,7 @@ defmodule Jido.Instruction do
         context: %{tenant_id: "tenant_123"}
       }
 
-  Instructions are consumed by `Jido.Flow.Step` as action leaf call frames.
+  Instructions are plain data for one action invocation.
   """
 
   alias Jido.Action.Error

@@ -2,12 +2,12 @@
 
 ## Branch Context
 
-This branch is an exploratory spike for Jido Action v3: a heavily curated,
-trimmed down, focused rebuild of `Jido.Action`, `Jido.Instruction`, and
-`Jido.Exec` on top of Runic.
+This branch is an exploratory foundation for Jido Action v4: a heavily curated,
+trimmed down package that starts from `Jido.Action` and `Jido.Instruction`.
 
-The branch also introduces `Jido.Flow`, a Runic-backed data structure for
-capturing action composition.
+The preserved `JIDO_V4_BRIEF.md` is the design artifact for future composition
+work. The current codebase intentionally avoids carrying forward the prior
+composition/runtime implementation.
 
 ## Working Mode
 
@@ -43,9 +43,7 @@ workflow.
 ## Design Direction
 
 - Keep the rebuilt surface area slim and explicit.
-- Favor Runic-backed data flow primitives over legacy execution abstractions.
 - Treat `Jido.Instruction` as a small action call frame, not a workflow or
   execution policy container.
-- Treat `Jido.Flow` as the composition structure for action graphs and scripts.
-- Avoid preserving compatibility shims unless they are intentionally part of the
-  v3 target behavior.
+- Reintroduce composition/runtime behavior only through the v4 design, not
+  through compatibility shims from the previous spike.

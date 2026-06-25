@@ -52,7 +52,7 @@ output_schema:
   })
 ```
 
-Flow steps validate output only for successful `{:ok, result}` or `{:ok, result, extra}` returns. The third value in a three-tuple is preserved.
+Call `validate_output/1` for successful `{:ok, result}` returns when the action declares an output schema. The third value in a three-tuple is preserved by the action contract.
 
 ## Unknown Keys
 

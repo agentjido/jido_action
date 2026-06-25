@@ -57,4 +57,4 @@ Run it directly:
   MyApp.Actions.RegisterUser.run(params, %{repo: MyApp.Repo, mailer: MyApp.Mailer})
 ```
 
-When this action is used inside a flow, put retry and timeout behavior in the step's Runic scheduler policy.
+Put retry and timeout behavior in the caller or runtime layer that invokes the action.

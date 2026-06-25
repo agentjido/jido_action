@@ -52,10 +52,3 @@ Validation returns `Jido.Action.Error.InvalidInputError` on failure.
 {:ok, %{result: 3}} =
   MyApp.Actions.Add.run(params, %{})
 ```
-
-Use `Jido.Flow` and `Jido.Exec` when you need Runic runtime policy:
-
-```
-flow = Jido.Flow.new(:math) |> Jido.Flow.step(:add, MyApp.Actions.Add)
-{:ok, result} = Jido.Exec.run(flow, %{left: 1, right: 2})
-```

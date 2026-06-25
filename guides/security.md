@@ -34,13 +34,8 @@ end
 
 ## Bound Runtime
 
-Use Runic scheduler policy when production flows need timeouts and retry limits.
-
-```elixir
-flow
-|> Jido.Flow.step(:call_api, MyAction)
-|> Jido.Flow.policy(:call_api, %{timeout_ms: 2_000, max_retries: 1, backoff: :none})
-```
+Use caller-owned supervision, timeouts, or retry boundaries when production
+actions need runtime limits.
 
 Use `max_retries: 0` for non-idempotent effects unless the action is explicitly safe to retry.
 
