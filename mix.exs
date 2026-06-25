@@ -3,7 +3,7 @@ defmodule JidoAction.MixProject do
 
   @version "2.3.1"
   @source_url "https://github.com/agentjido/jido_action"
-  @description "Validated leaf actions and execution policies for Elixir applications"
+  @description "Validated leaf actions and action call frames for Elixir applications"
 
   def vsn do
     @version
@@ -67,7 +67,6 @@ defmodule JidoAction.MixProject do
         "Core Concepts": [
           "guides/actions-guide.md",
           "guides/schemas-validation.md",
-          "guides/flows-runtime.md",
           "guides/error-handling.md"
         ],
         "How-To Guides": [
@@ -90,7 +89,6 @@ defmodule JidoAction.MixProject do
         # Core Concepts
         {"guides/actions-guide.md", title: "Actions"},
         {"guides/schemas-validation.md", title: "Schemas & Validation"},
-        {"guides/flows-runtime.md", title: "Flows & Runtime"},
         {"guides/error-handling.md", title: "Error Handling"},
         # How-To Guides
         {"guides/configuration.md", title: "Configuration"},
@@ -110,18 +108,8 @@ defmodule JidoAction.MixProject do
       groups_for_modules: [
         Core: [
           Jido.Action,
-          Jido.Flow,
-          Jido.Flow.Step,
           Jido.Action.Error,
           Jido.Instruction
-        ],
-        "Flow Runtime": [
-          Jido.Exec,
-          Jido.Exec.Result
-        ],
-        Examples: [
-          Jido.Examples.FlowExample,
-          Jido.Examples.ZoiExample
         ],
         "Error Types": [
           Jido.Action.Error.Config,

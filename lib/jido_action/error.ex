@@ -459,7 +459,7 @@ defmodule Jido.Action.Error do
   Returns whether the given action-layer error should be considered retryable.
 
   This is a conservative classification helper for adapters and integrations.
-  Runtime retry decisions belong to Runic scheduler policy.
+  Runtime retry decisions belong to the caller or higher-level execution layer.
   """
   @spec retryable?(term()) :: boolean()
   def retryable?({:error, reason, _effects}), do: retryable?(reason)

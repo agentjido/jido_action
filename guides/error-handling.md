@@ -43,10 +43,8 @@ Three-tuple errors preserve the third value:
 
 ## Exceptions And Exits
 
-Direct `run/2` calls do not add supervision or crash isolation. When actions
-run inside a `Jido.Flow`, `Jido.Flow.Step` converts exceptions, throws, and
-exits into structured action errors so Runic can record the failed runnable and
-apply scheduler policy.
+Direct `run/2` calls do not add supervision or crash isolation. Callers that
+need crash normalization, retries, or timeouts should own that runtime boundary.
 
 ## Retryability
 

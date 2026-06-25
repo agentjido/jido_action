@@ -72,8 +72,7 @@ defmodule Jido.Action do
         end
       end
 
-  `Jido.Exec` is reserved for Runic-backed flow execution. Direct action calls
-  stay explicit:
+  Direct action calls stay explicit:
 
       test "weather action validates explicitly" do
         {:ok, params} = WeatherAction.validate_params(%{location: "Seattle"})
@@ -253,9 +252,6 @@ defmodule Jido.Action do
 
     quote location: :keep do
       @behaviour Jido.Action
-      @on_definition Jido.Action
-
-      Module.register_attribute(__MODULE__, :jido_allow_nested_exec, persist: false)
 
       alias Jido.Action
 
@@ -348,53 +344,6 @@ defmodule Jido.Action do
           raise CompileError, description: message, file: __ENV__.file, line: __ENV__.line
       end
     end
-  end
-
-  @doc false
-  def __on_definition__(env, :def, :run, args, _guards, body) when length(args) == 2 do
-    if Module.get_attribute(env.module, :jido_allow_nested_exec) do
-      :ok
-    else
-      body
-      |> nested_exec_calls(env)
-      |> Enum.each(&warn_nested_exec(env, &1))
-    end
-  end
-
-  def __on_definition__(_env, _kind, _name, _args, _guards, _body), do: :ok
-
-  defp nested_exec_calls(body, env) do
-    {_body, calls} =
-      Macro.prewalk(body, [], fn
-        {{:., dot_meta, [target_ast, :run]}, call_meta, call_args} = node, acc
-        when is_list(call_args) ->
-          if expands_to_exec?(target_ast, env) do
-            line = Keyword.get(call_meta, :line) || Keyword.get(dot_meta, :line) || env.line
-            {node, [%{line: line} | acc]}
-          else
-            {node, acc}
-          end
-
-        node, acc ->
-          {node, acc}
-      end)
-
-    Enum.reverse(calls)
-  end
-
-  defp expands_to_exec?(target_ast, env), do: Macro.expand(target_ast, env) == Jido.Exec
-
-  defp warn_nested_exec(env, %{line: line}) do
-    message = """
-    nested Jido action execution inside #{inspect(env.module)}.run/2
-
-    Calling Jido.Exec.run inside an action makes composition opaque.
-    Keep actions as leaf nodes and move composition to Jido.Flow/Jido.Exec.
-
-    Set @jido_allow_nested_exec true before run/2 if this action is intentionally an orchestrator.
-    """
-
-    IO.warn(message, [{env.module, :run, 2, [file: env.file, line: line]}])
   end
 
   @doc """

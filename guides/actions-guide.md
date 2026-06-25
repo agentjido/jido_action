@@ -55,7 +55,7 @@ Only declared keys are validated. Unknown keys are preserved so callers can carr
 
 ## Execution
 
-Call actions directly after validation, or compose them into a `Jido.Flow` and run the flow through `Jido.Exec`:
+Call actions directly after validation:
 
 ```elixir
 {:ok, params} = MyAction.validate_params(params)
@@ -63,4 +63,4 @@ Call actions directly after validation, or compose them into a `Jido.Flow` and r
 {:ok, result} = MyAction.validate_output(result)
 ```
 
-Runtime policy such as retry, timeout, fallback, durable execution, and async dispatch belongs to Runic scheduler policies on flows, not to direct action calls.
+Runtime policy such as retry, timeout, fallback, durable execution, and async dispatch belongs outside the action module.

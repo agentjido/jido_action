@@ -10,7 +10,7 @@ Action `schema` and `output_schema` accept Zoi schemas. Empty validation can be 
 
 ## Should I Call `run/2` Directly?
 
-Yes, for one action. Validate params and output explicitly when that boundary matters. Use `Jido.Flow` plus `Jido.Exec.run/3` when you need Runic runtime policy.
+Yes, for one action. Validate params and output explicitly when that boundary matters.
 
 ## How Do I Add Optional Params?
 
@@ -32,8 +32,8 @@ No. Unknown keys are preserved and merged back into the validated map. Only decl
 
 ## How Do Retries Work?
 
-Retries are Runic scheduler policy. Use `Jido.Flow.policy/3` for named flow components or pass runtime `:scheduler_policies` to `Jido.Exec.run/3`.
+Retries belong to the caller or higher-level package that executes actions.
 
 ## Where Should Higher-Level Orchestration Live?
 
-Use `Jido.Flow` for in-package composition of leaf actions and native Runic stateful components. Keep adapter-specific conversions, bundled domain actions, agent strategy, and signal handling in separate packages.
+Keep higher-level orchestration, adapter-specific conversions, bundled domain actions, agent strategy, and signal handling in separate packages.

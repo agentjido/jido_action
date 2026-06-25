@@ -1,6 +1,6 @@
 # Testing
 
-Test actions at two levels: direct action tests and flow runtime tests.
+Test actions directly at the action boundary.
 
 ## Direct Unit Tests
 
@@ -34,15 +34,17 @@ end
 
 Do the same for `validate_output/1` when the action declares `output_schema`.
 
-## Flow Runtime Tests
+## Instruction Tests
 
-Use `Jido.Exec` when testing Runic-backed flow composition and scheduler policy.
+Use `Jido.Instruction` tests when action calls need to be represented as data.
 
 ```elixir
-test "runs through a flow" do
-  flow = Jido.Flow.new(:math) |> Jido.Flow.step(:add, Add)
-  assert {:ok, result} = Jido.Exec.run(flow, %{left: 1, right: 2})
-  assert Jido.Exec.results(result).add == [%{result: 3}]
+test "captures an action call" do
+  assert {:ok, instruction} =
+           Jido.Instruction.new(action: Add, params: %{left: 1, right: 2})
+
+  assert instruction.action == Add
+  assert instruction.params == %{left: 1, right: 2}
 end
 ```
 
