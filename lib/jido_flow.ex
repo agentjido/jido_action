@@ -206,10 +206,8 @@ defmodule Jido.Flow do
   def parse(source, opts \\ []), do: Jido.Flow.Parser.parse(source, opts)
 
   @doc false
-  @spec compile(t()) :: {:error, Exception.t()}
-  def compile(%__MODULE__{}) do
-    {:error, Error.config_error("Jido.Flow.compile/1 is not implemented yet")}
-  end
+  @spec compile(t()) :: {:ok, Runic.Workflow.t()} | {:error, Exception.t()}
+  def compile(%__MODULE__{} = flow), do: Jido.Flow.Compiler.compile(flow)
 
   @doc false
   @spec validate(t()) :: {:ok, t()} | {:error, Exception.t()}
