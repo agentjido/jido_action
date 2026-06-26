@@ -430,7 +430,7 @@ end
 ### LuaEval
 Execute Lua code in a sandboxed VM.
 
-Requires the optional dependency `{:lua, "~> 1.0.0-rc"}`.
+Requires the optional dependency `{:lua, "~> 0.4 or ~> 1.0.0-rc"}`.
 
 ```elixir
 # Simple arithmetic
@@ -458,7 +458,7 @@ Requires the optional dependency `{:lua, "~> 1.0.0-rc"}`.
 - `return_mode` (atom, default: :list): :list returns all values, :first returns only first
 - `enable_unsafe_libs` (boolean, default: false): Disable Lua.ex capability sandboxing; Lua.ex 1.0 still has no host shell or host filesystem access.
 - `timeout_ms` (integer, default: 1000): Execution timeout in milliseconds
-- `max_call_depth` (integer, default: 0): Maximum nested Lua call depth (0 = disabled)
+- `max_call_depth` (integer, default: 0): Maximum nested Lua call depth (0 = disabled; requires Lua.ex 1.0)
 - `max_heap_bytes` (integer, default: 67108864): Per-process heap limit in bytes (0 = disabled)
 
 ### ZoiExample

@@ -198,6 +198,40 @@ defmodule Jido.Tools.LuaEvalTest do
     end
   end
 
+  describe "lua dependency compatibility" do
+    test "builds default options for lua 0.4" do
+      assert {:ok, []} = LuaEval.build_lua_options(false, 0, ~c"0.4.0")
+    end
+
+    test "preserves unsafe-lib opt-in for lua 0.4" do
+      assert {:ok, [sandboxed: []]} = LuaEval.build_lua_options(true, 0, ~c"0.4.0")
+    end
+
+    test "passes max_call_depth through for lua 1.0" do
+      assert {:ok, opts} = LuaEval.build_lua_options(false, 8, ~c"1.0.0-rc.1")
+      assert opts[:max_call_depth] == 8
+    end
+
+    test "falls back to installed capabilities when lua version is unavailable" do
+      assert {:ok, opts} = LuaEval.build_lua_options(false, 8, nil)
+      assert opts[:max_call_depth] == 8
+    end
+
+    test "falls back to installed capabilities when lua version is not semver" do
+      assert {:ok, opts} = LuaEval.build_lua_options(false, 8, "local-dev")
+      assert opts[:max_call_depth] == 8
+    end
+
+    test "rejects max_call_depth for lua 0.4 with a dependency error" do
+      assert {:error, %Error.ExecutionFailureError{} = error} =
+               LuaEval.build_lua_options(false, 8, ~c"0.4.0")
+
+      assert error.details[:type] == :dependency_error
+      assert %{type: :dependency_error, message: message} = error.details[:reason]
+      assert message =~ "requires lua ~> 1.0.0-rc"
+    end
+  end
+
   describe "tool definition" do
     test "generates valid tool definition" do
       tool = LuaEval.to_tool()

@@ -222,7 +222,7 @@ defmodule JidoAction.MixProject do
 
       # Skill & Action Dependencies for examples
       {:multigraph, "~> 0.16.1-mg.3"},
-      {:lua, "~> 1.0.0-rc", optional: true},
+      {:lua, "~> 0.4 or ~> 1.0.0-rc", optional: true},
       {:req, "~> 0.6.1", optional: true},
 
       # Development & Test Dependencies
