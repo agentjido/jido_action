@@ -6,7 +6,7 @@ defmodule Jido.Tools.LuaEval do
 
   - **Safe by default:** Uses Lua.ex sandbox defaults to disable unsafe functions
   - **Timeout protection:** Configurable timeout with task isolation
-  - **Call-depth protection:** Optional recursion guard for nested Lua calls
+  - **Call-depth protection:** Optional Lua.ex 1.0 recursion guard for nested Lua calls
   - **Global injection:** Pass Elixir values into the Lua environment
   - **Flexible returns:** Return all values or just the first one
 
@@ -24,7 +24,8 @@ defmodule Jido.Tools.LuaEval do
 
   Set `enable_unsafe_libs: true` to disable Lua.ex capability sandboxing (use with
   caution). Lua.ex 1.0 still has no host shell or host filesystem access.
-  Set `max_call_depth` to a positive integer to cap nested Lua function calls.
+  Set `max_call_depth` to a positive integer to cap nested Lua function calls
+  when using Lua.ex 1.0.
 
   ## Examples
 
@@ -56,6 +57,8 @@ defmodule Jido.Tools.LuaEval do
 
   alias Jido.Action.Error
 
+  @lua_dependency_requirement "~> 0.4 or ~> 1.0.0-rc"
+  @lua_max_call_depth_requirement "~> 1.0.0-rc"
   @deadline_key :__jido_deadline_ms__
   @default_max_heap_bytes 64 * 1024 * 1024
 
@@ -94,7 +97,7 @@ defmodule Jido.Tools.LuaEval do
       max_call_depth: [
         type: :non_neg_integer,
         default: 0,
-        doc: "Maximum nested Lua call depth (0 = disabled / infinity)."
+        doc: "Maximum nested Lua call depth (0 = disabled / infinity; requires Lua.ex 1.0)."
       ],
       max_heap_bytes: [
         type: :non_neg_integer,
@@ -143,7 +146,7 @@ defmodule Jido.Tools.LuaEval do
       end
     else
       msg =
-        "Lua library (:lua) is not available. Add {:lua, \"~> 1.0.0-rc\"} to your deps and run mix deps.get"
+        "Lua library (:lua) is not available. Add {:lua, \"#{@lua_dependency_requirement}\"} to your deps and run mix deps.get"
 
       return_error(:dependency_error, msg)
     end
@@ -256,49 +259,83 @@ defmodule Jido.Tools.LuaEval do
       })
     end
 
-    try do
-      lua =
-        enable_unsafe_libs
-        |> lua_options(max_call_depth)
-        |> Lua.new()
-        |> inject_globals(globals)
+    with {:ok, lua_options} <- build_lua_options(enable_unsafe_libs, max_call_depth) do
+      try do
+        lua =
+          lua_options
+          |> Lua.new()
+          |> inject_globals(globals)
 
-      {values, _state} = Lua.eval!(lua, code)
+        {values, _state} = Lua.eval!(lua, code)
 
-      result =
-        case return_mode do
-          :first -> %{result: List.first(values)}
-          _ -> %{results: values}
-        end
+        result =
+          case return_mode do
+            :first -> %{result: List.first(values)}
+            _ -> %{results: values}
+          end
 
-      {:ok, result}
-    rescue
-      e in Lua.CompilerException ->
-        return_error(:compile_error, Exception.message(e))
+        {:ok, result}
+      rescue
+        e in Lua.CompilerException ->
+          return_error(:compile_error, Exception.message(e))
 
-      e in Lua.RuntimeException ->
-        return_error(:lua_error, Exception.message(e))
+        e in Lua.RuntimeException ->
+          return_error(:lua_error, Exception.message(e))
 
-      e ->
-        return_error(:lua_error, Exception.message(e))
+        e ->
+          return_error(:lua_error, Exception.message(e))
+      end
     end
   end
 
-  defp lua_options(enable_unsafe_libs, max_call_depth) do
+  @doc false
+  def build_lua_options(
+        enable_unsafe_libs,
+        max_call_depth,
+        lua_version \\ Application.spec(:lua, :vsn)
+      ) do
     []
     |> maybe_disable_sandbox(enable_unsafe_libs)
-    |> maybe_put_max_call_depth(max_call_depth)
+    |> maybe_put_max_call_depth(max_call_depth, lua_version)
   end
 
   defp maybe_disable_sandbox(opts, true), do: Keyword.put(opts, :sandboxed, [])
   defp maybe_disable_sandbox(opts, _), do: opts
 
-  defp maybe_put_max_call_depth(opts, max_call_depth)
+  defp maybe_put_max_call_depth(opts, max_call_depth, lua_version)
        when is_integer(max_call_depth) and max_call_depth > 0 do
-    Keyword.put(opts, :max_call_depth, max_call_depth)
+    if lua_supports_max_call_depth?(lua_version) do
+      {:ok, Keyword.put(opts, :max_call_depth, max_call_depth)}
+    else
+      return_error(
+        :dependency_error,
+        "Lua max_call_depth requires lua #{@lua_max_call_depth_requirement}; the installed lua version does not support it"
+      )
+    end
   end
 
-  defp maybe_put_max_call_depth(opts, _), do: opts
+  defp maybe_put_max_call_depth(opts, _, _), do: {:ok, opts}
+
+  defp lua_supports_max_call_depth?(vsn) when is_list(vsn) do
+    vsn
+    |> List.to_string()
+    |> lua_supports_max_call_depth?()
+  end
+
+  defp lua_supports_max_call_depth?(vsn) when is_binary(vsn) do
+    Version.match?(vsn, @lua_max_call_depth_requirement, allow_pre: true)
+  rescue
+    _ -> lua_accepts_max_call_depth_option?()
+  end
+
+  defp lua_supports_max_call_depth?(_), do: lua_accepts_max_call_depth_option?()
+
+  defp lua_accepts_max_call_depth_option? do
+    _lua = Lua.new(max_call_depth: 1)
+    true
+  rescue
+    ArgumentError -> false
+  end
 
   defp bytes_to_heap_words(bytes) do
     bytes
