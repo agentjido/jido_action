@@ -189,6 +189,8 @@ defmodule Jido.Flow do
   @doc """
   Converts a Flow artifact to its deterministic semantic map.
 
+  Node order in the semantic map is dependency order with node-name tiebreaks;
+  authoring order is not semantic and is preserved only on the Flow struct.
   Provenance is omitted by default because it does not participate in semantic
   equality.
   """
@@ -200,7 +202,7 @@ defmodule Jido.Flow do
       description: flow.description,
       schema: flow.schema,
       output_schema: flow.output_schema,
-      nodes: Enum.map(flow.nodes, &Node.to_map(&1, opts)),
+      nodes: flow.nodes |> canonical_node_order() |> Enum.map(&Node.to_map(&1, opts)),
       return: Ref.to_map(flow.return)
     }
 
@@ -210,6 +212,51 @@ defmodule Jido.Flow do
       base
     end
   end
+
+  defp canonical_node_order(nodes) do
+    nodes_by_name = Map.new(nodes, fn node -> {node.name, node} end)
+    remaining = Map.new(nodes, fn node -> {node.name, MapSet.new(node.deps)} end)
+
+    nodes_by_name
+    |> do_canonical_node_order(remaining, [])
+    |> Enum.reverse()
+  end
+
+  defp do_canonical_node_order(_nodes_by_name, remaining, ordered)
+       when map_size(remaining) == 0 do
+    ordered
+  end
+
+  defp do_canonical_node_order(nodes_by_name, remaining, ordered) do
+    ready =
+      remaining
+      |> Enum.filter(fn {_name, deps} -> MapSet.size(deps) == 0 end)
+      |> Enum.map(fn {name, _deps} -> name end)
+      |> Enum.sort_by(&node_name_sort_key/1)
+
+    if ready == [] do
+      remaining_nodes =
+        remaining
+        |> Map.keys()
+        |> Enum.sort_by(&node_name_sort_key/1)
+        |> Enum.map(&Map.fetch!(nodes_by_name, &1))
+
+      Enum.reverse(remaining_nodes) ++ ordered
+    else
+      ready_set = MapSet.new(ready)
+
+      remaining =
+        remaining
+        |> Map.drop(ready)
+        |> Map.new(fn {name, deps} -> {name, MapSet.difference(deps, ready_set)} end)
+
+      ready_nodes = Enum.map(ready, &Map.fetch!(nodes_by_name, &1))
+
+      do_canonical_node_order(nodes_by_name, remaining, Enum.reverse(ready_nodes) ++ ordered)
+    end
+  end
+
+  defp node_name_sort_key(name), do: to_string(name)
 
   @doc """
   Parses trusted developer Flow source into a canonical Flow artifact.

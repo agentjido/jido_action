@@ -887,15 +887,15 @@ defmodule JidoTest.FlowFixtures do
       output_schema: [],
       nodes: [
         %{
-          name: :load_quote,
-          action: EchoParamsAction,
-          input: %{id: %{type: :input, path: [:quote_id]}},
-          deps: []
-        },
-        %{
           name: :independent,
           action: EchoParamsAction,
           input: %{event: %{type: :value, value: "side"}},
+          deps: []
+        },
+        %{
+          name: :load_quote,
+          action: EchoParamsAction,
+          input: %{id: %{type: :input, path: [:quote_id]}},
           deps: []
         },
         %{
@@ -977,6 +977,12 @@ defmodule JidoTest.FlowFixtures do
           deps: []
         },
         %{
+          name: :post_group_independent,
+          action: EchoParamsAction,
+          input: %{event: %{type: :value, value: "side"}},
+          deps: []
+        },
+        %{
           name: :price_cart,
           action: EchoParamsAction,
           input: %{
@@ -984,12 +990,6 @@ defmodule JidoTest.FlowFixtures do
             total: %{type: :input, path: [:total]}
           },
           deps: [:load_cart]
-        },
-        %{
-          name: :audit_price,
-          action: EchoParamsAction,
-          input: %{event: %{type: :value, value: "priced"}},
-          deps: [:price_cart]
         },
         %{
           name: :reserve_inventory,
@@ -1001,10 +1001,10 @@ defmodule JidoTest.FlowFixtures do
           deps: [:load_cart]
         },
         %{
-          name: :post_group_independent,
+          name: :audit_price,
           action: EchoParamsAction,
-          input: %{event: %{type: :value, value: "side"}},
-          deps: []
+          input: %{event: %{type: :value, value: "priced"}},
+          deps: [:price_cart]
         },
         %{
           name: :finalize,

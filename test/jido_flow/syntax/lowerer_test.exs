@@ -558,21 +558,14 @@ defmodule Jido.Flow.Syntax.LowererTest do
 
       assert {:ok, flow} = Lowerer.lower(syntax)
 
-      assert [
-               load_cart,
-               price_cart,
-               audit_price,
-               reserve_inventory,
-               finalize,
-               post_group_independent
-             ] = Flow.to_map(flow).nodes
+      nodes_by_name = Map.new(Flow.to_map(flow).nodes, fn node -> {node.name, node} end)
 
-      assert load_cart.deps == []
-      assert price_cart.deps == [:load_cart]
-      assert audit_price.deps == [:price_cart]
-      assert reserve_inventory.deps == [:load_cart]
-      assert finalize.deps == [:price_cart, :reserve_inventory]
-      assert post_group_independent.deps == []
+      assert nodes_by_name.load_cart.deps == []
+      assert nodes_by_name.price_cart.deps == [:load_cart]
+      assert nodes_by_name.audit_price.deps == [:price_cart]
+      assert nodes_by_name.reserve_inventory.deps == [:load_cart]
+      assert nodes_by_name.finalize.deps == [:price_cart, :reserve_inventory]
+      assert nodes_by_name.post_group_independent.deps == []
 
       semantic_map = Flow.to_map(flow)
       refute inspect(semantic_map) =~ "alpha"
@@ -581,12 +574,12 @@ defmodule Jido.Flow.Syntax.LowererTest do
       provenance_map = Flow.to_map(flow, provenance: true)
 
       assert [
-               _load_cart_provenance,
-               %{provenance: %{branch: :alpha}},
-               %{provenance: %{branch: :alpha}},
-               %{provenance: %{branch: :beta}},
-               _finalize_provenance,
-               _post_group_independent_provenance
+               %{name: :load_cart},
+               %{name: :post_group_independent, provenance: %{}},
+               %{name: :price_cart, provenance: %{branch: :alpha}},
+               %{name: :reserve_inventory, provenance: %{branch: :beta}},
+               %{name: :audit_price, provenance: %{branch: :alpha}},
+               %{name: :finalize}
              ] = provenance_map.nodes
     end
 
