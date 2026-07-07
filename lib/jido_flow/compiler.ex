@@ -13,6 +13,7 @@ defmodule Jido.Flow.Compiler do
   alias Runic.Workflow.Step
 
   @collector_key :__jido_flow_error_collector__
+  @run_option_keys [:async, :max_concurrency]
 
   @type node_state :: %{
           input: map(),
@@ -36,18 +37,22 @@ defmodule Jido.Flow.Compiler do
 
   @doc """
   Compiles and executes a Flow artifact, returning its declared return value.
-  """
-  @spec run(Flow.t(), map(), map()) :: {:ok, term()} | {:error, Exception.t()}
-  def run(flow, input, context \\ %{})
 
-  def run(%Flow{} = flow, input, context) when is_map(input) and is_map(context) do
+  Accepted runtime options are `:async` and `:max_concurrency`, which are passed
+  through to Runic workflow reaction.
+  """
+  @spec run(Flow.t(), map(), map(), keyword()) :: {:ok, term()} | {:error, Exception.t()}
+  def run(flow, input, context \\ %{}, opts \\ [])
+
+  def run(%Flow{} = flow, input, context, opts) when is_map(input) and is_map(context) do
     runner = self()
     run_ref = make_ref()
 
-    with {:ok, flow} <- Flow.validate(flow),
+    with :ok <- validate_run_opts(opts),
+         {:ok, flow} <- Flow.validate(flow),
          :ok <- Flow.check(flow),
          {:ok, workflow, ordered_nodes} <- build(flow, input, context, {runner, run_ref}) do
-      final_workflow = Workflow.react_until_satisfied(workflow, input)
+      final_workflow = Workflow.react_until_satisfied(workflow, input, opts)
       node_errors = drain_node_errors(run_ref, ordered_nodes)
 
       case node_errors do
@@ -60,8 +65,55 @@ defmodule Jido.Flow.Compiler do
     end
   end
 
-  def run(%Flow{}, _input, _context) do
+  def run(%Flow{}, _input, _context, _opts) do
     {:error, Error.validation_error("flow input and context must be maps")}
+  end
+
+  defp validate_run_opts(opts) when is_list(opts) do
+    if Keyword.keyword?(opts) do
+      with :ok <- validate_known_run_opts(opts),
+           :ok <- validate_async_opt(Keyword.get(opts, :async, false)),
+           :ok <- validate_max_concurrency_opt(Keyword.get(opts, :max_concurrency, 1)) do
+        :ok
+      end
+    else
+      {:error, Error.validation_error("run options must be a keyword list")}
+    end
+  end
+
+  defp validate_run_opts(_opts) do
+    {:error, Error.validation_error("run options must be a keyword list")}
+  end
+
+  defp validate_known_run_opts(opts) do
+    opts
+    |> Keyword.keys()
+    |> Enum.find(&(&1 not in @run_option_keys))
+    |> case do
+      nil ->
+        :ok
+
+      option ->
+        {:error,
+         Error.validation_error("unknown run option: #{inspect(option)}", %{option: option})}
+    end
+  end
+
+  defp validate_async_opt(async) when is_boolean(async), do: :ok
+
+  defp validate_async_opt(_async) do
+    {:error, Error.validation_error("async option must be a boolean", %{option: :async})}
+  end
+
+  defp validate_max_concurrency_opt(max_concurrency)
+       when is_integer(max_concurrency) and max_concurrency > 0,
+       do: :ok
+
+  defp validate_max_concurrency_opt(_max_concurrency) do
+    {:error,
+     Error.validation_error("max_concurrency option must be a positive integer", %{
+       option: :max_concurrency
+     })}
   end
 
   defp build(%Flow{} = flow, input, context, collector) do

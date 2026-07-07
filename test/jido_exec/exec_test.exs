@@ -12,6 +12,8 @@ defmodule Jido.ExecTest do
     Add,
     AtomErrorAction,
     ContextEcho,
+    DelayedEchoAction,
+    DelayedErrorAction,
     Divide,
     EchoParamsAction,
     ErrorAction,
@@ -416,6 +418,140 @@ defmodule Jido.ExecTest do
     end
   end
 
+  describe "run/4 options" do
+    @tag timeout: 5_000
+    test "runs independent flow branches concurrently when async is enabled" do
+      flow =
+        Flow.new!(
+          name: "async_overlap",
+          nodes: [
+            Node.new!(
+              name: :left,
+              action: DelayedEchoAction,
+              input: %{side: Ref.value(:left), sleep_ms: Ref.value(100)}
+            ),
+            Node.new!(
+              name: :right,
+              action: DelayedEchoAction,
+              input: %{side: Ref.value(:right), sleep_ms: Ref.value(100)}
+            ),
+            Node.new!(
+              name: :merge,
+              action: EchoParamsAction,
+              input: %{
+                left: Ref.result(:left, :side),
+                right: Ref.result(:right, :side)
+              }
+            )
+          ],
+          return: Ref.result(:merge)
+        )
+
+      assert {{:ok, %{left: :left, right: :right}}, serial_ms} =
+               timed(fn -> Exec.run(flow, %{}, %{}) end)
+
+      assert {{:ok, %{left: :left, right: :right}}, async_ms} =
+               timed(fn -> Exec.run(flow, %{}, %{}, async: true, max_concurrency: 2) end)
+
+      assert async_ms < serial_ms * 0.75
+    end
+
+    test "run/3 and run/4 with empty options are equivalent" do
+      assert {:ok, flow} = Builder.build(FlowFixtures.math_builder())
+
+      assert Exec.run(flow, %{value: 3}, %{}) == Exec.run(flow, %{value: 3}, %{}, [])
+    end
+
+    @tag capture_log: true
+    test "returns async branch failures by flow node order" do
+      flow =
+        Flow.new!(
+          name: "async_failure_order",
+          nodes: [
+            Node.new!(
+              name: :first,
+              action: DelayedErrorAction,
+              input: %{sleep_ms: Ref.value(80), message: Ref.value("first failure")}
+            ),
+            Node.new!(
+              name: :second,
+              action: DelayedErrorAction,
+              input: %{sleep_ms: Ref.value(10), message: Ref.value("second failure")}
+            )
+          ],
+          return: Ref.result(:first)
+        )
+
+      assert {:error, %ExecutionFailureError{message: "first failure", details: details}} =
+               Exec.run(flow, %{}, %{}, async: true, max_concurrency: 2)
+
+      assert details.node == :first
+      assert details.action == DelayedErrorAction
+    end
+
+    test "executes Flow modules with runtime options" do
+      module = unique_module("ExecAsyncMathFlow")
+
+      create_module(
+        module,
+        quote do
+          use Jido.Flow,
+            name: "async_math_flow",
+            description: "Runs through Exec options"
+
+          flow do
+            step(:add_one, unquote(Add), %{value: input(:value), amount: value(1)})
+            return(result(:add_one, :value))
+          end
+        end
+      )
+
+      assert {:ok, 4} = Exec.run(module, %{value: 3}, %{}, async: true)
+    end
+
+    test "rejects unknown Flow run options" do
+      assert {:ok, flow} = Builder.build(FlowFixtures.math_builder())
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Exec.run(flow, %{value: 3}, %{}, timeout: 100)
+
+      assert message =~ "unknown run option"
+      assert details.option == :timeout
+    end
+
+    test "rejects invalid Flow run option values" do
+      assert {:ok, flow} = Builder.build(FlowFixtures.math_builder())
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Exec.run(flow, %{value: 3}, %{}, async: :yes)
+
+      assert message =~ "async option must be a boolean"
+      assert details.option == :async
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Exec.run(flow, %{value: 3}, %{}, max_concurrency: 0)
+
+      assert message =~ "max_concurrency option must be a positive integer"
+      assert details.option == :max_concurrency
+    end
+
+    test "rejects Flow run options for action and instruction executables" do
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Exec.run(Add, %{value: 1}, %{}, async: true)
+
+      assert message =~ "run options are only supported for flows"
+      assert details.executable_type == :action
+
+      instruction = Instruction.new!(action: Add, params: %{value: 1})
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Exec.run(instruction, %{}, %{}, async: true)
+
+      assert message =~ "run options are only supported for flows"
+      assert details.executable_type == :instruction
+    end
+  end
+
   test "rejects unknown executable values with a configuration error" do
     assert {:error, %ConfigurationError{message: message}} = Exec.run(:not_a_real_executable)
     assert message =~ "unknown executable"
@@ -427,5 +563,12 @@ defmodule Jido.ExecTest do
 
     assert message =~ "unknown executable"
     assert details.executable == "not executable"
+  end
+
+  defp timed(fun) do
+    start = System.monotonic_time(:millisecond)
+    result = fun.()
+    elapsed_ms = System.monotonic_time(:millisecond) - start
+    {result, elapsed_ms}
   end
 end
