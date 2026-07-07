@@ -131,6 +131,10 @@ defmodule Jido.Flow.Syntax.Lowerer do
     end
   end
 
+  defp lower_operation(%Operation{kind: :return}, %{return: %Ref{}}) do
+    {:error, Error.validation_error("duplicate return declaration", %{operation: :return})}
+  end
+
   defp lower_operation(%Operation{kind: :return, attrs: attrs}, state) do
     with {:ok, ref} <- resolve_expr(Map.get(attrs, :expr), state, nil),
          {:ok, ref} <- validate_return_ref(ref) do

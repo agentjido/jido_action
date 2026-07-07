@@ -69,6 +69,21 @@ defmodule Jido.Flow.Syntax.LowererTest do
       assert details.operation == :return
     end
 
+    test "rejects duplicate return declarations" do
+      syntax =
+        Syntax.new(name: "duplicate_return")
+        |> Syntax.step(:first, Add, %{value: Syntax.input(:value)})
+        |> Syntax.step(:second, Add, %{value: Syntax.input(:value)})
+        |> Syntax.return(Syntax.result(:first))
+        |> Syntax.return(Syntax.result(:second))
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Lowerer.lower(syntax)
+
+      assert message =~ "duplicate return declaration"
+      assert details.operation == :return
+    end
+
     test "rejects returns that do not resolve to result refs" do
       syntax =
         Syntax.new(name: "bad")
