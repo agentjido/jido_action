@@ -94,7 +94,7 @@ defmodule Jido.Action do
   > downstream Actions or systems.
   """
 
-  alias Jido.Action.{Error, Output}
+  alias Jido.Action.{Error, Output, Validation}
 
   @max_action_name_bytes 256
 
@@ -149,7 +149,7 @@ defmodule Jido.Action do
   def validate_config_schema([], _opts), do: :ok
 
   def validate_config_schema(value, _opts) do
-    if zoi_schema?(value) do
+    if Validation.zoi_schema?(value) do
       :ok
     else
       {:error, "must be a Zoi schema"}
@@ -397,62 +397,10 @@ defmodule Jido.Action do
     |> then(&{:error, &1})
   end
 
-  defp validate_data([], data, _context, _module), do: {:ok, data}
-
   defp validate_data(schema, data, context, module) do
-    if zoi_schema?(schema) do
-      {known_data, unknown_data} = split_known_and_unknown(data, schema)
-
-      schema
-      |> Zoi.parse(known_data)
-      |> handle_validation_result(unknown_data, context, module)
-    else
-      {:error,
-       Error.validation_error("Unsupported schema type", %{
-         context: context,
-         module: module
-       })}
-    end
-  end
-
-  defp handle_validation_result({:ok, validated}, unknown, _context, _module) do
-    validated = if is_struct(validated), do: Map.from_struct(validated), else: validated
-    {:ok, Map.merge(unknown, validated)}
-  end
-
-  defp handle_validation_result({:error, errors}, _unknown, context, module) do
-    {:error, format_validation_errors(errors, context, module)}
-  end
-
-  defp split_known_and_unknown(data, schema) do
-    Map.split(data, schema_keys(schema))
-  end
-
-  defp schema_keys(%{__struct__: Zoi.Types.Map, fields: fields}) when is_list(fields) do
-    Keyword.keys(fields)
-  end
-
-  defp schema_keys(%{__struct__: Zoi.Types.Struct, fields: fields}) when is_list(fields) do
-    Keyword.keys(fields)
-  end
-
-  defp schema_keys(_schema), do: []
-
-  defp format_validation_errors(errors, context, module) do
-    Error.validation_error(Zoi.prettify_errors(errors), %{
+    Validation.open_validate(schema, data, %{
       context: context,
-      module: module,
-      errors: Enum.map(errors, &format_zoi_error/1)
+      module: module
     })
   end
-
-  defp format_zoi_error(%{path: path, message: message} = error) do
-    %{
-      path: path,
-      message: message,
-      code: Map.get(error, :code)
-    }
-  end
-
-  defp zoi_schema?(value), do: is_struct(value) && Zoi.Type.impl_for(value) != nil
 end
