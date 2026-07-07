@@ -154,7 +154,6 @@ defmodule JidoAction.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:jason, "~> 1.4"},
       {:telemetry, "~> 1.3"},
       {:zoi, "~> 0.17"},
       {:runic, "~> 0.1.0-alpha.8"},

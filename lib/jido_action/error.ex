@@ -779,7 +779,7 @@ defmodule Jido.Action.Error do
   defp do_list_parts(tail, acc), do: {:improper, Enum.reverse(acc), tail}
 end
 
-defimpl Jason.Encoder,
+defimpl JSON.Encoder,
   for: [
     Jido.Action.Error.InvalidInputError,
     Jido.Action.Error.ExecutionFailureError,
@@ -791,6 +791,6 @@ defimpl Jason.Encoder,
   def encode(error, opts) when is_map(error) do
     error
     |> Jido.Action.Error.to_map()
-    |> Jason.Encode.map(opts)
+    |> JSON.Encoder.encode(opts)
   end
 end
