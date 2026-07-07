@@ -15,7 +15,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
           all_bindings: MapSet.t(atom()),
           all_steps: MapSet.t(atom()),
           branch: atom() | nil,
-          return: Ref.t() | nil
+          return: term() | nil
         }
 
   @reserved_bindings MapSet.new([
@@ -130,14 +130,14 @@ defmodule Jido.Flow.Syntax.Lowerer do
     end
   end
 
-  defp lower_operation(%Operation{kind: :return}, %{return: %Ref{}}) do
+  defp lower_operation(%Operation{kind: :return}, %{return: return}) when not is_nil(return) do
     {:error, Error.validation_error("duplicate return declaration", %{operation: :return})}
   end
 
   defp lower_operation(%Operation{kind: :return, attrs: attrs}, state) do
-    with {:ok, ref} <- resolve_expr(Map.get(attrs, :expr), state, nil),
-         {:ok, ref} <- validate_return_ref(ref) do
-      {:ok, %{state | return: ref}}
+    with {:ok, expr} <- resolve_expr(Map.get(attrs, :expr), state, nil),
+         {:ok, expr} <- validate_return_expr(expr) do
+      {:ok, %{state | return: expr}}
     end
   end
 
@@ -292,10 +292,11 @@ defmodule Jido.Flow.Syntax.Lowerer do
     unsupported_after_target_error(step, target)
   end
 
-  defp validate_return_ref(%Ref{type: :result} = ref), do: {:ok, ref}
-
-  defp validate_return_ref(_ref) do
-    {:error, Error.validation_error("return must resolve to a result ref")}
+  defp validate_return_expr(expr) do
+    case Node.collect_result_refs(expr) do
+      [] -> {:error, Error.validation_error("return must reference at least one step result")}
+      _refs -> {:ok, expr}
+    end
   end
 
   defp validate_group_branches(branches) when is_list(branches) do
@@ -424,7 +425,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
     {:error, Error.validation_error("return ref is required", %{operation: :return})}
   end
 
-  defp require_return(%Ref{} = ref), do: {:ok, ref}
+  defp require_return(return), do: {:ok, return}
 
   defp validate_source_namespace(operations) do
     aliases = binding_aliases(operations)

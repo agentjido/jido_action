@@ -3,13 +3,13 @@ defmodule Jido.Flow do
   Canonical v4 Flow artifact.
 
   A Flow is a data artifact describing named action calls and a declared return
-  reference. Authoring surfaces lower into this struct; execution is delegated
+  expression. Authoring surfaces lower into this struct; execution is delegated
   through `Jido.Exec`.
   """
 
   alias Jido.Action
   alias Jido.Action.Error
-  alias Jido.Flow.{Node, Ref}
+  alias Jido.Flow.Node
   alias Jido.Instruction
 
   @schema Zoi.struct(
@@ -203,7 +203,7 @@ defmodule Jido.Flow do
       schema: flow.schema,
       output_schema: flow.output_schema,
       nodes: flow.nodes |> canonical_node_order() |> Enum.map(&Node.to_map(&1, opts)),
-      return: Ref.to_map(flow.return)
+      return: Node.expression_to_map(flow.return)
     }
 
     if Keyword.get(opts, :provenance, false) do
@@ -368,14 +368,22 @@ defmodule Jido.Flow do
 
   defp normalize_nodes(_nodes), do: {:error, Error.validation_error("flow nodes must be a list")}
 
-  defp validate_return(%Ref{type: :result} = ref), do: {:ok, ref}
-
   defp validate_return(nil) do
     {:error, Error.validation_error("return ref is required")}
   end
 
-  defp validate_return(_return) do
-    {:error, Error.validation_error("return must be a result ref")}
+  defp validate_return(return) do
+    with :ok <- Node.validate_expression(return),
+         :ok <- validate_return_has_result_ref(return) do
+      {:ok, return}
+    end
+  end
+
+  defp validate_return_has_result_ref(return) do
+    case Node.collect_result_refs(return) do
+      [] -> {:error, Error.validation_error("return must reference at least one step result")}
+      _refs -> :ok
+    end
   end
 
   defp validate_provenance(nil), do: {:ok, %{}}
@@ -418,19 +426,20 @@ defmodule Jido.Flow do
   defp validate_known_result_refs(%__MODULE__{} = flow) do
     known = flow.nodes |> Enum.map(& &1.name) |> MapSet.new()
 
-    cond do
-      not MapSet.member?(known, flow.return.node) ->
+    case flow.return
+         |> Node.collect_result_refs()
+         |> Enum.find(&(not MapSet.member?(known, &1))) do
+      nil ->
+        validate_node_result_refs(flow.nodes, known)
+
+      missing_node ->
         {:error,
          Error.validation_error(
-           "return ref points to an unknown step: #{inspect(flow.return.node)}",
+           "return ref points to an unknown step: #{inspect(missing_node)}",
            %{
-             node: flow.return.node,
-             ref: Ref.to_map(flow.return)
+             node: missing_node
            }
          )}
-
-      true ->
-        validate_node_result_refs(flow.nodes, known)
     end
   end
 

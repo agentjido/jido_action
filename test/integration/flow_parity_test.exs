@@ -308,6 +308,29 @@ defmodule Jido.Integration.FlowParityTest do
         expected: %{value: 8}
       },
       %{
+        label: "shaped-return",
+        module_suffix: "ShapedReturnFlow",
+        module: &create_shaped_return_flow_module/1,
+        opts: [
+          name: "shaped_return_flow",
+          description: "Returns a composite expression"
+        ],
+        syntax: &FlowFixtures.shaped_return_syntax/0,
+        builder: &FlowFixtures.shaped_return_builder/0,
+        source: &FlowFixtures.shaped_return_source/0,
+        canonical: &FlowFixtures.shaped_return_canonical_map/0,
+        input: %{value: 3},
+        context: %{trace_id: "trace-1"},
+        expected: %{
+          sum: 4,
+          product: 8,
+          original: 3,
+          trace_id: "trace-1",
+          literal: "ok",
+          nested: [8]
+        }
+      },
+      %{
         label: "annotated",
         module_suffix: "AnnotatedFlow",
         module: &create_annotated_flow_module/1,
@@ -560,6 +583,32 @@ defmodule Jido.Integration.FlowParityTest do
           )
 
         return(select(audit, :total))
+      end
+    )
+  end
+
+  defp create_shaped_return_flow_module(prefix) do
+    create_flow_module(
+      prefix,
+      "shaped_return_flow",
+      "Returns a composite expression",
+      quote do
+        added =
+          step(:add_one, unquote(Add), with: %{value: input(:value), amount: value(1)})
+
+        doubled =
+          step(:double, unquote(Multiply),
+            with: %{value: select(added, :value), amount: value(2)}
+          )
+
+        return(%{
+          sum: select(added, :value),
+          product: select(doubled, :value),
+          original: input(:value),
+          trace_id: context(:trace_id),
+          literal: "ok",
+          nested: [select(doubled, :value)]
+        })
       end
     )
   end

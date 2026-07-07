@@ -360,6 +360,41 @@ defmodule Jido.Flow.ParserTest do
       assert audit_quote.input == %{event: %{type: :value, value: "quoted"}}
     end
 
+    test "parses shaped return expressions" do
+      source = """
+      flow do
+        added =
+          step :add_one, JidoTest.TestActions.Add,
+            with: %{value: input(:value), amount: value(1)}
+
+        doubled =
+          step :double, JidoTest.TestActions.Multiply,
+            with: %{value: select(added, :value), amount: value(2)}
+
+        return %{
+          sum: select(added, :value),
+          product: select(doubled, :value),
+          original: input(:value),
+          trace_id: context(:trace_id),
+          literal: "ok"
+        }
+      end
+      """
+
+      assert {:ok, flow} = Flow.parse(source, name: "shaped_return_flow")
+
+      assert Flow.to_map(flow).return == %{
+               sum: %{type: :result, node: :add_one, path: [:value]},
+               product: %{type: :result, node: :double, path: [:value]},
+               original: %{type: :input, path: [:value]},
+               trace_id: %{type: :context, path: [:trace_id]},
+               literal: %{type: :value, value: "ok"}
+             }
+
+      assert {:ok, %{sum: 4, product: 8, original: 3, trace_id: "trace-1", literal: "ok"}} =
+               Jido.Exec.run(flow, %{value: 3}, %{trace_id: "trace-1"})
+    end
+
     test "parses after before with in keyword step options" do
       source = """
       flow do
