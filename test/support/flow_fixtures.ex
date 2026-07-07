@@ -396,6 +396,133 @@ defmodule JidoTest.FlowFixtures do
     """
   end
 
+  def fan_in_syntax do
+    Syntax.new(
+      name: "fan_in_flow",
+      description: "Merges sibling branches through a dependency join"
+    )
+    |> Syntax.step(
+      :load,
+      EchoParamsAction,
+      Syntax.shape(%{
+        id: Syntax.input(:id),
+        base: Syntax.input(:base)
+      }),
+      bind: :loaded
+    )
+    |> Syntax.step(
+      :left,
+      EchoParamsAction,
+      Syntax.shape(%{
+        side: Syntax.value("left"),
+        id: Syntax.select(Syntax.binding(:loaded), :id)
+      }),
+      bind: :left_branch
+    )
+    |> Syntax.step(
+      :right,
+      EchoParamsAction,
+      Syntax.shape(%{
+        side: Syntax.value("right"),
+        base: Syntax.select(Syntax.binding(:loaded), :base)
+      }),
+      bind: :right_branch
+    )
+    |> Syntax.step(
+      :merge,
+      EchoParamsAction,
+      Syntax.shape(%{
+        left: Syntax.select(Syntax.binding(:left_branch), :side),
+        right: Syntax.select(Syntax.binding(:right_branch), :side),
+        id: Syntax.select(Syntax.binding(:left_branch), :id)
+      }),
+      bind: :merged
+    )
+    |> Syntax.return(Syntax.binding(:merged))
+  end
+
+  def fan_in_builder do
+    Builder.new(
+      name: "fan_in_flow",
+      description: "Merges sibling branches through a dependency join"
+    )
+    |> Builder.step(
+      :load,
+      EchoParamsAction,
+      Builder.shape(%{
+        id: Builder.input(:id),
+        base: Builder.input(:base)
+      }),
+      bind: :loaded
+    )
+    |> Builder.step(
+      :left,
+      EchoParamsAction,
+      Builder.shape(%{
+        side: Builder.value("left"),
+        id: Builder.select(Builder.binding(:loaded), :id)
+      }),
+      bind: :left_branch
+    )
+    |> Builder.step(
+      :right,
+      EchoParamsAction,
+      Builder.shape(%{
+        side: Builder.value("right"),
+        base: Builder.select(Builder.binding(:loaded), :base)
+      }),
+      bind: :right_branch
+    )
+    |> Builder.step(
+      :merge,
+      EchoParamsAction,
+      Builder.shape(%{
+        left: Builder.select(Builder.binding(:left_branch), :side),
+        right: Builder.select(Builder.binding(:right_branch), :side),
+        id: Builder.select(Builder.binding(:left_branch), :id)
+      }),
+      bind: :merged
+    )
+    |> Builder.return(Builder.binding(:merged))
+  end
+
+  def fan_in_source do
+    """
+    flow do
+      loaded =
+        step :load, JidoTest.TestActions.EchoParamsAction,
+          with: shape(%{
+            id: input(:id),
+            base: input(:base)
+          })
+
+      left_branch =
+        step :left, JidoTest.TestActions.EchoParamsAction,
+          with: shape(%{
+            side: "left",
+            id: select(loaded, :id)
+          })
+
+      right_branch =
+        step :right, JidoTest.TestActions.EchoParamsAction,
+          with: shape(%{
+            side: "right",
+            base: select(loaded, :base)
+          })
+
+      merged =
+        step :merge, JidoTest.TestActions.EchoParamsAction,
+          with: shape(%{
+            left: select(left_branch, :side),
+            right: select(right_branch, :side),
+            id: select(left_branch, :id)
+          })
+
+      return merged
+    end
+    """
+  end
+
   def branch_group_syntax do
     Syntax.new(
       name: "branch_group_flow",
@@ -779,6 +906,56 @@ defmodule JidoTest.FlowFixtures do
         }
       ],
       return: %{type: :result, node: :audit_quote, path: []}
+    }
+  end
+
+  def fan_in_canonical_map do
+    %{
+      type: :flow,
+      name: "fan_in_flow",
+      description: "Merges sibling branches through a dependency join",
+      schema: [],
+      output_schema: [],
+      nodes: [
+        %{
+          name: :load,
+          action: EchoParamsAction,
+          input: %{
+            id: %{type: :input, path: [:id]},
+            base: %{type: :input, path: [:base]}
+          },
+          deps: []
+        },
+        %{
+          name: :left,
+          action: EchoParamsAction,
+          input: %{
+            side: %{type: :value, value: "left"},
+            id: %{type: :result, node: :load, path: [:id]}
+          },
+          deps: [:load]
+        },
+        %{
+          name: :right,
+          action: EchoParamsAction,
+          input: %{
+            side: %{type: :value, value: "right"},
+            base: %{type: :result, node: :load, path: [:base]}
+          },
+          deps: [:load]
+        },
+        %{
+          name: :merge,
+          action: EchoParamsAction,
+          input: %{
+            left: %{type: :result, node: :left, path: [:side]},
+            right: %{type: :result, node: :right, path: [:side]},
+            id: %{type: :result, node: :left, path: [:id]}
+          },
+          deps: [:left, :right]
+        }
+      ],
+      return: %{type: :result, node: :merge, path: []}
     }
   end
 
