@@ -96,6 +96,11 @@ defmodule Jido.Action.ErrorTest do
       assert error.message == "internal error"
       assert error.details == %{}
     end
+
+    test "constructors discard non-detail containers" do
+      assert %Error.ExecutionFailureError{details: %{}} =
+               Error.execution_error("execution failed", "not details")
+    end
   end
 
   describe "exception creation" do
@@ -226,6 +231,13 @@ defmodule Jido.Action.ErrorTest do
       assert %UnknownError{} = error
       assert error.message == "Unknown error"
       assert error.details == %{}
+    end
+
+    test "Internal.UnknownError.message/1 normalizes opaque error values" do
+      assert Exception.message(UnknownError.exception(error: :remote_failure)) == "remote_failure"
+
+      assert Exception.message(UnknownError.exception(error: {:remote, 42})) ==
+               "{:remote, 42}"
     end
   end
 
@@ -535,6 +547,26 @@ defmodule Jido.Action.ErrorTest do
       assert %{details: %{}} ==
                Error.to_map(%{type: :execution_error, message: "bad details", details: "nope"})
                |> Map.take([:details])
+    end
+
+    test "normalizes opaque detail keys while preserving scalar detail keys" do
+      opaque_key = self()
+
+      mapped =
+        Error.to_map(%{
+          type: :execution_error,
+          message: "mixed detail keys",
+          details: %{:atom_key => 1, "binary_key" => 2, 42 => 3, false => 4, opaque_key => :owner}
+        })
+
+      assert mapped.details[:atom_key] == 1
+      assert mapped.details["binary_key"] == 2
+      assert mapped.details[42] == 3
+      assert mapped.details[false] == 4
+
+      normalized_opaque_key = List.to_string(:erlang.pid_to_list(opaque_key))
+
+      assert mapped.details[normalized_opaque_key] == :owner
     end
 
     test "extracts details from top-level message structs" do
