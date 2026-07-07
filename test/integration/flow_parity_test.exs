@@ -1,13 +1,16 @@
 defmodule Jido.Integration.FlowParityTest do
   use JidoTest.ActionCase, async: true
   use ExUnitProperties
+  @moduletag capture_log: true
 
   alias Jido.Action.Error
+  alias Jido.Action.Error.ExecutionFailureError
   alias Jido.Flow.Builder
+  alias Jido.Flow.{Node, Ref}
   alias Jido.Flow.Syntax
   alias Jido.Flow.Syntax.Lowerer
   alias JidoTest.FlowFixtures
-  alias JidoTest.TestActions.{Add, EchoParamsAction, Multiply}
+  alias JidoTest.TestActions.{Add, EchoParamsAction, ErrorAction, Multiply, RecorderAction}
 
   describe "authoring parity" do
     test "supported surfaces produce equal canonical maps" do
@@ -162,6 +165,40 @@ defmodule Jido.Integration.FlowParityTest do
       for scenario <- flow_cases() do
         assert_execution_parity(scenario)
       end
+    end
+
+    test "public execution returns branch errors while independent roots still run" do
+      flow =
+        Jido.Flow.new!(
+          name: "public_branch_failure",
+          nodes: [
+            Node.new!(
+              name: :bad,
+              action: ErrorAction,
+              input: %{error_type: Ref.value(:validation)}
+            ),
+            Node.new!(
+              name: :recorder,
+              action: RecorderAction,
+              input: %{value: Ref.input(:value)}
+            ),
+            Node.new!(
+              name: :dependent,
+              action: RecorderAction,
+              input: %{from_bad: Ref.result(:bad)}
+            )
+          ],
+          return: Ref.result(:recorder)
+        )
+
+      assert {:error, %ExecutionFailureError{message: "Validation error", details: details}} =
+               Jido.Exec.run(flow, %{value: 7}, %{test_pid: self()})
+
+      assert details.phase == :step_execution
+      assert details.node == :bad
+      assert details.action == ErrorAction
+      assert_receive {RecorderAction, %{value: 7}}
+      refute_receive {RecorderAction, %{from_bad: _}}
     end
   end
 
@@ -335,6 +372,21 @@ defmodule Jido.Integration.FlowParityTest do
         canonical: &FlowFixtures.explicit_edge_canonical_map/0,
         input: %{quote_id: "quote-1"},
         expected: %{event: "quoted"}
+      },
+      %{
+        label: "fan-in",
+        module_suffix: "FanInFlow",
+        module: &create_fan_in_flow_module/1,
+        opts: [
+          name: "fan_in_flow",
+          description: "Merges sibling branches through a dependency join"
+        ],
+        syntax: &FlowFixtures.fan_in_syntax/0,
+        builder: &FlowFixtures.fan_in_builder/0,
+        source: &FlowFixtures.fan_in_source/0,
+        canonical: &FlowFixtures.fan_in_canonical_map/0,
+        input: %{id: "item-1", base: "root"},
+        expected: %{left: "left", right: "right", id: "item-1"}
       },
       %{
         label: "branch-group",
@@ -554,6 +606,54 @@ defmodule Jido.Integration.FlowParityTest do
           )
 
         return(audit)
+      end
+    )
+  end
+
+  defp create_fan_in_flow_module(prefix) do
+    create_flow_module(
+      prefix,
+      "fan_in_flow",
+      "Merges sibling branches through a dependency join",
+      quote do
+        loaded =
+          step(:load, unquote(EchoParamsAction),
+            with:
+              shape(%{
+                id: input(:id),
+                base: input(:base)
+              })
+          )
+
+        left_branch =
+          step(:left, unquote(EchoParamsAction),
+            with:
+              shape(%{
+                side: "left",
+                id: select(loaded, :id)
+              })
+          )
+
+        right_branch =
+          step(:right, unquote(EchoParamsAction),
+            with:
+              shape(%{
+                side: "right",
+                base: select(loaded, :base)
+              })
+          )
+
+        merged =
+          step(:merge, unquote(EchoParamsAction),
+            with:
+              shape(%{
+                left: select(left_branch, :side),
+                right: select(right_branch, :side),
+                id: select(left_branch, :id)
+              })
+          )
+
+        return(merged)
       end
     )
   end
