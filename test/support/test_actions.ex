@@ -212,6 +212,14 @@ defmodule JidoTest.TestActions do
     def run(params, _context), do: {:ok, params}
   end
 
+  defmodule AnyEchoAction do
+    @moduledoc false
+
+    def validate_params(params), do: {:ok, params}
+    def validate_output(output), do: {:ok, output}
+    def run(params, _context), do: {:ok, params}
+  end
+
   defmodule RecorderAction do
     @moduledoc false
     use Action, name: "recorder_action"

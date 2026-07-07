@@ -45,6 +45,7 @@ defmodule Jido.Flow.Compiler do
     run_ref = make_ref()
 
     with {:ok, flow} <- Flow.validate(flow),
+         :ok <- Flow.check(flow),
          {:ok, workflow, ordered_nodes} <- build(flow, input, context, {runner, run_ref}) do
       final_workflow = Workflow.react_until_satisfied(workflow, input)
       node_errors = drain_node_errors(run_ref, ordered_nodes)
