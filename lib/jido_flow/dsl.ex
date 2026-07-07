@@ -111,7 +111,7 @@ defmodule Jido.Flow.DSL do
   end
 
   defp parse_step(meta, [name_ast, action_ast, input_ast], env, binding, context) do
-    name = parse_atom!(name_ast, "step name", meta, env)
+    name = parse_node_name!(name_ast, "step name", meta, env)
     action = parse_action_module!(action_ast, meta, env, context)
     {input, after_targets, annotations} = parse_step_input_and_after!(input_ast, env)
 
@@ -145,11 +145,11 @@ defmodule Jido.Flow.DSL do
   end
 
   defp parse_expression({:result, _meta, [node_ast]}, env) do
-    Syntax.result(parse_atom!(node_ast, "result node", [], env))
+    Syntax.result(parse_node_name!(node_ast, "result node", [], env))
   end
 
   defp parse_expression({:result, _meta, [node_ast, path_ast]}, env) do
-    Syntax.result(parse_atom!(node_ast, "result node", [], env), parse_path!(path_ast, env))
+    Syntax.result(parse_node_name!(node_ast, "result node", [], env), parse_path!(path_ast, env))
   end
 
   defp parse_expression({:select, _meta, [source_ast, path_ast]}, env) do
@@ -202,6 +202,14 @@ defmodule Jido.Flow.DSL do
   defp parse_atom!(atom, _label, _meta, _env) when is_atom(atom) and not is_nil(atom), do: atom
 
   defp parse_atom!(ast, label, _meta, env) do
+    unsupported!("unsupported flow DSL #{label}: #{Macro.to_string(ast)}", ast, env)
+  end
+
+  defp parse_node_name!(name, _label, _meta, _env)
+       when (is_atom(name) and not is_nil(name)) or is_binary(name),
+       do: name
+
+  defp parse_node_name!(ast, label, _meta, env) do
     unsupported!("unsupported flow DSL #{label}: #{Macro.to_string(ast)}", ast, env)
   end
 
@@ -376,6 +384,7 @@ defmodule Jido.Flow.DSL do
   defp parse_after_targets!(target, env), do: parse_after_target!(target, env)
 
   defp parse_after_target!(target, _env) when is_atom(target) and not is_nil(target), do: target
+  defp parse_after_target!(target, _env) when is_binary(target), do: target
 
   defp parse_after_target!({name, meta, context}, _env)
        when is_atom(name) and is_list(meta) and (is_atom(context) or is_nil(context)) do

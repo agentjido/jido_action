@@ -19,7 +19,7 @@ defmodule Jido.Flow.SyntaxTest do
     test "normalize nil paths to empty lists" do
       assert %Syntax.Expr{type: :input, path: []} = Syntax.input(nil)
       assert %Syntax.Expr{type: :context, path: []} = Syntax.context(nil)
-      assert %Syntax.Expr{type: :result, node: :add_one, path: []} = Syntax.result(:add_one, nil)
+      assert %Syntax.Expr{type: :result, node: "add_one", path: []} = Syntax.result(:add_one, nil)
     end
   end
 

@@ -7,6 +7,13 @@ defmodule Jido.Flow.NodeTest do
   alias JidoTest.TestActions.Add
 
   describe "new/1" do
+    test "normalizes atom and string node identity to strings" do
+      assert {:ok, node} = Node.new(name: :double, action: Add, deps: [:add_one, "explicit_dep"])
+
+      assert node.name == "double"
+      assert node.deps == ["add_one", "explicit_dep"]
+    end
+
     test "accepts keyword attrs and derives dependencies from input refs and explicit deps" do
       assert {:ok, node} =
                Node.new(
@@ -19,13 +26,13 @@ defmodule Jido.Flow.NodeTest do
                  deps: [:explicit_dep, :add_one]
                )
 
-      assert node.deps == [:add_one, :explicit_dep]
-      assert Node.result_deps(node) == [:add_one, :explicit_dep, :load_adjustment]
+      assert node.deps == ["add_one", "explicit_dep"]
+      assert Node.result_deps(node) == ["add_one", "explicit_dep", "load_adjustment"]
 
       assert Node.to_map(node).input == %{
-               value: %{type: :result, node: :add_one, path: [:value]},
+               value: %{type: :result, node: "add_one", path: [:value]},
                adjustments: [
-                 %{type: :result, node: :load_adjustment, path: [:amount]},
+                 %{type: :result, node: "load_adjustment", path: [:amount]},
                  %{type: :value, value: 1}
                ]
              }
@@ -45,11 +52,11 @@ defmodule Jido.Flow.NodeTest do
                Node.new(name: :double, action: Add, input: Ref.result(:add_one))
 
       assert result_input_node.input == Ref.result(:add_one)
-      assert Node.result_deps(result_input_node) == [:add_one]
+      assert Node.result_deps(result_input_node) == ["add_one"]
 
       assert Node.to_map(result_input_node).input == %{
                type: :result,
-               node: :add_one,
+               node: "add_one",
                path: []
              }
 
@@ -71,10 +78,10 @@ defmodule Jido.Flow.NodeTest do
                  input: [Ref.result(:add_one), Ref.context(:trace_id), 2]
                )
 
-      assert Node.result_deps(list_node) == [:add_one]
+      assert Node.result_deps(list_node) == ["add_one"]
 
       assert Node.to_map(list_node).input == [
-               %{type: :result, node: :add_one, path: []},
+               %{type: :result, node: "add_one", path: []},
                %{type: :context, path: [:trace_id]},
                %{type: :value, value: 2}
              ]
@@ -96,7 +103,7 @@ defmodule Jido.Flow.NodeTest do
                  deps: [:explicit_dep]
                )
 
-      assert Node.result_deps(node) == [:explicit_dep]
+      assert Node.result_deps(node) == ["explicit_dep"]
 
       assert Node.to_map(node).input == %{
                trace: %{type: :context, path: [:trace_id]},
@@ -108,11 +115,11 @@ defmodule Jido.Flow.NodeTest do
     test "rejects malformed node configuration" do
       cases = [
         {"node configuration must be a map", :not_a_map},
-        {"node name must be a non-nil atom", %{action: Add}},
-        {"node action must be a module atom", %{name: :bad, action: "not a module"}},
-        {"node deps must be a list", %{name: :bad, action: Add, deps: :not_a_list}},
-        {"node deps must be a list of atoms", %{name: :bad, action: Add, deps: [:ok, nil]}},
-        {"node provenance must be a map", %{name: :bad, action: Add, provenance: :not_a_map}}
+        {"node name must be a non-empty string or atom", %{action: Add}},
+        {"node action must be a module atom", %{name: "bad", action: "not a module"}},
+        {"node deps must be a list", %{name: "bad", action: Add, deps: :not_a_list}},
+        {"node deps must be a list of step names", %{name: "bad", action: Add, deps: [:ok, nil]}},
+        {"node provenance must be a map", %{name: "bad", action: Add, provenance: :not_a_map}}
       ]
 
       for {expected_message, attrs} <- cases do

@@ -53,8 +53,8 @@ defmodule Jido.Flow.Syntax.LowererTest do
                Lowerer.lower(syntax)
 
       assert message =~ "result reference before it is bound"
-      assert details.step == :double
-      assert details.dependency == :add_one
+      assert details.step == "double"
+      assert details.dependency == "add_one"
     end
 
     test "missing return errors identify the return declaration" do
@@ -148,7 +148,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
       assert {:ok, flow} = Lowerer.lower(syntax)
       assert [_add_one, double] = Flow.to_map(flow).nodes
 
-      assert double.input.value == %{type: :result, node: :add_one, path: [:value]}
+      assert double.input.value == %{type: :result, node: "add_one", path: [:value]}
       assert double.input.amount == %{type: :value, value: 2}
       assert double.input.passthrough == %{type: :input, path: [:value]}
       assert double.input.literal == %{type: :value, value: 10}
@@ -200,20 +200,20 @@ defmodule Jido.Flow.Syntax.LowererTest do
              }
 
       assert audit_quote.input == %{
-               quote_id: %{type: :result, node: :load_quote, path: [:quote, :id]},
+               quote_id: %{type: :result, node: "load_quote", path: [:quote, :id]},
                total: %{
                  type: :result,
-                 node: :load_quote,
+                 node: "load_quote",
                  path: [:quote, :pricing, :total]
                },
                first_item_id: %{type: :input, path: [:items, 0, :id]},
                tenant_id: %{type: :context, path: [:tenant, :id]},
                trace_id: %{type: :context, path: [:trace_id]},
-               tag: %{type: :result, node: :load_quote, path: [:tags, 0]}
+               tag: %{type: :result, node: "load_quote", path: [:tags, 0]}
              }
 
-      assert audit_quote.deps == [:load_quote]
-      assert Flow.to_map(flow).return == %{type: :result, node: :audit_quote, path: [:total]}
+      assert audit_quote.deps == ["load_quote"]
+      assert Flow.to_map(flow).return == %{type: :result, node: "audit_quote", path: [:total]}
       refute Flow.to_map(flow) |> inspect() |> String.contains?("select")
     end
 
@@ -229,7 +229,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
                Lowerer.lower(syntax)
 
       assert message =~ "select source must resolve to an input, context, or result ref"
-      assert details.step == :echo
+      assert details.step == "echo"
       assert details.type == :value
     end
 
@@ -249,7 +249,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
                  Lowerer.lower(syntax)
 
         assert message =~ "select source must resolve to an input, context, or result ref"
-        assert details.step == :echo
+        assert details.step == "echo"
         assert details.type == type
       end
     end
@@ -264,7 +264,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
                Lowerer.lower(syntax)
 
       assert message =~ "unsupported flow syntax expression"
-      assert details.step == :echo
+      assert details.step == "echo"
       assert details.type == :unknown
     end
 
@@ -284,7 +284,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
                  Lowerer.lower(syntax)
 
         assert message =~ "select path segments must be atoms, strings, or integers"
-        assert details.step == :echo
+        assert details.step == "echo"
         assert details.path == path
       end
     end
@@ -302,7 +302,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
       assert {:ok, flow} = Lowerer.lower(syntax)
 
       assert Flow.to_map(flow).return == %{
-               total: %{type: :result, node: :echo, path: [:total]},
+               total: %{type: :result, node: "echo", path: [:total]},
                original: %{type: :input, path: [:total]},
                literal: %{type: :value, value: "ok"}
              }
@@ -330,8 +330,8 @@ defmodule Jido.Flow.Syntax.LowererTest do
                Lowerer.lower(syntax)
 
       assert message =~ "result reference before it is bound"
-      assert details.step == :double
-      assert details.dependency == :missing
+      assert details.step == "double"
+      assert details.dependency == "missing"
     end
 
     test "lowers binding handles to result refs and keeps aliases in provenance only" do
@@ -355,10 +355,10 @@ defmodule Jido.Flow.Syntax.LowererTest do
       refute inspect(semantic_map) =~ "doubled"
 
       assert [_add_one, double, triple] = semantic_map.nodes
-      assert double.input == %{type: :result, node: :add_one, path: []}
-      assert double.deps == [:add_one]
-      assert triple.input.value == %{type: :result, node: :add_one, path: []}
-      assert semantic_map.return == %{type: :result, node: :double, path: []}
+      assert double.input == %{type: :result, node: "add_one", path: []}
+      assert double.deps == ["add_one"]
+      assert triple.input.value == %{type: :result, node: "add_one", path: []}
+      assert semantic_map.return == %{type: :result, node: "double", path: []}
 
       provenance_map = Flow.to_map(flow, provenance: true)
       assert [add_one_provenance, double_provenance, _triple_provenance] = provenance_map.nodes
@@ -377,10 +377,10 @@ defmodule Jido.Flow.Syntax.LowererTest do
 
       assert {:ok, flow} = Lowerer.lower(syntax)
 
-      assert [%{name: :added, provenance: %{binding: :added}}] =
+      assert [%{name: "added", provenance: %{binding: :added}}] =
                Flow.to_map(flow, provenance: true).nodes
 
-      assert Flow.to_map(flow).return == %{type: :result, node: :added, path: []}
+      assert Flow.to_map(flow).return == %{type: :result, node: "added", path: []}
     end
 
     test "rejects an unnamed step without a binding" do
@@ -404,7 +404,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
                Lowerer.lower(syntax)
 
       assert message =~ "duplicate step name"
-      assert details.name == :added
+      assert details.name == "added"
     end
 
     test "keeps step annotations in provenance only" do
@@ -471,7 +471,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
           |> Syntax.add(
             Syntax.operation(
               :step,
-              %{name: :add_one, action: Add, input: %{}},
+              %{name: "add_one", action: Add, input: %{}},
               provenance: provenance
             )
           )
@@ -481,7 +481,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
                  Lowerer.lower(syntax)
 
         assert message =~ expected_message
-        assert details.step == :add_one
+        assert details.step == "add_one"
         assert details.field == field
       end
     end
@@ -506,7 +506,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
 
       assert load_cart.deps == []
       assert independent.deps == []
-      assert audit_cart.deps == [:load_cart]
+      assert audit_cart.deps == ["load_cart"]
       assert audit_cart.input == %{event: %{type: :value, value: "loaded"}}
       refute inspect(Flow.to_map(flow)) =~ "cart_handle"
     end
@@ -528,11 +528,11 @@ defmodule Jido.Flow.Syntax.LowererTest do
       assert {:ok, flow} = Lowerer.lower(syntax)
       assert [_load_quote, audit_quote] = Flow.to_map(flow).nodes
 
-      assert audit_quote.deps == [:load_quote]
+      assert audit_quote.deps == ["load_quote"]
 
       assert audit_quote.input.quote_id == %{
                type: :result,
-               node: :load_quote,
+               node: "load_quote",
                path: [:id]
              }
     end
@@ -592,12 +592,12 @@ defmodule Jido.Flow.Syntax.LowererTest do
 
       nodes_by_name = Map.new(Flow.to_map(flow).nodes, fn node -> {node.name, node} end)
 
-      assert nodes_by_name.load_cart.deps == []
-      assert nodes_by_name.price_cart.deps == [:load_cart]
-      assert nodes_by_name.audit_price.deps == [:price_cart]
-      assert nodes_by_name.reserve_inventory.deps == [:load_cart]
-      assert nodes_by_name.finalize.deps == [:price_cart, :reserve_inventory]
-      assert nodes_by_name.post_group_independent.deps == []
+      assert nodes_by_name["load_cart"].deps == []
+      assert nodes_by_name["price_cart"].deps == ["load_cart"]
+      assert nodes_by_name["audit_price"].deps == ["price_cart"]
+      assert nodes_by_name["reserve_inventory"].deps == ["load_cart"]
+      assert nodes_by_name["finalize"].deps == ["price_cart", "reserve_inventory"]
+      assert nodes_by_name["post_group_independent"].deps == []
 
       semantic_map = Flow.to_map(flow)
       refute inspect(semantic_map) =~ "alpha"
@@ -606,12 +606,12 @@ defmodule Jido.Flow.Syntax.LowererTest do
       provenance_map = Flow.to_map(flow, provenance: true)
 
       assert [
-               %{name: :load_cart},
-               %{name: :post_group_independent, provenance: %{}},
-               %{name: :price_cart, provenance: %{branch: :alpha}},
-               %{name: :reserve_inventory, provenance: %{branch: :beta}},
-               %{name: :audit_price, provenance: %{branch: :alpha}},
-               %{name: :finalize}
+               %{name: "load_cart"},
+               %{name: "post_group_independent", provenance: %{}},
+               %{name: "price_cart", provenance: %{branch: :alpha}},
+               %{name: "reserve_inventory", provenance: %{branch: :beta}},
+               %{name: "audit_price", provenance: %{branch: :alpha}},
+               %{name: "finalize"}
              ] = provenance_map.nodes
     end
 
@@ -626,7 +626,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
              step_operation(:reserve_inventory, EchoParamsAction, Syntax.binding(:priced))
            ])
          ], "binding reference before it is bound",
-         %{step: :reserve_inventory, binding: :priced}},
+         %{step: "reserve_inventory", binding: :priced}},
         {:sibling_after,
          [
            Syntax.branch(:pricing, [
@@ -636,7 +636,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
              step_operation(:reserve_inventory, EchoParamsAction, %{}, after: :price_cart)
            ])
          ], "explicit dependency before it is bound",
-         %{step: :reserve_inventory, dependency: :price_cart}},
+         %{step: "reserve_inventory", dependency: "price_cart"}},
         {:sibling_result,
          [
            Syntax.branch(:pricing, [
@@ -648,7 +648,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
              })
            ])
          ], "result reference before it is bound",
-         %{step: :reserve_inventory, dependency: :price_cart}}
+         %{step: "reserve_inventory", dependency: "price_cart"}}
       ]
 
       for {_case_name, branches, expected_message, expected_details} <- cases do
@@ -693,7 +693,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
         {:branch_operations_not_list,
          %{branches: [Syntax.operation(:branch, %{name: :pricing, operations: :not_a_list})]},
          "branch operations must be a list", %{branch: :pricing, operations: :not_a_list}},
-        {:non_branch_operation, %{branches: [Syntax.operation(:step, %{name: :price_cart})]},
+        {:non_branch_operation, %{branches: [Syntax.operation(:step, %{name: "price_cart"})]},
          "group operations may contain only branch operations", %{kind: :step}},
         {:non_branch_value, %{branches: [:not_a_branch]},
          "group operations may contain only branch operations", %{branch: :not_a_branch}},
@@ -749,29 +749,29 @@ defmodule Jido.Flow.Syntax.LowererTest do
          |> Syntax.step(:audit, EchoParamsAction, %{}, after: :load_quote)
          |> Syntax.step(:load_quote, EchoParamsAction, %{})
          |> Syntax.return(Syntax.result(:audit)), "explicit dependency before it is bound",
-         %{step: :audit, dependency: :load_quote}},
+         %{step: "audit", dependency: "load_quote"}},
         {:unknown_step,
          Syntax.new(name: "unknown_after")
          |> Syntax.step(:audit, EchoParamsAction, %{}, after: :missing)
          |> Syntax.return(Syntax.result(:audit)), "unknown explicit dependency",
-         %{step: :audit, dependency: :missing}},
+         %{step: "audit", dependency: "missing"}},
         {:self_step,
          Syntax.new(name: "self_after")
          |> Syntax.step(:audit, EchoParamsAction, %{}, after: :audit)
          |> Syntax.return(Syntax.result(:audit)),
          "explicit dependency cannot reference current step",
-         %{step: :audit, dependency: :audit}},
+         %{step: "audit", dependency: "audit"}},
         {:future_binding,
          Syntax.new(name: "future_binding_after")
          |> Syntax.step(:audit, EchoParamsAction, %{}, after: Syntax.binding(:quote))
          |> Syntax.step(:load_quote, EchoParamsAction, %{}, bind: :quote)
          |> Syntax.return(Syntax.result(:audit)), "binding reference before it is bound",
-         %{step: :audit, binding: :quote}},
+         %{step: "audit", binding: :quote}},
         {:unknown_binding,
          Syntax.new(name: "unknown_binding_after")
          |> Syntax.step(:audit, EchoParamsAction, %{}, after: Syntax.binding(:missing))
          |> Syntax.return(Syntax.result(:audit)), "unknown binding handle",
-         %{step: :audit, binding: :missing}},
+         %{step: "audit", binding: :missing}},
         {:self_binding,
          Syntax.new(name: "self_binding_after")
          |> Syntax.step(:audit, EchoParamsAction, %{},
@@ -780,7 +780,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
          )
          |> Syntax.return(Syntax.result(:audit)),
          "explicit dependency cannot reference current binding",
-         %{step: :audit, binding: :audit_handle}},
+         %{step: "audit", binding: :audit_handle}},
         {:expression_target,
          Syntax.new(name: "expression_after")
          |> Syntax.step(:load_quote, EchoParamsAction, %{})
@@ -788,20 +788,20 @@ defmodule Jido.Flow.Syntax.LowererTest do
            after: Syntax.select(Syntax.input(:id), :x)
          )
          |> Syntax.return(Syntax.result(:audit)),
-         "after targets must be step names or binding handles", %{step: :audit, type: :select}},
+         "after targets must be step names or binding handles", %{step: "audit", type: :select}},
         {:ref_target,
          Syntax.new(name: "ref_after")
          |> Syntax.step(:load_quote, EchoParamsAction, %{})
          |> Syntax.step(:audit, EchoParamsAction, %{}, after: Ref.result(:load_quote))
          |> Syntax.return(Syntax.result(:audit)),
-         "after targets must be step names or binding handles", %{step: :audit, type: :result}},
+         "after targets must be step names or binding handles", %{step: "audit", type: :result}},
         {:map_target,
          Syntax.new(name: "map_after")
          |> Syntax.step(:load_quote, EchoParamsAction, %{})
          |> Syntax.step(:audit, EchoParamsAction, %{}, after: %{target: :load_quote})
          |> Syntax.return(Syntax.result(:audit)),
          "after targets must be step names or binding handles",
-         %{step: :audit, target: %{target: :load_quote}}}
+         %{step: "audit", target: %{target: :load_quote}}}
       ]
 
       for {_case_name, syntax, expected_message, expected_details} <- cases do
@@ -827,7 +827,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
 
       assert message =~ "unknown binding handle"
       assert details.binding == :missing
-      assert details.step == :double
+      assert details.step == "double"
     end
 
     test "rejects a binding reference before the binding step has lowered" do
@@ -842,7 +842,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
 
       assert message =~ "binding reference before it is bound"
       assert details.binding == :added
-      assert details.step == :double
+      assert details.step == "double"
     end
 
     test "rejects a binding used in its own step input" do
@@ -856,7 +856,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
 
       assert message =~ "binding cannot reference itself"
       assert details.binding == :added
-      assert details.step == :add_one
+      assert details.step == "add_one"
     end
 
     test "rejects a binding used in its own list input" do
@@ -875,7 +875,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
 
       assert message =~ "binding cannot reference itself"
       assert details.binding == :added
-      assert details.step == :add_one
+      assert details.step == "add_one"
     end
 
     test "rejects a binding used in its own select or map input" do
@@ -901,7 +901,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
 
         assert message =~ "binding cannot reference itself"
         assert details.binding == :echoed
-        assert details.step == :echo
+        assert details.step == "echo"
       end
     end
 
@@ -953,11 +953,11 @@ defmodule Jido.Flow.Syntax.LowererTest do
     test "keeps invalid step names on canonical node validation" do
       syntax =
         Syntax.new(name: "invalid_step_name")
-        |> Syntax.step("add_one", Add, %{}, bind: :added)
+        |> Syntax.step(123, Add, %{}, bind: :added)
         |> Syntax.return(Syntax.result(:add_one))
 
       assert {:error, %InvalidInputError{message: message}} = Lowerer.lower(syntax)
-      assert message =~ "node name must be a non-nil atom"
+      assert message =~ "node name must be a non-empty string or atom"
     end
   end
 

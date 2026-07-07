@@ -38,7 +38,7 @@ defmodule Jido.FlowTest do
                output_schema: [],
                nodes: [
                  %{
-                   name: :add_one,
+                   name: "add_one",
                    action: Add,
                    input: %{
                      value: %{type: :input, path: [:value]},
@@ -47,7 +47,7 @@ defmodule Jido.FlowTest do
                    deps: []
                  }
                ],
-               return: %{type: :result, node: :add_one, path: [:value]}
+               return: %{type: :result, node: "add_one", path: [:value]}
              }
     end
 
@@ -63,7 +63,7 @@ defmodule Jido.FlowTest do
 
       assert {:error, %InvalidInputError{message: message, details: details}} = Flow.new(attrs)
       assert message =~ "duplicate step name"
-      assert details.name == :add_one
+      assert details.name == "add_one"
     end
 
     test "rejects a return ref that does not point to a known node" do
@@ -75,7 +75,7 @@ defmodule Jido.FlowTest do
 
       assert {:error, %InvalidInputError{message: message, details: details}} = Flow.new(attrs)
       assert message =~ "return ref points to an unknown step"
-      assert details.node == :missing
+      assert details.node == "missing"
     end
 
     test "accepts shaped return expressions with at least one result ref" do
@@ -107,11 +107,11 @@ defmodule Jido.FlowTest do
                )
 
       assert Flow.to_map(flow).return == %{
-               sum: %{type: :result, node: :add_one, path: [:value]},
-               product: %{type: :result, node: :double, path: [:value]},
+               sum: %{type: :result, node: "add_one", path: [:value]},
+               product: %{type: :result, node: "double", path: [:value]},
                original: %{type: :input, path: [:value]},
                literal: %{type: :value, value: "ok"},
-               nested: [%{type: :result, node: :double, path: [:value]}]
+               nested: [%{type: :result, node: "double", path: [:value]}]
              }
     end
 
@@ -137,7 +137,7 @@ defmodule Jido.FlowTest do
 
       assert {:error, %InvalidInputError{message: message, details: details}} = Flow.check(flow)
       assert message =~ "module is not a valid Jido action"
-      assert details.node == :broken
+      assert details.node == "broken"
       assert details.action == MissingRun
       assert details.reason == "missing run/2"
     end
@@ -155,7 +155,7 @@ defmodule Jido.FlowTest do
 
       assert {:error, %InvalidInputError{message: message, details: details}} = Flow.check(flow)
       assert message == "action module could not be loaded"
-      assert details.node == :missing
+      assert details.node == "missing"
       assert details.action == missing_action
       assert details.reason == :nofile
     end
@@ -182,7 +182,7 @@ defmodule Jido.FlowTest do
 
       assert {:error, %InvalidInputError{message: message, details: details}} = Flow.new(attrs)
       assert message =~ "flow dependency graph contains a cycle"
-      assert Enum.sort(details.nodes) == [:first, :second]
+      assert Enum.sort(details.nodes) == ["first", "second"]
     end
 
     test "revalidates prebuilt node structs instead of trusting canonical shape" do
@@ -263,7 +263,7 @@ defmodule Jido.FlowTest do
         Flow.new!(name: "equivalent", nodes: [audit, load, finish], return: Ref.result(:finish))
 
       assert Flow.to_map(first) == Flow.to_map(second)
-      assert Enum.map(Flow.to_map(first).nodes, & &1.name) == [:audit, :load, :finish]
+      assert Enum.map(Flow.to_map(first).nodes, & &1.name) == ["audit", "load", "finish"]
     end
 
     test "canonical maps order independent roots by node name" do
@@ -278,8 +278,8 @@ defmodule Jido.FlowTest do
           return: Ref.result(:a)
         )
 
-      assert Enum.map(Flow.to_map(flow).nodes, & &1.name) == [:a, :b, :c]
-      assert Enum.map(flow.nodes, & &1.name) == [:c, :a, :b]
+      assert Enum.map(Flow.to_map(flow).nodes, & &1.name) == ["a", "b", "c"]
+      assert Enum.map(flow.nodes, & &1.name) == ["c", "a", "b"]
     end
 
     test "canonical maps emit dependency order regardless of authoring order" do
@@ -311,8 +311,8 @@ defmodule Jido.FlowTest do
           return: Ref.result(:d)
         )
 
-      assert Enum.map(Flow.to_map(flow).nodes, & &1.name) == [:a, :b, :c, :d]
-      assert Enum.map(flow.nodes, & &1.name) == [:d, :c, :b, :a]
+      assert Enum.map(Flow.to_map(flow).nodes, & &1.name) == ["a", "b", "c", "d"]
+      assert Enum.map(flow.nodes, & &1.name) == ["d", "c", "b", "a"]
     end
 
     test "canonical ordering keeps provenance attached to its node" do
@@ -338,8 +338,8 @@ defmodule Jido.FlowTest do
         )
 
       assert [
-               %{name: :a, provenance: %{source_line: 10}},
-               %{name: :z, provenance: %{source_line: 30}}
+               %{name: "a", provenance: %{source_line: 10}},
+               %{name: "z", provenance: %{source_line: 30}}
              ] = Flow.to_map(flow, provenance: true).nodes
     end
 
@@ -352,6 +352,30 @@ defmodule Jido.FlowTest do
         )
 
       assert {:ok, ^flow} = Flow.new(flow)
+    end
+
+    test "normalizes existing flow structs through construction" do
+      raw_flow = %Flow{
+        name: "raw_prebuilt",
+        description: nil,
+        schema: [],
+        output_schema: [],
+        nodes: [
+          %Node{
+            name: :add_one,
+            action: Add,
+            input: %{value: Ref.input(:value)},
+            deps: [],
+            provenance: %{}
+          }
+        ],
+        return: %Ref{type: :result, node: :add_one, path: [:value]},
+        provenance: %{}
+      }
+
+      assert {:ok, flow} = Flow.new(raw_flow)
+      assert [%{name: "add_one"}] = flow.nodes
+      assert flow.return.node == "add_one"
     end
 
     test "accepts nil schema, output schema, and provenance defaults" do
@@ -392,7 +416,7 @@ defmodule Jido.FlowTest do
 
       assert Flow.to_map(flow).nodes == [
                %{
-                 name: :audit,
+                 name: "audit",
                  action: Add,
                  input: %{
                    value: %{type: :context, path: [:trace_id]},
@@ -456,8 +480,8 @@ defmodule Jido.FlowTest do
 
       assert {:error, %InvalidInputError{message: message, details: details}} = Flow.new(attrs)
       assert message =~ "node input points to an unknown step"
-      assert details.node == :add_one
-      assert details.dependency == :missing
+      assert details.node == "add_one"
+      assert details.dependency == "missing"
     end
 
     test "rejects explicit node deps pointing at unknown steps" do
@@ -476,8 +500,8 @@ defmodule Jido.FlowTest do
 
       assert {:error, %InvalidInputError{message: message, details: details}} = Flow.new(attrs)
       assert message =~ "node input points to an unknown step"
-      assert details.node == :audit
-      assert details.dependency == :missing
+      assert details.node == "audit"
+      assert details.dependency == "missing"
     end
   end
 

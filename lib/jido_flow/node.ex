@@ -3,16 +3,17 @@ defmodule Jido.Flow.Node do
   A named action invocation inside a canonical Flow artifact.
   """
 
+  alias Jido.Action
   alias Jido.Action.Error
   alias Jido.Flow.Ref
 
   @schema Zoi.struct(
             __MODULE__,
             %{
-              name: Zoi.atom(description: "Flow step name"),
+              name: Zoi.string(description: "Flow step name"),
               action: Zoi.atom(description: "Action module"),
               input: Zoi.any(description: "Step input expression") |> Zoi.default(%{}),
-              deps: Zoi.list(Zoi.atom(), description: "Step dependencies") |> Zoi.default([]),
+              deps: Zoi.list(Zoi.string(), description: "Step dependencies") |> Zoi.default([]),
               provenance: Zoi.map(description: "Non-semantic provenance") |> Zoi.default(%{})
             },
             coerce: true
@@ -78,7 +79,7 @@ defmodule Jido.Flow.Node do
   end
 
   @doc false
-  @spec result_deps(t()) :: [atom()]
+  @spec result_deps(t()) :: [String.t()]
   def result_deps(%__MODULE__{} = node) do
     node.input
     |> collect_result_refs()
@@ -86,6 +87,10 @@ defmodule Jido.Flow.Node do
     |> Enum.uniq()
     |> Enum.sort()
   end
+
+  @doc false
+  @spec normalize_expression(term()) :: {:ok, term()} | {:error, Exception.t()}
+  def normalize_expression(expression), do: do_normalize_expression(expression, [])
 
   @doc false
   @spec validate_expression(term()) :: :ok | {:error, Exception.t()}
@@ -103,7 +108,7 @@ defmodule Jido.Flow.Node do
   def expression_to_map(value), do: Ref.value(value) |> Ref.to_map()
 
   @doc false
-  @spec collect_result_refs(term()) :: [atom()]
+  @spec collect_result_refs(term()) :: [String.t()]
   def collect_result_refs(%Ref{type: :result, node: node}), do: [node]
   def collect_result_refs(%Ref{}), do: []
 
@@ -118,10 +123,21 @@ defmodule Jido.Flow.Node do
 
   def collect_result_refs(_value), do: []
 
-  defp validate_name(name) when is_atom(name) and not is_nil(name), do: {:ok, name}
+  defp validate_name(name) when is_atom(name) and not is_nil(name) do
+    name
+    |> Atom.to_string()
+    |> validate_name()
+  end
+
+  defp validate_name(name) when is_binary(name) do
+    case Action.validate_name(name) do
+      :ok -> {:ok, name}
+      {:error, message} -> {:error, Error.validation_error(message)}
+    end
+  end
 
   defp validate_name(_name) do
-    {:error, Error.validation_error("node name must be a non-nil atom")}
+    {:error, Error.validation_error("node name must be a non-empty string or atom")}
   end
 
   defp validate_action(action) when is_atom(action) and not is_nil(action), do: {:ok, action}
@@ -133,7 +149,8 @@ defmodule Jido.Flow.Node do
   defp validate_input(nil), do: {:ok, %{}}
 
   defp validate_input(input) do
-    with :ok <- validate_input_expression(input, []) do
+    with {:ok, input} <- normalize_expression(input),
+         :ok <- validate_input_expression(input, []) do
       {:ok, input}
     end
   end
@@ -141,10 +158,19 @@ defmodule Jido.Flow.Node do
   defp validate_deps(nil), do: {:ok, []}
 
   defp validate_deps(deps) when is_list(deps) do
-    if Enum.all?(deps, &(is_atom(&1) and not is_nil(&1))) do
-      {:ok, deps |> Enum.uniq() |> Enum.sort()}
-    else
-      {:error, Error.validation_error("node deps must be a list of atoms")}
+    deps
+    |> Enum.reduce_while({:ok, []}, fn dep, {:ok, acc} ->
+      case validate_name(dep) do
+        {:ok, dep} ->
+          {:cont, {:ok, [dep | acc]}}
+
+        {:error, _error} ->
+          {:halt, {:error, Error.validation_error("node deps must be a list of step names")}}
+      end
+    end)
+    |> case do
+      {:ok, deps} -> {:ok, deps |> Enum.uniq() |> Enum.sort()}
+      {:error, error} -> {:error, error}
     end
   end
 
@@ -160,18 +186,20 @@ defmodule Jido.Flow.Node do
   defp validate_input_expression(%Ref{type: :input}, _path), do: :ok
   defp validate_input_expression(%Ref{type: :context}, _path), do: :ok
 
-  defp validate_input_expression(%Ref{type: :result, node: node}, _path)
-       when is_atom(node) and not is_nil(node),
-       do: :ok
+  defp validate_input_expression(%Ref{type: :result, node: node}, path) when is_binary(node) do
+    case Action.validate_name(node) do
+      :ok ->
+        :ok
+
+      {:error, _message} ->
+        invalid_ref_error(:result, path)
+    end
+  end
 
   defp validate_input_expression(%Ref{type: :value}, _path), do: :ok
 
   defp validate_input_expression(%Ref{type: type}, path) do
-    {:error,
-     Error.validation_error("node input contains invalid ref", %{
-       path: path,
-       type: type
-     })}
+    invalid_ref_error(type, path)
   end
 
   defp validate_input_expression(%{} = map, path) when not is_struct(map) do
@@ -203,4 +231,50 @@ defmodule Jido.Flow.Node do
   end
 
   defp validate_input_expression(_value, _path), do: :ok
+
+  defp do_normalize_expression(%Ref{type: :result, node: node} = ref, _path)
+       when (is_atom(node) and not is_nil(node)) or is_binary(node) do
+    case validate_name(node) do
+      {:ok, node} -> {:ok, %{ref | node: node}}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp do_normalize_expression(%Ref{type: :result} = ref, _path), do: {:ok, ref}
+
+  defp do_normalize_expression(%Ref{} = ref, _path), do: {:ok, ref}
+
+  defp do_normalize_expression(%{} = map, path) when not is_struct(map) do
+    Enum.reduce_while(map, {:ok, %{}}, fn {key, value}, {:ok, acc} ->
+      case do_normalize_expression(value, path ++ [key]) do
+        {:ok, value} -> {:cont, {:ok, Map.put(acc, key, value)}}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+  end
+
+  defp do_normalize_expression(list, path) when is_list(list) do
+    list
+    |> Enum.with_index()
+    |> Enum.reduce_while({:ok, []}, fn {value, index}, {:ok, acc} ->
+      case do_normalize_expression(value, path ++ [index]) do
+        {:ok, value} -> {:cont, {:ok, [value | acc]}}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+    |> case do
+      {:ok, values} -> {:ok, Enum.reverse(values)}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp do_normalize_expression(value, _path), do: {:ok, value}
+
+  defp invalid_ref_error(type, path) do
+    {:error,
+     Error.validation_error("node input contains invalid ref", %{
+       path: path,
+       type: type
+     })}
+  end
 end

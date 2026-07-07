@@ -32,12 +32,12 @@ defmodule Jido.Integration.FlowParityTest do
       refute inspect(semantic_map) =~ "beta"
 
       assert [
-               %{name: :load_cart},
-               %{name: :post_group_independent, provenance: %{}},
-               %{name: :price_cart, provenance: %{branch: :alpha}},
-               %{name: :reserve_inventory, provenance: %{branch: :beta}},
-               %{name: :audit_price, provenance: %{branch: :alpha}},
-               %{name: :finalize}
+               %{name: "load_cart"},
+               %{name: "post_group_independent", provenance: %{}},
+               %{name: "price_cart", provenance: %{branch: :alpha}},
+               %{name: "reserve_inventory", provenance: %{branch: :beta}},
+               %{name: "audit_price", provenance: %{branch: :alpha}},
+               %{name: "finalize"}
              ] = Jido.Flow.to_map(grouped_flow, provenance: true).nodes
     end
 
@@ -195,7 +195,7 @@ defmodule Jido.Integration.FlowParityTest do
                Jido.Exec.run(flow, %{value: 7}, %{test_pid: self()})
 
       assert details.phase == :step_execution
-      assert details.node == :bad
+      assert details.node == "bad"
       assert details.action == ErrorAction
       assert_receive {RecorderAction, %{value: 7}}
       refute_receive {RecorderAction, %{from_bad: _}}

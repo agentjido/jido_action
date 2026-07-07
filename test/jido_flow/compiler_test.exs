@@ -41,26 +41,26 @@ defmodule Jido.Flow.CompilerTest do
 
       assert {:ok, workflow} = Flow.compile(flow)
       assert %Workflow{} = workflow
-      assert Workflow.get_component(workflow, :add_one)
-      assert workflow |> Workflow.steps() |> Enum.map(& &1.name) == [:add_one]
+      assert Workflow.get_component(workflow, "add_one")
+      assert workflow |> Workflow.steps() |> Enum.map(& &1.name) == ["add_one"]
     end
 
     test "compiles the math flow into dependency edges" do
       assert {:ok, flow} = Jido.Flow.Builder.build(FlowFixtures.math_builder())
       assert {:ok, workflow} = Flow.compile(flow)
 
-      assert root_child?(workflow, :add_one)
+      assert root_child?(workflow, "add_one")
       assert connects?(workflow, :add_one, :double)
-      refute root_child?(workflow, :double)
+      refute root_child?(workflow, "double")
     end
 
     test "compiles root result-ref inputs into dependency edges" do
       assert {:ok, flow} = Jido.Flow.Builder.build(FlowFixtures.binding_builder())
       assert [_add_one, double] = Flow.to_map(flow).nodes
-      assert double.deps == [:add_one]
+      assert double.deps == ["add_one"]
 
       assert {:ok, workflow} = Flow.compile(flow)
-      assert root_child?(workflow, :add_one)
+      assert root_child?(workflow, "add_one")
       assert connects?(workflow, :add_one, :double)
     end
 
@@ -90,8 +90,8 @@ defmodule Jido.Flow.CompilerTest do
         )
 
       assert {:ok, workflow} = Flow.compile(flow)
-      assert root_child?(workflow, :load_quote)
-      assert root_child?(workflow, :independent)
+      assert root_child?(workflow, "load_quote")
+      assert root_child?(workflow, "independent")
       assert connects?(workflow, :load_quote, :audit_quote)
       refute connects?(workflow, :load_quote, :independent)
       refute connects?(workflow, :independent, :audit_quote)
@@ -101,12 +101,12 @@ defmodule Jido.Flow.CompilerTest do
       assert {:ok, flow} = Jido.Flow.Builder.build(FlowFixtures.branch_group_builder())
       assert {:ok, workflow} = Flow.compile(flow)
 
-      assert root_child?(workflow, :load_cart)
-      assert root_child?(workflow, :post_group_independent)
+      assert root_child?(workflow, "load_cart")
+      assert root_child?(workflow, "post_group_independent")
       assert connects?(workflow, :load_cart, :price_cart)
       assert connects?(workflow, :load_cart, :reserve_inventory)
       assert connects?(workflow, :price_cart, :audit_price)
-      assert join_feeds?(workflow, [:price_cart, :reserve_inventory], :finalize)
+      assert join_feeds?(workflow, ["price_cart", "reserve_inventory"], "finalize")
       refute connects?(workflow, :price_cart, :reserve_inventory)
       refute connects?(workflow, :reserve_inventory, :price_cart)
     end
@@ -138,7 +138,7 @@ defmodule Jido.Flow.CompilerTest do
       assert {:error, %InvalidInputError{message: message, details: details}} = Flow.compile(flow)
 
       assert message =~ "flow dependency graph contains a cycle"
-      assert Enum.sort(details.nodes) == [:first, :second]
+      assert Enum.sort(details.nodes) == ["first", "second"]
     end
 
     test "compiles independent branches as independent roots" do
@@ -153,8 +153,8 @@ defmodule Jido.Flow.CompilerTest do
         )
 
       assert {:ok, workflow} = Flow.compile(flow)
-      assert root_child?(workflow, :first)
-      assert root_child?(workflow, :second)
+      assert root_child?(workflow, "first")
+      assert root_child?(workflow, "second")
       refute connects?(workflow, :first, :second)
       refute connects?(workflow, :second, :first)
     end
@@ -170,7 +170,7 @@ defmodule Jido.Flow.CompilerTest do
         )
 
       assert {:ok, workflow} = Flow.compile(flow)
-      assert root_child?(workflow, :broken)
+      assert root_child?(workflow, "broken")
     end
 
     test "compiles child-before-parent node lists by adding parents first" do
@@ -193,19 +193,19 @@ defmodule Jido.Flow.CompilerTest do
         )
 
       assert {:ok, workflow} = Flow.compile(flow)
-      assert root_child?(workflow, :parent)
+      assert root_child?(workflow, "parent")
       assert connects?(workflow, :parent, :child)
-      refute root_child?(workflow, :child)
+      refute root_child?(workflow, "child")
     end
 
     test "compiles multi-parent deps through a Runic join" do
       flow = diamond_flow()
 
       assert {:ok, workflow} = Flow.compile(flow)
-      assert root_child?(workflow, :a)
+      assert root_child?(workflow, "a")
       assert connects?(workflow, :a, :b)
       assert connects?(workflow, :a, :c)
-      assert join_feeds?(workflow, [:b, :c], :d)
+      assert join_feeds?(workflow, ["b", "c"], "d")
       refute connects?(workflow, :b, :c)
       refute connects?(workflow, :c, :b)
     end
@@ -231,15 +231,15 @@ defmodule Jido.Flow.CompilerTest do
         )
 
       assert %Workflow{} = final_workflow = Workflow.react_until_satisfied(workflow, %{})
-      assert Workflow.results(final_workflow, [:after_bad]) == %{after_bad: nil}
+      assert Workflow.results(final_workflow, ["after_bad"]) == %{"after_bad" => nil}
       refute_receive {:after_bad, _state}
     end
   end
 
   describe "run/3" do
     test "node error messages include the normalized error message" do
-      assert_raise NodeError, ~r/flow node :bad failed: boom/, fn ->
-        raise NodeError, node: :bad, error: %RuntimeError{message: "boom"}
+      assert_raise NodeError, ~r/flow node "bad" failed: boom/, fn ->
+        raise NodeError, node: "bad", error: %RuntimeError{message: "boom"}
       end
     end
 
@@ -323,7 +323,7 @@ defmodule Jido.Flow.CompilerTest do
                Compiler.run(flow, %{}, %{})
 
       assert message =~ "module is not a valid Jido action"
-      assert details.node == :broken
+      assert details.node == "broken"
       assert details.action == MissingRun
       assert details.reason == "missing run/2"
     end
@@ -533,7 +533,7 @@ defmodule Jido.Flow.CompilerTest do
 
       assert message == "bad_with_extras"
       assert details.phase == :step_execution
-      assert details.node == :bad
+      assert details.node == "bad"
       assert details.action == ErrorWithExtrasAction
       assert details.reason == :bad_with_extras
       refute Map.has_key?(details, :extras)
@@ -641,7 +641,7 @@ defmodule Jido.Flow.CompilerTest do
         output_schema: [],
         nodes: [
           %Node{
-            name: :echo,
+            name: "echo",
             action: EchoParamsAction,
             input: %{values: [malformed_ref]},
             deps: [],
@@ -655,7 +655,7 @@ defmodule Jido.Flow.CompilerTest do
       assert {:error, %InvalidInputError{message: message, details: details}} =
                Compiler.run(flow, %{}, %{})
 
-      assert message =~ "unsupported flow ref type"
+      assert message =~ "node input contains invalid ref"
       assert details.type == :unsupported
     end
 
@@ -690,7 +690,7 @@ defmodule Jido.Flow.CompilerTest do
 
       assert message =~ "expected integer"
       assert details.phase == :step_input
-      assert details.node == :add_one
+      assert details.node == "add_one"
       assert details.action == Add
     end
 
@@ -709,7 +709,7 @@ defmodule Jido.Flow.CompilerTest do
 
       assert message =~ "expected integer"
       assert details.phase == :step_output
-      assert details.node == :invalid
+      assert details.node == "invalid"
       assert details.action == InvalidOutput
     end
 
@@ -728,7 +728,7 @@ defmodule Jido.Flow.CompilerTest do
 
       assert message =~ "action returned an unsupported result"
       assert details.phase == :step_execution
-      assert details.node == :bad
+      assert details.node == "bad"
       assert details.action == UnsupportedResult
       assert details.result == :not_a_result_tuple
     end
@@ -752,7 +752,7 @@ defmodule Jido.Flow.CompilerTest do
 
       assert message == "Validation error"
       assert details.phase == :step_execution
-      assert details.node == :bad
+      assert details.node == "bad"
       assert details.action == ErrorAction
       assert details.reason == "Validation error"
     end
@@ -786,7 +786,7 @@ defmodule Jido.Flow.CompilerTest do
 
       assert message == "Validation error"
       assert details.phase == :step_execution
-      assert details.node == :bad
+      assert details.node == "bad"
       assert details.action == ErrorAction
       refute_receive {RecorderAction, _params}
       refute_receive {_run_ref, :node_error, _node, _error}
@@ -826,7 +826,7 @@ defmodule Jido.Flow.CompilerTest do
 
       assert message == "Validation error"
       assert details.phase == :step_execution
-      assert details.node == :b
+      assert details.node == "b"
       assert details.action == ErrorAction
       assert_receive {RecorderAction, %{value: 3}}
       refute_receive {RecorderAction, %{left: _, right: _}}
@@ -855,7 +855,7 @@ defmodule Jido.Flow.CompilerTest do
                Compiler.run(flow, %{value: 3}, %{test_pid: self()})
 
       assert details.phase == :step_execution
-      assert details.node == :bad
+      assert details.node == "bad"
       assert details.action == ErrorAction
       assert_receive {RecorderAction, %{value: 3}}
     end
@@ -876,7 +876,7 @@ defmodule Jido.Flow.CompilerTest do
       assert message == "already wrapped"
       assert details.source == :test
       assert details.phase == :step_execution
-      assert details.node == :bad
+      assert details.node == "bad"
       assert details.action == ExceptionErrorAction
     end
 
@@ -934,7 +934,7 @@ defmodule Jido.Flow.CompilerTest do
 
       assert message =~ "action throw"
       assert details.phase == :step_execution
-      assert details.node == :throwing
+      assert details.node == "throwing"
       assert details.reason == :thrown_value
     end
 
@@ -1003,7 +1003,7 @@ defmodule Jido.Flow.CompilerTest do
 
       assert message =~ "required"
       assert details.phase == :step_input
-      assert details.node == :full
+      assert details.node == "full"
       assert details.action == FullAction
     end
 
@@ -1022,7 +1022,7 @@ defmodule Jido.Flow.CompilerTest do
 
       assert message == "bad_params"
       assert details.phase == :step_input
-      assert details.node == :bad_params
+      assert details.node == "bad_params"
       assert details.action == AtomValidationAction
       assert details.reason == :bad_params
     end
@@ -1060,7 +1060,7 @@ defmodule Jido.Flow.CompilerTest do
   end
 
   defp root_child?(workflow, node_name) do
-    node = Workflow.get_component(workflow, node_name)
+    node = workflow_component(workflow, node_name)
 
     Enum.any?(Multigraph.edges(workflow.graph, by: :flow), fn edge ->
       match?(%Runic.Workflow.Root{}, edge.v1) and edge.v2 == node
@@ -1068,15 +1068,15 @@ defmodule Jido.Flow.CompilerTest do
   end
 
   defp connects?(workflow, parent_name, child_name) do
-    parent = Workflow.get_component(workflow, parent_name)
-    child = Workflow.get_component(workflow, child_name)
+    parent = workflow_component(workflow, parent_name)
+    child = workflow_component(workflow, child_name)
 
     edge?(workflow, parent, child, :connects_to)
   end
 
   defp join_feeds?(workflow, parent_names, child_name) do
-    parents = Enum.map(parent_names, &Workflow.get_component(workflow, &1))
-    child = Workflow.get_component(workflow, child_name)
+    parents = Enum.map(parent_names, &workflow_component(workflow, &1))
+    child = workflow_component(workflow, child_name)
 
     workflow.graph
     |> Multigraph.vertices()
@@ -1086,6 +1086,12 @@ defmodule Jido.Flow.CompilerTest do
         edge?(workflow, join, child, :flow)
     end)
   end
+
+  defp workflow_component(workflow, name) when is_atom(name) do
+    Workflow.get_component(workflow, Atom.to_string(name))
+  end
+
+  defp workflow_component(workflow, name), do: Workflow.get_component(workflow, name)
 
   defp edge?(workflow, from, to, label) do
     Enum.any?(Multigraph.edges(workflow.graph, by: label), fn edge ->

@@ -10,10 +10,10 @@ defmodule Jido.Flow.Syntax.Lowerer do
 
   @type state :: %{
           nodes: [Node.t()],
-          seen: MapSet.t(atom()),
-          bindings: %{optional(atom()) => atom()},
+          seen: MapSet.t(String.t()),
+          bindings: %{optional(atom()) => String.t()},
           all_bindings: MapSet.t(atom()),
-          all_steps: MapSet.t(atom()),
+          all_steps: MapSet.t(String.t()),
           branch: atom() | nil,
           return: term() | nil
         }
@@ -75,7 +75,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
   end
 
   defp lower_operation(%Operation{kind: :step, attrs: attrs, provenance: provenance}, state) do
-    step_name = Map.get(attrs, :name)
+    step_name = attrs |> Map.get(:name) |> normalize_step_name()
     binding = Map.get(attrs, :binding)
     input_expr = Map.get(attrs, :input, %{})
     after_targets = Map.get(attrs, :after, [])
@@ -168,7 +168,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
           operation
           | attrs:
               attrs
-              |> Map.put(:name, binding)
+              |> Map.put(:name, Atom.to_string(binding))
               |> Map.put(:derived_name?, true)
         }
 
@@ -215,6 +215,8 @@ defmodule Jido.Flow.Syntax.Lowerer do
   defp resolve_expr(%Expr{type: :value, value: value}, _state, _step), do: {:ok, Ref.value(value)}
 
   defp resolve_expr(%Expr{type: :result, node: node, path: path}, state, step) do
+    node = normalize_step_name(node)
+
     if MapSet.member?(state.seen, node) do
       {:ok, Ref.result(node, path)}
     else
@@ -302,19 +304,21 @@ defmodule Jido.Flow.Syntax.Lowerer do
   end
 
   defp resolve_after_target(target, state, step, _binding)
-       when is_atom(target) and not is_nil(target) do
+       when (is_atom(target) and not is_nil(target)) or is_binary(target) do
+    target_name = normalize_step_name(target)
+
     cond do
-      target == step ->
-        self_dependency_error(step, target)
+      target_name == step ->
+        self_dependency_error(step, target_name)
 
-      MapSet.member?(state.seen, target) ->
-        {:ok, target}
+      MapSet.member?(state.seen, target_name) ->
+        {:ok, target_name}
 
-      MapSet.member?(state.all_steps, target) ->
-        explicit_dependency_before_bound_error(step, target)
+      MapSet.member?(state.all_steps, target_name) ->
+        explicit_dependency_before_bound_error(step, target_name)
 
       true ->
-        unknown_explicit_dependency_error(step, target)
+        unknown_explicit_dependency_error(step, target_name)
     end
   end
 
@@ -522,8 +526,11 @@ defmodule Jido.Flow.Syntax.Lowerer do
     |> step_operations()
     |> Enum.flat_map(fn %Operation{attrs: attrs} ->
       case Map.get(attrs, :name) do
-        name when is_atom(name) and not is_nil(name) -> [name]
-        _name -> []
+        name when (is_atom(name) and not is_nil(name)) or is_binary(name) ->
+          [normalize_step_name(name)]
+
+        _name ->
+          []
       end
     end)
   end
@@ -607,11 +614,13 @@ defmodule Jido.Flow.Syntax.Lowerer do
 
     case Enum.find(step_operations(operations), fn %Operation{attrs: attrs} ->
            binding = Map.get(attrs, :binding)
-           name = Map.get(attrs, :name)
+           name = attrs |> Map.get(:name) |> normalize_step_name()
            derived_name? = Map.get(attrs, :derived_name?, false)
+           binding_name = normalize_step_name(binding)
 
-           is_atom(binding) and not is_nil(binding) and MapSet.member?(step_name_set, binding) and
-             not (derived_name? and binding == name)
+           is_atom(binding) and not is_nil(binding) and
+             MapSet.member?(step_name_set, binding_name) and
+             not (derived_name? and binding_name == name)
          end) do
       nil ->
         :ok
@@ -668,6 +677,10 @@ defmodule Jido.Flow.Syntax.Lowerer do
 
   defp maybe_bind(bindings, nil, _node), do: bindings
   defp maybe_bind(bindings, binding, node), do: Map.put(bindings, binding, node)
+
+  defp normalize_step_name(name) when is_atom(name) and not is_nil(name), do: Atom.to_string(name)
+  defp normalize_step_name(name) when is_binary(name), do: name
+  defp normalize_step_name(_name), do: nil
 
   defp normalize_step_provenance(provenance, step) when is_map(provenance) do
     with {:ok, provenance} <- normalize_annotation_string(provenance, :label, step),

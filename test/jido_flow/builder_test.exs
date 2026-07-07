@@ -62,8 +62,8 @@ defmodule Jido.Flow.BuilderTest do
         |> Builder.return(Builder.binding(:added))
 
       assert {:ok, flow} = Builder.build(builder)
-      assert [%{name: :added}] = Flow.to_map(flow).nodes
-      assert Flow.to_map(flow).return == %{type: :result, node: :added, path: []}
+      assert [%{name: "added"}] = Flow.to_map(flow).nodes
+      assert Flow.to_map(flow).return == %{type: :result, node: "added", path: []}
     end
 
     test "builder passes explicit after targets to syntax" do
@@ -88,7 +88,7 @@ defmodule Jido.Flow.BuilderTest do
     end
 
     test "builder exposes branch grouping helpers" do
-      step = Syntax.operation(:step, %{name: :price_cart, action: JidoTest.TestActions.Add})
+      step = Syntax.operation(:step, %{name: "price_cart", action: JidoTest.TestActions.Add})
       branch = Builder.branch(:pricing, [step])
 
       builder =

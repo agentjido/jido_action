@@ -14,6 +14,11 @@ defmodule Jido.Flow.RefTest do
       assert Ref.result(:step, nil).path == []
     end
 
+    test "normalizes result node names to strings" do
+      assert Ref.result(:add_one) == Ref.result("add_one")
+      assert Ref.result(:add_one).node == "add_one"
+    end
+
     test "preserves list paths and literal values in semantic maps" do
       assert Ref.to_map(Ref.input([:payload, "items", 0])) == %{
                type: :input,
@@ -22,7 +27,7 @@ defmodule Jido.Flow.RefTest do
 
       assert Ref.to_map(Ref.result(:load, [:value])) == %{
                type: :result,
-               node: :load,
+               node: "load",
                path: [:value]
              }
 

@@ -7,13 +7,14 @@ defmodule Jido.Flow.Ref do
   """
 
   @type kind :: :input | :context | :result | :value
+  @type node_name :: String.t()
   @type path :: [atom() | String.t() | integer()]
 
   @schema Zoi.struct(
             __MODULE__,
             %{
               type: Zoi.enum([:input, :context, :result, :value], description: "Reference type"),
-              node: Zoi.atom(description: "Result node name") |> Zoi.optional(),
+              node: Zoi.string(description: "Result node name") |> Zoi.optional(),
               path: Zoi.list(Zoi.any(), description: "Nested value path") |> Zoi.default([]),
               value: Zoi.any(description: "Literal value") |> Zoi.optional()
             },
@@ -40,9 +41,9 @@ defmodule Jido.Flow.Ref do
   @doc """
   Builds a reference to a named node result.
   """
-  @spec result(atom(), atom() | String.t() | integer() | list()) :: t()
-  def result(node, path \\ []) when is_atom(node) and not is_nil(node) do
-    %__MODULE__{type: :result, node: node, path: normalize_path(path)}
+  @spec result(atom() | String.t(), atom() | String.t() | integer() | list()) :: t()
+  def result(node, path \\ []) do
+    %__MODULE__{type: :result, node: normalize_node_name(node), path: normalize_path(path)}
   end
 
   @doc """
@@ -68,4 +69,7 @@ defmodule Jido.Flow.Ref do
   def normalize_path(nil), do: []
   def normalize_path(path) when is_list(path), do: path
   def normalize_path(path), do: [path]
+
+  defp normalize_node_name(node) when is_atom(node) and not is_nil(node), do: Atom.to_string(node)
+  defp normalize_node_name(node) when is_binary(node), do: node
 end

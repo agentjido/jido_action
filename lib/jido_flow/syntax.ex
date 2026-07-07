@@ -16,7 +16,7 @@ defmodule Jido.Flow.Syntax do
                   Zoi.enum([:input, :context, :value, :result, :binding, :select],
                     description: "Expression type"
                   ),
-                node: Zoi.atom(description: "Result node name") |> Zoi.optional(),
+                node: Zoi.string(description: "Result node name") |> Zoi.optional(),
                 binding: Zoi.atom(description: "Source binding alias") |> Zoi.optional(),
                 source: Zoi.any(description: "Projection source expression") |> Zoi.optional(),
                 path: Zoi.list(Zoi.any(), description: "Nested value path") |> Zoi.default([]),
@@ -114,9 +114,9 @@ defmodule Jido.Flow.Syntax do
   @doc """
   Builds a result reference expression.
   """
-  @spec result(atom(), term()) :: Expr.t()
-  def result(node, path \\ []) when is_atom(node) and not is_nil(node) do
-    %Expr{type: :result, node: node, path: normalize_path(path)}
+  @spec result(atom() | String.t(), term()) :: Expr.t()
+  def result(node, path \\ []) do
+    %Expr{type: :result, node: normalize_node_name(node), path: normalize_path(path)}
   end
 
   @doc """
@@ -157,7 +157,7 @@ defmodule Jido.Flow.Syntax do
   @doc """
   Appends a step operation.
   """
-  @spec step(t(), atom() | nil, module(), term(), keyword()) :: t()
+  @spec step(t(), atom() | String.t() | nil, module(), term(), keyword()) :: t()
   def step(%__MODULE__{} = syntax, name, action, input, opts \\ []) do
     attrs =
       %{
@@ -185,6 +185,9 @@ defmodule Jido.Flow.Syntax do
   defp normalize_path(nil), do: []
   defp normalize_path(path) when is_list(path), do: path
   defp normalize_path(path), do: [path]
+
+  defp normalize_node_name(node) when is_atom(node) and not is_nil(node), do: Atom.to_string(node)
+  defp normalize_node_name(node) when is_binary(node), do: node
 
   defp maybe_put_binding(attrs, nil), do: attrs
   defp maybe_put_binding(attrs, binding), do: Map.put(attrs, :binding, binding)

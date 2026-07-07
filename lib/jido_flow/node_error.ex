@@ -4,7 +4,7 @@ defmodule Jido.Flow.NodeError do
   defexception [:node, :error]
 
   @type t :: %__MODULE__{
-          node: atom(),
+          node: String.t(),
           error: Exception.t()
         }
 
