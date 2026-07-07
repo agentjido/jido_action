@@ -1,10 +1,12 @@
 defmodule Jido.Flow.CompilerTest do
   use JidoTest.ActionCase, async: true
+  @moduletag capture_log: true
 
   alias Jido.Action.Error.{ConfigurationError, ExecutionFailureError, InvalidInputError}
   alias Jido.Action.Output
   alias Jido.Flow
   alias Jido.Flow.{Compiler, Node, Ref}
+  alias Jido.Flow.NodeError
   alias JidoTest.FlowFixtures
 
   alias JidoTest.TestActions.{
@@ -22,12 +24,14 @@ defmodule Jido.Flow.CompilerTest do
     Multiply,
     OutputEnvelopeAction,
     RawExceptionErrorAction,
+    RecorderAction,
     ThrowingAction,
     TupleErrorAction,
     UnsupportedResult
   }
 
   alias Runic.Workflow
+  alias Runic.Workflow.Step
 
   describe "compile/1" do
     test "compiles a one-step flow to a Runic workflow with a named action component" do
@@ -143,9 +147,40 @@ defmodule Jido.Flow.CompilerTest do
       assert {:ok, workflow} = Flow.compile(flow)
       assert component_order(workflow) == [:first, :second]
     end
+
+    test "Runic settles raised work failures and skips downstream work" do
+      workflow =
+        Workflow.new("raised_work")
+        |> Workflow.add(Step.new(name: :first, work: fn input -> input end), validate: :off)
+        |> Workflow.add(Step.new(name: :bad, work: fn _state -> raise "boom" end),
+          to: :first,
+          validate: :off
+        )
+        |> Workflow.add(
+          Step.new(
+            name: :after_bad,
+            work: fn state ->
+              send(self(), {:after_bad, state})
+              state
+            end
+          ),
+          to: :bad,
+          validate: :off
+        )
+
+      assert %Workflow{} = final_workflow = Workflow.react_until_satisfied(workflow, %{})
+      assert Workflow.results(final_workflow, [:after_bad]) == %{after_bad: nil}
+      refute_receive {:after_bad, _state}
+    end
   end
 
   describe "run/3" do
+    test "node error messages include the normalized error message" do
+      assert_raise NodeError, ~r/flow node :bad failed: boom/, fn ->
+        raise NodeError, node: :bad, error: %RuntimeError{message: "boom"}
+      end
+    end
+
     test "uses an empty context by default" do
       assert {:ok, 4} = Compiler.run(one_step_flow(), %{value: 3})
     end
@@ -507,6 +542,41 @@ defmodule Jido.Flow.CompilerTest do
       assert details.node == :bad
       assert details.action == ErrorAction
       assert details.reason == "Validation error"
+    end
+
+    test "does not invoke downstream actions after a node failure" do
+      flow =
+        Flow.new!(
+          name: "skip_downstream_after_error",
+          nodes: [
+            Node.new!(
+              name: :add_one,
+              action: Add,
+              input: %{value: Ref.input(:value), amount: Ref.value(1)}
+            ),
+            Node.new!(
+              name: :bad,
+              action: ErrorAction,
+              input: %{error_type: Ref.value(:validation)}
+            ),
+            Node.new!(
+              name: :recorder,
+              action: RecorderAction,
+              input: Ref.result(:bad)
+            )
+          ],
+          return: Ref.result(:recorder)
+        )
+
+      assert {:error, %ExecutionFailureError{message: message, details: details}} =
+               Compiler.run(flow, %{value: 3}, %{test_pid: self()})
+
+      assert message == "Validation error"
+      assert details.phase == :step_execution
+      assert details.node == :bad
+      assert details.action == ErrorAction
+      refute_receive {RecorderAction, _params}
+      refute_receive {_run_ref, :node_error, _node, _error}
     end
 
     test "preserves exception action errors returned by steps" do

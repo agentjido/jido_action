@@ -212,6 +212,18 @@ defmodule JidoTest.TestActions do
     def run(params, _context), do: {:ok, params}
   end
 
+  defmodule RecorderAction do
+    @moduledoc false
+    use Action, name: "recorder_action"
+
+    def run(params, %{test_pid: test_pid}) when is_pid(test_pid) do
+      send(test_pid, {__MODULE__, params})
+      {:ok, params}
+    end
+
+    def run(params, _context), do: {:ok, params}
+  end
+
   defmodule ErrorWithExtrasAction do
     @moduledoc false
     use Action, name: "error_with_extras_action"
