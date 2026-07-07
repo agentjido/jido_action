@@ -247,6 +247,32 @@ defmodule Jido.Flow.CompilerTest do
       assert {:ok, 4} = Compiler.run(one_step_flow(), %{value: 3})
     end
 
+    test "accepts runtime options during direct compiler execution" do
+      assert {:ok, 4} = Compiler.run(one_step_flow(), %{value: 3}, %{}, async: true)
+    end
+
+    test "validates runtime options during direct compiler execution" do
+      flow = one_step_flow()
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Compiler.run(flow, %{value: 3}, %{}, timeout: 100)
+
+      assert message =~ "unknown run option"
+      assert details.option == :timeout
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Compiler.run(flow, %{value: 3}, %{}, async: :yes)
+
+      assert message =~ "async option must be a boolean"
+      assert details.option == :async
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Compiler.run(flow, %{value: 3}, %{}, max_concurrency: 0)
+
+      assert message =~ "max_concurrency option must be a positive integer"
+      assert details.option == :max_concurrency
+    end
+
     test "executes the compiled workflow and extracts the declared return" do
       assert {:ok, flow} = Jido.Flow.Builder.build(FlowFixtures.math_builder())
       assert {:ok, 8} = Compiler.run(flow, %{value: 3}, %{})

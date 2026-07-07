@@ -220,6 +220,26 @@ defmodule JidoTest.TestActions do
     def run(params, _context), do: {:ok, params}
   end
 
+  defmodule DelayedEchoAction do
+    @moduledoc false
+    use Action, name: "delayed_echo_action"
+
+    def run(%{sleep_ms: sleep_ms} = params, _context) when is_integer(sleep_ms) do
+      Process.sleep(sleep_ms)
+      {:ok, params}
+    end
+  end
+
+  defmodule DelayedErrorAction do
+    @moduledoc false
+    use Action, name: "delayed_error_action"
+
+    def run(%{sleep_ms: sleep_ms, message: message}, _context) when is_integer(sleep_ms) do
+      Process.sleep(sleep_ms)
+      {:error, message}
+    end
+  end
+
   defmodule RecorderAction do
     @moduledoc false
     use Action, name: "recorder_action"

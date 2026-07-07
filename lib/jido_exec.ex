@@ -13,38 +13,48 @@ defmodule Jido.Exec do
   alias Jido.Flow
   alias Jido.Instruction
 
+  @flow_run_option_keys [:async, :max_concurrency]
+
   @doc """
   Runs an executable Jido artifact.
-  """
-  @spec run(term(), map(), map()) ::
-          {:ok, term()} | {:ok, term(), term()} | {:error, Exception.t()}
-  def run(executable, input \\ %{}, context \\ %{})
 
-  def run(%Instruction{} = instruction, input, context) do
-    with {:ok, instruction} <- normalize_instruction(instruction, input, context) do
+  Flow execution accepts `:async` and `:max_concurrency` options. `:async`
+  defaults to `false`; when `true`, independent Flow branches are scheduled by
+  Runic with the supplied maximum concurrency. Action and instruction execution
+  do not accept run options.
+  """
+  @spec run(term(), map(), map(), keyword()) ::
+          {:ok, term()} | {:ok, term(), term()} | {:error, Exception.t()}
+  def run(executable, input \\ %{}, context \\ %{}, opts \\ [])
+
+  def run(%Instruction{} = instruction, input, context, opts) do
+    with :ok <- reject_run_opts(opts, :instruction),
+         {:ok, instruction} <- normalize_instruction(instruction, input, context) do
       run_action_instruction(instruction)
     end
   end
 
-  def run(%Flow{} = flow, input, context) do
-    with :ok <- Flow.check(flow),
+  def run(%Flow{} = flow, input, context, opts) do
+    with {:ok, run_opts} <- validate_flow_run_opts(opts),
+         :ok <- Flow.check(flow),
          {:ok, input} <- normalize_map(input, :input),
          {:ok, context} <- normalize_map(context, :context),
          {:ok, input} <- validate_data(flow.schema, input, "Flow", flow, :flow_input),
-         {:ok, output} <- Flow.Compiler.run(flow, input, context),
+         {:ok, output} <- Flow.Compiler.run(flow, input, context, run_opts),
          {:ok, output} <-
            validate_data(flow.output_schema, output, "Flow output", flow, :flow_output) do
       {:ok, output}
     end
   end
 
-  def run(module, input, context) when is_atom(module) and not is_nil(module) do
+  def run(module, input, context, opts) when is_atom(module) and not is_nil(module) do
     case Code.ensure_loaded(module) do
       {:module, _module} ->
         if function_exported?(module, :__jido_flow__, 0) do
-          run(module.flow(), input, context)
+          run(module.flow(), input, context, opts)
         else
-          with {:ok, instruction} <- normalize_instruction(module, input, context) do
+          with :ok <- reject_run_opts(opts, :action),
+               {:ok, instruction} <- normalize_instruction(module, input, context) do
             run_action_instruction(instruction)
           end
         end
@@ -58,9 +68,78 @@ defmodule Jido.Exec do
     end
   end
 
-  def run(executable, _input, _context) do
+  def run(executable, _input, _context, _opts) do
     {:error,
      Error.config_error("unknown executable: #{inspect(executable)}", %{executable: executable})}
+  end
+
+  defp validate_flow_run_opts(opts) do
+    with :ok <- validate_opts_keyword(opts),
+         :ok <- validate_known_flow_run_opts(opts),
+         :ok <- validate_async_opt(Keyword.get(opts, :async, false)),
+         :ok <- validate_max_concurrency_opt(Keyword.get(opts, :max_concurrency, 1)) do
+      {:ok,
+       [
+         async: Keyword.get(opts, :async, false),
+         max_concurrency: Keyword.get(opts, :max_concurrency, System.schedulers_online())
+       ]}
+    end
+  end
+
+  defp reject_run_opts(opts, executable_type) do
+    with :ok <- validate_opts_keyword(opts) do
+      if opts == [] do
+        :ok
+      else
+        {:error,
+         Error.validation_error("run options are only supported for flows", %{
+           executable_type: executable_type,
+           options: Keyword.keys(opts)
+         })}
+      end
+    end
+  end
+
+  defp validate_opts_keyword(opts) when is_list(opts) do
+    if Keyword.keyword?(opts) do
+      :ok
+    else
+      {:error, Error.validation_error("run options must be a keyword list")}
+    end
+  end
+
+  defp validate_opts_keyword(_opts),
+    do: {:error, Error.validation_error("run options must be a keyword list")}
+
+  defp validate_known_flow_run_opts(opts) do
+    opts
+    |> Keyword.keys()
+    |> Enum.find(&(&1 not in @flow_run_option_keys))
+    |> case do
+      nil ->
+        :ok
+
+      option ->
+        {:error,
+         Error.validation_error("unknown run option: #{inspect(option)}", %{option: option})}
+    end
+  end
+
+  defp validate_async_opt(async) when is_boolean(async), do: :ok
+
+  defp validate_async_opt(_async) do
+    {:error, Error.validation_error("async option must be a boolean", %{option: :async})}
+  end
+
+  defp validate_max_concurrency_opt(max_concurrency)
+       when is_integer(max_concurrency) and max_concurrency > 0,
+       do: :ok
+
+  defp validate_max_concurrency_opt(_max_concurrency) do
+    {:error,
+     Error.validation_error("max_concurrency option must be a positive integer", %{
+       option: :max_concurrency
+     })}
   end
 
   defp normalize_instruction(executable, input, context) do
