@@ -44,20 +44,20 @@ defmodule Jido.Flow.DSL do
     )
   end
 
-  defp parse_statement({:parallel, meta, [[do: block]]}, env, context) do
+  defp parse_statement({:group, meta, [[do: block]]}, env, context) do
     branches =
       block
       |> block_expressions()
       |> Enum.map(&parse_branch(&1, env, context))
 
-    Syntax.operation(:parallel, %{branches: branches}, provenance: provenance_from_meta(meta))
+    Syntax.operation(:group, %{branches: branches}, provenance: provenance_from_meta(meta))
   end
 
-  defp parse_statement({:parallel, meta, args}, env, _context) do
+  defp parse_statement({:group, meta, args}, env, _context) do
     unsupported!(
-      "unsupported flow DSL parallel: #{Macro.to_string({:parallel, meta, args})}",
+      "unsupported flow DSL group: #{Macro.to_string({:group, meta, args})}",
       {
-        :parallel,
+        :group,
         meta,
         args
       },

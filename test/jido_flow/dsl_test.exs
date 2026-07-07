@@ -424,18 +424,18 @@ defmodule Jido.Flow.DSLTest do
       assert audit_quote.deps == [:load_quote]
     end
 
-    test "supports static parallel branch groups" do
-      module = unique_module("StaticParallelFlow")
+    test "supports static branch groups" do
+      module = unique_module("StaticGroupFlow")
 
       create_module(
         module,
         quote do
-          use Jido.Flow, name: "static_parallel_flow"
+          use Jido.Flow, name: "static_group_flow"
 
           flow do
             cart = step(:load_cart, unquote(EchoParamsAction), with: %{cart_id: input(:cart_id)})
 
-            parallel do
+            group do
               branch :alpha do
                 priced = step(:price_cart, unquote(EchoParamsAction), with: cart)
               end
@@ -474,10 +474,18 @@ defmodule Jido.Flow.DSLTest do
 
     test "rejects unsupported branch group forms at compile time" do
       cases = [
-        {:parallel_without_block, quote(do: parallel(:bad)), ~r/unsupported flow DSL parallel/},
-        {:branch_without_name,
+        {:old_parallel_keyword,
          quote do
            parallel do
+             branch :alpha do
+               step(:price_cart, unquote(EchoParamsAction), with: %{})
+             end
+           end
+         end, ~r/unsupported flow DSL operation/},
+        {:group_without_block, quote(do: group(:bad)), ~r/unsupported flow DSL group/},
+        {:branch_without_name,
+         quote do
+           group do
              branch do
                step(:price_cart, unquote(EchoParamsAction), with: %{})
              end
@@ -485,24 +493,24 @@ defmodule Jido.Flow.DSLTest do
          end, ~r/unsupported flow DSL branch/},
         {:return_in_branch,
          quote do
-           parallel do
+           group do
              branch :alpha do
                return(result(:price_cart))
              end
            end
-         end, ~r/parallel branches may contain only step operations/},
-        {:nested_parallel,
+         end, ~r/group branches may contain only step operations/},
+        {:nested_group,
          quote do
-           parallel do
+           group do
              branch :alpha do
-               parallel do
+               group do
                  branch :nested do
                    step(:price_cart, unquote(EchoParamsAction), with: %{})
                  end
                end
              end
            end
-         end, ~r/parallel branches may contain only step operations/}
+         end, ~r/group branches may contain only step operations/}
       ]
 
       for {case_name, statement, expected} <- cases do

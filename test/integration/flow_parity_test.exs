@@ -665,7 +665,7 @@ defmodule Jido.Integration.FlowParityTest do
             }
           )
 
-        parallel do
+        group do
           branch :alpha do
             priced =
               step(:price_cart, unquote(EchoParamsAction),

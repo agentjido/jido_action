@@ -128,7 +128,7 @@ Binding rules:
 - Duplicate bindings are rejected.
 - A binding cannot collide with a step name.
 - Reserved names such as `flow`, `step`, `return`, `input`, `context`, `value`,
-  `result`, `select`, `parallel`, and `branch` are rejected.
+  `result`, `select`, `group`, and `branch` are rejected.
 
 ## Return
 
@@ -284,10 +284,10 @@ such as `select(loaded, :id)` are rejected.
 
 ## Static Branch Grouping
 
-`parallel do` groups branches in the source:
+`group do` groups branches in the source:
 
 ```elixir
-parallel do
+group do
   branch :pricing do
     priced =
       step :price_cart, MyApp.Actions.PriceCart,
@@ -315,11 +315,11 @@ available only when converting with provenance enabled.
 
 Current branch rules:
 
-- `parallel` must use a `do` block.
+- `group` must use a `do` block.
 - Each entry must be `branch :name do ... end`.
 - Branch names must be unique non-nil atoms.
 - Branch bodies may contain only steps.
-- Branch bodies cannot contain `return`, nested `parallel`, or arbitrary
+- Branch bodies cannot contain `return`, nested `group`, or arbitrary
   operations.
 - A branch can reference bindings available before the group.
 - Bindings introduced inside branches are available after the group.
@@ -444,7 +444,7 @@ builder =
 - `Syntax.select/2`
 - `Syntax.step/5`
 - `Syntax.branch/3`
-- `Syntax.parallel/3`
+- `Syntax.group/3`
 - `Syntax.return/2`
 
 Use `Builder` for runtime programmatic construction. Use `Syntax` directly when
@@ -460,7 +460,7 @@ flow. Not supported today:
 - Loops, retries, timeouts, scheduler policy, checkpoints, memory, approvals,
   or ReAct agent loops.
 - Branch-local returns or branch result joining semantics.
-- Nested `parallel` groups.
+- Nested `group` blocks.
 - Arbitrary function calls in expressions.
 - Remote calls such as `String.upcase("x")`.
 - Captures, comprehensions, imports, requires, module attributes, and nested
@@ -489,7 +489,7 @@ flow do
       tags: [:tag, "other"],
       note: "Provenance-only note"
 
-  parallel do
+  group do
     branch :name do
       step :branch_step, ActionModule, with: input_expr
     end

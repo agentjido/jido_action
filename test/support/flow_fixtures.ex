@@ -537,7 +537,7 @@ defmodule JidoTest.FlowFixtures do
       },
       bind: :cart
     )
-    |> Syntax.parallel([
+    |> Syntax.group([
       Syntax.branch(:alpha, [
         syntax_step(
           :price_cart,
@@ -645,7 +645,7 @@ defmodule JidoTest.FlowFixtures do
       },
       bind: :cart
     )
-    |> Builder.parallel([
+    |> Builder.group([
       Builder.branch(:alpha, [
         syntax_step(
           :price_cart,
@@ -698,7 +698,7 @@ defmodule JidoTest.FlowFixtures do
             items: input(:items)
           }
 
-      parallel do
+      group do
         branch :alpha do
           priced =
             step :price_cart, JidoTest.TestActions.EchoParamsAction,

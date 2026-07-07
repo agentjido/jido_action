@@ -144,13 +144,13 @@ defmodule Jido.Flow.Syntax do
   end
 
   @doc """
-  Appends a static parallel grouping operation.
+  Appends a provenance-only group operation.
   """
-  @spec parallel(t(), [Operation.t()], keyword()) :: t()
-  def parallel(%__MODULE__{} = syntax, branches, opts \\ []) do
+  @spec group(t(), [Operation.t()], keyword()) :: t()
+  def group(%__MODULE__{} = syntax, branches, opts \\ []) do
     add(
       syntax,
-      operation(:parallel, %{branches: branches}, provenance: Keyword.get(opts, :provenance, %{}))
+      operation(:group, %{branches: branches}, provenance: Keyword.get(opts, :provenance, %{}))
     )
   end
 
