@@ -246,6 +246,7 @@ defmodule Jido.Flow.Compiler do
     |> tag_step_execution_error(node)
   end
 
+  # Extras are instruction-path-only; flow nodes deliberately discard them.
   defp drop_action_extras({:ok, output, _extras}), do: {:ok, output}
   defp drop_action_extras({:error, error}), do: {:error, error}
 

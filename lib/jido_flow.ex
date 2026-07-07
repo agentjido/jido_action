@@ -5,6 +5,10 @@ defmodule Jido.Flow do
   A Flow is a data artifact describing named action calls and a declared return
   expression. Authoring surfaces lower into this struct; execution is delegated
   through `Jido.Exec`.
+
+  Flow nodes consume only an action's output or error reason. Action extras from
+  `Jido.Action.run/2` are an instruction-path delivery channel and are discarded
+  during flow execution.
   """
 
   alias Jido.Action
