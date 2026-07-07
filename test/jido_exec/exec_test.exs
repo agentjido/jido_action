@@ -181,6 +181,24 @@ defmodule Jido.ExecTest do
       assert {:ok, 2} = Exec.run(empty_flow, nil, nil)
     end
 
+    test "passes map input through empty Flow schemas unchanged" do
+      flow =
+        Flow.new!(
+          name: "empty_schema_passthrough",
+          schema: [],
+          nodes: [
+            Node.new!(
+              name: :echo,
+              action: EchoParamsAction,
+              input: %{value: Ref.input(:value), extra: Ref.input(:extra)}
+            )
+          ],
+          return: Ref.result(:echo)
+        )
+
+      assert {:ok, %{value: 3, extra: "kept"}} = Exec.run(flow, %{value: 3, extra: "kept"}, %{})
+    end
+
     test "rejects invalid Flow input and context shapes" do
       assert {:ok, flow} = Builder.build(FlowFixtures.math_builder())
 
