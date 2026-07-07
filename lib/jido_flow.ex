@@ -125,6 +125,9 @@ defmodule Jido.Flow do
     escaped_flow = Macro.escape(flow)
 
     quote do
+      @doc false
+      def __jido_flow__, do: true
+
       def flow, do: unquote(escaped_flow)
       def to_map(opts \\ []), do: Jido.Flow.to_map(flow(), opts)
       def compile, do: Jido.Flow.compile(flow())

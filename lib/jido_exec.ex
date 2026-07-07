@@ -39,7 +39,7 @@ defmodule Jido.Exec do
   def run(module, input, context) when is_atom(module) and not is_nil(module) do
     case Code.ensure_loaded(module) do
       {:module, _module} ->
-        if function_exported?(module, :flow, 0) do
+        if function_exported?(module, :__jido_flow__, 0) do
           run(module.flow(), input, context)
         else
           with {:ok, instruction} <- normalize_instruction(module, input, context) do
