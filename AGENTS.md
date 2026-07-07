@@ -30,7 +30,6 @@ composition/runtime implementation.
 Keep production dependencies focused. The only intended direct production
 dependencies are:
 
-- `jason`
 - `telemetry`
 - `zoi`
 - `runic`

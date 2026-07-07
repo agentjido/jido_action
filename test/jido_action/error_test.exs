@@ -355,10 +355,10 @@ defmodule Jido.Action.ErrorTest do
       assert mapped.details.reason.__struct__ == inspect(Reason)
       assert mapped.details.reason.field == :transport
       assert mapped.details.reason.meta == [:retry, 1]
-      assert {:ok, _} = Jason.encode(mapped)
+      assert is_binary(JSON.encode!(mapped))
     end
 
-    test "sanitizes structured execution details into Jason-safe maps" do
+    test "sanitizes structured execution details into JSON-safe maps" do
       error =
         Error.execution_error("boom", %{
           reason: %Reason{message: "nested", field: :transport, meta: {:retry, 2}},
@@ -375,7 +375,7 @@ defmodule Jido.Action.ErrorTest do
                %{__exception__: true, __struct__: inspect(RuntimeError), message: "down"}
              ]
 
-      assert {:ok, _} = Jason.encode(mapped)
+      assert is_binary(JSON.encode!(mapped))
     end
 
     test "normalizes opaque execution details without exposing a sanitizer API" do
@@ -399,7 +399,7 @@ defmodule Jido.Action.ErrorTest do
                tail: 2
              }
 
-      assert {:ok, _} = Jason.encode(mapped)
+      assert is_binary(JSON.encode!(mapped))
     end
 
     test "unwraps two- and three-tuple error results" do
@@ -557,7 +557,7 @@ defmodule Jido.Action.ErrorTest do
 
       assert mapped.message =~ "RaisingInspectStruct"
       assert mapped.details.values == [1, [:two, 2], %{three: 3}]
-      assert {:ok, _} = Jason.encode(mapped)
+      assert is_binary(JSON.encode!(mapped))
     end
 
     test "normalizes non-scalar detail keys and inspect-hostile structs" do
@@ -571,15 +571,15 @@ defmodule Jido.Action.ErrorTest do
       assert normalized_key =~ "RaisingInspectStruct"
       assert mapped.details[normalized_key].nested.__struct__ == inspect(RaisingInspectStruct)
       assert mapped.details[normalized_key].nested.value == 2
-      assert {:ok, _} = Jason.encode(mapped)
+      assert is_binary(JSON.encode!(mapped))
     end
   end
 
-  describe "Jason encoding" do
+  describe "JSON encoding" do
     test "encodes InvalidInputError through normalized generic maps" do
       error = Error.validation_error("bad input", field: :name, value: 123)
 
-      decoded = error |> Jason.encode!() |> Jason.decode!()
+      decoded = error |> JSON.encode!() |> JSON.decode!()
 
       assert decoded["type"] == "validation_error"
       assert decoded["message"] == "bad input"
@@ -593,7 +593,7 @@ defmodule Jido.Action.ErrorTest do
           reason: %Reason{message: "nested", field: :transport, meta: {:retry, 2}}
         })
 
-      decoded = error |> Jason.encode!() |> Jason.decode!()
+      decoded = error |> JSON.encode!() |> JSON.decode!()
 
       assert decoded["type"] == "execution_error"
       assert decoded["message"] == "boom"
@@ -605,7 +605,7 @@ defmodule Jido.Action.ErrorTest do
     test "encodes TimeoutError through normalized generic maps" do
       error = Error.timeout_error("timed out", timeout: 5000)
 
-      decoded = error |> Jason.encode!() |> Jason.decode!()
+      decoded = error |> JSON.encode!() |> JSON.decode!()
 
       assert decoded["type"] == "timeout"
       assert decoded["message"] == "timed out"
@@ -621,7 +621,7 @@ defmodule Jido.Action.ErrorTest do
       ]
 
       for {error, type, retryable?} <- errors do
-        decoded = error |> Jason.encode!() |> Jason.decode!()
+        decoded = error |> JSON.encode!() |> JSON.decode!()
 
         assert decoded["type"] == type
         assert decoded["retryable?"] == retryable?
@@ -636,7 +636,7 @@ defmodule Jido.Action.ErrorTest do
         tool_name: "list_directory"
       }
 
-      decoded = malformed |> Jason.encode!() |> Jason.decode!()
+      decoded = malformed |> JSON.encode!() |> JSON.decode!()
 
       assert decoded == %{
                "type" => "execution_error",
