@@ -7,15 +7,17 @@ defmodule Jido.Flow.Compiler do
   alias Jido.Action.Output
   alias Jido.Exec
   alias Jido.Flow
+  alias Jido.Flow.NodeError
   alias Jido.Flow.Ref
   alias Runic.Workflow
   alias Runic.Workflow.Step
 
+  @collector_key :__jido_flow_error_collector__
+
   @type execution_state :: %{
           input: map(),
           context: map(),
-          results: map(),
-          error: Exception.t() | nil
+          results: map()
         }
 
   @doc """
@@ -53,14 +55,25 @@ defmodule Jido.Flow.Compiler do
   def run(%Flow{} = flow, input, context) when is_map(input) and is_map(context) do
     with {:ok, ordered_nodes} <- topological_order(flow.nodes),
          {:ok, workflow} <- compile(flow) do
-      initial_state = %{input: input, context: context, results: %{}, error: nil}
-      final_workflow = Workflow.react_until_satisfied(workflow, initial_state)
-      final_state = final_state(final_workflow, List.last(ordered_nodes))
+      runner = self()
+      run_ref = make_ref()
 
-      case final_state do
-        %{error: nil} = state -> extract_return(flow.return, state)
-        %{error: error} -> {:error, error}
-        nil -> {:error, Error.execution_error("flow execution produced no final state")}
+      initial_state =
+        %{input: input, context: context, results: %{}}
+        |> Map.put(@collector_key, {runner, run_ref})
+
+      final_workflow = Workflow.react_until_satisfied(workflow, initial_state)
+      node_errors = drain_node_errors(run_ref, ordered_nodes)
+
+      case node_errors do
+        [{_node, error} | _rest] ->
+          {:error, error}
+
+        [] ->
+          case final_state(final_workflow, List.last(ordered_nodes)) do
+            nil -> {:error, Error.execution_error("flow execution produced no final state")}
+            state -> extract_return(flow.return, state)
+          end
       end
     end
   end
@@ -93,8 +106,6 @@ defmodule Jido.Flow.Compiler do
     Enum.all?(node.deps, &MapSet.member?(done, &1))
   end
 
-  defp run_node(_node, %{error: error} = state) when not is_nil(error), do: state
-
   defp run_node(node, state) do
     with {:ok, params} <- resolve_expr(node.input, state),
          {:ok, params} <- validate_step_input(node, params),
@@ -102,7 +113,40 @@ defmodule Jido.Flow.Compiler do
          {:ok, output} <- validate_step_output(node, output) do
       put_in(state, [:results, node.name], output)
     else
-      {:error, error} -> %{state | error: error}
+      {:error, error} -> raise_node_error(node, error, state)
+    end
+  end
+
+  defp raise_node_error(node, error, state) do
+    record_node_error(node, error, state)
+    raise NodeError, node: node.name, error: error
+  end
+
+  defp record_node_error(node, error, %{@collector_key => {runner, run_ref}})
+       when is_pid(runner) do
+    send(runner, {run_ref, :node_error, node.name, error})
+  end
+
+  defp record_node_error(_node, _error, _state), do: :ok
+
+  defp drain_node_errors(run_ref, ordered_nodes) do
+    node_index =
+      ordered_nodes
+      |> Enum.with_index()
+      |> Map.new(fn {node, index} -> {node.name, index} end)
+
+    run_ref
+    |> do_drain_node_errors([])
+    |> Enum.sort_by(fn {node, _error} -> Map.fetch!(node_index, node) end)
+  end
+
+  defp do_drain_node_errors(run_ref, acc) do
+    receive do
+      {^run_ref, :node_error, node, error} ->
+        do_drain_node_errors(run_ref, [{node, error} | acc])
+    after
+      0 ->
+        acc
     end
   end
 
