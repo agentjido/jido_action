@@ -122,7 +122,13 @@ defmodule Jido.Exec do
     else
       module
     end
+  rescue
+    _exception -> module
+  catch
+    _kind, _reason -> module
   end
+
+  defp action_name(action), do: action
 
   defp result_metadata({:error, error}) do
     %{status: :error, error_type: error_type(error)}

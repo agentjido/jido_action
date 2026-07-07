@@ -154,6 +154,13 @@ defmodule Jido.ExecTest do
 
       assert message =~ "expected params to be a map or keyword list"
     end
+
+    test "returns validation errors for malformed raw instruction structs" do
+      instruction = %Instruction{action: "not_a_module", params: %{}, context: %{}}
+
+      assert {:error, %InvalidInputError{message: "Invalid instruction configuration"}} =
+               Exec.run(instruction)
+    end
   end
 
   describe "run/3 with flows" do
