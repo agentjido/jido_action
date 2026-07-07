@@ -47,6 +47,27 @@ defmodule Jido.Flow.DSLTest do
       assert module.compile() == Flow.compile(flow)
     end
 
+    test "expands action module aliases from the caller environment" do
+      module = unique_module("AliasedActionFlow")
+
+      create_module(
+        module,
+        quote do
+          alias JidoTest.TestActions.Add
+
+          use Jido.Flow, name: "aliased_action_flow"
+
+          flow do
+            step(:add_one, Add, %{value: input(:value), amount: value(1)})
+            return(result(:add_one, :value))
+          end
+        end
+      )
+
+      assert [%{action: Add}] = module.to_map().nodes
+      assert {:ok, 4} = Jido.Exec.run(module, %{value: 3}, %{})
+    end
+
     test "missing return fails at compile time" do
       module = unique_module("MissingReturnFlow")
 

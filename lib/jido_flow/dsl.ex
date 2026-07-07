@@ -229,8 +229,14 @@ defmodule Jido.Flow.DSL do
        when is_atom(module) and not is_nil(module),
        do: module
 
-  defp parse_action_module!({:__aliases__, _meta, parts}, _step_meta, _env, _context) do
-    Module.concat(parts)
+  defp parse_action_module!({:__aliases__, _meta, _parts} = ast, _step_meta, env, _context) do
+    case Macro.expand(ast, env) do
+      module when is_atom(module) and not is_nil(module) ->
+        module
+
+      _expanded ->
+        unsupported!("unsupported flow DSL action module: #{Macro.to_string(ast)}", ast, env)
+    end
   end
 
   defp parse_action_module!(ast, _step_meta, env, _context) do
