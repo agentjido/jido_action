@@ -27,7 +27,8 @@ defmodule Jido.Exec do
   end
 
   def run(%Flow{} = flow, input, context) do
-    with {:ok, input} <- normalize_map(input, :input),
+    with :ok <- Flow.check(flow),
+         {:ok, input} <- normalize_map(input, :input),
          {:ok, context} <- normalize_map(context, :context),
          {:ok, input} <- validate_data(flow.schema, input, "Flow", flow, :flow_input),
          {:ok, output} <- Flow.Compiler.run(flow, input, context),

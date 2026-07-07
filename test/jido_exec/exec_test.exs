@@ -18,6 +18,7 @@ defmodule Jido.ExecTest do
     ErrorWithExtrasAction,
     ExceptionErrorAction,
     ExtrasAction,
+    MissingRun,
     OutputEnvelopeAction,
     ThrowingAction,
     TupleErrorAction,
@@ -157,6 +158,29 @@ defmodule Jido.ExecTest do
     test "executes a Flow artifact" do
       assert {:ok, flow} = Builder.build(FlowFixtures.math_builder())
       assert {:ok, 8} = Exec.run(flow, %{value: 3}, %{})
+    end
+
+    test "checks Flow action contracts before execution" do
+      assert {:ok, flow} =
+               Flow.new(
+                 name: "unchecked",
+                 nodes: [
+                   Node.new!(
+                     name: :broken,
+                     action: MissingRun,
+                     input: %{value: Ref.input(:value)}
+                   )
+                 ],
+                 return: Ref.result(:broken)
+               )
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Exec.run(flow, %{value: 3}, %{})
+
+      assert message =~ "module is not a valid Jido action"
+      assert details.node == :broken
+      assert details.action == MissingRun
+      assert details.reason == "missing run/2"
     end
 
     test "executes a binding-first Flow artifact with whole-result input" do

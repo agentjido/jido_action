@@ -103,6 +103,30 @@ defmodule Jido.Flow.DSLTest do
       end
     end
 
+    test "unloadable action modules fail at compile time" do
+      module = unique_module("UnloadedActionFlow")
+      missing_action = unique_module("MissingCompileTimeAction")
+
+      error =
+        assert_raise CompileError, fn ->
+          create_module(
+            module,
+            quote do
+              use Jido.Flow, name: "unloaded_action_flow"
+
+              flow do
+                step(:missing, unquote(missing_action), %{value: input(:value)})
+                return(result(:missing))
+              end
+            end
+          )
+        end
+
+      assert error.description =~ "action module could not be loaded"
+      assert error.description =~ "node: :missing"
+      assert error.description =~ "action: #{inspect(missing_action)}"
+    end
+
     test "supports binding assignments, with input, and return by binding" do
       module = unique_module("BindingFlow")
 

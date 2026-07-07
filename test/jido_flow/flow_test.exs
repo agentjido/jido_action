@@ -78,18 +78,63 @@ defmodule Jido.FlowTest do
       assert details.node == :missing
     end
 
-    test "rejects a node whose action module does not expose the action contract" do
+    test "checks nodes whose action modules do not expose the action contract" do
       attrs = [
         name: "bad",
         nodes: [[name: :broken, action: MissingRun]],
         return: Ref.result(:broken)
       ]
 
-      assert {:error, %InvalidInputError{message: message, details: details}} = Flow.new(attrs)
+      assert {:ok, flow} = Flow.new(attrs)
+
+      assert {:error, %InvalidInputError{message: message, details: details}} = Flow.check(flow)
       assert message =~ "module is not a valid Jido action"
       assert details.node == :broken
       assert details.action == MissingRun
       assert details.reason == "missing run/2"
+    end
+
+    test "accepts structurally valid flows with unloaded action modules" do
+      missing_action = unique_module("MissingAction")
+
+      attrs = [
+        name: "unchecked",
+        nodes: [[name: :missing, action: missing_action]],
+        return: Ref.result(:missing)
+      ]
+
+      assert {:ok, flow} = Flow.new(attrs)
+
+      assert {:error, %InvalidInputError{message: message, details: details}} = Flow.check(flow)
+      assert message == "action module could not be loaded"
+      assert details.node == :missing
+      assert details.action == missing_action
+      assert details.reason == :nofile
+    end
+
+    test "rejects cyclic dependency graphs" do
+      attrs = [
+        name: "cycle",
+        nodes: [
+          [
+            name: :first,
+            action: Add,
+            input: %{value: Ref.input(:value)},
+            deps: [:second]
+          ],
+          [
+            name: :second,
+            action: Add,
+            input: %{value: Ref.input(:value)},
+            deps: [:first]
+          ]
+        ],
+        return: Ref.result(:second)
+      ]
+
+      assert {:error, %InvalidInputError{message: message, details: details}} = Flow.new(attrs)
+      assert message =~ "flow dependency graph contains a cycle"
+      assert Enum.sort(details.nodes) == [:first, :second]
     end
 
     test "revalidates prebuilt node structs instead of trusting canonical shape" do

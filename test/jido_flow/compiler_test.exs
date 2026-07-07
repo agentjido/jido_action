@@ -98,24 +98,29 @@ defmodule Jido.Flow.CompilerTest do
              ]
     end
 
-    test "rejects dependency graphs that cannot be topologically ordered" do
-      flow =
-        Flow.new!(
-          name: "cycle",
-          nodes: [
-            Node.new!(
-              name: :first,
-              action: Add,
-              input: %{value: Ref.result(:second, :value), amount: Ref.value(1)}
-            ),
-            Node.new!(
-              name: :second,
-              action: Multiply,
-              input: %{value: Ref.result(:first, :value), amount: Ref.value(2)}
-            )
-          ],
-          return: Ref.result(:second, :value)
-        )
+    test "defensively rejects unvalidated dependency graphs that cannot be ordered" do
+      flow = %Flow{
+        name: "cycle",
+        description: nil,
+        schema: [],
+        output_schema: [],
+        nodes: [
+          Node.new!(
+            name: :first,
+            action: Add,
+            input: %{value: Ref.input(:value)},
+            deps: [:second]
+          ),
+          Node.new!(
+            name: :second,
+            action: Multiply,
+            input: %{value: Ref.input(:value)},
+            deps: [:first]
+          )
+        ],
+        return: Ref.result(:second, :value),
+        provenance: %{}
+      }
 
       assert {:error, %ConfigurationError{message: message, details: details}} =
                Flow.compile(flow)
