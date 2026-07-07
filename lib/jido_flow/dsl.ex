@@ -92,6 +92,24 @@ defmodule Jido.Flow.DSL do
     unsupported!("unsupported flow DSL branch: #{Macro.to_string(branch)}", branch, env)
   end
 
+  defp parse_step(meta, [action_ast, input_ast], env, binding, context)
+       when is_atom(binding) and not is_nil(binding) do
+    action = parse_action_module!(action_ast, meta, env, context)
+    {input, after_targets, annotations} = parse_step_input_and_after!(input_ast, env)
+
+    attrs =
+      %{action: action, input: input}
+      |> maybe_put_binding(binding)
+      |> maybe_put_after(after_targets)
+
+    provenance =
+      meta
+      |> provenance_from_meta()
+      |> Map.merge(annotations)
+
+    Syntax.operation(:step, attrs, provenance: provenance)
+  end
+
   defp parse_step(meta, [name_ast, action_ast, input_ast], env, binding, context) do
     name = parse_atom!(name_ast, "step name", meta, env)
     action = parse_action_module!(action_ast, meta, env, context)

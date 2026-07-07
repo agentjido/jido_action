@@ -53,6 +53,19 @@ defmodule Jido.Flow.BuilderTest do
       refute function_exported?(Builder, :shape, 1)
     end
 
+    test "builder allows bound steps to derive their node name" do
+      builder =
+        Builder.new(name: "derived_binding_name")
+        |> Builder.step(nil, JidoTest.TestActions.Add, %{value: Builder.input(:value)},
+          bind: :added
+        )
+        |> Builder.return(Builder.binding(:added))
+
+      assert {:ok, flow} = Builder.build(builder)
+      assert [%{name: :added}] = Flow.to_map(flow).nodes
+      assert Flow.to_map(flow).return == %{type: :result, node: :added, path: []}
+    end
+
     test "builder passes explicit after targets to syntax" do
       after_targets = [:load_cart, Builder.binding(:quote)]
 

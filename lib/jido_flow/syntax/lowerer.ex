@@ -52,6 +52,8 @@ defmodule Jido.Flow.Syntax.Lowerer do
   end
 
   defp lower_operations(operations) do
+    operations = normalize_derived_step_names(operations)
+
     with :ok <- validate_source_namespace(operations) do
       initial_state = %{
         nodes: [],
@@ -151,6 +153,58 @@ defmodule Jido.Flow.Syntax.Lowerer do
      Error.validation_error("unsupported flow syntax operation: #{inspect(operation)}", %{
        operation: operation
      })}
+  end
+
+  defp normalize_derived_step_names(operations) when is_list(operations) do
+    Enum.map(operations, &normalize_derived_step_name/1)
+  end
+
+  defp normalize_derived_step_names(operations), do: operations
+
+  defp normalize_derived_step_name(%Operation{kind: :step, attrs: attrs} = operation) do
+    case {Map.get(attrs, :name), Map.get(attrs, :binding)} do
+      {nil, binding} when is_atom(binding) and not is_nil(binding) ->
+        %{
+          operation
+          | attrs:
+              attrs
+              |> Map.put(:name, binding)
+              |> Map.put(:derived_name?, true)
+        }
+
+      _other ->
+        operation
+    end
+  end
+
+  defp normalize_derived_step_name(%Operation{kind: :group, attrs: attrs} = operation) do
+    case Map.get(attrs, :branches) do
+      branches when is_list(branches) ->
+        %{
+          operation
+          | attrs: Map.put(attrs, :branches, normalize_derived_branch_step_names(branches))
+        }
+
+      _branches ->
+        operation
+    end
+  end
+
+  defp normalize_derived_step_name(operation), do: operation
+
+  defp normalize_derived_branch_step_names(branches) when is_list(branches) do
+    Enum.map(branches, fn
+      %Operation{kind: :branch, attrs: attrs} = branch ->
+        operations =
+          attrs
+          |> Map.get(:operations)
+          |> normalize_derived_step_names()
+
+        %{branch | attrs: Map.put(attrs, :operations, operations)}
+
+      branch ->
+        branch
+    end)
   end
 
   defp resolve_expr(%Expr{type: :input, path: path}, _state, _step), do: {:ok, Ref.input(path)}
@@ -429,13 +483,26 @@ defmodule Jido.Flow.Syntax.Lowerer do
 
   defp validate_source_namespace(operations) do
     aliases = binding_aliases(operations)
-    step_names = step_names(operations)
 
-    with :ok <- validate_binding_alias_shapes(aliases),
+    with :ok <- validate_step_name_presence(operations),
+         :ok <- validate_binding_alias_shapes(aliases),
          :ok <- validate_duplicate_bindings(aliases),
          :ok <- validate_reserved_bindings(aliases),
-         :ok <- validate_binding_step_collisions(aliases, step_names) do
+         :ok <- validate_binding_step_collisions(operations) do
       :ok
+    end
+  end
+
+  defp validate_step_name_presence(operations) do
+    case Enum.find(step_operations(operations), &is_nil(Map.get(&1.attrs, :name))) do
+      nil ->
+        :ok
+
+      %Operation{attrs: attrs} ->
+        {:error,
+         Error.validation_error("step requires a name or a binding", %{
+           binding: Map.get(attrs, :binding)
+         })}
     end
   end
 
@@ -535,14 +602,23 @@ defmodule Jido.Flow.Syntax.Lowerer do
     end
   end
 
-  defp validate_binding_step_collisions(aliases, step_names) do
-    step_name_set = MapSet.new(step_names)
+  defp validate_binding_step_collisions(operations) do
+    step_name_set = operations |> step_names() |> MapSet.new()
 
-    case Enum.find(aliases, &MapSet.member?(step_name_set, &1)) do
+    case Enum.find(step_operations(operations), fn %Operation{attrs: attrs} ->
+           binding = Map.get(attrs, :binding)
+           name = Map.get(attrs, :name)
+           derived_name? = Map.get(attrs, :derived_name?, false)
+
+           is_atom(binding) and not is_nil(binding) and MapSet.member?(step_name_set, binding) and
+             not (derived_name? and binding == name)
+         end) do
       nil ->
         :ok
 
-      binding ->
+      %Operation{attrs: attrs} ->
+        binding = Map.fetch!(attrs, :binding)
+
         {:error,
          Error.validation_error("binding alias conflicts with step name: #{inspect(binding)}", %{
            binding: binding

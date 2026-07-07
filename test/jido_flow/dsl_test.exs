@@ -150,6 +150,28 @@ defmodule Jido.Flow.DSLTest do
       assert module.to_map().return == %{type: :result, node: :double, path: []}
     end
 
+    test "derives bound step names from binding handles" do
+      module = unique_module("DerivedBindingNameFlow")
+
+      create_module(
+        module,
+        quote do
+          use Jido.Flow, name: "derived_binding_name_flow"
+
+          flow do
+            added = step(unquote(Add), with: %{value: input(:value), amount: value(1)})
+            return(added)
+          end
+        end
+      )
+
+      assert [%{name: :added, input: input}] = module.to_map().nodes
+      assert input.value == %{type: :input, path: [:value]}
+      assert input.amount == %{type: :value, value: 1}
+      assert module.to_map().return == %{type: :result, node: :added, path: []}
+      assert {:ok, %{value: 4}} = Jido.Exec.run(module, %{value: 3}, %{})
+    end
+
     test "supports step annotations as provenance only" do
       module = unique_module("AnnotatedFlow")
 
