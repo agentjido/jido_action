@@ -73,14 +73,23 @@ syntax yet.
 
 ## Steps
 
-A step names one action invocation.
+A step declares one action invocation. Unbound steps name the invocation
+explicitly:
 
 ```elixir
 step :add_one, MyApp.Actions.Add, %{value: input(:value), amount: value(1)}
 ```
 
-The keyword form is preferred when using bindings, explicit edges, or
-annotations:
+Bound steps can derive their node name from the binding handle:
+
+```elixir
+added =
+  step MyApp.Actions.Add,
+    with: %{value: input(:value), amount: value(1)}
+```
+
+Use an explicit name with a binding when the serialized node identity should
+stay stable even if the source-local handle is renamed:
 
 ```elixir
 added =
@@ -97,9 +106,10 @@ Supported step options are:
 - `tags:` - optional provenance-only list of strings or atoms.
 - `note:` - optional provenance-only string.
 
-The step name must be a non-nil atom. In trusted source, the action can be a
-module alias or module atom. In stored source, actions must resolve through the
-explicit action registry described below.
+An unbound step must have a non-nil atom name. A bound step may omit the name;
+the lowerer derives the node name from the binding. In trusted source, the
+action can be a module alias or module atom. In stored source, actions must
+resolve through the explicit action registry described below.
 
 ## Binding Handles
 
@@ -107,11 +117,11 @@ A step may be assigned to a local binding handle:
 
 ```elixir
 cart =
-  step :load_cart, MyApp.Actions.LoadCart,
+  step MyApp.Actions.LoadCart,
     with: %{cart_id: input(:cart_id)}
 
 quote =
-  step :price_cart, MyApp.Actions.PriceCart,
+  step MyApp.Actions.PriceCart,
     with: %{cart: cart}
 
 return quote
@@ -126,7 +136,8 @@ Binding rules:
 - A binding can be used as a root expression or nested inside maps and lists.
 - A binding must refer to a previously bound step.
 - Duplicate bindings are rejected.
-- A binding cannot collide with a step name.
+- A binding cannot collide with another step name. In the derived-name form, the
+  binding is the step name.
 - Reserved names such as `flow`, `step`, `return`, `input`, `context`, `value`,
   `result`, `select`, `group`, and `branch` are rejected.
 
@@ -485,6 +496,10 @@ Supported source forms:
 ```elixir
 flow do
   step :name, ActionModule, input_expr
+
+  handle =
+    step ActionModule,
+      with: input_expr
 
   handle =
     step :name, ActionModule,

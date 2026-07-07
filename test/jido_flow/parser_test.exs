@@ -124,6 +124,22 @@ defmodule Jido.Flow.ParserTest do
       assert Flow.to_map(flow).return == %{type: :result, node: :double, path: []}
     end
 
+    test "parses bound steps whose names derive from binding handles" do
+      source = """
+      flow do
+        added = step JidoTest.TestActions.Add, with: %{value: input(:value), amount: value(1)}
+        return added
+      end
+      """
+
+      assert {:ok, flow} = Flow.parse(source, name: "derived_binding_name_flow")
+      assert [%{name: :added, input: input}] = Flow.to_map(flow).nodes
+      assert input.value == %{type: :input, path: [:value]}
+      assert input.amount == %{type: :value, value: 1}
+      assert Flow.to_map(flow).return == %{type: :result, node: :added, path: []}
+      assert {:ok, %{value: 4}} = Jido.Exec.run(flow, %{value: 3}, %{})
+    end
+
     test "parses structurally valid trusted flows without checking action modules" do
       missing_action = unique_module("MissingTrustedAction")
 
@@ -178,6 +194,26 @@ defmodule Jido.Flow.ParserTest do
                tags: ["math", "example"],
                note: "Visible only in provenance"
              }
+    end
+
+    test "stored parser profile derives names for registered action identifiers" do
+      source = """
+      flow do
+        added = step "add", with: %{value: input(:value), amount: value(1)}
+        return added
+      end
+      """
+
+      assert {:ok, flow} =
+               Flow.parse(source,
+                 name: "derived_name_flow",
+                 description: "Derives node names from bindings",
+                 profile: :stored,
+                 actions: %{"add" => JidoTest.TestActions.Add}
+               )
+
+      assert [%{name: :added}] = Flow.to_map(flow).nodes
+      assert {:ok, %{value: 4}} = Jido.Exec.run(flow, %{value: 3}, %{})
     end
 
     test "stored parser profile accepts keyword action registries" do

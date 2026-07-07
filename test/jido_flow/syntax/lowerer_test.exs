@@ -367,6 +367,46 @@ defmodule Jido.Flow.Syntax.LowererTest do
       assert double_provenance.provenance.binding == :doubled
     end
 
+    test "derives a missing step name from its binding" do
+      syntax =
+        Syntax.new(name: "derived_binding_name")
+        |> Syntax.step(nil, Add, %{value: Syntax.input(:value), amount: Syntax.value(1)},
+          bind: :added
+        )
+        |> Syntax.return(Syntax.binding(:added))
+
+      assert {:ok, flow} = Lowerer.lower(syntax)
+
+      assert [%{name: :added, provenance: %{binding: :added}}] =
+               Flow.to_map(flow, provenance: true).nodes
+
+      assert Flow.to_map(flow).return == %{type: :result, node: :added, path: []}
+    end
+
+    test "rejects an unnamed step without a binding" do
+      syntax =
+        Syntax.new(name: "unnamed")
+        |> Syntax.step(nil, Add, %{value: Syntax.input(:value)})
+        |> Syntax.return(Syntax.result(:missing))
+
+      assert {:error, %InvalidInputError{message: message}} = Lowerer.lower(syntax)
+      assert message =~ "step requires a name or a binding"
+    end
+
+    test "rejects a derived name that duplicates an explicit step name" do
+      syntax =
+        Syntax.new(name: "duplicate_derived_name")
+        |> Syntax.step(:added, Add, %{value: Syntax.input(:value)})
+        |> Syntax.step(nil, Multiply, %{value: Syntax.input(:value)}, bind: :added)
+        |> Syntax.return(Syntax.result(:added))
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Lowerer.lower(syntax)
+
+      assert message =~ "duplicate step name"
+      assert details.name == :added
+    end
+
     test "keeps step annotations in provenance only" do
       annotated =
         Syntax.new(name: "annotated_flow")
@@ -913,7 +953,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
     test "keeps invalid step names on canonical node validation" do
       syntax =
         Syntax.new(name: "invalid_step_name")
-        |> Syntax.step(nil, Add, %{}, bind: :added)
+        |> Syntax.step("add_one", Add, %{}, bind: :added)
         |> Syntax.return(Syntax.result(:add_one))
 
       assert {:error, %InvalidInputError{message: message}} = Lowerer.lower(syntax)

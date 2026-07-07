@@ -186,6 +186,62 @@ defmodule JidoTest.FlowFixtures do
     """
   end
 
+  def derived_name_syntax do
+    Syntax.new(
+      name: "derived_name_flow",
+      description: "Derives node names from bindings"
+    )
+    |> Syntax.step(
+      nil,
+      Add,
+      %{value: Syntax.input(:value), amount: Syntax.value(1)},
+      bind: :added
+    )
+    |> Syntax.step(
+      nil,
+      Multiply,
+      %{value: Syntax.select(Syntax.binding(:added), :value), amount: Syntax.value(2)},
+      bind: :doubled
+    )
+    |> Syntax.return(Syntax.binding(:doubled))
+  end
+
+  def derived_name_builder do
+    Builder.new(
+      name: "derived_name_flow",
+      description: "Derives node names from bindings"
+    )
+    |> Builder.step(
+      nil,
+      Add,
+      %{value: Builder.input(:value), amount: Builder.value(1)},
+      bind: :added
+    )
+    |> Builder.step(
+      nil,
+      Multiply,
+      %{value: Builder.select(Builder.binding(:added), :value), amount: Builder.value(2)},
+      bind: :doubled
+    )
+    |> Builder.return(Builder.binding(:doubled))
+  end
+
+  def derived_name_source do
+    """
+    flow do
+      added =
+        step JidoTest.TestActions.Add,
+          with: %{value: input(:value), amount: value(1)}
+
+      doubled =
+        step JidoTest.TestActions.Multiply,
+          with: %{value: select(added, :value), amount: value(2)}
+
+      return doubled
+    end
+    """
+  end
+
   def annotated_syntax do
     Syntax.new(
       name: "annotated_flow",
@@ -908,6 +964,37 @@ defmodule JidoTest.FlowFixtures do
         literal: %{type: :value, value: "ok"},
         nested: [%{type: :result, node: :double, path: [:value]}]
       }
+    }
+  end
+
+  def derived_name_canonical_map do
+    %{
+      type: :flow,
+      name: "derived_name_flow",
+      description: "Derives node names from bindings",
+      schema: [],
+      output_schema: [],
+      nodes: [
+        %{
+          name: :added,
+          action: Add,
+          input: %{
+            value: %{type: :input, path: [:value]},
+            amount: %{type: :value, value: 1}
+          },
+          deps: []
+        },
+        %{
+          name: :doubled,
+          action: Multiply,
+          input: %{
+            value: %{type: :result, node: :added, path: [:value]},
+            amount: %{type: :value, value: 2}
+          },
+          deps: [:added]
+        }
+      ],
+      return: %{type: :result, node: :doubled, path: []}
     }
   end
 

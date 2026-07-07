@@ -331,6 +331,21 @@ defmodule Jido.Integration.FlowParityTest do
         }
       },
       %{
+        label: "derived-name",
+        module_suffix: "DerivedNameFlow",
+        module: &create_derived_name_flow_module/1,
+        opts: [
+          name: "derived_name_flow",
+          description: "Derives node names from bindings"
+        ],
+        syntax: &FlowFixtures.derived_name_syntax/0,
+        builder: &FlowFixtures.derived_name_builder/0,
+        source: &FlowFixtures.derived_name_source/0,
+        canonical: &FlowFixtures.derived_name_canonical_map/0,
+        input: %{value: 3},
+        expected: %{value: 8}
+      },
+      %{
         label: "annotated",
         module_suffix: "AnnotatedFlow",
         module: &create_annotated_flow_module/1,
@@ -609,6 +624,23 @@ defmodule Jido.Integration.FlowParityTest do
           literal: "ok",
           nested: [select(doubled, :value)]
         })
+      end
+    )
+  end
+
+  defp create_derived_name_flow_module(prefix) do
+    create_flow_module(
+      prefix,
+      "derived_name_flow",
+      "Derives node names from bindings",
+      quote do
+        added =
+          step(unquote(Add), with: %{value: input(:value), amount: value(1)})
+
+        doubled =
+          step(unquote(Multiply), with: %{value: select(added, :value), amount: value(2)})
+
+        return(doubled)
       end
     )
   end

@@ -157,7 +157,7 @@ defmodule Jido.Flow.Syntax do
   @doc """
   Appends a step operation.
   """
-  @spec step(t(), atom(), module(), term(), keyword()) :: t()
+  @spec step(t(), atom() | nil, module(), term(), keyword()) :: t()
   def step(%__MODULE__{} = syntax, name, action, input, opts \\ []) do
     attrs =
       %{
