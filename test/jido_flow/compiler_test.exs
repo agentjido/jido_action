@@ -498,7 +498,7 @@ defmodule Jido.Flow.CompilerTest do
                Compiler.run(flow, %{}, %{value: 3, trace_id: "trace-1"})
     end
 
-    test "ignores action extras from successful step result tuples" do
+    test "drops action extras inside flows while direct execution preserves them" do
       flow =
         Flow.new!(
           name: "extras",
@@ -508,10 +508,13 @@ defmodule Jido.Flow.CompilerTest do
           return: Ref.result(:extras, :value)
         )
 
-      assert {:ok, 3} = Compiler.run(flow, %{value: 3}, %{trace_id: "trace"})
+      context = %{trace_id: "trace"}
+
+      assert {:ok, %{value: 3}, ^context} = Jido.Exec.run(ExtrasAction, %{value: 3}, context)
+      assert {:ok, 3} = Compiler.run(flow, %{value: 3}, context)
     end
 
-    test "normalizes three-element action error tuples with step metadata" do
+    test "drops action extras from flow errors while keeping step metadata" do
       flow =
         Flow.new!(
           name: "error_with_extras",
@@ -533,6 +536,7 @@ defmodule Jido.Flow.CompilerTest do
       assert details.node == :bad
       assert details.action == ErrorWithExtrasAction
       assert details.reason == :bad_with_extras
+      refute Map.has_key?(details, :extras)
     end
 
     test "resolves list expressions and literal values in step input" do

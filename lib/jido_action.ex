@@ -364,6 +364,10 @@ defmodule Jido.Action do
   - `{:ok, output, extras}` where `output` is an explicit `Jido.Action.Output` envelope and `extras` is additional data.
   - `{:error, reason}` where `reason` describes why the action failed.
   - `{:error, reason, extras}` where `extras` is additional data (e.g., directives).
+
+  Extras are delivered only to direct action or instruction callers. When an
+  action runs as a `Jido.Flow` node, flow execution discards extras and uses only
+  the action output or error reason.
   """
   @callback run(params :: map(), context :: map()) ::
               {:ok, map() | Output.t()}
