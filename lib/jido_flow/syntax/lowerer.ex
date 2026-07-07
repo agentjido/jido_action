@@ -28,7 +28,6 @@ defmodule Jido.Flow.Syntax.Lowerer do
                        :value,
                        :result,
                        :select,
-                       :shape,
                        :parallel,
                        :branch
                      ])
@@ -191,10 +190,6 @@ defmodule Jido.Flow.Syntax.Lowerer do
         {:ok, %{source_ref | path: path}}
       end
     end
-  end
-
-  defp resolve_expr(%Expr{type: :shape, data: data}, state, step) do
-    resolve_expr(data, state, step)
   end
 
   defp resolve_expr(%Expr{type: type}, _state, step) do
@@ -572,9 +567,6 @@ defmodule Jido.Flow.Syntax.Lowerer do
 
   defp binding_referenced?(%Expr{type: :select, source: source}, binding),
     do: binding_referenced?(source, binding)
-
-  defp binding_referenced?(%Expr{type: :shape, data: data}, binding),
-    do: binding_referenced?(data, binding)
 
   defp binding_referenced?(%Expr{}, _binding), do: false
   defp binding_referenced?(%Ref{}, _binding), do: false

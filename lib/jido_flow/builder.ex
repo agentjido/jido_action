@@ -57,9 +57,6 @@ defmodule Jido.Flow.Builder do
   defdelegate select(source, path), to: Syntax
 
   @doc false
-  defdelegate shape(data), to: Syntax
-
-  @doc false
   defdelegate branch(name, operations, opts \\ []), to: Syntax
 
   @doc """

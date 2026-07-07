@@ -540,25 +540,23 @@ defmodule Jido.Integration.FlowParityTest do
       quote do
         loaded =
           step(:load_quote, unquote(EchoParamsAction),
-            with:
-              shape(%{
-                quote: %{
-                  id: input(:quote_id),
-                  pricing: %{total: input([:items, 0, :price])}
-                },
-                tags: [input(:tag)]
-              })
+            with: %{
+              quote: %{
+                id: input(:quote_id),
+                pricing: %{total: input([:items, 0, :price])}
+              },
+              tags: [input(:tag)]
+            }
           )
 
         audit =
           step(:audit_quote, unquote(EchoParamsAction),
-            with:
-              shape(%{
-                quote_id: select(loaded, [:quote, :id]),
-                total: select(select(loaded, [:quote, :pricing]), :total),
-                first_item_id: select(input(:items), [0, :id]),
-                tag: select(loaded, [:tags, 0])
-              })
+            with: %{
+              quote_id: select(loaded, [:quote, :id]),
+              total: select(select(loaded, [:quote, :pricing]), :total),
+              first_item_id: select(input(:items), [0, :id]),
+              tag: select(loaded, [:tags, 0])
+            }
           )
 
         return(select(audit, :total))
@@ -573,13 +571,13 @@ defmodule Jido.Integration.FlowParityTest do
       "Orders audit after loading without data dependency",
       quote do
         loaded =
-          step(:load_quote, unquote(EchoParamsAction), with: shape(%{id: input(:quote_id)}))
+          step(:load_quote, unquote(EchoParamsAction), with: %{id: input(:quote_id)})
 
-        step(:independent, unquote(EchoParamsAction), with: shape(%{event: "side"}))
+        step(:independent, unquote(EchoParamsAction), with: %{event: "side"})
 
         audit =
           step(:audit_quote, unquote(EchoParamsAction),
-            with: shape(%{event: "quoted"}),
+            with: %{event: "quoted"},
             after: [:load_quote, loaded]
           )
 
@@ -596,13 +594,12 @@ defmodule Jido.Integration.FlowParityTest do
       quote do
         audit =
           step(:audit_request, unquote(EchoParamsAction),
-            with:
-              shape(%{
-                user_id: input(:user_id),
-                input_trace_id: input(:trace_id),
-                context_trace_id: context(:trace_id),
-                tenant_id: select(context(:tenant), :id)
-              })
+            with: %{
+              user_id: input(:user_id),
+              input_trace_id: input(:trace_id),
+              context_trace_id: context(:trace_id),
+              tenant_id: select(context(:tenant), :id)
+            }
           )
 
         return(audit)
@@ -618,39 +615,35 @@ defmodule Jido.Integration.FlowParityTest do
       quote do
         loaded =
           step(:load, unquote(EchoParamsAction),
-            with:
-              shape(%{
-                id: input(:id),
-                base: input(:base)
-              })
+            with: %{
+              id: input(:id),
+              base: input(:base)
+            }
           )
 
         left_branch =
           step(:left, unquote(EchoParamsAction),
-            with:
-              shape(%{
-                side: "left",
-                id: select(loaded, :id)
-              })
+            with: %{
+              side: "left",
+              id: select(loaded, :id)
+            }
           )
 
         right_branch =
           step(:right, unquote(EchoParamsAction),
-            with:
-              shape(%{
-                side: "right",
-                base: select(loaded, :base)
-              })
+            with: %{
+              side: "right",
+              base: select(loaded, :base)
+            }
           )
 
         merged =
           step(:merge, unquote(EchoParamsAction),
-            with:
-              shape(%{
-                left: select(left_branch, :side),
-                right: select(right_branch, :side),
-                id: select(left_branch, :id)
-              })
+            with: %{
+              left: select(left_branch, :side),
+              right: select(right_branch, :side),
+              id: select(left_branch, :id)
+            }
           )
 
         return(merged)
@@ -666,26 +659,24 @@ defmodule Jido.Integration.FlowParityTest do
       quote do
         cart =
           step(:load_cart, unquote(EchoParamsAction),
-            with:
-              shape(%{
-                cart_id: input(:cart_id),
-                items: input(:items)
-              })
+            with: %{
+              cart_id: input(:cart_id),
+              items: input(:items)
+            }
           )
 
         parallel do
           branch :alpha do
             priced =
               step(:price_cart, unquote(EchoParamsAction),
-                with:
-                  shape(%{
-                    cart_id: select(cart, :cart_id),
-                    total: input(:total)
-                  })
+                with: %{
+                  cart_id: select(cart, :cart_id),
+                  total: input(:total)
+                }
               )
 
             step(:audit_price, unquote(EchoParamsAction),
-              with: shape(%{event: "priced"}),
+              with: %{event: "priced"},
               after: priced
             )
           end
@@ -693,24 +684,22 @@ defmodule Jido.Integration.FlowParityTest do
           branch :beta do
             reserved =
               step(:reserve_inventory, unquote(EchoParamsAction),
-                with:
-                  shape(%{
-                    cart_id: select(cart, :cart_id),
-                    items: select(cart, :items)
-                  })
+                with: %{
+                  cart_id: select(cart, :cart_id),
+                  items: select(cart, :items)
+                }
               )
           end
         end
 
-        step(:post_group_independent, unquote(EchoParamsAction), with: shape(%{event: "side"}))
+        step(:post_group_independent, unquote(EchoParamsAction), with: %{event: "side"})
 
         final =
           step(:finalize, unquote(EchoParamsAction),
-            with:
-              shape(%{
-                priced: priced,
-                reserved: reserved
-              })
+            with: %{
+              priced: priced,
+              reserved: reserved
+            }
           )
 
         return(final)

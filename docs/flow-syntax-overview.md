@@ -123,13 +123,12 @@ the canonical Flow IR and do not appear in default semantic maps.
 Binding rules:
 
 - A binding can only be introduced by assigning a `step`.
-- A binding can be used as a root expression or nested inside maps, lists, and
-  `shape(...)`.
+- A binding can be used as a root expression or nested inside maps and lists.
 - A binding must refer to a previously bound step.
 - Duplicate bindings are rejected.
 - A binding cannot collide with a step name.
 - Reserved names such as `flow`, `step`, `return`, `input`, `context`, `value`,
-  `result`, `select`, `shape`, `parallel`, and `branch` are rejected.
+  `result`, `select`, `parallel`, and `branch` are rejected.
 
 ## Return
 
@@ -150,8 +149,8 @@ return select(quote, :total)
 return select(result(:price_cart), [:pricing, :total])
 ```
 
-Returning input refs, context refs, literal values, arbitrary maps/lists, or
-`shape(...)` is not supported in the current return contract.
+Returning input refs, context refs, literal values, or arbitrary maps/lists is
+not supported in the current return contract.
 
 ## Expressions
 
@@ -218,20 +217,6 @@ step :audit_quote, MyApp.Actions.AuditQuote,
 
 Map keys must be literals. List elements may be expressions. Keyword lists are
 not supported as expression data.
-
-### `shape(data)`
-
-`shape(...)` is readability sugar for structured data. It does not change the
-canonical IR compared with the equivalent raw map or list.
-
-```elixir
-step :audit_quote, MyApp.Actions.AuditQuote,
-  with:
-    shape(%{
-      quote_id: select(quote, :id),
-      total: select(quote, [:pricing, :total])
-    })
-```
 
 ### `select(source, path)`
 
@@ -431,18 +416,18 @@ builder =
   |> Builder.step(
     :load_quote,
     MyApp.Actions.LoadQuote,
-    Builder.shape(%{
+    %{
       quote_id: Builder.input(:quote_id),
       trace_id: Builder.context(:trace_id)
-    }),
+    },
     bind: :quote
   )
   |> Builder.step(
     :audit_quote,
     MyApp.Actions.AuditQuote,
-    Builder.shape(%{
+    %{
       quote_id: Builder.select(Builder.binding(:quote), :id)
-    })
+    }
   )
   |> Builder.return(Builder.binding(:quote))
 
@@ -457,7 +442,6 @@ builder =
 - `Syntax.result/2`
 - `Syntax.binding/1`
 - `Syntax.select/2`
-- `Syntax.shape/1`
 - `Syntax.step/5`
 - `Syntax.branch/3`
 - `Syntax.parallel/3`
@@ -482,7 +466,7 @@ flow. Not supported today:
 - Captures, comprehensions, imports, requires, module attributes, and nested
   module definitions.
 - Property access syntax such as `quote.total`.
-- Returning arbitrary shaped data with `return shape(...)`.
+- Returning arbitrary structured data such as maps or lists.
 - Source-level flow metadata inside `flow ... do`.
 
 These restrictions are deliberate. Flow syntax should only expose concepts that
@@ -524,7 +508,6 @@ value(literal)
 result(:step)
 result(:step, path)
 select(source, path)
-shape(data)
 ```
 
 Supported path segment types:

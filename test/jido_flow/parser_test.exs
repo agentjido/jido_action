@@ -271,34 +271,34 @@ defmodule Jido.Flow.ParserTest do
              ]
     end
 
-    test "parses projection-only select and shape expressions" do
+    test "parses projection-only select expressions inside maps" do
       source = """
       flow do
         loaded =
           step :load_quote, JidoTest.TestActions.EchoParamsAction,
-            with: shape(%{
+            with: %{
               quote: %{
                 id: input(:quote_id),
                 pricing: %{total: input([:items, 0, :price])}
               },
               tags: [input(:tag)]
-            })
+            }
 
         audit =
           step :audit_quote, JidoTest.TestActions.EchoParamsAction,
-            with: shape(%{
+            with: %{
               quote_id: select(loaded, [:quote, :id]),
               total: select(select(loaded, [:quote, :pricing]), :total),
               first_item_id: select(input(:items), [0, :id]),
               tenant_id: select(context(:tenant), :id),
               trace_id: context(:trace_id)
-            })
+            }
 
         return select(audit, :total)
       end
       """
 
-      assert {:ok, flow} = Flow.parse(source, name: "projection_shape_flow")
+      assert {:ok, flow} = Flow.parse(source, name: "projection_flow")
       assert [_load_quote, audit_quote] = Flow.to_map(flow).nodes
 
       assert audit_quote.input == %{
@@ -316,19 +316,35 @@ defmodule Jido.Flow.ParserTest do
       assert Flow.to_map(flow).return == %{type: :result, node: :audit_quote, path: [:total]}
     end
 
+    test "rejects shape expressions" do
+      source = """
+      flow do
+        step :load_quote, JidoTest.TestActions.EchoParamsAction,
+          with: shape(%{id: input(:quote_id)})
+
+        return result(:load_quote)
+      end
+      """
+
+      assert {:error, %InvalidInputError{message: message}} =
+               Flow.parse(source, name: "bad_shape")
+
+      assert message =~ "unsupported flow DSL expression"
+    end
+
     test "parses explicit after targets in keyword step options" do
       source = """
       flow do
         loaded =
           step :load_quote, JidoTest.TestActions.EchoParamsAction,
-            with: shape(%{id: input(:quote_id)})
+            with: %{id: input(:quote_id)}
 
         step :independent, JidoTest.TestActions.EchoParamsAction,
-          with: shape(%{event: "side"})
+          with: %{event: "side"}
 
         audit =
           step :audit_quote, JidoTest.TestActions.EchoParamsAction,
-            with: shape(%{event: "quoted"}),
+            with: %{event: "quoted"},
             after: [:load_quote, loaded]
 
         return audit
@@ -352,7 +368,7 @@ defmodule Jido.Flow.ParserTest do
         audit =
           step :audit_quote, JidoTest.TestActions.EchoParamsAction,
             after: loaded,
-            with: shape(%{event: "quoted"})
+            with: %{event: "quoted"}
 
         return audit
       end
@@ -386,7 +402,7 @@ defmodule Jido.Flow.ParserTest do
 
         final =
           step :finalize, JidoTest.TestActions.EchoParamsAction,
-            with: shape(%{priced: priced, reserved: reserved})
+            with: %{priced: priced, reserved: reserved}
 
         return final
       end
@@ -683,10 +699,10 @@ defmodule Jido.Flow.ParserTest do
       assert message =~ "unsupported flow DSL expression"
     end
 
-    test "rejects unsupported projection and shape source forms" do
+    test "rejects unsupported projection source forms" do
       cases = [
-        {:computed_shape,
-         "step :bad, JidoTest.TestActions.EchoParamsAction, with: shape(%{x: System.system_time()})",
+        {:computed_map_value,
+         "step :bad, JidoTest.TestActions.EchoParamsAction, with: %{x: System.system_time()}",
          "unsupported flow DSL expression"},
         {:computed_path,
          """
@@ -696,7 +712,7 @@ defmodule Jido.Flow.ParserTest do
         {:dot_projection,
          """
          loaded = step :load_quote, JidoTest.TestActions.EchoParamsAction, with: %{}
-         step :bad, JidoTest.TestActions.EchoParamsAction, with: shape(%{x: loaded.value})
+         step :bad, JidoTest.TestActions.EchoParamsAction, with: %{x: loaded.value}
          """, "unsupported flow DSL expression"},
         {:value_source,
          "step :bad, JidoTest.TestActions.EchoParamsAction, with: %{x: select(value(%{}), :id)}",

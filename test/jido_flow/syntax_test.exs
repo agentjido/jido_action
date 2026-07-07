@@ -89,7 +89,7 @@ defmodule Jido.Flow.SyntaxTest do
     end
   end
 
-  describe "projection and shape expressions" do
+  describe "projection expressions" do
     test "builds select expressions over projection-capable sources" do
       source = Syntax.context(:payload)
 
@@ -100,13 +100,8 @@ defmodule Jido.Flow.SyntaxTest do
              } = Syntax.select(source, [:items, 0, :id])
     end
 
-    test "builds shape expressions without lowering the data" do
-      data = %{
-        total: Syntax.select(Syntax.binding(:quote), :total),
-        metadata: [Syntax.context(:trace_id), "literal"]
-      }
-
-      assert %Syntax.Expr{type: :shape, data: ^data} = Syntax.shape(data)
+    test "does not expose a shape expression helper" do
+      refute function_exported?(Syntax, :shape, 1)
     end
   end
 

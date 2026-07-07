@@ -44,18 +44,13 @@ defmodule Jido.Flow.BuilderTest do
       assert lowered_provenance.tags == ["math", "example"]
     end
 
-    test "builder exposes projection and shape helpers" do
+    test "builder exposes projection helpers without shape sugar" do
       assert Builder.context(:trace_id) == Syntax.context(:trace_id)
 
       assert Builder.select(Builder.input(:payload), [:items, 0, :id]) ==
                Syntax.select(Syntax.input(:payload), [:items, 0, :id])
 
-      data = %{
-        total: Builder.select(Builder.binding(:quote), :total),
-        trace_id: Builder.context(:trace_id)
-      }
-
-      assert Builder.shape(data) == Syntax.shape(data)
+      refute function_exported?(Builder, :shape, 1)
     end
 
     test "builder passes explicit after targets to syntax" do
