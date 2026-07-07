@@ -60,11 +60,11 @@ defmodule Jido.Flow.Builder do
   defdelegate branch(name, operations, opts \\ []), to: Syntax
 
   @doc """
-  Appends a static parallel grouping operation.
+  Appends a provenance-only group operation.
   """
-  @spec parallel(t(), [Syntax.Operation.t()], keyword()) :: t()
-  def parallel(%__MODULE__{syntax: syntax} = builder, branches, opts \\ []) do
-    %{builder | syntax: Syntax.parallel(syntax, branches, opts)}
+  @spec group(t(), [Syntax.Operation.t()], keyword()) :: t()
+  def group(%__MODULE__{syntax: syntax} = builder, branches, opts \\ []) do
+    %{builder | syntax: Syntax.group(syntax, branches, opts)}
   end
 
   @doc """

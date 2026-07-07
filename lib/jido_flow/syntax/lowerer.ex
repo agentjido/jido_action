@@ -28,7 +28,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
                        :value,
                        :result,
                        :select,
-                       :parallel,
+                       :group,
                        :branch
                      ])
 
@@ -103,9 +103,9 @@ defmodule Jido.Flow.Syntax.Lowerer do
     end
   end
 
-  defp lower_operation(%Operation{kind: :parallel, attrs: attrs}, state) do
-    with {:ok, branches} <- validate_parallel_branches(Map.get(attrs, :branches, [])),
-         {:ok, branch_states} <- lower_parallel_branches(branches, state) do
+  defp lower_operation(%Operation{kind: :group, attrs: attrs}, state) do
+    with {:ok, branches} <- validate_group_branches(Map.get(attrs, :branches, [])),
+         {:ok, branch_states} <- lower_group_branches(branches, state) do
       new_nodes =
         branch_states
         |> Enum.flat_map(fn branch_state -> Enum.reverse(branch_state.nodes) end)
@@ -298,15 +298,15 @@ defmodule Jido.Flow.Syntax.Lowerer do
     {:error, Error.validation_error("return must resolve to a result ref")}
   end
 
-  defp validate_parallel_branches(branches) when is_list(branches) do
+  defp validate_group_branches(branches) when is_list(branches) do
     with :ok <- validate_branch_shapes(branches),
          :ok <- validate_duplicate_branch_names(branches) do
       {:ok, branches}
     end
   end
 
-  defp validate_parallel_branches(branches) do
-    {:error, Error.validation_error("parallel branches must be a list", %{branches: branches})}
+  defp validate_group_branches(branches) do
+    {:error, Error.validation_error("group branches must be a list", %{branches: branches})}
   end
 
   defp validate_branch_shapes(branches) do
@@ -327,10 +327,10 @@ defmodule Jido.Flow.Syntax.Lowerer do
         end
 
       %Operation{kind: kind}, :ok ->
-        {:halt, parallel_branch_operation_error(kind)}
+        {:halt, group_branch_operation_error(kind)}
 
       branch, :ok ->
-        {:halt, parallel_branch_value_error(branch)}
+        {:halt, group_branch_value_error(branch)}
     end)
   end
 
@@ -349,7 +349,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
 
   defp valid_branch_name?(name), do: is_atom(name) and not is_nil(name)
 
-  defp lower_parallel_branches(branches, state) do
+  defp lower_group_branches(branches, state) do
     Enum.reduce_while(branches, {:ok, []}, fn branch, {:ok, acc} ->
       %Operation{attrs: %{name: branch_name, operations: operations}} = branch
 
@@ -465,7 +465,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
       %Operation{kind: :step} = operation ->
         [operation]
 
-      %Operation{kind: :parallel, attrs: attrs} ->
+      %Operation{kind: :group, attrs: attrs} ->
         attrs
         |> Map.get(:branches, [])
         |> branch_step_operations()
@@ -755,21 +755,21 @@ defmodule Jido.Flow.Syntax.Lowerer do
      })}
   end
 
-  defp parallel_branch_operation_error(kind) do
+  defp group_branch_operation_error(kind) do
     {:error,
-     Error.validation_error("parallel groups may contain only branch operations", %{kind: kind})}
+     Error.validation_error("group operations may contain only branch operations", %{kind: kind})}
   end
 
-  defp parallel_branch_value_error(branch) do
+  defp group_branch_value_error(branch) do
     {:error,
-     Error.validation_error("parallel groups may contain only branch operations", %{
+     Error.validation_error("group operations may contain only branch operations", %{
        branch: branch
      })}
   end
 
   defp branch_step_operation_error(branch, kind) do
     {:error,
-     Error.validation_error("parallel branches may contain only step operations", %{
+     Error.validation_error("group branches may contain only step operations", %{
        branch: branch,
        kind: kind
      })}
@@ -777,7 +777,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
 
   defp branch_step_value_error(branch, operation) do
     {:error,
-     Error.validation_error("parallel branches may contain only step operations", %{
+     Error.validation_error("group branches may contain only step operations", %{
        branch: branch,
        operation: operation
      })}

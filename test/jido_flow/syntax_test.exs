@@ -116,7 +116,7 @@ defmodule Jido.Flow.SyntaxTest do
              } = Syntax.branch(:pricing, [step], provenance: %{line: 12})
     end
 
-    test "stores parallel groups with named branches" do
+    test "stores groups with named branches" do
       pricing = Syntax.branch(:pricing, [Syntax.operation(:step, %{name: :price_cart})])
 
       inventory =
@@ -124,15 +124,19 @@ defmodule Jido.Flow.SyntaxTest do
 
       syntax =
         Syntax.new(name: "branching")
-        |> Syntax.parallel([pricing, inventory], provenance: %{line: 10})
+        |> Syntax.group([pricing, inventory], provenance: %{line: 10})
 
       assert [
                %Syntax.Operation{
-                 kind: :parallel,
+                 kind: :group,
                  attrs: %{branches: [^pricing, ^inventory]},
                  provenance: %{line: 10}
                }
              ] = syntax.operations
+    end
+
+    test "does not expose a parallel grouping helper" do
+      refute function_exported?(Syntax, :parallel, 3)
     end
   end
 end

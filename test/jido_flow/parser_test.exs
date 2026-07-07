@@ -379,14 +379,14 @@ defmodule Jido.Flow.ParserTest do
       assert audit_quote.deps == [:load_quote]
     end
 
-    test "parses static parallel branch groups" do
+    test "parses static branch groups" do
       source = """
       flow do
         cart =
           step :load_cart, JidoTest.TestActions.EchoParamsAction,
             with: %{cart_id: input(:cart_id)}
 
-        parallel do
+        group do
           branch :alpha do
             priced =
               step :price_cart, JidoTest.TestActions.EchoParamsAction,
@@ -408,7 +408,7 @@ defmodule Jido.Flow.ParserTest do
       end
       """
 
-      assert {:ok, flow} = Flow.parse(source, name: "static_parallel_flow")
+      assert {:ok, flow} = Flow.parse(source, name: "static_group_flow")
 
       assert [load_cart, price_cart, reserve_inventory, finalize] = Flow.to_map(flow).nodes
       assert load_cart.deps == []
@@ -544,10 +544,18 @@ defmodule Jido.Flow.ParserTest do
 
     test "rejects unsupported branch group forms" do
       cases = [
-        {:parallel_without_block, "parallel :bad", "unsupported flow DSL parallel"},
-        {:branch_without_name,
+        {:old_parallel_keyword,
          """
          parallel do
+           branch :alpha do
+             step :price_cart, JidoTest.TestActions.EchoParamsAction, with: %{}
+           end
+         end
+         """, "unsupported flow DSL operation"},
+        {:group_without_block, "group :bad", "unsupported flow DSL group"},
+        {:branch_without_name,
+         """
+         group do
            branch do
              step :price_cart, JidoTest.TestActions.EchoParamsAction, with: %{}
            end
@@ -555,27 +563,27 @@ defmodule Jido.Flow.ParserTest do
          """, "unsupported flow DSL branch"},
         {:return_in_branch,
          """
-         parallel do
+         group do
            branch :alpha do
              return result(:price_cart)
            end
          end
-         """, "parallel branches may contain only step operations"},
-        {:nested_parallel,
+         """, "group branches may contain only step operations"},
+        {:nested_group,
          """
-         parallel do
+         group do
            branch :alpha do
-             parallel do
+             group do
                branch :nested do
                  step :price_cart, JidoTest.TestActions.EchoParamsAction, with: %{}
                end
              end
            end
          end
-         """, "parallel branches may contain only step operations"},
+         """, "group branches may contain only step operations"},
         {:remote_call_in_branch,
          """
-         parallel do
+         group do
            branch :alpha do
              String.upcase("x")
            end

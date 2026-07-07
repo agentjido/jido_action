@@ -381,7 +381,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
     test "keeps step annotations alongside branch provenance" do
       syntax =
         Syntax.new(name: "annotated_branch")
-        |> Syntax.parallel([
+        |> Syntax.group([
           Syntax.branch(:alpha, [
             step_operation(:price_cart, EchoParamsAction, %{},
               label: "Price cart",
@@ -501,7 +501,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
         |> Syntax.step(:load_cart, EchoParamsAction, %{cart_id: Syntax.input(:cart_id)},
           bind: :cart
         )
-        |> Syntax.parallel([
+        |> Syntax.group([
           Syntax.branch(:alpha, [
             step_operation(:price_cart, EchoParamsAction, Syntax.binding(:cart), bind: :priced),
             step_operation(
@@ -556,7 +556,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
              ] = provenance_map.nodes
     end
 
-    test "rejects sibling branch dependencies inside a parallel group" do
+    test "rejects sibling branch dependencies inside a group group" do
       cases = [
         {:sibling_binding,
          [
@@ -594,8 +594,8 @@ defmodule Jido.Flow.Syntax.LowererTest do
 
       for {_case_name, branches, expected_message, expected_details} <- cases do
         syntax =
-          Syntax.new(name: "bad_parallel")
-          |> Syntax.parallel(branches)
+          Syntax.new(name: "bad_group")
+          |> Syntax.group(branches)
           |> Syntax.return(Syntax.result(:reserve_inventory))
 
         assert {:error, %InvalidInputError{message: message, details: details}} =
@@ -609,10 +609,10 @@ defmodule Jido.Flow.Syntax.LowererTest do
       end
     end
 
-    test "rejects duplicate branch names in one parallel group" do
+    test "rejects duplicate branch names in one group group" do
       syntax =
         Syntax.new(name: "duplicate_branch")
-        |> Syntax.parallel([
+        |> Syntax.group([
           Syntax.branch(:pricing, []),
           Syntax.branch(:pricing, [])
         ])
@@ -625,9 +625,9 @@ defmodule Jido.Flow.Syntax.LowererTest do
       assert details.branch == :pricing
     end
 
-    test "rejects malformed parallel branch structures" do
+    test "rejects malformed group branch structures" do
       cases = [
-        {:branches_not_list, %{branches: :not_a_list}, "parallel branches must be a list",
+        {:branches_not_list, %{branches: :not_a_list}, "group branches must be a list",
          %{branches: :not_a_list}},
         {:invalid_branch_name, %{branches: [Syntax.branch("pricing", [])]},
          "branch name must be a non-nil atom", %{branch: "pricing"}},
@@ -635,18 +635,18 @@ defmodule Jido.Flow.Syntax.LowererTest do
          %{branches: [Syntax.operation(:branch, %{name: :pricing, operations: :not_a_list})]},
          "branch operations must be a list", %{branch: :pricing, operations: :not_a_list}},
         {:non_branch_operation, %{branches: [Syntax.operation(:step, %{name: :price_cart})]},
-         "parallel groups may contain only branch operations", %{kind: :step}},
+         "group operations may contain only branch operations", %{kind: :step}},
         {:non_branch_value, %{branches: [:not_a_branch]},
-         "parallel groups may contain only branch operations", %{branch: :not_a_branch}},
+         "group operations may contain only branch operations", %{branch: :not_a_branch}},
         {:non_step_branch_value, %{branches: [Syntax.branch(:pricing, [:not_a_step])]},
-         "parallel branches may contain only step operations",
+         "group branches may contain only step operations",
          %{branch: :pricing, operation: :not_a_step}}
       ]
 
       for {_case_name, attrs, expected_message, expected_details} <- cases do
         syntax =
-          Syntax.new(name: "malformed_parallel")
-          |> Syntax.add(Syntax.operation(:parallel, attrs))
+          Syntax.new(name: "malformed_group")
+          |> Syntax.add(Syntax.operation(:group, attrs))
           |> Syntax.return(Syntax.result(:price_cart))
 
         assert {:error, %InvalidInputError{message: message, details: details}} =
@@ -660,16 +660,16 @@ defmodule Jido.Flow.Syntax.LowererTest do
       end
     end
 
-    test "rejects non-step operations inside parallel branches" do
+    test "rejects non-step operations inside group branches" do
       cases = [
         {:return, Syntax.operation(:return, %{expr: Syntax.result(:price_cart)})},
-        {:parallel, Syntax.operation(:parallel, %{branches: []})}
+        {:group, Syntax.operation(:group, %{branches: []})}
       ]
 
       for {kind, operation} <- cases do
         syntax =
           Syntax.new(name: "bad_branch_operation")
-          |> Syntax.parallel([
+          |> Syntax.group([
             Syntax.branch(:pricing, [operation])
           ])
           |> Syntax.return(Syntax.result(:price_cart))
@@ -677,7 +677,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
         assert {:error, %InvalidInputError{message: message, details: details}} =
                  Lowerer.lower(syntax)
 
-        assert message =~ "parallel branches may contain only step operations"
+        assert message =~ "group branches may contain only step operations"
         assert details.branch == :pricing
         assert details.kind == kind
       end

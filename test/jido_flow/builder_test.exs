@@ -80,17 +80,19 @@ defmodule Jido.Flow.BuilderTest do
 
       builder =
         Builder.new(name: "branching")
-        |> Builder.parallel([branch], provenance: %{line: 9})
+        |> Builder.group([branch], provenance: %{line: 9})
 
       assert branch == Syntax.branch(:pricing, [step])
 
       assert [
                %Syntax.Operation{
-                 kind: :parallel,
+                 kind: :group,
                  attrs: %{branches: [^branch]},
                  provenance: %{line: 9}
                }
              ] = Builder.syntax(builder).operations
+
+      refute function_exported?(Builder, :parallel, 3)
     end
   end
 end
