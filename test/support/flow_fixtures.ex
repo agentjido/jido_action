@@ -109,6 +109,83 @@ defmodule JidoTest.FlowFixtures do
     """
   end
 
+  def shaped_return_syntax do
+    Syntax.new(
+      name: "shaped_return_flow",
+      description: "Returns a composite expression"
+    )
+    |> Syntax.step(
+      :add_one,
+      Add,
+      %{value: Syntax.input(:value), amount: Syntax.value(1)},
+      bind: :added
+    )
+    |> Syntax.step(
+      :double,
+      Multiply,
+      %{value: Syntax.select(Syntax.binding(:added), :value), amount: Syntax.value(2)},
+      bind: :doubled
+    )
+    |> Syntax.return(%{
+      sum: Syntax.select(Syntax.binding(:added), :value),
+      product: Syntax.select(Syntax.binding(:doubled), :value),
+      original: Syntax.input(:value),
+      trace_id: Syntax.context(:trace_id),
+      literal: "ok",
+      nested: [Syntax.select(Syntax.binding(:doubled), :value)]
+    })
+  end
+
+  def shaped_return_builder do
+    Builder.new(
+      name: "shaped_return_flow",
+      description: "Returns a composite expression"
+    )
+    |> Builder.step(
+      :add_one,
+      Add,
+      %{value: Builder.input(:value), amount: Builder.value(1)},
+      bind: :added
+    )
+    |> Builder.step(
+      :double,
+      Multiply,
+      %{value: Builder.select(Builder.binding(:added), :value), amount: Builder.value(2)},
+      bind: :doubled
+    )
+    |> Builder.return(%{
+      sum: Builder.select(Builder.binding(:added), :value),
+      product: Builder.select(Builder.binding(:doubled), :value),
+      original: Builder.input(:value),
+      trace_id: Builder.context(:trace_id),
+      literal: "ok",
+      nested: [Builder.select(Builder.binding(:doubled), :value)]
+    })
+  end
+
+  def shaped_return_source do
+    """
+    flow do
+      added =
+        step :add_one, JidoTest.TestActions.Add,
+          with: %{value: input(:value), amount: value(1)}
+
+      doubled =
+        step :double, JidoTest.TestActions.Multiply,
+          with: %{value: select(added, :value), amount: value(2)}
+
+      return %{
+        sum: select(added, :value),
+        product: select(doubled, :value),
+        original: input(:value),
+        trace_id: context(:trace_id),
+        literal: "ok",
+        nested: [select(doubled, :value)]
+      }
+    end
+    """
+  end
+
   def annotated_syntax do
     Syntax.new(
       name: "annotated_flow",
@@ -793,6 +870,44 @@ defmodule JidoTest.FlowFixtures do
         }
       ],
       return: %{type: :result, node: :double, path: []}
+    }
+  end
+
+  def shaped_return_canonical_map do
+    %{
+      type: :flow,
+      name: "shaped_return_flow",
+      description: "Returns a composite expression",
+      schema: [],
+      output_schema: [],
+      nodes: [
+        %{
+          name: :add_one,
+          action: Add,
+          input: %{
+            value: %{type: :input, path: [:value]},
+            amount: %{type: :value, value: 1}
+          },
+          deps: []
+        },
+        %{
+          name: :double,
+          action: Multiply,
+          input: %{
+            value: %{type: :result, node: :add_one, path: [:value]},
+            amount: %{type: :value, value: 2}
+          },
+          deps: [:add_one]
+        }
+      ],
+      return: %{
+        sum: %{type: :result, node: :add_one, path: [:value]},
+        product: %{type: :result, node: :double, path: [:value]},
+        original: %{type: :input, path: [:value]},
+        trace_id: %{type: :context, path: [:trace_id]},
+        literal: %{type: :value, value: "ok"},
+        nested: [%{type: :result, node: :double, path: [:value]}]
+      }
     }
   end
 

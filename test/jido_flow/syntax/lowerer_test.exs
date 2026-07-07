@@ -84,14 +84,14 @@ defmodule Jido.Flow.Syntax.LowererTest do
       assert details.operation == :return
     end
 
-    test "rejects returns that do not resolve to result refs" do
+    test "rejects returns that do not reference result refs" do
       syntax =
         Syntax.new(name: "bad")
         |> Syntax.step(:add_one, Add, %{value: Syntax.input(:value)})
         |> Syntax.return(Syntax.value(:not_a_result))
 
       assert {:error, %InvalidInputError{message: message}} = Lowerer.lower(syntax)
-      assert message =~ "return must resolve to a result ref"
+      assert message =~ "return must reference at least one step result"
     end
 
     test "accepts structured maps whose leaves are supported refs or literals" do
@@ -289,14 +289,33 @@ defmodule Jido.Flow.Syntax.LowererTest do
       end
     end
 
-    test "rejects structured return values" do
+    test "lowers structured return values with result refs" do
       syntax =
-        Syntax.new(name: "bad_structured_return")
+        Syntax.new(name: "structured_return")
         |> Syntax.step(:echo, EchoParamsAction, %{total: Syntax.input(:total)}, bind: :echoed)
-        |> Syntax.return(%{total: Syntax.select(Syntax.binding(:echoed), :total)})
+        |> Syntax.return(%{
+          total: Syntax.select(Syntax.binding(:echoed), :total),
+          original: Syntax.input(:total),
+          literal: "ok"
+        })
+
+      assert {:ok, flow} = Lowerer.lower(syntax)
+
+      assert Flow.to_map(flow).return == %{
+               total: %{type: :result, node: :echo, path: [:total]},
+               original: %{type: :input, path: [:total]},
+               literal: %{type: :value, value: "ok"}
+             }
+    end
+
+    test "rejects return values without result refs" do
+      syntax =
+        Syntax.new(name: "constant_return")
+        |> Syntax.step(:echo, EchoParamsAction, %{total: Syntax.input(:total)})
+        |> Syntax.return(%{total: Syntax.input(:total), literal: "ok"})
 
       assert {:error, %InvalidInputError{message: message}} = Lowerer.lower(syntax)
-      assert message =~ "return must resolve to a result ref"
+      assert message =~ "return must reference at least one step result"
     end
 
     test "stops lowering lists when an item references an unbound result" do

@@ -590,6 +590,43 @@ defmodule Jido.Flow.CompilerTest do
       assert {:ok, 42} = Compiler.run(flow, input, %{})
     end
 
+    test "executes shaped return expressions after the workflow settles" do
+      flow =
+        Flow.new!(
+          name: "shaped_return",
+          nodes: [
+            Node.new!(
+              name: :add_one,
+              action: Add,
+              input: %{value: Ref.input(:value), amount: Ref.value(1)}
+            ),
+            Node.new!(
+              name: :double,
+              action: Multiply,
+              input: %{value: Ref.result(:add_one, :value), amount: Ref.value(2)}
+            )
+          ],
+          return: %{
+            sum: Ref.result(:add_one, :value),
+            product: Ref.result(:double, :value),
+            original: Ref.input(:value),
+            trace_id: Ref.context(:trace_id),
+            literal: "ok",
+            nested: [Ref.result(:double, :value)]
+          }
+        )
+
+      assert {:ok,
+              %{
+                sum: 4,
+                product: 8,
+                original: 3,
+                trace_id: "trace-1",
+                literal: "ok",
+                nested: [8]
+              }} = Compiler.run(flow, %{value: 3}, %{trace_id: "trace-1"})
+    end
+
     test "returns validation errors for malformed refs inside nested inputs" do
       malformed_ref = %Ref{type: :unsupported}
 

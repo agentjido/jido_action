@@ -398,6 +398,46 @@ defmodule Jido.Flow.DSLTest do
       assert audit_quote.input == %{event: %{type: :value, value: "quoted"}}
     end
 
+    test "supports shaped return expressions" do
+      module = unique_module("ShapedReturnFlow")
+
+      create_module(
+        module,
+        quote do
+          use Jido.Flow, name: "shaped_return_flow"
+
+          flow do
+            added =
+              step(:add_one, unquote(Add), with: %{value: input(:value), amount: value(1)})
+
+            doubled =
+              step(:double, unquote(Multiply),
+                with: %{value: select(added, :value), amount: value(2)}
+              )
+
+            return(%{
+              sum: select(added, :value),
+              product: select(doubled, :value),
+              original: input(:value),
+              trace_id: context(:trace_id),
+              literal: "ok"
+            })
+          end
+        end
+      )
+
+      assert module.to_map().return == %{
+               sum: %{type: :result, node: :add_one, path: [:value]},
+               product: %{type: :result, node: :double, path: [:value]},
+               original: %{type: :input, path: [:value]},
+               trace_id: %{type: :context, path: [:trace_id]},
+               literal: %{type: :value, value: "ok"}
+             }
+
+      assert {:ok, %{sum: 4, product: 8, original: 3, trace_id: "trace-1", literal: "ok"}} =
+               Jido.Exec.run(module, %{value: 3}, %{trace_id: "trace-1"})
+    end
+
     test "supports after before with in keyword step options" do
       module = unique_module("ExplicitAfterOptionOrderFlow")
 

@@ -7,6 +7,7 @@ defmodule Jido.Flow.Compiler do
   alias Jido.Action.Output
   alias Jido.Exec
   alias Jido.Flow
+  alias Jido.Flow.Node
   alias Jido.Flow.NodeError
   alias Jido.Flow.Ref
   alias Runic.Workflow
@@ -60,7 +61,7 @@ defmodule Jido.Flow.Compiler do
           {:error, error}
 
         [] ->
-          extract_return(flow.return, final_workflow)
+          extract_return(flow.return, final_workflow, input, context)
       end
     end
   end
@@ -347,17 +348,27 @@ defmodule Jido.Flow.Compiler do
 
   defp resolve_expr(value, _state), do: {:ok, value}
 
-  defp extract_return(%Ref{type: :result, node: node, path: path}, workflow) do
-    workflow
-    |> Workflow.results([node], facts: true, all: true)
-    |> Map.get(node, [])
-    |> case do
-      [] ->
-        {:error, Error.execution_error("flow execution produced no final state")}
+  defp extract_return(return_expr, workflow, input, context) do
+    result_nodes = return_expr |> Node.collect_result_refs() |> Enum.uniq()
+    facts_by_node = Workflow.results(workflow, result_nodes, facts: true, all: true)
 
-      facts ->
-        value = facts |> List.last() |> Map.fetch!(:value)
-        {:ok, fetch_path(value, path)}
+    result_nodes
+    |> Enum.reduce_while({:ok, %{}}, fn node, {:ok, acc} ->
+      case Map.get(facts_by_node, node, []) do
+        [] ->
+          {:halt, {:error, Error.execution_error("flow execution produced no final state")}}
+
+        facts ->
+          value = facts |> List.last() |> Map.fetch!(:value)
+          {:cont, {:ok, Map.put(acc, node, value)}}
+      end
+    end)
+    |> case do
+      {:ok, results} ->
+        resolve_expr(return_expr, %{input: input, context: context, results: results})
+
+      {:error, error} ->
+        {:error, error}
     end
   end
 

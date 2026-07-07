@@ -87,6 +87,37 @@ defmodule Jido.Flow.Node do
     |> Enum.sort()
   end
 
+  @doc false
+  @spec validate_expression(term()) :: :ok | {:error, Exception.t()}
+  def validate_expression(expression), do: validate_input_expression(expression, [])
+
+  @doc false
+  @spec expression_to_map(term()) :: term()
+  def expression_to_map(%Ref{} = ref), do: Ref.to_map(ref)
+
+  def expression_to_map(%{} = map) do
+    Map.new(map, fn {key, value} -> {key, expression_to_map(value)} end)
+  end
+
+  def expression_to_map(list) when is_list(list), do: Enum.map(list, &expression_to_map/1)
+  def expression_to_map(value), do: Ref.value(value) |> Ref.to_map()
+
+  @doc false
+  @spec collect_result_refs(term()) :: [atom()]
+  def collect_result_refs(%Ref{type: :result, node: node}), do: [node]
+  def collect_result_refs(%Ref{}), do: []
+
+  def collect_result_refs(%{} = map) do
+    map
+    |> Map.values()
+    |> Enum.flat_map(&collect_result_refs/1)
+  end
+
+  def collect_result_refs(list) when is_list(list),
+    do: Enum.flat_map(list, &collect_result_refs/1)
+
+  def collect_result_refs(_value), do: []
+
   defp validate_name(name) when is_atom(name) and not is_nil(name), do: {:ok, name}
 
   defp validate_name(_name) do
@@ -172,27 +203,4 @@ defmodule Jido.Flow.Node do
   end
 
   defp validate_input_expression(_value, _path), do: :ok
-
-  defp expression_to_map(%Ref{} = ref), do: Ref.to_map(ref)
-
-  defp expression_to_map(%{} = map) do
-    Map.new(map, fn {key, value} -> {key, expression_to_map(value)} end)
-  end
-
-  defp expression_to_map(list) when is_list(list), do: Enum.map(list, &expression_to_map/1)
-  defp expression_to_map(value), do: Ref.value(value) |> Ref.to_map()
-
-  defp collect_result_refs(%Ref{type: :result, node: node}), do: [node]
-  defp collect_result_refs(%Ref{}), do: []
-
-  defp collect_result_refs(%{} = map) do
-    map
-    |> Map.values()
-    |> Enum.flat_map(&collect_result_refs/1)
-  end
-
-  defp collect_result_refs(list) when is_list(list),
-    do: Enum.flat_map(list, &collect_result_refs/1)
-
-  defp collect_result_refs(_value), do: []
 end

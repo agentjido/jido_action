@@ -138,8 +138,8 @@ Every Flow must declare a return value:
 return quote
 ```
 
-The return expression must resolve to a result ref. Supported return shapes
-include:
+The return expression uses the same expression tree grammar as step inputs, but
+it must reference at least one step result. Supported return shapes include:
 
 ```elixir
 return quote
@@ -147,10 +147,16 @@ return result(:price_cart)
 return result(:price_cart, :total)
 return select(quote, :total)
 return select(result(:price_cart), [:pricing, :total])
+return %{
+  quote: quote,
+  total: select(quote, :total),
+  trace_id: context(:trace_id),
+  tags: [input(:tag), "checkout"]
+}
 ```
 
-Returning input refs, context refs, literal values, or arbitrary maps/lists is
-not supported in the current return contract.
+Pure input refs, context refs, literal values, or maps/lists that contain no
+result reference are rejected.
 
 ## Expressions
 
@@ -466,7 +472,6 @@ flow. Not supported today:
 - Captures, comprehensions, imports, requires, module attributes, and nested
   module definitions.
 - Property access syntax such as `quote.total`.
-- Returning arbitrary structured data such as maps or lists.
 - Source-level flow metadata inside `flow ... do`.
 
 These restrictions are deliberate. Flow syntax should only expose concepts that
@@ -495,7 +500,7 @@ flow do
     end
   end
 
-  return result_or_binding_or_select
+  return result_or_binding_or_select_or_expression_tree
 end
 ```
 

@@ -4,7 +4,7 @@ defmodule Jido.FlowTest do
   alias Jido.Action.Error.InvalidInputError
   alias Jido.Flow
   alias Jido.Flow.{Node, Ref, Syntax}
-  alias JidoTest.TestActions.{Add, MissingRun}
+  alias JidoTest.TestActions.{Add, MissingRun, Multiply}
 
   describe "new/1" do
     test "creates a minimal valid flow and emits a deterministic canonical map" do
@@ -76,6 +76,54 @@ defmodule Jido.FlowTest do
       assert {:error, %InvalidInputError{message: message, details: details}} = Flow.new(attrs)
       assert message =~ "return ref points to an unknown step"
       assert details.node == :missing
+    end
+
+    test "accepts shaped return expressions with at least one result ref" do
+      add_one =
+        Node.new!(
+          name: :add_one,
+          action: Add,
+          input: %{value: Ref.input(:value), amount: Ref.value(1)}
+        )
+
+      double =
+        Node.new!(
+          name: :double,
+          action: Multiply,
+          input: %{value: Ref.result(:add_one, :value), amount: Ref.value(2)}
+        )
+
+      assert {:ok, flow} =
+               Flow.new(
+                 name: "shaped_return",
+                 nodes: [add_one, double],
+                 return: %{
+                   sum: Ref.result(:add_one, :value),
+                   product: Ref.result(:double, :value),
+                   original: Ref.input(:value),
+                   literal: "ok",
+                   nested: [Ref.result(:double, :value)]
+                 }
+               )
+
+      assert Flow.to_map(flow).return == %{
+               sum: %{type: :result, node: :add_one, path: [:value]},
+               product: %{type: :result, node: :double, path: [:value]},
+               original: %{type: :input, path: [:value]},
+               literal: %{type: :value, value: "ok"},
+               nested: [%{type: :result, node: :double, path: [:value]}]
+             }
+    end
+
+    test "rejects shaped return expressions without a result ref" do
+      attrs = [
+        name: "bad",
+        nodes: [[name: :add_one, action: Add]],
+        return: %{original: Ref.input(:value), constant: Ref.value(1)}
+      ]
+
+      assert {:error, %InvalidInputError{message: message}} = Flow.new(attrs)
+      assert message =~ "return must reference at least one step result"
     end
 
     test "checks nodes whose action modules do not expose the action contract" do
@@ -371,10 +419,12 @@ defmodule Jido.FlowTest do
       assert {:error, %InvalidInputError{message: "flow nodes must be a list"}} =
                Flow.new(name: "bad", nodes: :not_nodes)
 
-      assert {:error, %InvalidInputError{message: "return must be a result ref"}} =
+      assert {:error,
+              %InvalidInputError{message: "return must reference at least one step result"}} =
                Flow.new(name: "bad", nodes: [add_node()], return: Ref.value(:not_a_result))
 
-      assert {:error, %InvalidInputError{message: "return must be a result ref"}} =
+      assert {:error,
+              %InvalidInputError{message: "return must reference at least one step result"}} =
                Flow.new(name: "bad", nodes: [add_node()], return: Ref.context(:trace_id))
 
       assert {:error, %InvalidInputError{message: "flow provenance must be a map"}} =
