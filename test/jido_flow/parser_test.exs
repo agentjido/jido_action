@@ -124,6 +124,25 @@ defmodule Jido.Flow.ParserTest do
       assert Flow.to_map(flow).return == %{type: :result, node: :double, path: []}
     end
 
+    test "parses structurally valid trusted flows without checking action modules" do
+      missing_action = unique_module("MissingTrustedAction")
+
+      source = """
+      flow do
+        step :missing, #{inspect(missing_action)}, with: %{}
+        return result(:missing)
+      end
+      """
+
+      assert {:ok, flow} = Flow.parse(source, name: "unchecked_trusted_flow")
+      assert [%{action: ^missing_action}] = Flow.to_map(flow).nodes
+
+      assert {:error, %InvalidInputError{message: message, details: details}} = Flow.check(flow)
+      assert message == "action module could not be loaded"
+      assert details.node == :missing
+      assert details.action == missing_action
+    end
+
     test "parses step annotations as provenance only" do
       assert {:ok, flow} =
                Flow.parse(FlowFixtures.annotated_source(),

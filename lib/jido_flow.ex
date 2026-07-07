@@ -113,7 +113,16 @@ defmodule Jido.Flow do
     flow =
       case Jido.Flow.Syntax.Lowerer.lower(syntax) do
         {:ok, flow} ->
-          flow
+          case Jido.Flow.check(flow) do
+            :ok ->
+              flow
+
+            {:error, error} ->
+              raise CompileError,
+                description: compile_error_message(error),
+                file: env.file,
+                line: env.line
+          end
 
         {:error, error} ->
           raise CompileError,
@@ -213,12 +222,17 @@ defmodule Jido.Flow do
   def compile(%__MODULE__{} = flow), do: Jido.Flow.Compiler.compile(flow)
 
   @doc false
+  @spec check(t()) :: :ok | {:error, Exception.t()}
+  def check(%__MODULE__{} = flow), do: check_action_contracts(flow.nodes)
+
+  @doc false
   @spec validate(t()) :: {:ok, t()} | {:error, Exception.t()}
   def validate(%__MODULE__{} = flow) do
     with :ok <- validate_duplicate_nodes(flow.nodes),
-         :ok <- validate_action_contracts(flow.nodes),
-         :ok <- validate_known_result_refs(flow) do
-      {:ok, normalize_node_deps(flow)}
+         :ok <- validate_known_result_refs(flow),
+         flow = normalize_node_deps(flow),
+         :ok <- validate_acyclic(flow.nodes) do
+      {:ok, flow}
     end
   end
 
@@ -258,6 +272,19 @@ defmodule Jido.Flow do
 
   defp validate_description(_description) do
     {:error, Error.validation_error("flow description must be a string")}
+  end
+
+  defp compile_error_message(error) when is_exception(error) do
+    message = Exception.message(error)
+    details = Map.get(error, :details, %{})
+
+    case {Map.fetch(details, :node), Map.fetch(details, :action)} do
+      {{:ok, node}, {:ok, action}} ->
+        "#{message} (node: #{inspect(node)}, action: #{inspect(action)})"
+
+      _other ->
+        message
+    end
   end
 
   defp validate_schema(nil, _field), do: {:ok, []}
@@ -318,7 +345,7 @@ defmodule Jido.Flow do
     end
   end
 
-  defp validate_action_contracts(nodes) do
+  defp check_action_contracts(nodes) do
     Enum.reduce_while(nodes, :ok, fn node, :ok ->
       case Instruction.validate_action_contract(node.action) do
         :ok ->
@@ -383,5 +410,34 @@ defmodule Jido.Flow do
       end)
 
     %{flow | nodes: nodes}
+  end
+
+  defp validate_acyclic(nodes) do
+    nodes
+    |> Map.new(fn node -> {node.name, MapSet.new(node.deps)} end)
+    |> validate_acyclic_remaining()
+  end
+
+  defp validate_acyclic_remaining(remaining) when map_size(remaining) == 0, do: :ok
+
+  defp validate_acyclic_remaining(remaining) do
+    ready =
+      remaining
+      |> Enum.filter(fn {_name, deps} -> MapSet.size(deps) == 0 end)
+      |> Enum.map(fn {name, _deps} -> name end)
+
+    if ready == [] do
+      {:error,
+       Error.validation_error("flow dependency graph contains a cycle", %{
+         nodes: remaining |> Map.keys() |> Enum.sort()
+       })}
+    else
+      ready_set = MapSet.new(ready)
+
+      remaining
+      |> Map.drop(ready)
+      |> Map.new(fn {name, deps} -> {name, MapSet.difference(deps, ready_set)} end)
+      |> validate_acyclic_remaining()
+    end
   end
 end
