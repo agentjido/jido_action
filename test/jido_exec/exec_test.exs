@@ -34,6 +34,22 @@ defmodule Jido.ExecTest do
       assert {:ok, %{value: 6}} = Exec.run(Add, %{value: 5}, %{trace_id: "trace"})
     end
 
+    test "executes action modules that happen to export flow/0 as actions" do
+      module = unique_module("ActionWithFlowFunction")
+
+      create_module(
+        module,
+        quote do
+          use Jido.Action, name: "action_with_flow_function"
+
+          def flow, do: :not_a_flow_artifact
+          def run(params, _context), do: {:ok, Map.put(params, :executed_as, :action)}
+        end
+      )
+
+      assert {:ok, %{value: 5, executed_as: :action}} = Exec.run(module, %{value: 5}, %{})
+    end
+
     test "normalizes keyword input and context for leaf actions" do
       assert {:ok, %{value: 6}} = Exec.run(Add, [value: 5], trace_id: "trace")
     end
@@ -205,6 +221,7 @@ defmodule Jido.ExecTest do
         end
       )
 
+      assert module.__jido_flow__() == true
       assert Exec.run(module, %{value: 3}, %{}) == Exec.run(module.flow(), %{value: 3}, %{})
       assert {:ok, 8} = Exec.run(module, %{value: 3}, %{})
     end
