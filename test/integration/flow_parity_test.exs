@@ -32,12 +32,12 @@ defmodule Jido.Integration.FlowParityTest do
       refute inspect(semantic_map) =~ "beta"
 
       assert [
-               _load_cart,
-               %{provenance: %{branch: :alpha}},
-               %{provenance: %{branch: :alpha}},
-               %{provenance: %{branch: :beta}},
-               _post_group_independent,
-               _finalize
+               %{name: :load_cart},
+               %{name: :post_group_independent, provenance: %{}},
+               %{name: :price_cart, provenance: %{branch: :alpha}},
+               %{name: :reserve_inventory, provenance: %{branch: :beta}},
+               %{name: :audit_price, provenance: %{branch: :alpha}},
+               %{name: :finalize}
              ] = Jido.Flow.to_map(grouped_flow, provenance: true).nodes
     end
 

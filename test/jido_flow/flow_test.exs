@@ -186,6 +186,115 @@ defmodule Jido.FlowTest do
       assert node_provenance.binding == :friendly_name
     end
 
+    test "canonical maps ignore source order between independent nodes" do
+      load =
+        Node.new!(
+          name: :load,
+          action: Add,
+          input: %{value: Ref.input(:value), amount: Ref.value(1)}
+        )
+
+      finish =
+        Node.new!(
+          name: :finish,
+          action: Add,
+          input: %{value: Ref.result(:load, :value), amount: Ref.value(1)}
+        )
+
+      audit =
+        Node.new!(
+          name: :audit,
+          action: Add,
+          input: %{value: Ref.input(:value), amount: Ref.value(0)}
+        )
+
+      first =
+        Flow.new!(name: "equivalent", nodes: [load, finish, audit], return: Ref.result(:finish))
+
+      second =
+        Flow.new!(name: "equivalent", nodes: [audit, load, finish], return: Ref.result(:finish))
+
+      assert Flow.to_map(first) == Flow.to_map(second)
+      assert Enum.map(Flow.to_map(first).nodes, & &1.name) == [:audit, :load, :finish]
+    end
+
+    test "canonical maps order independent roots by node name" do
+      flow =
+        Flow.new!(
+          name: "roots",
+          nodes: [
+            Node.new!(name: :c, action: Add, input: %{value: Ref.input(:value)}),
+            Node.new!(name: :a, action: Add, input: %{value: Ref.input(:value)}),
+            Node.new!(name: :b, action: Add, input: %{value: Ref.input(:value)})
+          ],
+          return: Ref.result(:a)
+        )
+
+      assert Enum.map(Flow.to_map(flow).nodes, & &1.name) == [:a, :b, :c]
+      assert Enum.map(flow.nodes, & &1.name) == [:c, :a, :b]
+    end
+
+    test "canonical maps emit dependency order regardless of authoring order" do
+      flow =
+        Flow.new!(
+          name: "diamond",
+          nodes: [
+            Node.new!(
+              name: :d,
+              action: Add,
+              input: %{value: Ref.result(:b, :value), amount: Ref.result(:c, :value)}
+            ),
+            Node.new!(
+              name: :c,
+              action: Add,
+              input: %{value: Ref.result(:a, :value), amount: Ref.value(1)}
+            ),
+            Node.new!(
+              name: :b,
+              action: Add,
+              input: %{value: Ref.result(:a, :value), amount: Ref.value(1)}
+            ),
+            Node.new!(
+              name: :a,
+              action: Add,
+              input: %{value: Ref.input(:value), amount: Ref.value(1)}
+            )
+          ],
+          return: Ref.result(:d)
+        )
+
+      assert Enum.map(Flow.to_map(flow).nodes, & &1.name) == [:a, :b, :c, :d]
+      assert Enum.map(flow.nodes, & &1.name) == [:d, :c, :b, :a]
+    end
+
+    test "canonical ordering keeps provenance attached to its node" do
+      flow =
+        Flow.new!(
+          name: "provenance_order",
+          nodes: [
+            Node.new!(
+              name: :z,
+              action: Add,
+              input: %{value: Ref.input(:value)},
+              provenance: %{source_line: 30}
+            ),
+            Node.new!(
+              name: :a,
+              action: Add,
+              input: %{value: Ref.input(:value)},
+              provenance: %{source_line: 10}
+            )
+          ],
+          return: Ref.result(:a),
+          provenance: %{source: :test}
+        )
+
+      assert [
+               %{name: :a, provenance: %{source_line: 10}},
+               %{name: :z, provenance: %{source_line: 30}}
+             ] = Flow.to_map(flow, provenance: true).nodes
+    end
+
     test "revalidates existing flow structs" do
       flow =
         Flow.new!(
