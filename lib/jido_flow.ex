@@ -217,7 +217,13 @@ defmodule Jido.Flow do
   @spec parse(String.t(), map() | keyword()) :: {:ok, t()} | {:error, Exception.t()}
   def parse(source, opts \\ []), do: Jido.Flow.Parser.parse(source, opts)
 
-  @doc false
+  @doc """
+  Compiles a Flow artifact into a Runic workflow for graph inspection.
+
+  Executing this workflow directly resolves `input(...)` and `context(...)`
+  references against empty maps. Use `Jido.Exec.run/3` to execute a Flow with
+  runtime input and context.
+  """
   @spec compile(t()) :: {:ok, Runic.Workflow.t()} | {:error, Exception.t()}
   def compile(%__MODULE__{} = flow), do: Jido.Flow.Compiler.compile(flow)
 

@@ -14,34 +14,22 @@ defmodule Jido.Flow.Compiler do
 
   @collector_key :__jido_flow_error_collector__
 
-  @type execution_state :: %{
+  @type node_state :: %{
           input: map(),
           context: map(),
           results: map()
         }
 
   @doc """
-  Compiles a Flow artifact into a Runic workflow.
+  Compiles a Flow artifact into a shape-accurate Runic workflow.
+
+  The returned workflow is suitable for graph inspection. Runtime input and
+  context are only available through `run/3`.
   """
   @spec compile(Flow.t()) :: {:ok, Workflow.t()} | {:error, Exception.t()}
   def compile(%Flow{} = flow) do
-    with {:ok, ordered_nodes} <- topological_order(flow.nodes) do
-      workflow =
-        ordered_nodes
-        |> Enum.reduce({Workflow.new(flow.name), nil}, fn node, {workflow, previous_name} ->
-          step = Step.new(name: node.name, work: fn state -> run_node(node, state) end)
-
-          workflow =
-            if previous_name do
-              Workflow.add(workflow, step, to: previous_name, validate: :off)
-            else
-              Workflow.add(workflow, step, validate: :off)
-            end
-
-          {workflow, node.name}
-        end)
-        |> elem(0)
-
+    with {:ok, flow} <- Flow.validate(flow),
+         {:ok, workflow, _ordered_nodes} <- build(flow, %{}, %{}, nil) do
       {:ok, workflow}
     end
   end
@@ -53,16 +41,12 @@ defmodule Jido.Flow.Compiler do
   def run(flow, input, context \\ %{})
 
   def run(%Flow{} = flow, input, context) when is_map(input) and is_map(context) do
-    with {:ok, ordered_nodes} <- topological_order(flow.nodes),
-         {:ok, workflow} <- compile(flow) do
-      runner = self()
-      run_ref = make_ref()
+    runner = self()
+    run_ref = make_ref()
 
-      initial_state =
-        %{input: input, context: context, results: %{}}
-        |> Map.put(@collector_key, {runner, run_ref})
-
-      final_workflow = Workflow.react_until_satisfied(workflow, initial_state)
+    with {:ok, flow} <- Flow.validate(flow),
+         {:ok, workflow, ordered_nodes} <- build(flow, input, context, {runner, run_ref}) do
+      final_workflow = Workflow.react_until_satisfied(workflow, input)
       node_errors = drain_node_errors(run_ref, ordered_nodes)
 
       case node_errors do
@@ -70,10 +54,7 @@ defmodule Jido.Flow.Compiler do
           {:error, error}
 
         [] ->
-          case final_state(final_workflow, List.last(ordered_nodes)) do
-            nil -> {:error, Error.execution_error("flow execution produced no final state")}
-            state -> extract_return(flow.return, state)
-          end
+          extract_return(flow.return, final_workflow)
       end
     end
   end
@@ -82,39 +63,93 @@ defmodule Jido.Flow.Compiler do
     {:error, Error.validation_error("flow input and context must be maps")}
   end
 
-  defp topological_order(nodes) do
-    do_topological_order(nodes, MapSet.new(), [])
+  defp build(%Flow{} = flow, input, context, collector) do
+    nodes_by_name = Map.new(flow.nodes, fn node -> {node.name, node} end)
+
+    node_state =
+      %{input: input, context: context, results: %{}}
+      |> Map.put(@collector_key, collector)
+
+    {workflow, _added, ordered} =
+      Enum.reduce(flow.nodes, {Workflow.new(flow.name), MapSet.new(), []}, fn node,
+                                                                              {workflow, added,
+                                                                               ordered} ->
+        add_node(node.name, nodes_by_name, workflow, added, ordered, node_state)
+      end)
+
+    {:ok, workflow, ordered}
   end
 
-  defp do_topological_order([], _done, ordered), do: {:ok, Enum.reverse(ordered)}
+  defp add_node(name, nodes_by_name, workflow, added, ordered, node_state) do
+    if MapSet.member?(added, name) do
+      {workflow, added, ordered}
+    else
+      node = Map.fetch!(nodes_by_name, name)
 
-  defp do_topological_order(remaining, done, ordered) do
-    case Enum.find(remaining, &deps_satisfied?(&1, done)) do
-      nil ->
-        {:error,
-         Error.config_error("dependency graph cannot be topologically ordered", %{
-           nodes: Enum.map(remaining, & &1.name)
-         })}
+      {workflow, added, ordered} =
+        add_dependencies(node.deps, nodes_by_name, workflow, added, ordered, node_state)
 
-      node ->
-        remaining = List.delete(remaining, node)
-        do_topological_order(remaining, MapSet.put(done, node.name), [node | ordered])
+      step =
+        Step.new(
+          name: node.name,
+          work: fn parent_value -> run_node(node, parent_value, node_state) end
+        )
+
+      workflow = add_step(workflow, node, step)
+
+      {workflow, MapSet.put(added, name), ordered ++ [node]}
     end
   end
 
-  defp deps_satisfied?(node, done) do
-    Enum.all?(node.deps, &MapSet.member?(done, &1))
+  defp add_dependencies([], _nodes_by_name, workflow, added, ordered, _node_state) do
+    {workflow, added, ordered}
   end
 
-  defp run_node(node, state) do
+  defp add_dependencies(
+         [dep | deps],
+         nodes_by_name,
+         workflow,
+         added,
+         ordered,
+         node_state
+       ) do
+    {workflow, added, ordered} =
+      add_node(dep, nodes_by_name, workflow, added, ordered, node_state)
+
+    add_dependencies(deps, nodes_by_name, workflow, added, ordered, node_state)
+  end
+
+  defp add_step(workflow, %{deps: []}, step), do: Workflow.add(workflow, step, validate: :off)
+
+  defp add_step(workflow, %{deps: [dep]}, step) do
+    Workflow.add(workflow, step, to: dep, validate: :off)
+  end
+
+  defp add_step(workflow, %{deps: deps}, step) do
+    Workflow.add(workflow, step, to: deps, validate: :off)
+  end
+
+  defp run_node(node, parent_value, node_state) do
+    state = %{node_state | results: dependency_results(node, parent_value)}
+
     with {:ok, params} <- resolve_expr(node.input, state),
          {:ok, params} <- validate_step_input(node, params),
          {:ok, output} <- call_action(node, params, state.context),
          {:ok, output} <- validate_step_output(node, output) do
-      put_in(state, [:results, node.name], output)
+      output
     else
       {:error, error} -> raise_node_error(node, error, state)
     end
+  end
+
+  defp dependency_results(%{deps: []}, _parent_value), do: %{}
+  defp dependency_results(%{deps: [dep]}, parent_value), do: %{dep => parent_value}
+
+  defp dependency_results(%{deps: deps}, parent_values) when is_list(parent_values) do
+    # Multi-parent nodes are attached with `to: deps`; Runic joins preserve that same order.
+    deps
+    |> Enum.zip(parent_values)
+    |> Map.new()
   end
 
   defp raise_node_error(node, error, state) do
@@ -259,18 +294,18 @@ defmodule Jido.Flow.Compiler do
 
   defp resolve_expr(value, _state), do: {:ok, value}
 
-  defp extract_return(%Ref{} = ref, state) do
-    with {:ok, value} <- resolve_expr(ref, state) do
-      {:ok, value}
-    end
-  end
-
-  defp final_state(_workflow, nil), do: nil
-
-  defp final_state(workflow, node) do
+  defp extract_return(%Ref{type: :result, node: node, path: path}, workflow) do
     workflow
-    |> Workflow.results([node.name])
-    |> Map.get(node.name)
+    |> Workflow.results([node], facts: true, all: true)
+    |> Map.get(node, [])
+    |> case do
+      [] ->
+        {:error, Error.execution_error("flow execution produced no final state")}
+
+      facts ->
+        value = facts |> List.last() |> Map.fetch!(:value)
+        {:ok, fetch_path(value, path)}
+    end
   end
 
   defp fetch_path(value, []), do: value

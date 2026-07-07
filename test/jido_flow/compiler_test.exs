@@ -2,7 +2,7 @@ defmodule Jido.Flow.CompilerTest do
   use JidoTest.ActionCase, async: true
   @moduletag capture_log: true
 
-  alias Jido.Action.Error.{ConfigurationError, ExecutionFailureError, InvalidInputError}
+  alias Jido.Action.Error.{ExecutionFailureError, InvalidInputError}
   alias Jido.Action.Output
   alias Jido.Flow
   alias Jido.Flow.{Compiler, Node, Ref}
@@ -43,23 +43,26 @@ defmodule Jido.Flow.CompilerTest do
       assert workflow |> Workflow.steps() |> Enum.map(& &1.name) == [:add_one]
     end
 
-    test "compiles the math flow in dependency order" do
+    test "compiles the math flow into dependency edges" do
       assert {:ok, flow} = Jido.Flow.Builder.build(FlowFixtures.math_builder())
       assert {:ok, workflow} = Flow.compile(flow)
 
-      assert component_order(workflow) == [:add_one, :double]
+      assert root_child?(workflow, :add_one)
+      assert connects?(workflow, :add_one, :double)
+      refute root_child?(workflow, :double)
     end
 
-    test "compiles root result-ref inputs in dependency order" do
+    test "compiles root result-ref inputs into dependency edges" do
       assert {:ok, flow} = Jido.Flow.Builder.build(FlowFixtures.binding_builder())
       assert [_add_one, double] = Flow.to_map(flow).nodes
       assert double.deps == [:add_one]
 
       assert {:ok, workflow} = Flow.compile(flow)
-      assert component_order(workflow) == [:add_one, :double]
+      assert root_child?(workflow, :add_one)
+      assert connects?(workflow, :add_one, :double)
     end
 
-    test "compiles explicit canonical deps in dependency order" do
+    test "compiles explicit canonical deps as actual graph edges" do
       flow =
         Flow.new!(
           name: "explicit_edges",
@@ -85,24 +88,28 @@ defmodule Jido.Flow.CompilerTest do
         )
 
       assert {:ok, workflow} = Flow.compile(flow)
-      assert component_order(workflow) == [:load_quote, :audit_quote, :independent]
+      assert root_child?(workflow, :load_quote)
+      assert root_child?(workflow, :independent)
+      assert connects?(workflow, :load_quote, :audit_quote)
+      refute connects?(workflow, :load_quote, :independent)
+      refute connects?(workflow, :independent, :audit_quote)
     end
 
-    test "compiles branch-grouped flows by actual deps without synthetic joins" do
+    test "compiles branch-grouped flows by actual deps without serializing siblings" do
       assert {:ok, flow} = Jido.Flow.Builder.build(FlowFixtures.branch_group_builder())
       assert {:ok, workflow} = Flow.compile(flow)
 
-      assert component_order(workflow) == [
-               :load_cart,
-               :price_cart,
-               :audit_price,
-               :reserve_inventory,
-               :post_group_independent,
-               :finalize
-             ]
+      assert root_child?(workflow, :load_cart)
+      assert root_child?(workflow, :post_group_independent)
+      assert connects?(workflow, :load_cart, :price_cart)
+      assert connects?(workflow, :load_cart, :reserve_inventory)
+      assert connects?(workflow, :price_cart, :audit_price)
+      assert join_feeds?(workflow, [:price_cart, :reserve_inventory], :finalize)
+      refute connects?(workflow, :price_cart, :reserve_inventory)
+      refute connects?(workflow, :reserve_inventory, :price_cart)
     end
 
-    test "defensively rejects unvalidated dependency graphs that cannot be ordered" do
+    test "defensively rejects unvalidated cyclic dependency graphs" do
       flow = %Flow{
         name: "cycle",
         description: nil,
@@ -126,14 +133,13 @@ defmodule Jido.Flow.CompilerTest do
         provenance: %{}
       }
 
-      assert {:error, %ConfigurationError{message: message, details: details}} =
-               Flow.compile(flow)
+      assert {:error, %InvalidInputError{message: message, details: details}} = Flow.compile(flow)
 
-      assert message =~ "dependency graph cannot be topologically ordered"
+      assert message =~ "flow dependency graph contains a cycle"
       assert Enum.sort(details.nodes) == [:first, :second]
     end
 
-    test "serializes independent branches deliberately for the first milestone" do
+    test "compiles independent branches as independent roots" do
       flow =
         Flow.new!(
           name: "serialized",
@@ -145,7 +151,47 @@ defmodule Jido.Flow.CompilerTest do
         )
 
       assert {:ok, workflow} = Flow.compile(flow)
-      assert component_order(workflow) == [:first, :second]
+      assert root_child?(workflow, :first)
+      assert root_child?(workflow, :second)
+      refute connects?(workflow, :first, :second)
+      refute connects?(workflow, :second, :first)
+    end
+
+    test "compiles child-before-parent node lists by adding parents first" do
+      flow =
+        Flow.new!(
+          name: "child_before_parent",
+          nodes: [
+            Node.new!(
+              name: :child,
+              action: EchoParamsAction,
+              input: %{value: Ref.result(:parent, :value)}
+            ),
+            Node.new!(
+              name: :parent,
+              action: EchoParamsAction,
+              input: %{value: Ref.input(:value)}
+            )
+          ],
+          return: Ref.result(:child, :value)
+        )
+
+      assert {:ok, workflow} = Flow.compile(flow)
+      assert root_child?(workflow, :parent)
+      assert connects?(workflow, :parent, :child)
+      refute root_child?(workflow, :child)
+    end
+
+    test "compiles multi-parent deps through a Runic join" do
+      flow = diamond_flow()
+
+      assert {:ok, workflow} = Flow.compile(flow)
+      assert root_child?(workflow, :a)
+      assert connects?(workflow, :a, :b)
+      assert connects?(workflow, :a, :c)
+      assert join_feeds?(workflow, [:b, :c], :d)
+      refute connects?(workflow, :b, :c)
+      refute connects?(workflow, :c, :b)
     end
 
     test "Runic settles raised work failures and skips downstream work" do
@@ -196,21 +242,64 @@ defmodule Jido.Flow.CompilerTest do
       assert {:ok, %{value: 8}} = Compiler.run(flow, %{value: 3}, %{})
     end
 
-    test "returns an execution error when execution produces no final state" do
+    test "normalizes raw flow dependency metadata before execution" do
       flow = %Flow{
-        name: "empty",
+        name: "raw_dependencies",
         description: nil,
         schema: [],
         output_schema: [],
-        nodes: [],
-        return: Ref.result(:missing),
+        nodes: [
+          Node.new!(
+            name: :add_one,
+            action: Add,
+            input: %{value: Ref.input(:value), amount: Ref.value(1)}
+          ),
+          Node.new!(
+            name: :add_again,
+            action: Add,
+            input: %{value: Ref.result(:add_one, :value), amount: Ref.value(1)}
+          )
+        ],
+        return: Ref.result(:add_again, :value),
         provenance: %{}
       }
 
-      assert {:error, %ExecutionFailureError{message: message}} =
-               Compiler.run(flow, %{}, %{})
+      assert {:ok, 5} = Compiler.run(flow, %{value: 3}, %{})
+    end
 
-      assert message =~ "flow execution produced no final state"
+    test "maps joined parent values to result refs by dependency order" do
+      flow =
+        Flow.new!(
+          name: "join_order",
+          nodes: [
+            Node.new!(
+              name: :a,
+              action: EchoParamsAction,
+              input: %{value: Ref.input(:value)}
+            ),
+            Node.new!(
+              name: :b,
+              action: EchoParamsAction,
+              input: %{value: Ref.value("left"), parent: Ref.result(:a, :value)}
+            ),
+            Node.new!(
+              name: :c,
+              action: EchoParamsAction,
+              input: %{value: Ref.value("right"), parent: Ref.result(:a, :value)}
+            ),
+            Node.new!(
+              name: :d,
+              action: EchoParamsAction,
+              input: %{
+                left: Ref.result(:b, :value),
+                right: Ref.result(:c, :value)
+              }
+            )
+          ],
+          return: Ref.result(:d)
+        )
+
+      assert {:ok, %{left: "left", right: "right"}} = Compiler.run(flow, %{value: 1}, %{})
     end
 
     test "rejects non-map input or context" do
@@ -579,6 +668,46 @@ defmodule Jido.Flow.CompilerTest do
       refute_receive {_run_ref, :node_error, _node, _error}
     end
 
+    test "node failure skips dependents while independent sibling branches still run" do
+      flow =
+        Flow.new!(
+          name: "diamond_failure",
+          nodes: [
+            Node.new!(
+              name: :a,
+              action: EchoParamsAction,
+              input: %{value: Ref.input(:value)}
+            ),
+            Node.new!(
+              name: :b,
+              action: ErrorAction,
+              input: %{error_type: Ref.value(:validation)}
+            ),
+            Node.new!(
+              name: :c,
+              action: RecorderAction,
+              input: %{value: Ref.result(:a, :value)}
+            ),
+            Node.new!(
+              name: :d,
+              action: RecorderAction,
+              input: %{left: Ref.result(:b), right: Ref.result(:c)}
+            )
+          ],
+          return: Ref.result(:d)
+        )
+
+      assert {:error, %ExecutionFailureError{message: message, details: details}} =
+               Compiler.run(flow, %{value: 3}, %{test_pid: self()})
+
+      assert message == "Validation error"
+      assert details.phase == :step_execution
+      assert details.node == :b
+      assert details.action == ErrorAction
+      assert_receive {RecorderAction, %{value: 3}}
+      refute_receive {RecorderAction, %{left: _, right: _}}
+    end
+
     test "preserves exception action errors returned by steps" do
       flow =
         Flow.new!(
@@ -761,9 +890,54 @@ defmodule Jido.Flow.CompilerTest do
     )
   end
 
-  defp component_order(workflow) do
-    workflow.build_log
-    |> Enum.reverse()
-    |> Enum.map(& &1.name)
+  defp diamond_flow do
+    Flow.new!(
+      name: "diamond",
+      nodes: [
+        Node.new!(name: :a, action: EchoParamsAction, input: %{value: Ref.input(:value)}),
+        Node.new!(name: :b, action: EchoParamsAction, input: %{value: Ref.result(:a, :value)}),
+        Node.new!(name: :c, action: EchoParamsAction, input: %{value: Ref.result(:a, :value)}),
+        Node.new!(
+          name: :d,
+          action: EchoParamsAction,
+          input: %{left: Ref.result(:b, :value), right: Ref.result(:c, :value)}
+        )
+      ],
+      return: Ref.result(:d)
+    )
+  end
+
+  defp root_child?(workflow, node_name) do
+    node = Workflow.get_component(workflow, node_name)
+
+    Enum.any?(Multigraph.edges(workflow.graph, by: :flow), fn edge ->
+      match?(%Runic.Workflow.Root{}, edge.v1) and edge.v2 == node
+    end)
+  end
+
+  defp connects?(workflow, parent_name, child_name) do
+    parent = Workflow.get_component(workflow, parent_name)
+    child = Workflow.get_component(workflow, child_name)
+
+    edge?(workflow, parent, child, :connects_to)
+  end
+
+  defp join_feeds?(workflow, parent_names, child_name) do
+    parents = Enum.map(parent_names, &Workflow.get_component(workflow, &1))
+    child = Workflow.get_component(workflow, child_name)
+
+    workflow.graph
+    |> Multigraph.vertices()
+    |> Enum.filter(&match?(%Runic.Workflow.Join{}, &1))
+    |> Enum.any?(fn join ->
+      Enum.all?(parents, &edge?(workflow, &1, join, :flow)) and
+        edge?(workflow, join, child, :flow)
+    end)
+  end
+
+  defp edge?(workflow, from, to, label) do
+    Enum.any?(Multigraph.edges(workflow.graph, by: label), fn edge ->
+      edge.v1 == from and edge.v2 == to
+    end)
   end
 end
