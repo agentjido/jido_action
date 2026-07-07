@@ -13,15 +13,14 @@ defmodule Jido.Flow.Syntax do
               __MODULE__,
               %{
                 type:
-                  Zoi.enum([:input, :context, :value, :result, :binding, :select, :shape],
+                  Zoi.enum([:input, :context, :value, :result, :binding, :select],
                     description: "Expression type"
                   ),
                 node: Zoi.atom(description: "Result node name") |> Zoi.optional(),
                 binding: Zoi.atom(description: "Source binding alias") |> Zoi.optional(),
                 source: Zoi.any(description: "Projection source expression") |> Zoi.optional(),
                 path: Zoi.list(Zoi.any(), description: "Nested value path") |> Zoi.default([]),
-                value: Zoi.any(description: "Literal value") |> Zoi.optional(),
-                data: Zoi.any(description: "Structured shape data") |> Zoi.optional()
+                value: Zoi.any(description: "Literal value") |> Zoi.optional()
               },
               coerce: true
             )
@@ -131,12 +130,6 @@ defmodule Jido.Flow.Syntax do
   """
   @spec select(term(), term()) :: Expr.t()
   def select(source, path), do: %Expr{type: :select, source: source, path: normalize_path(path)}
-
-  @doc """
-  Builds a readability-only structured data expression.
-  """
-  @spec shape(term()) :: Expr.t()
-  def shape(data), do: %Expr{type: :shape, data: data}
 
   @doc """
   Builds a named branch operation for static branch grouping.

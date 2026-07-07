@@ -294,37 +294,35 @@ defmodule Jido.Flow.DSLTest do
                Jido.Exec.run(module.flow(), %{value: 3}, %{trace_id: "trace"})
     end
 
-    test "supports projection-only select and shape expressions" do
-      module = unique_module("ProjectionShapeFlow")
+    test "supports projection-only select expressions inside maps" do
+      module = unique_module("ProjectionFlow")
 
       create_module(
         module,
         quote do
-          use Jido.Flow, name: "projection_shape_flow"
+          use Jido.Flow, name: "projection_flow"
 
           flow do
             loaded =
               step(:load_quote, unquote(EchoParamsAction),
-                with:
-                  shape(%{
-                    quote: %{
-                      id: input(:quote_id),
-                      pricing: %{total: input([:items, 0, :price])}
-                    },
-                    tags: [input(:tag)]
-                  })
+                with: %{
+                  quote: %{
+                    id: input(:quote_id),
+                    pricing: %{total: input([:items, 0, :price])}
+                  },
+                  tags: [input(:tag)]
+                }
               )
 
             audit =
               step(:audit_quote, unquote(EchoParamsAction),
-                with:
-                  shape(%{
-                    quote_id: select(loaded, [:quote, :id]),
-                    total: select(select(loaded, [:quote, :pricing]), :total),
-                    first_item_id: select(input(:items), [0, :id]),
-                    tenant_id: select(context(:tenant), :id),
-                    trace_id: context(:trace_id)
-                  })
+                with: %{
+                  quote_id: select(loaded, [:quote, :id]),
+                  total: select(select(loaded, [:quote, :pricing]), :total),
+                  first_item_id: select(input(:items), [0, :id]),
+                  tenant_id: select(context(:tenant), :id),
+                  trace_id: context(:trace_id)
+                }
               )
 
             return(select(audit, :total))
@@ -349,6 +347,24 @@ defmodule Jido.Flow.DSLTest do
       assert module.to_map().return == %{type: :result, node: :audit_quote, path: [:total]}
     end
 
+    test "rejects shape expressions at compile time" do
+      module = unique_module("RejectedShapeFlow")
+
+      assert_raise CompileError, ~r/unsupported flow DSL expression/, fn ->
+        create_module(
+          module,
+          quote do
+            use Jido.Flow, name: "rejected_shape_flow"
+
+            flow do
+              step(:load_quote, unquote(EchoParamsAction), with: shape(%{id: input(:quote_id)}))
+              return(result(:load_quote))
+            end
+          end
+        )
+      end
+    end
+
     test "supports explicit after targets in keyword step options" do
       module = unique_module("ExplicitAfterFlow")
 
@@ -359,13 +375,13 @@ defmodule Jido.Flow.DSLTest do
 
           flow do
             loaded =
-              step(:load_quote, unquote(EchoParamsAction), with: shape(%{id: input(:quote_id)}))
+              step(:load_quote, unquote(EchoParamsAction), with: %{id: input(:quote_id)})
 
-            step(:independent, unquote(EchoParamsAction), with: shape(%{event: "side"}))
+            step(:independent, unquote(EchoParamsAction), with: %{event: "side"})
 
             audit =
               step(:audit_quote, unquote(EchoParamsAction),
-                with: shape(%{event: "quoted"}),
+                with: %{event: "quoted"},
                 after: [:load_quote, loaded]
               )
 
@@ -396,7 +412,7 @@ defmodule Jido.Flow.DSLTest do
             audit =
               step(:audit_quote, unquote(EchoParamsAction),
                 after: loaded,
-                with: shape(%{event: "quoted"})
+                with: %{event: "quoted"}
               )
 
             return(audit)
@@ -431,7 +447,7 @@ defmodule Jido.Flow.DSLTest do
 
             final =
               step(:finalize, unquote(EchoParamsAction),
-                with: shape(%{priced: priced, reserved: reserved})
+                with: %{priced: priced, reserved: reserved}
               )
 
             return(final)
@@ -519,12 +535,11 @@ defmodule Jido.Flow.DSLTest do
              ] = Jido.Flow.DSL.__parse_block__(ast, __ENV__)
     end
 
-    test "rejects unsupported projection and shape expressions at compile time" do
+    test "rejects unsupported projection expressions at compile time" do
       cases = [
-        {:computed_shape,
-         quote(
-           do: step(:bad, unquote(EchoParamsAction), with: shape(%{x: System.system_time()}))
-         ), ~r/unsupported flow DSL expression/},
+        {:computed_map_value,
+         quote(do: step(:bad, unquote(EchoParamsAction), with: %{x: System.system_time()})),
+         ~r/unsupported flow DSL expression/},
         {:computed_path,
          quote(
            do:
@@ -533,9 +548,8 @@ defmodule Jido.Flow.DSLTest do
              )
          ), ~r/unsupported flow DSL expression/},
         {:dot_projection,
-         quote(
-           do: step(:bad, unquote(EchoParamsAction), with: shape(%{x: input(:payload).value}))
-         ), ~r/unsupported flow DSL expression/},
+         quote(do: step(:bad, unquote(EchoParamsAction), with: %{x: input(:payload).value})),
+         ~r/unsupported flow DSL expression/},
         {:value_source,
          quote(do: step(:bad, unquote(EchoParamsAction), with: %{x: select(value(%{}), :id)})),
          ~r/select source must resolve to an input, context, or result ref/}

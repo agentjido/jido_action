@@ -138,10 +138,6 @@ defmodule Jido.Flow.DSL do
     Syntax.select(parse_expression(source_ast, env), parse_path!(path_ast, env))
   end
 
-  defp parse_expression({:shape, _meta, [data_ast]}, env) do
-    Syntax.shape(parse_expression(data_ast, env))
-  end
-
   defp parse_expression({:%{}, _meta, pairs}, env) do
     Map.new(pairs, fn {key_ast, value_ast} ->
       {parse_literal!(key_ast, env), parse_expression(value_ast, env)}

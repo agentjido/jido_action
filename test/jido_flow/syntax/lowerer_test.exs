@@ -154,25 +154,25 @@ defmodule Jido.Flow.Syntax.LowererTest do
       assert double.input.literal == %{type: :value, value: 10}
     end
 
-    test "lowers select and shape expressions to canonical refs and structures" do
+    test "lowers select expressions inside maps to canonical refs and structures" do
       syntax =
         Syntax.new(name: "projection")
         |> Syntax.step(
           :load_quote,
           EchoParamsAction,
-          Syntax.shape(%{
+          %{
             quote: %{
               id: Syntax.input(:quote_id),
               pricing: %{total: Syntax.input([:items, 0, :price])}
             },
             tags: [Syntax.input(:tag)]
-          }),
+          },
           bind: :loaded
         )
         |> Syntax.step(
           :audit_quote,
           EchoParamsAction,
-          Syntax.shape(%{
+          %{
             quote_id: Syntax.select(Syntax.binding(:loaded), [:quote, :id]),
             total:
               Syntax.select(
@@ -183,7 +183,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
             tenant_id: Syntax.select(Syntax.context(:tenant), :id),
             trace_id: Syntax.context(:trace_id),
             tag: Syntax.select(Syntax.binding(:loaded), [:tags, 0])
-          }),
+          },
           bind: :audit
         )
         |> Syntax.return(Syntax.select(Syntax.binding(:audit), :total))
@@ -215,33 +215,6 @@ defmodule Jido.Flow.Syntax.LowererTest do
       assert audit_quote.deps == [:load_quote]
       assert Flow.to_map(flow).return == %{type: :result, node: :audit_quote, path: [:total]}
       refute Flow.to_map(flow) |> inspect() |> String.contains?("select")
-      refute Flow.to_map(flow) |> inspect() |> String.contains?("shape")
-    end
-
-    test "raw maps and equivalent shape expressions lower to the same canonical map" do
-      raw =
-        Syntax.new(name: "shape_equivalence")
-        |> Syntax.step(:echo, EchoParamsAction, %{
-          values: [Syntax.input(:value), Syntax.value(2)],
-          metadata: %{source: "raw"}
-        })
-        |> Syntax.return(Syntax.result(:echo))
-
-      shaped =
-        Syntax.new(name: "shape_equivalence")
-        |> Syntax.step(
-          :echo,
-          EchoParamsAction,
-          Syntax.shape(%{
-            values: [Syntax.input(:value), Syntax.value(2)],
-            metadata: %{source: "raw"}
-          })
-        )
-        |> Syntax.return(Syntax.result(:echo))
-
-      assert {:ok, raw_flow} = Lowerer.lower(raw)
-      assert {:ok, shaped_flow} = Lowerer.lower(shaped)
-      assert Flow.to_map(raw_flow) == Flow.to_map(shaped_flow)
     end
 
     test "rejects select over non-projectable sources" do
@@ -260,15 +233,15 @@ defmodule Jido.Flow.Syntax.LowererTest do
       assert details.type == :value
     end
 
-    test "rejects select over shaped map or list sources" do
+    test "rejects select over map or list sources" do
       cases = [
-        {Syntax.shape(%{id: Syntax.input(:id)}), :map},
-        {Syntax.shape([Syntax.input(:id)]), :list}
+        {%{id: Syntax.input(:id)}, :map},
+        {[Syntax.input(:id)], :list}
       ]
 
       for {source, type} <- cases do
         syntax =
-          Syntax.new(name: "bad_shaped_select")
+          Syntax.new(name: "bad_structured_select")
           |> Syntax.step(:echo, EchoParamsAction, %{value: Syntax.select(source, :id)})
           |> Syntax.return(Syntax.result(:echo))
 
@@ -316,11 +289,11 @@ defmodule Jido.Flow.Syntax.LowererTest do
       end
     end
 
-    test "rejects shaped return values" do
+    test "rejects structured return values" do
       syntax =
-        Syntax.new(name: "bad_shape_return")
+        Syntax.new(name: "bad_structured_return")
         |> Syntax.step(:echo, EchoParamsAction, %{total: Syntax.input(:total)}, bind: :echoed)
-        |> Syntax.return(Syntax.shape(%{total: Syntax.select(Syntax.binding(:echoed), :total)}))
+        |> Syntax.return(%{total: Syntax.select(Syntax.binding(:echoed), :total)})
 
       assert {:error, %InvalidInputError{message: message}} = Lowerer.lower(syntax)
       assert message =~ "return must resolve to a result ref"
@@ -464,7 +437,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
         |> Syntax.step(
           :audit_cart,
           EchoParamsAction,
-          Syntax.shape(%{event: "loaded"}),
+          %{event: "loaded"},
           after: [:load_cart, Syntax.binding(:cart_handle), :load_cart]
         )
         |> Syntax.return(Syntax.result(:audit_cart))
@@ -488,7 +461,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
         |> Syntax.step(
           :audit_quote,
           EchoParamsAction,
-          Syntax.shape(%{quote_id: Syntax.select(Syntax.binding(:quote), :id)}),
+          %{quote_id: Syntax.select(Syntax.binding(:quote), :id)},
           after: Syntax.binding(:quote)
         )
         |> Syntax.return(Syntax.result(:audit_quote))
@@ -534,7 +507,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
             step_operation(
               :audit_price,
               EchoParamsAction,
-              Syntax.shape(%{event: "priced"}),
+              %{event: "priced"},
               after: Syntax.binding(:priced)
             )
           ]),
@@ -547,13 +520,13 @@ defmodule Jido.Flow.Syntax.LowererTest do
         |> Syntax.step(
           :finalize,
           EchoParamsAction,
-          Syntax.shape(%{
+          %{
             priced: Syntax.binding(:priced),
             reserved: Syntax.binding(:reserved)
-          }),
+          },
           bind: :final
         )
-        |> Syntax.step(:post_group_independent, EchoParamsAction, Syntax.shape(%{event: "side"}))
+        |> Syntax.step(:post_group_independent, EchoParamsAction, %{event: "side"})
         |> Syntax.return(Syntax.binding(:final))
 
       assert {:ok, flow} = Lowerer.lower(syntax)
@@ -846,18 +819,18 @@ defmodule Jido.Flow.Syntax.LowererTest do
       assert details.step == :add_one
     end
 
-    test "rejects a binding used in its own select or shape input" do
+    test "rejects a binding used in its own select or map input" do
       cases = [
         Syntax.new(name: "self_binding_select")
         |> Syntax.step(:echo, EchoParamsAction, Syntax.select(Syntax.binding(:echoed), :id),
           bind: :echoed
         )
         |> Syntax.return(Syntax.result(:echo)),
-        Syntax.new(name: "self_binding_shape")
+        Syntax.new(name: "self_binding_map")
         |> Syntax.step(
           :echo,
           EchoParamsAction,
-          Syntax.shape(%{id: Syntax.select(Syntax.binding(:echoed), :id)}),
+          %{id: Syntax.select(Syntax.binding(:echoed), :id)},
           bind: :echoed
         )
         |> Syntax.return(Syntax.result(:echo))
@@ -893,10 +866,6 @@ defmodule Jido.Flow.Syntax.LowererTest do
          Syntax.new(name: "reserved_select_binding")
          |> Syntax.step(:add_one, Add, %{}, bind: :select)
          |> Syntax.return(Syntax.result(:add_one)), "reserved binding alias", :select},
-        {:reserved_shape_binding,
-         Syntax.new(name: "reserved_shape_binding")
-         |> Syntax.step(:add_one, Add, %{}, bind: :shape)
-         |> Syntax.return(Syntax.result(:add_one)), "reserved binding alias", :shape},
         {:reserved_context_binding,
          Syntax.new(name: "reserved_context_binding")
          |> Syntax.step(:add_one, Add, %{}, bind: :context)

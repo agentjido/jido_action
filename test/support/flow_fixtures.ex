@@ -187,24 +187,24 @@ defmodule JidoTest.FlowFixtures do
     |> Syntax.step(
       :load_quote,
       EchoParamsAction,
-      Syntax.shape(%{
+      %{
         quote: %{
           id: Syntax.input(:quote_id),
           pricing: %{total: Syntax.input([:items, 0, :price])}
         },
         tags: [Syntax.input(:tag)]
-      }),
+      },
       bind: :loaded
     )
     |> Syntax.step(
       :audit_quote,
       EchoParamsAction,
-      Syntax.shape(%{
+      %{
         quote_id: Syntax.select(Syntax.binding(:loaded), [:quote, :id]),
         total: Syntax.select(Syntax.select(Syntax.binding(:loaded), [:quote, :pricing]), :total),
         first_item_id: Syntax.select(Syntax.input(:items), [0, :id]),
         tag: Syntax.select(Syntax.binding(:loaded), [:tags, 0])
-      }),
+      },
       bind: :audit
     )
     |> Syntax.return(Syntax.select(Syntax.binding(:audit), :total))
@@ -218,25 +218,25 @@ defmodule JidoTest.FlowFixtures do
     |> Builder.step(
       :load_quote,
       EchoParamsAction,
-      Builder.shape(%{
+      %{
         quote: %{
           id: Builder.input(:quote_id),
           pricing: %{total: Builder.input([:items, 0, :price])}
         },
         tags: [Builder.input(:tag)]
-      }),
+      },
       bind: :loaded
     )
     |> Builder.step(
       :audit_quote,
       EchoParamsAction,
-      Builder.shape(%{
+      %{
         quote_id: Builder.select(Builder.binding(:loaded), [:quote, :id]),
         total:
           Builder.select(Builder.select(Builder.binding(:loaded), [:quote, :pricing]), :total),
         first_item_id: Builder.select(Builder.input(:items), [0, :id]),
         tag: Builder.select(Builder.binding(:loaded), [:tags, 0])
-      }),
+      },
       bind: :audit
     )
     |> Builder.return(Builder.select(Builder.binding(:audit), :total))
@@ -247,22 +247,22 @@ defmodule JidoTest.FlowFixtures do
     flow do
       loaded =
         step :load_quote, JidoTest.TestActions.EchoParamsAction,
-          with: shape(%{
+          with: %{
             quote: %{
               id: input(:quote_id),
               pricing: %{total: input([:items, 0, :price])}
             },
             tags: [input(:tag)]
-          })
+          }
 
       audit =
         step :audit_quote, JidoTest.TestActions.EchoParamsAction,
-          with: shape(%{
+          with: %{
             quote_id: select(loaded, [:quote, :id]),
             total: select(select(loaded, [:quote, :pricing]), :total),
             first_item_id: select(input(:items), [0, :id]),
             tag: select(loaded, [:tags, 0])
-          })
+          }
 
       return select(audit, :total)
     end
@@ -277,12 +277,12 @@ defmodule JidoTest.FlowFixtures do
     |> Syntax.step(
       :audit_request,
       EchoParamsAction,
-      Syntax.shape(%{
+      %{
         user_id: Syntax.input(:user_id),
         input_trace_id: Syntax.input(:trace_id),
         context_trace_id: Syntax.context(:trace_id),
         tenant_id: Syntax.select(Syntax.context(:tenant), :id)
-      }),
+      },
       bind: :audit
     )
     |> Syntax.return(Syntax.binding(:audit))
@@ -296,12 +296,12 @@ defmodule JidoTest.FlowFixtures do
     |> Builder.step(
       :audit_request,
       EchoParamsAction,
-      Builder.shape(%{
+      %{
         user_id: Builder.input(:user_id),
         input_trace_id: Builder.input(:trace_id),
         context_trace_id: Builder.context(:trace_id),
         tenant_id: Builder.select(Builder.context(:tenant), :id)
-      }),
+      },
       bind: :audit
     )
     |> Builder.return(Builder.binding(:audit))
@@ -312,12 +312,12 @@ defmodule JidoTest.FlowFixtures do
     flow do
       audit =
         step :audit_request, JidoTest.TestActions.EchoParamsAction,
-          with: shape(%{
+          with: %{
             user_id: input(:user_id),
             input_trace_id: input(:trace_id),
             context_trace_id: context(:trace_id),
             tenant_id: select(context(:tenant), :id)
-          })
+          }
 
       return audit
     end
@@ -332,18 +332,18 @@ defmodule JidoTest.FlowFixtures do
     |> Syntax.step(
       :load_quote,
       EchoParamsAction,
-      Syntax.shape(%{id: Syntax.input(:quote_id)}),
+      %{id: Syntax.input(:quote_id)},
       bind: :loaded
     )
     |> Syntax.step(
       :independent,
       EchoParamsAction,
-      Syntax.shape(%{event: "side"})
+      %{event: "side"}
     )
     |> Syntax.step(
       :audit_quote,
       EchoParamsAction,
-      Syntax.shape(%{event: "quoted"}),
+      %{event: "quoted"},
       bind: :audit,
       after: [:load_quote, Syntax.binding(:loaded)]
     )
@@ -358,18 +358,18 @@ defmodule JidoTest.FlowFixtures do
     |> Builder.step(
       :load_quote,
       EchoParamsAction,
-      Builder.shape(%{id: Builder.input(:quote_id)}),
+      %{id: Builder.input(:quote_id)},
       bind: :loaded
     )
     |> Builder.step(
       :independent,
       EchoParamsAction,
-      Builder.shape(%{event: "side"})
+      %{event: "side"}
     )
     |> Builder.step(
       :audit_quote,
       EchoParamsAction,
-      Builder.shape(%{event: "quoted"}),
+      %{event: "quoted"},
       bind: :audit,
       after: [:load_quote, Builder.binding(:loaded)]
     )
@@ -381,14 +381,14 @@ defmodule JidoTest.FlowFixtures do
     flow do
       loaded =
         step :load_quote, JidoTest.TestActions.EchoParamsAction,
-          with: shape(%{id: input(:quote_id)})
+          with: %{id: input(:quote_id)}
 
       step :independent, JidoTest.TestActions.EchoParamsAction,
-        with: shape(%{event: "side"})
+        with: %{event: "side"}
 
       audit =
         step :audit_quote, JidoTest.TestActions.EchoParamsAction,
-          with: shape(%{event: "quoted"}),
+          with: %{event: "quoted"},
           after: [:load_quote, loaded]
 
       return audit
@@ -404,38 +404,38 @@ defmodule JidoTest.FlowFixtures do
     |> Syntax.step(
       :load,
       EchoParamsAction,
-      Syntax.shape(%{
+      %{
         id: Syntax.input(:id),
         base: Syntax.input(:base)
-      }),
+      },
       bind: :loaded
     )
     |> Syntax.step(
       :left,
       EchoParamsAction,
-      Syntax.shape(%{
+      %{
         side: Syntax.value("left"),
         id: Syntax.select(Syntax.binding(:loaded), :id)
-      }),
+      },
       bind: :left_branch
     )
     |> Syntax.step(
       :right,
       EchoParamsAction,
-      Syntax.shape(%{
+      %{
         side: Syntax.value("right"),
         base: Syntax.select(Syntax.binding(:loaded), :base)
-      }),
+      },
       bind: :right_branch
     )
     |> Syntax.step(
       :merge,
       EchoParamsAction,
-      Syntax.shape(%{
+      %{
         left: Syntax.select(Syntax.binding(:left_branch), :side),
         right: Syntax.select(Syntax.binding(:right_branch), :side),
         id: Syntax.select(Syntax.binding(:left_branch), :id)
-      }),
+      },
       bind: :merged
     )
     |> Syntax.return(Syntax.binding(:merged))
@@ -449,38 +449,38 @@ defmodule JidoTest.FlowFixtures do
     |> Builder.step(
       :load,
       EchoParamsAction,
-      Builder.shape(%{
+      %{
         id: Builder.input(:id),
         base: Builder.input(:base)
-      }),
+      },
       bind: :loaded
     )
     |> Builder.step(
       :left,
       EchoParamsAction,
-      Builder.shape(%{
+      %{
         side: Builder.value("left"),
         id: Builder.select(Builder.binding(:loaded), :id)
-      }),
+      },
       bind: :left_branch
     )
     |> Builder.step(
       :right,
       EchoParamsAction,
-      Builder.shape(%{
+      %{
         side: Builder.value("right"),
         base: Builder.select(Builder.binding(:loaded), :base)
-      }),
+      },
       bind: :right_branch
     )
     |> Builder.step(
       :merge,
       EchoParamsAction,
-      Builder.shape(%{
+      %{
         left: Builder.select(Builder.binding(:left_branch), :side),
         right: Builder.select(Builder.binding(:right_branch), :side),
         id: Builder.select(Builder.binding(:left_branch), :id)
-      }),
+      },
       bind: :merged
     )
     |> Builder.return(Builder.binding(:merged))
@@ -491,32 +491,32 @@ defmodule JidoTest.FlowFixtures do
     flow do
       loaded =
         step :load, JidoTest.TestActions.EchoParamsAction,
-          with: shape(%{
+          with: %{
             id: input(:id),
             base: input(:base)
-          })
+          }
 
       left_branch =
         step :left, JidoTest.TestActions.EchoParamsAction,
-          with: shape(%{
+          with: %{
             side: "left",
             id: select(loaded, :id)
-          })
+          }
 
       right_branch =
         step :right, JidoTest.TestActions.EchoParamsAction,
-          with: shape(%{
+          with: %{
             side: "right",
             base: select(loaded, :base)
-          })
+          }
 
       merged =
         step :merge, JidoTest.TestActions.EchoParamsAction,
-          with: shape(%{
+          with: %{
             left: select(left_branch, :side),
             right: select(right_branch, :side),
             id: select(left_branch, :id)
-          })
+          }
 
       return merged
     end
@@ -531,10 +531,10 @@ defmodule JidoTest.FlowFixtures do
     |> Syntax.step(
       :load_cart,
       EchoParamsAction,
-      Syntax.shape(%{
+      %{
         cart_id: Syntax.input(:cart_id),
         items: Syntax.input(:items)
-      }),
+      },
       bind: :cart
     )
     |> Syntax.parallel([
@@ -542,16 +542,16 @@ defmodule JidoTest.FlowFixtures do
         syntax_step(
           :price_cart,
           EchoParamsAction,
-          Syntax.shape(%{
+          %{
             cart_id: Syntax.select(Syntax.binding(:cart), :cart_id),
             total: Syntax.input(:total)
-          }),
+          },
           bind: :priced
         ),
         syntax_step(
           :audit_price,
           EchoParamsAction,
-          Syntax.shape(%{event: "priced"}),
+          %{event: "priced"},
           after: Syntax.binding(:priced)
         )
       ]),
@@ -559,22 +559,22 @@ defmodule JidoTest.FlowFixtures do
         syntax_step(
           :reserve_inventory,
           EchoParamsAction,
-          Syntax.shape(%{
+          %{
             cart_id: Syntax.select(Syntax.binding(:cart), :cart_id),
             items: Syntax.select(Syntax.binding(:cart), :items)
-          }),
+          },
           bind: :reserved
         )
       ])
     ])
-    |> Syntax.step(:post_group_independent, EchoParamsAction, Syntax.shape(%{event: "side"}))
+    |> Syntax.step(:post_group_independent, EchoParamsAction, %{event: "side"})
     |> Syntax.step(
       :finalize,
       EchoParamsAction,
-      Syntax.shape(%{
+      %{
         priced: Syntax.binding(:priced),
         reserved: Syntax.binding(:reserved)
-      }),
+      },
       bind: :final
     )
     |> Syntax.return(Syntax.binding(:final))
@@ -588,44 +588,44 @@ defmodule JidoTest.FlowFixtures do
     |> Syntax.step(
       :load_cart,
       EchoParamsAction,
-      Syntax.shape(%{
+      %{
         cart_id: Syntax.input(:cart_id),
         items: Syntax.input(:items)
-      }),
+      },
       bind: :cart
     )
     |> Syntax.step(
       :price_cart,
       EchoParamsAction,
-      Syntax.shape(%{
+      %{
         cart_id: Syntax.select(Syntax.binding(:cart), :cart_id),
         total: Syntax.input(:total)
-      }),
+      },
       bind: :priced
     )
     |> Syntax.step(
       :audit_price,
       EchoParamsAction,
-      Syntax.shape(%{event: "priced"}),
+      %{event: "priced"},
       after: Syntax.binding(:priced)
     )
     |> Syntax.step(
       :reserve_inventory,
       EchoParamsAction,
-      Syntax.shape(%{
+      %{
         cart_id: Syntax.select(Syntax.binding(:cart), :cart_id),
         items: Syntax.select(Syntax.binding(:cart), :items)
-      }),
+      },
       bind: :reserved
     )
-    |> Syntax.step(:post_group_independent, EchoParamsAction, Syntax.shape(%{event: "side"}))
+    |> Syntax.step(:post_group_independent, EchoParamsAction, %{event: "side"})
     |> Syntax.step(
       :finalize,
       EchoParamsAction,
-      Syntax.shape(%{
+      %{
         priced: Syntax.binding(:priced),
         reserved: Syntax.binding(:reserved)
-      }),
+      },
       bind: :final
     )
     |> Syntax.return(Syntax.binding(:final))
@@ -639,10 +639,10 @@ defmodule JidoTest.FlowFixtures do
     |> Builder.step(
       :load_cart,
       EchoParamsAction,
-      Builder.shape(%{
+      %{
         cart_id: Builder.input(:cart_id),
         items: Builder.input(:items)
-      }),
+      },
       bind: :cart
     )
     |> Builder.parallel([
@@ -650,16 +650,16 @@ defmodule JidoTest.FlowFixtures do
         syntax_step(
           :price_cart,
           EchoParamsAction,
-          Builder.shape(%{
+          %{
             cart_id: Builder.select(Builder.binding(:cart), :cart_id),
             total: Builder.input(:total)
-          }),
+          },
           bind: :priced
         ),
         syntax_step(
           :audit_price,
           EchoParamsAction,
-          Builder.shape(%{event: "priced"}),
+          %{event: "priced"},
           after: Builder.binding(:priced)
         )
       ]),
@@ -667,22 +667,22 @@ defmodule JidoTest.FlowFixtures do
         syntax_step(
           :reserve_inventory,
           EchoParamsAction,
-          Builder.shape(%{
+          %{
             cart_id: Builder.select(Builder.binding(:cart), :cart_id),
             items: Builder.select(Builder.binding(:cart), :items)
-          }),
+          },
           bind: :reserved
         )
       ])
     ])
-    |> Builder.step(:post_group_independent, EchoParamsAction, Builder.shape(%{event: "side"}))
+    |> Builder.step(:post_group_independent, EchoParamsAction, %{event: "side"})
     |> Builder.step(
       :finalize,
       EchoParamsAction,
-      Builder.shape(%{
+      %{
         priced: Builder.binding(:priced),
         reserved: Builder.binding(:reserved)
-      }),
+      },
       bind: :final
     )
     |> Builder.return(Builder.binding(:final))
@@ -693,44 +693,44 @@ defmodule JidoTest.FlowFixtures do
     flow do
       cart =
         step :load_cart, JidoTest.TestActions.EchoParamsAction,
-          with: shape(%{
+          with: %{
             cart_id: input(:cart_id),
             items: input(:items)
-          })
+          }
 
       parallel do
         branch :alpha do
           priced =
             step :price_cart, JidoTest.TestActions.EchoParamsAction,
-              with: shape(%{
+              with: %{
                 cart_id: select(cart, :cart_id),
                 total: input(:total)
-              })
+              }
 
           step :audit_price, JidoTest.TestActions.EchoParamsAction,
-            with: shape(%{event: "priced"}),
+            with: %{event: "priced"},
             after: priced
         end
 
         branch :beta do
           reserved =
             step :reserve_inventory, JidoTest.TestActions.EchoParamsAction,
-              with: shape(%{
+              with: %{
                 cart_id: select(cart, :cart_id),
                 items: select(cart, :items)
-              })
+              }
         end
       end
 
       step :post_group_independent, JidoTest.TestActions.EchoParamsAction,
-        with: shape(%{event: "side"})
+        with: %{event: "side"}
 
       final =
         step :finalize, JidoTest.TestActions.EchoParamsAction,
-          with: shape(%{
+          with: %{
             priced: priced,
             reserved: reserved
-          })
+          }
 
       return final
     end
