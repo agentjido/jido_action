@@ -5,6 +5,19 @@ defmodule Jido.Exec do
   The first Flow foundation establishes this module as the single execution
   entry point. Concrete action, instruction, and Flow execution behavior is
   layered in later implementation units.
+
+  ## Telemetry
+
+  Execution emits minimal span events:
+
+  - `[:jido, :exec, :run]` wraps public action, instruction, and flow execution
+    with metadata `%{kind: :action | :instruction | :flow, name: term()}`.
+  - `[:jido, :flow, :node]` wraps each flow node action invocation with
+    metadata `%{flow: flow_name, node: node_name, action: action_module}`.
+
+  Stop events include `:status`; error stop events also include
+  `:error_type`. Flow node events may be emitted from task processes when
+  flow execution uses `async: true`.
   """
 
   alias Jido.Action.Error
@@ -25,16 +38,23 @@ defmodule Jido.Exec do
   """
   @spec run(term(), map(), map(), keyword()) ::
           {:ok, term()} | {:ok, term(), term()} | {:error, Exception.t()}
-  def run(executable, input \\ %{}, context \\ %{}, opts \\ [])
+  def run(executable, input \\ %{}, context \\ %{}, opts \\ []) do
+    metadata = exec_metadata(executable)
 
-  def run(%Instruction{} = instruction, input, context, opts) do
+    :telemetry.span([:jido, :exec, :run], metadata, fn ->
+      result = do_run(executable, input, context, opts)
+      {result, Map.merge(metadata, result_metadata(result))}
+    end)
+  end
+
+  defp do_run(%Instruction{} = instruction, input, context, opts) do
     with :ok <- reject_run_opts(opts, :instruction),
          {:ok, instruction} <- normalize_instruction(instruction, input, context) do
       run_action_instruction(instruction)
     end
   end
 
-  def run(%Flow{} = flow, input, context, opts) do
+  defp do_run(%Flow{} = flow, input, context, opts) do
     with {:ok, run_opts} <- validate_flow_run_opts(opts),
          :ok <- Flow.check(flow),
          {:ok, input} <- normalize_map(input, :input),
@@ -47,11 +67,11 @@ defmodule Jido.Exec do
     end
   end
 
-  def run(module, input, context, opts) when is_atom(module) and not is_nil(module) do
+  defp do_run(module, input, context, opts) when is_atom(module) and not is_nil(module) do
     case Code.ensure_loaded(module) do
       {:module, _module} ->
         if function_exported?(module, :__jido_flow__, 0) do
-          run(module.flow(), input, context, opts)
+          do_run(module.flow(), input, context, opts)
         else
           with :ok <- reject_run_opts(opts, :action),
                {:ok, instruction} <- normalize_instruction(module, input, context) do
@@ -68,10 +88,49 @@ defmodule Jido.Exec do
     end
   end
 
-  def run(executable, _input, _context, _opts) do
+  defp do_run(executable, _input, _context, _opts) do
     {:error,
      Error.config_error("unknown executable: #{inspect(executable)}", %{executable: executable})}
   end
+
+  defp exec_metadata(%Instruction{action: action}) do
+    %{kind: :instruction, name: action_name(action)}
+  end
+
+  defp exec_metadata(%Flow{} = flow), do: %{kind: :flow, name: flow.name}
+
+  defp exec_metadata(module) when is_atom(module) and not is_nil(module) do
+    if flow_module?(module) do
+      exec_metadata(module.flow())
+    else
+      %{kind: :action, name: action_name(module)}
+    end
+  end
+
+  defp exec_metadata(_executable), do: %{kind: :unknown, name: :unknown}
+
+  defp flow_module?(module) do
+    case Code.ensure_loaded(module) do
+      {:module, _module} -> function_exported?(module, :__jido_flow__, 0)
+      {:error, _reason} -> false
+    end
+  end
+
+  defp action_name(module) when is_atom(module) do
+    if Code.ensure_loaded?(module) and function_exported?(module, :name, 0) do
+      module.name()
+    else
+      module
+    end
+  end
+
+  defp result_metadata({:error, error}) do
+    %{status: :error, error_type: error_type(error)}
+  end
+
+  defp result_metadata(_result), do: %{status: :ok}
+
+  defp error_type(error), do: error |> Error.to_map() |> Map.get(:type)
 
   defp validate_flow_run_opts(opts) do
     with :ok <- validate_opts_keyword(opts),

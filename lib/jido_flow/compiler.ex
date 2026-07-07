@@ -17,6 +17,7 @@ defmodule Jido.Flow.Compiler do
   @run_option_keys [:async, :max_concurrency]
 
   @type node_state :: %{
+          flow: String.t(),
           input: map(),
           context: map(),
           results: map()
@@ -121,7 +122,7 @@ defmodule Jido.Flow.Compiler do
     nodes_by_name = Map.new(flow.nodes, fn node -> {node.name, node} end)
 
     node_state =
-      %{input: input, context: context, results: %{}}
+      %{flow: flow.name, input: input, context: context, results: %{}}
       |> Map.put(@collector_key, collector)
 
     {workflow, _added, ordered} =
@@ -184,17 +185,44 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp run_node(node, parent_value, node_state) do
+    metadata = node_metadata(node, node_state)
+
+    result =
+      :telemetry.span([:jido, :flow, :node], metadata, fn ->
+        result = run_node_result(node, parent_value, node_state)
+        {result, Map.merge(metadata, node_result_metadata(result))}
+      end)
+
+    case result do
+      {:ok, output} -> output
+      {:error, error, state} -> raise_node_error(node, error, state)
+    end
+  end
+
+  defp run_node_result(node, parent_value, node_state) do
     state = %{node_state | results: dependency_results(node, parent_value)}
 
     with {:ok, params} <- resolve_expr(node.input, state),
          {:ok, params} <- validate_step_input(node, params),
          {:ok, output} <- call_action(node, params, state.context),
          {:ok, output} <- validate_step_output(node, output) do
-      output
+      {:ok, output}
     else
-      {:error, error} -> raise_node_error(node, error, state)
+      {:error, error} -> {:error, error, state}
     end
   end
+
+  defp node_metadata(node, node_state) do
+    %{flow: node_state.flow, node: node.name, action: node.action}
+  end
+
+  defp node_result_metadata({:error, error, _state}) do
+    %{status: :error, error_type: error_type(error)}
+  end
+
+  defp node_result_metadata(_result), do: %{status: :ok}
+
+  defp error_type(error), do: error |> Error.to_map() |> Map.get(:type)
 
   defp dependency_results(%{deps: []}, _parent_value), do: %{}
   defp dependency_results(%{deps: [dep]}, parent_value), do: %{dep => parent_value}
