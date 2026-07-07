@@ -11,6 +11,7 @@ defmodule Jido.Flow.CompilerTest do
 
   alias JidoTest.TestActions.{
     Add,
+    AnyEchoAction,
     AtomErrorAction,
     AtomValidationAction,
     ContextEcho,
@@ -21,6 +22,7 @@ defmodule Jido.Flow.CompilerTest do
     ExtrasAction,
     FullAction,
     InvalidOutput,
+    MissingRun,
     Multiply,
     OutputEnvelopeAction,
     RawExceptionErrorAction,
@@ -157,6 +159,20 @@ defmodule Jido.Flow.CompilerTest do
       refute connects?(workflow, :second, :first)
     end
 
+    test "compiles structurally valid flows without checking action contracts" do
+      flow =
+        Flow.new!(
+          name: "shape_only_compile",
+          nodes: [
+            Node.new!(name: :broken, action: MissingRun)
+          ],
+          return: Ref.result(:broken)
+        )
+
+      assert {:ok, workflow} = Flow.compile(flow)
+      assert root_child?(workflow, :broken)
+    end
+
     test "compiles child-before-parent node lists by adding parents first" do
       flow =
         Flow.new!(
@@ -265,6 +281,47 @@ defmodule Jido.Flow.CompilerTest do
       }
 
       assert {:ok, 5} = Compiler.run(flow, %{value: 3}, %{})
+    end
+
+    test "checks action contracts before direct compiler execution" do
+      flow =
+        Flow.new!(
+          name: "missing_action_contract",
+          nodes: [
+            Node.new!(name: :broken, action: MissingRun)
+          ],
+          return: Ref.result(:broken)
+        )
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Compiler.run(flow, %{}, %{})
+
+      assert message =~ "module is not a valid Jido action"
+      assert details.node == :broken
+      assert details.action == MissingRun
+      assert details.reason == "missing run/2"
+    end
+
+    test "passes list-valued single parent results unchanged" do
+      flow =
+        Flow.new!(
+          name: "single_parent_list_result",
+          nodes: [
+            Node.new!(
+              name: :source,
+              action: AnyEchoAction,
+              input: [Ref.value(:left), Ref.value(:right)]
+            ),
+            Node.new!(
+              name: :child,
+              action: AnyEchoAction,
+              input: Ref.result(:source)
+            )
+          ],
+          return: Ref.result(:child)
+        )
+
+      assert {:ok, [:left, :right]} = Compiler.run(flow, %{}, %{})
     end
 
     test "maps joined parent values to result refs by dependency order" do
@@ -706,6 +763,34 @@ defmodule Jido.Flow.CompilerTest do
       assert details.action == ErrorAction
       assert_receive {RecorderAction, %{value: 3}}
       refute_receive {RecorderAction, %{left: _, right: _}}
+    end
+
+    test "root node failure does not stop independent root work" do
+      flow =
+        Flow.new!(
+          name: "root_failure_independent",
+          nodes: [
+            Node.new!(
+              name: :bad,
+              action: ErrorAction,
+              input: %{error_type: Ref.value(:validation)}
+            ),
+            Node.new!(
+              name: :recorder,
+              action: RecorderAction,
+              input: %{value: Ref.input(:value)}
+            )
+          ],
+          return: Ref.result(:recorder)
+        )
+
+      assert {:error, %ExecutionFailureError{message: "Validation error", details: details}} =
+               Compiler.run(flow, %{value: 3}, %{test_pid: self()})
+
+      assert details.phase == :step_execution
+      assert details.node == :bad
+      assert details.action == ErrorAction
+      assert_receive {RecorderAction, %{value: 3}}
     end
 
     test "preserves exception action errors returned by steps" do
