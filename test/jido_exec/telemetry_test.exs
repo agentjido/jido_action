@@ -64,7 +64,7 @@ defmodule Jido.Exec.TelemetryTest do
     node_metadata = receive_metadata(@node_stop, 3)
 
     assert MapSet.new(Enum.map(node_metadata, & &1.node)) ==
-             MapSet.new([:add_one, :multiply, :add_three])
+             MapSet.new(["add_one", "multiply", "add_three"])
 
     assert Enum.all?(node_metadata, &(&1.flow == "telemetry_flow"))
     assert Enum.all?(node_metadata, &(&1.status == :ok))
@@ -83,7 +83,7 @@ defmodule Jido.Exec.TelemetryTest do
     node_metadata = receive_metadata(@node_stop, 3)
 
     assert MapSet.new(Enum.map(node_metadata, & &1.node)) ==
-             MapSet.new([:add_one, :multiply, :add_three])
+             MapSet.new(["add_one", "multiply", "add_three"])
 
     assert Enum.all?(node_metadata, &(&1.status == :ok))
   end
@@ -94,11 +94,11 @@ defmodule Jido.Exec.TelemetryTest do
     assert {:error, %ExecutionFailureError{}} = Exec.run(failing_flow(), %{}, %{})
 
     assert_receive {:telemetry_event, @node_stop, _measurements, metadata}
-    assert metadata.node == :divide
+    assert metadata.node == "divide"
     assert metadata.status == :error
     assert metadata.error_type == :execution_error
 
-    refute_receive {:telemetry_event, @node_stop, _measurements, %{node: :skipped}}, 50
+    refute_receive {:telemetry_event, @node_stop, _measurements, %{node: "skipped"}}, 50
   end
 
   defp attach_telemetry(events) do

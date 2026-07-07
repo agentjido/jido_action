@@ -123,7 +123,7 @@ defmodule Jido.Flow.DSLTest do
         end
 
       assert error.description =~ "action module could not be loaded"
-      assert error.description =~ "node: :missing"
+      assert error.description =~ "node: \"missing\""
       assert error.description =~ "action: #{inspect(missing_action)}"
     end
 
@@ -146,8 +146,8 @@ defmodule Jido.Flow.DSLTest do
       assert [add_one, double] = module.to_map().nodes
       assert add_one.input.value == %{type: :input, path: [:value]}
       assert add_one.input.amount == %{type: :value, value: 1}
-      assert double.input == %{type: :result, node: :add_one, path: []}
-      assert module.to_map().return == %{type: :result, node: :double, path: []}
+      assert double.input == %{type: :result, node: "add_one", path: []}
+      assert module.to_map().return == %{type: :result, node: "double", path: []}
     end
 
     test "derives bound step names from binding handles" do
@@ -165,10 +165,10 @@ defmodule Jido.Flow.DSLTest do
         end
       )
 
-      assert [%{name: :added, input: input}] = module.to_map().nodes
+      assert [%{name: "added", input: input}] = module.to_map().nodes
       assert input.value == %{type: :input, path: [:value]}
       assert input.amount == %{type: :value, value: 1}
-      assert module.to_map().return == %{type: :result, node: :added, path: []}
+      assert module.to_map().return == %{type: :result, node: "added", path: []}
       assert {:ok, %{value: 4}} = Jido.Exec.run(module, %{value: 3}, %{})
     end
 
@@ -355,10 +355,10 @@ defmodule Jido.Flow.DSLTest do
       assert [_load_quote, audit_quote] = module.to_map().nodes
 
       assert audit_quote.input == %{
-               quote_id: %{type: :result, node: :load_quote, path: [:quote, :id]},
+               quote_id: %{type: :result, node: "load_quote", path: [:quote, :id]},
                total: %{
                  type: :result,
-                 node: :load_quote,
+                 node: "load_quote",
                  path: [:quote, :pricing, :total]
                },
                first_item_id: %{type: :input, path: [:items, 0, :id]},
@@ -366,7 +366,7 @@ defmodule Jido.Flow.DSLTest do
                trace_id: %{type: :context, path: [:trace_id]}
              }
 
-      assert module.to_map().return == %{type: :result, node: :audit_quote, path: [:total]}
+      assert module.to_map().return == %{type: :result, node: "audit_quote", path: [:total]}
     end
 
     test "rejects shape expressions at compile time" do
@@ -416,7 +416,7 @@ defmodule Jido.Flow.DSLTest do
 
       assert load_quote.deps == []
       assert independent.deps == []
-      assert audit_quote.deps == [:load_quote]
+      assert audit_quote.deps == ["load_quote"]
       assert audit_quote.input == %{event: %{type: :value, value: "quoted"}}
     end
 
@@ -449,8 +449,8 @@ defmodule Jido.Flow.DSLTest do
       )
 
       assert module.to_map().return == %{
-               sum: %{type: :result, node: :add_one, path: [:value]},
-               product: %{type: :result, node: :double, path: [:value]},
+               sum: %{type: :result, node: "add_one", path: [:value]},
+               product: %{type: :result, node: "double", path: [:value]},
                original: %{type: :input, path: [:value]},
                trace_id: %{type: :context, path: [:trace_id]},
                literal: %{type: :value, value: "ok"}
@@ -483,7 +483,7 @@ defmodule Jido.Flow.DSLTest do
       )
 
       assert [_load_quote, audit_quote] = module.to_map().nodes
-      assert audit_quote.deps == [:load_quote]
+      assert audit_quote.deps == ["load_quote"]
     end
 
     test "supports static branch groups" do
@@ -519,9 +519,9 @@ defmodule Jido.Flow.DSLTest do
 
       assert [load_cart, price_cart, reserve_inventory, finalize] = module.to_map().nodes
       assert load_cart.deps == []
-      assert price_cart.deps == [:load_cart]
-      assert reserve_inventory.deps == [:load_cart]
-      assert finalize.deps == [:price_cart, :reserve_inventory]
+      assert price_cart.deps == ["load_cart"]
+      assert reserve_inventory.deps == ["load_cart"]
+      assert finalize.deps == ["price_cart", "reserve_inventory"]
 
       refute inspect(module.to_map()) =~ "alpha"
       refute inspect(module.to_map()) =~ "beta"
@@ -711,7 +711,7 @@ defmodule Jido.Flow.DSLTest do
       assert node.input.amount == %{type: :value, value: 1}
       assert node.input.config == %{type: :value, value: %{path: [:payload, "value"]}}
       assert node.input.metadata_path == %{type: :input, path: [%{field: :value}]}
-      assert module.to_map().return == %{type: :result, node: :add_one, path: []}
+      assert module.to_map().return == %{type: :result, node: "add_one", path: []}
     end
 
     test "rejects unsupported explicit after targets at compile time" do

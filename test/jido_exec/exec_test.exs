@@ -180,7 +180,7 @@ defmodule Jido.ExecTest do
                Exec.run(flow, %{value: 3}, %{})
 
       assert message =~ "module is not a valid Jido action"
-      assert details.node == :broken
+      assert details.node == "broken"
       assert details.action == MissingRun
       assert details.reason == "missing run/2"
     end
@@ -288,7 +288,7 @@ defmodule Jido.ExecTest do
                Exec.run(flow, %{value: 5.0}, %{})
 
       assert message =~ "Cannot divide by zero"
-      assert details.node == :divide
+      assert details.node == "divide"
       assert details.action == Divide
     end
 
@@ -485,7 +485,7 @@ defmodule Jido.ExecTest do
       assert {:error, %ExecutionFailureError{message: "first failure", details: details}} =
                Exec.run(flow, %{}, %{}, async: true, max_concurrency: 2)
 
-      assert details.node == :first
+      assert details.node == "first"
       assert details.action == DelayedErrorAction
     end
 

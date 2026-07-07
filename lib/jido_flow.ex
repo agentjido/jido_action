@@ -152,7 +152,7 @@ defmodule Jido.Flow do
   Builds and validates a canonical Flow artifact.
   """
   @spec new(map() | keyword() | t()) :: {:ok, t()} | {:error, Exception.t()}
-  def new(%__MODULE__{} = flow), do: validate(flow)
+  def new(%__MODULE__{} = flow), do: flow |> Map.from_struct() |> new()
   def new(attrs) when is_list(attrs), do: attrs |> Map.new() |> new()
 
   def new(%{} = attrs) do
@@ -285,7 +285,10 @@ defmodule Jido.Flow do
   @doc false
   @spec validate(t()) :: {:ok, t()} | {:error, Exception.t()}
   def validate(%__MODULE__{} = flow) do
-    with :ok <- validate_duplicate_nodes(flow.nodes),
+    with {:ok, nodes} <- normalize_nodes(flow.nodes),
+         {:ok, return} <- validate_return(flow.return),
+         flow = %{flow | nodes: nodes, return: return},
+         :ok <- validate_duplicate_nodes(flow.nodes),
          :ok <- validate_known_result_refs(flow),
          flow = normalize_node_deps(flow),
          :ok <- validate_acyclic(flow.nodes) do
@@ -377,7 +380,8 @@ defmodule Jido.Flow do
   end
 
   defp validate_return(return) do
-    with :ok <- Node.validate_expression(return),
+    with {:ok, return} <- Node.normalize_expression(return),
+         :ok <- Node.validate_expression(return),
          :ok <- validate_return_has_result_ref(return) do
       {:ok, return}
     end

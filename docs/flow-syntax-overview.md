@@ -78,6 +78,7 @@ explicitly:
 
 ```elixir
 step :add_one, MyApp.Actions.Add, %{value: input(:value), amount: value(1)}
+step "add_one", MyApp.Actions.Add, %{value: input(:value), amount: value(1)}
 ```
 
 Bound steps can derive their node name from the binding handle:
@@ -106,10 +107,12 @@ Supported step options are:
 - `tags:` - optional provenance-only list of strings or atoms.
 - `note:` - optional provenance-only string.
 
-An unbound step must have a non-nil atom name. A bound step may omit the name;
-the lowerer derives the node name from the binding. In trusted source, the
-action can be a module alias or module atom. In stored source, actions must
-resolve through the explicit action registry described below.
+An unbound step must have a non-empty atom or string name. Atoms are accepted as
+authoring shorthand and normalize to strings in the canonical Flow IR. A bound
+step may omit the name; the lowerer derives the string node name from the
+binding. In trusted source, the action can be a module alias or module atom. In
+stored source, actions must resolve through the explicit action registry
+described below.
 
 ## Binding Handles
 
@@ -154,10 +157,10 @@ it must reference at least one step result. Supported return shapes include:
 
 ```elixir
 return quote
-return result(:price_cart)
-return result(:price_cart, :total)
+return result("price_cart")
+return result("price_cart", :total)
 return select(quote, :total)
-return select(result(:price_cart), [:pricing, :total])
+return select(result("price_cart"), [:pricing, :total])
 return %{
   quote: quote,
   total: select(quote, :total),
@@ -213,11 +216,14 @@ References a previous step result by step name.
 
 ```elixir
 result(:price_cart)
+result("price_cart")
 result(:price_cart, :total)
-result(:price_cart, [:pricing, :total])
+result("price_cart", [:pricing, :total])
 ```
 
-Result refs must point to steps that have already appeared in the source.
+Result refs must point to steps that have already appeared in the source. Atom
+step names normalize to strings, so `result(:price_cart)` and
+`result("price_cart")` address the same node.
 
 ### Maps and Lists
 
@@ -292,6 +298,7 @@ step :audit_quote, MyApp.Actions.AuditQuote,
 
 ```elixir
 after: :load_quote
+after: "load_quote"
 after: loaded
 after: [:load_quote, loaded]
 ```
@@ -395,7 +402,7 @@ Stored or user-edited source can opt into the stored profile:
 source = """
 flow do
   added =
-    step :add_one, "add",
+    step "add_one", "add",
       with: %{value: input(:value), amount: value(1)}
 
   return added
@@ -418,8 +425,9 @@ Stored profile behavior:
 - Requires registry values to be module atoms.
 - Rejects direct module aliases in action position.
 
-Step names and local binding syntax still lower to the current atom-based IR, so
-stored source must use atoms that already exist.
+Step names lower to strings in the canonical IR. Stored source should prefer
+string step names and string `result(...)` node names when those names are
+user-authored; they do not need to exist in the VM atom table.
 
 ## Builder and Direct Syntax Equivalents
 
@@ -496,13 +504,14 @@ Supported source forms:
 ```elixir
 flow do
   step :name, ActionModule, input_expr
+  step "name", ActionModule, input_expr
 
   handle =
     step ActionModule,
       with: input_expr
 
   handle =
-    step :name, ActionModule,
+    step "name", ActionModule,
       with: input_expr,
       after: prior_step_or_binding,
       label: "Human label",
@@ -526,6 +535,7 @@ input(path)
 context(path)
 value(literal)
 result(:step)
+result("step")
 result(:step, path)
 select(source, path)
 ```

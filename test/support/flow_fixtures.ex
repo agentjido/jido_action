@@ -879,7 +879,7 @@ defmodule JidoTest.FlowFixtures do
       output_schema: [],
       nodes: [
         %{
-          name: :add_one,
+          name: "add_one",
           action: Add,
           input: %{
             value: %{type: :input, path: [:value]},
@@ -888,16 +888,16 @@ defmodule JidoTest.FlowFixtures do
           deps: []
         },
         %{
-          name: :double,
+          name: "double",
           action: Multiply,
           input: %{
-            value: %{type: :result, node: :add_one, path: [:value]},
+            value: %{type: :result, node: "add_one", path: [:value]},
             amount: %{type: :value, value: 2}
           },
-          deps: [:add_one]
+          deps: ["add_one"]
         }
       ],
-      return: %{type: :result, node: :double, path: [:value]}
+      return: %{type: :result, node: "double", path: [:value]}
     }
   end
 
@@ -910,7 +910,7 @@ defmodule JidoTest.FlowFixtures do
       output_schema: [],
       nodes: [
         %{
-          name: :add_one,
+          name: "add_one",
           action: Add,
           input: %{
             value: %{type: :input, path: [:value]},
@@ -919,13 +919,13 @@ defmodule JidoTest.FlowFixtures do
           deps: []
         },
         %{
-          name: :double,
+          name: "double",
           action: Multiply,
-          input: %{type: :result, node: :add_one, path: []},
-          deps: [:add_one]
+          input: %{type: :result, node: "add_one", path: []},
+          deps: ["add_one"]
         }
       ],
-      return: %{type: :result, node: :double, path: []}
+      return: %{type: :result, node: "double", path: []}
     }
   end
 
@@ -938,7 +938,7 @@ defmodule JidoTest.FlowFixtures do
       output_schema: [],
       nodes: [
         %{
-          name: :add_one,
+          name: "add_one",
           action: Add,
           input: %{
             value: %{type: :input, path: [:value]},
@@ -947,22 +947,22 @@ defmodule JidoTest.FlowFixtures do
           deps: []
         },
         %{
-          name: :double,
+          name: "double",
           action: Multiply,
           input: %{
-            value: %{type: :result, node: :add_one, path: [:value]},
+            value: %{type: :result, node: "add_one", path: [:value]},
             amount: %{type: :value, value: 2}
           },
-          deps: [:add_one]
+          deps: ["add_one"]
         }
       ],
       return: %{
-        sum: %{type: :result, node: :add_one, path: [:value]},
-        product: %{type: :result, node: :double, path: [:value]},
+        sum: %{type: :result, node: "add_one", path: [:value]},
+        product: %{type: :result, node: "double", path: [:value]},
         original: %{type: :input, path: [:value]},
         trace_id: %{type: :context, path: [:trace_id]},
         literal: %{type: :value, value: "ok"},
-        nested: [%{type: :result, node: :double, path: [:value]}]
+        nested: [%{type: :result, node: "double", path: [:value]}]
       }
     }
   end
@@ -976,7 +976,7 @@ defmodule JidoTest.FlowFixtures do
       output_schema: [],
       nodes: [
         %{
-          name: :added,
+          name: "added",
           action: Add,
           input: %{
             value: %{type: :input, path: [:value]},
@@ -985,16 +985,16 @@ defmodule JidoTest.FlowFixtures do
           deps: []
         },
         %{
-          name: :doubled,
+          name: "doubled",
           action: Multiply,
           input: %{
-            value: %{type: :result, node: :added, path: [:value]},
+            value: %{type: :result, node: "added", path: [:value]},
             amount: %{type: :value, value: 2}
           },
-          deps: [:added]
+          deps: ["added"]
         }
       ],
-      return: %{type: :result, node: :doubled, path: []}
+      return: %{type: :result, node: "doubled", path: []}
     }
   end
 
@@ -1007,7 +1007,7 @@ defmodule JidoTest.FlowFixtures do
       output_schema: [],
       nodes: [
         %{
-          name: :add_one,
+          name: "add_one",
           action: Add,
           input: %{
             value: %{type: :input, path: [:value]},
@@ -1016,7 +1016,7 @@ defmodule JidoTest.FlowFixtures do
           deps: []
         }
       ],
-      return: %{type: :result, node: :add_one, path: []}
+      return: %{type: :result, node: "add_one", path: []}
     }
   end
 
@@ -1029,7 +1029,7 @@ defmodule JidoTest.FlowFixtures do
       output_schema: [],
       nodes: [
         %{
-          name: :load_quote,
+          name: "load_quote",
           action: EchoParamsAction,
           input: %{
             quote: %{
@@ -1041,18 +1041,18 @@ defmodule JidoTest.FlowFixtures do
           deps: []
         },
         %{
-          name: :audit_quote,
+          name: "audit_quote",
           action: EchoParamsAction,
           input: %{
-            quote_id: %{type: :result, node: :load_quote, path: [:quote, :id]},
-            total: %{type: :result, node: :load_quote, path: [:quote, :pricing, :total]},
+            quote_id: %{type: :result, node: "load_quote", path: [:quote, :id]},
+            total: %{type: :result, node: "load_quote", path: [:quote, :pricing, :total]},
             first_item_id: %{type: :input, path: [:items, 0, :id]},
-            tag: %{type: :result, node: :load_quote, path: [:tags, 0]}
+            tag: %{type: :result, node: "load_quote", path: [:tags, 0]}
           },
-          deps: [:load_quote]
+          deps: ["load_quote"]
         }
       ],
-      return: %{type: :result, node: :audit_quote, path: [:total]}
+      return: %{type: :result, node: "audit_quote", path: [:total]}
     }
   end
 
@@ -1065,7 +1065,7 @@ defmodule JidoTest.FlowFixtures do
       output_schema: [],
       nodes: [
         %{
-          name: :audit_request,
+          name: "audit_request",
           action: EchoParamsAction,
           input: %{
             user_id: %{type: :input, path: [:user_id]},
@@ -1076,7 +1076,7 @@ defmodule JidoTest.FlowFixtures do
           deps: []
         }
       ],
-      return: %{type: :result, node: :audit_request, path: []}
+      return: %{type: :result, node: "audit_request", path: []}
     }
   end
 
@@ -1089,25 +1089,25 @@ defmodule JidoTest.FlowFixtures do
       output_schema: [],
       nodes: [
         %{
-          name: :independent,
+          name: "independent",
           action: EchoParamsAction,
           input: %{event: %{type: :value, value: "side"}},
           deps: []
         },
         %{
-          name: :load_quote,
+          name: "load_quote",
           action: EchoParamsAction,
           input: %{id: %{type: :input, path: [:quote_id]}},
           deps: []
         },
         %{
-          name: :audit_quote,
+          name: "audit_quote",
           action: EchoParamsAction,
           input: %{event: %{type: :value, value: "quoted"}},
-          deps: [:load_quote]
+          deps: ["load_quote"]
         }
       ],
-      return: %{type: :result, node: :audit_quote, path: []}
+      return: %{type: :result, node: "audit_quote", path: []}
     }
   end
 
@@ -1120,7 +1120,7 @@ defmodule JidoTest.FlowFixtures do
       output_schema: [],
       nodes: [
         %{
-          name: :load,
+          name: "load",
           action: EchoParamsAction,
           input: %{
             id: %{type: :input, path: [:id]},
@@ -1129,35 +1129,35 @@ defmodule JidoTest.FlowFixtures do
           deps: []
         },
         %{
-          name: :left,
+          name: "left",
           action: EchoParamsAction,
           input: %{
             side: %{type: :value, value: "left"},
-            id: %{type: :result, node: :load, path: [:id]}
+            id: %{type: :result, node: "load", path: [:id]}
           },
-          deps: [:load]
+          deps: ["load"]
         },
         %{
-          name: :right,
+          name: "right",
           action: EchoParamsAction,
           input: %{
             side: %{type: :value, value: "right"},
-            base: %{type: :result, node: :load, path: [:base]}
+            base: %{type: :result, node: "load", path: [:base]}
           },
-          deps: [:load]
+          deps: ["load"]
         },
         %{
-          name: :merge,
+          name: "merge",
           action: EchoParamsAction,
           input: %{
-            left: %{type: :result, node: :left, path: [:side]},
-            right: %{type: :result, node: :right, path: [:side]},
-            id: %{type: :result, node: :left, path: [:id]}
+            left: %{type: :result, node: "left", path: [:side]},
+            right: %{type: :result, node: "right", path: [:side]},
+            id: %{type: :result, node: "left", path: [:id]}
           },
-          deps: [:left, :right]
+          deps: ["left", "right"]
         }
       ],
-      return: %{type: :result, node: :merge, path: []}
+      return: %{type: :result, node: "merge", path: []}
     }
   end
 
@@ -1170,7 +1170,7 @@ defmodule JidoTest.FlowFixtures do
       output_schema: [],
       nodes: [
         %{
-          name: :load_cart,
+          name: "load_cart",
           action: EchoParamsAction,
           input: %{
             cart_id: %{type: :input, path: [:cart_id]},
@@ -1179,46 +1179,46 @@ defmodule JidoTest.FlowFixtures do
           deps: []
         },
         %{
-          name: :post_group_independent,
+          name: "post_group_independent",
           action: EchoParamsAction,
           input: %{event: %{type: :value, value: "side"}},
           deps: []
         },
         %{
-          name: :price_cart,
+          name: "price_cart",
           action: EchoParamsAction,
           input: %{
-            cart_id: %{type: :result, node: :load_cart, path: [:cart_id]},
+            cart_id: %{type: :result, node: "load_cart", path: [:cart_id]},
             total: %{type: :input, path: [:total]}
           },
-          deps: [:load_cart]
+          deps: ["load_cart"]
         },
         %{
-          name: :reserve_inventory,
+          name: "reserve_inventory",
           action: EchoParamsAction,
           input: %{
-            cart_id: %{type: :result, node: :load_cart, path: [:cart_id]},
-            items: %{type: :result, node: :load_cart, path: [:items]}
+            cart_id: %{type: :result, node: "load_cart", path: [:cart_id]},
+            items: %{type: :result, node: "load_cart", path: [:items]}
           },
-          deps: [:load_cart]
+          deps: ["load_cart"]
         },
         %{
-          name: :audit_price,
+          name: "audit_price",
           action: EchoParamsAction,
           input: %{event: %{type: :value, value: "priced"}},
-          deps: [:price_cart]
+          deps: ["price_cart"]
         },
         %{
-          name: :finalize,
+          name: "finalize",
           action: EchoParamsAction,
           input: %{
-            priced: %{type: :result, node: :price_cart, path: []},
-            reserved: %{type: :result, node: :reserve_inventory, path: []}
+            priced: %{type: :result, node: "price_cart", path: []},
+            reserved: %{type: :result, node: "reserve_inventory", path: []}
           },
-          deps: [:price_cart, :reserve_inventory]
+          deps: ["price_cart", "reserve_inventory"]
         }
       ],
-      return: %{type: :result, node: :finalize, path: []}
+      return: %{type: :result, node: "finalize", path: []}
     }
   end
 

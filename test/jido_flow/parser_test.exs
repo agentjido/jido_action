@@ -5,8 +5,30 @@ defmodule Jido.Flow.ParserTest do
   alias Jido.Flow
   alias Jido.Flow.Parser
   alias JidoTest.FlowFixtures
+  alias JidoTest.TestActions.Add
 
   describe "parse/2" do
+    test "stored profile accepts novel string step names without existing atoms" do
+      source = """
+      flow do
+        step "totally_novel_step_name", "add",
+          with: %{value: input(:value), amount: value(1)}
+
+        return result("totally_novel_step_name", :value)
+      end
+      """
+
+      assert {:ok, flow} =
+               Parser.parse(source,
+                 name: "stored_string_names",
+                 profile: :stored,
+                 actions: %{"add" => Add}
+               )
+
+      assert [%{name: "totally_novel_step_name"}] = Flow.to_map(flow).nodes
+      assert {:ok, 4} = Jido.Exec.run(flow, %{value: 3}, %{})
+    end
+
     test "parses the math milestone string to the same canonical map as builder syntax" do
       assert {:ok, flow} =
                Flow.parse(FlowFixtures.math_source(),
@@ -120,8 +142,8 @@ defmodule Jido.Flow.ParserTest do
       assert [add_one, double] = Flow.to_map(flow).nodes
       assert add_one.input.value == %{type: :input, path: [:value]}
       assert add_one.input.amount == %{type: :value, value: 1}
-      assert double.input == %{type: :result, node: :add_one, path: []}
-      assert Flow.to_map(flow).return == %{type: :result, node: :double, path: []}
+      assert double.input == %{type: :result, node: "add_one", path: []}
+      assert Flow.to_map(flow).return == %{type: :result, node: "double", path: []}
     end
 
     test "parses bound steps whose names derive from binding handles" do
@@ -133,10 +155,10 @@ defmodule Jido.Flow.ParserTest do
       """
 
       assert {:ok, flow} = Flow.parse(source, name: "derived_binding_name_flow")
-      assert [%{name: :added, input: input}] = Flow.to_map(flow).nodes
+      assert [%{name: "added", input: input}] = Flow.to_map(flow).nodes
       assert input.value == %{type: :input, path: [:value]}
       assert input.amount == %{type: :value, value: 1}
-      assert Flow.to_map(flow).return == %{type: :result, node: :added, path: []}
+      assert Flow.to_map(flow).return == %{type: :result, node: "added", path: []}
       assert {:ok, %{value: 4}} = Jido.Exec.run(flow, %{value: 3}, %{})
     end
 
@@ -155,7 +177,7 @@ defmodule Jido.Flow.ParserTest do
 
       assert {:error, %InvalidInputError{message: message, details: details}} = Flow.check(flow)
       assert message == "action module could not be loaded"
-      assert details.node == :missing
+      assert details.node == "missing"
       assert details.action == missing_action
     end
 
@@ -212,7 +234,7 @@ defmodule Jido.Flow.ParserTest do
                  actions: %{"add" => JidoTest.TestActions.Add}
                )
 
-      assert [%{name: :added}] = Flow.to_map(flow).nodes
+      assert [%{name: "added"}] = Flow.to_map(flow).nodes
       assert {:ok, %{value: 4}} = Jido.Exec.run(flow, %{value: 3}, %{})
     end
 
@@ -338,10 +360,10 @@ defmodule Jido.Flow.ParserTest do
       assert [_load_quote, audit_quote] = Flow.to_map(flow).nodes
 
       assert audit_quote.input == %{
-               quote_id: %{type: :result, node: :load_quote, path: [:quote, :id]},
+               quote_id: %{type: :result, node: "load_quote", path: [:quote, :id]},
                total: %{
                  type: :result,
-                 node: :load_quote,
+                 node: "load_quote",
                  path: [:quote, :pricing, :total]
                },
                first_item_id: %{type: :input, path: [:items, 0, :id]},
@@ -349,7 +371,7 @@ defmodule Jido.Flow.ParserTest do
                trace_id: %{type: :context, path: [:trace_id]}
              }
 
-      assert Flow.to_map(flow).return == %{type: :result, node: :audit_quote, path: [:total]}
+      assert Flow.to_map(flow).return == %{type: :result, node: "audit_quote", path: [:total]}
     end
 
     test "rejects shape expressions" do
@@ -392,7 +414,7 @@ defmodule Jido.Flow.ParserTest do
 
       assert load_quote.deps == []
       assert independent.deps == []
-      assert audit_quote.deps == [:load_quote]
+      assert audit_quote.deps == ["load_quote"]
       assert audit_quote.input == %{event: %{type: :value, value: "quoted"}}
     end
 
@@ -420,8 +442,8 @@ defmodule Jido.Flow.ParserTest do
       assert {:ok, flow} = Flow.parse(source, name: "shaped_return_flow")
 
       assert Flow.to_map(flow).return == %{
-               sum: %{type: :result, node: :add_one, path: [:value]},
-               product: %{type: :result, node: :double, path: [:value]},
+               sum: %{type: :result, node: "add_one", path: [:value]},
+               product: %{type: :result, node: "double", path: [:value]},
                original: %{type: :input, path: [:value]},
                trace_id: %{type: :context, path: [:trace_id]},
                literal: %{type: :value, value: "ok"}
@@ -447,7 +469,7 @@ defmodule Jido.Flow.ParserTest do
 
       assert {:ok, flow} = Flow.parse(source, name: "explicit_after_order_flow")
       assert [_load_quote, audit_quote] = Flow.to_map(flow).nodes
-      assert audit_quote.deps == [:load_quote]
+      assert audit_quote.deps == ["load_quote"]
     end
 
     test "parses static branch groups" do
@@ -483,9 +505,9 @@ defmodule Jido.Flow.ParserTest do
 
       assert [load_cart, price_cart, reserve_inventory, finalize] = Flow.to_map(flow).nodes
       assert load_cart.deps == []
-      assert price_cart.deps == [:load_cart]
-      assert reserve_inventory.deps == [:load_cart]
-      assert finalize.deps == [:price_cart, :reserve_inventory]
+      assert price_cart.deps == ["load_cart"]
+      assert reserve_inventory.deps == ["load_cart"]
+      assert finalize.deps == ["price_cart", "reserve_inventory"]
 
       refute inspect(Flow.to_map(flow)) =~ "alpha"
       refute inspect(Flow.to_map(flow)) =~ "beta"
@@ -747,7 +769,7 @@ defmodule Jido.Flow.ParserTest do
 
       assert message =~ "unknown binding handle"
       assert details.binding == :missing
-      assert details.step == :add_one
+      assert details.step == "add_one"
     end
 
     test "rejects wildcard binding assignments through lowerer validation" do
