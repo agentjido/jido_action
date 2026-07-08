@@ -873,6 +873,7 @@ defmodule JidoTest.FlowFixtures do
   def math_canonical_map do
     %{
       type: :flow,
+      version: 1,
       name: "math_flow",
       description: "Adds one and doubles the result",
       schema: [],
@@ -904,6 +905,7 @@ defmodule JidoTest.FlowFixtures do
   def binding_canonical_map do
     %{
       type: :flow,
+      version: 1,
       name: "binding_flow",
       description: "Adds one and doubles the whole result",
       schema: [],
@@ -932,6 +934,7 @@ defmodule JidoTest.FlowFixtures do
   def shaped_return_canonical_map do
     %{
       type: :flow,
+      version: 1,
       name: "shaped_return_flow",
       description: "Returns a composite expression",
       schema: [],
@@ -970,6 +973,7 @@ defmodule JidoTest.FlowFixtures do
   def derived_name_canonical_map do
     %{
       type: :flow,
+      version: 1,
       name: "derived_name_flow",
       description: "Derives node names from bindings",
       schema: [],
@@ -1001,6 +1005,7 @@ defmodule JidoTest.FlowFixtures do
   def annotated_canonical_map do
     %{
       type: :flow,
+      version: 1,
       name: "annotated_flow",
       description: "Annotates a step without changing semantics",
       schema: [],
@@ -1023,6 +1028,7 @@ defmodule JidoTest.FlowFixtures do
   def projection_canonical_map do
     %{
       type: :flow,
+      version: 1,
       name: "projection_flow",
       description: "Projects selected fields into an audit payload",
       schema: [],
@@ -1059,6 +1065,7 @@ defmodule JidoTest.FlowFixtures do
   def context_canonical_map do
     %{
       type: :flow,
+      version: 1,
       name: "context_flow",
       description: "Shapes runtime context into an audit payload",
       schema: [],
@@ -1083,6 +1090,7 @@ defmodule JidoTest.FlowFixtures do
   def explicit_edge_canonical_map do
     %{
       type: :flow,
+      version: 1,
       name: "explicit_edge_flow",
       description: "Orders audit after loading without data dependency",
       schema: [],
@@ -1114,6 +1122,7 @@ defmodule JidoTest.FlowFixtures do
   def fan_in_canonical_map do
     %{
       type: :flow,
+      version: 1,
       name: "fan_in_flow",
       description: "Merges sibling branches through a dependency join",
       schema: [],
@@ -1164,6 +1173,7 @@ defmodule JidoTest.FlowFixtures do
   def branch_group_canonical_map do
     %{
       type: :flow,
+      version: 1,
       name: "branch_group_flow",
       description: "Groups static branches without changing runtime semantics",
       schema: [],
