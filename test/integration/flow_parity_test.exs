@@ -39,6 +39,19 @@ defmodule Jido.Integration.FlowParityTest do
                %{name: "audit_price", provenance: %{branch: :alpha}},
                %{name: "finalize"}
              ] = Jido.Flow.to_map(grouped_flow, provenance: true).nodes
+
+      stored_flow = stored_json_round_trip_flow!(grouped_flow, provenance: true)
+
+      assert Jido.Flow.to_map(stored_flow) == semantic_map
+
+      assert [
+               %{name: "load_cart"},
+               %{name: "post_group_independent", provenance: %{}},
+               %{name: "price_cart", provenance: %{branch: :alpha}},
+               %{name: "reserve_inventory", provenance: %{branch: :beta}},
+               %{name: "audit_price", provenance: %{branch: :alpha}},
+               %{name: "finalize"}
+             ] = Jido.Flow.to_map(stored_flow, provenance: true).nodes
     end
 
     test "step annotations stay in provenance across authoring surfaces" do
@@ -238,12 +251,14 @@ defmodule Jido.Integration.FlowParityTest do
 
   defp canonical_surface_maps(scenario) do
     module = scenario.module.("CanonicalParity#{scenario.module_suffix}")
+    stored_flow = scenario.builder.() |> build_flow!() |> stored_json_round_trip_flow!()
 
     [
       macro: module.to_map(),
       direct_syntax: scenario.syntax.() |> lower_flow!() |> Jido.Flow.to_map(),
       builder: scenario.builder.() |> build_flow!() |> Jido.Flow.to_map(),
-      parser: scenario.source.() |> parse_flow!(scenario.opts) |> Jido.Flow.to_map()
+      parser: scenario.source.() |> parse_flow!(scenario.opts) |> Jido.Flow.to_map(),
+      stored_json: Jido.Flow.to_map(stored_flow)
     ] ++ equivalent_syntax_maps(scenario)
   end
 
@@ -258,11 +273,17 @@ defmodule Jido.Integration.FlowParityTest do
   defp executable_flows(scenario) do
     module = scenario.module.("ExecutionParity#{scenario.module_suffix}")
 
+    stored_flow =
+      scenario.builder.()
+      |> build_flow!()
+      |> stored_json_round_trip_flow!(provenance: true)
+
     [
       macro: module.flow(),
       direct_syntax: scenario.syntax.() |> lower_flow!(),
       builder: scenario.builder.() |> build_flow!(),
-      parser: scenario.source.() |> parse_flow!(scenario.opts)
+      parser: scenario.source.() |> parse_flow!(scenario.opts),
+      stored_json: stored_flow
     ]
   end
 
@@ -279,6 +300,31 @@ defmodule Jido.Integration.FlowParityTest do
   defp parse_flow!(source, opts) do
     assert {:ok, flow} = Jido.Flow.parse(source, opts)
     flow
+  end
+
+  defp stored_json_round_trip_flow!(flow, opts \\ []) do
+    registry = flow_action_registry()
+
+    stored_opts =
+      [format: :stored, actions: registry]
+      |> Keyword.merge(opts)
+
+    decoded =
+      flow
+      |> Jido.Flow.to_map(stored_opts)
+      |> JSON.encode!()
+      |> JSON.decode!()
+
+    assert {:ok, loaded} = Jido.Flow.from_map(decoded, actions: registry)
+    loaded
+  end
+
+  defp flow_action_registry do
+    %{
+      "add" => Add,
+      "multiply" => Multiply,
+      "echo_params" => EchoParamsAction
+    }
   end
 
   defp flow_cases do

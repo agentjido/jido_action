@@ -13,6 +13,7 @@ defmodule Jido.Flow do
 
   alias Jido.Action
   alias Jido.Action.Error
+  alias Jido.Flow.MapCodec
   alias Jido.Flow.Node
   alias Jido.Instruction
 
@@ -200,22 +201,27 @@ defmodule Jido.Flow do
   """
   @spec to_map(t(), keyword()) :: map()
   def to_map(%__MODULE__{} = flow, opts \\ []) do
-    base = %{
-      type: :flow,
-      name: flow.name,
-      description: flow.description,
-      schema: flow.schema,
-      output_schema: flow.output_schema,
-      nodes: flow.nodes |> canonical_node_order() |> Enum.map(&Node.to_map(&1, opts)),
-      return: Node.expression_to_map(flow.return)
-    }
+    ordered_nodes = canonical_node_order(flow.nodes)
 
-    if Keyword.get(opts, :provenance, false) do
-      Map.put(base, :provenance, flow.provenance)
-    else
-      base
+    case Keyword.get(opts, :format, :semantic) do
+      :semantic ->
+        MapCodec.to_semantic_map(flow, ordered_nodes, opts)
+
+      :stored ->
+        MapCodec.to_stored_map!(flow, ordered_nodes, opts)
+
+      format ->
+        raise Error.validation_error("unsupported flow map format: #{inspect(format)}", %{
+                format: format
+              })
     end
   end
+
+  @doc """
+  Loads a versioned Flow map into the current canonical Flow artifact.
+  """
+  @spec from_map(map(), map() | keyword()) :: {:ok, t()} | {:error, Exception.t()}
+  def from_map(map, opts \\ []), do: MapCodec.from_map(map, opts)
 
   defp canonical_node_order(nodes) do
     nodes_by_name = Map.new(nodes, fn node -> {node.name, node} end)

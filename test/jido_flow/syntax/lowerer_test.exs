@@ -39,6 +39,18 @@ defmodule Jido.Flow.Syntax.LowererTest do
       assert details.operation == :not_an_operation
     end
 
+    test "rejects malformed operation collections" do
+      syntax =
+        Syntax.new(name: "bad")
+        |> Map.put(:operations, :not_operations)
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Lowerer.lower(syntax)
+
+      assert message =~ "flow syntax operations must be a list"
+      assert details.operations == :not_operations
+    end
+
     test "rejects result references before they are bound" do
       syntax =
         Syntax.new(name: "bad")

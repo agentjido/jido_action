@@ -51,6 +51,11 @@ defmodule Jido.Flow.Syntax.Lowerer do
     end
   end
 
+  defp lower_operations(operations) when not is_list(operations) do
+    {:error,
+     Error.validation_error("flow syntax operations must be a list", %{operations: operations})}
+  end
+
   defp lower_operations(operations) do
     operations = normalize_derived_step_names(operations)
 
