@@ -13,6 +13,9 @@
 # If the VM crashes, it generates a dump, let's ignore it too.
 erl_crash.dump
 
+# macOS metadata.
+.DS_Store
+
 # Also ignore archive artifacts (built via "mix archive.build").
 *.ez
 
@@ -33,4 +36,7 @@ jido_action-*.tar
 
 # Compound Engineering local config
 .compound-engineering/
-.codex
+.codex/
+
+# Local planning and review artifacts.
+/docs/
