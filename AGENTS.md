@@ -2,12 +2,19 @@
 
 ## Branch Context
 
-This branch is an exploratory foundation for Jido Action v4: a heavily curated,
-trimmed down package that starts from `Jido.Action` and `Jido.Instruction`.
+This branch contains the Jido Action v3 spike and the exploratory Jido Action v4
+foundation. It starts from a small `Jido.Action` and `Jido.Instruction` core. It
+also contains the new `Jido.Flow` and `Jido.Exec` composition foundation.
 
-The preserved `JIDO_V4_BRIEF.md` is the design artifact for future composition
-work. The current codebase intentionally avoids carrying forward the prior
-composition/runtime implementation.
+Use these records for future design work:
+
+- `JIDO_V4_BRIEF.md` defines the package boundary and composition direction.
+- `RUNIC_CAPABILITY_BASELINE.md` records the Runic baseline for Flow Script.
+- `GOVERNED_AGENTS_BRIEF.md` records the wider product position.
+- `LONG_RUNNING_AGENTS_POSITION.md` records the runtime and governance case.
+
+The product records are design inputs. They are not package requirements. Do
+not restore the composition or runtime implementation from the earlier spike.
 
 ## Working Mode
 
