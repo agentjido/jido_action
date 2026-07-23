@@ -109,8 +109,16 @@ defmodule Jido.Tools.LuaEvalSupervisionTest do
       refute_receive {:done, ^caller, _result}, 100
     end
 
-    test "Exec timeout does not leave an orphaned Lua worker" do
+    test "Exec timeout leaves no orphan when a baseline child exits" do
+      {:ok, transient_pid} =
+        Task.Supervisor.start_child(Jido.Action.TaskSupervisor, fn ->
+          receive do
+            :stop -> :ok
+          end
+        end)
+
       baseline_children = Task.Supervisor.children(Jido.Action.TaskSupervisor) |> MapSet.new()
+      assert MapSet.member?(baseline_children, transient_pid)
 
       assert {:error, %Error.TimeoutError{}} =
                Exec.run(
@@ -120,7 +128,10 @@ defmodule Jido.Tools.LuaEvalSupervisionTest do
                  timeout: 50
                )
 
-      assert_supervisor_children_return_to(baseline_children)
+      send(transient_pid, :stop)
+      refute_process_alive(transient_pid)
+
+      assert_no_new_supervisor_children(baseline_children)
     end
   end
 
@@ -204,26 +215,28 @@ defmodule Jido.Tools.LuaEvalSupervisionTest do
     end
   end
 
-  defp assert_supervisor_children_return_to(baseline_children, attempts_left \\ 20)
+  defp assert_no_new_supervisor_children(baseline_children, attempts_left \\ 20)
 
-  defp assert_supervisor_children_return_to(baseline_children, 0) do
+  defp assert_no_new_supervisor_children(baseline_children, 0) do
     current_children = Task.Supervisor.children(Jido.Action.TaskSupervisor) |> MapSet.new()
+    unexpected_children = MapSet.difference(current_children, baseline_children)
 
     flunk("""
-    Expected Lua supervisor children to return to baseline.
+    Expected no new Lua supervisor children to remain.
     Baseline: #{inspect(baseline_children)}
     Current: #{inspect(current_children)}
+    Unexpected: #{inspect(unexpected_children)}
     """)
   end
 
-  defp assert_supervisor_children_return_to(baseline_children, attempts_left) do
+  defp assert_no_new_supervisor_children(baseline_children, attempts_left) do
     current_children = Task.Supervisor.children(Jido.Action.TaskSupervisor) |> MapSet.new()
 
-    if MapSet.equal?(current_children, baseline_children) do
+    if MapSet.subset?(current_children, baseline_children) do
       :ok
     else
       Process.sleep(10)
-      assert_supervisor_children_return_to(baseline_children, attempts_left - 1)
+      assert_no_new_supervisor_children(baseline_children, attempts_left - 1)
     end
   end
 end
