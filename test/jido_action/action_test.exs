@@ -109,8 +109,11 @@ defmodule Jido.ActionTest do
                          opts = [
                            name: "runtime_dynamic_closure_schema_action",
                            schema:
-                             Zoi.integer()
-                             |> Zoi.refine(fn value -> value > 0 end)
+                             Zoi.object(%{
+                               value:
+                                 Zoi.integer()
+                                 |> Zoi.refine(fn value -> value > 0 end)
+                             })
                          ]
 
                          use Jido.Action, opts
@@ -199,6 +202,24 @@ defmodule Jido.ActionTest do
 
     test "rejects non-Zoi schemas" do
       assert {:error, "must be a Zoi schema"} = Action.validate_config_schema(%{})
+    end
+
+    test "rejects action schemas that cannot accept map-shaped data" do
+      assert {:error, "must accept map-shaped action data"} =
+               Action.validate_action_schema(Zoi.integer())
+
+      module = unique_module("ScalarOutputSchemaAction")
+
+      assert_raise CompileError, ~r/must accept map-shaped action data/, fn ->
+        create_module(
+          module,
+          quote do
+            use Jido.Action,
+              name: "scalar_output_schema_action",
+              output_schema: Zoi.integer()
+          end
+        )
+      end
     end
   end
 

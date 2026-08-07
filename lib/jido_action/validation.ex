@@ -22,6 +22,27 @@ defmodule Jido.Action.Validation do
   @spec zoi_schema?(term()) :: boolean()
   def zoi_schema?(value), do: is_struct(value) && Zoi.Type.impl_for(value) != nil
 
+  @doc false
+  @spec action_schema?(term()) :: boolean()
+  def action_schema?(%Zoi.Types.Map{}), do: true
+  def action_schema?(%Zoi.Types.Struct{}), do: true
+  def action_schema?(%Zoi.Types.Any{}), do: true
+  def action_schema?(%Zoi.Types.DiscriminatedUnion{}), do: true
+  def action_schema?(%Zoi.Types.Lazy{}), do: true
+  def action_schema?(%Zoi.Types.Literal{value: value}), do: is_map(value)
+  def action_schema?(%Zoi.Types.Default{inner: inner}), do: action_schema?(inner)
+
+  def action_schema?(%Zoi.Types.Union{schemas: schemas}),
+    do: Enum.any?(schemas, &action_schema?/1)
+
+  def action_schema?(%Zoi.Types.Intersection{schemas: schemas}),
+    do: Enum.all?(schemas, &action_schema?/1)
+
+  def action_schema?(%Zoi.Types.Codec{from: from, to: to}),
+    do: action_schema?(from) and action_schema?(to)
+
+  def action_schema?(_schema), do: false
+
   defp parse_schema(%Zoi.Types.Map{fields: fields} = schema, data)
        when is_list(fields) and is_map(data) do
     {Zoi.parse(open_schema(schema), data), %{}}

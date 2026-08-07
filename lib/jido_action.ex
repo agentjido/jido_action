@@ -113,14 +113,14 @@ defmodule Jido.Action do
                                 description:
                                   "A Zoi schema for validating the Action's input parameters."
                               )
-                              |> Zoi.refine({__MODULE__, :validate_config_schema, []})
+                              |> Zoi.refine({__MODULE__, :validate_action_schema, []})
                               |> Zoi.default([]),
                             output_schema:
                               Zoi.any(
                                 description:
                                   "A Zoi schema for validating the Action's output. Only specified fields are validated."
                               )
-                              |> Zoi.refine({__MODULE__, :validate_config_schema, []})
+                              |> Zoi.refine({__MODULE__, :validate_action_schema, []})
                               |> Zoi.default([])
                           },
                           unrecognized_keys: :error
@@ -162,6 +162,18 @@ defmodule Jido.Action do
   end
 
   @doc false
+  @spec validate_action_schema(term(), keyword()) :: :ok | {:error, String.t()}
+  def validate_action_schema(value, opts \\ []) do
+    with :ok <- validate_config_schema(value, opts) do
+      if value == [] or Validation.action_schema?(value) do
+        :ok
+      else
+        {:error, "must accept map-shaped action data"}
+      end
+    end
+  end
+
+  @doc false
   @spec ensure_storable_schema!(term(), atom(), Macro.Env.t()) :: term() | no_return()
   def ensure_storable_schema!(schema, option, env) do
     Macro.escape(schema)
@@ -182,8 +194,8 @@ defmodule Jido.Action do
   end
 
   @doc false
-  @spec validate_output_for(map(), module()) ::
-          {:ok, map()} | {:error, Error.InvalidInputError.t()}
+  @spec validate_output_for(map() | Output.t(), module()) ::
+          {:ok, map() | Output.t()} | {:error, Error.InvalidInputError.t()}
   def validate_output_for(%Output{} = output, _module), do: Output.validate(output)
 
   def validate_output_for(output, module) do
@@ -347,8 +359,9 @@ defmodule Jido.Action do
           def validate_params(params), do: Action.validate_params_for(params, __MODULE__)
 
           @doc unquote(validate_output_doc)
-          @spec validate_output(map()) ::
-                  {:ok, map()} | {:error, Jido.Action.Error.InvalidInputError.t()}
+          @spec validate_output(map() | Jido.Action.Output.t()) ::
+                  {:ok, map() | Jido.Action.Output.t()}
+                  | {:error, Jido.Action.Error.InvalidInputError.t()}
           def validate_output(output), do: Action.validate_output_for(output, __MODULE__)
 
           @doc """
