@@ -28,7 +28,16 @@ defmodule Jido.Action.Validation do
   def action_schema?(%Zoi.Types.Struct{}), do: true
   def action_schema?(%Zoi.Types.Any{}), do: true
   def action_schema?(%Zoi.Types.DiscriminatedUnion{}), do: true
-  def action_schema?(%Zoi.Types.Lazy{}), do: true
+
+  def action_schema?(%Zoi.Types.Lazy{} = schema) do
+    case resolve_lazy(schema) do
+      %Zoi.Types.Lazy{} -> false
+      resolved -> action_schema?(resolved)
+    end
+  rescue
+    _exception -> false
+  end
+
   def action_schema?(%Zoi.Types.Literal{value: value}), do: is_map(value)
   def action_schema?(%Zoi.Types.Default{inner: inner}), do: action_schema?(inner)
 
@@ -42,6 +51,11 @@ defmodule Jido.Action.Validation do
     do: action_schema?(from) and action_schema?(to)
 
   def action_schema?(_schema), do: false
+
+  defp resolve_lazy(%Zoi.Types.Lazy{fun: {module, function, args}}),
+    do: apply(module, function, args)
+
+  defp resolve_lazy(%Zoi.Types.Lazy{fun: fun}), do: fun.()
 
   defp parse_schema(%Zoi.Types.Map{fields: fields} = schema, data)
        when is_list(fields) and is_map(data) do
