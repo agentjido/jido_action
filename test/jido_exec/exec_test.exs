@@ -22,6 +22,7 @@ defmodule Jido.ExecTest do
     ExceptionErrorAction,
     ExtrasAction,
     MissingRun,
+    NoneExtrasAction,
     OutputEnvelopeAction,
     RawOutputAction,
     InvalidValidationResultAction,
@@ -65,6 +66,9 @@ defmodule Jido.ExecTest do
     test "preserves action extras from leaf actions" do
       assert {:ok, %{value: 5}, %{trace_id: "trace"}} =
                Exec.run(ExtrasAction, %{value: 5}, %{trace_id: "trace"})
+
+      assert {:ok, %{value: 5}, :none} =
+               Exec.run(NoneExtrasAction, %{value: 5}, %{})
     end
 
     test "validates explicit output envelopes from leaf actions" do
@@ -97,11 +101,12 @@ defmodule Jido.ExecTest do
     end
 
     test "normalizes three-element action error tuples" do
-      assert {:error, %ExecutionFailureError{message: message, details: details}} =
+      assert {:error, %ExecutionFailureError{message: message, details: details}, extras} =
                Exec.run(ErrorWithExtrasAction, %{reason: :bad_with_extras}, %{})
 
       assert message == "bad_with_extras"
       assert details.reason == :bad_with_extras
+      assert extras == %{ignored: true}
     end
 
     test "preserves exception action errors returned by leaf actions" do

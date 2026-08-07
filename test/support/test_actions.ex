@@ -168,6 +168,13 @@ defmodule JidoTest.TestActions do
     end
   end
 
+  defmodule NoneExtrasAction do
+    @moduledoc false
+    use Action, name: "none_extras_action"
+
+    def run(params, _context), do: {:ok, params, :none}
+  end
+
   defmodule UnsupportedResult do
     @moduledoc false
     use Action,
