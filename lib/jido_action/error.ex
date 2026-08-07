@@ -484,7 +484,7 @@ defmodule Jido.Action.Error do
 
   defp normalize_constructor_details(_details), do: %{}
 
-  defp normalize_message(message) when is_binary(message), do: message
+  defp normalize_message(message) when is_binary(message), do: json_safe_binary(message)
   defp normalize_message(message) when is_atom(message), do: Atom.to_string(message)
   defp normalize_message(message), do: safe_inspect(message)
 
@@ -647,9 +647,10 @@ defmodule Jido.Action.Error do
   defp normalize_detail_value(value)
 
   defp normalize_detail_value(value)
-       when is_nil(value) or is_boolean(value) or is_number(value) or is_atom(value) or
-              is_binary(value),
+       when is_nil(value) or is_boolean(value) or is_number(value) or is_atom(value),
        do: value
+
+  defp normalize_detail_value(value) when is_binary(value), do: json_safe_binary(value)
 
   defp normalize_detail_value(%_{} = struct) do
     struct
@@ -706,8 +707,10 @@ defmodule Jido.Action.Error do
     |> Map.new()
   end
 
+  defp normalize_detail_key(key) when is_binary(key), do: json_safe_binary(key)
+
   defp normalize_detail_key(key)
-       when is_atom(key) or is_binary(key) or is_number(key) or is_boolean(key) or is_nil(key),
+       when is_atom(key) or is_number(key) or is_boolean(key) or is_nil(key),
        do: key
 
   defp normalize_detail_key(key) do
@@ -767,7 +770,7 @@ defmodule Jido.Action.Error do
   defp fallback_detail_inspect(value) when is_tuple(value),
     do: "#Tuple<size=#{tuple_size(value)}>"
 
-  defp fallback_detail_inspect(value) when is_binary(value), do: value
+  defp fallback_detail_inspect(value) when is_binary(value), do: json_safe_binary(value)
   defp fallback_detail_inspect(value) when is_atom(value), do: Atom.to_string(value)
   defp fallback_detail_inspect(value) when is_number(value), do: to_string(value)
   defp fallback_detail_inspect(value) when is_boolean(value), do: to_string(value)
@@ -779,6 +782,10 @@ defmodule Jido.Action.Error do
   defp do_list_parts([], acc), do: {:proper, Enum.reverse(acc)}
   defp do_list_parts([head | tail], acc), do: do_list_parts(tail, [head | acc])
   defp do_list_parts(tail, acc), do: {:improper, Enum.reverse(acc), tail}
+
+  defp json_safe_binary(value) do
+    if String.valid?(value), do: value, else: "base64:" <> Base.encode64(value)
+  end
 end
 
 defimpl JSON.Encoder,
