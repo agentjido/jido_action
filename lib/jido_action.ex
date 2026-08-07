@@ -190,7 +190,9 @@ defmodule Jido.Action do
   @spec validate_params_for(map(), module()) ::
           {:ok, map()} | {:error, Error.InvalidInputError.t()}
   def validate_params_for(params, module) do
-    validate_data(module.schema(), params, "Action", module)
+    with {:ok, validated} <- validate_data(module.schema(), params, "Action", module) do
+      validate_action_map(validated, "Action", module)
+    end
   end
 
   @doc false
@@ -199,7 +201,10 @@ defmodule Jido.Action do
   def validate_output_for(%Output{} = output, _module), do: Output.validate(output)
 
   def validate_output_for(output, module) do
-    validate_data(module.output_schema(), output, "Action output", module)
+    with {:ok, validated} <-
+           validate_data(module.output_schema(), output, "Action output", module) do
+      validate_action_map(validated, "Action output", module)
+    end
   end
 
   @validate_params_doc """
@@ -455,6 +460,17 @@ defmodule Jido.Action do
       context: context,
       module: module
     })
+  end
+
+  defp validate_action_map(value, _context, _module) when is_map(value), do: {:ok, value}
+
+  defp validate_action_map(value, context, module) do
+    {:error,
+     Error.validation_error("#{context} validation must return a map", %{
+       context: context,
+       module: module,
+       value: value
+     })}
   end
 
   defp store_schema_value?(nil, _env), do: true
