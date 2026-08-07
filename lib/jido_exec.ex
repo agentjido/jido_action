@@ -37,7 +37,10 @@ defmodule Jido.Exec do
   do not accept run options.
   """
   @spec run(term(), map(), map(), keyword()) ::
-          {:ok, term()} | {:ok, term(), term()} | {:error, Exception.t()}
+          {:ok, term()}
+          | {:ok, term(), term()}
+          | {:error, Exception.t()}
+          | {:error, Exception.t(), term()}
   def run(executable, input \\ %{}, context \\ %{}, opts \\ []) do
     metadata = exec_metadata(executable)
 
@@ -134,6 +137,10 @@ defmodule Jido.Exec do
     %{status: :error, error_type: error_type(error)}
   end
 
+  defp result_metadata({:error, error, _extras}) do
+    %{status: :error, error_type: error_type(error)}
+  end
+
   defp result_metadata(_result), do: %{status: :ok}
 
   defp error_type(error), do: error |> Error.to_map() |> Map.get(:type)
@@ -217,12 +224,15 @@ defmodule Jido.Exec do
     action = instruction.action
 
     with :ok <- Instruction.validate_action_contract(action),
-         {:ok, params} <- invoke_validator(action, :validate_params, instruction.params),
-         {:ok, output, extras} <- invoke_action(action, params, instruction.context),
-         {:ok, output} <- validate_action_output(action, output) do
-      case extras do
-        :none -> {:ok, output}
-        extras -> {:ok, output, extras}
+         {:ok, params} <- invoke_validator(action, :validate_params, instruction.params) do
+      case invoke_action_result(action, params, instruction.context) do
+        {:ok, output, extras} ->
+          with {:ok, output} <- validate_action_output(action, output) do
+            success_result(output, extras)
+          end
+
+        {:error, error, extras} ->
+          error_result(error, extras)
       end
     end
   end
@@ -231,25 +241,33 @@ defmodule Jido.Exec do
   @spec invoke_action(module(), map(), map()) ::
           {:ok, term(), term() | :none} | {:error, Exception.t()}
   def invoke_action(action, params, context) do
+    case invoke_action_result(action, params, context) do
+      {:ok, output, :no_extras} -> {:ok, output, :none}
+      {:ok, output, {:extras, extras}} -> {:ok, output, extras}
+      {:error, error, _extras} -> {:error, error}
+    end
+  end
+
+  defp invoke_action_result(action, params, context) do
     case action.run(params, context) do
       {:ok, output} ->
-        {:ok, output, :none}
+        {:ok, output, :no_extras}
 
       {:ok, output, extras} ->
-        {:ok, output, extras}
+        {:ok, output, {:extras, extras}}
 
       {:error, reason} ->
-        {:error, normalize_action_error(reason)}
+        {:error, normalize_action_error(reason), :no_extras}
 
-      {:error, reason, _extras} ->
-        {:error, normalize_action_error(reason)}
+      {:error, reason, extras} ->
+        {:error, normalize_action_error(reason), {:extras, extras}}
 
       other ->
         {:error,
          Error.execution_error("action returned an unsupported result", %{
            action: action,
            result: other
-         })}
+         }), :no_extras}
     end
   rescue
     exception ->
@@ -257,15 +275,21 @@ defmodule Jido.Exec do
        Error.execution_error(Exception.message(exception), %{
          action: action,
          exception: exception.__struct__
-       })}
+       }), :no_extras}
   catch
     kind, reason ->
       {:error,
        Error.execution_error("action #{kind}", %{
          action: action,
          reason: reason
-       })}
+       }), :no_extras}
   end
+
+  defp success_result(output, :no_extras), do: {:ok, output}
+  defp success_result(output, {:extras, extras}), do: {:ok, output, extras}
+
+  defp error_result(error, :no_extras), do: {:error, error}
+  defp error_result(error, {:extras, extras}), do: {:error, error, extras}
 
   defp validate_action_output(_action, %Output{} = output), do: Output.validate(output)
 
