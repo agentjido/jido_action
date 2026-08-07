@@ -759,6 +759,22 @@ defmodule Jido.Action.ErrorTest do
                  "string_atom"
                ])
     end
+
+    test "allocates repeated same-kind collisions deterministically" do
+      details =
+        Map.new(1..64, fn value ->
+          {fn -> value end, value}
+        end)
+
+      error = Error.execution_error("repeated collisions", details)
+      first = Error.to_map(error)
+      second = Error.to_map(error)
+
+      assert first.details == second.details
+      assert map_size(first.details) == 64
+      assert MapSet.new(Map.values(first.details)) == MapSet.new(1..64)
+      assert is_binary(JSON.encode!(first))
+    end
   end
 
   describe "retryable?/1" do

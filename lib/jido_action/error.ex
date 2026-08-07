@@ -741,11 +741,11 @@ defmodule Jido.Action.Error do
       end)
       |> Enum.sort_by(&elem(&1, 3))
 
-    {pairs, _used_keys} =
-      Enum.map_reduce(entries, MapSet.new(), fn
-        {normalized_key, original_key, normalized_value, _sort_key}, used_keys ->
-          {unique_key, used_keys} = unique_detail_key(normalized_key, original_key, used_keys)
-          {{unique_key, normalized_value}, used_keys}
+    {pairs, _state} =
+      Enum.map_reduce(entries, {MapSet.new(), %{}}, fn
+        {normalized_key, original_key, normalized_value, _sort_key}, state ->
+          {unique_key, state} = unique_detail_key(normalized_key, original_key, state)
+          {{unique_key, normalized_value}, state}
       end)
 
     Map.new(pairs)
@@ -768,26 +768,29 @@ defmodule Jido.Action.Error do
   defp inspect_detail_key(key) when is_number(key) or is_boolean(key), do: to_string(key)
   defp inspect_detail_key(key), do: inspect_detail_value(key)
 
-  defp unique_detail_key(normalized_key, original_key, used_keys) do
+  defp unique_detail_key(normalized_key, original_key, {used_keys, next_indexes}) do
     identity = inspect_detail_key(normalized_key)
 
     if MapSet.member?(used_keys, identity) do
-      identity
-      |> collision_key(detail_key_kind(original_key), used_keys)
-      |> then(fn key -> {key, MapSet.put(used_keys, key)} end)
+      kind = detail_key_kind(original_key)
+      family = {identity, kind}
+      index = Map.get(next_indexes, family, 1)
+      {key, next_index} = collision_key(identity, kind, used_keys, index)
+
+      {key, {MapSet.put(used_keys, key), Map.put(next_indexes, family, next_index)}}
     else
-      {normalized_key, MapSet.put(used_keys, identity)}
+      {normalized_key, {MapSet.put(used_keys, identity), next_indexes}}
     end
   end
 
-  defp collision_key(identity, kind, used_keys, index \\ 1) do
+  defp collision_key(identity, kind, used_keys, index) do
     suffix = if index == 1, do: "", else: "##{index}"
     key = "#{identity} [#{kind}]#{suffix}"
 
     if MapSet.member?(used_keys, key) do
       collision_key(identity, kind, used_keys, index + 1)
     else
-      key
+      {key, index + 1}
     end
   end
 
