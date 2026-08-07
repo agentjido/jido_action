@@ -30,7 +30,7 @@ The final verification must run all non-Flow tests and the full test suite.
 | F07 | P2 | Raw action results can bypass the required output envelope. | Run an action that returns a scalar | Pending | — |
 | F08 | P2 | `Jido.Exec` can lose valid third tuple elements. | Preserve success and error extras, including `:none` | Pending | — |
 | F09 | P2 | Common schema option forms do not compile. | Compile schema variables and give dynamic closure schemas a clear inline-declaration error | Done | `fix(action): handle dynamic schema storage` |
-| F10 | P2 | Open validation deletes unspecified nested or wrapped fields. | Preserve nested fields and fields under wrappers | Pending | — |
+| F10 | P2 | Open validation deletes unspecified nested or wrapped fields. | Preserve nested fields and fields under wrappers | Done | `fix(validation): preserve nested unknown fields` |
 | F11 | P2 | `Jido.Instruction.new/1` can raise for malformed list input. | Call the non-bang constructor with a malformed list | Pending | — |
 | F12 | P2 | Invalid instruction data is marked as retryable. | Normalize an invalid params or context error | Pending | — |
 | F13 | P2 | The public retry APIs can return different decisions. | Compare aliases and internal error hints | Pending | — |

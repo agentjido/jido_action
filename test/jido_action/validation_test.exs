@@ -34,5 +34,33 @@ defmodule Jido.Action.ValidationTest do
       assert {:ok, %{value: 1}} =
                Validation.open_validate(struct_schema, %Params{value: 1}, %{})
     end
+
+    test "preserves unknown fields in nested and wrapped object schemas" do
+      nested_schema =
+        Zoi.object(%{
+          user: Zoi.object(%{name: Zoi.string()})
+        })
+
+      assert {:ok, %{trace: "trace", user: %{id: 7, name: "Ada"}}} =
+               Validation.open_validate(
+                 nested_schema,
+                 %{trace: "trace", user: %{id: 7, name: "Ada"}},
+                 %{}
+               )
+
+      object_schema = Zoi.object(%{value: Zoi.integer()})
+
+      for wrapped_schema <- [
+            Zoi.default(object_schema, %{value: 0}),
+            Zoi.nullable(object_schema)
+          ] do
+        assert {:ok, %{extra: "kept", value: 1}} =
+                 Validation.open_validate(
+                   wrapped_schema,
+                   %{extra: "kept", value: 1},
+                   %{}
+                 )
+      end
+    end
   end
 end
