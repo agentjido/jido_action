@@ -162,6 +162,19 @@ defmodule Jido.Action do
   end
 
   @doc false
+  @spec ensure_storable_schema!(term(), atom(), Macro.Env.t()) :: term() | no_return()
+  def ensure_storable_schema!(schema, option, env) do
+    Macro.escape(schema)
+    schema
+  rescue
+    ArgumentError ->
+      raise CompileError,
+        description: "declare the closure-based #{inspect(option)} option inline",
+        file: env.file,
+        line: env.line
+  end
+
+  @doc false
   @spec validate_params_for(map(), module()) ::
           {:ok, map()} | {:error, Error.InvalidInputError.t()}
   def validate_params_for(params, module) do
@@ -257,6 +270,9 @@ defmodule Jido.Action do
         {nil, nil}
       end
 
+    store_schema? = store_schema_value?(schema_ast)
+    store_output_schema? = store_schema_value?(output_schema_ast)
+
     quote location: :keep do
       @behaviour Jido.Action
 
@@ -280,15 +296,26 @@ defmodule Jido.Action do
               do: Map.from_struct(validated_opts),
               else: validated_opts
 
-          # When schema_ast is nil (non-literal opts), store schemas in module attributes
-          # Note: This will lose closures for Zoi schemas passed via variables,
-          # but it's the only option when we can't access the AST
-          if unquote(is_nil(schema_ast)) do
-            @__jido_schema__ Map.get(validated_opts, :schema, [])
+          if unquote(store_schema?) do
+            stored_schema =
+              Action.ensure_storable_schema!(
+                Map.get(validated_opts, :schema, []),
+                :schema,
+                __ENV__
+              )
+
+            Module.put_attribute(__MODULE__, :__jido_schema__, stored_schema)
           end
 
-          if unquote(is_nil(output_schema_ast)) do
-            @__jido_output_schema__ Map.get(validated_opts, :output_schema, [])
+          if unquote(store_output_schema?) do
+            stored_output_schema =
+              Action.ensure_storable_schema!(
+                Map.get(validated_opts, :output_schema, []),
+                :output_schema,
+                __ENV__
+              )
+
+            Module.put_attribute(__MODULE__, :__jido_output_schema__, stored_output_schema)
           end
 
           # Store validated opts without schemas to avoid closure serialization
@@ -301,17 +328,17 @@ defmodule Jido.Action do
           def description, do: @validated_opts[:description]
 
           @doc "Returns the input schema of the Action."
-          if unquote(schema_ast) do
-            def schema, do: unquote(schema_ast)
-          else
+          if unquote(store_schema?) do
             def schema, do: @__jido_schema__
+          else
+            def schema, do: unquote(schema_ast)
           end
 
           @doc "Returns the output schema of the Action."
-          if unquote(output_schema_ast) do
-            def output_schema, do: unquote(output_schema_ast)
-          else
+          if unquote(store_output_schema?) do
             def output_schema, do: @__jido_output_schema__
+          else
+            def output_schema, do: unquote(output_schema_ast)
           end
 
           @doc unquote(validate_params_doc)
@@ -416,4 +443,13 @@ defmodule Jido.Action do
       module: module
     })
   end
+
+  defp store_schema_value?(nil), do: true
+  defp store_schema_value?({:@, _meta, [_value]}), do: true
+
+  defp store_schema_value?({_name, meta, context})
+       when is_list(meta) and is_atom(context),
+       do: true
+
+  defp store_schema_value?(_ast), do: false
 end
