@@ -42,6 +42,10 @@ defmodule Jido.Action.OutputTest do
       end
 
       assert_raise ArgumentError, ~r/invalid action output envelope/, fn ->
+        Output.stream([1 | 2])
+      end
+
+      assert_raise ArgumentError, ~r/invalid action output envelope/, fn ->
         Output.batch(:not_a_list)
       end
 

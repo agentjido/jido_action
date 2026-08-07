@@ -101,7 +101,7 @@ defmodule Jido.Action.Output do
   end
 
   defp validate_kind_value({:ok, %__MODULE__{kind: :stream, value: value} = output}, original) do
-    if Enumerable.impl_for(value) do
+    if Enumerable.impl_for(value) && (not is_list(value) || proper_list?(value)) do
       {:ok, output}
     else
       invalid(original)
