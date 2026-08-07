@@ -27,22 +27,21 @@ defmodule Jido.Action.Validation do
     {Zoi.parse(open_schema(schema), data), %{}}
   end
 
-  defp parse_schema(%Zoi.Types.Struct{module: module} = schema, data)
-       when is_struct(data, module) do
-    {Zoi.parse(open_schema(schema), data), %{}}
-  end
-
-  defp parse_schema(%Zoi.Types.Struct{fields: fields, coerce: true} = schema, data)
+  defp parse_schema(%Zoi.Types.Struct{fields: fields} = schema, data)
        when is_list(fields) and is_map(data) do
-    open_schema = %Zoi.Types.Map{
-      fields: open_fields(fields),
-      unrecognized_keys: :preserve,
-      coerce: true,
-      empty_values: schema.empty_values,
-      meta: schema.meta
-    }
+    cond do
+      is_struct(data, schema.module) ->
+        {_known, unknown} = split_known_fields(Map.from_struct(data), fields, schema.coerce)
+        {Zoi.parse(open_schema(schema), data), unknown}
 
-    {Zoi.parse(open_schema, data), %{}}
+      schema.coerce ->
+        data = if is_struct(data), do: Map.from_struct(data), else: data
+        {known, unknown} = split_known_fields(data, fields, true)
+        {Zoi.parse(open_schema(schema), known), unknown}
+
+      true ->
+        {Zoi.parse(open_schema(schema), data), %{}}
+    end
   end
 
   defp parse_schema(schema, data), do: {Zoi.parse(open_schema(schema), data), %{}}
@@ -83,14 +82,40 @@ defmodule Jido.Action.Validation do
     %{schema | schemas: Map.new(schema.schemas, fn {key, value} -> {key, open_schema(value)} end)}
   end
 
+  defp open_schema(%Zoi.Types.Lazy{fun: {module, function, args}} = schema) do
+    %{schema | fun: fn -> module |> apply(function, args) |> open_schema() end}
+  end
+
+  defp open_schema(%Zoi.Types.Lazy{fun: fun} = schema) when is_function(fun, 0) do
+    %{schema | fun: fn -> fun.() |> open_schema() end}
+  end
+
+  defp open_schema(%Zoi.Types.Codec{} = schema) do
+    %{schema | from: open_schema(schema.from), to: open_schema(schema.to)}
+  end
+
   defp open_schema(schema), do: schema
 
   defp open_fields(fields) do
     Enum.map(fields, fn {key, schema} -> {key, open_schema(schema)} end)
   end
 
+  defp split_known_fields(data, fields, coerce?) do
+    normalize_key = if coerce?, do: &to_string/1, else: &Function.identity/1
+
+    known_keys =
+      fields
+      |> Enum.map(fn {key, _schema} -> normalize_key.(key) end)
+      |> MapSet.new()
+
+    data
+    |> Map.to_list()
+    |> Enum.split_with(fn {key, _value} -> MapSet.member?(known_keys, normalize_key.(key)) end)
+    |> then(fn {known, unknown} -> {Map.new(known), Map.new(unknown)} end)
+  end
+
   defp handle_validation_result({{:ok, validated}, unknown}, schema, _details) do
-    validated = if is_struct(validated), do: Map.from_struct(validated), else: validated
+    validated = normalize_validated(schema, validated)
 
     if is_map(validated) and object_schema?(schema) do
       {:ok, Map.merge(unknown, validated)}
@@ -110,6 +135,18 @@ defmodule Jido.Action.Validation do
   defp object_schema?(%{__struct__: Zoi.Types.Map}), do: true
   defp object_schema?(%{__struct__: Zoi.Types.Struct}), do: true
   defp object_schema?(_schema), do: false
+
+  defp normalize_validated(%Zoi.Types.Struct{fields: fields}, validated)
+       when is_list(fields) and is_struct(validated) do
+    validated
+    |> Map.from_struct()
+    |> Map.take(Enum.map(fields, &elem(&1, 0)))
+  end
+
+  defp normalize_validated(_schema, validated) when is_struct(validated),
+    do: Map.from_struct(validated)
+
+  defp normalize_validated(_schema, validated), do: validated
 
   defp format_zoi_error(%{path: path, message: message} = error) do
     %{

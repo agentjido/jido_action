@@ -35,6 +35,20 @@ defmodule Jido.Action.ValidationTest do
                Validation.open_validate(struct_schema, %Params{value: 1}, %{})
     end
 
+    test "keeps struct refinements when coercing open input" do
+      schema =
+        Zoi.struct(URI, %{scheme: Zoi.string()}, coerce: true)
+        |> Zoi.refine(fn value ->
+          if is_struct(value, URI), do: :ok, else: {:error, "expected URI struct"}
+        end)
+
+      assert {:ok, result} =
+               Validation.open_validate(schema, %{scheme: "https", extra: "kept"}, %{})
+
+      assert result.scheme == "https"
+      assert result.extra == "kept"
+    end
+
     test "preserves unknown fields in nested and wrapped object schemas" do
       nested_schema =
         Zoi.object(%{
@@ -50,9 +64,17 @@ defmodule Jido.Action.ValidationTest do
 
       object_schema = Zoi.object(%{value: Zoi.integer()})
 
+      codec_schema =
+        Zoi.codec(object_schema, object_schema,
+          decode: &Function.identity/1,
+          encode: &Function.identity/1
+        )
+
       for wrapped_schema <- [
             Zoi.default(object_schema, %{value: 0}),
-            Zoi.nullable(object_schema)
+            Zoi.nullable(object_schema),
+            Zoi.lazy(fn -> object_schema end),
+            codec_schema
           ] do
         assert {:ok, %{extra: "kept", value: 1}} =
                  Validation.open_validate(
