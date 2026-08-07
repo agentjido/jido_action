@@ -77,6 +77,45 @@ defmodule Jido.ActionTest do
       assert {:ok, %{doubled: 6}} = module.run(%{value: 3}, %{})
     end
 
+    test "runtime compiled action supports schema variables" do
+      module = unique_module("RuntimeSchemaVariableAction")
+
+      create_module(
+        module,
+        quote do
+          schema = Zoi.object(%{value: Zoi.integer()})
+
+          use Jido.Action,
+            name: "runtime_schema_variable_action",
+            schema: schema
+        end
+      )
+
+      assert {:ok, %{value: 3}} = module.validate_params(%{value: 3})
+    end
+
+    test "reports closure schemas that cannot be stored from dynamic options" do
+      module = unique_module("RuntimeDynamicClosureSchemaAction")
+
+      assert_raise CompileError,
+                   ~r/declare the closure-based :schema option inline/,
+                   fn ->
+                     create_module(
+                       module,
+                       quote do
+                         opts = [
+                           name: "runtime_dynamic_closure_schema_action",
+                           schema:
+                             Zoi.integer()
+                             |> Zoi.refine(fn value -> value > 0 end)
+                         ]
+
+                         use Jido.Action, opts
+                       end
+                     )
+                   end
+    end
+
     test "evaluates non-literal options once" do
       module = unique_module("CountedDynamicOptionsAction")
       {:ok, counter} = Agent.start_link(fn -> 0 end)
