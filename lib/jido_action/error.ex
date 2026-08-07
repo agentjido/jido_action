@@ -68,6 +68,8 @@ defmodule Jido.Action.Error do
   ]
   @inspect_opts [charlists: :as_lists, printable_limit: :infinity, limit: :infinity]
 
+  @type details_input :: map() | keyword()
+
   # Error class modules for Splode - these are for classification/aggregation only.
   # Use the concrete exception structs (ending in `Error`) for raising/matching.
 
@@ -207,14 +209,14 @@ defmodule Jido.Action.Error do
   @doc """
   Creates a validation error for invalid input parameters.
   """
-  @spec validation_error(String.t(), map()) :: InvalidInputError.t()
+  @spec validation_error(String.t(), details_input()) :: InvalidInputError.t()
   def validation_error(message, details \\ %{}) do
     details = normalize_constructor_details(details)
 
     InvalidInputError.exception(
       message: message,
-      field: details[:field],
-      value: details[:value],
+      field: Map.get(details, :field),
+      value: Map.get(details, :value),
       details: details
     )
   end
@@ -222,7 +224,7 @@ defmodule Jido.Action.Error do
   @doc """
   Creates an execution error for runtime failures.
   """
-  @spec execution_error(String.t(), map()) :: ExecutionFailureError.t()
+  @spec execution_error(String.t(), details_input()) :: ExecutionFailureError.t()
   def execution_error(message, details \\ %{}) do
     details = normalize_constructor_details(details)
 
@@ -235,7 +237,7 @@ defmodule Jido.Action.Error do
   @doc """
   Creates a configuration error.
   """
-  @spec config_error(String.t(), map()) :: ConfigurationError.t()
+  @spec config_error(String.t(), details_input()) :: ConfigurationError.t()
   def config_error(message, details \\ %{}) do
     details = normalize_constructor_details(details)
 
@@ -248,13 +250,13 @@ defmodule Jido.Action.Error do
   @doc """
   Creates a timeout error.
   """
-  @spec timeout_error(String.t(), map()) :: TimeoutError.t()
+  @spec timeout_error(String.t(), details_input()) :: TimeoutError.t()
   def timeout_error(message, details \\ %{}) do
     details = normalize_constructor_details(details)
 
     TimeoutError.exception(
       message: message,
-      timeout: details[:timeout],
+      timeout: Map.get(details, :timeout),
       details: details
     )
   end
@@ -262,7 +264,7 @@ defmodule Jido.Action.Error do
   @doc """
   Creates an internal server error.
   """
-  @spec internal_error(String.t(), map()) :: InternalError.t()
+  @spec internal_error(String.t(), details_input()) :: InternalError.t()
   def internal_error(message, details \\ %{}) do
     details = normalize_constructor_details(details)
 
@@ -428,7 +430,7 @@ defmodule Jido.Action.Error do
       type: :execution_error,
       message: normalize_message(reason),
       details: %{},
-      retryable?: false
+      retryable?: fallback_retryable(reason)
     }
   end
 
@@ -441,12 +443,28 @@ defmodule Jido.Action.Error do
   @spec retryable?(term()) :: boolean()
   def retryable?({:error, reason, _effects}), do: retryable?(reason)
   def retryable?({:error, reason}), do: retryable?(reason)
-  def retryable?(%InvalidInputError{}), do: false
-  def retryable?(%ConfigurationError{}), do: false
-  def retryable?(%TimeoutError{}), do: true
-  def retryable?(%ExecutionFailureError{details: details}), do: execution_retryable?(details)
-  def retryable?(%InternalError{}), do: false
-  def retryable?(%Internal.UnknownError{}), do: false
+  def retryable?(%InvalidInputError{message: _, field: _, value: _, details: _}), do: false
+  def retryable?(%ConfigurationError{message: _, details: _}), do: false
+  def retryable?(%TimeoutError{message: _, timeout: _, details: _}), do: true
+
+  def retryable?(%ExecutionFailureError{message: _, details: details}),
+    do: execution_retryable?(details)
+
+  def retryable?(%InternalError{message: _, details: _}), do: false
+  def retryable?(%Internal.UnknownError{message: _, details: _}), do: false
+
+  def retryable?(%{__struct__: module} = error)
+      when is_atom(module) and
+             module in [
+               InvalidInputError,
+               ExecutionFailureError,
+               TimeoutError,
+               ConfigurationError,
+               InternalError,
+               Internal.UnknownError
+             ] do
+    normalize_retryable(error, pseudo_struct_type(module))
+  end
 
   def retryable?(%{retryable?: value}) when is_boolean(value), do: value
   def retryable?(%{retryable: value}) when is_boolean(value), do: value
@@ -462,11 +480,11 @@ defmodule Jido.Action.Error do
   end
 
   def retryable?(%{} = map) do
-    retryable_hint(map, true)
+    fallback_retryable(map)
   end
 
   def retryable?(reason) when is_atom(reason), do: retryable_hint(%{reason: reason}, false)
-  def retryable?(_reason), do: true
+  def retryable?(reason), do: fallback_retryable(reason)
 
   defp normalize_retryable(error, type) do
     cond do
@@ -475,6 +493,17 @@ defmodule Jido.Action.Error do
       true -> retryable_hint(Map.get(error, :details, error), default_retryable_type?(type))
     end
   end
+
+  defp fallback_retryable(reason) when is_map(reason) do
+    cond do
+      is_boolean(Map.get(reason, :retryable?)) -> Map.get(reason, :retryable?)
+      is_boolean(Map.get(reason, :retryable)) -> Map.get(reason, :retryable)
+      true -> retryable_hint(reason, false)
+    end
+  end
+
+  defp fallback_retryable(reason) when is_list(reason), do: retryable_hint(reason, false)
+  defp fallback_retryable(_reason), do: false
 
   defp normalize_constructor_details(details) when is_map(details), do: details
 
@@ -694,17 +723,29 @@ defmodule Jido.Action.Error do
   defp normalize_detail_value(value), do: inspect_detail_value(value)
 
   defp normalize_detail_map(map) do
-    map
-    |> Map.to_list()
-    |> Enum.map(fn {key, value} ->
-      normalized_key = normalize_detail_key(key)
-      {normalized_key, inspect_detail_value(normalized_key), normalize_detail_value(value)}
-    end)
-    |> Enum.sort_by(fn {_normalized_key, sort_key, _normalized_value} -> sort_key end)
-    |> Enum.map(fn {normalized_key, _sort_key, normalized_value} ->
-      {normalized_key, normalized_value}
-    end)
-    |> Map.new()
+    entries =
+      map
+      |> Map.to_list()
+      |> Enum.map(fn {key, value} ->
+        normalized_key = normalize_detail_key(key)
+
+        {
+          normalized_key,
+          key,
+          normalize_detail_value(value),
+          {inspect_detail_key(normalized_key), detail_key_kind(key), inspect_detail_value(key)}
+        }
+      end)
+      |> Enum.sort_by(&elem(&1, 3))
+
+    {pairs, _used_keys} =
+      Enum.map_reduce(entries, MapSet.new(), fn
+        {normalized_key, original_key, normalized_value, _sort_key}, used_keys ->
+          {unique_key, used_keys} = unique_detail_key(normalized_key, original_key, used_keys)
+          {{unique_key, normalized_value}, used_keys}
+      end)
+
+    Map.new(pairs)
   end
 
   defp normalize_detail_key(key) when is_binary(key), do: json_safe_binary(key)
@@ -723,6 +764,41 @@ defmodule Jido.Action.Error do
   defp inspect_detail_key(key) when is_atom(key), do: Atom.to_string(key)
   defp inspect_detail_key(key) when is_number(key) or is_boolean(key), do: to_string(key)
   defp inspect_detail_key(key), do: inspect_detail_value(key)
+
+  defp unique_detail_key(normalized_key, original_key, used_keys) do
+    identity = inspect_detail_key(normalized_key)
+
+    if MapSet.member?(used_keys, identity) do
+      identity
+      |> collision_key(detail_key_kind(original_key), used_keys)
+      |> then(fn key -> {key, MapSet.put(used_keys, key)} end)
+    else
+      {normalized_key, MapSet.put(used_keys, identity)}
+    end
+  end
+
+  defp collision_key(identity, kind, used_keys, index \\ 1) do
+    suffix = if index == 1, do: "", else: "##{index}"
+    key = "#{identity} [#{kind}]#{suffix}"
+
+    if MapSet.member?(used_keys, key) do
+      collision_key(identity, kind, used_keys, index + 1)
+    else
+      key
+    end
+  end
+
+  defp detail_key_kind(nil), do: "nil"
+  defp detail_key_kind(key) when is_boolean(key), do: "boolean"
+  defp detail_key_kind(key) when is_atom(key), do: "atom"
+
+  defp detail_key_kind(key) when is_binary(key) do
+    if String.valid?(key), do: "string", else: "binary"
+  end
+
+  defp detail_key_kind(key) when is_integer(key), do: "integer"
+  defp detail_key_kind(key) when is_float(key), do: "float"
+  defp detail_key_kind(_key), do: "term"
 
   defp maybe_put_exception_marker(map, struct) do
     if is_exception(struct) do

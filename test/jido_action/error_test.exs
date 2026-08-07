@@ -101,6 +101,17 @@ defmodule Jido.Action.ErrorTest do
       assert %Error.ExecutionFailureError{details: %{}} =
                Error.execution_error("execution failed", "not details")
     end
+
+    test "constructors accept struct details" do
+      validation_details = %Reason{field: :transport, meta: :request}
+      timeout_details = URI.parse("https://example.com")
+
+      assert %Error.InvalidInputError{field: :transport, details: ^validation_details} =
+               Error.validation_error("invalid", validation_details)
+
+      assert %Error.TimeoutError{timeout: nil, details: ^timeout_details} =
+               Error.timeout_error("slow", timeout_details)
+    end
   end
 
   describe "exception creation" do
@@ -525,6 +536,25 @@ defmodule Jido.Action.ErrorTest do
              } = Error.to_map(malformed)
     end
 
+    test "keeps pseudo-struct retry decisions consistent" do
+      cases = [
+        {Error.InvalidInputError, true},
+        {Error.ConfigurationError, true},
+        {Error.InternalError, true},
+        {Error.TimeoutError, false}
+      ]
+
+      for {module, retry?} <- cases do
+        malformed = %{
+          __struct__: module,
+          __exception__: true,
+          details: %{retry: retry?}
+        }
+
+        assert Error.retryable?(malformed) == Error.to_map(malformed).retryable?
+      end
+    end
+
     test "normalizes keyword and invalid detail containers" do
       assert %{
                details: %{reason: :rate_limited, retry: false},
@@ -691,6 +721,44 @@ defmodule Jido.Action.ErrorTest do
       assert decoded["details"]["payload"] == "base64:/g=="
       assert decoded["details"]["base64:/Q=="] == "base64:/A=="
     end
+
+    test "encodes colliding detail keys without losing values" do
+      error =
+        Error.execution_error("key collisions", %{
+          <<255>> => :invalid_binary,
+          "base64:/w==" => :valid_binary,
+          42 => :integer,
+          "42" => :string_integer,
+          :field => :atom,
+          "field" => :string_atom
+        })
+
+      mapped = Error.to_map(error)
+      assert map_size(mapped.details) == 6
+
+      assert MapSet.new(Map.values(mapped.details)) ==
+               MapSet.new([
+                 :invalid_binary,
+                 :valid_binary,
+                 :integer,
+                 :string_integer,
+                 :atom,
+                 :string_atom
+               ])
+
+      decoded = error |> JSON.encode!() |> JSON.decode!()
+      assert map_size(decoded["details"]) == 6
+
+      assert MapSet.new(Map.values(decoded["details"])) ==
+               MapSet.new([
+                 "invalid_binary",
+                 "valid_binary",
+                 "integer",
+                 "string_integer",
+                 "atom",
+                 "string_atom"
+               ])
+    end
   end
 
   describe "retryable?/1" do
@@ -704,8 +772,6 @@ defmodule Jido.Action.ErrorTest do
       assert Error.retryable?(%{retryable: true})
       assert Error.retryable?(%{code: :timeout_error, details: %{}})
       assert Error.retryable?(%{details: [reason: %{retry: true}]})
-      assert Error.retryable?(%{details: :opaque})
-      assert Error.retryable?("opaque failure")
     end
 
     test "rejects validation and configuration errors" do
@@ -726,8 +792,16 @@ defmodule Jido.Action.ErrorTest do
       refute Error.retryable?(%{details: [reason: %{retry: false}]})
       refute Error.retryable?(%{details: %{retry: false}})
       refute Error.retryable?(%{details: %{"reason" => %{"retry" => false}}})
+      refute Error.retryable?(%{details: :opaque})
+      refute Error.retryable?("opaque failure")
       refute Error.retryable?(:transient_error)
       refute Error.retryable?(:badarg)
+    end
+
+    test "matches to_map retry decisions for raw reasons" do
+      for reason <- ["opaque", 42, {:remote, :failure}, [:bad], %{}] do
+        assert Error.retryable?(reason) == Error.to_map(reason).retryable?
+      end
     end
   end
 end
