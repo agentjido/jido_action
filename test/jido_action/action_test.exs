@@ -2,6 +2,7 @@ defmodule Jido.ActionTest do
   use JidoTest.ActionCase, async: true
 
   alias Jido.Action
+  alias Jido.Action.Output
   alias JidoTest.TestActions.FullAction
   alias JidoTest.TestActions.NoOutputSchemaAction
   alias JidoTest.TestActions.NoSchema
@@ -274,6 +275,13 @@ defmodule Jido.ActionTest do
     test "action without output schema skips validation" do
       assert {:ok, result} = NoOutputSchemaAction.validate_output(%{anything: "goes"})
       assert result.anything == "goes"
+    end
+
+    test "action output validation rejects malformed output envelopes" do
+      output = %Output{kind: :batch, value: :not_a_list, meta: %{}}
+
+      assert {:error, %Jido.Action.Error.InvalidInputError{}} =
+               NoOutputSchemaAction.validate_output(output)
     end
   end
 
