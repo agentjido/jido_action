@@ -39,9 +39,12 @@ The final verification must run all non-Flow tests and the full test suite.
 
 ## Final Verification
 
-- [ ] All findings are marked `Done`.
-- [ ] Each finding has one fix commit.
-- [ ] All focused non-Flow tests pass.
-- [ ] The full test suite passes.
-- [ ] `mix format --check-formatted` passes.
-- [ ] The worktree is clean.
+Completed on 2026-08-07:
+
+- [x] All findings are marked `Done`.
+- [x] Each finding has one fix commit.
+- [x] All focused non-Flow tests pass: 163 tests.
+- [x] The full test suite passes: 413 tests, including one property test.
+- [x] `mix compile --warnings-as-errors` passes.
+- [x] `mix format --check-formatted` passes.
+- [x] The worktree is clean after the verification record commit.
