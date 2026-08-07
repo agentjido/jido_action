@@ -36,7 +36,7 @@ defmodule Jido.Exec do
   Runic with the supplied maximum concurrency. Action and instruction execution
   do not accept run options.
   """
-  @spec run(term(), map(), map(), keyword()) ::
+  @spec run(term(), map() | keyword() | nil, map() | keyword() | nil, keyword()) ::
           {:ok, term()}
           | {:ok, term(), term()}
           | {:error, Exception.t()}
@@ -224,11 +224,12 @@ defmodule Jido.Exec do
     action = instruction.action
 
     with :ok <- Instruction.validate_action_contract(action),
-         {:ok, params} <- invoke_validator(action, :validate_params, instruction.params) do
+         {:ok, params} <- validate_action_params(action, instruction.params) do
       case invoke_action_result(action, params, instruction.context) do
         {:ok, output, extras} ->
-          with {:ok, output} <- validate_action_output(action, output) do
-            success_result(output, extras)
+          case validate_action_output(action, output) do
+            {:ok, output} -> success_result(output, extras)
+            {:error, error} -> error_result(error, extras)
           end
 
         {:error, error, extras} ->
@@ -291,25 +292,62 @@ defmodule Jido.Exec do
   defp error_result(error, :no_extras), do: {:error, error}
   defp error_result(error, {:extras, extras}), do: {:error, error, extras}
 
+  defp validate_action_params(action, params) do
+    with {:ok, validated} <- invoke_validator(action, :validate_params, params) do
+      if is_map(validated) do
+        {:ok, validated}
+      else
+        invalid_validator_value(action, :validate_params, validated, :map)
+      end
+    end
+  end
+
   defp validate_action_output(_action, %Output{} = output), do: Output.validate(output)
 
   defp validate_action_output(action, output) when is_map(output) do
     if is_struct(output) and Enumerable.impl_for(output) do
-      output_envelope_required(action, output)
+      output_envelope_required(action, output, :run)
     else
-      invoke_validator(action, :validate_output, output)
+      with {:ok, validated} <- invoke_validator(action, :validate_output, output) do
+        validate_output_shape(action, validated, :validate_output)
+      end
     end
   end
 
   defp validate_action_output(action, output) do
-    output_envelope_required(action, output)
+    output_envelope_required(action, output, :run)
   end
 
-  defp output_envelope_required(action, output) do
+  defp validate_output_shape(_action, %Output{} = output, _callback), do: Output.validate(output)
+
+  defp validate_output_shape(action, output, callback) when is_map(output) do
+    if is_struct(output) and Enumerable.impl_for(output) do
+      invalid_validator_value(action, callback, output, :map_or_output_envelope)
+    else
+      {:ok, output}
+    end
+  end
+
+  defp validate_output_shape(action, output, callback) do
+    invalid_validator_value(action, callback, output, :map_or_output_envelope)
+  end
+
+  defp output_envelope_required(action, output, callback) do
     {:error,
      Error.execution_error("action returned a value that requires an output envelope", %{
        action: action,
+       callback: callback,
        output: output
+     })}
+  end
+
+  defp invalid_validator_value(action, callback, result, expected) do
+    {:error,
+     Error.execution_error("action validator returned a value with an invalid shape", %{
+       action: action,
+       callback: callback,
+       expected: expected,
+       result: result
      })}
   end
 
