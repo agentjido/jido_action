@@ -102,7 +102,13 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
     defp maybe_generate_test(igniter, _module_name, _action_name, true), do: igniter
 
     defp maybe_generate_test(igniter, module_name, action_name, _no_test) do
-      test_module_name = Module.concat(module_name, Test)
+      test_module_name =
+        module_name
+        |> Module.split()
+        |> List.update_at(-1, &(&1 <> "Test"))
+        |> Module.concat()
+
+      action_module_alias = module_name |> Module.split() |> List.last()
 
       test_contents = """
       use ExUnit.Case, async: true
@@ -111,7 +117,7 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
 
       describe "#{action_name}/run" do
         test "runs successfully" do
-          assert {:ok, result} = #{inspect(module_name)}.run(%{}, %{})
+          assert {:ok, result} = #{action_module_alias}.run(%{}, %{})
           assert is_map(result)
         end
       end
