@@ -12,6 +12,7 @@ defmodule Jido.Exec.TelemetryTest do
     Add,
     Divide,
     ErrorAction,
+    InvalidValidationResultAction,
     Multiply
   }
 
@@ -51,6 +52,16 @@ defmodule Jido.Exec.TelemetryTest do
 
     assert_receive {:telemetry_event, @exec_stop, _measurements, metadata}
     assert metadata.kind == :action
+    assert metadata.status == :error
+    assert metadata.error_type == :execution_error
+  end
+
+  test "marks invalid validator results as execution errors" do
+    attach_telemetry([@exec_stop])
+
+    assert {:error, %ExecutionFailureError{}} = Exec.run(InvalidValidationResultAction)
+
+    assert_receive {:telemetry_event, @exec_stop, _measurements, metadata}
     assert metadata.status == :error
     assert metadata.error_type == :execution_error
   end
