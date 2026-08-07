@@ -94,7 +94,7 @@ defmodule Jido.Action do
   > downstream Actions or systems.
   """
 
-  alias Jido.Action.{Error, Output, Validation}
+  alias Jido.Action.{Error, Output, SchemaStore, Validation}
 
   @max_action_name_bytes 256
 
@@ -176,14 +176,58 @@ defmodule Jido.Action do
   @doc false
   @spec ensure_storable_schema!(term(), atom(), Macro.Env.t()) :: term() | no_return()
   def ensure_storable_schema!(schema, option, env) do
-    Macro.escape(schema)
-    schema
+    if SchemaStore.portable?(schema), do: schema, else: raise(ArgumentError)
   rescue
     ArgumentError ->
+      bindings_option =
+        if option == :schema, do: :schema_bindings, else: :output_schema_bindings
+
       raise CompileError,
-        description: "declare the closure-based #{inspect(option)} option inline",
+        description:
+          "closure-based #{inspect(option)} requires literal #{inspect(bindings_option)}",
         file: env.file,
         line: env.line
+  end
+
+  @doc false
+  @spec validate_action_config!(term(), Macro.Env.t()) :: map() | no_return()
+  def validate_action_config!(opts, env) do
+    case Zoi.parse(@action_config_schema, opts) do
+      {:ok, validated_opts} ->
+        if is_struct(validated_opts), do: Map.from_struct(validated_opts), else: validated_opts
+
+      {:error, errors} ->
+        message =
+          if is_list(errors) do
+            "Action configuration validation failed:\n" <> Zoi.prettify_errors(errors)
+          else
+            "Action configuration validation failed: #{inspect(errors)}"
+          end
+
+        raise CompileError, description: message, file: env.file, line: env.line
+    end
+  end
+
+  @doc false
+  @spec normalize_action_options!(term(), boolean(), Macro.Env.t()) :: map() | no_return()
+  def normalize_action_options!(opts, literal_opts?, env) do
+    opts_map =
+      cond do
+        is_list(opts) and Keyword.keyword?(opts) -> Map.new(opts)
+        is_map(opts) -> opts
+        true -> validate_action_config!(opts, env)
+      end
+
+    if not literal_opts? and
+         (Map.has_key?(opts_map, :schema_bindings) or
+            Map.has_key?(opts_map, :output_schema_bindings)) do
+      raise CompileError,
+        description: "schema bindings require literal Action options",
+        file: env.file,
+        line: env.line
+    end
+
+    opts_map
   end
 
   @doc false
@@ -254,7 +298,15 @@ defmodule Jido.Action do
   - `name` (required) - The non-blank metadata name of the Action.
   - `description` (optional) - A description of what the Action does.
   - `schema` (optional, default: []) - A Zoi schema for validating the Action's input parameters.
+  - `schema_bindings` (optional) - Explicit portable values used by a deterministic closure-based input schema.
   - `output_schema` (optional, default: []) - A Zoi schema for validating the Action's output. Only specified fields are validated.
+  - `output_schema_bindings` (optional) - Explicit portable values used by a deterministic closure-based output schema.
+
+  Closure-based schemas must use a literal bindings option. Use an empty list
+  when the schema has no external values. Bindings can contain portable data or
+  external named function captures. The schema is built once for each module
+  load, and later calls return that exact term. A fresh VM builds it again, so
+  the schema expression must be deterministic.
 
   ## Examples
 
@@ -270,132 +322,226 @@ defmodule Jido.Action do
         end
       end
 
-  """
-  defmacro __using__(opts_ast) do
-    escaped_schema = Macro.escape(@action_config_schema)
-    validate_params_doc = @validate_params_doc
-    validate_output_doc = @validate_output_doc
+      defmodule BoundedAction do
+        minimum = 1
 
-    # Extract schema ASTs from the opts if it's a literal keyword list
-    # This preserves closures for Zoi schemas defined inline or in module attributes
-    {schema_ast, output_schema_ast} =
-      if is_list(opts_ast) do
-        {Keyword.get(opts_ast, :schema), Keyword.get(opts_ast, :output_schema)}
-      else
-        # For non-literal opts (e.g., variables from other macros), we can't extract the AST
-        # The schemas will be stored in module attributes from the validated opts
-        {nil, nil}
+        use Jido.Action,
+          name: "bounded_action",
+          schema_bindings: [minimum: minimum],
+          schema:
+            Zoi.object(%{
+              value:
+                Zoi.integer()
+                |> Zoi.refine(fn value ->
+                  if value > minimum, do: :ok, else: {:error, "too small"}
+                end)
+            })
       end
 
-    store_schema? = store_schema_value?(schema_ast, __CALLER__)
-    store_output_schema? = store_schema_value?(output_schema_ast, __CALLER__)
+  """
+  defmacro __using__(opts_ast) do
+    validate_params_doc = @validate_params_doc
+    validate_output_doc = @validate_output_doc
+    literal_opts? = is_list(opts_ast) and Keyword.keyword?(opts_ast)
+
+    {raw_opts_ast, schema_spec, output_schema_spec} =
+      if literal_opts? do
+        schema_spec = schema_spec!(opts_ast, :schema, :schema_bindings, __CALLER__)
+
+        output_schema_spec =
+          schema_spec!(opts_ast, :output_schema, :output_schema_bindings, __CALLER__)
+
+        raw_opts_ast =
+          Keyword.drop(opts_ast, [
+            :schema,
+            :schema_bindings,
+            :output_schema,
+            :output_schema_bindings
+          ])
+
+        {
+          raw_opts_ast,
+          schema_spec,
+          output_schema_spec
+        }
+      else
+        {opts_ast, :dynamic, :dynamic}
+      end
+
+    schema_setup_ast = schema_setup_ast(schema_spec, :schema)
+    output_schema_setup_ast = schema_setup_ast(output_schema_spec, :output_schema)
+    schema_bound? = bound_schema_spec?(schema_spec)
+    output_schema_bound? = bound_schema_spec?(output_schema_spec)
 
     quote location: :keep do
       @behaviour Jido.Action
 
       alias Jido.Action
+      alias Jido.Action.SchemaStore
 
-      # Convert opts to map for Zoi validation (including nested keyword lists)
-      raw_opts = unquote(opts_ast)
+      raw_opts = unquote(raw_opts_ast)
+      opts_map = Action.normalize_action_options!(raw_opts, unquote(literal_opts?), __ENV__)
+
+      {schema_value, schema_recipe} = unquote(schema_setup_ast)
+      {output_schema_value, output_schema_recipe} = unquote(output_schema_setup_ast)
 
       opts_map =
-        if is_list(raw_opts) and Keyword.keyword?(raw_opts) do
-          Map.new(raw_opts)
-        else
-          raw_opts
-        end
+        opts_map
+        |> Map.put(:schema, schema_value)
+        |> Map.put(:output_schema, output_schema_value)
 
-      case Zoi.parse(unquote(escaped_schema), opts_map) do
-        {:ok, validated_opts} ->
-          # Convert Zoi struct to map for backward compatibility
-          validated_opts =
-            if is_struct(validated_opts),
-              do: Map.from_struct(validated_opts),
-              else: validated_opts
+      validated_opts = Action.validate_action_config!(opts_map, __ENV__)
+      validated_schema = Map.get(validated_opts, :schema, [])
+      validated_output_schema = Map.get(validated_opts, :output_schema, [])
 
-          if unquote(store_schema?) do
-            stored_schema =
-              Action.ensure_storable_schema!(
-                Map.get(validated_opts, :schema, []),
-                :schema,
-                __ENV__
-              )
+      if unquote(schema_bound?) do
+        Module.put_attribute(__MODULE__, :__jido_schema_recipe__, schema_recipe)
+      else
+        stored_schema = Action.ensure_storable_schema!(validated_schema, :schema, __ENV__)
+        Module.put_attribute(__MODULE__, :__jido_schema__, stored_schema)
+      end
 
-            Module.put_attribute(__MODULE__, :__jido_schema__, stored_schema)
-          end
+      if unquote(output_schema_bound?) do
+        Module.put_attribute(
+          __MODULE__,
+          :__jido_output_schema_recipe__,
+          output_schema_recipe
+        )
+      else
+        stored_output_schema =
+          Action.ensure_storable_schema!(validated_output_schema, :output_schema, __ENV__)
 
-          if unquote(store_output_schema?) do
-            stored_output_schema =
-              Action.ensure_storable_schema!(
-                Map.get(validated_opts, :output_schema, []),
-                :output_schema,
-                __ENV__
-              )
+        Module.put_attribute(__MODULE__, :__jido_output_schema__, stored_output_schema)
+      end
 
-            Module.put_attribute(__MODULE__, :__jido_output_schema__, stored_output_schema)
-          end
+      @validated_opts Map.drop(validated_opts, [:schema, :output_schema])
 
-          # Store validated opts without schemas to avoid closure serialization
-          @validated_opts Map.drop(validated_opts, [:schema, :output_schema])
+      if unquote(schema_bound? or output_schema_bound?) do
+        expected_recipes =
+          [
+            if(unquote(schema_bound?), do: schema_recipe),
+            if(unquote(output_schema_bound?), do: output_schema_recipe)
+          ]
+          |> Enum.reject(&is_nil/1)
 
-          @doc "Returns the name of the Action."
-          def name, do: @validated_opts[:name]
+        SchemaStore.expect_load(__MODULE__, expected_recipes)
+        @after_compile {SchemaStore, :verify_loaded}
+        @before_compile Jido.Action
+      end
 
-          @doc "Returns the description of the Action."
-          def description, do: @validated_opts[:description]
+      unquote(schema_builder_ast(schema_spec, :schema))
+      unquote(schema_builder_ast(output_schema_spec, :output_schema))
 
-          @doc "Returns the input schema of the Action."
-          if unquote(store_schema?) do
-            def schema, do: @__jido_schema__
-          else
-            def schema, do: unquote(schema_ast)
-          end
+      @doc "Returns the name of the Action."
+      def name, do: @validated_opts[:name]
 
-          @doc "Returns the output schema of the Action."
-          if unquote(store_output_schema?) do
-            def output_schema, do: @__jido_output_schema__
-          else
-            def output_schema, do: unquote(output_schema_ast)
-          end
+      @doc "Returns the description of the Action."
+      def description, do: @validated_opts[:description]
 
-          @doc unquote(validate_params_doc)
-          @spec validate_params(map()) ::
-                  {:ok, map()} | {:error, Jido.Action.Error.InvalidInputError.t()}
-          def validate_params(params), do: Action.validate_params_for(params, __MODULE__)
+      @doc "Returns the input schema of the Action."
+      if unquote(schema_bound?) do
+        def schema,
+          do:
+            SchemaStore.fetch!(
+              __MODULE__,
+              @__jido_schema_recipe__,
+              &__jido_build_schema__/0
+            )
+      else
+        def schema, do: @__jido_schema__
+      end
 
-          @doc unquote(validate_output_doc)
-          @spec validate_output(map() | Jido.Action.Output.t()) ::
-                  {:ok, map() | Jido.Action.Output.t()}
-                  | {:error, Jido.Action.Error.InvalidInputError.t()}
-          def validate_output(output), do: Action.validate_output_for(output, __MODULE__)
+      @doc "Returns the output schema of the Action."
+      if unquote(output_schema_bound?) do
+        def output_schema,
+          do:
+            SchemaStore.fetch!(
+              __MODULE__,
+              @__jido_output_schema_recipe__,
+              &__jido_build_output_schema__/0
+            )
+      else
+        def output_schema, do: @__jido_output_schema__
+      end
 
-          @doc """
-          Executes the Action with the given parameters and context.
+      @doc unquote(validate_params_doc)
+      @spec validate_params(map()) ::
+              {:ok, map()} | {:error, Jido.Action.Error.InvalidInputError.t()}
+      def validate_params(params), do: Action.validate_params_for(params, __MODULE__)
 
-          The `run/2` function must be implemented in the module using Jido.Action.
-          """
-          # Note: @spec annotations are intentionally omitted from these default
-          # implementations. The @callback declarations (below) define the type
-          # contracts. Adding @spec here causes dialyzer `extra_range` warnings in
-          # consumer modules that don't override these functions, because the spec
-          # includes {:error, _} but the default only returns {:ok, _}.
-          def run(params, context) do
-            "run/2 must be implemented in in your Action"
-            |> Error.config_error()
-            |> then(&{:error, &1})
-          end
+      @doc unquote(validate_output_doc)
+      @spec validate_output(map() | Jido.Action.Output.t()) ::
+              {:ok, map() | Jido.Action.Output.t()}
+              | {:error, Jido.Action.Error.InvalidInputError.t()}
+      def validate_output(output), do: Action.validate_output_for(output, __MODULE__)
 
-          defoverridable run: 2
+      @doc """
+      Executes the Action with the given parameters and context.
 
-        {:error, errors} ->
-          message =
-            if is_list(errors) do
-              "Action configuration validation failed:\n" <> Zoi.prettify_errors(errors)
-            else
-              "Action configuration validation failed: #{inspect(errors)}"
-            end
+      The `run/2` function must be implemented in the module using Jido.Action.
+      """
+      # Note: @spec annotations are intentionally omitted from these default
+      # implementations. The @callback declarations (below) define the type
+      # contracts. Adding @spec here causes dialyzer `extra_range` warnings in
+      # consumer modules that don't override these functions, because the spec
+      # includes {:error, _} but the default only returns {:ok, _}.
+      def run(params, context) do
+        "run/2 must be implemented in in your Action"
+        |> Error.config_error()
+        |> then(&{:error, &1})
+      end
 
-          raise CompileError, description: message, file: __ENV__.file, line: __ENV__.line
+      defoverridable run: 2
+    end
+  end
+
+  @doc false
+  defmacro __before_compile__(env) do
+    schema_recipe = Module.get_attribute(env.module, :__jido_schema_recipe__)
+    output_schema_recipe = Module.get_attribute(env.module, :__jido_output_schema_recipe__)
+    consumer_on_load = Module.get_attribute(env.module, :on_load)
+
+    move_schema_verifier_first!(env.module)
+
+    if Module.defines?(env.module, {:__jido_action_on_load__, 0}) do
+      raise CompileError,
+        description: "__jido_action_on_load__/0 is reserved by Jido.Action",
+        file: env.file,
+        line: env.line
+    end
+
+    if consumer_on_load, do: Module.delete_attribute(env.module, :on_load)
+
+    consumer_on_load_ast = consumer_on_load_ast!(consumer_on_load, env)
+
+    builders =
+      [
+        if(schema_recipe,
+          do:
+            quote(
+              generated: true,
+              do: {@__jido_schema_recipe__, &__jido_build_schema__/0}
+            )
+        ),
+        if(output_schema_recipe,
+          do:
+            quote(
+              generated: true,
+              do: {@__jido_output_schema_recipe__, &__jido_build_output_schema__/0}
+            )
+        )
+      ]
+      |> Enum.reject(&is_nil/1)
+
+    quote generated: true do
+      @on_load :__jido_action_on_load__
+
+      defp __jido_action_on_load__ do
+        Jido.Action.SchemaStore.load!(
+          __MODULE__,
+          [unquote_splicing(builders)],
+          fn -> unquote(consumer_on_load_ast) end
+        )
       end
     end
   end
@@ -455,6 +601,155 @@ defmodule Jido.Action do
     |> then(&{:error, &1})
   end
 
+  defp schema_spec!(opts_ast, option, bindings_option, env) do
+    source? = Keyword.has_key?(opts_ast, option)
+    bindings? = Keyword.has_key?(opts_ast, bindings_option)
+
+    cond do
+      bindings? and not source? ->
+        raise CompileError,
+          description: "#{inspect(bindings_option)} requires #{inspect(option)}",
+          file: env.file,
+          line: env.line
+
+      bindings? ->
+        source = opts_ast |> Keyword.get_values(option) |> List.last()
+        bindings = opts_ast |> Keyword.get_values(bindings_option) |> List.last()
+        validate_bindings_ast!(bindings, bindings_option, env)
+
+        source =
+          SchemaStore.prepare_source!(option, source, Keyword.keys(bindings), env)
+
+        generation = :crypto.strong_rand_bytes(16)
+        {:bound, source, bindings, generation}
+
+      source? ->
+        {:inline, opts_ast |> Keyword.get_values(option) |> List.last()}
+
+      true ->
+        :default
+    end
+  end
+
+  defp validate_bindings_ast!(bindings, bindings_option, env) do
+    unless is_list(bindings) and Keyword.keyword?(bindings) do
+      raise CompileError,
+        description: "#{inspect(bindings_option)} must be a literal keyword list",
+        file: env.file,
+        line: env.line
+    end
+
+    names = Keyword.keys(bindings)
+
+    if Enum.uniq(names) != names do
+      raise CompileError,
+        description: "#{inspect(bindings_option)} cannot contain duplicate names",
+        file: env.file,
+        line: env.line
+    end
+  end
+
+  defp schema_setup_ast(:default, _option) do
+    quote generated: true do
+      {[], nil}
+    end
+  end
+
+  defp schema_setup_ast(:dynamic, option) do
+    quote generated: true do
+      {Map.get(opts_map, unquote(option), []), nil}
+    end
+  end
+
+  defp schema_setup_ast({:inline, source}, _option) do
+    quote generated: true do
+      {unquote(source), nil}
+    end
+  end
+
+  defp schema_setup_ast({:bound, _source, bindings, generation}, option) do
+    binding_values = Macro.unique_var(:binding_values, __MODULE__)
+
+    quote generated: true do
+      unquote(binding_values) = unquote(bindings)
+
+      recipe =
+        SchemaStore.recipe!(
+          unquote(option),
+          unquote(binding_values),
+          unquote(generation),
+          __ENV__
+        )
+
+      {[], recipe}
+    end
+  end
+
+  defp schema_builder_ast({:bound, source, bindings, _generation}, option) do
+    binding_values = Macro.unique_var(:binding_values, __MODULE__)
+
+    recipe_attribute =
+      if option == :schema, do: :__jido_schema_recipe__, else: :__jido_output_schema_recipe__
+
+    builder =
+      if option == :schema, do: :__jido_build_schema__, else: :__jido_build_output_schema__
+
+    recipe_attribute_ast =
+      {:@, [generated: true], [{recipe_attribute, [generated: true], nil}]}
+
+    assignments =
+      Enum.map(bindings, fn {name, _value_ast} ->
+        variable = Macro.var(name, nil)
+
+        quote generated: true do
+          unquote(variable) = Keyword.fetch!(unquote(binding_values), unquote(name))
+        end
+      end)
+
+    quote generated: true do
+      defp unquote(builder)() do
+        unquote(binding_values) = unquote(recipe_attribute_ast).bindings
+        unquote_splicing(assignments)
+        unquote(source)
+      end
+    end
+  end
+
+  defp schema_builder_ast(_spec, _option), do: quote(generated: true, do: nil)
+
+  defp consumer_on_load_ast!(nil, _env), do: quote(generated: true, do: :ok)
+
+  defp consumer_on_load_ast!({function, 0}, _env) when is_atom(function) do
+    {function, [generated: true], []}
+  end
+
+  defp consumer_on_load_ast!(callback, env) do
+    raise CompileError,
+      description: "unsupported consumer @on_load callback: #{inspect(callback)}",
+      file: env.file,
+      line: env.line
+  end
+
+  defp move_schema_verifier_first!(module) do
+    verifier = {SchemaStore, :verify_loaded}
+
+    callbacks =
+      module
+      |> Module.get_attribute(:after_compile)
+      |> List.wrap()
+      |> Enum.reject(&(&1 == verifier))
+      |> Kernel.++([verifier])
+
+    Module.delete_attribute(module, :after_compile)
+
+    callbacks
+    |> Enum.reverse()
+    |> Enum.each(&Module.put_attribute(module, :after_compile, &1))
+  end
+
+  defp bound_schema_spec?({:bound, _source, _bindings, _generation}), do: true
+  defp bound_schema_spec?(_spec), do: false
+
   defp validate_data(schema, data, context, module) do
     Validation.open_validate(schema, data, %{
       context: context,
@@ -471,24 +766,5 @@ defmodule Jido.Action do
        module: module,
        value: value
      })}
-  end
-
-  defp store_schema_value?(nil, _env), do: true
-  defp store_schema_value?({:@, _meta, [_value]}, _env), do: true
-
-  defp store_schema_value?(ast, env) do
-    caller_variables = env |> Macro.Env.vars() |> MapSet.new()
-
-    {_ast, store?} =
-      Macro.prewalk(ast, false, fn
-        {name, meta, context} = node, store?
-        when is_atom(name) and is_list(meta) and is_atom(context) ->
-          {node, store? or MapSet.member?(caller_variables, {name, context})}
-
-        node, store? ->
-          {node, store?}
-      end)
-
-    store?
   end
 end
