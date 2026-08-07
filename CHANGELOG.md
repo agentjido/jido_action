@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- changelog -->
 
+## [v2.3.2](https://github.com/agentjido/jido_action/compare/v2.3.1...v2.3.2) (2026-08-07)
+
+
+
+
+### Bug Fixes:
+
+* deps: update Mint for CVE-2026-59249 by mikehostetler
+
+* deps: relax optional lua constraint (#196) by mikehostetler
+
 ## [v2.3.1](https://github.com/agentjido/jido_action/compare/v2.3.0...v2.3.1) (2026-06-09)
 
 
