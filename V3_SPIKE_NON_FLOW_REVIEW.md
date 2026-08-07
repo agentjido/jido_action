@@ -35,7 +35,7 @@ The final verification must run all non-Flow tests and the full test suite.
 | F12 | P2 | Invalid instruction data is marked as retryable. | Normalize an invalid params or context error | Pending | — |
 | F13 | P2 | The public retry APIs can return different decisions. | Compare aliases and internal error hints | Pending | — |
 | F14 | P2 | Batch output accepts improper lists. | Build a batch from an improper list | Pending | — |
-| F15 | P2 | Dynamic action options are evaluated three times. | Count calls to a dynamic option provider | Pending | — |
+| F15 | P2 | Dynamic action options are evaluated three times. | Count calls to a dynamic option provider | Done | `fix(action): evaluate dynamic options once` |
 
 ## Final Verification
 
