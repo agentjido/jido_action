@@ -208,6 +208,14 @@ defmodule Jido.ActionTest do
       assert {:error, "must accept map-shaped action data"} =
                Action.validate_action_schema(Zoi.integer())
 
+      assert {:error, "must accept map-shaped action data"} =
+               Action.validate_action_schema(Zoi.lazy(fn -> Zoi.integer() end))
+
+      assert :ok =
+               Action.validate_action_schema(
+                 Zoi.lazy(fn -> Zoi.object(%{value: Zoi.integer()}) end)
+               )
+
       module = unique_module("ScalarOutputSchemaAction")
 
       assert_raise CompileError, ~r/must accept map-shaped action data/, fn ->
