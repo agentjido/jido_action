@@ -10,6 +10,7 @@ defmodule Jido.ExecTest do
 
   alias JidoTest.TestActions.{
     Add,
+    AtomValidationAction,
     AtomErrorAction,
     ContextEcho,
     DelayedEchoAction,
@@ -22,6 +23,9 @@ defmodule Jido.ExecTest do
     ExtrasAction,
     MissingRun,
     OutputEnvelopeAction,
+    InvalidValidationResultAction,
+    RaisingOutputValidationAction,
+    RaisingValidationAction,
     ThrowingAction,
     TupleErrorAction,
     UnsupportedResult
@@ -130,6 +134,29 @@ defmodule Jido.ExecTest do
       assert message =~ "action throw"
       assert details.action == ThrowingAction
       assert details.reason == :thrown_value
+    end
+
+    test "normalizes validator failures and unsupported results" do
+      assert {:error, %ExecutionFailureError{message: "bad_params"}} =
+               Exec.run(AtomValidationAction)
+
+      assert {:error, %ExecutionFailureError{message: message, details: details}} =
+               Exec.run(InvalidValidationResultAction)
+
+      assert message == "action validator returned an unsupported result"
+      assert details.callback == :validate_params
+      assert details.result == :ok
+
+      assert {:error, %ExecutionFailureError{message: "validator failed", details: details}} =
+               Exec.run(RaisingValidationAction)
+
+      assert details.callback == :validate_params
+
+      assert {:error,
+              %ExecutionFailureError{message: "output validator failed", details: details}} =
+               Exec.run(RaisingOutputValidationAction)
+
+      assert details.callback == :validate_output
     end
   end
 

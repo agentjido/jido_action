@@ -22,7 +22,7 @@ The final verification must run all non-Flow tests and the full test suite.
 | ID | Priority | Finding | Focused verification | Status | Commit subject |
 | --- | --- | --- | --- | --- | --- |
 | F01 | P1 | Open validation can skip Zoi checks or reject valid input. | Generic maps, coerced keys, string field keys, and struct input | Done | `fix(validation): preserve zoi input semantics` |
-| F02 | P1 | Validator failures can escape `Jido.Exec.run/4`. | Invalid validator returns, raised validators, and telemetry status | Pending | — |
+| F02 | P1 | Validator failures can escape `Jido.Exec.run/4`. | Invalid validator returns, raised validators, and telemetry status | Done | `fix(exec): normalize validator failures` |
 | F03 | P1 | Unknown action options can silently disable validation. | Compile an action with an unknown option | Pending | — |
 | F04 | P1 | The action generator has three independent blockers. | Parse the positional value and inspect generated source | Pending | — |
 | F05 | P1 | Error JSON encoding can fail on invalid UTF-8 binary data. | Encode invalid binary messages, values, and keys | Pending | — |

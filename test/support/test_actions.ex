@@ -205,6 +205,27 @@ defmodule JidoTest.TestActions do
     def run(params, _context), do: {:ok, params}
   end
 
+  defmodule InvalidValidationResultAction do
+    @moduledoc false
+    def validate_params(_params), do: :ok
+    def validate_output(output), do: {:ok, output}
+    def run(params, _context), do: {:ok, params}
+  end
+
+  defmodule RaisingValidationAction do
+    @moduledoc false
+    def validate_params(_params), do: raise("validator failed")
+    def validate_output(output), do: {:ok, output}
+    def run(params, _context), do: {:ok, params}
+  end
+
+  defmodule RaisingOutputValidationAction do
+    @moduledoc false
+    def validate_params(params), do: {:ok, params}
+    def validate_output(_output), do: raise("output validator failed")
+    def run(params, _context), do: {:ok, params}
+  end
+
   defmodule EchoParamsAction do
     @moduledoc false
     use Action, name: "echo_params_action"

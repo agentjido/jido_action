@@ -217,7 +217,7 @@ defmodule Jido.Exec do
     action = instruction.action
 
     with :ok <- Instruction.validate_action_contract(action),
-         {:ok, params} <- action.validate_params(instruction.params),
+         {:ok, params} <- invoke_validator(action, :validate_params, instruction.params),
          {:ok, output, extras} <- invoke_action(action, params, instruction.context),
          {:ok, output} <- validate_action_output(action, output) do
       case extras do
@@ -268,7 +268,44 @@ defmodule Jido.Exec do
   end
 
   defp validate_action_output(_action, %Output{} = output), do: Output.validate(output)
-  defp validate_action_output(action, output), do: action.validate_output(output)
+
+  defp validate_action_output(action, output) do
+    invoke_validator(action, :validate_output, output)
+  end
+
+  defp invoke_validator(action, callback, value) do
+    case apply(action, callback, [value]) do
+      {:ok, validated} ->
+        {:ok, validated}
+
+      {:error, reason} ->
+        {:error, normalize_action_error(reason)}
+
+      other ->
+        {:error,
+         Error.execution_error("action validator returned an unsupported result", %{
+           action: action,
+           callback: callback,
+           result: other
+         })}
+    end
+  rescue
+    exception ->
+      {:error,
+       Error.execution_error(Exception.message(exception), %{
+         action: action,
+         callback: callback,
+         exception: exception.__struct__
+       })}
+  catch
+    kind, reason ->
+      {:error,
+       Error.execution_error("action validator #{kind}", %{
+         action: action,
+         callback: callback,
+         reason: reason
+       })}
+  end
 
   defp normalize_map(nil, _field), do: {:ok, %{}}
   defp normalize_map(value, _field) when is_map(value), do: {:ok, value}
