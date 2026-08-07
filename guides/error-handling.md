@@ -60,10 +60,15 @@ end
 ```
 
 Validation and configuration errors are not retryable. Timeout and structured
-execution failures usually are retryable. Raw atom reasons such as
-`:econnreset` or `:transient_error` are normalized as opaque execution reasons
-and are not retryable unless the action returns an explicit retry hint, for
-example `Jido.Action.Error.execution_error("temporary", retry: true)`.
+execution failures are retryable by default. An execution error can disable a
+retry with a direct hint:
+
+```elixir
+Jido.Action.Error.execution_error("do not retry", retry: false)
+```
+
+Raw values, foreign maps, and nested retry hints are not retryable. Only a
+concrete Jido Action error can define retry policy.
 
 ## Serialization
 
@@ -72,10 +77,10 @@ Use `Jido.Action.Error.to_map/1` when errors need to cross process, logging, or 
 ```elixir
 error
 |> Jido.Action.Error.to_map()
-|> Jason.encode!()
+|> JSON.encode!()
 ```
 
-Noncanonical map or atom reasons are folded into the stable shape:
+Unsupported reasons use one conservative fallback:
 
 ```elixir
 Jido.Action.Error.to_map(:econnreset)
@@ -86,3 +91,8 @@ Jido.Action.Error.to_map(:econnreset)
 #   retryable?: false
 # }
 ```
+
+Only concrete Jido Action errors keep structured details. Foreign maps cannot
+select a canonical error type. Constructors accept plain maps or keyword lists
+for details. JSON conversion can replace unsupported values with strings and
+can discard colliding keys after normalization.
