@@ -221,6 +221,30 @@ defmodule Jido.ActionTest do
         )
       end
     end
+
+    test "rejects scalar results from flexible action schemas" do
+      module = unique_module("ScalarTransformAction")
+
+      create_module(
+        module,
+        quote do
+          use Jido.Action,
+            name: "scalar_transform_action",
+            schema: Zoi.object(%{}) |> Zoi.transform(fn _params -> :invalid end),
+            output_schema: Zoi.object(%{}) |> Zoi.transform(fn _output -> :invalid end)
+        end
+      )
+
+      assert {:error, %Jido.Action.Error.InvalidInputError{message: params_message}} =
+               module.validate_params(%{})
+
+      assert params_message == "Action validation must return a map"
+
+      assert {:error, %Jido.Action.Error.InvalidInputError{message: output_message}} =
+               module.validate_output(%{})
+
+      assert output_message == "Action output validation must return a map"
+    end
   end
 
   describe "parameter validation" do
