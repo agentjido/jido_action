@@ -137,7 +137,16 @@ defmodule Jido.Instruction do
   """
   @spec new(map() | keyword()) ::
           {:ok, t()} | {:error, :missing_action | :invalid_action | Exception.t()}
-  def new(attrs) when is_list(attrs), do: attrs |> Map.new() |> new()
+  def new(attrs) when is_list(attrs) do
+    if Keyword.keyword?(attrs) do
+      attrs |> Map.new() |> new()
+    else
+      {:error,
+       Error.validation_error("Invalid instruction configuration", %{
+         reason: :invalid_attributes
+       })}
+    end
+  end
 
   def new(%{action: action} = attrs) when is_atom(action) and not is_nil(action) do
     with {:ok, params} <- normalize_map_field(Map.get(attrs, :params, %{}), :params),

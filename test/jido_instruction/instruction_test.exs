@@ -82,6 +82,13 @@ defmodule Jido.InstructionTest do
     test "does not accept tuple instruction shims" do
       assert {:error, :missing_action} = Instruction.new({BasicAction, %{value: 1}})
     end
+
+    test "returns a validation error for malformed list attributes" do
+      assert {:error, %Jido.Action.Error.InvalidInputError{message: message}} =
+               Instruction.new([:not_keyword])
+
+      assert message == "Invalid instruction configuration"
+    end
   end
 
   describe "normalize!/3" do
