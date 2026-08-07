@@ -77,21 +77,24 @@ defmodule Jido.ActionTest do
       assert {:ok, %{doubled: 6}} = module.run(%{value: 3}, %{})
     end
 
-    test "runtime compiled action supports schema variables" do
+    test "runtime compiled action supports nested schema variables" do
       module = unique_module("RuntimeSchemaVariableAction")
 
       create_module(
         module,
         quote do
-          schema = Zoi.object(%{value: Zoi.integer()})
+          input_type = Zoi.integer()
+          output_type = Zoi.string()
 
           use Jido.Action,
             name: "runtime_schema_variable_action",
-            schema: schema
+            schema: Zoi.object(%{value: input_type}),
+            output_schema: Zoi.object(%{result: output_type})
         end
       )
 
       assert {:ok, %{value: 3}} = module.validate_params(%{value: 3})
+      assert {:ok, %{result: "ok"}} = module.validate_output(%{result: "ok"})
     end
 
     test "reports closure schemas that cannot be stored from dynamic options" do

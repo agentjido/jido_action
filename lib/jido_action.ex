@@ -270,8 +270,8 @@ defmodule Jido.Action do
         {nil, nil}
       end
 
-    store_schema? = store_schema_value?(schema_ast)
-    store_output_schema? = store_schema_value?(output_schema_ast)
+    store_schema? = store_schema_value?(schema_ast, __CALLER__)
+    store_output_schema? = store_schema_value?(output_schema_ast, __CALLER__)
 
     quote location: :keep do
       @behaviour Jido.Action
@@ -444,12 +444,22 @@ defmodule Jido.Action do
     })
   end
 
-  defp store_schema_value?(nil), do: true
-  defp store_schema_value?({:@, _meta, [_value]}), do: true
+  defp store_schema_value?(nil, _env), do: true
+  defp store_schema_value?({:@, _meta, [_value]}, _env), do: true
 
-  defp store_schema_value?({_name, meta, context})
-       when is_list(meta) and is_atom(context),
-       do: true
+  defp store_schema_value?(ast, env) do
+    caller_variables = env |> Macro.Env.vars() |> MapSet.new()
 
-  defp store_schema_value?(_ast), do: false
+    {_ast, store?} =
+      Macro.prewalk(ast, false, fn
+        {name, meta, context} = node, store?
+        when is_atom(name) and is_list(meta) and is_atom(context) ->
+          {node, store? or MapSet.member?(caller_variables, {name, context})}
+
+        node, store? ->
+          {node, store?}
+      end)
+
+    store?
+  end
 end
