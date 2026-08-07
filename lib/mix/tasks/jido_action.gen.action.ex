@@ -59,14 +59,14 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
           no_test: false
         ],
         aliases: [],
-        required: [:module_name]
+        required: []
       }
     end
 
     @impl Igniter.Mix.Task
     def igniter(igniter) do
       opts = igniter.args.options
-      [module_name_string] = igniter.args.positional.module_name
+      module_name_string = igniter.args.positional.module_name
 
       module_name = Igniter.Project.Module.parse(module_name_string)
       action_name = derive_action_name(module_name)
@@ -85,16 +85,14 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
 
     defp generate_action_module(igniter, module_name, action_name) do
       contents = """
-      defmodule #{inspect(module_name)} do
-        use Jido.Action,
-          name: "#{action_name}",
-          description: "TODO: Add description",
-          schema: Zoi.object(%{})
+      use Jido.Action,
+        name: "#{action_name}",
+        description: "TODO: Add description",
+        schema: Zoi.object(%{})
 
-        @impl true
-        def run(_params, _context) do
-          {:ok, %{}}
-        end
+      @impl true
+      def run(_params, _context) do
+        {:ok, %{}}
       end
       """
 
@@ -107,16 +105,14 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
       test_module_name = Module.concat(module_name, Test)
 
       test_contents = """
-      defmodule #{inspect(test_module_name)} do
-        use ExUnit.Case, async: true
+      use ExUnit.Case, async: true
 
-        alias #{inspect(module_name)}
+      alias #{inspect(module_name)}
 
-        describe "#{action_name}/run" do
-          test "runs successfully" do
-            assert {:ok, result} = #{inspect(module_name)}.run(%{}, %{})
-            assert is_map(result)
-          end
+      describe "#{action_name}/run" do
+        test "runs successfully" do
+          assert {:ok, result} = #{inspect(module_name)}.run(%{}, %{})
+          assert is_map(result)
         end
       end
       """
