@@ -212,6 +212,13 @@ defmodule JidoTest.TestActions do
     def run(%{value: value}, _context), do: {:ok, value}
   end
 
+  defmodule RawOutputWithExtrasAction do
+    @moduledoc false
+    use Action, name: "raw_output_with_extras_action"
+
+    def run(%{value: value}, _context), do: {:ok, value, %{effect: :already_ran}}
+  end
+
   defmodule AtomValidationAction do
     @moduledoc false
     def validate_params(_params), do: {:error, :bad_params}
@@ -224,6 +231,20 @@ defmodule JidoTest.TestActions do
     def validate_params(_params), do: :ok
     def validate_output(output), do: {:ok, output}
     def run(params, _context), do: {:ok, params}
+  end
+
+  defmodule InvalidValidatedParamsAction do
+    @moduledoc false
+    def validate_params(_params), do: {:ok, 42}
+    def validate_output(output), do: {:ok, output}
+    def run(params, _context), do: {:ok, %{params: params}}
+  end
+
+  defmodule InvalidValidatedOutputAction do
+    @moduledoc false
+    def validate_params(params), do: {:ok, params}
+    def validate_output(_output), do: {:ok, 42}
+    def run(_params, _context), do: {:ok, %{value: 1}}
   end
 
   defmodule RaisingValidationAction do

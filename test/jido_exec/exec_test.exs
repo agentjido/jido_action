@@ -21,10 +21,13 @@ defmodule Jido.ExecTest do
     ErrorWithExtrasAction,
     ExceptionErrorAction,
     ExtrasAction,
+    InvalidValidatedOutputAction,
+    InvalidValidatedParamsAction,
     MissingRun,
     NoneExtrasAction,
     OutputEnvelopeAction,
     RawOutputAction,
+    RawOutputWithExtrasAction,
     InvalidValidationResultAction,
     RaisingOutputValidationAction,
     RaisingValidationAction,
@@ -83,6 +86,14 @@ defmodule Jido.ExecTest do
 
         assert message == "action returned a value that requires an output envelope"
         assert details.action == RawOutputAction
+      end
+
+      instruction =
+        Instruction.new!(action: RawOutputWithExtrasAction, params: %{value: 42})
+
+      for executable <- [RawOutputWithExtrasAction, instruction] do
+        assert {:error, %ExecutionFailureError{}, %{effect: :already_ran}} =
+                 Exec.run(executable, %{value: 42}, %{})
       end
     end
 
@@ -173,6 +184,15 @@ defmodule Jido.ExecTest do
                Exec.run(RaisingOutputValidationAction)
 
       assert details.callback == :validate_output
+
+      for {action, callback} <- [
+            {InvalidValidatedParamsAction, :validate_params},
+            {InvalidValidatedOutputAction, :validate_output}
+          ] do
+        assert {:error, %ExecutionFailureError{details: details}} = Exec.run(action)
+        assert details.callback == callback
+        assert details.result == 42
+      end
     end
   end
 
