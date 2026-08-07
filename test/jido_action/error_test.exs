@@ -698,11 +698,15 @@ defmodule Jido.Action.ErrorTest do
       refute Error.retryable?(Error.validation_error("invalid"))
       refute Error.retryable?(Error.config_error("bad config"))
       refute Error.retryable?(Error.internal_error("internal"))
+      refute Error.retryable?(Error.internal_error("internal", retry: true))
       refute Error.retryable?(UnknownError.exception(details: %{retry: false}))
       refute Error.retryable?({:error, Error.validation_error("invalid"), []})
       refute Error.retryable?(%{retryable?: false})
       refute Error.retryable?(%{retryable: false})
       refute Error.retryable?(%{type: :validation_error, details: %{}})
+      refute Error.retryable?(%{type: :config_error, message: "bad config"})
+      refute Error.retryable?(%{type: :invalid_input, message: "bad input"})
+      refute Error.retryable?(%{type: :internal, message: "internal"})
       refute Error.to_map(Error.execution_error("badarg", %{reason: :badarg})).retryable?
       refute Error.to_map(Error.execution_error("badarg", %{"reason" => :badarg})).retryable?
       refute Error.retryable?(%{details: [reason: %{retry: false}]})
