@@ -217,7 +217,7 @@ defmodule Jido.Instruction do
     label = Atom.to_string(field)
 
     {:error,
-     Error.execution_error(
+     Error.validation_error(
        "Invalid #{label} format. #{String.capitalize(label)} must be a map or keyword list.",
        %{
          field => value,

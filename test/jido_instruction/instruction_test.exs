@@ -62,18 +62,20 @@ defmodule Jido.InstructionTest do
     end
 
     test "rejects invalid params and context" do
-      assert {:error, %Jido.Action.Error.ExecutionFailureError{}} =
+      assert {:error, %Jido.Action.Error.InvalidInputError{} = params_error} =
                Instruction.new(action: BasicAction, params: ["not", "keyword"])
 
-      assert {:error, %Jido.Action.Error.ExecutionFailureError{}} =
+      refute Jido.Action.Error.retryable?(params_error)
+
+      assert {:error, %Jido.Action.Error.InvalidInputError{}} =
                Instruction.new(action: BasicAction, context: ["not", "keyword"])
 
-      assert {:error, %Jido.Action.Error.ExecutionFailureError{message: params_message}} =
+      assert {:error, %Jido.Action.Error.InvalidInputError{message: params_message}} =
                Instruction.new(action: BasicAction, params: 123)
 
       assert params_message =~ "Invalid params format"
 
-      assert {:error, %Jido.Action.Error.ExecutionFailureError{message: context_message}} =
+      assert {:error, %Jido.Action.Error.InvalidInputError{message: context_message}} =
                Instruction.new(action: BasicAction, context: 123)
 
       assert context_message =~ "Invalid context format"
@@ -219,7 +221,7 @@ defmodule Jido.InstructionTest do
     end
 
     test "raises underlying exception errors" do
-      assert_raise Jido.Action.Error.ExecutionFailureError, ~r/Invalid params format/, fn ->
+      assert_raise Jido.Action.Error.InvalidInputError, ~r/Invalid params format/, fn ->
         Instruction.new!(action: BasicAction, params: 123)
       end
     end
