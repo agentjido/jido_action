@@ -14,14 +14,13 @@ defmodule Mix.Tasks.JidoAction.Gen.ActionTest do
 
   test "generates one action module and one test module" do
     module_name = GeneratorReview.Actions.Generated
-    test_module_name = Module.concat(module_name, Test)
 
     igniter =
       test_project()
       |> Igniter.compose_task(Action, [inspect(module_name)])
 
     action_path = Igniter.Project.Module.proper_location(igniter, module_name)
-    test_path = Igniter.Project.Module.proper_location(igniter, test_module_name, :test)
+    test_path = "test/generator_review/actions/generated_test.exs"
 
     igniter
     |> assert_creates(action_path, fn contents ->
@@ -30,7 +29,10 @@ defmodule Mix.Tasks.JidoAction.Gen.ActionTest do
     end)
     |> assert_creates(test_path, fn contents ->
       assert count_module_definitions(contents) == 1
+      assert contents =~ "defmodule GeneratorReview.Actions.GeneratedTest do"
       assert contents =~ "alias #{inspect(module_name)}"
+      assert contents =~ "Generated.run(%{}, %{})"
+      refute contents =~ "#{inspect(module_name)}.run(%{}, %{})"
     end)
   end
 
