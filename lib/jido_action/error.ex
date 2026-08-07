@@ -445,18 +445,20 @@ defmodule Jido.Action.Error do
   def retryable?(%ConfigurationError{}), do: false
   def retryable?(%TimeoutError{}), do: true
   def retryable?(%ExecutionFailureError{details: details}), do: execution_retryable?(details)
-  def retryable?(%InternalError{details: details}), do: retryable_hint(details, false)
-  def retryable?(%Internal.UnknownError{details: details}), do: retryable_hint(details, false)
+  def retryable?(%InternalError{}), do: false
+  def retryable?(%Internal.UnknownError{}), do: false
 
   def retryable?(%{retryable?: value}) when is_boolean(value), do: value
   def retryable?(%{retryable: value}) when is_boolean(value), do: value
 
   def retryable?(%{type: type} = error) when is_atom(type) do
-    retryable_hint(Map.get(error, :details, error), default_retryable_type?(type))
+    canonical_type = canonical_error_type(type)
+    retryable_hint(Map.get(error, :details, error), default_retryable_type?(canonical_type))
   end
 
   def retryable?(%{code: type} = error) when is_atom(type) do
-    retryable_hint(Map.get(error, :details, error), default_retryable_type?(type))
+    canonical_type = canonical_error_type(type)
+    retryable_hint(Map.get(error, :details, error), default_retryable_type?(canonical_type))
   end
 
   def retryable?(%{} = map) do
