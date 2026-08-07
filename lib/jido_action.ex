@@ -98,28 +98,33 @@ defmodule Jido.Action do
 
   @max_action_name_bytes 256
 
-  @action_config_schema Zoi.object(%{
-                          name:
-                            Zoi.string(description: "The non-blank metadata name of the Action.")
-                            |> Zoi.refine({__MODULE__, :validate_name, []}),
-                          description:
-                            Zoi.string(description: "A description of what the Action does.")
-                            |> Zoi.optional(),
-                          schema:
-                            Zoi.any(
-                              description:
-                                "A Zoi schema for validating the Action's input parameters."
-                            )
-                            |> Zoi.refine({__MODULE__, :validate_config_schema, []})
-                            |> Zoi.default([]),
-                          output_schema:
-                            Zoi.any(
-                              description:
-                                "A Zoi schema for validating the Action's output. Only specified fields are validated."
-                            )
-                            |> Zoi.refine({__MODULE__, :validate_config_schema, []})
-                            |> Zoi.default([])
-                        })
+  @action_config_schema Zoi.object(
+                          %{
+                            name:
+                              Zoi.string(
+                                description: "The non-blank metadata name of the Action."
+                              )
+                              |> Zoi.refine({__MODULE__, :validate_name, []}),
+                            description:
+                              Zoi.string(description: "A description of what the Action does.")
+                              |> Zoi.optional(),
+                            schema:
+                              Zoi.any(
+                                description:
+                                  "A Zoi schema for validating the Action's input parameters."
+                              )
+                              |> Zoi.refine({__MODULE__, :validate_config_schema, []})
+                              |> Zoi.default([]),
+                            output_schema:
+                              Zoi.any(
+                                description:
+                                  "A Zoi schema for validating the Action's output. Only specified fields are validated."
+                              )
+                              |> Zoi.refine({__MODULE__, :validate_config_schema, []})
+                              |> Zoi.default([])
+                          },
+                          unrecognized_keys: :error
+                        )
 
   @doc false
   @spec validate_name(term(), keyword()) :: :ok | {:error, String.t()}

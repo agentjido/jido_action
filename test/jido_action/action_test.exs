@@ -88,6 +88,20 @@ defmodule Jido.ActionTest do
         """)
       end
     end
+
+    test "unknown action options raise at compile time" do
+      module = unique_module("UnknownActionOption")
+
+      assert_raise CompileError, ~r/unrecognized key: output_shema/, fn ->
+        Code.compile_string("""
+        defmodule #{inspect(module)} do
+          use Jido.Action,
+            name: "unknown_action_option",
+            output_shema: Zoi.object(%{value: Zoi.integer()})
+        end
+        """)
+      end
+    end
   end
 
   describe "configuration schema validation" do
