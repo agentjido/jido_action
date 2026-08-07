@@ -27,7 +27,7 @@ The final verification must run all non-Flow tests and the full test suite.
 | F04 | P1 | The action generator has three independent blockers. | Parse the positional value and inspect generated source | Pending | — |
 | F05 | P1 | Error JSON encoding can fail on invalid UTF-8 binary data. | Encode invalid binary messages, values, and keys | Pending | — |
 | F06 | P2 | Direct action output validation accepts malformed output envelopes. | Validate a malformed batch envelope through an action | Done | `fix(action): validate output envelopes directly` |
-| F07 | P2 | Raw action results can bypass the required output envelope. | Run an action that returns a scalar | Pending | — |
+| F07 | P2 | Raw action results can bypass the required output envelope. | Run an action that returns a scalar | Done | `fix(exec): require envelopes for raw outputs` |
 | F08 | P2 | `Jido.Exec` can lose valid third tuple elements. | Preserve success and error extras, including `:none` | Pending | — |
 | F09 | P2 | Common schema option forms do not compile. | Compile schema variables and give dynamic closure schemas a clear inline-declaration error | Done | `fix(action): handle dynamic schema storage` |
 | F10 | P2 | Open validation deletes unspecified nested or wrapped fields. | Preserve nested fields and fields under wrappers | Done | `fix(validation): preserve nested unknown fields` |
