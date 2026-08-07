@@ -32,7 +32,7 @@ The final verification must run all non-Flow tests and the full test suite.
 | F09 | P2 | Common schema option forms do not compile. | Compile schema variables and give dynamic closure schemas a clear inline-declaration error | Done | `fix(action): handle dynamic schema storage` |
 | F10 | P2 | Open validation deletes unspecified nested or wrapped fields. | Preserve nested fields and fields under wrappers | Done | `fix(validation): preserve nested unknown fields` |
 | F11 | P2 | `Jido.Instruction.new/1` can raise for malformed list input. | Call the non-bang constructor with a malformed list | Done | `fix(instruction): reject malformed list attributes` |
-| F12 | P2 | Invalid instruction data is marked as retryable. | Normalize an invalid params or context error | Pending | — |
+| F12 | P2 | Invalid instruction data is marked as retryable. | Normalize an invalid params or context error | Done | `fix(instruction): classify invalid call frames` |
 | F13 | P2 | The public retry APIs can return different decisions. | Compare aliases and internal error hints | Pending | — |
 | F14 | P2 | Batch output accepts improper lists. | Build a batch from an improper list | Pending | — |
 | F15 | P2 | Dynamic action options are evaluated three times. | Count calls to a dynamic option provider | Done | `fix(action): evaluate dynamic options once` |
