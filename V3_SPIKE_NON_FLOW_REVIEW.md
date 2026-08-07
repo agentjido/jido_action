@@ -26,7 +26,7 @@ The final verification must run all non-Flow tests and the full test suite.
 | F03 | P1 | Unknown action options can silently disable validation. | Compile an action with an unknown option | Done | `fix(action): reject unknown configuration options` |
 | F04 | P1 | The action generator has three independent blockers. | Parse the positional value and inspect generated source | Pending | — |
 | F05 | P1 | Error JSON encoding can fail on invalid UTF-8 binary data. | Encode invalid binary messages, values, and keys | Pending | — |
-| F06 | P2 | Direct action output validation accepts malformed output envelopes. | Validate a malformed batch envelope through an action | Pending | — |
+| F06 | P2 | Direct action output validation accepts malformed output envelopes. | Validate a malformed batch envelope through an action | Done | `fix(action): validate output envelopes directly` |
 | F07 | P2 | Raw action results can bypass the required output envelope. | Run an action that returns a scalar | Pending | — |
 | F08 | P2 | `Jido.Exec` can lose valid third tuple elements. | Preserve success and error extras, including `:none` | Pending | — |
 | F09 | P2 | Common schema option forms do not compile. | Compile variable and closure-based schemas | Pending | — |
