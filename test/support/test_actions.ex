@@ -198,6 +198,13 @@ defmodule JidoTest.TestActions do
     end
   end
 
+  defmodule RawOutputAction do
+    @moduledoc false
+    use Action, name: "raw_output_action"
+
+    def run(%{value: value}, _context), do: {:ok, value}
+  end
+
   defmodule AtomValidationAction do
     @moduledoc false
     def validate_params(_params), do: {:error, :bad_params}

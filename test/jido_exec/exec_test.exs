@@ -23,6 +23,7 @@ defmodule Jido.ExecTest do
     ExtrasAction,
     MissingRun,
     OutputEnvelopeAction,
+    RawOutputAction,
     InvalidValidationResultAction,
     RaisingOutputValidationAction,
     RaisingValidationAction,
@@ -69,6 +70,16 @@ defmodule Jido.ExecTest do
     test "validates explicit output envelopes from leaf actions" do
       assert {:ok, %Jido.Action.Output{kind: :raw, value: %{value: 3}, meta: %{source: :test}}} =
                Exec.run(OutputEnvelopeAction, %{value: 3}, %{})
+    end
+
+    test "requires output envelopes for raw and stream values" do
+      for value <- [42, Stream.map(1..3, & &1)] do
+        assert {:error, %ExecutionFailureError{message: message, details: details}} =
+                 Exec.run(RawOutputAction, %{value: value}, %{})
+
+        assert message == "action returned a value that requires an output envelope"
+        assert details.action == RawOutputAction
+      end
     end
 
     test "validates action params before calling run" do

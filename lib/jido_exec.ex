@@ -269,8 +269,24 @@ defmodule Jido.Exec do
 
   defp validate_action_output(_action, %Output{} = output), do: Output.validate(output)
 
+  defp validate_action_output(action, output) when is_map(output) do
+    if is_struct(output) and Enumerable.impl_for(output) do
+      output_envelope_required(action, output)
+    else
+      invoke_validator(action, :validate_output, output)
+    end
+  end
+
   defp validate_action_output(action, output) do
-    invoke_validator(action, :validate_output, output)
+    output_envelope_required(action, output)
+  end
+
+  defp output_envelope_required(action, output) do
+    {:error,
+     Error.execution_error("action returned a value that requires an output envelope", %{
+       action: action,
+       output: output
+     })}
   end
 
   defp invoke_validator(action, callback, value) do
