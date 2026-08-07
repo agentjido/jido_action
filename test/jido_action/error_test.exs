@@ -677,6 +677,20 @@ defmodule Jido.Action.ErrorTest do
                "retryable?" => true
              }
     end
+
+    test "encodes invalid UTF-8 messages, detail values, and detail keys" do
+      error =
+        Error.execution_error(<<255>>, %{
+          <<253>> => <<252>>,
+          payload: <<254>>
+        })
+
+      decoded = error |> JSON.encode!() |> JSON.decode!()
+
+      assert decoded["message"] == "base64:/w=="
+      assert decoded["details"]["payload"] == "base64:/g=="
+      assert decoded["details"]["base64:/Q=="] == "base64:/A=="
+    end
   end
 
   describe "retryable?/1" do
