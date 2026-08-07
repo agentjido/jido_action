@@ -77,6 +77,21 @@ defmodule Jido.ActionTest do
       assert {:ok, %{doubled: 6}} = module.run(%{value: 3}, %{})
     end
 
+    test "evaluates non-literal options once" do
+      module = unique_module("CountedDynamicOptionsAction")
+      {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+      create_module(
+        module,
+        quote do
+          use Jido.Action, Jido.ActionTest.counted_options(unquote(counter))
+        end
+      )
+
+      assert Agent.get(counter, & &1) == 1
+      assert module.name() == "counted_dynamic_options_action"
+    end
+
     test "invalid action configuration raises at compile time" do
       module = unique_module("InvalidActionConfig")
 
@@ -287,4 +302,9 @@ defmodule Jido.ActionTest do
 
   defp field_keys(fields) when is_map(fields), do: Map.keys(fields)
   defp field_keys(fields) when is_list(fields), do: Keyword.keys(fields)
+
+  def counted_options(counter) do
+    Agent.update(counter, &(&1 + 1))
+    [name: "counted_dynamic_options_action"]
+  end
 end

@@ -263,11 +263,13 @@ defmodule Jido.Action do
       alias Jido.Action
 
       # Convert opts to map for Zoi validation (including nested keyword lists)
+      raw_opts = unquote(opts_ast)
+
       opts_map =
-        if is_list(unquote(opts_ast)) and Keyword.keyword?(unquote(opts_ast)) do
-          Map.new(unquote(opts_ast))
+        if is_list(raw_opts) and Keyword.keyword?(raw_opts) do
+          Map.new(raw_opts)
         else
-          unquote(opts_ast)
+          raw_opts
         end
 
       case Zoi.parse(unquote(escaped_schema), opts_map) do
