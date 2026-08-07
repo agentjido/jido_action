@@ -37,6 +37,10 @@ The final verification must run all non-Flow tests and the full test suite.
 | F14 | P2 | Batch output accepts improper lists. | Build a batch from an improper list | Done | `fix(output): reject improper batch lists` |
 | F15 | P2 | Dynamic action options are evaluated three times. | Count calls to a dynamic option provider | Done | `fix(action): evaluate dynamic options once` |
 | F16 | P1 | Closure-based Action schemas can validate one term and replay a different term. | Use explicit portable bindings, keep one exact schema per load, rebuild after cache loss, and roll back failed on-load callbacks | Done | `fix(action): stabilize closure schema loading` |
+| F17 | P1 | Closure schema support adds cache and module-load state to the compile-time Action contract. | Store static schemas once, support named MFA effects, and reject functions, lazy schemas, and removed binding options | Done | `refactor(action): require static schemas` |
+
+F17 supersedes the runtime design from F16. F16 remains in this table to keep
+the original finding and its fix commit in the review history.
 
 ## Final Verification
 
@@ -44,8 +48,8 @@ Completed on 2026-08-07:
 
 - [x] All findings are marked `Done`.
 - [x] Each finding has one fix commit.
-- [x] All focused non-Flow tests pass: 184 tests.
-- [x] The full test suite passes: 434 checks, including 433 tests and one property.
+- [x] All focused non-Flow tests pass: 175 tests.
+- [x] The full test suite passes: 425 checks, including 424 tests and one property.
 - [x] `mix compile --warnings-as-errors` passes.
 - [x] `mix format --check-formatted` passes.
 - [x] The worktree is clean after the verification record commit.
