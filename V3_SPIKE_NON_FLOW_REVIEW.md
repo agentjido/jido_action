@@ -24,7 +24,7 @@ The final verification must run all non-Flow tests and the full test suite.
 | F01 | P1 | Open validation can skip Zoi checks or reject valid input. | Generic maps, coerced keys, string field keys, and struct input | Done | `fix(validation): preserve zoi input semantics` |
 | F02 | P1 | Validator failures can escape `Jido.Exec.run/4`. | Invalid validator returns, raised validators, and telemetry status | Done | `fix(exec): normalize validator failures` |
 | F03 | P1 | Unknown action options can silently disable validation. | Compile an action with an unknown option | Done | `fix(action): reject unknown configuration options` |
-| F04 | P1 | The action generator has three independent blockers. | Parse the positional value and inspect generated source | Pending | — |
+| F04 | P1 | The action generator has three independent blockers. | Parse the positional value and inspect generated source | Done | `fix(generator): generate action modules correctly` |
 | F05 | P1 | Error JSON encoding can fail on invalid UTF-8 binary data. | Encode invalid binary messages, values, and keys | Done | `fix(error): encode invalid utf8 safely` |
 | F06 | P2 | Direct action output validation accepts malformed output envelopes. | Validate a malformed batch envelope through an action | Done | `fix(action): validate output envelopes directly` |
 | F07 | P2 | Raw action results can bypass the required output envelope. | Run an action that returns a scalar | Done | `fix(exec): require envelopes for raw outputs` |
