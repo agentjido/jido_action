@@ -479,6 +479,9 @@ defmodule Jido.Action.Error do
     retryable_hint(Map.get(error, :details, error), default_retryable_type?(canonical_type))
   end
 
+  def retryable?(%{message: message} = error) when not is_nil(message),
+    do: normalize_retryable(error, :execution_error)
+
   def retryable?(%{} = map) do
     fallback_retryable(map)
   end

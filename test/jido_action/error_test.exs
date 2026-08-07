@@ -799,7 +799,19 @@ defmodule Jido.Action.ErrorTest do
     end
 
     test "matches to_map retry decisions for raw reasons" do
-      for reason <- ["opaque", 42, {:remote, :failure}, [:bad], %{}] do
+      reasons = [
+        "opaque",
+        42,
+        {:remote, :failure},
+        [:bad],
+        %{},
+        %{message: "plain"},
+        %RuntimeError{message: "plain"},
+        %{type: "timeout", message: "plain"},
+        %{message: "plain", details: %{retry: false}}
+      ]
+
+      for reason <- reasons do
         assert Error.retryable?(reason) == Error.to_map(reason).retryable?
       end
     end
