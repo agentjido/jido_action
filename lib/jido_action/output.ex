@@ -109,7 +109,7 @@ defmodule Jido.Action.Output do
   end
 
   defp validate_kind_value({:ok, %__MODULE__{kind: :batch, value: value} = output}, original) do
-    if is_list(value) do
+    if proper_list?(value) do
       {:ok, output}
     else
       invalid(original)
@@ -118,6 +118,10 @@ defmodule Jido.Action.Output do
 
   defp validate_kind_value({:ok, %__MODULE__{} = output}, _original), do: {:ok, output}
   defp validate_kind_value({:error, _errors}, original), do: invalid(original)
+
+  defp proper_list?([]), do: true
+  defp proper_list?([_head | tail]), do: proper_list?(tail)
+  defp proper_list?(_value), do: false
 
   defp invalid(value) do
     {:error,
