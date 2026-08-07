@@ -97,11 +97,76 @@ defmodule Jido.ActionTest do
       assert {:ok, %{result: "ok"}} = module.validate_output(%{result: "ok"})
     end
 
+    test "runtime compiled action keeps inline closure scope" do
+      module = unique_module("RuntimeInlineClosureAction")
+
+      create_module(
+        module,
+        quote do
+          value = :outer
+          item = :outer
+          quoted_value = :outer
+
+          use Jido.Action,
+            name: "runtime_inline_closure_action",
+            schema_bindings: [],
+            schema:
+              Zoi.object(%{
+                value:
+                  Zoi.integer()
+                  |> Zoi.refine(fn value ->
+                    _ast = quote(do: quoted_value)
+
+                    if match?({:ok, item} when item > 0, {:ok, value}),
+                      do: :ok,
+                      else: {:error, "must be positive"}
+                  end)
+              })
+
+          @outer_values {value, item, quoted_value}
+          def outer_values, do: @outer_values
+        end
+      )
+
+      assert module.outer_values() == {:outer, :outer, :outer}
+      assert {:ok, %{value: 1}} = module.validate_params(%{value: 1})
+
+      assert {:error, %Jido.Action.Error.InvalidInputError{}} =
+               module.validate_params(%{value: 0})
+    end
+
+    test "uses the last duplicate schema option consistently" do
+      module = unique_module("RuntimeDuplicateSchemaAction")
+
+      create_module(
+        module,
+        quote do
+          use Jido.Action,
+            name: "runtime_duplicate_schema_action",
+            schema_bindings: [],
+            schema: Zoi.object(%{first: Zoi.integer()}),
+            schema:
+              Zoi.object(%{
+                second: Zoi.integer() |> Zoi.refine(fn _value -> :ok end)
+              }),
+            output_schema_bindings: [],
+            output_schema: Zoi.object(%{first: Zoi.integer()}),
+            output_schema:
+              Zoi.object(%{
+                second: Zoi.integer() |> Zoi.refine(fn _value -> :ok end)
+              })
+        end
+      )
+
+      assert {:ok, %{second: 1}} = module.validate_params(%{second: 1})
+      assert {:ok, %{second: 2}} = module.validate_output(%{second: 2})
+    end
+
     test "reports closure schemas that cannot be stored from dynamic options" do
       module = unique_module("RuntimeDynamicClosureSchemaAction")
 
       assert_raise CompileError,
-                   ~r/declare the closure-based :schema option inline/,
+                   ~r/closure-based :schema requires literal :schema_bindings/,
                    fn ->
                      create_module(
                        module,
@@ -122,6 +187,45 @@ defmodule Jido.ActionTest do
                    end
     end
 
+    test "keeps escapable caller values in closure schemas" do
+      for {option, validator} <- [schema: :validate_params, output_schema: :validate_output] do
+        module = unique_module("RuntimeCapturedClosureAction")
+
+        schema_ast =
+          quote do
+            Zoi.object(%{
+              value:
+                Zoi.integer()
+                |> Zoi.refine(fn value ->
+                  if value > minimum, do: :ok, else: {:error, "too small"}
+                end)
+            })
+          end
+
+        bindings_option =
+          if option == :schema, do: :schema_bindings, else: :output_schema_bindings
+
+        opts_ast = [
+          {:name, "runtime_captured_closure_action"},
+          {bindings_option, [minimum: quote(do: minimum)]},
+          {option, schema_ast}
+        ]
+
+        create_module(
+          module,
+          quote do
+            minimum = 1
+            use Jido.Action, unquote(opts_ast)
+          end
+        )
+
+        assert {:ok, %{value: 2}} = apply(module, validator, [%{value: 2}])
+
+        assert {:error, %Jido.Action.Error.InvalidInputError{}} =
+                 apply(module, validator, [%{value: 1}])
+      end
+    end
+
     test "evaluates non-literal options once" do
       module = unique_module("CountedDynamicOptionsAction")
       {:ok, counter} = Agent.start_link(fn -> 0 end)
@@ -137,6 +241,341 @@ defmodule Jido.ActionTest do
       assert module.name() == "counted_dynamic_options_action"
     end
 
+    test "expands a literal schema macro once" do
+      module = unique_module("CountedSchemaMacroAction")
+      Process.put(:jido_schema_expansions, 0)
+
+      create_module(
+        module,
+        quote do
+          require Jido.ActionTest
+
+          use Jido.Action,
+            name: "counted_schema_macro_action",
+            schema_bindings: [],
+            schema:
+              (
+                require Jido.ActionTest
+                Jido.ActionTest.counted_schema()
+              )
+        end
+      )
+
+      assert Process.get(:jido_schema_expansions) == 1
+      assert {:ok, %{value: 1}} = module.validate_params(%{value: 1})
+    after
+      Process.delete(:jido_schema_expansions)
+    end
+
+    test "builds bound schemas once per cache generation" do
+      module = unique_module("CachedSchemaAction")
+      counter = Module.concat(module, Counter)
+      counter_pid = start_supervised!({Agent, fn -> 0 end})
+      Process.register(counter_pid, counter)
+
+      on_exit(fn ->
+        Jido.Action.SchemaStore.clear(module)
+        :code.purge(module)
+        :code.delete(module)
+      end)
+
+      assert {:module, ^module, bytecode, _term} =
+               Module.create(
+                 module,
+                 quote do
+                   counter = unquote(counter)
+
+                   use Jido.Action,
+                     name: "cached_schema_action",
+                     schema_bindings: [counter: counter],
+                     schema:
+                       (
+                         alias Jido.ActionTest, as: Helper
+                         Helper.counted_closure_schema(counter)
+                       )
+                 end,
+                 Macro.Env.location(__ENV__)
+               )
+
+      first_schema = module.schema()
+      assert first_schema === module.schema()
+      assert Agent.get(counter, & &1) == 1
+      assert {:ok, %{value: 1}} = module.validate_params(%{value: 1})
+      assert Agent.get(counter, & &1) == 1
+
+      Jido.Action.SchemaStore.clear(module)
+      :code.purge(module)
+      :code.delete(module)
+      assert {:module, ^module} = :code.load_binary(module, ~c"nofile", bytecode)
+
+      assert Agent.get(counter, & &1) == 2
+      assert {:ok, %{value: 2}} = module.validate_params(%{value: 2})
+      assert Agent.get(counter, & &1) == 2
+    end
+
+    test "rejects non-portable schema bindings" do
+      module = unique_module("NonPortableSchemaBindingAction")
+      counter = Module.concat(module, Counter)
+      counter_pid = start_supervised!({Agent, fn -> 0 end})
+      Process.register(counter_pid, counter)
+
+      assert_raise CompileError, ~r/:schema binding :owner is not portable/, fn ->
+        create_module(
+          module,
+          quote do
+            owner = self()
+            counter = unquote(counter)
+
+            use Jido.Action,
+              name: "non_portable_schema_binding_action",
+              schema_bindings: [counter: counter, owner: owner],
+              schema: Jido.ActionTest.nonportable_schema(counter, owner)
+          end
+        )
+      end
+
+      assert Agent.get(counter, & &1) == 0
+    end
+
+    test "requires module attributes to use explicit schema bindings" do
+      rejected_module = unique_module("DirectAttributeSchemaAction")
+
+      assert_raise CompileError, ~r/:schema cannot read module attributes directly/, fn ->
+        create_module(
+          rejected_module,
+          quote do
+            @minimum 1
+
+            use Jido.Action,
+              name: "direct_attribute_schema_action",
+              schema_bindings: [],
+              schema:
+                Zoi.object(%{
+                  value:
+                    Zoi.integer()
+                    |> Zoi.refine(fn value ->
+                      if value > @minimum, do: :ok, else: {:error, "too small"}
+                    end)
+                })
+          end
+        )
+      end
+
+      module = unique_module("BoundAttributeSchemaAction")
+
+      create_module(
+        module,
+        quote do
+          @minimum 1
+
+          use Jido.Action,
+            name: "bound_attribute_schema_action",
+            schema_bindings: [minimum: @minimum],
+            schema:
+              Zoi.object(%{
+                value:
+                  Zoi.integer()
+                  |> Zoi.refine(fn value ->
+                    if value > minimum, do: :ok, else: {:error, "too small"}
+                  end)
+              })
+        end
+      )
+
+      assert {:ok, %{value: 2}} = module.validate_params(%{value: 2})
+    end
+
+    test "shares the exact schema with the consumer on-load callback" do
+      module = unique_module("ConsumerOnLoadAction")
+      builder_counter = Module.concat(module, BuilderCounter)
+      observer = Module.concat(module, Observer)
+
+      start_supervised!(%{
+        id: builder_counter,
+        start: {Agent, :start_link, [fn -> 0 end, [name: builder_counter]]}
+      })
+
+      start_supervised!(%{
+        id: observer,
+        start: {Agent, :start_link, [fn -> nil end, [name: observer]]}
+      })
+
+      on_exit(fn -> Jido.Action.SchemaStore.clear(module) end)
+
+      create_module(
+        module,
+        quote do
+          @on_load :consumer_on_load
+          builder_counter = unquote(builder_counter)
+
+          use Jido.Action,
+            name: "consumer_on_load_action",
+            schema_bindings: [builder_counter: builder_counter],
+            schema: Jido.ActionTest.counted_closure_schema(builder_counter)
+
+          def consumer_on_load do
+            schema = schema()
+            Agent.update(unquote(observer), fn nil -> schema end)
+            :ok
+          end
+        end
+      )
+
+      assert Agent.get(builder_counter, & &1) == 1
+      assert Agent.get(observer, & &1) === module.schema()
+      assert {:ok, %{value: 1}} = module.validate_params(%{value: 1})
+    end
+
+    test "keeps the active schema when a replacement on-load callback fails" do
+      module = unique_module("FailedReplacementOnLoadAction")
+      recorder = Module.concat(module, Recorder)
+      recorder_pid = start_supervised!({Agent, fn -> [] end})
+      Process.register(recorder_pid, recorder)
+
+      on_exit(fn -> Jido.Action.SchemaStore.clear(module) end)
+
+      assert {:module, ^module, active_bytecode, _term} =
+               Module.create(
+                 module,
+                 quote do
+                   recorder = unquote(recorder)
+
+                   use Jido.Action,
+                     name: "failed_replacement_on_load_action",
+                     schema_bindings: [recorder: recorder],
+                     schema: Jido.ActionTest.recorded_closure_schema(recorder, :active)
+                 end,
+                 Macro.Env.location(__ENV__)
+               )
+
+      active_schema = module.schema()
+
+      ExUnit.CaptureLog.capture_log(fn ->
+        ExUnit.CaptureIO.capture_io(:stderr, fn ->
+          assert_raise CompileError, ~r/consumer @on_load returned/, fn ->
+            create_module(
+              module,
+              quote do
+                @on_load :reject_replacement
+                recorder = unquote(recorder)
+
+                use Jido.Action,
+                  name: "failed_replacement_on_load_action",
+                  schema_bindings: [recorder: recorder],
+                  schema: Jido.ActionTest.recorded_closure_schema(recorder, :rejected)
+
+                def reject_replacement do
+                  _schema = schema()
+                  {:error, :rejected}
+                end
+              end
+            )
+          end
+        end)
+      end)
+
+      assert {:module, ^module} = :code.load_binary(module, ~c"nofile", active_bytecode)
+      assert module.schema() === active_schema
+      assert Agent.get(recorder, & &1) == [:active, :rejected]
+    end
+
+    test "shares the staged schema with earlier after-compile callbacks" do
+      module = unique_module("ConsumerAfterCompileAction")
+      builder_counter = Module.concat(module, BuilderCounter)
+      observer = Module.concat(module, Observer)
+
+      start_supervised!(%{
+        id: builder_counter,
+        start: {Agent, :start_link, [fn -> 0 end, [name: builder_counter]]}
+      })
+
+      start_supervised!(%{
+        id: observer,
+        start: {Agent, :start_link, [fn -> nil end, [name: observer]]}
+      })
+
+      on_exit(fn -> Jido.Action.SchemaStore.clear(module) end)
+
+      create_module(
+        module,
+        quote do
+          builder_counter = unquote(builder_counter)
+          @after_compile {Jido.ActionTest, :capture_schema_after_compile}
+
+          use Jido.Action,
+            name: "consumer_after_compile_action",
+            schema_bindings: [builder_counter: builder_counter],
+            schema: Jido.ActionTest.counted_closure_schema(builder_counter)
+
+          def schema_observer, do: unquote(observer)
+        end
+      )
+
+      assert Agent.get(builder_counter, & &1) == 1
+      assert Agent.get(observer, & &1) === module.schema()
+    end
+
+    test "keeps nested Action schemas staged independently" do
+      module = unique_module("NestedBoundAction")
+      nested_module = Module.concat(module, Inner)
+      recorder = Module.concat(module, Recorder)
+      recorder_pid = start_supervised!({Agent, fn -> [] end})
+      Process.register(recorder_pid, recorder)
+
+      on_exit(fn ->
+        Jido.Action.SchemaStore.clear(module)
+        Jido.Action.SchemaStore.clear(nested_module)
+      end)
+
+      create_module(
+        module,
+        quote do
+          recorder = unquote(recorder)
+
+          use Jido.Action,
+            name: "nested_bound_action",
+            schema_bindings: [recorder: recorder],
+            schema: Jido.ActionTest.recorded_closure_schema(recorder, :outer)
+
+          defmodule Inner do
+            recorder = unquote(recorder)
+
+            use Jido.Action,
+              name: "nested_inner_action",
+              schema_bindings: [recorder: recorder],
+              schema: Jido.ActionTest.recorded_closure_schema(recorder, :inner)
+          end
+        end
+      )
+
+      assert recorder |> Agent.get(& &1) |> Enum.sort() == [:inner, :outer]
+      assert {:ok, %{value: 1}} = module.validate_params(%{value: 1})
+      assert {:ok, %{value: 2}} = nested_module.validate_params(%{value: 2})
+      assert recorder |> Agent.get(& &1) |> Enum.sort() == [:inner, :outer]
+    end
+
+    test "requires literal options for schema bindings" do
+      module = unique_module("DynamicSchemaBindingsAction")
+
+      assert_raise CompileError, ~r/schema bindings require literal Action options/, fn ->
+        create_module(
+          module,
+          quote do
+            opts = [
+              name: "dynamic_schema_bindings_action",
+              schema_bindings: [],
+              schema:
+                Zoi.object(%{
+                  value: Zoi.integer() |> Zoi.refine(fn _value -> :ok end)
+                })
+            ]
+
+            use Jido.Action, opts
+          end
+        )
+      end
+    end
+
     test "invalid action configuration raises at compile time" do
       module = unique_module("InvalidActionConfig")
 
@@ -150,6 +589,28 @@ defmodule Jido.ActionTest do
       end
     end
 
+    test "invalid bound schema raises at compile time" do
+      module = unique_module("InvalidBoundSchemaAction")
+
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert_raise CompileError, ~r/must accept map-shaped action data/, fn ->
+          create_module(
+            module,
+            quote do
+              @after_compile {Jido.ActionTest, :unexpected_after_compile}
+
+              use Jido.Action,
+                name: "invalid_bound_schema_action",
+                schema_bindings: [],
+                schema: Zoi.integer() |> Zoi.refine(fn _value -> :ok end)
+            end
+          )
+        end
+      end)
+
+      refute Code.ensure_loaded?(module)
+    end
+
     test "unknown action options raise at compile time" do
       module = unique_module("UnknownActionOption")
 
@@ -161,6 +622,18 @@ defmodule Jido.ActionTest do
             output_shema: Zoi.object(%{value: Zoi.integer()})
         end
         """)
+      end
+
+      invalid_options_module = unique_module("InvalidActionOptions")
+
+      assert_raise CompileError, ~r/Action configuration validation failed/, fn ->
+        create_module(
+          invalid_options_module,
+          quote do
+            opts = 42
+            use Jido.Action, opts
+          end
+        )
       end
     end
   end
@@ -238,7 +711,9 @@ defmodule Jido.ActionTest do
         quote do
           use Jido.Action,
             name: "scalar_transform_action",
+            schema_bindings: [],
             schema: Zoi.object(%{}) |> Zoi.transform(fn _params -> :invalid end),
+            output_schema_bindings: [],
             output_schema: Zoi.object(%{}) |> Zoi.transform(fn _output -> :invalid end)
         end
       )
@@ -395,11 +870,58 @@ defmodule Jido.ActionTest do
     end
   end
 
-  defp field_keys(fields) when is_map(fields), do: Map.keys(fields)
-  defp field_keys(fields) when is_list(fields), do: Keyword.keys(fields)
+  defp field_keys(fields), do: fields |> Map.new() |> Map.keys()
 
   def counted_options(counter) do
     Agent.update(counter, &(&1 + 1))
     [name: "counted_dynamic_options_action"]
+  end
+
+  defmacro counted_schema do
+    Process.put(:jido_schema_expansions, Process.get(:jido_schema_expansions, 0) + 1)
+
+    quote do
+      Zoi.object(%{
+        value: Zoi.integer() |> Zoi.refine(fn _value -> :ok end)
+      })
+    end
+  end
+
+  def counted_closure_schema(counter) do
+    Agent.update(counter, &(&1 + 1))
+
+    Zoi.object(%{
+      value: Zoi.integer() |> Zoi.refine(fn _value -> :ok end)
+    })
+  end
+
+  def capture_schema_after_compile(env, _bytecode) do
+    schema = env.module.schema()
+    Agent.update(env.module.schema_observer(), fn _current -> schema end)
+  end
+
+  def unexpected_after_compile(_env, _bytecode) do
+    raise "consumer callback ran before Action schema verification"
+  end
+
+  def recorded_closure_schema(recorder, label) do
+    Agent.update(recorder, &(&1 ++ [label]))
+
+    Zoi.object(%{
+      value: Zoi.integer() |> Zoi.refine(fn _value -> :ok end)
+    })
+  end
+
+  def nonportable_schema(counter, owner) do
+    Agent.update(counter, &(&1 + 1))
+
+    Zoi.object(%{
+      value:
+        Zoi.integer()
+        |> Zoi.refine(fn value ->
+          send(owner, value)
+          :ok
+        end)
+    })
   end
 end
