@@ -226,7 +226,7 @@ defmodule Jido.Integration.FlowParityTest do
       assert {:ok, syntax_flow} = Lowerer.lower(syntax)
       assert {:ok, builder_flow} = Builder.build(builder)
       assert Jido.Flow.to_map(builder_flow) == Jido.Flow.to_map(syntax_flow)
-      expected = input + Enum.sum(amounts)
+      expected = %{value: input + Enum.sum(amounts)}
       assert {:ok, ^expected} = Jido.Exec.run(builder_flow, %{value: input}, %{})
     end
   end
@@ -315,7 +315,13 @@ defmodule Jido.Integration.FlowParityTest do
       |> JSON.encode!()
       |> JSON.decode!()
 
-    assert {:ok, loaded} = Jido.Flow.from_map(decoded, actions: registry)
+    assert {:ok, loaded} =
+             Jido.Flow.from_map(decoded,
+               actions: registry,
+               schema: flow.schema,
+               output_schema: flow.output_schema
+             )
+
     loaded
   end
 
@@ -339,7 +345,7 @@ defmodule Jido.Integration.FlowParityTest do
         source: &FlowFixtures.math_source/0,
         canonical: &FlowFixtures.math_canonical_map/0,
         input: %{value: 3},
-        expected: 8
+        expected: %{value: 8}
       },
       %{
         label: "binding",
@@ -419,7 +425,7 @@ defmodule Jido.Integration.FlowParityTest do
         source: &FlowFixtures.projection_source/0,
         canonical: &FlowFixtures.projection_canonical_map/0,
         input: %{quote_id: "quote-1", items: [%{id: "item-1", price: 42}], tag: "priority"},
-        expected: 42
+        expected: %{total: 42}
       },
       %{
         label: "context",
@@ -512,7 +518,7 @@ defmodule Jido.Integration.FlowParityTest do
           step :double, JidoTest.TestActions.Multiply,
             %{amount: value(2), value: result(:add_one, :value)}
 
-          return result(:double, :value)
+          return result(:double)
         end
         """
       },
@@ -579,7 +585,7 @@ defmodule Jido.Integration.FlowParityTest do
           amount: value(2)
         })
 
-        return(result(:double, :value))
+        return(result(:double))
       end
     )
   end
@@ -643,7 +649,7 @@ defmodule Jido.Integration.FlowParityTest do
             }
           )
 
-        return(select(audit, :total))
+        return(%{total: select(audit, :total)})
       end
     )
   end
@@ -870,7 +876,7 @@ defmodule Jido.Integration.FlowParityTest do
         |> Syntax.step(:"add_#{index}", Add, %{value: input, amount: Syntax.value(amount)})
       end)
     end)
-    |> Syntax.return(Syntax.result(:"add_#{length(amounts)}", :value))
+    |> Syntax.return(Syntax.result(:"add_#{length(amounts)}"))
   end
 
   defp chain_builder(amounts) do
@@ -890,6 +896,6 @@ defmodule Jido.Integration.FlowParityTest do
         |> Builder.step(:"add_#{index}", Add, %{value: input, amount: Builder.value(amount)})
       end)
     end)
-    |> Builder.return(Builder.result(:"add_#{length(amounts)}", :value))
+    |> Builder.return(Builder.result(:"add_#{length(amounts)}"))
   end
 end

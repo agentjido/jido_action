@@ -7,6 +7,8 @@ defmodule Jido.Flow.Node do
   alias Jido.Action.Error
   alias Jido.Flow.Ref
 
+  @config_keys [:name, :action, :input, :deps, :provenance]
+
   @schema Zoi.struct(
             __MODULE__,
             %{
@@ -32,7 +34,8 @@ defmodule Jido.Flow.Node do
   def new(attrs) when is_list(attrs), do: attrs |> Map.new() |> new()
 
   def new(%{} = attrs) do
-    with {:ok, name} <- validate_name(Map.get(attrs, :name)),
+    with :ok <- validate_known_keys(attrs),
+         {:ok, name} <- validate_name(Map.get(attrs, :name)),
          {:ok, action} <- validate_action(Map.get(attrs, :action)),
          {:ok, input} <- validate_input(Map.get(attrs, :input, %{})),
          {:ok, deps} <- validate_deps(Map.get(attrs, :deps, [])),
@@ -183,23 +186,21 @@ defmodule Jido.Flow.Node do
     {:error, Error.validation_error("node provenance must be a map")}
   end
 
-  defp validate_input_expression(%Ref{type: :input}, _path), do: :ok
-  defp validate_input_expression(%Ref{type: :context}, _path), do: :ok
-
-  defp validate_input_expression(%Ref{type: :result, node: node}, path) when is_binary(node) do
-    case Action.validate_name(node) do
+  defp validate_input_expression(%Ref{} = ref, path) do
+    case Ref.validate(ref) do
       :ok ->
         :ok
 
-      {:error, _message} ->
-        invalid_ref_error(:result, path)
+      {:error, %{details: %{reason: :path, segment: segment}}} ->
+        {:error,
+         Error.validation_error("node input contains invalid ref path", %{
+           path: path,
+           segment: segment
+         })}
+
+      {:error, _error} ->
+        invalid_ref_error(ref.type, path)
     end
-  end
-
-  defp validate_input_expression(%Ref{type: :value}, _path), do: :ok
-
-  defp validate_input_expression(%Ref{type: type}, path) do
-    invalid_ref_error(type, path)
   end
 
   defp validate_input_expression(%{} = map, path) when not is_struct(map) do
@@ -269,6 +270,17 @@ defmodule Jido.Flow.Node do
   end
 
   defp do_normalize_expression(value, _path), do: {:ok, value}
+
+  defp validate_known_keys(attrs) do
+    case attrs |> Map.keys() |> Enum.find(&(&1 not in @config_keys)) do
+      nil ->
+        :ok
+
+      key ->
+        {:error,
+         Error.validation_error("unknown node configuration key: #{inspect(key)}", %{key: key})}
+    end
+  end
 
   defp invalid_ref_error(type, path) do
     {:error,

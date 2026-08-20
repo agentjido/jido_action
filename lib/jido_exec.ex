@@ -53,19 +53,19 @@ defmodule Jido.Exec do
   defp do_run(%Instruction{} = instruction, input, context, opts) do
     with :ok <- reject_run_opts(opts, :instruction),
          {:ok, instruction} <- normalize_instruction(instruction, input, context) do
-      run_action_instruction(instruction)
+      run_instruction(instruction)
     end
   end
 
   defp do_run(%Flow{} = flow, input, context, opts) do
     with {:ok, run_opts} <- validate_flow_run_opts(opts),
+         {:ok, flow} <- Flow.validate(flow),
          :ok <- Flow.check(flow),
          {:ok, input} <- normalize_map(input, :input),
          {:ok, context} <- normalize_map(context, :context),
          {:ok, input} <- validate_data(flow.schema, input, "Flow", flow, :flow_input),
-         {:ok, output} <- Flow.Compiler.run(flow, input, context, run_opts),
-         {:ok, output} <-
-           validate_data(flow.output_schema, output, "Flow output", flow, :flow_output) do
+         {:ok, output} <- Flow.Compiler.run_validated(flow, input, context, run_opts),
+         {:ok, output} <- validate_flow_output(flow, output) do
       {:ok, output}
     end
   end
@@ -78,7 +78,7 @@ defmodule Jido.Exec do
         else
           with :ok <- reject_run_opts(opts, :action),
                {:ok, instruction} <- normalize_instruction(module, input, context) do
-            run_action_instruction(instruction)
+            run_instruction(instruction)
           end
         end
 
@@ -220,6 +220,16 @@ defmodule Jido.Exec do
     exception -> {:error, Error.validation_error(Exception.message(exception))}
   end
 
+  defp run_instruction(%Instruction{action: action} = instruction) do
+    if flow_module?(action) do
+      with :ok <- Instruction.validate_action_contract(action) do
+        do_run(action.flow(), instruction.params, instruction.context, [])
+      end
+    else
+      run_action_instruction(instruction)
+    end
+  end
+
   defp run_action_instruction(%Instruction{} = instruction) do
     action = instruction.action
 
@@ -316,6 +326,59 @@ defmodule Jido.Exec do
 
   defp validate_action_output(action, output) do
     output_envelope_required(action, output, :run)
+  end
+
+  defp validate_flow_output(flow, %Output{} = output) do
+    flow
+    |> validate_output_shape(output, :output_schema)
+    |> tag_flow_output_error(flow)
+  end
+
+  defp validate_flow_output(flow, output) when is_map(output) do
+    if is_struct(output) and Enumerable.impl_for(output) do
+      output_envelope_required(flow, output, :run)
+    else
+      with {:ok, validated} <-
+             validate_data(flow.output_schema, output, "Flow output", flow, :flow_output) do
+        validate_flow_output_shape(flow, validated)
+      end
+    end
+  end
+
+  defp validate_flow_output(flow, output) do
+    output_envelope_required(flow, output, :run)
+  end
+
+  defp tag_flow_output_error({:ok, output}, _flow), do: {:ok, output}
+
+  defp tag_flow_output_error({:error, %{details: details} = error}, flow)
+       when is_map(details) do
+    {:error,
+     %{
+       error
+       | details:
+           Map.merge(details, %{
+             context: "Flow output",
+             subject: flow,
+             phase: :flow_output
+           })
+     }}
+  end
+
+  defp tag_flow_output_error({:error, error}, _flow), do: {:error, error}
+
+  defp validate_flow_output_shape(flow, output) when is_map(output) do
+    validate_output_shape(flow, output, :output_schema)
+  end
+
+  defp validate_flow_output_shape(flow, output) do
+    {:error,
+     Error.validation_error("Flow output validation must return a map", %{
+       context: "Flow output",
+       subject: flow,
+       phase: :flow_output,
+       value: output
+     })}
   end
 
   defp validate_output_shape(_action, %Output{} = output, _callback), do: Output.validate(output)

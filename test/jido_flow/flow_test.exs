@@ -52,6 +52,64 @@ defmodule Jido.FlowTest do
              }
     end
 
+    test "rejects unknown Flow attributes" do
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Flow.new(
+                 name: "unknown_attribute",
+                 nodes: [add_node()],
+                 return: Ref.result(:add_one),
+                 output_shema: []
+               )
+
+      assert message == "unknown Flow configuration key: :output_shema"
+      assert details.key == :output_shema
+    end
+
+    test "requires map-shaped input and output schemas" do
+      for field <- [:schema, :output_schema] do
+        attrs = %{
+          name: "scalar_schema",
+          nodes: [add_node()],
+          return: Ref.result(:add_one)
+        }
+
+        assert {:error, %InvalidInputError{message: message, details: details}} =
+                 attrs |> Map.put(field, Zoi.integer()) |> Flow.new()
+
+        assert message == "#{field} must accept map-shaped action data"
+        assert details.field == Atom.to_string(field)
+      end
+    end
+
+    test "rejects runtime-only schemas and semantic values" do
+      anonymous_schema =
+        Zoi.object(%{value: Zoi.integer() |> Zoi.refine(fn _value -> :ok end)})
+
+      assert {:error, %InvalidInputError{message: schema_message}} =
+               Flow.new(
+                 name: "dynamic_schema",
+                 schema: anonymous_schema,
+                 nodes: [add_node()],
+                 return: Ref.result(:add_one)
+               )
+
+      assert schema_message =~ "schema must be static module data"
+      assert schema_message =~ "anonymous functions are not supported"
+
+      node =
+        Node.new!(
+          name: :echo,
+          action: EchoParamsAction,
+          input: %{value: Ref.value(self())}
+        )
+
+      assert {:error, %InvalidInputError{message: value_message}} =
+               Flow.new(name: "runtime_value", nodes: [node], return: Ref.result(:echo))
+
+      assert value_message =~ "Flow semantic data must be static module data"
+      assert value_message =~ "runtime process values are not supported"
+    end
+
     test "rejects duplicate node names with the duplicated name" do
       attrs = [
         name: "bad",
@@ -510,7 +568,7 @@ defmodule Jido.FlowTest do
         Flow.new!(
           name: "stored",
           schema: Zoi.object(%{items: Zoi.list(Zoi.any())}),
-          output_schema: Zoi.integer(),
+          output_schema: Zoi.object(%{total: Zoi.integer()}),
           nodes: [
             Node.new!(
               name: :add_one,
@@ -699,25 +757,21 @@ defmodule Jido.FlowTest do
         )
       end
 
-      opaque_value_flow =
-        Flow.new!(
-          name: "bad_opaque_value",
-          nodes: [
-            Node.new!(
-              name: :echo,
-              action: EchoParamsAction,
-              input: %{value: Ref.value(self())}
-            )
-          ],
-          return: Ref.result(:echo)
-        )
+      assert {:error, %InvalidInputError{message: message}} =
+               Flow.new(
+                 name: "bad_opaque_value",
+                 nodes: [
+                   Node.new!(
+                     name: :echo,
+                     action: EchoParamsAction,
+                     input: %{value: Ref.value(self())}
+                   )
+                 ],
+                 return: Ref.result(:echo)
+               )
 
-      assert_raise InvalidInputError, ~r/stored flow value is not JSON-safe/, fn ->
-        Flow.to_map(opaque_value_flow,
-          format: :stored,
-          actions: %{"echo" => EchoParamsAction}
-        )
-      end
+      assert message =~ "Flow semantic data must be static module data"
+      assert message =~ "runtime process values are not supported"
     end
 
     test "rejects unsupported map formats" do
@@ -743,6 +797,161 @@ defmodule Jido.FlowTest do
   end
 
   describe "from_map/2" do
+    test "requires both explicit schema attachments for stored maps" do
+      stored = stored_flow_map()
+      actions = %{"add" => Add}
+
+      for {opts, field} <- [
+            {[actions: actions], :schema},
+            {[actions: actions, schema: []], :output_schema},
+            {[actions: actions, output_schema: []], :schema}
+          ] do
+        assert {:error, %InvalidInputError{message: message, details: details}} =
+                 Flow.from_map(stored, opts)
+
+        assert message == "stored flow requires external #{field} attachment"
+        assert details.field == field
+      end
+
+      assert {:ok, flow} =
+               Flow.from_map(stored, actions: actions, schema: [], output_schema: [])
+
+      assert flow.schema == []
+      assert flow.output_schema == []
+    end
+
+    test "rejects loader overrides for semantic maps and unknown loader options" do
+      semantic = Flow.to_map(stored_source_flow())
+
+      for {option, value} <- [
+            actions: %{"add" => Add},
+            schema: [],
+            output_schema: []
+          ] do
+        assert {:error, %InvalidInputError{message: message, details: details}} =
+                 Flow.from_map(semantic, [{option, value}])
+
+        assert message == "semantic flow maps do not accept loader options"
+        assert details.option == option
+      end
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Flow.from_map(semantic, output_shema: [])
+
+      assert message == "unknown flow map option: :output_shema"
+      assert details.option == :output_shema
+    end
+
+    test "rejects duplicate loader keyword options" do
+      actions = %{"add" => Add}
+
+      for option <- [:actions, :schema, :output_schema] do
+        opts = stored_options(actions)
+        value = Keyword.fetch!(opts, option)
+
+        assert {:error, %InvalidInputError{message: message, details: details}} =
+                 Flow.from_map(stored_flow_map(), opts ++ [{option, value}])
+
+        assert message == "duplicate flow map option: #{inspect(option)}"
+        assert details.option == option
+      end
+    end
+
+    test "rejects unknown fields throughout the stored recursive grammar" do
+      stored = stored_flow_map()
+      opts = [actions: %{"add" => Add}, schema: [], output_schema: []]
+
+      [entry] = get_in(stored, ["nodes", Access.at(0), "input", "entries"])
+
+      cases = [
+        root: Map.put(stored, "extra", true),
+        node: put_in(stored, ["nodes", Access.at(0), "extra"], true),
+        reference:
+          put_in(
+            stored,
+            ["nodes", Access.at(0), "input", "entries", Access.at(0), "value", "extra"],
+            true
+          ),
+        encoded_map: put_in(stored, ["nodes", Access.at(0), "input", "extra"], true),
+        entry:
+          put_in(
+            stored,
+            ["nodes", Access.at(0), "input", "entries", Access.at(0)],
+            Map.put(entry, "extra", true)
+          ),
+        typed_key:
+          put_in(
+            stored,
+            ["nodes", Access.at(0), "input", "entries", Access.at(0), "key", "extra"],
+            true
+          ),
+        typed_key:
+          put_in(
+            stored,
+            ["nodes", Access.at(0), "input", "entries", Access.at(0), "value", "path"],
+            [%{"type" => "atom", "value" => "value", "extra" => true}]
+          )
+      ]
+
+      for {record, malformed} <- cases do
+        assert {:error, %InvalidInputError{message: message, details: details}} =
+                 Flow.from_map(malformed, opts)
+
+        assert message =~ "unknown field"
+        assert details.record == record
+      end
+    end
+
+    test "rejects mixed profiles, aliases, embedded stored schemas, and duplicate entries" do
+      stored = stored_flow_map()
+      opts = [actions: %{"add" => Add}, schema: [], output_schema: []]
+
+      malformed_maps = [
+        Map.put(stored, :name, "alias"),
+        put_in(stored, ["nodes", Access.at(0), :action], Add),
+        Map.put(stored, "schema", []),
+        Map.put(stored, :output_schema, [])
+      ]
+
+      for malformed <- malformed_maps do
+        assert {:error, %InvalidInputError{message: message}} = Flow.from_map(malformed, opts)
+        assert message =~ "unknown field"
+      end
+
+      [entry] = get_in(stored, ["nodes", Access.at(0), "input", "entries"])
+
+      duplicate =
+        put_in(stored, ["nodes", Access.at(0), "input", "entries"], [entry, entry])
+
+      assert {:error, %InvalidInputError{message: message}} = Flow.from_map(duplicate, opts)
+      assert message == "encoded map contains a duplicate key"
+    end
+
+    test "rejects mixed semantic structural aliases" do
+      semantic = Flow.to_map(stored_source_flow())
+
+      malformed_maps = [
+        Map.put(semantic, "name", "alias"),
+        put_in(semantic, [:nodes, Access.at(0), "action"], Add),
+        put_in(semantic, [:nodes, Access.at(0), :input, :value, "path"], [])
+      ]
+
+      for malformed <- malformed_maps do
+        assert {:error, %InvalidInputError{message: message}} = Flow.from_map(malformed)
+        assert message =~ "unknown field"
+      end
+    end
+
+    test "compile rejects malformed hand-built Flow structure before graph creation" do
+      flow = %{stored_source_flow() | schema: Zoi.integer()}
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Flow.compile(flow)
+
+      assert message == "schema must accept map-shaped action data"
+      assert details.field == "schema"
+    end
+
     test "loads a stored map decoded from JSON through an action registry" do
       flow =
         Flow.new!(
@@ -763,7 +972,7 @@ defmodule Jido.FlowTest do
         |> JSON.encode!()
         |> JSON.decode!()
 
-      assert {:ok, loaded} = Flow.from_map(decoded, actions: %{"add" => Add})
+      assert {:ok, loaded} = Flow.from_map(decoded, stored_options(%{"add" => Add}))
       assert Flow.to_map(loaded) == Flow.to_map(flow)
       assert {:ok, %{total: 42}} = Jido.Exec.run(loaded, %{items: [%{"price" => 41}]}, %{})
     end
@@ -855,6 +1064,41 @@ defmodule Jido.FlowTest do
       assert result["list"] == [1, 3]
     end
 
+    test "loads semantic result refs with atom and string node names" do
+      semantic =
+        Flow.new!(name: "semantic_result_node", nodes: [add_node()], return: Ref.result(:add_one))
+        |> Flow.to_map()
+
+      for node <- [:add_one, "add_one"] do
+        assert {:ok, flow} =
+                 semantic
+                 |> put_in([:return, :node], node)
+                 |> Flow.from_map()
+
+        assert flow.return.node == "add_one"
+      end
+    end
+
+    test "returns validation errors for invalid semantic result node fields" do
+      semantic =
+        Flow.new!(
+          name: "invalid_semantic_result_node",
+          nodes: [add_node()],
+          return: Ref.result(:add_one)
+        )
+        |> Flow.to_map()
+
+      for node <- [nil, 1] do
+        assert {:error, %InvalidInputError{message: message, details: details}} =
+                 semantic
+                 |> put_in([:return, :node], node)
+                 |> Flow.from_map()
+
+        assert message == "semantic result ref node must be a non-nil atom or binary"
+        assert details.node == node
+      end
+    end
+
     test "reattaches schemas from loader options" do
       flow =
         Flow.new!(
@@ -869,7 +1113,7 @@ defmodule Jido.FlowTest do
                Flow.from_map(stored,
                  actions: %{"add" => Add},
                  schema: Zoi.object(%{value: Zoi.integer()}),
-                 output_schema: Zoi.integer()
+                 output_schema: Zoi.object(%{value: Zoi.integer()})
                )
 
       assert {:error, %InvalidInputError{message: message, details: details}} =
@@ -904,7 +1148,9 @@ defmodule Jido.FlowTest do
         |> JSON.encode!()
         |> JSON.decode!()
 
-      assert {:ok, loaded} = Flow.from_map(decoded, actions: %{"echo" => EchoParamsAction})
+      assert {:ok, loaded} =
+               Flow.from_map(decoded, stored_options(%{"echo" => EchoParamsAction}))
+
       assert Flow.to_map(loaded) == Flow.to_map(flow)
 
       assert {:ok, result} = Jido.Exec.run(loaded, %{"value" => 3}, %{})
@@ -927,7 +1173,7 @@ defmodule Jido.FlowTest do
                Flow.from_map(%{}, [:not_a_keyword_pair])
 
       assert {:error, %InvalidInputError{message: message}} =
-               Flow.from_map(%{}, actions: %{"add" => "not_module"})
+               Flow.from_map(stored_flow_map(), stored_options(%{"add" => "not_module"}))
 
       assert message =~ "flow action registry must map"
 
@@ -956,7 +1202,7 @@ defmodule Jido.FlowTest do
       }
 
       assert {:error, %InvalidInputError{message: message, details: details}} =
-               Flow.from_map(stored, actions: %{})
+               Flow.from_map(stored, stored_options(%{}))
 
       assert message =~ "unknown flow action identifier"
       assert details.identifier == "missing"
@@ -964,7 +1210,7 @@ defmodule Jido.FlowTest do
       stored = put_in(stored, ["nodes", Access.at(0), "input"], %{"type" => "bogus"})
 
       assert {:error, %InvalidInputError{message: message, details: details}} =
-               Flow.from_map(stored, actions: %{"missing" => Add})
+               Flow.from_map(stored, stored_options(%{"missing" => Add}))
 
       assert message =~ "unknown flow ref type"
       assert details.type == "bogus"
@@ -995,29 +1241,35 @@ defmodule Jido.FlowTest do
       }
 
       assert {:error, %InvalidInputError{message: message, details: details}} =
-               base |> Map.put("type", "workflow") |> Flow.from_map(actions: %{"add" => Add})
+               base
+               |> Map.put("type", "workflow")
+               |> Flow.from_map(stored_options(%{"add" => Add}))
 
       assert message =~ "flow map type must be flow"
       assert details.type == "workflow"
 
       assert {:error, %InvalidInputError{message: "flow nodes must be a list"}} =
-               base |> Map.put("nodes", :not_nodes) |> Flow.from_map(actions: %{"add" => Add})
+               base
+               |> Map.put("nodes", :not_nodes)
+               |> Flow.from_map(stored_options(%{"add" => Add}))
 
       assert {:error, %InvalidInputError{message: "flow node must be a map"}} =
-               base |> Map.put("nodes", [:not_node]) |> Flow.from_map(actions: %{"add" => Add})
+               base
+               |> Map.put("nodes", [:not_node])
+               |> Flow.from_map(stored_options(%{"add" => Add}))
 
       assert {:error, %InvalidInputError{message: message, details: details}} =
                base
                |> put_in(["nodes", Access.at(0), "action"], 123)
-               |> Flow.from_map(actions: %{"add" => Add})
+               |> Flow.from_map(stored_options(%{"add" => Add}))
 
-      assert message =~ "flow node action must be a module atom or registered identifier"
+      assert message =~ "stored flow node action must be a registered identifier"
       assert details.action == 123
 
       assert {:error, %InvalidInputError{message: message, details: details}} =
                base
                |> put_in(["nodes", Access.at(0), "input", "entries"], :not_entries)
-               |> Flow.from_map(actions: %{"add" => Add})
+               |> Flow.from_map(stored_options(%{"add" => Add}))
 
       assert message =~ "encoded map entries must be a list"
       assert details.entries == :not_entries
@@ -1025,7 +1277,7 @@ defmodule Jido.FlowTest do
       assert {:error, %InvalidInputError{message: message, details: details}} =
                base
                |> put_in(["nodes", Access.at(0), "input", "entries"], [:not_entry])
-               |> Flow.from_map(actions: %{"add" => Add})
+               |> Flow.from_map(stored_options(%{"add" => Add}))
 
       assert message =~ "encoded map entry must be a map"
       assert details.entry == :not_entry
@@ -1033,7 +1285,7 @@ defmodule Jido.FlowTest do
       assert {:error, %InvalidInputError{message: message, details: details}} =
                base
                |> put_in(["nodes", Access.at(0), "input", "entries", Access.at(0), "key"], :bad)
-               |> Flow.from_map(actions: %{"add" => Add})
+               |> Flow.from_map(stored_options(%{"add" => Add}))
 
       assert message =~ "malformed flow path segment"
       assert details.segment == :bad
@@ -1044,7 +1296,7 @@ defmodule Jido.FlowTest do
                  ["nodes", Access.at(0), "input", "entries", Access.at(0), "value", "path"],
                  :bad
                )
-               |> Flow.from_map(actions: %{"add" => Add})
+               |> Flow.from_map(stored_options(%{"add" => Add}))
 
       assert message =~ "flow ref path must be a list"
       assert details.path == :bad
@@ -1052,10 +1304,42 @@ defmodule Jido.FlowTest do
       assert {:error, %InvalidInputError{message: message, details: details}} =
                base
                |> Map.put("provenance", %{"$type" => "tuple", "value" => []})
-               |> Flow.from_map(actions: %{"add" => Add})
+               |> Flow.from_map(stored_options(%{"add" => Add}))
 
       assert message =~ "unknown encoded value type"
       assert details.type == "tuple"
+    end
+
+    test "returns validation errors for invalid stored result node fields" do
+      stored =
+        Flow.new!(
+          name: "invalid_stored_result_node",
+          nodes: [add_node()],
+          return: Ref.result(:add_one)
+        )
+        |> Flow.to_map(format: :stored, actions: %{"add" => Add})
+
+      for node <- [nil, 1, :add_one] do
+        assert {:error, %InvalidInputError{message: message, details: details}} =
+                 stored
+                 |> put_in(["return", "node"], node)
+                 |> Flow.from_map(stored_options(%{"add" => Add}))
+
+        assert message == "stored result ref node must be a binary"
+        assert details.node == node
+      end
+    end
+
+    test "returns validation errors for non-binary stored encoded atom values" do
+      for value <- [nil, 1, :ok] do
+        assert {:error, %InvalidInputError{message: message, details: details}} =
+                 value
+                 |> then(&stored_literal_map(%{"$type" => "atom", "value" => &1}))
+                 |> Flow.from_map(stored_options(%{"add" => Add}))
+
+        assert message == "encoded atom value must be a binary"
+        assert details.value == value
+      end
     end
 
     test "loads plain JSON-shaped provenance maps" do
@@ -1071,19 +1355,215 @@ defmodule Jido.FlowTest do
           %{
             "name" => "echo",
             "action" => "echo",
-            "input" => %{},
+            "input" => %{"type" => "map", "entries" => []},
             "deps" => []
           }
         ],
         "return" => %{"type" => "result", "node" => "echo", "path" => []}
       }
 
-      assert {:ok, flow} = Flow.from_map(stored, actions: %{"echo" => EchoParamsAction})
+      assert {:ok, flow} =
+               Flow.from_map(stored, stored_options(%{"echo" => EchoParamsAction}))
 
       assert flow.provenance == %{
                "source" => "stored",
                "nested" => %{"kind" => "manual"}
              }
+    end
+
+    test "loads direct JSON-safe stored data and tagged encodings" do
+      encoded_map = %{
+        "$type" => "map",
+        "entries" => [
+          %{
+            "key" => %{"type" => "atom", "value" => "source"},
+            "value" => %{"$type" => "atom", "value" => "writer"}
+          }
+        ]
+      }
+
+      values = [
+        {nil, nil},
+        {false, false},
+        {1, 1},
+        {1.5, 1.5},
+        {"text", "text"},
+        {["item", %{"nested" => true}], ["item", %{"nested" => true}]},
+        {%{"nested" => [nil, "value"]}, %{"nested" => [nil, "value"]}},
+        {%{"$type" => "atom", "value" => "ok"}, :ok},
+        {encoded_map, %{source: :writer}}
+      ]
+
+      for {stored_value, value} <- values do
+        assert {:ok, flow} =
+                 stored_value
+                 |> stored_literal_map()
+                 |> Flow.from_map(stored_options(%{"add" => Add}))
+
+        assert %{nodes: [%{input: %{value: %{type: :value, value: ^value}}}]} =
+                 Flow.to_map(flow)
+      end
+    end
+
+    test "rejects non-string stored plain-data and provenance map keys" do
+      malformed_maps = [
+        stored_literal_map(%{not_a_string: true}),
+        Map.put(stored_flow_map(), "provenance", %{not_a_string: true})
+      ]
+
+      for stored <- malformed_maps do
+        assert {:error, %InvalidInputError{message: message, details: details}} =
+                 Flow.from_map(stored, stored_options(%{"add" => Add}))
+
+        assert message == "stored plain data map contains a non-string key"
+        assert details.record == :plain_data
+        assert details.key == :not_a_string
+      end
+    end
+
+    test "returns validation errors for opaque in-memory stored data" do
+      improper_list = [1 | :tail]
+
+      for value <- [improper_list, :opaque_atom, self(), fn -> :ok end, {:tuple}, make_ref()] do
+        assert {:error, %InvalidInputError{message: message, details: details}} =
+                 value
+                 |> stored_literal_map()
+                 |> Flow.from_map(stored_options(%{"add" => Add}))
+
+        assert message == "stored flow value is not JSON-safe"
+        assert is_binary(details.value)
+      end
+    end
+
+    test "returns validation errors for improper structural lists" do
+      stored =
+        stored_flow_map()
+        |> Map.put("return", %{"type" => "result", "node" => "add_one", "path" => []})
+
+      [node] = stored["nodes"]
+      [entry | _entries] = node["input"]["entries"]
+      segment = %{"type" => "atom", "value" => "value"}
+
+      cases = [
+        {Map.put(stored, "nodes", [node | :tail]), "flow nodes must be a list"},
+        {put_in(stored, ["nodes", Access.at(0), "deps"], ["other" | :tail]),
+         "flow node deps must be a list"},
+        {put_in(stored, ["return", "path"], [segment | :tail]), "flow ref path must be a list"},
+        {put_in(stored, ["nodes", Access.at(0), "input", "entries"], [entry | :tail]),
+         "encoded map entries must be a list"},
+        {put_in(stored, ["nodes", Access.at(0), "input"], [
+           %{"type" => "value", "value" => 1} | :tail
+         ]), "flow expression must be a proper list"}
+      ]
+
+      for {malformed, expected_message} <- cases do
+        assert {:error, %InvalidInputError{message: ^expected_message}} =
+                 Flow.from_map(malformed, stored_options(%{"add" => Add}))
+      end
+
+      semantic =
+        stored_source_flow()
+        |> Flow.to_map()
+        |> Map.put(:return, %{type: :result, node: :add_one, path: [:value | :tail]})
+
+      assert {:error, %InvalidInputError{message: "flow ref path must be a list"}} =
+               Flow.from_map(semantic)
+    end
+
+    test "rejects invalid values at each remaining recursive grammar boundary" do
+      semantic = Flow.to_map(stored_source_flow())
+      stored = stored_flow_map()
+      options = stored_options(%{"add" => Add})
+
+      cases = [
+        {put_in(semantic, [:nodes, Access.at(0), :deps], :not_deps),
+         "flow node deps must be a list"},
+        {put_in(semantic, [:nodes, Access.at(0), :action], "not_a_module"),
+         "semantic flow node action must be a module atom"},
+        {put_in(semantic, [:return, :type], :unknown), "unknown flow ref type: :unknown"},
+        {put_in(semantic, [:nodes, Access.at(0), :input, :value, :path], [1.5]),
+         "flow ref path contains an invalid segment"},
+        {put_in(semantic, [:nodes, Access.at(0), :input, :value, :path], :not_a_path),
+         "flow ref path must be a list"}
+      ]
+
+      for {malformed, expected_message} <- cases do
+        assert {:error, %InvalidInputError{message: ^expected_message}} =
+                 Flow.from_map(malformed)
+      end
+
+      assert {:error,
+              %InvalidInputError{message: "stored flow expression must be a tagged record"}} =
+               stored
+               |> put_in(["nodes", Access.at(0), "input", "entries", Access.at(0), "value"], 42)
+               |> Flow.from_map(options)
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               stored
+               |> update_in(
+                 ["nodes", Access.at(0), "input", "entries", Access.at(0), "value"],
+                 &Map.delete(&1, "path")
+               )
+               |> Flow.from_map(options)
+
+      assert message == "reference is missing required field: \"path\""
+      assert details.record == :reference
+      assert details.field == "path"
+
+      assert {:error, %InvalidInputError{message: "flow map type is required"}} =
+               Flow.from_map(%{})
+    end
+
+    test "treats a non-reference semantic type field as ordinary shape data" do
+      semantic =
+        stored_source_flow()
+        |> Flow.to_map()
+        |> put_in([:nodes, Access.at(0), :input], %{
+          type: 123,
+          value: %{type: :value, value: :ok}
+        })
+
+      assert {:ok, flow} = Flow.from_map(semantic)
+      assert [%Node{input: %{type: 123, value: %Ref{type: :value, value: :ok}}}] = flow.nodes
+    end
+
+    test "rejects opaque stored writer values in hand-built artifacts" do
+      flow = %{stored_source_flow() | provenance: self()}
+
+      assert_raise InvalidInputError, ~r/stored flow value is not JSON-safe/, fn ->
+        Flow.to_map(flow,
+          format: :stored,
+          actions: %{"add" => Add},
+          provenance: true
+        )
+      end
+    end
+
+    test "round-trips provenance emitted by the stored writer" do
+      node =
+        Node.new!(
+          name: :add_one,
+          action: Add,
+          input: %{value: Ref.input(:value)},
+          provenance: %{line: 12, labels: [:primary, "math"]}
+        )
+
+      flow =
+        Flow.new!(
+          name: "stored_provenance_round_trip",
+          nodes: [node],
+          return: Ref.result(:add_one),
+          provenance: %{source: :writer, metadata: %{"revision" => 1}}
+        )
+
+      stored = Flow.to_map(flow, format: :stored, actions: %{"add" => Add}, provenance: true)
+
+      assert {:ok, loaded} =
+               Flow.from_map(stored, stored_options(%{"add" => Add}))
+
+      assert loaded.provenance == flow.provenance
+      assert [loaded_node] = loaded.nodes
+      assert loaded_node.provenance == node.provenance
     end
 
     test "rejects nested malformed expression and metadata values" do
@@ -1119,7 +1599,7 @@ defmodule Jido.FlowTest do
                    %{"type" => "bogus"}
                  ]
                )
-               |> Flow.from_map(actions: %{"echo" => EchoParamsAction})
+               |> Flow.from_map(stored_options(%{"echo" => EchoParamsAction}))
 
       assert message =~ "unknown flow ref type"
       assert details.type == "bogus"
@@ -1132,10 +1612,10 @@ defmodule Jido.FlowTest do
                    "nested" => %{"type" => "bogus"}
                  }
                )
-               |> Flow.from_map(actions: %{"echo" => EchoParamsAction})
+               |> Flow.from_map(stored_options(%{"echo" => EchoParamsAction}))
 
-      assert message =~ "unknown flow ref type"
-      assert details.type == "bogus"
+      assert message == "stored flow expression must be a tagged record"
+      assert details.record == :expression
 
       assert {:error, %InvalidInputError{message: message, details: details}} =
                base
@@ -1145,7 +1625,7 @@ defmodule Jido.FlowTest do
                    %{"$type" => "bogus"}
                  ]
                })
-               |> Flow.from_map(actions: %{"echo" => EchoParamsAction})
+               |> Flow.from_map(stored_options(%{"echo" => EchoParamsAction}))
 
       assert message =~ "unknown encoded value type"
       assert details.type == "bogus"
@@ -1155,13 +1635,13 @@ defmodule Jido.FlowTest do
                |> Map.put("provenance", %{
                  "source" => %{"nested" => %{"$type" => "bogus"}}
                })
-               |> Flow.from_map(actions: %{"echo" => EchoParamsAction})
+               |> Flow.from_map(stored_options(%{"echo" => EchoParamsAction}))
 
       assert message =~ "unknown encoded value type"
       assert details.type == "bogus"
     end
 
-    test "loads in-memory stored maps with atom typed path segment tags" do
+    test "rejects atom-key structural tags in stored path segments" do
       stored = %{
         "type" => "flow",
         "version" => 1,
@@ -1192,13 +1672,16 @@ defmodule Jido.FlowTest do
         "return" => %{"type" => "result", "node" => "echo", "path" => []}
       }
 
-      assert {:ok, loaded} = Flow.from_map(stored, actions: [echo: EchoParamsAction])
-      assert {:ok, %{value: 41}} = Jido.Exec.run(loaded, %{items: [%{"price" => 41}]}, %{})
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Flow.from_map(stored, stored_options(echo: EchoParamsAction))
+
+      assert message =~ "unknown field"
+      assert details.record == :typed_key
     end
 
     test "rejects invalid action registry option shapes" do
       assert {:error, %InvalidInputError{message: message, details: details}} =
-               Flow.from_map(%{}, actions: :bad)
+               Flow.from_map(stored_flow_map(), stored_options(:bad))
 
       assert message =~ "flow action registry must map"
       assert details.actions == :bad
@@ -1235,7 +1718,7 @@ defmodule Jido.FlowTest do
       }
 
       assert {:error, %InvalidInputError{message: message, details: details}} =
-               Flow.from_map(stored, actions: %{"add" => Add})
+               Flow.from_map(stored, stored_options(%{"add" => Add}))
 
       assert message =~ "unknown atom in flow map"
       assert details.value == atom_name
@@ -1270,7 +1753,7 @@ defmodule Jido.FlowTest do
       }
 
       assert {:error, %InvalidInputError{message: message, details: details}} =
-               Flow.from_map(stored, actions: %{"add" => Add})
+               Flow.from_map(stored, stored_options(%{"add" => Add}))
 
       assert message =~ "malformed flow path segment"
       assert details.type == "float"
@@ -1284,5 +1767,30 @@ defmodule Jido.FlowTest do
       action: Add,
       input: %{value: Ref.input(:value), amount: Ref.value(1)}
     )
+  end
+
+  defp stored_source_flow do
+    Flow.new!(
+      name: "stored_source",
+      nodes: [Node.new!(name: :add_one, action: Add, input: %{value: Ref.input(:value)})],
+      return: %{value: Ref.result(:add_one, :value)}
+    )
+  end
+
+  defp stored_flow_map do
+    stored_source_flow()
+    |> Flow.to_map(format: :stored, actions: %{"add" => Add})
+  end
+
+  defp stored_literal_map(value) do
+    put_in(
+      stored_flow_map(),
+      ["nodes", Access.at(0), "input", "entries", Access.at(0), "value"],
+      %{"type" => "value", "value" => value}
+    )
+  end
+
+  defp stored_options(actions) do
+    [actions: actions, schema: [], output_schema: []]
   end
 end

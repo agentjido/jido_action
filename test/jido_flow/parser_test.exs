@@ -14,7 +14,7 @@ defmodule Jido.Flow.ParserTest do
         step "totally_novel_step_name", "add",
           with: %{value: input(:value), amount: value(1)}
 
-        return result("totally_novel_step_name", :value)
+        return result("totally_novel_step_name")
       end
       """
 
@@ -26,7 +26,7 @@ defmodule Jido.Flow.ParserTest do
                )
 
       assert [%{name: "totally_novel_step_name"}] = Flow.to_map(flow).nodes
-      assert {:ok, 4} = Jido.Exec.run(flow, %{value: 3}, %{})
+      assert {:ok, %{value: 4}} = Jido.Exec.run(flow, %{value: 3}, %{})
     end
 
     test "parses the math milestone string to the same canonical map as builder syntax" do
