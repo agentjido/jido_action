@@ -41,6 +41,21 @@ defmodule Jido.ExecTest do
     defstruct [:value]
   end
 
+  def count_flow_transform(value, kind, _opts) do
+    counter_key = {__MODULE__, kind}
+    Process.put(counter_key, Process.get(counter_key, 0) + 1)
+
+    transformed =
+      case kind do
+        :input -> Map.update(value, :input_passes, 1, &(&1 + 1))
+        :output -> Map.update(value, :output_passes, 1, &(&1 + 1))
+        :envelope_output -> value
+        :invalid_output -> :invalid
+      end
+
+    {:ok, transformed}
+  end
+
   describe "run/3 with action modules" do
     test "executes a leaf action with input and context validation" do
       assert {:ok, %{value: 6}} = Exec.run(Add, %{value: 5}, %{trace_id: "trace"})
@@ -227,9 +242,160 @@ defmodule Jido.ExecTest do
   end
 
   describe "run/3 with flows" do
+    test "validates marked Flow modules exactly once in every execution path" do
+      module = unique_module("CountedValidationFlow")
+
+      create_module(
+        module,
+        quote do
+          use Jido.Flow,
+            name: "counted_validation_flow",
+            schema:
+              Zoi.map()
+              |> Zoi.transform({Jido.ExecTest, :count_flow_transform, [:input]}),
+            output_schema:
+              Zoi.map()
+              |> Zoi.transform({Jido.ExecTest, :count_flow_transform, [:output]})
+
+          flow do
+            step(:echo, unquote(EchoParamsAction), %{
+              value: input(:value),
+              input_passes: input(:input_passes)
+            })
+
+            return(result(:echo))
+          end
+        end
+      )
+
+      for {path, run} <- flow_execution_paths(module, value: 3) do
+        reset_flow_transform_counts()
+
+        assert {:ok, %{value: 3, input_passes: 1, output_passes: 1}} =
+                 run.(),
+               to_string(path)
+
+        assert Process.get({__MODULE__, :input}) == 1, to_string(path)
+        assert Process.get({__MODULE__, :output}) == 1, to_string(path)
+      end
+    end
+
+    test "rejects scalar Flow output transforms in every execution path" do
+      module = unique_module("ScalarTransformedOutputFlow")
+
+      create_module(
+        module,
+        quote do
+          use Jido.Flow,
+            name: "scalar_transformed_output_flow",
+            output_schema:
+              Zoi.map()
+              |> Zoi.transform({Jido.ExecTest, :count_flow_transform, [:invalid_output]})
+
+          flow do
+            step(:echo, unquote(EchoParamsAction), %{value: input(:value)})
+            return(result(:echo))
+          end
+        end
+      )
+
+      for {path, run} <- flow_execution_paths(module, %{value: 3}) do
+        reset_flow_transform_counts()
+
+        assert {:error, %InvalidInputError{message: message, details: details} = error} = run.(),
+               to_string(path)
+
+        assert message == "Flow output validation must return a map", to_string(path)
+        assert details.context == "Flow output", to_string(path)
+
+        assert details.phase == if(path == :parent, do: :step_execution, else: :flow_output),
+               to_string(path)
+
+        assert details.subject == module.flow(), to_string(path)
+        assert details.value == :invalid, to_string(path)
+        assert Jido.Action.Error.to_map(error).retryable? == false, to_string(path)
+        assert Process.get({__MODULE__, :invalid_output}) == 1, to_string(path)
+      end
+    end
+
+    test "passes Flow output envelopes unchanged and bypasses the normal output schema" do
+      module = unique_module("EnvelopeFlow")
+
+      create_module(
+        module,
+        quote do
+          use Jido.Flow,
+            name: "envelope_flow",
+            output_schema:
+              Zoi.map()
+              |> Zoi.transform({Jido.ExecTest, :count_flow_transform, [:envelope_output]})
+
+          flow do
+            step(:envelope, unquote(OutputEnvelopeAction), %{value: input(:value)})
+            return(result(:envelope))
+          end
+        end
+      )
+
+      expected = %Jido.Action.Output{kind: :raw, value: %{value: 3}, meta: %{source: :test}}
+
+      for {path, run} <- flow_execution_paths(module, %{value: 3}) do
+        reset_flow_transform_counts()
+
+        assert {:ok, ^expected} = run.(), to_string(path)
+        assert Process.get({__MODULE__, :envelope_output}, 0) == 0, to_string(path)
+      end
+    end
+
+    test "normalizes malformed Flow output envelopes" do
+      malformed = %Jido.Action.Output{kind: :stream, value: 42, meta: %{}}
+
+      flow =
+        Flow.new!(
+          name: "malformed_envelope_flow",
+          nodes: [
+            Node.new!(
+              name: :echo,
+              action: EchoParamsAction,
+              input: %{value: Ref.value(malformed)}
+            )
+          ],
+          return: Ref.result(:echo, :value)
+        )
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Exec.run(flow, %{value: %{}}, %{})
+
+      assert message == "invalid action output envelope"
+      assert details.phase == :flow_output
+    end
+
+    test "rejects raw scalar Flow results in every execution path" do
+      module = unique_module("ScalarResultFlow")
+
+      create_module(
+        module,
+        quote do
+          use Jido.Flow, name: "scalar_result_flow"
+
+          flow do
+            step(:echo, unquote(EchoParamsAction), %{value: input(:value)})
+            return(result(:echo, :value))
+          end
+        end
+      )
+
+      for {path, run} <- flow_execution_paths(module, %{value: 3}) do
+        assert {:error, %ExecutionFailureError{message: message}} = run.(), to_string(path)
+
+        assert message == "action returned a value that requires an output envelope",
+               to_string(path)
+      end
+    end
+
     test "executes a Flow artifact" do
       assert {:ok, flow} = Builder.build(FlowFixtures.math_builder())
-      assert {:ok, 8} = Exec.run(flow, %{value: 3}, %{})
+      assert {:ok, %{value: 8}} = Exec.run(flow, %{value: 3}, %{})
     end
 
     test "checks Flow action contracts before execution" do
@@ -255,6 +421,30 @@ defmodule Jido.ExecTest do
       assert details.reason == "missing run/2"
     end
 
+    test "validates Flow structure before checking node action contracts" do
+      flow = %Flow{
+        name: "invalid_structure_first",
+        description: nil,
+        schema: Zoi.integer(),
+        output_schema: [],
+        nodes: [
+          Node.new!(
+            name: :broken,
+            action: MissingRun,
+            input: %{value: Ref.input(:value)}
+          )
+        ],
+        return: Ref.result(:broken),
+        provenance: %{}
+      }
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Exec.run(flow, %{value: 3}, %{})
+
+      assert message == "schema must accept map-shaped action data"
+      assert details.field == "schema"
+    end
+
     test "executes a binding-first Flow artifact with whole-result input" do
       assert {:ok, flow} = Builder.build(FlowFixtures.binding_builder())
       assert {:ok, %{value: 8}} = Exec.run(flow, %{value: 3}, %{})
@@ -263,7 +453,7 @@ defmodule Jido.ExecTest do
     test "normalizes nil and keyword input or context for Flow artifacts" do
       assert {:ok, flow} = Builder.build(FlowFixtures.math_builder())
 
-      assert {:ok, 8} = Exec.run(flow, [value: 3], [])
+      assert {:ok, %{value: 8}} = Exec.run(flow, [value: 3], [])
 
       empty_flow =
         Flow.new!(
@@ -271,10 +461,10 @@ defmodule Jido.ExecTest do
           nodes: [
             Node.new!(name: :constant, action: Add, input: %{value: Ref.value(1)})
           ],
-          return: Ref.result(:constant, :value)
+          return: Ref.result(:constant)
         )
 
-      assert {:ok, 2} = Exec.run(empty_flow, nil, nil)
+      assert {:ok, %{value: 2}} = Exec.run(empty_flow, nil, nil)
     end
 
     test "passes map input through empty Flow schemas unchanged" do
@@ -330,14 +520,14 @@ defmodule Jido.ExecTest do
               }
             )
 
-            return(result(:double, :value))
+            return(result(:double))
           end
         end
       )
 
       assert module.__jido_flow__() == true
       assert Exec.run(module, %{value: 3}, %{}) == Exec.run(module.flow(), %{value: 3}, %{})
-      assert {:ok, 8} = Exec.run(module, %{value: 3}, %{})
+      assert {:ok, %{value: 8}} = Exec.run(module, %{value: 3}, %{})
     end
 
     test "converts raised action exceptions during Flow execution into execution errors" do
@@ -366,11 +556,11 @@ defmodule Jido.ExecTest do
       flow =
         Flow.new!(
           name: "context",
-          output_schema: Zoi.integer(),
+          output_schema: Zoi.object(%{trace_id: Zoi.integer()}),
           nodes: [
             Node.new!(name: :echo, action: ContextEcho, input: %{value: Ref.input(:value)})
           ],
-          return: Ref.result(:echo, :trace_id)
+          return: Ref.result(:echo)
         )
 
       assert {:error, %InvalidInputError{message: message, details: details}} =
@@ -381,18 +571,18 @@ defmodule Jido.ExecTest do
       assert details.context == "Flow output"
     end
 
-    test "accepts scalar Flow output schemas when the return value matches" do
-      flow =
-        Flow.new!(
-          name: "scalar_output",
-          output_schema: Zoi.integer(),
-          nodes: [
-            Node.new!(name: :add_one, action: Add, input: %{value: Ref.input(:value)})
-          ],
-          return: Ref.result(:add_one, :value)
-        )
+    test "rejects scalar Flow output schemas during construction" do
+      assert {:error, %InvalidInputError{message: message}} =
+               Flow.new(
+                 name: "scalar_output",
+                 output_schema: Zoi.integer(),
+                 nodes: [
+                   Node.new!(name: :add_one, action: Add, input: %{value: Ref.input(:value)})
+                 ],
+                 return: Ref.result(:add_one)
+               )
 
-      assert {:ok, 4} = Exec.run(flow, %{value: 3}, %{})
+      assert message =~ "output_schema must accept map-shaped action data"
     end
 
     test "validates Flow input schema before compiling execution" do
@@ -414,23 +604,18 @@ defmodule Jido.ExecTest do
       assert details.context == "Flow"
     end
 
-    test "validates scalar Flow input schemas against map input" do
-      flow =
-        Flow.new!(
-          name: "scalar_input_schema",
-          schema: Zoi.integer(),
-          nodes: [
-            Node.new!(name: :add_one, action: Add, input: %{value: Ref.input(:value)})
-          ],
-          return: Ref.result(:add_one, :value)
-        )
+    test "rejects scalar Flow input schemas during construction" do
+      assert {:error, %InvalidInputError{message: message}} =
+               Flow.new(
+                 name: "scalar_input_schema",
+                 schema: Zoi.integer(),
+                 nodes: [
+                   Node.new!(name: :add_one, action: Add, input: %{value: Ref.input(:value)})
+                 ],
+                 return: Ref.result(:add_one)
+               )
 
-      assert {:error, %InvalidInputError{message: message, details: details}} =
-               Exec.run(flow, %{value: 3}, %{})
-
-      assert message =~ "expected integer"
-      assert details.phase == :flow_input
-      assert details.context == "Flow"
+      assert message =~ "schema must accept map-shaped action data"
     end
 
     test "keeps unknown flow input fields after object schema validation" do
@@ -445,10 +630,10 @@ defmodule Jido.ExecTest do
               input: %{value: Ref.input(:value), extra: Ref.input(:extra)}
             )
           ],
-          return: Ref.result(:echo, :extra)
+          return: %{extra: Ref.result(:echo, :extra)}
         )
 
-      assert {:ok, "kept"} = Exec.run(flow, %{value: 3, extra: "kept"}, %{})
+      assert {:ok, %{extra: "kept"}} = Exec.run(flow, %{value: 3, extra: "kept"}, %{})
     end
 
     test "keeps unknown flow input fields after struct schema validation" do
@@ -463,10 +648,10 @@ defmodule Jido.ExecTest do
               input: %{value: Ref.input(:value), extra: Ref.input(:extra)}
             )
           ],
-          return: Ref.result(:echo, :extra)
+          return: %{extra: Ref.result(:echo, :extra)}
         )
 
-      assert {:ok, "kept"} = Exec.run(flow, %{value: 3, extra: "kept"}, %{})
+      assert {:ok, %{extra: "kept"}} = Exec.run(flow, %{value: 3, extra: "kept"}, %{})
     end
 
     test "handles map schemas without explicit field lists" do
@@ -481,10 +666,10 @@ defmodule Jido.ExecTest do
               input: %{"value" => Ref.input("value")}
             )
           ],
-          return: Ref.result(:echo, "value")
+          return: %{"value" => Ref.result(:echo, "value")}
         )
 
-      assert {:ok, 3} = Exec.run(flow, %{"value" => 3}, %{})
+      assert {:ok, %{"value" => 3}} = Exec.run(flow, %{"value" => 3}, %{})
     end
   end
 
@@ -571,12 +756,12 @@ defmodule Jido.ExecTest do
 
           flow do
             step(:add_one, unquote(Add), %{value: input(:value), amount: value(1)})
-            return(result(:add_one, :value))
+            return(result(:add_one))
           end
         end
       )
 
-      assert {:ok, 4} = Exec.run(module, %{value: 3}, %{}, async: true)
+      assert {:ok, %{value: 4}} = Exec.run(module, %{value: 3}, %{}, async: true)
     end
 
     test "rejects unknown Flow run options" do
@@ -603,6 +788,9 @@ defmodule Jido.ExecTest do
 
       assert message =~ "max_concurrency option must be a positive integer"
       assert details.option == :max_concurrency
+
+      assert {:error, %InvalidInputError{message: "run options must be a keyword list"}} =
+               Exec.run(flow, %{}, %{}, :not_options)
     end
 
     test "rejects Flow run options for action and instruction executables" do
@@ -640,5 +828,30 @@ defmodule Jido.ExecTest do
     result = fun.()
     elapsed_ms = System.monotonic_time(:millisecond) - start
     {result, elapsed_ms}
+  end
+
+  defp flow_execution_paths(module, input) do
+    flow = module.flow()
+    instruction = Instruction.new!(action: module, params: input)
+
+    parent =
+      Flow.new!(
+        name: "parent_#{System.unique_integer([:positive])}",
+        nodes: [Node.new!(name: :inner, action: module, input: Ref.input([]))],
+        return: Ref.result(:inner)
+      )
+
+    [
+      artifact: fn -> Exec.run(flow, input, %{}) end,
+      marked_module: fn -> Exec.run(module, input, %{}) end,
+      instruction: fn -> Exec.run(instruction, %{}, %{}) end,
+      parent: fn -> Exec.run(parent, input, %{}) end
+    ]
+  end
+
+  defp reset_flow_transform_counts do
+    for kind <- [:input, :output, :envelope_output, :invalid_output] do
+      Process.delete({__MODULE__, kind})
+    end
   end
 end

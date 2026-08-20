@@ -128,6 +128,21 @@ defmodule Jido.Flow.NodeTest do
       end
     end
 
+    test "rejects unknown node fields and invalid ref paths" do
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Node.new(name: :bad, action: Add, inpoot: %{})
+
+      assert message == "unknown node configuration key: :inpoot"
+      assert details.key == :inpoot
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Node.new(name: :bad, action: Add, input: Ref.input([%{bad: :segment}]))
+
+      assert message == "node input contains invalid ref path"
+      assert details.path == []
+      assert details.segment == %{bad: :segment}
+    end
+
     test "rejects malformed refs and unsupported structs at nested input paths" do
       assert {:error, %InvalidInputError{message: message, details: details}} =
                Node.new(

@@ -210,6 +210,124 @@ defmodule Jido.Flow.CompilerTest do
       refute connects?(workflow, :c, :b)
     end
 
+    test "reacts inspection workflows with inert node markers only" do
+      flow =
+        Flow.new!(
+          name: "passive_inspection",
+          nodes: [Node.new!(name: :probe, action: ThrowingAction)],
+          return: Ref.result(:probe)
+        )
+
+      assert {:ok, workflow} = Flow.compile(flow)
+
+      final_workflow = Workflow.react_until_satisfied(workflow, %{ignored: :runtime_input})
+
+      assert Workflow.results(final_workflow, ["probe"]) == %{
+               "probe" => {:jido_flow_node, 1, "probe"}
+             }
+    end
+
+    test "does not load Action modules during compile or inspection reaction" do
+      unloaded_action = unique_module("UnloadedInspectionAction")
+      assert {:error, :nofile} = Code.ensure_loaded(unloaded_action)
+
+      flow =
+        Flow.new!(
+          name: "unloaded_inspection",
+          nodes: [Node.new!(name: :unloaded, action: unloaded_action)],
+          return: Ref.result(:unloaded)
+        )
+
+      assert {:ok, workflow} = Flow.compile(flow)
+      assert {:error, :nofile} = Code.ensure_loaded(unloaded_action)
+
+      final_workflow = Workflow.react_until_satisfied(workflow, %{})
+
+      assert Workflow.results(final_workflow, ["unloaded"]) == %{
+               "unloaded" => {:jido_flow_node, 1, "unloaded"}
+             }
+
+      assert {:error, :nofile} = Code.ensure_loaded(unloaded_action)
+    end
+
+    test "uses stable node-unique UUIDv8 hashes for inspection Steps" do
+      flow = diamond_flow()
+
+      assert {:ok, first_workflow} = Flow.compile(flow)
+      assert {:ok, second_workflow} = Flow.compile(flow)
+
+      first_hashes = Map.new(Workflow.steps(first_workflow), &{&1.name, &1.hash})
+      second_hashes = Map.new(Workflow.steps(second_workflow), &{&1.name, &1.hash})
+
+      assert first_hashes == second_hashes
+      assert first_hashes["a"] == "a333a789-9129-8feb-8c73-3bef0bb22beb"
+      assert map_size(first_hashes) == first_hashes |> Map.values() |> Enum.uniq() |> length()
+
+      for hash <- Map.values(first_hashes) do
+        assert hash =~
+                 ~r/^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+      end
+
+      changed_flow = %{flow | description: "semantic change"}
+      assert {:ok, changed_workflow} = Flow.compile(changed_flow)
+
+      changed_hashes = Map.new(Workflow.steps(changed_workflow), &{&1.name, &1.hash})
+      refute first_hashes == changed_hashes
+    end
+
+    test "uses canonical node order for independent inspection Steps" do
+      flow =
+        Flow.new!(
+          name: "canonical_inspection_order",
+          nodes: [
+            Node.new!(name: :zeta, action: EchoParamsAction),
+            Node.new!(name: :alpha, action: EchoParamsAction)
+          ],
+          return: Ref.result(:zeta)
+        )
+
+      assert {:ok, workflow} = Flow.compile(flow)
+      assert Enum.map(Flow.canonical_nodes(flow.nodes), & &1.name) == ["alpha", "zeta"]
+
+      assert MapSet.new(Enum.map(Workflow.steps(workflow), & &1.name)) ==
+               MapSet.new(["alpha", "zeta"])
+    end
+
+    test "keeps inspection and runtime workflow topology equal" do
+      flow = diamond_flow()
+
+      assert {:ok, inspection} = Flow.compile(flow)
+      assert {:ok, runtime} = Compiler.runtime_workflow(flow, %{value: 3}, %{})
+
+      for workflow <- [inspection, runtime] do
+        assert root_child?(workflow, "a")
+        assert connects?(workflow, :a, :b)
+        assert connects?(workflow, :a, :c)
+        assert join_feeds?(workflow, ["b", "c"], "d")
+      end
+    end
+
+    test "does not emit node telemetry during inspection" do
+      event = [:jido, :flow, :node, :start]
+      handler_id = {__MODULE__, self(), make_ref()}
+      test_pid = self()
+
+      :ok =
+        :telemetry.attach(
+          handler_id,
+          event,
+          fn event, _measurements, metadata, pid -> send(pid, {event, metadata}) end,
+          test_pid
+        )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      assert {:ok, workflow} = Flow.compile(one_step_flow())
+      Workflow.react_until_satisfied(workflow, %{})
+
+      refute_receive {^event, %{flow: "one_step"}}
+    end
+
     test "Runic settles raised work failures and skips downstream work" do
       workflow =
         Workflow.new("raised_work")
@@ -237,6 +355,16 @@ defmodule Jido.Flow.CompilerTest do
   end
 
   describe "run/3" do
+    test "rejects invalid runtime workflow input and non-list run options" do
+      flow = one_step_flow()
+
+      assert {:error, %InvalidInputError{message: "flow input and context must be maps"}} =
+               Compiler.runtime_workflow(flow, [], %{})
+
+      assert {:error, %InvalidInputError{message: "run options must be a keyword list"}} =
+               Compiler.run(flow, %{}, %{}, :not_options)
+    end
+
     test "node error messages include the normalized error message" do
       assert_raise NodeError, ~r/flow node "bad" failed: boom/, fn ->
         raise NodeError, node: "bad", error: %RuntimeError{message: "boom"}
@@ -275,7 +403,7 @@ defmodule Jido.Flow.CompilerTest do
 
     test "executes the compiled workflow and extracts the declared return" do
       assert {:ok, flow} = Jido.Flow.Builder.build(FlowFixtures.math_builder())
-      assert {:ok, 8} = Compiler.run(flow, %{value: 3}, %{})
+      assert {:ok, %{value: 8}} = Compiler.run(flow, %{value: 3}, %{})
     end
 
     test "executes a binding-first flow with whole-result step input" do
@@ -307,6 +435,26 @@ defmodule Jido.Flow.CompilerTest do
       }
 
       assert {:ok, 5} = Compiler.run(flow, %{value: 3}, %{})
+    end
+
+    test "uses the normalized return expression for raw flows" do
+      flow = %Flow{
+        name: "raw_return_ref",
+        description: nil,
+        schema: [],
+        output_schema: [],
+        nodes: [
+          Node.new!(
+            name: :echo,
+            action: EchoParamsAction,
+            input: %{value: Ref.input(:value)}
+          )
+        ],
+        return: %Ref{type: :result, node: :echo, path: [:value]},
+        provenance: %{}
+      }
+
+      assert {:ok, 3} = Compiler.run(flow, %{value: 3}, %{})
     end
 
     test "checks action contracts before direct compiler execution" do
@@ -591,7 +739,7 @@ defmodule Jido.Flow.CompilerTest do
 
       input = %{quote_id: "quote-1", items: [%{id: "item-1", price: 42}], tag: "priority"}
 
-      assert {:ok, 42} = Compiler.run(flow, input, %{})
+      assert {:ok, %{total: 42}} = Compiler.run(flow, input, %{})
     end
 
     test "executes shaped return expressions after the workflow settles" do

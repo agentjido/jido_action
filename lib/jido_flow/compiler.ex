@@ -7,6 +7,7 @@ defmodule Jido.Flow.Compiler do
   alias Jido.Action.Output
   alias Jido.Exec
   alias Jido.Flow
+  alias Jido.Flow.Identity
   alias Jido.Flow.Node
   alias Jido.Flow.NodeError
   alias Jido.Flow.Ref
@@ -32,9 +33,24 @@ defmodule Jido.Flow.Compiler do
   @spec compile(Flow.t()) :: {:ok, Workflow.t()} | {:error, Exception.t()}
   def compile(%Flow{} = flow) do
     with {:ok, flow} <- Flow.validate(flow),
-         {:ok, workflow, _ordered_nodes} <- build(flow, %{}, %{}, nil) do
+         flow_digest = Identity.semantic_digest(flow),
+         {:ok, workflow, _ordered_nodes} <- build(flow, {:inspection, flow_digest}) do
       {:ok, workflow}
     end
+  end
+
+  @doc false
+  @spec runtime_workflow(Flow.t(), map(), map()) ::
+          {:ok, Workflow.t()} | {:error, Exception.t()}
+  def runtime_workflow(%Flow{} = flow, input, context)
+      when is_map(input) and is_map(context) do
+    with {:ok, _flow, workflow, _ordered_nodes} <- prepare_runtime(flow, input, context, nil) do
+      {:ok, workflow}
+    end
+  end
+
+  def runtime_workflow(%Flow{}, _input, _context) do
+    {:error, Error.validation_error("flow input and context must be maps")}
   end
 
   @doc """
@@ -47,13 +63,31 @@ defmodule Jido.Flow.Compiler do
   def run(flow, input, context \\ %{}, opts \\ [])
 
   def run(%Flow{} = flow, input, context, opts) when is_map(input) and is_map(context) do
+    with :ok <- validate_run_opts(opts),
+         {:ok, flow} <- Flow.validate(flow),
+         :ok <- Flow.check(flow) do
+      execute(flow, input, context, opts)
+    end
+  end
+
+  def run(%Flow{}, _input, _context, _opts) do
+    {:error, Error.validation_error("flow input and context must be maps")}
+  end
+
+  @doc false
+  @spec run_validated(Flow.t(), map(), map(), keyword()) ::
+          {:ok, term()} | {:error, Exception.t()}
+  def run_validated(%Flow{} = flow, input, context, opts)
+      when is_map(input) and is_map(context) and is_list(opts) do
+    execute(flow, input, context, opts)
+  end
+
+  defp execute(flow, input, context, opts) do
     runner = self()
     run_ref = make_ref()
 
-    with :ok <- validate_run_opts(opts),
-         {:ok, flow} <- Flow.validate(flow),
-         :ok <- Flow.check(flow),
-         {:ok, workflow, ordered_nodes} <- build(flow, input, context, {runner, run_ref}) do
+    with {:ok, workflow, ordered_nodes} <-
+           prepare_validated_runtime(flow, input, context, {runner, run_ref}) do
       final_workflow = Workflow.react_until_satisfied(workflow, input, opts)
       node_errors = drain_node_errors(run_ref, ordered_nodes)
 
@@ -65,10 +99,6 @@ defmodule Jido.Flow.Compiler do
           extract_return(flow.return, final_workflow, input, context)
       end
     end
-  end
-
-  def run(%Flow{}, _input, _context, _opts) do
-    {:error, Error.validation_error("flow input and context must be maps")}
   end
 
   defp validate_run_opts(opts) when is_list(opts) do
@@ -118,37 +148,47 @@ defmodule Jido.Flow.Compiler do
      })}
   end
 
-  defp build(%Flow{} = flow, input, context, collector) do
-    nodes_by_name = Map.new(flow.nodes, fn node -> {node.name, node} end)
+  defp prepare_runtime(flow, input, context, collector) do
+    with {:ok, flow} <- Flow.validate(flow),
+         :ok <- Flow.check(flow),
+         {:ok, workflow, ordered_nodes} <-
+           prepare_validated_runtime(flow, input, context, collector) do
+      {:ok, flow, workflow, ordered_nodes}
+    end
+  end
 
+  defp prepare_validated_runtime(flow, input, context, collector) do
     node_state =
       %{flow: flow.name, input: input, context: context, results: %{}}
       |> Map.put(@collector_key, collector)
 
+    build(flow, {:runtime, node_state})
+  end
+
+  defp build(%Flow{} = flow, mode) do
+    nodes_by_name = Map.new(flow.nodes, fn node -> {node.name, node} end)
+
     {workflow, _added, ordered} =
-      Enum.reduce(flow.nodes, {Workflow.new(flow.name), MapSet.new(), []}, fn node,
-                                                                              {workflow, added,
-                                                                               ordered} ->
-        add_node(node.name, nodes_by_name, workflow, added, ordered, node_state)
+      flow.nodes
+      |> Flow.canonical_nodes()
+      |> Enum.reduce({Workflow.new(flow.name), MapSet.new(), []}, fn node,
+                                                                     {workflow, added, ordered} ->
+        add_node(node.name, nodes_by_name, workflow, added, ordered, mode)
       end)
 
     {:ok, workflow, ordered}
   end
 
-  defp add_node(name, nodes_by_name, workflow, added, ordered, node_state) do
+  defp add_node(name, nodes_by_name, workflow, added, ordered, mode) do
     if MapSet.member?(added, name) do
       {workflow, added, ordered}
     else
       node = Map.fetch!(nodes_by_name, name)
 
       {workflow, added, ordered} =
-        add_dependencies(node.deps, nodes_by_name, workflow, added, ordered, node_state)
+        add_dependencies(node.deps, nodes_by_name, workflow, added, ordered, mode)
 
-      step =
-        Step.new(
-          name: node.name,
-          work: fn parent_value -> run_node(node, parent_value, node_state) end
-        )
+      step = build_step(node, mode)
 
       workflow = add_step(workflow, node, step)
 
@@ -156,7 +196,7 @@ defmodule Jido.Flow.Compiler do
     end
   end
 
-  defp add_dependencies([], _nodes_by_name, workflow, added, ordered, _node_state) do
+  defp add_dependencies([], _nodes_by_name, workflow, added, ordered, _mode) do
     {workflow, added, ordered}
   end
 
@@ -166,12 +206,27 @@ defmodule Jido.Flow.Compiler do
          workflow,
          added,
          ordered,
-         node_state
+         mode
        ) do
     {workflow, added, ordered} =
-      add_node(dep, nodes_by_name, workflow, added, ordered, node_state)
+      add_node(dep, nodes_by_name, workflow, added, ordered, mode)
 
-    add_dependencies(deps, nodes_by_name, workflow, added, ordered, node_state)
+    add_dependencies(deps, nodes_by_name, workflow, added, ordered, mode)
+  end
+
+  defp build_step(node, {:inspection, flow_digest}) do
+    Step.new(
+      name: node.name,
+      hash: Identity.step_uuid(flow_digest, node.name),
+      work: fn _parent_value -> {:jido_flow_node, 1, node.name} end
+    )
+  end
+
+  defp build_step(node, {:runtime, node_state}) do
+    Step.new(
+      name: node.name,
+      work: fn parent_value -> run_node(node, parent_value, node_state) end
+    )
   end
 
   defp add_step(workflow, %{deps: []}, step), do: Workflow.add(workflow, step, validate: :off)
@@ -202,14 +257,39 @@ defmodule Jido.Flow.Compiler do
   defp run_node_result(node, parent_value, node_state) do
     state = %{node_state | results: dependency_results(node, parent_value)}
 
-    with {:ok, params} <- resolve_expr(node.input, state),
-         {:ok, params} <- validate_step_input(node, params),
-         {:ok, output} <- call_action(node, params, state.context),
-         {:ok, output} <- validate_step_output(node, output) do
-      {:ok, output}
-    else
-      {:error, error} -> {:error, error, state}
+    case resolve_expr(node.input, state) do
+      {:ok, params} ->
+        case run_resolved_node(node, params, state.context) do
+          {:ok, output} -> {:ok, output}
+          {:error, error} -> {:error, error, state}
+        end
+
+      {:error, error} ->
+        {:error, error, state}
     end
+  end
+
+  defp run_resolved_node(node, params, context) do
+    if flow_module?(node.action) do
+      call_flow(node, params, context)
+    else
+      with {:ok, params} <- validate_step_input(node, params),
+           {:ok, output} <- call_action(node, params, context),
+           {:ok, output} <- validate_step_output(node, output) do
+        {:ok, output}
+      end
+    end
+  end
+
+  defp flow_module?(action) do
+    function_exported?(action, :__jido_flow__, 0)
+  end
+
+  defp call_flow(node, params, context) do
+    node.action
+    |> apply(:flow, [])
+    |> Exec.run(params, context)
+    |> tag_step_execution_error(node)
   end
 
   defp node_metadata(node, node_state) do

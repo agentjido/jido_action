@@ -343,6 +343,16 @@ defmodule Jido.ActionTest do
     end
   end
 
+  describe "static data validation" do
+    test "rejects improper list tails at their paths" do
+      assert {:error, "improper list tails are not supported at [1]"} =
+               Action.validate_static_data([:schema | :tail])
+
+      assert {:error, "improper list tails are not supported at [:schema, :steps, 1]"} =
+               Action.validate_static_data(%{schema: %{steps: [:step | :tail]}})
+    end
+  end
+
   describe "parameter validation" do
     test "validates required parameters" do
       assert {:error, %Jido.Action.Error.InvalidInputError{message: message}} =

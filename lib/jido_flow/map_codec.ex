@@ -8,6 +8,27 @@ defmodule Jido.Flow.MapCodec do
   @version 1
   @ref_types [:input, :context, :result, :value]
   @stored_ref_types ["input", "context", "result", "value"]
+  @option_keys [:actions, :schema, :output_schema]
+  @semantic_root_keys [
+    :type,
+    :version,
+    :name,
+    :description,
+    :schema,
+    :output_schema,
+    :nodes,
+    :return,
+    :provenance
+  ]
+  @stored_root_keys [
+    "type",
+    "version",
+    "name",
+    "description",
+    "nodes",
+    "return",
+    "provenance"
+  ]
 
   @spec to_semantic_map(Jido.Flow.t(), [Node.t()], keyword()) :: map()
   def to_semantic_map(flow, ordered_nodes, opts) do
@@ -57,8 +78,13 @@ defmodule Jido.Flow.MapCodec do
   @spec from_map(map(), map() | keyword()) :: {:ok, Jido.Flow.t()} | {:error, Exception.t()}
   def from_map(%{} = map, opts) do
     with {:ok, opts} <- normalize_options(opts),
-         {:ok, actions} <- normalize_actions(Map.get(opts, :actions, %{})),
-         {:ok, attrs} <- decode_flow(map, actions, opts) do
+         :ok <- validate_option_keys(opts),
+         {:ok, profile} <- select_profile(map),
+         :ok <- validate_root(map, profile),
+         :ok <- validate_root_header(map, profile),
+         :ok <- validate_profile_options(opts, profile),
+         {:ok, actions} <- profile_actions(opts, profile),
+         {:ok, attrs} <- decode_flow(map, actions, opts, profile) do
       Jido.Flow.new(attrs)
     end
   end
@@ -80,23 +106,21 @@ defmodule Jido.Flow.MapCodec do
     end
   end
 
-  defp decode_flow(map, actions, opts) do
-    with {:ok, version} <- fetch_required(map, :version, "flow map version is required"),
-         :ok <- validate_version(version),
-         {:ok, type} <- fetch_required(map, :type, "flow map type is required"),
-         :ok <- validate_type(type),
-         {:ok, name} <- fetch_required(map, :name, "flow map name is required"),
-         {:ok, nodes} <- fetch_required(map, :nodes, "flow map nodes are required"),
-         {:ok, return} <- fetch_required(map, :return, "flow map return is required"),
-         {:ok, nodes} <- decode_nodes(nodes, actions),
-         {:ok, return} <- decode_expression(return),
-         {:ok, provenance} <- decode_optional_data(map, :provenance, %{}) do
+  defp decode_flow(map, actions, opts, profile) do
+    with {:ok, name} <- profile_fetch_required(map, :name, profile, "flow map name is required"),
+         {:ok, nodes} <-
+           profile_fetch_required(map, :nodes, profile, "flow map nodes are required"),
+         {:ok, return} <-
+           profile_fetch_required(map, :return, profile, "flow map return is required"),
+         {:ok, nodes} <- decode_nodes(nodes, actions, profile),
+         {:ok, return} <- decode_expression(return, profile),
+         {:ok, provenance} <- decode_optional_data(map, :provenance, %{}, profile) do
       {:ok,
        %{
          name: name,
-         description: fetch_optional(map, :description, nil),
-         schema: option_or_map_value(opts, map, :schema, []),
-         output_schema: option_or_map_value(opts, map, :output_schema, []),
+         description: profile_fetch_optional(map, :description, nil, profile),
+         schema: profile_schema(map, opts, :schema, profile),
+         output_schema: profile_schema(map, opts, :output_schema, profile),
          nodes: nodes,
          return: return,
          provenance: provenance
@@ -110,53 +134,71 @@ defmodule Jido.Flow.MapCodec do
     error("unsupported flow map version: #{inspect(version)}", %{version: version})
   end
 
-  defp validate_type(:flow), do: :ok
-  defp validate_type("flow"), do: :ok
+  defp validate_type(:flow, :semantic), do: :ok
+  defp validate_type("flow", :stored), do: :ok
 
-  defp validate_type(type) do
+  defp validate_type(type, _profile) do
     error("flow map type must be flow", %{type: type})
   end
 
-  defp decode_nodes(nodes, actions) when is_list(nodes) do
-    nodes
-    |> Enum.reduce_while({:ok, []}, fn node, {:ok, acc} ->
-      case decode_node(node, actions) do
-        {:ok, node} -> {:cont, {:ok, [node | acc]}}
-        {:error, error} -> {:halt, {:error, error}}
+  defp decode_nodes(nodes, actions, profile) when is_list(nodes) do
+    if List.improper?(nodes) do
+      error("flow nodes must be a list")
+    else
+      nodes
+      |> Enum.reduce_while({:ok, []}, fn node, {:ok, acc} ->
+        case decode_node(node, actions, profile) do
+          {:ok, node} -> {:cont, {:ok, [node | acc]}}
+          {:error, error} -> {:halt, {:error, error}}
+        end
+      end)
+      |> case do
+        {:ok, nodes} -> {:ok, Enum.reverse(nodes)}
+        {:error, error} -> {:error, error}
       end
-    end)
-    |> case do
-      {:ok, nodes} -> {:ok, Enum.reverse(nodes)}
-      {:error, error} -> {:error, error}
     end
   end
 
-  defp decode_nodes(_nodes, _actions), do: error("flow nodes must be a list")
+  defp decode_nodes(_nodes, _actions, _profile), do: error("flow nodes must be a list")
 
-  defp decode_node(%{} = node, actions) do
-    with {:ok, name} <- fetch_required(node, :name, "flow node name is required"),
-         {:ok, action} <- fetch_required(node, :action, "flow node action is required"),
-         {:ok, action} <- decode_action(action, actions),
-         {:ok, input} <- decode_expression(fetch_optional(node, :input, %{})),
-         {:ok, provenance} <- decode_optional_data(node, :provenance, %{}) do
+  defp decode_node(%{} = node, actions, profile) do
+    with :ok <- validate_node_record(node, profile),
+         {:ok, name} <- profile_fetch_required(node, :name, profile, "flow node name is required"),
+         {:ok, action} <-
+           profile_fetch_required(node, :action, profile, "flow node action is required"),
+         {:ok, action} <- decode_action(action, actions, profile),
+         {:ok, input} <-
+           decode_expression(profile_fetch_optional(node, :input, %{}, profile), profile),
+         {:ok, provenance} <- decode_optional_data(node, :provenance, %{}, profile),
+         {:ok, deps} <- decode_node_deps(profile_fetch_optional(node, :deps, [], profile)) do
       {:ok,
        %{
          name: name,
          action: action,
          input: input,
-         deps: fetch_optional(node, :deps, []),
+         deps: deps,
          provenance: provenance
        }}
     end
   end
 
-  defp decode_node(_node, _actions), do: error("flow node must be a map")
+  defp decode_node(_node, _actions, _profile), do: error("flow node must be a map")
 
-  defp decode_action(action, _actions) when is_atom(action) and not is_nil(action) do
+  defp decode_node_deps(deps) when is_list(deps) do
+    if List.improper?(deps) do
+      error("flow node deps must be a list", %{deps: inspect(deps)})
+    else
+      {:ok, deps}
+    end
+  end
+
+  defp decode_node_deps(deps), do: error("flow node deps must be a list", %{deps: deps})
+
+  defp decode_action(action, _actions, :semantic) when is_atom(action) and not is_nil(action) do
     {:ok, action}
   end
 
-  defp decode_action(identifier, actions) when is_binary(identifier) do
+  defp decode_action(identifier, actions, :stored) when is_binary(identifier) do
     case Map.fetch(actions, identifier) do
       {:ok, action} ->
         {:ok, action}
@@ -168,8 +210,12 @@ defmodule Jido.Flow.MapCodec do
     end
   end
 
-  defp decode_action(action, _actions) do
-    error("flow node action must be a module atom or registered identifier", %{action: action})
+  defp decode_action(action, _actions, :semantic) do
+    error("semantic flow node action must be a module atom", %{action: action})
+  end
+
+  defp decode_action(action, _actions, :stored) do
+    error("stored flow node action must be a registered identifier", %{action: action})
   end
 
   defp encode_expression!(%Ref{type: :input, path: path}) do
@@ -203,115 +249,159 @@ defmodule Jido.Flow.MapCodec do
   defp encode_expression!(list) when is_list(list), do: Enum.map(list, &encode_expression!/1)
   defp encode_expression!(value), do: value |> Ref.value() |> encode_expression!()
 
-  defp decode_expression(%{} = map) do
-    case ref_type(map) do
-      {:ok, :stored_map} ->
-        decode_expression_map(map)
+  defp decode_expression(%{} = map, :semantic) do
+    case semantic_ref_type(map) do
+      {:ok, type} -> decode_ref(map, type, :semantic)
+      {:error, error} -> {:error, error}
+      :shape -> decode_shape_map(map, :semantic)
+    end
+  end
 
-      {:ok, type} when type in @ref_types ->
-        decode_ref(map, type, :semantic)
+  defp decode_expression(%{} = map, :stored) do
+    case Map.fetch(map, "type") do
+      {:ok, "map"} ->
+        decode_expression_map(map)
 
       {:ok, type} when type in @stored_ref_types ->
         decode_ref(map, type, :stored)
 
-      {:error, error} ->
-        {:error, error}
-
-      :shape ->
-        decode_shape_map(map)
-    end
-  end
-
-  defp decode_expression(list) when is_list(list) do
-    list
-    |> Enum.reduce_while({:ok, []}, fn value, {:ok, acc} ->
-      case decode_expression(value) do
-        {:ok, value} -> {:cont, {:ok, [value | acc]}}
-        {:error, error} -> {:halt, {:error, error}}
-      end
-    end)
-    |> case do
-      {:ok, values} -> {:ok, Enum.reverse(values)}
-      {:error, error} -> {:error, error}
-    end
-  end
-
-  defp decode_expression(value), do: {:ok, value}
-
-  defp ref_type(map) do
-    case fetch_optional_marker(map, :type) do
-      nil ->
-        :shape
-
-      "map" ->
-        {:ok, :stored_map}
-
-      type when type in @ref_types or type in @stored_ref_types ->
-        {:ok, type}
-
-      type when is_atom(type) or is_binary(type) ->
+      {:ok, type} ->
         error("unknown flow ref type: #{inspect(type)}", %{type: type})
 
-      _other ->
+      :error ->
+        error("stored flow expression must be a tagged record", %{record: :expression})
+    end
+  end
+
+  defp decode_expression(list, profile) when is_list(list) do
+    if List.improper?(list) do
+      error("flow expression must be a proper list", %{expression: inspect(list)})
+    else
+      list
+      |> Enum.reduce_while({:ok, []}, fn value, {:ok, acc} ->
+        case decode_expression(value, profile) do
+          {:ok, value} -> {:cont, {:ok, [value | acc]}}
+          {:error, error} -> {:halt, {:error, error}}
+        end
+      end)
+      |> case do
+        {:ok, values} -> {:ok, Enum.reverse(values)}
+        {:error, error} -> {:error, error}
+      end
+    end
+  end
+
+  defp decode_expression(value, :semantic), do: {:ok, value}
+
+  defp decode_expression(value, :stored) do
+    error("stored flow expression must be a tagged record", %{
+      record: :expression,
+      value: value
+    })
+  end
+
+  defp semantic_ref_type(map) do
+    case Map.fetch(map, :type) do
+      {:ok, type} when type in @ref_types ->
+        {:ok, type}
+
+      {:ok, type} when is_atom(type) or is_binary(type) ->
+        error("unknown flow ref type: #{inspect(type)}", %{type: type})
+
+      {:ok, _shape_value} ->
+        :shape
+
+      :error ->
         :shape
     end
   end
 
   defp decode_ref(map, :input, :semantic) do
-    {:ok, Ref.input(fetch_optional(map, :path, []))}
+    with :ok <- validate_ref_record(map, :input, :semantic),
+         {:ok, path} <- validate_semantic_path(Map.fetch!(map, :path)) do
+      {:ok, Ref.input(path)}
+    end
   end
 
   defp decode_ref(map, :context, :semantic) do
-    {:ok, Ref.context(fetch_optional(map, :path, []))}
+    with :ok <- validate_ref_record(map, :context, :semantic),
+         {:ok, path} <- validate_semantic_path(Map.fetch!(map, :path)) do
+      {:ok, Ref.context(path)}
+    end
   end
 
   defp decode_ref(map, :result, :semantic) do
-    with {:ok, node} <- fetch_required(map, :node, "result ref node is required") do
-      {:ok, Ref.result(node, fetch_optional(map, :path, []))}
+    with :ok <- validate_ref_record(map, :result, :semantic),
+         {:ok, node} <- decode_result_node(Map.fetch!(map, :node), :semantic),
+         {:ok, path} <- validate_semantic_path(Map.fetch!(map, :path)) do
+      {:ok, Ref.result(node, path)}
     end
   end
 
   defp decode_ref(map, :value, :semantic) do
-    {:ok, Ref.value(fetch_optional(map, :value, nil))}
+    with :ok <- validate_ref_record(map, :value, :semantic) do
+      {:ok, Ref.value(Map.fetch!(map, :value))}
+    end
   end
 
   defp decode_ref(map, "input", :stored) do
-    with {:ok, path} <- decode_stored_path(fetch_optional(map, :path, [])) do
+    with :ok <- validate_ref_record(map, "input", :stored),
+         {:ok, path} <- decode_stored_path(Map.fetch!(map, "path")) do
       {:ok, Ref.input(path)}
     end
   end
 
   defp decode_ref(map, "context", :stored) do
-    with {:ok, path} <- decode_stored_path(fetch_optional(map, :path, [])) do
+    with :ok <- validate_ref_record(map, "context", :stored),
+         {:ok, path} <- decode_stored_path(Map.fetch!(map, "path")) do
       {:ok, Ref.context(path)}
     end
   end
 
   defp decode_ref(map, "result", :stored) do
-    with {:ok, node} <- fetch_required(map, :node, "result ref node is required"),
-         {:ok, path} <- decode_stored_path(fetch_optional(map, :path, [])) do
+    with :ok <- validate_ref_record(map, "result", :stored),
+         {:ok, node} <- decode_result_node(Map.fetch!(map, "node"), :stored),
+         {:ok, path} <- decode_stored_path(Map.fetch!(map, "path")) do
       {:ok, Ref.result(node, path)}
     end
   end
 
   defp decode_ref(map, "value", :stored) do
-    with {:ok, value} <- decode_data(fetch_optional(map, :value, nil)) do
+    with :ok <- validate_ref_record(map, "value", :stored),
+         {:ok, value} <- decode_data(Map.fetch!(map, "value")) do
       {:ok, Ref.value(value)}
     end
   end
 
   defp decode_expression_map(map) do
-    with {:ok, entries} <-
-           fetch_required(map, :entries, "flow expression map entries are required"),
-         {:ok, entries} <- decode_entries(entries, &decode_expression/1) do
+    with :ok <-
+           validate_record(map, ["type", "entries"], ["type", "entries"], :encoded_map),
+         {:ok, entries} <-
+           exact_fetch_required(map, "entries", "flow expression map entries are required"),
+         {:ok, entries} <- decode_entries(entries, &decode_expression(&1, :stored)) do
       {:ok, Map.new(entries)}
     end
   end
 
-  defp decode_shape_map(map) do
+  defp decode_result_node(node, :semantic) when is_atom(node) and not is_nil(node),
+    do: {:ok, node}
+
+  defp decode_result_node(node, :semantic) when is_binary(node), do: {:ok, node}
+
+  defp decode_result_node(node, :semantic) do
+    error("semantic result ref node must be a non-nil atom or binary", %{node: node})
+  end
+
+  defp decode_result_node(node, :stored) when is_binary(node), do: {:ok, node}
+
+  defp decode_result_node(node, :stored) do
+    error("stored result ref node must be a binary", %{node: node})
+  end
+
+  defp decode_shape_map(map, profile) do
     map
     |> Enum.reduce_while({:ok, %{}}, fn {key, value}, {:ok, acc} ->
-      case decode_expression(value) do
+      case decode_expression(value, profile) do
         {:ok, value} -> {:cont, {:ok, Map.put(acc, key, value)}}
         {:error, error} -> {:halt, {:error, error}}
       end
@@ -321,16 +411,20 @@ defmodule Jido.Flow.MapCodec do
   defp encode_path!(path), do: Enum.map(path, &encode_key!/1)
 
   defp decode_stored_path(path) when is_list(path) do
-    path
-    |> Enum.reduce_while({:ok, []}, fn segment, {:ok, acc} ->
-      case decode_key(segment) do
-        {:ok, segment} -> {:cont, {:ok, [segment | acc]}}
-        {:error, error} -> {:halt, {:error, error}}
+    if List.improper?(path) do
+      error("flow ref path must be a list", %{path: inspect(path)})
+    else
+      path
+      |> Enum.reduce_while({:ok, []}, fn segment, {:ok, acc} ->
+        case decode_key(segment) do
+          {:ok, segment} -> {:cont, {:ok, [segment | acc]}}
+          {:error, error} -> {:halt, {:error, error}}
+        end
+      end)
+      |> case do
+        {:ok, path} -> {:ok, Enum.reverse(path)}
+        {:error, error} -> {:error, error}
       end
-    end)
-    |> case do
-      {:ok, path} -> {:ok, Enum.reverse(path)}
-      {:error, error} -> {:error, error}
     end
   end
 
@@ -366,25 +460,38 @@ defmodule Jido.Flow.MapCodec do
     raise_validation("stored flow value is not JSON-safe", %{value: inspect(value)})
   end
 
-  defp decode_optional_data(map, field, default) do
-    if has_field?(map, field) do
-      map
-      |> fetch_optional(field, default)
-      |> decode_data()
-    else
-      {:ok, default}
+  defp decode_optional_data(map, field, default, :semantic) do
+    {:ok, Map.get(map, field, default)}
+  end
+
+  defp decode_optional_data(map, field, default, :stored) do
+    string_field = Atom.to_string(field)
+
+    case Map.fetch(map, string_field) do
+      {:ok, value} -> decode_data(value)
+      :error -> {:ok, default}
     end
   end
 
   defp decode_data(%{} = map) do
-    case fetch_optional_marker(map, "$type") do
+    case Map.get(map, "$type") do
       "atom" ->
-        with {:ok, value} <- fetch_required(map, :value, "encoded atom value is required") do
+        with :ok <- validate_record(map, ["$type", "value"], ["$type", "value"], :encoded_value),
+             {:ok, value} <- exact_fetch_required(map, "value", "encoded atom value is required"),
+             {:ok, value} <- decode_encoded_atom_value(value) do
           existing_atom(value)
         end
 
       "map" ->
-        with {:ok, entries} <- fetch_required(map, :entries, "encoded map entries are required"),
+        with :ok <-
+               validate_record(
+                 map,
+                 ["$type", "entries"],
+                 ["$type", "entries"],
+                 :encoded_map
+               ),
+             {:ok, entries} <-
+               exact_fetch_required(map, "entries", "encoded map entries are required"),
              {:ok, entries} <- decode_entries(entries, &decode_data/1) do
           {:ok, Map.new(entries)}
         end
@@ -398,42 +505,63 @@ defmodule Jido.Flow.MapCodec do
   end
 
   defp decode_data(list) when is_list(list) do
-    list
-    |> Enum.reduce_while({:ok, []}, fn value, {:ok, acc} ->
-      case decode_data(value) do
-        {:ok, value} -> {:cont, {:ok, [value | acc]}}
-        {:error, error} -> {:halt, {:error, error}}
+    if List.improper?(list) do
+      stored_data_error(list)
+    else
+      list
+      |> Enum.reduce_while({:ok, []}, fn value, {:ok, acc} ->
+        case decode_data(value) do
+          {:ok, value} -> {:cont, {:ok, [value | acc]}}
+          {:error, error} -> {:halt, {:error, error}}
+        end
+      end)
+      |> case do
+        {:ok, values} -> {:ok, Enum.reverse(values)}
+        {:error, error} -> {:error, error}
       end
-    end)
-    |> case do
-      {:ok, values} -> {:ok, Enum.reverse(values)}
-      {:error, error} -> {:error, error}
     end
   end
 
-  defp decode_data(value), do: {:ok, value}
+  defp decode_data(value)
+       when is_nil(value) or is_boolean(value) or is_number(value) or is_binary(value),
+       do: {:ok, value}
+
+  defp decode_data(value), do: stored_data_error(value)
 
   defp decode_plain_data_map(map) do
-    map
-    |> Enum.reduce_while({:ok, %{}}, fn {key, value}, {:ok, acc} ->
-      case decode_data(value) do
-        {:ok, value} -> {:cont, {:ok, Map.put(acc, key, value)}}
-        {:error, error} -> {:halt, {:error, error}}
-      end
-    end)
+    case Enum.find(Map.keys(map), &(not is_binary(&1))) do
+      nil ->
+        map
+        |> Enum.reduce_while({:ok, %{}}, fn {key, value}, {:ok, acc} ->
+          case decode_data(value) do
+            {:ok, value} -> {:cont, {:ok, Map.put(acc, key, value)}}
+            {:error, error} -> {:halt, {:error, error}}
+          end
+        end)
+
+      key ->
+        error("stored plain data map contains a non-string key", %{
+          record: :plain_data,
+          key: key
+        })
+    end
   end
 
   defp decode_entries(entries, value_decoder) when is_list(entries) do
-    entries
-    |> Enum.reduce_while({:ok, []}, fn entry, {:ok, acc} ->
-      case decode_entry(entry, value_decoder) do
-        {:ok, entry} -> {:cont, {:ok, [entry | acc]}}
-        {:error, error} -> {:halt, {:error, error}}
+    if List.improper?(entries) do
+      error("encoded map entries must be a list", %{entries: inspect(entries)})
+    else
+      entries
+      |> Enum.reduce_while({:ok, []}, fn entry, {:ok, acc} ->
+        case decode_entry(entry, value_decoder) do
+          {:ok, entry} -> {:cont, {:ok, [entry | acc]}}
+          {:error, error} -> {:halt, {:error, error}}
+        end
+      end)
+      |> case do
+        {:ok, entries} -> entries |> Enum.reverse() |> validate_unique_entries()
+        {:error, error} -> {:error, error}
       end
-    end)
-    |> case do
-      {:ok, entries} -> {:ok, Enum.reverse(entries)}
-      {:error, error} -> {:error, error}
     end
   end
 
@@ -442,9 +570,10 @@ defmodule Jido.Flow.MapCodec do
   end
 
   defp decode_entry(%{} = entry, value_decoder) do
-    with {:ok, key} <- fetch_required(entry, :key, "encoded map key is required"),
+    with :ok <- validate_record(entry, ["key", "value"], ["key", "value"], :entry),
+         {:ok, key} <- exact_fetch_required(entry, "key", "encoded map key is required"),
          {:ok, key} <- decode_key(key),
-         {:ok, value} <- fetch_required(entry, :value, "encoded map value is required"),
+         {:ok, value} <- exact_fetch_required(entry, "value", "encoded map value is required"),
          {:ok, value} <- value_decoder.(value) do
       {:ok, {key, value}}
     end
@@ -466,8 +595,9 @@ defmodule Jido.Flow.MapCodec do
   end
 
   defp decode_key(%{} = segment) do
-    with {:ok, type} <- fetch_required(segment, :type, "typed key type is required"),
-         {:ok, value} <- fetch_required(segment, :value, "typed key value is required") do
+    with :ok <- validate_record(segment, ["type", "value"], ["type", "value"], :typed_key),
+         {:ok, type} <- exact_fetch_required(segment, "type", "typed key type is required"),
+         {:ok, value} <- exact_fetch_required(segment, "value", "typed key value is required") do
       decode_key(type, value)
     end
   end
@@ -477,14 +607,17 @@ defmodule Jido.Flow.MapCodec do
   end
 
   defp decode_key("atom", value) when is_binary(value), do: existing_atom(value)
-  defp decode_key(:atom, value) when is_binary(value), do: existing_atom(value)
   defp decode_key("string", value) when is_binary(value), do: {:ok, value}
-  defp decode_key(:string, value) when is_binary(value), do: {:ok, value}
   defp decode_key("integer", value) when is_integer(value), do: {:ok, value}
-  defp decode_key(:integer, value) when is_integer(value), do: {:ok, value}
 
   defp decode_key(type, value) do
     error("malformed flow path segment", %{type: type, value: value})
+  end
+
+  defp decode_encoded_atom_value(value) when is_binary(value), do: {:ok, value}
+
+  defp decode_encoded_atom_value(value) do
+    error("encoded atom value must be a binary", %{value: value})
   end
 
   defp existing_atom(value) when is_binary(value) do
@@ -494,9 +627,18 @@ defmodule Jido.Flow.MapCodec do
       error("unknown atom in flow map: #{inspect(value)}", %{value: value})
   end
 
+  defp stored_data_error(value) do
+    error("stored flow value is not JSON-safe", %{value: inspect(value)})
+  end
+
   defp normalize_options(opts) when is_list(opts) do
     if Keyword.keyword?(opts) do
-      {:ok, Map.new(opts)}
+      keys = Keyword.keys(opts)
+
+      case first_duplicate(keys) do
+        nil -> {:ok, Map.new(opts)}
+        option -> error("duplicate flow map option: #{inspect(option)}", %{option: option})
+      end
     else
       error("flow map options must be a map or keyword list")
     end
@@ -507,6 +649,199 @@ defmodule Jido.Flow.MapCodec do
   defp normalize_options(_opts) do
     error("flow map options must be a map or keyword list")
   end
+
+  defp validate_option_keys(opts) do
+    case opts |> Map.keys() |> Enum.find(&(&1 not in @option_keys)) do
+      nil -> :ok
+      option -> error("unknown flow map option: #{inspect(option)}", %{option: option})
+    end
+  end
+
+  defp select_profile(map) do
+    cond do
+      Map.has_key?(map, :type) -> {:ok, :semantic}
+      Map.has_key?(map, "type") -> {:ok, :stored}
+      true -> error("flow map type is required")
+    end
+  end
+
+  defp validate_root(map, :semantic) do
+    validate_record(
+      map,
+      @semantic_root_keys,
+      [:schema, :output_schema],
+      :root
+    )
+  end
+
+  defp validate_root(map, :stored) do
+    validate_record(
+      map,
+      @stored_root_keys,
+      [],
+      :root
+    )
+  end
+
+  defp validate_root_header(map, profile) do
+    with {:ok, version} <-
+           profile_fetch_required(map, :version, profile, "flow map version is required"),
+         :ok <- validate_version(version),
+         {:ok, type} <- profile_fetch_required(map, :type, profile, "flow map type is required"),
+         :ok <- validate_type(type, profile) do
+      :ok
+    end
+  end
+
+  defp validate_profile_options(opts, :semantic) when map_size(opts) == 0, do: :ok
+
+  defp validate_profile_options(opts, :semantic) do
+    option = opts |> Map.keys() |> Enum.sort() |> List.first()
+
+    error("semantic flow maps do not accept loader options", %{
+      option: option
+    })
+  end
+
+  defp validate_profile_options(opts, :stored) do
+    with :ok <- require_attachment(opts, :schema),
+         :ok <- require_attachment(opts, :output_schema),
+         :ok <- require_attachment(opts, :actions) do
+      :ok
+    end
+  end
+
+  defp require_attachment(opts, field) do
+    if Map.has_key?(opts, field) do
+      :ok
+    else
+      error("stored flow requires external #{field} attachment", %{field: field})
+    end
+  end
+
+  defp profile_actions(_opts, :semantic), do: {:ok, %{}}
+  defp profile_actions(opts, :stored), do: opts |> Map.fetch!(:actions) |> normalize_actions()
+
+  defp validate_node_record(node, :semantic) do
+    validate_record(
+      node,
+      [:name, :action, :input, :deps, :provenance],
+      [:name, :action, :input, :deps],
+      :node
+    )
+  end
+
+  defp validate_node_record(node, :stored) do
+    validate_record(
+      node,
+      ["name", "action", "input", "deps", "provenance"],
+      ["name", "action", "input", "deps"],
+      :node
+    )
+  end
+
+  defp validate_ref_record(map, type, profile) do
+    {allowed, required} = ref_fields(type, profile)
+    validate_record(map, allowed, required, :reference)
+  end
+
+  defp ref_fields(type, :semantic) when type in [:input, :context],
+    do: {[:type, :path], [:type, :path]}
+
+  defp ref_fields(:result, :semantic),
+    do: {[:type, :node, :path], [:type, :node, :path]}
+
+  defp ref_fields(:value, :semantic), do: {[:type, :value], [:type, :value]}
+
+  defp ref_fields(type, :stored) when type in ["input", "context"],
+    do: {["type", "path"], ["type", "path"]}
+
+  defp ref_fields("result", :stored),
+    do: {["type", "node", "path"], ["type", "node", "path"]}
+
+  defp ref_fields("value", :stored), do: {["type", "value"], ["type", "value"]}
+
+  defp validate_record(map, allowed, required, record) do
+    case map |> Map.keys() |> Enum.find(&(&1 not in allowed)) do
+      nil ->
+        case Enum.find(required, &(not Map.has_key?(map, &1))) do
+          nil ->
+            :ok
+
+          field ->
+            error("#{record} is missing required field: #{inspect(field)}", %{
+              record: record,
+              field: field
+            })
+        end
+
+      field ->
+        error("#{record} contains unknown field: #{inspect(field)}", %{
+          record: record,
+          field: field
+        })
+    end
+  end
+
+  defp validate_semantic_path(path) when is_list(path) do
+    if List.improper?(path) do
+      error("flow ref path must be a list", %{path: inspect(path)})
+    else
+      case Enum.find(path, &(not valid_path_segment?(&1))) do
+        nil -> {:ok, path}
+        segment -> error("flow ref path contains an invalid segment", %{segment: segment})
+      end
+    end
+  end
+
+  defp validate_semantic_path(path), do: error("flow ref path must be a list", %{path: path})
+
+  defp valid_path_segment?(segment) do
+    (is_atom(segment) and not is_nil(segment)) or is_binary(segment) or is_integer(segment)
+  end
+
+  defp validate_unique_entries(entries) do
+    case entries |> Enum.map(&elem(&1, 0)) |> first_duplicate() do
+      nil -> {:ok, entries}
+      key -> error("encoded map contains a duplicate key", %{key: key})
+    end
+  end
+
+  defp first_duplicate(values) do
+    values
+    |> Enum.reduce_while(MapSet.new(), fn value, seen ->
+      if MapSet.member?(seen, value) do
+        {:halt, {:duplicate, value}}
+      else
+        {:cont, MapSet.put(seen, value)}
+      end
+    end)
+    |> case do
+      {:duplicate, value} -> value
+      %MapSet{} -> nil
+    end
+  end
+
+  defp exact_fetch_required(map, field, message) do
+    case Map.fetch(map, field) do
+      {:ok, value} -> {:ok, value}
+      :error -> error(message)
+    end
+  end
+
+  defp profile_fetch_required(map, field, :semantic, message),
+    do: exact_fetch_required(map, field, message)
+
+  defp profile_fetch_required(map, field, :stored, message),
+    do: exact_fetch_required(map, Atom.to_string(field), message)
+
+  defp profile_fetch_optional(map, field, default, :semantic), do: Map.get(map, field, default)
+
+  defp profile_fetch_optional(map, field, default, :stored),
+    do: Map.get(map, Atom.to_string(field), default)
+
+  defp profile_schema(map, _opts, field, :semantic), do: Map.fetch!(map, field)
+  defp profile_schema(_map, opts, field, :stored), do: Map.fetch!(opts, field)
 
   defp normalize_actions!(actions) do
     case normalize_actions(actions) do
@@ -556,11 +891,13 @@ defmodule Jido.Flow.MapCodec do
   defp action_ids!(actions, nodes) do
     modules = nodes |> Enum.map(& &1.action) |> Enum.uniq()
 
+    identifiers_by_module =
+      Enum.reduce(actions, %{}, fn {identifier, action}, acc ->
+        Map.update(acc, action, [identifier], &[identifier | &1])
+      end)
+
     Map.new(modules, fn module ->
-      identifiers =
-        actions
-        |> Enum.filter(fn {_identifier, action} -> action == module end)
-        |> Enum.map(fn {identifier, _action} -> identifier end)
+      identifiers = Map.get(identifiers_by_module, module, [])
 
       case identifiers do
         [identifier] ->
@@ -580,50 +917,6 @@ defmodule Jido.Flow.MapCodec do
 
   defp identifier_to_string(identifier) when is_atom(identifier), do: Atom.to_string(identifier)
   defp identifier_to_string(identifier), do: identifier
-
-  defp fetch_required(map, field, message) do
-    if has_field?(map, field) do
-      {:ok, fetch_optional(map, field, nil)}
-    else
-      error(message)
-    end
-  end
-
-  defp fetch_optional(map, field, default) when is_atom(field) do
-    string_field = Atom.to_string(field)
-
-    cond do
-      Map.has_key?(map, field) -> Map.fetch!(map, field)
-      Map.has_key?(map, string_field) -> Map.fetch!(map, string_field)
-      true -> default
-    end
-  end
-
-  defp fetch_optional(map, field, default) when is_binary(field) do
-    cond do
-      Map.has_key?(map, field) -> Map.fetch!(map, field)
-      true -> default
-    end
-  end
-
-  defp fetch_optional_marker(map, field) when is_atom(field), do: fetch_optional(map, field, nil)
-
-  defp fetch_optional_marker(map, field) when is_binary(field),
-    do: fetch_optional(map, field, nil)
-
-  defp has_field?(map, field) when is_atom(field) do
-    Map.has_key?(map, field) or Map.has_key?(map, Atom.to_string(field))
-  end
-
-  defp has_field?(map, field) when is_binary(field), do: Map.has_key?(map, field)
-
-  defp option_or_map_value(opts, map, field, default) do
-    if Map.has_key?(opts, field) do
-      Map.fetch!(opts, field)
-    else
-      fetch_optional(map, field, default)
-    end
-  end
 
   defp key_sort_key(key) when is_atom(key), do: {0, Atom.to_string(key)}
   defp key_sort_key(key) when is_binary(key), do: {1, key}

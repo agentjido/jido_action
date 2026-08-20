@@ -174,9 +174,13 @@ defmodule Jido.Action do
   end
 
   @doc false
+  @spec validate_static_data(term()) :: :ok | {:error, String.t()}
+  def validate_static_data(term), do: static_schema_data(term, [])
+
+  @doc false
   @spec ensure_static_schema!(term(), atom(), Macro.Env.t()) :: term() | no_return()
   def ensure_static_schema!(schema, option, env) do
-    case static_schema_data(schema) do
+    case validate_static_data(schema) do
       :ok ->
         :ok
 
@@ -484,31 +488,63 @@ defmodule Jido.Action do
      })}
   end
 
-  defp static_schema_data(%Zoi.Types.Lazy{}), do: {:error, "lazy schemas are not supported"}
+  defp static_schema_data(%Zoi.Types.Lazy{}, path),
+    do: static_data_error("lazy schemas are not supported", path)
 
-  defp static_schema_data(term) when is_function(term),
-    do: {:error, "anonymous functions are not supported"}
+  defp static_schema_data(term, path) when is_function(term),
+    do: static_data_error("anonymous functions are not supported", path)
 
-  defp static_schema_data(term) when is_pid(term) or is_port(term) or is_reference(term),
-    do: {:error, "runtime process values are not supported"}
+  defp static_schema_data(term, path)
+       when is_pid(term) or is_port(term) or is_reference(term),
+       do: static_data_error("runtime process values are not supported", path)
 
-  defp static_schema_data(term) when is_map(term) do
+  defp static_schema_data(term, path) when is_map(term) do
     term
     |> Map.to_list()
-    |> static_schema_data()
+    |> Enum.sort_by(fn {key, _value} -> :erlang.term_to_binary(key) end)
+    |> Enum.reduce_while(:ok, fn {key, value}, :ok ->
+      with :ok <- static_schema_data(key, path ++ [:key]),
+           :ok <- static_schema_data(value, path ++ [key]) do
+        {:cont, :ok}
+      else
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 
-  defp static_schema_data([]), do: :ok
-
-  defp static_schema_data([head | tail]) do
-    with :ok <- static_schema_data(head), do: static_schema_data(tail)
+  defp static_schema_data(term, path) when is_list(term) do
+    static_schema_list_data(term, path, 0)
   end
 
-  defp static_schema_data(term) when is_tuple(term) do
+  defp static_schema_data(term, path) when is_tuple(term) do
     term
     |> Tuple.to_list()
-    |> static_schema_data()
+    |> Enum.with_index()
+    |> Enum.reduce_while(:ok, fn {value, index}, :ok ->
+      case static_schema_data(value, path ++ [index]) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 
-  defp static_schema_data(_term), do: :ok
+  defp static_schema_data(_term, _path), do: :ok
+
+  defp static_schema_list_data([], _path, _index), do: :ok
+
+  defp static_schema_list_data([value | rest], path, index) when is_list(rest) do
+    case static_schema_data(value, path ++ [index]) do
+      :ok -> static_schema_list_data(rest, path, index + 1)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp static_schema_list_data([value | _tail], path, index) do
+    with :ok <- static_schema_data(value, path ++ [index]) do
+      static_data_error("improper list tails are not supported", path ++ [index + 1])
+    end
+  end
+
+  defp static_data_error(reason, []), do: {:error, reason}
+  defp static_data_error(reason, path), do: {:error, "#{reason} at #{inspect(path)}"}
 end

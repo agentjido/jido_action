@@ -82,7 +82,7 @@ defmodule Jido.Exec.TelemetryTest do
     attach_telemetry([@exec_stop, @node_stop])
     flow = three_node_flow()
 
-    assert {:ok, 9} = Exec.run(flow, %{value: 2}, %{})
+    assert {:ok, %{value: 9}} = Exec.run(flow, %{value: 2}, %{})
 
     node_metadata = receive_metadata(@node_stop, 3)
 
@@ -101,7 +101,7 @@ defmodule Jido.Exec.TelemetryTest do
   test "emits node spans from async flow execution" do
     attach_telemetry([@node_stop])
 
-    assert {:ok, 9} = Exec.run(three_node_flow(), %{value: 2}, %{}, async: true)
+    assert {:ok, %{value: 9}} = Exec.run(three_node_flow(), %{value: 2}, %{}, async: true)
 
     node_metadata = receive_metadata(@node_stop, 3)
 
@@ -170,7 +170,7 @@ defmodule Jido.Exec.TelemetryTest do
           input: %{value: Ref.result(:multiply, :value), amount: Ref.value(3)}
         )
       ],
-      return: Ref.result(:add_three, :value)
+      return: Ref.result(:add_three)
     )
   end
 

@@ -17,6 +17,9 @@ defmodule Jido.Flow do
   alias Jido.Flow.Node
   alias Jido.Instruction
 
+  @module_config_keys [:name, :description, :schema, :output_schema]
+  @artifact_config_keys @module_config_keys ++ [:nodes, :return, :provenance]
+
   @schema Zoi.struct(
             __MODULE__,
             %{
@@ -37,55 +40,49 @@ defmodule Jido.Flow do
   defstruct Zoi.Struct.struct_fields(@schema)
 
   defmacro __using__(opts_ast) do
-    {schema_ast, output_schema_ast} =
-      if is_list(opts_ast) do
-        {Keyword.get(opts_ast, :schema), Keyword.get(opts_ast, :output_schema)}
-      else
-        {nil, nil}
-      end
-
     quote location: :keep do
       @behaviour Jido.Action
       @before_compile Jido.Flow
 
       import Jido.Flow.DSL, only: [flow: 1]
 
+      raw_opts = unquote(opts_ast)
+
       opts_map =
-        if is_list(unquote(opts_ast)) and Keyword.keyword?(unquote(opts_ast)) do
-          Map.new(unquote(opts_ast))
+        if is_list(raw_opts) and Keyword.keyword?(raw_opts) do
+          Map.new(raw_opts)
         else
-          unquote(opts_ast)
+          raw_opts
         end
 
       case Jido.Flow.__validate_config__(opts_map) do
         {:ok, validated_opts} ->
-          @__jido_flow_schema__ Map.get(validated_opts, :schema, [])
-          @__jido_flow_output_schema__ Map.get(validated_opts, :output_schema, [])
+          stored_schema =
+            Jido.Action.ensure_static_schema!(
+              Map.get(validated_opts, :schema, []),
+              :schema,
+              __ENV__
+            )
 
-          if unquote(is_nil(schema_ast)) do
-            @__jido_schema__ Map.get(validated_opts, :schema, [])
-          end
+          stored_output_schema =
+            Jido.Action.ensure_static_schema!(
+              Map.get(validated_opts, :output_schema, []),
+              :output_schema,
+              __ENV__
+            )
 
-          if unquote(is_nil(output_schema_ast)) do
-            @__jido_output_schema__ Map.get(validated_opts, :output_schema, [])
-          end
+          Module.put_attribute(__MODULE__, :__jido_flow_schema__, stored_schema)
+          Module.put_attribute(__MODULE__, :__jido_flow_output_schema__, stored_output_schema)
+          Module.put_attribute(__MODULE__, :__jido_schema__, stored_schema)
+          Module.put_attribute(__MODULE__, :__jido_output_schema__, stored_output_schema)
 
           @__jido_flow_opts__ Map.drop(validated_opts, [:schema, :output_schema])
 
           def name, do: @__jido_flow_opts__[:name]
           def description, do: @__jido_flow_opts__[:description]
 
-          if unquote(schema_ast) do
-            def schema, do: unquote(schema_ast)
-          else
-            def schema, do: @__jido_schema__
-          end
-
-          if unquote(output_schema_ast) do
-            def output_schema, do: unquote(output_schema_ast)
-          else
-            def output_schema, do: @__jido_output_schema__
-          end
+          def schema, do: @__jido_schema__
+          def output_schema, do: @__jido_output_schema__
 
           def validate_params(params), do: Jido.Action.validate_params_for(params, __MODULE__)
           def validate_output(output), do: Jido.Action.validate_output_for(output, __MODULE__)
@@ -145,6 +142,9 @@ defmodule Jido.Flow do
       def flow, do: unquote(escaped_flow)
       def to_map(opts \\ []), do: Jido.Flow.to_map(flow(), opts)
       def compile, do: Jido.Flow.compile(flow())
+      def dependencies, do: Jido.Flow.dependencies(flow())
+      def explain, do: Jido.Flow.explain(flow())
+      def semantic_identity, do: Jido.Flow.semantic_identity(flow())
       def run(params, context), do: Jido.Exec.run(flow(), params, context)
     end
   end
@@ -157,7 +157,8 @@ defmodule Jido.Flow do
   def new(attrs) when is_list(attrs), do: attrs |> Map.new() |> new()
 
   def new(%{} = attrs) do
-    with {:ok, name} <- validate_name(Map.get(attrs, :name)),
+    with :ok <- validate_known_keys(attrs, @artifact_config_keys),
+         {:ok, name} <- validate_name(Map.get(attrs, :name)),
          {:ok, description} <- validate_description(Map.get(attrs, :description)),
          {:ok, schema} <- validate_schema(Map.get(attrs, :schema, []), "schema"),
          {:ok, output_schema} <-
@@ -223,6 +224,45 @@ defmodule Jido.Flow do
   @spec from_map(map(), map() | keyword()) :: {:ok, t()} | {:error, Exception.t()}
   def from_map(map, opts \\ []), do: MapCodec.from_map(map, opts)
 
+  @doc false
+  @spec canonical_nodes([Node.t()]) :: [Node.t()]
+  def canonical_nodes(nodes), do: canonical_node_order(nodes)
+
+  defp inspection_projection(%__MODULE__{} = flow) do
+    with {:ok, flow} <- validate(flow) do
+      nodes = canonical_nodes(flow.nodes)
+
+      dependencies =
+        Map.new(nodes, fn node ->
+          {node.name, Enum.sort(node.deps)}
+        end)
+
+      edges =
+        nodes
+        |> Enum.flat_map(fn node ->
+          Enum.map(node.deps, fn predecessor ->
+            %{from: predecessor, to: node.name}
+          end)
+        end)
+        |> Enum.sort_by(&{&1.from, &1.to})
+
+      semantic_map = MapCodec.to_semantic_map(flow, nodes, [])
+
+      {:ok,
+       %{
+         flow: flow,
+         nodes: Enum.map(nodes, &Node.to_map/1),
+         dependencies: dependencies,
+         edges: edges,
+         identity: Jido.Flow.Identity.identity(semantic_map)
+       }}
+    end
+  end
+
+  defp invalid_inspection_subject(value) do
+    {:error, Error.validation_error("expected a Jido.Flow artifact", %{value: value})}
+  end
+
   defp canonical_node_order(nodes) do
     nodes_by_name = Map.new(nodes, fn node -> {node.name, node} end)
     remaining = Map.new(nodes, fn node -> {node.name, MapSet.new(node.deps)} end)
@@ -277,12 +317,61 @@ defmodule Jido.Flow do
   @doc """
   Compiles a Flow artifact into a Runic workflow for graph inspection.
 
-  Executing this workflow directly resolves `input(...)` and `context(...)`
-  references against empty maps. Use `Jido.Exec.run/3` to execute a Flow with
-  runtime input and context.
+  The workflow contains inert node markers. It does not execute Action work or
+  resolve runtime input and context. Use `Jido.Exec.run/3` to execute a Flow.
   """
   @spec compile(t()) :: {:ok, Runic.Workflow.t()} | {:error, Exception.t()}
   def compile(%__MODULE__{} = flow), do: Jido.Flow.Compiler.compile(flow)
+
+  @doc """
+  Returns the direct canonical predecessors for every Flow node.
+  """
+  @spec dependencies(t()) ::
+          {:ok, %{String.t() => [String.t()]}} | {:error, Error.InvalidInputError.t()}
+  def dependencies(%__MODULE__{} = flow) do
+    with {:ok, projection} <- inspection_projection(flow) do
+      {:ok, projection.dependencies}
+    end
+  end
+
+  def dependencies(value), do: invalid_inspection_subject(value)
+
+  @doc """
+  Returns the versioned canonical inspection data for a Flow.
+  """
+  @spec explain(t()) :: {:ok, map()} | {:error, Error.InvalidInputError.t()}
+  def explain(%__MODULE__{} = flow) do
+    with {:ok, projection} <- inspection_projection(flow) do
+      {:ok,
+       %{
+         version: 1,
+         kind: :flow,
+         name: projection.flow.name,
+         description: projection.flow.description,
+         schema: projection.flow.schema,
+         output_schema: projection.flow.output_schema,
+         nodes: projection.nodes,
+         dependencies: projection.dependencies,
+         edges: projection.edges,
+         return: Node.expression_to_map(projection.flow.return),
+         identity: projection.identity
+       }}
+    end
+  end
+
+  def explain(value), do: invalid_inspection_subject(value)
+
+  @doc """
+  Returns the deterministic SHA-256 and UUIDv8 identity for a Flow.
+  """
+  @spec semantic_identity(t()) :: {:ok, map()} | {:error, Error.InvalidInputError.t()}
+  def semantic_identity(%__MODULE__{} = flow) do
+    with {:ok, projection} <- inspection_projection(flow) do
+      {:ok, projection.identity}
+    end
+  end
+
+  def semantic_identity(value), do: invalid_inspection_subject(value)
 
   @doc false
   @spec check(t()) :: :ok | {:error, Exception.t()}
@@ -291,9 +380,24 @@ defmodule Jido.Flow do
   @doc false
   @spec validate(t()) :: {:ok, t()} | {:error, Exception.t()}
   def validate(%__MODULE__{} = flow) do
-    with {:ok, nodes} <- normalize_nodes(flow.nodes),
+    with {:ok, name} <- validate_name(flow.name),
+         {:ok, description} <- validate_description(flow.description),
+         {:ok, schema} <- validate_schema(flow.schema, "schema"),
+         {:ok, output_schema} <- validate_schema(flow.output_schema, "output_schema"),
+         {:ok, nodes} <- normalize_nodes(flow.nodes),
          {:ok, return} <- validate_return(flow.return),
-         flow = %{flow | nodes: nodes, return: return},
+         {:ok, provenance} <- validate_provenance(flow.provenance),
+         flow = %{
+           flow
+           | name: name,
+             description: description,
+             schema: schema,
+             output_schema: output_schema,
+             nodes: nodes,
+             return: return,
+             provenance: provenance
+         },
+         :ok <- validate_static_semantic_data(flow),
          :ok <- validate_duplicate_nodes(flow.nodes),
          :ok <- validate_known_result_refs(flow),
          flow = normalize_node_deps(flow),
@@ -305,7 +409,8 @@ defmodule Jido.Flow do
   @doc false
   @spec __validate_config__(map()) :: {:ok, map()} | {:error, Exception.t()}
   def __validate_config__(%{} = attrs) do
-    with {:ok, name} <- validate_name(Map.get(attrs, :name)),
+    with :ok <- validate_known_keys(attrs, @module_config_keys),
+         {:ok, name} <- validate_name(Map.get(attrs, :name)),
          {:ok, description} <- validate_description(Map.get(attrs, :description)),
          {:ok, schema} <- validate_schema(Map.get(attrs, :schema, []), "schema"),
          {:ok, output_schema} <-
@@ -356,12 +461,53 @@ defmodule Jido.Flow do
   defp validate_schema(nil, _field), do: {:ok, []}
 
   defp validate_schema(schema, field) do
-    case Action.validate_config_schema(schema) do
-      :ok ->
-        {:ok, schema}
-
+    with :ok <- validate_static_schema(schema),
+         :ok <- Action.validate_action_schema(schema) do
+      {:ok, schema}
+    else
       {:error, message} ->
         {:error, Error.validation_error("#{field} #{message}", %{field: field})}
+    end
+  end
+
+  defp validate_static_schema(schema) do
+    case Action.validate_static_data(schema) do
+      :ok -> :ok
+      {:error, message} -> {:error, "must be static module data; #{message}"}
+    end
+  end
+
+  defp validate_known_keys(attrs, allowed) do
+    case attrs |> Map.keys() |> Enum.find(&(&1 not in allowed)) do
+      nil ->
+        :ok
+
+      key ->
+        {:error,
+         Error.validation_error("unknown Flow configuration key: #{inspect(key)}", %{key: key})}
+    end
+  end
+
+  defp validate_static_semantic_data(flow) do
+    semantic_data = %{
+      name: flow.name,
+      description: flow.description,
+      nodes:
+        Enum.map(flow.nodes, fn node ->
+          %{name: node.name, action: node.action, input: node.input, deps: node.deps}
+        end),
+      return: flow.return
+    }
+
+    case Action.validate_static_data(semantic_data) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        {:error,
+         Error.validation_error("Flow semantic data must be static module data; #{reason}", %{
+           field: "semantic"
+         })}
     end
   end
 

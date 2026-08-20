@@ -2,6 +2,7 @@ defmodule Jido.Flow.RefTest do
   use ExUnit.Case, async: true
 
   alias Jido.Flow.Ref
+  alias Jido.Action.Error.InvalidInputError
 
   describe "constructors" do
     test "normalizes scalar and nil paths" do
@@ -40,6 +41,19 @@ defmodule Jido.Flow.RefTest do
                type: :value,
                value: %{amount: 2}
              }
+    end
+  end
+
+  describe "validate/1" do
+    test "rejects improper path lists" do
+      ref = Ref.input([:payload | :tail])
+
+      assert {:error, %InvalidInputError{message: "invalid flow ref", details: details}} =
+               Ref.validate(ref)
+
+      assert details.ref == ref
+      assert details.reason == :path
+      assert details.segment == :tail
     end
   end
 end

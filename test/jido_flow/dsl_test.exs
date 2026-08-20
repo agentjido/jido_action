@@ -22,7 +22,7 @@ defmodule Jido.Flow.DSLTest do
 
           flow do
             step(:add_one, unquote(Add), %{value: input(:value), amount: value(1)})
-            return(result(:add_one, :value))
+            return(result(:add_one))
           end
         end
       )
@@ -36,6 +36,79 @@ defmodule Jido.Flow.DSLTest do
                module.validate_params(%{value: 3, extra: "kept"})
 
       assert {:ok, %{value: 4}} = module.validate_output(%{value: 4})
+    end
+
+    test "evaluates the complete Flow options expression once" do
+      module = unique_module("CountedOptionsFlow")
+      counter = start_supervised!({Agent, fn -> 0 end})
+
+      create_module(
+        module,
+        quote do
+          use Jido.Flow, Jido.Flow.DSLTest.counted_flow_options(unquote(counter))
+
+          flow do
+            step(:echo, unquote(EchoParamsAction), %{value: input(:value)})
+            return(result(:echo))
+          end
+        end
+      )
+
+      assert Agent.get(counter, & &1) == 1
+      assert module.name() == "counted_options_flow"
+      assert module.description() == "Counted options"
+      assert module.schema() == module.flow().schema
+      assert module.output_schema() == module.flow().output_schema
+      assert {:ok, %{value: 3}} = Jido.Exec.run(module, %{value: 3}, %{})
+      assert Agent.get(counter, & &1) == 1
+    end
+
+    test "rejects unknown Flow options" do
+      module = unique_module("UnknownOptionFlow")
+
+      assert_raise CompileError, ~r/unknown Flow configuration key: :output_shema/, fn ->
+        create_module(
+          module,
+          quote do
+            use Jido.Flow, name: "unknown_option_flow", output_shema: []
+
+            flow do
+              step(:echo, unquote(EchoParamsAction), %{})
+              return(result(:echo))
+            end
+          end
+        )
+      end
+    end
+
+    test "rejects dynamic Flow schemas at compile time" do
+      anonymous_schema =
+        quote do
+          Zoi.object(%{value: Zoi.integer() |> Zoi.refine(fn _value -> :ok end)})
+        end
+
+      cases = [
+        anonymous: anonymous_schema,
+        lazy: quote(do: Zoi.lazy({Jido.ActionTest, :static_lazy_schema, []}))
+      ]
+
+      for {kind, schema} <- cases do
+        module = unique_module("DynamicSchemaFlow#{kind}")
+
+        assert_raise CompileError, ~r/schema must be static module data/, fn ->
+          create_module(
+            module,
+            quote do
+              use Jido.Flow, name: "dynamic_schema_flow", schema: unquote(schema)
+
+              flow do
+                step(:echo, unquote(EchoParamsAction), %{value: input(:value)})
+                return(result(:echo))
+              end
+            end
+          )
+        end
+      end
     end
 
     test "flow, to_map, and compile are generated from the shared lowerer" do
@@ -59,13 +132,13 @@ defmodule Jido.Flow.DSLTest do
 
           flow do
             step(:add_one, Add, %{value: input(:value), amount: value(1)})
-            return(result(:add_one, :value))
+            return(result(:add_one))
           end
         end
       )
 
       assert [%{action: Add}] = module.to_map().nodes
-      assert {:ok, 4} = Jido.Exec.run(module, %{value: 3}, %{})
+      assert {:ok, %{value: 4}} = Jido.Exec.run(module, %{value: 3}, %{})
     end
 
     test "missing return fails at compile time" do
@@ -685,7 +758,7 @@ defmodule Jido.Flow.DSLTest do
       end
     end
 
-    test "parses direct literals, list paths, map paths, and result refs without paths" do
+    test "parses direct literals, list paths, and result refs without paths" do
       module = unique_module("LiteralPathFlow")
 
       create_module(
@@ -698,7 +771,7 @@ defmodule Jido.Flow.DSLTest do
               value: input([:payload, "value", 0]),
               amount: 1,
               config: value(%{path: [:payload, "value"]}),
-              metadata_path: input(%{field: :value})
+              metadata_path: input(:metadata)
             })
 
             return(result(:add_one))
@@ -710,7 +783,7 @@ defmodule Jido.Flow.DSLTest do
       assert node.input.value == %{type: :input, path: [:payload, "value", 0]}
       assert node.input.amount == %{type: :value, value: 1}
       assert node.input.config == %{type: :value, value: %{path: [:payload, "value"]}}
-      assert node.input.metadata_path == %{type: :input, path: [%{field: :value}]}
+      assert node.input.metadata_path == %{type: :input, path: [:metadata]}
       assert module.to_map().return == %{type: :result, node: "add_one", path: []}
     end
 
@@ -793,11 +866,22 @@ defmodule Jido.Flow.DSLTest do
             amount: value(2)
           })
 
-          return(result(:double, :value))
+          return(result(:double))
         end
       end
     )
 
     module
+  end
+
+  def counted_flow_options(counter) do
+    Agent.update(counter, &(&1 + 1))
+
+    [
+      name: "counted_options_flow",
+      description: "Counted options",
+      schema: Zoi.object(%{value: Zoi.integer()}),
+      output_schema: Zoi.object(%{value: Zoi.integer()})
+    ]
   end
 end

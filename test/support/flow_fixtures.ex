@@ -26,7 +26,7 @@ defmodule JidoTest.FlowFixtures do
         amount: Syntax.value(2)
       }
     )
-    |> Syntax.return(Syntax.result(:double, :value))
+    |> Syntax.return(Syntax.result(:double))
   end
 
   def math_builder do
@@ -50,7 +50,7 @@ defmodule JidoTest.FlowFixtures do
         amount: Builder.value(2)
       }
     )
-    |> Builder.return(Builder.result(:double, :value))
+    |> Builder.return(Builder.result(:double))
   end
 
   def math_source do
@@ -58,7 +58,7 @@ defmodule JidoTest.FlowFixtures do
     flow do
       step :add_one, JidoTest.TestActions.Add, %{value: input(:value), amount: value(1)}
       step :double, JidoTest.TestActions.Multiply, %{value: result(:add_one, :value), amount: value(2)}
-      return result(:double, :value)
+      return result(:double)
     end
     """
   end
@@ -340,7 +340,7 @@ defmodule JidoTest.FlowFixtures do
       },
       bind: :audit
     )
-    |> Syntax.return(Syntax.select(Syntax.binding(:audit), :total))
+    |> Syntax.return(%{total: Syntax.select(Syntax.binding(:audit), :total)})
   end
 
   def projection_builder do
@@ -372,7 +372,7 @@ defmodule JidoTest.FlowFixtures do
       },
       bind: :audit
     )
-    |> Builder.return(Builder.select(Builder.binding(:audit), :total))
+    |> Builder.return(%{total: Builder.select(Builder.binding(:audit), :total)})
   end
 
   def projection_source do
@@ -397,7 +397,7 @@ defmodule JidoTest.FlowFixtures do
             tag: select(loaded, [:tags, 0])
           }
 
-      return select(audit, :total)
+      return %{total: select(audit, :total)}
     end
     """
   end
@@ -898,7 +898,7 @@ defmodule JidoTest.FlowFixtures do
           deps: ["add_one"]
         }
       ],
-      return: %{type: :result, node: "double", path: [:value]}
+      return: %{type: :result, node: "double", path: []}
     }
   end
 
@@ -1058,7 +1058,7 @@ defmodule JidoTest.FlowFixtures do
           deps: ["load_quote"]
         }
       ],
-      return: %{type: :result, node: "audit_quote", path: [:total]}
+      return: %{total: %{type: :result, node: "audit_quote", path: [:total]}}
     }
   end
 

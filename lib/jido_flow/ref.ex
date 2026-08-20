@@ -6,6 +6,9 @@ defmodule Jido.Flow.Ref do
   literal values, or results produced by named Flow nodes.
   """
 
+  alias Jido.Action
+  alias Jido.Action.Error
+
   @type kind :: :input | :context | :result | :value
   @type node_name :: String.t()
   @type path :: [atom() | String.t() | integer()]
@@ -51,6 +54,50 @@ defmodule Jido.Flow.Ref do
   """
   @spec value(term()) :: t()
   def value(value), do: %__MODULE__{type: :value, value: value}
+
+  @doc false
+  @spec validate(t()) :: :ok | {:error, Error.InvalidInputError.t()}
+  def validate(%__MODULE__{type: type, path: path, node: node, value: value} = ref) do
+    with :ok <- validate_shape(type, node, path, value),
+         :ok <- validate_path(path) do
+      :ok
+    else
+      {:error, reason, details} ->
+        {:error,
+         Error.validation_error(
+           "invalid flow ref",
+           Map.merge(%{ref: ref, reason: reason}, details)
+         )}
+    end
+  end
+
+  defp validate_shape(type, nil, _path, nil) when type in [:input, :context], do: :ok
+
+  defp validate_shape(:result, node, _path, nil) when is_binary(node) do
+    case Action.validate_name(node) do
+      :ok -> :ok
+      {:error, _message} -> {:error, :shape, %{type: :result}}
+    end
+  end
+
+  defp validate_shape(:value, nil, [], _value), do: :ok
+  defp validate_shape(type, _node, _path, _value), do: {:error, :shape, %{type: type}}
+
+  defp validate_path([]), do: :ok
+
+  defp validate_path([segment | path]) do
+    if valid_path_segment?(segment) do
+      validate_path(path)
+    else
+      {:error, :path, %{segment: segment}}
+    end
+  end
+
+  defp validate_path(path), do: {:error, :path, %{segment: path}}
+
+  defp valid_path_segment?(segment) do
+    (is_atom(segment) and not is_nil(segment)) or is_binary(segment) or is_integer(segment)
+  end
 
   @doc false
   @spec to_map(t()) :: map()
