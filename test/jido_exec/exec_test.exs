@@ -48,6 +48,7 @@ defmodule Jido.ExecTest do
     transformed =
       case kind do
         :input -> Map.update(value, :input_passes, 1, &(&1 + 1))
+        :invalid_input -> :invalid
         :output -> Map.update(value, :output_passes, 1, &(&1 + 1))
         :envelope_output -> value
         :invalid_output -> :invalid
@@ -315,6 +316,44 @@ defmodule Jido.ExecTest do
         assert details.value == :invalid, to_string(path)
         assert Jido.Action.Error.to_map(error).retryable? == false, to_string(path)
         assert Process.get({__MODULE__, :invalid_output}) == 1, to_string(path)
+      end
+    end
+
+    test "rejects scalar Flow input transforms in every execution path" do
+      module = unique_module("ScalarTransformedInputFlow")
+
+      create_module(
+        module,
+        quote do
+          use Jido.Flow,
+            name: "scalar_transformed_input_flow",
+            schema:
+              Zoi.map()
+              |> Zoi.transform({Jido.ExecTest, :count_flow_transform, [:invalid_input]})
+
+          flow do
+            step(:echo, unquote(EchoParamsAction), %{value: input(:value)})
+            return(result(:echo))
+          end
+        end
+      )
+
+      for {path, run} <- flow_execution_paths(module, %{value: 3}) do
+        reset_flow_transform_counts()
+
+        assert {:error, %InvalidInputError{message: message, details: details} = error} = run.(),
+               to_string(path)
+
+        assert message == "Flow input validation must return a map", to_string(path)
+        assert details.context == "Flow", to_string(path)
+
+        assert details.phase == if(path == :parent, do: :step_execution, else: :flow_input),
+               to_string(path)
+
+        assert details.subject == module.flow(), to_string(path)
+        assert details.value == :invalid, to_string(path)
+        assert Jido.Action.Error.to_map(error).retryable? == false, to_string(path)
+        assert Process.get({__MODULE__, :invalid_input}) == 1, to_string(path)
       end
     end
 
@@ -850,7 +889,7 @@ defmodule Jido.ExecTest do
   end
 
   defp reset_flow_transform_counts do
-    for kind <- [:input, :output, :envelope_output, :invalid_output] do
+    for kind <- [:input, :invalid_input, :output, :envelope_output, :invalid_output] do
       Process.delete({__MODULE__, kind})
     end
   end

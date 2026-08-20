@@ -712,10 +712,12 @@ defmodule Jido.Flow.MapCodec do
   end
 
   defp require_attachment(opts, field) do
-    if Map.has_key?(opts, field) do
-      :ok
-    else
-      error("stored flow requires external #{field} attachment", %{field: field})
+    case Map.fetch(opts, field) do
+      {:ok, value} when not is_nil(value) or field == :actions ->
+        :ok
+
+      _missing_or_nil ->
+        error("stored flow requires external #{field} attachment", %{field: field})
     end
   end
 

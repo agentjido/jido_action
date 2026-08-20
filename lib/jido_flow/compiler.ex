@@ -4,7 +4,6 @@ defmodule Jido.Flow.Compiler do
   """
 
   alias Jido.Action.Error
-  alias Jido.Action.Output
   alias Jido.Exec
   alias Jido.Flow
   alias Jido.Flow.Identity
@@ -289,7 +288,7 @@ defmodule Jido.Flow.Compiler do
     node.action
     |> apply(:flow, [])
     |> Exec.run(params, context)
-    |> tag_step_execution_error(node)
+    |> tag_step_error(:step_execution, node)
   end
 
   defp node_metadata(node, node_state) do
@@ -351,47 +350,39 @@ defmodule Jido.Flow.Compiler do
     node.action
     |> Exec.invoke_action(params, context)
     |> drop_action_extras()
-    |> tag_step_execution_error(node)
+    |> tag_step_error(:step_execution, node)
   end
 
   # Extras are instruction-path-only; flow nodes deliberately discard them.
   defp drop_action_extras({:ok, output, _extras}), do: {:ok, output}
   defp drop_action_extras({:error, error}), do: {:error, error}
 
-  defp tag_step_execution_error({:ok, output}, _node), do: {:ok, output}
+  defp tag_step_error({:ok, output}, _phase, _node), do: {:ok, output}
 
-  defp tag_step_execution_error({:error, error}, node) when is_exception(error) do
-    {:error, put_step_details(error, node)}
+  defp tag_step_error({:error, error}, phase, node) when is_exception(error) do
+    {:error, put_step_details(error, phase, node)}
   end
 
-  defp put_step_details(%{details: details} = error, node) when is_map(details) do
-    %{error | details: Map.merge(details, step_details(node))}
-  end
+  defp tag_step_error({:error, error}, _phase, _node), do: {:error, error}
 
-  defp put_step_details(error, _node), do: error
-
-  defp step_details(node) do
+  defp put_step_details(%{details: details} = error, phase, node) when is_map(details) do
     %{
-      phase: :step_execution,
-      node: node.name,
-      action: node.action
+      error
+      | details: Map.merge(details, %{phase: phase, node: node.name, action: node.action})
     }
   end
+
+  defp put_step_details(error, _phase, _node), do: error
 
   defp validate_step_input(node, params) do
     node.action.validate_params(params)
     |> tag_step_validation_error(:step_input, node)
   end
 
-  defp validate_step_output(node, %Output{} = output) do
-    output
-    |> Output.validate()
-    |> tag_step_validation_error(:step_output, node)
-  end
-
   defp validate_step_output(node, output) do
-    node.action.validate_output(output)
-    |> tag_step_validation_error(:step_output, node)
+    node.action
+    |> Exec.validate_action_output(output)
+    |> tag_step_error(:step_output, node)
   end
 
   defp tag_step_validation_error({:ok, value}, _phase, _node), do: {:ok, value}

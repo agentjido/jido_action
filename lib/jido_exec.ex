@@ -64,6 +64,7 @@ defmodule Jido.Exec do
          {:ok, input} <- normalize_map(input, :input),
          {:ok, context} <- normalize_map(context, :context),
          {:ok, input} <- validate_data(flow.schema, input, "Flow", flow, :flow_input),
+         {:ok, input} <- validate_flow_input_shape(flow, input),
          {:ok, output} <- Flow.Compiler.run_validated(flow, input, context, run_opts),
          {:ok, output} <- validate_flow_output(flow, output) do
       {:ok, output}
@@ -312,9 +313,24 @@ defmodule Jido.Exec do
     end
   end
 
-  defp validate_action_output(_action, %Output{} = output), do: Output.validate(output)
+  defp validate_flow_input_shape(_flow, input) when is_map(input), do: {:ok, input}
 
-  defp validate_action_output(action, output) when is_map(output) do
+  defp validate_flow_input_shape(flow, input) do
+    {:error,
+     Error.validation_error("Flow input validation must return a map", %{
+       context: "Flow",
+       subject: flow,
+       phase: :flow_input,
+       value: input
+     })}
+  end
+
+  @doc false
+  @spec validate_action_output(module(), term()) ::
+          {:ok, map() | Output.t()} | {:error, Exception.t()}
+  def validate_action_output(_action, %Output{} = output), do: Output.validate(output)
+
+  def validate_action_output(action, output) when is_map(output) do
     if is_struct(output) and Enumerable.impl_for(output) do
       output_envelope_required(action, output, :run)
     else
@@ -324,7 +340,7 @@ defmodule Jido.Exec do
     end
   end
 
-  defp validate_action_output(action, output) do
+  def validate_action_output(action, output) do
     output_envelope_required(action, output, :run)
   end
 

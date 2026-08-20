@@ -11,7 +11,6 @@ defmodule Jido.Flow.CompilerTest do
 
   alias JidoTest.TestActions.{
     Add,
-    AnyEchoAction,
     AtomErrorAction,
     AtomValidationAction,
     ContextEcho,
@@ -22,10 +21,12 @@ defmodule Jido.Flow.CompilerTest do
     ExtrasAction,
     FullAction,
     InvalidOutput,
+    InvalidValidatedOutputAction,
     MissingRun,
     Multiply,
     OutputEnvelopeAction,
     RawExceptionErrorAction,
+    RawOutputAction,
     RecorderAction,
     ThrowingAction,
     TupleErrorAction,
@@ -476,26 +477,51 @@ defmodule Jido.Flow.CompilerTest do
       assert details.reason == "missing run/2"
     end
 
-    test "passes list-valued single parent results unchanged" do
+    test "rejects list-valued raw leaf action results" do
       flow =
         Flow.new!(
-          name: "single_parent_list_result",
+          name: "raw_list_result",
           nodes: [
             Node.new!(
               name: :source,
-              action: AnyEchoAction,
-              input: [Ref.value(:left), Ref.value(:right)]
-            ),
-            Node.new!(
-              name: :child,
-              action: AnyEchoAction,
-              input: Ref.result(:source)
+              action: RawOutputAction,
+              input: %{value: [Ref.value(:left), Ref.value(:right)]}
             )
           ],
-          return: Ref.result(:child)
+          return: Ref.result(:source)
         )
 
-      assert {:ok, [:left, :right]} = Compiler.run(flow, %{}, %{})
+      assert {:error, %ExecutionFailureError{message: message, details: details}} =
+               Compiler.run(flow, %{}, %{})
+
+      assert message == "action returned a value that requires an output envelope"
+      assert details.phase == :step_output
+      assert details.node == "source"
+      assert details.action == RawOutputAction
+      assert details.callback == :run
+      assert details.output == [:left, :right]
+    end
+
+    test "rejects scalar values returned by a leaf output validator" do
+      flow =
+        Flow.new!(
+          name: "scalar_validated_output",
+          nodes: [
+            Node.new!(name: :bad, action: InvalidValidatedOutputAction)
+          ],
+          return: Ref.result(:bad)
+        )
+
+      assert {:error, %ExecutionFailureError{message: message, details: details}} =
+               Compiler.run(flow, %{}, %{})
+
+      assert message == "action validator returned a value with an invalid shape"
+      assert details.phase == :step_output
+      assert details.node == "bad"
+      assert details.action == InvalidValidatedOutputAction
+      assert details.callback == :validate_output
+      assert details.expected == :map_or_output_envelope
+      assert details.result == 42
     end
 
     test "maps joined parent values to result refs by dependency order" do

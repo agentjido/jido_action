@@ -804,7 +804,9 @@ defmodule Jido.FlowTest do
       for {opts, field} <- [
             {[actions: actions], :schema},
             {[actions: actions, schema: []], :output_schema},
-            {[actions: actions, output_schema: []], :schema}
+            {[actions: actions, output_schema: []], :schema},
+            {[actions: actions, schema: nil, output_schema: []], :schema},
+            {[actions: actions, schema: [], output_schema: nil], :output_schema}
           ] do
         assert {:error, %InvalidInputError{message: message, details: details}} =
                  Flow.from_map(stored, opts)
@@ -1680,11 +1682,13 @@ defmodule Jido.FlowTest do
     end
 
     test "rejects invalid action registry option shapes" do
-      assert {:error, %InvalidInputError{message: message, details: details}} =
-               Flow.from_map(stored_flow_map(), stored_options(:bad))
+      for actions <- [:bad, nil] do
+        assert {:error, %InvalidInputError{message: message, details: details}} =
+                 Flow.from_map(stored_flow_map(), stored_options(actions))
 
-      assert message =~ "flow action registry must map"
-      assert details.actions == :bad
+        assert message == "flow action registry must map string or atom identifiers to modules"
+        assert details.actions == actions
+      end
     end
 
     test "rejects unknown typed atom path segments without creating atoms" do
