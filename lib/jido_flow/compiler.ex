@@ -445,7 +445,7 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp validate_target_input(action, params, owner) do
-    action.validate_params(params)
+    Exec.validate_action_params(action, params)
     |> tag_target_validation_error(:input, owner)
   end
 
@@ -592,12 +592,7 @@ defmodule Jido.Flow.Compiler do
 
   defp tag_choice_target_validation_error({:error, error}, choice, target, phase)
        when is_exception(error) do
-    details =
-      error
-      |> Map.get(:details, %{})
-      |> choice_target_details(choice, target, phase)
-
-    {:error, Error.validation_error(Exception.message(error), details)}
+    {:error, put_choice_target_details(error, choice, target, phase)}
   end
 
   defp tag_choice_target_validation_error({:error, reason}, choice, target, phase) do

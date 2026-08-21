@@ -1011,6 +1011,118 @@ defmodule Jido.FlowTest do
       assert path_message == "flow ref path must be a list"
     end
 
+    test "rejects malformed semantic Choice grammar with exact recursive paths" do
+      semantic = Flow.to_map(choice_map_flow())
+
+      cases = [
+        {put_in(semantic, [:nodes, Access.at(1), :options], :not_a_list),
+         "choice options must be a list", [:nodes, 1, :options]},
+        {update_in(
+           semantic,
+           [:nodes, Access.at(1), :options, Access.at(0), :condition],
+           &Map.delete(&1, :operator)
+         ), "choice_condition is missing required field: :operator",
+         [:nodes, 1, :options, 0, :condition, :operator]},
+        {put_in(
+           semantic,
+           [:nodes, Access.at(1), :options, Access.at(0), :condition, :extra],
+           true
+         ), "choice_condition contains unknown field: :extra",
+         [:nodes, 1, :options, 0, :condition, :extra]},
+        {put_in(
+           semantic,
+           [:nodes, Access.at(1), :options, Access.at(0), :condition, :operator],
+           :xor
+         ), "unsupported choice condition operator",
+         [:nodes, 1, :options, 0, :condition, :operator]},
+        {put_in(
+           semantic,
+           [:nodes, Access.at(1), :options, Access.at(0), :condition, :operands],
+           :not_a_list
+         ), "choice condition operands must be a list",
+         [:nodes, 1, :options, 0, :condition, :operands]},
+        {put_in(semantic, [:nodes, Access.at(1), :fallback, :name], :otherwise),
+         "choice fallback name must be fallback", [:nodes, 1, :fallback, :name]}
+      ]
+
+      actual =
+        for {malformed, _expected_message, _expected_path} <- cases do
+          assert {:error, %InvalidInputError{message: message, details: details}} =
+                   Flow.from_map(malformed)
+
+          {message, details.path}
+        end
+
+      expected =
+        Enum.map(cases, fn {_malformed, message, path} ->
+          {message, path}
+        end)
+
+      assert actual == expected
+    end
+
+    test "rejects malformed stored Choice grammar with exact recursive paths" do
+      stored =
+        choice_map_flow()
+        |> Flow.to_map(
+          format: :stored,
+          actions: %{"echo" => EchoParamsAction, "add" => Add, "multiply" => Multiply}
+        )
+
+      cases = [
+        {put_in(stored, ["nodes", Access.at(1), "options"], "not a list"),
+         "choice options must be a list", ["nodes", 1, "options"]},
+        {update_in(
+           stored,
+           ["nodes", Access.at(1), "options", Access.at(0), "condition"],
+           &Map.delete(&1, "operator")
+         ), ~s(choice_condition is missing required field: "operator"),
+         ["nodes", 1, "options", 0, "condition", "operator"]},
+        {put_in(
+           stored,
+           ["nodes", Access.at(1), "options", Access.at(0), "condition", "extra"],
+           true
+         ), ~s(choice_condition contains unknown field: "extra"),
+         ["nodes", 1, "options", 0, "condition", "extra"]},
+        {put_in(
+           stored,
+           ["nodes", Access.at(1), "options", Access.at(0), "condition", "operator"],
+           "xor"
+         ), "unsupported choice condition operator",
+         ["nodes", 1, "options", 0, "condition", "operator"]},
+        {put_in(
+           stored,
+           ["nodes", Access.at(1), "options", Access.at(0), "condition", "operands"],
+           "not a list"
+         ), "choice condition operands must be a list",
+         ["nodes", 1, "options", 0, "condition", "operands"]},
+        {put_in(stored, ["nodes", Access.at(1), "fallback", "name"], "otherwise"),
+         "choice fallback name must be fallback", ["nodes", 1, "fallback", "name"]}
+      ]
+
+      options =
+        stored_options(%{
+          "echo" => EchoParamsAction,
+          "add" => Add,
+          "multiply" => Multiply
+        })
+
+      actual =
+        for {malformed, _expected_message, _expected_path} <- cases do
+          assert {:error, %InvalidInputError{message: message, details: details}} =
+                   Flow.from_map(malformed, options)
+
+          {message, details.path}
+        end
+
+      expected =
+        Enum.map(cases, fn {_malformed, message, path} ->
+          {message, path}
+        end)
+
+      assert actual == expected
+    end
+
     test "requires one registry identifier for every Choice target during stored encoding" do
       flow = choice_map_flow()
 

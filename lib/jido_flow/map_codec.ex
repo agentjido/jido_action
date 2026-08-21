@@ -235,7 +235,9 @@ defmodule Jido.Flow.MapCodec do
          {:ok, name} <- profile_fetch_required(choice, :name, profile, "choice name is required"),
          {:ok, options} <-
            profile_fetch_required(choice, :options, profile, "choice options are required"),
-         {:ok, options} <- decode_choice_options(options, actions, profile),
+         {:ok, options} <-
+           decode_choice_options(options, actions, profile)
+           |> prepend_error_path([profile_field(:options, profile)]),
          {:ok, fallback} <-
            profile_fetch_required(choice, :fallback, profile, "choice fallback is required"),
          {:ok, fallback} <-
@@ -262,7 +264,7 @@ defmodule Jido.Flow.MapCodec do
       |> Enum.with_index()
       |> Enum.reduce_while({:ok, []}, fn {option, index}, {:ok, acc} ->
         case decode_choice_option(option, actions, profile)
-             |> prepend_error_path([profile_field(:options, profile), index]) do
+             |> prepend_error_path([index]) do
           {:ok, option} -> {:cont, {:ok, [option | acc]}}
           {:error, error} -> {:halt, {:error, error}}
         end
@@ -308,7 +310,8 @@ defmodule Jido.Flow.MapCodec do
   defp decode_choice_fallback(%{} = fallback, actions, profile) do
     with :ok <- validate_choice_fallback_record(fallback, profile),
          :ok <-
-           validate_fallback_name(profile_fetch_optional(fallback, :name, nil, profile), profile),
+           validate_fallback_name(profile_fetch_optional(fallback, :name, nil, profile), profile)
+           |> prepend_error_path([profile_field(:name, profile)]),
          {:ok, action} <-
            profile_fetch_required(
              fallback,
@@ -463,7 +466,9 @@ defmodule Jido.Flow.MapCodec do
              profile,
              "choice condition operator is required"
            ),
-         {:ok, operator} <- decode_condition_operator(operator, profile),
+         {:ok, operator} <-
+           decode_condition_operator(operator, profile)
+           |> prepend_error_path([profile_field(:operator, profile)]),
          {:ok, operands} <-
            profile_fetch_required(
              condition,
