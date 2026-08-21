@@ -10,9 +10,11 @@ defmodule Jido.Flow.MapCodec do
     ContractBundle,
     Element,
     Node,
+    Reduce,
     ResourceBudget
   }
 
+  alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.Ref
 
   @semantic_version 1
@@ -255,6 +257,8 @@ defmodule Jido.Flow.MapCodec do
 
   defp semantic_element(%Node{} = node, opts), do: Node.to_map(node, opts)
   defp semantic_element(%Choice{} = choice, opts), do: Choice.to_map(choice, opts)
+  defp semantic_element(%FlowMap{} = map, opts), do: FlowMap.to_map(map, opts)
+  defp semantic_element(%Reduce{} = reduce, opts), do: Reduce.to_map(reduce, opts)
 
   defp stored_element!(%Node{} = node, action_ids, opts, path),
     do: stored_node!(node, action_ids, opts, path)

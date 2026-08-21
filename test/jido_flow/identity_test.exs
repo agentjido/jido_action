@@ -3,7 +3,7 @@ defmodule Jido.Flow.IdentityTest do
 
   alias Jido.Action.Error.InvalidInputError
   alias Jido.Flow
-  alias Jido.Flow.{Choice, Condition, ContractBundle, Node, Ref}
+  alias Jido.Flow.{Choice, Condition, ContractBundle, Identity, Node, Ref}
   alias JidoTest.TestActions.{Add, EchoParamsAction, Multiply}
 
   test "returns canonical direct predecessor dependencies" do
@@ -185,6 +185,33 @@ defmodule Jido.Flow.IdentityTest do
              ~r/^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
     assert identity.uuid == "f62c5891-a3aa-8538-96bc-fde841560828"
+  end
+
+  test "creates domain-separated stable UUIDv8 item identities" do
+    flow_digest = String.duplicate("a", 64)
+
+    expected =
+      {:jido_flow_item_identity, 1, flow_digest, "enrich", 0}
+      |> Identity.hash_term()
+      |> Identity.uuid_v8()
+
+    assert Identity.item_uuid(flow_digest, "enrich", 0) == expected
+    assert Identity.item_uuid(flow_digest, "enrich", 0) == expected
+
+    assert Identity.item_uuid(flow_digest, "enrich", 0) !=
+             Identity.step_uuid(flow_digest, "enrich")
+
+    refute Identity.item_uuid(flow_digest, "enrich", 0) ==
+             Identity.item_uuid(String.duplicate("b", 64), "enrich", 0)
+
+    refute Identity.item_uuid(flow_digest, "enrich", 0) ==
+             Identity.item_uuid(flow_digest, "other", 0)
+
+    refute Identity.item_uuid(flow_digest, "enrich", 0) ==
+             Identity.item_uuid(flow_digest, "enrich", 1)
+
+    assert expected =~
+             ~r/^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
   end
 
   test "ignores provenance and independent author order" do

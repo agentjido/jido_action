@@ -3,20 +3,49 @@ defmodule Jido.Flow.Ref do
   References used by the canonical Flow IR.
 
   Refs are data only. They identify values from the Flow input, runtime context,
-  literal values, or results produced by named Flow nodes.
+  literal values, results produced by named Flow nodes, or scoped Map and
+  Reduce item state.
   """
 
   alias Jido.Action
   alias Jido.Action.Error
 
-  @type kind :: :input | :context | :result | :value
+  @type kind ::
+          :input
+          | :context
+          | :result
+          | :value
+          | :item
+          | :item_index
+          | :item_id
+          | :accumulator
+  @type scope ::
+          :flow
+          | :map_collection
+          | :map_input
+          | :reduce_collection
+          | :reduce_initial
+          | :reduce_input
   @type node_name :: String.t()
   @type path :: [atom() | String.t() | integer()]
 
   @schema Zoi.struct(
             __MODULE__,
             %{
-              type: Zoi.enum([:input, :context, :result, :value], description: "Reference type"),
+              type:
+                Zoi.enum(
+                  [
+                    :input,
+                    :context,
+                    :result,
+                    :value,
+                    :item,
+                    :item_index,
+                    :item_id,
+                    :accumulator
+                  ],
+                  description: "Reference type"
+                ),
               node: Zoi.string(description: "Result node name") |> Zoi.optional(),
               path: Zoi.list(Zoi.any(), description: "Nested value path") |> Zoi.default([]),
               value: Zoi.any(description: "Literal value") |> Zoi.optional()
@@ -55,10 +84,38 @@ defmodule Jido.Flow.Ref do
   @spec value(term()) :: t()
   def value(value), do: %__MODULE__{type: :value, value: value}
 
+  @doc """
+  Builds a scoped reference to the current Map or Reduce item.
+  """
+  @spec item(atom() | String.t() | integer() | list() | nil) :: t()
+  def item(path \\ nil), do: %__MODULE__{type: :item, path: normalize_path(path)}
+
+  @doc """
+  Builds a scoped reference to the current zero-based item index.
+  """
+  @spec item_index() :: t()
+  def item_index, do: %__MODULE__{type: :item_index}
+
+  @doc """
+  Builds a scoped reference to the current stable item identity.
+  """
+  @spec item_id() :: t()
+  def item_id, do: %__MODULE__{type: :item_id}
+
+  @doc """
+  Builds a scoped reference to the current Reduce accumulator.
+  """
+  @spec accumulator(atom() | String.t() | integer() | list() | nil) :: t()
+  def accumulator(path \\ nil),
+    do: %__MODULE__{type: :accumulator, path: normalize_path(path)}
+
   @doc false
-  @spec validate(t()) :: :ok | {:error, Error.InvalidInputError.t()}
-  def validate(%__MODULE__{type: type, path: path, node: node, value: value} = ref) do
+  @spec validate(t(), scope()) :: :ok | {:error, Error.InvalidInputError.t()}
+  def validate(ref, scope \\ :flow)
+
+  def validate(%__MODULE__{type: type, path: path, node: node, value: value} = ref, scope) do
     with :ok <- validate_shape(type, node, path, value),
+         :ok <- validate_scope(type, scope),
          :ok <- validate_path(path) do
       :ok
     else
@@ -81,7 +138,21 @@ defmodule Jido.Flow.Ref do
   end
 
   defp validate_shape(:value, nil, [], _value), do: :ok
+  defp validate_shape(type, nil, _path, nil) when type in [:item, :accumulator], do: :ok
+
+  defp validate_shape(type, nil, [], nil) when type in [:item_index, :item_id], do: :ok
+
   defp validate_shape(type, _node, _path, _value), do: {:error, :shape, %{type: type}}
+
+  defp validate_scope(type, _scope) when type in [:input, :context, :result, :value], do: :ok
+
+  defp validate_scope(type, scope)
+       when type in [:item, :item_index, :item_id] and scope in [:map_input, :reduce_input],
+       do: :ok
+
+  defp validate_scope(:accumulator, :reduce_input), do: :ok
+
+  defp validate_scope(type, scope), do: {:error, :scope, %{type: type, scope: scope}}
 
   defp validate_path([]), do: :ok
 
@@ -110,6 +181,12 @@ defmodule Jido.Flow.Ref do
   end
 
   def to_map(%__MODULE__{type: :value, value: value}), do: %{type: :value, value: value}
+
+  def to_map(%__MODULE__{type: type, path: path}) when type in [:item, :accumulator] do
+    %{type: type, path: path}
+  end
+
+  def to_map(%__MODULE__{type: type}) when type in [:item_index, :item_id], do: %{type: type}
 
   @doc false
   @spec normalize_path(atom() | String.t() | integer() | list() | nil) :: path()

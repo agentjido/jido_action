@@ -96,8 +96,9 @@ defmodule Jido.Flow.Node do
   def normalize_expression(expression), do: do_normalize_expression(expression, [])
 
   @doc false
-  @spec validate_expression(term()) :: :ok | {:error, Exception.t()}
-  def validate_expression(expression), do: validate_input_expression(expression, [])
+  @spec validate_expression(term(), Ref.scope()) :: :ok | {:error, Exception.t()}
+  def validate_expression(expression, scope \\ :flow),
+    do: validate_input_expression(expression, [], scope)
 
   @doc false
   @spec expression_to_map(term()) :: term()
@@ -161,7 +162,7 @@ defmodule Jido.Flow.Node do
 
   defp validate_input(input) do
     with {:ok, input} <- normalize_expression(input),
-         :ok <- validate_input_expression(input, []) do
+         :ok <- validate_input_expression(input, [], :flow) do
       {:ok, input}
     end
   end
@@ -194,8 +195,8 @@ defmodule Jido.Flow.Node do
     {:error, Error.validation_error("node provenance must be a map")}
   end
 
-  defp validate_input_expression(%Ref{} = ref, path) do
-    case Ref.validate(ref) do
+  defp validate_input_expression(%Ref{} = ref, path, scope) do
+    case Ref.validate(ref, scope) do
       :ok ->
         :ok
 
@@ -211,27 +212,27 @@ defmodule Jido.Flow.Node do
     end
   end
 
-  defp validate_input_expression(%{} = map, path) when not is_struct(map) do
+  defp validate_input_expression(%{} = map, path, scope) when not is_struct(map) do
     Enum.reduce_while(map, :ok, fn {key, value}, :ok ->
-      case validate_input_expression(value, path ++ [key]) do
+      case validate_input_expression(value, path ++ [key], scope) do
         :ok -> {:cont, :ok}
         {:error, error} -> {:halt, {:error, error}}
       end
     end)
   end
 
-  defp validate_input_expression(list, path) when is_list(list) do
+  defp validate_input_expression(list, path, scope) when is_list(list) do
     list
     |> Enum.with_index()
     |> Enum.reduce_while(:ok, fn {value, index}, :ok ->
-      case validate_input_expression(value, path ++ [index]) do
+      case validate_input_expression(value, path ++ [index], scope) do
         :ok -> {:cont, :ok}
         {:error, error} -> {:halt, {:error, error}}
       end
     end)
   end
 
-  defp validate_input_expression(%{__struct__: module}, path) do
+  defp validate_input_expression(%{__struct__: module}, path, _scope) do
     {:error,
      Error.validation_error("node input contains unsupported expression", %{
        path: path,
@@ -239,7 +240,7 @@ defmodule Jido.Flow.Node do
      })}
   end
 
-  defp validate_input_expression(_value, _path), do: :ok
+  defp validate_input_expression(_value, _path, _scope), do: :ok
 
   defp do_normalize_expression(%Ref{type: :result, node: node} = ref, _path)
        when (is_atom(node) and not is_nil(node)) or is_binary(node) do

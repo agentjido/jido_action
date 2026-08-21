@@ -2,9 +2,9 @@ defmodule Jido.Flow do
   @moduledoc """
   Canonical v4 Flow artifact.
 
-  A Flow is a data artifact describing named action calls, ordered Choices, and
-  one declared return expression. Authoring surfaces lower into this struct;
-  execution is delegated through `Jido.Exec`.
+  A Flow is a data artifact describing named action calls, ordered Choices,
+  Map fan-out, Reduce fan-in, and one declared return expression. Authoring
+  surfaces lower into this struct; execution is delegated through `Jido.Exec`.
 
   A Choice is one Flow node. It evaluates data-only conditions in authored
   order, runs the first matching target, and uses a required routing fallback
