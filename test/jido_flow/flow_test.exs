@@ -3,11 +3,28 @@ defmodule Jido.FlowTest do
 
   alias Jido.Action.Error.InvalidInputError
   alias Jido.Flow
-  alias Jido.Flow.{Choice, Condition, ContractBundle, Node, Reduce, Ref, Syntax}
+  alias Jido.Flow.{Choice, Condition, ContractBundle, Element, Node, Reduce, Ref, Syntax}
   alias Jido.Flow.Map, as: FlowMap
   alias JidoTest.TestActions.{Add, EchoParamsAction, MissingRun, Multiply}
 
   describe "new/1" do
+    test "dispatches tagged keyword elements and rejects non-configurations" do
+      assert {:ok, %FlowMap{name: "mapped"}} =
+               Element.new(kind: :map, name: :mapped, collection: [], action: Add)
+
+      assert {:ok, %Reduce{name: "reduced"}} =
+               Element.new(
+                 kind: :reduce,
+                 name: :reduced,
+                 collection: [],
+                 initial: %{},
+                 action: Add
+               )
+
+      assert {:error, %InvalidInputError{message: "node configuration must be a map"}} =
+               Element.new(:not_a_configuration)
+    end
+
     test "integrates Map and Reduce as one-node graph elements" do
       reduce =
         Reduce.new!(

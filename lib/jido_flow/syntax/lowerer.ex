@@ -899,8 +899,6 @@ defmodule Jido.Flow.Syntax.Lowerer do
     end
   end
 
-  defp validate_no_self_result(_expr, nil), do: :ok
-
   defp validate_no_self_result(expr, step) do
     if result_referenced?(expr, step) do
       {:error,

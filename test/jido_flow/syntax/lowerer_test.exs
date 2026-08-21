@@ -1403,6 +1403,63 @@ defmodule Jido.Flow.Syntax.LowererTest do
       assert details.path == [:options, :on_error]
     end
 
+    test "rejects invalid option containers and direct unsupported attributes" do
+      invalid_options =
+        Syntax.new(name: "invalid_options")
+        |> Syntax.map(:mapped, Ref.input(:items), Add, %{item: Syntax.item()}, :not_keyword)
+        |> Syntax.return(Syntax.result(:mapped))
+
+      direct_attribute =
+        Syntax.new(name: "direct_attribute")
+        |> Syntax.add(
+          Syntax.operation(:map, %{
+            name: :mapped,
+            collection: Ref.input(:items),
+            action: Add,
+            input: %{item: Syntax.item()},
+            on_error: :fail_fast,
+            timeout: 100
+          })
+        )
+        |> Syntax.return(Syntax.result(:mapped))
+
+      assert {:error,
+              %InvalidInputError{
+                message: "map options must be a keyword list",
+                details: %{path: [:options], options: :not_keyword}
+              }} = Lowerer.lower(invalid_options)
+
+      assert {:error,
+              %InvalidInputError{
+                message: "unsupported map option: :timeout",
+                details: %{path: [:options, :timeout]}
+              }} = Lowerer.lower(direct_attribute)
+    end
+
+    test "keeps direct Refs scoped while validating missing and self names" do
+      unnamed =
+        Syntax.new(name: "unnamed")
+        |> Syntax.map(nil, Ref.input(:items), Add, %{item: Syntax.item()})
+        |> Syntax.return(Syntax.result(:mapped))
+
+      self_result =
+        Syntax.new(name: "direct_self_result")
+        |> Syntax.map(:mapped, Ref.result(:mapped), Add, %{
+          item: Syntax.item(),
+          prior: Ref.input(:prior)
+        })
+        |> Syntax.return(Syntax.result(:mapped))
+
+      assert {:error, %InvalidInputError{message: "map requires a name or a binding"}} =
+               Lowerer.lower(unnamed)
+
+      assert {:error,
+              %InvalidInputError{
+                message: "result cannot reference current step: \"mapped\"",
+                details: %{dependency: "mapped"}
+              }} = Lowerer.lower(self_result)
+    end
+
     test "rejects bad modes, dynamic targets, and unsupported expressions at canonical paths" do
       cases = [
         {Syntax.new(name: "mode")
