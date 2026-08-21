@@ -70,6 +70,15 @@ defmodule Jido.Flow.Builder do
   @doc false
   defdelegate accumulator(path \\ nil), to: Syntax
 
+  @doc false
+  defdelegate state(path \\ nil), to: Syntax
+
+  @doc false
+  defdelegate iteration_index(), to: Syntax
+
+  @doc false
+  defdelegate body_result(path \\ nil), to: Syntax
+
   @doc "Builds an equality condition for a Choice option."
   defdelegate eq(left, right), to: Syntax
 
@@ -158,6 +167,13 @@ defmodule Jido.Flow.Builder do
       builder
       | syntax: Syntax.reduce(syntax, name, collection, initial, action, input, opts)
     }
+  end
+
+  @doc "Appends one bounded, stateful Loop operation."
+  @spec loop(t(), atom() | String.t() | nil, module(), term(), map() | keyword(), keyword()) ::
+          t()
+  def loop(%__MODULE__{syntax: syntax} = builder, name, action, input, state, opts \\ []) do
+    %{builder | syntax: Syntax.loop(syntax, name, action, input, state, opts)}
   end
 
   @doc """

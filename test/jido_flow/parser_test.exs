@@ -167,6 +167,81 @@ end
       assert Flow.semantic_identity(stored) == Flow.semantic_identity(trusted)
     end
 
+    test "parses equal trusted and stored Loop source through host registries" do
+      trusted = """
+      flow do
+        counted = loop :count,
+          run: JidoTest.TestActions.Add,
+          with: %{value: state(:count), index: iteration_index()},
+          state: [schema: "state/v1", initial: %{count: input(:count)}, update: %{count: body_result(:value)}],
+          until: gte(state(:count), value(3)),
+          max_iterations: 5
+        return counted
+      end
+      """
+
+      stored = String.replace(trusted, "JidoTest.TestActions.Add", ~s("add/v1"))
+      common = [name: "loop_parser", state_schemas: %{"state/v1" => []}]
+
+      assert {:ok, trusted_flow} = Parser.parse(trusted, common)
+
+      assert {:ok, stored_flow} =
+               Parser.parse(
+                 stored,
+                 common ++ [profile: :stored, actions: %{"add/v1" => Add}]
+               )
+
+      assert Flow.to_map(stored_flow) == Flow.to_map(trusted_flow)
+      assert Flow.semantic_identity(stored_flow) == Flow.semantic_identity(trusted_flow)
+    end
+
+    test "rejects unknown Loop State schema IDs with bounded details" do
+      source = """
+      flow do
+        loop :count,
+          run: JidoTest.TestActions.Add,
+          with: %{},
+          state: [schema: "missing/v1", initial: %{}, update: %{}],
+          repeat: 1
+        return result(:count)
+      end
+      """
+
+      assert {:error,
+              %InvalidInputError{
+                message: "unknown loop state schema identifier: \"missing/v1\"",
+                details: %{schema: "missing/v1", node: "count", path: [:state, :schema]}
+              }} = Parser.parse(source, name: "loop", state_schemas: %{"state/v1" => []})
+    end
+
+    test "rejects malformed State schema registries and stored module targets" do
+      source = """
+      flow do
+        loop :count,
+          run: JidoTest.TestActions.Add,
+          with: %{},
+          state: [schema: "state/v1", initial: %{}, update: %{}],
+          repeat: 1
+        return result(:count)
+      end
+      """
+
+      assert {:error, %InvalidInputError{message: message}} =
+               Parser.parse(source, name: "loop", state_schemas: :bad)
+
+      assert message =~ "state_schemas"
+
+      assert {:error, %InvalidInputError{message: stored_message}} =
+               Parser.parse(source,
+                 name: "loop",
+                 profile: :stored,
+                 actions: %{"add/v1" => Add},
+                 state_schemas: %{"state/v1" => []}
+               )
+
+      assert stored_message =~ "stored flow action modules must use registered identifiers"
+    end
+
     test "stored Map and Reduce parsing does not create atoms" do
       atom_name = "__jido_flow_map_atom_#{System.unique_integer([:positive])}"
       assert_raise ArgumentError, fn -> String.to_existing_atom(atom_name) end
@@ -190,6 +265,37 @@ end
 
       assert message == "unknown flow action identifier: #{inspect(atom_name)}"
       assert_raise ArgumentError, fn -> String.to_existing_atom(atom_name) end
+    end
+
+    test "stored Loop schema lookup does not create atoms" do
+      schema_id = "__jido_flow_loop_schema_#{System.unique_integer([:positive])}"
+      assert_raise ArgumentError, fn -> String.to_existing_atom(schema_id) end
+
+      source = """
+      flow do
+        loop "count",
+          run: "add",
+          with: %{},
+          state: [schema: "#{schema_id}", initial: %{}, update: %{}],
+          repeat: 1
+        return result("count")
+      end
+      """
+
+      expected_message = "unknown loop state schema identifier: #{inspect(schema_id)}"
+
+      assert {:error,
+              %InvalidInputError{
+                message: ^expected_message
+              }} =
+               Parser.parse(source,
+                 name: "stored_loop_atom_safety",
+                 profile: :stored,
+                 actions: %{"add" => Add},
+                 state_schemas: %{"state/v1" => []}
+               )
+
+      assert_raise ArgumentError, fn -> String.to_existing_atom(schema_id) end
     end
 
     test "rejects closed Map and Reduce source escape forms" do
@@ -240,15 +346,15 @@ end
         {"map :mapped, later, run: JidoTest.TestActions.Add, with: %{item: item()}\nlater = step :loaded, JidoTest.TestActions.Add, with: %{}",
          "binding reference before it is bound"},
         {"map :mapped, item(), run: JidoTest.TestActions.Add, with: %{item: item()}",
-         "map collection contains invalid ref"},
+         "flow expression contains a scoped ref outside its valid scope"},
         {"map :mapped, input(:items), run: JidoTest.TestActions.Add, with: %{acc: accumulator()}",
-         "map target input contains invalid ref"},
+         "flow expression contains a scoped ref outside its valid scope"},
         {"reduce :summary, item(), initial: value(%{}), run: JidoTest.TestActions.Add, with: %{item: item(), acc: accumulator()}",
-         "reduce collection contains invalid ref"},
+         "flow expression contains a scoped ref outside its valid scope"},
         {"reduce :summary, input(:items), initial: item_id(), run: JidoTest.TestActions.Add, with: %{item: item(), acc: accumulator()}",
-         "reduce initial contains invalid ref"},
+         "flow expression contains a scoped ref outside its valid scope"},
         {"step :plain, JidoTest.TestActions.Add, with: %{item: item()}",
-         "node input contains invalid ref"}
+         "flow expression contains a scoped ref outside its valid scope"}
       ]
 
       for {statements, expected_message} <- cases do

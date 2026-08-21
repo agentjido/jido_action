@@ -19,6 +19,9 @@ defmodule Jido.Flow.Ref do
           | :item_index
           | :item_id
           | :accumulator
+          | :state
+          | :iteration_index
+          | :body_result
   @type scope ::
           :flow
           | :map_collection
@@ -26,6 +29,10 @@ defmodule Jido.Flow.Ref do
           | :reduce_collection
           | :reduce_initial
           | :reduce_input
+          | :loop_initial
+          | :loop_input
+          | :loop_update
+          | :loop_completion
   @type node_name :: String.t()
   @type path :: [atom() | String.t() | integer()]
 
@@ -42,7 +49,10 @@ defmodule Jido.Flow.Ref do
                     :item,
                     :item_index,
                     :item_id,
-                    :accumulator
+                    :accumulator,
+                    :state,
+                    :iteration_index,
+                    :body_result
                   ],
                   description: "Reference type"
                 ),
@@ -109,6 +119,19 @@ defmodule Jido.Flow.Ref do
   def accumulator(path \\ nil),
     do: %__MODULE__{type: :accumulator, path: normalize_path(path)}
 
+  @doc "Builds a scoped reference to the current Loop State."
+  @spec state(atom() | String.t() | integer() | list() | nil) :: t()
+  def state(path \\ nil), do: %__MODULE__{type: :state, path: normalize_path(path)}
+
+  @doc "Builds a scoped reference to the current zero-based Loop iteration index."
+  @spec iteration_index() :: t()
+  def iteration_index, do: %__MODULE__{type: :iteration_index}
+
+  @doc "Builds a scoped reference to the latest valid Loop body result."
+  @spec body_result(atom() | String.t() | integer() | list() | nil) :: t()
+  def body_result(path \\ nil),
+    do: %__MODULE__{type: :body_result, path: normalize_path(path)}
+
   @doc false
   @spec validate(t(), scope()) :: :ok | {:error, Error.InvalidInputError.t()}
   def validate(ref, scope \\ :flow)
@@ -138,9 +161,14 @@ defmodule Jido.Flow.Ref do
   end
 
   defp validate_shape(:value, nil, [], _value), do: :ok
-  defp validate_shape(type, nil, _path, nil) when type in [:item, :accumulator], do: :ok
 
-  defp validate_shape(type, nil, [], nil) when type in [:item_index, :item_id], do: :ok
+  defp validate_shape(type, nil, _path, nil)
+       when type in [:item, :accumulator, :state, :body_result],
+       do: :ok
+
+  defp validate_shape(type, nil, [], nil)
+       when type in [:item_index, :item_id, :iteration_index],
+       do: :ok
 
   defp validate_shape(type, _node, _path, _value), do: {:error, :shape, %{type: type}}
 
@@ -151,6 +179,11 @@ defmodule Jido.Flow.Ref do
        do: :ok
 
   defp validate_scope(:accumulator, :reduce_input), do: :ok
+
+  defp validate_scope(type, scope)
+       when type in [:state, :iteration_index, :body_result] and
+              scope in [:loop_input, :loop_update, :loop_completion],
+       do: :ok
 
   defp validate_scope(type, scope), do: {:error, :scope, %{type: type, scope: scope}}
 
@@ -182,11 +215,16 @@ defmodule Jido.Flow.Ref do
 
   def to_map(%__MODULE__{type: :value, value: value}), do: %{type: :value, value: value}
 
-  def to_map(%__MODULE__{type: type, path: path}) when type in [:item, :accumulator] do
+  def to_map(%__MODULE__{type: type, path: path})
+      when type in [:item, :accumulator, :state, :body_result] do
     %{type: type, path: path}
   end
 
-  def to_map(%__MODULE__{type: type}) when type in [:item_index, :item_id], do: %{type: type}
+  def to_map(%__MODULE__{type: type}) when type in [:item_index, :item_id],
+    do: %{type: type}
+
+  def to_map(%__MODULE__{type: :iteration_index}),
+    do: %{type: :iteration_index, path: []}
 
   @doc false
   @spec normalize_path(atom() | String.t() | integer() | list() | nil) :: path()

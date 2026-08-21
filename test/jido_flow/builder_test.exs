@@ -9,6 +9,39 @@ defmodule Jido.Flow.BuilderTest do
   alias JidoTest.FlowFixtures
 
   describe "builder" do
+    test "exposes the complete closed Loop expression and operation surface" do
+      left = Builder.value(1)
+      right = Builder.value(2)
+      equal = Builder.eq(left, right)
+
+      assert Builder.iteration_index() == Syntax.iteration_index()
+      assert Builder.lt(left, right) == Syntax.lt(left, right)
+      assert Builder.lte(left, right) == Syntax.lte(left, right)
+      assert Builder.gt(left, right) == Syntax.gt(left, right)
+      assert Builder.in(left, right) == Syntax.in(left, right)
+      assert Builder.all([equal]) == Syntax.all([equal])
+      assert Builder.any([equal]) == Syntax.any([equal])
+      assert Builder.not(equal) == Syntax.not(equal)
+
+      builder =
+        Builder.new(name: "closed_surface")
+        |> Builder.map(
+          :mapped,
+          Builder.value([]),
+          JidoTest.TestActions.Add,
+          %{value: Builder.item()}
+        )
+        |> Builder.loop(
+          :counted,
+          JidoTest.TestActions.Add,
+          %{value: Builder.state(:count)},
+          %{schema: [], initial: %{count: left}, update: %{count: Builder.body_result(:value)}}
+        )
+
+      assert [%Syntax.Operation{kind: :map}, %Syntax.Operation{kind: :loop}] =
+               Builder.syntax(builder).operations
+    end
+
     test "builder and syntax emit the same if else choice" do
       syntax =
         Syntax.new(name: "if_else")
@@ -305,6 +338,50 @@ defmodule Jido.Flow.BuilderTest do
       assert Flow.dependencies(builder_flow) == Flow.dependencies(syntax_flow)
       assert Flow.explain(builder_flow) == Flow.explain(syntax_flow)
       assert Flow.semantic_identity(builder_flow) == Flow.semantic_identity(syntax_flow)
+    end
+
+    test "builder and direct syntax produce equal bounded Loop flows" do
+      state = %{
+        schema: [],
+        initial: %{count: Syntax.input(:count)},
+        update: %{count: Syntax.body_result(:value)}
+      }
+
+      syntax =
+        Syntax.new(name: "loop")
+        |> Syntax.loop(
+          :count,
+          JidoTest.TestActions.Add,
+          %{value: Syntax.state(:count)},
+          state,
+          until: Syntax.gte(Syntax.state(:count), Syntax.value(3)),
+          max_iterations: 5,
+          bind: :counted
+        )
+        |> Syntax.return(Syntax.binding(:counted))
+
+      builder_state = %{
+        schema: [],
+        initial: %{count: Builder.input(:count)},
+        update: %{count: Builder.body_result(:value)}
+      }
+
+      builder =
+        Builder.new(name: "loop")
+        |> Builder.loop(
+          :count,
+          JidoTest.TestActions.Add,
+          %{value: Builder.state(:count)},
+          builder_state,
+          until: Builder.gte(Builder.state(:count), Builder.value(3)),
+          max_iterations: 5,
+          bind: :counted
+        )
+        |> Builder.return(Builder.binding(:counted))
+
+      assert {:ok, syntax_flow} = Lowerer.lower(syntax)
+      assert {:ok, builder_flow} = Builder.build(builder)
+      assert Flow.to_map(builder_flow) == Flow.to_map(syntax_flow)
     end
   end
 end

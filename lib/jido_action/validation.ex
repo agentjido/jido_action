@@ -19,6 +19,21 @@ defmodule Jido.Action.Validation do
   end
 
   @doc false
+  @spec open_validate_preserving_shape(term(), term(), map()) ::
+          {:ok, term()} | {:error, Error.InvalidInputError.t()}
+  def open_validate_preserving_shape([], data, _details), do: {:ok, data}
+
+  def open_validate_preserving_shape(schema, data, details) when is_map(details) do
+    if zoi_schema?(schema) do
+      schema
+      |> parse_schema(data)
+      |> handle_shape_preserving_result(schema, details)
+    else
+      {:error, Error.validation_error("Unsupported schema type", details)}
+    end
+  end
+
+  @doc false
   @spec zoi_schema?(term()) :: boolean()
   def zoi_schema?(value), do: is_struct(value) && Zoi.Type.impl_for(value) != nil
 
@@ -160,6 +175,22 @@ defmodule Jido.Action.Validation do
   end
 
   defp handle_validation_result({{:error, errors}, _unknown}, _schema, details) do
+    {:error,
+     Error.validation_error(
+       Zoi.prettify_errors(errors),
+       Map.put(details, :errors, Enum.map(errors, &format_zoi_error/1))
+     )}
+  end
+
+  defp handle_shape_preserving_result({{:ok, validated}, unknown}, schema, _details) do
+    if is_map(validated) and not is_struct(validated) and object_schema?(schema) do
+      {:ok, Map.merge(unknown, validated)}
+    else
+      {:ok, validated}
+    end
+  end
+
+  defp handle_shape_preserving_result({{:error, errors}, _unknown}, _schema, details) do
     {:error,
      Error.validation_error(
        Zoi.prettify_errors(errors),

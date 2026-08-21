@@ -366,6 +366,91 @@ defmodule Jido.Flow.DSLTest do
       assert module.to_map().return == %{type: :result, node: "summarize", path: []}
     end
 
+    test "lowers one closed Loop with nested State and local refs" do
+      module = unique_module("LoopFlow")
+
+      create_module(
+        module,
+        quote do
+          use Jido.Flow, name: "loop_flow"
+
+          flow do
+            counted =
+              loop(:count,
+                run: unquote(Add),
+                with: %{value: state(:count), index: iteration_index()},
+                state: [
+                  schema: [],
+                  initial: %{count: input(:count)},
+                  update: %{count: body_result(:value)}
+                ],
+                repeat: 3
+              )
+
+            return(counted)
+          end
+        end
+      )
+
+      assert [
+               %{
+                 kind: :loop,
+                 name: "count",
+                 max_iterations: 3,
+                 completion: %{operator: :gte}
+               }
+             ] = module.to_map().nodes
+    end
+
+    test "rejects arbitrary Loop bodies, conditions, and blocks" do
+      cases = [
+        quote do
+          loop(:bad,
+            run: fn -> unquote(Add) end,
+            with: %{},
+            state: [schema: [], initial: %{}, update: %{}],
+            repeat: 1
+          )
+        end,
+        quote do
+          loop(:bad,
+            run: unquote(Add),
+            with: %{},
+            state: [schema: [], initial: %{}, update: %{}],
+            until: fn -> true end,
+            max_iterations: 1
+          )
+        end,
+        quote do
+          loop :bad,
+            run: unquote(Add),
+            with: %{},
+            state: [schema: [], initial: %{}, update: %{}],
+            repeat: 1 do
+            step(:nested, unquote(Add), %{})
+          end
+        end
+      ]
+
+      for {statement, index} <- Enum.with_index(cases) do
+        module = unique_module("BadLoop#{index}")
+
+        assert_raise CompileError, ~r/unsupported flow DSL/, fn ->
+          create_module(
+            module,
+            quote do
+              use Jido.Flow, name: "bad_loop"
+
+              flow do
+                unquote(statement)
+                return(value(%{}))
+              end
+            end
+          )
+        end
+      end
+    end
+
     test "rejects invalid Map and Reduce forms at compile time" do
       cases = [
         {:map_missing_run, quote(do: map(:mapped, input(:items), with: %{item: item()})),

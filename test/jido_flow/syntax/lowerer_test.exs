@@ -1172,6 +1172,126 @@ defmodule Jido.Flow.Syntax.LowererTest do
     end
   end
 
+  describe "Loop lowering" do
+    test "normalizes until, while, and repeat into one canonical Loop form" do
+      until_condition = Syntax.gte(Syntax.state(:count), Syntax.value(3))
+
+      until_flow =
+        loop_syntax(:until, until_condition, max_iterations: 5)
+        |> Lowerer.lower()
+
+      while_flow =
+        loop_syntax(:while, Syntax.lt(Syntax.state(:count), Syntax.value(3)), max_iterations: 5)
+        |> Lowerer.lower()
+
+      repeat_flow = loop_syntax(:repeat, 3) |> Lowerer.lower()
+
+      assert {:ok, until_flow} = until_flow
+      assert {:ok, while_flow} = while_flow
+      assert {:ok, repeat_flow} = repeat_flow
+
+      assert [%{kind: :loop, completion: %{operator: :gte}, max_iterations: 5}] =
+               Flow.to_map(until_flow).nodes
+
+      assert [%{completion: %{operator: :not}, max_iterations: 5}] =
+               Flow.to_map(while_flow).nodes
+
+      assert [
+               %{
+                 completion: %{
+                   operator: :gte,
+                   operands: [
+                     %{type: :iteration_index, path: []},
+                     %{type: :value, value: 3}
+                   ]
+                 },
+                 max_iterations: 3
+               }
+             ] = Flow.to_map(repeat_flow).nodes
+
+      assert {:ok, %{iterations: 3, state: %{count: 3}}} =
+               Jido.Exec.run(while_flow, %{count: 0}, %{})
+    end
+
+    test "rejects absent or several forms and invalid limits with exact errors" do
+      no_form = base_loop_syntax([])
+
+      several =
+        base_loop_syntax(
+          until: Syntax.eq(Syntax.value(1), Syntax.value(1)),
+          while: Syntax.eq(Syntax.value(1), Syntax.value(1)),
+          max_iterations: 1
+        )
+
+      repeat_with_max = base_loop_syntax(repeat: 2, max_iterations: 2)
+      bad_repeat = base_loop_syntax(repeat: 0)
+
+      for {syntax, message, path} <- [
+            {no_form, "loop requires exactly one of while, until, or repeat", []},
+            {several, "loop requires exactly one of while, until, or repeat", []},
+            {repeat_with_max, "repeat loop must not set max_iterations", [:max_iterations]},
+            {bad_repeat, "loop repeat count must be an integer from 1 to 10000", [:repeat]}
+          ] do
+        assert {:error, %InvalidInputError{message: ^message, details: %{path: ^path}}} =
+                 Lowerer.lower(syntax)
+      end
+    end
+
+    test "rejects malformed nested State authoring with canonical paths" do
+      base = %{initial: %{}, update: %{}}
+
+      cases = [
+        {base, "loop state schema is required", [:state, :schema]},
+        {Map.put(base, :schema, []) |> Map.put(:extra, true),
+         "unknown loop state configuration key: :extra", [:state, :extra]},
+        {[schema: [], schema: [], initial: %{}, update: %{}],
+         "duplicate loop state option: :schema", [:state, :schema]},
+        {[:bad], "loop state configuration must be a map", [:state]}
+      ]
+
+      for {loop_state, message, path} <- cases do
+        syntax =
+          Syntax.new(name: "bad_state")
+          |> Syntax.loop(:count, Add, %{}, loop_state, repeat: 1)
+          |> Syntax.return(Syntax.result(:count))
+
+        assert {:error, %InvalidInputError{message: ^message, details: %{path: ^path}}} =
+                 Lowerer.lower(syntax)
+      end
+    end
+
+    test "derives names and dependencies and rejects reserved Loop bindings" do
+      syntax =
+        Syntax.new(name: "deps")
+        |> Syntax.step(:seed, Add, %{value: Syntax.input(:count)})
+        |> Syntax.loop(
+          nil,
+          Add,
+          %{value: Syntax.state(:count)},
+          %{
+            schema: [],
+            initial: %{count: Syntax.result(:seed, :value)},
+            update: %{count: Syntax.body_result(:value)}
+          },
+          repeat: 1,
+          bind: :counted,
+          after: [:seed]
+        )
+        |> Syntax.return(Syntax.binding(:counted))
+
+      assert {:ok, flow} = Lowerer.lower(syntax)
+
+      assert [%{name: "seed"}, %{kind: :loop, name: "counted", deps: ["seed"]}] =
+               Flow.to_map(flow).nodes
+
+      reserved =
+        base_loop_syntax(repeat: 1, bind: :state)
+
+      assert {:error, %InvalidInputError{message: "reserved binding alias: :state"}} =
+               Lowerer.lower(reserved)
+    end
+  end
+
   describe "Map and Reduce lowering" do
     test "lowers names, bindings, deps, modes, local refs, and provenance" do
       syntax =
@@ -1327,36 +1447,44 @@ defmodule Jido.Flow.Syntax.LowererTest do
       cases = [
         {Syntax.new(name: "map_collection")
          |> Syntax.map(:mapped, Syntax.item(), Add, %{item: Syntax.item()})
-         |> Syntax.return(Syntax.result(:mapped)), [:collection], :item},
+         |> Syntax.return(Syntax.result(:mapped)), [:collection], :item, :map_collection},
         {Syntax.new(name: "map_accumulator")
          |> Syntax.map(:mapped, Syntax.input(:items), Add, %{
            nested: %{bad: Syntax.accumulator()}
          })
-         |> Syntax.return(Syntax.result(:mapped)), [:input, :nested, :bad], :accumulator},
+         |> Syntax.return(Syntax.result(:mapped)), [:input, :nested, :bad], :accumulator,
+         :map_input},
         {Syntax.new(name: "reduce_collection")
          |> Syntax.reduce(:summary, Syntax.item(), Syntax.value(%{}), Add, %{
            item: Syntax.item(),
            acc: Syntax.accumulator()
          })
-         |> Syntax.return(Syntax.result(:summary)), [:collection], :item},
+         |> Syntax.return(Syntax.result(:summary)), [:collection], :item, :reduce_collection},
         {Syntax.new(name: "reduce_initial")
          |> Syntax.reduce(:summary, Syntax.input(:items), Syntax.item_id(), Add, %{
            item: Syntax.item(),
            acc: Syntax.accumulator()
          })
-         |> Syntax.return(Syntax.result(:summary)), [:initial], :item_id},
+         |> Syntax.return(Syntax.result(:summary)), [:initial], :item_id, :reduce_initial},
         {Syntax.new(name: "step_item")
          |> Syntax.step(:plain, Add, %{bad: Syntax.item()})
-         |> Syntax.return(Syntax.result(:plain)), [:bad], :item},
+         |> Syntax.return(Syntax.result(:plain)), [:bad], :item, :flow},
         {Syntax.new(name: "return_item")
          |> Syntax.map(:mapped, Syntax.input(:items), Add, %{item: Syntax.item()})
-         |> Syntax.return(%{result: Syntax.result(:mapped), bad: Syntax.item()}), [:bad], :item}
+         |> Syntax.return(%{result: Syntax.result(:mapped), bad: Syntax.item()}), [:bad], :item,
+         :flow}
       ]
 
-      for {syntax, path, type} <- cases do
-        assert {:error, %InvalidInputError{details: details}} = Lowerer.lower(syntax)
+      for {syntax, path, type, scope} <- cases do
+        assert {:error,
+                %InvalidInputError{
+                  message: "flow expression contains a scoped ref outside its valid scope",
+                  details: details
+                }} = Lowerer.lower(syntax)
+
         assert details.path == path
-        assert details.type == type
+        assert details.ref_type == type
+        assert details.scope == scope
       end
     end
 
@@ -1494,5 +1622,27 @@ defmodule Jido.Flow.Syntax.LowererTest do
     |> Syntax.step(name, action, input, opts)
     |> Map.fetch!(:operations)
     |> List.first()
+  end
+
+  defp loop_syntax(form, value, opts) do
+    base_loop_syntax([{form, value} | opts])
+  end
+
+  defp loop_syntax(form, value), do: loop_syntax(form, value, [])
+
+  defp base_loop_syntax(opts) do
+    Syntax.new(name: "loop")
+    |> Syntax.loop(
+      :count,
+      Add,
+      %{value: Syntax.state(:count), index: Syntax.iteration_index()},
+      %{
+        schema: [],
+        initial: %{count: Syntax.input(:count)},
+        update: %{count: Syntax.body_result(:value)}
+      },
+      opts
+    )
+    |> Syntax.return(Syntax.result(:count))
   end
 end

@@ -5,7 +5,7 @@ defmodule Jido.Integration.FlowParityTest do
 
   alias Jido.Action.Error.ExecutionFailureError
   alias Jido.Flow.Builder
-  alias Jido.Flow.{ContractBundle, Node, Ref}
+  alias Jido.Flow.{ContractBundle, Loop, Node, Ref}
   alias Jido.Flow.Syntax
   alias Jido.Flow.Syntax.Lowerer
   alias JidoTest.FlowFixtures
@@ -222,6 +222,102 @@ defmodule Jido.Integration.FlowParityTest do
         end
       end
     end
+
+    test "Loop agrees across every authoring and portable surface" do
+      syntax =
+        Syntax.new(name: "loop_parity")
+        |> Syntax.loop(
+          :count,
+          Add,
+          %{value: Syntax.state(:value)},
+          %{
+            schema: [],
+            initial: %{value: Syntax.input(:value)},
+            update: %{value: Syntax.body_result(:value)}
+          },
+          repeat: 3
+        )
+        |> Syntax.return(Syntax.result(:count))
+
+      builder =
+        Builder.new(name: "loop_parity")
+        |> Builder.loop(
+          :count,
+          Add,
+          %{value: Builder.state(:value)},
+          %{
+            schema: [],
+            initial: %{value: Builder.input(:value)},
+            update: %{value: Builder.body_result(:value)}
+          },
+          repeat: 3
+        )
+        |> Builder.return(Builder.result(:count))
+
+      module =
+        create_flow_module(
+          "LoopParity",
+          "loop_parity",
+          nil,
+          quote do
+            loop(:count,
+              run: unquote(Add),
+              with: %{value: state(:value)},
+              state: [
+                schema: [],
+                initial: %{value: input(:value)},
+                update: %{value: body_result(:value)}
+              ],
+              repeat: 3
+            )
+
+            return(result(:count))
+          end
+        )
+
+      trusted_source = """
+      flow do
+        loop :count,
+          run: JidoTest.TestActions.Add,
+          with: %{value: state(:value)},
+          state: [schema: "state/v1", initial: %{value: input(:value)}, update: %{value: body_result(:value)}],
+          repeat: 3
+        return result(:count)
+      end
+      """
+
+      stored_source = String.replace(trusted_source, "JidoTest.TestActions.Add", ~s("add"))
+      parser_opts = [name: "loop_parity", state_schemas: %{"state/v1" => []}]
+
+      syntax_flow = lower_flow!(syntax)
+      builder_flow = build_flow!(builder)
+      assert {:ok, trusted_flow} = Jido.Flow.parse(trusted_source, parser_opts)
+
+      assert {:ok, stored_source_flow} =
+               Jido.Flow.parse(
+                 stored_source,
+                 parser_opts ++ [profile: :stored, actions: %{"add" => Add}]
+               )
+
+      portable_flow = stored_json_round_trip_flow!(syntax_flow)
+      expected_map = Jido.Flow.to_map(syntax_flow)
+      expected_identity = Jido.Flow.semantic_identity(syntax_flow)
+
+      for {surface, flow} <- [
+            macro_dsl: module.flow(),
+            syntax: syntax_flow,
+            builder: builder_flow,
+            trusted_parser: trusted_flow,
+            stored_parser: stored_source_flow,
+            portable_map: portable_flow
+          ] do
+        assert Jido.Flow.to_map(flow) == expected_map, "#{surface} Loop map diverged"
+        assert Jido.Flow.semantic_identity(flow) == expected_identity
+
+        assert {:ok, %{kind: :jido_flow_loop_result, iterations: 3, state: %{value: 4}}} =
+                 Jido.Exec.run(flow, %{value: 1}, %{})
+      end
+    end
   end
 
   describe "portable stored parity" do
@@ -409,13 +505,27 @@ defmodule Jido.Integration.FlowParityTest do
       action_registry: "#{namespace}/actions/v1"
     }
 
+    loops = Enum.filter(flow.nodes, &match?(%Loop{}, &1))
+
+    state_schema_ids =
+      Map.new(loops, fn loop ->
+        {loop.name, "#{namespace}/loop/#{loop.name}/state/v1"}
+      end)
+
+    state_schemas =
+      Map.new(loops, fn loop ->
+        {Map.fetch!(state_schema_ids, loop.name), loop.state.schema}
+      end)
+
     bundle =
       ContractBundle.new!(
         id: references.bundle,
-        schemas: %{
-          references.input_schema => flow.schema,
-          references.output_schema => flow.output_schema
-        },
+        schemas:
+          %{
+            references.input_schema => flow.schema,
+            references.output_schema => flow.output_schema
+          }
+          |> Map.merge(state_schemas),
         action_registries: %{references.action_registry => registry}
       )
 
@@ -424,6 +534,11 @@ defmodule Jido.Integration.FlowParityTest do
     stored_opts =
       [format: :stored, contracts: references, contract_bundles: bundles]
       |> Keyword.merge(opts)
+
+    stored_opts =
+      if loops == [],
+        do: stored_opts,
+        else: Keyword.put(stored_opts, :state_schema_ids, state_schema_ids)
 
     decoded =
       flow

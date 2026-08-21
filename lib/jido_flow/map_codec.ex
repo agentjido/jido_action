@@ -9,9 +9,11 @@ defmodule Jido.Flow.MapCodec do
     Condition,
     ContractBundle,
     Element,
+    Loop,
     Node,
     Reduce,
-    ResourceBudget
+    ResourceBudget,
+    State
   }
 
   alias Jido.Flow.Map, as: FlowMap
@@ -19,7 +21,19 @@ defmodule Jido.Flow.MapCodec do
 
   @semantic_version 1
   @stored_version 1
-  @ref_types [:input, :context, :result, :value, :item, :item_index, :item_id, :accumulator]
+  @ref_types [
+    :input,
+    :context,
+    :result,
+    :value,
+    :item,
+    :item_index,
+    :item_id,
+    :accumulator,
+    :state,
+    :iteration_index,
+    :body_result
+  ]
   @stored_ref_types [
     "input",
     "context",
@@ -28,7 +42,10 @@ defmodule Jido.Flow.MapCodec do
     "item",
     "item_index",
     "item_id",
-    "accumulator"
+    "accumulator",
+    "state",
+    "iteration_index",
+    "body_result"
   ]
   @direct_attachment_keys [:actions, :schema, :output_schema]
   @reader_option_keys [:actions, :schema, :output_schema, :contract_bundles]
@@ -149,7 +166,8 @@ defmodule Jido.Flow.MapCodec do
              ordered_nodes,
              bundle.id,
              contracts.action_registry
-           ) do
+           ),
+         :ok <- validate_state_schema_ids(opts, ordered_nodes, bundle) do
       {:ok, {contracts, action_ids}}
     end
   end
@@ -243,6 +261,111 @@ defmodule Jido.Flow.MapCodec do
     })
   end
 
+  defp validate_state_schema_ids(opts, ordered_nodes, bundle) do
+    loops = Enum.filter(ordered_nodes, &match?(%Loop{}, &1))
+    loop_names = loops |> Enum.map(& &1.name) |> Enum.sort()
+
+    case Keyword.get_values(opts, :state_schema_ids) do
+      [_first, _second | _rest] ->
+        error("duplicate flow map option: :state_schema_ids", %{option: :state_schema_ids})
+
+      _zero_or_one ->
+        do_validate_state_schema_ids(opts, loops, loop_names, bundle)
+    end
+  end
+
+  defp do_validate_state_schema_ids(opts, loops, loop_names, bundle) do
+    case Keyword.fetch(opts, :state_schema_ids) do
+      :error when loop_names == [] ->
+        :ok
+
+      :error ->
+        error("stored flow requires state_schema_ids for Loop schemas", %{
+          field: :state_schema_ids
+        })
+
+      {:ok, schema_ids} when is_map(schema_ids) ->
+        with :ok <- validate_state_schema_names(schema_ids, loop_names) do
+          validate_state_schema_references(loops, schema_ids, bundle)
+        end
+
+      {:ok, _schema_ids} ->
+        error("stored flow state_schema_ids must be a map", %{field: :state_schema_ids})
+    end
+  end
+
+  defp validate_state_schema_names(schema_ids, loop_names) do
+    schema_names = schema_ids |> Map.keys() |> Enum.sort()
+
+    case Enum.find(loop_names, &(&1 not in schema_names)) do
+      nil ->
+        case Enum.find(schema_names, &(&1 not in loop_names)) do
+          nil ->
+            :ok
+
+          node ->
+            error(
+              "stored flow State schema identifiers contain an unknown Loop: #{inspect(node)}",
+              %{field: :state_schema_ids, node: node}
+            )
+        end
+
+      node ->
+        error(
+          "stored flow is missing a State schema identifier for Loop: #{inspect(node)}",
+          %{field: :state_schema_ids, node: node}
+        )
+    end
+  end
+
+  defp validate_state_schema_references(loops, schema_ids, bundle) do
+    Enum.reduce_while(loops, :ok, fn loop, :ok ->
+      identifier = Map.fetch!(schema_ids, loop.name)
+
+      result =
+        with :ok <-
+               ContractBundle.validate_identifier(
+                 identifier,
+                 :state_schema_ids,
+                 [:state_schema_ids, loop.name]
+               ),
+             {:ok, schema} <- fetch_loop_state_schema(bundle, identifier, loop.name) do
+          validate_loop_state_schema(loop, schema, bundle.id, identifier)
+        end
+
+      case result do
+        :ok -> {:cont, :ok}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+  end
+
+  defp validate_loop_state_schema(%Loop{state: %State{schema: schema}}, schema, _bundle, _id),
+    do: :ok
+
+  defp validate_loop_state_schema(%Loop{} = loop, _schema, bundle, identifier) do
+    error("flow Loop State schema reference does not match Loop semantics", %{
+      bundle: bundle,
+      schema: identifier,
+      node: loop.name
+    })
+  end
+
+  defp fetch_loop_state_schema(bundle, identifier, node) do
+    case Map.fetch(bundle.schemas, identifier) do
+      {:ok, schema} ->
+        {:ok, schema}
+
+      :error ->
+        error("unknown flow contract schema: #{inspect(identifier)}", %{
+          bundle: bundle.id,
+          schema: identifier,
+          node: node,
+          path: [:state_schema_ids, node]
+        })
+    end
+  end
+
   defp stringify_contract_references(contracts) do
     Map.new(contracts, fn {field, identifier} -> {Atom.to_string(field), identifier} end)
   end
@@ -332,6 +455,33 @@ defmodule Jido.Flow.MapCodec do
 
     if Keyword.get(opts, :provenance, false) do
       Map.put(base, "provenance", encode_data!(reduce.provenance, path ++ ["provenance"]))
+    else
+      base
+    end
+  end
+
+  defp stored_element!(%Loop{} = loop, action_ids, opts, path) do
+    schema_ids = Keyword.fetch!(opts, :state_schema_ids)
+
+    base = %{
+      "kind" => "loop",
+      "name" => loop.name,
+      "action" => Map.fetch!(action_ids, loop.action),
+      "input" => encode_expression!(loop.input, path ++ ["input"]),
+      "state" => %{
+        "kind" => "loop_state",
+        "version" => loop.state.version,
+        "schema" => Map.fetch!(schema_ids, loop.name),
+        "initial" => encode_expression!(loop.state.initial, path ++ ["state", "initial"]),
+        "update" => encode_expression!(loop.state.update, path ++ ["state", "update"])
+      },
+      "completion" => encode_condition!(loop.completion, path ++ ["completion"]),
+      "max_iterations" => loop.max_iterations,
+      "deps" => Enum.sort(loop.deps)
+    }
+
+    if Keyword.get(opts, :provenance, false) do
+      Map.put(base, "provenance", encode_data!(loop.provenance, path ++ ["provenance"]))
     else
       base
     end
@@ -432,7 +582,7 @@ defmodule Jido.Flow.MapCodec do
          {:ok, output_schema} <-
            fetch_schema(bundle, contracts.output_schema, :output_schema),
          {:ok, actions} <- fetch_action_registry(bundle, contracts.action_registry),
-         {:ok, nodes} <- resolve_node_actions(decoded.nodes, actions) do
+         {:ok, nodes} <- resolve_node_actions(decoded.nodes, actions, bundle) do
       {:ok,
        decoded
        |> Map.delete(:contracts)
@@ -486,11 +636,11 @@ defmodule Jido.Flow.MapCodec do
     end
   end
 
-  defp resolve_node_actions(nodes, actions) do
+  defp resolve_node_actions(nodes, actions, bundle) do
     nodes
     |> Enum.with_index()
     |> Enum.reduce_while({:ok, []}, fn {node, index}, {:ok, acc} ->
-      case resolve_node_action(node, actions) |> prepend_error_path(["nodes", index]) do
+      case resolve_node_action(node, actions, bundle) |> prepend_error_path(["nodes", index]) do
         {:ok, node} -> {:cont, {:ok, [node | acc]}}
         {:error, error} -> {:halt, {:error, error}}
       end
@@ -501,7 +651,7 @@ defmodule Jido.Flow.MapCodec do
     end
   end
 
-  defp resolve_node_action(%{options: options, fallback: fallback} = choice, actions) do
+  defp resolve_node_action(%{options: options, fallback: fallback} = choice, actions, _bundle) do
     with {:ok, options} <- resolve_choice_actions(options, actions),
          {:ok, fallback_action} <-
            ActionRegistry.lookup(actions, fallback.action)
@@ -515,11 +665,27 @@ defmodule Jido.Flow.MapCodec do
     end
   end
 
-  defp resolve_node_action(%{action: identifier} = node, actions) do
+  defp resolve_node_action(%{kind: :loop, action: identifier} = loop, actions, bundle) do
+    with {:ok, action} <-
+           ActionRegistry.lookup(actions, identifier) |> prepend_error_path(["action"]),
+         {:ok, schema} <-
+           fetch_loop_state_schema(bundle, loop.state.schema, loop.name)
+           |> put_loop_schema_reader_path() do
+      {:ok, %{loop | action: action, state: %{loop.state | schema: schema}}}
+    end
+  end
+
+  defp resolve_node_action(%{action: identifier} = node, actions, _bundle) do
     case ActionRegistry.lookup(actions, identifier) |> prepend_error_path(["action"]) do
       {:ok, action} -> {:ok, %{node | action: action}}
       {:error, error} -> {:error, error}
     end
+  end
+
+  defp put_loop_schema_reader_path({:ok, schema}), do: {:ok, schema}
+
+  defp put_loop_schema_reader_path({:error, %{details: details} = error}) do
+    {:error, %{error | details: Map.put(details, :path, ["state", "schema"])}}
   end
 
   defp resolve_choice_actions(options, actions) do
@@ -584,6 +750,9 @@ defmodule Jido.Flow.MapCodec do
 
       {:ok, :reduce} ->
         decode_reduce(node, profile)
+
+      {:ok, :loop} ->
+        decode_loop(node, profile)
 
       {:error, kind} ->
         error("unknown flow node kind: #{inspect(kind)}", %{kind: kind})
@@ -708,6 +877,101 @@ defmodule Jido.Flow.MapCodec do
     end
   end
 
+  defp decode_loop(loop, profile) do
+    with :ok <- validate_loop_record(loop, profile),
+         {:ok, name} <- profile_fetch_required(loop, :name, profile, "loop name is required"),
+         {:ok, action} <-
+           profile_fetch_required(loop, :action, profile, "loop action is required"),
+         {:ok, action} <-
+           decode_action(action, profile) |> prepend_error_path([profile_field(:action, profile)]),
+         {:ok, input} <- profile_fetch_required(loop, :input, profile, "loop input is required"),
+         {:ok, input} <-
+           decode_expression(input, profile)
+           |> prepend_error_path([profile_field(:input, profile)]),
+         {:ok, state} <- profile_fetch_required(loop, :state, profile, "loop state is required"),
+         {:ok, state} <-
+           decode_loop_state(state, profile)
+           |> prepend_error_path([profile_field(:state, profile)]),
+         {:ok, completion} <-
+           profile_fetch_required(loop, :completion, profile, "loop completion is required"),
+         {:ok, completion} <-
+           decode_condition(completion, profile, :loop_completion)
+           |> prepend_error_path([profile_field(:completion, profile)]),
+         {:ok, max_iterations} <-
+           profile_fetch_required(
+             loop,
+             :max_iterations,
+             profile,
+             "loop max_iterations is required"
+           ),
+         {:ok, deps} <- profile_fetch_required(loop, :deps, profile, "loop deps are required"),
+         {:ok, deps} <- decode_node_deps(deps),
+         {:ok, provenance} <-
+           decode_optional_data(loop, :provenance, %{}, profile)
+           |> prepend_error_path([profile_field(:provenance, profile)]) do
+      {:ok,
+       %{
+         kind: :loop,
+         name: name,
+         action: action,
+         input: input,
+         state: state,
+         completion: completion,
+         max_iterations: max_iterations,
+         deps: deps,
+         provenance: provenance
+       }}
+    end
+  end
+
+  defp decode_loop_state(%{} = state, profile) do
+    with :ok <- validate_loop_state_record(state, profile),
+         :ok <-
+           validate_loop_state_kind(profile_fetch_optional(state, :kind, nil, profile), profile),
+         {:ok, version} <-
+           profile_fetch_required(state, :version, profile, "loop state version is required"),
+         :ok <- validate_loop_state_version(version),
+         {:ok, schema} <-
+           profile_fetch_required(state, :schema, profile, "loop state schema is required"),
+         {:ok, schema} <- decode_loop_state_schema(schema, profile),
+         {:ok, initial} <-
+           profile_fetch_required(state, :initial, profile, "loop state initial is required"),
+         {:ok, initial} <-
+           decode_expression(initial, profile)
+           |> prepend_error_path([profile_field(:initial, profile)]),
+         {:ok, update} <-
+           profile_fetch_required(state, :update, profile, "loop state update is required"),
+         {:ok, update} <-
+           decode_expression(update, profile)
+           |> prepend_error_path([profile_field(:update, profile)]) do
+      {:ok, %{version: version, schema: schema, initial: initial, update: update}}
+    end
+  end
+
+  defp decode_loop_state(_state, _profile), do: error("loop state must be a map")
+
+  defp decode_loop_state_schema(schema, :semantic), do: {:ok, schema}
+
+  defp decode_loop_state_schema(identifier, :stored) do
+    case ContractBundle.validate_identifier(identifier, :schema, []) do
+      :ok -> {:ok, identifier}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp validate_loop_state_version(1), do: :ok
+
+  defp validate_loop_state_version(version) do
+    error("unsupported loop state version: #{inspect(version)}", %{version: version})
+  end
+
+  defp validate_loop_state_kind(:loop_state, :semantic), do: :ok
+  defp validate_loop_state_kind("loop_state", :stored), do: :ok
+
+  defp validate_loop_state_kind(kind, _profile) do
+    error("loop state kind must be loop_state", %{kind: kind})
+  end
+
   defp decode_choice(choice, profile) do
     with :ok <- validate_choice_record(choice, profile),
          {:ok, name} <- profile_fetch_required(choice, :name, profile, "choice name is required"),
@@ -814,7 +1078,7 @@ defmodule Jido.Flow.MapCodec do
 
   defp explicit_node_kind(node, :semantic) do
     case Map.fetch(node, :kind) do
-      {:ok, kind} when kind in [:choice, :map, :reduce] -> {:ok, kind}
+      {:ok, kind} when kind in [:choice, :map, :reduce, :loop] -> {:ok, kind}
       {:ok, kind} -> {:error, kind}
       :error -> :none
     end
@@ -825,6 +1089,7 @@ defmodule Jido.Flow.MapCodec do
       {:ok, "choice"} -> {:ok, :choice}
       {:ok, "map"} -> {:ok, :map}
       {:ok, "reduce"} -> {:ok, :reduce}
+      {:ok, "loop"} -> {:ok, :loop}
       {:ok, kind} -> {:error, kind}
       :error -> :none
     end
@@ -891,13 +1156,17 @@ defmodule Jido.Flow.MapCodec do
   end
 
   defp encode_expression!(%Ref{type: type, path: path}, _error_path)
-       when type in [:item, :accumulator] do
+       when type in [:item, :accumulator, :state, :body_result] do
     %{"type" => Atom.to_string(type), "path" => encode_path!(path)}
   end
 
   defp encode_expression!(%Ref{type: type}, _error_path)
        when type in [:item_index, :item_id] do
     %{"type" => Atom.to_string(type)}
+  end
+
+  defp encode_expression!(%Ref{type: :iteration_index}, _error_path) do
+    %{"type" => "iteration_index", "path" => []}
   end
 
   defp encode_expression!(%{} = map, error_path) when not is_struct(map) do
@@ -999,7 +1268,9 @@ defmodule Jido.Flow.MapCodec do
   defp reverse_decoded_expression_list({:ok, values}), do: {:ok, Enum.reverse(values)}
   defp reverse_decoded_expression_list({:error, error}), do: {:error, error}
 
-  defp decode_condition(%{} = condition, profile) do
+  defp decode_condition(condition, profile), do: decode_condition(condition, profile, :flow)
+
+  defp decode_condition(%{} = condition, profile, scope) do
     with :ok <- validate_condition_record(condition, profile),
          {:ok, operator} <-
            profile_fetch_required(
@@ -1019,22 +1290,23 @@ defmodule Jido.Flow.MapCodec do
              "choice condition operands are required"
            ),
          {:ok, operands} <-
-           decode_condition_operands(operands, operator, profile)
+           decode_condition_operands(operands, operator, profile, scope)
            |> prepend_error_path([profile_field(:operands, profile)]),
-         {:ok, condition} <- Condition.new(operator, operands) do
+         {:ok, condition} <-
+           Condition.validate(%Condition{operator: operator, operands: operands}, scope) do
       {:ok, condition}
     end
   end
 
-  defp decode_condition(_condition, _profile), do: error("choice condition must be a map")
+  defp decode_condition(_condition, _profile, _scope), do: error("choice condition must be a map")
 
-  defp decode_condition_operands(operands, operator, profile) when is_list(operands) do
+  defp decode_condition_operands(operands, operator, profile, scope) when is_list(operands) do
     if List.improper?(operands) do
       error("choice condition operands must be a list")
     else
       decoder =
         if operator in [:all, :any, :not],
-          do: &decode_condition(&1, profile),
+          do: &decode_condition(&1, profile, scope),
           else: &decode_expression(&1, profile)
 
       operands
@@ -1052,7 +1324,7 @@ defmodule Jido.Flow.MapCodec do
     end
   end
 
-  defp decode_condition_operands(_operands, _operator, _profile),
+  defp decode_condition_operands(_operands, _operator, _profile, _scope),
     do: error("choice condition operands must be a list")
 
   defp decode_condition_operator(operator, :semantic)
@@ -1122,10 +1394,21 @@ defmodule Jido.Flow.MapCodec do
     end
   end
 
-  defp decode_ref(map, type, :semantic) when type in [:item, :accumulator] do
+  defp decode_ref(map, type, :semantic)
+       when type in [:item, :accumulator, :state, :body_result] do
     with :ok <- validate_ref_record(map, type, :semantic),
          {:ok, path} <- validate_semantic_path(Map.fetch!(map, :path)) do
       {:ok, local_path_ref(type, path)}
+    end
+  end
+
+  defp decode_ref(map, :iteration_index, :semantic) do
+    with :ok <- validate_ref_record(map, :iteration_index, :semantic),
+         {:ok, []} <- validate_semantic_path(Map.fetch!(map, :path)) do
+      {:ok, Ref.iteration_index()}
+    else
+      {:ok, path} -> error("iteration index ref path must be empty", %{path: path})
+      {:error, error} -> {:error, error}
     end
   end
 
@@ -1166,10 +1449,21 @@ defmodule Jido.Flow.MapCodec do
     end
   end
 
-  defp decode_ref(map, type, :stored) when type in ["item", "accumulator"] do
+  defp decode_ref(map, type, :stored)
+       when type in ["item", "accumulator", "state", "body_result"] do
     with :ok <- validate_ref_record(map, type, :stored),
          {:ok, path} <- decode_stored_path(Map.fetch!(map, "path")) do
       {:ok, local_path_ref(type, path)}
+    end
+  end
+
+  defp decode_ref(map, "iteration_index", :stored) do
+    with :ok <- validate_ref_record(map, "iteration_index", :stored),
+         {:ok, []} <- decode_stored_path(Map.fetch!(map, "path")) do
+      {:ok, Ref.iteration_index()}
+    else
+      {:ok, path} -> error("iteration index ref path must be empty", %{path: path})
+      {:error, error} -> {:error, error}
     end
   end
 
@@ -1183,6 +1477,11 @@ defmodule Jido.Flow.MapCodec do
 
   defp local_path_ref(type, path) when type in [:accumulator, "accumulator"],
     do: Ref.accumulator(path)
+
+  defp local_path_ref(type, path) when type in [:state, "state"], do: Ref.state(path)
+
+  defp local_path_ref(type, path) when type in [:body_result, "body_result"],
+    do: Ref.body_result(path)
 
   defp local_scalar_ref(type) when type in [:item_index, "item_index"], do: Ref.item_index()
   defp local_scalar_ref(type) when type in [:item_id, "item_id"], do: Ref.item_id()
@@ -1680,6 +1979,62 @@ defmodule Jido.Flow.MapCodec do
     )
   end
 
+  defp validate_loop_record(loop, :semantic) do
+    validate_record(
+      loop,
+      [
+        :kind,
+        :name,
+        :action,
+        :input,
+        :state,
+        :completion,
+        :max_iterations,
+        :deps,
+        :provenance
+      ],
+      [:kind, :name, :action, :input, :state, :completion, :max_iterations, :deps],
+      :loop
+    )
+  end
+
+  defp validate_loop_record(loop, :stored) do
+    validate_record(
+      loop,
+      [
+        "kind",
+        "name",
+        "action",
+        "input",
+        "state",
+        "completion",
+        "max_iterations",
+        "deps",
+        "provenance"
+      ],
+      ["kind", "name", "action", "input", "state", "completion", "max_iterations", "deps"],
+      :loop
+    )
+  end
+
+  defp validate_loop_state_record(state, :semantic) do
+    validate_record(
+      state,
+      [:kind, :version, :schema, :initial, :update],
+      [:kind, :version, :schema, :initial, :update],
+      :loop_state
+    )
+  end
+
+  defp validate_loop_state_record(state, :stored) do
+    validate_record(
+      state,
+      ["kind", "version", "schema", "initial", "update"],
+      ["kind", "version", "schema", "initial", "update"],
+      :loop_state
+    )
+  end
+
   defp validate_choice_option_record(option, :semantic),
     do:
       validate_record(
@@ -1739,8 +2094,9 @@ defmodule Jido.Flow.MapCodec do
     validate_record(map, allowed, required, :reference)
   end
 
-  defp ref_fields(type, :semantic) when type in [:input, :context, :item, :accumulator],
-    do: {[:type, :path], [:type, :path]}
+  defp ref_fields(type, :semantic)
+       when type in [:input, :context, :item, :accumulator, :state, :body_result],
+       do: {[:type, :path], [:type, :path]}
 
   defp ref_fields(:result, :semantic),
     do: {[:type, :node, :path], [:type, :node, :path]}
@@ -1750,8 +2106,10 @@ defmodule Jido.Flow.MapCodec do
   defp ref_fields(type, :semantic) when type in [:item_index, :item_id],
     do: {[:type], [:type]}
 
+  defp ref_fields(:iteration_index, :semantic), do: {[:type, :path], [:type, :path]}
+
   defp ref_fields(type, :stored)
-       when type in ["input", "context", "item", "accumulator"],
+       when type in ["input", "context", "item", "accumulator", "state", "body_result"],
        do: {["type", "path"], ["type", "path"]}
 
   defp ref_fields("result", :stored),
@@ -1762,6 +2120,9 @@ defmodule Jido.Flow.MapCodec do
   defp ref_fields(type, :stored) when type in ["item_index", "item_id"],
     do: {["type"], ["type"]}
 
+  defp ref_fields("iteration_index", :stored),
+    do: {["type", "path"], ["type", "path"]}
+
   defp validate_record(map, allowed, required, record) do
     case map |> Map.keys() |> Enum.sort() |> Enum.find(&(&1 not in allowed)) do
       nil ->
@@ -1770,19 +2131,22 @@ defmodule Jido.Flow.MapCodec do
             :ok
 
           field ->
-            error("#{record} is missing required field: #{inspect(field)}", %{
+            error("#{record_label(record)} is missing required field: #{inspect(field)}", %{
               record: record,
               field: field
             })
         end
 
       field ->
-        error("#{record} contains unknown field: #{inspect(field)}", %{
+        error("#{record_label(record)} contains unknown field: #{inspect(field)}", %{
           record: record,
           field: field
         })
     end
   end
+
+  defp record_label(:loop_state), do: "loop state"
+  defp record_label(record), do: to_string(record)
 
   defp validate_semantic_path(path) when is_list(path) do
     if List.improper?(path) do

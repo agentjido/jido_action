@@ -103,15 +103,28 @@ defmodule Jido.FlowTest do
     end
 
     test "rejects local refs in ordinary Nodes, Choices, conditions, and Flow returns" do
-      assert {:error, %InvalidInputError{details: %{path: [:nested, 0], type: :item}}} =
+      assert {:error,
+              %InvalidInputError{
+                message: "flow expression contains a scoped ref outside its valid scope",
+                details: %{path: [:nested, 0], ref_type: :item, scope: :flow}
+              }} =
                Node.new(name: :bad, action: Add, input: %{nested: [Ref.item()]})
 
-      assert {:error, %InvalidInputError{details: %{path: [0], type: :item_index}}} =
+      assert {:error,
+              %InvalidInputError{
+                message: "flow expression contains a scoped ref outside its valid scope",
+                details: %{path: [0], ref_type: :item_index, scope: :flow}
+              }} =
                Condition.new(:eq, [Ref.item_index(), 0])
 
       assert {:error,
               %InvalidInputError{
-                details: %{path: [:options, 0, :input, :value], type: :item_id}
+                message: "flow expression contains a scoped ref outside its valid scope",
+                details: %{
+                  path: [:options, 0, :input, :value],
+                  ref_type: :item_id,
+                  scope: :flow
+                }
               }} =
                Choice.new(
                  name: :route,
@@ -126,7 +139,11 @@ defmodule Jido.FlowTest do
                  fallback: [action: Add]
                )
 
-      assert {:error, %InvalidInputError{details: %{path: [:item], type: :accumulator}}} =
+      assert {:error,
+              %InvalidInputError{
+                message: "flow expression contains a scoped ref outside its valid scope",
+                details: %{path: [:item], ref_type: :accumulator, scope: :flow}
+              }} =
                Flow.new(
                  name: "bad_return_scope",
                  nodes: [add_node()],

@@ -8,6 +8,7 @@ defmodule Jido.Flow.Identity do
   @identity_version 1
   @step_identity_version 1
   @item_identity_version 1
+  @iteration_identity_version 1
 
   @doc false
   @spec semantic_digest(Flow.t()) :: String.t()
@@ -53,6 +54,17 @@ defmodule Jido.Flow.Identity do
       when is_binary(flow_digest) and is_binary(node_name) and is_integer(source_index) and
              source_index >= 0 do
     {:jido_flow_item_identity, @item_identity_version, flow_digest, node_name, source_index}
+    |> hash_term()
+    |> uuid_v8()
+  end
+
+  @doc false
+  @spec iteration_uuid(String.t(), String.t(), non_neg_integer()) :: String.t()
+  def iteration_uuid(flow_digest, node_name, iteration_index)
+      when is_binary(flow_digest) and is_binary(node_name) and is_integer(iteration_index) and
+             iteration_index >= 0 do
+    {:jido_flow_loop_iteration_identity, @iteration_identity_version, flow_digest, node_name,
+     iteration_index}
     |> hash_term()
     |> uuid_v8()
   end

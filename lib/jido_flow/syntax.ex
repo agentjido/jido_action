@@ -26,7 +26,10 @@ defmodule Jido.Flow.Syntax do
                       :item,
                       :item_index,
                       :item_id,
-                      :accumulator
+                      :accumulator,
+                      :state,
+                      :iteration_index,
+                      :body_result
                     ],
                     description: "Expression type"
                   ),
@@ -182,6 +185,19 @@ defmodule Jido.Flow.Syntax do
   @spec accumulator(term()) :: Expr.t()
   def accumulator(path \\ nil),
     do: %Expr{type: :accumulator, path: normalize_path(path)}
+
+  @doc "Builds a scoped reference to the current Loop State."
+  @spec state(term()) :: Expr.t()
+  def state(path \\ nil), do: %Expr{type: :state, path: normalize_path(path)}
+
+  @doc "Builds a scoped reference to the current Loop iteration index."
+  @spec iteration_index() :: Expr.t()
+  def iteration_index, do: %Expr{type: :iteration_index}
+
+  @doc "Builds a scoped reference to the latest Loop body result."
+  @spec body_result(term()) :: Expr.t()
+  def body_result(path \\ nil),
+    do: %Expr{type: :body_result, path: normalize_path(path)}
 
   @doc """
   Builds an equality condition for a Choice option.
@@ -344,6 +360,42 @@ defmodule Jido.Flow.Syntax do
     add(syntax, operation(:reduce, attrs, provenance: provenance_from_options(opts)))
   end
 
+  @doc "Appends one bounded, stateful Loop operation."
+  @spec loop(t(), atom() | String.t() | nil, module(), term(), map() | keyword(), keyword()) ::
+          t()
+  def loop(%__MODULE__{} = syntax, name, action, input, state, opts \\ []) do
+    option_errors =
+      operation_option_errors(opts, [
+        :while,
+        :until,
+        :repeat,
+        :max_iterations,
+        :bind,
+        :after,
+        :provenance,
+        :label,
+        :tags,
+        :note
+      ])
+
+    attrs =
+      %{
+        name: name,
+        action: action,
+        input: input,
+        state: state
+      }
+      |> maybe_put_present_option(opts, :while)
+      |> maybe_put_present_option(opts, :until)
+      |> maybe_put_present_option(opts, :repeat)
+      |> maybe_put_present_option(opts, :max_iterations)
+      |> maybe_put_binding(option_value(opts, :bind))
+      |> maybe_put_after(option_value(opts, :after))
+      |> maybe_put_option_errors(option_errors)
+
+    add(syntax, operation(:loop, attrs, provenance: provenance_from_options(opts)))
+  end
+
   @doc """
   Appends a named ordered Choice operation.
   """
@@ -386,6 +438,16 @@ defmodule Jido.Flow.Syntax do
 
   defp maybe_put_option_errors(attrs, []), do: attrs
   defp maybe_put_option_errors(attrs, errors), do: Map.put(attrs, :option_errors, errors)
+
+  defp maybe_put_present_option(attrs, opts, option) when is_list(opts) do
+    if Keyword.keyword?(opts) and Keyword.has_key?(opts, option) do
+      Map.put(attrs, option, Keyword.get(opts, option))
+    else
+      attrs
+    end
+  end
+
+  defp maybe_put_present_option(attrs, _opts, _option), do: attrs
 
   defp operation_option_errors(opts, allowed) when is_list(opts) do
     if Keyword.keyword?(opts) do

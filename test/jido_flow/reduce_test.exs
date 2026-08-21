@@ -8,6 +8,12 @@ defmodule Jido.Flow.ReduceTest do
   alias JidoTest.TestActions.{Add, MissingRun}
 
   describe "new/1" do
+    test "raises from new!/1 on an invalid canonical Reduce" do
+      assert_raise InvalidInputError, fn ->
+        Reduce.new!(name: :bad, collection: [], initial: %{}, action: nil)
+      end
+    end
+
     test "builds the closed canonical contract with every local ref" do
       assert {:ok, reduce} =
                Reduce.new(
@@ -104,9 +110,12 @@ defmodule Jido.Flow.ReduceTest do
         assert {:error, %InvalidInputError{message: message, details: details}} =
                  Reduce.new(attrs)
 
-        assert message == "reduce #{field} contains invalid ref"
+        assert message == "flow expression contains a scoped ref outside its valid scope"
         assert details.path == [field]
-        assert details.type == ref.type
+        assert details.ref_type == ref.type
+
+        assert details.scope ==
+                 if(field == :collection, do: :reduce_collection, else: :reduce_initial)
       end
 
       assert {:ok, reduce} =

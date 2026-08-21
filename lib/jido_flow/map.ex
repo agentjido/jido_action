@@ -162,6 +162,12 @@ defmodule Jido.Flow.Map do
     owner = if field == :input, do: "map target input", else: "map collection"
 
     case Node.expression_error_kind(error) do
+      :invalid_scope ->
+        Error.validation_error(
+          "flow expression contains a scoped ref outside its valid scope",
+          %{path: path, ref_type: details.ref_type, scope: details.scope}
+        )
+
       :invalid_ref_path ->
         Error.validation_error("#{owner} contains invalid ref path", %{
           path: path,
