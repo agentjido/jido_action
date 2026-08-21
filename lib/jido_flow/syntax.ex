@@ -15,7 +15,19 @@ defmodule Jido.Flow.Syntax do
               __MODULE__,
               %{
                 type:
-                  Zoi.enum([:input, :context, :value, :result, :binding, :select],
+                  Zoi.enum(
+                    [
+                      :input,
+                      :context,
+                      :value,
+                      :result,
+                      :binding,
+                      :select,
+                      :item,
+                      :item_index,
+                      :item_id,
+                      :accumulator
+                    ],
                     description: "Expression type"
                   ),
                 node: Zoi.string(description: "Result node name") |> Zoi.optional(),
@@ -154,6 +166,23 @@ defmodule Jido.Flow.Syntax do
   @spec select(term(), term()) :: Expr.t()
   def select(source, path), do: %Expr{type: :select, source: source, path: normalize_path(path)}
 
+  @doc "Builds a scoped reference to the current Map or Reduce item."
+  @spec item(term()) :: Expr.t()
+  def item(path \\ nil), do: %Expr{type: :item, path: normalize_path(path)}
+
+  @doc "Builds a scoped reference to the current item index."
+  @spec item_index() :: Expr.t()
+  def item_index, do: %Expr{type: :item_index}
+
+  @doc "Builds a scoped reference to the current stable item identity."
+  @spec item_id() :: Expr.t()
+  def item_id, do: %Expr{type: :item_id}
+
+  @doc "Builds a scoped reference to the current Reduce accumulator."
+  @spec accumulator(term()) :: Expr.t()
+  def accumulator(path \\ nil),
+    do: %Expr{type: :accumulator, path: normalize_path(path)}
+
   @doc """
   Builds an equality condition for a Choice option.
   """
@@ -254,6 +283,68 @@ defmodule Jido.Flow.Syntax do
   end
 
   @doc """
+  Appends a Map fan-out operation.
+  """
+  @spec map(t(), atom() | String.t() | nil, term(), module(), term(), keyword()) :: t()
+  def map(%__MODULE__{} = syntax, name, collection, action, input, opts \\ []) do
+    option_errors =
+      operation_option_errors(opts, [
+        :on_error,
+        :bind,
+        :after,
+        :provenance,
+        :label,
+        :tags,
+        :note
+      ])
+
+    attrs =
+      %{
+        name: name,
+        collection: collection,
+        action: action,
+        input: input,
+        on_error: option_value(opts, :on_error, :fail_fast)
+      }
+      |> maybe_put_binding(option_value(opts, :bind))
+      |> maybe_put_after(option_value(opts, :after))
+      |> maybe_put_option_errors(option_errors)
+
+    add(syntax, operation(:map, attrs, provenance: provenance_from_options(opts)))
+  end
+
+  @doc """
+  Appends a serial Reduce fan-in operation.
+  """
+  @spec reduce(
+          t(),
+          atom() | String.t() | nil,
+          term(),
+          term(),
+          module(),
+          term(),
+          keyword()
+        ) :: t()
+  def reduce(%__MODULE__{} = syntax, name, collection, initial, action, input, opts \\ []) do
+    option_errors =
+      operation_option_errors(opts, [:bind, :after, :provenance, :label, :tags, :note])
+
+    attrs =
+      %{
+        name: name,
+        collection: collection,
+        initial: initial,
+        action: action,
+        input: input
+      }
+      |> maybe_put_binding(option_value(opts, :bind))
+      |> maybe_put_after(option_value(opts, :after))
+      |> maybe_put_option_errors(option_errors)
+
+    add(syntax, operation(:reduce, attrs, provenance: provenance_from_options(opts)))
+  end
+
+  @doc """
   Appends a named ordered Choice operation.
   """
   @spec choice(t(), atom() | String.t() | nil, [Option.t()], Fallback.t(), keyword()) :: t()
@@ -293,8 +384,45 @@ defmodule Jido.Flow.Syntax do
   defp maybe_put_after(attrs, nil), do: attrs
   defp maybe_put_after(attrs, after_targets), do: Map.put(attrs, :after, after_targets)
 
+  defp maybe_put_option_errors(attrs, []), do: attrs
+  defp maybe_put_option_errors(attrs, errors), do: Map.put(attrs, :option_errors, errors)
+
+  defp operation_option_errors(opts, allowed) do
+    if is_list(opts) and Keyword.keyword?(opts) do
+      keys = Keyword.keys(opts)
+
+      unsupported =
+        Enum.find(Enum.uniq(keys), fn candidate ->
+          Enum.member?(allowed, candidate) == false
+        end)
+
+      case unsupported do
+        nil ->
+          case Enum.find(Enum.uniq(keys), fn candidate ->
+                 Enum.count(keys, &(&1 == candidate)) > 1
+               end) do
+            nil -> []
+            option -> [{:duplicate, option}]
+          end
+
+        option ->
+          [{:unsupported, option}]
+      end
+    else
+      [{:invalid, opts}]
+    end
+  end
+
+  defp option_value(opts, name, default \\ nil)
+
+  defp option_value(opts, name, default) when is_list(opts) do
+    if Keyword.keyword?(opts), do: Keyword.get(opts, name, default), else: default
+  end
+
+  defp option_value(_opts, _name, default), do: default
+
   defp provenance_from_options(opts) do
-    provenance = Keyword.get(opts, :provenance, %{})
+    provenance = option_value(opts, :provenance, %{})
 
     if is_map(provenance) do
       Map.merge(provenance, annotation_options(opts))
@@ -304,7 +432,7 @@ defmodule Jido.Flow.Syntax do
   end
 
   defp annotation_options(opts) do
-    opts
+    if(is_list(opts) and Keyword.keyword?(opts), do: opts, else: [])
     |> Keyword.take([:label, :tags, :note])
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()

@@ -6,10 +6,12 @@ defmodule Jido.Flow.Syntax.Lowerer do
   alias Jido.Action.Error
   alias Jido.Flow
   alias Jido.Flow.{Choice, Condition, Node, Ref, Syntax}
+  alias Jido.Flow.Map, as: FlowMap
+  alias Jido.Flow.Reduce, as: FlowReduce
   alias Jido.Flow.Syntax.{Expr, Operation}
 
   @type state :: %{
-          nodes: [Node.t() | Choice.t()],
+          nodes: [Node.t() | Choice.t() | FlowMap.t() | FlowReduce.t()],
           seen: MapSet.t(String.t()),
           bindings: %{optional(atom()) => String.t()},
           all_bindings: MapSet.t(atom()),
@@ -28,6 +30,12 @@ defmodule Jido.Flow.Syntax.Lowerer do
                        :value,
                        :result,
                        :select,
+                       :map,
+                       :reduce,
+                       :item,
+                       :item_index,
+                       :item_id,
+                       :accumulator,
                        :group,
                        :branch
                      ])
@@ -107,6 +115,72 @@ defmodule Jido.Flow.Syntax.Lowerer do
            seen: MapSet.put(state.seen, node.name),
            bindings: maybe_bind(state.bindings, binding, node.name)
        }}
+    end
+  end
+
+  defp lower_operation(%Operation{kind: :map, attrs: attrs, provenance: provenance}, state) do
+    map_name = attrs |> Map.get(:name) |> normalize_step_name()
+    binding = Map.get(attrs, :binding)
+    collection_expr = Map.get(attrs, :collection)
+    input_expr = Map.get(attrs, :input)
+    after_targets = Map.get(attrs, :after, [])
+
+    with :ok <- validate_operation_options(:map, attrs),
+         :ok <- validate_no_self_reference([collection_expr, input_expr], binding, map_name),
+         :ok <- validate_no_self_result([collection_expr, input_expr], map_name),
+         {:ok, explicit_deps} <- resolve_after_targets(after_targets, state, map_name, binding),
+         {:ok, collection} <-
+           resolve_expr(collection_expr, state, map_name, :map_collection),
+         {:ok, input} <- resolve_expr(input_expr, state, map_name, :map_input),
+         {:ok, provenance} <- normalize_step_provenance(provenance, map_name),
+         {:ok, map} <-
+           FlowMap.new(
+             name: map_name,
+             collection: collection,
+             action: Map.get(attrs, :action),
+             input: input,
+             on_error: Map.get(attrs, :on_error, :fail_fast),
+             deps: explicit_deps,
+             provenance: maybe_put_binding(provenance, binding)
+           ) do
+      {:ok, put_node(state, map, binding)}
+    end
+  end
+
+  defp lower_operation(%Operation{kind: :reduce, attrs: attrs, provenance: provenance}, state) do
+    reduce_name = attrs |> Map.get(:name) |> normalize_step_name()
+    binding = Map.get(attrs, :binding)
+    collection_expr = Map.get(attrs, :collection)
+    initial_expr = Map.get(attrs, :initial)
+    input_expr = Map.get(attrs, :input)
+    after_targets = Map.get(attrs, :after, [])
+
+    with :ok <- validate_operation_options(:reduce, attrs),
+         :ok <-
+           validate_no_self_reference(
+             [collection_expr, initial_expr, input_expr],
+             binding,
+             reduce_name
+           ),
+         :ok <- validate_no_self_result([collection_expr, initial_expr, input_expr], reduce_name),
+         {:ok, explicit_deps} <-
+           resolve_after_targets(after_targets, state, reduce_name, binding),
+         {:ok, collection} <-
+           resolve_expr(collection_expr, state, reduce_name, :reduce_collection),
+         {:ok, initial} <- resolve_expr(initial_expr, state, reduce_name, :reduce_initial),
+         {:ok, input} <- resolve_expr(input_expr, state, reduce_name, :reduce_input),
+         {:ok, provenance} <- normalize_step_provenance(provenance, reduce_name),
+         {:ok, reduce} <-
+           FlowReduce.new(
+             name: reduce_name,
+             collection: collection,
+             initial: initial,
+             action: Map.get(attrs, :action),
+             input: input,
+             deps: explicit_deps,
+             provenance: maybe_put_binding(provenance, binding)
+           ) do
+      {:ok, put_node(state, reduce, binding)}
     end
   end
 
@@ -198,7 +272,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
   defp normalize_derived_node_names(operations), do: operations
 
   defp normalize_derived_node_name(%Operation{kind: kind, attrs: attrs} = operation)
-       when kind in [:step, :choice] do
+       when kind in [:step, :choice, :map, :reduce] do
     case {Map.get(attrs, :name), Map.get(attrs, :binding)} do
       {nil, binding} when is_atom(binding) and not is_nil(binding) ->
         %{
@@ -285,6 +359,15 @@ defmodule Jido.Flow.Syntax.Lowerer do
     end
   end
 
+  defp resolve_expr(%Expr{type: :item, path: path}, _state, _step),
+    do: {:ok, Ref.item(path)}
+
+  defp resolve_expr(%Expr{type: :item_index}, _state, _step), do: {:ok, Ref.item_index()}
+  defp resolve_expr(%Expr{type: :item_id}, _state, _step), do: {:ok, Ref.item_id()}
+
+  defp resolve_expr(%Expr{type: :accumulator, path: path}, _state, _step),
+    do: {:ok, Ref.accumulator(path)}
+
   defp resolve_expr(%Expr{type: type}, _state, step) do
     {:error,
      Error.validation_error("unsupported flow syntax expression: #{inspect(type)}", %{
@@ -322,6 +405,18 @@ defmodule Jido.Flow.Syntax.Lowerer do
   end
 
   defp resolve_expr(value, _state, _step), do: {:ok, Ref.value(value)}
+
+  defp resolve_expr(expression, state, step, scope)
+       when scope in [
+              :flow,
+              :map_collection,
+              :map_input,
+              :reduce_collection,
+              :reduce_initial,
+              :reduce_input
+            ] do
+    resolve_expr(expression, state, step)
+  end
 
   defp resolve_choice_options(options, _state, choice) when not is_list(options) do
     {:error,
@@ -621,7 +716,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
   end
 
   defp validate_select_source(%Ref{type: type} = ref, _step)
-       when type in [:input, :context, :result] do
+       when type in [:input, :context, :result, :item, :accumulator] do
     {:ok, ref}
   end
 
@@ -716,7 +811,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
 
   defp node_operations(operations) when is_list(operations) do
     Enum.flat_map(operations, fn
-      %Operation{kind: kind} = operation when kind in [:step, :choice] ->
+      %Operation{kind: kind} = operation when kind in [:step, :choice, :map, :reduce] ->
         [operation]
 
       %Operation{kind: :group, attrs: attrs} ->
@@ -830,6 +925,43 @@ defmodule Jido.Flow.Syntax.Lowerer do
     end
   end
 
+  defp validate_no_self_result(_expr, nil), do: :ok
+
+  defp validate_no_self_result(expr, step) do
+    if result_referenced?(expr, step) do
+      {:error,
+       Error.validation_error("result cannot reference current step: #{inspect(step)}", %{
+         step: step,
+         dependency: step
+       })}
+    else
+      :ok
+    end
+  end
+
+  defp result_referenced?(%Expr{type: :result, node: node}, step),
+    do: normalize_step_name(node) == step
+
+  defp result_referenced?(%Expr{type: :select, source: source}, step),
+    do: result_referenced?(source, step)
+
+  defp result_referenced?(%Expr{}, _step), do: false
+
+  defp result_referenced?(%Ref{type: :result, node: node}, step), do: node == step
+  defp result_referenced?(%Ref{}, _step), do: false
+
+  defp result_referenced?(%{} = map, step) do
+    map
+    |> Map.values()
+    |> Enum.any?(&result_referenced?(&1, step))
+  end
+
+  defp result_referenced?(list, step) when is_list(list) do
+    Enum.any?(list, &result_referenced?(&1, step))
+  end
+
+  defp result_referenced?(_value, _step), do: false
+
   defp binding_referenced?(%Expr{type: :binding, binding: binding}, binding), do: true
 
   defp binding_referenced?(%Expr{type: :select, source: source}, binding),
@@ -858,6 +990,59 @@ defmodule Jido.Flow.Syntax.Lowerer do
 
   defp maybe_bind(bindings, nil, _node), do: bindings
   defp maybe_bind(bindings, binding, node), do: Map.put(bindings, binding, node)
+
+  defp put_node(state, node, binding) do
+    %{
+      state
+      | nodes: [node | state.nodes],
+        seen: MapSet.put(state.seen, node.name),
+        bindings: maybe_bind(state.bindings, binding, node.name)
+    }
+  end
+
+  defp validate_operation_options(kind, attrs) do
+    allowed =
+      case kind do
+        :map ->
+          [:name, :collection, :action, :input, :on_error, :binding, :after, :derived_name?]
+
+        :reduce ->
+          [:name, :collection, :initial, :action, :input, :binding, :after, :derived_name?]
+      end
+
+    case Map.get(attrs, :option_errors, []) do
+      [{:unsupported, option} | _rest] ->
+        operation_option_error(kind, :unsupported, option)
+
+      [{:duplicate, option} | _rest] ->
+        operation_option_error(kind, :duplicate, option)
+
+      [{:invalid, options} | _rest] ->
+        {:error,
+         Error.validation_error("#{kind} options must be a keyword list", %{
+           path: [:options],
+           options: options
+         })}
+
+      [] ->
+        case attrs
+             |> Map.keys()
+             |> Enum.reject(&(&1 == :option_errors or &1 in allowed))
+             |> Enum.sort()
+             |> List.first() do
+          nil -> :ok
+          option -> operation_option_error(kind, :unsupported, option)
+        end
+    end
+  end
+
+  defp operation_option_error(kind, reason, option) do
+    {:error,
+     Error.validation_error("#{reason} #{kind} option: #{inspect(option)}", %{
+       path: [:options, option],
+       option: option
+     })}
+  end
 
   defp add_choice_context({:ok, _choice} = result, _choice_name), do: result
 

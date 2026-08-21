@@ -193,4 +193,107 @@ defmodule Jido.Flow.SyntaxTest do
       refute function_exported?(Syntax, :parallel, 3)
     end
   end
+
+  describe "Map and Reduce syntax" do
+    test "builds all scoped local expressions with normalized paths" do
+      assert %Syntax.Expr{type: :item, path: []} = Syntax.item()
+
+      assert %Syntax.Expr{type: :item, path: [:output, :value]} =
+               Syntax.item([:output, :value])
+
+      assert %Syntax.Expr{type: :item_index, path: []} = Syntax.item_index()
+      assert %Syntax.Expr{type: :item_id, path: []} = Syntax.item_id()
+      assert %Syntax.Expr{type: :accumulator, path: []} = Syntax.accumulator()
+      assert %Syntax.Expr{type: :accumulator, path: [:total]} = Syntax.accumulator(:total)
+    end
+
+    test "stores exact Map operation attributes and resolved default mode" do
+      collection = Syntax.input(:items)
+      input = %{item: Syntax.item(), index: Syntax.item_index(), id: Syntax.item_id()}
+
+      syntax =
+        Syntax.new(name: "map")
+        |> Syntax.map(:mapped, collection, Add, input)
+
+      assert [
+               %Syntax.Operation{
+                 kind: :map,
+                 attrs: %{
+                   name: :mapped,
+                   collection: ^collection,
+                   action: Add,
+                   input: ^input,
+                   on_error: :fail_fast
+                 },
+                 provenance: %{}
+               }
+             ] = syntax.operations
+    end
+
+    test "stores explicit Map options and provenance" do
+      after_targets = [:loaded, Syntax.binding(:prepared)]
+
+      syntax =
+        Syntax.new(name: "map")
+        |> Syntax.map(nil, Syntax.binding(:prepared), Add, %{item: Syntax.item(:value)},
+          on_error: :collect_errors,
+          bind: :mapped,
+          after: after_targets,
+          provenance: %{line: 12},
+          label: "Map items"
+        )
+
+      assert [
+               %Syntax.Operation{
+                 kind: :map,
+                 attrs: %{
+                   name: nil,
+                   collection: %Syntax.Expr{type: :binding, binding: :prepared},
+                   action: Add,
+                   input: %{item: %Syntax.Expr{type: :item, path: [:value]}},
+                   on_error: :collect_errors,
+                   binding: :mapped,
+                   after: ^after_targets
+                 },
+                 provenance: %{line: 12, label: "Map items"}
+               }
+             ] = syntax.operations
+    end
+
+    test "stores exact Reduce operation attributes" do
+      collection = Syntax.result(:mapped, :results)
+      initial = Syntax.value(%{total: 0})
+
+      input = %{
+        accumulator: Syntax.accumulator(),
+        item: Syntax.item(:output),
+        index: Syntax.item_index(),
+        id: Syntax.item_id()
+      }
+
+      syntax =
+        Syntax.new(name: "reduce")
+        |> Syntax.reduce("summary", collection, initial, Add, input,
+          bind: :summary,
+          after: [:audit],
+          provenance: %{line: 20}
+        )
+
+      assert [
+               %Syntax.Operation{
+                 kind: :reduce,
+                 attrs: %{
+                   name: "summary",
+                   collection: ^collection,
+                   initial: ^initial,
+                   action: Add,
+                   input: ^input,
+                   binding: :summary,
+                   after: [:audit]
+                 },
+                 provenance: %{line: 20}
+               }
+             ] = syntax.operations
+    end
+  end
 end

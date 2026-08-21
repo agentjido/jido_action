@@ -1170,6 +1170,266 @@ defmodule Jido.Flow.Syntax.LowererTest do
     end
   end
 
+  describe "Map and Reduce lowering" do
+    test "lowers names, bindings, deps, modes, local refs, and provenance" do
+      syntax =
+        Syntax.new(name: "fan_out_in")
+        |> Syntax.step(:load, EchoParamsAction, %{items: Syntax.input(:items)}, bind: :loaded)
+        |> Syntax.map(
+          "mapped",
+          Syntax.select(Syntax.binding(:loaded), :items),
+          EchoParamsAction,
+          %{
+            item: Syntax.item(),
+            value: Syntax.item(:value),
+            index: Syntax.item_index(),
+            item_id: Syntax.item_id()
+          },
+          on_error: :collect_errors,
+          bind: :mapped_result,
+          after: [Syntax.binding(:loaded)],
+          provenance: %{line: 10}
+        )
+        |> Syntax.reduce(
+          nil,
+          Syntax.binding(:mapped_result),
+          Syntax.value(%{total: 0}),
+          EchoParamsAction,
+          %{
+            accumulator: Syntax.accumulator(),
+            total: Syntax.accumulator(:total),
+            item: Syntax.item(:output),
+            index: Syntax.item_index(),
+            item_id: Syntax.item_id()
+          },
+          bind: :summary,
+          after: ["mapped", Syntax.binding(:mapped_result)],
+          provenance: %{line: 20}
+        )
+        |> Syntax.return(Syntax.binding(:summary))
+
+      assert {:ok, flow} = Lowerer.lower(syntax)
+      assert [load, mapped, summary] = flow.nodes
+
+      assert load.name == "load"
+      assert %Jido.Flow.Map{} = mapped
+      assert mapped.name == "mapped"
+      assert mapped.collection == Ref.result("load", [:items])
+      assert mapped.on_error == :collect_errors
+      assert mapped.deps == ["load"]
+      assert mapped.input.item == Ref.item()
+      assert mapped.input.value == Ref.item(:value)
+      assert mapped.input.index == Ref.item_index()
+      assert mapped.input.item_id == Ref.item_id()
+      assert mapped.provenance == %{binding: :mapped_result, line: 10}
+
+      assert %Jido.Flow.Reduce{} = summary
+      assert summary.name == "summary"
+      assert summary.collection == Ref.result("mapped")
+      assert summary.initial == Ref.value(%{total: 0})
+      assert summary.deps == ["mapped"]
+      assert summary.input.accumulator == Ref.accumulator()
+      assert summary.input.total == Ref.accumulator(:total)
+      assert summary.input.item == Ref.item(:output)
+      assert summary.input.index == Ref.item_index()
+      assert summary.input.item_id == Ref.item_id()
+      assert summary.provenance == %{binding: :summary, line: 20}
+      assert flow.return == Ref.result("summary")
+    end
+
+    test "preserves list order and trusted struct literals" do
+      date = ~D[2026-08-21]
+
+      syntax =
+        Syntax.new(name: "literal_collections")
+        |> Syntax.map(:mapped, [1, date, Syntax.input(:last)], EchoParamsAction, %{
+          item: Syntax.item()
+        })
+        |> Syntax.reduce(
+          :summary,
+          Syntax.result(:mapped, :results),
+          date,
+          EchoParamsAction,
+          %{acc: Syntax.accumulator(), item: Syntax.item()}
+        )
+        |> Syntax.return(Syntax.result(:summary))
+
+      assert {:ok, flow} = Lowerer.lower(syntax)
+      assert [mapped, summary] = flow.nodes
+      assert mapped.collection == [Ref.value(1), Ref.value(date), Ref.input(:last)]
+      assert summary.initial == Ref.value(date)
+
+      direct =
+        Flow.new!(
+          name: "literal_collections",
+          nodes: [
+            Jido.Flow.Map.new!(
+              name: :mapped,
+              collection: [Ref.value(1), Ref.value(date), Ref.input(:last)],
+              action: EchoParamsAction,
+              input: %{item: Ref.item()}
+            ),
+            Jido.Flow.Reduce.new!(
+              name: :summary,
+              collection: Ref.result(:mapped, :results),
+              initial: Ref.value(date),
+              action: EchoParamsAction,
+              input: %{acc: Ref.accumulator(), item: Ref.item()}
+            )
+          ],
+          return: Ref.result(:summary)
+        )
+
+      assert Flow.to_map(flow) == Flow.to_map(direct)
+    end
+
+    test "rejects forward, missing, self-binding, and self-result references" do
+      cases = [
+        {Syntax.new(name: "forward")
+         |> Syntax.map(:mapped, Syntax.binding(:later), Add, %{item: Syntax.item()})
+         |> Syntax.step(:load_later, Add, %{}, bind: :later)
+         |> Syntax.return(Syntax.result(:mapped)), "binding reference before it is bound",
+         :later},
+        {Syntax.new(name: "missing")
+         |> Syntax.map(:mapped, Syntax.binding(:missing), Add, %{item: Syntax.item()})
+         |> Syntax.return(Syntax.result(:mapped)), "unknown binding handle", :missing},
+        {Syntax.new(name: "self_binding")
+         |> Syntax.map(
+           :mapped,
+           Syntax.input(:items),
+           Add,
+           %{prior: Syntax.binding(:mapped_handle)},
+           bind: :mapped_handle
+         )
+         |> Syntax.return(Syntax.result(:mapped)), "binding cannot reference itself",
+         :mapped_handle},
+        {Syntax.new(name: "self_result")
+         |> Syntax.map(:mapped, Syntax.result(:mapped), Add, %{item: Syntax.item()})
+         |> Syntax.return(Syntax.result(:mapped)), "result cannot reference current step",
+         "mapped"}
+      ]
+
+      for {syntax, expected_message, expected_reference} <- cases do
+        assert {:error, %InvalidInputError{message: message, details: details}} =
+                 Lowerer.lower(syntax)
+
+        assert message =~ expected_message
+        assert details.step == "mapped"
+
+        assert details[:binding] == expected_reference or
+                 details[:dependency] == expected_reference
+      end
+    end
+
+    test "rejects local refs outside their exact operation scopes with paths" do
+      cases = [
+        {Syntax.new(name: "map_collection")
+         |> Syntax.map(:mapped, Syntax.item(), Add, %{item: Syntax.item()})
+         |> Syntax.return(Syntax.result(:mapped)), [:collection], :item},
+        {Syntax.new(name: "map_accumulator")
+         |> Syntax.map(:mapped, Syntax.input(:items), Add, %{
+           nested: %{bad: Syntax.accumulator()}
+         })
+         |> Syntax.return(Syntax.result(:mapped)), [:input, :nested, :bad], :accumulator},
+        {Syntax.new(name: "reduce_collection")
+         |> Syntax.reduce(:summary, Syntax.item(), Syntax.value(%{}), Add, %{
+           item: Syntax.item(),
+           acc: Syntax.accumulator()
+         })
+         |> Syntax.return(Syntax.result(:summary)), [:collection], :item},
+        {Syntax.new(name: "reduce_initial")
+         |> Syntax.reduce(:summary, Syntax.input(:items), Syntax.item_id(), Add, %{
+           item: Syntax.item(),
+           acc: Syntax.accumulator()
+         })
+         |> Syntax.return(Syntax.result(:summary)), [:initial], :item_id},
+        {Syntax.new(name: "step_item")
+         |> Syntax.step(:plain, Add, %{bad: Syntax.item()})
+         |> Syntax.return(Syntax.result(:plain)), [:bad], :item},
+        {Syntax.new(name: "return_item")
+         |> Syntax.map(:mapped, Syntax.input(:items), Add, %{item: Syntax.item()})
+         |> Syntax.return(%{result: Syntax.result(:mapped), bad: Syntax.item()}), [:bad], :item}
+      ]
+
+      for {syntax, path, type} <- cases do
+        assert {:error, %InvalidInputError{details: details}} = Lowerer.lower(syntax)
+        assert details.path == path
+        assert details.type == type
+      end
+    end
+
+    test "rejects unsupported and duplicate operation options" do
+      unsupported =
+        Syntax.new(name: "unsupported_option")
+        |> Syntax.map(:mapped, Syntax.input(:items), Add, %{item: Syntax.item()}, timeout: 100)
+        |> Syntax.return(Syntax.result(:mapped))
+
+      duplicate =
+        Syntax.new(name: "duplicate_option")
+        |> Syntax.map(:mapped, Syntax.input(:items), Add, %{item: Syntax.item()},
+          on_error: :fail_fast,
+          on_error: :collect_errors
+        )
+        |> Syntax.return(Syntax.result(:mapped))
+
+      unsupported_reduce =
+        Syntax.new(name: "unsupported_reduce_option")
+        |> Syntax.reduce(
+          :summary,
+          Syntax.input(:items),
+          Syntax.value(%{}),
+          Add,
+          %{item: Syntax.item(), acc: Syntax.accumulator()},
+          on_error: :collect_errors
+        )
+        |> Syntax.return(Syntax.result(:summary))
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Lowerer.lower(unsupported)
+
+      assert message == "unsupported map option: :timeout"
+      assert details.path == [:options, :timeout]
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Lowerer.lower(duplicate)
+
+      assert message == "duplicate map option: :on_error"
+      assert details.path == [:options, :on_error]
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Lowerer.lower(unsupported_reduce)
+
+      assert message == "unsupported reduce option: :on_error"
+      assert details.path == [:options, :on_error]
+    end
+
+    test "rejects bad modes, dynamic targets, and unsupported expressions at canonical paths" do
+      cases = [
+        {Syntax.new(name: "mode")
+         |> Syntax.map(:mapped, Syntax.input(:items), Add, %{item: Syntax.item()},
+           on_error: Syntax.value(:collect_errors)
+         )
+         |> Syntax.return(Syntax.result(:mapped)), "map on_error must be", [:on_error]},
+        {Syntax.new(name: "dynamic_target")
+         |> Syntax.map(:mapped, Syntax.input(:items), fn -> Add end, %{item: Syntax.item()})
+         |> Syntax.return(Syntax.result(:mapped)), "map target must be a module atom", [:action]},
+        {Syntax.new(name: "call")
+         |> Syntax.map(:mapped, Syntax.input(:items), Add, %{
+           item: %Syntax.Expr{type: :call}
+         })
+         |> Syntax.return(Syntax.result(:mapped)), "unsupported flow syntax expression", nil}
+      ]
+
+      for {syntax, expected_message, path} <- cases do
+        assert {:error, %InvalidInputError{message: message, details: details}} =
+                 Lowerer.lower(syntax)
+
+        assert message =~ expected_message
+        if path, do: assert(details.path == path)
+      end
+    end
+  end
+
   defp step_operation(name, action, input, opts \\ []) do
     Syntax.new(name: "branch")
     |> Syntax.step(name, action, input, opts)
