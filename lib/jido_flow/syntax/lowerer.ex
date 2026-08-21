@@ -108,13 +108,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
                |> maybe_put_binding(binding)
                |> maybe_put_branch(state.branch)
            ) do
-      {:ok,
-       %{
-         state
-         | nodes: [node | state.nodes],
-           seen: MapSet.put(state.seen, node.name),
-           bindings: maybe_bind(state.bindings, binding, node.name)
-       }}
+      {:ok, put_node(state, node, binding)}
     end
   end
 
@@ -129,9 +123,8 @@ defmodule Jido.Flow.Syntax.Lowerer do
          :ok <- validate_no_self_reference([collection_expr, input_expr], binding, map_name),
          :ok <- validate_no_self_result([collection_expr, input_expr], map_name),
          {:ok, explicit_deps} <- resolve_after_targets(after_targets, state, map_name, binding),
-         {:ok, collection} <-
-           resolve_expr(collection_expr, state, map_name, :map_collection),
-         {:ok, input} <- resolve_expr(input_expr, state, map_name, :map_input),
+         {:ok, collection} <- resolve_expr(collection_expr, state, map_name),
+         {:ok, input} <- resolve_expr(input_expr, state, map_name),
          {:ok, provenance} <- normalize_step_provenance(provenance, map_name),
          {:ok, map} <-
            FlowMap.new(
@@ -165,10 +158,9 @@ defmodule Jido.Flow.Syntax.Lowerer do
          :ok <- validate_no_self_result([collection_expr, initial_expr, input_expr], reduce_name),
          {:ok, explicit_deps} <-
            resolve_after_targets(after_targets, state, reduce_name, binding),
-         {:ok, collection} <-
-           resolve_expr(collection_expr, state, reduce_name, :reduce_collection),
-         {:ok, initial} <- resolve_expr(initial_expr, state, reduce_name, :reduce_initial),
-         {:ok, input} <- resolve_expr(input_expr, state, reduce_name, :reduce_input),
+         {:ok, collection} <- resolve_expr(collection_expr, state, reduce_name),
+         {:ok, initial} <- resolve_expr(initial_expr, state, reduce_name),
+         {:ok, input} <- resolve_expr(input_expr, state, reduce_name),
          {:ok, provenance} <- normalize_step_provenance(provenance, reduce_name),
          {:ok, reduce} <-
            FlowReduce.new(
@@ -204,13 +196,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
              deps: explicit_deps,
              provenance: provenance |> maybe_put_binding(binding)
            ) do
-      {:ok,
-       %{
-         state
-         | nodes: [choice | state.nodes],
-           seen: MapSet.put(state.seen, choice.name),
-           bindings: maybe_bind(state.bindings, binding, choice.name)
-       }}
+      {:ok, put_node(state, choice, binding)}
     end
     |> add_choice_context(choice_name)
   end
@@ -405,18 +391,6 @@ defmodule Jido.Flow.Syntax.Lowerer do
   end
 
   defp resolve_expr(value, _state, _step), do: {:ok, Ref.value(value)}
-
-  defp resolve_expr(expression, state, step, scope)
-       when scope in [
-              :flow,
-              :map_collection,
-              :map_input,
-              :reduce_collection,
-              :reduce_initial,
-              :reduce_input
-            ] do
-    resolve_expr(expression, state, step)
-  end
 
   defp resolve_choice_options(options, _state, choice) when not is_list(options) do
     {:error,

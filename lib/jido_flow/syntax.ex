@@ -390,17 +390,17 @@ defmodule Jido.Flow.Syntax do
   defp operation_option_errors(opts, allowed) do
     if is_list(opts) and Keyword.keyword?(opts) do
       keys = Keyword.keys(opts)
+      unique_keys = Enum.uniq(keys)
+      frequencies = Enum.frequencies(keys)
 
       unsupported =
-        Enum.find(Enum.uniq(keys), fn candidate ->
+        Enum.find(unique_keys, fn candidate ->
           Enum.member?(allowed, candidate) == false
         end)
 
       case unsupported do
         nil ->
-          case Enum.find(Enum.uniq(keys), fn candidate ->
-                 Enum.count(keys, &(&1 == candidate)) > 1
-               end) do
+          case Enum.find(unique_keys, &(Map.fetch!(frequencies, &1) > 1)) do
             nil -> []
             option -> [{:duplicate, option}]
           end

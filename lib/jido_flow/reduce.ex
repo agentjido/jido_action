@@ -213,7 +213,7 @@ defmodule Jido.Flow.Reduce do
   defp validate_deps(nil), do: {:ok, []}
 
   defp validate_deps(deps) when is_list(deps) do
-    if proper_list?(deps) do
+    if not List.improper?(deps) do
       deps
       |> Enum.reduce_while({:ok, []}, fn dep, {:ok, acc} ->
         case validate_dependency(dep) do
@@ -246,10 +246,6 @@ defmodule Jido.Flow.Reduce do
 
   defp invalid_deps(message),
     do: {:error, Error.validation_error(message, %{path: [:deps]})}
-
-  defp proper_list?([]), do: true
-  defp proper_list?([_head | tail]), do: proper_list?(tail)
-  defp proper_list?(_tail), do: false
 
   defp validate_provenance(nil), do: {:ok, %{}}
   defp validate_provenance(provenance) when is_map(provenance), do: {:ok, provenance}
