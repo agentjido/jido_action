@@ -49,6 +49,21 @@ defmodule Jido.Flow.Condition do
      Error.validation_error("choice condition must be a Jido.Flow.Condition", %{path: []})}
   end
 
+  @doc false
+  @spec validate(t(), Jido.Flow.Ref.scope()) :: {:ok, t()} | {:error, Exception.t()}
+  def validate(%__MODULE__{} = condition, scope) do
+    with :ok <- validate_operator(condition.operator),
+         :ok <- validate_arity(condition.operator, condition.operands),
+         {:ok, operands} <- normalize_operands(condition.operator, condition.operands, scope) do
+      {:ok, %{condition | operands: operands}}
+    end
+  end
+
+  def validate(_condition, _scope) do
+    {:error,
+     Error.validation_error("choice condition must be a Jido.Flow.Condition", %{path: []})}
+  end
+
   @doc """
   Builds a condition or raises on validation failure.
   """
@@ -162,10 +177,20 @@ defmodule Jido.Flow.Condition do
   end
 
   defp normalize_operands(operator, operands) when Kernel.in(operator, @comparison_operators) do
+    normalize_operands(operator, operands, :flow)
+  end
+
+  defp normalize_operands(operator, operands)
+       when Kernel.in(operator, @group_operators) or operator == :not do
+    normalize_operands(operator, operands, :flow)
+  end
+
+  defp normalize_operands(operator, operands, scope)
+       when Kernel.in(operator, @comparison_operators) do
     operands
     |> Enum.with_index()
     |> Enum.reduce_while({:ok, []}, fn {operand, index}, {:ok, acc} ->
-      case normalize_expression(operand, [index]) do
+      case normalize_expression(operand, [index], scope) do
         {:ok, operand} -> {:cont, {:ok, [operand | acc]}}
         {:error, error} -> {:halt, {:error, error}}
       end
@@ -173,12 +198,12 @@ defmodule Jido.Flow.Condition do
     |> reverse_ok_list()
   end
 
-  defp normalize_operands(operator, operands)
+  defp normalize_operands(operator, operands, scope)
        when Kernel.in(operator, @group_operators) or operator == :not do
     operands
     |> Enum.with_index()
     |> Enum.reduce_while({:ok, []}, fn {operand, index}, {:ok, acc} ->
-      case new(operand) do
+      case validate(operand, scope) do
         {:ok, condition} ->
           {:cont, {:ok, [condition | acc]}}
 
@@ -196,9 +221,9 @@ defmodule Jido.Flow.Condition do
     |> reverse_ok_list()
   end
 
-  defp normalize_expression(expression, path) do
+  defp normalize_expression(expression, path, scope) do
     with {:ok, expression} <- Node.normalize_expression(expression),
-         :ok <- Node.validate_expression(expression),
+         :ok <- Node.validate_expression(expression, scope),
          :ok <- validate_static_expression(expression) do
       {:ok, expression}
     else
@@ -221,6 +246,12 @@ defmodule Jido.Flow.Condition do
     nested_path = path ++ Map.get(details, :path, [])
 
     case Node.expression_error_kind(error) do
+      :invalid_scope ->
+        Error.validation_error(
+          "flow expression contains a scoped ref outside its valid scope",
+          %{path: nested_path, ref_type: details.ref_type, scope: details.scope}
+        )
+
       :invalid_ref_path ->
         Error.validation_error("choice condition contains invalid ref path", %{
           path: nested_path,

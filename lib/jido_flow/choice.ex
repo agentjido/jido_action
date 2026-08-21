@@ -416,6 +416,12 @@ defmodule Jido.Flow.Choice do
     nested_path = path ++ Map.get(details, :path, [])
 
     case Node.expression_error_kind(error) do
+      :invalid_scope ->
+        Error.validation_error(
+          "flow expression contains a scoped ref outside its valid scope",
+          %{path: nested_path, ref_type: details.ref_type, scope: details.scope}
+        )
+
       :invalid_ref_path ->
         Error.validation_error("choice target input contains invalid ref path", %{
           path: nested_path,

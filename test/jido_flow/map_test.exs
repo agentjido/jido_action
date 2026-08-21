@@ -7,6 +7,12 @@ defmodule Jido.Flow.MapTest do
   alias JidoTest.TestActions.{Add, MissingRun}
 
   describe "new/1" do
+    test "raises from new!/1 on an invalid canonical Map" do
+      assert_raise InvalidInputError, fn ->
+        FlowMap.new!(name: :bad, collection: [], action: nil)
+      end
+    end
+
     test "builds the closed canonical contract and keeps provenance non-semantic" do
       assert {:ok, map} =
                FlowMap.new(
@@ -91,9 +97,10 @@ defmodule Jido.Flow.MapTest do
       assert {:error, %InvalidInputError{message: message, details: details}} =
                FlowMap.new(name: :bad, collection: Ref.item(), action: Add)
 
-      assert message == "map collection contains invalid ref"
+      assert message == "flow expression contains a scoped ref outside its valid scope"
       assert details.path == [:collection]
-      assert details.type == :item
+      assert details.ref_type == :item
+      assert details.scope == :map_collection
 
       assert {:error, %InvalidInputError{message: message, details: details}} =
                FlowMap.new(
@@ -103,9 +110,10 @@ defmodule Jido.Flow.MapTest do
                  input: %{nested: [Ref.accumulator()]}
                )
 
-      assert message == "map target input contains invalid ref"
+      assert message == "flow expression contains a scoped ref outside its valid scope"
       assert details.path == [:input, :nested, 0]
-      assert details.type == :accumulator
+      assert details.ref_type == :accumulator
+      assert details.scope == :map_input
 
       assert {:error, %InvalidInputError{message: message, details: details}} =
                FlowMap.new(name: :bad, collection: Date.utc_today(), action: Add)

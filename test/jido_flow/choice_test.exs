@@ -92,6 +92,45 @@ defmodule Jido.Flow.ChoiceTest do
 
       assert name_details.path == [:options, 0, :name]
     end
+
+    test "covers closed constructor defaults and malformed nested records" do
+      condition = Condition.eq(1, 1)
+      valid_option = [name: :only, condition: condition, action: Add, input: nil]
+
+      assert {:error, %InvalidInputError{message: "choice configuration must be a map"}} =
+               Choice.new(:bad)
+
+      assert_raise InvalidInputError, fn -> Choice.new!(name: :bad, options: :bad) end
+
+      for {attrs, message, path} <- [
+            {%{name: :bad, options: :bad, fallback: [action: Add]},
+             "choice options must be a list", [:options]},
+            {%{name: :bad, options: [:bad], fallback: [action: Add]},
+             "choice option must be a map", [:options, 0]},
+            {%{name: :bad, options: [valid_option], fallback: :bad},
+             "choice fallback must be a map", [:fallback]},
+            {%{
+               name: :bad,
+               options: [valid_option],
+               fallback: %Choice.Fallback{name: :wrong, action: Add, input: %{}}
+             }, "choice fallback name must be :fallback", [:fallback, :name]}
+          ] do
+        assert {:error, %InvalidInputError{message: ^message, details: %{path: ^path}}} =
+                 Choice.new(attrs)
+      end
+
+      assert {:ok, choice} =
+               Choice.new(
+                 name: :defaults,
+                 options: [valid_option],
+                 fallback: %Choice.Fallback{name: :fallback, action: Add, input: nil},
+                 deps: nil,
+                 provenance: nil
+               )
+
+      assert Choice.to_map(choice).deps == []
+      assert Choice.to_map(choice, provenance: true).provenance == %{}
+    end
   end
 
   test "collects all condition, target input, and explicit result dependencies" do

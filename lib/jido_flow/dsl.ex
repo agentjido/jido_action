@@ -1,6 +1,7 @@
 defmodule Jido.Flow.DSL do
   @moduledoc false
 
+  alias Jido.Action.Error
   alias Jido.Flow.{ActionRegistry, Syntax}
 
   defmacro flow(do: block) do
@@ -24,7 +25,9 @@ defmodule Jido.Flow.DSL do
   defp parser_context(%{} = context) do
     %{
       profile: Map.get(context, :profile, :trusted),
-      actions: Map.get(context, :actions, %{})
+      actions: Map.get(context, :actions, %{}),
+      state_schemas: Map.get(context, :state_schemas, %{}),
+      source: Map.get(context, :source, false)
     }
   end
 
@@ -49,6 +52,11 @@ defmodule Jido.Flow.DSL do
   defp parse_statement({:=, meta, [binding_ast, {:reduce, reduce_meta, args}]}, env, context) do
     binding = parse_binding_lhs!(binding_ast, meta, env)
     parse_reduce(reduce_meta, args, env, binding, context)
+  end
+
+  defp parse_statement({:=, meta, [binding_ast, {:loop, loop_meta, args}]}, env, context) do
+    binding = parse_binding_lhs!(binding_ast, meta, env)
+    parse_loop(loop_meta, args, env, binding, context)
   end
 
   defp parse_statement({:=, _meta, _args} = statement, env, _context) do
@@ -94,6 +102,10 @@ defmodule Jido.Flow.DSL do
 
   defp parse_statement({:reduce, meta, args}, env, context) do
     parse_reduce(meta, args, env, nil, context)
+  end
+
+  defp parse_statement({:loop, meta, args}, env, context) do
+    parse_loop(meta, args, env, nil, context)
   end
 
   defp parse_statement({:return, _meta, [expr_ast]}, env, _context) do
@@ -215,6 +227,113 @@ defmodule Jido.Flow.DSL do
 
   defp parse_reduce(meta, args, env, _binding, _context) do
     unsupported_collection_options!(:reduce, {:reduce, meta, args}, env)
+  end
+
+  defp parse_loop(meta, [name_ast, options], env, binding, context) when is_list(options) do
+    validate_loop_options!(options, env)
+    name = parse_node_name!(name_ast, "loop name", meta, env)
+
+    attrs =
+      %{
+        name: name,
+        action: parse_action_module!(Keyword.fetch!(options, :run), meta, env, context),
+        input: options |> Keyword.fetch!(:with) |> parse_expression(env),
+        state: parse_loop_state!(Keyword.fetch!(options, :state), name, env, context)
+      }
+      |> maybe_put_loop_termination(options, env)
+      |> maybe_put_binding(binding)
+      |> maybe_put_after_option(options, env)
+
+    Syntax.operation(:loop, attrs, provenance: provenance_from_meta(meta))
+  end
+
+  defp parse_loop(meta, args, env, _binding, _context) do
+    unsupported_loop_options!({:loop, meta, args}, env)
+  end
+
+  defp validate_loop_options!(options, env) do
+    allowed = [:run, :with, :state, :while, :until, :repeat, :max_iterations, :after]
+    required = [:run, :with, :state]
+
+    valid? =
+      if Keyword.keyword?(options) do
+        keys = Keyword.keys(options)
+
+        Enum.all?(keys, &(&1 in allowed)) and
+          Enum.all?(required, &Keyword.has_key?(options, &1)) and
+          is_nil(duplicate_step_option_key(keys, allowed))
+      else
+        false
+      end
+
+    unless valid?, do: unsupported_loop_options!(options, env)
+  end
+
+  defp parse_loop_state!(state, node, env, context) when is_list(state) do
+    allowed = [:schema, :initial, :update]
+
+    valid? =
+      if Keyword.keyword?(state) do
+        keys = Keyword.keys(state)
+
+        Enum.all?(keys, &(&1 in allowed)) and
+          Enum.all?(allowed, &Keyword.has_key?(state, &1)) and
+          is_nil(duplicate_step_option_key(keys, allowed))
+      else
+        false
+      end
+
+    unless valid?, do: unsupported_loop_state!(state, env)
+
+    %{
+      schema: parse_loop_schema!(Keyword.fetch!(state, :schema), node, env, context),
+      initial: state |> Keyword.fetch!(:initial) |> parse_expression(env),
+      update: state |> Keyword.fetch!(:update) |> parse_expression(env)
+    }
+  end
+
+  defp parse_loop_state!(state, _node, env, _context), do: unsupported_loop_state!(state, env)
+
+  defp parse_loop_schema!(schema_ast, node, env, %{source: true, state_schemas: schemas}) do
+    identifier = parse_literal!(schema_ast, env)
+
+    case Map.fetch(schemas, identifier) do
+      {:ok, schema} ->
+        schema
+
+      :error ->
+        error =
+          Error.validation_error(
+            "unknown loop state schema identifier: #{inspect(identifier)}",
+            %{schema: identifier, node: to_string(node), path: [:state, :schema]}
+          )
+
+        throw({:jido_flow_parser_error, error})
+    end
+  end
+
+  defp parse_loop_schema!(schema_ast, _node, env, _context), do: parse_literal!(schema_ast, env)
+
+  defp maybe_put_loop_termination(attrs, options, env) do
+    attrs
+    |> maybe_put_parsed_condition(options, :while, env)
+    |> maybe_put_parsed_condition(options, :until, env)
+    |> maybe_put_parsed_literal(options, :repeat, env)
+    |> maybe_put_parsed_literal(options, :max_iterations, env)
+  end
+
+  defp maybe_put_parsed_condition(attrs, options, field, env) do
+    case Keyword.fetch(options, field) do
+      {:ok, condition} -> Map.put(attrs, field, parse_condition!(condition, env))
+      :error -> attrs
+    end
+  end
+
+  defp maybe_put_parsed_literal(attrs, options, field, env) do
+    case Keyword.fetch(options, field) do
+      {:ok, value} -> Map.put(attrs, field, parse_literal!(value, env))
+      :error -> attrs
+    end
   end
 
   defp validate_collection_options!(kind, options, env) do
@@ -432,6 +551,20 @@ defmodule Jido.Flow.DSL do
 
   defp parse_expression({:accumulator, _meta, [path_ast]}, env) do
     Syntax.accumulator(parse_path!(path_ast, env))
+  end
+
+  defp parse_expression({:state, _meta, []}, _env), do: Syntax.state()
+
+  defp parse_expression({:state, _meta, [path_ast]}, env) do
+    Syntax.state(parse_path!(path_ast, env))
+  end
+
+  defp parse_expression({:iteration_index, _meta, []}, _env), do: Syntax.iteration_index()
+
+  defp parse_expression({:body_result, _meta, []}, _env), do: Syntax.body_result()
+
+  defp parse_expression({:body_result, _meta, [path_ast]}, env) do
+    Syntax.body_result(parse_path!(path_ast, env))
   end
 
   defp parse_expression({:%{}, _meta, pairs}, env) do
@@ -721,6 +854,22 @@ defmodule Jido.Flow.DSL do
     unsupported!(
       "unsupported flow DSL #{kind} options: #{Macro.to_string(options)}",
       options,
+      env
+    )
+  end
+
+  defp unsupported_loop_options!(options, env) do
+    unsupported!(
+      "unsupported flow DSL loop options: #{Macro.to_string(options)}",
+      options,
+      env
+    )
+  end
+
+  defp unsupported_loop_state!(state, env) do
+    unsupported!(
+      "unsupported flow DSL loop state: #{Macro.to_string(state)}",
+      state,
       env
     )
   end

@@ -129,7 +129,10 @@ defmodule Jido.Flow.Node do
 
   @doc false
   @spec expression_error_kind(Exception.t()) ::
-          :invalid_ref_path | :invalid_ref | :unsupported_expression | :other
+          :invalid_ref_path | :invalid_ref | :invalid_scope | :unsupported_expression | :other
+  def expression_error_kind(%{details: %{ref_type: _type, scope: _scope}}),
+    do: :invalid_scope
+
   def expression_error_kind(%{details: %{segment: _segment}}), do: :invalid_ref_path
   def expression_error_kind(%{details: %{type: _type}}), do: :invalid_ref
   def expression_error_kind(%{details: %{expression: _expression}}), do: :unsupported_expression
@@ -206,6 +209,13 @@ defmodule Jido.Flow.Node do
            path: path,
            segment: segment
          })}
+
+      {:error, %{details: %{reason: :scope, type: type, scope: invalid_scope}}} ->
+        {:error,
+         Error.validation_error(
+           "flow expression contains a scoped ref outside its valid scope",
+           %{path: path, ref_type: type, scope: invalid_scope}
+         )}
 
       {:error, _error} ->
         invalid_ref_error(ref.type, path)

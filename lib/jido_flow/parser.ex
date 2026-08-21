@@ -6,14 +6,16 @@ defmodule Jido.Flow.Parser do
   not evaluate or compile the provided source.
   """
 
+  alias Jido.Action
   alias Jido.Action.Error
   alias Jido.Flow
   alias Jido.Flow.ActionRegistry
+  alias Jido.Flow.ContractBundle
   alias Jido.Flow.ResourceBudget
   alias Jido.Flow.Syntax
   alias Jido.Flow.Syntax.Lowerer
 
-  @parser_option_keys [:profile, :actions]
+  @parser_option_keys [:profile, :actions, :state_schemas]
 
   @doc """
   Parses trusted Flow source into a canonical `%Jido.Flow{}`.
@@ -62,8 +64,9 @@ defmodule Jido.Flow.Parser do
 
   defp parser_config(opts) do
     with {:ok, profile} <- profile(Map.get(opts, :profile, :trusted)),
-         {:ok, actions} <- actions(Map.get(opts, :actions, %{})) do
-      {:ok, %{profile: profile, actions: actions}}
+         {:ok, actions} <- actions(Map.get(opts, :actions, %{})),
+         {:ok, state_schemas} <- state_schemas(Map.get(opts, :state_schemas, %{})) do
+      {:ok, %{profile: profile, actions: actions, state_schemas: state_schemas, source: true}}
     end
   end
 
@@ -77,6 +80,28 @@ defmodule Jido.Flow.Parser do
   end
 
   defp actions(actions), do: ActionRegistry.normalize(actions)
+
+  defp state_schemas(%{} = schemas) do
+    Enum.reduce_while(schemas, {:ok, %{}}, fn {identifier, schema}, {:ok, acc} ->
+      with :ok <- ContractBundle.validate_identifier(identifier, :state_schemas, []),
+           :ok <- Action.validate_static_data(schema),
+           :ok <- Action.validate_action_schema(schema) do
+        {:cont, {:ok, Map.put(acc, identifier, schema)}}
+      else
+        _error -> {:halt, invalid_state_schemas()}
+      end
+    end)
+  end
+
+  defp state_schemas(_schemas), do: invalid_state_schemas()
+
+  defp invalid_state_schemas do
+    {:error,
+     Error.validation_error(
+       "flow parser state_schemas must map stable identifiers to schema terms",
+       %{field: :state_schemas}
+     )}
+  end
 
   defp quoted(source, parser_config) do
     case Code.string_to_quoted(source, quoted_options(parser_config)) do
@@ -108,10 +133,14 @@ defmodule Jido.Flow.Parser do
   defp quoted_budget(_quoted, %{profile: :trusted}), do: :ok
 
   defp operations_from_quoted({:flow, _meta, [[do: block]]}, parser_config) do
-    {:ok, Jido.Flow.DSL.__parse_block__(block, __ENV__, parser_config)}
-  rescue
-    error in CompileError ->
-      {:error, compile_error(error)}
+    try do
+      {:ok, Jido.Flow.DSL.__parse_block__(block, __ENV__, parser_config)}
+    rescue
+      error in CompileError ->
+        {:error, compile_error(error)}
+    catch
+      {:jido_flow_parser_error, error} -> {:error, error}
+    end
   end
 
   defp operations_from_quoted(quoted, _parser_config) do

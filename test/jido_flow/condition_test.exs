@@ -73,6 +73,24 @@ defmodule Jido.Flow.ConditionTest do
       assert details.path == [0]
       assert details.expression == Function
     end
+
+    test "exposes every ordering helper and the raising constructor" do
+      assert %Condition{operator: :lte} = Condition.lte(1, 2)
+      assert %Condition{operator: :gt} = Condition.gt(2, 1)
+      assert %Condition{operator: :gte} = Condition.gte(2, 2)
+
+      assert_raise InvalidInputError, fn -> Condition.new!(:eq, [1]) end
+
+      assert {:error,
+              %InvalidInputError{
+                message: "choice condition operands must be a list",
+                details: %{path: []}
+              }} = Condition.new(:eq, :bad)
+
+      assert {:error,
+              %InvalidInputError{message: "choice condition must be a Jido.Flow.Condition"}} =
+               Condition.new(:bad)
+    end
   end
 
   test "collects result dependencies from nested condition operands" do
