@@ -2,6 +2,7 @@ defmodule JidoTest.TestActions do
   @moduledoc false
 
   alias Jido.Action
+  alias Jido.Action.Output
 
   defmodule BasicAction do
     @moduledoc false
@@ -201,7 +202,7 @@ defmodule JidoTest.TestActions do
       schema: Zoi.object(%{value: Zoi.integer()})
 
     def run(%{value: value}, _context) do
-      {:ok, Jido.Action.Output.raw(%{value: value}, meta: %{source: :test})}
+      {:ok, Output.raw(%{value: value}, meta: %{source: :test})}
     end
   end
 
@@ -350,6 +351,65 @@ defmodule JidoTest.TestActions do
     def run(%{test_pid: test_pid, index: index} = params, _context) do
       send(test_pid, {__MODULE__, :run, index})
       {:ok, params}
+    end
+
+    def validate_output(%{test_pid: test_pid, index: index} = output) do
+      send(test_pid, {__MODULE__, :output, index})
+      {:ok, output}
+    end
+  end
+
+  defmodule ReduceProbeAction do
+    @moduledoc false
+    use Action, name: "reduce_probe_action"
+
+    def run(
+          %{
+            accumulator: accumulator,
+            item: item,
+            index: index,
+            item_id: item_id
+          } = params,
+          context
+        ) do
+      if test_pid = Map.get(context, :test_pid) do
+        send(test_pid, {__MODULE__, :called, index, item_id, item, accumulator})
+      end
+
+      case Map.get(params, :outcome, :map) do
+        :map ->
+          values = Map.get(accumulator, :values, [])
+
+          {:ok,
+           %{values: values ++ [item], indexes: Map.get(accumulator, :indexes, []) ++ [index]}}
+
+        :subtract ->
+          {:ok, %{value: Map.fetch!(accumulator, :value) - item}}
+
+        :output ->
+          values = accumulator.value.values
+          {:ok, Output.raw(%{values: values ++ [item]}, meta: %{source: :reduce})}
+
+        :scalar ->
+          {:ok, :invalid_reduce_output}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defmodule CountedReduceAction do
+    @moduledoc false
+
+    def validate_params(%{test_pid: test_pid, index: index} = params) do
+      send(test_pid, {__MODULE__, :input, index})
+      {:ok, params}
+    end
+
+    def run(%{test_pid: test_pid, index: index, item: item}, _context) do
+      send(test_pid, {__MODULE__, :run, index})
+      {:ok, %{test_pid: test_pid, index: index, value: item}}
     end
 
     def validate_output(%{test_pid: test_pid, index: index} = output) do

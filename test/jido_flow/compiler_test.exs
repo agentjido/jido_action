@@ -5,7 +5,7 @@ defmodule Jido.Flow.CompilerTest do
   alias Jido.Action.Error.{ExecutionFailureError, InvalidInputError}
   alias Jido.Action.Output
   alias Jido.Flow
-  alias Jido.Flow.{Choice, Compiler, Condition, ContractBundle, Node, Reduce, Ref}
+  alias Jido.Flow.{Choice, Compiler, Condition, ContractBundle, Identity, Node, Reduce, Ref}
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.NodeError
   alias JidoTest.FlowFixtures
@@ -16,6 +16,7 @@ defmodule Jido.Flow.CompilerTest do
     AtomValidationAction,
     ContextEcho,
     CountedMapAction,
+    CountedReduceAction,
     EchoParamsAction,
     ErrorAction,
     ErrorWithExtrasAction,
@@ -31,6 +32,7 @@ defmodule Jido.Flow.CompilerTest do
     RawExceptionErrorAction,
     RawOutputAction,
     RecorderAction,
+    ReduceProbeAction,
     ThrowingAction,
     TupleErrorAction,
     UnsupportedResult
@@ -530,6 +532,359 @@ defmodule Jido.Flow.CompilerTest do
     end
   end
 
+  describe "Reduce runtime" do
+    test "folds a normal list in source order with stable Reduce-local item IDs" do
+      flow =
+        reduce_flow(
+          "reduce_order",
+          Ref.value([3, 1, 2]),
+          Ref.value(%{values: [], indexes: []}),
+          %{
+            accumulator: Ref.accumulator(),
+            item: Ref.item(),
+            index: Ref.item_index(),
+            item_id: Ref.item_id()
+          }
+        )
+
+      assert {:ok, %{values: [3, 1, 2], indexes: [0, 1, 2]}} =
+               Compiler.run(flow, %{}, %{test_pid: self()})
+
+      calls =
+        for _ <- 1..3 do
+          assert_receive {ReduceProbeAction, :called, index, item_id, item, accumulator}
+          {index, item_id, item, accumulator}
+        end
+
+      assert Enum.map(calls, &elem(&1, 0)) == [0, 1, 2]
+      assert Enum.map(calls, &elem(&1, 2)) == [3, 1, 2]
+
+      expected_ids =
+        for index <- 0..2,
+            do:
+              Identity.item_uuid(
+                Identity.semantic_digest(flow),
+                "reduced",
+                index
+              )
+
+      assert Enum.map(calls, &elem(&1, 1)) == expected_ids
+      assert Enum.map(calls, fn {_index, _id, _item, acc} -> acc.values end) == [[], [3], [3, 1]]
+    end
+
+    test "returns a valid initial unchanged for an empty collection and does not call the target" do
+      initial = Output.raw(%{values: []}, meta: %{source: :initial})
+
+      flow =
+        reduce_flow("empty_reduce", Ref.value([]), Ref.value(initial), %{
+          accumulator: Ref.accumulator(),
+          item: Ref.item(),
+          index: Ref.item_index(),
+          item_id: Ref.item_id()
+        })
+
+      assert {:ok, ^initial} = Compiler.run(flow, %{}, %{test_pid: self()})
+      refute_receive {ReduceProbeAction, :called, _, _, _, _}
+    end
+
+    test "rejects a non-list collection before it validates the initial value" do
+      flow =
+        reduce_flow(
+          "reduce_error_order",
+          Ref.value(%{not: :a_list}),
+          Ref.value(:invalid_initial),
+          %{}
+        )
+
+      assert {:error, %ExecutionFailureError{message: message, details: details}} =
+               Compiler.run(flow, %{}, %{})
+
+      assert message == "reduce collection must resolve to a proper list"
+
+      assert details == %{
+               phase: :reduce_collection,
+               node: "reduced",
+               reason: :not_a_proper_list,
+               value_type: :map,
+               retry: false
+             }
+    end
+
+    test "rejects an invalid initial before the first reducer invocation" do
+      flow =
+        reduce_flow("invalid_reduce_initial", Ref.value([1]), Ref.value(0), %{
+          accumulator: Ref.accumulator(),
+          item: Ref.item(),
+          index: Ref.item_index(),
+          item_id: Ref.item_id()
+        })
+
+      assert {:error, %ExecutionFailureError{message: message, details: details}} =
+               Compiler.run(flow, %{}, %{test_pid: self()})
+
+      assert message == "reduce initial value must be a map or Jido.Action.Output"
+
+      assert details == %{
+               phase: :reduce_initial,
+               node: "reduced",
+               reason: :output_envelope_required,
+               value_type: :number,
+               retry: false
+             }
+
+      refute_receive {ReduceProbeAction, :called, _, _, _, _}
+    end
+
+    test "uses each Action output as the next accumulator and preserves non-associative order" do
+      flow =
+        reduce_flow(
+          "reduce_subtract",
+          Ref.value([3, 2, 1]),
+          Ref.value(%{value: 10}),
+          %{
+            accumulator: Ref.accumulator(),
+            item: Ref.item(),
+            index: Ref.item_index(),
+            item_id: Ref.item_id(),
+            outcome: Ref.value(:subtract)
+          }
+        )
+
+      assert {:ok, %{value: 4}} = Compiler.run(flow, %{}, %{test_pid: self()})
+
+      for index <- 0..2 do
+        assert_receive {ReduceProbeAction, :called, ^index, _item_id, _item, _accumulator}
+      end
+    end
+
+    test "runs each reducer Action validation boundary exactly once per item" do
+      flow =
+        reduce_flow(
+          "reduce_action_once",
+          Ref.value([:first, :second]),
+          Ref.value(%{}),
+          %{
+            test_pid: Ref.context(:test_pid),
+            item: Ref.item(),
+            index: Ref.item_index()
+          },
+          CountedReduceAction
+        )
+
+      assert {:ok, %{value: :second}} = Compiler.run(flow, %{}, %{test_pid: self()})
+
+      for index <- 0..1 do
+        assert_receive {CountedReduceAction, :input, ^index}
+        assert_receive {CountedReduceAction, :run, ^index}
+        assert_receive {CountedReduceAction, :output, ^index}
+      end
+
+      refute_receive {CountedReduceAction, _phase, _index}
+    end
+
+    test "supports full and selected Output accumulators" do
+      initial = Output.raw(%{values: []}, meta: %{source: :initial})
+
+      output_flow =
+        reduce_flow("reduce_output_accumulator", Ref.value([1, 2]), Ref.value(initial), %{
+          accumulator: Ref.accumulator(),
+          item: Ref.item(),
+          index: Ref.item_index(),
+          item_id: Ref.item_id(),
+          outcome: Ref.value(:output)
+        })
+
+      assert {:ok, %Output{value: %{values: [1, 2]}, meta: %{source: :reduce}}} =
+               Compiler.run(output_flow, %{}, %{})
+
+      selected_flow =
+        reduce_flow("reduce_selected_accumulator", Ref.value([3]), Ref.value(initial), %{
+          accumulator: Ref.accumulator(:value),
+          item: Ref.item(),
+          index: Ref.item_index(),
+          item_id: Ref.item_id()
+        })
+
+      assert {:ok, %{values: [3], indexes: [0]}} = Compiler.run(selected_flow, %{}, %{})
+    end
+
+    test "stops on the first reducer error and adds Reduce ownership details" do
+      flow =
+        reduce_flow(
+          "reduce_target_error",
+          Ref.value([
+            %{value: :first, outcome: :map},
+            %{value: :second, outcome: {:error, "second failed"}},
+            %{value: :third, outcome: :map}
+          ]),
+          Ref.value(%{values: [], indexes: []}),
+          %{
+            accumulator: Ref.accumulator(),
+            item: Ref.item(:value),
+            index: Ref.item_index(),
+            item_id: Ref.item_id(),
+            outcome: Ref.item(:outcome)
+          }
+        )
+
+      assert {:error, %ExecutionFailureError{message: "second failed", details: details}} =
+               Compiler.run(flow, %{}, %{test_pid: self()})
+
+      assert details.phase == :reduce_target_execution
+      assert details.node == "reduced"
+      assert details.target == ReduceProbeAction
+      assert details.item_index == 1
+      assert is_binary(details.item_id)
+
+      assert_receive {ReduceProbeAction, :called, 0, _, :first, _}
+      assert_receive {ReduceProbeAction, :called, 1, _, :second, _}
+      refute_receive {ReduceProbeAction, :called, 2, _, :third, _}
+    end
+
+    test "rejects a scalar reducer output with the Reduce output phase" do
+      flow =
+        reduce_flow("reduce_scalar_output", Ref.value([1]), Ref.value(%{}), %{
+          accumulator: Ref.accumulator(),
+          item: Ref.item(),
+          index: Ref.item_index(),
+          item_id: Ref.item_id(),
+          outcome: Ref.value(:scalar)
+        })
+
+      assert {:error, %ExecutionFailureError{message: message, details: details}} =
+               Compiler.run(flow, %{}, %{})
+
+      assert message == "action returned a value that requires an output envelope"
+      assert details.phase == :reduce_target_output
+      assert details.node == "reduced"
+      assert details.target == ReduceProbeAction
+      assert details.item_index == 0
+    end
+
+    test "consumes a direct Map aggregate in source order and reuses Map item IDs" do
+      flow = map_reduce_runtime_flow(:fail_fast, Ref.result(:mapped))
+
+      assert {:ok, %{values: [:zero, :one], indexes: [0, 1]}} =
+               Compiler.run(flow, %{}, %{test_pid: self()})
+
+      expected_ids =
+        for index <- 0..1,
+            do:
+              Identity.item_uuid(
+                Identity.semantic_digest(flow),
+                "mapped",
+                index
+              )
+
+      reduce_calls =
+        for index <- 0..1 do
+          assert_receive {ReduceProbeAction, :called, ^index, item_id, item, _accumulator}
+          {item_id, item}
+        end
+
+      assert Enum.map(reduce_calls, &elem(&1, 0)) == expected_ids
+      assert Enum.map(reduce_calls, &elem(&1, 1)) == [:zero, :one]
+    end
+
+    test "refuses collected direct Map errors before the first reducer call" do
+      flow = map_reduce_runtime_flow(:collect_errors, Ref.result(:mapped), :with_error)
+
+      assert {:error, %ExecutionFailureError{message: message, details: details}} =
+               Compiler.run(flow, %{}, %{test_pid: self()})
+
+      assert message == "reduce cannot consume a Map result with errors"
+
+      assert details == %{
+               phase: :reduce_collection,
+               node: "reduced",
+               reason: :map_errors_present,
+               error_indices: [1],
+               retry: false
+             }
+
+      refute_receive {ReduceProbeAction, :called, _, _, _, _}
+    end
+
+    test "rejects malformed direct Map aggregates before reducer input resolution" do
+      flow = map_reduce_runtime_flow(:fail_fast, Ref.result(:mapped))
+
+      assert {:ok, workflow, _nodes} =
+               Compiler.runtime_workflow_validated(flow, %{}, %{test_pid: self()})
+
+      reduce_step = Workflow.get_component(workflow, "reduced")
+
+      valid_result = %{
+        item_id: "123e4567-e89b-82d3-a456-426614174000",
+        index: 0,
+        output: %{value: :ok}
+      }
+
+      malformed = [
+        %{kind: :jido_flow_map_result, results: [valid_result], errors: [], extra: true},
+        %{kind: :jido_flow_map_result, results: [valid_result | :improper], errors: []},
+        %{
+          kind: :jido_flow_map_result,
+          results: [valid_result, %{valid_result | item_id: "second", index: 0}],
+          errors: []
+        },
+        %{
+          kind: :jido_flow_map_result,
+          results: [%{valid_result | item_id: :not_an_id}],
+          errors: []
+        }
+      ]
+
+      for aggregate <- malformed do
+        node_error =
+          assert_raise NodeError, fn ->
+            reduce_step.work.(aggregate)
+          end
+
+        assert %ExecutionFailureError{message: message, details: details} = node_error.error
+        assert message == "reduce received an invalid Map result"
+        assert details.phase == :reduce_collection
+        assert details.reason == :invalid_map_result
+        assert details.retry == false
+        assert is_list(details.path)
+        refute_receive {ReduceProbeAction, :called, _, _, _, _}
+      end
+    end
+
+    test "treats a projected Map results list as explicit partial success with Reduce-local IDs" do
+      flow =
+        map_reduce_runtime_flow(
+          :collect_errors,
+          Ref.result(:mapped, [:results]),
+          :with_error,
+          Ref.item(:output)
+        )
+
+      assert {:ok, %{values: [%{index: 0, value: :zero}], indexes: [0]}} =
+               Compiler.run(flow, %{}, %{test_pid: self()})
+
+      assert_receive {ReduceProbeAction, :called, 0, item_id, %{index: 0, value: :zero}, _}
+
+      assert item_id ==
+               Identity.item_uuid(
+                 Identity.semantic_digest(flow),
+                 "reduced",
+                 0
+               )
+    end
+
+    test "does not classify look-alike user data as a direct Map handoff" do
+      look_alike = %{kind: :jido_flow_map_result, results: [], errors: []}
+      flow = reduce_flow("look_alike_map_result", Ref.value(look_alike), Ref.value(%{}), %{})
+
+      assert {:error, %ExecutionFailureError{message: message, details: details}} =
+               Compiler.run(flow, %{}, %{})
+
+      assert message == "reduce collection must resolve to a proper list"
+      assert details.reason == :not_a_proper_list
+      assert details.value_type == :map
+    end
+  end
+
   describe "Map runtime" do
     test "resolves one proper list into the exact ordered aggregate with scoped refs" do
       flow =
@@ -567,7 +922,7 @@ defmodule Jido.Flow.CompilerTest do
     end
 
     test "rejects improper lists and arbitrary Enumerables without enumerating them" do
-      for collection <- [[1 | 2], 1..3, Stream.map(1..3, & &1)] do
+      for collection <- [nil, [1 | 2], 1..3, Stream.map(1..3, & &1)] do
         flow = map_flow("map_invalid_collection", Ref.input(:items), RecorderAction, %{})
 
         assert {:error,
@@ -1921,6 +2276,69 @@ defmodule Jido.Flow.CompilerTest do
         )
       ],
       return: Ref.result(:mapped)
+    )
+  end
+
+  defp reduce_flow(name, collection, initial, input, action \\ ReduceProbeAction) do
+    Flow.new!(
+      name: name,
+      nodes: [
+        Reduce.new!(
+          name: :reduced,
+          collection: collection,
+          initial: initial,
+          action: action,
+          input: input
+        )
+      ],
+      return: Ref.result(:reduced)
+    )
+  end
+
+  defp map_reduce_runtime_flow(
+         on_error,
+         reduce_collection,
+         mode \\ :success,
+         item_ref \\ Ref.item(:value)
+       ) do
+    items =
+      case mode do
+        :success ->
+          [%{value: :zero, outcome: :ok}, %{value: :one, outcome: :ok}]
+
+        :with_error ->
+          [%{value: :zero, outcome: :ok}, %{value: :one, outcome: {:error, "map failed"}}]
+      end
+
+    Flow.new!(
+      name: "map_reduce_runtime",
+      nodes: [
+        FlowMap.new!(
+          name: :mapped,
+          collection: Ref.value(items),
+          action: MapProbeAction,
+          input: %{
+            test_pid: Ref.context(:test_pid),
+            value: Ref.item(:value),
+            outcome: Ref.item(:outcome),
+            index: Ref.item_index()
+          },
+          on_error: on_error
+        ),
+        Reduce.new!(
+          name: :reduced,
+          collection: reduce_collection,
+          initial: Ref.value(%{values: [], indexes: []}),
+          action: ReduceProbeAction,
+          input: %{
+            accumulator: Ref.accumulator(),
+            item: item_ref,
+            index: Ref.item_index(),
+            item_id: Ref.item_id()
+          }
+        )
+      ],
+      return: Ref.result(:reduced)
     )
   end
 

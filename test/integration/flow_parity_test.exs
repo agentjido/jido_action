@@ -209,6 +209,17 @@ defmodule Jido.Integration.FlowParityTest do
         assert Jido.Flow.explain(flow) == expected_explanation
         assert Jido.Flow.semantic_identity(flow) == expected_identity
         assert Jido.Flow.compile(flow) == expected_compile
+
+        for options <- [[], [async: true, max_concurrency: 2]] do
+          assert {:ok, %{value: 24}} =
+                   Jido.Exec.run(
+                     flow,
+                     %{items: [%{value: 1}, %{value: 2}, %{value: 3}]},
+                     %{},
+                     options
+                   ),
+                 "#{surface} Map/Reduce runtime diverged for #{inspect(options)}"
+        end
       end
     end
   end
@@ -798,10 +809,10 @@ defmodule Jido.Integration.FlowParityTest do
     |> Syntax.reduce(
       :summarize,
       Syntax.binding(:mapped),
-      Syntax.value(%{total: 0}),
+      Syntax.value(%{value: 1}),
       Multiply,
       %{
-        value: Syntax.accumulator(:total),
+        value: Syntax.accumulator(:value),
         amount: Syntax.item(:value),
         item_id: Syntax.item_id()
       },
@@ -829,10 +840,10 @@ defmodule Jido.Integration.FlowParityTest do
     |> Builder.reduce(
       :summarize,
       Builder.binding(:mapped),
-      Builder.value(%{total: 0}),
+      Builder.value(%{value: 1}),
       Multiply,
       %{
-        value: Builder.accumulator(:total),
+        value: Builder.accumulator(:value),
         amount: Builder.item(:value),
         item_id: Builder.item_id()
       },
@@ -851,9 +862,9 @@ defmodule Jido.Integration.FlowParityTest do
         on_error: :collect_errors
 
       summary = reduce :summarize, mapped,
-        initial: value(%{total: 0}),
+        initial: value(%{value: 1}),
         run: JidoTest.TestActions.Multiply,
-        with: %{value: accumulator(:total), amount: item(:value), item_id: item_id()},
+        with: %{value: accumulator(:value), amount: item(:value), item_id: item_id()},
         after: :enrich
 
       return summary
@@ -870,9 +881,9 @@ defmodule Jido.Integration.FlowParityTest do
         on_error: :collect_errors
 
       summary = reduce "summarize", mapped,
-        initial: value(%{total: 0}),
+        initial: value(%{value: 1}),
         run: "multiply",
-        with: %{value: accumulator(:total), amount: item(:value), item_id: item_id()},
+        with: %{value: accumulator(:value), amount: item(:value), item_id: item_id()},
         after: "enrich"
 
       return summary
@@ -900,10 +911,10 @@ defmodule Jido.Integration.FlowParityTest do
 
         summary =
           reduce(:summarize, mapped,
-            initial: value(%{total: 0}),
+            initial: value(%{value: 1}),
             run: unquote(Multiply),
             with: %{
-              value: accumulator(:total),
+              value: accumulator(:value),
               amount: item(:value),
               item_id: item_id()
             },
