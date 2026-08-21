@@ -299,7 +299,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
 
   defp resolve_expr(%Ref{} = ref, _state, _step), do: {:ok, ref}
 
-  defp resolve_expr(%{} = map, state, step) do
+  defp resolve_expr(%{} = map, state, step) when not is_struct(map) do
     Enum.reduce_while(map, {:ok, %{}}, fn {key, value}, {:ok, acc} ->
       case resolve_expr(value, state, step) do
         {:ok, resolved} -> {:cont, {:ok, Map.put(acc, key, resolved)}}
