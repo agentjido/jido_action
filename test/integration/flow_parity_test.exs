@@ -5,7 +5,7 @@ defmodule Jido.Integration.FlowParityTest do
 
   alias Jido.Action.Error.ExecutionFailureError
   alias Jido.Flow.Builder
-  alias Jido.Flow.{Node, Ref}
+  alias Jido.Flow.{ContractBundle, Node, Ref}
   alias Jido.Flow.Syntax
   alias Jido.Flow.Syntax.Lowerer
   alias JidoTest.FlowFixtures
@@ -177,6 +177,47 @@ defmodule Jido.Integration.FlowParityTest do
     end
   end
 
+  describe "portable stored parity" do
+    test "transport aliases preserve semantic inspection, compile, check, and execution" do
+      semantic_map = choice_syntax() |> lower_flow!() |> Jido.Flow.to_map()
+      assert {:ok, semantic_flow} = Jido.Flow.from_map(semantic_map)
+
+      {first_stored, first_flow} =
+        stored_json_artifact_and_flow!(semantic_flow, "parity/first")
+
+      {second_stored, second_flow} =
+        stored_json_artifact_and_flow!(semantic_flow, "parity/second")
+
+      refute first_stored == second_stored
+      refute first_stored["contracts"] == second_stored["contracts"]
+      refute first_stored["nodes"] == second_stored["nodes"]
+
+      expected_semantic_map = semantic_map
+      expected_dependencies = Jido.Flow.dependencies(semantic_flow)
+      expected_explanation = Jido.Flow.explain(semantic_flow)
+      expected_identity = Jido.Flow.semantic_identity(semantic_flow)
+      expected_compile = Jido.Flow.compile(semantic_flow)
+
+      for flow <- [first_flow, second_flow] do
+        assert Jido.Flow.to_map(flow) == expected_semantic_map
+        assert Jido.Flow.dependencies(flow) == expected_dependencies
+        assert Jido.Flow.explain(flow) == expected_explanation
+        assert Jido.Flow.semantic_identity(flow) == expected_identity
+        assert Jido.Flow.compile(flow) == expected_compile
+      end
+
+      for flow <- [semantic_flow, first_flow, second_flow] do
+        assert :ok = Jido.Flow.check(flow)
+
+        assert {:ok, %{value: 4}} =
+                 Jido.Exec.run(flow, %{kind: :priority, value: 3}, %{})
+
+        assert {:ok, %{value: 6}} =
+                 Jido.Exec.run(flow, %{kind: :standard, value: 3}, %{})
+      end
+    end
+  end
+
   describe "execution parity" do
     test "supported surfaces return the same values" do
       for scenario <- flow_cases() do
@@ -307,10 +348,34 @@ defmodule Jido.Integration.FlowParityTest do
   end
 
   defp stored_json_round_trip_flow!(flow, opts \\ []) do
-    registry = flow_action_registry()
+    {_stored, loaded} = stored_json_artifact_and_flow!(flow, "integration/default", opts)
+    loaded
+  end
+
+  defp stored_json_artifact_and_flow!(flow, namespace, opts \\ []) do
+    registry = flow_action_registry(namespace)
+
+    references = %{
+      bundle: "#{namespace}/bundle/v1",
+      input_schema: "#{namespace}/input/v1",
+      output_schema: "#{namespace}/output/v1",
+      action_registry: "#{namespace}/actions/v1"
+    }
+
+    bundle =
+      ContractBundle.new!(
+        id: references.bundle,
+        schemas: %{
+          references.input_schema => flow.schema,
+          references.output_schema => flow.output_schema
+        },
+        action_registries: %{references.action_registry => registry}
+      )
+
+    bundles = %{bundle.id => bundle}
 
     stored_opts =
-      [format: :stored, actions: registry]
+      [format: :stored, contracts: references, contract_bundles: bundles]
       |> Keyword.merge(opts)
 
     decoded =
@@ -319,21 +384,16 @@ defmodule Jido.Integration.FlowParityTest do
       |> JSON.encode!()
       |> JSON.decode!()
 
-    assert {:ok, loaded} =
-             Jido.Flow.from_map(decoded,
-               actions: registry,
-               schema: flow.schema,
-               output_schema: flow.output_schema
-             )
+    assert {:ok, loaded} = Jido.Flow.from_map(decoded, contract_bundles: bundles)
 
-    loaded
+    {decoded, loaded}
   end
 
-  defp flow_action_registry do
+  defp flow_action_registry(namespace) do
     %{
-      "add" => Add,
-      "multiply" => Multiply,
-      "echo_params" => EchoParamsAction
+      "#{namespace}/add/v1" => Add,
+      "#{namespace}/multiply/v1" => Multiply,
+      "#{namespace}/echo-params/v1" => EchoParamsAction
     }
   end
 

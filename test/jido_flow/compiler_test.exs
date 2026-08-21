@@ -5,7 +5,7 @@ defmodule Jido.Flow.CompilerTest do
   alias Jido.Action.Error.{ExecutionFailureError, InvalidInputError}
   alias Jido.Action.Output
   alias Jido.Flow
-  alias Jido.Flow.{Choice, Compiler, Condition, Node, Ref}
+  alias Jido.Flow.{Choice, Compiler, Condition, ContractBundle, Node, Ref}
   alias Jido.Flow.NodeError
   alias JidoTest.FlowFixtures
 
@@ -249,6 +249,69 @@ defmodule Jido.Flow.CompilerTest do
              }
 
       assert {:error, :nofile} = Code.ensure_loaded(unloaded_action)
+    end
+
+    test "keeps stored decode and inspection inert until target checks or execution" do
+      unloaded_action = unique_module("StoredUnloadedInspectionAction")
+      assert {:error, :nofile} = Code.ensure_loaded(unloaded_action)
+
+      flow =
+        Flow.new!(
+          name: "stored_unloaded_inspection",
+          nodes: [Node.new!(name: :unloaded, action: unloaded_action)],
+          return: Ref.result(:unloaded)
+        )
+
+      references = %{
+        bundle: "compiler/inert/v1",
+        input_schema: "compiler/inert-input/v1",
+        output_schema: "compiler/inert-output/v1",
+        action_registry: "compiler/inert-actions/v1"
+      }
+
+      bundle =
+        ContractBundle.new!(
+          id: references.bundle,
+          schemas: %{
+            references.input_schema => flow.schema,
+            references.output_schema => flow.output_schema
+          },
+          action_registries: %{
+            references.action_registry => %{"unloaded/v1" => unloaded_action}
+          }
+        )
+
+      bundles = %{bundle.id => bundle}
+
+      stored =
+        Flow.to_map(flow,
+          format: :stored,
+          contracts: references,
+          contract_bundles: bundles
+        )
+
+      assert {:error, :nofile} = Code.ensure_loaded(unloaded_action)
+      assert {:ok, loaded} = Flow.from_map(stored, contract_bundles: bundles)
+      assert {:error, :nofile} = Code.ensure_loaded(unloaded_action)
+
+      for inspect_flow <- [
+            &Flow.dependencies/1,
+            &Flow.explain/1,
+            &Flow.semantic_identity/1,
+            &Flow.compile/1
+          ] do
+        assert {:ok, _value} = inspect_flow.(loaded)
+        assert {:error, :nofile} = Code.ensure_loaded(unloaded_action)
+      end
+
+      for check_target <- [&Flow.check/1, &Jido.Exec.run(&1, %{}, %{})] do
+        assert {:error, %InvalidInputError{message: message, details: details}} =
+                 check_target.(loaded)
+
+        assert message == "action module could not be loaded"
+        assert details.action == unloaded_action
+        assert details.node == "unloaded"
+      end
     end
 
     test "compiles Choice as one inert Step without loading its targets" do
