@@ -19,8 +19,17 @@ defmodule Jido.Flow.MapCodec do
 
   @semantic_version 1
   @stored_version 1
-  @ref_types [:input, :context, :result, :value]
-  @stored_ref_types ["input", "context", "result", "value"]
+  @ref_types [:input, :context, :result, :value, :item, :item_index, :item_id, :accumulator]
+  @stored_ref_types [
+    "input",
+    "context",
+    "result",
+    "value",
+    "item",
+    "item_index",
+    "item_id",
+    "accumulator"
+  ]
   @direct_attachment_keys [:actions, :schema, :output_schema]
   @reader_option_keys [:actions, :schema, :output_schema, :contract_bundles]
   @contract_reference_keys [:bundle, :input_schema, :output_schema, :action_registry]
@@ -295,6 +304,42 @@ defmodule Jido.Flow.MapCodec do
     end
   end
 
+  defp stored_element!(%FlowMap{} = map, action_ids, opts, path) do
+    base = %{
+      "kind" => "map",
+      "name" => map.name,
+      "collection" => encode_expression!(map.collection, path ++ ["collection"]),
+      "action" => Map.fetch!(action_ids, map.action),
+      "input" => encode_expression!(map.input, path ++ ["input"]),
+      "on_error" => Atom.to_string(map.on_error),
+      "deps" => Enum.sort(map.deps)
+    }
+
+    if Keyword.get(opts, :provenance, false) do
+      Map.put(base, "provenance", encode_data!(map.provenance, path ++ ["provenance"]))
+    else
+      base
+    end
+  end
+
+  defp stored_element!(%Reduce{} = reduce, action_ids, opts, path) do
+    base = %{
+      "kind" => "reduce",
+      "name" => reduce.name,
+      "collection" => encode_expression!(reduce.collection, path ++ ["collection"]),
+      "initial" => encode_expression!(reduce.initial, path ++ ["initial"]),
+      "action" => Map.fetch!(action_ids, reduce.action),
+      "input" => encode_expression!(reduce.input, path ++ ["input"]),
+      "deps" => Enum.sort(reduce.deps)
+    }
+
+    if Keyword.get(opts, :provenance, false) do
+      Map.put(base, "provenance", encode_data!(reduce.provenance, path ++ ["provenance"]))
+    else
+      base
+    end
+  end
+
   defp stored_node!(node, action_ids, opts, path) do
     base = %{
       "name" => node.name,
@@ -533,10 +578,23 @@ defmodule Jido.Flow.MapCodec do
   defp decode_nodes(_nodes, _profile), do: error("flow nodes must be a list")
 
   defp decode_node(%{} = node, profile) do
-    if choice_record?(node, profile) do
-      decode_choice(node, profile)
-    else
-      decode_action_node(node, profile)
+    case explicit_node_kind(node, profile) do
+      {:ok, :choice} ->
+        decode_choice(node, profile)
+
+      {:ok, :map} ->
+        decode_map(node, profile)
+
+      {:ok, :reduce} ->
+        decode_reduce(node, profile)
+
+      {:error, kind} ->
+        error("unknown flow node kind: #{inspect(kind)}", %{kind: kind})
+
+      :none ->
+        if legacy_choice_record?(node, profile),
+          do: decode_choice(node, profile),
+          else: decode_action_node(node, profile)
     end
   end
 
@@ -560,6 +618,91 @@ defmodule Jido.Flow.MapCodec do
       {:ok,
        %{
          name: name,
+         action: action,
+         input: input,
+         deps: deps,
+         provenance: provenance
+       }}
+    end
+  end
+
+  defp decode_map(map, profile) do
+    with :ok <- validate_map_record(map, profile),
+         {:ok, name} <- profile_fetch_required(map, :name, profile, "map name is required"),
+         {:ok, collection} <-
+           profile_fetch_required(map, :collection, profile, "map collection is required"),
+         {:ok, collection} <-
+           decode_expression(collection, profile)
+           |> prepend_error_path([profile_field(:collection, profile)]),
+         {:ok, action} <- profile_fetch_required(map, :action, profile, "map action is required"),
+         {:ok, action} <-
+           decode_action(action, profile)
+           |> prepend_error_path([profile_field(:action, profile)]),
+         {:ok, input} <- profile_fetch_required(map, :input, profile, "map input is required"),
+         {:ok, input} <-
+           decode_expression(input, profile)
+           |> prepend_error_path([profile_field(:input, profile)]),
+         {:ok, on_error} <-
+           profile_fetch_required(map, :on_error, profile, "map on_error is required"),
+         {:ok, on_error} <-
+           decode_map_error_mode(on_error, profile)
+           |> prepend_error_path([profile_field(:on_error, profile)]),
+         {:ok, deps} <-
+           profile_fetch_required(map, :deps, profile, "map deps are required"),
+         {:ok, deps} <- decode_node_deps(deps),
+         {:ok, provenance} <-
+           decode_optional_data(map, :provenance, %{}, profile)
+           |> prepend_error_path([profile_field(:provenance, profile)]) do
+      {:ok,
+       %{
+         kind: :map,
+         name: name,
+         collection: collection,
+         action: action,
+         input: input,
+         on_error: on_error,
+         deps: deps,
+         provenance: provenance
+       }}
+    end
+  end
+
+  defp decode_reduce(reduce, profile) do
+    with :ok <- validate_reduce_record(reduce, profile),
+         {:ok, name} <-
+           profile_fetch_required(reduce, :name, profile, "reduce name is required"),
+         {:ok, collection} <-
+           profile_fetch_required(reduce, :collection, profile, "reduce collection is required"),
+         {:ok, collection} <-
+           decode_expression(collection, profile)
+           |> prepend_error_path([profile_field(:collection, profile)]),
+         {:ok, initial} <-
+           profile_fetch_required(reduce, :initial, profile, "reduce initial is required"),
+         {:ok, initial} <-
+           decode_expression(initial, profile)
+           |> prepend_error_path([profile_field(:initial, profile)]),
+         {:ok, action} <-
+           profile_fetch_required(reduce, :action, profile, "reduce action is required"),
+         {:ok, action} <-
+           decode_action(action, profile)
+           |> prepend_error_path([profile_field(:action, profile)]),
+         {:ok, input} <-
+           profile_fetch_required(reduce, :input, profile, "reduce input is required"),
+         {:ok, input} <-
+           decode_expression(input, profile)
+           |> prepend_error_path([profile_field(:input, profile)]),
+         {:ok, deps} <-
+           profile_fetch_required(reduce, :deps, profile, "reduce deps are required"),
+         {:ok, deps} <- decode_node_deps(deps),
+         {:ok, provenance} <-
+           decode_optional_data(reduce, :provenance, %{}, profile)
+           |> prepend_error_path([profile_field(:provenance, profile)]) do
+      {:ok,
+       %{
+         kind: :reduce,
+         name: name,
+         collection: collection,
+         initial: initial,
          action: action,
          input: input,
          deps: deps,
@@ -672,13 +815,38 @@ defmodule Jido.Flow.MapCodec do
   defp decode_choice_fallback(_fallback, _profile),
     do: error("choice fallback must be a map")
 
-  defp choice_record?(node, :semantic),
-    do: Map.has_key?(node, :kind) or Map.has_key?(node, :options) or Map.has_key?(node, :fallback)
+  defp explicit_node_kind(node, :semantic) do
+    case Map.fetch(node, :kind) do
+      {:ok, kind} when kind in [:choice, :map, :reduce] -> {:ok, kind}
+      {:ok, kind} -> {:error, kind}
+      :error -> :none
+    end
+  end
 
-  defp choice_record?(node, :stored),
-    do:
-      Map.has_key?(node, "kind") or Map.has_key?(node, "options") or
-        Map.has_key?(node, "fallback")
+  defp explicit_node_kind(node, :stored) do
+    case Map.fetch(node, "kind") do
+      {:ok, "choice"} -> {:ok, :choice}
+      {:ok, "map"} -> {:ok, :map}
+      {:ok, "reduce"} -> {:ok, :reduce}
+      {:ok, kind} -> {:error, kind}
+      :error -> :none
+    end
+  end
+
+  defp legacy_choice_record?(node, :semantic),
+    do: Map.has_key?(node, :options) or Map.has_key?(node, :fallback)
+
+  defp legacy_choice_record?(node, :stored),
+    do: Map.has_key?(node, "options") or Map.has_key?(node, "fallback")
+
+  defp decode_map_error_mode(:fail_fast, :semantic), do: {:ok, :fail_fast}
+  defp decode_map_error_mode(:collect_errors, :semantic), do: {:ok, :collect_errors}
+  defp decode_map_error_mode("fail_fast", :stored), do: {:ok, :fail_fast}
+  defp decode_map_error_mode("collect_errors", :stored), do: {:ok, :collect_errors}
+
+  defp decode_map_error_mode(mode, _profile) do
+    error("map on_error must be fail_fast or collect_errors", %{on_error: mode})
+  end
 
   defp validate_fallback_name(:fallback, :semantic), do: :ok
   defp validate_fallback_name("fallback", :stored), do: :ok
@@ -723,6 +891,16 @@ defmodule Jido.Flow.MapCodec do
 
   defp encode_expression!(%Ref{type: :value, value: value}, error_path) do
     %{"type" => "value", "value" => encode_data!(value, error_path ++ ["value"])}
+  end
+
+  defp encode_expression!(%Ref{type: type, path: path}, _error_path)
+       when type in [:item, :accumulator] do
+    %{"type" => Atom.to_string(type), "path" => encode_path!(path)}
+  end
+
+  defp encode_expression!(%Ref{type: type}, _error_path)
+       when type in [:item_index, :item_id] do
+    %{"type" => Atom.to_string(type)}
   end
 
   defp encode_expression!(%{} = map, error_path) when not is_struct(map) do
@@ -795,8 +973,9 @@ defmodule Jido.Flow.MapCodec do
       error("flow expression must be a proper list", %{expression: inspect(list)})
     else
       list
-      |> Enum.reduce_while({:ok, []}, fn value, {:ok, acc} ->
-        case decode_expression(value, profile) do
+      |> Enum.with_index()
+      |> Enum.reduce_while({:ok, []}, fn {value, index}, {:ok, acc} ->
+        case decode_expression(value, profile) |> prepend_error_path([index]) do
           {:ok, value} -> {:cont, {:ok, [value | acc]}}
           {:error, error} -> {:halt, {:error, error}}
         end
@@ -940,6 +1119,19 @@ defmodule Jido.Flow.MapCodec do
     end
   end
 
+  defp decode_ref(map, type, :semantic) when type in [:item, :accumulator] do
+    with :ok <- validate_ref_record(map, type, :semantic),
+         {:ok, path} <- validate_semantic_path(Map.fetch!(map, :path)) do
+      {:ok, local_path_ref(type, path)}
+    end
+  end
+
+  defp decode_ref(map, type, :semantic) when type in [:item_index, :item_id] do
+    with :ok <- validate_ref_record(map, type, :semantic) do
+      {:ok, local_scalar_ref(type)}
+    end
+  end
+
   defp decode_ref(map, "input", :stored) do
     with :ok <- validate_ref_record(map, "input", :stored),
          {:ok, path} <- decode_stored_path(Map.fetch!(map, "path")) do
@@ -970,6 +1162,27 @@ defmodule Jido.Flow.MapCodec do
       {:ok, Ref.value(value)}
     end
   end
+
+  defp decode_ref(map, type, :stored) when type in ["item", "accumulator"] do
+    with :ok <- validate_ref_record(map, type, :stored),
+         {:ok, path} <- decode_stored_path(Map.fetch!(map, "path")) do
+      {:ok, local_path_ref(type, path)}
+    end
+  end
+
+  defp decode_ref(map, type, :stored) when type in ["item_index", "item_id"] do
+    with :ok <- validate_ref_record(map, type, :stored) do
+      {:ok, local_scalar_ref(type)}
+    end
+  end
+
+  defp local_path_ref(type, path) when type in [:item, "item"], do: Ref.item(path)
+
+  defp local_path_ref(type, path) when type in [:accumulator, "accumulator"],
+    do: Ref.accumulator(path)
+
+  defp local_scalar_ref(type) when type in [:item_index, "item_index"], do: Ref.item_index()
+  defp local_scalar_ref(type) when type in [:item_id, "item_id"], do: Ref.item_id()
 
   defp decode_expression_map(map) do
     with :ok <-
@@ -1428,6 +1641,42 @@ defmodule Jido.Flow.MapCodec do
   defp validate_choice_kind(kind, _profile),
     do: error("unknown flow node kind: #{inspect(kind)}", %{kind: kind})
 
+  defp validate_map_record(map, :semantic) do
+    validate_record(
+      map,
+      [:kind, :name, :collection, :action, :input, :on_error, :deps, :provenance],
+      [:kind, :name, :collection, :action, :input, :on_error, :deps],
+      :map
+    )
+  end
+
+  defp validate_map_record(map, :stored) do
+    validate_record(
+      map,
+      ["kind", "name", "collection", "action", "input", "on_error", "deps", "provenance"],
+      ["kind", "name", "collection", "action", "input", "on_error", "deps"],
+      :map
+    )
+  end
+
+  defp validate_reduce_record(reduce, :semantic) do
+    validate_record(
+      reduce,
+      [:kind, :name, :collection, :initial, :action, :input, :deps, :provenance],
+      [:kind, :name, :collection, :initial, :action, :input, :deps],
+      :reduce
+    )
+  end
+
+  defp validate_reduce_record(reduce, :stored) do
+    validate_record(
+      reduce,
+      ["kind", "name", "collection", "initial", "action", "input", "deps", "provenance"],
+      ["kind", "name", "collection", "initial", "action", "input", "deps"],
+      :reduce
+    )
+  end
+
   defp validate_choice_option_record(option, :semantic),
     do:
       validate_record(
@@ -1495,6 +1744,12 @@ defmodule Jido.Flow.MapCodec do
 
   defp ref_fields(:value, :semantic), do: {[:type, :value], [:type, :value]}
 
+  defp ref_fields(type, :semantic) when type in [:item, :accumulator],
+    do: {[:type, :path], [:type, :path]}
+
+  defp ref_fields(type, :semantic) when type in [:item_index, :item_id],
+    do: {[:type], [:type]}
+
   defp ref_fields(type, :stored) when type in ["input", "context"],
     do: {["type", "path"], ["type", "path"]}
 
@@ -1502,6 +1757,12 @@ defmodule Jido.Flow.MapCodec do
     do: {["type", "node", "path"], ["type", "node", "path"]}
 
   defp ref_fields("value", :stored), do: {["type", "value"], ["type", "value"]}
+
+  defp ref_fields(type, :stored) when type in ["item", "accumulator"],
+    do: {["type", "path"], ["type", "path"]}
+
+  defp ref_fields(type, :stored) when type in ["item_index", "item_id"],
+    do: {["type"], ["type"]}
 
   defp validate_record(map, allowed, required, record) do
     case map |> Map.keys() |> Enum.sort() |> Enum.find(&(&1 not in allowed)) do

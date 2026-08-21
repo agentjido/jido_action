@@ -136,4 +136,24 @@ defmodule Jido.Flow.MapTest do
     assert details.map == "bad"
     assert details.target == MissingRun
   end
+
+  test "accepts a marked nested Flow target" do
+    target = unique_module("MapNestedFlow")
+
+    create_module(
+      target,
+      quote do
+        use Jido.Flow, name: "map_nested_flow"
+
+        flow do
+          step(:add, unquote(Add), %{value: input(:value), amount: value(1)})
+          return(result(:add))
+        end
+      end
+    )
+
+    assert :ok =
+             FlowMap.new!(name: :nested, collection: [], action: target)
+             |> FlowMap.check()
+  end
 end
