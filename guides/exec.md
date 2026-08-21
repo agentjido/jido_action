@@ -95,6 +95,9 @@ The supported options are:
 
 Options on an action or instruction return a validation error.
 
+See [Executing Jido Flows](flow-execution.html) for graph scheduling, failure
+behavior, retries, timeouts, and node tracing.
+
 ## Results And Extras
 
 An action or instruction can return these public results:

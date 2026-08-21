@@ -197,6 +197,9 @@ Node actions receive the original Flow context. Node extras are discarded.
 When a node fails, dependent nodes do not run. An independent branch can still
 run while the workflow settles.
 
+See [Executing Jido Flows](flow-execution.html) for concurrency limits,
+failure behavior, retries, timeouts, and node telemetry.
+
 ## Inspect A Flow
 
 Use `dependencies/1` or `explain/1` to inspect the canonical graph:

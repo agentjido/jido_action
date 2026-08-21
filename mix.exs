@@ -82,6 +82,8 @@ defmodule JidoAction.MixProject do
         ],
         "Jido Flow": [
           "guides/jido-flow.md",
+          "guides/flow-language.md",
+          "guides/flow-execution.md",
           "guides/flow-authoring-languages.md"
         ],
         "Production Use": [
@@ -109,6 +111,8 @@ defmodule JidoAction.MixProject do
         {"guides/error-handling.md", title: "Error Handling"},
         # Jido Flow
         {"guides/jido-flow.md", title: "How Jido Flow Works"},
+        {"guides/flow-language.md", title: "Flow Language Reference"},
+        {"guides/flow-execution.md", title: "Executing Flows"},
         {"guides/flow-authoring-languages.md", title: "Flow Authoring Languages"},
         # Production Use
         {"guides/configuration.md", title: "Configuration"},
