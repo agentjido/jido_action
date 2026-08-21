@@ -73,6 +73,9 @@ defmodule Jido.Exec do
 
   `:async` and `:max_concurrency` are stored on the execution and used by
   `wave/1` and `continue/1`. `step/1` and `step/2` always execute one node.
+
+  The current public API does not accept retry, timeout, deadline,
+  persistence, cancellation, or rewind options.
   """
   @spec start(term(), map() | keyword() | nil, map() | keyword() | nil, keyword()) ::
           {:ok, Execution.t()} | {:error, Exception.t()}

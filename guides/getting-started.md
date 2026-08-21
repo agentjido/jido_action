@@ -52,3 +52,7 @@ Validation returns `Jido.Action.Error.InvalidInputError` on failure.
 {:ok, %{result: 3}} =
   MyApp.Actions.Add.run(params, %{})
 ```
+
+When several actions must run as one graph, continue with
+[Jido Flow](jido-flow.md). Then read [Flow Choices](flow-choices.md) for routing
+and [Executing Flows](flow-execution.md) for parallel and step-wise execution.

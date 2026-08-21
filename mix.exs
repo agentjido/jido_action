@@ -3,7 +3,7 @@ defmodule JidoAction.MixProject do
 
   @version "2.3.1"
   @source_url "https://github.com/agentjido/jido_action"
-  @description "Validated leaf actions and action call frames for Elixir applications"
+  @description "Validated actions, call frames, and data-first Flow composition for Elixir"
 
   def vsn do
     @version
@@ -76,10 +76,12 @@ defmodule JidoAction.MixProject do
         "Core Concepts": [
           "guides/actions-guide.md",
           "guides/jido-flow.md",
+          "guides/flow-choices.md",
           "guides/schemas-validation.md",
           "guides/error-handling.md"
         ],
         "How-To Guides": [
+          "guides/flow-execution.md",
           "guides/configuration.md",
           "guides/security.md",
           "guides/testing.md"
@@ -99,9 +101,11 @@ defmodule JidoAction.MixProject do
         # Core Concepts
         {"guides/actions-guide.md", title: "Actions"},
         {"guides/jido-flow.md", title: "Jido Flow"},
+        {"guides/flow-choices.md", title: "Flow Choices"},
         {"guides/schemas-validation.md", title: "Schemas & Validation"},
         {"guides/error-handling.md", title: "Error Handling"},
         # How-To Guides
+        {"guides/flow-execution.md", title: "Executing Flows"},
         {"guides/configuration.md", title: "Configuration"},
         {"guides/security.md", title: "Security"},
         {"guides/testing.md", title: "Testing"},
@@ -120,8 +124,16 @@ defmodule JidoAction.MixProject do
         Core: [
           Jido.Action,
           Jido.Action.Error,
-          Jido.Instruction,
+          Jido.Instruction
+        ],
+        "Flow & Execution": [
           Jido.Flow,
+          Jido.Flow.Builder,
+          Jido.Flow.Choice,
+          Jido.Flow.Condition,
+          Jido.Flow.Node,
+          Jido.Flow.Ref,
+          Jido.Flow.Syntax,
           Jido.Exec,
           Jido.Exec.Execution,
           Jido.Exec.NodeResult

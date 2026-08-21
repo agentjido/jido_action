@@ -4,8 +4,14 @@ A flow is a named graph of action calls with one declared return value. Use it
 when several actions should run as one data artifact, while keeping each action
 small and reusable.
 
-Flows are not policy containers. Retry, timeout, fallback, persistence, and
-durable execution belong outside the flow artifact.
+A Flow can contain steps, static branches, and ordered Choices. Runtime policy
+such as retry, timeout, persistence, and durable execution belongs outside the
+Flow artifact.
+
+Use these focused guides after this overview:
+
+- [Flow Choices](flow-choices.md) explains ordered routing and condition primitives.
+- [Executing Flows](flow-execution.md) explains parallel and step-wise execution.
 
 ## Define The Actions
 
@@ -151,13 +157,51 @@ at the execution boundary:
 
 ```elixir
 {:ok, result} =
-  Jido.Exec.run(MyApp.Flows.DoubleAfterIncrement, %{value: 3}, %{},
+  Jido.Exec.run(MyApp.Flows.BuildDashboard, %{account_id: "acct-123"}, %{},
     async: true,
     max_concurrency: 4
   )
 ```
 
 Run options are supported only for flows.
+
+## Route With A Choice
+
+Use `choose` when one Flow node must select one action from an ordered set.
+
+```elixir
+flow do
+  route =
+    choose :shipping_route do
+      option(:priority,
+        when: eq(input(:tier), value(:priority)),
+        run: MyApp.Actions.PriorityShipping,
+        with: %{order_id: input(:order_id)}
+      )
+
+      option(:bulk,
+        when: gte(input(:item_count), value(100)),
+        run: MyApp.Actions.BulkShipping,
+        with: %{order_id: input(:order_id)}
+      )
+
+      otherwise(
+        run: MyApp.Actions.StandardShipping,
+        with: %{order_id: input(:order_id)}
+      )
+    end
+
+  return(route)
+end
+```
+
+Options are tested in authored order. The first match wins. `otherwise` is
+required and runs when no option matches. The Choice is one named node, and its
+result is the selected target result.
+
+Conditions are data-only expressions. They support equality, ordering, list
+membership, `all`, `any`, and `not`. See [Flow Choices](flow-choices.md) for the
+complete language and dependency rules.
 
 ## Execute Through Jido.Exec
 
@@ -176,88 +220,33 @@ return value against the output schema after execution.
 Action extras are intentionally discarded during flow execution. Extras remain
 available when running a leaf action or instruction directly.
 
-## Step Through A Flow
-
-`Jido.Exec.start/4` validates the Flow and its input, then pauses before the
-first Flow node. It returns an opaque `Jido.Exec.Execution` value.
+Use parallel execution for independent nodes:
 
 ```elixir
-{:ok, execution} =
-  Jido.Exec.start(
-    MyApp.Flows.DoubleAfterIncrement,
-    %{value: 3},
-    %{}
-  )
-
-:running = Jido.Exec.status(execution)
-["add_one"] = Jido.Exec.ready(execution)
-
-{:ok, add_result, execution} = Jido.Exec.step(execution, "add_one")
-
-:ok = add_result.status
-%{value: 4} = add_result.output
-["double"] = Jido.Exec.ready(execution)
-
-{:ok, double_result, execution} = Jido.Exec.step(execution)
-
-"double" = double_result.node
-:succeeded = Jido.Exec.status(execution)
-{:ok, %{value: 8}} = Jido.Exec.result(execution)
-```
-
-`step/1` executes the first ready node in canonical Flow order. `step/2`
-executes the named node only when that node is ready. Each successful operation
-returns a new execution value. Always pass the latest value to the next call.
-Reusing an older value can run an Action more than once.
-
-A node failure is a valid execution transition. The operation returns an `:ok`
-tuple with a node result that has `status: :error`. The updated execution keeps
-the error. Dependent nodes are skipped, but independent ready nodes can still
-run.
-
-```elixir
-{:ok, failed_node, execution} = Jido.Exec.step(execution, "load_account")
-
-:error = failed_node.status
-error = failed_node.error
-```
-
-After all remaining work finishes, `Jido.Exec.result/1` returns the Flow error.
-
-## Execute One Ready Wave
-
-`Jido.Exec.wave/1` executes the complete set of nodes that is ready when the
-wave starts. Nodes that become ready during the wave wait for the next call.
-
-```elixir
-{:ok, execution} =
-  Jido.Exec.start(MyApp.Flows.LoadDashboard, input, context,
+{:ok, result} =
+  Jido.Exec.run(MyApp.Flows.BuildReport, input, context,
     async: true,
     max_concurrency: 4
   )
-
-["load_account", "load_orders"] = Jido.Exec.ready(execution)
-
-{:ok, node_results, execution} = Jido.Exec.wave(execution)
-
-["build_dashboard"] = Jido.Exec.ready(execution)
 ```
 
-With `async: true`, independent nodes in the wave can run concurrently.
-`max_concurrency` limits the number of Action tasks. The returned node results
-remain in canonical Flow order.
-
-Use `Jido.Exec.continue/1` when you want to resume a paused execution and run all
-remaining waves:
+Or start a paused execution and run one named node:
 
 ```elixir
-{:ok, execution} = Jido.Exec.continue(execution)
-{:ok, dashboard} = Jido.Exec.result(execution)
+{:ok, execution} =
+  Jido.Exec.start(MyApp.Flows.DoubleAfterIncrement, %{value: 3}, %{})
+
+["add_one"] = Jido.Exec.ready(execution)
+
+{:ok, node_result, execution} =
+  Jido.Exec.step(execution, "add_one")
+
+:ok = node_result.status
+%{value: 4} = node_result.output
 ```
 
-Nested Flows execute as one node in the parent Flow. Step-wise executions are
-in-memory values. They are not persistent checkpoints and they do not provide
-rewind or exactly-once side-effect guarantees.
+See [Executing Flows](flow-execution.md) for `step`, `wave`, `continue`, node
+failure behavior, and current runtime limits.
 
 ## Inspect And Store Flow Maps
 
@@ -297,6 +286,7 @@ stored =
 Prefer flows for explicit action composition:
 
 - Each step is a `Jido.Action`.
+- Each Choice selects one action or nested Flow.
 - Inputs are declared with data references.
 - Dependencies are visible in the graph.
 - The flow has one declared return value.
