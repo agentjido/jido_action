@@ -4,7 +4,7 @@ defmodule Jido.ExecTest do
   alias Jido.Action.Error.{ConfigurationError, ExecutionFailureError, InvalidInputError}
   alias Jido.Exec
   alias Jido.Flow
-  alias Jido.Flow.{Builder, Choice, Condition, Node, Ref}
+  alias Jido.Flow.{Builder, Choice, Condition, Node, Reduce, Ref}
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Instruction
   alias JidoTest.FlowFixtures
@@ -1270,6 +1270,65 @@ defmodule Jido.ExecTest do
       assert Process.get({__MODULE__, :output}) == 2
     end
 
+    test "runs each nested Reduce Flow input and output boundary exactly once" do
+      target = unique_module("ReduceNestedFlow")
+
+      create_module(
+        target,
+        quote do
+          use Jido.Flow,
+            name: "reduce_nested_flow",
+            schema:
+              Zoi.map()
+              |> Zoi.transform({Jido.ExecTest, :count_flow_transform, [:input]}),
+            output_schema:
+              Zoi.map()
+              |> Zoi.transform({Jido.ExecTest, :count_flow_transform, [:output]})
+
+          flow do
+            step(:echo, unquote(EchoParamsAction), %{
+              value: input(:value),
+              previous: input(:previous),
+              input_passes: input(:input_passes)
+            })
+
+            return(result(:echo))
+          end
+        end
+      )
+
+      flow =
+        Flow.new!(
+          name: "reduce_nested_once",
+          nodes: [
+            Reduce.new!(
+              name: :reduced,
+              collection: Ref.value([3, 4]),
+              initial: Ref.value(%{value: nil}),
+              action: target,
+              input: %{
+                value: Ref.item(),
+                previous: Ref.accumulator(:value)
+              }
+            )
+          ],
+          return: Ref.result(:reduced)
+        )
+
+      reset_flow_transform_counts()
+
+      assert {:ok,
+              %{
+                value: 4,
+                previous: 3,
+                input_passes: 1,
+                output_passes: 1
+              }} = Exec.run(flow)
+
+      assert Process.get({__MODULE__, :input}) == 2
+      assert Process.get({__MODULE__, :output}) == 2
+    end
+
     test "preflights an empty Map target before any public node runs" do
       before = unique_module("BeforeInvalidMap")
 
@@ -1310,6 +1369,51 @@ defmodule Jido.ExecTest do
 
       assert message == "module is not a valid Jido action"
       assert details.map == "mapped"
+      assert details.target == MissingRun
+      refute_receive {^before, :run}
+    end
+
+    test "preflights an empty Reduce target before any public node runs" do
+      before = unique_module("BeforeInvalidReduce")
+
+      create_module(
+        before,
+        quote do
+          def validate_params(params), do: {:ok, params}
+          def validate_output(output), do: {:ok, output}
+
+          def run(%{test_pid: test_pid} = params, _context) do
+            send(test_pid, {__MODULE__, :run})
+            {:ok, params}
+          end
+        end
+      )
+
+      flow =
+        Flow.new!(
+          name: "empty_reduce_preflight",
+          nodes: [
+            Node.new!(
+              name: :before,
+              action: before,
+              input: %{test_pid: Ref.context(:test_pid)}
+            ),
+            Reduce.new!(
+              name: :reduced,
+              collection: Ref.value([]),
+              initial: Ref.value(%{}),
+              action: MissingRun,
+              input: Ref.accumulator()
+            )
+          ],
+          return: Ref.result(:reduced)
+        )
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Exec.run(flow, %{}, %{test_pid: self()})
+
+      assert message == "module is not a valid Jido action"
+      assert details.reduce == "reduced"
       assert details.target == MissingRun
       refute_receive {^before, :run}
     end

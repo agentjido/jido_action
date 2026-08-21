@@ -5,7 +5,7 @@ defmodule Jido.Exec.ExecutionTest do
   alias Jido.Exec
   alias Jido.Exec.{Execution, NodeResult}
   alias Jido.Flow
-  alias Jido.Flow.{Node, Ref}
+  alias Jido.Flow.{Node, Reduce, Ref}
   alias Jido.Flow.Map, as: FlowMap
 
   defmodule BlockingAction do
@@ -29,7 +29,8 @@ defmodule Jido.Exec.ExecutionTest do
     KillingAction,
     MapProbeAction,
     Multiply,
-    RecorderAction
+    RecorderAction,
+    ReduceProbeAction
   }
 
   def count_transform(value, phase, _opts) do
@@ -193,6 +194,59 @@ defmodule Jido.Exec.ExecutionTest do
       assert {:ok, %NodeResult{status: :ok}, execution} = Exec.step(execution)
       assert_receive {RecorderAction, %{value: :independent}}
       refute_receive {RecorderAction, %{value: %{kind: :jido_flow_map_result}}}
+      assert Exec.status(execution) == :failed
+    end
+  end
+
+  describe "Map to Reduce step-wise execution" do
+    test "keeps Reduce as one public serial Step in ready, wave, and continue paths" do
+      flow = map_reduce_flow(:success)
+
+      assert {:ok, execution} =
+               Exec.start(flow, %{}, %{test_pid: self()}, async: true, max_concurrency: 2)
+
+      assert Exec.ready(execution) == ["mapped"]
+
+      assert {:ok, [%NodeResult{node: "mapped", status: :ok}], execution} =
+               Exec.wave(execution)
+
+      assert Exec.ready(execution) == ["reduced"]
+
+      assert {:ok,
+              %NodeResult{
+                node: "reduced",
+                status: :ok,
+                output: %{values: [:zero, :one], indexes: [0, 1]},
+                attempt: 1
+              }, execution} = Exec.step(execution, "reduced")
+
+      assert Exec.ready(execution) == []
+      assert Exec.status(execution) == :succeeded
+      assert Exec.result(execution) == {:ok, %{values: [:zero, :one], indexes: [0, 1]}}
+      refute inspect(execution) =~ "reduce_item"
+
+      assert {:ok, continued} = Exec.start(flow, %{}, %{test_pid: self()})
+      assert {:ok, continued} = Exec.continue(continued)
+      assert Exec.result(continued) == {:ok, %{values: [:zero, :one], indexes: [0, 1]}}
+    end
+
+    test "returns one error NodeResult when direct collected Map errors reach Reduce" do
+      assert {:ok, execution} = Exec.start(map_reduce_flow(:with_error), %{}, %{test_pid: self()})
+      assert {:ok, %NodeResult{node: "mapped", status: :ok}, execution} = Exec.step(execution)
+      assert Exec.ready(execution) == ["reduced"]
+
+      assert {:ok,
+              %NodeResult{
+                node: "reduced",
+                status: :error,
+                output: nil,
+                error: %ExecutionFailureError{
+                  message: "reduce cannot consume a Map result with errors",
+                  details: %{reason: :map_errors_present, error_indices: [1]}
+                },
+                attempt: 1
+              }, execution} = Exec.step(execution)
+
       assert Exec.status(execution) == :failed
     end
   end
@@ -740,6 +794,43 @@ defmodule Jido.Exec.ExecutionTest do
         )
       ],
       return: Ref.result(:mapped)
+    )
+  end
+
+  defp map_reduce_flow(mode) do
+    items =
+      case mode do
+        :success ->
+          [%{value: :zero, outcome: :ok}, %{value: :one, outcome: :ok}]
+
+        :with_error ->
+          [%{value: :zero, outcome: :ok}, %{value: :one, outcome: {:error, "failed"}}]
+      end
+
+    Flow.new!(
+      name: "stepwise_map_reduce",
+      nodes: [
+        FlowMap.new!(
+          name: :mapped,
+          collection: Ref.value(items),
+          action: MapProbeAction,
+          input: map_probe_input(),
+          on_error: :collect_errors
+        ),
+        Reduce.new!(
+          name: :reduced,
+          collection: Ref.result(:mapped),
+          initial: Ref.value(%{values: [], indexes: []}),
+          action: ReduceProbeAction,
+          input: %{
+            accumulator: Ref.accumulator(),
+            item: Ref.item(:value),
+            index: Ref.item_index(),
+            item_id: Ref.item_id()
+          }
+        )
+      ],
+      return: Ref.result(:reduced)
     )
   end
 

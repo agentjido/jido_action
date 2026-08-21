@@ -5,7 +5,7 @@ defmodule Jido.Exec.TelemetryTest do
   alias Jido.Action.Error.ExecutionFailureError
   alias Jido.Exec
   alias Jido.Flow
-  alias Jido.Flow.{Choice, Condition, Node, Ref}
+  alias Jido.Flow.{Choice, Condition, Node, Reduce, Ref}
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Instruction
 
@@ -16,7 +16,8 @@ defmodule Jido.Exec.TelemetryTest do
     ErrorWithExtrasAction,
     InvalidValidationResultAction,
     MapProbeAction,
-    Multiply
+    Multiply,
+    ReduceProbeAction
   }
 
   @exec_stop [:jido, :exec, :run, :stop]
@@ -25,6 +26,8 @@ defmodule Jido.Exec.TelemetryTest do
   @node_start [:jido, :flow, :node, :start]
   @map_item_start [:jido, :flow, :map, :item, :start]
   @map_item_stop [:jido, :flow, :map, :item, :stop]
+  @reduce_item_start [:jido, :flow, :reduce, :item, :start]
+  @reduce_item_stop [:jido, :flow, :reduce, :item, :stop]
 
   test "emits an exec span for successful action execution" do
     attach_telemetry([@exec_stop])
@@ -172,6 +175,146 @@ defmodule Jido.Exec.TelemetryTest do
              status: :error,
              error_type: :execution_error
            }
+  end
+
+  test "emits bounded outer and item Reduce telemetry in strict fold order" do
+    attach_telemetry([@node_start, @node_stop, @reduce_item_start, @reduce_item_stop])
+
+    assert {:ok, %{values: [2, 1], indexes: [0, 1]}} =
+             Exec.run(reduce_telemetry_flow("reduce_telemetry", [2, 1]), %{}, %{})
+
+    assert_receive {:telemetry_event, @node_start, %{}, node_start}
+
+    assert Map.take(node_start, [:flow, :node, :kind]) == %{
+             flow: "reduce_telemetry",
+             node: "reduced",
+             kind: :reduce
+           }
+
+    item_starts = receive_metadata(@reduce_item_start, 2)
+    assert Enum.map(item_starts, & &1.item_index) == [0, 1]
+
+    assert Enum.all?(item_starts, fn metadata ->
+             metadata |> Map.delete(:telemetry_span_context) |> Map.keys() |> Enum.sort() ==
+               [:flow, :item_id, :item_index, :kind, :node, :target]
+           end)
+
+    item_stops = receive_metadata(@reduce_item_stop, 2)
+    assert Enum.map(item_stops, & &1.item_index) == [0, 1]
+    assert Enum.map(item_stops, & &1.status) == [:ok, :ok]
+
+    assert Enum.all?(item_stops, fn metadata ->
+             metadata |> Map.delete(:telemetry_span_context) |> Map.keys() |> Enum.sort() ==
+               [:flow, :item_id, :item_index, :kind, :node, :status, :target]
+           end)
+
+    assert_receive {:telemetry_event, @node_stop, measurements, node_stop}
+    assert is_integer(measurements.duration)
+
+    assert Map.take(node_stop, [
+             :flow,
+             :node,
+             :kind,
+             :status,
+             :target,
+             :item_count,
+             :completed_count
+           ]) == %{
+             flow: "reduce_telemetry",
+             node: "reduced",
+             kind: :reduce,
+             status: :ok,
+             target: ReduceProbeAction,
+             item_count: 2,
+             completed_count: 2
+           }
+  end
+
+  test "emits no Reduce item span for an empty collection" do
+    attach_telemetry([@node_stop, @reduce_item_start, @reduce_item_stop])
+
+    assert {:ok, %{values: [], indexes: []}} =
+             Exec.run(reduce_telemetry_flow("empty_reduce_telemetry", []), %{}, %{})
+
+    assert_receive {:telemetry_event, @node_stop, _measurements,
+                    %{
+                      flow: "empty_reduce_telemetry",
+                      kind: :reduce,
+                      item_count: 0,
+                      completed_count: 0,
+                      status: :ok
+                    }}
+
+    refute_receive {:telemetry_event, @reduce_item_start, _measurements, _metadata}
+    refute_receive {:telemetry_event, @reduce_item_stop, _measurements, _metadata}
+  end
+
+  test "adds bounded Reduce counts to target errors and excludes item data" do
+    attach_telemetry([@node_stop, @reduce_item_start, @reduce_item_stop])
+
+    flow =
+      reduce_telemetry_flow("failed_reduce_telemetry", [
+        %{value: :zero, outcome: :map},
+        %{value: :one, outcome: {:error, "one failed"}},
+        %{value: :two, outcome: :map}
+      ])
+
+    assert {:error, %ExecutionFailureError{message: "one failed"}} = Exec.run(flow, %{}, %{})
+
+    starts = receive_metadata(@reduce_item_start, 2)
+    assert Enum.map(starts, & &1.item_index) == [0, 1]
+
+    stops = receive_metadata(@reduce_item_stop, 2)
+    assert Enum.map(stops, & &1.status) == [:ok, :error]
+
+    error_stop = Enum.at(stops, 1) |> Map.delete(:telemetry_span_context)
+
+    assert error_stop |> Map.keys() |> Enum.sort() ==
+             [:error_type, :flow, :item_id, :item_index, :kind, :node, :status, :target]
+
+    assert_receive {:telemetry_event, @node_stop, _measurements, node_stop}
+
+    assert Map.take(node_stop, [
+             :flow,
+             :node,
+             :kind,
+             :target,
+             :item_count,
+             :completed_count,
+             :status,
+             :error_type
+           ]) == %{
+             flow: "failed_reduce_telemetry",
+             node: "reduced",
+             kind: :reduce,
+             target: ReduceProbeAction,
+             item_count: 2,
+             completed_count: 1,
+             status: :error,
+             error_type: :execution_error
+           }
+  end
+
+  test "emits no Reduce item span when direct Map errors fail collection normalization" do
+    attach_telemetry([@node_stop, @reduce_item_start, @reduce_item_stop])
+
+    assert {:error,
+            %ExecutionFailureError{message: "reduce cannot consume a Map result with errors"}} =
+             Exec.run(direct_map_reduce_telemetry_flow(), %{}, %{test_pid: self()})
+
+    assert_receive {:telemetry_event, @node_stop, _measurements, %{kind: :map, status: :ok}}
+
+    assert_receive {:telemetry_event, @node_stop, _measurements,
+                    %{
+                      kind: :reduce,
+                      status: :error,
+                      item_count: 0,
+                      completed_count: 0,
+                      error_type: :execution_error
+                    }}
+
+    refute_receive {:telemetry_event, @reduce_item_start, _measurements, _metadata}
+    refute_receive {:telemetry_event, @reduce_item_stop, _measurements, _metadata}
   end
 
   test "emits an exec span for instruction execution" do
@@ -467,6 +610,67 @@ defmodule Jido.Exec.TelemetryTest do
         )
       ],
       return: Ref.result(:mapped)
+    )
+  end
+
+  defp reduce_telemetry_flow(name, items) do
+    {item, outcome} =
+      case items do
+        [%{} | _rest] -> {Ref.item(:value), Ref.item(:outcome)}
+        _other -> {Ref.item(), Ref.value(:map)}
+      end
+
+    Flow.new!(
+      name: name,
+      nodes: [
+        Reduce.new!(
+          name: :reduced,
+          collection: Ref.value(items),
+          initial: Ref.value(%{values: [], indexes: []}),
+          action: ReduceProbeAction,
+          input: %{
+            accumulator: Ref.accumulator(),
+            item: item,
+            index: Ref.item_index(),
+            item_id: Ref.item_id(),
+            outcome: outcome
+          }
+        )
+      ],
+      return: Ref.result(:reduced)
+    )
+  end
+
+  defp direct_map_reduce_telemetry_flow do
+    Flow.new!(
+      name: "direct_map_reduce_telemetry",
+      nodes: [
+        FlowMap.new!(
+          name: :mapped,
+          collection: Ref.value([%{value: :bad, outcome: {:error, "map failed"}}]),
+          action: MapProbeAction,
+          input: %{
+            test_pid: Ref.context(:test_pid),
+            index: Ref.item_index(),
+            value: Ref.item(:value),
+            outcome: Ref.item(:outcome)
+          },
+          on_error: :collect_errors
+        ),
+        Reduce.new!(
+          name: :reduced,
+          collection: Ref.result(:mapped),
+          initial: Ref.value(%{values: [], indexes: []}),
+          action: ReduceProbeAction,
+          input: %{
+            accumulator: Ref.accumulator(),
+            item: Ref.item(),
+            index: Ref.item_index(),
+            item_id: Ref.item_id()
+          }
+        )
+      ],
+      return: Ref.result(:reduced)
     )
   end
 
