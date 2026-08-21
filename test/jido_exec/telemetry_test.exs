@@ -5,7 +5,7 @@ defmodule Jido.Exec.TelemetryTest do
   alias Jido.Action.Error.ExecutionFailureError
   alias Jido.Exec
   alias Jido.Flow
-  alias Jido.Flow.{Node, Ref}
+  alias Jido.Flow.{Choice, Condition, Node, Ref}
   alias Jido.Instruction
 
   alias JidoTest.TestActions.{
@@ -18,7 +18,9 @@ defmodule Jido.Exec.TelemetryTest do
   }
 
   @exec_stop [:jido, :exec, :run, :stop]
+  @exec_start [:jido, :exec, :run, :start]
   @node_stop [:jido, :flow, :node, :stop]
+  @node_start [:jido, :flow, :node, :start]
 
   test "emits an exec span for successful action execution" do
     attach_telemetry([@exec_stop])
@@ -122,6 +124,139 @@ defmodule Jido.Exec.TelemetryTest do
     assert metadata.error_type == :execution_error
 
     refute_receive {:telemetry_event, @node_stop, _measurements, %{node: "skipped"}}, 50
+  end
+
+  test "emits one Choice node span with selected target metadata" do
+    assert {:ok, %{value: 2}} = Exec.run(Add, %{value: 1}, %{})
+    attach_telemetry([@node_start, @node_stop])
+
+    flow =
+      Flow.new!(
+        name: "choice_telemetry_flow",
+        nodes: [
+          Choice.new!(
+            name: :route,
+            options: [
+              [
+                name: :selected,
+                condition: Condition.eq(Ref.value(true), Ref.value(true)),
+                action: Add,
+                input: %{value: Ref.value(3), amount: Ref.value(1)}
+              ],
+              [
+                name: :unselected,
+                condition: Condition.eq(Ref.value(false), Ref.value(true)),
+                action: Multiply,
+                input: %{value: Ref.value(3), amount: Ref.value(2)}
+              ]
+            ],
+            fallback: [action: Add, input: %{value: Ref.value(0), amount: Ref.value(0)}]
+          )
+        ],
+        return: Ref.result(:route)
+      )
+
+    assert {:ok, %{value: 4}} = Exec.run(flow, %{}, %{})
+
+    assert_receive {:telemetry_event, @node_start, %{}, start_metadata}
+
+    assert Map.take(start_metadata, [:flow, :node, :kind]) == %{
+             flow: "choice_telemetry_flow",
+             node: "route",
+             kind: :choice
+           }
+
+    refute Map.has_key?(start_metadata, :option)
+    refute Map.has_key?(start_metadata, :target)
+
+    assert_receive {:telemetry_event, @node_stop, measurements, stop_metadata}
+    assert is_integer(measurements.duration)
+
+    assert Map.take(stop_metadata, [:flow, :node, :kind, :option, :target, :status]) == %{
+             flow: "choice_telemetry_flow",
+             node: "route",
+             kind: :choice,
+             option: "selected",
+             target: Add,
+             status: :ok
+           }
+
+    refute_receive {:telemetry_event, @node_start, _measurements, _metadata}, 50
+    refute_receive {:telemetry_event, @node_stop, _measurements, _metadata}, 50
+  end
+
+  test "emits selected nested Flow spans inside the outer Choice span" do
+    assert {:ok, %{value: 2}} = Exec.run(Add, %{value: 1}, %{})
+
+    target = Module.concat(__MODULE__, "ChoiceNestedFlow#{System.unique_integer([:positive])}")
+
+    assert {:module, ^target, _bytecode, _term} =
+             Module.create(
+               target,
+               quote do
+                 use Jido.Flow, name: "choice_nested_telemetry_flow"
+
+                 flow do
+                   step(:add, unquote(Add), %{value: input(:value), amount: value(1)})
+                   return(result(:add))
+                 end
+               end,
+               Macro.Env.location(__ENV__)
+             )
+
+    attach_telemetry([@exec_start, @exec_stop, @node_start, @node_stop])
+
+    flow =
+      Flow.new!(
+        name: "outer_choice_telemetry_flow",
+        nodes: [
+          Choice.new!(
+            name: :route,
+            options: [
+              [
+                name: :nested,
+                condition: Condition.eq(Ref.value(true), Ref.value(true)),
+                action: target,
+                input: %{value: Ref.value(3)}
+              ]
+            ],
+            fallback: [action: Add, input: %{value: Ref.value(0), amount: Ref.value(0)}]
+          )
+        ],
+        return: Ref.result(:route)
+      )
+
+    assert {:ok, %{value: 4}} = Exec.run(flow, %{}, %{})
+
+    assert_receive {:telemetry_event, @exec_start, %{},
+                    %{kind: :flow, name: "outer_choice_telemetry_flow"}}
+
+    assert_receive {:telemetry_event, @node_start, %{},
+                    %{flow: "outer_choice_telemetry_flow", node: "route", kind: :choice}}
+
+    assert_receive {:telemetry_event, @exec_start, %{},
+                    %{kind: :flow, name: "choice_nested_telemetry_flow"}}
+
+    assert_receive {:telemetry_event, @node_start, %{},
+                    %{flow: "choice_nested_telemetry_flow", node: "add"}}
+
+    assert_receive {:telemetry_event, @node_stop, _measurements,
+                    %{flow: "choice_nested_telemetry_flow", node: "add", status: :ok}}
+
+    assert_receive {:telemetry_event, @exec_stop, _measurements,
+                    %{kind: :flow, name: "choice_nested_telemetry_flow", status: :ok}}
+
+    assert_receive {:telemetry_event, @node_stop, _measurements,
+                    %{
+                      flow: "outer_choice_telemetry_flow",
+                      node: "route",
+                      option: "nested",
+                      target: ^target,
+                      status: :ok
+                    }}
+
+    assert_receive {:telemetry_event, @exec_stop, _measurements,
+                    %{kind: :flow, name: "outer_choice_telemetry_flow", status: :ok}}
   end
 
   defp attach_telemetry(events) do
