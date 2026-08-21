@@ -3,6 +3,7 @@ defmodule Jido.Flow.BuilderTest do
 
   alias Jido.Flow
   alias Jido.Flow.Builder
+  alias Jido.Flow.Ref
   alias Jido.Flow.Syntax
   alias Jido.Flow.Syntax.Lowerer
   alias JidoTest.FlowFixtures
@@ -46,6 +47,51 @@ defmodule Jido.Flow.BuilderTest do
       assert {:ok, syntax_flow} = Lowerer.lower(syntax)
       assert {:ok, builder_flow} = Builder.build(builder)
       assert Flow.to_map(builder_flow) == Flow.to_map(syntax_flow)
+    end
+
+    test "direct Date choice values match explicit builder values" do
+      date = ~D[2026-08-21]
+
+      direct =
+        Builder.new(name: "date_choice")
+        |> Builder.choice(
+          :route,
+          [
+            Builder.option(
+              :match,
+              Builder.eq(Builder.input(:date), date),
+              JidoTest.TestActions.Add,
+              date
+            )
+          ],
+          Builder.fallback(JidoTest.TestActions.Add, date)
+        )
+        |> Builder.return(Builder.result(:route))
+
+      explicit =
+        Builder.new(name: "date_choice")
+        |> Builder.choice(
+          :route,
+          [
+            Builder.option(
+              :match,
+              Builder.eq(Builder.input(:date), Builder.value(date)),
+              JidoTest.TestActions.Add,
+              Builder.value(date)
+            )
+          ],
+          Builder.fallback(JidoTest.TestActions.Add, Builder.value(date))
+        )
+        |> Builder.return(Builder.result(:route))
+
+      assert {:ok, direct_flow} = Builder.build(direct)
+      assert {:ok, explicit_flow} = Builder.build(explicit)
+      assert Flow.to_map(direct_flow) == Flow.to_map(explicit_flow)
+
+      assert [%Jido.Flow.Choice{options: [option], fallback: fallback}] = direct_flow.nodes
+      assert option.condition.operands == [Ref.input(:date), Ref.value(date)]
+      assert option.input == Ref.value(date)
+      assert fallback.input == Ref.value(date)
     end
 
     test "builder and syntax preserve case option order" do

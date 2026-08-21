@@ -3,11 +3,17 @@ defmodule Jido.Flow.Syntax.LowererTest do
 
   alias Jido.Action.Error.InvalidInputError
   alias Jido.Flow
+  alias Jido.Flow.ContractBundle
   alias Jido.Flow.Ref
   alias Jido.Flow.Syntax
   alias Jido.Flow.Syntax.Lowerer
   alias JidoTest.FlowFixtures
   alias JidoTest.TestActions.{Add, EchoParamsAction, Multiply}
+
+  defmodule TrustedLiteral do
+    @enforce_keys [:id]
+    defstruct [:id]
+  end
 
   describe "syntax lowerer" do
     test "lowers a named if else choice with a result binding" do
@@ -280,6 +286,60 @@ defmodule Jido.Flow.Syntax.LowererTest do
                %{type: :input, path: [:value]},
                %{type: :value, value: 2}
              ]
+    end
+
+    test "direct user structs match explicit values across steps, lists, and return" do
+      literal = %TrustedLiteral{id: "trusted"}
+
+      direct =
+        Syntax.new(name: "trusted_struct")
+        |> Syntax.step(:direct, EchoParamsAction, literal)
+        |> Syntax.step(:nested, EchoParamsAction, %{
+          prior: Syntax.result(:direct),
+          values: [literal]
+        })
+        |> Syntax.return(%{result: Syntax.result(:nested), literal: literal})
+
+      explicit =
+        Syntax.new(name: "trusted_struct")
+        |> Syntax.step(:direct, EchoParamsAction, Syntax.value(literal))
+        |> Syntax.step(:nested, EchoParamsAction, %{
+          prior: Syntax.result(:direct),
+          values: [Syntax.value(literal)]
+        })
+        |> Syntax.return(%{
+          result: Syntax.result(:nested),
+          literal: Syntax.value(literal)
+        })
+
+      assert {:ok, direct_flow} = Lowerer.lower(direct)
+      assert {:ok, explicit_flow} = Lowerer.lower(explicit)
+      assert Flow.to_map(direct_flow) == Flow.to_map(explicit_flow)
+
+      assert [direct_node, nested_node] = direct_flow.nodes
+      assert direct_node.input == Ref.value(literal)
+      assert nested_node.input.values == [Ref.value(literal)]
+      assert direct_flow.return.literal == Ref.value(literal)
+
+      bundle =
+        ContractBundle.new!(
+          id: "bundle/v1",
+          schemas: %{"input/v1" => [], "output/v1" => []},
+          action_registries: %{"actions/v1" => %{"echo" => EchoParamsAction}}
+        )
+
+      assert_raise InvalidInputError, ~r/stored flow value contains unsupported struct/, fn ->
+        Flow.to_map(direct_flow,
+          format: :stored,
+          contracts: %{
+            bundle: "bundle/v1",
+            input_schema: "input/v1",
+            output_schema: "output/v1",
+            action_registry: "actions/v1"
+          },
+          contract_bundles: %{"bundle/v1" => bundle}
+        )
+      end
     end
 
     test "accepts canonical refs and literal leaves in syntax input" do
