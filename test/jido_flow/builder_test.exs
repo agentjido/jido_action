@@ -8,6 +8,99 @@ defmodule Jido.Flow.BuilderTest do
   alias JidoTest.FlowFixtures
 
   describe "builder" do
+    test "builder and syntax emit the same if else choice" do
+      syntax =
+        Syntax.new(name: "if_else")
+        |> Syntax.choice(
+          :route,
+          [
+            Syntax.option(
+              :fast,
+              Syntax.eq(Syntax.input(:mode), Syntax.value("fast")),
+              JidoTest.TestActions.Add,
+              %{value: Syntax.input(:value)}
+            )
+          ],
+          Syntax.fallback(JidoTest.TestActions.Add, %{value: Syntax.value(0)}),
+          bind: :routed
+        )
+        |> Syntax.return(Syntax.binding(:routed))
+
+      builder =
+        Builder.new(name: "if_else")
+        |> Builder.choice(
+          :route,
+          [
+            Builder.option(
+              :fast,
+              Builder.eq(Builder.input(:mode), Builder.value("fast")),
+              JidoTest.TestActions.Add,
+              %{value: Builder.input(:value)}
+            )
+          ],
+          Builder.fallback(JidoTest.TestActions.Add, %{value: Builder.value(0)}),
+          bind: :routed
+        )
+        |> Builder.return(Builder.binding(:routed))
+
+      assert {:ok, syntax_flow} = Lowerer.lower(syntax)
+      assert {:ok, builder_flow} = Builder.build(builder)
+      assert Flow.to_map(builder_flow) == Flow.to_map(syntax_flow)
+    end
+
+    test "builder and syntax preserve case option order" do
+      syntax =
+        Syntax.new(name: "case")
+        |> Syntax.choice(
+          :route,
+          [
+            Syntax.option(
+              :priority,
+              Syntax.eq(Syntax.input(:tier), Syntax.value("priority")),
+              JidoTest.TestActions.Add,
+              %{value: Syntax.value(1)}
+            ),
+            Syntax.option(
+              :standard,
+              Syntax.eq(Syntax.input(:tier), Syntax.value("standard")),
+              JidoTest.TestActions.Add,
+              %{value: Syntax.value(2)}
+            )
+          ],
+          Syntax.fallback(JidoTest.TestActions.Add, %{value: Syntax.value(0)})
+        )
+        |> Syntax.return(Syntax.result(:route))
+
+      builder =
+        Builder.new(name: "case")
+        |> Builder.choice(
+          :route,
+          [
+            Builder.option(
+              :priority,
+              Builder.eq(Builder.input(:tier), Builder.value("priority")),
+              JidoTest.TestActions.Add,
+              %{value: Builder.value(1)}
+            ),
+            Builder.option(
+              :standard,
+              Builder.eq(Builder.input(:tier), Builder.value("standard")),
+              JidoTest.TestActions.Add,
+              %{value: Builder.value(2)}
+            )
+          ],
+          Builder.fallback(JidoTest.TestActions.Add, %{value: Builder.value(0)})
+        )
+        |> Builder.return(Builder.result(:route))
+
+      assert {:ok, syntax_flow} = Lowerer.lower(syntax)
+      assert {:ok, builder_flow} = Builder.build(builder)
+      assert Flow.to_map(builder_flow) == Flow.to_map(syntax_flow)
+
+      assert [%{options: [%{name: "priority"}, %{name: "standard"}]}] =
+               Flow.to_map(builder_flow).nodes
+    end
+
     test "builder-created syntax and direct syntax emit equal canonical maps" do
       assert builder = FlowFixtures.math_builder()
       assert %Syntax{} = Builder.syntax(builder)

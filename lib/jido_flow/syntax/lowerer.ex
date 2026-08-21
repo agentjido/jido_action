@@ -5,15 +5,15 @@ defmodule Jido.Flow.Syntax.Lowerer do
 
   alias Jido.Action.Error
   alias Jido.Flow
-  alias Jido.Flow.{Node, Ref, Syntax}
+  alias Jido.Flow.{Choice, Condition, Node, Ref, Syntax}
   alias Jido.Flow.Syntax.{Expr, Operation}
 
   @type state :: %{
-          nodes: [Node.t()],
+          nodes: [Node.t() | Choice.t()],
           seen: MapSet.t(String.t()),
           bindings: %{optional(atom()) => String.t()},
           all_bindings: MapSet.t(atom()),
-          all_steps: MapSet.t(String.t()),
+          all_nodes: MapSet.t(String.t()),
           branch: atom() | nil,
           return: term() | nil
         }
@@ -57,7 +57,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
   end
 
   defp lower_operations(operations) do
-    operations = normalize_derived_step_names(operations)
+    operations = normalize_derived_node_names(operations)
 
     with :ok <- validate_source_namespace(operations) do
       initial_state = %{
@@ -65,7 +65,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
         seen: MapSet.new(),
         bindings: %{},
         all_bindings: operations |> binding_aliases() |> MapSet.new(),
-        all_steps: operations |> step_names() |> MapSet.new(),
+        all_nodes: operations |> node_names() |> MapSet.new(),
         branch: nil,
         return: nil
       }
@@ -108,6 +108,37 @@ defmodule Jido.Flow.Syntax.Lowerer do
            bindings: maybe_bind(state.bindings, binding, node.name)
        }}
     end
+  end
+
+  defp lower_operation(%Operation{kind: :choice, attrs: attrs, provenance: provenance}, state) do
+    choice_name = attrs |> Map.get(:name) |> normalize_step_name()
+    binding = Map.get(attrs, :binding)
+    options = Map.get(attrs, :options)
+    fallback = Map.get(attrs, :fallback)
+    after_targets = Map.get(attrs, :after, [])
+
+    with :ok <- validate_no_self_reference([options, fallback], binding, choice_name),
+         {:ok, explicit_deps} <- resolve_after_targets(after_targets, state, choice_name, binding),
+         {:ok, options} <- resolve_choice_options(options, state, choice_name),
+         {:ok, fallback} <- resolve_choice_fallback(fallback, state, choice_name),
+         {:ok, provenance} <- normalize_step_provenance(provenance, choice_name),
+         {:ok, choice} <-
+           Choice.new(
+             name: choice_name,
+             options: options,
+             fallback: fallback,
+             deps: explicit_deps,
+             provenance: provenance |> maybe_put_binding(binding)
+           ) do
+      {:ok,
+       %{
+         state
+         | nodes: [choice | state.nodes],
+           seen: MapSet.put(state.seen, choice.name),
+           bindings: maybe_bind(state.bindings, binding, choice.name)
+       }}
+    end
+    |> add_choice_context(choice_name)
   end
 
   defp lower_operation(%Operation{kind: :group, attrs: attrs}, state) do
@@ -160,13 +191,14 @@ defmodule Jido.Flow.Syntax.Lowerer do
      })}
   end
 
-  defp normalize_derived_step_names(operations) when is_list(operations) do
-    Enum.map(operations, &normalize_derived_step_name/1)
+  defp normalize_derived_node_names(operations) when is_list(operations) do
+    Enum.map(operations, &normalize_derived_node_name/1)
   end
 
-  defp normalize_derived_step_names(operations), do: operations
+  defp normalize_derived_node_names(operations), do: operations
 
-  defp normalize_derived_step_name(%Operation{kind: :step, attrs: attrs} = operation) do
+  defp normalize_derived_node_name(%Operation{kind: kind, attrs: attrs} = operation)
+       when kind in [:step, :choice] do
     case {Map.get(attrs, :name), Map.get(attrs, :binding)} do
       {nil, binding} when is_atom(binding) and not is_nil(binding) ->
         %{
@@ -182,7 +214,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
     end
   end
 
-  defp normalize_derived_step_name(%Operation{kind: :group, attrs: attrs} = operation) do
+  defp normalize_derived_node_name(%Operation{kind: :group, attrs: attrs} = operation) do
     case Map.get(attrs, :branches) do
       branches when is_list(branches) ->
         %{
@@ -195,7 +227,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
     end
   end
 
-  defp normalize_derived_step_name(operation), do: operation
+  defp normalize_derived_node_name(operation), do: operation
 
   defp normalize_derived_branch_step_names(branches) when is_list(branches) do
     Enum.map(branches, fn
@@ -203,7 +235,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
         operations =
           attrs
           |> Map.get(:operations)
-          |> normalize_derived_step_names()
+          |> normalize_derived_node_names()
 
         %{branch | attrs: Map.put(attrs, :operations, operations)}
 
@@ -291,6 +323,158 @@ defmodule Jido.Flow.Syntax.Lowerer do
 
   defp resolve_expr(value, _state, _step), do: {:ok, Ref.value(value)}
 
+  defp resolve_choice_options(options, _state, choice) when not is_list(options) do
+    {:error,
+     Error.validation_error("choice options must be a list", %{choice: choice, field: :options})}
+  end
+
+  defp resolve_choice_options(options, state, choice) do
+    options
+    |> Enum.with_index()
+    |> Enum.reduce_while({:ok, []}, fn {option, index}, {:ok, acc} ->
+      case resolve_choice_option(option, state, choice, index) do
+        {:ok, option} -> {:cont, {:ok, [option | acc]}}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+    |> case do
+      {:ok, options} -> {:ok, Enum.reverse(options)}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp resolve_choice_option(%Syntax.Option{} = option, state, choice, index) do
+    with {:ok, condition} <- resolve_choice_condition(option.condition, state, choice, index),
+         {:ok, input} <- resolve_expr(option.input, state, choice) do
+      {:ok,
+       %{
+         name: option.name,
+         condition: condition,
+         action: option.action,
+         input: input
+       }}
+    end
+  end
+
+  defp resolve_choice_option(_option, _state, choice, index) do
+    {:error,
+     Error.validation_error("choice option must be a Jido.Flow.Syntax.Option", %{
+       choice: choice,
+       option: index,
+       field: :options
+     })}
+  end
+
+  defp resolve_choice_fallback(%Syntax.Fallback{} = fallback, state, choice) do
+    with {:ok, input} <- resolve_expr(fallback.input, state, choice) do
+      {:ok, %{action: fallback.action, input: input}}
+    end
+  end
+
+  defp resolve_choice_fallback(nil, _state, choice) do
+    {:error,
+     Error.validation_error("choice fallback is required", %{choice: choice, field: :fallback})}
+  end
+
+  defp resolve_choice_fallback(_fallback, _state, choice) do
+    {:error,
+     Error.validation_error("choice fallback must be a Jido.Flow.Syntax.Fallback", %{
+       choice: choice,
+       field: :fallback
+     })}
+  end
+
+  defp resolve_choice_condition(
+         %Syntax.Condition{operator: operator, operands: operands},
+         state,
+         choice,
+         option
+       )
+       when operator in [:eq, :neq, :lt, :lte, :gt, :gte, :in] do
+    with {:ok, operands} <- resolve_choice_operands(operands, state, choice),
+         {:ok, condition} <- Condition.new(operator, operands) do
+      {:ok, condition}
+    else
+      {:error, error} -> {:error, add_choice_error_context(error, choice, option)}
+    end
+  end
+
+  defp resolve_choice_condition(
+         %Syntax.Condition{operator: operator, operands: operands},
+         state,
+         choice,
+         option
+       )
+       when operator in [:all, :any, :not] do
+    with {:ok, operands} <- resolve_choice_conditions(operands, state, choice, option),
+         {:ok, condition} <- Condition.new(operator, operands) do
+      {:ok, condition}
+    else
+      {:error, error} -> {:error, add_choice_error_context(error, choice, option)}
+    end
+  end
+
+  defp resolve_choice_condition(%Syntax.Condition{} = condition, _state, choice, option) do
+    case Condition.new(condition.operator, condition.operands) do
+      {:ok, _condition} ->
+        {:error,
+         Error.validation_error("unsupported choice condition source", %{
+           choice: choice,
+           option: option,
+           operator: condition.operator
+         })}
+
+      {:error, error} ->
+        {:error, add_choice_error_context(error, choice, option)}
+    end
+  end
+
+  defp resolve_choice_condition(_condition, _state, choice, option) do
+    {:error,
+     Error.validation_error("choice option condition must be a Jido.Flow.Syntax.Condition", %{
+       choice: choice,
+       option: option,
+       field: :condition
+     })}
+  end
+
+  defp resolve_choice_operands(operands, _state, _choice) when not is_list(operands) do
+    {:error, Error.validation_error("choice condition operands must be a list")}
+  end
+
+  defp resolve_choice_operands(operands, state, choice) do
+    operands
+    |> Enum.reduce_while({:ok, []}, fn operand, {:ok, acc} ->
+      case resolve_expr(operand, state, choice) do
+        {:ok, resolved} -> {:cont, {:ok, [resolved | acc]}}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+    |> case do
+      {:ok, operands} -> {:ok, Enum.reverse(operands)}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp resolve_choice_conditions(conditions, _state, _choice, _option)
+       when not is_list(conditions) do
+    {:error, Error.validation_error("choice condition operands must be a list")}
+  end
+
+  defp resolve_choice_conditions(conditions, state, choice, option) do
+    conditions
+    |> Enum.reduce_while({:ok, []}, fn condition, {:ok, acc} ->
+      case resolve_choice_condition(condition, state, choice, option) do
+        {:ok, condition} -> {:cont, {:ok, [condition | acc]}}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+    |> case do
+      {:ok, conditions} -> {:ok, Enum.reverse(conditions)}
+      {:error, error} -> {:error, error}
+    end
+  end
+
   defp resolve_after_targets(nil, _state, _step, _binding), do: {:ok, []}
 
   defp resolve_after_targets(targets, state, step, binding) do
@@ -319,7 +503,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
       MapSet.member?(state.seen, target_name) ->
         {:ok, target_name}
 
-      MapSet.member?(state.all_steps, target_name) ->
+      MapSet.member?(state.all_nodes, target_name) ->
         explicit_dependency_before_bound_error(step, target_name)
 
       true ->
@@ -503,13 +687,13 @@ defmodule Jido.Flow.Syntax.Lowerer do
   end
 
   defp validate_step_name_presence(operations) do
-    case Enum.find(step_operations(operations), &is_nil(Map.get(&1.attrs, :name))) do
+    case Enum.find(node_operations(operations), &is_nil(Map.get(&1.attrs, :name))) do
       nil ->
         :ok
 
-      %Operation{attrs: attrs} ->
+      %Operation{kind: kind, attrs: attrs} ->
         {:error,
-         Error.validation_error("step requires a name or a binding", %{
+         Error.validation_error("#{kind} requires a name or a binding", %{
            binding: Map.get(attrs, :binding)
          })}
     end
@@ -517,7 +701,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
 
   defp binding_aliases(operations) do
     operations
-    |> step_operations()
+    |> node_operations()
     |> Enum.flat_map(fn %Operation{attrs: attrs} ->
       case Map.get(attrs, :binding) do
         nil -> []
@@ -526,9 +710,9 @@ defmodule Jido.Flow.Syntax.Lowerer do
     end)
   end
 
-  defp step_names(operations) do
+  defp node_names(operations) do
     operations
-    |> step_operations()
+    |> node_operations()
     |> Enum.flat_map(fn %Operation{attrs: attrs} ->
       case Map.get(attrs, :name) do
         name when (is_atom(name) and not is_nil(name)) or is_binary(name) ->
@@ -540,9 +724,9 @@ defmodule Jido.Flow.Syntax.Lowerer do
     end)
   end
 
-  defp step_operations(operations) when is_list(operations) do
+  defp node_operations(operations) when is_list(operations) do
     Enum.flat_map(operations, fn
-      %Operation{kind: :step} = operation ->
+      %Operation{kind: kind} = operation when kind in [:step, :choice] ->
         [operation]
 
       %Operation{kind: :group, attrs: attrs} ->
@@ -555,7 +739,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
     end)
   end
 
-  defp step_operations(_operations), do: []
+  defp node_operations(_operations), do: []
 
   defp branch_step_operations(branches) when is_list(branches) do
     Enum.flat_map(branches, fn
@@ -615,9 +799,9 @@ defmodule Jido.Flow.Syntax.Lowerer do
   end
 
   defp validate_binding_step_collisions(operations) do
-    step_name_set = operations |> step_names() |> MapSet.new()
+    step_name_set = operations |> node_names() |> MapSet.new()
 
-    case Enum.find(step_operations(operations), fn %Operation{attrs: attrs} ->
+    case Enum.find(node_operations(operations), fn %Operation{attrs: attrs} ->
            binding = Map.get(attrs, :binding)
            name = attrs |> Map.get(:name) |> normalize_step_name()
            derived_name? = Map.get(attrs, :derived_name?, false)
@@ -682,6 +866,18 @@ defmodule Jido.Flow.Syntax.Lowerer do
 
   defp maybe_bind(bindings, nil, _node), do: bindings
   defp maybe_bind(bindings, binding, node), do: Map.put(bindings, binding, node)
+
+  defp add_choice_context({:ok, _choice} = result, _choice_name), do: result
+
+  defp add_choice_context({:error, error}, choice_name) do
+    {:error, add_choice_error_context(error, choice_name)}
+  end
+
+  defp add_choice_error_context(error, choice_name, option \\ nil) do
+    details = Map.get(error, :details, %{}) |> Map.put_new(:choice, choice_name)
+    details = if is_nil(option), do: details, else: Map.put_new(details, :option, option)
+    Error.validation_error(error.message, details)
+  end
 
   defp normalize_step_name(name) when is_atom(name) and not is_nil(name), do: Atom.to_string(name)
   defp normalize_step_name(name) when is_binary(name), do: name
