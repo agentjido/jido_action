@@ -199,34 +199,67 @@ defmodule Jido.Exec.FlowEngine do
   defp execute_runnables(runnables, options) do
     if Keyword.fetch!(options, :async) do
       max_concurrency = Keyword.fetch!(options, :max_concurrency)
-      previous_trap_exit = Process.flag(:trap_exit, true)
-
-      try do
-        runnables
-        |> Task.async_stream(&Workflow.execute_runnable/1,
-          max_concurrency: max_concurrency,
-          timeout: :infinity,
-          ordered: true
-        )
-        |> Enum.zip(runnables)
-        |> Enum.map(fn
-          {{:ok, executed}, _runnable} ->
-            executed
-
-          {{:exit, reason}, runnable} ->
-            Runnable.fail(
-              runnable,
-              Error.execution_error("flow node task exited", %{
-                node: runnable.node.name,
-                reason: reason
-              })
-            )
-        end)
-      after
-        Process.flag(:trap_exit, previous_trap_exit)
-      end
+      execute_async_runnables(runnables, max_concurrency)
     else
       Enum.map(runnables, &Workflow.execute_runnable/1)
+    end
+  end
+
+  defp execute_async_runnables(runnables, max_concurrency) do
+    caller = self()
+    reference = make_ref()
+
+    {helper, monitor} =
+      spawn_monitor(fn ->
+        helper = self()
+        spawn(fn -> terminate_helper_with_caller(caller, helper) end)
+        Process.flag(:trap_exit, true)
+
+        executed =
+          runnables
+          |> Task.async_stream(&Workflow.execute_runnable/1,
+            max_concurrency: max_concurrency,
+            timeout: :infinity,
+            ordered: true
+          )
+          |> Enum.zip(runnables)
+          |> Enum.map(fn
+            {{:ok, executed}, _runnable} ->
+              executed
+
+            {{:exit, reason}, runnable} ->
+              Runnable.fail(
+                runnable,
+                Error.execution_error("flow node task exited", %{
+                  node: runnable.node.name,
+                  reason: reason
+                })
+              )
+          end)
+
+        send(caller, {reference, self(), executed})
+      end)
+
+    receive do
+      {^reference, ^helper, executed} ->
+        Process.demonitor(monitor, [:flush])
+        executed
+
+      {:DOWN, ^monitor, :process, ^helper, reason} ->
+        exit(reason)
+    end
+  end
+
+  defp terminate_helper_with_caller(caller, helper) do
+    caller_monitor = Process.monitor(caller)
+    helper_monitor = Process.monitor(helper)
+
+    receive do
+      {:DOWN, ^caller_monitor, :process, ^caller, _reason} ->
+        Process.exit(helper, :kill)
+
+      {:DOWN, ^helper_monitor, :process, ^helper, _reason} ->
+        :ok
     end
   end
 
