@@ -3,7 +3,7 @@ defmodule Jido.FlowTest do
 
   alias Jido.Action.Error.InvalidInputError
   alias Jido.Flow
-  alias Jido.Flow.{Node, Ref, Syntax}
+  alias Jido.Flow.{Choice, Condition, Node, Ref, Syntax}
   alias JidoTest.TestActions.{Add, EchoParamsAction, MissingRun, Multiply}
 
   describe "new/1" do
@@ -217,6 +217,99 @@ defmodule Jido.FlowTest do
       assert details.node == "missing"
       assert details.action == missing_action
       assert details.reason == :nofile
+    end
+
+    test "keeps Choice structural validation inert and checks targets in authored order" do
+      choice =
+        Choice.new!(
+          name: :route,
+          options: [
+            [name: :first, condition: Condition.eq(1, 1), action: Add],
+            [name: :second, condition: Condition.eq(1, 1), action: MissingRun]
+          ],
+          fallback: [action: MissingRun]
+        )
+
+      assert {:ok, flow} =
+               Flow.new(name: "unchecked_choice", nodes: [choice], return: Ref.result(:route))
+
+      assert {:ok, ^flow} = Flow.validate(flow)
+
+      assert {:error, %InvalidInputError{message: message, details: details}} = Flow.check(flow)
+      assert message =~ "module is not a valid Jido action"
+      assert details.choice == "route"
+      assert details.option == "second"
+      assert details.target == MissingRun
+    end
+
+    test "normalizes Choice keyword attributes in the nodes list" do
+      assert {:ok, flow} =
+               Flow.new(
+                 name: "choice_attrs",
+                 nodes: [
+                   [
+                     name: :route,
+                     options: [
+                       [name: :priority, condition: Condition.eq(1, 1), action: Add]
+                     ],
+                     fallback: [action: Add]
+                   ]
+                 ],
+                 return: Ref.result(:route)
+               )
+
+      assert [%Choice{name: "route"}] = flow.nodes
+    end
+
+    test "applies existing unknown reference and cycle checks to Choice dependencies" do
+      unknown_choice =
+        Choice.new!(
+          name: :route,
+          options: [
+            [
+              name: :priority,
+              condition: Condition.eq(Ref.result(:missing, :kind), :priority),
+              action: Add
+            ]
+          ],
+          fallback: [action: Add]
+        )
+
+      assert {:error, %InvalidInputError{message: unknown_message, details: unknown_details}} =
+               Flow.new(
+                 name: "unknown_choice",
+                 nodes: [unknown_choice],
+                 return: Ref.result(:route)
+               )
+
+      assert unknown_message =~ "node input points to an unknown step"
+      assert unknown_details.node == "route"
+      assert unknown_details.dependency == "missing"
+
+      cyclic_choice =
+        Choice.new!(
+          name: :route,
+          options: [
+            [
+              name: :priority,
+              condition: Condition.eq(Ref.result(:next, :value), 1),
+              action: Add
+            ]
+          ],
+          fallback: [action: Add]
+        )
+
+      next = Node.new!(name: :next, action: Add, deps: [:route])
+
+      assert {:error, %InvalidInputError{message: cycle_message, details: cycle_details}} =
+               Flow.new(
+                 name: "cyclic_choice",
+                 nodes: [cyclic_choice, next],
+                 return: Ref.result(:route)
+               )
+
+      assert cycle_message =~ "flow dependency graph contains a cycle"
+      assert Enum.sort(cycle_details.nodes) == ["next", "route"]
     end
 
     test "rejects cyclic dependency graphs" do
