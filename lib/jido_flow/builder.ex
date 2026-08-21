@@ -58,6 +58,18 @@ defmodule Jido.Flow.Builder do
   @doc false
   defdelegate select(source, path), to: Syntax
 
+  @doc false
+  defdelegate item(path \\ nil), to: Syntax
+
+  @doc false
+  defdelegate item_index(), to: Syntax
+
+  @doc false
+  defdelegate item_id(), to: Syntax
+
+  @doc false
+  defdelegate accumulator(path \\ nil), to: Syntax
+
   @doc "Builds an equality condition for a Choice option."
   defdelegate eq(left, right), to: Syntax
 
@@ -111,6 +123,41 @@ defmodule Jido.Flow.Builder do
   @spec step(t(), atom() | String.t() | nil, module(), term(), keyword()) :: t()
   def step(%__MODULE__{syntax: syntax} = builder, name, action, input, opts \\ []) do
     %{builder | syntax: Syntax.step(syntax, name, action, input, opts)}
+  end
+
+  @doc """
+  Appends a Map fan-out operation.
+  """
+  @spec map(t(), atom() | String.t() | nil, term(), module(), term(), keyword()) :: t()
+  def map(%__MODULE__{syntax: syntax} = builder, name, collection, action, input, opts \\ []) do
+    %{builder | syntax: Syntax.map(syntax, name, collection, action, input, opts)}
+  end
+
+  @doc """
+  Appends a serial Reduce fan-in operation.
+  """
+  @spec reduce(
+          t(),
+          atom() | String.t() | nil,
+          term(),
+          term(),
+          module(),
+          term(),
+          keyword()
+        ) :: t()
+  def reduce(
+        %__MODULE__{syntax: syntax} = builder,
+        name,
+        collection,
+        initial,
+        action,
+        input,
+        opts \\ []
+      ) do
+    %{
+      builder
+      | syntax: Syntax.reduce(syntax, name, collection, initial, action, input, opts)
+    }
   end
 
   @doc """

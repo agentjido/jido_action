@@ -246,5 +246,65 @@ defmodule Jido.Flow.BuilderTest do
 
       refute function_exported?(Builder, :parallel, 3)
     end
+
+    test "builder exposes scoped local expression delegates" do
+      assert Builder.item() == Syntax.item()
+      assert Builder.item([:output, :value]) == Syntax.item([:output, :value])
+      assert Builder.item_index() == Syntax.item_index()
+      assert Builder.item_id() == Syntax.item_id()
+      assert Builder.accumulator() == Syntax.accumulator()
+      assert Builder.accumulator(:total) == Syntax.accumulator(:total)
+    end
+
+    test "builder and direct syntax produce equal Map and Reduce flows" do
+      syntax =
+        Syntax.new(name: "fan_out_in")
+        |> Syntax.map(
+          :mapped,
+          Syntax.input(:items),
+          JidoTest.TestActions.EchoParamsAction,
+          %{item: Syntax.item(), index: Syntax.item_index(), item_id: Syntax.item_id()},
+          on_error: :collect_errors,
+          bind: :mapped_result
+        )
+        |> Syntax.reduce(
+          nil,
+          Syntax.binding(:mapped_result),
+          Syntax.value(%{total: 0}),
+          JidoTest.TestActions.EchoParamsAction,
+          %{acc: Syntax.accumulator(), item: Syntax.item(:output)},
+          bind: :summary,
+          after: [:mapped]
+        )
+        |> Syntax.return(Syntax.binding(:summary))
+
+      builder =
+        Builder.new(name: "fan_out_in")
+        |> Builder.map(
+          :mapped,
+          Builder.input(:items),
+          JidoTest.TestActions.EchoParamsAction,
+          %{item: Builder.item(), index: Builder.item_index(), item_id: Builder.item_id()},
+          on_error: :collect_errors,
+          bind: :mapped_result
+        )
+        |> Builder.reduce(
+          nil,
+          Builder.binding(:mapped_result),
+          Builder.value(%{total: 0}),
+          JidoTest.TestActions.EchoParamsAction,
+          %{acc: Builder.accumulator(), item: Builder.item(:output)},
+          bind: :summary,
+          after: [:mapped]
+        )
+        |> Builder.return(Builder.binding(:summary))
+
+      assert {:ok, syntax_flow} = Lowerer.lower(syntax)
+      assert {:ok, builder_flow} = Builder.build(builder)
+      assert Flow.to_map(builder_flow) == Flow.to_map(syntax_flow)
+      assert Flow.dependencies(builder_flow) == Flow.dependencies(syntax_flow)
+      assert Flow.explain(builder_flow) == Flow.explain(syntax_flow)
+      assert Flow.semantic_identity(builder_flow) == Flow.semantic_identity(syntax_flow)
+    end
   end
 end
