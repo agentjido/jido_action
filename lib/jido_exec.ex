@@ -18,11 +18,25 @@ defmodule Jido.Exec do
   Stop events include `:status`; error stop events also include
   `:error_type`. Flow node events may be emitted from task processes when
   flow execution uses `async: true`.
+
+  ## Step-wise Flow execution
+
+  Use `start/4` to create a paused Flow execution. Use `ready/1` to inspect
+  available nodes, `step/1` or `step/2` to execute one node, and `wave/1` to
+  execute the current ready set. Use `continue/1` and `result/1` to finish and
+  read the same result that `run/4` returns.
+
+  Always pass the latest returned execution to the next operation. Reusing an
+  older execution can run an Action more than once. Execution values are
+  in-memory values and are not a persistent checkpoint format.
   """
 
   alias Jido.Action.Error
   alias Jido.Action.Output
   alias Jido.Action.Validation
+  alias Jido.Exec.Execution
+  alias Jido.Exec.FlowEngine
+  alias Jido.Exec.NodeResult
   alias Jido.Flow
   alias Jido.Instruction
 
@@ -50,6 +64,82 @@ defmodule Jido.Exec do
     end)
   end
 
+  @doc """
+  Starts a paused Flow execution.
+
+  The function accepts a Flow artifact or a module that uses `Jido.Flow`. It
+  validates the Flow, input, context, and run options before it returns. The
+  returned execution is paused before the first named Flow node.
+
+  `:async` and `:max_concurrency` are stored on the execution and used by
+  `wave/1` and `continue/1`. `step/1` and `step/2` always execute one node.
+  """
+  @spec start(term(), map() | keyword() | nil, map() | keyword() | nil, keyword()) ::
+          {:ok, Execution.t()} | {:error, Exception.t()}
+  def start(executable, input \\ %{}, context \\ %{}, opts \\ []) do
+    do_start(executable, input, context, opts)
+  end
+
+  @doc """
+  Returns the ready Flow node names in canonical order.
+  """
+  @spec ready(Execution.t()) :: [String.t()]
+  def ready(%Execution{} = execution), do: FlowEngine.ready(execution)
+
+  @doc """
+  Returns the current Flow execution status.
+
+  The result is `:running`, `:succeeded`, or `:failed`.
+  """
+  @spec status(Execution.t()) :: :running | :succeeded | :failed
+  def status(%Execution{} = execution), do: FlowEngine.status(execution)
+
+  @doc """
+  Executes the first ready Flow node in canonical order.
+  """
+  @spec step(Execution.t()) ::
+          {:ok, NodeResult.t(), Execution.t()} | {:error, Exception.t()}
+  def step(%Execution{} = execution), do: FlowEngine.step(execution)
+
+  @doc """
+  Executes one named Flow node when it is ready.
+
+  A node failure is returned as a `Jido.Exec.NodeResult` with `status: :error`.
+  The operation still returns `:ok` because the failure was applied to the Flow
+  execution. Selection and state errors return `{:error, exception}`.
+  """
+  @spec step(Execution.t(), String.t()) ::
+          {:ok, NodeResult.t(), Execution.t()} | {:error, Exception.t()}
+  def step(%Execution{} = execution, node), do: FlowEngine.step(execution, node)
+
+  @doc """
+  Executes the complete set of nodes that is currently ready.
+
+  Nodes that become ready during the wave wait for the next `step/1`, `wave/1`,
+  or `continue/1` call. Stored asynchronous options apply to the wave.
+  """
+  @spec wave(Execution.t()) ::
+          {:ok, [NodeResult.t()], Execution.t()} | {:error, Exception.t()}
+  def wave(%Execution{} = execution), do: FlowEngine.wave(execution)
+
+  @doc """
+  Continues a paused Flow execution until it reaches a terminal status.
+
+  The function returns the updated execution. Use `result/1` to read its cached
+  Flow result.
+  """
+  @spec continue(Execution.t()) :: {:ok, Execution.t()} | {:error, Exception.t()}
+  def continue(%Execution{} = execution), do: FlowEngine.continue(execution)
+
+  @doc """
+  Returns the cached result of a terminal Flow execution.
+
+  The function returns a validation error while the execution is still running.
+  It does not repeat Flow output validation.
+  """
+  @spec result(Execution.t()) :: {:ok, term()} | {:error, Exception.t()}
+  def result(%Execution{} = execution), do: FlowEngine.result(execution)
+
   defp do_run(%Instruction{} = instruction, input, context, opts) do
     with :ok <- reject_run_opts(opts, :instruction),
          {:ok, instruction} <- normalize_instruction(instruction, input, context) do
@@ -58,16 +148,9 @@ defmodule Jido.Exec do
   end
 
   defp do_run(%Flow{} = flow, input, context, opts) do
-    with {:ok, run_opts} <- validate_flow_run_opts(opts),
-         {:ok, flow} <- Flow.validate(flow),
-         :ok <- Flow.check(flow),
-         {:ok, input} <- normalize_map(input, :input),
-         {:ok, context} <- normalize_map(context, :context),
-         {:ok, input} <- validate_data(flow.schema, input, "Flow", flow, :flow_input),
-         {:ok, input} <- validate_flow_input_shape(flow, input),
-         {:ok, output} <- Flow.Compiler.run_validated(flow, input, context, run_opts),
-         {:ok, output} <- validate_flow_output(flow, output) do
-      {:ok, output}
+    with {:ok, execution} <- start_flow(flow, input, context, opts),
+         {:ok, execution} <- FlowEngine.continue(execution) do
+      FlowEngine.result(execution)
     end
   end
 
@@ -95,6 +178,58 @@ defmodule Jido.Exec do
   defp do_run(executable, _input, _context, _opts) do
     {:error,
      Error.config_error("unknown executable: #{inspect(executable)}", %{executable: executable})}
+  end
+
+  defp do_start(%Flow{} = flow, input, context, opts) do
+    start_flow(flow, input, context, opts)
+  end
+
+  defp do_start(%Instruction{}, _input, _context, _opts) do
+    stepwise_flow_required(:instruction)
+  end
+
+  defp do_start(module, input, context, opts) when is_atom(module) and not is_nil(module) do
+    case Code.ensure_loaded(module) do
+      {:module, _module} ->
+        if function_exported?(module, :__jido_flow__, 0) do
+          start_flow(module.flow(), input, context, opts)
+        else
+          stepwise_flow_required(:action)
+        end
+
+      {:error, reason} ->
+        {:error,
+         Error.config_error("unknown executable: #{inspect(module)}", %{
+           executable: module,
+           reason: reason
+         })}
+    end
+  end
+
+  defp do_start(executable, _input, _context, _opts) do
+    {:error,
+     Error.config_error("unknown executable: #{inspect(executable)}", %{executable: executable})}
+  end
+
+  defp start_flow(flow, input, context, opts) do
+    with {:ok, run_opts} <- validate_flow_run_opts(opts),
+         {:ok, flow} <- Flow.validate(flow),
+         :ok <- Flow.check(flow),
+         {:ok, input} <- normalize_map(input, :input),
+         {:ok, context} <- normalize_map(context, :context),
+         {:ok, input} <- validate_data(flow.schema, input, "Flow", flow, :flow_input),
+         {:ok, input} <- validate_flow_input_shape(flow, input) do
+      FlowEngine.start(flow, input, context, run_opts, fn output ->
+        validate_flow_output(flow, output)
+      end)
+    end
+  end
+
+  defp stepwise_flow_required(executable_type) do
+    {:error,
+     Error.validation_error("step-wise execution is only supported for flows", %{
+       executable_type: executable_type
+     })}
   end
 
   defp exec_metadata(%Instruction{action: action}) do

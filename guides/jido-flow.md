@@ -57,7 +57,7 @@ defmodule MyApp.Flows.DoubleAfterIncrement do
     name: "double_after_increment",
     description: "Adds one, then doubles the result",
     schema: Zoi.object(%{value: Zoi.integer()}),
-    output_schema: Zoi.integer()
+    output_schema: Zoi.object(%{value: Zoi.integer()})
 
   alias MyApp.Actions.{Add, Multiply}
 
@@ -69,7 +69,7 @@ defmodule MyApp.Flows.DoubleAfterIncrement do
         with: %{value: select(added, :value), amount: value(2)}
       )
 
-    return(select(doubled, :value))
+    return(doubled)
   end
 end
 ```
@@ -164,10 +164,10 @@ Run options are supported only for flows.
 Run a flow module or a flow artifact through `Jido.Exec`.
 
 ```elixir
-{:ok, 8} = Jido.Exec.run(MyApp.Flows.DoubleAfterIncrement, %{value: 3}, %{})
+{:ok, %{value: 8}} = Jido.Exec.run(MyApp.Flows.DoubleAfterIncrement, %{value: 3}, %{})
 
 flow = MyApp.Flows.DoubleAfterIncrement.flow()
-{:ok, 8} = Jido.Exec.run(flow, %{value: 3}, %{})
+{:ok, %{value: 8}} = Jido.Exec.run(flow, %{value: 3}, %{})
 ```
 
 Execution validates flow input before running steps and validates the declared
@@ -175,6 +175,89 @@ return value against the output schema after execution.
 
 Action extras are intentionally discarded during flow execution. Extras remain
 available when running a leaf action or instruction directly.
+
+## Step Through A Flow
+
+`Jido.Exec.start/4` validates the Flow and its input, then pauses before the
+first Flow node. It returns an opaque `Jido.Exec.Execution` value.
+
+```elixir
+{:ok, execution} =
+  Jido.Exec.start(
+    MyApp.Flows.DoubleAfterIncrement,
+    %{value: 3},
+    %{}
+  )
+
+:running = Jido.Exec.status(execution)
+["add_one"] = Jido.Exec.ready(execution)
+
+{:ok, add_result, execution} = Jido.Exec.step(execution, "add_one")
+
+:ok = add_result.status
+%{value: 4} = add_result.output
+["double"] = Jido.Exec.ready(execution)
+
+{:ok, double_result, execution} = Jido.Exec.step(execution)
+
+"double" = double_result.node
+:succeeded = Jido.Exec.status(execution)
+{:ok, %{value: 8}} = Jido.Exec.result(execution)
+```
+
+`step/1` executes the first ready node in canonical Flow order. `step/2`
+executes the named node only when that node is ready. Each successful operation
+returns a new execution value. Always pass the latest value to the next call.
+Reusing an older value can run an Action more than once.
+
+A node failure is a valid execution transition. The operation returns an `:ok`
+tuple with a node result that has `status: :error`. The updated execution keeps
+the error. Dependent nodes are skipped, but independent ready nodes can still
+run.
+
+```elixir
+{:ok, failed_node, execution} = Jido.Exec.step(execution, "load_account")
+
+:error = failed_node.status
+error = failed_node.error
+```
+
+After all remaining work finishes, `Jido.Exec.result/1` returns the Flow error.
+
+## Execute One Ready Wave
+
+`Jido.Exec.wave/1` executes the complete set of nodes that is ready when the
+wave starts. Nodes that become ready during the wave wait for the next call.
+
+```elixir
+{:ok, execution} =
+  Jido.Exec.start(MyApp.Flows.LoadDashboard, input, context,
+    async: true,
+    max_concurrency: 4
+  )
+
+["load_account", "load_orders"] = Jido.Exec.ready(execution)
+
+{:ok, node_results, execution} = Jido.Exec.wave(execution)
+
+["build_dashboard"] = Jido.Exec.ready(execution)
+```
+
+With `async: true`, independent nodes in the wave can run concurrently.
+`max_concurrency` limits the number of Action tasks. The returned node results
+remain in canonical Flow order.
+
+Use `Jido.Exec.continue/1` when you want to resume a paused execution and run all
+remaining waves:
+
+```elixir
+{:ok, execution} = Jido.Exec.continue(execution)
+{:ok, dashboard} = Jido.Exec.result(execution)
+```
+
+Nested Flows execute as one node in the parent Flow. Step-wise executions are
+in-memory values. They are not persistent checkpoints and they do not provide
+rewind or exactly-once side-effect guarantees.
 
 ## Inspect And Store Flow Maps
 
