@@ -5,6 +5,7 @@ defmodule Jido.ExecTest do
   alias Jido.Exec
   alias Jido.Flow
   alias Jido.Flow.{Builder, Choice, Condition, Node, Ref}
+  alias Jido.Flow.Map, as: FlowMap
   alias Jido.Instruction
   alias JidoTest.FlowFixtures
 
@@ -1217,6 +1218,100 @@ defmodule Jido.ExecTest do
 
       assert {:ok, %{value: 3}} = Exec.run(flow, %{}, %{test_pid: self()})
       refute_receive {^target, _kind}
+    end
+
+    test "runs each nested Map Flow input and output boundary exactly once" do
+      target = unique_module("MapNestedFlow")
+
+      create_module(
+        target,
+        quote do
+          use Jido.Flow,
+            name: "map_nested_flow",
+            schema:
+              Zoi.map()
+              |> Zoi.transform({Jido.ExecTest, :count_flow_transform, [:input]}),
+            output_schema:
+              Zoi.map()
+              |> Zoi.transform({Jido.ExecTest, :count_flow_transform, [:output]})
+
+          flow do
+            step(:echo, unquote(EchoParamsAction), %{
+              value: input(:value),
+              input_passes: input(:input_passes)
+            })
+
+            return(result(:echo))
+          end
+        end
+      )
+
+      flow =
+        Flow.new!(
+          name: "map_nested_once",
+          nodes: [
+            FlowMap.new!(
+              name: :mapped,
+              collection: Ref.value([3, 4]),
+              action: target,
+              input: %{value: Ref.item()}
+            )
+          ],
+          return: Ref.result(:mapped)
+        )
+
+      reset_flow_transform_counts()
+
+      assert {:ok, %{results: results, errors: []}} = Exec.run(flow)
+      assert Enum.map(results, & &1.output.value) == [3, 4]
+      assert Enum.map(results, & &1.output.input_passes) == [1, 1]
+      assert Enum.map(results, & &1.output.output_passes) == [1, 1]
+      assert Process.get({__MODULE__, :input}) == 2
+      assert Process.get({__MODULE__, :output}) == 2
+    end
+
+    test "preflights an empty Map target before any public node runs" do
+      before = unique_module("BeforeInvalidMap")
+
+      create_module(
+        before,
+        quote do
+          def validate_params(params), do: {:ok, params}
+          def validate_output(output), do: {:ok, output}
+
+          def run(%{test_pid: test_pid} = params, _context) do
+            send(test_pid, {__MODULE__, :run})
+            {:ok, params}
+          end
+        end
+      )
+
+      flow =
+        Flow.new!(
+          name: "empty_map_preflight",
+          nodes: [
+            Node.new!(
+              name: :before,
+              action: before,
+              input: %{test_pid: Ref.context(:test_pid)}
+            ),
+            FlowMap.new!(
+              name: :mapped,
+              collection: Ref.value([]),
+              action: MissingRun,
+              input: Ref.item()
+            )
+          ],
+          return: Ref.result(:mapped)
+        )
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Exec.run(flow, %{}, %{test_pid: self()})
+
+      assert message == "module is not a valid Jido action"
+      assert details.map == "mapped"
+      assert details.target == MissingRun
+      refute_receive {^before, :run}
     end
   end
 

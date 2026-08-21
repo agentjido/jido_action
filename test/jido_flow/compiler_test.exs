@@ -15,6 +15,7 @@ defmodule Jido.Flow.CompilerTest do
     AtomErrorAction,
     AtomValidationAction,
     ContextEcho,
+    CountedMapAction,
     EchoParamsAction,
     ErrorAction,
     ErrorWithExtrasAction,
@@ -24,6 +25,7 @@ defmodule Jido.Flow.CompilerTest do
     InvalidOutput,
     InvalidValidatedOutputAction,
     MissingRun,
+    MapProbeAction,
     Multiply,
     OutputEnvelopeAction,
     RawExceptionErrorAction,
@@ -525,6 +527,154 @@ defmodule Jido.Flow.CompilerTest do
       assert %Workflow{} = final_workflow = Workflow.react_until_satisfied(workflow, %{})
       assert Workflow.results(final_workflow, ["after_bad"]) == %{"after_bad" => nil}
       refute_receive {:after_bad, _state}
+    end
+  end
+
+  describe "Map runtime" do
+    test "resolves one proper list into the exact ordered aggregate with scoped refs" do
+      flow =
+        map_flow(
+          "map_serial",
+          Ref.input(:items),
+          RecorderAction,
+          %{
+            item: Ref.item(),
+            index: Ref.item_index(),
+            item_id: Ref.item_id()
+          }
+        )
+
+      assert {:ok, %{kind: :jido_flow_map_result, results: results, errors: []}} =
+               Compiler.run(flow, %{items: [%{value: 3}, %{value: 1}]}, %{test_pid: self()})
+
+      assert Enum.map(results, & &1.index) == [0, 1]
+      assert Enum.map(results, & &1.output.item.value) == [3, 1]
+      assert Enum.map(results, & &1.output.index) == [0, 1]
+      assert Enum.map(results, & &1.item_id) == Enum.map(results, & &1.output.item_id)
+      assert Enum.all?(results, &is_binary(&1.item_id))
+
+      assert_receive {RecorderAction, %{index: 0}}
+      assert_receive {RecorderAction, %{index: 1}}
+    end
+
+    test "returns the exact empty aggregate and invokes no target" do
+      flow = map_flow("map_empty", Ref.value([]), RecorderAction, Ref.item())
+
+      assert Compiler.run(flow, %{}, %{test_pid: self()}) ==
+               {:ok, %{kind: :jido_flow_map_result, results: [], errors: []}}
+
+      refute_receive {RecorderAction, _params}
+    end
+
+    test "rejects improper lists and arbitrary Enumerables without enumerating them" do
+      for collection <- [[1 | 2], 1..3, Stream.map(1..3, & &1)] do
+        flow = map_flow("map_invalid_collection", Ref.input(:items), RecorderAction, %{})
+
+        assert {:error,
+                %ExecutionFailureError{
+                  message: "map collection must resolve to a proper list",
+                  details: details
+                }} = Compiler.run(flow, %{items: collection}, %{test_pid: self()})
+
+        assert details == %{
+                 phase: :map_collection,
+                 node: "mapped",
+                 reason: :not_a_proper_list,
+                 value_type: value_type(collection),
+                 retry: false
+               }
+      end
+
+      refute_receive {RecorderAction, _params}
+    end
+
+    test "accepts map, Output, and extras results and rejects a raw scalar" do
+      extras = map_flow("map_extras", Ref.value([2]), ExtrasAction, %{value: Ref.item()})
+
+      assert {:ok, %{results: [%{output: %{value: 2}}], errors: []}} =
+               Compiler.run(extras, %{}, %{})
+
+      envelope =
+        map_flow("map_envelope", Ref.value([3]), OutputEnvelopeAction, %{value: Ref.item()})
+
+      assert {:ok, %{results: [%{output: %Output{value: %{value: 3}}}], errors: []}} =
+               Compiler.run(envelope, %{}, %{})
+
+      scalar = map_flow("map_scalar", Ref.value([4]), RawOutputAction, %{value: Ref.item()})
+
+      assert {:error,
+              %ExecutionFailureError{
+                message: "action returned a value that requires an output envelope",
+                details: details
+              }} = Compiler.run(scalar, %{}, %{})
+
+      assert details.phase == :map_target_output
+      assert details.node == "mapped"
+      assert details.target == RawOutputAction
+      assert details.item_index == 0
+      assert is_binary(details.item_id)
+    end
+
+    test "validates input, invokes, and validates output exactly once for each started item" do
+      flow =
+        map_flow(
+          "map_exactly_once",
+          Ref.value([:first, :second]),
+          CountedMapAction,
+          %{test_pid: Ref.context(:test_pid), index: Ref.item_index()}
+        )
+
+      assert {:ok, %{results: [_, _], errors: []}} =
+               Compiler.run(flow, %{}, %{test_pid: self()})
+
+      for index <- 0..1 do
+        assert_receive {CountedMapAction, :input, ^index}
+        assert_receive {CountedMapAction, :run, ^index}
+        assert_receive {CountedMapAction, :output, ^index}
+        refute_receive {CountedMapAction, _phase, ^index}
+      end
+    end
+
+    test "uses serial fail-fast and ordered collect-errors semantics" do
+      input = %{
+        test_pid: Ref.context(:test_pid),
+        index: Ref.item_index(),
+        value: Ref.item(:value),
+        outcome: Ref.item(:outcome)
+      }
+
+      items = [
+        %{value: :zero, outcome: :ok},
+        %{value: :one, outcome: {:error, "one failed"}},
+        %{value: :two, outcome: :ok}
+      ]
+
+      fail_fast = map_flow("map_fail_fast", Ref.value(items), MapProbeAction, input)
+
+      assert {:error, %ExecutionFailureError{message: "one failed", details: fail_details}} =
+               Compiler.run(fail_fast, %{}, %{test_pid: self()})
+
+      assert fail_details.phase == :map_target_execution
+      assert fail_details.item_index == 1
+      assert fail_details.target == MapProbeAction
+      assert_receive {MapProbeAction, :started, 0, _pid}
+      assert_receive {MapProbeAction, :started, 1, _pid}
+      refute_receive {MapProbeAction, :started, 2, _pid}
+
+      collect =
+        map_flow("map_collect", Ref.value(items), MapProbeAction, input,
+          on_error: :collect_errors
+        )
+
+      assert {:ok, %{kind: :jido_flow_map_result, results: results, errors: errors}} =
+               Compiler.run(collect, %{}, %{test_pid: self()})
+
+      assert Enum.map(results, & &1.index) == [0, 2]
+      assert Enum.map(errors, & &1.index) == [1]
+      assert [%{error: %ExecutionFailureError{message: "one failed"}}] = errors
+      assert_receive {MapProbeAction, :started, 0, _pid}
+      assert_receive {MapProbeAction, :started, 1, _pid}
+      assert_receive {MapProbeAction, :started, 2, _pid}
     end
   end
 
@@ -1757,6 +1907,31 @@ defmodule Jido.Flow.CompilerTest do
       return: Ref.result(:route)
     )
   end
+
+  defp map_flow(name, collection, action, input, opts \\ []) do
+    Flow.new!(
+      name: name,
+      nodes: [
+        FlowMap.new!(
+          name: :mapped,
+          collection: collection,
+          action: action,
+          input: input,
+          on_error: Keyword.get(opts, :on_error, :fail_fast)
+        )
+      ],
+      return: Ref.result(:mapped)
+    )
+  end
+
+  defp value_type(nil), do: nil
+  defp value_type(value) when is_list(value), do: :list
+  defp value_type(value) when is_map(value), do: :map
+  defp value_type(value) when is_binary(value), do: :binary
+  defp value_type(value) when is_number(value), do: :number
+  defp value_type(value) when is_atom(value), do: :atom
+  defp value_type(value) when is_tuple(value), do: :tuple
+  defp value_type(_value), do: :other
 
   defp one_step_flow do
     Flow.new!(

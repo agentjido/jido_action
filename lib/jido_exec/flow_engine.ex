@@ -14,7 +14,7 @@ defmodule Jido.Exec.FlowEngine do
       when is_map(input) and is_map(context) and is_list(options) and
              is_function(finalizer, 1) do
     with {:ok, workflow, ordered_elements} <-
-           Compiler.runtime_workflow_validated(flow, input, context) do
+           Compiler.runtime_workflow_validated(flow, input, context, options) do
       ordered_nodes = Enum.map(ordered_elements, &Element.name/1)
 
       execution = %Execution{
