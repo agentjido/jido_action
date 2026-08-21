@@ -5,7 +5,7 @@ defmodule Jido.Flow.ParserTest do
   alias Jido.Flow
   alias Jido.Flow.Parser
   alias JidoTest.FlowFixtures
-  alias JidoTest.TestActions.Add
+  alias JidoTest.TestActions.{Add, Multiply}
 
   describe "parse/2" do
     test "stored profile accepts novel string step names without existing atoms" do
@@ -144,6 +144,113 @@ defmodule Jido.Flow.ParserTest do
       assert add_one.input.amount == %{type: :value, value: 1}
       assert double.input == %{type: :result, node: "add_one", path: []}
       assert Flow.to_map(flow).return == %{type: :result, node: "double", path: []}
+    end
+
+    test "parses ordered Choice conditions through trusted and stored profiles" do
+      trusted_source = """
+      flow do
+        step "classified", JidoTest.TestActions.Add, with: %{}
+
+        routed = choose :route, after: "classified" do
+          option "eq", when: eq(input("kind"), value("eq")), run: JidoTest.TestActions.Add, with: %{}
+          option "neq", when: neq(input("kind"), value("neq")), run: JidoTest.TestActions.Add, with: %{}
+          option "lt", when: lt(input("rank"), value(3)), run: JidoTest.TestActions.Add, with: %{}
+          option "lte", when: lte(input("rank"), value(3)), run: JidoTest.TestActions.Add, with: %{}
+          option "gt", when: gt(input("rank"), value(3)), run: JidoTest.TestActions.Add, with: %{}
+          option "gte", when: gte(input("rank"), value(3)), run: JidoTest.TestActions.Add, with: %{}
+          option "included", when: input("kind") in value(["one", "two"]), run: JidoTest.TestActions.Add, with: %{}
+          option "all", when: all([eq(input("kind"), value("all")), gt(input("rank"), value(0))]), run: JidoTest.TestActions.Add, with: %{}
+          option "any", when: any([eq(input("kind"), value("any")), lt(input("rank"), value(0))]), run: JidoTest.TestActions.Add, with: %{}
+          option "not", when: not(eq(input("kind"), value("not"))), run: JidoTest.TestActions.Multiply, with: %{}
+          otherwise run: JidoTest.TestActions.Add, with: %{}
+        end
+
+        return routed
+      end
+      """
+
+      stored_source =
+        trusted_source
+        |> String.replace("JidoTest.TestActions.Multiply", ~s("multiply"))
+        |> String.replace("JidoTest.TestActions.Add", ~s("add"))
+
+      assert {:ok, trusted_flow} = Flow.parse(trusted_source, name: "choice_parser")
+
+      assert {:ok, stored_flow} =
+               Flow.parse(stored_source,
+                 name: "choice_parser",
+                 profile: :stored,
+                 actions: %{add: Add, multiply: Multiply}
+               )
+
+      assert Flow.to_map(stored_flow) == Flow.to_map(trusted_flow)
+
+      assert [
+               %{name: "classified"},
+               %{kind: :choice, options: options, fallback: %{action: Add}, deps: ["classified"]}
+             ] =
+               Flow.to_map(trusted_flow).nodes
+
+      assert Enum.map(options, & &1.name) == [
+               "eq",
+               "neq",
+               "lt",
+               "lte",
+               "gt",
+               "gte",
+               "included",
+               "all",
+               "any",
+               "not"
+             ]
+
+      assert Enum.map(options, & &1.condition.operator) == [
+               :eq,
+               :neq,
+               :lt,
+               :lte,
+               :gt,
+               :gte,
+               :in,
+               :all,
+               :any,
+               :not
+             ]
+    end
+
+    test "rejects malformed and executable Choice source before evaluation" do
+      cases = [
+        {:arbitrary_condition_call,
+         "option :bad, when: System.system_time(), run: JidoTest.TestActions.Add, with: %{}"},
+        {:anonymous_function,
+         "option :bad, when: eq(input(:kind), fn -> :bad end), run: JidoTest.TestActions.Add, with: %{}"},
+        {:unknown_operator,
+         "option :bad, when: matches(input(:kind), value(:bad)), run: JidoTest.TestActions.Add, with: %{}"},
+        {:missing_with,
+         "option :bad, when: eq(input(:kind), value(:bad)), run: JidoTest.TestActions.Add"},
+        {:duplicate_option,
+         """
+         option :same, when: eq(input(:kind), value(:one)), run: JidoTest.TestActions.Add, with: %{}
+         option :same, when: eq(input(:kind), value(:two)), run: JidoTest.TestActions.Add, with: %{}
+         """},
+        {:missing_fallback,
+         "option :bad, when: eq(input(:kind), value(:bad)), run: JidoTest.TestActions.Add, with: %{}"}
+      ]
+
+      for {_kind, statements} <- cases do
+        source = """
+        flow do
+          choose :route do
+            #{statements}
+          end
+
+          return result(:route)
+        end
+        """
+
+        assert {:error, %InvalidInputError{message: message}} = Flow.parse(source, name: "bad")
+        assert message =~ "unsupported flow DSL" or message =~ "choice"
+      end
     end
 
     test "parses bound steps whose names derive from binding handles" do
