@@ -908,6 +908,316 @@ defmodule Jido.ExecTest do
       assert_receive {^target, :output}
       refute_receive {^target, _kind}
     end
+
+    test "selects the same Choice option through every public Flow path" do
+      module = unique_module("ChoicePublicPaths")
+
+      create_module(
+        module,
+        quote do
+          use Jido.Flow, name: "choice_public_paths"
+
+          flow do
+            routed =
+              choose :route do
+                option(:priority,
+                  when: eq(input(:kind), value(:priority)),
+                  run: unquote(Add),
+                  with: %{value: input(:value), amount: value(1)}
+                )
+
+                otherwise(run: unquote(Add), with: %{value: input(:value), amount: value(2)})
+              end
+
+            return(routed)
+          end
+        end
+      )
+
+      for {path, run} <- flow_execution_paths(module, %{kind: :priority, value: 3}) do
+        assert {:ok, %{value: 4}} = run.(), to_string(path)
+      end
+    end
+
+    test "preserves a selected Choice Action Output envelope through every public Flow path" do
+      module = unique_module("ChoiceEnvelopePublicPaths")
+      target = unique_module("ChoiceEnvelopeTarget")
+
+      create_module(
+        target,
+        quote do
+          def validate_params(params), do: {:ok, params}
+          def validate_output(output), do: {:ok, output}
+
+          def run(%{value: value}, _context) do
+            {:ok, Jido.Action.Output.raw(%{value: value}, meta: %{source: :test})}
+          end
+        end
+      )
+
+      create_module(
+        module,
+        quote do
+          use Jido.Flow, name: "choice_envelope_public_paths"
+
+          flow do
+            routed =
+              choose :route do
+                option(:envelope,
+                  when: eq(input(:kind), value(:envelope)),
+                  run: unquote(target),
+                  with: %{value: input(:value)}
+                )
+
+                otherwise(run: unquote(Add), with: %{value: input(:value), amount: value(0)})
+              end
+
+            return(routed)
+          end
+        end
+      )
+
+      expected = %Jido.Action.Output{kind: :raw, value: %{value: 3}, meta: %{source: :test}}
+
+      for {path, run} <- flow_execution_paths(module, %{kind: :envelope, value: 3}) do
+        assert {:ok, ^expected} = run.(), to_string(path)
+      end
+    end
+
+    test "runs selected nested Flow transforms exactly once through every public Flow path" do
+      target = unique_module("ChoicePublicNestedFlow")
+      module = unique_module("ChoicePublicNestedPaths")
+
+      create_module(
+        target,
+        quote do
+          use Jido.Flow,
+            name: "choice_public_nested_flow",
+            schema:
+              Zoi.map()
+              |> Zoi.transform({Jido.ExecTest, :count_flow_transform, [:input]}),
+            output_schema:
+              Zoi.map()
+              |> Zoi.transform({Jido.ExecTest, :count_flow_transform, [:output]})
+
+          flow do
+            step(:echo, unquote(Add), %{value: input(:value), amount: value(0)})
+
+            return(result(:echo))
+          end
+        end
+      )
+
+      create_module(
+        module,
+        quote do
+          use Jido.Flow, name: "choice_public_nested_paths"
+
+          flow do
+            routed =
+              choose :route do
+                option(:nested,
+                  when: eq(input(:kind), value(:nested)),
+                  run: unquote(target),
+                  with: %{value: input(:value)}
+                )
+
+                otherwise(run: unquote(Add), with: %{value: input(:value), amount: value(0)})
+              end
+
+            return(routed)
+          end
+        end
+      )
+
+      for {path, run} <- flow_execution_paths(module, %{kind: :nested, value: 3}) do
+        reset_flow_transform_counts()
+
+        assert {:ok, %{value: 3, output_passes: 1}} = run.(), to_string(path)
+        assert Process.get({__MODULE__, :input}) == 1, to_string(path)
+        assert Process.get({__MODULE__, :output}) == 1, to_string(path)
+      end
+    end
+
+    test "preserves selected nested Flow Output envelopes through every public Flow path" do
+      envelope = unique_module("ChoicePublicEnvelopeAction")
+      target = unique_module("ChoicePublicEnvelopeFlow")
+      module = unique_module("ChoicePublicEnvelopePaths")
+
+      create_module(
+        envelope,
+        quote do
+          def validate_params(params), do: {:ok, params}
+          def validate_output(output), do: {:ok, output}
+
+          def run(%{value: value}, _context) do
+            {:ok, Jido.Action.Output.raw(%{value: value}, meta: %{source: :nested})}
+          end
+        end
+      )
+
+      create_module(
+        target,
+        quote do
+          use Jido.Flow,
+            name: "choice_public_envelope_flow",
+            schema:
+              Zoi.map()
+              |> Zoi.transform({Jido.ExecTest, :count_flow_transform, [:input]}),
+            output_schema:
+              Zoi.map()
+              |> Zoi.transform({Jido.ExecTest, :count_flow_transform, [:envelope_output]})
+
+          flow do
+            step(:envelope, unquote(envelope), %{value: input(:value)})
+            return(result(:envelope))
+          end
+        end
+      )
+
+      create_module(
+        module,
+        quote do
+          use Jido.Flow, name: "choice_public_envelope_paths"
+
+          flow do
+            routed =
+              choose :route do
+                option(:nested,
+                  when: eq(input(:kind), value(:nested)),
+                  run: unquote(target),
+                  with: %{value: input(:value)}
+                )
+
+                otherwise(run: unquote(Add), with: %{value: input(:value), amount: value(0)})
+              end
+
+            return(routed)
+          end
+        end
+      )
+
+      expected = %Jido.Action.Output{kind: :raw, value: %{value: 3}, meta: %{source: :nested}}
+
+      for {path, run} <- flow_execution_paths(module, %{kind: :nested, value: 3}) do
+        reset_flow_transform_counts()
+
+        assert {:ok, ^expected} = run.(), to_string(path)
+        assert Process.get({__MODULE__, :input}) == 1, to_string(path)
+        assert Process.get({__MODULE__, :envelope_output}, 0) == 0, to_string(path)
+      end
+    end
+
+    test "rejects an invalid unselected Choice target before graph execution" do
+      before = unique_module("ChoicePreflightRecorder")
+
+      create_module(
+        before,
+        quote do
+          def validate_params(params), do: {:ok, params}
+          def validate_output(output), do: {:ok, output}
+
+          def run(%{test_pid: test_pid} = params, _context) do
+            send(test_pid, {__MODULE__, :run})
+            {:ok, params}
+          end
+        end
+      )
+
+      flow =
+        Flow.new!(
+          name: "choice_preflight",
+          nodes: [
+            Node.new!(
+              name: :before_choice,
+              action: before,
+              input: %{test_pid: Ref.context(:test_pid)}
+            ),
+            Choice.new!(
+              name: :route,
+              options: [
+                [
+                  name: :selected,
+                  condition: Condition.eq(Ref.value(true), Ref.value(true)),
+                  action: Add,
+                  input: %{value: Ref.input(:value), amount: Ref.value(0)}
+                ],
+                [
+                  name: :invalid,
+                  condition: Condition.eq(Ref.value(false), Ref.value(true)),
+                  action: MissingRun,
+                  input: %{value: Ref.input(:value)}
+                ]
+              ],
+              fallback: [action: Add, input: %{value: Ref.input(:value), amount: Ref.value(0)}]
+            )
+          ],
+          return: Ref.result(:route)
+        )
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Exec.run(flow, %{value: 3}, %{test_pid: self()})
+
+      assert message == "module is not a valid Jido action"
+      assert details.reason == "missing run/2"
+      assert details.choice == "route"
+      assert details.option == "invalid"
+      assert details.target == MissingRun
+      refute_receive {^before, :run}
+    end
+
+    test "does not validate or run an unselected Choice target" do
+      target = unique_module("ChoiceUnselectedTarget")
+
+      create_module(
+        target,
+        quote do
+          def validate_params(%{test_pid: test_pid} = params) do
+            send(test_pid, {__MODULE__, :params})
+            {:ok, params}
+          end
+
+          def validate_output(%{test_pid: test_pid} = output) do
+            send(test_pid, {__MODULE__, :output})
+            {:ok, output}
+          end
+
+          def run(%{test_pid: test_pid} = params, _context) do
+            send(test_pid, {__MODULE__, :run})
+            {:ok, params}
+          end
+        end
+      )
+
+      flow =
+        Flow.new!(
+          name: "choice_unselected_target",
+          nodes: [
+            Choice.new!(
+              name: :route,
+              options: [
+                [
+                  name: :selected,
+                  condition: Condition.eq(Ref.value(true), Ref.value(true)),
+                  action: Add,
+                  input: %{value: Ref.value(3), amount: Ref.value(0)}
+                ],
+                [
+                  name: :unselected,
+                  condition: Condition.eq(Ref.value(false), Ref.value(true)),
+                  action: target,
+                  input: %{test_pid: Ref.context(:test_pid)}
+                ]
+              ],
+              fallback: [action: Add, input: %{value: Ref.value(0), amount: Ref.value(0)}]
+            )
+          ],
+          return: Ref.result(:route)
+        )
+
+      assert {:ok, %{value: 3}} = Exec.run(flow, %{}, %{test_pid: self()})
+      refute_receive {^target, _kind}
+    end
   end
 
   describe "run/4 options" do
@@ -945,6 +1255,70 @@ defmodule Jido.ExecTest do
                timed(fn -> Exec.run(flow, %{}, %{}, async: true, max_concurrency: 2) end)
 
       assert async_ms < serial_ms * 0.75
+    end
+
+    @tag timeout: 5_000
+    test "does not pass parent run options into a selected nested Flow" do
+      target = unique_module("ChoiceNestedRunOptions")
+      delayed = unique_module("ChoiceNestedDelayedAction")
+
+      create_module(
+        delayed,
+        quote do
+          def validate_params(params), do: {:ok, params}
+          def validate_output(output), do: {:ok, output}
+
+          def run(%{sleep_ms: sleep_ms} = params, _context) do
+            Process.sleep(sleep_ms)
+            {:ok, params}
+          end
+        end
+      )
+
+      create_module(
+        target,
+        quote do
+          use Jido.Flow, name: "choice_nested_run_options"
+
+          flow do
+            step(:left, unquote(delayed), %{
+              side: value(:left),
+              sleep_ms: value(100)
+            })
+
+            step(:right, unquote(delayed), %{
+              side: value(:right),
+              sleep_ms: value(100)
+            })
+
+            return(%{left: result(:left, :side), right: result(:right, :side)})
+          end
+        end
+      )
+
+      flow =
+        Flow.new!(
+          name: "choice_parent_run_options",
+          nodes: [
+            Choice.new!(
+              name: :route,
+              options: [
+                [
+                  name: :nested,
+                  condition: Condition.eq(Ref.value(true), Ref.value(true)),
+                  action: target
+                ]
+              ],
+              fallback: [action: EchoParamsAction]
+            )
+          ],
+          return: Ref.result(:route)
+        )
+
+      assert {{:ok, %{left: :left, right: :right}}, elapsed_ms} =
+               timed(fn -> Exec.run(flow, %{}, %{}, async: true, max_concurrency: 2) end)
+
+      assert elapsed_ms >= 180
     end
 
     @tag timeout: 5_000

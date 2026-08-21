@@ -167,6 +167,12 @@ defmodule Jido.Integration.FlowParityTest do
         assert {:ok, %{nodes: expected_nodes}} = Jido.Flow.explain(syntax_flow)
         assert nodes == expected_nodes
         assert Jido.Flow.semantic_identity(flow) == Jido.Flow.semantic_identity(syntax_flow)
+
+        assert {:ok, %{value: 4}} = Jido.Exec.run(flow, %{kind: :priority, value: 3}, %{}),
+               "#{surface} Choice priority execution diverged"
+
+        assert {:ok, %{value: 6}} = Jido.Exec.run(flow, %{kind: :standard, value: 3}, %{}),
+               "#{surface} Choice non-priority execution diverged"
       end
     end
   end
