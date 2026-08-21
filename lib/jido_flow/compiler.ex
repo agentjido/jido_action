@@ -6,6 +6,8 @@ defmodule Jido.Flow.Compiler do
   alias Jido.Action.Error
   alias Jido.Exec
   alias Jido.Flow
+  alias Jido.Flow.Choice
+  alias Jido.Flow.Condition
   alias Jido.Flow.Element
   alias Jido.Flow.Identity
   alias Jido.Flow.Node
@@ -250,7 +252,34 @@ defmodule Jido.Flow.Compiler do
 
     case result do
       {:ok, output} -> output
+      {:ok, output, _choice_metadata} -> output
       {:error, error, state} -> raise_node_error(node, error, state)
+      {:error, error, state, _choice_metadata} -> raise_node_error(node, error, state)
+    end
+  end
+
+  defp run_node_result(%Choice{} = choice, parent_value, node_state) do
+    state = %{node_state | results: dependency_results(choice, parent_value)}
+
+    case select_choice_target(choice, state) do
+      {:ok, target} ->
+        metadata = %{option: target.name, target: target.action}
+
+        with {:ok, params} <- resolve_expr(target.input, state),
+             {:ok, output} <-
+               run_resolved_target(
+                 target.action,
+                 params,
+                 state.context,
+                 choice_target_owner(choice, target)
+               ) do
+          {:ok, output, metadata}
+        else
+          {:error, error} -> {:error, error, state, metadata}
+        end
+
+      {:error, error} ->
+        {:error, error, state}
     end
   end
 
@@ -270,26 +299,183 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp run_resolved_node(node, params, context) do
-    if flow_module?(node.action) do
-      call_flow(node, params, context)
-    else
-      with {:ok, params} <- validate_step_input(node, params),
-           {:ok, output} <- call_action(node, params, context),
-           {:ok, output} <- validate_step_output(node, output) do
-        {:ok, output}
-      end
-    end
+    run_resolved_target(node.action, params, context, node_target_owner(node))
   end
 
   defp flow_module?(action) do
     function_exported?(action, :__jido_flow__, 0)
   end
 
-  defp call_flow(node, params, context) do
-    node.action
-    |> apply(:flow, [])
-    |> Exec.run(params, context)
-    |> tag_step_error(:step_execution, node)
+  defp select_choice_target(%Choice{} = choice, state) do
+    choice.options
+    |> Enum.reduce_while({:ok, choice.fallback}, fn option, {:ok, _fallback} ->
+      case evaluate_condition(option.condition, state, choice.name, option.name) do
+        {:ok, true} -> {:halt, {:ok, option}}
+        {:ok, false} -> {:cont, {:ok, choice.fallback}}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+  end
+
+  defp evaluate_condition(%Condition{operator: :all, operands: conditions}, state, node, option) do
+    Enum.reduce_while(conditions, {:ok, true}, fn condition, {:ok, true} ->
+      case evaluate_condition(condition, state, node, option) do
+        {:ok, true} -> {:cont, {:ok, true}}
+        {:ok, false} -> {:halt, {:ok, false}}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+  end
+
+  defp evaluate_condition(%Condition{operator: :any, operands: conditions}, state, node, option) do
+    Enum.reduce_while(conditions, {:ok, false}, fn condition, {:ok, false} ->
+      case evaluate_condition(condition, state, node, option) do
+        {:ok, true} -> {:halt, {:ok, true}}
+        {:ok, false} -> {:cont, {:ok, false}}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+  end
+
+  defp evaluate_condition(%Condition{operator: :not, operands: [condition]}, state, node, option) do
+    case evaluate_condition(condition, state, node, option) do
+      {:ok, result} -> {:ok, not result}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp evaluate_condition(
+         %Condition{operator: operator, operands: [left, right]},
+         state,
+         node,
+         option
+       ) do
+    with {:ok, left} <- resolve_expr(left, state),
+         {:ok, right} <- resolve_expr(right, state) do
+      evaluate_comparison(operator, left, right, node, option)
+    end
+  end
+
+  defp evaluate_comparison(:eq, left, right, _node, _option), do: {:ok, left == right}
+  defp evaluate_comparison(:neq, left, right, _node, _option), do: {:ok, left != right}
+
+  defp evaluate_comparison(operator, left, right, node, option)
+       when operator in [:lt, :lte, :gt, :gte] do
+    if comparable_choice_values?(left, right) do
+      result =
+        case operator do
+          :lt -> left < right
+          :lte -> left <= right
+          :gt -> left > right
+          :gte -> left >= right
+        end
+
+      {:ok, result}
+    else
+      invalid_choice_condition(operator, :invalid_ordering_operands, left, right, node, option)
+    end
+  end
+
+  defp evaluate_comparison(:in, left, right, node, option) do
+    if proper_list?(right) do
+      {:ok, Enum.member?(right, left)}
+    else
+      invalid_choice_condition(:in, :invalid_membership_right_operand, left, right, node, option)
+    end
+  end
+
+  defp comparable_choice_values?(left, right) do
+    (is_number(left) and is_number(right)) or (is_binary(left) and is_binary(right))
+  end
+
+  defp proper_list?(value), do: is_list(value) and not List.improper?(value)
+
+  defp invalid_choice_condition(operator, reason, left, right, node, option) do
+    {:error,
+     Error.execution_error("invalid choice condition operands", %{
+       phase: :choice_condition,
+       node: node,
+       option: option,
+       operator: operator,
+       reason: reason,
+       left_type: choice_value_type(left),
+       right_type: choice_value_type(right),
+       retry: false
+     })}
+  end
+
+  defp choice_value_type(value) when is_number(value), do: :number
+  defp choice_value_type(value) when is_binary(value), do: :binary
+  defp choice_value_type(value) when is_list(value), do: :list
+  defp choice_value_type(value) when is_map(value), do: :map
+  defp choice_value_type(value) when is_atom(value), do: :atom
+  defp choice_value_type(value) when is_tuple(value), do: :tuple
+  defp choice_value_type(_value), do: :other
+
+  defp run_resolved_target(action, params, context, owner) do
+    if flow_module?(action) do
+      action
+      |> apply(:flow, [])
+      |> Exec.run(params, context)
+      |> tag_target_error(:execution, owner)
+    else
+      with {:ok, params} <- validate_target_input(action, params, owner),
+           {:ok, output} <- call_target_action(action, params, context, owner),
+           {:ok, output} <- validate_target_output(action, output, owner) do
+        {:ok, output}
+      end
+    end
+  end
+
+  defp validate_target_input(action, params, owner) do
+    action.validate_params(params)
+    |> tag_target_validation_error(:input, owner)
+  end
+
+  defp call_target_action(action, params, context, owner) do
+    action
+    |> Exec.invoke_action(params, context)
+    |> drop_action_extras()
+    |> tag_target_error(:execution, owner)
+  end
+
+  defp validate_target_output(action, output, owner) do
+    Exec.validate_action_output(action, output)
+    |> tag_target_error(:output, owner)
+  end
+
+  defp node_target_owner(node), do: %{kind: :node, node: node}
+
+  defp choice_target_owner(choice, target), do: %{kind: :choice, choice: choice, target: target}
+
+  defp tag_target_error(result, phase, %{kind: :node, node: node}) do
+    tag_step_error(result, node_target_phase(phase), node)
+  end
+
+  defp tag_target_error(result, phase, %{kind: :choice, choice: choice, target: target}) do
+    tag_choice_target_error(result, choice, target, choice_target_phase(phase))
+  end
+
+  defp tag_target_validation_error(result, :input, %{kind: :node, node: node}) do
+    tag_step_validation_error(result, :step_input, node)
+  end
+
+  defp tag_target_validation_error(result, :input, %{
+         kind: :choice,
+         choice: choice,
+         target: target
+       }) do
+    tag_choice_target_validation_error(result, choice, target, :choice_target_input)
+  end
+
+  defp node_target_phase(:execution), do: :step_execution
+  defp node_target_phase(:output), do: :step_output
+
+  defp choice_target_phase(:execution), do: :choice_target_execution
+  defp choice_target_phase(:output), do: :choice_target_output
+
+  defp node_metadata(%Choice{} = choice, node_state) do
+    %{flow: node_state.flow, node: choice.name, kind: :choice}
   end
 
   defp node_metadata(node, node_state) do
@@ -298,6 +484,14 @@ defmodule Jido.Flow.Compiler do
 
   defp node_result_metadata({:error, error, _state}) do
     %{status: :error, error_type: error_type(error)}
+  end
+
+  defp node_result_metadata({:error, error, _state, choice_metadata}) do
+    Map.merge(%{status: :error, error_type: error_type(error)}, choice_metadata)
+  end
+
+  defp node_result_metadata({:ok, _output, choice_metadata}) do
+    Map.merge(%{status: :ok}, choice_metadata)
   end
 
   defp node_result_metadata(_result), do: %{status: :ok}
@@ -347,13 +541,6 @@ defmodule Jido.Flow.Compiler do
     end
   end
 
-  defp call_action(node, params, context) do
-    node.action
-    |> Exec.invoke_action(params, context)
-    |> drop_action_extras()
-    |> tag_step_error(:step_execution, node)
-  end
-
   # Extras are instruction-path-only; flow nodes deliberately discard them.
   defp drop_action_extras({:ok, output, _extras}), do: {:ok, output}
   defp drop_action_extras({:error, error}), do: {:error, error}
@@ -375,15 +562,49 @@ defmodule Jido.Flow.Compiler do
 
   defp put_step_details(error, _phase, _node), do: error
 
-  defp validate_step_input(node, params) do
-    node.action.validate_params(params)
-    |> tag_step_validation_error(:step_input, node)
+  defp tag_choice_target_error({:ok, output}, _choice, _target, _phase), do: {:ok, output}
+
+  defp tag_choice_target_error({:error, error}, choice, target, phase) when is_exception(error) do
+    {:error, put_choice_target_details(error, choice, target, phase)}
   end
 
-  defp validate_step_output(node, output) do
-    node.action
-    |> Exec.validate_action_output(output)
-    |> tag_step_error(:step_output, node)
+  defp tag_choice_target_error({:error, error}, _choice, _target, _phase), do: {:error, error}
+
+  defp tag_choice_target_validation_error({:ok, value}, _choice, _target, _phase),
+    do: {:ok, value}
+
+  defp tag_choice_target_validation_error({:error, error}, choice, target, phase)
+       when is_exception(error) do
+    details =
+      error
+      |> Map.get(:details, %{})
+      |> choice_target_details(choice, target, phase)
+
+    {:error, Error.validation_error(Exception.message(error), details)}
+  end
+
+  defp tag_choice_target_validation_error({:error, reason}, choice, target, phase) do
+    {:error,
+     Error.validation_error(
+       to_error_message(reason),
+       choice_target_details(%{reason: reason}, choice, target, phase)
+     )}
+  end
+
+  defp put_choice_target_details(%{details: details} = error, choice, target, phase)
+       when is_map(details) do
+    %{error | details: choice_target_details(details, choice, target, phase)}
+  end
+
+  defp put_choice_target_details(error, _choice, _target, _phase), do: error
+
+  defp choice_target_details(details, choice, target, phase) do
+    Map.merge(details, %{
+      phase: phase,
+      node: choice.name,
+      option: target.name,
+      target: target.action
+    })
   end
 
   defp tag_step_validation_error({:ok, value}, _phase, _node), do: {:ok, value}

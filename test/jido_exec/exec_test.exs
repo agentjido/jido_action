@@ -4,7 +4,7 @@ defmodule Jido.ExecTest do
   alias Jido.Action.Error.{ConfigurationError, ExecutionFailureError, InvalidInputError}
   alias Jido.Exec
   alias Jido.Flow
-  alias Jido.Flow.{Builder, Node, Ref}
+  alias Jido.Flow.{Builder, Choice, Condition, Node, Ref}
   alias Jido.Instruction
   alias JidoTest.FlowFixtures
 
@@ -710,9 +710,243 @@ defmodule Jido.ExecTest do
 
       assert {:ok, %{"value" => 3}} = Exec.run(flow, %{"value" => 3}, %{})
     end
+
+    test "runs the selected nested Flow validation boundary exactly once" do
+      target = unique_module("ChoiceNestedFlow")
+
+      create_module(
+        target,
+        quote do
+          use Jido.Flow,
+            name: "choice_nested_flow",
+            schema:
+              Zoi.map()
+              |> Zoi.transform({Jido.ExecTest, :count_flow_transform, [:input]}),
+            output_schema:
+              Zoi.map()
+              |> Zoi.transform({Jido.ExecTest, :count_flow_transform, [:output]})
+
+          flow do
+            step(:echo, unquote(EchoParamsAction), %{
+              value: input(:value),
+              input_passes: input(:input_passes)
+            })
+
+            return(result(:echo))
+          end
+        end
+      )
+
+      flow =
+        Flow.new!(
+          name: "choice_nested_once",
+          nodes: [
+            Choice.new!(
+              name: :route,
+              options: [
+                [
+                  name: :nested,
+                  condition: Condition.eq(Ref.value(true), Ref.value(true)),
+                  action: target,
+                  input: %{value: Ref.value(3)}
+                ]
+              ],
+              fallback: [action: EchoParamsAction]
+            )
+          ],
+          return: Ref.result(:route)
+        )
+
+      reset_flow_transform_counts()
+
+      assert {:ok, %{value: 3, input_passes: 1, output_passes: 1}} = Exec.run(flow, %{}, %{})
+      assert Process.get({__MODULE__, :input}) == 1
+      assert Process.get({__MODULE__, :output}) == 1
+    end
+
+    test "preserves a selected nested Flow Output envelope and its input transform boundary" do
+      target = unique_module("ChoiceNestedEnvelopeFlow")
+
+      create_module(
+        target,
+        quote do
+          use Jido.Flow,
+            name: "choice_nested_envelope_flow",
+            schema:
+              Zoi.map()
+              |> Zoi.transform({Jido.ExecTest, :count_flow_transform, [:input]}),
+            output_schema:
+              Zoi.map()
+              |> Zoi.transform({Jido.ExecTest, :count_flow_transform, [:envelope_output]})
+
+          flow do
+            step(:envelope, unquote(OutputEnvelopeAction), %{value: input(:value)})
+            return(result(:envelope))
+          end
+        end
+      )
+
+      flow =
+        Flow.new!(
+          name: "choice_nested_envelope",
+          nodes: [
+            Choice.new!(
+              name: :route,
+              options: [
+                [
+                  name: :nested,
+                  condition: Condition.eq(Ref.value(true), Ref.value(true)),
+                  action: target,
+                  input: %{value: Ref.value(3)}
+                ]
+              ],
+              fallback: [action: EchoParamsAction]
+            )
+          ],
+          return: Ref.result(:route)
+        )
+
+      reset_flow_transform_counts()
+
+      assert {:ok, %Jido.Action.Output{kind: :raw, value: %{value: 3}, meta: %{source: :test}}} =
+               Exec.run(flow, %{}, %{})
+
+      assert Process.get({__MODULE__, :input}) == 1
+      assert Process.get({__MODULE__, :envelope_output}, 0) == 0
+    end
+
+    test "keeps a selected nested Flow error class and reason with Choice execution metadata" do
+      target = unique_module("ChoiceNestedErrorFlow")
+
+      create_module(
+        target,
+        quote do
+          use Jido.Flow, name: "choice_nested_error_flow"
+
+          flow do
+            step(:fail, unquote(ErrorAction), %{error_type: value(:validation)})
+            return(result(:fail))
+          end
+        end
+      )
+
+      flow =
+        Flow.new!(
+          name: "choice_nested_error",
+          nodes: [
+            Choice.new!(
+              name: :route,
+              options: [
+                [
+                  name: :nested,
+                  condition: Condition.eq(Ref.value(true), Ref.value(true)),
+                  action: target
+                ]
+              ],
+              fallback: [action: EchoParamsAction]
+            )
+          ],
+          return: Ref.result(:route)
+        )
+
+      assert {:error, %ExecutionFailureError{message: "Validation error", details: details}} =
+               Exec.run(flow, %{}, %{})
+
+      assert details.reason == "Validation error"
+      assert details.phase == :choice_target_execution
+      assert details.node == "route"
+      assert details.option == "nested"
+      assert details.target == target
+    end
+
+    test "runs selected leaf Action validation and work exactly once" do
+      target = unique_module("ChoiceCountedAction")
+
+      create_module(
+        target,
+        quote do
+          def validate_params(%{test_pid: test_pid} = params) do
+            send(test_pid, {__MODULE__, :params})
+            {:ok, params}
+          end
+
+          def validate_output(%{test_pid: test_pid} = output) do
+            send(test_pid, {__MODULE__, :output})
+            {:ok, output}
+          end
+
+          def run(%{test_pid: test_pid} = params, _context) do
+            send(test_pid, {__MODULE__, :run})
+            {:ok, params}
+          end
+        end
+      )
+
+      flow =
+        Flow.new!(
+          name: "choice_leaf_once",
+          nodes: [
+            Choice.new!(
+              name: :route,
+              options: [
+                [
+                  name: :selected,
+                  condition: Condition.eq(Ref.value(true), Ref.value(true)),
+                  action: target,
+                  input: %{value: Ref.value(3), test_pid: Ref.context(:test_pid)}
+                ]
+              ],
+              fallback: [action: EchoParamsAction]
+            )
+          ],
+          return: Ref.result(:route)
+        )
+
+      assert {:ok, %{value: 3, test_pid: _test_pid}} = Exec.run(flow, %{}, %{test_pid: self()})
+      assert_receive {^target, :params}
+      assert_receive {^target, :run}
+      assert_receive {^target, :output}
+      refute_receive {^target, _kind}
+    end
   end
 
   describe "run/4 options" do
+    @tag timeout: 5_000
+    test "keeps an independent sibling asynchronous beside a Choice" do
+      flow =
+        Flow.new!(
+          name: "choice_async_sibling",
+          nodes: [
+            Choice.new!(
+              name: :route,
+              options: [
+                [
+                  name: :selected,
+                  condition: Condition.eq(Ref.value(true), Ref.value(true)),
+                  action: DelayedEchoAction,
+                  input: %{side: Ref.value(:choice), sleep_ms: Ref.value(100)}
+                ]
+              ],
+              fallback: [action: EchoParamsAction]
+            ),
+            Node.new!(
+              name: :sibling,
+              action: DelayedEchoAction,
+              input: %{side: Ref.value(:sibling), sleep_ms: Ref.value(100)}
+            )
+          ],
+          return: %{choice: Ref.result(:route, :side), sibling: Ref.result(:sibling, :side)}
+        )
+
+      assert {{:ok, %{choice: :choice, sibling: :sibling}}, serial_ms} =
+               timed(fn -> Exec.run(flow, %{}, %{}) end)
+
+      assert {{:ok, %{choice: :choice, sibling: :sibling}}, async_ms} =
+               timed(fn -> Exec.run(flow, %{}, %{}, async: true, max_concurrency: 2) end)
+
+      assert async_ms < serial_ms * 0.75
+    end
+
     @tag timeout: 5_000
     test "runs independent flow branches concurrently when async is enabled" do
       flow =

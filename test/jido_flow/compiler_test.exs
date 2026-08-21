@@ -1259,6 +1259,387 @@ defmodule Jido.Flow.CompilerTest do
     end
   end
 
+  describe "Choice runtime" do
+    test "runs the first matching option or the fallback as one result" do
+      flow =
+        Flow.new!(
+          name: "choice_selects_one_target",
+          nodes: [
+            Choice.new!(
+              name: :route,
+              options: [
+                [
+                  name: :matched,
+                  condition: Condition.eq(Ref.input(:kind), Ref.value(:matched)),
+                  action: EchoParamsAction,
+                  input: %{selected: Ref.value(:option)}
+                ]
+              ],
+              fallback: [action: EchoParamsAction, input: %{selected: Ref.value(:fallback)}]
+            )
+          ],
+          return: Ref.result(:route)
+        )
+
+      assert {:ok, %{selected: :option}} = Compiler.run(flow, %{kind: :matched}, %{})
+      assert {:ok, %{selected: :fallback}} = Compiler.run(flow, %{kind: :other}, %{})
+    end
+
+    test "uses authored option order and recursively short-circuits boolean conditions" do
+      flow =
+        Flow.new!(
+          name: "choice_order_and_short_circuit",
+          nodes: [
+            Choice.new!(
+              name: :route,
+              options: [
+                [
+                  name: :first,
+                  condition:
+                    Condition.all([
+                      Condition.eq(Ref.input(:kind), Ref.value(:never)),
+                      Condition.lt(Ref.value("invalid"), Ref.value(1))
+                    ]),
+                  action: EchoParamsAction,
+                  input: %{selected: Ref.value(:first)}
+                ],
+                [
+                  name: :second,
+                  condition:
+                    Condition.any([
+                      Condition.not(Condition.eq(Ref.input(:kind), Ref.value(:never))),
+                      Condition.lt(Ref.value("invalid"), Ref.value(1))
+                    ]),
+                  action: EchoParamsAction,
+                  input: %{selected: Ref.value(:second)}
+                ],
+                [
+                  name: :also_matched,
+                  condition: Condition.lt(Ref.value("invalid"), Ref.value(1)),
+                  action: EchoParamsAction,
+                  input: %{selected: Ref.value(:third)}
+                ]
+              ],
+              fallback: [action: EchoParamsAction, input: %{selected: Ref.value(:fallback)}]
+            )
+          ],
+          return: Ref.result(:route)
+        )
+
+      assert {:ok, %{selected: :second}} = Compiler.run(flow, %{kind: :matched}, %{})
+    end
+
+    test "supports all comparison operators and nil for missing paths" do
+      for {operator, input, expected} <- [
+            {:eq, %{left: 1, right: 1.0}, :matched},
+            {:neq, %{left: :one, right: :two}, :matched},
+            {:lt, %{left: 1, right: 2}, :matched},
+            {:lte, %{left: "a", right: "a"}, :matched},
+            {:gt, %{left: "b", right: "a"}, :matched},
+            {:gte, %{left: 2, right: 2}, :matched},
+            {:in, %{left: :two, right: [:one, :two]}, :matched},
+            {:eq, %{}, :matched}
+          ] do
+        {left, right} =
+          if input == %{} do
+            {Ref.input(:missing), Ref.context(:missing)}
+          else
+            {Ref.input(:left), Ref.input(:right)}
+          end
+
+        condition = Condition.new!(operator, [left, right])
+
+        flow =
+          choice_flow(
+            "choice_#{operator}_#{System.unique_integer([:positive])}",
+            [
+              [
+                name: :matched,
+                condition: condition,
+                action: EchoParamsAction,
+                input: %{result: Ref.value(:matched)}
+              ]
+            ],
+            action: EchoParamsAction,
+            input: %{result: Ref.value(:fallback)}
+          )
+
+        assert {:ok, %{result: ^expected}} = Compiler.run(flow, input, %{})
+      end
+    end
+
+    test "resolves input, context, prior result, and static operands in one condition" do
+      flow =
+        Flow.new!(
+          name: "choice_all_operand_sources",
+          nodes: [
+            Node.new!(
+              name: :source,
+              action: EchoParamsAction,
+              input: %{value: Ref.input(:value)}
+            ),
+            Choice.new!(
+              name: :route,
+              options: [
+                [
+                  name: :matched,
+                  condition:
+                    Condition.all([
+                      Condition.eq(Ref.input(:input_flag), Ref.value(true)),
+                      Condition.eq(Ref.context(:context_flag), Ref.value(:ready)),
+                      Condition.eq(Ref.result(:source, :value), Ref.value(3)),
+                      Condition.eq(Ref.value(:static), Ref.value(:static))
+                    ]),
+                  action: EchoParamsAction,
+                  input: %{selected: Ref.value(:matched)}
+                ]
+              ],
+              fallback: [action: EchoParamsAction, input: %{selected: Ref.value(:fallback)}]
+            )
+          ],
+          return: Ref.result(:route)
+        )
+
+      assert {:ok, %{selected: :matched}} =
+               Compiler.run(flow, %{value: 3, input_flag: true}, %{context_flag: :ready})
+    end
+
+    test "returns a non-retryable execution error for invalid ordering and membership operands" do
+      for {condition, operator, reason, left_type, right_type} <- [
+            {Condition.lt(Ref.value("a"), Ref.value(1)), :lt, :invalid_ordering_operands, :binary,
+             :number},
+            {Condition.in(Ref.value(:item), Ref.value(:not_a_list)), :in,
+             :invalid_membership_right_operand, :atom, :atom}
+          ] do
+        flow =
+          choice_flow(
+            "choice_invalid_#{operator}",
+            [[name: :bad, condition: condition, action: RecorderAction]],
+            action: RecorderAction
+          )
+
+        assert {:error, %ExecutionFailureError{message: message, details: details} = error} =
+                 Compiler.run(flow, %{}, %{test_pid: self()})
+
+        assert message == "invalid choice condition operands"
+
+        assert details == %{
+                 phase: :choice_condition,
+                 node: "route",
+                 option: "bad",
+                 operator: operator,
+                 reason: reason,
+                 left_type: left_type,
+                 right_type: right_type,
+                 retry: false
+               }
+
+        assert Jido.Action.Error.to_map(error).retryable? == false
+        refute_receive {RecorderAction, _params}
+      end
+    end
+
+    test "resolves only the selected target input while all graph predecessors still run" do
+      flow =
+        Flow.new!(
+          name: "choice_lazy_target_input",
+          nodes: [
+            Node.new!(
+              name: :upstream,
+              action: RecorderAction,
+              input: %{source: Ref.value(:upstream)}
+            ),
+            Choice.new!(
+              name: :route,
+              options: [
+                [
+                  name: :skip,
+                  condition: Condition.eq(Ref.value(false), Ref.value(true)),
+                  action: RecorderAction,
+                  input: %{source: Ref.result(:upstream, :source), selected: Ref.value(:skip)}
+                ]
+              ],
+              fallback: [
+                action: RecorderAction,
+                input: %{selected: Ref.value(:fallback)}
+              ]
+            )
+          ],
+          return: Ref.result(:route)
+        )
+
+      assert {:ok, %{selected: :fallback}} = Compiler.run(flow, %{}, %{test_pid: self()})
+      assert_receive {RecorderAction, %{source: :upstream}}
+      assert_receive {RecorderAction, %{selected: :fallback}}
+      refute_receive {RecorderAction, %{selected: :skip}}
+    end
+
+    test "passes the selected result to a downstream node and preserves output contracts" do
+      flow =
+        Flow.new!(
+          name: "choice_downstream_result",
+          nodes: [
+            Choice.new!(
+              name: :route,
+              options: [
+                [
+                  name: :matched,
+                  condition: Condition.eq(Ref.input(:kind), Ref.value(:matched)),
+                  action: EchoParamsAction,
+                  input: %{value: Ref.value(3)}
+                ]
+              ],
+              fallback: [action: EchoParamsAction, input: %{value: Ref.value(4)}]
+            ),
+            Node.new!(
+              name: :downstream,
+              action: Add,
+              input: %{value: Ref.result(:route, :value), amount: Ref.value(1)}
+            )
+          ],
+          return: Ref.result(:downstream)
+        )
+
+      assert {:ok, %{value: 4}} = Compiler.run(flow, %{kind: :matched}, %{})
+      assert {:ok, %{value: 5}} = Compiler.run(flow, %{kind: :other}, %{})
+
+      scalar_flow =
+        choice_flow(
+          "choice_scalar_output",
+          [
+            [
+              name: :matched,
+              condition: Condition.eq(Ref.value(true), Ref.value(true)),
+              action: RawOutputAction,
+              input: %{value: Ref.value(3)}
+            ]
+          ],
+          action: EchoParamsAction
+        )
+
+      assert {:error, %ExecutionFailureError{message: message, details: details}} =
+               Compiler.run(scalar_flow, %{}, %{})
+
+      assert message == "action returned a value that requires an output envelope"
+      assert details.phase == :choice_target_output
+      assert details.node == "route"
+      assert details.option == "matched"
+      assert details.target == RawOutputAction
+
+      envelope_flow =
+        choice_flow(
+          "choice_output_envelope",
+          [
+            [
+              name: :matched,
+              condition: Condition.eq(Ref.value(true), Ref.value(true)),
+              action: OutputEnvelopeAction,
+              input: %{value: Ref.value(3)}
+            ]
+          ],
+          action: EchoParamsAction
+        )
+
+      assert {:ok, %Output{kind: :raw, value: %{value: 3}, meta: %{source: :test}}} =
+               Compiler.run(envelope_flow, %{}, %{})
+    end
+
+    test "adds Choice target metadata without changing the selected target error class or reason" do
+      flow =
+        choice_flow(
+          "choice_error_metadata",
+          [
+            [
+              name: :matched,
+              condition: Condition.eq(Ref.value(true), Ref.value(true)),
+              action: ErrorAction,
+              input: %{error_type: Ref.value(:validation)}
+            ]
+          ],
+          action: EchoParamsAction
+        )
+
+      assert {:error, %ExecutionFailureError{message: "Validation error", details: details}} =
+               Compiler.run(flow, %{}, %{})
+
+      assert details.reason == "Validation error"
+      assert details.phase == :choice_target_execution
+      assert details.node == "route"
+      assert details.option == "matched"
+      assert details.target == ErrorAction
+    end
+
+    test "emits one Choice node span with selected target metadata only at stop" do
+      start_event = [:jido, :flow, :node, :start]
+      stop_event = [:jido, :flow, :node, :stop]
+      handler_id = {__MODULE__, self(), make_ref()}
+      test_pid = self()
+
+      for event <- [start_event, stop_event] do
+        :ok =
+          :telemetry.attach(
+            {handler_id, event},
+            event,
+            fn event, _measurements, metadata, pid -> send(pid, {event, metadata}) end,
+            test_pid
+          )
+      end
+
+      on_exit(fn ->
+        :telemetry.detach({handler_id, start_event})
+        :telemetry.detach({handler_id, stop_event})
+      end)
+
+      flow =
+        choice_flow(
+          "choice_telemetry",
+          [
+            [
+              name: :selected,
+              condition: Condition.eq(Ref.value(true), Ref.value(true)),
+              action: EchoParamsAction,
+              input: %{value: Ref.value(3)}
+            ],
+            [
+              name: :unselected,
+              condition: Condition.eq(Ref.value(true), Ref.value(true)),
+              action: RecorderAction
+            ]
+          ],
+          action: RecorderAction
+        )
+
+      assert {:ok, %{value: 3}} = Compiler.run(flow, %{}, %{})
+
+      assert_receive {^start_event,
+                      %{flow: "choice_telemetry", node: "route", kind: :choice} = start}
+
+      refute Map.has_key?(start, :option)
+      refute Map.has_key?(start, :target)
+
+      assert_receive {^stop_event,
+                      %{
+                        flow: "choice_telemetry",
+                        node: "route",
+                        kind: :choice,
+                        status: :ok,
+                        option: "selected",
+                        target: EchoParamsAction
+                      }}
+
+      refute_receive {^start_event, %{flow: "choice_telemetry"}}
+      refute_receive {^stop_event, %{flow: "choice_telemetry"}}
+    end
+  end
+
+  defp choice_flow(name, options, fallback) do
+    Flow.new!(
+      name: name,
+      nodes: [Choice.new!(name: :route, options: options, fallback: fallback)],
+      return: Ref.result(:route)
+    )
+  end
+
   defp one_step_flow do
     Flow.new!(
       name: "one_step",
