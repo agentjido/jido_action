@@ -8,6 +8,7 @@ defmodule Jido.Flow.Parser do
 
   alias Jido.Action.Error
   alias Jido.Flow
+  alias Jido.Flow.ActionRegistry
   alias Jido.Flow.Syntax
   alias Jido.Flow.Syntax.Lowerer
 
@@ -72,39 +73,7 @@ defmodule Jido.Flow.Parser do
      })}
   end
 
-  defp actions(actions) when is_list(actions) do
-    if Keyword.keyword?(actions) do
-      actions
-      |> Map.new()
-      |> actions()
-    else
-      action_registry_error(actions)
-    end
-  end
-
-  defp actions(%{} = actions) do
-    Enum.reduce_while(actions, {:ok, %{}}, fn
-      {identifier, action}, {:ok, acc}
-      when (is_binary(identifier) or (is_atom(identifier) and not is_nil(identifier))) and
-             is_atom(action) and not is_nil(action) ->
-        {:cont, {:ok, Map.put(acc, identifier, action)}}
-
-      {_identifier, _action}, {:ok, _acc} ->
-        {:halt, action_registry_error(actions)}
-    end)
-  end
-
-  defp actions(actions), do: action_registry_error(actions)
-
-  defp action_registry_error(actions) do
-    {:error,
-     Error.validation_error(
-       "flow action registry must map string or atom identifiers to modules",
-       %{
-         actions: actions
-       }
-     )}
-  end
+  defp actions(actions), do: ActionRegistry.normalize(actions)
 
   defp quoted(source, parser_config) do
     case Code.string_to_quoted(source, quoted_options(parser_config)) do

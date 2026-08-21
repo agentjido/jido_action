@@ -223,6 +223,119 @@ defmodule Jido.Flow.DSLTest do
       assert module.to_map().return == %{type: :result, node: "double", path: []}
     end
 
+    test "lowers an ordered Choice with a result binding" do
+      module = unique_module("ChoiceFlow")
+
+      create_module(
+        module,
+        quote do
+          use Jido.Flow, name: "choice_flow"
+
+          flow do
+            step(:classified, unquote(EchoParamsAction), with: %{})
+
+            routed =
+              choose :route, after: :classified do
+                option(:priority,
+                  when: eq(result(:classified, :kind), value(:priority)),
+                  run: unquote(Add),
+                  with: %{value: input(:value), amount: value(1)}
+                )
+
+                option(:bulk,
+                  when: neq(input(:kind), value(:priority)),
+                  run: unquote(Add),
+                  with: %{value: input(:value), amount: value(2)}
+                )
+
+                otherwise(run: unquote(Multiply), with: %{value: input(:value), amount: value(2)})
+              end
+
+            return(routed)
+          end
+        end
+      )
+
+      assert [
+               %{name: "classified"},
+               %{
+                 kind: :choice,
+                 name: "route",
+                 options: [priority, bulk],
+                 fallback: fallback,
+                 deps: ["classified"]
+               }
+             ] =
+               module.to_map().nodes
+
+      assert priority.name == "priority"
+      assert priority.condition.operator == :eq
+      assert priority.action == Add
+      assert bulk.name == "bulk"
+      assert fallback.action == Multiply
+      assert module.to_map().return == %{type: :result, node: "route", path: []}
+    end
+
+    test "lowers a one-option if else Choice" do
+      module = unique_module("IfElseChoiceFlow")
+
+      create_module(
+        module,
+        quote do
+          use Jido.Flow, name: "if_else_choice_flow"
+
+          flow do
+            choose :route do
+              option(:match,
+                when: eq(input(:kind), value(:match)),
+                run: unquote(Add),
+                with: %{value: input(:value), amount: value(1)}
+              )
+
+              otherwise(run: unquote(Multiply), with: %{value: input(:value), amount: value(2)})
+            end
+
+            return(result(:route))
+          end
+        end
+      )
+
+      assert [%{kind: :choice, options: [option], fallback: fallback}] = module.to_map().nodes
+      assert option.name == "match"
+      assert fallback.action == Multiply
+    end
+
+    test "fails module compilation for an invalid Choice target" do
+      module = unique_module("InvalidChoiceTargetFlow")
+      invalid_target = unique_module("MissingChoiceTarget")
+
+      error =
+        assert_raise CompileError, fn ->
+          create_module(
+            module,
+            quote do
+              use Jido.Flow, name: "invalid_choice_target_flow"
+
+              flow do
+                choose :route do
+                  option(:bad,
+                    when: eq(input(:kind), value(:bad)),
+                    run: unquote(invalid_target),
+                    with: %{}
+                  )
+
+                  otherwise(run: unquote(Add), with: %{})
+                end
+
+                return(result(:route))
+              end
+            end
+          )
+        end
+
+      assert error.description =~ "action module could not be loaded"
+    end
+
     test "derives bound step names from binding handles" do
       module = unique_module("DerivedBindingNameFlow")
 

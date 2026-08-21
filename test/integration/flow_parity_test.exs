@@ -3,7 +3,6 @@ defmodule Jido.Integration.FlowParityTest do
   use ExUnitProperties
   @moduletag capture_log: true
 
-  alias Jido.Action.Error
   alias Jido.Action.Error.ExecutionFailureError
   alias Jido.Flow.Builder
   alias Jido.Flow.{Node, Ref}
@@ -139,36 +138,35 @@ defmodule Jido.Integration.FlowParityTest do
       end
     end
 
-    test "unsupported operations fail consistently across surfaces" do
-      builder_syntax =
-        Syntax.new(name: "bad")
-        |> Syntax.add(Syntax.operation(:choose, branches: []))
+    test "Choice semantic data agrees across the five authoring surfaces" do
+      syntax_flow = choice_syntax() |> lower_flow!()
+      builder_flow = choice_builder() |> build_flow!()
+      module = create_choice_flow_module("ChoiceParity")
 
-      assert {:error, builder_error} = Lowerer.lower(builder_syntax)
-      assert Error.to_map(builder_error).type == :validation_error
+      assert {:ok, trusted_flow} = Jido.Flow.parse(choice_source(), name: "choice_parity")
 
-      parser_source = """
-      flow do
-        choose :bad
-      end
-      """
+      assert {:ok, stored_flow} =
+               Jido.Flow.parse(choice_stored_source(),
+                 name: "choice_parity",
+                 profile: :stored,
+                 actions: %{"add" => Add, "multiply" => Multiply}
+               )
 
-      assert {:error, parser_error} = Jido.Flow.parse(parser_source, name: "bad")
-      assert Error.to_map(parser_error).type == :validation_error
+      expected = Jido.Flow.to_map(syntax_flow)
 
-      module = unique_module("UnsupportedParityFlow")
-
-      assert_raise CompileError, ~r/unsupported flow DSL operation/, fn ->
-        create_module(
-          module,
-          quote do
-            use Jido.Flow, name: "bad"
-
-            flow do
-              choose(:bad)
-            end
-          end
-        )
+      for {surface, flow} <- [
+            module_dsl: module.flow(),
+            syntax_lowerer: syntax_flow,
+            builder: builder_flow,
+            trusted_source_parser: trusted_flow,
+            stored_source_parser: stored_flow
+          ] do
+        assert Jido.Flow.to_map(flow) == expected, "#{surface} Choice map diverged"
+        assert Jido.Flow.dependencies(flow) == Jido.Flow.dependencies(syntax_flow)
+        assert {:ok, %{nodes: nodes}} = Jido.Flow.explain(flow)
+        assert {:ok, %{nodes: expected_nodes}} = Jido.Flow.explain(syntax_flow)
+        assert nodes == expected_nodes
+        assert Jido.Flow.semantic_identity(flow) == Jido.Flow.semantic_identity(syntax_flow)
       end
     end
   end
@@ -586,6 +584,124 @@ defmodule Jido.Integration.FlowParityTest do
         })
 
         return(result(:double))
+      end
+    )
+  end
+
+  defp choice_syntax do
+    Syntax.new(name: "choice_parity")
+    |> Syntax.choice(
+      :route,
+      [
+        Syntax.option(
+          :priority,
+          Syntax.eq(Syntax.input(:kind), Syntax.value(:priority)),
+          Add,
+          %{value: Syntax.input(:value), amount: Syntax.value(1)}
+        ),
+        Syntax.option(
+          :other,
+          Syntax.neq(Syntax.input(:kind), Syntax.value(:priority)),
+          Multiply,
+          %{value: Syntax.input(:value), amount: Syntax.value(2)}
+        )
+      ],
+      Syntax.fallback(Add, %{value: Syntax.input(:value), amount: Syntax.value(0)})
+    )
+    |> Syntax.return(Syntax.result(:route))
+  end
+
+  defp choice_builder do
+    Builder.new(name: "choice_parity")
+    |> Builder.choice(
+      :route,
+      [
+        Builder.option(
+          :priority,
+          Builder.eq(Builder.input(:kind), Builder.value(:priority)),
+          Add,
+          %{value: Builder.input(:value), amount: Builder.value(1)}
+        ),
+        Builder.option(
+          :other,
+          Builder.neq(Builder.input(:kind), Builder.value(:priority)),
+          Multiply,
+          %{value: Builder.input(:value), amount: Builder.value(2)}
+        )
+      ],
+      Builder.fallback(Add, %{value: Builder.input(:value), amount: Builder.value(0)})
+    )
+    |> Builder.return(Builder.result(:route))
+  end
+
+  defp choice_source do
+    """
+    flow do
+      routed = choose :route do
+        option :priority,
+          when: eq(input(:kind), value(:priority)),
+          run: JidoTest.TestActions.Add,
+          with: %{value: input(:value), amount: value(1)}
+
+        option :other,
+          when: neq(input(:kind), value(:priority)),
+          run: JidoTest.TestActions.Multiply,
+          with: %{value: input(:value), amount: value(2)}
+
+        otherwise run: JidoTest.TestActions.Add, with: %{value: input(:value), amount: value(0)}
+      end
+
+      return routed
+    end
+    """
+  end
+
+  defp choice_stored_source do
+    """
+    flow do
+      routed = choose :route do
+        option :priority,
+          when: eq(input(:kind), value(:priority)),
+          run: "add",
+          with: %{value: input(:value), amount: value(1)}
+
+        option :other,
+          when: neq(input(:kind), value(:priority)),
+          run: "multiply",
+          with: %{value: input(:value), amount: value(2)}
+
+        otherwise run: "add", with: %{value: input(:value), amount: value(0)}
+      end
+
+      return routed
+    end
+    """
+  end
+
+  defp create_choice_flow_module(prefix) do
+    create_flow_module(
+      prefix,
+      "choice_parity",
+      nil,
+      quote do
+        routed =
+          choose :route do
+            option(:priority,
+              when: eq(input(:kind), value(:priority)),
+              run: unquote(Add),
+              with: %{value: input(:value), amount: value(1)}
+            )
+
+            option(:other,
+              when: neq(input(:kind), value(:priority)),
+              run: unquote(Multiply),
+              with: %{value: input(:value), amount: value(2)}
+            )
+
+            otherwise(run: unquote(Add), with: %{value: input(:value), amount: value(0)})
+          end
+
+        return(routed)
       end
     )
   end

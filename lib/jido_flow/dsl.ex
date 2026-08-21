@@ -1,7 +1,7 @@
 defmodule Jido.Flow.DSL do
   @moduledoc false
 
-  alias Jido.Flow.Syntax
+  alias Jido.Flow.{ActionRegistry, Syntax}
 
   defmacro flow(do: block) do
     operations = __parse_block__(block, __CALLER__)
@@ -36,6 +36,11 @@ defmodule Jido.Flow.DSL do
     parse_step(step_meta, args, env, binding, context)
   end
 
+  defp parse_statement({:=, meta, [binding_ast, {:choose, choice_meta, args}]}, env, context) do
+    binding = parse_binding_lhs!(binding_ast, meta, env)
+    parse_choice(choice_meta, args, env, binding, context)
+  end
+
   defp parse_statement({:=, _meta, _args} = statement, env, _context) do
     unsupported!(
       "unsupported flow DSL binding assignment: #{Macro.to_string(statement)}",
@@ -67,6 +72,10 @@ defmodule Jido.Flow.DSL do
 
   defp parse_statement({:step, meta, args}, env, context) do
     parse_step(meta, args, env, nil, context)
+  end
+
+  defp parse_statement({:choose, meta, args}, env, context) do
+    parse_choice(meta, args, env, nil, context)
   end
 
   defp parse_statement({:return, _meta, [expr_ast]}, env, _context) do
@@ -131,6 +140,162 @@ defmodule Jido.Flow.DSL do
   defp parse_step(meta, args, env, _binding, _context) do
     unsupported_step_options!({:step, meta, args}, env)
   end
+
+  defp parse_choice(meta, args, env, binding, context) do
+    {name_ast, choice_options, block} = parse_choice_arguments!(meta, args, env)
+    name = parse_node_name!(name_ast, "choice name", meta, env)
+    after_targets = parse_choice_after!(choice_options, env)
+    {options, fallback} = parse_choice_block!(block, env, context)
+
+    attrs =
+      %{name: name, options: options, fallback: fallback}
+      |> maybe_put_binding(binding)
+      |> maybe_put_after(after_targets)
+
+    Syntax.operation(:choice, attrs, provenance: provenance_from_meta(meta))
+  end
+
+  defp parse_choice_arguments!(_meta, [name_ast, [do: block]], _env), do: {name_ast, [], block}
+
+  defp parse_choice_arguments!(meta, [name_ast, options, [do: block]], env)
+       when is_list(options) do
+    unless Keyword.keyword?(options) do
+      unsupported_choice!({:choose, meta, [name_ast, options, [do: block]]}, env)
+    end
+
+    {name_ast, options, block}
+  end
+
+  defp parse_choice_arguments!(meta, args, env) do
+    unsupported_choice!({:choose, meta, args}, env)
+  end
+
+  defp parse_choice_after!(options, env) do
+    keys = Keyword.keys(options)
+
+    cond do
+      Enum.any?(keys, &(&1 != :after)) ->
+        unsupported_choice_options!(options, env)
+
+      Enum.count(keys, &(&1 == :after)) > 1 ->
+        unsupported_choice_options!(options, env)
+
+      true ->
+        case Keyword.fetch(options, :after) do
+          {:ok, targets} -> parse_after_targets!(targets, env)
+          :error -> nil
+        end
+    end
+  end
+
+  defp parse_choice_block!(block, env, context) do
+    statements = block_expressions(block)
+
+    {options, fallback, fallback_index} =
+      statements
+      |> Enum.with_index()
+      |> Enum.reduce({[], nil, nil}, fn {statement, index}, {options, fallback, fallback_index} ->
+        case statement do
+          {:option, _meta, _args} ->
+            if fallback do
+              unsupported_choice!(statement, env)
+            end
+
+            {[parse_choice_option!(statement, env, context) | options], fallback, fallback_index}
+
+          {:otherwise, _meta, _args} ->
+            if fallback do
+              unsupported_choice!(statement, env)
+            end
+
+            {options, parse_choice_fallback!(statement, env, context), index}
+
+          _other ->
+            unsupported_choice!(statement, env)
+        end
+      end)
+
+    cond do
+      options == [] ->
+        unsupported_choice!(block, env)
+
+      is_nil(fallback) ->
+        unsupported_choice!(block, env)
+
+      fallback_index != length(statements) - 1 ->
+        unsupported_choice!(block, env)
+
+      true ->
+        {Enum.reverse(options), fallback}
+    end
+  end
+
+  defp parse_choice_option!({:option, meta, [name_ast, options]}, env, context)
+       when is_list(options) do
+    if Keyword.keyword?(options) do
+      validate_choice_target_options!(options, :option, env)
+
+      Syntax.option(
+        parse_node_name!(name_ast, "choice option name", meta, env),
+        parse_condition!(Keyword.fetch!(options, :when), env),
+        parse_action_module!(Keyword.fetch!(options, :run), meta, env, context),
+        parse_expression(Keyword.fetch!(options, :with), env)
+      )
+    else
+      unsupported_choice!({:option, meta, [name_ast, options]}, env)
+    end
+  end
+
+  defp parse_choice_option!(statement, env, _context), do: unsupported_choice!(statement, env)
+
+  defp parse_choice_fallback!({:otherwise, meta, [options]}, env, context)
+       when is_list(options) do
+    if Keyword.keyword?(options) do
+      validate_choice_target_options!(options, :otherwise, env)
+
+      Syntax.fallback(
+        parse_action_module!(Keyword.fetch!(options, :run), meta, env, context),
+        parse_expression(Keyword.fetch!(options, :with), env)
+      )
+    else
+      unsupported_choice!({:otherwise, meta, [options]}, env)
+    end
+  end
+
+  defp parse_choice_fallback!(statement, env, _context), do: unsupported_choice!(statement, env)
+
+  defp validate_choice_target_options!(options, kind, env) do
+    allowed_keys = if kind == :option, do: [:when, :run, :with], else: [:run, :with]
+    keys = Keyword.keys(options)
+
+    if Enum.any?(keys, &(&1 not in allowed_keys)) or
+         Enum.any?(allowed_keys, &(not Keyword.has_key?(options, &1))) or
+         Enum.any?(allowed_keys, &(Enum.count(keys, fn key -> key == &1 end) > 1)) do
+      unsupported_choice_options!(options, env)
+    end
+  end
+
+  defp parse_condition!({operator, _meta, operands}, env)
+       when operator in [:eq, :neq, :lt, :lte, :gt, :gte, :in] and is_list(operands) do
+    if length(operands) == 2 do
+      apply(Syntax, operator, Enum.map(operands, &parse_expression(&1, env)))
+    else
+      unsupported_choice_condition!({operator, [], operands}, env)
+    end
+  end
+
+  defp parse_condition!({operator, _meta, [conditions]}, env) when operator in [:all, :any] do
+    if is_list(conditions) and not Keyword.keyword?(conditions) do
+      apply(Syntax, operator, [Enum.map(conditions, &parse_condition!(&1, env))])
+    else
+      unsupported_choice_condition!({operator, [], [conditions]}, env)
+    end
+  end
+
+  defp parse_condition!({:not, _meta, [condition]}, env),
+    do: apply(Syntax, :not, [parse_condition!(condition, env)])
+
+  defp parse_condition!(condition, env), do: unsupported_choice_condition!(condition, env)
 
   defp parse_expression({:input, _meta, [path_ast]}, env) do
     Syntax.input(parse_path!(path_ast, env))
@@ -228,11 +393,13 @@ defmodule Jido.Flow.DSL do
 
   defp parse_action_module!(identifier, step_meta, env, %{profile: :stored, actions: actions})
        when is_binary(identifier) or (is_atom(identifier) and not is_nil(identifier)) do
-    case Map.fetch(actions, identifier) do
+    identifier = if is_atom(identifier), do: Atom.to_string(identifier), else: identifier
+
+    case ActionRegistry.lookup(actions, identifier) do
       {:ok, action} ->
         action
 
-      :error ->
+      {:error, _error} ->
         unknown_action_identifier!(identifier, step_meta, env)
     end
   end
@@ -409,6 +576,30 @@ defmodule Jido.Flow.DSL do
     unsupported!(
       "unsupported flow DSL step options: #{Macro.to_string(statement)}",
       statement,
+      env
+    )
+  end
+
+  defp unsupported_choice!(statement, env) do
+    unsupported!(
+      "unsupported flow DSL choice: #{Macro.to_string(statement)}",
+      statement,
+      env
+    )
+  end
+
+  defp unsupported_choice_options!(options, env) do
+    unsupported!(
+      "unsupported flow DSL choice options: #{Macro.to_string(options)}",
+      options,
+      env
+    )
+  end
+
+  defp unsupported_choice_condition!(condition, env) do
+    unsupported!(
+      "unsupported flow DSL choice condition: #{Macro.to_string(condition)}",
+      condition,
       env
     )
   end
