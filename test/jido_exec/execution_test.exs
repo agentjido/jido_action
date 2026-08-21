@@ -7,6 +7,19 @@ defmodule Jido.Exec.ExecutionTest do
   alias Jido.Flow
   alias Jido.Flow.{Node, Ref}
 
+  defmodule BlockingAction do
+    @moduledoc false
+    use Jido.Action, name: "blocking_action"
+
+    def run(params, %{test_pid: test_pid}) do
+      send(test_pid, {:blocking_flow_node_started, self()})
+
+      receive do
+        :finish -> {:ok, params}
+      end
+    end
+  end
+
   alias JidoTest.TestActions.{
     Add,
     DelayedEchoAction,
@@ -327,6 +340,53 @@ defmodule Jido.Exec.ExecutionTest do
       assert Exec.status(execution) == :failed
       assert_ready_cache(execution, [])
       assert Exec.result(execution) == {:error, failed.error}
+    end
+
+    @tag timeout: 5_000
+    test "preserves normal caller semantics for unrelated linked exits" do
+      flow =
+        Flow.new!(
+          name: "unrelated_link_exit",
+          nodes: [Node.new!(name: :blocking, action: BlockingAction)],
+          return: Ref.result(:blocking)
+        )
+
+      test_pid = self()
+
+      {caller, monitor} =
+        spawn_monitor(fn ->
+          linked =
+            spawn_link(fn ->
+              receive do
+                :exit_abnormally -> exit(:unrelated_link_exit)
+              end
+            end)
+
+          send(test_pid, {:flow_caller_ready, linked})
+
+          result =
+            with {:ok, execution} <-
+                   Exec.start(flow, %{}, %{test_pid: test_pid},
+                     async: true,
+                     max_concurrency: 1
+                   ) do
+              Exec.wave(execution)
+            end
+
+          send(test_pid, {:flow_caller_result, result})
+        end)
+
+      on_exit(fn -> Process.exit(caller, :kill) end)
+
+      assert_receive {:flow_caller_ready, linked}
+      assert_receive {:blocking_flow_node_started, worker}
+      worker_monitor = Process.monitor(worker)
+
+      send(linked, :exit_abnormally)
+
+      assert_receive {:DOWN, ^monitor, :process, ^caller, :unrelated_link_exit}, 1_000
+      assert_receive {:DOWN, ^worker_monitor, :process, ^worker, _reason}, 1_000
+      refute_receive {:flow_caller_result, _result}
     end
   end
 

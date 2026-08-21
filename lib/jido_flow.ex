@@ -268,48 +268,34 @@ defmodule Jido.Flow do
   end
 
   defp canonical_node_order(nodes) do
-    nodes_by_name = Map.new(nodes, fn node -> {Element.name(node), node} end)
+    sorted_nodes =
+      nodes
+      |> Map.new(fn node -> {Element.name(node), node} end)
+      |> Map.values()
+      |> Enum.sort_by(fn node -> node |> Element.name() |> node_name_sort_key() end)
 
-    remaining =
-      Map.new(nodes, fn node -> {Element.name(node), MapSet.new(Element.deps(node))} end)
+    %{levels: levels, max_level: max_level, remaining: remaining} =
+      traverse_dependency_graph(sorted_nodes)
 
-    nodes_by_name
-    |> do_canonical_node_order(remaining, [])
-    |> Enum.reverse()
-  end
+    blocked = MapSet.new(remaining)
 
-  defp do_canonical_node_order(_nodes_by_name, remaining, ordered)
-       when map_size(remaining) == 0 do
-    ordered
-  end
+    nodes_by_level =
+      sorted_nodes
+      |> Enum.reject(&MapSet.member?(blocked, Element.name(&1)))
+      |> Enum.group_by(&Map.fetch!(levels, Element.name(&1)))
 
-  defp do_canonical_node_order(nodes_by_name, remaining, ordered) do
-    ready =
-      remaining
-      |> Enum.filter(fn {_name, deps} -> MapSet.size(deps) == 0 end)
-      |> Enum.map(fn {name, _deps} -> name end)
-      |> Enum.sort_by(&node_name_sort_key/1)
+    ordered_nodes =
+      if max_level < 0 do
+        []
+      else
+        Enum.flat_map(0..max_level, fn level ->
+          Map.get(nodes_by_level, level, [])
+        end)
+      end
 
-    if ready == [] do
-      remaining_nodes =
-        remaining
-        |> Map.keys()
-        |> Enum.sort_by(&node_name_sort_key/1)
-        |> Enum.map(&Map.fetch!(nodes_by_name, &1))
+    blocked_nodes = Enum.filter(sorted_nodes, &MapSet.member?(blocked, Element.name(&1)))
 
-      Enum.reverse(remaining_nodes) ++ ordered
-    else
-      ready_set = MapSet.new(ready)
-
-      remaining =
-        remaining
-        |> Map.drop(ready)
-        |> Map.new(fn {name, deps} -> {name, MapSet.difference(deps, ready_set)} end)
-
-      ready_nodes = Enum.map(ready, &Map.fetch!(nodes_by_name, &1))
-
-      do_canonical_node_order(nodes_by_name, remaining, Enum.reverse(ready_nodes) ++ ordered)
-    end
+    ordered_nodes ++ blocked_nodes
   end
 
   defp node_name_sort_key(name), do: to_string(name)
@@ -635,31 +621,86 @@ defmodule Jido.Flow do
   end
 
   defp validate_acyclic(nodes) do
-    nodes
-    |> Map.new(fn node -> {Element.name(node), MapSet.new(Element.deps(node))} end)
-    |> validate_acyclic_remaining()
+    case traverse_dependency_graph(nodes) do
+      %{remaining: []} ->
+        :ok
+
+      %{remaining: remaining} ->
+        {:error,
+         Error.validation_error("flow dependency graph contains a cycle", %{
+           nodes: Enum.sort(remaining)
+         })}
+    end
   end
 
-  defp validate_acyclic_remaining(remaining) when map_size(remaining) == 0, do: :ok
+  defp traverse_dependency_graph(nodes) do
+    {indegrees, adjacency} =
+      nodes
+      |> Enum.reverse()
+      |> Enum.reduce({%{}, %{}}, fn node, {indegrees, adjacency} ->
+        name = Element.name(node)
+        dependencies = node |> Element.deps() |> MapSet.new()
 
-  defp validate_acyclic_remaining(remaining) do
+        adjacency =
+          Enum.reduce(dependencies, adjacency, fn dependency, adjacency ->
+            Map.update(adjacency, dependency, [name], &[name | &1])
+          end)
+
+        {Map.put(indegrees, name, MapSet.size(dependencies)), adjacency}
+      end)
+
     ready =
-      remaining
-      |> Enum.filter(fn {_name, deps} -> MapSet.size(deps) == 0 end)
-      |> Enum.map(fn {name, _deps} -> name end)
+      Enum.reduce(nodes, [], fn node, ready ->
+        name = Element.name(node)
 
-    if ready == [] do
-      {:error,
-       Error.validation_error("flow dependency graph contains a cycle", %{
-         nodes: remaining |> Map.keys() |> Enum.sort()
-       })}
-    else
-      ready_set = MapSet.new(ready)
+        if Map.fetch!(indegrees, name) == 0 do
+          [name | ready]
+        else
+          ready
+        end
+      end)
+      |> Enum.reverse()
 
-      remaining
-      |> Map.drop(ready)
-      |> Map.new(fn {name, deps} -> {name, MapSet.difference(deps, ready_set)} end)
-      |> validate_acyclic_remaining()
+    levels = Map.new(ready, &{&1, 0})
+
+    max_level = if ready == [], do: -1, else: 0
+
+    ready
+    |> :queue.from_list()
+    |> do_traverse_dependency_graph(indegrees, adjacency, levels, max_level)
+  end
+
+  defp do_traverse_dependency_graph(ready, indegrees, adjacency, levels, max_level) do
+    case :queue.out(ready) do
+      {:empty, _ready} ->
+        %{levels: levels, max_level: max_level, remaining: Map.keys(indegrees)}
+
+      {{:value, name}, ready} ->
+        level = Map.fetch!(levels, name)
+        indegrees = Map.delete(indegrees, name)
+
+        {ready, indegrees, levels, max_level} =
+          adjacency
+          |> Map.get(name, [])
+          |> Enum.reduce({ready, indegrees, levels, max_level}, fn dependent,
+                                                                   {ready, indegrees, levels,
+                                                                    max_level} ->
+            next_indegree = Map.fetch!(indegrees, dependent) - 1
+            dependent_level = max(Map.get(levels, dependent, 0), level + 1)
+            levels = Map.put(levels, dependent, dependent_level)
+            indegrees = Map.put(indegrees, dependent, next_indegree)
+
+            {ready, max_level} =
+              if next_indegree == 0 do
+                {:queue.in(dependent, ready), max(max_level, dependent_level)}
+              else
+                {ready, max_level}
+              end
+
+            {ready, indegrees, levels, max_level}
+          end)
+
+        do_traverse_dependency_graph(ready, indegrees, adjacency, levels, max_level)
     end
   end
 end
