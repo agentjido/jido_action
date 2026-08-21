@@ -69,21 +69,45 @@ Use the public inspection functions to work with a Flow as data:
 
 semantic_map = Jido.Flow.to_map(flow)
 
-actions = %{"double" => MyApp.Actions.Double}
-stored_map = Jido.Flow.to_map(flow, format: :stored, actions: actions)
+contracts = %{
+  bundle: "my_app/double/v1",
+  input_schema: "my_app/double/input/v1",
+  output_schema: "my_app/double/output/v1",
+  action_registry: "my_app/double/actions/v1"
+}
+
+bundle =
+  Jido.Flow.ContractBundle.new!(
+    id: contracts.bundle,
+    schemas: %{
+      contracts.input_schema => flow.schema,
+      contracts.output_schema => flow.output_schema
+    },
+    action_registries: %{
+      contracts.action_registry => %{
+        "my_app/double-action/v1" => MyApp.Actions.Double
+      }
+    }
+  )
+
+contract_bundles = %{bundle.id => bundle}
+
+stored_map =
+  Jido.Flow.to_map(flow,
+    format: :stored,
+    contracts: contracts,
+    contract_bundles: contract_bundles
+  )
 
 {:ok, restored} =
-  Jido.Flow.from_map(stored_map,
-    actions: actions,
-    schema: flow.schema,
-    output_schema: flow.output_schema
-  )
+  Jido.Flow.from_map(stored_map, contract_bundles: contract_bundles)
 ```
 
 The semantic map uses deterministic dependency order and excludes provenance.
-The stored map replaces Action modules with registry identifiers. Restoring it
-requires the same registry and the Flow schemas. Semantic identity represents
-the meaning of the Flow, not the authoring order or source location.
+The stored version 1 map contains stable contract and Action identifiers. Zoi
+schemas and Action modules stay in the host bundle. Semantic identity
+represents the meaning of the resolved Flow, not transport identifiers,
+authoring order, or source location.
 
 ## Continue With The Flow Guides
 

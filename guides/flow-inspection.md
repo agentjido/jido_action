@@ -66,42 +66,65 @@ semantic = Jido.Flow.to_map(flow)
 with_provenance = Jido.Flow.to_map(flow, provenance: true)
 ```
 
-Use `format: :stored` to replace Action modules with identifiers from a
-registry:
+Use `format: :stored` to produce a portable stored version 1 map. The stored
+map contains stable identifiers. Zoi schemas and Action modules stay in a
+host-supplied contract bundle:
 
 ```elixir
-actions = %{
-  "load" => MyApp.Actions.Load,
-  "format" => MyApp.Actions.Format
+contracts = %{
+  bundle: "my_app/report/v1",
+  input_schema: "my_app/report/input/v1",
+  output_schema: "my_app/report/output/v1",
+  action_registry: "my_app/report/actions/v1"
 }
 
-stored = Jido.Flow.to_map(flow, format: :stored, actions: actions, provenance: true)
+bundle =
+  Jido.Flow.ContractBundle.new!(
+    id: contracts.bundle,
+    schemas: %{
+      contracts.input_schema => flow.schema,
+      contracts.output_schema => flow.output_schema
+    },
+    action_registries: %{
+      contracts.action_registry => %{
+        "my_app/load/v1" => MyApp.Actions.Load,
+        "my_app/format/v1" => MyApp.Actions.Format
+      }
+    }
+  )
+
+contract_bundles = %{bundle.id => bundle}
+
+stored =
+  Jido.Flow.to_map(flow,
+    format: :stored,
+    contracts: contracts,
+    contract_bundles: contract_bundles,
+    provenance: true
+  )
 ```
 
-The registry must have exactly one identifier for every Action module used by
-the Flow. Missing identifiers and multiple identifiers for one module are
-errors. This rule keeps stored maps unambiguous.
+The selected registry must have exactly one identifier for every Action module
+used by the Flow. Missing identifiers and multiple identifiers for one module
+are errors. This rule keeps stored maps unambiguous.
 
 ## Restore A Stored Flow
 
-Stored maps contain the Flow name, node definitions, return expression, and
-registry identifiers. The `schema` and `output_schema` are external attachments
-when restoring a stored map:
+Stored maps contain the Flow name, node definitions, return expression, stable
+contract references, and stable Action identifiers. Restore the map with the
+same host allow-list:
 
 ```elixir
 {:ok, restored} =
-  Jido.Flow.from_map(stored,
-    actions: actions,
-    schema: flow.schema,
-    output_schema: flow.output_schema
-  )
+  Jido.Flow.from_map(stored, contract_bundles: contract_bundles)
 
 Jido.Flow.to_map(restored) == Jido.Flow.to_map(flow)
 ```
 
-The stored round trip is useful when a Flow is serialized as JSON. Restore it
-with the same Action registry and the schemas required by its contract. See
-[Flow Script](flow-script.md) for the stored parser profile.
+The stored round trip preserves deterministic Flow data and optional
+provenance. It does not preserve Elixir source. The host bundle resolves the
+schemas and Action registry without putting runtime terms in JSON. See [Flow
+Script](flow-script.md) for the separate stored source profile.
 
 ## Provenance
 
@@ -110,7 +133,13 @@ maps with `provenance: true` when a review or inspection tool needs labels,
 tags, notes, or source annotations:
 
 ```elixir
-stored_with_notes = Jido.Flow.to_map(flow, format: :stored, actions: actions, provenance: true)
+stored_with_notes =
+  Jido.Flow.to_map(flow,
+    format: :stored,
+    contracts: contracts,
+    contract_bundles: contract_bundles,
+    provenance: true
+  )
 ```
 
 The default semantic map and identity do not include provenance.
