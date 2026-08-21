@@ -234,14 +234,14 @@ defmodule Jido.Flow do
 
       dependencies =
         Map.new(nodes, fn node ->
-          {node.name, Enum.sort(node.deps)}
+          {Element.name(node), Element.deps(node) |> Enum.sort()}
         end)
 
       edges =
         nodes
         |> Enum.flat_map(fn node ->
-          Enum.map(node.deps, fn predecessor ->
-            %{from: predecessor, to: node.name}
+          Enum.map(Element.deps(node), fn predecessor ->
+            %{from: predecessor, to: Element.name(node)}
           end)
         end)
         |> Enum.sort_by(&{&1.from, &1.to})
@@ -264,8 +264,10 @@ defmodule Jido.Flow do
   end
 
   defp canonical_node_order(nodes) do
-    nodes_by_name = Map.new(nodes, fn node -> {node.name, node} end)
-    remaining = Map.new(nodes, fn node -> {node.name, MapSet.new(node.deps)} end)
+    nodes_by_name = Map.new(nodes, fn node -> {Element.name(node), node} end)
+
+    remaining =
+      Map.new(nodes, fn node -> {Element.name(node), MapSet.new(Element.deps(node))} end)
 
     nodes_by_name
     |> do_canonical_node_order(remaining, [])
@@ -628,7 +630,7 @@ defmodule Jido.Flow do
 
   defp validate_acyclic(nodes) do
     nodes
-    |> Map.new(fn node -> {Element.name(node), MapSet.new(node.deps)} end)
+    |> Map.new(fn node -> {Element.name(node), MapSet.new(Element.deps(node))} end)
     |> validate_acyclic_remaining()
   end
 

@@ -5,7 +5,7 @@ defmodule Jido.Flow.CompilerTest do
   alias Jido.Action.Error.{ExecutionFailureError, InvalidInputError}
   alias Jido.Action.Output
   alias Jido.Flow
-  alias Jido.Flow.{Compiler, Node, Ref}
+  alias Jido.Flow.{Choice, Compiler, Condition, Node, Ref}
   alias Jido.Flow.NodeError
   alias JidoTest.FlowFixtures
 
@@ -249,6 +249,63 @@ defmodule Jido.Flow.CompilerTest do
              }
 
       assert {:error, :nofile} = Code.ensure_loaded(unloaded_action)
+    end
+
+    test "compiles Choice as one inert Step without loading its targets" do
+      first_target = unique_module("UnloadedChoiceFirst")
+      fallback_target = unique_module("UnloadedChoiceFallback")
+
+      assert {:error, :nofile} = Code.ensure_loaded(first_target)
+      assert {:error, :nofile} = Code.ensure_loaded(fallback_target)
+
+      flow =
+        Flow.new!(
+          name: "inert_choice",
+          nodes: [
+            Choice.new!(
+              name: :route,
+              options: [
+                [
+                  name: :first,
+                  condition: Condition.eq(Ref.input(:kind), :first),
+                  action: first_target
+                ]
+              ],
+              fallback: [action: fallback_target]
+            )
+          ],
+          return: Ref.result(:route)
+        )
+
+      assert {:ok, workflow} = Flow.compile(flow)
+      assert [%Step{name: "route", hash: hash}] = Workflow.steps(workflow)
+      assert hash =~ ~r/^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+
+      final_workflow = Workflow.react_until_satisfied(workflow, %{})
+
+      assert Workflow.results(final_workflow, ["route"]) == %{
+               "route" => {:jido_flow_node, 1, "route"}
+             }
+
+      assert {:error, :nofile} = Code.ensure_loaded(first_target)
+      assert {:error, :nofile} = Code.ensure_loaded(fallback_target)
+    end
+
+    test "gives mixed Action and Choice Steps stable unique identities" do
+      flow = mixed_choice_flow([:first, :second])
+      reordered = mixed_choice_flow([:second, :first])
+
+      assert {:ok, first} = Flow.compile(flow)
+      assert {:ok, second} = Flow.compile(flow)
+      assert {:ok, reordered_workflow} = Flow.compile(reordered)
+
+      first_hashes = Map.new(Workflow.steps(first), &{&1.name, &1.hash})
+      second_hashes = Map.new(Workflow.steps(second), &{&1.name, &1.hash})
+      reordered_hashes = Map.new(Workflow.steps(reordered_workflow), &{&1.name, &1.hash})
+
+      assert first_hashes == second_hashes
+      assert map_size(first_hashes) == first_hashes |> Map.values() |> Enum.uniq() |> length()
+      refute first_hashes["route"] == reordered_hashes["route"]
     end
 
     test "uses stable node-unique UUIDv8 hashes for inspection Steps" do
@@ -1230,6 +1287,34 @@ defmodule Jido.Flow.CompilerTest do
         )
       ],
       return: Ref.result(:d)
+    )
+  end
+
+  defp mixed_choice_flow(order) do
+    options = %{
+      first: [
+        name: :first,
+        condition: Condition.eq(Ref.result(:source, :value), 1),
+        action: Add
+      ],
+      second: [
+        name: :second,
+        condition: Condition.eq(Ref.input(:kind), :second),
+        action: Multiply
+      ]
+    }
+
+    Flow.new!(
+      name: "mixed_choice_steps",
+      nodes: [
+        Node.new!(name: :source, action: EchoParamsAction, input: %{value: Ref.input(:value)}),
+        Choice.new!(
+          name: :route,
+          options: Enum.map(order, &Map.fetch!(options, &1)),
+          fallback: [action: Add]
+        )
+      ],
+      return: Ref.result(:route)
     )
   end
 

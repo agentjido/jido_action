@@ -3,8 +3,8 @@ defmodule Jido.Flow.IdentityTest do
 
   alias Jido.Action.Error.InvalidInputError
   alias Jido.Flow
-  alias Jido.Flow.{Node, Ref}
-  alias JidoTest.TestActions.{Add, EchoParamsAction}
+  alias Jido.Flow.{Choice, Condition, Node, Ref}
+  alias JidoTest.TestActions.{Add, EchoParamsAction, Multiply}
 
   test "returns canonical direct predecessor dependencies" do
     flow = diamond_flow()
@@ -246,6 +246,65 @@ defmodule Jido.Flow.IdentityTest do
     end
   end
 
+  test "makes Choice order semantic while ignoring Choice provenance" do
+    flow = choice_identity_flow([:first, :second])
+    reordered = choice_identity_flow([:second, :first])
+
+    provenance_changed = %{
+      flow
+      | nodes:
+          Enum.map(flow.nodes, fn
+            %Choice{} = choice -> %{choice | provenance: %{source: :other}}
+            node -> node
+          end)
+    }
+
+    assert {:ok, identity} = Flow.semantic_identity(flow)
+    assert {:ok, reordered_identity} = Flow.semantic_identity(reordered)
+    assert {:ok, provenance_identity} = Flow.semantic_identity(provenance_changed)
+
+    refute identity.digest == reordered_identity.digest
+    assert identity == provenance_identity
+  end
+
+  test "inspects Choice as one ordered node with all direct predecessors" do
+    flow =
+      Flow.new!(
+        name: "choice_inspection",
+        nodes: [
+          Node.new!(name: :left, action: EchoParamsAction),
+          Node.new!(name: :right, action: EchoParamsAction),
+          Choice.new!(
+            name: :route,
+            options: [
+              [
+                name: :left_option,
+                condition: Condition.eq(Ref.result(:left, :value), 1),
+                action: Add
+              ],
+              [
+                name: :right_option,
+                condition: Condition.eq(Ref.result(:right, :value), 2),
+                action: Multiply
+              ]
+            ],
+            fallback: [action: Add, input: %{value: Ref.result(:left, :value)}]
+          )
+        ],
+        return: Ref.result(:route)
+      )
+
+    assert {:ok, %{"route" => ["left", "right"]}} = Flow.dependencies(flow)
+    assert {:ok, explanation} = Flow.explain(flow)
+
+    assert [_, _, %{kind: :choice, name: "route", options: options, fallback: fallback}] =
+             explanation.nodes
+
+    assert Enum.map(options, & &1.name) == ["left_option", "right_option"]
+    assert fallback.name == :fallback
+    refute inspect(explanation.nodes) =~ "provenance"
+  end
+
   defp identity_flow do
     Flow.new!(
       name: "identity_fixture",
@@ -305,6 +364,35 @@ defmodule Jido.Flow.IdentityTest do
         Node.new!(name: :second, action: EchoParamsAction)
       ],
       return: %{value: Ref.result(:first, :value)}
+    )
+  end
+
+  defp choice_identity_flow(order) do
+    options = %{
+      first: [
+        name: :first,
+        condition: Condition.eq(Ref.input(:kind), :first),
+        action: Add,
+        input: %{value: Ref.value(1), amount: Ref.value(1)}
+      ],
+      second: [
+        name: :second,
+        condition: Condition.eq(Ref.input(:kind), :second),
+        action: Multiply,
+        input: %{value: Ref.value(2), by: Ref.value(2)}
+      ]
+    }
+
+    Flow.new!(
+      name: "choice_identity",
+      nodes: [
+        Choice.new!(
+          name: :route,
+          options: Enum.map(order, &Map.fetch!(options, &1)),
+          fallback: [action: Add, input: %{value: Ref.value(3), amount: Ref.value(1)}]
+        )
+      ],
+      return: Ref.result(:route)
     )
   end
 end
