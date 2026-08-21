@@ -11,14 +11,6 @@ defmodule Jido.Flow.ActionRegistry do
   def normalize(%{} = actions), do: reduce_pairs(actions, actions)
   def normalize(actions), do: invalid(actions)
 
-  @spec normalize!(map() | keyword()) :: %{String.t() => module()}
-  def normalize!(actions) do
-    case normalize(actions) do
-      {:ok, normalized} -> normalized
-      {:error, error} -> raise error
-    end
-  end
-
   @spec lookup(%{String.t() => module()}, term()) :: {:ok, module()} | {:error, Exception.t()}
   def lookup(actions, identifier) when is_binary(identifier) do
     case Map.fetch(actions, identifier) do
@@ -32,34 +24,6 @@ defmodule Jido.Flow.ActionRegistry do
 
   def lookup(_actions, identifier) do
     error("stored flow node action must be a registered identifier", %{action: identifier})
-  end
-
-  @spec identifiers!(%{String.t() => module()}, [module()]) :: %{module() => String.t()}
-  def identifiers!(actions, modules) do
-    identifiers_by_module =
-      Enum.reduce(actions, %{}, fn {identifier, action}, acc ->
-        Map.update(acc, action, [identifier], &[identifier | &1])
-      end)
-
-    modules
-    |> Enum.uniq()
-    |> Map.new(fn module ->
-      case Map.get(identifiers_by_module, module, []) do
-        [identifier] ->
-          {module, identifier}
-
-        [] ->
-          raise Error.validation_error("missing flow action registry identifier", %{
-                  action: module
-                })
-
-        identifiers ->
-          raise Error.validation_error("ambiguous flow action registry identifiers", %{
-                  action: module,
-                  identifiers: Enum.sort(identifiers)
-                })
-      end
-    end)
   end
 
   defp reduce_pairs(actions, original) do
