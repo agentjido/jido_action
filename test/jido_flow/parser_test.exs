@@ -8,6 +8,95 @@ defmodule Jido.Flow.ParserTest do
   alias JidoTest.TestActions.{Add, Multiply}
 
   describe "parse/2" do
+    test "applies the stored source-byte limit before parsing" do
+      limit = 1_048_576
+      base = ~S[flow do
+  step "echo", "add", with: %{value: value(1)}
+  return result("echo")
+end
+#]
+      exact = base <> :binary.copy("x", limit - byte_size(base))
+      over_limit = exact <> "x"
+
+      assert byte_size(exact) == limit
+
+      assert {:ok, _flow} =
+               Parser.parse(exact,
+                 name: "stored_source_boundary",
+                 profile: :stored,
+                 actions: %{"add" => Add}
+               )
+
+      assert {:error,
+              %InvalidInputError{
+                message: "stored flow source exceeds resource limit",
+                details: details
+              }} =
+               Parser.parse(over_limit,
+                 name: "stored_source_over_limit",
+                 profile: :stored,
+                 actions: %{"add" => Add}
+               )
+
+      assert details == %{
+               profile: :stored,
+               resource: :source_bytes,
+               limit: limit,
+               actual: limit + 1,
+               path: []
+             }
+    end
+
+    test "does not intern source atoms when the byte precheck fails" do
+      atom_name = "__jido_flow_source_atom_#{System.unique_integer([:positive])}"
+      assert_raise ArgumentError, fn -> String.to_existing_atom(atom_name) end
+
+      source = ":#{atom_name}\n" <> :binary.copy("x", 1_048_576)
+
+      assert {:error, %InvalidInputError{message: "stored flow source exceeds resource limit"}} =
+               Parser.parse(source, name: "too_large", profile: :stored)
+
+      assert_raise ArgumentError, fn -> String.to_existing_atom(atom_name) end
+    end
+
+    test "bounds stored quoted depth and collection width while trusted source stays exempt" do
+      cases = [
+        {:nesting_depth, nested_source(70)},
+        {:collection_width, list_source(10_001)}
+      ]
+
+      for {resource, source} <- cases do
+        assert {:error,
+                %InvalidInputError{
+                  message: "stored flow source exceeds resource limit",
+                  details: details
+                }} = Parser.parse(source, name: "bounded_source", profile: :stored)
+
+        assert details.resource == resource
+        assert details.profile == :stored
+        assert is_list(details.path)
+
+        assert {:ok, _flow} = Parser.parse(source, name: "trusted_source", profile: :trusted)
+      end
+    end
+
+    test "bounds aggregate quoted term slots before DSL traversal" do
+      inner = List.duplicate("0", 9_990) |> Enum.join(",")
+      nested_lists = List.duplicate("[#{inner}]", 10) |> Enum.join(",")
+      source = trusted_value_source("[#{nested_lists}]")
+
+      assert byte_size(source) < 1_048_576
+
+      assert {:error,
+              %InvalidInputError{
+                message: "stored flow source exceeds resource limit",
+                details: details
+              }} = Parser.parse(source, name: "term_slots", profile: :stored)
+
+      assert details.resource == :term_count
+      assert details.actual == 100_001
+    end
+
     test "stored profile accepts novel string step names without existing atoms" do
       source = """
       flow do
@@ -992,5 +1081,24 @@ defmodule Jido.Flow.ParserTest do
       assert message =~ "unsupported flow DSL operation"
       assert details.line == 3
     end
+  end
+
+  defp nested_source(depth) do
+    value = Enum.reduce(1..depth, "0", fn _, nested -> "[#{nested}]" end)
+    trusted_value_source(value)
+  end
+
+  defp list_source(width) do
+    value = List.duplicate("0", width) |> Enum.join(",")
+    trusted_value_source("[#{value}]")
+  end
+
+  defp trusted_value_source(value) do
+    """
+    flow do
+      step :echo, JidoTest.TestActions.Add, with: %{value: value(#{value}), amount: 1}
+      return result(:echo)
+    end
+    """
   end
 end

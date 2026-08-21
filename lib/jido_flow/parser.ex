@@ -9,6 +9,7 @@ defmodule Jido.Flow.Parser do
   alias Jido.Action.Error
   alias Jido.Flow
   alias Jido.Flow.ActionRegistry
+  alias Jido.Flow.ResourceBudget
   alias Jido.Flow.Syntax
   alias Jido.Flow.Syntax.Lowerer
 
@@ -22,7 +23,9 @@ defmodule Jido.Flow.Parser do
 
   def parse(source, opts) when is_binary(source) do
     with {:ok, parser_config, flow_opts} <- options(opts),
+         :ok <- source_budget(source, parser_config),
          {:ok, quoted} <- quoted(source, parser_config),
+         :ok <- quoted_budget(quoted, parser_config),
          {:ok, operations} <- operations_from_quoted(quoted, parser_config),
          {:ok, config} <- config(flow_opts) do
       config
@@ -93,6 +96,16 @@ defmodule Jido.Flow.Parser do
   defp quoted_options(%{profile: :stored}) do
     [columns: true, token_metadata: true, existing_atoms_only: true]
   end
+
+  defp source_budget(source, %{profile: :stored}),
+    do: ResourceBudget.validate_source_bytes(source)
+
+  defp source_budget(_source, %{profile: :trusted}), do: :ok
+
+  defp quoted_budget(quoted, %{profile: :stored}),
+    do: ResourceBudget.validate(quoted, :source)
+
+  defp quoted_budget(_quoted, %{profile: :trusted}), do: :ok
 
   defp operations_from_quoted({:flow, _meta, [[do: block]]}, parser_config) do
     {:ok, Jido.Flow.DSL.__parse_block__(block, __ENV__, parser_config)}
