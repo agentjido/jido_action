@@ -340,6 +340,37 @@ defmodule JidoTest.TestActions do
     end
   end
 
+  defmodule RejectingParamsAction do
+    @moduledoc false
+
+    def validate_params(%{test_pid: test_pid, index: index, reject: reject} = params) do
+      send(test_pid, {__MODULE__, :input, index})
+
+      if reject do
+        {:error, :rejected_params}
+      else
+        {:ok, params}
+      end
+    end
+
+    def run(%{test_pid: test_pid, index: index} = params, _context) do
+      send(test_pid, {__MODULE__, :run, index})
+
+      output =
+        case params do
+          %{accumulator: accumulator, item: item} ->
+            Map.update(accumulator, :values, [item], &(&1 ++ [item]))
+
+          _params ->
+            %{index: index}
+        end
+
+      {:ok, output}
+    end
+
+    def validate_output(output), do: {:ok, output}
+  end
+
   defmodule CountedMapAction do
     @moduledoc false
 

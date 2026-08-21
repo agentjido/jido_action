@@ -32,6 +32,7 @@ defmodule Jido.Flow.CompilerTest do
     RawExceptionErrorAction,
     RawOutputAction,
     RecorderAction,
+    RejectingParamsAction,
     ReduceProbeAction,
     ThrowingAction,
     TupleErrorAction,
@@ -682,6 +683,46 @@ defmodule Jido.Flow.CompilerTest do
       refute_receive {CountedReduceAction, _phase, _index}
     end
 
+    test "tags reducer input rejection and stops the fold before later items" do
+      items = [
+        %{value: :first, reject: false},
+        %{value: :second, reject: true},
+        %{value: :third, reject: false}
+      ]
+
+      flow =
+        reduce_flow(
+          "reduce_rejected_input",
+          Ref.value(items),
+          Ref.value(%{values: []}),
+          %{
+            test_pid: Ref.context(:test_pid),
+            accumulator: Ref.accumulator(),
+            item: Ref.item(:value),
+            index: Ref.item_index(),
+            reject: Ref.item(:reject)
+          },
+          RejectingParamsAction
+        )
+
+      assert {:error, %ExecutionFailureError{message: "rejected_params", details: error_details}} =
+               Compiler.run(flow, %{}, %{test_pid: self()})
+
+      assert error_details.phase == :reduce_target_input
+      assert error_details.node == "reduced"
+      assert error_details.target == RejectingParamsAction
+      assert error_details.item_index == 1
+      assert is_binary(error_details.item_id)
+      assert error_details.reason == :rejected_params
+
+      assert_receive {RejectingParamsAction, :input, 0}
+      assert_receive {RejectingParamsAction, :run, 0}
+      assert_receive {RejectingParamsAction, :input, 1}
+      refute_receive {RejectingParamsAction, :run, 1}
+      refute_receive {RejectingParamsAction, :input, 2}
+      refute_receive {RejectingParamsAction, :run, 2}
+    end
+
     test "supports full and selected Output accumulators" do
       initial = Output.raw(%{values: []}, meta: %{source: :initial})
 
@@ -988,6 +1029,79 @@ defmodule Jido.Flow.CompilerTest do
         assert_receive {CountedMapAction, :output, ^index}
         refute_receive {CountedMapAction, _phase, ^index}
       end
+    end
+
+    test "tags Map input rejection and applies each error mode" do
+      items = [
+        %{value: :first, reject: true},
+        %{value: :second, reject: false}
+      ]
+
+      input = %{
+        test_pid: Ref.context(:test_pid),
+        index: Ref.item_index(),
+        value: Ref.item(:value),
+        reject: Ref.item(:reject)
+      }
+
+      fail_fast =
+        map_flow(
+          "map_rejected_input_fail_fast",
+          Ref.value(items),
+          RejectingParamsAction,
+          input
+        )
+
+      assert {:error,
+              %ExecutionFailureError{message: "rejected_params", details: fail_fast_details}} =
+               Compiler.run(fail_fast, %{}, %{test_pid: self()})
+
+      assert fail_fast_details.phase == :map_target_input
+      assert fail_fast_details.node == "mapped"
+      assert fail_fast_details.target == RejectingParamsAction
+      assert fail_fast_details.item_index == 0
+      assert is_binary(fail_fast_details.item_id)
+      assert fail_fast_details.reason == :rejected_params
+
+      assert_receive {RejectingParamsAction, :input, 0}
+      refute_receive {RejectingParamsAction, :run, 0}
+      refute_receive {RejectingParamsAction, :input, 1}
+
+      collect_errors =
+        map_flow(
+          "map_rejected_input_collect_errors",
+          Ref.value(items),
+          RejectingParamsAction,
+          input,
+          on_error: :collect_errors
+        )
+
+      assert {:ok,
+              %{
+                results: [%{index: 1}],
+                errors: [
+                  %{
+                    index: 0,
+                    item_id: item_id,
+                    error: %ExecutionFailureError{
+                      message: "rejected_params",
+                      details: collect_details
+                    }
+                  }
+                ]
+              }} = Compiler.run(collect_errors, %{}, %{test_pid: self()})
+
+      assert collect_details.phase == :map_target_input
+      assert collect_details.node == "mapped"
+      assert collect_details.target == RejectingParamsAction
+      assert collect_details.item_index == 0
+      assert collect_details.item_id == item_id
+      assert collect_details.reason == :rejected_params
+
+      assert_receive {RejectingParamsAction, :input, 0}
+      assert_receive {RejectingParamsAction, :input, 1}
+      assert_receive {RejectingParamsAction, :run, 1}
+      refute_receive {RejectingParamsAction, :run, 0}
     end
 
     test "uses serial fail-fast and ordered collect-errors semantics" do
