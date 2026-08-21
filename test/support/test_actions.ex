@@ -296,6 +296,13 @@ defmodule JidoTest.TestActions do
     end
   end
 
+  defmodule KillingAction do
+    @moduledoc false
+    use Action, name: "killing_action"
+
+    def run(_params, _context), do: Process.exit(self(), :kill)
+  end
+
   defmodule RecorderAction do
     @moduledoc false
     use Action, name: "recorder_action"
