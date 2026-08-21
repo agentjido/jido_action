@@ -69,50 +69,71 @@ defmodule JidoAction.MixProject do
       source_url: "https://github.com/agentjido/jido_action",
       authors: ["Mike Hostetler <mike.hostetler@gmail.com>"],
       groups_for_extras: [
+        Project: [
+          "README.md",
+          "CHANGELOG.md",
+          "LICENSE"
+        ],
         "Getting Started": [
-          "guides/getting-started.md",
-          "guides/your-second-action.md"
+          "guides/getting-started.livemd"
         ],
         "Core Concepts": [
-          "guides/actions-guide.md",
-          "guides/jido-flow.md",
-          "guides/flow-choices.md",
-          "guides/schemas-validation.md",
-          "guides/error-handling.md"
+          "guides/actions.md",
+          "guides/instructions.md",
+          "guides/flows.md",
+          "guides/execution.md",
+          "guides/schemas-validation.md"
         ],
-        "How-To Guides": [
-          "guides/flow-execution.md",
+        "Building Flows": [
+          "guides/build-your-first-flow.livemd",
+          "guides/flow-language.livemd",
+          "guides/flow-steps.livemd",
+          "guides/flow-references.livemd",
+          "guides/flow-dependencies.livemd",
+          "guides/flow-choices.livemd",
+          "guides/nested-flows.livemd",
+          "guides/flow-modules.md",
+          "guides/flow-script.md",
+          "guides/flow-builder.md",
+          "guides/flow-inspection.md"
+        ],
+        Operations: [
+          "guides/flow-execution.livemd",
           "guides/configuration.md",
           "guides/security.md",
           "guides/testing.md"
-        ],
-        "Help & Reference": [
-          "guides/faq.md",
-          "CHANGELOG.md",
-          "LICENSE"
         ]
       ],
       extras: [
-        # Home & Project
+        # Project
         {"README.md", title: "Home"},
+        {"CHANGELOG.md", title: "Changelog"},
+        {"LICENSE", title: "Apache 2.0 License"},
         # Getting Started
-        {"guides/getting-started.md", title: "Getting Started"},
-        {"guides/your-second-action.md", title: "Your Second Action"},
+        {"guides/getting-started.livemd", title: "Getting Started"},
         # Core Concepts
-        {"guides/actions-guide.md", title: "Actions"},
-        {"guides/jido-flow.md", title: "Jido Flow"},
-        {"guides/flow-choices.md", title: "Flow Choices"},
+        {"guides/actions.md", title: "Actions"},
+        {"guides/instructions.md", title: "Instructions"},
+        {"guides/flows.md", title: "Flows"},
+        {"guides/execution.md", title: "Execution"},
         {"guides/schemas-validation.md", title: "Schemas & Validation"},
-        {"guides/error-handling.md", title: "Error Handling"},
-        # How-To Guides
-        {"guides/flow-execution.md", title: "Executing Flows"},
+        # Building Flows
+        {"guides/build-your-first-flow.livemd", title: "Build Your First Flow"},
+        {"guides/flow-language.livemd", title: "Flow Language Overview"},
+        {"guides/flow-steps.livemd", title: "Steps, Bindings & Returns"},
+        {"guides/flow-references.livemd", title: "References & Data Mapping"},
+        {"guides/flow-dependencies.livemd", title: "Dependencies, Groups & Parallel Branches"},
+        {"guides/flow-choices.livemd", title: "Choices & Conditions"},
+        {"guides/nested-flows.livemd", title: "Nested Flows"},
+        {"guides/flow-modules.md", title: "Flow Modules"},
+        {"guides/flow-script.md", title: "Flow Script"},
+        {"guides/flow-builder.md", title: "Runtime Builder"},
+        {"guides/flow-inspection.md", title: "Inspecting & Storing Flows"},
+        # Operations
+        {"guides/flow-execution.livemd", title: "Executing Flows"},
         {"guides/configuration.md", title: "Configuration"},
         {"guides/security.md", title: "Security"},
-        {"guides/testing.md", title: "Testing"},
-        # Help & Reference
-        {"guides/faq.md", title: "FAQ"},
-        {"CHANGELOG.md", title: "Changelog"},
-        {"LICENSE", title: "Apache 2.0 License"}
+        {"guides/testing.md", title: "Testing"}
       ],
       extra_section: "Guides",
       formatters: ["html"],

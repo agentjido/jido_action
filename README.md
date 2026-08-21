@@ -123,12 +123,34 @@ step-wise execution API.
 
 ## Docs
 
-Start with:
+Start with the runnable [Getting Started](guides/getting-started.livemd)
+Livebook. ExDoc adds a **Run in Livebook** link to each `.livemd` guide.
 
-- [Getting Started](guides/getting-started.md)
-- [Actions](guides/actions-guide.md)
-- [Jido Flow](guides/jido-flow.md)
-- [Flow Choices](guides/flow-choices.md)
-- [Executing Flows](guides/flow-execution.md)
+### Core Concepts
+
+- [Actions](guides/actions.md)
+- [Instructions](guides/instructions.md)
+- [Flows](guides/flows.md)
+- [Execution](guides/execution.md)
 - [Schemas & Validation](guides/schemas-validation.md)
-- [Error Handling](guides/error-handling.md)
+
+### Building Flows
+
+- [Build Your First Flow](guides/build-your-first-flow.livemd)
+- [Flow Language Overview](guides/flow-language.livemd)
+- [Steps, Bindings & Returns](guides/flow-steps.livemd)
+- [References & Data Mapping](guides/flow-references.livemd)
+- [Dependencies, Groups & Parallel Branches](guides/flow-dependencies.livemd)
+- [Choices & Conditions](guides/flow-choices.livemd)
+- [Nested Flows](guides/nested-flows.livemd)
+- [Flow Modules](guides/flow-modules.md)
+- [Flow Script](guides/flow-script.md)
+- [Runtime Builder](guides/flow-builder.md)
+- [Inspecting & Storing Flows](guides/flow-inspection.md)
+
+### Operations
+
+- [Executing Flows](guides/flow-execution.livemd)
+- [Configuration](guides/configuration.md)
+- [Security](guides/security.md)
+- [Testing](guides/testing.md)
