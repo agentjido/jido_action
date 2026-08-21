@@ -377,10 +377,19 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp evaluate_comparison(:in, left, right, node, option) do
-    if proper_list?(right) do
-      {:ok, Enum.member?(right, left)}
-    else
-      invalid_choice_condition(:in, :invalid_membership_right_operand, left, right, node, option)
+    case proper_list_member(right, left, false) do
+      {:ok, member?} ->
+        {:ok, member?}
+
+      :error ->
+        invalid_choice_condition(
+          :in,
+          :invalid_membership_right_operand,
+          left,
+          right,
+          node,
+          option
+        )
     end
   end
 
@@ -388,7 +397,15 @@ defmodule Jido.Flow.Compiler do
     (is_number(left) and is_number(right)) or (is_binary(left) and is_binary(right))
   end
 
-  defp proper_list?(value), do: is_list(value) and not List.improper?(value)
+  defp proper_list_member([], _value, member?), do: {:ok, member?}
+
+  defp proper_list_member([head | tail], value, false),
+    do: proper_list_member(tail, value, head == value)
+
+  defp proper_list_member([_head | tail], value, true),
+    do: proper_list_member(tail, value, true)
+
+  defp proper_list_member(_value, _member, _member?), do: :error
 
   defp invalid_choice_condition(operator, reason, left, right, node, option) do
     {:error,

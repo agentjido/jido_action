@@ -1405,11 +1405,13 @@ defmodule Jido.Flow.CompilerTest do
     end
 
     test "returns a non-retryable execution error for invalid ordering and membership operands" do
-      for {condition, operator, reason, left_type, right_type} <- [
-            {Condition.lt(Ref.value("a"), Ref.value(1)), :lt, :invalid_ordering_operands, :binary,
-             :number},
-            {Condition.in(Ref.value(:item), Ref.value(:not_a_list)), :in,
-             :invalid_membership_right_operand, :atom, :atom}
+      for {condition, input, operator, reason, left_type, right_type} <- [
+            {Condition.lt(Ref.value("a"), Ref.value(1)), %{}, :lt, :invalid_ordering_operands,
+             :binary, :number},
+            {Condition.in(Ref.value(:item), Ref.value(:not_a_list)), %{}, :in,
+             :invalid_membership_right_operand, :atom, :atom},
+            {Condition.in(Ref.value(:item), Ref.input(:right)), %{right: [:item | :tail]}, :in,
+             :invalid_membership_right_operand, :atom, :list}
           ] do
         flow =
           choice_flow(
@@ -1419,7 +1421,7 @@ defmodule Jido.Flow.CompilerTest do
           )
 
         assert {:error, %ExecutionFailureError{message: message, details: details} = error} =
-                 Compiler.run(flow, %{}, %{test_pid: self()})
+                 Compiler.run(flow, input, %{test_pid: self()})
 
         assert message == "invalid choice condition operands"
 
