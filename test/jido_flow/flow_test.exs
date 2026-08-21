@@ -3,7 +3,7 @@ defmodule Jido.FlowTest do
 
   alias Jido.Action.Error.InvalidInputError
   alias Jido.Flow
-  alias Jido.Flow.{Choice, Condition, Node, Ref, Syntax}
+  alias Jido.Flow.{Choice, Condition, ContractBundle, Node, Ref, Syntax}
   alias JidoTest.TestActions.{Add, EchoParamsAction, MissingRun, Multiply}
 
   describe "new/1" do
@@ -677,11 +677,18 @@ defmodule Jido.FlowTest do
           provenance: %{source: :test}
         )
 
-      assert Flow.to_map(flow, format: :stored, actions: %{"add" => Add}) == %{
+      assert Flow.to_map(
+               flow,
+               stored_writer_options(%{"add" => Add},
+                 input_schema: flow.schema,
+                 output_schema: flow.output_schema
+               )
+             ) == %{
                "type" => "flow",
                "version" => 1,
                "name" => "stored",
                "description" => nil,
+               "contracts" => stored_contract_references(),
                "nodes" => [
                  %{
                    "name" => "add_one",
@@ -742,11 +749,11 @@ defmodule Jido.FlowTest do
           provenance: %{source: :builder}
         )
 
-      stored = Flow.to_map(flow, format: :stored, actions: %{"add" => Add})
+      stored = Flow.to_map(flow, stored_writer_options(%{"add" => Add}))
       refute Map.has_key?(stored, "provenance")
       refute stored["nodes"] |> List.first() |> Map.has_key?("provenance")
 
-      stored = Flow.to_map(flow, format: :stored, actions: %{"add" => Add}, provenance: true)
+      stored = Flow.to_map(flow, stored_writer_options(%{"add" => Add}, provenance: true))
 
       assert stored["provenance"] == %{
                "$type" => "map",
@@ -775,7 +782,7 @@ defmodule Jido.FlowTest do
              }
     end
 
-    test "rejects missing and ambiguous action registries when emitting stored maps" do
+    test "rejects missing and ambiguous Action identifiers when emitting stored maps" do
       flow =
         Flow.new!(
           name: "stored",
@@ -783,24 +790,16 @@ defmodule Jido.FlowTest do
           return: Ref.result(:add_one, :value)
         )
 
-      assert_raise InvalidInputError, ~r/missing flow action registry identifier/, fn ->
-        Flow.to_map(flow, format: :stored, actions: %{})
+      assert_raise InvalidInputError, ~r/contract reference does not match Flow semantics/, fn ->
+        Flow.to_map(flow, stored_writer_options(%{}))
       end
 
-      assert_raise InvalidInputError, ~r/ambiguous flow action registry identifiers/, fn ->
-        Flow.to_map(flow, format: :stored, actions: %{"add" => Add, "plus" => Add})
-      end
-
-      assert_raise InvalidInputError, ~r/flow action registry must map/, fn ->
-        Flow.to_map(flow, format: :stored, actions: %{"add" => "not_module"})
-      end
-
-      assert_raise InvalidInputError, ~r/flow action registry must map/, fn ->
-        Flow.to_map(flow, format: :stored, actions: [:not_a_keyword_pair])
+      assert_raise InvalidInputError, ~r/contract reference does not match Flow semantics/, fn ->
+        Flow.to_map(flow, stored_writer_options(%{"add" => Add, "plus" => Add}))
       end
     end
 
-    test "accepts keyword action registries when emitting stored maps" do
+    test "accepts stable binary Action identifiers from the selected bundle" do
       flow =
         Flow.new!(
           name: "stored",
@@ -809,7 +808,7 @@ defmodule Jido.FlowTest do
         )
 
       assert %{"nodes" => [%{"action" => "add"}]} =
-               Flow.to_map(flow, format: :stored, actions: [add: Add])
+               Flow.to_map(flow, stored_writer_options(%{"add" => Add}))
     end
 
     test "rejects stored maps with unsupported expression keys and literal values" do
@@ -827,7 +826,7 @@ defmodule Jido.FlowTest do
         )
 
       assert_raise InvalidInputError, ~r/stored flow map key is not JSON-safe/, fn ->
-        Flow.to_map(tuple_key_flow, format: :stored, actions: %{"echo" => EchoParamsAction})
+        Flow.to_map(tuple_key_flow, stored_writer_options(%{"echo" => EchoParamsAction}))
       end
 
       struct_value_flow =
@@ -844,9 +843,9 @@ defmodule Jido.FlowTest do
         )
 
       assert_raise InvalidInputError, ~r/stored flow value contains unsupported struct/, fn ->
-        Flow.to_map(struct_value_flow,
-          format: :stored,
-          actions: %{"echo" => EchoParamsAction}
+        Flow.to_map(
+          struct_value_flow,
+          stored_writer_options(%{"echo" => EchoParamsAction})
         )
       end
 
@@ -878,6 +877,347 @@ defmodule Jido.FlowTest do
       assert_raise InvalidInputError, ~r/unsupported flow map format/, fn ->
         Flow.to_map(flow, format: :legacy)
       end
+    end
+  end
+
+  describe "stored version 1 contract bundles" do
+    test "writes IDs only and round-trips through one selected allow-listed bundle" do
+      input_schema = Zoi.object(%{items: Zoi.list(Zoi.any())})
+      output_schema = Zoi.object(%{total: Zoi.integer()})
+
+      flow =
+        Flow.new!(
+          name: "portable",
+          schema: input_schema,
+          output_schema: output_schema,
+          nodes: [add_node()],
+          return: %{total: Ref.result(:add_one, :value)},
+          provenance: %{source: :test}
+        )
+
+      actions = %{"add/v1" => Add, "unused/v1" => EchoParamsAction}
+      bundles = contract_bundles(actions, input_schema, output_schema)
+      bundles = Map.put(bundles, "other/v1", empty_contract_bundle("other/v1"))
+
+      stored =
+        Flow.to_map(flow,
+          format: :stored,
+          contracts: contract_references(),
+          contract_bundles: bundles,
+          provenance: true
+        )
+
+      assert stored["version"] == 1
+      assert stored["contracts"] == stored_contract_references()
+      assert [%{"action" => "add/v1"}] = stored["nodes"]
+      assert Map.has_key?(stored, "provenance")
+      refute inspect(stored) =~ inspect(input_schema)
+      refute inspect(stored) =~ inspect(output_schema)
+      assert :binary.match(:erlang.term_to_binary(stored), "Elixir.JidoTest") == :nomatch
+
+      assert {:ok, loaded} = Flow.from_map(stored, contract_bundles: bundles)
+      assert Flow.to_map(loaded) == Flow.to_map(flow)
+      refute Map.has_key?(Map.from_struct(loaded), :contracts)
+      refute Map.has_key?(Map.from_struct(loaded), :contract_bundles)
+
+      assert stored ==
+               loaded
+               |> Flow.to_map(
+                 format: :stored,
+                 contracts: contract_references(),
+                 contract_bundles: bundles,
+                 provenance: true
+               )
+               |> JSON.encode!()
+               |> JSON.decode!()
+    end
+
+    test "requires the strict contracts record and stable IDs before loader options" do
+      stored = bundled_stored_flow_map()
+
+      assert {:error,
+              %InvalidInputError{
+                message: ~s(root is missing required field: "contracts"),
+                details: %{record: :root, field: "contracts"}
+              }} = stored |> Map.delete("contracts") |> Flow.from_map()
+
+      assert {:error,
+              %InvalidInputError{
+                message: "flow contracts must be a map",
+                details: %{record: :contracts, path: ["contracts"]}
+              }} = stored |> Map.put("contracts", []) |> Flow.from_map()
+
+      for field <- ["bundle", "input_schema", "output_schema", "action_registry"] do
+        malformed = update_in(stored["contracts"], &Map.delete(&1, field))
+
+        assert {:error,
+                %InvalidInputError{
+                  message: message,
+                  details: %{record: :contracts, field: ^field, path: ["contracts", ^field]}
+                }} = Flow.from_map(malformed)
+
+        assert message == ~s(contracts is missing required field: #{inspect(field)})
+      end
+
+      malformed = put_in(stored, ["contracts", "extra"], true)
+
+      assert {:error,
+              %InvalidInputError{
+                message: ~s(contracts contains unknown field: "extra"),
+                details: %{record: :contracts, field: "extra", path: ["contracts", "extra"]}
+              }} = Flow.from_map(malformed)
+
+      for {path, value} <- [
+            {["contracts", "bundle"], 1},
+            {["contracts", "input_schema"], ""},
+            {["contracts", "output_schema"], "-bad"},
+            {["contracts", "action_registry"], "mödule"},
+            {["nodes", 0, "action"], String.duplicate("a", 256)}
+          ] do
+        malformed = put_stored_path(stored, path, value)
+
+        assert {:error,
+                %InvalidInputError{
+                  message: "invalid flow contract identifier",
+                  details: %{path: ^path}
+                }} = Flow.from_map(malformed)
+      end
+
+      choice = bundled_stored_choice_map()
+
+      for path <- [
+            ["nodes", 1, "options", 0, "action"],
+            ["nodes", 1, "fallback", "action"]
+          ] do
+        malformed = put_stored_path(choice, path, "bad id")
+
+        assert {:error,
+                %InvalidInputError{
+                  message: "invalid flow contract identifier",
+                  details: %{path: ^path}
+                }} = Flow.from_map(malformed)
+      end
+
+      assert {:error,
+              %InvalidInputError{
+                message: "unsupported flow map version: 2",
+                details: %{version: 2}
+              }} = stored |> Map.put("version", 2) |> Flow.from_map()
+    end
+
+    test "keeps grammar and option errors ahead of bundle lookup" do
+      stored = bundled_stored_flow_map()
+
+      assert {:error,
+              %InvalidInputError{
+                message: "stored flow requires external contract_bundles attachment",
+                details: %{field: :contract_bundles}
+              }} = Flow.from_map(stored)
+
+      direct = [actions: %{}, schema: [], output_schema: []]
+
+      for options <- [
+            [actions: %{}],
+            [schema: []],
+            [output_schema: []],
+            [actions: %{}, schema: []],
+            [actions: %{}, output_schema: []],
+            [schema: [], output_schema: []],
+            direct,
+            direct ++ [contract_bundles: %{}]
+          ] do
+        expected =
+          options
+          |> Keyword.keys()
+          |> Enum.filter(&(&1 in direct_attachment_keys()))
+          |> Enum.sort()
+
+        assert {:error,
+                %InvalidInputError{
+                  message: "stored flow does not accept direct contract attachments",
+                  details: %{options: ^expected}
+                }} = Flow.from_map(stored, options)
+      end
+
+      malformed = put_in(stored, ["nodes", Access.at(0), "extra"], true)
+
+      assert {:error, %InvalidInputError{message: message}} =
+               Flow.from_map(malformed, direct)
+
+      assert message == ~s(node contains unknown field: "extra")
+
+      unknown_bundle = put_in(stored, ["contracts", "bundle"], "unknown/v1")
+
+      assert {:error,
+              %InvalidInputError{
+                message: "stored flow does not accept direct contract attachments"
+              }} =
+               Flow.from_map(unknown_bundle,
+                 actions: %{},
+                 contract_bundles: contract_bundles(%{"add/v1" => Add})
+               )
+    end
+
+    test "resolves bundle, schemas, registry, and Action IDs in authority order" do
+      stored = bundled_stored_flow_map()
+      bundle = contract_bundle(%{"add/v1" => Add})
+
+      cases = [
+        {put_in(stored, ["contracts", "bundle"], "unknown/v1"), %{"bundle/v1" => bundle},
+         "unknown flow contract bundle: \"unknown/v1\"",
+         %{bundle: "unknown/v1", path: ["contracts", "bundle"]}},
+        {put_in(stored, ["contracts", "input_schema"], "unknown/v1"), %{"bundle/v1" => bundle},
+         "unknown flow schema identifier: \"unknown/v1\"",
+         %{
+           bundle: "bundle/v1",
+           identifier: "unknown/v1",
+           role: :input_schema,
+           path: ["contracts", "input_schema"]
+         }},
+        {put_in(stored, ["contracts", "output_schema"], "unknown/v1"), %{"bundle/v1" => bundle},
+         "unknown flow schema identifier: \"unknown/v1\"",
+         %{
+           bundle: "bundle/v1",
+           identifier: "unknown/v1",
+           role: :output_schema,
+           path: ["contracts", "output_schema"]
+         }},
+        {put_in(stored, ["contracts", "action_registry"], "unknown/v1"), %{"bundle/v1" => bundle},
+         "unknown flow action registry identifier: \"unknown/v1\"",
+         %{
+           bundle: "bundle/v1",
+           identifier: "unknown/v1",
+           path: ["contracts", "action_registry"]
+         }},
+        {put_in(stored, ["nodes", Access.at(0), "action"], "unknown/v1"),
+         %{"bundle/v1" => bundle}, "unknown flow action identifier: \"unknown/v1\"",
+         %{identifier: "unknown/v1", path: ["nodes", 0, "action"]}}
+      ]
+
+      for {artifact, bundles, message, expected_details} <- cases do
+        assert {:error, %InvalidInputError{message: ^message, details: details}} =
+                 Flow.from_map(artifact, contract_bundles: bundles)
+
+        assert details == expected_details
+      end
+    end
+
+    test "resolves an unloaded Action inertly and retains no bundle reference" do
+      action = unique_module("StoredBundleUnloadedAction")
+      refute Code.ensure_loaded?(action)
+
+      stored =
+        bundled_stored_flow_map()
+        |> put_in(["nodes", Access.at(0), "action"], "unloaded/v1")
+
+      bundles = contract_bundles(%{"unloaded/v1" => action})
+
+      assert {:ok, flow} = Flow.from_map(stored, contract_bundles: bundles)
+      assert [%Node{action: ^action}] = flow.nodes
+      refute Code.ensure_loaded?(action)
+      refute Enum.any?(Map.values(Map.from_struct(flow)), &match?(%ContractBundle{}, &1))
+    end
+
+    test "requires exact writer references and verifies canonical terms" do
+      flow = stored_source_flow()
+      bundles = contract_bundles(%{"add/v1" => Add})
+
+      assert_raise InvalidInputError, "stored flow requires contract references", fn ->
+        Flow.to_map(flow, format: :stored)
+      end
+
+      assert_raise InvalidInputError,
+                   "stored flow requires external contract_bundles attachment",
+                   fn ->
+                     Flow.to_map(flow, format: :stored, contracts: contract_references())
+                   end
+
+      for options <- [[actions: %{}], [schema: []], [output_schema: []]] do
+        error =
+          assert_raise InvalidInputError, fn ->
+            Flow.to_map(flow, [format: :stored] ++ options)
+          end
+
+        assert error.message == "stored flow does not accept direct contract attachments"
+        assert error.details.options == Keyword.keys(options)
+      end
+
+      for {references, message, record, field} <- [
+            {Map.delete(contract_references(), :bundle),
+             "contract_references is missing required field: :bundle", :contract_references,
+             :bundle},
+            {Map.put(contract_references(), :extra, true),
+             "contract_references contains unknown field: :extra", :contract_references, :extra}
+          ] do
+        error =
+          assert_raise InvalidInputError, fn ->
+            Flow.to_map(flow,
+              format: :stored,
+              contracts: references,
+              contract_bundles: bundles
+            )
+          end
+
+        assert error.message == message
+        assert error.details == %{record: record, field: field}
+      end
+
+      mismatch_cases = [
+        {:input_schema, contract_bundles(%{"add/v1" => Add}, Zoi.object(%{x: Zoi.any()}), [])},
+        {:output_schema, contract_bundles(%{"add/v1" => Add}, [], Zoi.object(%{x: Zoi.any()}))},
+        {:action_registry, contract_bundles(%{"other/v1" => EchoParamsAction})},
+        {:action_registry, contract_bundles(%{"add/v1" => Add, "plus/v1" => Add})}
+      ]
+
+      for {role, mismatched_bundles} <- mismatch_cases do
+        error =
+          assert_raise InvalidInputError, fn ->
+            Flow.to_map(flow,
+              format: :stored,
+              contracts: contract_references(),
+              contract_bundles: mismatched_bundles
+            )
+          end
+
+        assert error.message == "flow contract reference does not match Flow semantics"
+        assert error.details.role == role
+      end
+    end
+
+    test "writes Node and Choice targets deterministically with extra registry entries" do
+      flow = choice_map_flow()
+
+      actions = %{
+        "echo/v1" => EchoParamsAction,
+        "add/v1" => Add,
+        "multiply/v1" => Multiply,
+        "unused/v1" => MissingRun
+      }
+
+      options = stored_writer_options(actions, provenance: true)
+      first = Flow.to_map(flow, options)
+      second = Flow.to_map(flow, Enum.reverse(options))
+
+      assert first == second
+
+      assert [
+               %{"action" => "echo/v1"},
+               %{
+                 "kind" => "choice",
+                 "options" => [
+                   %{"action" => "add/v1"},
+                   %{"action" => "multiply/v1"}
+                 ],
+                 "fallback" => %{"action" => "multiply/v1"}
+               }
+             ] = first["nodes"]
+
+      assert {:ok, loaded} =
+               Flow.from_map(first,
+                 contract_bundles: contract_bundles(actions)
+               )
+
+      assert Flow.to_map(loaded) == Flow.to_map(flow)
     end
   end
 
@@ -925,7 +1265,7 @@ defmodule Jido.FlowTest do
                resource: :collection_width,
                limit: 10_000,
                actual: 10_001,
-               path: [{:map_value, 3}]
+               path: [{:map_value, 4}]
              }
     end
 
@@ -985,8 +1325,11 @@ defmodule Jido.FlowTest do
       choice_provenance =
         choice_map_flow()
         |> Flow.to_map(
-          format: :stored,
-          actions: %{"echo" => EchoParamsAction, "add" => Add, "multiply" => Multiply}
+          stored_writer_options(%{
+            "echo" => EchoParamsAction,
+            "add" => Add,
+            "multiply" => Multiply
+          })
         )
         |> put_in(["nodes", Access.at(1), "provenance"], encoded_reserved_map)
 
@@ -1042,10 +1385,7 @@ defmodule Jido.FlowTest do
       for {flow, path, extra_options} <- cases do
         error =
           assert_raise InvalidInputError, fn ->
-            Flow.to_map(
-              flow,
-              [format: :stored, actions: %{"echo" => EchoParamsAction}] ++ extra_options
-            )
+            Flow.to_map(flow, stored_writer_options(%{"echo" => EchoParamsAction}, extra_options))
           end
 
         assert error.message == "stored flow map key is reserved: :__struct__"
@@ -1073,7 +1413,7 @@ defmodule Jido.FlowTest do
       assert %{
                "nodes" => [%{"input" => %{"entries" => [%{"key" => string_key}]}}],
                "return" => %{"path" => [atom_segment]}
-             } = Flow.to_map(flow, format: :stored, actions: %{"add" => Add})
+             } = Flow.to_map(flow, stored_writer_options(%{"add" => Add}))
 
       assert string_key == %{"type" => "string", "value" => "__struct__"}
       assert atom_segment == %{"type" => "atom", "value" => "__struct__"}
@@ -1114,8 +1454,11 @@ defmodule Jido.FlowTest do
       stored =
         flow
         |> Flow.to_map(
-          format: :stored,
-          actions: %{"echo" => EchoParamsAction, "add" => Add, "multiply" => Multiply}
+          stored_writer_options(%{
+            "echo" => EchoParamsAction,
+            "add" => Add,
+            "multiply" => Multiply
+          })
         )
         |> JSON.encode!()
         |> JSON.decode!()
@@ -1146,8 +1489,11 @@ defmodule Jido.FlowTest do
       stored =
         choice_map_flow()
         |> Flow.to_map(
-          format: :stored,
-          actions: %{"echo" => EchoParamsAction, "add" => Add, "multiply" => Multiply}
+          stored_writer_options(%{
+            "echo" => EchoParamsAction,
+            "add" => Add,
+            "multiply" => Multiply
+          })
         )
 
       malformed_semantic = update_in(semantic, [:nodes, Access.at(1)], &Map.delete(&1, :kind))
@@ -1272,8 +1618,11 @@ defmodule Jido.FlowTest do
       stored =
         choice_map_flow()
         |> Flow.to_map(
-          format: :stored,
-          actions: %{"echo" => EchoParamsAction, "add" => Add, "multiply" => Multiply}
+          stored_writer_options(%{
+            "echo" => EchoParamsAction,
+            "add" => Add,
+            "multiply" => Multiply
+          })
         )
 
       cases = [
@@ -1330,47 +1679,47 @@ defmodule Jido.FlowTest do
       assert actual == expected
     end
 
-    test "requires one registry identifier for every Choice target during stored encoding" do
+    test "requires one stable identifier for every Choice target during stored encoding" do
       flow = choice_map_flow()
 
-      assert_raise InvalidInputError, ~r/missing flow action registry identifier/, fn ->
-        Flow.to_map(flow, format: :stored, actions: %{"echo" => EchoParamsAction, "add" => Add})
-      end
-
-      assert_raise InvalidInputError, ~r/ambiguous flow action registry identifiers/, fn ->
+      assert_raise InvalidInputError, ~r/contract reference does not match Flow semantics/, fn ->
         Flow.to_map(
           flow,
-          format: :stored,
-          actions: %{
+          stored_writer_options(%{"echo" => EchoParamsAction, "add" => Add})
+        )
+      end
+
+      assert_raise InvalidInputError, ~r/contract reference does not match Flow semantics/, fn ->
+        Flow.to_map(
+          flow,
+          stored_writer_options(%{
             "echo" => EchoParamsAction,
             "add" => Add,
             "multiply" => Multiply,
             "times" => Multiply
-          }
+          })
         )
       end
     end
 
-    test "requires both explicit schema attachments for stored maps" do
+    test "requires a bundle attachment and rejects all direct attachments" do
       stored = stored_flow_map()
       actions = %{"add" => Add}
 
-      for {opts, field} <- [
-            {[actions: actions], :schema},
-            {[actions: actions, schema: []], :output_schema},
-            {[actions: actions, output_schema: []], :schema},
-            {[actions: actions, schema: nil, output_schema: []], :schema},
-            {[actions: actions, schema: [], output_schema: nil], :output_schema}
-          ] do
-        assert {:error, %InvalidInputError{message: message, details: details}} =
-                 Flow.from_map(stored, opts)
+      assert {:error,
+              %InvalidInputError{
+                message: "stored flow requires external contract_bundles attachment",
+                details: %{field: :contract_bundles}
+              }} = Flow.from_map(stored)
 
-        assert message == "stored flow requires external #{field} attachment"
-        assert details.field == field
-      end
-
-      assert {:ok, flow} =
+      assert {:error,
+              %InvalidInputError{
+                message: "stored flow does not accept direct contract attachments",
+                details: %{options: [:actions, :output_schema, :schema]}
+              }} =
                Flow.from_map(stored, actions: actions, schema: [], output_schema: [])
+
+      assert {:ok, flow} = Flow.from_map(stored, stored_options(actions))
 
       assert flow.schema == []
       assert flow.output_schema == []
@@ -1382,7 +1731,8 @@ defmodule Jido.FlowTest do
       for {option, value} <- [
             actions: %{"add" => Add},
             schema: [],
-            output_schema: []
+            output_schema: [],
+            contract_bundles: contract_bundles(%{"add" => Add})
           ] do
         assert {:error, %InvalidInputError{message: message, details: details}} =
                  Flow.from_map(semantic, [{option, value}])
@@ -1400,22 +1750,19 @@ defmodule Jido.FlowTest do
 
     test "rejects duplicate loader keyword options" do
       actions = %{"add" => Add}
+      opts = stored_options(actions)
+      value = Keyword.fetch!(opts, :contract_bundles)
 
-      for option <- [:actions, :schema, :output_schema] do
-        opts = stored_options(actions)
-        value = Keyword.fetch!(opts, option)
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Flow.from_map(stored_flow_map(), opts ++ [contract_bundles: value])
 
-        assert {:error, %InvalidInputError{message: message, details: details}} =
-                 Flow.from_map(stored_flow_map(), opts ++ [{option, value}])
-
-        assert message == "duplicate flow map option: #{inspect(option)}"
-        assert details.option == option
-      end
+      assert message == "duplicate flow map option: :contract_bundles"
+      assert details.option == :contract_bundles
     end
 
     test "rejects unknown fields throughout the stored recursive grammar" do
       stored = stored_flow_map()
-      opts = [actions: %{"add" => Add}, schema: [], output_schema: []]
+      opts = stored_options(%{"add" => Add})
 
       [entry] = get_in(stored, ["nodes", Access.at(0), "input", "entries"])
 
@@ -1460,7 +1807,7 @@ defmodule Jido.FlowTest do
 
     test "rejects mixed profiles, aliases, embedded stored schemas, and duplicate entries" do
       stored = stored_flow_map()
-      opts = [actions: %{"add" => Add}, schema: [], output_schema: []]
+      opts = stored_options(%{"add" => Add})
 
       malformed_maps = [
         Map.put(stored, :name, "alias"),
@@ -1524,7 +1871,7 @@ defmodule Jido.FlowTest do
 
       decoded =
         flow
-        |> Flow.to_map(format: :stored, actions: %{"add" => Add})
+        |> Flow.to_map(stored_writer_options(%{"add" => Add}))
         |> JSON.encode!()
         |> JSON.decode!()
 
@@ -1655,21 +2002,26 @@ defmodule Jido.FlowTest do
       end
     end
 
-    test "reattaches schemas from loader options" do
+    test "resolves schemas from the selected bundle" do
+      input_schema = Zoi.object(%{value: Zoi.integer()})
+
       flow =
         Flow.new!(
           name: "schema_round_trip",
+          schema: input_schema,
           nodes: [add_node()],
           return: Ref.result(:add_one, :value)
         )
 
-      stored = Flow.to_map(flow, format: :stored, actions: %{"add" => Add})
+      stored =
+        Flow.to_map(
+          flow,
+          stored_writer_options(%{"add" => Add}, input_schema: input_schema)
+        )
 
       assert {:ok, loaded} =
                Flow.from_map(stored,
-                 actions: %{"add" => Add},
-                 schema: Zoi.object(%{value: Zoi.integer()}),
-                 output_schema: Zoi.object(%{value: Zoi.integer()})
+                 contract_bundles: contract_bundles(%{"add" => Add}, input_schema, [])
                )
 
       assert {:error, %InvalidInputError{message: message, details: details}} =
@@ -1700,7 +2052,7 @@ defmodule Jido.FlowTest do
 
       decoded =
         flow
-        |> Flow.to_map(format: :stored, actions: %{"echo" => EchoParamsAction})
+        |> Flow.to_map(stored_writer_options(%{"echo" => EchoParamsAction}))
         |> JSON.encode!()
         |> JSON.decode!()
 
@@ -1728,10 +2080,11 @@ defmodule Jido.FlowTest do
               %InvalidInputError{message: "flow map options must be a map or keyword list"}} =
                Flow.from_map(%{}, [:not_a_keyword_pair])
 
-      assert {:error, %InvalidInputError{message: message}} =
-               Flow.from_map(stored_flow_map(), stored_options(%{"add" => "not_module"}))
-
-      assert message =~ "flow action registry must map"
+      assert {:error,
+              %InvalidInputError{
+                message:
+                  "flow contract bundles must map stable bundle identifiers to ContractBundle structs"
+              }} = Flow.from_map(stored_flow_map(), contract_bundles: %{"bundle/v1" => :bad})
 
       assert {:error, %InvalidInputError{message: "flow map version is required"}} =
                Flow.from_map(%{"type" => "flow"})
@@ -1746,11 +2099,12 @@ defmodule Jido.FlowTest do
         "type" => "flow",
         "version" => 1,
         "name" => "bad",
+        "contracts" => stored_contract_references(),
         "nodes" => [
           %{
             "name" => "add_one",
             "action" => "missing",
-            "input" => %{},
+            "input" => %{"type" => "map", "entries" => []},
             "deps" => []
           }
         ],
@@ -1777,6 +2131,7 @@ defmodule Jido.FlowTest do
         "type" => "flow",
         "version" => 1,
         "name" => "bad",
+        "contracts" => stored_contract_references(),
         "nodes" => [
           %{
             "name" => "add_one",
@@ -1819,8 +2174,9 @@ defmodule Jido.FlowTest do
                |> put_in(["nodes", Access.at(0), "action"], 123)
                |> Flow.from_map(stored_options(%{"add" => Add}))
 
-      assert message =~ "stored flow node action must be a registered identifier"
-      assert details.action == 123
+      assert message == "invalid flow contract identifier"
+      assert details.field == :action
+      assert details.path == ["nodes", 0, "action"]
 
       assert {:error, %InvalidInputError{message: message, details: details}} =
                base
@@ -1873,7 +2229,7 @@ defmodule Jido.FlowTest do
           nodes: [add_node()],
           return: Ref.result(:add_one)
         )
-        |> Flow.to_map(format: :stored, actions: %{"add" => Add})
+        |> Flow.to_map(stored_writer_options(%{"add" => Add}))
 
       for node <- [nil, 1, :add_one] do
         assert {:error, %InvalidInputError{message: message, details: details}} =
@@ -1903,6 +2259,7 @@ defmodule Jido.FlowTest do
         "type" => "flow",
         "version" => 1,
         "name" => "plain_provenance",
+        "contracts" => stored_contract_references(),
         "provenance" => %{
           "source" => "stored",
           "nested" => %{"kind" => "manual"}
@@ -2087,11 +2444,7 @@ defmodule Jido.FlowTest do
       flow = %{stored_source_flow() | provenance: self()}
 
       assert_raise InvalidInputError, ~r/stored flow value is not JSON-safe/, fn ->
-        Flow.to_map(flow,
-          format: :stored,
-          actions: %{"add" => Add},
-          provenance: true
-        )
+        Flow.to_map(flow, stored_writer_options(%{"add" => Add}, provenance: true))
       end
     end
 
@@ -2112,7 +2465,7 @@ defmodule Jido.FlowTest do
           provenance: %{source: :writer, metadata: %{"revision" => 1}}
         )
 
-      stored = Flow.to_map(flow, format: :stored, actions: %{"add" => Add}, provenance: true)
+      stored = Flow.to_map(flow, stored_writer_options(%{"add" => Add}, provenance: true))
 
       assert {:ok, loaded} =
                Flow.from_map(stored, stored_options(%{"add" => Add}))
@@ -2127,6 +2480,7 @@ defmodule Jido.FlowTest do
         "type" => "flow",
         "version" => 1,
         "name" => "bad_nested",
+        "contracts" => stored_contract_references(),
         "nodes" => [
           %{
             "name" => "echo",
@@ -2202,6 +2556,7 @@ defmodule Jido.FlowTest do
         "type" => "flow",
         "version" => 1,
         "name" => "atom_typed_segments",
+        "contracts" => stored_contract_references(),
         "nodes" => [
           %{
             "name" => "echo",
@@ -2229,19 +2584,21 @@ defmodule Jido.FlowTest do
       }
 
       assert {:error, %InvalidInputError{message: message, details: details}} =
-               Flow.from_map(stored, stored_options(echo: EchoParamsAction))
+               Flow.from_map(stored, stored_options(%{"echo" => EchoParamsAction}))
 
       assert message =~ "unknown field"
       assert details.record == :typed_key
     end
 
-    test "rejects invalid action registry option shapes" do
-      for actions <- [:bad, nil] do
+    test "rejects invalid contract bundle collection shapes" do
+      for bundles <- [[], %{"bundle/v1" => :bad}] do
         assert {:error, %InvalidInputError{message: message, details: details}} =
-                 Flow.from_map(stored_flow_map(), stored_options(actions))
+                 Flow.from_map(stored_flow_map(), contract_bundles: bundles)
 
-        assert message == "flow action registry must map string or atom identifiers to modules"
-        assert details.actions == actions
+        assert message ==
+                 "flow contract bundles must map stable bundle identifiers to ContractBundle structs"
+
+        assert details.field == :contract_bundles
       end
     end
 
@@ -2253,6 +2610,7 @@ defmodule Jido.FlowTest do
         "type" => "flow",
         "version" => 1,
         "name" => "bad_path",
+        "contracts" => stored_contract_references(),
         "nodes" => [
           %{
             "name" => "add_one",
@@ -2288,6 +2646,7 @@ defmodule Jido.FlowTest do
         "type" => "flow",
         "version" => 1,
         "name" => "bad_segment",
+        "contracts" => stored_contract_references(),
         "nodes" => [
           %{
             "name" => "add_one",
@@ -2363,9 +2722,82 @@ defmodule Jido.FlowTest do
     )
   end
 
-  defp stored_flow_map do
+  defp contract_references do
+    %{
+      bundle: "bundle/v1",
+      input_schema: "input/v1",
+      output_schema: "output/v1",
+      action_registry: "actions/v1"
+    }
+  end
+
+  defp stored_contract_references do
+    Map.new(contract_references(), fn {key, value} -> {Atom.to_string(key), value} end)
+  end
+
+  defp contract_bundle(actions, input_schema \\ [], output_schema \\ []) do
+    ContractBundle.new!(
+      id: "bundle/v1",
+      schemas: %{
+        "input/v1" => input_schema,
+        "output/v1" => output_schema,
+        "unused/v1" => Zoi.object(%{})
+      },
+      action_registries: %{"actions/v1" => actions}
+    )
+  end
+
+  defp empty_contract_bundle(id) do
+    ContractBundle.new!(id: id, schemas: %{}, action_registries: %{})
+  end
+
+  defp contract_bundles(actions, input_schema \\ [], output_schema \\ []) do
+    %{"bundle/v1" => contract_bundle(actions, input_schema, output_schema)}
+  end
+
+  defp stored_writer_options(actions, extra \\ []) do
+    input_schema = Keyword.get(extra, :input_schema, [])
+    output_schema = Keyword.get(extra, :output_schema, [])
+    writer_extra = Keyword.drop(extra, [:input_schema, :output_schema])
+
+    [
+      format: :stored,
+      contracts: contract_references(),
+      contract_bundles: contract_bundles(actions, input_schema, output_schema)
+    ] ++ writer_extra
+  end
+
+  defp bundled_stored_flow_map do
     stored_source_flow()
-    |> Flow.to_map(format: :stored, actions: %{"add" => Add})
+    |> Flow.to_map(stored_writer_options(%{"add" => Add}))
+  end
+
+  defp bundled_stored_choice_map do
+    choice_map_flow()
+    |> Flow.to_map(
+      stored_writer_options(%{
+        "echo/v1" => EchoParamsAction,
+        "add/v1" => Add,
+        "multiply/v1" => Multiply
+      })
+    )
+  end
+
+  defp direct_attachment_keys, do: [:actions, :schema, :output_schema]
+
+  defp put_stored_path(_value, [], replacement), do: replacement
+
+  defp put_stored_path(map, [key | rest], replacement) when is_map(map) do
+    Map.update!(map, key, &put_stored_path(&1, rest, replacement))
+  end
+
+  defp put_stored_path(list, [index | rest], replacement)
+       when is_list(list) and is_integer(index) do
+    List.update_at(list, index, &put_stored_path(&1, rest, replacement))
+  end
+
+  defp stored_flow_map do
+    bundled_stored_flow_map()
   end
 
   defp stored_literal_map(value) do
@@ -2377,6 +2809,6 @@ defmodule Jido.FlowTest do
   end
 
   defp stored_options(actions) do
-    [actions: actions, schema: [], output_schema: []]
+    [contract_bundles: contract_bundles(actions)]
   end
 end
