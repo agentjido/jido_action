@@ -1,55 +1,30 @@
-# Jido Flow
+# How Jido Flow Works
 
-A flow is a named graph of action calls with one declared return value. Use it
-when several actions should run as one data artifact, while keeping each action
-small and reusable.
+A Flow is a named graph of action calls with one declared return expression.
+Use a Flow when several actions must form one reusable, inspectable data
+artifact.
 
-Flows are not policy containers. Retry, timeout, fallback, persistence, and
-durable execution belong outside the flow artifact.
+A Flow contains structure, not runtime policy. Retry, timeout, fallback,
+persistence, and durable execution stay outside the artifact.
 
-## Define The Actions
+## The Canonical Artifact
 
-Flow steps call normal `Jido.Action` modules.
+All authoring surfaces produce a `%Jido.Flow{}` with these main fields:
 
-```elixir
-defmodule MyApp.Actions.Add do
-  use Jido.Action,
-    name: "add",
-    schema:
-      Zoi.object(%{
-        value: Zoi.integer(),
-        amount: Zoi.integer()
-      }),
-    output_schema: Zoi.object(%{value: Zoi.integer()})
+- `name` and `description` identify the Flow.
+- `schema` validates runtime Flow input.
+- `output_schema` validates the declared return value.
+- `nodes` contains named action calls.
+- `return` declares the result that the Flow returns.
+- `provenance` contains non-semantic authoring metadata.
 
-  @impl true
-  def run(%{value: value, amount: amount}, _context) do
-    {:ok, %{value: value + amount}}
-  end
-end
-
-defmodule MyApp.Actions.Multiply do
-  use Jido.Action,
-    name: "multiply",
-    schema:
-      Zoi.object(%{
-        value: Zoi.integer(),
-        amount: Zoi.integer()
-      }),
-    output_schema: Zoi.object(%{value: Zoi.integer()})
-
-  @impl true
-  def run(%{value: value, amount: amount}, _context) do
-    {:ok, %{value: value * amount}}
-  end
-end
-```
+Each `%Jido.Flow.Node{}` has a name, an action module, an input expression, and
+dependencies. Node names are strings in the canonical artifact.
 
 ## Define A Flow Module
 
-`use Jido.Flow` gives the module action-compatible metadata and validation
-callbacks. The `flow` block lowers into a canonical `Jido.Flow` artifact at
-compile time.
+Assume that `MyApp.Actions.Add` and `MyApp.Actions.Multiply` accept a `value`
+and an `amount`, and return `%{value: integer}`.
 
 ```elixir
 defmodule MyApp.Flows.DoubleAfterIncrement do
@@ -57,48 +32,63 @@ defmodule MyApp.Flows.DoubleAfterIncrement do
     name: "double_after_increment",
     description: "Adds one, then doubles the result",
     schema: Zoi.object(%{value: Zoi.integer()}),
-    output_schema: Zoi.integer()
+    output_schema: Zoi.object(%{value: Zoi.integer()})
 
   alias MyApp.Actions.{Add, Multiply}
 
   flow do
-    added = step(:add_one, Add, with: %{value: input(:value), amount: value(1)})
+    added =
+      step(:add_one, Add,
+        with: %{value: input(:value), amount: value(1)}
+      )
 
     doubled =
       step(:double, Multiply,
         with: %{value: select(added, :value), amount: value(2)}
       )
 
-    return(select(doubled, :value))
+    return(doubled)
   end
 end
 ```
 
-Generated helpers:
+The module DSL lowers the `flow` block at compile time. Invalid expressions,
+unknown result references, cycles, and invalid action contracts cause a compile
+error.
 
-- `name/0` and `description/0` return flow metadata.
-- `schema/0` and `output_schema/0` expose validation schemas.
-- `validate_params/1` and `validate_output/1` match the action contract.
-- `flow/0` returns the canonical `Jido.Flow` artifact.
-- `to_map/1` returns a deterministic map form.
-- `compile/0` compiles the flow for graph inspection.
-- `run/2` delegates to `Jido.Exec.run/3`.
+The generated module provides these functions:
 
-## Use References
+- `flow/0` returns the canonical artifact.
+- `run/2` delegates to `Jido.Exec`.
+- `to_map/1` returns a deterministic map.
+- `compile/0` returns an inert Runic workflow for graph inspection.
+- `dependencies/0`, `explain/0`, and `semantic_identity/0` inspect the graph.
+- Action-compatible metadata and validation functions let a Flow module act as
+  a node in another Flow.
 
-Flow inputs are data expressions, not arbitrary Elixir code.
+## Reference Expressions
 
-- `input(:key)` reads from runtime flow input.
-- `context(:key)` reads from runtime context.
-- `value(term)` embeds a literal value.
-- `result(:step_name, :path)` reads a previous step result.
-- `select(source, path)` projects nested data from another expression.
+Node inputs and Flow returns are data expressions. They are not arbitrary
+Elixir code.
+
+- `input(path)` reads runtime Flow input.
+- `context(path)` reads runtime context.
+- `value(term)` stores a literal value.
+- `result(node, path)` reads a named prior result.
+- `select(source, path)` reads a nested value from another expression.
+- A bound step variable is a source-level reference to that step result.
+
+Paths can contain atoms, strings, or non-negative list indexes:
 
 ```elixir
 flow do
   quote =
     step(:load_quote, MyApp.Actions.LoadQuote,
-      with: %{id: input(:quote_id), tenant_id: context(:tenant_id)}
+      with: %{
+        id: input(:quote_id),
+        first_item: input([:items, 0]),
+        tenant_id: context([:tenant, :id])
+      }
     )
 
   priced =
@@ -108,20 +98,42 @@ flow do
 
   return(%{
     quote_id: select(quote, :id),
-    total: select(priced, [:pricing, :total]),
-    tenant_id: context(:tenant_id)
+    total: select(priced, [:pricing, :total])
   })
 end
 ```
 
-The return expression may be a single step result, a selected value, or a shaped
-map/list containing references and literals. It must include at least one step
-result.
+The return expression can be one result or a map or list that contains several
+references. It must include at least one node result.
 
-## Model Independent Branches
+## Dependency Graph
 
-Use `group` and `branch` to express independent static branches. Branch names
-are provenance only; dependencies still come from references between steps.
+A result reference creates a dependency. In the first example, `double`
+depends on `add_one` because its input reads the `add_one` result.
+
+Use `after:` when a node needs an order dependency but does not need prior
+result data:
+
+```elixir
+flow do
+  loaded = step(:load_quote, MyApp.Actions.LoadQuote, with: %{id: input(:id)})
+
+  audited =
+    step(:audit_quote, MyApp.Actions.AuditQuote,
+      after: loaded,
+      with: %{event: value("quote_loaded")}
+    )
+
+  return(audited)
+end
+```
+
+Flow validation combines explicit `after:` dependencies with dependencies from
+result references. It rejects unknown nodes and cycles.
+
+## Static Branch Groups
+
+`group` and `branch` make independent authoring branches clear:
 
 ```elixir
 flow do
@@ -146,52 +158,77 @@ flow do
 end
 ```
 
-Independent branches run serially by default. Enable concurrent branch execution
-at the execution boundary:
+Branch names are provenance only. They do not create runtime edges. References
+and `after:` declarations define the graph.
+
+## Execution Sequence
+
+Run a Flow module or artifact through `Jido.Exec`:
+
+```elixir
+{:ok, %{value: 8}} =
+  Jido.Exec.run(MyApp.Flows.DoubleAfterIncrement, %{value: 3}, %{})
+
+flow = MyApp.Flows.DoubleAfterIncrement.flow()
+{:ok, %{value: 8}} = Jido.Exec.run(flow, %{value: 3}, %{})
+```
+
+Execution uses this sequence:
+
+1. `Jido.Exec` validates the Flow and its input.
+2. The compiler converts canonical nodes and edges to a Runic workflow.
+3. Runic starts nodes when their dependencies are satisfied.
+4. Each node resolves its input expression and runs its action.
+5. The runtime extracts the declared return after the graph settles.
+6. `Jido.Exec` validates the Flow output.
+
+Independent branches run serially by default. Enable concurrent scheduling at
+the public boundary:
 
 ```elixir
 {:ok, result} =
-  Jido.Exec.run(MyApp.Flows.DoubleAfterIncrement, %{value: 3}, %{},
+  Jido.Exec.run(MyApp.Flows.LoadDashboard, input, context,
     async: true,
     max_concurrency: 4
   )
 ```
 
-Run options are supported only for flows.
+Node actions receive the original Flow context. Node extras are discarded.
+When a node fails, dependent nodes do not run. An independent branch can still
+run while the workflow settles.
 
-## Execute Through Jido.Exec
+## Inspect A Flow
 
-Run a flow module or a flow artifact through `Jido.Exec`.
+Use `dependencies/1` or `explain/1` to inspect the canonical graph:
 
 ```elixir
-{:ok, 8} = Jido.Exec.run(MyApp.Flows.DoubleAfterIncrement, %{value: 3}, %{})
-
 flow = MyApp.Flows.DoubleAfterIncrement.flow()
-{:ok, 8} = Jido.Exec.run(flow, %{value: 3}, %{})
+
+{:ok, %{"add_one" => [], "double" => ["add_one"]}} =
+  Jido.Flow.dependencies(flow)
+
+{:ok, explanation} = Jido.Flow.explain(flow)
+{:ok, identity} = Jido.Flow.semantic_identity(flow)
 ```
 
-Execution validates flow input before running steps and validates the declared
-return value against the output schema after execution.
+`semantic_identity/1` returns stable SHA-256 and UUIDv8 identities. Provenance
+and the authoring order of independent nodes do not change semantic identity.
 
-Action extras are intentionally discarded during flow execution. Extras remain
-available when running a leaf action or instruction directly.
+`Jido.Flow.compile/1` creates an inert Runic workflow for topology inspection.
+It does not run actions or resolve runtime input.
 
-## Inspect And Store Flow Maps
+## Store A Flow
 
-`to_map/1` emits a deterministic semantic map. Independent nodes are ordered by
-dependency and node name, so equivalent flows compare consistently.
+The default map is an in-memory semantic map. It contains action module atoms
+and schemas:
 
 ```elixir
-%{
-  type: :flow,
-  version: 1,
-  name: "double_after_increment",
-  nodes: nodes,
-  return: return_ref
-} = MyApp.Flows.DoubleAfterIncrement.to_map()
+semantic = Jido.Flow.to_map(flow)
+{:ok, same_flow} = Jido.Flow.from_map(semantic)
 ```
 
-Use the stored format when source/provenance needs to round-trip with the flow:
+Use the stored format for JSON-safe data. Map action modules to stable string
+identifiers:
 
 ```elixir
 actions = %{
@@ -200,24 +237,26 @@ actions = %{
 }
 
 stored =
-  MyApp.Flows.DoubleAfterIncrement.to_map(
+  Jido.Flow.to_map(flow,
     format: :stored,
     actions: actions,
     provenance: true
   )
 
-{:ok, flow} = Jido.Flow.from_map(stored, actions: actions)
+{:ok, loaded} =
+  Jido.Flow.from_map(stored,
+    actions: actions,
+    schema: flow.schema,
+    output_schema: flow.output_schema
+  )
 ```
 
-## Keep Flow Boundaries Small
+Stored maps do not embed executable modules or schemas. The loader must attach
+them from trusted application data.
 
-Prefer flows for explicit action composition:
+## Authoring Languages
 
-- Each step is a `Jido.Action`.
-- Inputs are declared with data references.
-- Dependencies are visible in the graph.
-- The flow has one declared return value.
-
-Keep runtime policy outside the flow. If execution needs retries, deadlines,
-fallbacks, persistence, or orchestration across processes, layer that behavior
-around `Jido.Exec` rather than into `Jido.Flow`.
+The module DSL is one Flow authoring language. The runtime builder, trusted
+source parser, stored source profile, and stored maps produce the same
+canonical artifact. See [Flow Authoring Languages](flow-authoring-languages.md)
+for equivalent examples and selection guidance.

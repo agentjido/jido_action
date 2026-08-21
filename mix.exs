@@ -69,22 +69,27 @@ defmodule JidoAction.MixProject do
       source_url: "https://github.com/agentjido/jido_action",
       authors: ["Mike Hostetler <mike.hostetler@gmail.com>"],
       groups_for_extras: [
-        "Getting Started": [
+        "Start Here": [
           "guides/getting-started.md",
           "guides/your-second-action.md"
         ],
-        "Core Concepts": [
+        "Core Execution": [
           "guides/actions-guide.md",
-          "guides/jido-flow.md",
+          "guides/instructions.md",
+          "guides/exec.md",
           "guides/schemas-validation.md",
           "guides/error-handling.md"
         ],
-        "How-To Guides": [
+        "Jido Flow": [
+          "guides/jido-flow.md",
+          "guides/flow-authoring-languages.md"
+        ],
+        "Production Use": [
           "guides/configuration.md",
           "guides/security.md",
           "guides/testing.md"
         ],
-        "Help & Reference": [
+        Reference: [
           "guides/faq.md",
           "CHANGELOG.md",
           "LICENSE"
@@ -93,19 +98,23 @@ defmodule JidoAction.MixProject do
       extras: [
         # Home & Project
         {"README.md", title: "Home"},
-        # Getting Started
+        # Start Here
         {"guides/getting-started.md", title: "Getting Started"},
         {"guides/your-second-action.md", title: "Your Second Action"},
-        # Core Concepts
-        {"guides/actions-guide.md", title: "Actions"},
-        {"guides/jido-flow.md", title: "Jido Flow"},
+        # Core Execution
+        {"guides/actions-guide.md", title: "Jido.Action"},
+        {"guides/instructions.md", title: "Jido.Instruction"},
+        {"guides/exec.md", title: "Jido.Exec"},
         {"guides/schemas-validation.md", title: "Schemas & Validation"},
         {"guides/error-handling.md", title: "Error Handling"},
-        # How-To Guides
+        # Jido Flow
+        {"guides/jido-flow.md", title: "How Jido Flow Works"},
+        {"guides/flow-authoring-languages.md", title: "Flow Authoring Languages"},
+        # Production Use
         {"guides/configuration.md", title: "Configuration"},
         {"guides/security.md", title: "Security"},
         {"guides/testing.md", title: "Testing"},
-        # Help & Reference
+        # Reference
         {"guides/faq.md", title: "FAQ"},
         {"CHANGELOG.md", title: "Changelog"},
         {"LICENSE", title: "Apache 2.0 License"}
@@ -117,12 +126,24 @@ defmodule JidoAction.MixProject do
         "LICENSE"
       ],
       groups_for_modules: [
-        Core: [
+        "Core Execution": [
           Jido.Action,
-          Jido.Action.Error,
+          Jido.Action.Output,
+          Jido.Exec,
           Jido.Instruction
         ],
+        Flow: [
+          Jido.Flow,
+          Jido.Flow.Builder,
+          Jido.Flow.Compiler,
+          Jido.Flow.Node,
+          Jido.Flow.Parser,
+          Jido.Flow.Ref,
+          Jido.Flow.Syntax,
+          Jido.Flow.Syntax.Lowerer
+        ],
         "Error Types": [
+          Jido.Action.Error,
           Jido.Action.Error.Config,
           Jido.Action.Error.ConfigurationError,
           Jido.Action.Error.Execution,

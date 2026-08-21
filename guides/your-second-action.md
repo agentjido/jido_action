@@ -47,14 +47,19 @@ defmodule MyApp.Actions.RegisterUser do
 end
 ```
 
-Run it directly:
+Run it through the public execution boundary:
 
 ```elixir
-{:ok, params} =
-  MyApp.Actions.RegisterUser.validate_params(%{email: "ADA@example.com", display_name: "Ada"})
-
 {:ok, result} =
-  MyApp.Actions.RegisterUser.run(params, %{repo: MyApp.Repo, mailer: MyApp.Mailer})
+  Jido.Exec.run(
+    MyApp.Actions.RegisterUser,
+    %{email: "ADA@example.com", display_name: "Ada"},
+    %{repo: MyApp.Repo, mailer: MyApp.Mailer}
+  )
 ```
 
-Put retry and timeout behavior in the caller or runtime layer that invokes the action.
+`Jido.Exec` applies defaults, validates the input, calls the action, and
+validates the successful output.
+
+Put retry and timeout behavior in the caller or runtime layer that invokes the
+action.

@@ -37,7 +37,8 @@ end
 Use caller-owned supervision, timeouts, or retry boundaries when production
 actions need runtime limits.
 
-Use `max_retries: 0` for non-idempotent effects unless the action is explicitly safe to retry.
+Do not retry a non-idempotent effect unless the action and its caller use a
+safe idempotency design.
 
 ## Treat Context As Sensitive
 

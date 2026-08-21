@@ -10,7 +10,20 @@ Action `schema` and `output_schema` accept Zoi schemas. Empty validation can be 
 
 ## Should I Call `run/2` Directly?
 
-Yes, for one action. Validate params and output explicitly when that boundary matters.
+Use a direct `run/2` call for focused action logic and unit tests. Use
+`Jido.Exec.run/3` for the public execution boundary. `Jido.Exec` validates
+input and output and normalizes action failures.
+
+## When Should I Use An Instruction?
+
+Use `Jido.Instruction` when one action call must exist as data before
+execution. It stores the action, params, and context. It does not store runtime
+policy or a workflow.
+
+## When Should I Use A Flow?
+
+Use `Jido.Flow` when several action calls form one static dependency graph with
+one declared return expression. Use an instruction for one action call.
 
 ## How Do I Add Optional Params?
 
@@ -33,6 +46,12 @@ No. Unknown keys are preserved and merged back into the validated map. Only decl
 ## How Do Retries Work?
 
 Retries belong to the caller or higher-level package that executes actions.
+
+## Can Flow Branches Run Concurrently?
+
+Yes. Flow execution is serial by default. Pass `async: true` and a positive
+`max_concurrency` value to `Jido.Exec.run/4` to schedule independent branches
+concurrently.
 
 ## Where Should Higher-Level Orchestration Live?
 

@@ -1,6 +1,7 @@
 # Schemas And Validation
 
-V3 action schemas are Zoi-only. `schema` validates input parameters and `output_schema` validates successful action results.
+Actions and flows use Zoi schemas. `schema` validates input maps, and
+`output_schema` validates normal successful output maps.
 
 ## Input Schema
 
@@ -26,7 +27,10 @@ defmodule MyApp.Actions.CreateUser do
 end
 ```
 
-If no validation is needed, omit `schema` or use the empty default.
+If no validation is needed, omit `schema` or use the empty default, `[]`.
+
+Action and Flow schemas must accept map-shaped data. A scalar root schema such
+as `Zoi.integer()` is not valid for an action or Flow boundary.
 
 ## Defaults
 
@@ -52,7 +56,12 @@ output_schema:
   })
 ```
 
-Call `validate_output/1` for successful `{:ok, result}` returns when the action declares an output schema. The third value in a three-tuple is preserved by the action contract.
+`Jido.Exec` calls `validate_output/1` for a normal successful result. The third
+value in a three-element action tuple is extras data. Output validation does not
+change it.
+
+Use `Jido.Action.Output` for an intentional non-map success value. An output
+envelope has its own validation and bypasses the normal map output schema.
 
 ## Unknown Keys
 
@@ -65,7 +74,58 @@ schema = Zoi.object(%{name: Zoi.string()})
   MyAction.validate_params(%{name: "Ada", request_id: "req-1"})
 ```
 
-This keeps request metadata available without forcing every action to model every caller-owned key.
+This keeps request metadata available without forcing every action to model
+every caller-owned key. Flow input and output validation use the same open
+behavior.
+
+## Flow Schemas
+
+A Flow module declares schemas in the same form as an action:
+
+```elixir
+use Jido.Flow,
+  name: "user_summary",
+  schema: Zoi.object(%{user_id: Zoi.string()}),
+  output_schema:
+    Zoi.object(%{
+      user_id: Zoi.string(),
+      summary: Zoi.string()
+    })
+```
+
+`Jido.Exec` validates Flow input before it compiles the runtime workflow. It
+validates the resolved return expression after execution.
+
+Stored Flow maps do not contain schemas. Attach both schemas when you load a
+stored map:
+
+```elixir
+{:ok, flow} =
+  Jido.Flow.from_map(stored,
+    actions: actions,
+    schema: input_schema,
+    output_schema: output_schema
+  )
+```
+
+## Static Schema Data
+
+Action and Flow modules store their schemas at compile time. Schemas cannot
+contain anonymous functions, lazy schemas, process values, or other runtime
+data.
+
+Use a named MFA for a refinement or transform:
+
+```elixir
+schema:
+  Zoi.object(%{
+    name: Zoi.string() |> Zoi.refine({__MODULE__, :not_blank, []})
+  })
+
+def not_blank(value, _opts) do
+  if String.trim(value) == "", do: {:error, "cannot be blank"}, else: :ok
+end
+```
 
 ## Errors
 
@@ -78,4 +138,5 @@ case MyAction.validate_params(params) do
 end
 ```
 
-The error details include context, module, and normalized Zoi error data.
+The error details identify the validation phase and subject. They also contain
+normalized Zoi error data.

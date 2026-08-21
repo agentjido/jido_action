@@ -1,11 +1,14 @@
 # Jido Action
 
-`jido_action` defines validated leaf actions and action call frames.
+`jido_action` provides validated actions and explicit composition for Elixir
+applications.
 
-This foundation keeps the action boundary small:
+The package has four main parts:
 
-- `Jido.Action` defines a named action with Zoi input and output schemas.
-- `Jido.Instruction` captures one requested action call as data.
+- `Jido.Action` defines one named operation.
+- `Jido.Instruction` stores one requested action call as data.
+- `Jido.Exec` validates and runs actions, instructions, and flows.
+- `Jido.Flow` defines a graph of action calls with one declared return value.
 
 ## Install
 
@@ -42,37 +45,24 @@ defmodule MyApp.Actions.GreetUser do
 end
 ```
 
-Public action functions:
-
-- `name/0`
-- `description/0`
-- `schema/0`
-- `output_schema/0`
-- `validate_params/1`
-- `validate_output/1`
-- `run/2`
-
-## Validate And Run An Action
+Run the action through the public execution boundary:
 
 ```elixir
-{:ok, params} = MyApp.Actions.GreetUser.validate_params(%{name: "Ada", excited?: true})
-{:ok, result} = MyApp.Actions.GreetUser.run(params, %{request_id: "req-123"})
-{:ok, result} = MyApp.Actions.GreetUser.validate_output(result)
+{:ok, %{greeting: "Hello, Ada!"}} =
+  Jido.Exec.run(
+    MyApp.Actions.GreetUser,
+    %{name: "Ada", excited?: true},
+    %{request_id: "req-123"}
+  )
 ```
 
-`run/2` must return one of:
-
-- `{:ok, result}`
-- `{:ok, result, extra}`
-- `{:error, reason}`
-- `{:error, reason, extra}`
-
-Three-tuple returns let callers receive an extra value alongside the result or error.
+`Jido.Exec` validates the input, calls `run/2`, normalizes failures, and
+validates the output.
 
 ## Capture A Call Frame
 
-Use `Jido.Instruction` when the intent to run an action needs to be passed,
-logged, queued, or enriched before execution.
+Use `Jido.Instruction` when one action call must be passed, stored, or changed
+before execution.
 
 ```elixir
 instruction =
@@ -81,15 +71,26 @@ instruction =
     params: %{name: "Ada"},
     context: %{request_id: "req-123"}
   )
+
+{:ok, %{greeting: "Hello, Ada."}} = Jido.Exec.run(instruction)
 ```
 
-An instruction is one action call frame. It is not a workflow, program, or runtime.
+An instruction is one action call frame. It is not a workflow or an execution
+policy.
 
-## Docs
+## Compose A Flow
 
-Start with:
+Use `Jido.Flow` when several actions must form one static dependency graph.
+All Flow authoring surfaces create the same canonical `%Jido.Flow{}` artifact.
+Run that artifact through `Jido.Exec`.
+
+## Guides
+
+Start with these guides:
 
 - [Getting Started](guides/getting-started.md)
-- [Actions](guides/actions-guide.md)
-- [Schemas & Validation](guides/schemas-validation.md)
-- [Error Handling](guides/error-handling.md)
+- [Jido.Action](guides/actions-guide.md)
+- [Jido.Instruction](guides/instructions.md)
+- [Jido.Exec](guides/exec.md)
+- [How Jido Flow Works](guides/jido-flow.md)
+- [Flow Authoring Languages](guides/flow-authoring-languages.md)
