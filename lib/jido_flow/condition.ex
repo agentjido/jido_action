@@ -69,17 +69,9 @@ defmodule Jido.Flow.Condition do
 
   @doc false
   @spec result_deps(t()) :: [String.t()]
-  def result_deps(%__MODULE__{operator: operator, operands: operands})
-      when Kernel.in(operator, @comparison_operators) do
-    operands
-    |> Enum.flat_map(&Node.collect_result_refs/1)
-    |> Enum.uniq()
-    |> Enum.sort()
-  end
-
-  def result_deps(%__MODULE__{operands: operands}) do
-    operands
-    |> Enum.flat_map(&result_deps/1)
+  def result_deps(%__MODULE__{} = condition) do
+    condition
+    |> collect_result_deps()
     |> Enum.uniq()
     |> Enum.sort()
   end
@@ -205,31 +197,40 @@ defmodule Jido.Flow.Condition do
     details = Map.get(error, :details, %{})
     nested_path = path ++ Map.get(details, :path, [])
 
-    cond do
-      String.contains?(error.message, "invalid ref path") ->
+    case Node.expression_error_kind(error) do
+      :invalid_ref_path ->
         Error.validation_error("choice condition contains invalid ref path", %{
           path: nested_path,
           segment: details.segment
         })
 
-      String.contains?(error.message, "invalid ref") ->
+      :invalid_ref ->
         Error.validation_error("choice condition contains invalid ref", %{
           path: nested_path,
           type: details.type
         })
 
-      String.contains?(error.message, "unsupported expression") ->
+      :unsupported_expression ->
         Error.validation_error("choice condition contains unsupported expression", %{
           path: nested_path,
           expression: details.expression
         })
 
-      true ->
+      :other ->
         Error.validation_error("choice condition contains unsupported expression", %{
           path: path,
           expression: expression_kind(error)
         })
     end
+  end
+
+  defp collect_result_deps(%__MODULE__{operator: operator, operands: operands})
+       when Kernel.in(operator, @comparison_operators) do
+    Enum.flat_map(operands, &Node.collect_result_refs/1)
+  end
+
+  defp collect_result_deps(%__MODULE__{operands: operands}) do
+    Enum.flat_map(operands, &collect_result_deps/1)
   end
 
   defp expression_kind(_error), do: Function

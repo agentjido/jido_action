@@ -126,6 +126,14 @@ defmodule Jido.Flow.Node do
 
   def collect_result_refs(_value), do: []
 
+  @doc false
+  @spec expression_error_kind(Exception.t()) ::
+          :invalid_ref_path | :invalid_ref | :unsupported_expression | :other
+  def expression_error_kind(%{details: %{segment: _segment}}), do: :invalid_ref_path
+  def expression_error_kind(%{details: %{type: _type}}), do: :invalid_ref
+  def expression_error_kind(%{details: %{expression: _expression}}), do: :unsupported_expression
+  def expression_error_kind(_error), do: :other
+
   defp validate_name(name) when is_atom(name) and not is_nil(name) do
     name
     |> Atom.to_string()

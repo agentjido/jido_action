@@ -191,24 +191,23 @@ defmodule Jido.Flow.DSL do
   defp parse_choice_block!(block, env, context) do
     statements = block_expressions(block)
 
-    {options, fallback, fallback_index} =
+    {options, fallback} =
       statements
-      |> Enum.with_index()
-      |> Enum.reduce({[], nil, nil}, fn {statement, index}, {options, fallback, fallback_index} ->
+      |> Enum.reduce({[], nil}, fn statement, {options, fallback} ->
         case statement do
           {:option, _meta, _args} ->
             if fallback do
               unsupported_choice!(statement, env)
             end
 
-            {[parse_choice_option!(statement, env, context) | options], fallback, fallback_index}
+            {[parse_choice_option!(statement, env, context) | options], fallback}
 
           {:otherwise, _meta, _args} ->
             if fallback do
               unsupported_choice!(statement, env)
             end
 
-            {options, parse_choice_fallback!(statement, env, context), index}
+            {options, parse_choice_fallback!(statement, env, context)}
 
           _other ->
             unsupported_choice!(statement, env)
@@ -220,9 +219,6 @@ defmodule Jido.Flow.DSL do
         unsupported_choice!(block, env)
 
       is_nil(fallback) ->
-        unsupported_choice!(block, env)
-
-      fallback_index != length(statements) - 1 ->
         unsupported_choice!(block, env)
 
       true ->
