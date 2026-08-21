@@ -71,7 +71,6 @@ defmodule Jido.Flow.ResourceBudget do
     with :ok <- within_limit(surface, :collection_width, @max_width, width, reverse_path) do
       children =
         term
-        |> Map.to_list()
         |> Enum.sort()
         |> Enum.with_index()
         |> Enum.flat_map(fn {{key, value}, index} ->
