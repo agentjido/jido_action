@@ -13,9 +13,9 @@ defmodule Jido.Flow do
 
   alias Jido.Action
   alias Jido.Action.Error
+  alias Jido.Flow.Element
   alias Jido.Flow.MapCodec
   alias Jido.Flow.Node
-  alias Jido.Instruction
 
   @module_config_keys [:name, :description, :schema, :output_schema]
   @artifact_config_keys @module_config_keys ++ [:nodes, :return, :provenance]
@@ -225,7 +225,7 @@ defmodule Jido.Flow do
   def from_map(map, opts \\ []), do: MapCodec.from_map(map, opts)
 
   @doc false
-  @spec canonical_nodes([Node.t()]) :: [Node.t()]
+  @spec canonical_nodes([Element.t()]) :: [Element.t()]
   def canonical_nodes(nodes), do: canonical_node_order(nodes)
 
   defp inspection_projection(%__MODULE__{} = flow) do
@@ -251,7 +251,7 @@ defmodule Jido.Flow do
       {:ok,
        %{
          flow: flow,
-         nodes: Enum.map(nodes, &Node.to_map/1),
+         nodes: Enum.map(nodes, &Element.to_map/1),
          dependencies: dependencies,
          edges: edges,
          identity: Jido.Flow.Identity.identity(semantic_map)
@@ -492,10 +492,7 @@ defmodule Jido.Flow do
     semantic_data = %{
       name: flow.name,
       description: flow.description,
-      nodes:
-        Enum.map(flow.nodes, fn node ->
-          %{name: node.name, action: node.action, input: node.input, deps: node.deps}
-        end),
+      nodes: Enum.map(flow.nodes, &Element.semantic_data/1),
       return: flow.return
     }
 
@@ -514,7 +511,7 @@ defmodule Jido.Flow do
   defp normalize_nodes(nodes) when is_list(nodes) do
     nodes
     |> Enum.reduce_while({:ok, []}, fn attrs, {:ok, acc} ->
-      case Node.new(attrs) do
+      case Element.new(attrs) do
         {:ok, node} -> {:cont, {:ok, [node | acc]}}
         {:error, error} -> {:halt, {:error, error}}
       end
@@ -555,8 +552,8 @@ defmodule Jido.Flow do
 
   defp validate_duplicate_nodes(nodes) do
     nodes
-    |> Enum.map(& &1.name)
-    |> Enum.find(fn name -> Enum.count(nodes, &(&1.name == name)) > 1 end)
+    |> Enum.map(&Element.name/1)
+    |> Enum.find(fn name -> Enum.count(nodes, &(Element.name(&1) == name)) > 1 end)
     |> case do
       nil ->
         :ok
@@ -568,23 +565,18 @@ defmodule Jido.Flow do
 
   defp check_action_contracts(nodes) do
     Enum.reduce_while(nodes, :ok, fn node, :ok ->
-      case Instruction.validate_action_contract(node.action) do
+      case Element.check(node) do
         :ok ->
           {:cont, :ok}
 
         {:error, error} ->
-          details =
-            error.details
-            |> Map.put(:node, node.name)
-            |> Map.put(:action, node.action)
-
-          {:halt, {:error, Error.validation_error(error.message, details)}}
+          {:halt, {:error, error}}
       end
     end)
   end
 
   defp validate_known_result_refs(%__MODULE__{} = flow) do
-    known = flow.nodes |> Enum.map(& &1.name) |> MapSet.new()
+    known = flow.nodes |> Enum.map(&Element.name/1) |> MapSet.new()
 
     case flow.return
          |> Node.collect_result_refs()
@@ -605,7 +597,7 @@ defmodule Jido.Flow do
 
   defp validate_node_result_refs(nodes, known) do
     Enum.reduce_while(nodes, :ok, fn node, :ok ->
-      missing = node |> Node.result_deps() |> Enum.reject(&MapSet.member?(known, &1))
+      missing = node |> Element.result_deps() |> Enum.reject(&MapSet.member?(known, &1))
 
       case missing do
         [] ->
@@ -617,7 +609,7 @@ defmodule Jido.Flow do
             Error.validation_error(
               "node input points to an unknown step: #{inspect(missing_node)}",
               %{
-                node: node.name,
+                node: Element.name(node),
                 dependency: missing_node
               }
             )}}
@@ -628,7 +620,7 @@ defmodule Jido.Flow do
   defp normalize_node_deps(%__MODULE__{} = flow) do
     nodes =
       Enum.map(flow.nodes, fn node ->
-        %{node | deps: Node.result_deps(node)}
+        Element.put_deps(node, Element.result_deps(node))
       end)
 
     %{flow | nodes: nodes}
@@ -636,7 +628,7 @@ defmodule Jido.Flow do
 
   defp validate_acyclic(nodes) do
     nodes
-    |> Map.new(fn node -> {node.name, MapSet.new(node.deps)} end)
+    |> Map.new(fn node -> {Element.name(node), MapSet.new(node.deps)} end)
     |> validate_acyclic_remaining()
   end
 
