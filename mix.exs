@@ -120,7 +120,11 @@ defmodule JidoAction.MixProject do
         Core: [
           Jido.Action,
           Jido.Action.Error,
-          Jido.Instruction
+          Jido.Instruction,
+          Jido.Flow,
+          Jido.Exec,
+          Jido.Exec.Execution,
+          Jido.Exec.NodeResult
         ],
         "Error Types": [
           Jido.Action.Error.Config,

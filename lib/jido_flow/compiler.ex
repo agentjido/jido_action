@@ -55,6 +55,26 @@ defmodule Jido.Flow.Compiler do
     {:error, Error.validation_error("flow input and context must be maps")}
   end
 
+  @doc false
+  @spec runtime_workflow_validated(Flow.t(), map(), map()) ::
+          {:ok, Workflow.t(), [Element.t()]} | {:error, Exception.t()}
+  def runtime_workflow_validated(%Flow{} = flow, input, context)
+      when is_map(input) and is_map(context) do
+    prepare_validated_runtime(flow, input, context, nil)
+  end
+
+  def runtime_workflow_validated(%Flow{}, _input, _context) do
+    {:error, Error.validation_error("flow input and context must be maps")}
+  end
+
+  @doc false
+  @spec runtime_result(Flow.t(), Workflow.t(), map(), map()) ::
+          {:ok, term()} | {:error, Exception.t()}
+  def runtime_result(%Flow{} = flow, %Workflow{} = workflow, input, context)
+      when is_map(input) and is_map(context) do
+    extract_return(flow.return, workflow, input, context)
+  end
+
   @doc """
   Compiles and executes a Flow artifact, returning its declared return value.
 
