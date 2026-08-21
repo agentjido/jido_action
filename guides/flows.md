@@ -1,7 +1,7 @@
 # Flows
 
 A Flow is a canonical `%Jido.Flow{}` data type. It describes a named graph of
-Action calls and one declared return expression. It is data first: authoring,
+Flow elements and one declared return expression. It is data first: authoring,
 inspection, storage, and execution can use the same artifact.
 
 ```elixir
@@ -20,26 +20,31 @@ canonical artifact. Use public builders and authoring surfaces to create them.
 
 ## What A Flow Contains
 
-- **Nodes**: named calls to Action modules or nested Flow modules.
+- **Step**: one named call to an Action module or nested Flow module.
+- **Map**: one named fan-out over a proper list. Each item calls one target.
+- **Reduce**: one named serial left fold over a proper list.
+- **Loop**: one named bounded iteration with an internal State contract.
 - **Dependencies**: predecessor names inferred from references and explicit
-  ordering. A node can run when all of its dependencies have completed.
+  ordering. An element can run when all of its dependencies have completed.
 - **Choice**: one node with ordered options and a required fallback. The first
-  matching condition selects one target Action.
+  matching condition selects one target.
 - **Return expression**: the value assembled from node results, input,
   context, literals, and projections. A Flow has one declared return.
 - **Provenance**: non-semantic authoring information. Provenance helps explain
   where a Flow came from but does not change semantic identity.
 
-Nodes use references to map data. Common references read Flow input, runtime
-context, literal values, or earlier node results. The Flow language guides
-describe these expressions in detail.
+Elements use references to map data. Common references read Flow input,
+runtime context, literal values, or earlier results. Map and Reduce add
+item-local references. Loop adds State and iteration-local references. The
+Flow language guides describe these expressions in detail.
 
 ## Actions And Flows
 
-Flow nodes call normal `Jido.Action` modules. The Action remains the leaf unit
-of work. A Flow adds graph structure around those calls. A Flow module exposes
-the Action-compatible validation callbacks and can be passed to
-`Jido.Exec.run/4` like an Action.
+Step, Choice, Map, Reduce, and Loop targets call normal `Jido.Action` modules
+or nested Flow modules. The Action remains the leaf unit of work. A Flow adds
+graph and iteration structure around those calls. A Flow module exposes the
+Action-compatible validation callbacks and can be passed to `Jido.Exec.run/4`
+like an Action.
 
 Action extras are a direct Action or Instruction delivery channel. Flow
 execution uses only the node output or error reason, so node extras do not
@@ -116,6 +121,10 @@ The following guides cover authoring and execution in more detail:
 - [Build Your First Flow](build-your-first-flow.livemd) introduces a complete
   Flow.
 - [Flow Language](flow-language.livemd) breaks down the language primitives.
+- [Map and Reduce](flow-collections.livemd) explains ordered collection
+  processing.
+- [Loops and State](flow-loops-state.livemd) explains bounded stateful
+  iteration.
 - [Nested Flows](nested-flows.livemd) explains Flow nodes that call another
   Flow.
 - [Flow Execution](flow-execution.livemd) explains run-to-completion and

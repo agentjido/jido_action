@@ -16,11 +16,12 @@ Jido.Exec.run(MyApp.Flows.BuildReport, input, context,
 
 | Option | Default | Validation | Scope |
 | --- | --- | --- | --- |
-| `async` | `false` | Must be a Boolean. | Controls whether independent nodes in the current ready wave can run concurrently. |
-| `max_concurrency` | `System.schedulers_online()` | Must be a positive integer. | Limits concurrent node tasks when `async: true` in the current Flow execution. |
+| `async` | `false` | Must be a Boolean. | Enables concurrent independent nodes and concurrent Map item calls. |
+| `max_concurrency` | `System.schedulers_online()` | Must be a positive integer. | Limits tasks in each ready-wave or Map scheduling boundary when `async: true`. |
 
 The `max_concurrency` default is stored on the execution even when `async` is
 `false`. The option has no effect until asynchronous scheduling is enabled.
+Reduce item calls and Loop iterations always stay serial.
 
 Pass the options to `run/4` or `start/4`:
 
@@ -44,8 +45,11 @@ Unknown options are rejected. A non-Boolean `async` value or a non-positive
 ## Scope And Nested Flows
 
 Options belong to the execution created by the current `run/4` or `start/4`
-call. They schedule independent nodes in that Flow only. They do not change
-Flow dependencies, and they do not propagate into nested Flow targets.
+call. They schedule independent nodes and internal Map items in that Flow.
+The limit applies separately to a ready wave and to each Map scheduling
+boundary. It is not one global task limit across nested scheduling boundaries.
+The options do not change Flow dependencies, and they do not propagate into
+nested Flow targets.
 
 A nested Flow runs as one atomic parent node and uses its own default execution
 policy. Run the nested Flow directly when it needs its own `async` or

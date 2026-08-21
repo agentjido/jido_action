@@ -106,6 +106,48 @@ Also test short-circuit behavior with a later condition that would fail if Jido
 evaluated it. A Choice fallback is routing logic, not recovery for a selected
 target that fails.
 
+## Test Map And Reduce
+
+Test Map output order, both Map error modes, and the empty collection. Test
+Reduce with a non-associative case so that source order is visible. Also test
+an empty Reduce collection and the initial accumulator.
+
+```elixir
+test "maps and reduces in source order" do
+  assert {:ok, %{mapped: %{results: results, errors: []}, total: %{total: 12}}} =
+           Jido.Exec.run(MyApp.Flows.DoubleAndSum, %{values: [1, 2, 3]}, %{})
+
+  assert Enum.map(results, & &1.index) == [0, 1, 2]
+  assert Enum.map(results, & &1.output.value) == [2, 4, 6]
+end
+```
+
+When `async: true` is important, assert the ordered records and the configured
+concurrency boundary. Do not use task completion order as a result assertion.
+See [Map and Reduce](flow-collections.livemd).
+
+## Test Loops And State
+
+Test the initial head condition, the first State update, normal completion,
+and exhaustion at `max_iterations`. Assert the complete Loop result, including
+`iterations`, `state`, and `output`.
+
+```elixir
+test "commits each loop state replacement" do
+  assert {:ok, %{iterations: 3, state: %{count: 3}, output: %{count: 3}}} =
+           Jido.Exec.run(MyApp.Flows.CountThree, %{}, %{})
+end
+
+test "can complete before the first body call" do
+  assert {:ok, %{iterations: 0, state: %{count: 3}, output: nil}} =
+           Jido.Exec.run(MyApp.Flows.CountUntil, %{start: 3, target: 3}, %{})
+end
+```
+
+Test State schema failures without exposing rejected State values. If the Loop
+body has effects, also test the repeat-risk and idempotency boundary. See
+[Loops and State](flow-loops-state.livemd).
+
 ## Test Nested Flows
 
 Test the child Flow directly for its own graph and behavior. Test the parent

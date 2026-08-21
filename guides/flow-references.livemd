@@ -255,8 +255,31 @@ end
   Jido.Exec.run(FlowReferences.Shaped, %{value: 2}, %{})
 ```
 
+## Use Scoped Collection And Loop References
+
+Some references exist only inside one element:
+
+| Reference | Valid scope |
+| --- | --- |
+| `item(path)` | Map and Reduce `with:` expressions. |
+| `item_index()` | Map and Reduce `with:` expressions. |
+| `item_id()` | Map and Reduce `with:` expressions. |
+| `accumulator(path)` | Reduce `with:` expressions. |
+| `state(path)` | Loop `with:`, State `update`, and completion conditions. |
+| `iteration_index()` | Loop `with:`, State `update`, and completion conditions. |
+| `body_result(path)` | Loop `with:`, State `update`, and completion conditions. |
+
+The authoring surface rejects a scoped reference when its runtime value does
+not exist. For example, `item()` is not valid in a Map collection expression,
+and `state()` is not valid in Loop initial State.
+
+See [Map and Reduce](flow-collections.livemd) and [Loops and
+State](flow-loops-state.livemd) for complete examples.
+
 ## Continue Learning
 
 - [Flow Steps](flow-steps.livemd) explains step inputs and return shapes.
 - [Flow Dependencies](flow-dependencies.livemd) shows how result references form graph edges.
+- [Map and Reduce](flow-collections.livemd) explains item and accumulator references.
 - [Flow Choices](flow-choices.livemd) uses these references in conditions and targets.
+- [Loops and State](flow-loops-state.livemd) explains State and iteration references.

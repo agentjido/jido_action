@@ -366,6 +366,19 @@ Do not reuse an older execution value. Reusing it can run an action again and
 repeat an external side effect. The execution can move between processes, but
 it is not a durable checkpoint or a persistence format.
 
+## Collections And Loops Are Atomic Nodes
+
+Map, Reduce, and Loop each appear as one node in `ready/1`. One `step/2` call
+completes all internal item calls or Loop iterations for that node.
+
+With `async: true`, Map can schedule item calls concurrently up to
+`max_concurrency`. Map records stay in source order. Reduce and Loop work stays
+serial. The public API does not pause between collection items or Loop
+iterations.
+
+See [Map and Reduce](flow-collections.livemd) and [Loops and
+State](flow-loops-state.livemd) for the element syntax and result shapes.
+
 ## Nested Flows Are Atomic To The Parent
 
 The parent sees a nested Flow as one node. There is no public step-into API.
@@ -424,6 +437,7 @@ The current public Flow API does not provide:
 - per-node timeouts or a Flow deadline;
 - cancellation or rewind;
 - persistent checkpoints or restart-safe resume; or
+- step-wise control of Map items, Reduce items, or Loop iterations; or
 - exactly-once guarantees for external Action side effects.
 
 Place these policies in the caller or a higher-level runtime package. Design

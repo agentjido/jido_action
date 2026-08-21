@@ -41,6 +41,18 @@ Flow data expressions. They describe input mapping and dependencies; they do
 not run Actions while the module compiles. See [Flow Language](flow-language.livemd)
 for the language primitives.
 
+The block accepts these public element forms:
+
+- `step` for one target call;
+- `group` and `branch` for static authoring structure;
+- `choose` for ordered routing;
+- `map` and `reduce` for ordered collections; and
+- `loop` for bounded work with internal State.
+
+See [Map and Reduce](flow-collections.livemd) and [Loops and
+State](flow-loops-state.livemd) for the element-specific expressions and
+options.
+
 ## Static Metadata And Schemas
 
 `name` is required. `description` is optional. `schema` validates the Flow

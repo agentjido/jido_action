@@ -81,6 +81,24 @@ Flow validation is separate from each node Action's validation: the Flow maps
 data into node inputs, and each Action validates its own input at its node
 boundary.
 
+## Loop State Schemas
+
+Each Loop State contract has a required `schema` field. Jido applies the schema
+to the initial State and each complete update candidate. The validated value
+must stay a plain map.
+
+```elixir
+state_contract = %{
+  schema: Zoi.object(%{count: Zoi.integer()}),
+  initial: %{count: Jido.Flow.Builder.value(0)},
+  update: %{count: Jido.Flow.Builder.body_result(:count)}
+}
+```
+
+Use `schema: []` when the module DSL needs no additional field validation.
+Flow Script writes a stable schema identifier and resolves it through the
+parser `state_schemas` registry. See [Loops and State](flow-loops-state.livemd).
+
 ## Unknown Keys
 
 Action and Flow object validation is intentionally open. Only declared keys

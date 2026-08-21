@@ -118,8 +118,8 @@ end
   Jido.Exec.run(MyApp.Flows.GreetAndNotify, %{name: "Ada"}, %{})
 ```
 
-Flows also support ordered Choices, independent parallel branches, and a
-step-wise execution API.
+Flows also support ordered Choices, Map and Reduce collections, bounded Loops
+with State, independent parallel branches, and a step-wise execution API.
 
 ## Docs
 
@@ -141,7 +141,9 @@ Livebook. ExDoc adds a **Run in Livebook** link to each `.livemd` guide.
 - [Steps, Bindings & Returns](guides/flow-steps.livemd)
 - [References & Data Mapping](guides/flow-references.livemd)
 - [Dependencies, Groups & Parallel Branches](guides/flow-dependencies.livemd)
+- [Map & Reduce](guides/flow-collections.livemd)
 - [Choices & Conditions](guides/flow-choices.livemd)
+- [Loops & State](guides/flow-loops-state.livemd)
 - [Nested Flows](guides/nested-flows.livemd)
 - [Flow Modules](guides/flow-modules.md)
 - [Flow Script](guides/flow-script.md)
