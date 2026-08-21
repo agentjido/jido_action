@@ -105,6 +105,60 @@ defmodule Jido.Flow.SyntaxTest do
     end
   end
 
+  describe "choice operations" do
+    test "builds only the closed choice condition algebra" do
+      input = Syntax.input(:mode)
+      fast = Syntax.eq(input, Syntax.value("fast"))
+      fallback = Syntax.neq(input, Syntax.value("slow"))
+
+      assert %Syntax.Condition{operator: :all, operands: [^fast, ^fallback]} =
+               Syntax.all([fast, fallback])
+
+      assert %Syntax.Condition{operator: :not, operands: [^fast]} = Syntax.not(fast)
+
+      assert %Syntax.Condition{operator: :in, operands: [^input, _values]} =
+               apply(Syntax, :in, [input, Syntax.value(["fast", "slow"])])
+
+      refute function_exported?(Syntax, :condition, 2)
+    end
+
+    test "stores a named choice with ordered options, fallback, binding, deps, and provenance" do
+      fast =
+        Syntax.option(
+          :fast,
+          Syntax.eq(Syntax.input(:mode), Syntax.value("fast")),
+          Add,
+          %{value: Syntax.input(:value)}
+        )
+
+      fallback = Syntax.fallback(Add, %{value: Syntax.value(0)})
+      after_targets = [:load, Syntax.binding(:prepared)]
+
+      syntax =
+        Syntax.new(name: "routing")
+        |> Syntax.choice(:route, [fast], fallback,
+          bind: :routed,
+          after: after_targets,
+          provenance: %{line: 12},
+          label: "Route request"
+        )
+
+      assert [
+               %Syntax.Operation{
+                 kind: :choice,
+                 attrs: %{
+                   name: :route,
+                   options: [^fast],
+                   fallback: ^fallback,
+                   binding: :routed,
+                   after: ^after_targets
+                 },
+                 provenance: %{line: 12, label: "Route request"}
+               }
+             ] = syntax.operations
+    end
+  end
+
   describe "branch grouping operations" do
     test "builds named branch operations with ordered step operations" do
       step = Syntax.operation(:step, %{name: :price_cart, action: Add, input: %{}})

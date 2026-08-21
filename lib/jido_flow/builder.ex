@@ -6,6 +6,8 @@ defmodule Jido.Flow.Builder do
   validation and canonical IR construction to `Jido.Flow.Syntax.Lowerer`.
   """
 
+  import Kernel, except: [in: 2, not: 1]
+
   alias Jido.Flow.Syntax
   alias Jido.Flow.Syntax.Lowerer
 
@@ -57,6 +59,42 @@ defmodule Jido.Flow.Builder do
   defdelegate select(source, path), to: Syntax
 
   @doc false
+  defdelegate eq(left, right), to: Syntax
+
+  @doc false
+  defdelegate neq(left, right), to: Syntax
+
+  @doc false
+  defdelegate lt(left, right), to: Syntax
+
+  @doc false
+  defdelegate lte(left, right), to: Syntax
+
+  @doc false
+  defdelegate gt(left, right), to: Syntax
+
+  @doc false
+  defdelegate gte(left, right), to: Syntax
+
+  @doc false
+  def unquote(:in)(left, right), do: apply(Syntax, :in, [left, right])
+
+  @doc false
+  defdelegate all(conditions), to: Syntax
+
+  @doc false
+  defdelegate any(conditions), to: Syntax
+
+  @doc false
+  def not condition, do: apply(Syntax, :not, [condition])
+
+  @doc false
+  defdelegate option(name, condition, action, input \\ %{}), to: Syntax
+
+  @doc false
+  defdelegate fallback(action, input \\ %{}), to: Syntax
+
+  @doc false
   defdelegate branch(name, operations, opts \\ []), to: Syntax
 
   @doc """
@@ -73,6 +111,20 @@ defmodule Jido.Flow.Builder do
   @spec step(t(), atom() | String.t() | nil, module(), term(), keyword()) :: t()
   def step(%__MODULE__{syntax: syntax} = builder, name, action, input, opts \\ []) do
     %{builder | syntax: Syntax.step(syntax, name, action, input, opts)}
+  end
+
+  @doc """
+  Appends a named ordered Choice operation.
+  """
+  @spec choice(
+          t(),
+          atom() | String.t() | nil,
+          [Syntax.Option.t()],
+          Syntax.Fallback.t(),
+          keyword()
+        ) :: t()
+  def choice(%__MODULE__{syntax: syntax} = builder, name, options, fallback, opts \\ []) do
+    %{builder | syntax: Syntax.choice(syntax, name, options, fallback, opts)}
   end
 
   @doc """

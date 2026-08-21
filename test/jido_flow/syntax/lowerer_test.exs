@@ -10,6 +10,143 @@ defmodule Jido.Flow.Syntax.LowererTest do
   alias JidoTest.TestActions.{Add, EchoParamsAction, Multiply}
 
   describe "syntax lowerer" do
+    test "lowers a named if else choice with a result binding" do
+      syntax =
+        Syntax.new(name: "choice")
+        |> Syntax.choice(
+          :route,
+          [
+            Syntax.option(
+              :fast,
+              Syntax.eq(Syntax.input(:mode), Syntax.value("fast")),
+              Add,
+              %{value: Syntax.input(:value)}
+            )
+          ],
+          Syntax.fallback(EchoParamsAction, %{value: Syntax.input(:value)}),
+          bind: :routed
+        )
+        |> Syntax.return(Syntax.binding(:routed))
+
+      assert {:ok, flow} = Lowerer.lower(syntax)
+      assert [%{kind: :choice, name: "route", deps: []}] = Flow.to_map(flow).nodes
+      assert Flow.to_map(flow).return == %{type: :result, node: "route", path: []}
+    end
+
+    test "unites explicit and derived choice dependencies and binds its result for later steps" do
+      syntax =
+        Syntax.new(name: "choice_deps")
+        |> Syntax.step(:load, Add, %{value: Syntax.input(:value)}, bind: :loaded)
+        |> Syntax.choice(
+          :route,
+          [
+            Syntax.option(
+              :match,
+              Syntax.eq(Syntax.binding(:loaded), Syntax.value(%{value: 1})),
+              EchoParamsAction,
+              %{selected: Syntax.binding(:loaded)}
+            )
+          ],
+          Syntax.fallback(EchoParamsAction, %{selected: Syntax.result(:load)}),
+          bind: :routed,
+          after: [:load, Syntax.binding(:loaded)]
+        )
+        |> Syntax.step(:consume, EchoParamsAction, %{selected: Syntax.binding(:routed)})
+        |> Syntax.return(Syntax.result(:consume))
+
+      assert {:ok, flow} = Lowerer.lower(syntax)
+      assert [_load, route, consume] = Flow.to_map(flow).nodes
+      assert route.name == "route"
+      assert route.deps == ["load"]
+      assert consume.deps == ["route"]
+    end
+
+    test "reports choice source context for invalid option forms" do
+      base = Syntax.new(name: "bad_choice")
+
+      cases = [
+        {base
+         |> Syntax.choice(
+           :route,
+           [
+             Syntax.option(
+               :duplicate,
+               Syntax.eq(Syntax.input(:mode), Syntax.value("one")),
+               Add,
+               %{}
+             ),
+             Syntax.option(
+               :duplicate,
+               Syntax.eq(Syntax.input(:mode), Syntax.value("two")),
+               Add,
+               %{}
+             )
+           ],
+           Syntax.fallback(Add, %{})
+         )
+         |> Syntax.return(Syntax.result(:route)), "duplicate choice option name"},
+        {base
+         |> Syntax.choice(
+           :route,
+           [Syntax.option(:match, Syntax.eq(Syntax.input(:mode), Syntax.value("one")), Add, %{})],
+           nil
+         )
+         |> Syntax.return(Syntax.result(:route)), "choice fallback is required"},
+        {base
+         |> Syntax.choice(
+           :route,
+           [Syntax.option(:match, %Syntax.Condition{operator: :unknown, operands: []}, Add, %{})],
+           Syntax.fallback(Add, %{})
+         )
+         |> Syntax.return(Syntax.result(:route)), "unsupported choice condition operator"},
+        {base
+         |> Syntax.choice(
+           :route,
+           [
+             Syntax.option(
+               :match,
+               Syntax.eq(Syntax.input(:mode), Syntax.value("one")),
+               "not_a_module",
+               %{}
+             )
+           ],
+           Syntax.fallback(Add, %{})
+         )
+         |> Syntax.return(Syntax.result(:route)), "choice option target must be a module atom"}
+      ]
+
+      for {syntax, expected_message} <- cases do
+        assert {:error, %InvalidInputError{message: message, details: details}} =
+                 Lowerer.lower(syntax)
+
+        assert message =~ expected_message
+        assert details.choice == "route"
+      end
+    end
+
+    test "prevents choice binding aliases from colliding with source node names" do
+      syntax =
+        Syntax.new(name: "choice_namespace")
+        |> Syntax.group([
+          Syntax.branch(:prepare, [
+            Syntax.operation(:step, %{name: :load, action: Add, input: %{}})
+          ])
+        ])
+        |> Syntax.choice(
+          :route,
+          [Syntax.option(:match, Syntax.eq(Syntax.input(:mode), Syntax.value("one")), Add, %{})],
+          Syntax.fallback(Add, %{}),
+          bind: :load
+        )
+        |> Syntax.return(Syntax.result(:load))
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Lowerer.lower(syntax)
+
+      assert message =~ "binding alias conflicts with step name"
+      assert details.binding == :load
+    end
+
     test "lowers the first milestone operations to the expected canonical map" do
       assert {:ok, flow} = Lowerer.lower(FlowFixtures.math_syntax())
       assert Flow.to_map(flow) == FlowFixtures.math_canonical_map()
