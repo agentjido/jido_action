@@ -175,6 +175,42 @@ defmodule Jido.Integration.FlowParityTest do
                "#{surface} Choice non-priority execution diverged"
       end
     end
+
+    test "Map and Reduce agree across the five authoring surfaces" do
+      syntax_flow = map_reduce_syntax() |> lower_flow!()
+      builder_flow = map_reduce_builder() |> build_flow!()
+      module = create_map_reduce_flow_module("MapReduceParity")
+
+      assert {:ok, trusted_flow} =
+               Jido.Flow.parse(map_reduce_source(), name: "map_reduce_parity")
+
+      assert {:ok, stored_flow} =
+               Jido.Flow.parse(map_reduce_stored_source(),
+                 name: "map_reduce_parity",
+                 profile: :stored,
+                 actions: %{"add" => Add, "multiply" => Multiply}
+               )
+
+      expected_map = Jido.Flow.to_map(syntax_flow)
+      expected_dependencies = Jido.Flow.dependencies(syntax_flow)
+      expected_explanation = Jido.Flow.explain(syntax_flow)
+      expected_identity = Jido.Flow.semantic_identity(syntax_flow)
+      expected_compile = Jido.Flow.compile(syntax_flow)
+
+      for {surface, flow} <- [
+            module_dsl: module.flow(),
+            syntax_lowerer: syntax_flow,
+            builder: builder_flow,
+            trusted_source_parser: trusted_flow,
+            stored_source_parser: stored_flow
+          ] do
+        assert Jido.Flow.to_map(flow) == expected_map, "#{surface} Map/Reduce map diverged"
+        assert Jido.Flow.dependencies(flow) == expected_dependencies
+        assert Jido.Flow.explain(flow) == expected_explanation
+        assert Jido.Flow.semantic_identity(flow) == expected_identity
+        assert Jido.Flow.compile(flow) == expected_compile
+      end
+    end
   end
 
   describe "portable stored parity" do
@@ -742,6 +778,141 @@ defmodule Jido.Integration.FlowParityTest do
       return routed
     end
     """
+  end
+
+  defp map_reduce_syntax do
+    Syntax.new(name: "map_reduce_parity")
+    |> Syntax.map(
+      :enrich,
+      Syntax.input(:items),
+      Add,
+      %{
+        value: Syntax.item(:value),
+        amount: Syntax.value(1),
+        index: Syntax.item_index(),
+        item_id: Syntax.item_id()
+      },
+      on_error: :collect_errors,
+      bind: :mapped
+    )
+    |> Syntax.reduce(
+      :summarize,
+      Syntax.binding(:mapped),
+      Syntax.value(%{total: 0}),
+      Multiply,
+      %{
+        value: Syntax.accumulator(:total),
+        amount: Syntax.item(:value),
+        item_id: Syntax.item_id()
+      },
+      bind: :summary,
+      after: :enrich
+    )
+    |> Syntax.return(Syntax.binding(:summary))
+  end
+
+  defp map_reduce_builder do
+    Builder.new(name: "map_reduce_parity")
+    |> Builder.map(
+      :enrich,
+      Builder.input(:items),
+      Add,
+      %{
+        value: Builder.item(:value),
+        amount: Builder.value(1),
+        index: Builder.item_index(),
+        item_id: Builder.item_id()
+      },
+      on_error: :collect_errors,
+      bind: :mapped
+    )
+    |> Builder.reduce(
+      :summarize,
+      Builder.binding(:mapped),
+      Builder.value(%{total: 0}),
+      Multiply,
+      %{
+        value: Builder.accumulator(:total),
+        amount: Builder.item(:value),
+        item_id: Builder.item_id()
+      },
+      bind: :summary,
+      after: :enrich
+    )
+    |> Builder.return(Builder.binding(:summary))
+  end
+
+  defp map_reduce_source do
+    """
+    flow do
+      mapped = map :enrich, input(:items),
+        run: JidoTest.TestActions.Add,
+        with: %{value: item(:value), amount: value(1), index: item_index(), item_id: item_id()},
+        on_error: :collect_errors
+
+      summary = reduce :summarize, mapped,
+        initial: value(%{total: 0}),
+        run: JidoTest.TestActions.Multiply,
+        with: %{value: accumulator(:total), amount: item(:value), item_id: item_id()},
+        after: :enrich
+
+      return summary
+    end
+    """
+  end
+
+  defp map_reduce_stored_source do
+    """
+    flow do
+      mapped = map "enrich", input(:items),
+        run: "add",
+        with: %{value: item(:value), amount: value(1), index: item_index(), item_id: item_id()},
+        on_error: :collect_errors
+
+      summary = reduce "summarize", mapped,
+        initial: value(%{total: 0}),
+        run: "multiply",
+        with: %{value: accumulator(:total), amount: item(:value), item_id: item_id()},
+        after: "enrich"
+
+      return summary
+    end
+    """
+  end
+
+  defp create_map_reduce_flow_module(prefix) do
+    create_flow_module(
+      prefix,
+      "map_reduce_parity",
+      nil,
+      quote do
+        mapped =
+          map(:enrich, input(:items),
+            run: unquote(Add),
+            with: %{
+              value: item(:value),
+              amount: value(1),
+              index: item_index(),
+              item_id: item_id()
+            },
+            on_error: :collect_errors
+          )
+
+        summary =
+          reduce(:summarize, mapped,
+            initial: value(%{total: 0}),
+            run: unquote(Multiply),
+            with: %{
+              value: accumulator(:total),
+              amount: item(:value),
+              item_id: item_id()
+            },
+            after: :enrich
+          )
+
+        return(summary)
+      end
+    )
   end
 
   defp create_choice_flow_module(prefix) do

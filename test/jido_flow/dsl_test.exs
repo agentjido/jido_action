@@ -305,6 +305,136 @@ defmodule Jido.Flow.DSLTest do
       assert fallback.action == Multiply
     end
 
+    test "lowers Map and Reduce with assigned bindings and scoped refs" do
+      module = unique_module("MapReduceFlow")
+
+      create_module(
+        module,
+        quote do
+          use Jido.Flow, name: "map_reduce_flow"
+
+          flow do
+            mapped =
+              map(:enrich, input(:items),
+                run: unquote(EchoParamsAction),
+                with: %{
+                  item: item(),
+                  value: item(:value),
+                  index: item_index(),
+                  item_id: item_id()
+                },
+                on_error: :collect_errors,
+                after: []
+              )
+
+            summary =
+              reduce(:summarize, mapped,
+                initial: value(%{total: 0}),
+                run: unquote(EchoParamsAction),
+                with: %{
+                  accumulator: accumulator(),
+                  total: accumulator(:total),
+                  item: item(),
+                  index: item_index(),
+                  item_id: item_id()
+                },
+                after: []
+              )
+
+            return(summary)
+          end
+        end
+      )
+
+      assert [mapped, summary] = module.to_map().nodes
+      assert mapped.kind == :map
+      assert mapped.name == "enrich"
+      assert mapped.collection == %{type: :input, path: [:items]}
+      assert mapped.on_error == :collect_errors
+      assert mapped.input.item == %{type: :item, path: []}
+      assert mapped.input.value == %{type: :item, path: [:value]}
+      assert mapped.input.index == %{type: :item_index}
+      assert mapped.input.item_id == %{type: :item_id}
+
+      assert summary.kind == :reduce
+      assert summary.name == "summarize"
+      assert summary.collection == %{type: :result, node: "enrich", path: []}
+      assert summary.initial == %{type: :value, value: %{total: 0}}
+      assert summary.deps == ["enrich"]
+      assert summary.input.accumulator == %{type: :accumulator, path: []}
+      assert summary.input.total == %{type: :accumulator, path: [:total]}
+      assert module.to_map().return == %{type: :result, node: "summarize", path: []}
+    end
+
+    test "rejects invalid Map and Reduce forms at compile time" do
+      cases = [
+        {:map_missing_run, quote(do: map(:mapped, input(:items), with: %{item: item()})),
+         ~r/unsupported flow DSL map options/},
+        {:map_duplicate_with,
+         quote(
+           do:
+             map(:mapped, input(:items),
+               run: unquote(Add),
+               with: %{item: item()},
+               with: %{}
+             )
+         ), ~r/unsupported flow DSL map options/},
+        {:map_unknown_option,
+         quote(
+           do:
+             map(:mapped, input(:items),
+               run: unquote(Add),
+               with: %{item: item()},
+               timeout: 10
+             )
+         ), ~r/unsupported flow DSL map options/},
+        {:map_computed_mode,
+         quote(
+           do:
+             map(:mapped, input(:items),
+               run: unquote(Add),
+               with: %{item: item()},
+               on_error: value(:collect_errors)
+             )
+         ), ~r/unsupported flow DSL map on_error/},
+        {:reduce_missing_initial,
+         quote(
+           do:
+             reduce(:summary, input(:items),
+               run: unquote(Add),
+               with: %{item: item(), acc: accumulator()}
+             )
+         ), ~r/unsupported flow DSL reduce options/},
+        {:reduce_inline_block,
+         quote do
+           reduce :summary, input(:items),
+             initial: value(%{}),
+             run: unquote(Add),
+             with: %{item: item(), acc: accumulator()} do
+             step(:bad, unquote(Add), with: %{})
+           end
+         end, ~r/unsupported flow DSL reduce options/}
+      ]
+
+      for {case_name, statement, expected} <- cases do
+        module = unique_module("InvalidMapReduce#{case_name}")
+
+        assert_raise CompileError, expected, fn ->
+          create_module(
+            module,
+            quote do
+              use Jido.Flow, name: "invalid_map_reduce"
+
+              flow do
+                unquote(statement)
+                return(value(%{}))
+              end
+            end
+          )
+        end
+      end
+    end
+
     test "fails module compilation for an invalid Choice target" do
       module = unique_module("InvalidChoiceTargetFlow")
       invalid_target = unique_module("MissingChoiceTarget")

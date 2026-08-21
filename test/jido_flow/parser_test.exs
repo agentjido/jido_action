@@ -118,6 +118,149 @@ end
       assert {:ok, %{value: 4}} = Jido.Exec.run(flow, %{value: 3}, %{})
     end
 
+    test "parses equal trusted and stored Map and Reduce source" do
+      trusted_source = """
+      flow do
+        mapped = map :enrich, input(:items),
+          run: JidoTest.TestActions.Add,
+          with: %{value: item(:value), amount: value(1), index: item_index(), id: item_id()},
+          on_error: :collect_errors
+
+        summary = reduce :summarize, mapped,
+          initial: value(%{total: 0}),
+          run: JidoTest.TestActions.Multiply,
+          with: %{value: accumulator(:total), amount: item(:value), id: item_id()},
+          after: :enrich
+
+        return summary
+      end
+      """
+
+      stored_source = """
+      flow do
+        mapped = map "enrich", input(:items),
+          run: "add",
+          with: %{value: item(:value), amount: value(1), index: item_index(), id: item_id()},
+          on_error: :collect_errors
+
+        summary = reduce "summarize", mapped,
+          initial: value(%{total: 0}),
+          run: "multiply",
+          with: %{value: accumulator(:total), amount: item(:value), id: item_id()},
+          after: "enrich"
+
+        return summary
+      end
+      """
+
+      assert {:ok, trusted} = Parser.parse(trusted_source, name: "map_reduce_source")
+
+      assert {:ok, stored} =
+               Parser.parse(stored_source,
+                 name: "map_reduce_source",
+                 profile: :stored,
+                 actions: %{"add" => Add, "multiply" => Multiply}
+               )
+
+      assert Flow.to_map(stored) == Flow.to_map(trusted)
+      assert Flow.dependencies(stored) == Flow.dependencies(trusted)
+      assert Flow.semantic_identity(stored) == Flow.semantic_identity(trusted)
+    end
+
+    test "stored Map and Reduce parsing does not create atoms" do
+      atom_name = "__jido_flow_map_atom_#{System.unique_integer([:positive])}"
+      assert_raise ArgumentError, fn -> String.to_existing_atom(atom_name) end
+
+      source = """
+      flow do
+        map "mapped", input(:items),
+          run: "#{atom_name}",
+          with: %{item: item()}
+
+        return result("mapped")
+      end
+      """
+
+      assert {:error, %InvalidInputError{message: message}} =
+               Parser.parse(source,
+                 name: "unknown_stored_action",
+                 profile: :stored,
+                 actions: %{"add" => Add}
+               )
+
+      assert message == "unknown flow action identifier: #{inspect(atom_name)}"
+      assert_raise ArgumentError, fn -> String.to_existing_atom(atom_name) end
+    end
+
+    test "rejects closed Map and Reduce source escape forms" do
+      cases = [
+        {:missing_run, "map :mapped, input(:items), with: %{item: item()}",
+         "unsupported flow DSL map options"},
+        {:duplicate_run,
+         "map :mapped, input(:items), run: JidoTest.TestActions.Add, run: JidoTest.TestActions.Add, with: %{item: item()}",
+         "unsupported flow DSL map options"},
+        {:unknown_option,
+         "map :mapped, input(:items), run: JidoTest.TestActions.Add, with: %{item: item()}, timeout: 10",
+         "unsupported flow DSL map options"},
+        {:computed_mode,
+         "map :mapped, input(:items), run: JidoTest.TestActions.Add, with: %{item: item()}, on_error: value(:collect_errors)",
+         "unsupported flow DSL map on_error"},
+        {:anonymous_target,
+         "map :mapped, input(:items), run: fn -> JidoTest.TestActions.Add end, with: %{item: item()}",
+         "unsupported flow DSL action module"},
+        {:capture_target,
+         "map :mapped, input(:items), run: &JidoTest.TestActions.Add.run/2, with: %{item: item()}",
+         "unsupported flow DSL action module"},
+        {:pipe_collection,
+         "map :mapped, input(:items) |> Enum.to_list(), run: JidoTest.TestActions.Add, with: %{item: item()}",
+         "unsupported flow DSL expression"},
+        {:remote_input,
+         "map :mapped, input(:items), run: JidoTest.TestActions.Add, with: %{item: String.upcase(\"x\")}",
+         "unsupported flow DSL expression"},
+        {:invalid_local_arity,
+         "map :mapped, input(:items), run: JidoTest.TestActions.Add, with: %{item: item(:a, :b)}",
+         "unsupported flow DSL expression"},
+        {:inline_block,
+         "reduce :summary, input(:items), initial: value(%{}), run: JidoTest.TestActions.Add, with: %{item: item(), acc: accumulator()} do\n step :bad, JidoTest.TestActions.Add, with: %{}\n end",
+         "unsupported flow DSL reduce options"}
+      ]
+
+      for {_kind, statement, expected_message} <- cases do
+        source = "flow do\n#{statement}\nreturn value(%{})\nend"
+
+        assert {:error, %InvalidInputError{message: message}} =
+                 Parser.parse(source, name: "bad_map_reduce")
+
+        assert message =~ expected_message
+      end
+    end
+
+    test "rejects forward bindings and local refs outside Map and Reduce input" do
+      cases = [
+        {"map :mapped, later, run: JidoTest.TestActions.Add, with: %{item: item()}\nlater = step :loaded, JidoTest.TestActions.Add, with: %{}",
+         "binding reference before it is bound"},
+        {"map :mapped, item(), run: JidoTest.TestActions.Add, with: %{item: item()}",
+         "map collection contains invalid ref"},
+        {"map :mapped, input(:items), run: JidoTest.TestActions.Add, with: %{acc: accumulator()}",
+         "map target input contains invalid ref"},
+        {"reduce :summary, item(), initial: value(%{}), run: JidoTest.TestActions.Add, with: %{item: item(), acc: accumulator()}",
+         "reduce collection contains invalid ref"},
+        {"reduce :summary, input(:items), initial: item_id(), run: JidoTest.TestActions.Add, with: %{item: item(), acc: accumulator()}",
+         "reduce initial contains invalid ref"},
+        {"step :plain, JidoTest.TestActions.Add, with: %{item: item()}",
+         "node input contains invalid ref"}
+      ]
+
+      for {statements, expected_message} <- cases do
+        source = "flow do\n#{statements}\nreturn value(%{})\nend"
+
+        assert {:error, %InvalidInputError{message: message}} =
+                 Parser.parse(source, name: "bad_scope")
+
+        assert message =~ expected_message
+      end
+    end
+
     test "parses the math milestone string to the same canonical map as builder syntax" do
       assert {:ok, flow} =
                Flow.parse(FlowFixtures.math_source(),

@@ -41,6 +41,16 @@ defmodule Jido.Flow.DSL do
     parse_choice(choice_meta, args, env, binding, context)
   end
 
+  defp parse_statement({:=, meta, [binding_ast, {:map, map_meta, args}]}, env, context) do
+    binding = parse_binding_lhs!(binding_ast, meta, env)
+    parse_map(map_meta, args, env, binding, context)
+  end
+
+  defp parse_statement({:=, meta, [binding_ast, {:reduce, reduce_meta, args}]}, env, context) do
+    binding = parse_binding_lhs!(binding_ast, meta, env)
+    parse_reduce(reduce_meta, args, env, binding, context)
+  end
+
   defp parse_statement({:=, _meta, _args} = statement, env, _context) do
     unsupported!(
       "unsupported flow DSL binding assignment: #{Macro.to_string(statement)}",
@@ -76,6 +86,14 @@ defmodule Jido.Flow.DSL do
 
   defp parse_statement({:choose, meta, args}, env, context) do
     parse_choice(meta, args, env, nil, context)
+  end
+
+  defp parse_statement({:map, meta, args}, env, context) do
+    parse_map(meta, args, env, nil, context)
+  end
+
+  defp parse_statement({:reduce, meta, args}, env, context) do
+    parse_reduce(meta, args, env, nil, context)
   end
 
   defp parse_statement({:return, _meta, [expr_ast]}, env, _context) do
@@ -153,6 +171,92 @@ defmodule Jido.Flow.DSL do
       |> maybe_put_after(after_targets)
 
     Syntax.operation(:choice, attrs, provenance: provenance_from_meta(meta))
+  end
+
+  defp parse_map(meta, [name_ast, collection_ast, options], env, binding, context)
+       when is_list(options) do
+    validate_collection_options!(:map, options, env)
+
+    attrs =
+      %{
+        name: parse_node_name!(name_ast, "map name", meta, env),
+        collection: parse_expression(collection_ast, env),
+        action: parse_action_module!(Keyword.fetch!(options, :run), meta, env, context),
+        input: options |> Keyword.fetch!(:with) |> parse_expression(env),
+        on_error: options |> Keyword.get(:on_error, :fail_fast) |> parse_map_mode!(env)
+      }
+      |> maybe_put_binding(binding)
+      |> maybe_put_after_option(options, env)
+
+    Syntax.operation(:map, attrs, provenance: provenance_from_meta(meta))
+  end
+
+  defp parse_map(meta, args, env, _binding, _context) do
+    unsupported_collection_options!(:map, {:map, meta, args}, env)
+  end
+
+  defp parse_reduce(meta, [name_ast, collection_ast, options], env, binding, context)
+       when is_list(options) do
+    validate_collection_options!(:reduce, options, env)
+
+    attrs =
+      %{
+        name: parse_node_name!(name_ast, "reduce name", meta, env),
+        collection: parse_expression(collection_ast, env),
+        initial: options |> Keyword.fetch!(:initial) |> parse_expression(env),
+        action: parse_action_module!(Keyword.fetch!(options, :run), meta, env, context),
+        input: options |> Keyword.fetch!(:with) |> parse_expression(env)
+      }
+      |> maybe_put_binding(binding)
+      |> maybe_put_after_option(options, env)
+
+    Syntax.operation(:reduce, attrs, provenance: provenance_from_meta(meta))
+  end
+
+  defp parse_reduce(meta, args, env, _binding, _context) do
+    unsupported_collection_options!(:reduce, {:reduce, meta, args}, env)
+  end
+
+  defp validate_collection_options!(kind, options, env) do
+    {allowed, required} =
+      case kind do
+        :map -> {[:run, :with, :on_error, :after], [:run, :with]}
+        :reduce -> {[:initial, :run, :with, :after], [:initial, :run, :with]}
+      end
+
+    valid? =
+      if Keyword.keyword?(options) do
+        keys = Keyword.keys(options)
+
+        Enum.all?(keys, &(&1 in allowed)) and
+          Enum.all?(required, &Keyword.has_key?(options, &1)) and
+          Enum.all?(allowed, fn allowed_key ->
+            Enum.count(keys, &(&1 == allowed_key)) <= 1
+          end)
+      else
+        false
+      end
+
+    unless valid? do
+      unsupported_collection_options!(kind, options, env)
+    end
+  end
+
+  defp parse_map_mode!(mode, _env) when mode in [:fail_fast, :collect_errors], do: mode
+
+  defp parse_map_mode!(mode, env) do
+    unsupported!(
+      "unsupported flow DSL map on_error: #{Macro.to_string(mode)}",
+      mode,
+      env
+    )
+  end
+
+  defp maybe_put_after_option(attrs, options, env) do
+    case Keyword.fetch(options, :after) do
+      {:ok, targets} -> Map.put(attrs, :after, parse_after_targets!(targets, env))
+      :error -> attrs
+    end
   end
 
   defp parse_choice_arguments!(_meta, [name_ast, [do: block]], _env), do: {name_ast, [], block}
@@ -315,6 +419,21 @@ defmodule Jido.Flow.DSL do
 
   defp parse_expression({:select, _meta, [source_ast, path_ast]}, env) do
     Syntax.select(parse_expression(source_ast, env), parse_path!(path_ast, env))
+  end
+
+  defp parse_expression({:item, _meta, []}, _env), do: Syntax.item()
+
+  defp parse_expression({:item, _meta, [path_ast]}, env) do
+    Syntax.item(parse_path!(path_ast, env))
+  end
+
+  defp parse_expression({:item_index, _meta, []}, _env), do: Syntax.item_index()
+  defp parse_expression({:item_id, _meta, []}, _env), do: Syntax.item_id()
+
+  defp parse_expression({:accumulator, _meta, []}, _env), do: Syntax.accumulator()
+
+  defp parse_expression({:accumulator, _meta, [path_ast]}, env) do
+    Syntax.accumulator(parse_path!(path_ast, env))
   end
 
   defp parse_expression({:%{}, _meta, pairs}, env) do
@@ -537,7 +656,7 @@ defmodule Jido.Flow.DSL do
   end
 
   defp parse_after_targets!(targets, env) when is_list(targets) do
-    if Keyword.keyword?(targets) do
+    if targets != [] and Keyword.keyword?(targets) do
       unsupported_after_target!(targets, env)
     else
       Enum.map(targets, &parse_after_target!(&1, env))
@@ -596,6 +715,14 @@ defmodule Jido.Flow.DSL do
     unsupported!(
       "unsupported flow DSL choice condition: #{Macro.to_string(condition)}",
       condition,
+      env
+    )
+  end
+
+  defp unsupported_collection_options!(kind, options, env) do
+    unsupported!(
+      "unsupported flow DSL #{kind} options: #{Macro.to_string(options)}",
+      options,
       env
     )
   end
