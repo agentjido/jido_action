@@ -5,8 +5,8 @@ defmodule Jido.Exec.ExecutionTest do
   alias Jido.Exec
   alias Jido.Exec.{Execution, NodeResult}
   alias Jido.Flow
-  alias Jido.Flow.{Node, Reduce, Ref}
   alias Jido.Flow.Map, as: FlowMap
+  alias Jido.Flow.{Node, Reduce, Ref}
 
   defmodule BlockingAction do
     @moduledoc false

@@ -4,6 +4,8 @@ defmodule Jido.Flow.Syntax.LowererTest do
   alias Jido.Action.Error.InvalidInputError
   alias Jido.Flow
   alias Jido.Flow.ContractBundle
+  alias Jido.Flow.Map, as: FlowMap
+  alias Jido.Flow.Reduce, as: FlowReduce
   alias Jido.Flow.Ref
   alias Jido.Flow.Syntax
   alias Jido.Flow.Syntax.Lowerer
@@ -1212,7 +1214,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
       assert [load, mapped, summary] = flow.nodes
 
       assert load.name == "load"
-      assert %Jido.Flow.Map{} = mapped
+      assert %FlowMap{} = mapped
       assert mapped.name == "mapped"
       assert mapped.collection == Ref.result("load", [:items])
       assert mapped.on_error == :collect_errors
@@ -1223,7 +1225,7 @@ defmodule Jido.Flow.Syntax.LowererTest do
       assert mapped.input.item_id == Ref.item_id()
       assert mapped.provenance == %{binding: :mapped_result, line: 10}
 
-      assert %Jido.Flow.Reduce{} = summary
+      assert %FlowReduce{} = summary
       assert summary.name == "summary"
       assert summary.collection == Ref.result("mapped")
       assert summary.initial == Ref.value(%{total: 0})
@@ -1263,13 +1265,13 @@ defmodule Jido.Flow.Syntax.LowererTest do
         Flow.new!(
           name: "literal_collections",
           nodes: [
-            Jido.Flow.Map.new!(
+            FlowMap.new!(
               name: :mapped,
               collection: [Ref.value(1), Ref.value(date), Ref.input(:last)],
               action: EchoParamsAction,
               input: %{item: Ref.item()}
             ),
-            Jido.Flow.Reduce.new!(
+            FlowReduce.new!(
               name: :summary,
               collection: Ref.result(:mapped, :results),
               initial: Ref.value(date),

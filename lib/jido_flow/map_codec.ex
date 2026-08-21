@@ -969,18 +969,7 @@ defmodule Jido.Flow.MapCodec do
     if List.improper?(list) do
       error("flow expression must be a proper list", %{expression: inspect(list)})
     else
-      list
-      |> Enum.with_index()
-      |> Enum.reduce_while({:ok, []}, fn {value, index}, {:ok, acc} ->
-        case decode_expression(value, profile) |> prepend_error_path([index]) do
-          {:ok, value} -> {:cont, {:ok, [value | acc]}}
-          {:error, error} -> {:halt, {:error, error}}
-        end
-      end)
-      |> case do
-        {:ok, values} -> {:ok, Enum.reverse(values)}
-        {:error, error} -> {:error, error}
-      end
+      decode_expression_list(list, profile)
     end
   end
 
@@ -992,6 +981,23 @@ defmodule Jido.Flow.MapCodec do
       value: value
     })
   end
+
+  defp decode_expression_list(list, profile) do
+    list
+    |> Enum.with_index()
+    |> Enum.reduce_while({:ok, []}, &decode_expression_list_item(&1, &2, profile))
+    |> reverse_decoded_expression_list()
+  end
+
+  defp decode_expression_list_item({value, index}, {:ok, acc}, profile) do
+    case decode_expression(value, profile) |> prepend_error_path([index]) do
+      {:ok, value} -> {:cont, {:ok, [value | acc]}}
+      {:error, error} -> {:halt, {:error, error}}
+    end
+  end
+
+  defp reverse_decoded_expression_list({:ok, values}), do: {:ok, Enum.reverse(values)}
+  defp reverse_decoded_expression_list({:error, error}), do: {:error, error}
 
   defp decode_condition(%{} = condition, profile) do
     with :ok <- validate_condition_record(condition, profile),
