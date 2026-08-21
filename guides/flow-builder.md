@@ -59,6 +59,45 @@ Builder.step(builder, :double, MyApp.Actions.Multiply,
   %{value: Builder.result(:add_one, :value), amount: Builder.value(2)})
 ```
 
+## Map And Reduce Collections
+
+`map/6` appends a Map fan-out. The collection expression must resolve to a
+proper list. The item input can use `item/1`, `item_index/0`, and `item_id/0`.
+
+`reduce/7` appends a serial Reduce fan-in. It also receives an initial
+accumulator. Its item input can use `accumulator/1`.
+
+```elixir
+builder =
+  builder
+  |> Builder.map(
+    :enrich,
+    Builder.input(:items),
+    MyApp.Actions.Enrich,
+    %{
+      item: Builder.item(),
+      index: Builder.item_index(),
+      item_id: Builder.item_id()
+    },
+    on_error: :collect_errors
+  )
+  |> Builder.reduce(
+    :summarize,
+    Builder.result(:enrich),
+    Builder.value(%{total: 0}),
+    MyApp.Actions.AddToTotal,
+    %{
+      total: Builder.accumulator(:total),
+      value: Builder.item(:value)
+    }
+  )
+```
+
+Map options include `on_error: :fail_fast | :collect_errors`. Map and Reduce
+also accept `bind`, `after`, and provenance options. See [Map and
+Reduce](flow-collections.livemd) for output shapes, reference scope, and
+execution rules.
+
 ## Choices And Conditions
 
 `choice/5` appends one named Choice. Build its options with `option/4` and its
@@ -84,6 +123,35 @@ builder =
 Condition helpers are `eq`, `neq`, `lt`, `lte`, `gt`, `gte`, `in`, `all`,
 `any`, and `not`. They create data expressions. The Choice evaluates them at
 execution time. See [Choices and Conditions](flow-choices.livemd).
+
+## Loops And State
+
+`loop/6` appends one bounded Loop. It receives a State contract with `schema`,
+`initial`, and `update` fields. The body input, State update, and completion
+condition can use `state/1`, `iteration_index/0`, and `body_result/1`.
+
+```elixir
+state_contract = %{
+  schema: Zoi.object(%{count: Zoi.integer()}),
+  initial: %{count: Builder.input(:start)},
+  update: %{count: Builder.body_result(:count)}
+}
+
+builder =
+  builder
+  |> Builder.loop(
+    :count,
+    MyApp.Actions.Increment,
+    %{count: Builder.state(:count), index: Builder.iteration_index()},
+    state_contract,
+    until: Builder.gte(Builder.state(:count), Builder.input(:target)),
+    max_iterations: 100
+  )
+```
+
+Use exactly one `while`, `until`, or `repeat` option. `while` and `until`
+require `max_iterations`. A `repeat` Loop uses its repeat count as the bound
+and must not set `max_iterations`. See [Loops and State](flow-loops-state.livemd).
 
 ## Groups, Branches, And Dependencies
 
@@ -117,9 +185,9 @@ explicit dependency. References to earlier results also create dependencies.
 
 ## Bindings And Provenance
 
-Pass `bind: :alias` to `step/5` or `choice/5` to create a binding reference.
-Pass `provenance: %{}` to preserve non-semantic authoring metadata. `label`,
-`tags`, and `note` are also accepted provenance options for steps and Choices.
+Pass `bind: :alias` to a Step, Choice, Map, Reduce, or Loop helper to create a
+binding reference. Pass `provenance: %{}` to preserve non-semantic authoring
+metadata. `label`, `tags`, and `note` are also accepted provenance options.
 
 ```elixir
 builder =

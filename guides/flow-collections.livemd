@@ -1,0 +1,286 @@
+# Map And Reduce
+
+`map` and `reduce` process an ordered collection inside a Flow. `map` is a
+fan-out element. It calls one target for each item. `reduce` is a serial
+fan-in element. It uses each target result as the accumulator for the next
+item.
+
+Both forms are Flow nodes. Their item calls are internal work, not separate
+public nodes.
+
+Run the code cells from top to bottom.
+
+## Install Jido Action
+
+```elixir
+Mix.install([{:jido_action, "~> 3.0"}])
+```
+
+## Define The Item Actions
+
+The Map target receives data for one item. The Reduce target receives the
+current accumulator and one item.
+
+```elixir
+defmodule FlowCollections.DoubleItem do
+  use Jido.Action,
+    name: "flow_collections_double_item",
+    schema:
+      Zoi.object(%{
+        value: Zoi.integer(),
+        index: Zoi.integer(),
+        item_id: Zoi.string()
+      }),
+    output_schema:
+      Zoi.object(%{
+        value: Zoi.integer(),
+        index: Zoi.integer(),
+        item_id: Zoi.string()
+      })
+
+  @impl true
+  def run(%{value: value} = params, _context) do
+    {:ok, %{params | value: value * 2}}
+  end
+end
+
+defmodule FlowCollections.AddToTotal do
+  use Jido.Action,
+    name: "flow_collections_add_to_total",
+    schema: Zoi.object(%{total: Zoi.integer(), value: Zoi.integer()}),
+    output_schema: Zoi.object(%{total: Zoi.integer()})
+
+  @impl true
+  def run(%{total: total, value: value}, _context) do
+    {:ok, %{total: total + value}}
+  end
+end
+```
+
+## Map A Collection
+
+The module DSL Map form is:
+
+```text
+map(name, collection,
+  run: ActionOrFlow,
+  with: item_input,
+  on_error: :fail_fast | :collect_errors,
+  after: dependencies
+)
+```
+
+`on_error` and `after` are optional. The default error mode is `:fail_fast`.
+The collection must resolve to a proper list.
+
+The `with:` expression can use these Map-local references:
+
+- `item()` returns the complete current item.
+- `item(path)` selects a path from the current item.
+- `item_index()` returns the zero-based source index.
+- `item_id()` returns the stable identity for this Map item.
+
+```elixir
+defmodule FlowCollections.DoubleValues do
+  use Jido.Flow,
+    name: "flow_collections_double_values",
+    schema: Zoi.object(%{values: Zoi.list(Zoi.integer())}),
+    output_schema: Zoi.map()
+
+  flow do
+    doubled =
+      map(:double_values, input(:values),
+        run: FlowCollections.DoubleItem,
+        with: %{
+          value: item(),
+          index: item_index(),
+          item_id: item_id()
+        }
+      )
+
+    total =
+      reduce(:sum_values, doubled,
+        initial: value(%{total: 0}),
+        run: FlowCollections.AddToTotal,
+        with: %{
+          total: accumulator(:total),
+          value: item(:value)
+        }
+      )
+
+    return(%{mapped: doubled, total: total})
+  end
+end
+```
+
+Map returns an aggregate with `kind`, `results`, and `errors`. Each successful
+record contains `index`, `item_id`, and `output`.
+
+```elixir
+{:ok,
+ %{
+   mapped: %{kind: :jido_flow_map_result, results: results, errors: []},
+   total: %{total: 12}
+ }} = Jido.Exec.run(FlowCollections.DoubleValues, %{values: [1, 2, 3]}, %{})
+
+[0, 1, 2] = Enum.map(results, & &1.index)
+[2, 4, 6] = Enum.map(results, & &1.output.value)
+true = Enum.all?(results, &is_binary(&1.item_id))
+```
+
+An empty Map collection returns an empty aggregate and does not call the
+target.
+
+## Reduce A Collection
+
+The module DSL Reduce form is:
+
+```text
+reduce(name, collection,
+  initial: initial_accumulator,
+  run: ActionOrFlow,
+  with: reducer_input,
+  after: dependencies
+)
+```
+
+`initial`, `run`, and `with` are required. The collection must resolve to a
+proper list. The initial value and every target output must be a map or a
+`Jido.Action.Output` envelope.
+
+The `with:` expression can use `item`, `item_index`, and `item_id`. It can
+also use:
+
+- `accumulator()` for the complete accumulator;
+- `accumulator(path)` for a value inside the accumulator.
+
+Reduce processes items in source order. It always runs serially. For an empty
+collection, it returns the valid initial value without a target call.
+
+When Reduce consumes a direct, complete Map result, each successful Map output
+becomes one Reduce item. Reduce keeps the Map item index and identity. Reduce
+rejects a direct Map result that contains collected errors.
+
+## Choose An Error Mode For Map
+
+`:fail_fast` stops Map after the first failed source item in serial execution.
+In asynchronous execution, Jido stops after the current bounded work window
+and reports the lowest failed source index.
+
+`:collect_errors` completes all item work and returns failures in the Map
+aggregate. Successful records stay in `results`. Failed records stay in
+`errors` with `index`, `item_id`, and a structured `error`.
+
+```elixir
+defmodule FlowCollections.RejectNegative do
+  use Jido.Action,
+    name: "flow_collections_reject_negative",
+    schema: Zoi.object(%{value: Zoi.integer()}),
+    output_schema: Zoi.object(%{value: Zoi.integer()})
+
+  @impl true
+  def run(%{value: value}, _context) when value >= 0, do: {:ok, %{value: value * 2}}
+  def run(_params, _context), do: {:error, "negative value"}
+end
+
+defmodule FlowCollections.CollectFailures do
+  use Jido.Flow,
+    name: "flow_collections_collect_failures",
+    schema: Zoi.object(%{values: Zoi.list(Zoi.integer())}),
+    output_schema: Zoi.map()
+
+  flow do
+    mapped =
+      map(:check_values, input(:values),
+        run: FlowCollections.RejectNegative,
+        with: %{value: item()},
+        on_error: :collect_errors
+      )
+
+    return(mapped)
+  end
+end
+
+{:ok, %{results: [%{index: 0, output: %{value: 4}}], errors: [failure]}} =
+  Jido.Exec.run(FlowCollections.CollectFailures, %{values: [2, -1]}, %{})
+
+1 = failure.index
+%Jido.Action.Error.ExecutionFailureError{} = failure.error
+```
+
+## Run Map Items Concurrently
+
+Map uses the Flow execution options. The default `async: false` runs item
+calls serially. With `async: true`, independent Map item calls can run
+concurrently. `max_concurrency` limits the item tasks.
+
+```elixir
+{:ok, %{total: %{total: 20}}} =
+  Jido.Exec.run(
+    FlowCollections.DoubleValues,
+    %{values: [1, 2, 3, 4]},
+    %{},
+    async: true,
+    max_concurrency: 2
+  )
+```
+
+Map result and error records stay in source-index order. Task completion order
+does not change the result order. Reduce stays serial when `async` is true.
+
+## Local Reference Scope
+
+Collection-local references are valid only where their values exist:
+
+| Reference | Map `with:` | Reduce `with:` |
+| --- | --- | --- |
+| `item`, `item_index`, `item_id` | Yes | Yes |
+| `accumulator` | No | Yes |
+
+The Map or Reduce collection expression cannot use these local references.
+The Reduce initial expression also cannot use them. Those expressions can use
+Flow input, context, literals, and prior node results.
+
+## Build Collections At Runtime
+
+`Jido.Flow.Builder` has the same closed expression surface:
+
+```elixir
+alias Jido.Flow.Builder
+
+builder =
+  Builder.new(name: "runtime_collections")
+  |> Builder.map(
+    :double_values,
+    Builder.input(:values),
+    FlowCollections.DoubleItem,
+    %{
+      value: Builder.item(),
+      index: Builder.item_index(),
+      item_id: Builder.item_id()
+    }
+  )
+  |> Builder.reduce(
+    :sum_values,
+    Builder.result(:double_values),
+    Builder.value(%{total: 0}),
+    FlowCollections.AddToTotal,
+    %{total: Builder.accumulator(:total), value: Builder.item(:value)}
+  )
+  |> Builder.return(Builder.result(:sum_values))
+
+{:ok, runtime_flow} = Builder.build(builder)
+{:ok, %{total: 12}} = Jido.Exec.run(runtime_flow, %{values: [1, 2, 3]}, %{})
+```
+
+Flow Script uses the same `map` and `reduce` forms as the module DSL. Stored
+Flow Script replaces target modules with registered identifiers.
+
+## Public Execution Boundary
+
+Map and Reduce each appear as one node in `Jido.Exec.ready/1`, `step/2`, and
+`wave/1`. One public step completes all internal item work for that element.
+You cannot step between individual Map or Reduce item calls.
+
+Continue with [Loops And State](flow-loops-state.livemd) for bounded,
+stateful iteration.

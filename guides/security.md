@@ -75,10 +75,10 @@ The library applies these fixed limits to each stored Flow map:
 - Maximum total binary payload: 1,048,576 bytes.
 - Maximum width of one map, list, or tuple: 10,000 items.
 
-The binary limit is the total for the complete artifact. `Flow.from_map/2`
+The binary limit is the total for the complete artifact. `Jido.Flow.from_map/2`
 receives a decoded map. It does not limit raw HTTP bytes or JSON decoder work.
 The caller must limit transport bytes and JSON decoding before it calls
-`Flow.from_map/2`.
+`Jido.Flow.from_map/2`.
 
 For stored source, the library applies a 1,048,576-byte source limit before
 `Code.string_to_quoted/2`. It then applies the same depth, term-count, binary,
@@ -97,11 +97,10 @@ ID. Zoi schemas, Action module atoms, and bundle contents stay in host code.
 
 Bundle selection and resolution are inert. They can normalize trusted maps and
 do pure lookup. They do not load a module, call an Action callback, validate
-data through a Zoi schema, call `Flow.check/1`, emit telemetry, compile, or
-execute the Flow.
+data through a Zoi schema, emit telemetry, compile, or execute the Flow.
 
-Stored decode, inspection, identity, and compile also do not check target
-contracts. `Flow.check/1` and `Jido.Exec` own those checks. Retry, timeout,
+Stored decode, inspection, identity, and graph compilation do not check target
+contracts. Execution through `Jido.Exec` owns those checks. Retry, timeout,
 persistence, and durability policy stay outside the Flow artifact.
 
 ## Bound Runtime Policy
@@ -114,6 +113,18 @@ Set caller-owned supervision, process limits, request deadlines, and external
 retry policy around `Jido.Exec`. Limit `max_concurrency` to a value that the
 application can support. Do not assume asynchronous execution provides a
 timeout; the current scheduler uses an internal task timeout of `:infinity`.
+
+## Bound Collections And Loops
+
+`max_concurrency` limits concurrent Map item tasks. It does not limit the
+number of items in the input list. Validate collection size at the application
+boundary. Remember that `:collect_errors` can retain one record for each
+failed item.
+
+Every Loop has an iteration bound. Keep `repeat` and `max_iterations` small
+enough for the target cost. Loop State is in-memory data. Do not put secrets in
+State or body output when errors, inspection, or telemetry can expose their
+shape.
 
 ## Design For Repeat Risk
 

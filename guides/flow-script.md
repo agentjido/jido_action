@@ -7,7 +7,8 @@ execute the Actions in the source.
 The module DSL, Flow Script, and [the runtime Builder](flow-builder.md) lower
 to the same Flow data type. The language primitives are covered in [Flow
 Language](flow-language.livemd), and [Flow Choices](flow-choices.livemd) covers
-ordered routing.
+ordered routing. [Map and Reduce](flow-collections.livemd) and [Loops and
+State](flow-loops-state.livemd) cover collection and iteration syntax.
 
 ## Parse A Complete Flow
 
@@ -49,9 +50,70 @@ end
   Jido.Exec.run(flow, %{value: 3}, %{trace_id: "trace-1"})
 ```
 
-Parser options and Flow options share the same keyword list. `profile` and
-`actions` configure parsing. Other options such as `name`, `description`,
-`schema`, and `output_schema` configure the Flow.
+Parser options and Flow options share the same keyword list. `profile`,
+`actions`, and `state_schemas` configure parsing. Other options such as `name`,
+`description`, `schema`, and `output_schema` configure the Flow.
+
+## Parse Map, Reduce, And Loop Forms
+
+Flow Script accepts the same closed forms as the module DSL:
+
+```elixir
+source = """
+flow do
+  mapped = map :double, input(:values),
+    run: MyApp.Actions.Double,
+    with: %{value: item(), index: item_index(), item_id: item_id()}
+
+  total = reduce :sum, mapped,
+    initial: value(%{total: 0}),
+    run: MyApp.Actions.AddToTotal,
+    with: %{total: accumulator(:total), value: item(:value)}
+
+  counted = loop :count,
+    run: MyApp.Actions.Increment,
+    with: %{count: state(:count), index: iteration_index()},
+    state: [
+      schema: "counter/v1",
+      initial: %{count: select(total, :total)},
+      update: %{count: body_result(:count)}
+    ],
+    repeat: 2
+
+  return counted
+end
+"""
+
+{:ok, flow} =
+  Jido.Flow.parse(source,
+    name: "collection_and_loop",
+    state_schemas: %{
+      "counter/v1" => Zoi.object(%{count: Zoi.integer()})
+    }
+  )
+```
+
+Map and Reduce target inputs can use collection-local references. Loop body,
+update, and completion expressions can use Loop-local references. The parser
+rejects these references outside their valid scope.
+
+Flow Script does not contain inline blocks for Map, Reduce, or Loop. Each form
+calls one Action or nested Flow target.
+
+## Register Loop State Schemas
+
+A Flow Script Loop writes a stable identifier in its `state: [schema: ...]`
+field. The parser resolves it through the `state_schemas` map. This rule
+applies to trusted and stored profiles.
+
+```elixir
+state_schemas = %{
+  "counter/v1" => Zoi.object(%{count: Zoi.integer()})
+}
+```
+
+The registry keys are stable string identifiers. Values are static map-shaped
+schema terms. An unknown identifier returns a parser error.
 
 ## Stored Profile And Action Registries
 
@@ -82,10 +144,14 @@ end
   )
 ```
 
-The registry must be a map or keyword list whose identifiers are strings or
-atoms and whose values are Action modules. Atom identifiers are normalized to
-strings. A stored step must use a registered identifier. A direct module name
-is rejected in the stored profile.
+The Action registry must be a map or keyword list whose identifiers are
+strings or atoms and whose values are Action modules. Atom identifiers are
+normalized to strings. A stored Step, Choice target, Map, Reduce, or Loop must
+use a registered identifier. A direct module name is rejected in the stored
+profile.
+
+A stored Loop also uses a registered State schema identifier. Pass its schema
+through `state_schemas`; do not put an executable schema term in source text.
 
 The stored profile parses with `existing_atoms_only: true`. It can use atoms
 that already exist, such as `:add_one`, but it does not create new atoms from

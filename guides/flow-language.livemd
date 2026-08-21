@@ -28,6 +28,26 @@ defmodule FlowLanguage.Echo do
   @impl true
   def run(params, _context), do: {:ok, params}
 end
+
+defmodule FlowLanguage.Double do
+  use Jido.Action,
+    name: "flow_language_double",
+    schema: Zoi.object(%{value: Zoi.integer()}),
+    output_schema: Zoi.object(%{value: Zoi.integer()})
+
+  @impl true
+  def run(%{value: value}, _context), do: {:ok, %{value: value * 2}}
+end
+
+defmodule FlowLanguage.Add do
+  use Jido.Action,
+    name: "flow_language_add",
+    schema: Zoi.object(%{total: Zoi.integer(), value: Zoi.integer()}),
+    output_schema: Zoi.object(%{total: Zoi.integer()})
+
+  @impl true
+  def run(%{total: total, value: value}, _context), do: {:ok, %{total: total + value}}
+end
 ```
 
 ## `step`: Call An Action
@@ -87,6 +107,83 @@ end
 {:ok, %{left: 1, right: 2}} =
   Jido.Exec.run(FlowLanguage.GroupExample, %{left: 1, right: 2}, %{})
 ```
+
+## `map` And `reduce`: Process Collections
+
+`map` calls one target for each item in a proper list. Its `with:` expression
+can use `item`, `item_index`, and `item_id`. `reduce` performs a serial left
+fold. Its `with:` expression can also use the current `accumulator`.
+
+```elixir
+defmodule FlowLanguage.CollectionExample do
+  use Jido.Flow,
+    name: "flow_language_collections",
+    schema: Zoi.object(%{values: Zoi.list(Zoi.integer())}),
+    output_schema: Zoi.map()
+
+  flow do
+    doubled =
+      map(:double_values, input(:values),
+        run: FlowLanguage.Double,
+        with: %{value: item()}
+      )
+
+    total =
+      reduce(:sum_values, doubled,
+        initial: value(%{total: 0}),
+        run: FlowLanguage.Add,
+        with: %{total: accumulator(:total), value: item(:value)}
+      )
+
+    return(total)
+  end
+end
+
+{:ok, %{total: 12}} =
+  Jido.Exec.run(FlowLanguage.CollectionExample, %{values: [1, 2, 3]}, %{})
+```
+
+Map has `:fail_fast` and `:collect_errors` modes. Reduce always runs in source
+order. See [Map and Reduce](flow-collections.livemd) for result records, local
+reference scope, errors, concurrency, and runtime Builder syntax.
+
+## `loop` And State: Repeat Bounded Work
+
+`loop` repeats one target. Its State contract defines a schema, the initial
+State, and the complete State replacement after each body result. Use exactly
+one `while`, `until`, or `repeat` termination form.
+
+```elixir
+defmodule FlowLanguage.LoopExample do
+  use Jido.Flow,
+    name: "flow_language_loop",
+    output_schema: Zoi.map()
+
+  flow do
+    counted =
+      loop(:add_twice,
+        run: FlowLanguage.Add,
+        with: %{total: state(:total), value: value(1)},
+        state: [
+          schema: [],
+          initial: %{total: value(0)},
+          update: %{total: body_result(:total)}
+        ],
+        repeat: 2
+      )
+
+    return(counted)
+  end
+end
+
+{:ok, %{iterations: 2, state: %{total: 2}, output: %{total: 2}}} =
+  Jido.Exec.run(FlowLanguage.LoopExample, %{}, %{})
+```
+
+Loop-local expressions are `state`, `iteration_index`, and `body_result`.
+`while` and `until` loops also require `max_iterations`. See [Loops and
+State](flow-loops-state.livemd) for completion rules, State validation, Flow
+Script schema registries, and Builder syntax.
 
 ## `choose`: Select One Target
 
@@ -187,5 +284,7 @@ is_binary(semantic_map.digest)
 - [Flow Steps](flow-steps.livemd) explains step forms, bindings, returns, and annotations.
 - [Flow References](flow-references.livemd) explains data paths and shaped values.
 - [Flow Dependencies](flow-dependencies.livemd) explains graph edges, groups, and ready waves.
+- [Map and Reduce](flow-collections.livemd) explains ordered collection processing.
 - [Flow Choices](flow-choices.livemd) explains conditions and ordered routing.
+- [Loops and State](flow-loops-state.livemd) explains bounded stateful iteration.
 - [Nested Flows](nested-flows.livemd) explains Flow boundaries and atomic child execution.
