@@ -1,0 +1,117 @@
+# Getting Started
+
+This Livebook shows the smallest useful Jido Action application. You will:
+
+1. install Jido Action,
+2. define an Action with input and output schemas,
+3. execute it through `Jido.Exec`,
+4. capture an `Instruction`, and
+5. pass one Action result to another Action.
+
+Run the code cells from top to bottom.
+
+## Install Jido Action
+
+```elixir
+Mix.install([
+  {:jido_action, "~> 3.0"}
+])
+```
+
+## Define A Validated Action
+
+An Action is a module with a name, an input schema, an output schema, and a
+`run/2` callback. The callback receives validated parameters and context.
+
+```elixir
+defmodule GettingStarted.Add do
+  use Jido.Action,
+    name: "add",
+    description: "Adds two integers",
+    schema:
+      Zoi.object(%{
+        left: Zoi.integer(),
+        right: Zoi.integer()
+      }),
+    output_schema: Zoi.object(%{result: Zoi.integer()})
+
+  @impl true
+  def run(%{left: left, right: right}, _context) do
+    {:ok, %{result: left + right}}
+  end
+end
+```
+
+Validate input before a direct callback call:
+
+```elixir
+{:ok, %{left: 2, right: 3}} =
+  GettingStarted.Add.validate_params(%{left: 2, right: 3})
+
+{:error, %Jido.Action.Error.InvalidInputError{}} =
+  GettingStarted.Add.validate_params(%{left: "2", right: 3})
+```
+
+## Execute Through Jido.Exec
+
+`Jido.Exec` is the public execution boundary. It validates input, calls the
+Action, validates the output, and returns a normalized result.
+
+```elixir
+{:ok, %{result: 5}} =
+  Jido.Exec.run(GettingStarted.Add, %{left: 2, right: 3}, %{})
+```
+
+The context is a separate map for caller-owned data. This Action does not use
+it, so an empty map is sufficient.
+
+## Capture An Instruction
+
+An `Instruction` is data for one requested Action call. It stores the Action,
+its base parameters, and its base context.
+
+```elixir
+instruction =
+  Jido.Instruction.new!(
+    action: GettingStarted.Add,
+    params: %{left: 10},
+    context: %{request_id: "req-1"}
+  )
+
+%Jido.Instruction{action: GettingStarted.Add} = instruction
+
+{:ok, %{result: 15}} =
+  Jido.Exec.run(instruction, %{right: 5}, %{tenant_id: "tenant-1"})
+```
+
+Call-site parameters and context are merged into the Instruction. Call-site
+keys replace keys with the same name in the stored maps.
+
+## Make A Small Composition Transition
+
+Actions remain small when one Action produces the input for the next Action.
+Define a second Action, then pass the first result to it through `Jido.Exec`.
+
+```elixir
+defmodule GettingStarted.Double do
+  use Jido.Action,
+    name: "double",
+    schema: Zoi.object(%{value: Zoi.integer()}),
+    output_schema: Zoi.object(%{value: Zoi.integer()})
+
+  @impl true
+  def run(%{value: value}, _context), do: {:ok, %{value: value * 2}}
+end
+
+{:ok, first_result} =
+  Jido.Exec.run(GettingStarted.Add, %{left: 2, right: 3}, %{})
+
+%{result: 5} = first_result
+
+{:ok, %{value: 10}} =
+  Jido.Exec.run(GettingStarted.Double, %{value: first_result.result}, %{})
+```
+
+For larger graphs, use a `Jido.Flow` artifact. Read [Flows](flows.md) for the
+data model, then [Build Your First Flow](build-your-first-flow.livemd) for a
+complete Flow tutorial.

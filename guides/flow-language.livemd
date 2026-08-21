@@ -1,0 +1,191 @@
+# Flow Language
+
+The Flow language describes a graph of named Action calls and one return
+expression. Its primitives are data. They do not run Elixir code while the
+Flow is authored.
+
+The Elixir module DSL, Flow Script, and `Jido.Flow.Builder` all lower to the
+same canonical `%Jido.Flow{}` artifact. This notebook gives a short tour of
+the common language. The focused guides explain each primitive in more depth.
+
+Run the code cells from top to bottom.
+
+## Install Jido Action
+
+```elixir
+Mix.install([{:jido_action, "~> 3.0"}])
+```
+
+## Define Small Actions
+
+```elixir
+defmodule FlowLanguage.Echo do
+  use Jido.Action,
+    name: "flow_language_echo",
+    schema: Zoi.map(),
+    output_schema: Zoi.map()
+
+  @impl true
+  def run(params, _context), do: {:ok, params}
+end
+```
+
+## `step`: Call An Action
+
+`step` adds one named node. The `with:` expression maps Flow data to Action
+input.
+
+```elixir
+defmodule FlowLanguage.StepExample do
+  use Jido.Flow,
+    name: "flow_language_step",
+    schema: Zoi.object(%{value: Zoi.integer()}),
+    output_schema: Zoi.map()
+
+  flow do
+    echoed = step(:echo, FlowLanguage.Echo, with: %{value: input(:value)})
+    return(echoed)
+  end
+end
+
+{:ok, %{value: 7}} = Jido.Exec.run(FlowLanguage.StepExample, %{value: 7}, %{})
+```
+
+## `group` And `branch`: Organise Static Branches
+
+`group` contains named `branch` blocks. The group and branch names become
+provenance. Dependencies still come from references and `after:`. The group
+does not enable concurrent execution.
+
+```elixir
+defmodule FlowLanguage.GroupExample do
+  use Jido.Flow,
+    name: "flow_language_group",
+    schema: Zoi.object(%{left: Zoi.integer(), right: Zoi.integer()}),
+    output_schema: Zoi.map()
+
+  flow do
+    group do
+      branch :left_side do
+        left_result = step(:left, FlowLanguage.Echo, with: %{value: input(:left)})
+      end
+
+      branch :right_side do
+        right_result = step(:right, FlowLanguage.Echo, with: %{value: input(:right)})
+      end
+    end
+
+    merged =
+      step(:merge, FlowLanguage.Echo,
+        with: %{left: select(left_result, :value), right: select(right_result, :value)}
+      )
+
+    return(merged)
+  end
+end
+
+{:ok, %{left: 1, right: 2}} =
+  Jido.Exec.run(FlowLanguage.GroupExample, %{left: 1, right: 2}, %{})
+```
+
+## `choose`: Select One Target
+
+`choose` creates one Choice node. Its options are checked in authored order.
+The first true condition selects a target. The required `otherwise` target is
+used when no option matches.
+
+```elixir
+defmodule FlowLanguage.ChoiceExample do
+  use Jido.Flow,
+    name: "flow_language_choice",
+    schema: Zoi.object(%{kind: Zoi.atom()}),
+    output_schema: Zoi.map()
+
+  flow do
+    selected =
+      choose :route do
+        option(:special,
+          when: eq(input(:kind), value(:special)),
+          run: FlowLanguage.Echo,
+          with: %{route: value(:special)}
+        )
+
+        otherwise(
+          run: FlowLanguage.Echo,
+          with: %{route: value(:default)}
+        )
+      end
+
+    return(selected)
+  end
+end
+
+{:ok, %{route: :special}} =
+  Jido.Exec.run(FlowLanguage.ChoiceExample, %{kind: :special}, %{})
+
+{:ok, %{route: :default}} =
+  Jido.Exec.run(FlowLanguage.ChoiceExample, %{kind: :other}, %{})
+```
+
+## Expressions, Bindings, And `return`
+
+Expressions read `input`, `context`, literal `value`, or earlier `result`
+values. A bound step name can be used as a result expression. `select` projects
+a nested path. `return` is required and can shape a map or list from several
+expressions.
+
+```elixir
+defmodule FlowLanguage.ExpressionExample do
+  use Jido.Flow,
+    name: "flow_language_expressions",
+    schema: Zoi.object(%{value: Zoi.integer()}),
+    output_schema: Zoi.map()
+
+  flow do
+    source_result = step(:source, FlowLanguage.Echo, with: %{value: input(:value)})
+
+    result_value =
+      step(:result, FlowLanguage.Echo,
+        with: %{
+          source: select(source_result, :value),
+          trace_id: context(:trace_id),
+          constant: value(:constant)
+        }
+      )
+
+    return(%{
+      value: select(result_value, :source),
+      trace_id: select(result_value, :trace_id),
+      constant: select(result_value, :constant)
+    })
+  end
+end
+
+{:ok, %{value: 7, trace_id: "trace-1", constant: :constant}} =
+  Jido.Exec.run(FlowLanguage.ExpressionExample, %{value: 7}, %{trace_id: "trace-1"})
+```
+
+## One Canonical Flow Artifact
+
+The module authoring surface returns a canonical data value. The other
+authoring surfaces produce the same kind of value, so inspection and execution
+do not depend on how the Flow was authored.
+
+```elixir
+canonical = FlowLanguage.StepExample.flow()
+
+true = is_struct(canonical, Jido.Flow)
+%Jido.Flow{name: "flow_language_step", nodes: [_node], return: _return} = canonical
+
+{:ok, semantic_map} = Jido.Flow.semantic_identity(canonical)
+is_binary(semantic_map.digest)
+```
+
+## Focused Guides
+
+- [Build Your First Flow](build-your-first-flow.livemd) builds a complete Flow.
+- [Flow Steps](flow-steps.livemd) explains step forms, bindings, returns, and annotations.
+- [Flow References](flow-references.livemd) explains data paths and shaped values.
+- [Flow Dependencies](flow-dependencies.livemd) explains graph edges, groups, and ready waves.
+- [Flow Choices](flow-choices.livemd) explains conditions and ordered routing.
+- [Nested Flows](nested-flows.livemd) explains Flow boundaries and atomic child execution.

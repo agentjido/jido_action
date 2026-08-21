@@ -1,0 +1,115 @@
+# Build Your First Flow
+
+This notebook builds and runs a two-step Flow. The Flow adds one to a value,
+then doubles the result. It uses the Elixir Flow module authoring surface and
+returns the canonical `%Jido.Flow{}` artifact.
+
+Run the code cells from top to bottom.
+
+## Install Jido Action
+
+```elixir
+Mix.install([{:jido_action, "~> 3.0"}])
+```
+
+## Define The Actions
+
+Flow steps call normal `Jido.Action` modules. The actions validate their input
+and output so the Flow can pass data between them.
+
+```elixir
+defmodule BuildFirstFlow.AddOne do
+  use Jido.Action,
+    name: "add_one",
+    schema: Zoi.object(%{value: Zoi.integer()}),
+    output_schema: Zoi.object(%{value: Zoi.integer()})
+
+  @impl true
+  def run(%{value: value}, _context), do: {:ok, %{value: value + 1}}
+end
+
+defmodule BuildFirstFlow.Double do
+  use Jido.Action,
+    name: "double",
+    schema: Zoi.object(%{value: Zoi.integer()}),
+    output_schema: Zoi.object(%{value: Zoi.integer()})
+
+  @impl true
+  def run(%{value: value}, _context), do: {:ok, %{value: value * 2}}
+end
+```
+
+## Define The Flow Module
+
+`use Jido.Flow` gives the module Flow metadata, validation callbacks, and a
+`flow/0` function. A result reference creates the dependency from `:double`
+to `:add_one`.
+
+```elixir
+defmodule BuildFirstFlow.DoubleAfterIncrement do
+  use Jido.Flow,
+    name: "double_after_increment",
+    description: "Adds one, then doubles the value",
+    schema: Zoi.object(%{value: Zoi.integer()}),
+    output_schema: Zoi.object(%{value: Zoi.integer()})
+
+  flow do
+    added =
+      step(:add_one, BuildFirstFlow.AddOne,
+        with: %{value: input(:value)}
+      )
+
+    doubled =
+      step(:double, BuildFirstFlow.Double,
+        with: %{value: select(added, :value)}
+      )
+
+    return(doubled)
+  end
+end
+```
+
+## Run The Flow
+
+Use `Jido.Exec.run/3` with the Flow module. The result is the value declared by
+`return`.
+
+```elixir
+{:ok, %{value: 8}} =
+  Jido.Exec.run(BuildFirstFlow.DoubleAfterIncrement, %{value: 3}, %{})
+```
+
+The canonical Flow artifact can also be passed directly to `Jido.Exec`.
+
+```elixir
+flow = BuildFirstFlow.DoubleAfterIncrement.flow()
+
+%Jido.Flow{name: "double_after_increment", nodes: nodes} = flow
+2 = length(nodes)
+
+{:ok, %{value: 8}} = Jido.Exec.run(flow, %{value: 3}, %{})
+```
+
+## Inspect The Flow
+
+The artifact contains named nodes and one return expression. Use public
+inspection functions to see dependencies and a deterministic explanation.
+
+```elixir
+{:ok, %{"add_one" => [], "double" => ["add_one"]}} =
+  Jido.Flow.dependencies(flow)
+
+{:ok, explanation} = Jido.Flow.explain(flow)
+
+[%{name: "add_one"}, %{name: "double", deps: ["add_one"]}] = explanation.nodes
+```
+
+The node inputs contain data expressions. The Flow lowerer converts those
+expressions into canonical references before execution.
+
+## Continue Learning
+
+- [Flow Language](flow-language.livemd) introduces the complete language.
+- [Flow Steps](flow-steps.livemd) explains step names, bindings, returns, and annotations.
+- [Flow References](flow-references.livemd) explains data mapping and paths.
+- [Executing Flows](flow-execution.livemd) explains run-to-completion and step-wise execution.

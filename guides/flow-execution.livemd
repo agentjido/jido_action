@@ -1,0 +1,431 @@
+# Executing Flows
+
+This notebook shows the `Jido.Exec` Flow execution API. It uses the same
+engine for run-to-completion and step-wise execution.
+
+Run the code cells from top to bottom. Each cell returns a concrete value that
+the next cell uses.
+
+## Install Jido Action
+
+```elixir
+Mix.install([{:jido_action, "~> 3.0"}])
+```
+
+## Define The Actions
+
+The examples use small actions with explicit input and output schemas.
+
+```elixir
+defmodule FlowExecutionLivebook.LoadAccount do
+  use Jido.Action,
+    name: "flow_execution_load_account",
+    schema: Zoi.object(%{account_id: Zoi.string()}),
+    output_schema: Zoi.object(%{account: Zoi.map()})
+
+  @impl true
+  def run(%{account_id: account_id}, _context) do
+    {:ok, %{account: %{id: account_id, plan: "standard"}}}
+  end
+end
+
+defmodule FlowExecutionLivebook.LoadOrders do
+  use Jido.Action,
+    name: "flow_execution_load_orders",
+    schema: Zoi.object(%{account_id: Zoi.string()}),
+    output_schema: Zoi.object(%{orders: Zoi.list(Zoi.map())})
+
+  @impl true
+  def run(%{account_id: account_id}, _context) do
+    {:ok, %{orders: [%{account_id: account_id, total: 12}]}}
+  end
+end
+
+defmodule FlowExecutionLivebook.BuildSummary do
+  use Jido.Action,
+    name: "flow_execution_build_summary",
+    schema: Zoi.object(%{account: Zoi.map(), orders: Zoi.list(Zoi.map())}),
+    output_schema: Zoi.object(%{account_id: Zoi.string(), order_count: Zoi.integer()})
+
+  @impl true
+  def run(%{account: account, orders: orders}, _context) do
+    {:ok, %{account_id: account.id, order_count: length(orders)}}
+  end
+end
+
+defmodule FlowExecutionLivebook.RecordAudit do
+  use Jido.Action,
+    name: "flow_execution_record_audit",
+    schema: Zoi.object(%{message: Zoi.string()}),
+    output_schema: Zoi.object(%{recorded: Zoi.boolean()})
+
+  @impl true
+  def run(%{message: _message}, _context), do: {:ok, %{recorded: true}}
+end
+
+defmodule FlowExecutionLivebook.Fail do
+  use Jido.Action,
+    name: "flow_execution_fail",
+    schema: Zoi.object(%{}),
+    output_schema: Zoi.object(%{ok: Zoi.boolean()})
+
+  @impl true
+  def run(_params, _context), do: {:error, "demo failure"}
+end
+
+defmodule FlowExecutionLivebook.Route do
+  use Jido.Action,
+    name: "flow_execution_route",
+    schema: Zoi.object(%{route: Zoi.atom()}),
+    output_schema: Zoi.object(%{route: Zoi.atom()})
+
+  @impl true
+  def run(params, _context), do: {:ok, params}
+end
+
+defmodule FlowExecutionLivebook.ChildSummary do
+  use Jido.Action,
+    name: "flow_execution_child_summary",
+    schema: Zoi.object(%{account_id: Zoi.string()}),
+    output_schema: Zoi.object(%{account_id: Zoi.string(), order_count: Zoi.integer()})
+
+  @impl true
+  def run(%{account_id: account_id}, _context) do
+    {:ok, %{account_id: account_id, order_count: 0}}
+  end
+end
+```
+
+## Define A Flow
+
+The two first nodes are independent. The summary node depends on both of
+them.
+
+```elixir
+defmodule FlowExecutionLivebook.BuildReport do
+  use Jido.Flow,
+    name: "flow_execution_build_report",
+    schema: Zoi.object(%{account_id: Zoi.string()}),
+    output_schema: Zoi.object(%{account_id: Zoi.string(), order_count: Zoi.integer()})
+
+  flow do
+    account =
+      step(:load_account, FlowExecutionLivebook.LoadAccount,
+        with: %{account_id: input(:account_id)}
+      )
+
+    orders =
+      step(:load_orders, FlowExecutionLivebook.LoadOrders,
+        with: %{account_id: input(:account_id)}
+      )
+
+    summary =
+      step(:build_summary, FlowExecutionLivebook.BuildSummary,
+        with: %{
+          account: select(account, :account),
+          orders: select(orders, :orders)
+        }
+      )
+
+    return(summary)
+  end
+end
+```
+
+## Run To Completion
+
+`run/4` validates the Flow, executes all ready waves, and returns the declared
+Flow result.
+
+```elixir
+{:ok, %{account_id: "acct-123", order_count: 1}} =
+  Jido.Exec.run(
+    FlowExecutionLivebook.BuildReport,
+    %{account_id: "acct-123"},
+    %{request_id: "req-123"}
+  )
+```
+
+The same function accepts a canonical `%Jido.Flow{}` artifact:
+
+```elixir
+flow = FlowExecutionLivebook.BuildReport.flow()
+
+%Jido.Flow{name: "flow_execution_build_report"} = flow
+
+{:ok, %{account_id: "acct-456", order_count: 1}} =
+  Jido.Exec.run(flow, %{account_id: "acct-456"}, %{})
+```
+
+## Run Independent Nodes In Parallel
+
+Flows run serially by default. Set `async: true` to schedule independent nodes
+in one ready wave concurrently. `max_concurrency` must be a positive integer.
+
+```elixir
+{:ok, %{account_id: "acct-789", order_count: 1}} =
+  Jido.Exec.run(
+    FlowExecutionLivebook.BuildReport,
+    %{account_id: "acct-789"},
+    %{},
+    async: true,
+    max_concurrency: 2
+  )
+```
+
+Dependencies do not change when `async` is enabled. `build_summary` still waits
+for both data nodes. Results stay in canonical node order, not task completion
+order. The current API does not expose a per-node timeout.
+
+## Start A Paused Execution
+
+`start/4` validates the Flow, input, context, and options, then pauses before
+the first public node.
+
+```elixir
+{:ok, execution} =
+  Jido.Exec.start(
+    FlowExecutionLivebook.BuildReport,
+    %{account_id: "acct-step"},
+    %{request_id: "req-step"}
+  )
+
+:running = Jido.Exec.status(execution)
+["load_account", "load_orders"] = Jido.Exec.ready(execution)
+```
+
+The execution is an opaque, in-memory value. `ready/1` returns public node
+names in canonical order. Internal coordination work is settled before the
+next public node is exposed.
+
+## Step One Node
+
+`step/2` executes a selected ready node. `step/1` executes the first ready node
+in canonical order.
+
+```elixir
+{:ok, account_result, execution} = Jido.Exec.step(execution, "load_account")
+
+%Jido.Exec.NodeResult{
+  node: "load_account",
+  status: :ok,
+  output: %{account: %{id: "acct-step", plan: "standard"}},
+  error: nil,
+  attempt: 1
+} = account_result
+
+["load_orders"] = Jido.Exec.ready(execution)
+
+{:ok, orders_result, execution} = Jido.Exec.step(execution)
+%Jido.Exec.NodeResult{node: "load_orders", status: :ok, attempt: 1} = orders_result
+["build_summary"] = Jido.Exec.ready(execution)
+```
+
+Selecting a node that is not ready returns `{:error, error}` and does not
+change the execution. A node failure is different: it is an applied
+transition, returned as `{:ok, node_result, latest_execution}`.
+
+## Execute A Wave
+
+`wave/1` freezes the current ready set. Nodes that become ready during the wave
+wait for the next wave.
+
+```elixir
+{:ok, wave_execution} =
+  Jido.Exec.start(
+    FlowExecutionLivebook.BuildReport,
+    %{account_id: "acct-wave"},
+    %{},
+    async: true,
+    max_concurrency: 2
+  )
+
+{:ok, wave_results, wave_execution} = Jido.Exec.wave(wave_execution)
+["load_account", "load_orders"] = Enum.map(wave_results, & &1.node)
+[:ok, :ok] = Enum.map(wave_results, & &1.status)
+["build_summary"] = Jido.Exec.ready(wave_execution)
+```
+
+With `async: false`, the nodes in the wave run serially. With `async: true`,
+independent nodes can run concurrently up to `max_concurrency`.
+
+## Continue And Read The Result
+
+`continue/1` runs all remaining waves and returns the terminal execution.
+`result/1` reads its cached Flow result.
+
+```elixir
+{:ok, wave_execution} = Jido.Exec.continue(wave_execution)
+:succeeded = Jido.Exec.status(wave_execution)
+[] = Jido.Exec.ready(wave_execution)
+
+{:ok, %{account_id: "acct-wave", order_count: 1}} =
+  Jido.Exec.result(wave_execution)
+```
+
+`result/1` returns a validation error while the execution is still running.
+Repeated calls on a terminal execution do not run actions again.
+
+## Handle An Applied Node Failure
+
+Define a Flow with one failing root node and one independent root node. A node
+that depends on the failure is skipped. Independent work remains available.
+
+```elixir
+defmodule FlowExecutionLivebook.FailureFlow do
+  use Jido.Flow,
+    name: "flow_execution_failure_flow",
+    schema: Zoi.object(%{}),
+    output_schema: Zoi.object(%{recorded: Zoi.boolean()})
+
+  flow do
+    step(:fail, FlowExecutionLivebook.Fail, with: %{})
+
+    audit =
+      step(:record_audit, FlowExecutionLivebook.RecordAudit,
+        with: %{message: value("failure observed")}
+      )
+
+    return(audit)
+  end
+end
+
+{:ok, failure_execution} = Jido.Exec.start(FlowExecutionLivebook.FailureFlow)
+["fail", "record_audit"] = Jido.Exec.ready(failure_execution)
+
+{:ok, failed_node, failure_execution} = Jido.Exec.step(failure_execution, "fail")
+%Jido.Exec.NodeResult{node: "fail", status: :error, output: nil, attempt: 1} = failed_node
+
+["record_audit"] = Jido.Exec.ready(failure_execution)
+{:ok, audit_node, failure_execution} = Jido.Exec.step(failure_execution)
+%Jido.Exec.NodeResult{node: "record_audit", status: :ok, output: %{recorded: true}} = audit_node
+
+:failed = Jido.Exec.status(failure_execution)
+{:error, _flow_error} = Jido.Exec.result(failure_execution)
+```
+
+The `:ok` tuple means Jido applied the requested transition. Inspect the
+`NodeResult` to find the node error. `{:error, error}` is reserved for invalid
+API calls or a transition that Jido could not apply.
+
+## Step Through A Choice
+
+A Choice is one public node. It evaluates its conditions and runs only the
+selected target. The option targets are not separate ready nodes.
+
+```elixir
+defmodule FlowExecutionLivebook.RouteFlow do
+  use Jido.Flow,
+    name: "flow_execution_route_flow",
+    schema: Zoi.object(%{route: Zoi.atom()}),
+    output_schema: Zoi.object(%{route: Zoi.atom()})
+
+  flow do
+    selected =
+      choose :route do
+        option(:priority,
+          when: eq(input(:route), value(:priority)),
+          run: FlowExecutionLivebook.Route,
+          with: %{route: value(:priority)}
+        )
+
+        otherwise(
+          run: FlowExecutionLivebook.Route,
+          with: %{route: value(:standard)}
+        )
+      end
+
+    return(selected)
+  end
+end
+
+{:ok, choice_execution} =
+  Jido.Exec.start(FlowExecutionLivebook.RouteFlow, %{route: :priority}, %{})
+
+["route"] = Jido.Exec.ready(choice_execution)
+{:ok, choice_result, choice_execution} = Jido.Exec.step(choice_execution, "route")
+%Jido.Exec.NodeResult{node: "route", status: :ok, output: %{route: :priority}} = choice_result
+:succeeded = Jido.Exec.status(choice_execution)
+{:ok, %{route: :priority}} = Jido.Exec.result(choice_execution)
+```
+
+## Pass The Latest Execution Value
+
+Execution values are immutable. Every step returns a new execution. Always
+pass the latest value to the next call.
+
+```elixir
+{:ok, latest_execution} = Jido.Exec.start(FlowExecutionLivebook.BuildReport, %{account_id: "acct-latest"})
+{:ok, _first_node, latest_execution} = Jido.Exec.step(latest_execution)
+{:ok, _second_node, latest_execution} = Jido.Exec.step(latest_execution)
+{:ok, latest_execution} = Jido.Exec.continue(latest_execution)
+:succeeded = Jido.Exec.status(latest_execution)
+```
+
+Do not reuse an older execution value. Reusing it can run an action again and
+repeat an external side effect. The execution can move between processes, but
+it is not a durable checkpoint or a persistence format.
+
+## Nested Flows Are Atomic To The Parent
+
+The parent sees a nested Flow as one node. There is no public step-into API.
+
+```elixir
+defmodule FlowExecutionLivebook.Child do
+  use Jido.Flow,
+    name: "flow_execution_child",
+    schema: Zoi.object(%{account_id: Zoi.string()}),
+    output_schema: Zoi.object(%{account_id: Zoi.string(), order_count: Zoi.integer()})
+
+  flow do
+    child_summary =
+      step(:summary, FlowExecutionLivebook.ChildSummary,
+        with: %{account_id: input(:account_id)}
+      )
+
+    return(child_summary)
+  end
+end
+
+defmodule FlowExecutionLivebook.Parent do
+  use Jido.Flow,
+    name: "flow_execution_parent",
+    schema: Zoi.object(%{account_id: Zoi.string()}),
+    output_schema: Zoi.object(%{child: Zoi.map()})
+
+  flow do
+    child_result =
+      step(:child, FlowExecutionLivebook.Child,
+        with: %{account_id: input(:account_id)}
+      )
+
+    return(%{child: child_result})
+  end
+end
+
+{:ok, parent_execution} =
+  Jido.Exec.start(FlowExecutionLivebook.Parent, %{account_id: "acct-child"}, %{})
+
+["child"] = Jido.Exec.ready(parent_execution)
+{:ok, child_node, parent_execution} = Jido.Exec.step(parent_execution, "child")
+%Jido.Exec.NodeResult{node: "child", status: :ok} = child_node
+:succeeded = Jido.Exec.status(parent_execution)
+```
+
+The parent `async` and `max_concurrency` options do not propagate to the child
+Flow. The child uses its own defaults when it runs as a target. Run the child
+directly when you need to step through its nodes or set its execution options.
+
+## Current Execution Limits
+
+The current public Flow API does not provide:
+
+- per-node retries or retry backoff;
+- per-node timeouts or a Flow deadline;
+- cancellation or rewind;
+- persistent checkpoints or restart-safe resume; or
+- exactly-once guarantees for external Action side effects.
+
+Place these policies in the caller or a higher-level runtime package. Design
+external effects to be idempotent when a stale execution value or process
+failure could cause a repeat.
