@@ -222,24 +222,30 @@ defmodule Jido.Flow.Map do
   defp validate_deps(nil), do: {:ok, []}
 
   defp validate_deps(deps) when is_list(deps) do
-    if not List.improper?(deps) do
-      deps
-      |> Enum.reduce_while({:ok, []}, fn dep, {:ok, acc} ->
-        case validate_dependency(dep) do
-          {:ok, dep} -> {:cont, {:ok, [dep | acc]}}
-          :error -> {:halt, invalid_deps("map deps must be a list of step names")}
-        end
-      end)
-      |> case do
-        {:ok, deps} -> {:ok, deps |> Enum.uniq() |> Enum.sort()}
-        {:error, error} -> {:error, error}
-      end
-    else
+    if List.improper?(deps) do
       invalid_deps("map deps must be a proper list")
+    else
+      validate_proper_deps(deps)
     end
   end
 
   defp validate_deps(_deps), do: invalid_deps("map deps must be a list")
+
+  defp validate_proper_deps(deps) do
+    deps
+    |> Enum.reduce_while({:ok, []}, &collect_dependency/2)
+    |> normalize_deps()
+  end
+
+  defp collect_dependency(dep, {:ok, acc}) do
+    case validate_dependency(dep) do
+      {:ok, dep} -> {:cont, {:ok, [dep | acc]}}
+      :error -> {:halt, invalid_deps("map deps must be a list of step names")}
+    end
+  end
+
+  defp normalize_deps({:ok, deps}), do: {:ok, deps |> Enum.uniq() |> Enum.sort()}
+  defp normalize_deps({:error, error}), do: {:error, error}
 
   defp validate_dependency(dep) when is_atom(dep) and not is_nil(dep),
     do: dep |> Atom.to_string() |> validate_dependency()

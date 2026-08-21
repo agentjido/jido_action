@@ -2,6 +2,7 @@ defmodule Jido.Flow.ReduceTest do
   use JidoTest.ActionCase, async: true
 
   alias Jido.Action.Error.InvalidInputError
+  alias Jido.Action.Output
   alias Jido.Flow.Reduce
   alias Jido.Flow.Ref
   alias JidoTest.TestActions.{Add, MissingRun}
@@ -52,7 +53,7 @@ defmodule Jido.Flow.ReduceTest do
     end
 
     test "keeps an empty list and Output-shaped initial expression as data" do
-      initial = Ref.value(Jido.Action.Output.raw(%{total: 0}))
+      initial = Ref.value(Output.raw(%{total: 0}))
 
       assert {:ok, reduce} =
                Reduce.new(

@@ -973,40 +973,48 @@ defmodule Jido.Flow.Syntax.Lowerer do
   end
 
   defp validate_operation_options(kind, attrs) do
-    allowed =
-      case kind do
-        :map ->
-          [:name, :collection, :action, :input, :on_error, :binding, :after, :derived_name?]
-
-        :reduce ->
-          [:name, :collection, :initial, :action, :input, :binding, :after, :derived_name?]
-      end
-
-    case Map.get(attrs, :option_errors, []) do
-      [{:unsupported, option} | _rest] ->
-        operation_option_error(kind, :unsupported, option)
-
-      [{:duplicate, option} | _rest] ->
-        operation_option_error(kind, :duplicate, option)
-
-      [{:invalid, options} | _rest] ->
-        {:error,
-         Error.validation_error("#{kind} options must be a keyword list", %{
-           path: [:options],
-           options: options
-         })}
-
-      [] ->
-        case attrs
-             |> Map.keys()
-             |> Enum.reject(&(&1 == :option_errors or &1 in allowed))
-             |> Enum.sort()
-             |> List.first() do
-          nil -> :ok
-          option -> operation_option_error(kind, :unsupported, option)
-        end
-    end
+    attrs
+    |> Map.get(:option_errors, [])
+    |> validate_recorded_operation_options(kind, attrs)
   end
+
+  defp validate_recorded_operation_options(
+         [{:unsupported, option} | _rest],
+         kind,
+         _attrs
+       ),
+       do: operation_option_error(kind, :unsupported, option)
+
+  defp validate_recorded_operation_options([{:duplicate, option} | _rest], kind, _attrs),
+    do: operation_option_error(kind, :duplicate, option)
+
+  defp validate_recorded_operation_options([{:invalid, options} | _rest], kind, _attrs) do
+    {:error,
+     Error.validation_error("#{kind} options must be a keyword list", %{
+       path: [:options],
+       options: options
+     })}
+  end
+
+  defp validate_recorded_operation_options([], kind, attrs) do
+    attrs
+    |> Map.keys()
+    |> Enum.reject(&(&1 == :option_errors or &1 in allowed_operation_options(kind)))
+    |> Enum.sort()
+    |> List.first()
+    |> validate_operation_option(kind)
+  end
+
+  defp allowed_operation_options(:map),
+    do: [:name, :collection, :action, :input, :on_error, :binding, :after, :derived_name?]
+
+  defp allowed_operation_options(:reduce),
+    do: [:name, :collection, :initial, :action, :input, :binding, :after, :derived_name?]
+
+  defp validate_operation_option(nil, _kind), do: :ok
+
+  defp validate_operation_option(option, kind),
+    do: operation_option_error(kind, :unsupported, option)
 
   defp operation_option_error(kind, reason, option) do
     {:error,

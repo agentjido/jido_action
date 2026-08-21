@@ -387,31 +387,33 @@ defmodule Jido.Flow.Syntax do
   defp maybe_put_option_errors(attrs, []), do: attrs
   defp maybe_put_option_errors(attrs, errors), do: Map.put(attrs, :option_errors, errors)
 
-  defp operation_option_errors(opts, allowed) do
-    if is_list(opts) and Keyword.keyword?(opts) do
-      keys = Keyword.keys(opts)
-      unique_keys = Enum.uniq(keys)
-      frequencies = Enum.frequencies(keys)
-
-      unsupported =
-        Enum.find(unique_keys, fn candidate ->
-          Enum.member?(allowed, candidate) == false
-        end)
-
-      case unsupported do
-        nil ->
-          case Enum.find(unique_keys, &(Map.fetch!(frequencies, &1) > 1)) do
-            nil -> []
-            option -> [{:duplicate, option}]
-          end
-
-        option ->
-          [{:unsupported, option}]
-      end
+  defp operation_option_errors(opts, allowed) when is_list(opts) do
+    if Keyword.keyword?(opts) do
+      keyword_option_errors(opts, allowed)
     else
       [{:invalid, opts}]
     end
   end
+
+  defp operation_option_errors(opts, _allowed), do: [{:invalid, opts}]
+
+  defp keyword_option_errors(opts, allowed) do
+    keys = Keyword.keys(opts)
+    unique_keys = Enum.uniq(keys)
+    frequencies = Enum.frequencies(keys)
+
+    unsupported =
+      Enum.find(unique_keys, fn candidate ->
+        Enum.member?(allowed, candidate) == false
+      end)
+
+    duplicate = Enum.find(unique_keys, &(Map.fetch!(frequencies, &1) > 1))
+    option_errors(unsupported, duplicate)
+  end
+
+  defp option_errors(nil, nil), do: []
+  defp option_errors(nil, duplicate), do: [{:duplicate, duplicate}]
+  defp option_errors(unsupported, _duplicate), do: [{:unsupported, unsupported}]
 
   defp option_value(opts, name, default \\ nil)
 
