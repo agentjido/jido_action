@@ -112,6 +112,60 @@ defmodule Jido.Exec.TelemetryTest do
            }
   end
 
+  test "preserves the Map item span when an async item task is killed" do
+    attach_telemetry([@map_item_start, @map_item_stop])
+
+    flow =
+      map_telemetry_flow(
+        "killed_map_item_telemetry",
+        [%{value: :zero, outcome: :kill}],
+        :collect_errors
+      )
+
+    assert {:ok,
+            %{
+              results: [],
+              errors: [
+                %{
+                  index: 0,
+                  item_id: item_id,
+                  error: %ExecutionFailureError{details: error_details}
+                }
+              ]
+            }} = Exec.run(flow, %{}, %{test_pid: self()}, async: true, max_concurrency: 1)
+
+    assert error_details.phase == :map_target_execution
+    assert error_details.node == "mapped"
+    assert error_details.target == MapProbeAction
+    assert error_details.item_index == 0
+    assert error_details.item_id == item_id
+    assert error_details.reason in [:kill, :killed]
+
+    assert_receive {:telemetry_event, @map_item_start, start_measurements, start_metadata}
+    assert_receive {:telemetry_event, @map_item_stop, stop_measurements, stop_metadata}
+
+    assert start_metadata.telemetry_span_context == stop_metadata.telemetry_span_context
+    assert stop_measurements.duration > 0
+
+    assert stop_measurements.duration ==
+             stop_measurements.monotonic_time - start_measurements.monotonic_time
+
+    assert stop_metadata |> Map.delete(:telemetry_span_context) |> Map.keys() |> Enum.sort() ==
+             [:error_type, :flow, :item_id, :item_index, :kind, :node, :status, :target]
+
+    assert Map.take(stop_metadata, [:flow, :node, :kind, :target, :item_index, :item_id]) == %{
+             flow: "killed_map_item_telemetry",
+             node: "mapped",
+             kind: :map,
+             target: MapProbeAction,
+             item_index: 0,
+             item_id: item_id
+           }
+
+    assert stop_metadata.status == :error
+    assert stop_metadata.error_type == :execution_error
+  end
+
   test "emits no Map item span for an empty collection" do
     attach_telemetry([@node_stop, @map_item_start, @map_item_stop])
 

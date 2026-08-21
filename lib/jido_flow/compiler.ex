@@ -710,23 +710,26 @@ defmodule Jido.Flow.Compiler do
     {helper, monitor} =
       spawn_monitor(fn ->
         helper = self()
+        span_owner = {helper, reference}
         spawn(fn -> terminate_map_helper_with_caller(caller, helper) end)
         Process.flag(:trap_exit, true)
 
         outcomes =
           items
-          |> Task.async_stream(&run_map_item(map, &1, state),
+          |> Task.async_stream(&run_map_item(map, &1, state, span_owner),
             max_concurrency: Keyword.fetch!(state.options, :max_concurrency),
             timeout: :infinity,
             ordered: true
           )
           |> Stream.zip(items)
           |> Enum.map(fn
-            {{:ok, outcome}, _item_state} ->
+            {{:ok, outcome}, item_state} ->
+              take_map_item_span(reference, item_state.item_id)
               outcome
 
             {{:exit, reason}, item_state} ->
-              map_item_task_exit(map, item_state, state, reason)
+              span = take_map_item_span(reference, item_state.item_id)
+              map_item_task_exit(map, item_state, state, reason, span)
           end)
 
         send(caller, {reference, self(), outcomes})
@@ -753,9 +756,13 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp run_map_item(map, item_state, state) do
+    run_map_item(map, item_state, state, nil)
+  end
+
+  defp run_map_item(map, item_state, state, span_owner) do
     metadata = collection_item_metadata(:map, map, item_state, state)
 
-    :telemetry.span([:jido, :flow, :map, :item], metadata, fn ->
+    map_item_span(metadata, span_owner, item_state.item_id, fn ->
       local_state = Map.merge(state, item_state)
 
       result =
@@ -783,7 +790,62 @@ defmodule Jido.Flow.Compiler do
     |> tag_target_validation_error(:input, map_target_owner(map, item_state))
   end
 
-  defp map_item_task_exit(map, item_state, state, reason) do
+  defp map_item_span(metadata, span_owner, item_id, fun) do
+    start_time = System.monotonic_time()
+    span_context = make_ref()
+    span_metadata = Map.put_new(metadata, :telemetry_span_context, span_context)
+
+    :telemetry.execute(
+      [:jido, :flow, :map, :item, :start],
+      %{monotonic_time: start_time, system_time: System.system_time()},
+      span_metadata
+    )
+
+    notify_map_item_span_owner(span_owner, item_id, start_time, span_context)
+
+    try do
+      {result, stop_metadata} = fun.()
+      stop_time = System.monotonic_time()
+
+      :telemetry.execute(
+        [:jido, :flow, :map, :item, :stop],
+        %{duration: stop_time - start_time, monotonic_time: stop_time},
+        Map.put_new(stop_metadata, :telemetry_span_context, span_context)
+      )
+
+      result
+    catch
+      kind, reason ->
+        stop_time = System.monotonic_time()
+
+        :telemetry.execute(
+          [:jido, :flow, :map, :item, :exception],
+          %{duration: stop_time - start_time, monotonic_time: stop_time},
+          Map.merge(span_metadata, %{
+            kind: kind,
+            reason: reason,
+            stacktrace: __STACKTRACE__
+          })
+        )
+
+        :erlang.raise(kind, reason, __STACKTRACE__)
+    end
+  end
+
+  defp notify_map_item_span_owner(nil, _item_id, _start_time, _span_context), do: :ok
+
+  defp notify_map_item_span_owner({owner, reference}, item_id, start_time, span_context) do
+    send(owner, {:map_item_span_started, reference, item_id, start_time, span_context})
+  end
+
+  defp take_map_item_span(reference, item_id) do
+    receive do
+      {:map_item_span_started, ^reference, ^item_id, start_time, span_context} ->
+        {start_time, span_context}
+    end
+  end
+
+  defp map_item_task_exit(map, item_state, state, reason, span) do
     error =
       Error.execution_error("flow map item task exited", %{
         phase: :map_target_execution,
@@ -799,13 +861,24 @@ defmodule Jido.Flow.Compiler do
       |> collection_item_metadata(map, item_state, state)
       |> Map.merge(%{status: :error, error_type: error_type(error)})
 
+    {measurements, metadata} = map_item_exit_telemetry(metadata, span)
+
     :telemetry.execute(
       [:jido, :flow, :map, :item, :stop],
-      %{duration: 0, monotonic_time: System.monotonic_time()},
+      measurements,
       metadata
     )
 
     {:error, %{item_id: item_state.item_id, index: item_state.item_index, error: error}}
+  end
+
+  defp map_item_exit_telemetry(metadata, {start_time, span_context}) do
+    stop_time = System.monotonic_time()
+
+    {
+      %{duration: stop_time - start_time, monotonic_time: stop_time},
+      Map.put(metadata, :telemetry_span_context, span_context)
+    }
   end
 
   defp map_window_size(options) do
