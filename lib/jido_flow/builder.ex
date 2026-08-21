@@ -58,40 +58,40 @@ defmodule Jido.Flow.Builder do
   @doc false
   defdelegate select(source, path), to: Syntax
 
-  @doc false
+  @doc "Builds an equality condition for a Choice option."
   defdelegate eq(left, right), to: Syntax
 
-  @doc false
+  @doc "Builds an inequality condition for a Choice option."
   defdelegate neq(left, right), to: Syntax
 
-  @doc false
+  @doc "Builds a less-than condition for a Choice option."
   defdelegate lt(left, right), to: Syntax
 
-  @doc false
+  @doc "Builds a less-than-or-equal condition for a Choice option."
   defdelegate lte(left, right), to: Syntax
 
-  @doc false
+  @doc "Builds a greater-than condition for a Choice option."
   defdelegate gt(left, right), to: Syntax
 
-  @doc false
+  @doc "Builds a greater-than-or-equal condition for a Choice option."
   defdelegate gte(left, right), to: Syntax
 
-  @doc false
+  @doc "Builds a list-membership condition for a Choice option."
   def unquote(:in)(left, right), do: apply(Syntax, :in, [left, right])
 
-  @doc false
+  @doc "Builds a Choice condition that requires all child conditions to be true."
   defdelegate all(conditions), to: Syntax
 
-  @doc false
+  @doc "Builds a Choice condition that requires one child condition to be true."
   defdelegate any(conditions), to: Syntax
 
-  @doc false
+  @doc "Builds a Choice condition that inverts one child condition."
   def not condition, do: apply(Syntax, :not, [condition])
 
-  @doc false
+  @doc "Builds one named Choice option."
   defdelegate option(name, condition, action, input \\ %{}), to: Syntax
 
-  @doc false
+  @doc "Builds the required Choice fallback."
   defdelegate fallback(action, input \\ %{}), to: Syntax
 
   @doc false

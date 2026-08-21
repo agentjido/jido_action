@@ -1,6 +1,13 @@
 defmodule Jido.Flow.Condition do
   @moduledoc """
   A closed, data-only condition used by a Flow choice.
+
+  Comparison operators are `:eq`, `:neq`, `:lt`, `:lte`, `:gt`, `:gte`, and
+  `:in`. Boolean operators are `:all`, `:any`, and `:not`.
+
+  Conditions accept Flow input, context, value, and prior-result references.
+  They do not accept arbitrary predicate functions. `:all` and `:any`
+  short-circuit during execution.
   """
 
   alias Jido.Action
@@ -53,18 +60,34 @@ defmodule Jido.Flow.Condition do
     end
   end
 
-  for operator <- @comparison_operators do
-    @doc false
-    def unquote(operator)(left, right), do: new!(unquote(operator), [left, right])
-  end
+  @doc "Builds an equality condition."
+  def eq(left, right), do: new!(:eq, [left, right])
 
-  @doc false
+  @doc "Builds an inequality condition."
+  def neq(left, right), do: new!(:neq, [left, right])
+
+  @doc "Builds a less-than condition."
+  def lt(left, right), do: new!(:lt, [left, right])
+
+  @doc "Builds a less-than-or-equal condition."
+  def lte(left, right), do: new!(:lte, [left, right])
+
+  @doc "Builds a greater-than condition."
+  def gt(left, right), do: new!(:gt, [left, right])
+
+  @doc "Builds a greater-than-or-equal condition."
+  def gte(left, right), do: new!(:gte, [left, right])
+
+  @doc "Builds a list-membership condition."
+  def unquote(:in)(left, right), do: new!(:in, [left, right])
+
+  @doc "Builds a condition that requires all child conditions to be true."
   def all(conditions), do: new!(:all, conditions)
 
-  @doc false
+  @doc "Builds a condition that requires one child condition to be true."
   def any(conditions), do: new!(:any, conditions)
 
-  @doc false
+  @doc "Builds a condition that inverts one child condition."
   def not condition, do: new!(:not, [condition])
 
   @doc false

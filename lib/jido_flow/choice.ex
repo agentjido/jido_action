@@ -1,6 +1,14 @@
 defmodule Jido.Flow.Choice do
   @moduledoc """
   A named, ordered Flow choice with a required fallback target.
+
+  Options are evaluated in authored order. The first true condition selects
+  its action. The fallback action is selected when no option matches. Only the
+  selected target input is resolved and only the selected target runs.
+
+  A Choice is one Flow node. Its output becomes the Choice node result for
+  downstream references. The fallback is a routing fallback, not error
+  recovery for a selected target.
   """
 
   alias Jido.Action

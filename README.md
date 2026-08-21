@@ -1,11 +1,14 @@
 # Jido Action
 
-`jido_action` defines validated leaf actions and action call frames.
+`jido_action` defines validated actions, action call frames, data-first Flows,
+and one public execution boundary.
 
 This foundation keeps the action boundary small:
 
 - `Jido.Action` defines a named action with Zoi input and output schemas.
 - `Jido.Instruction` captures one requested action call as data.
+- `Jido.Flow` composes actions as a validated graph with steps and Choices.
+- `Jido.Exec` runs actions, instructions, and Flows, including step-wise Flows.
 
 ## Install
 
@@ -85,11 +88,47 @@ instruction =
 
 An instruction is one action call frame. It is not a workflow, program, or runtime.
 
+## Compose A Flow
+
+Use `Jido.Flow` when several actions must execute as one validated graph.
+
+```elixir
+defmodule MyApp.Flows.GreetAndNotify do
+  use Jido.Flow,
+    name: "greet_and_notify",
+    schema: Zoi.object(%{name: Zoi.string()}),
+    output_schema: Zoi.map()
+
+  flow do
+    greeting =
+      step(:greet, MyApp.Actions.GreetUser,
+        with: %{name: input(:name), excited?: value(false)}
+      )
+
+    notified =
+      step(:notify, MyApp.Actions.Notify,
+        with: %{message: select(greeting, :greeting)}
+      )
+
+    return(notified)
+  end
+end
+
+{:ok, result} =
+  Jido.Exec.run(MyApp.Flows.GreetAndNotify, %{name: "Ada"}, %{})
+```
+
+Flows also support ordered Choices, independent parallel branches, and a
+step-wise execution API.
+
 ## Docs
 
 Start with:
 
 - [Getting Started](guides/getting-started.md)
 - [Actions](guides/actions-guide.md)
+- [Jido Flow](guides/jido-flow.md)
+- [Flow Choices](guides/flow-choices.md)
+- [Executing Flows](guides/flow-execution.md)
 - [Schemas & Validation](guides/schemas-validation.md)
 - [Error Handling](guides/error-handling.md)

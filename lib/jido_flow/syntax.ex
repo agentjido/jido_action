@@ -160,39 +160,39 @@ defmodule Jido.Flow.Syntax do
   @spec eq(term(), term()) :: Condition.t()
   def eq(left, right), do: condition(:eq, [left, right])
 
-  @doc false
+  @doc "Builds an inequality condition for a Choice option."
   @spec neq(term(), term()) :: Condition.t()
   def neq(left, right), do: condition(:neq, [left, right])
 
-  @doc false
+  @doc "Builds a less-than condition for a Choice option."
   @spec lt(term(), term()) :: Condition.t()
   def lt(left, right), do: condition(:lt, [left, right])
 
-  @doc false
+  @doc "Builds a less-than-or-equal condition for a Choice option."
   @spec lte(term(), term()) :: Condition.t()
   def lte(left, right), do: condition(:lte, [left, right])
 
-  @doc false
+  @doc "Builds a greater-than condition for a Choice option."
   @spec gt(term(), term()) :: Condition.t()
   def gt(left, right), do: condition(:gt, [left, right])
 
-  @doc false
+  @doc "Builds a greater-than-or-equal condition for a Choice option."
   @spec gte(term(), term()) :: Condition.t()
   def gte(left, right), do: condition(:gte, [left, right])
 
-  @doc false
+  @doc "Builds a list-membership condition for a Choice option."
   @spec unquote(:in)(term(), term()) :: Condition.t()
   def unquote(:in)(left, right), do: condition(:in, [left, right])
 
-  @doc false
+  @doc "Builds a Choice condition that requires all child conditions to be true."
   @spec all([Condition.t()]) :: Condition.t()
   def all(conditions), do: condition(:all, conditions)
 
-  @doc false
+  @doc "Builds a Choice condition that requires one child condition to be true."
   @spec any([Condition.t()]) :: Condition.t()
   def any(conditions), do: condition(:any, conditions)
 
-  @doc false
+  @doc "Builds a Choice condition that inverts one child condition."
   @spec not Condition.t() :: Condition.t()
   def not condition, do: condition(:not, [condition])
 
