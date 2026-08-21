@@ -3,10 +3,120 @@ defmodule Jido.FlowTest do
 
   alias Jido.Action.Error.InvalidInputError
   alias Jido.Flow
-  alias Jido.Flow.{Choice, Condition, ContractBundle, Node, Ref, Syntax}
+  alias Jido.Flow.{Choice, Condition, ContractBundle, Node, Reduce, Ref, Syntax}
+  alias Jido.Flow.Map, as: FlowMap
   alias JidoTest.TestActions.{Add, EchoParamsAction, MissingRun, Multiply}
 
   describe "new/1" do
+    test "integrates Map and Reduce as one-node graph elements" do
+      reduce =
+        Reduce.new!(
+          name: :summarize,
+          collection: Ref.result(:enrich),
+          initial: %{},
+          action: Add,
+          input: %{item: Ref.item(), accumulator: Ref.accumulator()}
+        )
+
+      map =
+        FlowMap.new!(
+          name: :enrich,
+          collection: Ref.result(:source, :items),
+          action: Add,
+          input: %{item: Ref.item(), source: Ref.result(:source)}
+        )
+
+      source = Node.new!(name: :source, action: EchoParamsAction)
+
+      assert {:ok, flow} =
+               Flow.new(
+                 name: "map_reduce_graph",
+                 nodes: [reduce, map, source],
+                 return: Ref.result(:summarize)
+               )
+
+      assert Enum.map(Flow.canonical_nodes(flow.nodes), & &1.name) == [
+               "source",
+               "enrich",
+               "summarize"
+             ]
+
+      assert {:ok,
+              %{
+                "source" => [],
+                "enrich" => ["source"],
+                "summarize" => ["enrich"]
+              }} = Flow.dependencies(flow)
+    end
+
+    test "rejects unknown Map dependencies and Map-Reduce cycles" do
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Flow.new(
+                 name: "unknown_map_dependency",
+                 nodes: [
+                   FlowMap.new!(name: :enrich, collection: Ref.result(:missing), action: Add)
+                 ],
+                 return: Ref.result(:enrich)
+               )
+
+      assert message == "node input points to an unknown step: \"missing\""
+      assert details.node == "enrich"
+      assert details.dependency == "missing"
+
+      left =
+        FlowMap.new!(name: :left, collection: Ref.result(:right), action: Add)
+
+      right =
+        Reduce.new!(
+          name: :right,
+          collection: Ref.result(:left),
+          initial: %{},
+          action: Add
+        )
+
+      assert {:error, %InvalidInputError{message: cycle_message, details: cycle_details}} =
+               Flow.new(
+                 name: "map_reduce_cycle",
+                 nodes: [left, right],
+                 return: Ref.result(:right)
+               )
+
+      assert cycle_message == "flow dependency graph contains a cycle"
+      assert cycle_details.nodes == ["left", "right"]
+    end
+
+    test "rejects local refs in ordinary Nodes, Choices, conditions, and Flow returns" do
+      assert {:error, %InvalidInputError{details: %{path: [:nested, 0], type: :item}}} =
+               Node.new(name: :bad, action: Add, input: %{nested: [Ref.item()]})
+
+      assert {:error, %InvalidInputError{details: %{path: [0], type: :item_index}}} =
+               Condition.new(:eq, [Ref.item_index(), 0])
+
+      assert {:error,
+              %InvalidInputError{
+                details: %{path: [:options, 0, :input, :value], type: :item_id}
+              }} =
+               Choice.new(
+                 name: :route,
+                 options: [
+                   [
+                     name: :only,
+                     condition: Condition.eq(1, 1),
+                     action: Add,
+                     input: %{value: Ref.item_id()}
+                   ]
+                 ],
+                 fallback: [action: Add]
+               )
+
+      assert {:error, %InvalidInputError{details: %{path: [:item], type: :accumulator}}} =
+               Flow.new(
+                 name: "bad_return_scope",
+                 nodes: [add_node()],
+                 return: %{result: Ref.result(:add_one), item: Ref.accumulator()}
+               )
+    end
+
     test "creates a minimal valid flow and emits a deterministic canonical map" do
       node =
         Node.new!(
