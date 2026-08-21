@@ -6,6 +6,7 @@ defmodule Jido.Exec.TelemetryTest do
   alias Jido.Exec
   alias Jido.Flow
   alias Jido.Flow.{Choice, Condition, Node, Ref}
+  alias Jido.Flow.Map, as: FlowMap
   alias Jido.Instruction
 
   alias JidoTest.TestActions.{
@@ -14,6 +15,7 @@ defmodule Jido.Exec.TelemetryTest do
     ErrorAction,
     ErrorWithExtrasAction,
     InvalidValidationResultAction,
+    MapProbeAction,
     Multiply
   }
 
@@ -21,6 +23,8 @@ defmodule Jido.Exec.TelemetryTest do
   @exec_start [:jido, :exec, :run, :start]
   @node_stop [:jido, :flow, :node, :stop]
   @node_start [:jido, :flow, :node, :start]
+  @map_item_start [:jido, :flow, :map, :item, :start]
+  @map_item_stop [:jido, :flow, :map, :item, :stop]
 
   test "emits an exec span for successful action execution" do
     attach_telemetry([@exec_stop])
@@ -32,6 +36,142 @@ defmodule Jido.Exec.TelemetryTest do
     assert metadata.kind == :action
     assert metadata.name == "add_one"
     assert metadata.status == :ok
+  end
+
+  test "emits bounded outer and item Map telemetry in source-index order" do
+    attach_telemetry([@node_start, @node_stop, @map_item_start, @map_item_stop])
+
+    items = [
+      %{value: :zero, outcome: :ok},
+      %{value: :one, outcome: {:error, "one failed"}}
+    ]
+
+    flow = map_telemetry_flow("map_telemetry", items, :collect_errors)
+
+    assert {:ok, %{results: [%{index: 0}], errors: [%{index: 1}]}} =
+             Exec.run(flow, %{}, %{test_pid: self()})
+
+    assert_receive {:telemetry_event, @node_start, %{}, node_start}
+
+    assert Map.take(node_start, [:flow, :node, :kind]) == %{
+             flow: "map_telemetry",
+             node: "mapped",
+             kind: :map
+           }
+
+    item_starts = receive_metadata(@map_item_start, 2)
+    assert Enum.map(item_starts, & &1.item_index) == [0, 1]
+
+    assert Enum.all?(item_starts, fn metadata ->
+             metadata |> Map.delete(:telemetry_span_context) |> Map.keys() |> Enum.sort() ==
+               [:flow, :item_id, :item_index, :kind, :node, :target]
+           end)
+
+    item_stops = receive_metadata(@map_item_stop, 2)
+    assert Enum.map(item_stops, & &1.item_index) == [0, 1]
+    assert Enum.map(item_stops, & &1.status) == [:ok, :error]
+
+    assert Enum.at(item_stops, 0)
+           |> Map.delete(:telemetry_span_context)
+           |> Map.keys()
+           |> Enum.sort() ==
+             [:flow, :item_id, :item_index, :kind, :node, :status, :target]
+
+    assert Enum.at(item_stops, 1)
+           |> Map.delete(:telemetry_span_context)
+           |> Map.keys()
+           |> Enum.sort() ==
+             [:error_type, :flow, :item_id, :item_index, :kind, :node, :status, :target]
+
+    assert_receive {:telemetry_event, @node_stop, measurements, node_stop}
+    assert is_integer(measurements.duration)
+
+    assert Map.take(node_stop, [
+             :flow,
+             :node,
+             :kind,
+             :status,
+             :target,
+             :on_error,
+             :item_count,
+             :success_count,
+             :error_count
+           ]) == %{
+             flow: "map_telemetry",
+             node: "mapped",
+             kind: :map,
+             status: :ok,
+             target: MapProbeAction,
+             on_error: :collect_errors,
+             item_count: 2,
+             success_count: 1,
+             error_count: 1
+           }
+  end
+
+  test "emits no Map item span for an empty collection" do
+    attach_telemetry([@node_stop, @map_item_start, @map_item_stop])
+
+    assert {:ok, %{results: [], errors: []}} =
+             Exec.run(map_telemetry_flow("empty_map_telemetry", [], :fail_fast), %{}, %{
+               test_pid: self()
+             })
+
+    assert_receive {:telemetry_event, @node_stop, _measurements,
+                    %{
+                      flow: "empty_map_telemetry",
+                      kind: :map,
+                      item_count: 0,
+                      success_count: 0,
+                      error_count: 0
+                    }}
+
+    refute_receive {:telemetry_event, @map_item_start, _measurements, _metadata}
+    refute_receive {:telemetry_event, @map_item_stop, _measurements, _metadata}
+  end
+
+  test "adds bounded Map counts and normalized error type to a fail-fast outer span" do
+    attach_telemetry([@node_stop])
+
+    flow =
+      map_telemetry_flow(
+        "failed_map_telemetry",
+        [
+          %{value: :zero, outcome: :ok},
+          %{value: :one, outcome: {:error, "one failed"}},
+          %{value: :two, outcome: :ok}
+        ],
+        :fail_fast
+      )
+
+    assert {:error, %ExecutionFailureError{message: "one failed"}} =
+             Exec.run(flow, %{}, %{test_pid: self()})
+
+    assert_receive {:telemetry_event, @node_stop, _measurements, metadata}
+
+    assert Map.take(metadata, [
+             :flow,
+             :node,
+             :kind,
+             :target,
+             :on_error,
+             :item_count,
+             :success_count,
+             :error_count,
+             :status,
+             :error_type
+           ]) == %{
+             flow: "failed_map_telemetry",
+             node: "mapped",
+             kind: :map,
+             target: MapProbeAction,
+             on_error: :fail_fast,
+             item_count: 2,
+             success_count: 1,
+             error_count: 1,
+             status: :error,
+             error_type: :execution_error
+           }
   end
 
   test "emits an exec span for instruction execution" do
@@ -280,7 +420,7 @@ defmodule Jido.Exec.TelemetryTest do
   defp receive_metadata(event, count) do
     for _index <- 1..count do
       assert_receive {:telemetry_event, ^event, measurements, metadata}
-      assert is_integer(measurements.duration)
+      if List.last(event) == :stop, do: assert(is_integer(measurements.duration))
       metadata
     end
   end
@@ -306,6 +446,27 @@ defmodule Jido.Exec.TelemetryTest do
         )
       ],
       return: Ref.result(:add_three)
+    )
+  end
+
+  defp map_telemetry_flow(name, items, on_error) do
+    Flow.new!(
+      name: name,
+      nodes: [
+        FlowMap.new!(
+          name: :mapped,
+          collection: Ref.value(items),
+          action: MapProbeAction,
+          input: %{
+            test_pid: Ref.context(:test_pid),
+            index: Ref.item_index(),
+            value: Ref.item(:value),
+            outcome: Ref.item(:outcome)
+          },
+          on_error: on_error
+        )
+      ],
+      return: Ref.result(:mapped)
     )
   end
 

@@ -4,12 +4,14 @@ defmodule Jido.Flow.Compiler do
   """
 
   alias Jido.Action.Error
+  alias Jido.Action.Output
   alias Jido.Exec
   alias Jido.Flow
   alias Jido.Flow.Choice
   alias Jido.Flow.Condition
   alias Jido.Flow.Element
   alias Jido.Flow.Identity
+  alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.Node
   alias Jido.Flow.NodeError
   alias Jido.Flow.Ref
@@ -21,9 +23,11 @@ defmodule Jido.Flow.Compiler do
 
   @type node_state :: %{
           flow: String.t(),
+          flow_digest: String.t(),
           input: map(),
           context: map(),
-          results: map()
+          results: map(),
+          options: keyword()
         }
 
   @doc """
@@ -60,10 +64,22 @@ defmodule Jido.Flow.Compiler do
           {:ok, Workflow.t(), [Element.t()]} | {:error, Exception.t()}
   def runtime_workflow_validated(%Flow{} = flow, input, context)
       when is_map(input) and is_map(context) do
-    prepare_validated_runtime(flow, input, context, nil)
+    prepare_validated_runtime(flow, input, context, nil, default_runtime_options())
   end
 
   def runtime_workflow_validated(%Flow{}, _input, _context) do
+    {:error, Error.validation_error("flow input and context must be maps")}
+  end
+
+  @doc false
+  @spec runtime_workflow_validated(Flow.t(), map(), map(), keyword()) ::
+          {:ok, Workflow.t(), [Element.t()]} | {:error, Exception.t()}
+  def runtime_workflow_validated(%Flow{} = flow, input, context, options)
+      when is_map(input) and is_map(context) and is_list(options) do
+    prepare_validated_runtime(flow, input, context, nil, options)
+  end
+
+  def runtime_workflow_validated(%Flow{}, _input, _context, _options) do
     {:error, Error.validation_error("flow input and context must be maps")}
   end
 
@@ -109,7 +125,13 @@ defmodule Jido.Flow.Compiler do
     run_ref = make_ref()
 
     with {:ok, workflow, ordered_nodes} <-
-           prepare_validated_runtime(flow, input, context, {runner, run_ref}) do
+           prepare_validated_runtime(
+             flow,
+             input,
+             context,
+             {runner, run_ref},
+             normalize_runtime_options(opts)
+           ) do
       final_workflow = Workflow.react_until_satisfied(workflow, input, opts)
       node_errors = drain_node_errors(run_ref, ordered_nodes)
 
@@ -174,14 +196,27 @@ defmodule Jido.Flow.Compiler do
     with {:ok, flow} <- Flow.validate(flow),
          :ok <- Flow.check(flow),
          {:ok, workflow, ordered_nodes} <-
-           prepare_validated_runtime(flow, input, context, collector) do
+           prepare_validated_runtime(
+             flow,
+             input,
+             context,
+             collector,
+             default_runtime_options()
+           ) do
       {:ok, flow, workflow, ordered_nodes}
     end
   end
 
-  defp prepare_validated_runtime(flow, input, context, collector) do
+  defp prepare_validated_runtime(flow, input, context, collector, options) do
     node_state =
-      %{flow: flow.name, input: input, context: context, results: %{}}
+      %{
+        flow: flow.name,
+        flow_digest: Identity.semantic_digest(flow),
+        input: input,
+        context: context,
+        results: %{},
+        options: options
+      }
       |> Map.put(@collector_key, collector)
 
     build(flow, {:runtime, node_state})
@@ -303,6 +338,15 @@ defmodule Jido.Flow.Compiler do
     end
   end
 
+  defp run_node_result(%FlowMap{} = map, parent_value, node_state) do
+    state = %{node_state | results: dependency_results(map, parent_value)}
+
+    case resolve_expr(map.collection, state) do
+      {:ok, collection} -> run_resolved_map(map, collection, state)
+      {:error, error} -> {:error, error, state, map_error_metadata(map, 0, 0, 0)}
+    end
+  end
+
   defp run_node_result(node, parent_value, node_state) do
     state = %{node_state | results: dependency_results(node, parent_value)}
 
@@ -320,6 +364,218 @@ defmodule Jido.Flow.Compiler do
 
   defp run_resolved_node(node, params, context) do
     run_resolved_target(node.action, params, context, node_target_owner(node))
+  end
+
+  defp run_resolved_map(map, collection, state) do
+    if proper_list?(collection) do
+      items =
+        collection
+        |> Enum.with_index()
+        |> Enum.map(fn {item, index} ->
+          %{
+            item: item,
+            item_index: index,
+            item_id: Identity.item_uuid(state.flow_digest, map.name, index)
+          }
+        end)
+
+      case dispatch_map_items(map, items, state) do
+        {:ok, results, errors} ->
+          aggregate = %{kind: :jido_flow_map_result, results: results, errors: errors}
+          {:ok, aggregate, map_success_metadata(map, length(items), results, errors)}
+
+        {:error, error, started_count, success_count, error_count} ->
+          {:error, error, state,
+           map_error_metadata(map, started_count, success_count, error_count)}
+      end
+    else
+      error =
+        Error.execution_error("map collection must resolve to a proper list", %{
+          phase: :map_collection,
+          node: map.name,
+          reason: :not_a_proper_list,
+          value_type: value_type(collection),
+          retry: false
+        })
+
+      {:error, error, state, map_error_metadata(map, 0, 0, 0)}
+    end
+  end
+
+  defp dispatch_map_items(%FlowMap{on_error: :fail_fast} = map, items, state) do
+    window_size = map_window_size(state.options)
+
+    items
+    |> Enum.chunk_every(window_size)
+    |> Enum.reduce_while({:ok, [], 0}, fn window, {:ok, results, started_before} ->
+      outcomes = dispatch_map_window(map, window, state)
+      successes = for {:ok, result} <- outcomes, do: result
+      failures = for {:error, failure} <- outcomes, do: failure
+      started_count = started_before + length(window)
+
+      case failures do
+        [] ->
+          {:cont, {:ok, results ++ successes, started_count}}
+
+        failures ->
+          selected = Enum.min_by(failures, & &1.index)
+
+          {:halt,
+           {:error, selected.error, started_count, length(results) + length(successes),
+            length(failures)}}
+      end
+    end)
+    |> case do
+      {:ok, results, _started_count} ->
+        {:ok, results, []}
+
+      {:error, error, started_count, success_count, error_count} ->
+        {:error, error, started_count, success_count, error_count}
+    end
+  end
+
+  defp dispatch_map_items(%FlowMap{on_error: :collect_errors} = map, items, state) do
+    outcomes = dispatch_map_window(map, items, state)
+
+    results = for {:ok, result} <- outcomes, do: result
+    errors = for {:error, error} <- outcomes, do: error
+    {:ok, results, errors}
+  end
+
+  defp dispatch_map_window(map, items, state) do
+    if Keyword.fetch!(state.options, :async) do
+      execute_async_map_items(map, items, state)
+    else
+      Enum.map(items, &run_map_item(map, &1, state))
+    end
+  end
+
+  defp execute_async_map_items(map, items, state) do
+    caller = self()
+    reference = make_ref()
+
+    {helper, monitor} =
+      spawn_monitor(fn ->
+        helper = self()
+        spawn(fn -> terminate_map_helper_with_caller(caller, helper) end)
+        Process.flag(:trap_exit, true)
+
+        outcomes =
+          items
+          |> Task.async_stream(&run_map_item(map, &1, state),
+            max_concurrency: Keyword.fetch!(state.options, :max_concurrency),
+            timeout: :infinity,
+            ordered: true
+          )
+          |> Enum.zip(items)
+          |> Enum.map(fn
+            {{:ok, outcome}, _item_state} ->
+              outcome
+
+            {{:exit, reason}, item_state} ->
+              map_item_task_exit(map, item_state, state, reason)
+          end)
+
+        send(caller, {reference, self(), outcomes})
+      end)
+
+    receive do
+      {^reference, ^helper, outcomes} ->
+        Process.demonitor(monitor, [:flush])
+        outcomes
+
+      {:DOWN, ^monitor, :process, ^helper, reason} ->
+        exit(reason)
+    end
+  end
+
+  defp terminate_map_helper_with_caller(caller, helper) do
+    caller_monitor = Process.monitor(caller)
+    helper_monitor = Process.monitor(helper)
+
+    receive do
+      {:DOWN, ^caller_monitor, :process, ^caller, _reason} -> Process.exit(helper, :kill)
+      {:DOWN, ^helper_monitor, :process, ^helper, _reason} -> :ok
+    end
+  end
+
+  defp run_map_item(map, item_state, state) do
+    metadata = map_item_metadata(map, item_state, state)
+
+    :telemetry.span([:jido, :flow, :map, :item], metadata, fn ->
+      local_state = Map.merge(state, item_state)
+
+      result =
+        with {:ok, params} <- resolve_map_input(map, local_state, item_state),
+             {:ok, output} <-
+               run_resolved_target(
+                 map.action,
+                 params,
+                 state.context,
+                 map_target_owner(map, item_state)
+               ) do
+          {:ok, %{item_id: item_state.item_id, index: item_state.item_index, output: output}}
+        else
+          {:error, error} ->
+            {:error, %{item_id: item_state.item_id, index: item_state.item_index, error: error}}
+        end
+
+      {result, Map.merge(metadata, map_item_result_metadata(result))}
+    end)
+  end
+
+  defp resolve_map_input(map, state, item_state) do
+    map.input
+    |> resolve_expr(state)
+    |> tag_target_validation_error(:input, map_target_owner(map, item_state))
+  end
+
+  defp map_item_task_exit(map, item_state, state, reason) do
+    error =
+      Error.execution_error("flow map item task exited", %{
+        phase: :map_target_execution,
+        node: map.name,
+        target: map.action,
+        item_index: item_state.item_index,
+        item_id: item_state.item_id,
+        reason: reason
+      })
+
+    metadata =
+      map
+      |> map_item_metadata(item_state, state)
+      |> Map.merge(%{status: :error, error_type: error_type(error)})
+
+    :telemetry.execute(
+      [:jido, :flow, :map, :item, :stop],
+      %{duration: 0, monotonic_time: System.monotonic_time()},
+      metadata
+    )
+
+    {:error, %{item_id: item_state.item_id, index: item_state.item_index, error: error}}
+  end
+
+  defp proper_list?([]), do: true
+  defp proper_list?([_head | tail]), do: proper_list?(tail)
+  defp proper_list?(_value), do: false
+
+  defp map_window_size(options) do
+    if Keyword.fetch!(options, :async) do
+      Keyword.fetch!(options, :max_concurrency)
+    else
+      1
+    end
+  end
+
+  defp default_runtime_options do
+    [async: false, max_concurrency: System.schedulers_online()]
+  end
+
+  defp normalize_runtime_options(options) do
+    [
+      async: Keyword.get(options, :async, false),
+      max_concurrency: Keyword.get(options, :max_concurrency, System.schedulers_online())
+    ]
   end
 
   defp flow_module?(action) do
@@ -485,12 +741,18 @@ defmodule Jido.Flow.Compiler do
 
   defp choice_target_owner(choice, target), do: %{kind: :choice, choice: choice, target: target}
 
+  defp map_target_owner(map, item_state), do: %{kind: :map, map: map, item: item_state}
+
   defp tag_target_error(result, phase, %{kind: :node, node: node}) do
     tag_step_error(result, node_target_phase(phase), node)
   end
 
   defp tag_target_error(result, phase, %{kind: :choice, choice: choice, target: target}) do
     tag_choice_target_error(result, choice, target, choice_target_phase(phase))
+  end
+
+  defp tag_target_error(result, phase, %{kind: :map, map: map, item: item}) do
+    tag_map_target_error(result, map, item, map_target_phase(phase))
   end
 
   defp tag_target_validation_error(result, :input, %{kind: :node, node: node}) do
@@ -505,14 +767,25 @@ defmodule Jido.Flow.Compiler do
     tag_choice_target_validation_error(result, choice, target, :choice_target_input)
   end
 
+  defp tag_target_validation_error(result, :input, %{kind: :map, map: map, item: item}) do
+    tag_map_target_validation_error(result, map, item, :map_target_input)
+  end
+
   defp node_target_phase(:execution), do: :step_execution
   defp node_target_phase(:output), do: :step_output
 
   defp choice_target_phase(:execution), do: :choice_target_execution
   defp choice_target_phase(:output), do: :choice_target_output
 
+  defp map_target_phase(:execution), do: :map_target_execution
+  defp map_target_phase(:output), do: :map_target_output
+
   defp node_metadata(%Choice{} = choice, node_state) do
     %{flow: node_state.flow, node: choice.name, kind: :choice}
+  end
+
+  defp node_metadata(%FlowMap{} = map, node_state) do
+    %{flow: node_state.flow, node: map.name, kind: :map}
   end
 
   defp node_metadata(node, node_state) do
@@ -534,6 +807,43 @@ defmodule Jido.Flow.Compiler do
   defp node_result_metadata(_result), do: %{status: :ok}
 
   defp error_type(error), do: error |> Error.to_map() |> Map.get(:type)
+
+  defp map_success_metadata(map, item_count, results, errors) do
+    %{
+      target: map.action,
+      on_error: map.on_error,
+      item_count: item_count,
+      success_count: length(results),
+      error_count: length(errors)
+    }
+  end
+
+  defp map_error_metadata(map, item_count, success_count, error_count) do
+    %{
+      target: map.action,
+      on_error: map.on_error,
+      item_count: item_count,
+      success_count: success_count,
+      error_count: error_count
+    }
+  end
+
+  defp map_item_metadata(map, item_state, state) do
+    %{
+      flow: state.flow,
+      node: map.name,
+      kind: :map,
+      target: map.action,
+      item_id: item_state.item_id,
+      item_index: item_state.item_index
+    }
+  end
+
+  defp map_item_result_metadata({:ok, _result}), do: %{status: :ok}
+
+  defp map_item_result_metadata({:error, %{error: error}}) do
+    %{status: :error, error_type: error_type(error)}
+  end
 
   defp dependency_results(%{deps: []}, _parent_value), do: %{}
   defp dependency_results(%{deps: [dep]}, parent_value), do: %{dep => parent_value}
@@ -623,6 +933,46 @@ defmodule Jido.Flow.Compiler do
      )}
   end
 
+  defp tag_map_target_error({:ok, output}, _map, _item, _phase), do: {:ok, output}
+
+  defp tag_map_target_error({:error, error}, map, item, phase) when is_exception(error) do
+    {:error, put_map_target_details(error, map, item, phase)}
+  end
+
+  defp tag_map_target_error({:error, error}, _map, _item, _phase), do: {:error, error}
+
+  defp tag_map_target_validation_error({:ok, value}, _map, _item, _phase), do: {:ok, value}
+
+  defp tag_map_target_validation_error({:error, error}, map, item, phase)
+       when is_exception(error) do
+    {:error, put_map_target_details(error, map, item, phase)}
+  end
+
+  defp tag_map_target_validation_error({:error, reason}, map, item, phase) do
+    {:error,
+     Error.validation_error(
+       to_error_message(reason),
+       map_target_details(%{reason: reason}, map, item, phase)
+     )}
+  end
+
+  defp put_map_target_details(%{details: details} = error, map, item, phase)
+       when is_map(details) do
+    %{error | details: map_target_details(details, map, item, phase)}
+  end
+
+  defp put_map_target_details(error, _map, _item, _phase), do: error
+
+  defp map_target_details(details, map, item, phase) do
+    Map.merge(details, %{
+      phase: phase,
+      node: map.name,
+      target: map.action,
+      item_index: item.item_index,
+      item_id: item.item_id
+    })
+  end
+
   defp put_choice_target_details(%{details: details} = error, choice, target, phase)
        when is_map(details) do
     %{error | details: choice_target_details(details, choice, target, phase)}
@@ -673,6 +1023,12 @@ defmodule Jido.Flow.Compiler do
   defp resolve_expr(%Ref{type: :result, node: node, path: path}, state) do
     {:ok, state.results |> Map.get(node) |> fetch_path(path)}
   end
+
+  defp resolve_expr(%Ref{type: :item, path: path}, state),
+    do: {:ok, state |> Map.get(:item) |> fetch_path(path)}
+
+  defp resolve_expr(%Ref{type: :item_index}, state), do: {:ok, Map.get(state, :item_index)}
+  defp resolve_expr(%Ref{type: :item_id}, state), do: {:ok, Map.get(state, :item_id)}
 
   defp resolve_expr(%Ref{type: type}, _state) do
     {:error, Error.validation_error("unsupported flow ref type: #{inspect(type)}", %{type: type})}
@@ -755,6 +1111,16 @@ defmodule Jido.Flow.Compiler do
         nil
     end
   end
+
+  defp value_type(nil), do: nil
+  defp value_type(%Output{}), do: :action_output
+  defp value_type(value) when is_list(value), do: :list
+  defp value_type(value) when is_map(value), do: :map
+  defp value_type(value) when is_binary(value), do: :binary
+  defp value_type(value) when is_number(value), do: :number
+  defp value_type(value) when is_atom(value), do: :atom
+  defp value_type(value) when is_tuple(value), do: :tuple
+  defp value_type(_value), do: :other
 
   defp to_error_message(message) when is_binary(message), do: message
   defp to_error_message(message) when is_atom(message), do: Atom.to_string(message)

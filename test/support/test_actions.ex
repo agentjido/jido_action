@@ -303,6 +303,61 @@ defmodule JidoTest.TestActions do
     def run(_params, _context), do: Process.exit(self(), :kill)
   end
 
+  defmodule MapProbeAction do
+    @moduledoc false
+    use Action, name: "map_probe_action"
+
+    def run(%{test_pid: test_pid, index: index} = params, _context) when is_pid(test_pid) do
+      send(test_pid, {__MODULE__, :started, index, self()})
+
+      if Map.get(params, :block, false) do
+        receive do
+          :release -> :ok
+        end
+      end
+
+      if sleep_ms = Map.get(params, :sleep_ms) do
+        Process.sleep(sleep_ms)
+      end
+
+      case Map.get(params, :outcome, :ok) do
+        :ok ->
+          output = %{index: index, value: Map.get(params, :value)}
+
+          if Map.get(params, :extras, false) do
+            {:ok, output, %{ignored: true}}
+          else
+            {:ok, output}
+          end
+
+        {:error, message} ->
+          {:error, message}
+
+        :kill ->
+          Process.exit(self(), :kill)
+      end
+    end
+  end
+
+  defmodule CountedMapAction do
+    @moduledoc false
+
+    def validate_params(%{test_pid: test_pid, index: index} = params) do
+      send(test_pid, {__MODULE__, :input, index})
+      {:ok, params}
+    end
+
+    def run(%{test_pid: test_pid, index: index} = params, _context) do
+      send(test_pid, {__MODULE__, :run, index})
+      {:ok, params}
+    end
+
+    def validate_output(%{test_pid: test_pid, index: index} = output) do
+      send(test_pid, {__MODULE__, :output, index})
+      {:ok, output}
+    end
+  end
+
   defmodule RecorderAction do
     @moduledoc false
     use Action, name: "recorder_action"
