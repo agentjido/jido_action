@@ -5,7 +5,8 @@ defmodule Jido.Flow.CompilerTest do
   alias Jido.Action.Error.{ExecutionFailureError, InvalidInputError}
   alias Jido.Action.Output
   alias Jido.Flow
-  alias Jido.Flow.{Choice, Compiler, Condition, ContractBundle, Node, Ref}
+  alias Jido.Flow.{Choice, Compiler, Condition, ContractBundle, Node, Reduce, Ref}
+  alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.NodeError
   alias JidoTest.FlowFixtures
 
@@ -37,6 +38,58 @@ defmodule Jido.Flow.CompilerTest do
   alias Runic.Workflow.Step
 
   describe "compile/1" do
+    test "compiles Map and Reduce as two inert public Steps with one edge" do
+      map_target = unique_module("UnloadedMapTarget")
+      reduce_target = unique_module("UnloadedReduceTarget")
+      assert {:error, :nofile} = Code.ensure_loaded(map_target)
+      assert {:error, :nofile} = Code.ensure_loaded(reduce_target)
+
+      flow =
+        Flow.new!(
+          name: "inert_map_reduce",
+          nodes: [
+            FlowMap.new!(
+              name: :mapped,
+              collection: Ref.input(:items),
+              action: map_target,
+              input: Ref.item()
+            ),
+            Reduce.new!(
+              name: :reduced,
+              collection: Ref.result(:mapped),
+              initial: 0,
+              action: reduce_target,
+              input: Ref.accumulator()
+            )
+          ],
+          return: Ref.result(:reduced)
+        )
+
+      assert {:ok, first} = Flow.compile(flow)
+      assert {:ok, second} = Flow.compile(flow)
+
+      assert Enum.map(Workflow.steps(first), &{&1.name, &1.hash}) ==
+               Enum.map(Workflow.steps(second), &{&1.name, &1.hash})
+
+      assert first |> Workflow.steps() |> Enum.map(& &1.name) |> Enum.sort() == [
+               "mapped",
+               "reduced"
+             ]
+
+      assert root_child?(first, "mapped")
+      assert connects?(first, :mapped, :reduced)
+
+      reacted = Workflow.react_until_satisfied(first, %{items: [:not_resolved]})
+
+      assert Workflow.results(reacted, ["mapped", "reduced"]) == %{
+               "mapped" => {:jido_flow_node, 1, "mapped"},
+               "reduced" => {:jido_flow_node, 1, "reduced"}
+             }
+
+      assert {:error, :nofile} = Code.ensure_loaded(map_target)
+      assert {:error, :nofile} = Code.ensure_loaded(reduce_target)
+    end
+
     test "compiles a one-step flow to a Runic workflow with a named action component" do
       flow = one_step_flow()
 

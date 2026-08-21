@@ -3,7 +3,8 @@ defmodule Jido.Flow.IdentityTest do
 
   alias Jido.Action.Error.InvalidInputError
   alias Jido.Flow
-  alias Jido.Flow.{Choice, Condition, ContractBundle, Identity, Node, Ref}
+  alias Jido.Flow.{Choice, Condition, ContractBundle, Identity, Node, Reduce, Ref}
+  alias Jido.Flow.Map, as: FlowMap
   alias JidoTest.TestActions.{Add, EchoParamsAction, Multiply}
 
   test "returns canonical direct predecessor dependencies" do
@@ -214,6 +215,39 @@ defmodule Jido.Flow.IdentityTest do
              ~r/^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
   end
 
+  test "makes every Map and Reduce semantic field part of Flow and item identity" do
+    flow = map_reduce_identity_flow()
+    {:ok, base_identity} = Flow.semantic_identity(flow)
+
+    mutations = [
+      update_map_reduce(flow, "enrich", &%{&1 | action: Multiply}),
+      update_map_reduce(flow, "enrich", &%{&1 | collection: Ref.input(:other_items)}),
+      update_map_reduce(flow, "enrich", &%{&1 | input: %{item: Ref.item(:value)}}),
+      update_map_reduce(flow, "enrich", &%{&1 | on_error: :collect_errors}),
+      update_map_reduce(flow, "enrich", &%{&1 | deps: ["source"]}),
+      update_map_reduce(flow, "summarize", &%{&1 | action: EchoParamsAction}),
+      update_map_reduce(flow, "summarize", &%{&1 | collection: Ref.value([]), deps: []}),
+      update_map_reduce(flow, "summarize", &%{&1 | initial: Ref.value(1)}),
+      update_map_reduce(flow, "summarize", &%{&1 | input: %{acc: Ref.accumulator(:total)}}),
+      update_map_reduce(flow, "summarize", &%{&1 | deps: ["enrich", "source"]})
+    ]
+
+    for mutated <- mutations do
+      assert {:ok, identity} = Flow.semantic_identity(mutated)
+      refute identity.digest == base_identity.digest
+
+      refute Identity.item_uuid(identity.digest, "enrich", 0) ==
+               Identity.item_uuid(base_identity.digest, "enrich", 0)
+    end
+
+    provenance_changed =
+      flow
+      |> update_map_reduce("enrich", &%{&1 | provenance: %{line: 200}})
+      |> update_map_reduce("summarize", &%{&1 | provenance: %{line: 300}})
+
+    assert Flow.semantic_identity(provenance_changed) == {:ok, base_identity}
+  end
+
   test "ignores provenance and independent author order" do
     original = independent_flow([:zeta, :alpha])
     reordered = independent_flow([:alpha, :zeta])
@@ -408,6 +442,39 @@ defmodule Jido.Flow.IdentityTest do
       ],
       return: %{value: Ref.result(:echo, :value)}
     )
+  end
+
+  defp map_reduce_identity_flow do
+    Flow.new!(
+      name: "map_reduce_identity",
+      nodes: [
+        Node.new!(name: :source, action: EchoParamsAction),
+        FlowMap.new!(
+          name: :enrich,
+          collection: Ref.input(:items),
+          action: Add,
+          input: %{item: Ref.item()}
+        ),
+        Reduce.new!(
+          name: :summarize,
+          collection: Ref.result(:enrich),
+          initial: Ref.value(0),
+          action: Multiply,
+          input: %{acc: Ref.accumulator(), item: Ref.item()}
+        )
+      ],
+      return: Ref.result(:summarize)
+    )
+  end
+
+  defp update_map_reduce(flow, name, update) do
+    %{
+      flow
+      | nodes:
+          Enum.map(flow.nodes, fn element ->
+            if element.name == name, do: update.(element), else: element
+          end)
+    }
   end
 
   defp stored_artifact(flow, references) do

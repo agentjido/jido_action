@@ -2788,11 +2788,213 @@ defmodule Jido.FlowTest do
     end
   end
 
+  describe "Map and Reduce map grammar" do
+    test "round-trips exact semantic and JSON-shaped stored records" do
+      flow = map_reduce_codec_flow()
+      semantic = Flow.to_map(flow)
+
+      assert [map, reduce] = semantic.nodes
+
+      assert map == %{
+               kind: :map,
+               name: "enrich",
+               collection: %{type: :input, path: [:items]},
+               action: Add,
+               input: [
+                 %{type: :item, path: []},
+                 %{type: :item_index},
+                 %{type: :item_id}
+               ],
+               on_error: :collect_errors,
+               deps: []
+             }
+
+      assert reduce == %{
+               kind: :reduce,
+               name: "summarize",
+               collection: %{type: :result, node: "enrich", path: []},
+               initial: %{type: :value, value: 0},
+               action: Multiply,
+               input: %{type: :accumulator, path: []},
+               deps: ["enrich"]
+             }
+
+      assert {:ok, semantic_flow} = Flow.from_map(semantic)
+      assert Flow.to_map(semantic_flow) == semantic
+
+      writer_opts = stored_writer_options(%{"add" => Add, "multiply" => Multiply})
+      stored = Flow.to_map(flow, writer_opts)
+      assert [stored_map, stored_reduce] = stored["nodes"]
+
+      assert Map.keys(stored_map) |> Enum.sort() ==
+               ~w(action collection deps input kind name on_error)
+
+      assert stored_map["kind"] == "map"
+      assert stored_map["action"] == "add"
+
+      assert stored_map["collection"] == %{
+               "type" => "input",
+               "path" => [%{"type" => "atom", "value" => "items"}]
+             }
+
+      assert stored_map["input"] == [
+               %{"type" => "item", "path" => []},
+               %{"type" => "item_index"},
+               %{"type" => "item_id"}
+             ]
+
+      assert Map.keys(stored_reduce) |> Enum.sort() ==
+               ~w(action collection deps initial input kind name)
+
+      assert stored_reduce["kind"] == "reduce"
+      assert stored_reduce["action"] == "multiply"
+      assert stored_reduce["input"] == %{"type" => "accumulator", "path" => []}
+
+      decoded = stored |> JSON.encode!() |> JSON.decode!()
+
+      assert {:ok, stored_flow} =
+               Flow.from_map(decoded, stored_options(%{"add" => Add, "multiply" => Multiply}))
+
+      assert Flow.to_map(stored_flow) == semantic
+
+      stored_with_provenance =
+        Flow.to_map(flow, Keyword.put(writer_opts, :provenance, true))
+
+      assert {:ok, provenance_flow} =
+               Flow.from_map(
+                 stored_with_provenance |> JSON.encode!() |> JSON.decode!(),
+                 stored_options(%{"add" => Add, "multiply" => Multiply})
+               )
+
+      assert Flow.to_map(provenance_flow, provenance: true) ==
+               Flow.to_map(flow, provenance: true)
+    end
+
+    test "round-trips a marked nested Flow target through the shared Action registry" do
+      target = unique_module("StoredMapNestedFlow")
+
+      create_module(
+        target,
+        quote do
+          use Jido.Flow, name: "stored_map_nested_flow"
+
+          flow do
+            step(:add, unquote(Add), %{value: input(:value), amount: value(1)})
+            return(result(:add))
+          end
+        end
+      )
+
+      flow =
+        Flow.new!(
+          name: "nested_map_codec",
+          nodes: [
+            FlowMap.new!(
+              name: :nested,
+              collection: Ref.input(:items),
+              action: target,
+              input: Ref.item()
+            )
+          ],
+          return: Ref.result(:nested)
+        )
+
+      stored = Flow.to_map(flow, stored_writer_options(%{"nested" => target}))
+      assert get_in(stored, ["nodes", Access.at(0), "action"]) == "nested"
+
+      assert {:ok, loaded} = Flow.from_map(stored, stored_options(%{"nested" => target}))
+      assert [node] = loaded.nodes
+      assert node.action == target
+      assert Flow.to_map(loaded) == Flow.to_map(flow)
+    end
+
+    test "rejects unknown kinds and malformed Map and Reduce records at recursive paths" do
+      semantic = Flow.to_map(map_reduce_codec_flow())
+
+      cases = [
+        {put_in(semantic, [:nodes, Access.at(0), :kind], :unknown),
+         "unknown flow node kind: :unknown", [:nodes, 0]},
+        {update_in(semantic, [:nodes, Access.at(0)], &Map.delete(&1, :collection)),
+         "map is missing required field: :collection", [:nodes, 0, :collection]},
+        {put_in(semantic, [:nodes, Access.at(0), :extra], true),
+         "map contains unknown field: :extra", [:nodes, 0, :extra]},
+        {put_in(semantic, [:nodes, Access.at(0), :on_error], :continue),
+         "map on_error must be fail_fast or collect_errors", [:nodes, 0, :on_error]},
+        {put_in(semantic, [:nodes, Access.at(1), :input], %{type: :item_index, path: []}),
+         "reference contains unknown field: :path", [:nodes, 1, :input, :path]}
+      ]
+
+      for {malformed, expected_message, expected_path} <- cases do
+        assert {:error,
+                %InvalidInputError{
+                  message: ^expected_message,
+                  details: %{path: ^expected_path}
+                }} = Flow.from_map(malformed)
+      end
+    end
+
+    test "rejects malformed stored Map and Reduce records at recursive paths" do
+      stored =
+        map_reduce_codec_flow()
+        |> Flow.to_map(stored_writer_options(%{"add" => Add, "multiply" => Multiply}))
+
+      options = stored_options(%{"add" => Add, "multiply" => Multiply})
+
+      cases = [
+        {put_in(stored, ["nodes", Access.at(0), "kind"], "unknown"),
+         "unknown flow node kind: \"unknown\"", ["nodes", 0]},
+        {update_in(stored, ["nodes", Access.at(1)], &Map.delete(&1, "initial")),
+         "reduce is missing required field: \"initial\"", ["nodes", 1, "initial"]},
+        {put_in(stored, ["nodes", Access.at(0), "on_error"], "continue"),
+         "map on_error must be fail_fast or collect_errors", ["nodes", 0, "on_error"]},
+        {put_in(stored, ["nodes", Access.at(0), "input", Access.at(1), "path"], []),
+         "reference contains unknown field: \"path\"", ["nodes", 0, "input", 1, "path"]},
+        {stored
+         |> update_in(["nodes", Access.at(0)], &Map.delete(&1, "action"))
+         |> put_in(["nodes", Access.at(0), :action], "add"),
+         "map contains unknown field: :action", ["nodes", 0, :action]}
+      ]
+
+      for {malformed, expected_message, expected_path} <- cases do
+        assert {:error,
+                %InvalidInputError{
+                  message: ^expected_message,
+                  details: %{path: ^expected_path}
+                }} = Flow.from_map(malformed, options)
+      end
+    end
+  end
+
   defp add_node do
     Node.new!(
       name: :add_one,
       action: Add,
       input: %{value: Ref.input(:value), amount: Ref.value(1)}
+    )
+  end
+
+  defp map_reduce_codec_flow do
+    Flow.new!(
+      name: "map_reduce_codec",
+      nodes: [
+        FlowMap.new!(
+          name: :enrich,
+          collection: Ref.input(:items),
+          action: Add,
+          input: [Ref.item(), Ref.item_index(), Ref.item_id()],
+          on_error: :collect_errors,
+          provenance: %{line: 12}
+        ),
+        Reduce.new!(
+          name: :summarize,
+          collection: Ref.result(:enrich),
+          initial: Ref.value(0),
+          action: Multiply,
+          input: Ref.accumulator(),
+          provenance: %{line: 20}
+        )
+      ],
+      return: Ref.result(:summarize)
     )
   end
 
