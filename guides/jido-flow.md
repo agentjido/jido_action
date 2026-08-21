@@ -57,6 +57,10 @@ end
 callbacks. The `flow` block lowers into a canonical `Jido.Flow` artifact at
 compile time.
 
+A Flow module stays compatible with `Jido.Action`. On success, its `run/2`
+callback returns `{:ok, output}`, where `output` is a map or
+`%Jido.Action.Output{}`.
+
 ```elixir
 defmodule MyApp.Flows.DoubleAfterIncrement do
   use Jido.Flow,
@@ -263,23 +267,55 @@ dependency and node name, so equivalent flows compare consistently.
 } = MyApp.Flows.DoubleAfterIncrement.to_map()
 ```
 
-Use the stored format when source/provenance needs to round-trip with the flow:
+Use the stored format to round-trip deterministic Flow data and optional
+provenance. The stored format does not round-trip Elixir source. It contains
+stable contract references, but it does not contain Zoi terms, Action modules,
+or contract bundle contents.
 
 ```elixir
-actions = %{
-  "add" => MyApp.Actions.Add,
-  "multiply" => MyApp.Actions.Multiply
+contracts = %{
+  bundle: "my_app/double_after_increment/v1",
+  input_schema: "my_app/double_after_increment/input/v1",
+  output_schema: "my_app/double_after_increment/output/v1",
+  action_registry: "my_app/double_after_increment/actions/v1"
 }
+
+bundle =
+  Jido.Flow.ContractBundle.new!(
+    id: contracts.bundle,
+    schemas: %{
+      contracts.input_schema => MyApp.Flows.DoubleAfterIncrement.schema(),
+      contracts.output_schema => MyApp.Flows.DoubleAfterIncrement.output_schema()
+    },
+    action_registries: %{
+      contracts.action_registry => %{
+        "my_app/add/v1" => MyApp.Actions.Add,
+        "my_app/multiply/v1" => MyApp.Actions.Multiply
+      }
+    }
+  )
+
+contract_bundles = %{bundle.id => bundle}
 
 stored =
   MyApp.Flows.DoubleAfterIncrement.to_map(
     format: :stored,
-    actions: actions,
+    contracts: contracts,
+    contract_bundles: contract_bundles,
     provenance: true
   )
 
-{:ok, flow} = Jido.Flow.from_map(stored, actions: actions)
+1 = stored["version"]
+"my_app/double_after_increment/v1" = stored["contracts"]["bundle"]
+
+{:ok, flow} =
+  Jido.Flow.from_map(stored, contract_bundles: contract_bundles)
 ```
+
+The host owns the bundle and its allow-list. The bundle keeps the Zoi schemas
+and Action modules in host code. The stored version 1 map carries only the
+stable `contracts:` references and the stable Action identifiers that the
+selected bundle resolves.
 
 ## Keep Flow Boundaries Small
 
@@ -291,6 +327,6 @@ Prefer flows for explicit action composition:
 - Dependencies are visible in the graph.
 - The flow has one declared return value.
 
-Keep runtime policy outside the flow. If execution needs retries, deadlines,
-fallbacks, persistence, or orchestration across processes, layer that behavior
-around `Jido.Exec` rather than into `Jido.Flow`.
+Keep runtime policy outside the flow. If execution needs retries, timeouts,
+fallbacks, persistence, durability, or orchestration across processes, layer
+that behavior around `Jido.Exec` rather than into `Jido.Flow`.
