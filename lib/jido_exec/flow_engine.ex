@@ -28,7 +28,10 @@ defmodule Jido.Exec.FlowEngine do
         options: options,
         workflow: Workflow.plan_eagerly(workflow, input),
         ordered_nodes: ordered_nodes,
+        node_names: MapSet.new(ordered_nodes),
+        node_positions: ordered_nodes |> Enum.with_index() |> Map.new(),
         ready: %{},
+        ready_nodes: [],
         node_results: %{},
         node_errors: %{},
         engine_error: nil,
@@ -41,9 +44,7 @@ defmodule Jido.Exec.FlowEngine do
   end
 
   @spec ready(Execution.t()) :: [String.t()]
-  def ready(%Execution{} = execution) do
-    Enum.filter(execution.ordered_nodes, &Map.has_key?(execution.ready, &1))
-  end
+  def ready(%Execution{ready_nodes: ready_nodes}), do: ready_nodes
 
   @spec status(Execution.t()) :: :running | :succeeded | :failed
   def status(%Execution{status: status}), do: status
@@ -139,7 +140,7 @@ defmodule Jido.Exec.FlowEngine do
 
   defp settle(%Execution{} = execution) do
     {workflow, runnables} = Workflow.prepare_for_dispatch(execution.workflow)
-    execution = %{execution | workflow: workflow, ready: %{}}
+    execution = %{execution | workflow: workflow, ready: %{}, ready_nodes: []}
     {public, internal} = partition_runnables(execution, runnables)
 
     cond do
@@ -148,10 +149,16 @@ defmodule Jido.Exec.FlowEngine do
         settle(execution)
 
       public != [] ->
-        ready =
-          Map.new(public, fn %Runnable{node: %Step{name: name}} = runnable -> {name, runnable} end)
+        {ready_nodes, ready} =
+          public
+          |> Enum.sort_by(fn %Runnable{node: %Step{name: name}} ->
+            Map.fetch!(execution.node_positions, name)
+          end)
+          |> Enum.map_reduce(%{}, fn %Runnable{node: %Step{name: name}} = runnable, ready ->
+            {name, Map.put(ready, name, runnable)}
+          end)
 
-        {:ok, %{execution | status: :running, ready: ready}}
+        {:ok, %{execution | status: :running, ready: ready, ready_nodes: ready_nodes}}
 
       Workflow.is_runnable?(workflow) ->
         error =
@@ -168,10 +175,8 @@ defmodule Jido.Exec.FlowEngine do
   end
 
   defp partition_runnables(execution, runnables) do
-    node_names = MapSet.new(execution.ordered_nodes)
-
     Enum.split_with(runnables, fn
-      %Runnable{node: %Step{name: name}} -> MapSet.member?(node_names, name)
+      %Runnable{node: %Step{name: name}} -> MapSet.member?(execution.node_names, name)
       %Runnable{} -> false
     end)
   end
@@ -194,27 +199,32 @@ defmodule Jido.Exec.FlowEngine do
   defp execute_runnables(runnables, options) do
     if Keyword.fetch!(options, :async) do
       max_concurrency = Keyword.fetch!(options, :max_concurrency)
+      previous_trap_exit = Process.flag(:trap_exit, true)
 
-      runnables
-      |> Task.async_stream(&Workflow.execute_runnable/1,
-        max_concurrency: max_concurrency,
-        timeout: :infinity,
-        ordered: true
-      )
-      |> Enum.zip(runnables)
-      |> Enum.map(fn
-        {{:ok, executed}, _runnable} ->
-          executed
+      try do
+        runnables
+        |> Task.async_stream(&Workflow.execute_runnable/1,
+          max_concurrency: max_concurrency,
+          timeout: :infinity,
+          ordered: true
+        )
+        |> Enum.zip(runnables)
+        |> Enum.map(fn
+          {{:ok, executed}, _runnable} ->
+            executed
 
-        {{:exit, reason}, runnable} ->
-          Runnable.fail(
-            runnable,
-            Error.execution_error("flow node task exited", %{
-              node: runnable.node.name,
-              reason: reason
-            })
-          )
-      end)
+          {{:exit, reason}, runnable} ->
+            Runnable.fail(
+              runnable,
+              Error.execution_error("flow node task exited", %{
+                node: runnable.node.name,
+                reason: reason
+              })
+            )
+        end)
+      after
+        Process.flag(:trap_exit, previous_trap_exit)
+      end
     else
       Enum.map(runnables, &Workflow.execute_runnable/1)
     end
@@ -238,6 +248,7 @@ defmodule Jido.Exec.FlowEngine do
       | workflow: workflow,
         revision: execution.revision + 1,
         ready: %{},
+        ready_nodes: [],
         node_results: Map.put(execution.node_results, node, node_result),
         node_errors: node_errors
     }
@@ -294,11 +305,13 @@ defmodule Jido.Exec.FlowEngine do
       |> Enum.find(&Map.has_key?(node_errors, &1))
       |> then(&Map.fetch!(node_errors, &1))
 
-    {:ok, %{execution | status: :failed, ready: %{}, final_result: {:error, error}}}
+    {:ok,
+     %{execution | status: :failed, ready: %{}, ready_nodes: [], final_result: {:error, error}}}
   end
 
   defp finalize(%Execution{engine_error: error} = execution) when not is_nil(error) do
-    {:ok, %{execution | status: :failed, ready: %{}, final_result: {:error, error}}}
+    {:ok,
+     %{execution | status: :failed, ready: %{}, ready_nodes: [], final_result: {:error, error}}}
   end
 
   defp finalize(%Execution{} = execution) do
@@ -315,7 +328,7 @@ defmodule Jido.Exec.FlowEngine do
 
     status = if match?({:ok, _output}, final_result), do: :succeeded, else: :failed
 
-    {:ok, %{execution | status: status, ready: %{}, final_result: final_result}}
+    {:ok, %{execution | status: status, ready: %{}, ready_nodes: [], final_result: final_result}}
   end
 
   defp execution_not_running(execution) do
