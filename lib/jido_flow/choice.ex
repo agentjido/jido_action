@@ -407,26 +407,26 @@ defmodule Jido.Flow.Choice do
     details = Map.get(error, :details, %{})
     nested_path = path ++ Map.get(details, :path, [])
 
-    cond do
-      String.contains?(error.message, "invalid ref path") ->
+    case Node.expression_error_kind(error) do
+      :invalid_ref_path ->
         Error.validation_error("choice target input contains invalid ref path", %{
           path: nested_path,
           segment: details.segment
         })
 
-      String.contains?(error.message, "invalid ref") ->
+      :invalid_ref ->
         Error.validation_error("choice target input contains invalid ref", %{
           path: nested_path,
           type: details.type
         })
 
-      String.contains?(error.message, "unsupported expression") ->
+      :unsupported_expression ->
         Error.validation_error("choice target input contains unsupported expression", %{
           path: nested_path,
           expression: details.expression
         })
 
-      true ->
+      :other ->
         Error.validation_error("choice target input must be static module data", %{path: path})
     end
   end

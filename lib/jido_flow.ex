@@ -553,9 +553,11 @@ defmodule Jido.Flow do
   end
 
   defp validate_duplicate_nodes(nodes) do
-    nodes
-    |> Enum.map(&Element.name/1)
-    |> Enum.find(fn name -> Enum.count(nodes, &(Element.name(&1) == name)) > 1 end)
+    names = Enum.map(nodes, &Element.name/1)
+    frequencies = Enum.frequencies(names)
+
+    names
+    |> Enum.find(&(Map.fetch!(frequencies, &1) > 1))
     |> case do
       nil ->
         :ok

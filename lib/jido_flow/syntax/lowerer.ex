@@ -443,17 +443,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
   end
 
   defp resolve_choice_operands(operands, state, choice) do
-    operands
-    |> Enum.reduce_while({:ok, []}, fn operand, {:ok, acc} ->
-      case resolve_expr(operand, state, choice) do
-        {:ok, resolved} -> {:cont, {:ok, [resolved | acc]}}
-        {:error, error} -> {:halt, {:error, error}}
-      end
-    end)
-    |> case do
-      {:ok, operands} -> {:ok, Enum.reverse(operands)}
-      {:error, error} -> {:error, error}
-    end
+    resolve_expr(operands, state, choice)
   end
 
   defp resolve_choice_conditions(conditions, _state, _choice, _option)
@@ -773,7 +763,9 @@ defmodule Jido.Flow.Syntax.Lowerer do
   end
 
   defp validate_duplicate_bindings(aliases) do
-    case Enum.find(aliases, fn binding -> Enum.count(aliases, &(&1 == binding)) > 1 end) do
+    frequencies = Enum.frequencies(aliases)
+
+    case Enum.find(aliases, &(Map.fetch!(frequencies, &1) > 1)) do
       nil ->
         :ok
 
