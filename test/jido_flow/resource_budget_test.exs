@@ -101,6 +101,12 @@ defmodule Jido.Flow.ResourceBudgetTest do
 
       assert :ok = ResourceBudget.validate(term, :map)
     end
+
+    test "accepts nested structs that do not implement Enumerable" do
+      term = %{metadata: %{uri: URI.parse("https://example.com/flow")}}
+
+      assert :ok = ResourceBudget.validate(term, :map)
+    end
   end
 
   describe "validate_source_bytes/1" do
