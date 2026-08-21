@@ -264,10 +264,7 @@ defmodule Jido.Flow.MapCodec do
 
   def from_map(_map, _opts), do: error("flow map must be a map")
 
-  defp semantic_element(%Node{} = node, opts), do: Node.to_map(node, opts)
-  defp semantic_element(%Choice{} = choice, opts), do: Choice.to_map(choice, opts)
-  defp semantic_element(%FlowMap{} = map, opts), do: FlowMap.to_map(map, opts)
-  defp semantic_element(%Reduce{} = reduce, opts), do: Reduce.to_map(reduce, opts)
+  defp semantic_element(element, opts), do: Element.to_map(element, opts)
 
   defp stored_element!(%Node{} = node, action_ids, opts, path),
     do: stored_node!(node, action_ids, opts, path)
@@ -1736,7 +1733,7 @@ defmodule Jido.Flow.MapCodec do
     validate_record(map, allowed, required, :reference)
   end
 
-  defp ref_fields(type, :semantic) when type in [:input, :context],
+  defp ref_fields(type, :semantic) when type in [:input, :context, :item, :accumulator],
     do: {[:type, :path], [:type, :path]}
 
   defp ref_fields(:result, :semantic),
@@ -1744,22 +1741,17 @@ defmodule Jido.Flow.MapCodec do
 
   defp ref_fields(:value, :semantic), do: {[:type, :value], [:type, :value]}
 
-  defp ref_fields(type, :semantic) when type in [:item, :accumulator],
-    do: {[:type, :path], [:type, :path]}
-
   defp ref_fields(type, :semantic) when type in [:item_index, :item_id],
     do: {[:type], [:type]}
 
-  defp ref_fields(type, :stored) when type in ["input", "context"],
-    do: {["type", "path"], ["type", "path"]}
+  defp ref_fields(type, :stored)
+       when type in ["input", "context", "item", "accumulator"],
+       do: {["type", "path"], ["type", "path"]}
 
   defp ref_fields("result", :stored),
     do: {["type", "node", "path"], ["type", "node", "path"]}
 
   defp ref_fields("value", :stored), do: {["type", "value"], ["type", "value"]}
-
-  defp ref_fields(type, :stored) when type in ["item", "accumulator"],
-    do: {["type", "path"], ["type", "path"]}
 
   defp ref_fields(type, :stored) when type in ["item_index", "item_id"],
     do: {["type"], ["type"]}

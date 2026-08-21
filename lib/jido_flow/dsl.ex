@@ -230,9 +230,7 @@ defmodule Jido.Flow.DSL do
 
         Enum.all?(keys, &(&1 in allowed)) and
           Enum.all?(required, &Keyword.has_key?(options, &1)) and
-          Enum.all?(allowed, fn allowed_key ->
-            Enum.count(keys, &(&1 == allowed_key)) <= 1
-          end)
+          is_nil(duplicate_step_option_key(keys, allowed))
       else
         false
       end

@@ -24,12 +24,12 @@ defmodule Jido.Flow.Compiler do
 
   @type node_state :: %{
           flow: String.t(),
-          flow_digest: String.t(),
+          flow_digest: String.t() | nil,
           input: map(),
           context: map(),
           results: map(),
           options: keyword(),
-          nodes_by_name: %{String.t() => Element.t()}
+          map_nodes: MapSet.t(String.t())
         }
 
   @doc """
@@ -66,7 +66,7 @@ defmodule Jido.Flow.Compiler do
           {:ok, Workflow.t(), [Element.t()]} | {:error, Exception.t()}
   def runtime_workflow_validated(%Flow{} = flow, input, context)
       when is_map(input) and is_map(context) do
-    prepare_validated_runtime(flow, input, context, nil, default_runtime_options())
+    prepare_validated_runtime(flow, input, context, nil, normalize_runtime_options([]))
   end
 
   def runtime_workflow_validated(%Flow{}, _input, _context) do
@@ -203,22 +203,27 @@ defmodule Jido.Flow.Compiler do
              input,
              context,
              collector,
-             default_runtime_options()
+             normalize_runtime_options([])
            ) do
       {:ok, flow, workflow, ordered_nodes}
     end
   end
 
   defp prepare_validated_runtime(flow, input, context, collector, options) do
+    collection_elements = Enum.filter(flow.nodes, &collection_element?/1)
+
     node_state =
       %{
         flow: flow.name,
-        flow_digest: Identity.semantic_digest(flow),
+        flow_digest: if(collection_elements == [], do: nil, else: Identity.semantic_digest(flow)),
         input: input,
         context: context,
         results: %{},
         options: options,
-        nodes_by_name: Map.new(flow.nodes, fn node -> {Element.name(node), node} end)
+        map_nodes:
+          collection_elements
+          |> Enum.filter(&match?(%FlowMap{}, &1))
+          |> MapSet.new(&Element.name/1)
       }
       |> Map.put(@collector_key, collector)
 
@@ -346,7 +351,7 @@ defmodule Jido.Flow.Compiler do
 
     case resolve_expr(map.collection, state) do
       {:ok, collection} -> run_resolved_map(map, collection, state)
-      {:error, error} -> {:error, error, state, map_error_metadata(map, 0, 0, 0)}
+      {:error, error} -> {:error, error, state, map_metadata(map, 0, 0, 0)}
     end
   end
 
@@ -355,7 +360,7 @@ defmodule Jido.Flow.Compiler do
 
     case resolve_expr(reduce.collection, state) do
       {:ok, collection} -> run_resolved_reduce(reduce, collection, state)
-      {:error, error} -> {:error, error, state, reduce_error_metadata(reduce, 0, 0)}
+      {:error, error} -> {:error, error, state, reduce_metadata(reduce, 0, 0)}
     end
   end
 
@@ -379,7 +384,7 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp run_resolved_map(map, collection, state) do
-    if proper_list?(collection) do
+    if is_list(collection) and not List.improper?(collection) do
       items =
         collection
         |> Enum.with_index()
@@ -394,11 +399,10 @@ defmodule Jido.Flow.Compiler do
       case dispatch_map_items(map, items, state) do
         {:ok, results, errors} ->
           aggregate = %{kind: :jido_flow_map_result, results: results, errors: errors}
-          {:ok, aggregate, map_success_metadata(map, length(items), results, errors)}
+          {:ok, aggregate, map_metadata(map, length(items), length(results), length(errors))}
 
         {:error, error, started_count, success_count, error_count} ->
-          {:error, error, state,
-           map_error_metadata(map, started_count, success_count, error_count)}
+          {:error, error, state, map_metadata(map, started_count, success_count, error_count)}
       end
     else
       error =
@@ -410,7 +414,7 @@ defmodule Jido.Flow.Compiler do
           retry: false
         })
 
-      {:error, error, state, map_error_metadata(map, 0, 0, 0)}
+      {:error, error, state, map_metadata(map, 0, 0, 0)}
     end
   end
 
@@ -420,26 +424,26 @@ defmodule Jido.Flow.Compiler do
          {:ok, initial} <- validate_reduce_initial(reduce, initial) do
       fold_reduce_items(reduce, items, initial, state)
     else
-      {:error, error} -> {:error, error, state, reduce_error_metadata(reduce, 0, 0)}
+      {:error, error} -> {:error, error, state, reduce_metadata(reduce, 0, 0)}
     end
   end
 
   defp normalize_reduce_collection(reduce, collection, state) do
-    if direct_map_source?(reduce.collection, state.nodes_by_name) do
+    if direct_map_source?(reduce.collection, state.map_nodes) do
       normalize_direct_map_result(reduce, collection)
     else
       normalize_reduce_list(reduce, collection, state.flow_digest)
     end
   end
 
-  defp direct_map_source?(%Ref{type: :result, node: node, path: []}, nodes_by_name) do
-    match?(%FlowMap{}, Map.get(nodes_by_name, node))
+  defp direct_map_source?(%Ref{type: :result, node: node, path: []}, map_nodes) do
+    MapSet.member?(map_nodes, node)
   end
 
-  defp direct_map_source?(_collection, _nodes_by_name), do: false
+  defp direct_map_source?(_collection, _map_nodes), do: false
 
   defp normalize_reduce_list(reduce, collection, flow_digest) do
-    if proper_list?(collection) do
+    if is_list(collection) and not List.improper?(collection) do
       items =
         collection
         |> Enum.with_index()
@@ -503,8 +507,8 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp validate_direct_map_records(results, errors) do
-    with true <- proper_list?(results),
-         true <- proper_list?(errors),
+    with true <- is_list(results) and not List.improper?(results),
+         true <- is_list(errors) and not List.improper?(errors),
          :ok <- validate_direct_records(results, :result, [:results]),
          :ok <- validate_direct_records(errors, :error, [:errors]),
          :ok <- validate_direct_record_identity(results, errors) do
@@ -610,15 +614,15 @@ defmodule Jido.Flow.Compiler do
     end)
     |> case do
       {:ok, accumulator, completed_count} ->
-        {:ok, accumulator, reduce_success_metadata(reduce, length(items), completed_count)}
+        {:ok, accumulator, reduce_metadata(reduce, length(items), completed_count)}
 
       {:error, error, item_count, completed_count} ->
-        {:error, error, state, reduce_error_metadata(reduce, item_count, completed_count)}
+        {:error, error, state, reduce_metadata(reduce, item_count, completed_count)}
     end
   end
 
   defp run_reduce_item(reduce, item_state, accumulator, state) do
-    metadata = reduce_item_metadata(reduce, item_state, state)
+    metadata = collection_item_metadata(:reduce, reduce, item_state, state)
 
     :telemetry.span([:jido, :flow, :reduce, :item], metadata, fn ->
       local_state =
@@ -650,8 +654,9 @@ defmodule Jido.Flow.Compiler do
     window_size = map_window_size(state.options)
 
     items
-    |> Enum.chunk_every(window_size)
-    |> Enum.reduce_while({:ok, [], 0}, fn window, {:ok, results, started_before} ->
+    |> Stream.chunk_every(window_size)
+    |> Enum.reduce_while({:ok, [], 0, 0}, fn window,
+                                             {:ok, result_chunks, success_before, started_before} ->
       outcomes = dispatch_map_window(map, window, state)
       successes = for {:ok, result} <- outcomes, do: result
       failures = for {:error, failure} <- outcomes, do: failure
@@ -659,24 +664,28 @@ defmodule Jido.Flow.Compiler do
 
       case failures do
         [] ->
-          {:cont, {:ok, results ++ successes, started_count}}
+          {:cont,
+           {:ok, [successes | result_chunks], success_before + length(successes), started_count}}
 
         failures ->
           selected = Enum.min_by(failures, & &1.index)
 
           {:halt,
-           {:error, selected.error, started_count, length(results) + length(successes),
+           {:error, selected.error, started_count, success_before + length(successes),
             length(failures)}}
       end
     end)
     |> case do
-      {:ok, results, _started_count} ->
-        {:ok, results, []}
+      {:ok, result_chunks, _success_count, _started_count} ->
+        {:ok, result_chunks |> Enum.reverse() |> List.flatten(), []}
 
       {:error, error, started_count, success_count, error_count} ->
         {:error, error, started_count, success_count, error_count}
     end
   end
+
+  defp dispatch_map_items(%FlowMap{on_error: :collect_errors}, [], _state),
+    do: {:ok, [], []}
 
   defp dispatch_map_items(%FlowMap{on_error: :collect_errors} = map, items, state) do
     outcomes = dispatch_map_window(map, items, state)
@@ -711,7 +720,7 @@ defmodule Jido.Flow.Compiler do
             timeout: :infinity,
             ordered: true
           )
-          |> Enum.zip(items)
+          |> Stream.zip(items)
           |> Enum.map(fn
             {{:ok, outcome}, _item_state} ->
               outcome
@@ -744,7 +753,7 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp run_map_item(map, item_state, state) do
-    metadata = map_item_metadata(map, item_state, state)
+    metadata = collection_item_metadata(:map, map, item_state, state)
 
     :telemetry.span([:jido, :flow, :map, :item], metadata, fn ->
       local_state = Map.merge(state, item_state)
@@ -786,8 +795,8 @@ defmodule Jido.Flow.Compiler do
       })
 
     metadata =
-      map
-      |> map_item_metadata(item_state, state)
+      :map
+      |> collection_item_metadata(map, item_state, state)
       |> Map.merge(%{status: :error, error_type: error_type(error)})
 
     :telemetry.execute(
@@ -799,10 +808,6 @@ defmodule Jido.Flow.Compiler do
     {:error, %{item_id: item_state.item_id, index: item_state.item_index, error: error}}
   end
 
-  defp proper_list?([]), do: true
-  defp proper_list?([_head | tail]), do: proper_list?(tail)
-  defp proper_list?(_value), do: false
-
   defp map_window_size(options) do
     if Keyword.fetch!(options, :async) do
       Keyword.fetch!(options, :max_concurrency)
@@ -811,16 +816,16 @@ defmodule Jido.Flow.Compiler do
     end
   end
 
-  defp default_runtime_options do
-    [async: false, max_concurrency: System.schedulers_online()]
-  end
-
   defp normalize_runtime_options(options) do
     [
       async: Keyword.get(options, :async, false),
       max_concurrency: Keyword.get(options, :max_concurrency, System.schedulers_online())
     ]
   end
+
+  defp collection_element?(%FlowMap{}), do: true
+  defp collection_element?(%Reduce{}), do: true
+  defp collection_element?(_element), do: false
 
   defp flow_module?(action) do
     function_exported?(action, :__jido_flow__, 0)
@@ -1074,17 +1079,7 @@ defmodule Jido.Flow.Compiler do
 
   defp error_type(error), do: error |> Error.to_map() |> Map.get(:type)
 
-  defp map_success_metadata(map, item_count, results, errors) do
-    %{
-      target: map.action,
-      on_error: map.on_error,
-      item_count: item_count,
-      success_count: length(results),
-      error_count: length(errors)
-    }
-  end
-
-  defp map_error_metadata(map, item_count, success_count, error_count) do
+  defp map_metadata(map, item_count, success_count, error_count) do
     %{
       target: map.action,
       on_error: map.on_error,
@@ -1094,24 +1089,13 @@ defmodule Jido.Flow.Compiler do
     }
   end
 
-  defp map_item_metadata(map, item_state, state) do
-    %{
-      flow: state.flow,
-      node: map.name,
-      kind: :map,
-      target: map.action,
-      item_id: item_state.item_id,
-      item_index: item_state.item_index
-    }
-  end
-
   defp map_item_result_metadata({:ok, _result}), do: %{status: :ok}
 
   defp map_item_result_metadata({:error, %{error: error}}) do
     %{status: :error, error_type: error_type(error)}
   end
 
-  defp reduce_success_metadata(reduce, item_count, completed_count) do
+  defp reduce_metadata(reduce, item_count, completed_count) do
     %{
       target: reduce.action,
       item_count: item_count,
@@ -1119,20 +1103,12 @@ defmodule Jido.Flow.Compiler do
     }
   end
 
-  defp reduce_error_metadata(reduce, item_count, completed_count) do
-    %{
-      target: reduce.action,
-      item_count: item_count,
-      completed_count: completed_count
-    }
-  end
-
-  defp reduce_item_metadata(reduce, item_state, state) do
+  defp collection_item_metadata(kind, element, item_state, state) do
     %{
       flow: state.flow,
-      node: reduce.name,
-      kind: :reduce,
-      target: reduce.action,
+      node: element.name,
+      kind: kind,
+      target: element.action,
       item_id: item_state.item_id,
       item_index: item_state.item_index
     }
