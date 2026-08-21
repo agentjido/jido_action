@@ -890,6 +890,148 @@ defmodule Jido.FlowTest do
   end
 
   describe "from_map/2" do
+    test "round-trips tagged Choice records through semantic and stored maps" do
+      flow = choice_map_flow()
+
+      semantic = Flow.to_map(flow)
+
+      assert [_, %{kind: :choice, name: "route", options: [first, second], fallback: fallback}] =
+               semantic.nodes
+
+      assert first.name == "priority"
+      assert second.name == "standard"
+      assert fallback.action == Multiply
+      assert {:ok, semantic_loaded} = Flow.from_map(semantic)
+      assert Flow.to_map(semantic_loaded) == semantic
+
+      stored =
+        flow
+        |> Flow.to_map(
+          format: :stored,
+          actions: %{"echo" => EchoParamsAction, "add" => Add, "multiply" => Multiply}
+        )
+        |> JSON.encode!()
+        |> JSON.decode!()
+
+      assert [_, %{"kind" => "choice", "options" => [first, second], "fallback" => fallback}] =
+               stored["nodes"]
+
+      assert first["name"] == "priority"
+      assert second["name"] == "standard"
+      assert fallback["action"] == "multiply"
+
+      assert {:ok, stored_loaded} =
+               Flow.from_map(
+                 stored,
+                 stored_options(%{
+                   "echo" => EchoParamsAction,
+                   "add" => Add,
+                   "multiply" => Multiply
+                 })
+               )
+
+      assert Flow.to_map(stored_loaded) == semantic
+    end
+
+    test "rejects malformed Choice records before projection" do
+      semantic = Flow.to_map(choice_map_flow())
+
+      stored =
+        choice_map_flow()
+        |> Flow.to_map(
+          format: :stored,
+          actions: %{"echo" => EchoParamsAction, "add" => Add, "multiply" => Multiply}
+        )
+
+      malformed_semantic = update_in(semantic, [:nodes, Access.at(1)], &Map.delete(&1, :kind))
+
+      assert {:error, %InvalidInputError{message: semantic_message, details: semantic_details}} =
+               Flow.from_map(malformed_semantic)
+
+      assert semantic_message =~ "choice"
+      assert semantic_details.path == [:nodes, 1, :kind]
+
+      malformed_stored =
+        put_in(stored, ["nodes", Access.at(1), "options", Access.at(0), "extra"], true)
+
+      assert {:error, %InvalidInputError{message: stored_message, details: stored_details}} =
+               Flow.from_map(
+                 malformed_stored,
+                 stored_options(%{
+                   "echo" => EchoParamsAction,
+                   "add" => Add,
+                   "multiply" => Multiply
+                 })
+               )
+
+      assert stored_message =~ "unknown field"
+      assert stored_details.path == ["nodes", 1, "options", 0, "extra"]
+
+      unknown_target = put_in(stored, ["nodes", Access.at(1), "fallback", "action"], "missing")
+
+      assert {:error, %InvalidInputError{message: unknown_message, details: unknown_details}} =
+               Flow.from_map(
+                 unknown_target,
+                 stored_options(%{
+                   "echo" => EchoParamsAction,
+                   "add" => Add,
+                   "multiply" => Multiply
+                 })
+               )
+
+      assert unknown_message =~ "unknown flow action identifier"
+      assert unknown_details.path == ["nodes", 1, "fallback", "action"]
+
+      invalid_path =
+        put_in(
+          stored,
+          [
+            "nodes",
+            Access.at(1),
+            "options",
+            Access.at(0),
+            "condition",
+            "operands",
+            Access.at(0),
+            "path"
+          ],
+          :invalid
+        )
+
+      assert {:error, %InvalidInputError{message: path_message}} =
+               Flow.from_map(
+                 invalid_path,
+                 stored_options(%{
+                   "echo" => EchoParamsAction,
+                   "add" => Add,
+                   "multiply" => Multiply
+                 })
+               )
+
+      assert path_message == "flow ref path must be a list"
+    end
+
+    test "requires one registry identifier for every Choice target during stored encoding" do
+      flow = choice_map_flow()
+
+      assert_raise InvalidInputError, ~r/missing flow action registry identifier/, fn ->
+        Flow.to_map(flow, format: :stored, actions: %{"echo" => EchoParamsAction, "add" => Add})
+      end
+
+      assert_raise InvalidInputError, ~r/ambiguous flow action registry identifiers/, fn ->
+        Flow.to_map(
+          flow,
+          format: :stored,
+          actions: %{
+            "echo" => EchoParamsAction,
+            "add" => Add,
+            "multiply" => Multiply,
+            "times" => Multiply
+          }
+        )
+      end
+    end
+
     test "requires both explicit schema attachments for stored maps" do
       stored = stored_flow_map()
       actions = %{"add" => Add}
@@ -1871,6 +2013,34 @@ defmodule Jido.FlowTest do
       name: "stored_source",
       nodes: [Node.new!(name: :add_one, action: Add, input: %{value: Ref.input(:value)})],
       return: %{value: Ref.result(:add_one, :value)}
+    )
+  end
+
+  defp choice_map_flow do
+    Flow.new!(
+      name: "choice_map",
+      nodes: [
+        Node.new!(name: :source, action: EchoParamsAction, input: %{kind: Ref.input(:kind)}),
+        Choice.new!(
+          name: :route,
+          options: [
+            [
+              name: :priority,
+              condition: Condition.eq(Ref.result(:source, :kind), :priority),
+              action: Add,
+              input: %{value: Ref.value(1), amount: Ref.value(1)}
+            ],
+            [
+              name: :standard,
+              condition: Condition.eq(Ref.input(:kind), :standard),
+              action: Multiply,
+              input: %{value: Ref.value(2), by: Ref.value(2)}
+            ]
+          ],
+          fallback: [action: Multiply, input: %{value: Ref.value(3), by: Ref.value(3)}]
+        )
+      ],
+      return: Ref.result(:route)
     )
   end
 

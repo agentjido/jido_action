@@ -2,7 +2,7 @@ defmodule Jido.Flow.MapCodec do
   @moduledoc false
 
   alias Jido.Action.Error
-  alias Jido.Flow.Node
+  alias Jido.Flow.{ActionRegistry, Choice, Condition, Element, Node}
   alias Jido.Flow.Ref
 
   @version 1
@@ -30,7 +30,7 @@ defmodule Jido.Flow.MapCodec do
     "provenance"
   ]
 
-  @spec to_semantic_map(Jido.Flow.t(), [Node.t()], keyword()) :: map()
+  @spec to_semantic_map(Jido.Flow.t(), [Element.t()], keyword()) :: map()
   def to_semantic_map(flow, ordered_nodes, opts) do
     base = %{
       type: :flow,
@@ -39,7 +39,7 @@ defmodule Jido.Flow.MapCodec do
       description: flow.description,
       schema: flow.schema,
       output_schema: flow.output_schema,
-      nodes: Enum.map(ordered_nodes, &Node.to_map(&1, opts)),
+      nodes: Enum.map(ordered_nodes, &semantic_element(&1, opts)),
       return: Node.expression_to_map(flow.return)
     }
 
@@ -50,21 +50,24 @@ defmodule Jido.Flow.MapCodec do
     end
   end
 
-  @spec to_stored_map!(Jido.Flow.t(), [Node.t()], keyword()) :: map()
+  @spec to_stored_map!(Jido.Flow.t(), [Element.t()], keyword()) :: map()
   def to_stored_map!(flow, ordered_nodes, opts) do
     actions =
       opts
       |> Keyword.get(:actions, %{})
-      |> normalize_actions!()
+      |> ActionRegistry.normalize!()
 
-    action_ids = action_ids!(actions, ordered_nodes)
+    action_ids =
+      ordered_nodes
+      |> Enum.flat_map(&Element.target_modules/1)
+      |> then(&ActionRegistry.identifiers!(actions, &1))
 
     base = %{
       "type" => "flow",
       "version" => @version,
       "name" => flow.name,
       "description" => flow.description,
-      "nodes" => Enum.map(ordered_nodes, &stored_node!(&1, action_ids, opts)),
+      "nodes" => Enum.map(ordered_nodes, &stored_element!(&1, action_ids, opts)),
       "return" => encode_expression!(flow.return)
     }
 
@@ -90,6 +93,39 @@ defmodule Jido.Flow.MapCodec do
   end
 
   def from_map(_map, _opts), do: error("flow map must be a map")
+
+  defp semantic_element(%Node{} = node, opts), do: Node.to_map(node, opts)
+  defp semantic_element(%Choice{} = choice, opts), do: Choice.to_map(choice, opts)
+
+  defp stored_element!(%Node{} = node, action_ids, opts), do: stored_node!(node, action_ids, opts)
+
+  defp stored_element!(%Choice{} = choice, action_ids, opts) do
+    base = %{
+      "kind" => "choice",
+      "name" => choice.name,
+      "options" =>
+        Enum.map(choice.options, fn option ->
+          %{
+            "name" => option.name,
+            "condition" => encode_condition!(option.condition),
+            "action" => Map.fetch!(action_ids, option.action),
+            "input" => encode_expression!(option.input)
+          }
+        end),
+      "fallback" => %{
+        "name" => "fallback",
+        "action" => Map.fetch!(action_ids, choice.fallback.action),
+        "input" => encode_expression!(choice.fallback.input)
+      },
+      "deps" => Enum.sort(choice.deps)
+    }
+
+    if Keyword.get(opts, :provenance, false) do
+      Map.put(base, "provenance", encode_data!(choice.provenance))
+    else
+      base
+    end
+  end
 
   defp stored_node!(node, action_ids, opts) do
     base = %{
@@ -146,8 +182,10 @@ defmodule Jido.Flow.MapCodec do
       error("flow nodes must be a list")
     else
       nodes
-      |> Enum.reduce_while({:ok, []}, fn node, {:ok, acc} ->
-        case decode_node(node, actions, profile) do
+      |> Enum.with_index()
+      |> Enum.reduce_while({:ok, []}, fn {node, index}, {:ok, acc} ->
+        case decode_node(node, actions, profile)
+             |> prepend_error_path([profile_field(:nodes, profile), index]) do
           {:ok, node} -> {:cont, {:ok, [node | acc]}}
           {:error, error} -> {:halt, {:error, error}}
         end
@@ -162,6 +200,16 @@ defmodule Jido.Flow.MapCodec do
   defp decode_nodes(_nodes, _actions, _profile), do: error("flow nodes must be a list")
 
   defp decode_node(%{} = node, actions, profile) do
+    if choice_record?(node, profile) do
+      decode_choice(node, actions, profile)
+    else
+      decode_action_node(node, actions, profile)
+    end
+  end
+
+  defp decode_node(_node, _actions, _profile), do: error("flow node must be a map")
+
+  defp decode_action_node(node, actions, profile) do
     with :ok <- validate_node_record(node, profile),
          {:ok, name} <- profile_fetch_required(node, :name, profile, "flow node name is required"),
          {:ok, action} <-
@@ -182,7 +230,116 @@ defmodule Jido.Flow.MapCodec do
     end
   end
 
-  defp decode_node(_node, _actions, _profile), do: error("flow node must be a map")
+  defp decode_choice(choice, actions, profile) do
+    with :ok <- validate_choice_record(choice, profile),
+         {:ok, name} <- profile_fetch_required(choice, :name, profile, "choice name is required"),
+         {:ok, options} <-
+           profile_fetch_required(choice, :options, profile, "choice options are required"),
+         {:ok, options} <- decode_choice_options(options, actions, profile),
+         {:ok, fallback} <-
+           profile_fetch_required(choice, :fallback, profile, "choice fallback is required"),
+         {:ok, fallback} <-
+           decode_choice_fallback(fallback, actions, profile)
+           |> prepend_error_path([profile_field(:fallback, profile)]),
+         {:ok, deps} <- decode_node_deps(profile_fetch_optional(choice, :deps, [], profile)),
+         {:ok, provenance} <- decode_optional_data(choice, :provenance, %{}, profile) do
+      {:ok,
+       %{
+         name: name,
+         options: options,
+         fallback: fallback,
+         deps: deps,
+         provenance: provenance
+       }}
+    end
+  end
+
+  defp decode_choice_options(options, actions, profile) when is_list(options) do
+    if List.improper?(options) do
+      error("choice options must be a list")
+    else
+      options
+      |> Enum.with_index()
+      |> Enum.reduce_while({:ok, []}, fn {option, index}, {:ok, acc} ->
+        case decode_choice_option(option, actions, profile)
+             |> prepend_error_path([profile_field(:options, profile), index]) do
+          {:ok, option} -> {:cont, {:ok, [option | acc]}}
+          {:error, error} -> {:halt, {:error, error}}
+        end
+      end)
+      |> case do
+        {:ok, options} -> {:ok, Enum.reverse(options)}
+        {:error, error} -> {:error, error}
+      end
+    end
+  end
+
+  defp decode_choice_options(_options, _actions, _profile),
+    do: error("choice options must be a list")
+
+  defp decode_choice_option(%{} = option, actions, profile) do
+    with :ok <- validate_choice_option_record(option, profile),
+         {:ok, name} <-
+           profile_fetch_required(option, :name, profile, "choice option name is required"),
+         {:ok, condition} <-
+           profile_fetch_required(
+             option,
+             :condition,
+             profile,
+             "choice option condition is required"
+           ),
+         {:ok, condition} <-
+           decode_condition(condition, profile)
+           |> prepend_error_path([profile_field(:condition, profile)]),
+         {:ok, action} <-
+           profile_fetch_required(option, :action, profile, "choice option action is required"),
+         {:ok, action} <-
+           decode_action(action, actions, profile)
+           |> prepend_error_path([profile_field(:action, profile)]),
+         {:ok, input} <-
+           decode_expression(profile_fetch_optional(option, :input, %{}, profile), profile)
+           |> prepend_error_path([profile_field(:input, profile)]) do
+      {:ok, %{name: name, condition: condition, action: action, input: input}}
+    end
+  end
+
+  defp decode_choice_option(_option, _actions, _profile), do: error("choice option must be a map")
+
+  defp decode_choice_fallback(%{} = fallback, actions, profile) do
+    with :ok <- validate_choice_fallback_record(fallback, profile),
+         :ok <-
+           validate_fallback_name(profile_fetch_optional(fallback, :name, nil, profile), profile),
+         {:ok, action} <-
+           profile_fetch_required(
+             fallback,
+             :action,
+             profile,
+             "choice fallback action is required"
+           ),
+         {:ok, action} <-
+           decode_action(action, actions, profile)
+           |> prepend_error_path([profile_field(:action, profile)]),
+         {:ok, input} <-
+           decode_expression(profile_fetch_optional(fallback, :input, %{}, profile), profile)
+           |> prepend_error_path([profile_field(:input, profile)]) do
+      {:ok, %{action: action, input: input}}
+    end
+  end
+
+  defp decode_choice_fallback(_fallback, _actions, _profile),
+    do: error("choice fallback must be a map")
+
+  defp choice_record?(node, :semantic),
+    do: Map.has_key?(node, :kind) or Map.has_key?(node, :options) or Map.has_key?(node, :fallback)
+
+  defp choice_record?(node, :stored),
+    do:
+      Map.has_key?(node, "kind") or Map.has_key?(node, "options") or
+        Map.has_key?(node, "fallback")
+
+  defp validate_fallback_name(:fallback, :semantic), do: :ok
+  defp validate_fallback_name("fallback", :stored), do: :ok
+  defp validate_fallback_name(_name, _profile), do: error("choice fallback name must be fallback")
 
   defp decode_node_deps(deps) when is_list(deps) do
     if List.improper?(deps) do
@@ -198,24 +355,10 @@ defmodule Jido.Flow.MapCodec do
     {:ok, action}
   end
 
-  defp decode_action(identifier, actions, :stored) when is_binary(identifier) do
-    case Map.fetch(actions, identifier) do
-      {:ok, action} ->
-        {:ok, action}
-
-      :error ->
-        error("unknown flow action identifier: #{inspect(identifier)}", %{
-          identifier: identifier
-        })
-    end
-  end
+  defp decode_action(identifier, actions, :stored), do: ActionRegistry.lookup(actions, identifier)
 
   defp decode_action(action, _actions, :semantic) do
     error("semantic flow node action must be a module atom", %{action: action})
-  end
-
-  defp decode_action(action, _actions, :stored) do
-    error("stored flow node action must be a registered identifier", %{action: action})
   end
 
   defp encode_expression!(%Ref{type: :input, path: path}) do
@@ -248,6 +391,17 @@ defmodule Jido.Flow.MapCodec do
 
   defp encode_expression!(list) when is_list(list), do: Enum.map(list, &encode_expression!/1)
   defp encode_expression!(value), do: value |> Ref.value() |> encode_expression!()
+
+  defp encode_condition!(%Condition{operator: operator, operands: operands}) do
+    %{
+      "operator" => Atom.to_string(operator),
+      "operands" =>
+        Enum.map(operands, fn
+          %Condition{} = condition -> encode_condition!(condition)
+          expression -> encode_expression!(expression)
+        end)
+    }
+  end
 
   defp decode_expression(%{} = map, :semantic) do
     case semantic_ref_type(map) do
@@ -299,6 +453,83 @@ defmodule Jido.Flow.MapCodec do
       value: value
     })
   end
+
+  defp decode_condition(%{} = condition, profile) do
+    with :ok <- validate_condition_record(condition, profile),
+         {:ok, operator} <-
+           profile_fetch_required(
+             condition,
+             :operator,
+             profile,
+             "choice condition operator is required"
+           ),
+         {:ok, operator} <- decode_condition_operator(operator, profile),
+         {:ok, operands} <-
+           profile_fetch_required(
+             condition,
+             :operands,
+             profile,
+             "choice condition operands are required"
+           ),
+         {:ok, operands} <-
+           decode_condition_operands(operands, operator, profile)
+           |> prepend_error_path([profile_field(:operands, profile)]),
+         {:ok, condition} <- Condition.new(operator, operands) do
+      {:ok, condition}
+    end
+  end
+
+  defp decode_condition(_condition, _profile), do: error("choice condition must be a map")
+
+  defp decode_condition_operands(operands, operator, profile) when is_list(operands) do
+    if List.improper?(operands) do
+      error("choice condition operands must be a list")
+    else
+      decoder =
+        if operator in [:all, :any, :not],
+          do: &decode_condition(&1, profile),
+          else: &decode_expression(&1, profile)
+
+      operands
+      |> Enum.with_index()
+      |> Enum.reduce_while({:ok, []}, fn {operand, index}, {:ok, acc} ->
+        case decoder.(operand) |> prepend_error_path([index]) do
+          {:ok, operand} -> {:cont, {:ok, [operand | acc]}}
+          {:error, error} -> {:halt, {:error, error}}
+        end
+      end)
+      |> case do
+        {:ok, operands} -> {:ok, Enum.reverse(operands)}
+        {:error, error} -> {:error, error}
+      end
+    end
+  end
+
+  defp decode_condition_operands(_operands, _operator, _profile),
+    do: error("choice condition operands must be a list")
+
+  defp decode_condition_operator(operator, :semantic)
+       when operator in [:eq, :neq, :lt, :lte, :gt, :gte, :in, :all, :any, :not],
+       do: {:ok, operator}
+
+  defp decode_condition_operator(operator, :stored) when is_binary(operator) do
+    case operator do
+      "eq" -> {:ok, :eq}
+      "neq" -> {:ok, :neq}
+      "lt" -> {:ok, :lt}
+      "lte" -> {:ok, :lte}
+      "gt" -> {:ok, :gt}
+      "gte" -> {:ok, :gte}
+      "in" -> {:ok, :in}
+      "all" -> {:ok, :all}
+      "any" -> {:ok, :any}
+      "not" -> {:ok, :not}
+      _ -> error("unsupported choice condition operator", %{operator: operator})
+    end
+  end
+
+  defp decode_condition_operator(operator, _profile),
+    do: error("unsupported choice condition operator", %{operator: operator})
 
   defp semantic_ref_type(map) do
     case Map.fetch(map, :type) do
@@ -722,7 +953,9 @@ defmodule Jido.Flow.MapCodec do
   end
 
   defp profile_actions(_opts, :semantic), do: {:ok, %{}}
-  defp profile_actions(opts, :stored), do: opts |> Map.fetch!(:actions) |> normalize_actions()
+
+  defp profile_actions(opts, :stored),
+    do: opts |> Map.fetch!(:actions) |> ActionRegistry.normalize()
 
   defp validate_node_record(node, :semantic) do
     validate_record(
@@ -741,6 +974,92 @@ defmodule Jido.Flow.MapCodec do
       :node
     )
   end
+
+  defp validate_choice_record(choice, :semantic) do
+    with :ok <-
+           validate_record(
+             choice,
+             [:kind, :name, :options, :fallback, :deps, :provenance],
+             [:kind, :name, :options, :fallback, :deps],
+             :choice
+           ),
+         :ok <- validate_choice_kind(Map.fetch!(choice, :kind), :semantic) do
+      :ok
+    end
+  end
+
+  defp validate_choice_record(choice, :stored) do
+    with :ok <-
+           validate_record(
+             choice,
+             ["kind", "name", "options", "fallback", "deps", "provenance"],
+             ["kind", "name", "options", "fallback", "deps"],
+             :choice
+           ),
+         :ok <- validate_choice_kind(Map.fetch!(choice, "kind"), :stored) do
+      :ok
+    end
+  end
+
+  defp validate_choice_kind(:choice, :semantic), do: :ok
+  defp validate_choice_kind("choice", :stored), do: :ok
+
+  defp validate_choice_kind(kind, _profile),
+    do: error("unknown flow node kind: #{inspect(kind)}", %{kind: kind})
+
+  defp validate_choice_option_record(option, :semantic),
+    do:
+      validate_record(
+        option,
+        [:name, :condition, :action, :input],
+        [:name, :condition, :action, :input],
+        :choice_option
+      )
+
+  defp validate_choice_option_record(option, :stored),
+    do:
+      validate_record(
+        option,
+        ["name", "condition", "action", "input"],
+        ["name", "condition", "action", "input"],
+        :choice_option
+      )
+
+  defp validate_choice_fallback_record(fallback, :semantic),
+    do:
+      validate_record(
+        fallback,
+        [:name, :action, :input],
+        [:name, :action, :input],
+        :choice_fallback
+      )
+
+  defp validate_choice_fallback_record(fallback, :stored),
+    do:
+      validate_record(
+        fallback,
+        ["name", "action", "input"],
+        ["name", "action", "input"],
+        :choice_fallback
+      )
+
+  defp validate_condition_record(condition, :semantic),
+    do:
+      validate_record(
+        condition,
+        [:operator, :operands],
+        [:operator, :operands],
+        :choice_condition
+      )
+
+  defp validate_condition_record(condition, :stored),
+    do:
+      validate_record(
+        condition,
+        ["operator", "operands"],
+        ["operator", "operands"],
+        :choice_condition
+      )
 
   defp validate_ref_record(map, type, profile) do
     {allowed, required} = ref_fields(type, profile)
@@ -842,83 +1161,11 @@ defmodule Jido.Flow.MapCodec do
   defp profile_fetch_optional(map, field, default, :stored),
     do: Map.get(map, Atom.to_string(field), default)
 
+  defp profile_field(field, :semantic), do: field
+  defp profile_field(field, :stored), do: Atom.to_string(field)
+
   defp profile_schema(map, _opts, field, :semantic), do: Map.fetch!(map, field)
   defp profile_schema(_map, opts, field, :stored), do: Map.fetch!(opts, field)
-
-  defp normalize_actions!(actions) do
-    case normalize_actions(actions) do
-      {:ok, actions} -> actions
-      {:error, error} -> raise error
-    end
-  end
-
-  defp normalize_actions(actions) when is_list(actions) do
-    if Keyword.keyword?(actions) do
-      reduce_action_pairs(actions, actions)
-    else
-      action_registry_error(actions)
-    end
-  end
-
-  defp normalize_actions(%{} = actions), do: reduce_action_pairs(actions, actions)
-  defp normalize_actions(actions), do: action_registry_error(actions)
-
-  defp reduce_action_pairs(actions, original_actions) do
-    Enum.reduce_while(actions, {:ok, %{}}, fn
-      {identifier, action}, {:ok, acc}
-      when (is_binary(identifier) or (is_atom(identifier) and not is_nil(identifier))) and
-             is_atom(action) and not is_nil(action) ->
-        identifier = identifier_to_string(identifier)
-
-        if Map.has_key?(acc, identifier) do
-          {:halt,
-           error("duplicate flow action registry identifier: #{inspect(identifier)}", %{
-             identifier: identifier
-           })}
-        else
-          {:cont, {:ok, Map.put(acc, identifier, action)}}
-        end
-
-      {_identifier, _action}, {:ok, _acc} ->
-        {:halt, action_registry_error(original_actions)}
-    end)
-  end
-
-  defp action_registry_error(actions) do
-    error("flow action registry must map string or atom identifiers to modules", %{
-      actions: actions
-    })
-  end
-
-  defp action_ids!(actions, nodes) do
-    modules = nodes |> Enum.map(& &1.action) |> Enum.uniq()
-
-    identifiers_by_module =
-      Enum.reduce(actions, %{}, fn {identifier, action}, acc ->
-        Map.update(acc, action, [identifier], &[identifier | &1])
-      end)
-
-    Map.new(modules, fn module ->
-      identifiers = Map.get(identifiers_by_module, module, [])
-
-      case identifiers do
-        [identifier] ->
-          {module, identifier}
-
-        [] ->
-          raise_validation("missing flow action registry identifier", %{action: module})
-
-        identifiers ->
-          raise_validation("ambiguous flow action registry identifiers", %{
-            action: module,
-            identifiers: Enum.sort(identifiers)
-          })
-      end
-    end)
-  end
-
-  defp identifier_to_string(identifier) when is_atom(identifier), do: Atom.to_string(identifier)
-  defp identifier_to_string(identifier), do: identifier
 
   defp key_sort_key(key) when is_atom(key), do: {0, Atom.to_string(key)}
   defp key_sort_key(key) when is_binary(key), do: {1, key}
@@ -926,6 +1173,25 @@ defmodule Jido.Flow.MapCodec do
   defp key_sort_key(key), do: {3, inspect(key)}
 
   defp error(message, details \\ %{}), do: {:error, Error.validation_error(message, details)}
+
+  defp prepend_error_path({:ok, value}, _prefix), do: {:ok, value}
+
+  defp prepend_error_path({:error, %{details: details} = error}, prefix)
+       when is_map(details) do
+    case Map.fetch(details, :path) do
+      {:ok, path} when is_list(path) ->
+        {:error, %{error | details: Map.put(details, :path, prefix ++ path)}}
+
+      {:ok, _path_value} ->
+        {:error, error}
+
+      :error ->
+        suffix = if Map.has_key?(details, :field), do: [details.field], else: []
+        {:error, %{error | details: Map.put(details, :path, prefix ++ suffix)}}
+    end
+  end
+
+  defp prepend_error_path(result, _prefix), do: result
 
   defp raise_validation(message, details) do
     raise Error.validation_error(message, details)

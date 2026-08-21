@@ -41,6 +41,10 @@ defmodule Jido.Flow.Element do
   def put_deps(%Node{} = node, deps), do: %{node | deps: deps}
   def put_deps(%Choice{} = choice, deps), do: Choice.put_deps(choice, deps)
 
+  @spec deps(t()) :: [String.t()]
+  def deps(%Node{deps: deps}), do: deps
+  def deps(%Choice{deps: deps}), do: deps
+
   @spec check(t()) :: :ok | {:error, Exception.t()}
   def check(%Node{action: action, name: name}) do
     case Jido.Instruction.validate_action_contract(action) do
@@ -57,6 +61,10 @@ defmodule Jido.Flow.Element do
   end
 
   def check(%Choice{} = choice), do: Choice.check(choice)
+
+  @spec target_modules(t()) :: [module()]
+  def target_modules(%Node{action: action}), do: [action]
+  def target_modules(%Choice{} = choice), do: choice |> Choice.targets() |> Enum.map(&elem(&1, 1))
 
   @spec to_map(t(), keyword()) :: map()
   def to_map(element, opts \\ [])

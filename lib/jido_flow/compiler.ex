@@ -6,6 +6,7 @@ defmodule Jido.Flow.Compiler do
   alias Jido.Action.Error
   alias Jido.Exec
   alias Jido.Flow
+  alias Jido.Flow.Element
   alias Jido.Flow.Identity
   alias Jido.Flow.Node
   alias Jido.Flow.NodeError
@@ -165,14 +166,14 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp build(%Flow{} = flow, mode) do
-    nodes_by_name = Map.new(flow.nodes, fn node -> {node.name, node} end)
+    nodes_by_name = Map.new(flow.nodes, fn node -> {Element.name(node), node} end)
 
     {workflow, _added, ordered} =
       flow.nodes
       |> Flow.canonical_nodes()
       |> Enum.reduce({Workflow.new(flow.name), MapSet.new(), []}, fn node,
                                                                      {workflow, added, ordered} ->
-        add_node(node.name, nodes_by_name, workflow, added, ordered, mode)
+        add_node(Element.name(node), nodes_by_name, workflow, added, ordered, mode)
       end)
 
     {:ok, workflow, ordered}
@@ -185,7 +186,7 @@ defmodule Jido.Flow.Compiler do
       node = Map.fetch!(nodes_by_name, name)
 
       {workflow, added, ordered} =
-        add_dependencies(node.deps, nodes_by_name, workflow, added, ordered, mode)
+        add_dependencies(Element.deps(node), nodes_by_name, workflow, added, ordered, mode)
 
       step = build_step(node, mode)
 
@@ -214,10 +215,12 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp build_step(node, {:inspection, flow_digest}) do
+    name = Element.name(node)
+
     Step.new(
-      name: node.name,
-      hash: Identity.step_uuid(flow_digest, node.name),
-      work: fn _parent_value -> {:jido_flow_node, 1, node.name} end
+      name: name,
+      hash: Identity.step_uuid(flow_digest, name),
+      work: fn _parent_value -> {:jido_flow_node, 1, name} end
     )
   end
 
@@ -228,14 +231,12 @@ defmodule Jido.Flow.Compiler do
     )
   end
 
-  defp add_step(workflow, %{deps: []}, step), do: Workflow.add(workflow, step, validate: :off)
-
-  defp add_step(workflow, %{deps: [dep]}, step) do
-    Workflow.add(workflow, step, to: dep, validate: :off)
-  end
-
-  defp add_step(workflow, %{deps: deps}, step) do
-    Workflow.add(workflow, step, to: deps, validate: :off)
+  defp add_step(workflow, element, step) do
+    case Element.deps(element) do
+      [] -> Workflow.add(workflow, step, validate: :off)
+      [dep] -> Workflow.add(workflow, step, to: dep, validate: :off)
+      deps -> Workflow.add(workflow, step, to: deps, validate: :off)
+    end
   end
 
   defp run_node(node, parent_value, node_state) do
