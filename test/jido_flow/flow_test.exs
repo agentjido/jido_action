@@ -890,6 +890,213 @@ defmodule Jido.FlowTest do
   end
 
   describe "from_map/2" do
+    test "rejects mixed semantic and stored root discriminators before admission" do
+      mixed = stored_flow_map() |> Map.put(:type, :flow)
+
+      assert {:error,
+              %InvalidInputError{
+                message: "flow map cannot mix semantic and stored root keys",
+                details: %{fields: [:type, "type"]}
+              }} = Flow.from_map(mixed, stored_options(%{"add" => Add}))
+    end
+
+    test "admits stored maps at the width boundary and rejects boundary plus one" do
+      exact = Map.new(1..10_000, &{Integer.to_string(&1), true})
+      over_limit = Map.put(exact, "10001", true)
+
+      assert {:ok, flow} =
+               stored_flow_map()
+               |> Map.put("provenance", exact)
+               |> Flow.from_map(stored_options(%{"add" => Add}))
+
+      assert map_size(flow.provenance) == 10_000
+
+      assert {:error,
+              %InvalidInputError{
+                message: "stored flow map exceeds resource limit",
+                details: details
+              }} =
+               stored_flow_map()
+               |> Map.put("provenance", over_limit)
+               |> Flow.from_map(stored_options(%{"add" => Add}))
+
+      assert details == %{
+               profile: :stored,
+               resource: :collection_width,
+               limit: 10_000,
+               actual: 10_001,
+               path: [{:map_value, 3}]
+             }
+    end
+
+    test "rejects an over-width encoded entry list before duplicate processing" do
+      stored = stored_flow_map()
+      [entry | _] = get_in(stored, ["nodes", Access.at(0), "input", "entries"])
+
+      over_limit =
+        put_in(
+          stored,
+          ["nodes", Access.at(0), "input", "entries"],
+          List.duplicate(entry, 10_001)
+        )
+
+      assert {:error,
+              %InvalidInputError{
+                message: "stored flow map exceeds resource limit",
+                details: details
+              }} = Flow.from_map(over_limit, stored_options(%{"add" => Add}))
+
+      assert details.resource == :collection_width
+      assert details.actual == 10_001
+      refute inspect(details) =~ "encoded map contains a duplicate key"
+    end
+
+    test "keeps semantic maps outside the stored resource profile" do
+      description = :binary.copy("x", 1_048_577)
+      semantic = stored_source_flow() |> Flow.to_map() |> Map.put(:description, description)
+
+      assert {:ok, %{description: ^description}} = Flow.from_map(semantic)
+    end
+
+    test "rejects reserved atom keys in every decoded encoded-map context" do
+      encoded_reserved_map = %{
+        "$type" => "map",
+        "entries" => [
+          %{
+            "key" => %{"type" => "atom", "value" => "__struct__"},
+            "value" => true
+          }
+        ]
+      }
+
+      expression =
+        put_in(
+          stored_flow_map(),
+          ["nodes", Access.at(0), "input", "entries", Access.at(0), "key"],
+          %{"type" => "atom", "value" => "__struct__"}
+        )
+
+      literal = stored_literal_map(encoded_reserved_map)
+      root_provenance = Map.put(stored_flow_map(), "provenance", encoded_reserved_map)
+
+      node_provenance =
+        put_in(stored_flow_map(), ["nodes", Access.at(0), "provenance"], encoded_reserved_map)
+
+      choice_provenance =
+        choice_map_flow()
+        |> Flow.to_map(
+          format: :stored,
+          actions: %{"echo" => EchoParamsAction, "add" => Add, "multiply" => Multiply}
+        )
+        |> put_in(["nodes", Access.at(1), "provenance"], encoded_reserved_map)
+
+      cases = [
+        {expression, stored_options(%{"add" => Add}), ["nodes", 0, "input", {:map_key, 0}]},
+        {literal, stored_options(%{"add" => Add}),
+         ["nodes", 0, "input", {:map_value, 0}, "value", {:map_key, 0}]},
+        {root_provenance, stored_options(%{"add" => Add}), ["provenance", {:map_key, 0}]},
+        {node_provenance, stored_options(%{"add" => Add}),
+         ["nodes", 0, "provenance", {:map_key, 0}]},
+        {choice_provenance,
+         stored_options(%{
+           "echo" => EchoParamsAction,
+           "add" => Add,
+           "multiply" => Multiply
+         }), ["nodes", 1, "provenance", {:map_key, 0}]}
+      ]
+
+      for {artifact, options, path} <- cases do
+        assert {:error,
+                %InvalidInputError{
+                  message: "stored flow map key is reserved: :__struct__",
+                  details: details
+                }} = Flow.from_map(artifact, options)
+
+        assert details == %{record: :encoded_map, key: :__struct__, path: path}
+      end
+    end
+
+    test "rejects reserved atom keys during stored encoding" do
+      input = Map.put(%{}, :__struct__, Ref.value(1))
+
+      expression_flow =
+        Flow.new!(
+          name: "reserved_writer_key",
+          nodes: [Node.new!(name: :echo, action: EchoParamsAction, input: input)],
+          return: Ref.result(:echo)
+        )
+
+      provenance_flow =
+        Flow.new!(
+          name: "reserved_writer_provenance",
+          nodes: [Node.new!(name: :echo, action: EchoParamsAction, input: %{})],
+          return: Ref.result(:echo),
+          provenance: Map.put(%{}, :__struct__, "not a struct")
+        )
+
+      cases = [
+        {expression_flow, ["nodes", 0, "input", {:map_key, 0}], []},
+        {provenance_flow, ["provenance", {:map_key, 0}], [provenance: true]}
+      ]
+
+      for {flow, path, extra_options} <- cases do
+        error =
+          assert_raise InvalidInputError, fn ->
+            Flow.to_map(
+              flow,
+              [format: :stored, actions: %{"echo" => EchoParamsAction}] ++ extra_options
+            )
+          end
+
+        assert error.message == "stored flow map key is reserved: :__struct__"
+        assert error.details == %{record: :encoded_map, key: :__struct__, path: path}
+      end
+    end
+
+    test "allows binary __struct__ map keys and atom __struct__ path segments" do
+      stored =
+        stored_flow_map()
+        |> put_in(
+          ["nodes", Access.at(0), "input", "entries", Access.at(0), "key"],
+          %{"type" => "string", "value" => "__struct__"}
+        )
+        |> Map.put("return", %{
+          "type" => "result",
+          "node" => "add_one",
+          "path" => [%{"type" => "atom", "value" => "__struct__"}]
+        })
+
+      assert {:ok, flow} = Flow.from_map(stored, stored_options(%{"add" => Add}))
+      assert [%{input: %{"__struct__" => _}}] = flow.nodes
+      assert %Ref{path: [:__struct__]} = flow.return
+
+      assert %{
+               "nodes" => [%{"input" => %{"entries" => [%{"key" => string_key}]}}],
+               "return" => %{"path" => [atom_segment]}
+             } = Flow.to_map(flow, format: :stored, actions: %{"add" => Add})
+
+      assert string_key == %{"type" => "string", "value" => "__struct__"}
+      assert atom_segment == %{"type" => "atom", "value" => "__struct__"}
+    end
+
+    test "does not create atoms for rejected encoded map keys" do
+      atom_name = "__jido_flow_map_key_#{System.unique_integer([:positive])}"
+      assert_raise ArgumentError, fn -> String.to_existing_atom(atom_name) end
+
+      stored =
+        put_in(
+          stored_flow_map(),
+          ["nodes", Access.at(0), "input", "entries", Access.at(0), "key"],
+          %{"type" => "atom", "value" => atom_name}
+        )
+
+      assert {:error, %InvalidInputError{message: message}} =
+               Flow.from_map(stored, stored_options(%{"add" => Add}))
+
+      assert message =~ "unknown atom in flow map"
+      assert_raise ArgumentError, fn -> String.to_existing_atom(atom_name) end
+    end
+
     test "round-trips tagged Choice records through semantic and stored maps" do
       flow = choice_map_flow()
 
