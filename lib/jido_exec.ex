@@ -303,7 +303,10 @@ defmodule Jido.Exec do
   defp error_result(error, :no_extras), do: {:error, error}
   defp error_result(error, {:extras, extras}), do: {:error, error, extras}
 
-  defp validate_action_params(action, params) do
+  @doc false
+  @spec validate_action_params(module(), term()) ::
+          {:ok, map()} | {:error, Exception.t()}
+  def validate_action_params(action, params) do
     with {:ok, validated} <- invoke_validator(action, :validate_params, params) do
       if is_map(validated) do
         {:ok, validated}
