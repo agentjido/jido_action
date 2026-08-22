@@ -26,9 +26,8 @@ defmodule Jido.Flow do
   Result references and `after:` fields define dependencies. Source order does
   not add execution dependencies.
 
-  Use `Jido.Flow.Builder` for runtime construction. Use `to_map/2` with
-  `format: :stored` and `from_map/2` for versioned storage. There is no runtime
-  parser for DSL source.
+  Use `Jido.Flow.Builder` for runtime construction. Use `to_stored_map/2` and
+  `from_map/2` for versioned storage. There is no runtime parser for DSL source.
 
   A Choice is one Flow node. It evaluates data-only conditions in authored
   order, runs the first matching target, and uses a required routing fallback
@@ -136,8 +135,8 @@ defmodule Jido.Flow do
              output_schema: output_schema
            ) do
         {:ok, flow} ->
-          case Jido.Flow.check(flow) do
-            :ok ->
+          case Jido.Flow.validate_executable(flow) do
+            {:ok, flow} ->
               flow
 
             {:error, error} ->
@@ -162,6 +161,9 @@ defmodule Jido.Flow do
 
       def flow, do: unquote(escaped_flow)
       def to_map(opts \\ []), do: Jido.Flow.to_map(flow(), opts)
+      def to_stored_map(opts \\ []), do: Jido.Flow.to_stored_map(flow(), opts)
+      def validate, do: Jido.Flow.validate(flow())
+      def validate_executable, do: Jido.Flow.validate_executable(flow())
       def compile, do: Jido.Flow.compile(flow())
       def dependencies, do: Jido.Flow.dependencies(flow())
       def explain, do: Jido.Flow.explain(flow())
@@ -219,7 +221,8 @@ defmodule Jido.Flow do
   Node order in the semantic map is dependency order with node-name tiebreaks;
   authoring order is not semantic and is preserved only on the Flow struct.
   Provenance is omitted by default because it does not participate in semantic
-  equality.
+  equality. `format: :stored` remains available as a raising conversion. Prefer
+  `to_stored_map/2` when stored input can fail validation.
   """
   @spec to_map(t(), keyword()) :: map()
   def to_map(%__MODULE__{} = flow, opts \\ []) do
@@ -240,7 +243,33 @@ defmodule Jido.Flow do
   end
 
   @doc """
+  Validates and converts a Flow to the versioned stored-map format.
+
+  This function validates canonical Flow structure and all stored writer
+  contracts. It returns storage errors instead of raising. It does not check or
+  execute Action targets, so stored conversion remains an inert operation.
+
+  The options are the stored writer options accepted by `to_map/2`, except that
+  `format: :stored` is not required.
+  """
+  @spec to_stored_map(t(), keyword()) ::
+          {:ok, map()} | {:error, Error.InvalidInputError.t()}
+  def to_stored_map(flow, opts \\ [])
+
+  def to_stored_map(%__MODULE__{} = flow, opts) do
+    with {:ok, flow} <- validate(flow) do
+      MapCodec.to_stored_map(flow, canonical_node_order(flow.nodes), opts)
+    end
+  end
+
+  def to_stored_map(value, _opts), do: invalid_flow_subject(value)
+
+  @doc """
   Loads a versioned Flow map into the current canonical Flow artifact.
+
+  Loading validates the stored grammar and canonical Flow structure. It does
+  not load or check Action targets. Use `validate_executable/1` when target
+  contracts must be checked without execution.
   """
   @spec from_map(map(), map() | keyword()) :: {:ok, t()} | {:error, Exception.t()}
   def from_map(map, opts \\ []), do: MapCodec.from_map(map, opts)
@@ -280,9 +309,11 @@ defmodule Jido.Flow do
     end
   end
 
-  defp invalid_inspection_subject(value) do
+  defp invalid_flow_subject(value) do
     {:error, Error.validation_error("expected a Jido.Flow artifact", %{value: value})}
   end
+
+  defp invalid_inspection_subject(value), do: invalid_flow_subject(value)
 
   defp canonical_node_order(nodes) do
     sorted_nodes =
@@ -376,11 +407,13 @@ defmodule Jido.Flow do
 
   def semantic_identity(value), do: invalid_inspection_subject(value)
 
-  @doc false
-  @spec check(t()) :: :ok | {:error, Exception.t()}
-  def check(%__MODULE__{} = flow), do: check_action_contracts(flow.nodes)
+  @doc """
+  Validates and normalizes the canonical Flow structure.
 
-  @doc false
+  This function checks schemas, nodes, expressions, references, dependencies,
+  and graph cycles. It is inert: it does not load or check Action targets. Use
+  `validate_executable/1` when the Flow must be ready for execution.
+  """
   @spec validate(t()) :: {:ok, t()} | {:error, Exception.t()}
   def validate(%__MODULE__{} = flow) do
     with {:ok, name} <- validate_name(flow.name),
@@ -405,6 +438,22 @@ defmodule Jido.Flow do
          :ok <- validate_known_result_refs(flow),
          flow = normalize_node_deps(flow),
          :ok <- validate_acyclic(flow.nodes) do
+      {:ok, flow}
+    end
+  end
+
+  def validate(value), do: invalid_flow_subject(value)
+
+  @doc """
+  Validates a canonical Flow and all Action or nested-Flow target contracts.
+
+  This function performs no Action work. It returns the normalized Flow when
+  both canonical structure and executable target contracts are valid.
+  """
+  @spec validate_executable(t()) :: {:ok, t()} | {:error, Exception.t()}
+  def validate_executable(flow) do
+    with {:ok, flow} <- validate(flow),
+         :ok <- check_action_contracts(flow.nodes) do
       {:ok, flow}
     end
   end

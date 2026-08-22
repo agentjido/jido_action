@@ -5,9 +5,9 @@ a second text parser. Use the versioned stored-map format when you must save a
 Flow in a database, send it to another system, or accept a Flow from an AI
 system.
 
-The stored map is canonical Flow data. It keeps all execution details that are
-needed to restore the same Flow. It does not keep the original Elixir source or
-its layout.
+The stored map is canonical Flow data for the portable stored-value profile. It
+keeps all execution details that are needed to restore the same stored-safe
+Flow. It does not keep the original Elixir source or its layout.
 
 ## Create A Stored Map
 
@@ -43,9 +43,8 @@ bundle =
 
 contract_bundles = %{bundle.id => bundle}
 
-stored =
-  Jido.Flow.to_map(flow,
-    format: :stored,
+{:ok, stored} =
+  Jido.Flow.to_stored_map(flow,
     contracts: contracts,
     contract_bundles: contract_bundles,
     state_schema_ids: %{"payment" => "my_app/payment_state/v1"},
@@ -56,6 +55,11 @@ stored =
 The selected Action registry must contain exactly one identifier for each
 Action module in the Flow. `state_schema_ids` maps each Iterator node name to
 its stable State schema identifier.
+
+`to_stored_map/2` returns `{:error, exception}` for invalid contract references
+or values that the stored format cannot encode. Stored values can contain JSON
+scalars, existing atoms, lists, and maps. Stored map keys can be atoms, strings,
+or integers. Tuples, structs, and other Elixir-only values are not portable.
 
 Use `provenance: true` when metadata and source annotations must survive the
 round trip. Provenance does not change Flow execution or semantic identity.
@@ -83,11 +87,18 @@ decoded = JSON.decode!(json)
 {:ok, restored} =
   Jido.Flow.from_map(decoded, contract_bundles: contract_bundles)
 
+{:ok, restored} = Jido.Flow.validate_executable(restored)
+
 Jido.Flow.to_map(restored, provenance: true) ==
   Jido.Flow.to_map(flow, provenance: true)
 ```
 
-The restored Flow can be inspected or executed like a compiled module Flow:
+`from_map/2` is inert. It validates stored and canonical data but does not load
+or check Action targets. `validate_executable/1` checks each Action or nested
+Flow target without running it.
+
+The restored Flow can then be inspected or executed like a compiled module
+Flow:
 
 ```elixir
 {:ok, result} = Jido.Exec.run(restored, input, context)
@@ -109,10 +120,10 @@ This gives the application one authoring language and one data transport:
 
 ## Storage Guarantees
 
-The stored format keeps node names, node definitions, expressions,
-dependencies, output shape, contract identifiers, and optional provenance. A
-stored round trip keeps the Flow meaning. It does not promise source-code
-round-trip formatting.
+For the portable stored-value profile, the stored format keeps node names, node
+definitions, expressions, dependencies, output shape, contract identifiers,
+and optional provenance. A stored round trip keeps Flow meaning. It does not
+promise source-code formatting, author declaration order, or browser layout.
 
 An Iterator node uses `"kind": "iterate"` in stored JSON. Its State record
 uses `"kind": "iterate_state"`.

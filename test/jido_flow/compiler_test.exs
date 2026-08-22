@@ -362,7 +362,7 @@ defmodule Jido.Flow.CompilerTest do
         assert {:error, :nofile} = Code.ensure_loaded(unloaded_action)
       end
 
-      for check_target <- [&Flow.check/1, &Jido.Exec.run(&1, %{}, %{})] do
+      for check_target <- [&Flow.validate_executable/1, &Jido.Exec.run(&1, %{}, %{})] do
         assert {:error, %InvalidInputError{message: message, details: details}} =
                  check_target.(loaded)
 

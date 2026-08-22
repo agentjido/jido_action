@@ -119,6 +119,14 @@ defmodule Jido.Flow.MapCodec do
     end
   end
 
+  @spec to_stored_map(Jido.Flow.t(), [Element.t()], keyword()) ::
+          {:ok, map()} | {:error, Error.InvalidInputError.t()}
+  def to_stored_map(flow, ordered_nodes, opts) do
+    {:ok, to_stored_map!(flow, ordered_nodes, opts)}
+  rescue
+    error in [Error.InvalidInputError] -> {:error, error}
+  end
+
   defp validate_stored_writer_options!(flow, ordered_nodes, opts) do
     case validate_stored_writer_options(flow, ordered_nodes, opts) do
       {:ok, result} -> result
@@ -1590,12 +1598,18 @@ defmodule Jido.Flow.MapCodec do
     }
   end
 
-  defp encode_data!(%{__struct__: module}, _path) do
-    raise_validation("stored flow value contains unsupported struct", %{struct: module})
+  defp encode_data!(%{__struct__: module}, path) do
+    raise_validation("stored flow value contains unsupported struct", %{
+      struct: module,
+      path: path
+    })
   end
 
-  defp encode_data!(value, _path) do
-    raise_validation("stored flow value is not JSON-safe", %{value: inspect(value)})
+  defp encode_data!(value, path) do
+    raise_validation("stored flow value is not JSON-safe", %{
+      value: inspect(value),
+      path: path
+    })
   end
 
   defp decode_optional_data(map, field, default, :semantic) do
@@ -1734,17 +1748,21 @@ defmodule Jido.Flow.MapCodec do
     })
   end
 
-  defp encode_map_key!(key, _path), do: encode_key!(key)
+  defp encode_map_key!(key, path), do: encode_key!(key, path)
 
-  defp encode_key!(key) when is_atom(key) and not is_nil(key) do
+  defp encode_key!(key), do: encode_key!(key, nil)
+
+  defp encode_key!(key, _path) when is_atom(key) and not is_nil(key) do
     %{"type" => "atom", "value" => Atom.to_string(key)}
   end
 
-  defp encode_key!(key) when is_binary(key), do: %{"type" => "string", "value" => key}
-  defp encode_key!(key) when is_integer(key), do: %{"type" => "integer", "value" => key}
+  defp encode_key!(key, _path) when is_binary(key), do: %{"type" => "string", "value" => key}
+  defp encode_key!(key, _path) when is_integer(key), do: %{"type" => "integer", "value" => key}
 
-  defp encode_key!(key) do
-    raise_validation("stored flow map key is not JSON-safe", %{key: inspect(key)})
+  defp encode_key!(key, path) do
+    details = %{key: inspect(key)}
+    details = if is_list(path), do: Map.put(details, :path, path), else: details
+    raise_validation("stored flow map key is not JSON-safe", details)
   end
 
   defp decode_key(%{} = segment) do

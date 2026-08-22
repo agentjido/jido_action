@@ -66,9 +66,9 @@ semantic = Jido.Flow.to_map(flow)
 with_provenance = Jido.Flow.to_map(flow, provenance: true)
 ```
 
-Use `format: :stored` to produce a portable stored version 1 map. The stored
-map contains stable identifiers. Zoi schemas and Action modules stay in a
-host-supplied contract bundle:
+Use `Jido.Flow.to_stored_map/2` to validate and produce a portable stored version
+1 map without raising. The stored map contains stable identifiers. Zoi schemas
+and Action modules stay in a host-supplied contract bundle:
 
 ```elixir
 contracts = %{
@@ -95,9 +95,8 @@ bundle =
 
 contract_bundles = %{bundle.id => bundle}
 
-stored =
-  Jido.Flow.to_map(flow,
-    format: :stored,
+{:ok, stored} =
+  Jido.Flow.to_stored_map(flow,
     contracts: contracts,
     contract_bundles: contract_bundles,
     provenance: true
@@ -108,6 +107,10 @@ The selected registry must have exactly one identifier for every Action module
 used by the Flow. Missing identifiers and multiple identifiers for one module
 are errors. This rule keeps stored maps unambiguous.
 
+Stored conversion validates canonical Flow structure and stored encoding. It
+does not check Action target contracts. Use `Jido.Flow.validate_executable/1`
+for that separate, inert check.
+
 ## Restore A Stored Flow
 
 Stored maps contain the Flow name, node definitions, output expression, stable
@@ -117,6 +120,8 @@ same host allow-list:
 ```elixir
 {:ok, restored} =
   Jido.Flow.from_map(stored, contract_bundles: contract_bundles)
+
+{:ok, restored} = Jido.Flow.validate_executable(restored)
 
 Jido.Flow.to_map(restored) == Jido.Flow.to_map(flow)
 ```
@@ -133,9 +138,8 @@ maps with `provenance: true` when a review or inspection tool needs labels,
 tags, notes, or source annotations:
 
 ```elixir
-stored_with_notes =
-  Jido.Flow.to_map(flow,
-    format: :stored,
+{:ok, stored_with_notes} =
+  Jido.Flow.to_stored_map(flow,
     contracts: contracts,
     contract_bundles: contract_bundles,
     provenance: true
@@ -143,6 +147,19 @@ stored_with_notes =
 ```
 
 The default semantic map and identity do not include provenance.
+
+## Validate A Flow
+
+`Jido.Flow.validate/1` validates and normalizes canonical Flow data. It checks
+schemas, expressions, references, dependencies, and cycles. It does not load or
+check Action targets.
+
+`Jido.Flow.validate_executable/1` first performs canonical validation and then
+checks every Action or nested-Flow target contract. It does not run Action work.
+
+`Jido.Flow.to_stored_map/2` first performs canonical validation and then checks
+stored contract references and encoding. It returns the stored map on success,
+so a separate `validate_storable/2` pass is not necessary.
 
 ## Compile A Graph For Inspection
 

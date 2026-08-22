@@ -99,15 +99,16 @@ bundle =
 
 contract_bundles = %{bundle.id => bundle}
 
-stored_map =
-  Jido.Flow.to_map(flow,
-    format: :stored,
+{:ok, stored_map} =
+  Jido.Flow.to_stored_map(flow,
     contracts: contracts,
     contract_bundles: contract_bundles
   )
 
 {:ok, restored} =
   Jido.Flow.from_map(stored_map, contract_bundles: contract_bundles)
+
+{:ok, restored} = Jido.Flow.validate_executable(restored)
 ```
 
 The semantic map uses deterministic dependency order and excludes provenance.
@@ -127,7 +128,7 @@ The following guides cover authoring and execution in more detail:
   processing.
 - [Iterate and State](flow-iterate-state.livemd) explains bounded stateful
   iteration.
-- [Stored Flow JSON](flow-storage.md) explains lossless canonical storage.
+- [Stored Flow JSON](flow-storage.md) explains portable canonical storage.
 - [Nested Flows](nested-flows.livemd) explains Flow nodes that call another
   Flow.
 - [Flow Execution](flow-execution.livemd) explains run-to-completion and

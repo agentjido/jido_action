@@ -130,6 +130,9 @@ Action work stay in [Flow execution](flow-execution.livemd).
 
 - `flow/0` returns the canonical `%Jido.Flow{}`.
 - `to_map/1` returns a deterministic map.
+- `to_stored_map/1` validates and returns a versioned stored map.
+- `validate/0` validates canonical Flow structure.
+- `validate_executable/0` also checks Action and nested-Flow targets.
 - `compile/0` returns the compiled Runic graph for inspection.
 - `dependencies/0` returns direct predecessors.
 - `explain/0` returns versioned inspection data.

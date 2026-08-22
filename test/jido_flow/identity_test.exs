@@ -160,6 +160,10 @@ defmodule Jido.Flow.IdentityTest do
     assert module.dependencies() == Flow.dependencies(module.flow())
     assert module.explain() == Flow.explain(module.flow())
     assert module.semantic_identity() == Flow.semantic_identity(module.flow())
+    assert module.validate() == Flow.validate(module.flow())
+    assert module.validate_executable() == Flow.validate_executable(module.flow())
+    assert function_exported?(module, :to_stored_map, 0)
+    assert function_exported?(module, :to_stored_map, 1)
   end
 
   test "pins the deterministic SHA-256 preimage and UUIDv8 projection" do

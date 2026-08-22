@@ -46,6 +46,12 @@ defmodule Jido.DocumentationTest do
 
   @public_builder_types [:choice_fallback, :choice_option, :condition, :expression]
 
+  @public_flow_validation_helpers [
+    {:to_stored_map, 2},
+    {:validate, 1},
+    {:validate_executable, 1}
+  ]
+
   test "the module index contains only supported public modules" do
     groups = Mix.Project.config()[:docs][:groups_for_modules]
 
@@ -73,6 +79,13 @@ defmodule Jido.DocumentationTest do
       Enum.map(types, fn {_kind, {name, _definition, _arguments}} -> name end)
 
     assert Enum.sort(@public_builder_types) == Enum.sort(type_names -- [:t])
+  end
+
+  test "Flow validation helpers are visible in the API reference" do
+    for {name, arity} <- @public_flow_validation_helpers do
+      assert is_map(function_doc(Jido.Flow, name, arity)),
+             "expected Jido.Flow.#{name}/#{arity} to have public documentation"
+    end
   end
 
   test "public module documentation does not expose internal release language" do

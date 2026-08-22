@@ -85,7 +85,8 @@ do pure lookup. They do not load a module, call an Action callback, validate
 data through a Zoi schema, emit telemetry, compile, or execute the Flow.
 
 Stored decode, inspection, identity, and graph compilation do not check target
-contracts. Execution through `Jido.Exec` owns those checks. Retry, timeout,
+contracts. `Jido.Flow.validate_executable/1` checks them without execution, and
+`Jido.Exec` repeats the check at the execution boundary. Retry, timeout,
 persistence, and durability policy stay outside the Flow artifact.
 
 ## Bound Runtime Policy

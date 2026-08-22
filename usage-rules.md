@@ -31,6 +31,9 @@ Use `jido_action` for validated work and data-first composition:
 - Validate outputs with `validate_output/1`.
 - Unknown keys are preserved; only keys declared in the Zoi schema are validated.
 - Prefer precise schemas with defaults for optional action inputs.
+- Use `Jido.Flow.validate/1` for canonical Flow structure and graph rules.
+- Use `Jido.Flow.validate_executable/1` to also check all Flow target contracts.
+- Use `Jido.Flow.to_stored_map/2` to validate and produce stored JSON data without raising.
 
 ## Flow Authoring
 

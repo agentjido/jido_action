@@ -216,8 +216,7 @@ defmodule Jido.Exec do
 
   defp start_flow(flow, input, context, opts) do
     with {:ok, run_opts} <- validate_flow_run_opts(opts),
-         {:ok, flow} <- Flow.validate(flow),
-         :ok <- Flow.check(flow),
+         {:ok, flow} <- Flow.validate_executable(flow),
          {:ok, input} <- normalize_map(input, :input),
          {:ok, context} <- normalize_map(context, :context),
          {:ok, input} <- validate_data(flow.schema, input, "Flow", flow, :flow_input),

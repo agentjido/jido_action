@@ -338,7 +338,9 @@ defmodule Jido.FlowTest do
 
       assert {:ok, flow} = Flow.new(attrs)
 
-      assert {:error, %InvalidInputError{message: message, details: details}} = Flow.check(flow)
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Flow.validate_executable(flow)
+
       assert message =~ "module is not a valid Jido action"
       assert details.node == "broken"
       assert details.action == MissingRun
@@ -356,7 +358,9 @@ defmodule Jido.FlowTest do
 
       assert {:ok, flow} = Flow.new(attrs)
 
-      assert {:error, %InvalidInputError{message: message, details: details}} = Flow.check(flow)
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Flow.validate_executable(flow)
+
       assert message == "action module could not be loaded"
       assert details.node == "missing"
       assert details.action == missing_action
@@ -379,7 +383,9 @@ defmodule Jido.FlowTest do
 
       assert {:ok, ^flow} = Flow.validate(flow)
 
-      assert {:error, %InvalidInputError{message: message, details: details}} = Flow.check(flow)
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Flow.validate_executable(flow)
+
       assert message =~ "module is not a valid Jido action"
       assert details.choice == "route"
       assert details.option == "second"
@@ -1021,6 +1027,130 @@ defmodule Jido.FlowTest do
       assert_raise InvalidInputError, ~r/unsupported flow map format/, fn ->
         Flow.to_map(flow, format: :legacy)
       end
+    end
+  end
+
+  describe "public validation API" do
+    test "separates canonical validation from executable target validation" do
+      flow =
+        Flow.new!(
+          name: "unchecked",
+          nodes: [Node.new!(name: :broken, action: MissingRun)],
+          return: Ref.result(:broken)
+        )
+
+      assert {:ok, ^flow} = Flow.validate(flow)
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Flow.validate_executable(flow)
+
+      assert message =~ "module is not a valid Jido action"
+      assert details.node == "broken"
+      assert details.action == MissingRun
+    end
+
+    test "validates canonical structure before executable targets" do
+      invalid =
+        Flow.new!(
+          name: "invalid_before_targets",
+          nodes: [Node.new!(name: :broken, action: MissingRun)],
+          return: Ref.result(:broken)
+        )
+        |> Map.replace!(:return, nil)
+
+      assert {:error, %InvalidInputError{message: "return ref is required"}} =
+               Flow.validate_executable(invalid)
+    end
+
+    test "returns validation errors for non-Flow subjects" do
+      for validator <- [&Flow.validate/1, &Flow.validate_executable/1] do
+        assert {:error,
+                %InvalidInputError{
+                  message: "expected a Jido.Flow artifact",
+                  details: %{value: :not_a_flow}
+                }} = validator.(:not_a_flow)
+      end
+    end
+  end
+
+  describe "to_stored_map/2" do
+    test "returns the stored artifact without requiring a second conversion" do
+      flow = stored_source_flow()
+      options = stored_conversion_options(%{"add" => Add})
+
+      assert {:ok, stored} = Flow.to_stored_map(flow, options)
+      assert stored == Flow.to_map(flow, [format: :stored] ++ options)
+    end
+
+    test "returns stored writer errors with exact expression paths" do
+      tuple_key_flow =
+        Flow.new!(
+          name: "bad_key",
+          nodes: [
+            Node.new!(
+              name: :echo,
+              action: EchoParamsAction,
+              input: %{{:tuple, :key} => Ref.value(1)}
+            )
+          ],
+          return: Ref.result(:echo)
+        )
+
+      options = stored_conversion_options(%{"echo" => EchoParamsAction})
+
+      assert {:error, %InvalidInputError{message: key_message, details: key_details}} =
+               Flow.to_stored_map(tuple_key_flow, options)
+
+      assert key_message == "stored flow map key is not JSON-safe"
+      assert key_details.path == ["nodes", 0, "input", {:map_key, 0}]
+
+      struct_value_flow =
+        Flow.new!(
+          name: "bad_struct_value",
+          nodes: [
+            Node.new!(
+              name: :echo,
+              action: EchoParamsAction,
+              input: %{value: Ref.value(URI.parse("https://example.com"))}
+            )
+          ],
+          return: Ref.result(:echo)
+        )
+
+      assert {:error, %InvalidInputError{message: value_message, details: value_details}} =
+               Flow.to_stored_map(struct_value_flow, options)
+
+      assert value_message == "stored flow value contains unsupported struct"
+      assert value_details.path == ["nodes", 0, "input", {:map_value, 0}, "value"]
+    end
+
+    test "validates canonical structure but keeps target checks inert" do
+      flow =
+        Flow.new!(
+          name: "storable_unchecked_target",
+          nodes: [Node.new!(name: :broken, action: MissingRun)],
+          return: Ref.result(:broken)
+        )
+
+      options = stored_conversion_options(%{"broken" => MissingRun})
+
+      assert {:ok, %{"nodes" => [%{"action" => "broken"}]}} =
+               Flow.to_stored_map(flow, options)
+
+      assert {:error, %InvalidInputError{}} = Flow.validate_executable(flow)
+
+      invalid = %{flow | return: nil}
+
+      assert {:error, %InvalidInputError{message: "return ref is required"}} =
+               Flow.to_stored_map(invalid, [])
+    end
+
+    test "returns contract option errors instead of raising" do
+      assert {:error,
+              %InvalidInputError{
+                message: "stored flow requires contract references",
+                details: %{field: :contracts}
+              }} = Flow.to_stored_map(stored_source_flow(), [])
     end
   end
 
@@ -2046,7 +2176,10 @@ defmodule Jido.FlowTest do
       }
 
       assert {:ok, flow} = Flow.from_map(semantic_map)
-      assert {:error, %InvalidInputError{message: message, details: details}} = Flow.check(flow)
+
+      assert {:error, %InvalidInputError{message: message, details: details}} =
+               Flow.validate_executable(flow)
+
       assert message == "action module could not be loaded"
       assert details.action == missing_action
     end
@@ -3113,6 +3246,12 @@ defmodule Jido.FlowTest do
       contracts: contract_references(),
       contract_bundles: contract_bundles(actions, input_schema, output_schema)
     ] ++ writer_extra
+  end
+
+  defp stored_conversion_options(actions, extra \\ []) do
+    actions
+    |> stored_writer_options(extra)
+    |> Keyword.delete(:format)
   end
 
   defp bundled_stored_flow_map do

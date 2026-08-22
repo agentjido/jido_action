@@ -104,8 +104,7 @@ defmodule Jido.Flow.Compiler do
 
   def run(%Flow{} = flow, input, context, opts) when is_map(input) and is_map(context) do
     with :ok <- validate_run_opts(opts),
-         {:ok, flow} <- Flow.validate(flow),
-         :ok <- Flow.check(flow) do
+         {:ok, flow} <- Flow.validate_executable(flow) do
       execute(flow, input, context, opts)
     end
   end
@@ -195,8 +194,7 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp prepare_runtime(flow, input, context, collector) do
-    with {:ok, flow} <- Flow.validate(flow),
-         :ok <- Flow.check(flow),
+    with {:ok, flow} <- Flow.validate_executable(flow),
          {:ok, workflow, ordered_nodes} <-
            prepare_validated_runtime(
              flow,
