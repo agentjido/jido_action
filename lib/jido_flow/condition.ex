@@ -133,8 +133,21 @@ defmodule Jido.Flow.Condition do
     {:error, Error.validation_error("unsupported choice condition operator", %{path: []})}
   end
 
-  defp validate_arity(operator, operands)
-       when is_list(operands) and Kernel.in(operator, @comparison_operators) do
+  defp validate_arity(operator, operands) when is_list(operands) do
+    if List.improper?(operands) do
+      {:error,
+       Error.validation_error("choice condition operands must be a proper list", %{path: []})}
+    else
+      validate_proper_arity(operator, operands)
+    end
+  end
+
+  defp validate_arity(_operator, _operands) do
+    {:error, Error.validation_error("choice condition operands must be a list", %{path: []})}
+  end
+
+  defp validate_proper_arity(operator, operands)
+       when Kernel.in(operator, @comparison_operators) do
     if length(operands) == 2 do
       :ok
     else
@@ -148,8 +161,7 @@ defmodule Jido.Flow.Condition do
     end
   end
 
-  defp validate_arity(operator, operands)
-       when is_list(operands) and Kernel.in(operator, @group_operators) do
+  defp validate_proper_arity(operator, operands) when Kernel.in(operator, @group_operators) do
     if operands == [] do
       {:error,
        Error.validation_error(
@@ -163,17 +175,13 @@ defmodule Jido.Flow.Condition do
     end
   end
 
-  defp validate_arity(:not, operands) when is_list(operands) do
+  defp validate_proper_arity(:not, operands) do
     if length(operands) == 1 do
       :ok
     else
       {:error,
        Error.validation_error("choice condition :not must have exactly 1 condition", %{path: []})}
     end
-  end
-
-  defp validate_arity(_operator, _operands) do
-    {:error, Error.validation_error("choice condition operands must be a list", %{path: []})}
   end
 
   defp normalize_operands(operator, operands) when Kernel.in(operator, @comparison_operators) do
@@ -262,6 +270,11 @@ defmodule Jido.Flow.Condition do
         Error.validation_error("choice condition contains invalid ref", %{
           path: nested_path,
           type: details.type
+        })
+
+      :improper_list ->
+        Error.validation_error("choice condition expression must be a proper list", %{
+          path: nested_path
         })
 
       :unsupported_expression ->

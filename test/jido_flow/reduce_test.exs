@@ -87,6 +87,7 @@ defmodule Jido.Flow.ReduceTest do
         {Map.delete(base, :name), "reduce name must be a non-empty string or atom", [:name]},
         {Map.delete(base, :collection), "reduce collection is required", [:collection]},
         {Map.delete(base, :initial), "reduce initial is required", [:initial]},
+        {%{base | initial: [1 | :tail]}, "reduce initial must be a proper list", [:initial]},
         {%{base | action: "bad"}, "reduce target must be a module atom", [:action]},
         {Map.put(base, :deps, :bad), "reduce deps must be a list", [:deps]},
         {Map.put(base, :deps, [:ok | :tail]), "reduce deps must be a proper list", [:deps]},

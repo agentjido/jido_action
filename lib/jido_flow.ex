@@ -177,7 +177,12 @@ defmodule Jido.Flow do
   """
   @spec new(map() | keyword() | t()) :: {:ok, t()} | {:error, Exception.t()}
   def new(%__MODULE__{} = flow), do: flow |> Map.from_struct() |> new()
-  def new(attrs) when is_list(attrs), do: attrs |> Map.new() |> new()
+
+  def new(attrs) when is_list(attrs) do
+    if Keyword.keyword?(attrs),
+      do: attrs |> Map.new() |> new(),
+      else: {:error, Error.validation_error("flow configuration must be a map")}
+  end
 
   def new(%{} = attrs) do
     with :ok <- validate_known_keys(attrs, @artifact_config_keys),
@@ -537,6 +542,16 @@ defmodule Jido.Flow do
   end
 
   defp normalize_nodes(nodes) when is_list(nodes) do
+    if List.improper?(nodes) do
+      {:error, Error.validation_error("flow nodes must be a proper list")}
+    else
+      normalize_proper_nodes(nodes)
+    end
+  end
+
+  defp normalize_nodes(_nodes), do: {:error, Error.validation_error("flow nodes must be a list")}
+
+  defp normalize_proper_nodes(nodes) do
     nodes
     |> Enum.reduce_while({:ok, []}, fn attrs, {:ok, acc} ->
       case Element.new(attrs) do
@@ -549,8 +564,6 @@ defmodule Jido.Flow do
       {:error, error} -> {:error, error}
     end
   end
-
-  defp normalize_nodes(_nodes), do: {:error, Error.validation_error("flow nodes must be a list")}
 
   defp validate_return(nil) do
     {:error, Error.validation_error("return ref is required")}

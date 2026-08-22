@@ -26,11 +26,15 @@ defmodule Jido.Flow.Element do
   end
 
   def new(attrs) when is_list(attrs) do
-    case Keyword.get(attrs, :kind) do
-      :iterate -> attrs |> Keyword.delete(:kind) |> Iterator.new()
-      :map -> attrs |> Keyword.delete(:kind) |> FlowMap.new()
-      :reduce -> attrs |> Keyword.delete(:kind) |> Reduce.new()
-      _kind -> infer_legacy_variant(attrs)
+    if Keyword.keyword?(attrs) do
+      case Keyword.get(attrs, :kind) do
+        :iterate -> attrs |> Keyword.delete(:kind) |> Iterator.new()
+        :map -> attrs |> Keyword.delete(:kind) |> FlowMap.new()
+        :reduce -> attrs |> Keyword.delete(:kind) |> Reduce.new()
+        _kind -> infer_legacy_variant(attrs)
+      end
+    else
+      Node.new(attrs)
     end
   end
 

@@ -54,7 +54,12 @@ builder =
 
 `result/2` accepts a node name and optional path. `select/2` appends a path to
 an existing reference. `input/1`, `context/1`, and `value/1` create the other
-common expressions. Prefer a direct result path when the source is one node.
+common expressions. List path indexes must be non-negative. Prefer a direct
+result path when the source is one node.
+
+Runtime list data must be a proper list. The shared constructor returns a
+structured validation error for an improper node list, dependency list,
+condition operand list, or expression list.
 
 ## Map And Reduce Collections
 

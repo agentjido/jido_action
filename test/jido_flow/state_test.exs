@@ -44,7 +44,9 @@ defmodule Jido.Flow.StateTest do
         {%{schema: [], initial: %{}, update: %{}, extra: true},
          "unknown iterator state configuration key: :extra", [:extra]},
         {%{version: 2, schema: [], initial: %{}, update: %{}},
-         "unsupported iterator state version: 2", [:version]}
+         "unsupported iterator state version: 2", [:version]},
+        {%{schema: [], initial: [1 | :tail], update: %{}},
+         "iterator state initial must be a proper list", [:initial]}
       ]
 
       for {attrs, message, path} <- cases do

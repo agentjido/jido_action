@@ -47,6 +47,18 @@ defmodule Jido.FlowTest do
     assert Enum.find(flow.nodes, &(&1.name == "second")).deps == ["first"]
   end
 
+  test "returns validation errors for improper constructor lists" do
+    node = Node.new!(name: "node", action: Add)
+
+    for attrs <- [
+          [{:name, "bad_attrs"} | :tail],
+          %{name: "bad_nodes", nodes: [node | :tail], return: Ref.result("node")},
+          %{name: "bad_return", nodes: [node], return: [Ref.result("node") | :tail]}
+        ] do
+      assert {:error, %InvalidInputError{}} = Flow.new(attrs)
+    end
+  end
+
   test "rejects duplicate names, unknown dependencies, and cycles" do
     duplicate = Node.new!(name: "same", action: Add)
 

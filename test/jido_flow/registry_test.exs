@@ -1,6 +1,7 @@
 defmodule Jido.Flow.RegistryTest do
   use ExUnit.Case, async: true
 
+  alias Jido.Action.Error
   alias Jido.Flow
   alias Jido.Flow.{Choice, Condition, Iterator, Node, Ref, Registry, State}
   alias JidoTest.TestActions.Add
@@ -348,6 +349,7 @@ defmodule Jido.Flow.RegistryTest do
     assert Exception.message(error) == "stored flow map contains invalid UTF-8"
     assert error.details.profile == :stored
     assert is_list(error.details.path)
+    assert is_binary(error |> Error.to_map() |> JSON.encode!())
   end
 
   test "does not write a stored map that exceeds the reader resource budget" do

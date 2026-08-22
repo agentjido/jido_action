@@ -27,11 +27,19 @@ defmodule Jido.Flow.Constructor do
 
   def build(_attrs), do: invalid_attributes()
 
-  defp fetch_node_specs(%{node_specs: specs}) when is_list(specs), do: {:ok, specs}
-  defp fetch_node_specs(%{nodes: specs}) when is_list(specs), do: {:ok, specs}
+  defp fetch_node_specs(%{node_specs: specs}) when is_list(specs), do: validate_node_specs(specs)
+  defp fetch_node_specs(%{nodes: specs}) when is_list(specs), do: validate_node_specs(specs)
 
   defp fetch_node_specs(_attrs) do
     {:error, Error.validation_error("flow nodes must be a list", %{path: [:nodes]})}
+  end
+
+  defp validate_node_specs(specs) do
+    if List.improper?(specs) do
+      {:error, Error.validation_error("flow nodes must be a proper list", %{path: [:nodes]})}
+    else
+      {:ok, specs}
+    end
   end
 
   defp build_nodes(specs) do
@@ -267,7 +275,15 @@ defmodule Jido.Flow.Constructor do
   end
 
   defp normalize_after(nil), do: {:ok, []}
-  defp normalize_after(after_targets) when is_list(after_targets), do: {:ok, after_targets}
+
+  defp normalize_after(after_targets) when is_list(after_targets) do
+    if List.improper?(after_targets) do
+      {:error, Error.validation_error("flow node dependencies must be a proper list")}
+    else
+      {:ok, after_targets}
+    end
+  end
+
   defp normalize_after(after_target), do: {:ok, [after_target]}
 
   defp normalize_provenance(spec) do

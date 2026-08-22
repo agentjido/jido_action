@@ -45,6 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * emit a node error event when an asynchronous node task is killed
 * reject Builder option collisions and duplicate declarative fields or map keys
 * use one canonical constructor for the DSL, Builder, and stored Flow maps
+* return structured validation errors for improper runtime lists and reject negative path indexes
 
 ### Documentation:
 

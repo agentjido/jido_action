@@ -70,6 +70,13 @@ defmodule Jido.Flow.RefTest do
       assert details.segment == :tail
     end
 
+    test "rejects negative list indexes" do
+      ref = Ref.input([:items, -1])
+
+      assert {:error, %InvalidInputError{details: %{reason: :path, segment: -1}}} =
+               Ref.validate(ref)
+    end
+
     test "enforces explicit local-ref scopes" do
       map_locals = [Ref.item(), Ref.item_index(), Ref.item_id()]
 

@@ -61,6 +61,8 @@ Use `jido_action` for validated work and data-first composition:
   `Jido.Flow.Registry`.
 - Use the returned structured error as feedback when a UI or AI agent submits
   an invalid stored map. The reader does not raise for validation failures.
+- Use proper lists in runtime Flow data and non-negative integers for list path
+  indexes. Invalid values return structured validation errors.
 - Do not parse or evaluate stored Elixir DSL source. AI systems can produce
   stored JSON or Map data instead.
 

@@ -128,6 +128,16 @@ defmodule Jido.Flow.NodeTest do
       end
     end
 
+    test "returns validation errors for improper constructor lists" do
+      for attrs <- [
+            [{:name, "bad"} | :tail],
+            %{name: "bad_deps", action: Add, deps: ["first" | :tail]},
+            %{name: "bad_input", action: Add, input: [Ref.input(:value) | :tail]}
+          ] do
+        assert {:error, %InvalidInputError{}} = Node.new(attrs)
+      end
+    end
+
     test "rejects unknown node fields and invalid ref paths" do
       assert {:error, %InvalidInputError{message: message, details: details}} =
                Node.new(name: :bad, action: Add, inpoot: %{})

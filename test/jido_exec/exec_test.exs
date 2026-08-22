@@ -2,6 +2,7 @@ defmodule Jido.ExecTest do
   use JidoTest.ActionCase, async: true
 
   alias Jido.Action.Error.{ConfigurationError, ExecutionFailureError, InvalidInputError}
+  alias Jido.Action.Output
   alias Jido.Exec
   alias Jido.Flow
   alias Jido.Flow.{Builder, Choice, Condition, Node, Reduce, Ref}
@@ -451,6 +452,63 @@ defmodule Jido.ExecTest do
       end
     end
 
+    test "uses zero-based result indexes in run-to-completion and step-wise execution" do
+      module = unique_module("ListOutputAction")
+
+      create_module(
+        module,
+        quote do
+          use Jido.Action, name: "list_output_action"
+
+          @impl true
+          def run(_params, _context), do: {:ok, %{items: [%{value: 1}, %{value: 2}]}}
+        end
+      )
+
+      flow =
+        Flow.new!(
+          name: "indexed_result",
+          nodes: [Node.new!(name: "output", action: module)],
+          return: Ref.result("output", [:items, 0])
+        )
+
+      assert {:ok, %{value: 1}} = Exec.run(flow)
+      assert {:ok, execution} = Exec.start(flow)
+      assert {:ok, execution} = Exec.continue(execution)
+      assert {:ok, %{value: 1}} = Exec.result(execution)
+    end
+
+    test "returns the same error for an out-of-range result index in both execution modes" do
+      module = unique_module("ShortListOutputAction")
+
+      create_module(
+        module,
+        quote do
+          use Jido.Action, name: "short_list_output_action"
+
+          @impl true
+          def run(_params, _context), do: {:ok, %{items: [%{value: 1}]}}
+        end
+      )
+
+      flow =
+        Flow.new!(
+          name: "missing_index_result",
+          nodes: [Node.new!(name: "output", action: module)],
+          return: Ref.result("output", [:items, 99])
+        )
+
+      assert {:error, run_error} = Exec.run(flow)
+      assert {:ok, execution} = Exec.start(flow)
+      assert {:ok, execution} = Exec.continue(execution)
+      assert {:error, step_error} = Exec.result(execution)
+
+      assert Exception.message(run_error) ==
+               "action returned a value that requires an output envelope"
+
+      assert Exception.message(step_error) == Exception.message(run_error)
+    end
+
     test "does not raise when a result path reaches an improper list tail" do
       module = unique_module("ImproperListOutputAction")
 
@@ -460,7 +518,9 @@ defmodule Jido.ExecTest do
           use Jido.Action, name: "improper_list_output_action"
 
           @impl true
-          def run(_params, _context), do: {:ok, %{items: [1 | :tail]}}
+          def run(_params, _context) do
+            {:ok, unquote(Output).raw(%{items: [%{value: 1} | :tail]})}
+          end
         end
       )
 
@@ -468,11 +528,18 @@ defmodule Jido.ExecTest do
         Flow.new!(
           name: "improper_list_result",
           nodes: [Node.new!(name: "output", action: module)],
-          return: Ref.result("output", [:items, 1])
+          return: Ref.result("output", [:value, :items, 1])
         )
 
-      assert {:error, %ExecutionFailureError{message: message}} = Exec.run(flow)
-      assert message == "action returned a value that requires an output envelope"
+      assert {:error, run_error} = Exec.run(flow)
+      assert {:ok, execution} = Exec.start(flow)
+      assert {:ok, execution} = Exec.continue(execution)
+      assert {:error, step_error} = Exec.result(execution)
+
+      assert Exception.message(run_error) ==
+               "action returned a value that requires an output envelope"
+
+      assert Exception.message(step_error) == Exception.message(run_error)
     end
 
     test "executes a Flow artifact" do

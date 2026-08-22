@@ -58,6 +58,14 @@ defmodule Jido.Flow.IteratorTest do
              )
   end
 
+  test "returns a validation error for an improper body input list" do
+    assert {:error,
+            %InvalidInputError{
+              message: "iterator body input must be a proper list",
+              details: %{path: [:input]}
+            }} = Iterator.new(%{iterator() | input: [Ref.state(:value) | :tail]})
+  end
+
   test "emits a semantic Iterator map without engine values" do
     map = Iterator.to_map(iterator())
 

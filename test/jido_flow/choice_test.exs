@@ -131,6 +131,41 @@ defmodule Jido.Flow.ChoiceTest do
       assert Choice.to_map(choice).deps == []
       assert Choice.to_map(choice, provenance: true).provenance == %{}
     end
+
+    test "returns validation errors for improper constructor lists" do
+      condition = Condition.eq(1, 1)
+      option = [name: "only", condition: condition, action: Add]
+
+      cases = [
+        [{:name, "bad"} | :tail],
+        %{name: "bad_options", options: [option | :tail], fallback: [action: Add]},
+        %{
+          name: "bad_option",
+          options: [[{:name, "only"}, {:condition, condition}, {:action, Add} | :tail]],
+          fallback: [action: Add]
+        },
+        %{
+          name: "bad_fallback",
+          options: [option],
+          fallback: [{:action, Add} | :tail]
+        },
+        %{
+          name: "bad_deps",
+          options: [option],
+          fallback: [action: Add],
+          deps: ["first" | :tail]
+        },
+        %{
+          name: "bad_input",
+          options: [[name: "only", condition: condition, action: Add, input: [1 | :tail]]],
+          fallback: [action: Add]
+        }
+      ]
+
+      for attrs <- cases do
+        assert {:error, %InvalidInputError{}} = Choice.new(attrs)
+      end
+    end
   end
 
   test "collects all condition, target input, and explicit result dependencies" do

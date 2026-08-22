@@ -39,6 +39,14 @@ defmodule Jido.Exec.TelemetryTest do
     def run(_params, _context), do: Process.exit(self(), :kill)
   end
 
+  defmodule ListOutputAction do
+    @moduledoc false
+    use Jido.Action, name: "telemetry_list_output"
+
+    @impl true
+    def run(_params, _context), do: {:ok, %{items: [%{value: 1}]}}
+  end
+
   test "emits the exact Exec lifecycle for an Action" do
     attach(@public_events)
 
@@ -224,6 +232,34 @@ defmodule Jido.Exec.TelemetryTest do
     assert node_error.execution_id == exec_start.execution_id
     assert node_error.error == error
     assert Map.drop(node_error, [:error, :error_type]) == node_start
+  end
+
+  test "reports final result-path errors after the node span stops" do
+    attach(@public_events)
+
+    flow =
+      Flow.new!(
+        name: "missing_result_path",
+        nodes: [Node.new!(name: "list", action: ListOutputAction)],
+        return: Ref.result("list", [:items, 99])
+      )
+
+    assert {:error, error} = Exec.run(flow)
+
+    assert [
+             {@exec_start, _, exec_start},
+             {@flow_start, _, _flow_start},
+             {@node_start, _, node_start},
+             {@node_stop, _, node_stop},
+             {@flow_error, _, flow_error},
+             {@exec_error, _, exec_error}
+           ] = events()
+
+    assert node_stop == node_start
+    assert flow_error.execution_id == exec_start.execution_id
+    assert exec_error.execution_id == exec_start.execution_id
+    assert flow_error.error == error
+    assert exec_error.error == error
   end
 
   test "step-wise execution closes lifecycle events only at a terminal step" do

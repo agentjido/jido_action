@@ -74,6 +74,8 @@ defmodule Jido.Flow.MapTest do
          [:action]},
         {%{name: :bad, collection: [], action: Add, on_error: :continue},
          "map on_error must be :fail_fast or :collect_errors", [:on_error]},
+        {%{name: :bad, collection: [1 | :tail], action: Add},
+         "map collection must be a proper list", [:collection]},
         {%{name: :bad, collection: [], action: Add, deps: :bad}, "map deps must be a list",
          [:deps]},
         {%{name: :bad, collection: [], action: Add, deps: [:ok | :tail]},

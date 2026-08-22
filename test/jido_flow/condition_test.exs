@@ -46,6 +46,14 @@ defmodule Jido.Flow.ConditionTest do
       end
     end
 
+    test "returns a validation error for improper operands" do
+      assert {:error,
+              %InvalidInputError{
+                message: "choice condition operands must be a proper list",
+                details: %{path: []}
+              }} = Condition.new(:eq, [1 | :tail])
+    end
+
     test "rejects invalid nested conditions, malformed refs, structs, and predicate functions" do
       assert {:error, %InvalidInputError{message: message, details: details}} =
                Condition.new(:all, [Condition.eq(1, 1), :not_a_condition])

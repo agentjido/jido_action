@@ -71,7 +71,12 @@ defmodule Jido.Flow.Choice do
   """
   @spec new(map() | keyword() | t()) :: {:ok, t()} | {:error, Exception.t()}
   def new(%__MODULE__{} = choice), do: choice |> Map.from_struct() |> new()
-  def new(attrs) when is_list(attrs), do: attrs |> Map.new() |> new()
+
+  def new(attrs) when is_list(attrs) do
+    if Keyword.keyword?(attrs),
+      do: attrs |> Map.new() |> new(),
+      else: {:error, Error.validation_error("choice configuration must be a map", %{path: []})}
+  end
 
   def new(%{} = attrs) do
     with :ok <- validate_known_keys(attrs),
@@ -203,6 +208,14 @@ defmodule Jido.Flow.Choice do
   end
 
   defp validate_options(options, path) do
+    if List.improper?(options) do
+      {:error, Error.validation_error("choice options must be a proper list", %{path: path})}
+    else
+      validate_proper_options(options, path)
+    end
+  end
+
+  defp validate_proper_options(options, path) do
     options
     |> Enum.with_index()
     |> Enum.reduce_while({:ok, []}, fn {attrs, index}, {:ok, acc} ->
@@ -211,32 +224,35 @@ defmodule Jido.Flow.Choice do
         {:error, error} -> {:halt, {:error, error}}
       end
     end)
-    |> case do
-      {:ok, options} ->
-        options = Enum.reverse(options)
+    |> normalize_options()
+  end
 
-        case duplicate_option_name(options) do
-          nil ->
-            {:ok, options}
+  defp normalize_options({:ok, options}) do
+    options = Enum.reverse(options)
 
-          {name, index} ->
-            {:error,
-             Error.validation_error("duplicate choice option name: #{inspect(name)}", %{
-               path: [:options, index, :name],
-               name: name
-             })}
-        end
+    case duplicate_option_name(options) do
+      nil ->
+        {:ok, options}
 
-      {:error, error} ->
-        {:error, error}
+      {name, index} ->
+        {:error,
+         Error.validation_error("duplicate choice option name: #{inspect(name)}", %{
+           path: [:options, index, :name],
+           name: name
+         })}
     end
   end
+
+  defp normalize_options({:error, error}), do: {:error, error}
 
   defp validate_option(%Option{} = option, path),
     do: option |> Map.from_struct() |> validate_option(path)
 
-  defp validate_option(attrs, path) when is_list(attrs),
-    do: attrs |> Map.new() |> validate_option(path)
+  defp validate_option(attrs, path) when is_list(attrs) do
+    if Keyword.keyword?(attrs),
+      do: attrs |> Map.new() |> validate_option(path),
+      else: {:error, Error.validation_error("choice option must be a map", %{path: path})}
+  end
 
   defp validate_option(%{} = attrs, path) do
     with :ok <-
@@ -270,8 +286,11 @@ defmodule Jido.Flow.Choice do
      Error.validation_error("choice fallback name must be :fallback", %{path: path ++ [:name]})}
   end
 
-  defp validate_fallback(attrs, path) when is_list(attrs),
-    do: attrs |> Map.new() |> validate_fallback(path)
+  defp validate_fallback(attrs, path) when is_list(attrs) do
+    if Keyword.keyword?(attrs),
+      do: attrs |> Map.new() |> validate_fallback(path),
+      else: {:error, Error.validation_error("choice fallback must be a map", %{path: path})}
+  end
 
   defp validate_fallback(%{} = attrs, path) do
     with :ok <- validate_known_keys(attrs, [:action, :input], "choice fallback", path),
@@ -327,6 +346,18 @@ defmodule Jido.Flow.Choice do
   defp validate_deps(nil, _path), do: {:ok, []}
 
   defp validate_deps(deps, _path) when is_list(deps) do
+    if List.improper?(deps) do
+      {:error, Error.validation_error("choice deps must be a proper list", %{path: [:deps]})}
+    else
+      validate_proper_deps(deps)
+    end
+  end
+
+  defp validate_deps(_deps, _path) do
+    {:error, Error.validation_error("choice deps must be a list", %{path: [:deps]})}
+  end
+
+  defp validate_proper_deps(deps) do
     deps
     |> Enum.reduce_while({:ok, []}, fn dep, {:ok, acc} ->
       case validate_name(dep, [:deps]) do
@@ -336,17 +367,15 @@ defmodule Jido.Flow.Choice do
         {:error, _error} ->
           {:halt,
            {:error,
-            Error.validation_error("choice deps must be a list of step names", %{path: [:deps]})}}
+            Error.validation_error("choice deps must be a list of step names", %{
+              path: [:deps]
+            })}}
       end
     end)
     |> case do
       {:ok, deps} -> {:ok, deps |> Enum.uniq() |> Enum.sort()}
       {:error, error} -> {:error, error}
     end
-  end
-
-  defp validate_deps(_deps, _path) do
-    {:error, Error.validation_error("choice deps must be a list", %{path: [:deps]})}
   end
 
   defp validate_provenance(nil), do: {:ok, %{}}
@@ -446,6 +475,9 @@ defmodule Jido.Flow.Choice do
           path: nested_path,
           type: details.type
         })
+
+      :improper_list ->
+        Error.validation_error("choice target input must be a proper list", %{path: nested_path})
 
       :unsupported_expression ->
         Error.validation_error("choice target input contains unsupported expression", %{

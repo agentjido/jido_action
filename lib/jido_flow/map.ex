@@ -180,6 +180,9 @@ defmodule Jido.Flow.Map do
           type: details.type
         })
 
+      :improper_list ->
+        Error.validation_error("#{owner} must be a proper list", %{path: path})
+
       :unsupported_expression ->
         Error.validation_error("#{owner} contains unsupported expression", %{
           path: path,

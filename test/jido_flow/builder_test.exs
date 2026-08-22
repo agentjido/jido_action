@@ -2,7 +2,7 @@ defmodule Jido.Flow.BuilderTest do
   use JidoTest.ActionCase, async: true
 
   alias Jido.Flow
-  alias Jido.Flow.Builder
+  alias Jido.Flow.{Builder, Constructor}
   alias Jido.Flow.Ref
 
   alias JidoTest.TestActions.{Add, EchoParamsAction, Multiply}
@@ -99,6 +99,24 @@ defmodule Jido.Flow.BuilderTest do
 
     assert {:error, error} = Builder.build(builder)
     assert Exception.message(error) =~ "name"
+  end
+
+  test "canonical construction returns errors for improper runtime lists" do
+    step = %{kind: :step, name: "echo", action: EchoParamsAction, input: %{}}
+
+    assert {:error, %Jido.Action.Error.InvalidInputError{}} =
+             Constructor.build(%{
+               name: "bad_specs",
+               node_specs: [step | :tail],
+               return: Ref.result("echo")
+             })
+
+    assert {:error, %Jido.Action.Error.InvalidInputError{}} =
+             Constructor.build(%{
+               name: "bad_after",
+               node_specs: [Map.put(step, :after, ["first" | :tail])],
+               return: Ref.result("echo")
+             })
   end
 
   test "rejects options that replace positional Step fields" do

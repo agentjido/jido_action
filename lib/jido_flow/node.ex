@@ -31,7 +31,12 @@ defmodule Jido.Flow.Node do
   """
   @spec new(map() | keyword() | t()) :: {:ok, t()} | {:error, Exception.t()}
   def new(%__MODULE__{} = node), do: node |> Map.from_struct() |> new()
-  def new(attrs) when is_list(attrs), do: attrs |> Map.new() |> new()
+
+  def new(attrs) when is_list(attrs) do
+    if Keyword.keyword?(attrs),
+      do: attrs |> Map.new() |> new(),
+      else: {:error, Error.validation_error("node configuration must be a map")}
+  end
 
   def new(%{} = attrs) do
     with :ok <- validate_known_keys(attrs),
@@ -129,12 +134,18 @@ defmodule Jido.Flow.Node do
 
   @doc false
   @spec expression_error_kind(Exception.t()) ::
-          :invalid_ref_path | :invalid_ref | :invalid_scope | :unsupported_expression | :other
+          :invalid_ref_path
+          | :invalid_ref
+          | :invalid_scope
+          | :improper_list
+          | :unsupported_expression
+          | :other
   def expression_error_kind(%{details: %{ref_type: _type, scope: _scope}}),
     do: :invalid_scope
 
   def expression_error_kind(%{details: %{segment: _segment}}), do: :invalid_ref_path
   def expression_error_kind(%{details: %{type: _type}}), do: :invalid_ref
+  def expression_error_kind(%{details: %{reason: :improper_list}}), do: :improper_list
   def expression_error_kind(%{details: %{expression: _expression}}), do: :unsupported_expression
   def expression_error_kind(_error), do: :other
 
@@ -173,6 +184,16 @@ defmodule Jido.Flow.Node do
   defp validate_deps(nil), do: {:ok, []}
 
   defp validate_deps(deps) when is_list(deps) do
+    if List.improper?(deps) do
+      {:error, Error.validation_error("node deps must be a proper list")}
+    else
+      validate_proper_deps(deps)
+    end
+  end
+
+  defp validate_deps(_deps), do: {:error, Error.validation_error("node deps must be a list")}
+
+  defp validate_proper_deps(deps) do
     deps
     |> Enum.reduce_while({:ok, []}, fn dep, {:ok, acc} ->
       case validate_name(dep) do
@@ -188,8 +209,6 @@ defmodule Jido.Flow.Node do
       {:error, error} -> {:error, error}
     end
   end
-
-  defp validate_deps(_deps), do: {:error, Error.validation_error("node deps must be a list")}
 
   defp validate_provenance(nil), do: {:ok, %{}}
   defp validate_provenance(provenance) when is_map(provenance), do: {:ok, provenance}
@@ -232,14 +251,11 @@ defmodule Jido.Flow.Node do
   end
 
   defp validate_input_expression(list, path, scope) when is_list(list) do
-    list
-    |> Enum.with_index()
-    |> Enum.reduce_while(:ok, fn {value, index}, :ok ->
-      case validate_input_expression(value, path ++ [index], scope) do
-        :ok -> {:cont, :ok}
-        {:error, error} -> {:halt, {:error, error}}
-      end
-    end)
+    if List.improper?(list) do
+      improper_list_error(path)
+    else
+      validate_proper_list_expression(list, path, scope)
+    end
   end
 
   defp validate_input_expression(%{__struct__: module}, path, _scope) do
@@ -274,6 +290,27 @@ defmodule Jido.Flow.Node do
   end
 
   defp do_normalize_expression(list, path) when is_list(list) do
+    if List.improper?(list) do
+      improper_list_error(path)
+    else
+      normalize_proper_list_expression(list, path)
+    end
+  end
+
+  defp do_normalize_expression(value, _path), do: {:ok, value}
+
+  defp validate_proper_list_expression(list, path, scope) do
+    list
+    |> Enum.with_index()
+    |> Enum.reduce_while(:ok, fn {value, index}, :ok ->
+      case validate_input_expression(value, path ++ [index], scope) do
+        :ok -> {:cont, :ok}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+  end
+
+  defp normalize_proper_list_expression(list, path) do
     list
     |> Enum.with_index()
     |> Enum.reduce_while({:ok, []}, fn {value, index}, {:ok, acc} ->
@@ -287,8 +324,6 @@ defmodule Jido.Flow.Node do
       {:error, error} -> {:error, error}
     end
   end
-
-  defp do_normalize_expression(value, _path), do: {:ok, value}
 
   defp validate_known_keys(attrs) do
     case attrs |> Map.keys() |> Enum.find(&(&1 not in @config_keys)) do
@@ -306,6 +341,14 @@ defmodule Jido.Flow.Node do
      Error.validation_error("node input contains invalid ref", %{
        path: path,
        type: type
+     })}
+  end
+
+  defp improper_list_error(path) do
+    {:error,
+     Error.validation_error("flow expression must be a proper list", %{
+       path: path,
+       reason: :improper_list
      })}
   end
 end
