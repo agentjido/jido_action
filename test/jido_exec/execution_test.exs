@@ -354,6 +354,23 @@ defmodule Jido.Exec.ExecutionTest do
       assert message == "flow execution is not running"
       assert details.status == :succeeded
     end
+
+    test "rejects non-string names and terminal wave calls" do
+      assert {:ok, execution} = Exec.start(linear_flow(), %{value: 3})
+
+      assert {:error, %InvalidInputError{message: message, details: %{node: :add}}} =
+               Exec.step(execution, :add)
+
+      assert message == "flow node name must be a string"
+
+      assert {:ok, execution} = Exec.continue(execution)
+
+      assert {:error, %InvalidInputError{message: "flow execution is not running"}} =
+               Exec.step(execution, "add")
+
+      assert {:error, %InvalidInputError{message: "flow execution is not running"}} =
+               Exec.wave(execution)
+    end
   end
 
   describe "wave/1" do

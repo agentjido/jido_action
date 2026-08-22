@@ -163,7 +163,7 @@ defmodule Jido.DocumentationTest do
   test "release checks have a coverage floor and non-interactive docs" do
     project = Mix.Project.config()
 
-    assert project[:test_coverage][:summary][:threshold] >= 79
+    assert project[:test_coverage][:summary][:threshold] >= 90
     refute Keyword.has_key?(project[:aliases], :docs)
     assert "credo --min-priority high" in project[:aliases][:quality]
 

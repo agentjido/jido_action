@@ -182,4 +182,88 @@ defmodule Jido.FlowTest do
                apply(Flow, function, [:not_a_flow])
     end
   end
+
+  test "normalizes Flow structs and rejects invalid public subjects" do
+    flow =
+      Flow.new!(
+        name: "normalized_struct",
+        nodes: [Node.new!(name: "echo", action: EchoParamsAction)],
+        return: Ref.result("echo")
+      )
+
+    assert {:ok, ^flow} = Flow.new(flow)
+
+    assert {:error, %InvalidInputError{message: "flow configuration must be a map"}} =
+             Flow.new(:invalid)
+
+    assert {:error, %InvalidInputError{message: "expected a Jido.Flow artifact"}} =
+             Flow.validate(:invalid)
+
+    assert Flow.canonical_nodes([]) == []
+  end
+
+  test "returns focused configuration errors for invalid Flow data" do
+    node = Node.new!(name: "echo", action: EchoParamsAction)
+    base = %{name: "invalid", nodes: [node], return: Ref.result("echo")}
+
+    invalid = [
+      {Map.put(base, :unknown, true), "unknown Flow configuration key"},
+      {%{base | name: ""}, "Action name cannot be blank"},
+      {Map.put(base, :description, :bad), "description must be a string"},
+      {Map.put(base, :schema, :bad), "schema must be a Zoi schema"},
+      {Map.put(base, :output_schema, :bad), "output_schema must be a Zoi schema"},
+      {%{base | nodes: :bad}, "flow nodes must be a list"},
+      {%{base | nodes: [:bad]}, "node configuration must be a map"},
+      {%{base | return: nil}, "return ref is required"},
+      {%{base | return: Ref.value(1)}, "return must reference"},
+      {%{base | return: Ref.result("missing")}, "unknown step"},
+      {Map.put(base, :provenance, :bad), "flow provenance must be a map"}
+    ]
+
+    for {attrs, message} <- invalid do
+      assert {:error, error} = Flow.new(attrs)
+      assert Exception.message(error) =~ message
+    end
+  end
+
+  test "validates compile-time Flow configuration as data" do
+    assert {:ok, config} =
+             Flow.__validate_config__(%{
+               name: "module_flow",
+               description: nil,
+               schema: nil,
+               output_schema: nil
+             })
+
+    assert config.schema == []
+    assert config.output_schema == []
+
+    for attrs <- [
+          :invalid,
+          %{name: "flow", unknown: true},
+          %{name: nil},
+          %{name: "flow", description: :bad},
+          %{name: "flow", schema: :bad},
+          %{name: "flow", output_schema: :bad}
+        ] do
+      assert {:error, %InvalidInputError{}} = Flow.__validate_config__(attrs)
+    end
+  end
+
+  test "inspection APIs reject structurally invalid Flow values" do
+    flow = %Flow{
+      name: "invalid",
+      description: nil,
+      schema: [],
+      output_schema: [],
+      nodes: [],
+      return: nil,
+      provenance: %{}
+    }
+
+    for function <- [:dependencies, :explain, :semantic_identity] do
+      assert {:error, %InvalidInputError{message: "return ref is required"}} =
+               apply(Flow, function, [flow])
+    end
+  end
 end

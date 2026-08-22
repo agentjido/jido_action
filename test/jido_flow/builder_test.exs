@@ -2,8 +2,16 @@ defmodule Jido.Flow.BuilderTest do
   use JidoTest.ActionCase, async: true
 
   alias Jido.Flow
-  alias Jido.Flow.{Builder, Constructor}
+  alias Jido.Flow.Builder
+  alias Jido.Flow.Choice
+  alias Jido.Flow.Condition
+  alias Jido.Flow.Constructor
+  alias Jido.Flow.Iterator
+  alias Jido.Flow.Map, as: FlowMap
+  alias Jido.Flow.Node
+  alias Jido.Flow.Reduce
   alias Jido.Flow.Ref
+  alias Jido.Flow.State
 
   alias JidoTest.TestActions.{Add, EchoParamsAction, Multiply}
 
@@ -149,5 +157,167 @@ defmodule Jido.Flow.BuilderTest do
   test "select appends a path to a canonical reference" do
     assert Builder.select(Builder.result("load", :payload), [:items, 0]) ==
              Ref.result("load", [:payload, :items, 0])
+  end
+
+  test "exposes the complete runtime reference and condition vocabulary" do
+    assert Builder.context(:request) == Ref.context(:request)
+    assert Builder.value(:ready) == Ref.value(:ready)
+    assert Builder.item(:value) == Ref.item(:value)
+    assert Builder.item_index() == Ref.item_index()
+    assert Builder.item_id() == Ref.item_id()
+    assert Builder.accumulator(:value) == Ref.accumulator(:value)
+    assert Builder.state(:value) == Ref.state(:value)
+    assert Builder.iteration_index() == Ref.iteration_index()
+    assert Builder.body_result(:value) == Ref.body_result(:value)
+
+    left = Builder.value(1)
+    right = Builder.value(2)
+
+    for {condition, operator} <- [
+          {Builder.eq(left, right), :eq},
+          {Builder.neq(left, right), :neq},
+          {Builder.lt(left, right), :lt},
+          {Builder.lte(left, right), :lte},
+          {Builder.gt(left, right), :gt},
+          {Builder.gte(left, right), :gte},
+          {Builder.in(left, [right]), :in},
+          {Builder.all([Builder.eq(left, right)]), :all},
+          {Builder.any([Builder.eq(left, right)]), :any},
+          {Builder.not(Builder.eq(left, right)), :not}
+        ] do
+      assert condition.operator == operator
+    end
+  end
+
+  test "rejects invalid Builder metadata and node option containers" do
+    assert_raise ArgumentError, "invalid Flow metadata", fn ->
+      Builder.new([{:name, "bad"} | :tail])
+    end
+
+    for options <- [[after: [], after: ["duplicate"]], [{:after, []} | :tail], :invalid] do
+      builder =
+        Builder.new(name: "invalid_options")
+        |> Builder.step("echo", EchoParamsAction, %{}, options)
+
+      assert {:error, error} = Builder.build(builder)
+
+      assert Exception.message(error) ==
+               "Builder node options must be a keyword list with unique keys"
+    end
+  end
+
+  test "canonical constructor accepts every prebuilt node kind" do
+    nodes = [
+      Node.new!(name: "step", action: Add),
+      Choice.new!(
+        name: "choice",
+        options: [
+          [
+            name: "yes",
+            condition: Condition.eq(Ref.value(1), Ref.value(1)),
+            action: Add
+          ]
+        ],
+        fallback: [action: Multiply]
+      ),
+      FlowMap.new!(name: "map", collection: Ref.value([]), action: Add, input: Ref.item()),
+      Reduce.new!(
+        name: "reduce",
+        collection: Ref.value([]),
+        initial: Ref.value(%{}),
+        action: Add,
+        input: %{value: Ref.accumulator(), amount: Ref.item()}
+      ),
+      Iterator.new!(
+        name: "iterate",
+        action: Add,
+        input: %{value: Ref.state(:value)},
+        state: State.new!(schema: [], initial: %{value: 0}, update: Ref.body_result()),
+        completion: %Condition{
+          operator: :gte,
+          operands: [Ref.iteration_index(), Ref.value(1)]
+        },
+        max_iterations: 1
+      )
+    ]
+
+    assert {:ok, flow} = Constructor.build(name: "prebuilt", nodes: nodes)
+    assert Enum.map(flow.nodes, & &1.name) == ["step", "choice", "map", "reduce", "iterate"]
+    assert flow.return == Ref.result("iterate")
+  end
+
+  test "canonical constructor validates data node specifications" do
+    base = %{kind: :step, name: "step", action: Add}
+
+    invalid = [
+      {:invalid, "construction attributes"},
+      {%{name: "missing_nodes"}, "nodes must be a list"},
+      {%{name: "bad_nodes", nodes: :bad}, "nodes must be a list"},
+      {%{name: "bad_node", nodes: [:bad]}, "node specification must be a map"},
+      {%{name: "missing_kind", nodes: [%{name: "step", action: Add}]}, "node kind is required"},
+      {%{name: "bad_kind", nodes: [%{base | kind: :unknown}]}, "unsupported flow node kind"},
+      {%{name: "bad_key", nodes: [Map.put(base, :unknown, true)]},
+       "unknown step configuration key"},
+      {%{name: "bad_meta", nodes: [Map.put(base, :meta, :bad)]}, "node metadata must be a map"},
+      {%{name: "empty", nodes: []}, "must declare at least one node"}
+    ]
+
+    for {attrs, message} <- invalid do
+      assert {:error, error} = Constructor.build(attrs)
+      assert Exception.message(error) =~ message
+    end
+  end
+
+  test "canonical constructor normalizes termination and dependency forms" do
+    first = %{kind: :step, name: "first", action: Add}
+    second = %{kind: :step, name: "second", action: Add, after: :first, meta: %{line: 2}}
+
+    assert {:ok, flow} = Constructor.build(name: "deps", nodes: [first, second])
+    assert Enum.find(flow.nodes, &(&1.name == "second")).deps == ["first"]
+
+    state = [schema: [], initial: %{value: 0}]
+
+    for termination <- [
+          [repeat: 1],
+          [until: Condition.eq(Ref.value(true), Ref.value(true)), max_iterations: 1],
+          [while: Condition.eq(Ref.value(false), Ref.value(true)), max_iterations: 1],
+          [
+            completion: %Condition{
+              operator: :gte,
+              operands: [Ref.iteration_index(), Ref.value(1)]
+            },
+            max_iterations: 1
+          ]
+        ] do
+      iterator =
+        %{kind: :iterate, name: "iterate", action: Add, state: state}
+        |> Map.merge(Map.new(termination))
+
+      assert {:ok, flow} = Constructor.build(name: "termination", nodes: [iterator])
+      assert [%Iterator{}] = flow.nodes
+    end
+
+    invalid = [
+      {%{kind: :iterate, name: "bad", action: Add, state: [1], repeat: 1},
+       "state configuration must be a map"},
+      {%{kind: :iterate, name: "bad", action: Add, state: state, repeat: 1, max_iterations: 2},
+       "repeat must not set max_iterations"},
+      {%{kind: :iterate, name: "bad", action: Add, state: state, repeat: 0}, "repeat count"},
+      {%{kind: :iterate, name: "bad", action: Add, state: state, until: Ref.value(true)},
+       "max_iterations"},
+      {%{
+         kind: :iterate,
+         name: "bad",
+         action: Add,
+         state: state,
+         repeat: 1,
+         until: Ref.value(true)
+       }, "exactly one"}
+    ]
+
+    for {spec, message} <- invalid do
+      assert {:error, error} = Constructor.build(name: "invalid", nodes: [spec])
+      assert Exception.message(error) =~ message
+    end
   end
 end

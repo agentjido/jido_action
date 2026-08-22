@@ -206,6 +206,257 @@ defmodule Jido.Flow.SparkDSLTest do
     end
   end
 
+  test "Flow declarations reject invalid and mixed option forms" do
+    invalid_options = unique_module("InvalidStepOptionsFlow")
+
+    assert_raise CompileError, ~r/Flow declaration options must be a keyword list/, fn ->
+      create_module(
+        invalid_options,
+        quote do
+          use Jido.Flow, name: "invalid_step_options_flow"
+
+          flow do
+            step("echo", :invalid)
+          end
+        end
+      )
+    end
+
+    mixed_step = unique_module("MixedStepOptionsFlow")
+
+    assert_raise CompileError,
+                 ~r/do not mix keyword and block fields in one declaration/,
+                 fn ->
+                   create_module(
+                     mixed_step,
+                     quote do
+                       use Jido.Flow, name: "mixed_step_options_flow"
+
+                       flow do
+                         step("echo",
+                           action: unquote(EchoParamsAction),
+                           do: params(%{value: input(:value)})
+                         )
+                       end
+                     end
+                   )
+                 end
+
+    missing_block = unique_module("MissingChoiceBlockFlow")
+
+    assert_raise CompileError, ~r/this Flow declaration requires a do block/, fn ->
+      create_module(
+        missing_block,
+        quote do
+          use Jido.Flow, name: "missing_choice_block_flow"
+
+          flow do
+            choice("route", action: unquote(EchoParamsAction))
+          end
+        end
+      )
+    end
+  end
+
+  test "Choice targets reject invalid, duplicate, and mixed option forms" do
+    invalid_options = unique_module("InvalidChoiceOptionsFlow")
+
+    assert_raise CompileError, ~r/Choice declaration options must be a keyword list/, fn ->
+      create_module(
+        invalid_options,
+        quote do
+          use Jido.Flow, name: "invalid_choice_options_flow"
+
+          flow do
+            choice "route" do
+              option("echo", :invalid)
+            end
+          end
+        end
+      )
+    end
+
+    duplicate_field = unique_module("DuplicateChoiceFieldFlow")
+
+    assert_raise CompileError, ~r/duplicate Choice declaration field: :params/, fn ->
+      create_module(
+        duplicate_field,
+        quote do
+          use Jido.Flow, name: "duplicate_choice_field_flow"
+
+          flow do
+            choice "route" do
+              option("echo",
+                action: unquote(EchoParamsAction),
+                condition: value(true),
+                params: %{value: value(1)},
+                params: %{value: value(2)}
+              )
+            end
+          end
+        end
+      )
+    end
+
+    mixed_target = unique_module("MixedChoiceTargetFlow")
+
+    assert_raise CompileError,
+                 ~r/do not mix keyword and block fields in one Choice target/,
+                 fn ->
+                   create_module(
+                     mixed_target,
+                     quote do
+                       use Jido.Flow, name: "mixed_choice_target_flow"
+
+                       flow do
+                         choice "route" do
+                           option("echo",
+                             action: unquote(EchoParamsAction),
+                             do: params(%{value: value(1)})
+                           )
+                         end
+                       end
+                     end
+                   )
+                 end
+  end
+
+  test "Iterate state rejects invalid, duplicate, and mixed option forms" do
+    invalid_options = unique_module("InvalidIterateStateOptionsFlow")
+
+    assert_raise CompileError, ~r/Iterate state options must be a keyword list/, fn ->
+      create_module(
+        invalid_options,
+        quote do
+          use Jido.Flow, name: "invalid_iterate_state_options_flow"
+
+          flow do
+            iterate "loop" do
+              state([], :invalid)
+            end
+          end
+        end
+      )
+    end
+
+    duplicate_field = unique_module("DuplicateIterateStateFieldFlow")
+
+    assert_raise CompileError, ~r/duplicate Iterate state field: :initial/, fn ->
+      create_module(
+        duplicate_field,
+        quote do
+          use Jido.Flow, name: "duplicate_iterate_state_field_flow"
+
+          flow do
+            iterate "loop" do
+              state([], initial: %{value: value(1)}, initial: %{value: value(2)})
+            end
+          end
+        end
+      )
+    end
+
+    mixed_state = unique_module("MixedIterateStateFlow")
+
+    assert_raise CompileError, ~r/do not mix keyword and block fields in Iterate state/, fn ->
+      create_module(
+        mixed_state,
+        quote do
+          use Jido.Flow, name: "mixed_iterate_state_flow"
+
+          flow do
+            iterate "loop" do
+              state([],
+                initial: %{value: value(1)},
+                do: initial(%{value: value(2)})
+              )
+            end
+          end
+        end
+      )
+    end
+  end
+
+  test "lowering rejects incomplete Choice and Iterate declarations" do
+    empty_choice = unique_module("EmptyChoiceFlow")
+
+    assert_raise CompileError, ~r/choice must declare at least one option/, fn ->
+      create_module(
+        empty_choice,
+        quote do
+          use Jido.Flow, name: "empty_choice_flow"
+
+          flow do
+            choice "route" do
+            end
+          end
+        end
+      )
+    end
+
+    missing_fallback = unique_module("MissingChoiceFallbackFlow")
+
+    assert_raise CompileError, ~r/choice must declare otherwise/, fn ->
+      create_module(
+        missing_fallback,
+        quote do
+          use Jido.Flow, name: "missing_choice_fallback_flow"
+
+          flow do
+            choice "route" do
+              option("echo",
+                action: unquote(EchoParamsAction),
+                condition: input(:route) == :echo,
+                params: %{value: value(1)}
+              )
+            end
+          end
+        end
+      )
+    end
+
+    missing_state = unique_module("MissingIterateStateFlow")
+
+    assert_raise CompileError, ~r/iterate must declare one state/, fn ->
+      create_module(
+        missing_state,
+        quote do
+          use Jido.Flow, name: "missing_iterate_state_flow"
+
+          flow do
+            iterate "loop" do
+              action(unquote(EchoParamsAction))
+              params(%{value: value(1)})
+              repeat(1)
+            end
+          end
+        end
+      )
+    end
+  end
+
+  test "lowering rejects an output before another declaration" do
+    module = unique_module("NonFinalOutputFlow")
+
+    assert_raise CompileError, ~r/output must be the final Flow declaration/, fn ->
+      create_module(
+        module,
+        quote do
+          use Jido.Flow, name: "non_final_output_flow"
+
+          flow do
+            output(%{value: value(1)})
+
+            step("echo",
+              action: unquote(EchoParamsAction),
+              params: %{value: value(1)}
+            )
+          end
+        end
+      )
+    end
+  end
+
   test "short forms reject duplicate literal map keys" do
     module = unique_module("DuplicateLiteralKeyFlow")
 

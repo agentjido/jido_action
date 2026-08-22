@@ -83,4 +83,48 @@ defmodule Jido.Flow.DSL.ExpressionTest do
     assert {:error, error} = Expression.parse_condition(quote(do: input(:ready)))
     assert Exception.message(error) =~ "unsupported Flow condition"
   end
+
+  test "accepts canonical references and literal maps" do
+    ref = Ref.result("loaded", :value)
+    assert {:ok, ^ref} = Expression.parse(ref)
+
+    assert {:ok, %Ref{type: :value, value: %{status: :ready}}} =
+             Expression.parse(quote(do: value(%{status: :ready})))
+
+    assert {:ok, %{status: %Ref{type: :value, value: :ready}}} =
+             Expression.parse(%{status: :ready})
+  end
+
+  test "lowers every comparison spelling" do
+    for {expression, operator} <- [
+          {quote(do: input(:left) != input(:right)), :neq},
+          {quote(do: input(:left) <= input(:right)), :lte},
+          {quote(do: input(:left) > input(:right)), :gt},
+          {quote(do: input(:left) >= input(:right)), :gte},
+          {quote(do: lt(input(:left), input(:right))), :lt},
+          {quote(do: lte(input(:left), input(:right))), :lte},
+          {quote(do: gt(input(:left), input(:right))), :gt}
+        ] do
+      assert {:ok, %Condition{operator: ^operator}} = Expression.parse_condition(expression)
+    end
+  end
+
+  test "rejects invalid result names, paths, selections, literals, and duplicate maps" do
+    invalid = [
+      quote(do: result(nil)),
+      quote(do: input(1.5)),
+      quote(do: select(%{value: 1}, :path)),
+      quote(do: value(self())),
+      quote(do: %{value: 1, value: 2})
+    ]
+
+    for expression <- invalid do
+      assert {:error, error} = Expression.parse(expression)
+
+      assert Enum.any?(
+               ["unsupported Flow expression", "duplicate Flow map key"],
+               &String.contains?(Exception.message(error), &1)
+             )
+    end
+  end
 end

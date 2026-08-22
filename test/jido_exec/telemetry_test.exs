@@ -2,6 +2,7 @@ defmodule Jido.Exec.TelemetryTest do
   use JidoTest.ActionCase, async: false
   @moduletag capture_log: true
 
+  alias Jido.Action.Telemetry
   alias Jido.Exec
   alias Jido.Flow
   alias Jido.Flow.{Node, Ref}
@@ -320,6 +321,27 @@ defmodule Jido.Exec.TelemetryTest do
     attach(internal_events)
     assert {:ok, %{value: 2}} = Exec.run(one_node_flow(Add), %{value: 1})
     assert events() == []
+  end
+
+  test "classifies non-exception telemetry errors without changing them" do
+    attach([@exec_error])
+
+    values = [
+      {:atom, :atom},
+      {"binary", :binary},
+      {%{map: true}, :map},
+      {{:tuple}, :tuple},
+      {[:list], :list},
+      {self(), :other}
+    ]
+
+    for {value, expected_type} <- values do
+      span = %{event: [:jido, :exec], metadata: %{}, started_at: System.monotonic_time()}
+      assert :ok = Telemetry.error(span, value)
+      assert [{@exec_error, _measurements, metadata}] = events()
+      assert metadata.error == value
+      assert metadata.error_type == expected_type
+    end
   end
 
   defp one_node_flow(action, input \\ %{value: Ref.input(:value)}) do

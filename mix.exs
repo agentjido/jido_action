@@ -29,6 +29,8 @@ defmodule JidoAction.MixProject do
       test_coverage: [
         ignore_modules: [
           ~r/^Inspect\.JidoTest\./,
+          # Spark generates these entity modules. The hand-written DSL macros and lowerer stay covered.
+          ~r/^Jido\.Flow\.DSL\.Extension\.Flow\./,
           ~r/^JidoTest\./,
           ~r/^Mix\.Tasks\./,
           Jido.Action.Error.Config,
@@ -36,7 +38,7 @@ defmodule JidoAction.MixProject do
           Jido.Action.Error.Internal,
           Jido.Action.Error.Invalid
         ],
-        summary: [threshold: 79]
+        summary: [threshold: 90]
       ],
 
       # Dialyzer

@@ -371,6 +371,59 @@ defmodule Jido.Flow.RegistryTest do
     assert error.details.resource == :binary_bytes
   end
 
+  test "normalizes Registry structs and rejects invalid public inputs" do
+    registry = registry()
+    assert {:ok, ^registry} = Registry.new(registry)
+
+    assert {:error, error} = Registry.new(:invalid)
+    assert Exception.message(error) == "flow registry must be a map"
+
+    new_registry! = &Registry.new!/1
+    assert_raise Error.InvalidInputError, fn -> new_registry!.(:invalid) end
+
+    refute Registry.valid_identifier?(nil)
+    refute Registry.valid_identifier?("")
+    refute Registry.valid_identifier?(String.duplicate("a", 256))
+
+    assert {:error, error} = Registry.resolve(registry, "bad identifier!", :action)
+    assert Exception.message(error) == "invalid flow registry identifier"
+  end
+
+  test "bounds invalid Registry diagnostics and enforces its entry limit" do
+    too_large = Map.new(1..10_001, fn index -> {"action/#{index}", {:action, Add}} end)
+
+    assert {:error, error} = Registry.new(too_large)
+    assert Exception.message(error) == "flow registry exceeds its entry limit"
+    assert error.details.maximum_entries == 10_000
+
+    invalid_identifiers = [
+      String.duplicate("a", 256),
+      :atom,
+      1,
+      [],
+      %{},
+      {:tuple},
+      self()
+    ]
+
+    for identifier <- invalid_identifiers do
+      assert {:error, error} = Registry.new(%{identifier => {:action, Add}})
+      assert Exception.message(error) == "invalid flow registry identifier"
+    end
+  end
+
+  test "classifies invalid Registry entry shapes without inspecting executable data" do
+    invalid_entries = [:atom, "binary", 1, [], %{}, {:unknown, Add}, self()]
+
+    for entry <- invalid_entries do
+      assert {:error, error} = Registry.new(%{"entry/v1" => entry})
+      assert Exception.message(error) == "invalid flow registry entry"
+    end
+
+    assert {:error, _error} = Registry.new(%{"action/nil/v1" => {:action, nil}})
+    assert {:error, _error} = Registry.new(%{"action/string/v1" => {:action, "not-a-module"}})
+  end
+
   defp stored_step do
     registry = registry()
     assert {:ok, stored} = Flow.to_stored_map(step_flow(), registry)
