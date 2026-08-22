@@ -89,7 +89,8 @@ flow do
 end
 ```
 
-`output` must be the final declaration. A Flow must contain at least one node.
+`output` must be the final declaration. A Flow must contain at least one node,
+and the output expression must contain at least one node result reference.
 
 ## Static Metadata And Schemas
 

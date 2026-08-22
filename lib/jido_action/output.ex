@@ -1,9 +1,9 @@
 defmodule Jido.Action.Output do
   @moduledoc """
-  Explicit envelope for abnormal successful action outputs.
+  Explicit envelope for successful Action outputs that are not normal maps.
 
-  Normal action success values are map-shaped and validated by the action's
-  `output_schema`. Use this envelope only when a successful action must return
+  Normal Action success values are map-shaped and validated by the Action's
+  `output_schema`. Use this envelope only when a successful Action must return
   a raw, stream, batch, or opaque value intentionally.
   """
 
@@ -14,8 +14,8 @@ defmodule Jido.Action.Output do
   @schema Zoi.struct(
             __MODULE__,
             %{
-              kind: Zoi.enum(@kinds, description: "Abnormal output kind"),
-              value: Zoi.any(description: "Abnormal output value"),
+              kind: Zoi.enum(@kinds, description: "Explicit output kind"),
+              value: Zoi.any(description: "Explicit output value"),
               meta: Zoi.map(description: "Output metadata") |> Zoi.default(%{})
             },
             coerce: true

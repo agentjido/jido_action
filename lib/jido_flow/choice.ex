@@ -19,10 +19,23 @@ defmodule Jido.Flow.Choice do
 
   @config_keys [:name, :options, :fallback, :deps, :provenance]
 
+  @type option :: %{
+          required(:name) => String.t(),
+          required(:condition) => Condition.t(),
+          required(:action) => module(),
+          required(:input) => term()
+        }
+
+  @type fallback :: %{
+          required(:name) => :fallback,
+          required(:action) => module(),
+          required(:input) => term()
+        }
+
   @type t :: %__MODULE__{
           name: String.t(),
-          options: [Option.t()],
-          fallback: Fallback.t(),
+          options: [option()],
+          fallback: fallback(),
           deps: [String.t()],
           provenance: map()
         }

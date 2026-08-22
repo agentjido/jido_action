@@ -145,7 +145,7 @@ Livebook. ExDoc adds a **Run in Livebook** link to each `.livemd` guide.
 - [Flow Modules](guides/flow-modules.md)
 - [Stored Flow JSON](guides/flow-storage.md)
 - [Runtime Builder](guides/flow-builder.md)
-- [Inspecting & Storing Flows](guides/flow-inspection.md)
+- [Inspecting Flows](guides/flow-inspection.md)
 
 ### Operations
 

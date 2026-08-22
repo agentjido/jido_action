@@ -3,8 +3,8 @@ defmodule Jido.Flow.Ref do
   References used by the canonical Flow IR.
 
   Refs are data only. They identify values from the Flow input, runtime context,
-  literal values, results produced by named Flow nodes, or scoped Map and
-  Reduce item state.
+  literal values, results produced by named Flow nodes, scoped Map and Reduce
+  data, or scoped Iterator State.
   """
 
   alias Jido.Action

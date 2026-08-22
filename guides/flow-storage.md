@@ -118,5 +118,5 @@ An Iterator node uses `"kind": "iterate"` in stored JSON. Its State record
 uses `"kind": "iterate_state"`.
 
 Use `Jido.Flow.semantic_identity/1` to compare Flow meaning before and after a
-round trip. See [Inspecting And Storing Flows](flow-inspection.md) for the
+round trip. See [Inspecting Flows](flow-inspection.md) for the
 inspection API and [Security](security.md) for trust boundaries and limits.

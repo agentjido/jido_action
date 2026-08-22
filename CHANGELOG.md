@@ -133,7 +133,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 * deps: switch libgraph to multigraph fork by mikehostetler
 
-## [2.1.0](https://github.com/agentjido/jido_action/compare/v2.0.0...2.1.0) (2026-03-14)
+## [v2.1.0](https://github.com/agentjido/jido_action/compare/v2.0.0...v2.1.0) (2026-03-14)
 
 
 

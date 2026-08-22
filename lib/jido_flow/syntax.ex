@@ -46,6 +46,8 @@ defmodule Jido.Flow.Syntax do
   defmodule Condition do
     @moduledoc false
 
+    @type t :: %__MODULE__{operator: atom(), operands: [term()]}
+
     @enforce_keys [:operator, :operands]
     defstruct [:operator, :operands]
   end
@@ -53,12 +55,21 @@ defmodule Jido.Flow.Syntax do
   defmodule Option do
     @moduledoc false
 
+    @type t :: %__MODULE__{
+            name: atom() | String.t(),
+            condition: Jido.Flow.Syntax.Condition.t(),
+            action: module(),
+            input: term()
+          }
+
     @enforce_keys [:name, :condition, :action, :input]
     defstruct [:name, :condition, :action, :input]
   end
 
   defmodule Fallback do
     @moduledoc false
+
+    @type t :: %__MODULE__{action: module(), input: term()}
 
     @enforce_keys [:action, :input]
     defstruct [:action, :input]

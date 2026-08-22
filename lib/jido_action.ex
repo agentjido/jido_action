@@ -1,19 +1,9 @@
 defmodule Jido.Action do
   @moduledoc """
-  Defines a discrete, validated unit of functionality within the Jido system.
+  Defines one named, validated unit of work.
 
-  Actions are defined at compile-time and provide a consistent interface for
-  validating inputs, executing one unit of work, and handling results.
-
-  ## Features
-
-  - Compile-time configuration validation
-  - Runtime input parameter validation
-  - Consistent error handling and formatting
-
-  ## Usage
-
-  To define a new Action, use the `Jido.Action` behavior in your module:
+  Use `Jido.Action` in a module, declare static input and output schemas, and
+  implement `c:run/2`:
 
       defmodule MyAction do
         use Jido.Action,
@@ -29,69 +19,28 @@ defmodule Jido.Action do
       end
     end
 
-  ## Callbacks
+  ## Validation and execution
 
-  Implementing modules must define the following callback:
+  The generated `validate_params/1` and `validate_output/1` functions apply the
+  declared schemas. Object schemas are open: declared fields are validated and
+  unknown fields stay in the returned map.
 
-  - `c:run/2`: Executes the main logic of the Action.
+  A direct callback call does not add validation. Validate both boundaries
+  explicitly when you call `run/2` yourself:
 
-  ## Purity and Effects
+      {:ok, params} = MyAction.validate_params(%{input: "hello"})
+      {:ok, result} = MyAction.run(params, %{})
+      {:ok, result} = MyAction.validate_output(result)
 
-  `Jido.Action` modules are reusable execution units. `c:run/2` may be pure or effectful depending on the job.
+  Use `Jido.Exec.run/4` when you want the public validation and error boundary.
+  It validates input, calls the Action, validates normal output, and normalizes
+  failures.
 
-  Doing HTTP requests, database queries, file system work, or other I/O in `c:run/2` is acceptable when the action needs that result immediately to continue. If an effect should instead be owned by a runtime or integration layer, hand it off there rather than doing it inline.
+  ## Effects and policy
 
-  When actions are used inside `jido`, the purity guarantee belongs to the agent or strategy `cmd/2` boundary, not necessarily to each action the runtime executes behind that boundary.
-
-  ## Error Handling
-
-  Errors are wrapped in `Jido.Action.Error` structs for uniform error reporting across the system.
-
-  ## Testing
-
-  Actions can be tested directly by calling their `run/2` function with test parameters and context:
-
-      defmodule WeatherActionTest do
-        use ExUnit.Case
-
-        test "gets weather for location" do
-          params = %{location: "Portland"}
-          context = %{}
-
-          assert {:ok, result} = WeatherAction.run(params, context)
-          assert is_map(result)
-          assert result.temperature > 0
-        end
-
-        test "handles invalid location" do
-          params = %{location: ""}
-          context = %{}
-
-          assert {:error, error} = WeatherAction.run(params, context)
-          assert error.type == :validation_error
-        end
-      end
-
-  Direct action calls stay explicit:
-
-      test "weather action validates explicitly" do
-        {:ok, params} = WeatherAction.validate_params(%{location: "Seattle"})
-        {:ok, result} = WeatherAction.run(params, %{})
-        {:ok, result} = WeatherAction.validate_output(result)
-
-        assert result.weather_data.temperature > 0
-      end
-
-  ## Parameter and Output Validation
-
-  > **Note on Validation:** The validation process for Actions is intentionally open.
-  > Only fields specified in the schema and output_schema are validated. Unspecified
-  > fields are not validated, allowing callers to pass additional parameters without
-  > causing validation errors.
-  >
-  > Output validation works the same way - only fields specified in the output_schema
-  > are validated, allowing Actions to return additional data that may be used by
-  > downstream Actions or systems.
+  `run/2` can be pure or can perform I/O. Keep one Action focused on one unit
+  of work. Retry, timeout, scheduling, cancellation, and persistence policy
+  belong to the caller or runtime layer.
   """
 
   alias Jido.Action.{Error, Output, Validation}
@@ -229,51 +178,32 @@ defmodule Jido.Action do
   @validate_params_doc """
   Validates the input parameters for the Action.
 
-  ## Examples
-
-      iex> defmodule ExampleAction do
-      ...>   use Jido.Action,
-      ...>     name: "example_action",
-      ...>     schema: Zoi.object(%{input: Zoi.string()})
-      ...> end
-      ...> ExampleAction.validate_params(%{input: "test"})
-      {:ok, %{input: "test"}}
-
-      iex> ExampleAction.validate_params(%{})
-      {:error, "Validation failed"}
-
+  Returns `{:ok, validated_params}` or
+  `{:error, %Jido.Action.Error.InvalidInputError{}}`. Open object schemas
+  preserve unknown keys in the validated map.
   """
 
   @validate_output_doc """
   Validates the output result for the Action.
 
-  ## Examples
-
-      iex> defmodule ExampleAction do
-      ...>   use Jido.Action,
-      ...>     name: "example_action",
-      ...>     output_schema: Zoi.object(%{result: Zoi.string()})
-      ...> end
-      ...> ExampleAction.validate_output(%{result: "test", extra: "ignored"})
-      {:ok, %{result: "test", extra: "ignored"}}
-
-      iex> ExampleAction.validate_output(%{extra: "ignored"})
-      {:error, "Validation failed"}
-
+  Returns `{:ok, validated_output}` or
+  `{:error, %Jido.Action.Error.InvalidInputError{}}`. Open object schemas
+  preserve unknown keys in the validated map. An explicit
+  `Jido.Action.Output` envelope is validated as an envelope.
   """
 
   @doc """
   Defines a new Action module.
 
-  This macro sets up the necessary structure and callbacks for a Action,
+  This macro sets up the necessary structure and callbacks for an Action,
   including configuration validation and default implementations.
 
   ## Options
 
   - `name` (required) - The non-blank metadata name of the Action.
   - `description` (optional) - A description of what the Action does.
-  - `schema` (optional, default: []) - A Zoi schema for validating the Action's input parameters.
-  - `output_schema` (optional, default: []) - A Zoi schema for validating the Action's output. Only specified fields are validated.
+  - `schema` (optional, default: `[]`) - A Zoi schema for Action input.
+  - `output_schema` (optional, default: `[]`) - A Zoi schema for Action output.
 
   Schemas must be static module data. Use named MFA tuples for Zoi refinements,
   transforms, and other effects. Anonymous functions and lazy schemas are not
@@ -395,7 +325,7 @@ defmodule Jido.Action do
           # consumer modules that don't override these functions, because the spec
           # includes {:error, _} but the default only returns {:ok, _}.
           def run(params, context) do
-            "run/2 must be implemented in in your Action"
+            "run/2 must be implemented in your Action"
             |> Error.config_error()
             |> then(&{:error, &1})
           end
@@ -423,7 +353,7 @@ defmodule Jido.Action do
   ## Parameters
 
   - `params`: A map of validated input parameters.
-  - `context`: A map containing any additional context for the .
+  - `context`: A map that contains caller-owned execution data.
 
   ## Returns
 
@@ -444,26 +374,12 @@ defmodule Jido.Action do
               | {:error, any()}
               | {:error, any(), any()}
 
-  @doc """
-  Raises an error indicating that Actions cannot be defined at runtime.
-
-  This function exists to prevent misuse of the Action system, as Actions
-  are designed to be defined at compile-time only.
-
-  ## Returns
-
-  Always returns `{:error, reason}` where `reason` is a config error.
-
-  ## Examples
-
-      iex> Jido.Action.new()
-      {:error, %Jido.Action.Error{type: :config_error, message: "Actions should not be defined at runtime"}}
-
-  """
+  @doc false
   @spec new() :: {:error, Exception.t()}
-  @spec new(map() | keyword()) :: {:error, Exception.t()}
   def new, do: new(%{})
 
+  @doc false
+  @spec new(map() | keyword()) :: {:error, Exception.t()}
   def new(_map_or_kwlist) do
     "Actions should not be defined at runtime"
     |> Error.config_error()

@@ -57,7 +57,9 @@ output_schema:
   })
 ```
 
-Call `validate_output/1` for successful `{:ok, result}` returns when the action declares an output schema. The third value in a three-tuple is preserved by the action contract.
+Call `validate_output/1` for successful `{:ok, result}` returns when the Action
+declares an output schema. The third value in a three-tuple is preserved by
+the Action contract.
 
 Normal Action output is map-shaped. A successful raw, stream, batch, or opaque
 value must use a `Jido.Action.Output` envelope. The envelope is validated as an
@@ -83,9 +85,9 @@ boundary.
 
 ## Iterate State Schemas
 
-Each Iterate State contract has a required `schema` field. Jido applies the schema
-to the initial State and each complete update candidate. The validated value
-must stay a plain map.
+Each Iterate State contract has a required `schema` field. Jido applies the
+schema to the initial State and each complete update candidate. The validated
+value must stay a plain map.
 
 ```elixir
 state_contract = %{
@@ -112,7 +114,8 @@ schema = Zoi.object(%{name: Zoi.string()})
   MyAction.validate_params(%{name: "Ada", request_id: "req-1"})
 ```
 
-This keeps request metadata available without forcing every action to model every caller-owned key.
+This keeps request metadata available without forcing every Action to model
+every caller-owned key.
 
 ## Errors
 

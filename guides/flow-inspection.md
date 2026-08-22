@@ -1,4 +1,4 @@
-# Inspecting And Storing Flows
+# Inspecting Flows
 
 Every authoring surface produces a canonical `%Jido.Flow{}`. Use the public
 inspection functions to understand its graph, compare its meaning, and store

@@ -132,7 +132,7 @@ defmodule JidoAction.MixProject do
         {"guides/flow-modules.md", title: "Flow Modules"},
         {"guides/flow-storage.md", title: "Stored Flow JSON"},
         {"guides/flow-builder.md", title: "Runtime Builder"},
-        {"guides/flow-inspection.md", title: "Inspecting & Storing Flows"},
+        {"guides/flow-inspection.md", title: "Inspecting Flows"},
         # Operations
         {"guides/flow-execution.livemd", title: "Executing Flows"},
         {"guides/configuration.md", title: "Configuration"},
@@ -143,8 +143,7 @@ defmodule JidoAction.MixProject do
       formatters: ["html"],
       skip_undefined_reference_warnings_on: [
         "CHANGELOG.md",
-        "LICENSE",
-        "lib/jido_flow/builder.ex"
+        "LICENSE"
       ],
       groups_for_modules: [
         "Action API": [
@@ -186,7 +185,15 @@ defmodule JidoAction.MixProject do
 
   defp package do
     [
-      files: ["lib", "mix.exs", "README.md", "LICENSE", "usage-rules.md"],
+      files: [
+        "lib",
+        "guides",
+        "mix.exs",
+        "README.md",
+        "CHANGELOG.md",
+        "LICENSE",
+        "usage-rules.md"
+      ],
       maintainers: ["Mike Hostetler"],
       licenses: ["Apache-2.0"],
       links: %{

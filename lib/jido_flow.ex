@@ -1,6 +1,6 @@
 defmodule Jido.Flow do
   @moduledoc """
-  Canonical v4 Flow artifact.
+  Defines the canonical Jido Flow artifact and compile-time authoring DSL.
 
   A Flow is a data artifact describing named Action calls, ordered Choices,
   Map fan-out, Reduce fan-in, bounded Iterate nodes, and one output expression.
@@ -35,8 +35,8 @@ defmodule Jido.Flow do
   when no option matches.
 
   Flow nodes consume only an Action output or error reason. Extra values from
-  an Action callback are an instruction-path delivery channel and are
-  discarded during Flow execution.
+  an Action callback are returned only to direct Action or Instruction callers.
+  Flow execution discards them.
   """
 
   alias Jido.Action

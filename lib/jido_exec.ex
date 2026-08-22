@@ -1,10 +1,10 @@
 defmodule Jido.Exec do
   @moduledoc """
-  Public v4 execution boundary.
+  Runs Actions, Instructions, and Flows through one public execution boundary.
 
-  The first Flow foundation establishes this module as the single execution
-  entry point. Concrete action, instruction, and Flow execution behavior is
-  layered in later implementation units.
+  `run/4` validates the executable and its input, runs the requested work,
+  validates normal output, and returns structured errors. Flows also support
+  paused, step-wise execution.
 
   ## Telemetry
 
@@ -46,9 +46,9 @@ defmodule Jido.Exec do
   Runs an executable Jido artifact.
 
   Flow execution accepts `:async` and `:max_concurrency` options. `:async`
-  defaults to `false`; when `true`, independent Flow branches are scheduled by
-  Runic with the supplied maximum concurrency. Action and instruction execution
-  do not accept run options.
+  defaults to `false`. When it is `true`, independent Flow nodes and Map items
+  can run concurrently. Action and Instruction execution do not accept run
+  options.
   """
   @spec run(term(), map() | keyword() | nil, map() | keyword() | nil, keyword()) ::
           {:ok, term()}

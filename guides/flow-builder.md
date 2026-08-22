@@ -23,11 +23,13 @@ builder =
   )
 ```
 
-## Add Steps And Return
+## Add Steps And Output
 
 `step/5` appends a named Action node. Its arguments are the Builder, node name,
 Action module, input expression, and optional keyword options. `return/2`
-declares the Flow return expression.
+declares the Flow output expression. The compile-time DSL calls this
+declaration `output`; the Builder function name matches the canonical
+`%Jido.Flow{return: ...}` field.
 
 ```elixir
 builder =
@@ -40,7 +42,7 @@ builder =
   |> Builder.step(
     :double,
     MyApp.Actions.Multiply,
-    %{value: Builder.select(Builder.result(:add_one, :value), []), amount: Builder.value(2)}
+    %{value: Builder.result(:add_one, :value), amount: Builder.value(2)}
   )
   |> Builder.return(Builder.result(:double))
 
@@ -49,17 +51,8 @@ builder =
 
 `result/2` accepts a node name and optional path. `select/2` projects a path
 from any expression. `input/1`, `context/1`, and `value/1` create the other
-common expressions. `binding/1` refers to a source-level binding when the
-Builder is used to mirror a binding-oriented authoring surface.
-
-The second step can use `Builder.result(:add_one, :value)` directly. The
-`select/2` call above is equivalent, but direct result paths are usually
-clearer for Builder code:
-
-```elixir
-Builder.step(builder, :double, MyApp.Actions.Multiply,
-  %{value: Builder.result(:add_one, :value), amount: Builder.value(2)})
-```
+common expressions. Prefer a direct result path when the source is one node.
+Use `select/2` when you must project a composed expression or a list path.
 
 ## Map And Reduce Collections
 
@@ -165,22 +158,20 @@ explicit dependency. References to earlier results also create dependencies.
 Independent nodes can run at the same time when `Jido.Exec.run/4` uses
 `async: true`. See [Executing Flows](flow-execution.livemd).
 
-## Bindings And Provenance
+## Provenance
 
-Builder data can use `bind: :alias` for a binding reference. The compile-time
-DSL uses explicit node names and `result("node")` instead. Pass
-`provenance: %{}` to preserve non-semantic authoring metadata. `label`, `tags`,
-and `note` are also accepted Builder provenance options.
+Pass `provenance: %{}` to preserve non-semantic authoring metadata. `label`,
+`tags`, and `note` are also accepted Builder provenance options. Use explicit
+node names and `result/2` for data references.
 
 ```elixir
 builder =
   builder
   |> Builder.step(:load, MyApp.Actions.Load, %{id: Builder.input(:id)},
-    bind: :loaded,
     label: "Load record",
     tags: [:read]
   )
-  |> Builder.return(Builder.binding(:loaded))
+  |> Builder.return(Builder.result(:load))
 ```
 
 ## Build And Validate
@@ -188,7 +179,7 @@ builder =
 `build/1` lowers and validates the syntax. It returns `{:ok, flow}` or
 `{:error, exception}`. Validation checks metadata, static data, Action
 module values, duplicate names, references, dependencies, cycles, and the
-return expression. `Jido.Exec` checks each Action contract before execution.
+output expression. `Jido.Exec` checks each Action contract before execution.
 
 ```elixir
 case Builder.build(builder) do

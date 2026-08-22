@@ -1,10 +1,12 @@
 defmodule Jido.Flow.State do
   @moduledoc """
-  The static State contract owned by one `Jido.Flow.Iterator`. The public Spark DSL
-  declares this runtime node with `iterate`.
+  The static State contract owned by one `Jido.Flow.Iterator`.
 
-  Runtime State is created for one Iterator invocation. This struct contains only
-  the schema and data expressions that define that runtime value.
+  The public Spark DSL declares the owning node with `iterate` and its State
+  contract with `state`.
+
+  Runtime State is created for one Iterator invocation. This struct contains
+  only the schema and data expressions that define that runtime value.
   """
 
   alias Jido.Action
