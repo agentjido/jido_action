@@ -9,7 +9,7 @@ Run the code cells from top to bottom.
 ## Install Jido Action
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0"}])
+Mix.install([{:jido_action, "~> 3.0.0-rc.1"}])
 ```
 
 ## Define Item Actions
@@ -241,5 +241,5 @@ builder =
 Map and Reduce each appear as one node in `Jido.Exec.ready/1`, `step/2`, and
 `wave/1`. The public execution API does not pause between items.
 
-Continue with [Iterate And State](flow-loops-state.livemd) for bounded State
+Continue with [Iterate And State](flow-iterate-state.livemd) for bounded State
 transitions.

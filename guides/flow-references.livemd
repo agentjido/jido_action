@@ -8,7 +8,7 @@ Run the code cells from top to bottom.
 ## Install Jido Action
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0"}])
+Mix.install([{:jido_action, "~> 3.0.0-rc.1"}])
 ```
 
 ## Define An Echo Action
@@ -232,4 +232,4 @@ For example, `item()` is not valid in a Map `collection`, and `state()` is not
 valid in Iterate initial State.
 
 See [Map and Reduce](flow-collections.livemd) and [Iterate and
-State](flow-loops-state.livemd) for complete examples.
+State](flow-iterate-state.livemd) for complete examples.

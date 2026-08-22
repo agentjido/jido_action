@@ -63,7 +63,7 @@ defmodule Jido.Flow.Identity do
   def iteration_uuid(flow_digest, node_name, iteration_index)
       when is_binary(flow_digest) and is_binary(node_name) and is_integer(iteration_index) and
              iteration_index >= 0 do
-    {:jido_flow_loop_iteration_identity, @iteration_identity_version, flow_digest, node_name,
+    {:jido_flow_iterate_iteration_identity, @iteration_identity_version, flow_digest, node_name,
      iteration_index}
     |> hash_term()
     |> uuid_v8()

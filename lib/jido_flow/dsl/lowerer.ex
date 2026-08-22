@@ -111,7 +111,7 @@ defmodule Jido.Flow.DSL.Lowerer do
     with {:ok, state} <- lower_iterate_state(iterate.state),
          {:ok, params} <- Expression.parse(iterate.params),
          {:ok, attrs} <- iterate_attrs(iterate, state, params) do
-      {:ok, Syntax.operation(:loop, attrs, provenance: provenance(iterate))}
+      {:ok, Syntax.operation(:iterate, attrs, provenance: provenance(iterate))}
     end
   end
 

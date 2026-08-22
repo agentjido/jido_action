@@ -1,7 +1,5 @@
 defmodule Jido.Flow.Compiler do
-  @moduledoc """
-  Compiles canonical Flow artifacts into Runic workflows.
-  """
+  @moduledoc false
 
   alias Jido.Action.Error
   alias Jido.Action.Output
@@ -12,7 +10,7 @@ defmodule Jido.Flow.Compiler do
   alias Jido.Flow.Condition
   alias Jido.Flow.Element
   alias Jido.Flow.Identity
-  alias Jido.Flow.Loop
+  alias Jido.Flow.Iterator
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.Node
   alias Jido.Flow.NodeError
@@ -366,9 +364,9 @@ defmodule Jido.Flow.Compiler do
     end
   end
 
-  defp run_node_result(%Loop{} = loop, parent_value, node_state) do
-    state = %{node_state | results: dependency_results(loop, parent_value)}
-    run_resolved_loop_safely(loop, state)
+  defp run_node_result(%Iterator{} = iterator, parent_value, node_state) do
+    state = %{node_state | results: dependency_results(iterator, parent_value)}
+    run_resolved_iterator_safely(iterator, state)
   end
 
   defp run_node_result(node, parent_value, node_state) do
@@ -390,79 +388,84 @@ defmodule Jido.Flow.Compiler do
     run_resolved_target(node.action, params, context, node_target_owner(node))
   end
 
-  defp run_resolved_loop_safely(loop, state) do
-    run_resolved_loop(loop, state)
+  defp run_resolved_iterator_safely(iterator, state) do
+    run_resolved_iterator(iterator, state)
   rescue
-    exception -> loop_internal_failure(loop, state, exception.__struct__)
+    exception -> iterator_internal_failure(iterator, state, exception.__struct__)
   catch
-    kind, _reason -> loop_internal_failure(loop, state, kind)
+    kind, _reason -> iterator_internal_failure(iterator, state, kind)
   end
 
-  defp run_resolved_loop(loop, state) do
-    emit_loop_event([:jido, :flow, :loop, :start], loop_start_metadata(loop, state))
+  defp run_resolved_iterator(iterator, state) do
+    emit_iterator_event(
+      [:jido, :flow, :iterate, :start],
+      iterator_start_metadata(iterator, state)
+    )
 
-    with {:ok, candidate} <- resolve_expr(loop.state.initial, state),
-         {:ok, candidate} <- validate_plain_loop_state(loop, candidate, :initial, nil, nil, 0),
-         {:ok, loop_state} <- validate_loop_state_schema(loop, candidate, :initial, nil, nil, 0) do
+    with {:ok, candidate} <- resolve_expr(iterator.state.initial, state),
+         {:ok, candidate} <-
+           validate_plain_iterator_state(iterator, candidate, :initial, nil, nil, 0),
+         {:ok, iterator_state} <-
+           validate_iterator_state_schema(iterator, candidate, :initial, nil, nil, 0) do
       runtime = %{
-        state: loop_state,
+        state: iterator_state,
         revision: 0,
         completed: 0,
         body_result: nil
       }
 
-      case evaluate_loop_completion(loop, state, runtime) do
-        {:ok, true} -> loop_complete(loop, state, runtime)
-        {:ok, false} -> run_loop_iteration(loop, state, runtime)
-        {:error, error} -> loop_fail(loop, state, runtime, error)
+      case evaluate_iterator_completion(iterator, state, runtime) do
+        {:ok, true} -> iterator_complete(iterator, state, runtime)
+        {:ok, false} -> run_iterator_iteration(iterator, state, runtime)
+        {:error, error} -> iterator_fail(iterator, state, runtime, error)
       end
     else
       {:error, error} ->
         runtime = %{state: nil, revision: 0, completed: 0, body_result: nil}
-        loop_fail(loop, state, runtime, error)
+        iterator_fail(iterator, state, runtime, error)
     end
   end
 
-  defp run_loop_iteration(loop, state, runtime) do
+  defp run_iterator_iteration(iterator, state, runtime) do
     index = runtime.completed
-    iteration_id = Identity.iteration_uuid(state.flow_digest, loop.name, index)
+    iteration_id = Identity.iteration_uuid(state.flow_digest, iterator.name, index)
     started_at = System.monotonic_time()
-    metadata = loop_iteration_metadata(loop, state, runtime, index, iteration_id)
+    metadata = iterator_iteration_metadata(iterator, state, runtime, index, iteration_id)
 
     :telemetry.execute(
-      [:jido, :flow, :loop, :iteration, :start],
+      [:jido, :flow, :iterate, :iteration, :start],
       %{monotonic_time: started_at, system_time: System.system_time()},
       metadata
     )
 
     local_state =
       state
-      |> Map.put(:loop_state, runtime.state)
+      |> Map.put(:iterate_state, runtime.state)
       |> Map.put(:iteration_index, index)
       |> Map.put(:body_result, runtime.body_result)
 
     result =
       try do
         with {:ok, params} <-
-               resolve_expr(loop.input, local_state)
+               resolve_expr(iterator.input, local_state)
                |> tag_target_validation_error(
                  :input,
-                 loop_target_owner(loop, index, iteration_id, runtime.revision)
+                 iterator_target_owner(iterator, index, iteration_id, runtime.revision)
                ),
              {:ok, output} <-
                run_resolved_target(
-                 loop.action,
+                 iterator.action,
                  params,
                  state.context,
-                 loop_target_owner(loop, index, iteration_id, runtime.revision)
+                 iterator_target_owner(iterator, index, iteration_id, runtime.revision)
                ),
              update_state =
                local_state
                |> Map.put(:body_result, output),
-             {:ok, candidate} <- resolve_expr(loop.state.update, update_state),
+             {:ok, candidate} <- resolve_expr(iterator.state.update, update_state),
              {:ok, candidate} <-
-               validate_plain_loop_state(
-                 loop,
+               validate_plain_iterator_state(
+                 iterator,
                  candidate,
                  :update,
                  index,
@@ -470,8 +473,8 @@ defmodule Jido.Flow.Compiler do
                  runtime.revision
                ),
              {:ok, next_state} <-
-               validate_loop_state_schema(
-                 loop,
+               validate_iterator_state_schema(
+                 iterator,
                  candidate,
                  :update,
                  index,
@@ -485,11 +488,11 @@ defmodule Jido.Flow.Compiler do
             body_result: output
           }
 
-          emit_loop_event(
-            [:jido, :flow, :loop, :state_transition],
+          emit_iterator_event(
+            [:jido, :flow, :iterate, :state_transition],
             %{
               flow: state.flow,
-              node: loop.name,
+              node: iterator.name,
               iteration_index: index,
               iteration_id: iteration_id,
               from_revision: runtime.revision,
@@ -497,7 +500,7 @@ defmodule Jido.Flow.Compiler do
             }
           )
 
-          case evaluate_loop_completion(loop, state, next_runtime) do
+          case evaluate_iterator_completion(iterator, state, next_runtime) do
             {:ok, completed?} -> {:ok, completed?, next_runtime}
             {:error, error} -> {:error, error, next_runtime}
           end
@@ -512,36 +515,36 @@ defmodule Jido.Flow.Compiler do
 
     case result do
       {:ok, completed?, next_runtime} ->
-        emit_loop_iteration_stop(metadata, started_at, :ok, nil)
-        continue_loop_after_iteration(loop, state, next_runtime, completed?)
+        emit_iterator_iteration_stop(metadata, started_at, :ok, nil)
+        continue_iterator_after_iteration(iterator, state, next_runtime, completed?)
 
       {:error, error, failure_runtime} ->
-        emit_loop_iteration_stop(metadata, started_at, :error, error)
-        loop_fail(loop, state, failure_runtime, error)
+        emit_iterator_iteration_stop(metadata, started_at, :error, error)
+        iterator_fail(iterator, state, failure_runtime, error)
 
       {:internal_error, error_type} ->
-        error = loop_internal_error(loop, index, runtime.revision, error_type)
-        emit_loop_iteration_stop(metadata, started_at, :error, error)
-        loop_fail(loop, state, runtime, error)
+        error = iterator_internal_error(iterator, index, runtime.revision, error_type)
+        emit_iterator_iteration_stop(metadata, started_at, :error, error)
+        iterator_fail(iterator, state, runtime, error)
     end
   end
 
-  defp continue_loop_after_iteration(loop, state, runtime, true),
-    do: loop_complete(loop, state, runtime)
+  defp continue_iterator_after_iteration(iterator, state, runtime, true),
+    do: iterator_complete(iterator, state, runtime)
 
-  defp continue_loop_after_iteration(loop, state, runtime, false)
-       when runtime.completed == loop.max_iterations,
-       do: loop_exhaust(loop, state, runtime)
+  defp continue_iterator_after_iteration(iterator, state, runtime, false)
+       when runtime.completed == iterator.max_iterations,
+       do: iterator_exhaust(iterator, state, runtime)
 
-  defp continue_loop_after_iteration(loop, state, runtime, false),
-    do: run_loop_iteration(loop, state, runtime)
+  defp continue_iterator_after_iteration(iterator, state, runtime, false),
+    do: run_iterator_iteration(iterator, state, runtime)
 
-  defp loop_complete(loop, state, runtime) do
-    emit_loop_event(
-      [:jido, :flow, :loop, :completion],
+  defp iterator_complete(iterator, state, runtime) do
+    emit_iterator_event(
+      [:jido, :flow, :iterate, :completion],
       %{
         flow: state.flow,
-        node: loop.name,
+        node: iterator.name,
         termination: :completed,
         completed_iterations: runtime.completed,
         state_revision: runtime.revision
@@ -549,48 +552,48 @@ defmodule Jido.Flow.Compiler do
     )
 
     output = %{
-      kind: :jido_flow_loop_result,
+      kind: :jido_flow_iterate_result,
       iterations: runtime.completed,
       state: runtime.state,
       output: runtime.body_result
     }
 
-    {:ok, output, loop_runtime_metadata(loop, runtime, :completed)}
+    {:ok, output, iterator_runtime_metadata(iterator, runtime, :completed)}
   end
 
-  defp loop_exhaust(loop, state, runtime) do
+  defp iterator_exhaust(iterator, state, runtime) do
     metadata = %{
       flow: state.flow,
-      node: loop.name,
+      node: iterator.name,
       termination: :exhausted,
-      max_iterations: loop.max_iterations,
+      max_iterations: iterator.max_iterations,
       completed_iterations: runtime.completed,
       state_revision: runtime.revision
     }
 
-    emit_loop_event([:jido, :flow, :loop, :exhaustion], metadata)
+    emit_iterator_event([:jido, :flow, :iterate, :exhaustion], metadata)
 
     error =
-      Error.execution_error("flow loop exhausted maximum iterations", %{
-        phase: :loop_exhaustion,
-        node: loop.name,
-        max_iterations: loop.max_iterations,
+      Error.execution_error("flow iterator exhausted maximum iterations", %{
+        phase: :iterate_exhaustion,
+        node: iterator.name,
+        max_iterations: iterator.max_iterations,
         completed_iterations: runtime.completed,
         state_revision: runtime.revision,
         retry: false
       })
 
-    {:error, error, state, loop_runtime_metadata(loop, runtime, :exhausted)}
+    {:error, error, state, iterator_runtime_metadata(iterator, runtime, :exhausted)}
   end
 
-  defp loop_fail(loop, state, runtime, error) do
-    phase = error |> Map.get(:details, %{}) |> Map.get(:phase, :loop_internal)
+  defp iterator_fail(iterator, state, runtime, error) do
+    phase = error |> Map.get(:details, %{}) |> Map.get(:phase, :iterate_internal)
 
-    emit_loop_event(
-      [:jido, :flow, :loop, :failure],
+    emit_iterator_event(
+      [:jido, :flow, :iterate, :failure],
       %{
         flow: state.flow,
-        node: loop.name,
+        node: iterator.name,
         termination: :failed,
         phase: phase,
         completed_iterations: runtime.completed,
@@ -599,19 +602,24 @@ defmodule Jido.Flow.Compiler do
       }
     )
 
-    {:error, error, state, loop_runtime_metadata(loop, runtime, :failed)}
+    {:error, error, state, iterator_runtime_metadata(iterator, runtime, :failed)}
   end
 
-  defp loop_internal_failure(loop, state, error_type) do
-    error = loop_internal_error(loop, nil, 0, error_type)
+  defp iterator_internal_failure(iterator, state, error_type) do
+    error = iterator_internal_error(iterator, nil, 0, error_type)
 
-    loop_fail(loop, state, %{state: nil, revision: 0, completed: 0, body_result: nil}, error)
+    iterator_fail(
+      iterator,
+      state,
+      %{state: nil, revision: 0, completed: 0, body_result: nil},
+      error
+    )
   end
 
-  defp loop_internal_error(loop, iteration_index, state_revision, error_type) do
-    Error.internal_error("flow loop adapter failed", %{
-      phase: :loop_internal,
-      node: loop.name,
+  defp iterator_internal_error(iterator, iteration_index, state_revision, error_type) do
+    Error.internal_error("flow iterator adapter failed", %{
+      phase: :iterate_internal,
+      node: iterator.name,
       iteration_index: iteration_index,
       state_revision: state_revision,
       error_type: error_type,
@@ -619,33 +627,33 @@ defmodule Jido.Flow.Compiler do
     })
   end
 
-  defp validate_plain_loop_state(loop, value, phase, index, iteration_id, revision) do
+  defp validate_plain_iterator_state(iterator, value, phase, index, iteration_id, revision) do
     if is_map(value) and not is_struct(value) do
       {:ok, value}
     else
       message =
         if phase == :initial,
-          do: "loop initial state must resolve to a plain map",
-          else: "loop state update must resolve to a plain map"
+          do: "iterator initial state must resolve to a plain map",
+          else: "iterator state update must resolve to a plain map"
 
       {:error,
        Error.execution_error(message, %{
-         phase: loop_state_phase(phase),
-         node: loop.name,
+         phase: iterator_state_phase(phase),
+         node: iterator.name,
          iteration_index: index,
          iteration_id: iteration_id,
          state_revision: revision,
          reason: :not_a_plain_map,
-         value_type: loop_value_type(value),
+         value_type: iterator_value_type(value),
          retry: false
        })}
     end
   end
 
-  defp validate_loop_state_schema(loop, value, phase, index, iteration_id, revision) do
+  defp validate_iterator_state_schema(iterator, value, phase, index, iteration_id, revision) do
     details = %{
-      phase: loop_state_phase(phase),
-      node: loop.name,
+      phase: iterator_state_phase(phase),
+      node: iterator.name,
       iteration_index: index,
       iteration_id: iteration_id,
       state_revision: revision,
@@ -654,7 +662,7 @@ defmodule Jido.Flow.Compiler do
 
     result =
       try do
-        Validation.open_validate_preserving_shape(loop.state.schema, value, %{})
+        Validation.open_validate_preserving_shape(iterator.state.schema, value, %{})
       rescue
         _exception -> {:error, :schema_failure}
       catch
@@ -668,29 +676,29 @@ defmodule Jido.Flow.Compiler do
       {:ok, validated} ->
         {:error,
          Error.execution_error(
-           "loop state schema must return a plain map",
+           "iterator state schema must return a plain map",
            Map.merge(details, %{
              reason: :not_a_plain_map,
-             value_type: loop_value_type(validated)
+             value_type: iterator_value_type(validated)
            })
          )}
 
       {:error, _reason} ->
-        {:error, Error.validation_error("loop state schema validation failed", details)}
+        {:error, Error.validation_error("iterator state schema validation failed", details)}
     end
   end
 
-  defp loop_state_phase(:initial), do: :loop_state_initial
-  defp loop_state_phase(:update), do: :loop_state_update
+  defp iterator_state_phase(:initial), do: :iterate_state_initial
+  defp iterator_state_phase(:update), do: :iterate_state_update
 
-  defp evaluate_loop_completion(loop, state, runtime) do
+  defp evaluate_iterator_completion(iterator, state, runtime) do
     local_state =
       state
-      |> Map.put(:loop_state, runtime.state)
+      |> Map.put(:iterate_state, runtime.state)
       |> Map.put(:iteration_index, runtime.completed)
       |> Map.put(:body_result, runtime.body_result)
 
-    case evaluate_condition(loop.completion, local_state, loop.name, :loop) do
+    case evaluate_condition(iterator.completion, local_state, iterator.name, :iterate) do
       {:ok, result} ->
         {:ok, result}
 
@@ -698,9 +706,9 @@ defmodule Jido.Flow.Compiler do
         details = Map.get(error, :details, %{})
 
         {:error,
-         Error.execution_error("invalid loop completion condition operands", %{
-           phase: :loop_completion,
-           node: loop.name,
+         Error.execution_error("invalid iterator completion condition operands", %{
+           phase: :iterate_completion,
+           node: iterator.name,
            operator: Map.get(details, :operator),
            reason: Map.get(details, :reason),
            left_type: Map.get(details, :left_type),
@@ -711,7 +719,7 @@ defmodule Jido.Flow.Compiler do
     end
   end
 
-  defp emit_loop_iteration_stop(metadata, started_at, status, error) do
+  defp emit_iterator_iteration_stop(metadata, started_at, status, error) do
     stopped_at = System.monotonic_time()
 
     stop_metadata =
@@ -722,41 +730,41 @@ defmodule Jido.Flow.Compiler do
       end
 
     :telemetry.execute(
-      [:jido, :flow, :loop, :iteration, :stop],
+      [:jido, :flow, :iterate, :iteration, :stop],
       %{duration: stopped_at - started_at, monotonic_time: stopped_at},
       stop_metadata
     )
   end
 
-  defp emit_loop_event(event, metadata) do
+  defp emit_iterator_event(event, metadata) do
     :telemetry.execute(event, %{system_time: System.system_time()}, metadata)
   end
 
-  defp loop_start_metadata(loop, state) do
+  defp iterator_start_metadata(iterator, state) do
     %{
       flow: state.flow,
-      node: loop.name,
-      kind: :loop,
-      target: loop.action,
-      max_iterations: loop.max_iterations
+      node: iterator.name,
+      kind: :iterate,
+      target: iterator.action,
+      max_iterations: iterator.max_iterations
     }
   end
 
-  defp loop_iteration_metadata(loop, state, runtime, index, iteration_id) do
+  defp iterator_iteration_metadata(iterator, state, runtime, index, iteration_id) do
     %{
       flow: state.flow,
-      node: loop.name,
-      target: loop.action,
+      node: iterator.name,
+      target: iterator.action,
       iteration_index: index,
       iteration_id: iteration_id,
       state_revision: runtime.revision
     }
   end
 
-  defp loop_runtime_metadata(loop, runtime, termination) do
+  defp iterator_runtime_metadata(iterator, runtime, termination) do
     %{
-      target: loop.action,
-      max_iterations: loop.max_iterations,
+      target: iterator.action,
+      max_iterations: iterator.max_iterations,
       completed_iterations: runtime.completed,
       state_revision: runtime.revision,
       termination: termination
@@ -1278,7 +1286,7 @@ defmodule Jido.Flow.Compiler do
 
   defp collection_element?(%FlowMap{}), do: true
   defp collection_element?(%Reduce{}), do: true
-  defp collection_element?(%Loop{}), do: true
+  defp collection_element?(%Iterator{}), do: true
   defp collection_element?(_element), do: false
 
   defp flow_module?(action) do
@@ -1449,10 +1457,10 @@ defmodule Jido.Flow.Compiler do
   defp reduce_target_owner(reduce, item_state),
     do: %{kind: :reduce, reduce: reduce, item: item_state}
 
-  defp loop_target_owner(loop, iteration_index, iteration_id, state_revision) do
+  defp iterator_target_owner(iterator, iteration_index, iteration_id, state_revision) do
     %{
-      kind: :loop,
-      loop: loop,
+      kind: :iterate,
+      iterator: iterator,
       iteration_index: iteration_index,
       iteration_id: iteration_id,
       state_revision: state_revision
@@ -1475,8 +1483,8 @@ defmodule Jido.Flow.Compiler do
     tag_reduce_target_error(result, reduce, item, reduce_target_phase(phase))
   end
 
-  defp tag_target_error(result, phase, %{kind: :loop} = owner) do
-    tag_loop_target_error(result, owner, loop_target_phase(phase))
+  defp tag_target_error(result, phase, %{kind: :iterate} = owner) do
+    tag_iterator_target_error(result, owner, iterator_target_phase(phase))
   end
 
   defp tag_target_validation_error(result, :input, %{kind: :node, node: node}) do
@@ -1503,8 +1511,8 @@ defmodule Jido.Flow.Compiler do
     tag_reduce_target_validation_error(result, reduce, item, :reduce_target_input)
   end
 
-  defp tag_target_validation_error(result, :input, %{kind: :loop} = owner) do
-    tag_loop_target_validation_error(result, owner, :loop_body_input)
+  defp tag_target_validation_error(result, :input, %{kind: :iterate} = owner) do
+    tag_iterator_target_validation_error(result, owner, :iterate_body_input)
   end
 
   defp node_target_phase(:execution), do: :step_execution
@@ -1519,8 +1527,8 @@ defmodule Jido.Flow.Compiler do
   defp reduce_target_phase(:execution), do: :reduce_target_execution
   defp reduce_target_phase(:output), do: :reduce_target_output
 
-  defp loop_target_phase(:execution), do: :loop_body_execution
-  defp loop_target_phase(:output), do: :loop_body_output
+  defp iterator_target_phase(:execution), do: :iterate_body_execution
+  defp iterator_target_phase(:output), do: :iterate_body_output
 
   defp node_metadata(%Choice{} = choice, node_state) do
     %{flow: node_state.flow, node: choice.name, kind: :choice}
@@ -1534,8 +1542,8 @@ defmodule Jido.Flow.Compiler do
     %{flow: node_state.flow, node: reduce.name, kind: :reduce}
   end
 
-  defp node_metadata(%Loop{} = loop, node_state) do
-    %{flow: node_state.flow, node: loop.name, kind: :loop, target: loop.action}
+  defp node_metadata(%Iterator{} = iterator, node_state) do
+    %{flow: node_state.flow, node: iterator.name, kind: :iterate, target: iterator.action}
   end
 
   defp node_metadata(node, node_state) do
@@ -1736,31 +1744,31 @@ defmodule Jido.Flow.Compiler do
      )}
   end
 
-  defp tag_loop_target_error({:ok, output}, _owner, _phase), do: {:ok, output}
+  defp tag_iterator_target_error({:ok, output}, _owner, _phase), do: {:ok, output}
 
-  defp tag_loop_target_error({:error, error}, owner, phase) when is_exception(error) do
-    {:error, put_loop_target_details(error, owner, phase)}
+  defp tag_iterator_target_error({:error, error}, owner, phase) when is_exception(error) do
+    {:error, put_iterator_target_details(error, owner, phase)}
   end
 
-  defp tag_loop_target_error({:error, error}, _owner, _phase), do: {:error, error}
+  defp tag_iterator_target_error({:error, error}, _owner, _phase), do: {:error, error}
 
-  defp tag_loop_target_validation_error({:ok, value}, _owner, _phase), do: {:ok, value}
+  defp tag_iterator_target_validation_error({:ok, value}, _owner, _phase), do: {:ok, value}
 
-  defp tag_loop_target_validation_error({:error, error}, owner, phase)
+  defp tag_iterator_target_validation_error({:error, error}, owner, phase)
        when is_exception(error) do
-    {:error, put_loop_target_details(error, owner, phase)}
+    {:error, put_iterator_target_details(error, owner, phase)}
   end
 
-  defp tag_loop_target_validation_error({:error, reason}, owner, phase) do
+  defp tag_iterator_target_validation_error({:error, reason}, owner, phase) do
     {:error,
      Error.validation_error(
        to_error_message(reason),
-       loop_target_details(owner, phase, false)
+       iterator_target_details(owner, phase, false)
      )}
   end
 
-  defp put_loop_target_details(error, owner, phase) do
-    details = loop_target_details(owner, phase, loop_target_retry_policy(error))
+  defp put_iterator_target_details(error, owner, phase) do
+    details = iterator_target_details(owner, phase, iterator_target_retry_policy(error))
 
     if Map.has_key?(error, :details) do
       %{error | details: details}
@@ -1769,11 +1777,11 @@ defmodule Jido.Flow.Compiler do
     end
   end
 
-  defp loop_target_details(owner, phase, retry) do
+  defp iterator_target_details(owner, phase, retry) do
     %{
       phase: phase,
-      node: owner.loop.name,
-      target: owner.loop.action,
+      node: owner.iterator.name,
+      target: owner.iterator.action,
       iteration_index: owner.iteration_index,
       iteration_id: owner.iteration_id,
       state_revision: owner.state_revision,
@@ -1781,12 +1789,12 @@ defmodule Jido.Flow.Compiler do
     }
   end
 
-  defp loop_target_retry_policy(%Error.ExecutionFailureError{details: %{retry: retry}})
+  defp iterator_target_retry_policy(%Error.ExecutionFailureError{details: %{retry: retry}})
        when is_boolean(retry),
        do: retry
 
-  defp loop_target_retry_policy(%Error.ExecutionFailureError{}), do: false
-  defp loop_target_retry_policy(error), do: Error.retryable?(error)
+  defp iterator_target_retry_policy(%Error.ExecutionFailureError{}), do: false
+  defp iterator_target_retry_policy(error), do: Error.retryable?(error)
 
   defp put_map_target_details(%{details: details} = error, map, item, phase)
        when is_map(details) do
@@ -1883,7 +1891,7 @@ defmodule Jido.Flow.Compiler do
     do: {:ok, state |> Map.get(:accumulator) |> fetch_path(path)}
 
   defp resolve_expr(%Ref{type: :state, path: path}, state),
-    do: {:ok, state |> Map.get(:loop_state) |> fetch_path(path)}
+    do: {:ok, state |> Map.get(:iterate_state) |> fetch_path(path)}
 
   defp resolve_expr(%Ref{type: :iteration_index}, state),
     do: {:ok, Map.get(state, :iteration_index)}
@@ -1983,8 +1991,8 @@ defmodule Jido.Flow.Compiler do
   defp value_type(value) when is_tuple(value), do: :tuple
   defp value_type(_value), do: :other
 
-  defp loop_value_type(nil), do: nil
-  defp loop_value_type(value), do: value_type(value)
+  defp iterator_value_type(nil), do: nil
+  defp iterator_value_type(value), do: value_type(value)
 
   defp to_error_message(message) when is_binary(message), do: message
   defp to_error_message(message) when is_atom(message), do: Atom.to_string(message)

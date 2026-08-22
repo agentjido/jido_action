@@ -129,9 +129,10 @@ execution time. See [Choices and Conditions](flow-choices.livemd).
 ## Iterate At Runtime
 
 The public module DSL calls this form `iterate`. The Builder works at the
-canonical runtime level, where `loop/6` appends one bounded Loop. It receives a State contract with `schema`,
-`initial`, and `update` fields. The body input, State update, and completion
-condition can use `state/1`, `iteration_index/0`, and `body_result/1`.
+canonical runtime level, where `iterate/6` appends one bounded Iterator. It
+receives a State contract with `schema`, `initial`, and `update` fields. The
+body input, State update, and completion condition can use `state/1`,
+`iteration_index/0`, and `body_result/1`.
 
 ```elixir
 state_contract = %{
@@ -142,7 +143,7 @@ state_contract = %{
 
 builder =
   builder
-  |> Builder.loop(
+  |> Builder.iterate(
     :count,
     MyApp.Actions.Increment,
     %{count: Builder.state(:count), index: Builder.iteration_index()},
@@ -153,40 +154,16 @@ builder =
 ```
 
 Use exactly one `while`, `until`, or `repeat` option in Builder data. `while`
-and `until` require `max_iterations`. A `repeat` Loop uses its repeat count as
-the bound and must not set `max_iterations`. The compile-time DSL exposes
-`while` and `repeat`. See [Iterate and State](flow-loops-state.livemd).
+and `until` require `max_iterations`. An Iterator with `repeat` uses its repeat
+count as the bound and must not set `max_iterations`. The compile-time DSL
+exposes `while` and `repeat`. See [Iterate and State](flow-iterate-state.livemd).
 
-## Groups, Branches, And Dependencies
-
-`branch/3` creates a named branch operation. `group/3` appends a group of
-branches to a Builder:
-
-```elixir
-left =
-  Builder.branch(:left,
-    [
-      Jido.Flow.Syntax.operation(:step, %{
-        name: :left,
-        action: MyApp.Actions.Left,
-        input: %{value: Builder.input(:value)}
-      })
-    ],
-    provenance: %{label: "Left branch"}
-  )
-
-builder = Builder.group(builder, [left], provenance: %{label: "Alternatives"})
-```
-
-For runtime construction, create branch operations with the shared
-`Jido.Flow.Syntax` helpers or construct a small list of syntax operations. The
-Builder has no `parallel` helper. Groups and branches are lower-level Builder
-provenance data. They are not compile-time DSL forms. Use `Jido.Exec.run/4`
-with `async: true` to execute independent nodes concurrently. See [Executing
-Flows](flow-execution.livemd).
+## Dependencies
 
 Use `after: :node_name` or `after: [:first, :second]` in the options to add an
 explicit dependency. References to earlier results also create dependencies.
+Independent nodes can run at the same time when `Jido.Exec.run/4` uses
+`async: true`. See [Executing Flows](flow-execution.livemd).
 
 ## Bindings And Provenance
 

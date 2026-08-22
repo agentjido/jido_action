@@ -1,17 +1,15 @@
 defmodule Jido.Flow.Syntax.Lowerer do
-  @moduledoc """
-  Lowers shared Flow syntax into canonical Flow artifacts.
-  """
+  @moduledoc false
 
   alias Jido.Action.Error
   alias Jido.Flow
-  alias Jido.Flow.{Choice, Condition, Loop, Node, Ref, Syntax}
+  alias Jido.Flow.{Choice, Condition, Iterator, Node, Ref, Syntax}
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.Reduce, as: FlowReduce
   alias Jido.Flow.Syntax.{Expr, Operation}
 
   @type state :: %{
-          nodes: [Node.t() | Choice.t() | FlowMap.t() | FlowReduce.t() | Loop.t()],
+          nodes: [Node.t() | Choice.t() | FlowMap.t() | FlowReduce.t() | Iterator.t()],
           seen: MapSet.t(String.t()),
           bindings: %{optional(atom()) => String.t()},
           all_bindings: MapSet.t(atom()),
@@ -36,7 +34,8 @@ defmodule Jido.Flow.Syntax.Lowerer do
                        :item_index,
                        :item_id,
                        :accumulator,
-                       :loop,
+                       :iterate,
+                       :iterator,
                        :state,
                        :iteration,
                        :body_result,
@@ -180,36 +179,36 @@ defmodule Jido.Flow.Syntax.Lowerer do
     end
   end
 
-  defp lower_operation(%Operation{kind: :loop, attrs: attrs, provenance: provenance}, state) do
-    loop_name = attrs |> Map.get(:name) |> normalize_step_name()
+  defp lower_operation(%Operation{kind: :iterate, attrs: attrs, provenance: provenance}, state) do
+    iterator_name = attrs |> Map.get(:name) |> normalize_step_name()
     binding = Map.get(attrs, :binding)
     input_expr = Map.get(attrs, :input, %{})
     after_targets = Map.get(attrs, :after, [])
 
-    with :ok <- validate_operation_options(:loop, attrs),
-         {:ok, completion_expr, max_iterations} <- normalize_loop_termination(attrs),
-         {:ok, state_attrs} <- normalize_loop_state_attrs(Map.get(attrs, :state)),
+    with :ok <- validate_operation_options(:iterate, attrs),
+         {:ok, completion_expr, max_iterations} <- normalize_iterator_termination(attrs),
+         {:ok, state_attrs} <- normalize_iterator_state_attrs(Map.get(attrs, :state)),
          :ok <-
            validate_no_self_reference(
              [input_expr, state_attrs.initial, state_attrs.update, completion_expr],
              binding,
-             loop_name
+             iterator_name
            ),
          :ok <-
            validate_no_self_result(
              [input_expr, state_attrs.initial, state_attrs.update, completion_expr],
-             loop_name
+             iterator_name
            ),
          {:ok, explicit_deps} <-
-           resolve_after_targets(after_targets, state, loop_name, binding),
-         {:ok, input} <- resolve_expr(input_expr, state, loop_name),
-         {:ok, initial} <- resolve_expr(state_attrs.initial, state, loop_name),
-         {:ok, update} <- resolve_expr(state_attrs.update, state, loop_name),
-         {:ok, completion} <- resolve_loop_condition(completion_expr, state, loop_name),
-         {:ok, provenance} <- normalize_step_provenance(provenance, loop_name),
-         {:ok, loop} <-
-           Loop.new(
-             name: loop_name,
+           resolve_after_targets(after_targets, state, iterator_name, binding),
+         {:ok, input} <- resolve_expr(input_expr, state, iterator_name),
+         {:ok, initial} <- resolve_expr(state_attrs.initial, state, iterator_name),
+         {:ok, update} <- resolve_expr(state_attrs.update, state, iterator_name),
+         {:ok, completion} <- resolve_iterator_condition(completion_expr, state, iterator_name),
+         {:ok, provenance} <- normalize_step_provenance(provenance, iterator_name),
+         {:ok, iterator} <-
+           Iterator.new(
+             name: iterator_name,
              action: Map.get(attrs, :action),
              input: input,
              state: %{
@@ -222,7 +221,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
              deps: explicit_deps,
              provenance: maybe_put_binding(provenance, binding)
            ) do
-      {:ok, put_node(state, loop, binding)}
+      {:ok, put_node(state, iterator, binding)}
     end
   end
 
@@ -308,7 +307,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
   defp normalize_derived_node_names(operations), do: operations
 
   defp normalize_derived_node_name(%Operation{kind: kind, attrs: attrs} = operation)
-       when kind in [:step, :choice, :map, :reduce, :loop] do
+       when kind in [:step, :choice, :map, :reduce, :iterate] do
     case {Map.get(attrs, :name), Map.get(attrs, :binding)} do
       {nil, binding} when is_atom(binding) and not is_nil(binding) ->
         %{
@@ -593,58 +592,58 @@ defmodule Jido.Flow.Syntax.Lowerer do
     end
   end
 
-  defp resolve_loop_condition(
+  defp resolve_iterator_condition(
          %Syntax.Condition{operator: operator, operands: operands},
          state,
-         loop
+         iterator
        )
        when operator in [:eq, :neq, :lt, :lte, :gt, :gte, :in] do
-    with {:ok, operands} <- resolve_expr(operands, state, loop) do
+    with {:ok, operands} <- resolve_expr(operands, state, iterator) do
       Condition.validate(
         %Condition{operator: operator, operands: operands},
-        :loop_completion
+        :iterate_completion
       )
     end
   end
 
-  defp resolve_loop_condition(
+  defp resolve_iterator_condition(
          %Syntax.Condition{operator: operator, operands: operands},
          state,
-         loop
+         iterator
        )
        when operator in [:all, :any, :not] do
-    with {:ok, operands} <- resolve_loop_conditions(operands, state, loop) do
+    with {:ok, operands} <- resolve_iterator_conditions(operands, state, iterator) do
       Condition.validate(
         %Condition{operator: operator, operands: operands},
-        :loop_completion
+        :iterate_completion
       )
     end
   end
 
-  defp resolve_loop_condition(%Syntax.Condition{} = condition, _state, loop) do
+  defp resolve_iterator_condition(%Syntax.Condition{} = condition, _state, iterator) do
     {:error,
-     Error.validation_error("unsupported loop completion condition source", %{
-       loop: loop,
+     Error.validation_error("unsupported iterator completion condition source", %{
+       iterator: iterator,
        operator: condition.operator
      })}
   end
 
-  defp resolve_loop_condition(_condition, _state, loop) do
+  defp resolve_iterator_condition(_condition, _state, iterator) do
     {:error,
      Error.validation_error(
-       "loop completion condition must be a Jido.Flow.Syntax.Condition",
-       %{loop: loop, field: :completion}
+       "iterator completion condition must be a Jido.Flow.Syntax.Condition",
+       %{iterator: iterator, field: :completion}
      )}
   end
 
-  defp resolve_loop_conditions(conditions, _state, _loop) when not is_list(conditions) do
-    {:error, Error.validation_error("loop completion condition operands must be a list")}
+  defp resolve_iterator_conditions(conditions, _state, _iterator) when not is_list(conditions) do
+    {:error, Error.validation_error("iterator completion condition operands must be a list")}
   end
 
-  defp resolve_loop_conditions(conditions, state, loop) do
+  defp resolve_iterator_conditions(conditions, state, iterator) do
     conditions
     |> Enum.reduce_while({:ok, []}, fn condition, {:ok, acc} ->
-      case resolve_loop_condition(condition, state, loop) do
+      case resolve_iterator_condition(condition, state, iterator) do
         {:ok, condition} -> {:cont, {:ok, [condition | acc]}}
         {:error, error} -> {:halt, {:error, error}}
       end
@@ -655,7 +654,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
     end
   end
 
-  defp normalize_loop_termination(attrs) do
+  defp normalize_iterator_termination(attrs) do
     forms = Enum.filter([:while, :until, :repeat], &Map.has_key?(attrs, &1))
 
     case forms do
@@ -670,7 +669,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
 
       _forms ->
         {:error,
-         Error.validation_error("loop requires exactly one of while, until, or repeat", %{
+         Error.validation_error("iterate requires exactly one of while, until, or repeat", %{
            path: []
          })}
     end
@@ -682,13 +681,13 @@ defmodule Jido.Flow.Syntax.Lowerer do
     cond do
       Map.has_key?(attrs, :max_iterations) ->
         {:error,
-         Error.validation_error("repeat loop must not set max_iterations", %{
+         Error.validation_error("iterate with repeat must not set max_iterations", %{
            path: [:max_iterations]
          })}
 
       not (is_integer(count) and count in 1..10_000) ->
         {:error,
-         Error.validation_error("loop repeat count must be an integer from 1 to 10000", %{
+         Error.validation_error("iterate repeat count must be an integer from 1 to 10000", %{
            path: [:repeat]
          })}
 
@@ -697,25 +696,25 @@ defmodule Jido.Flow.Syntax.Lowerer do
     end
   end
 
-  defp normalize_loop_state_attrs(attrs) when is_list(attrs) do
+  defp normalize_iterator_state_attrs(attrs) when is_list(attrs) do
     if Keyword.keyword?(attrs) do
       case attrs |> Keyword.keys() |> first_duplicate() do
         nil ->
-          attrs |> Map.new() |> normalize_loop_state_attrs()
+          attrs |> Map.new() |> normalize_iterator_state_attrs()
 
         field ->
           {:error,
-           Error.validation_error("duplicate loop state option: #{inspect(field)}", %{
+           Error.validation_error("duplicate iterator state option: #{inspect(field)}", %{
              path: [:state, field],
              field: field
            })}
       end
     else
-      invalid_loop_state_attrs()
+      invalid_iterator_state_attrs()
     end
   end
 
-  defp normalize_loop_state_attrs(%{} = attrs) when not is_struct(attrs) do
+  defp normalize_iterator_state_attrs(%{} = attrs) when not is_struct(attrs) do
     allowed = [:schema, :initial, :update]
 
     case attrs |> Map.keys() |> Enum.find(&(&1 not in allowed)) do
@@ -726,24 +725,25 @@ defmodule Jido.Flow.Syntax.Lowerer do
 
           field ->
             {:error,
-             Error.validation_error("loop state #{field} is required", %{
+             Error.validation_error("iterator state #{field} is required", %{
                path: [:state, field]
              })}
         end
 
       field ->
         {:error,
-         Error.validation_error("unknown loop state configuration key: #{inspect(field)}", %{
+         Error.validation_error("unknown iterator state configuration key: #{inspect(field)}", %{
            key: field,
            path: [:state, field]
          })}
     end
   end
 
-  defp normalize_loop_state_attrs(_attrs), do: invalid_loop_state_attrs()
+  defp normalize_iterator_state_attrs(_attrs), do: invalid_iterator_state_attrs()
 
-  defp invalid_loop_state_attrs do
-    {:error, Error.validation_error("loop state configuration must be a map", %{path: [:state]})}
+  defp invalid_iterator_state_attrs do
+    {:error,
+     Error.validation_error("iterator state configuration must be a map", %{path: [:state]})}
   end
 
   defp first_duplicate(values) do
@@ -1002,7 +1002,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
 
   defp node_operations(operations) when is_list(operations) do
     Enum.flat_map(operations, fn
-      %Operation{kind: kind} = operation when kind in [:step, :choice, :map, :reduce, :loop] ->
+      %Operation{kind: kind} = operation when kind in [:step, :choice, :map, :reduce, :iterate] ->
         [operation]
 
       %Operation{kind: :group, attrs: attrs} ->
@@ -1234,7 +1234,7 @@ defmodule Jido.Flow.Syntax.Lowerer do
   defp allowed_operation_options(:reduce),
     do: [:name, :collection, :initial, :action, :input, :binding, :after, :derived_name?]
 
-  defp allowed_operation_options(:loop),
+  defp allowed_operation_options(:iterate),
     do: [
       :name,
       :action,

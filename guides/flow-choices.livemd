@@ -11,7 +11,7 @@ Run the code cells from top to bottom.
 ## Install Jido Action
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0"}])
+Mix.install([{:jido_action, "~> 3.0.0-rc.1"}])
 ```
 
 ## Define An Echo Action

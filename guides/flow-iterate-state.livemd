@@ -1,18 +1,18 @@
 # Iterate And State
 
-`iterate` repeats one Action or nested Flow. Each Iterate node owns a State
-schema and initial State. It runs with either `repeat` or `while`, and it always
-has a fixed bound.
+`iterate` repeats one Action or nested Flow. Each declaration creates an
+Iterator node with a State schema and initial State. It runs with either
+`repeat` or `while`, and it always has a fixed bound.
 
 The complete Iterate operation is one public Flow node. Internally, it lowers
-to the canonical `Jido.Flow.Loop` runtime node.
+to the canonical `Jido.Flow.Iterator` runtime node.
 
 Run the code cells from top to bottom.
 
 ## Install Jido Action
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0"}])
+Mix.install([{:jido_action, "~> 3.0.0-rc.1"}])
 ```
 
 ## Define An Iterate Action
@@ -59,7 +59,7 @@ end
 
 {:ok,
  %{
-   kind: :jido_flow_loop_result,
+   kind: :jido_flow_iterate_result,
    iterations: 3,
    state: %{count: 3},
    output: %{count: 3}

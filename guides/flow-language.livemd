@@ -12,7 +12,7 @@ Run the code cells from top to bottom.
 ## Install Jido Action
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0"}])
+Mix.install([{:jido_action, "~> 3.0.0-rc.1"}])
 ```
 
 ## Define Small Actions
@@ -174,7 +174,7 @@ end
   Jido.Exec.run(FlowLanguage.IterateExample, %{}, %{})
 ```
 
-See [Iterate and State](flow-loops-state.livemd) for State updates and `while`.
+See [Iterate and State](flow-iterate-state.livemd) for State updates and `while`.
 
 ## `choice`: Select One Target
 
@@ -261,5 +261,5 @@ true = is_binary(identity.digest)
 - [Flow Dependencies](flow-dependencies.livemd) explains graph edges and ready waves.
 - [Map and Reduce](flow-collections.livemd) explains ordered collection processing.
 - [Flow Choices](flow-choices.livemd) explains native conditions and routing.
-- [Iterate and State](flow-loops-state.livemd) explains bounded State transitions.
+- [Iterate and State](flow-iterate-state.livemd) explains bounded State transitions.
 - [Nested Flows](nested-flows.livemd) explains atomic child execution.

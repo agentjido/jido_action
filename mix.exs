@@ -1,7 +1,7 @@
 defmodule JidoAction.MixProject do
   use Mix.Project
 
-  @version "2.3.2"
+  @version "3.0.0-rc.1"
   @source_url "https://github.com/agentjido/jido_action"
   @description "Validated actions, call frames, and data-first Flow composition for Elixir"
 
@@ -92,7 +92,7 @@ defmodule JidoAction.MixProject do
           "guides/flow-dependencies.livemd",
           "guides/flow-collections.livemd",
           "guides/flow-choices.livemd",
-          "guides/flow-loops-state.livemd",
+          "guides/flow-iterate-state.livemd",
           "guides/nested-flows.livemd",
           "guides/flow-modules.md",
           "guides/flow-storage.md",
@@ -127,7 +127,7 @@ defmodule JidoAction.MixProject do
         {"guides/flow-dependencies.livemd", title: "Dependencies & Parallel Work"},
         {"guides/flow-collections.livemd", title: "Map & Reduce"},
         {"guides/flow-choices.livemd", title: "Choices & Conditions"},
-        {"guides/flow-loops-state.livemd", title: "Iterate & State"},
+        {"guides/flow-iterate-state.livemd", title: "Iterate & State"},
         {"guides/nested-flows.livemd", title: "Nested Flows"},
         {"guides/flow-modules.md", title: "Flow Modules"},
         {"guides/flow-storage.md", title: "Stored Flow JSON"},
@@ -144,40 +144,39 @@ defmodule JidoAction.MixProject do
       skip_undefined_reference_warnings_on: [
         "CHANGELOG.md",
         "LICENSE",
-        "lib/jido_flow/builder.ex",
-        "lib/jido_flow/syntax.ex"
+        "lib/jido_flow/builder.ex"
       ],
       groups_for_modules: [
-        Core: [
+        "Action API": [
           Jido.Action,
-          Jido.Action.Error,
+          Jido.Action.Output,
           Jido.Instruction
         ],
-        "Flow & Execution": [
+        "Flow API": [
           Jido.Flow,
           Jido.Flow.Builder,
+          Jido.Flow.ContractBundle
+        ],
+        "Flow Types": [
           Jido.Flow.Choice,
           Jido.Flow.Condition,
-          Jido.Flow.Loop,
+          Jido.Flow.Iterator,
           Jido.Flow.Map,
           Jido.Flow.Node,
           Jido.Flow.Reduce,
           Jido.Flow.Ref,
-          Jido.Flow.State,
-          Jido.Flow.Syntax,
+          Jido.Flow.State
+        ],
+        Execution: [
           Jido.Exec,
           Jido.Exec.Execution,
           Jido.Exec.NodeResult
         ],
-        "Error Types": [
-          Jido.Action.Error.Config,
+        Errors: [
+          Jido.Action.Error,
           Jido.Action.Error.ConfigurationError,
-          Jido.Action.Error.Execution,
           Jido.Action.Error.ExecutionFailureError,
-          Jido.Action.Error.Internal,
-          Jido.Action.Error.Internal.UnknownError,
           Jido.Action.Error.InternalError,
-          Jido.Action.Error.Invalid,
           Jido.Action.Error.InvalidInputError,
           Jido.Action.Error.TimeoutError
         ]

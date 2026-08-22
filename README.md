@@ -15,7 +15,7 @@ This foundation keeps the action boundary small:
 ```elixir
 def deps do
   [
-    {:jido_action, "~> 3.0"}
+    {:jido_action, "~> 3.0.0-rc.1"}
   ]
 end
 ```
@@ -140,7 +140,7 @@ Livebook. ExDoc adds a **Run in Livebook** link to each `.livemd` guide.
 - [Dependencies & Parallel Work](guides/flow-dependencies.livemd)
 - [Map & Reduce](guides/flow-collections.livemd)
 - [Choices & Conditions](guides/flow-choices.livemd)
-- [Iterate & State](guides/flow-loops-state.livemd)
+- [Iterate & State](guides/flow-iterate-state.livemd)
 - [Nested Flows](guides/nested-flows.livemd)
 - [Flow Modules](guides/flow-modules.md)
 - [Stored Flow JSON](guides/flow-storage.md)

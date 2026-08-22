@@ -1,4 +1,4 @@
-defmodule Jido.Flow.Loop do
+defmodule Jido.Flow.Iterator do
   @moduledoc """
   A bounded, stateful Flow element.
 
@@ -39,9 +39,9 @@ defmodule Jido.Flow.Loop do
   @enforce_keys @config_keys
   defstruct @config_keys
 
-  @doc "Builds a canonical bounded Loop."
+  @doc "Builds a canonical bounded Iterator."
   @spec new(map() | keyword() | t()) :: {:ok, t()} | {:error, Exception.t()}
-  def new(%__MODULE__{} = loop), do: loop |> Map.from_struct() |> new()
+  def new(%__MODULE__{} = iterator), do: iterator |> Map.from_struct() |> new()
 
   def new(attrs) when is_list(attrs) do
     if Keyword.keyword?(attrs), do: attrs |> Map.new() |> new(), else: invalid_configuration()
@@ -73,35 +73,35 @@ defmodule Jido.Flow.Loop do
 
   def new(_attrs), do: invalid_configuration()
 
-  @doc "Builds a Loop or raises on validation failure."
+  @doc "Builds an Iterator or raises on validation failure."
   @spec new!(map() | keyword() | t()) :: t() | no_return()
   def new!(attrs) do
     case new(attrs) do
-      {:ok, loop} -> loop
+      {:ok, iterator} -> iterator
       {:error, error} -> raise error
     end
   end
 
   @doc false
   @spec result_deps(t()) :: [String.t()]
-  def result_deps(%__MODULE__{} = loop) do
-    loop.input
+  def result_deps(%__MODULE__{} = iterator) do
+    iterator.input
     |> Node.collect_result_refs()
-    |> Kernel.++(State.result_deps(loop.state))
-    |> Kernel.++(Condition.result_deps(loop.completion))
-    |> Kernel.++(loop.deps)
+    |> Kernel.++(State.result_deps(iterator.state))
+    |> Kernel.++(Condition.result_deps(iterator.completion))
+    |> Kernel.++(iterator.deps)
     |> Enum.uniq()
     |> Enum.sort()
   end
 
   @doc false
   @spec put_deps(t(), [String.t()]) :: t()
-  def put_deps(%__MODULE__{} = loop, deps), do: %{loop | deps: deps}
+  def put_deps(%__MODULE__{} = iterator, deps), do: %{iterator | deps: deps}
 
   @doc false
   @spec check(t()) :: :ok | {:error, Exception.t()}
-  def check(%__MODULE__{} = loop) do
-    case Instruction.validate_action_contract(loop.action) do
+  def check(%__MODULE__{} = iterator) do
+    case Instruction.validate_action_contract(iterator.action) do
       :ok ->
         :ok
 
@@ -109,27 +109,27 @@ defmodule Jido.Flow.Loop do
         {:error,
          Error.validation_error(
            error.message,
-           error.details |> Map.merge(%{loop: loop.name, target: loop.action})
+           error.details |> Map.merge(%{iterator: iterator.name, target: iterator.action})
          )}
     end
   end
 
   @doc false
   @spec to_map(t(), keyword()) :: map()
-  def to_map(%__MODULE__{} = loop, opts \\ []) do
+  def to_map(%__MODULE__{} = iterator, opts \\ []) do
     base = %{
-      kind: :loop,
-      name: loop.name,
-      action: loop.action,
-      input: Node.expression_to_map(loop.input),
-      state: State.to_map(loop.state),
-      completion: Condition.to_map(loop.completion),
-      max_iterations: loop.max_iterations,
-      deps: Enum.sort(loop.deps)
+      kind: :iterate,
+      name: iterator.name,
+      action: iterator.action,
+      input: Node.expression_to_map(iterator.input),
+      state: State.to_map(iterator.state),
+      completion: Condition.to_map(iterator.completion),
+      max_iterations: iterator.max_iterations,
+      deps: Enum.sort(iterator.deps)
     }
 
     if Keyword.get(opts, :provenance, false) do
-      Map.put(base, :provenance, loop.provenance)
+      Map.put(base, :provenance, iterator.provenance)
     else
       base
     end
@@ -137,16 +137,16 @@ defmodule Jido.Flow.Loop do
 
   @doc false
   @spec semantic_data(t()) :: map()
-  def semantic_data(%__MODULE__{} = loop) do
+  def semantic_data(%__MODULE__{} = iterator) do
     %{
-      kind: :loop,
-      name: loop.name,
-      action: loop.action,
-      input: loop.input,
-      state: State.semantic_data(loop.state),
-      completion: loop.completion,
-      max_iterations: loop.max_iterations,
-      deps: loop.deps
+      kind: :iterate,
+      name: iterator.name,
+      action: iterator.action,
+      input: iterator.input,
+      state: State.semantic_data(iterator.state),
+      completion: iterator.completion,
+      max_iterations: iterator.max_iterations,
+      deps: iterator.deps
     }
   end
 
@@ -164,20 +164,21 @@ defmodule Jido.Flow.Loop do
 
   defp invalid_name do
     {:error,
-     Error.validation_error("loop name must be a non-empty string or atom", %{path: [:name]})}
+     Error.validation_error("iterator name must be a non-empty string or atom", %{path: [:name]})}
   end
 
   defp validate_target(action) when is_atom(action) and not is_nil(action), do: {:ok, action}
 
   defp validate_target(_action) do
-    {:error, Error.validation_error("loop body target must be a module atom", %{path: [:action]})}
+    {:error,
+     Error.validation_error("iterator body target must be a module atom", %{path: [:action]})}
   end
 
   defp validate_input(nil), do: {:ok, %{}}
-  defp validate_input(input), do: validate_expression(input, :input, :loop_input)
+  defp validate_input(input), do: validate_expression(input, :input, :iterate_input)
 
   defp validate_state(nil) do
-    {:error, Error.validation_error("loop state is required", %{path: [:state]})}
+    {:error, Error.validation_error("iterator state is required", %{path: [:state]})}
   end
 
   defp validate_state(state) do
@@ -188,24 +189,24 @@ defmodule Jido.Flow.Loop do
   end
 
   defp validate_completion(nil) do
-    {:error, Error.validation_error("loop completion is required", %{path: [:completion]})}
+    {:error, Error.validation_error("iterator completion is required", %{path: [:completion]})}
   end
 
   defp validate_completion(completion) do
-    case Condition.validate(completion, :loop_completion) do
+    case Condition.validate(completion, :iterate_completion) do
       {:ok, completion} ->
         {:ok, completion}
 
       {:error, error} ->
         {:error,
          error
-         |> put_error_message(loop_condition_message(Exception.message(error)))
+         |> put_error_message(iterator_condition_message(Exception.message(error)))
          |> prefix_error_path(:completion)}
     end
   end
 
-  defp loop_condition_message(message) do
-    String.replace(message, "choice condition", "loop completion condition")
+  defp iterator_condition_message(message) do
+    String.replace(message, "choice condition", "iterator completion condition")
   end
 
   defp validate_max_iterations(value)
@@ -215,7 +216,7 @@ defmodule Jido.Flow.Loop do
   defp validate_max_iterations(_value) do
     {:error,
      Error.validation_error(
-       "loop max_iterations must be an integer from 1 to 10000",
+       "iterator max_iterations must be an integer from 1 to 10000",
        %{path: [:max_iterations]}
      )}
   end
@@ -232,7 +233,7 @@ defmodule Jido.Flow.Loop do
   defp translate_expression_error(error, field) do
     details = Map.get(error, :details, %{})
     path = [field] ++ Map.get(details, :path, [])
-    owner = "loop body input"
+    owner = "iterator body input"
 
     case Node.expression_error_kind(error) do
       :invalid_scope ->
@@ -268,7 +269,7 @@ defmodule Jido.Flow.Loop do
 
   defp validate_deps(deps) when is_list(deps) do
     if List.improper?(deps) do
-      invalid_deps("loop deps must be a proper list")
+      invalid_deps("iterator deps must be a proper list")
     else
       deps
       |> Enum.reduce_while({:ok, []}, &collect_dependency/2)
@@ -276,12 +277,12 @@ defmodule Jido.Flow.Loop do
     end
   end
 
-  defp validate_deps(_deps), do: invalid_deps("loop deps must be a list")
+  defp validate_deps(_deps), do: invalid_deps("iterator deps must be a list")
 
   defp collect_dependency(dep, {:ok, acc}) do
     case validate_dependency(dep) do
       {:ok, dep} -> {:cont, {:ok, [dep | acc]}}
-      :error -> {:halt, invalid_deps("loop deps must be a list of step names")}
+      :error -> {:halt, invalid_deps("iterator deps must be a list of step names")}
     end
   end
 
@@ -307,7 +308,7 @@ defmodule Jido.Flow.Loop do
   defp validate_provenance(provenance) when is_map(provenance), do: {:ok, provenance}
 
   defp validate_provenance(_provenance) do
-    {:error, Error.validation_error("loop provenance must be a map", %{path: [:provenance]})}
+    {:error, Error.validation_error("iterator provenance must be a map", %{path: [:provenance]})}
   end
 
   defp validate_known_keys(attrs) do
@@ -317,7 +318,7 @@ defmodule Jido.Flow.Loop do
 
       key ->
         {:error,
-         Error.validation_error("unknown loop configuration key: #{inspect(key)}", %{
+         Error.validation_error("unknown iterator configuration key: #{inspect(key)}", %{
            key: key,
            path: [key]
          })}
@@ -336,6 +337,6 @@ defmodule Jido.Flow.Loop do
   defp prefix_error_path(error, _prefix), do: error
 
   defp invalid_configuration do
-    {:error, Error.validation_error("loop configuration must be a map", %{path: []})}
+    {:error, Error.validation_error("iterator configuration must be a map", %{path: []})}
   end
 end

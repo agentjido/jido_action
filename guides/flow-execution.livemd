@@ -9,7 +9,7 @@ the next cell uses.
 ## Install Jido Action
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0"}])
+Mix.install([{:jido_action, "~> 3.0.0-rc.1"}])
 ```
 
 ## Define The Actions
@@ -365,7 +365,7 @@ stays serial. The public API does not pause between collection items or
 iterations.
 
 See [Map and Reduce](flow-collections.livemd) and [Iterate and
-State](flow-loops-state.livemd) for the element syntax and result shapes.
+State](flow-iterate-state.livemd) for the element syntax and result shapes.
 
 ## Nested Flows Are Atomic To The Parent
 

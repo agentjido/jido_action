@@ -9,7 +9,7 @@ defmodule Jido.Flow.BuilderTest do
   alias JidoTest.FlowFixtures
 
   describe "builder" do
-    test "exposes the complete closed Loop expression and operation surface" do
+    test "exposes the complete closed Iterator expression and operation surface" do
       left = Builder.value(1)
       right = Builder.value(2)
       equal = Builder.eq(left, right)
@@ -31,14 +31,14 @@ defmodule Jido.Flow.BuilderTest do
           JidoTest.TestActions.Add,
           %{value: Builder.item()}
         )
-        |> Builder.loop(
+        |> Builder.iterate(
           :counted,
           JidoTest.TestActions.Add,
           %{value: Builder.state(:count)},
           %{schema: [], initial: %{count: left}, update: %{count: Builder.body_result(:value)}}
         )
 
-      assert [%Syntax.Operation{kind: :map}, %Syntax.Operation{kind: :loop}] =
+      assert [%Syntax.Operation{kind: :map}, %Syntax.Operation{kind: :iterate}] =
                Builder.syntax(builder).operations
     end
 
@@ -340,7 +340,7 @@ defmodule Jido.Flow.BuilderTest do
       assert Flow.semantic_identity(builder_flow) == Flow.semantic_identity(syntax_flow)
     end
 
-    test "builder and direct syntax produce equal bounded Loop flows" do
+    test "builder and direct syntax produce equal bounded Iterator flows" do
       state = %{
         schema: [],
         initial: %{count: Syntax.input(:count)},
@@ -348,8 +348,8 @@ defmodule Jido.Flow.BuilderTest do
       }
 
       syntax =
-        Syntax.new(name: "loop")
-        |> Syntax.loop(
+        Syntax.new(name: "iterator")
+        |> Syntax.iterate(
           :count,
           JidoTest.TestActions.Add,
           %{value: Syntax.state(:count)},
@@ -367,8 +367,8 @@ defmodule Jido.Flow.BuilderTest do
       }
 
       builder =
-        Builder.new(name: "loop")
-        |> Builder.loop(
+        Builder.new(name: "iterator")
+        |> Builder.iterate(
           :count,
           JidoTest.TestActions.Add,
           %{value: Builder.state(:count)},

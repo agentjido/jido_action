@@ -129,11 +129,11 @@ See [Map and Reduce](flow-collections.livemd).
 ## Test Iterate And State
 
 Test the initial head condition, the first State update, normal completion,
-and exhaustion at `max_iterations`. Assert the complete Iterate result, including
-`iterations`, `state`, and `output`.
+and exhaustion at `max_iterations`. Assert the complete Iterate result,
+including `iterations`, `state`, and `output`.
 
 ```elixir
-test "commits each loop state replacement" do
+test "commits each iterator state replacement" do
   assert {:ok, %{iterations: 3, state: %{count: 3}, output: %{count: 3}}} =
            Jido.Exec.run(MyApp.Flows.CountThree, %{}, %{})
 end
@@ -144,9 +144,9 @@ test "can complete before the first body call" do
 end
 ```
 
-Test State schema failures without exposing rejected State values. If the Iterate
-body has effects, also test the repeat-risk and idempotency boundary. See
-[Iterate and State](flow-loops-state.livemd).
+Test State schema failures without exposing rejected State values. If the
+Iterator body has effects, also test the repeat-risk and idempotency boundary. See
+[Iterate and State](flow-iterate-state.livemd).
 
 ## Test Nested Flows
 

@@ -29,10 +29,10 @@ defmodule Jido.Flow.Ref do
           | :reduce_collection
           | :reduce_initial
           | :reduce_input
-          | :loop_initial
-          | :loop_input
-          | :loop_update
-          | :loop_completion
+          | :iterate_initial
+          | :iterate_input
+          | :iterate_update
+          | :iterate_completion
   @type node_name :: String.t()
   @type path :: [atom() | String.t() | integer()]
 
@@ -119,15 +119,15 @@ defmodule Jido.Flow.Ref do
   def accumulator(path \\ nil),
     do: %__MODULE__{type: :accumulator, path: normalize_path(path)}
 
-  @doc "Builds a scoped reference to the current Loop State."
+  @doc "Builds a scoped reference to the current Iterator State."
   @spec state(atom() | String.t() | integer() | list() | nil) :: t()
   def state(path \\ nil), do: %__MODULE__{type: :state, path: normalize_path(path)}
 
-  @doc "Builds a scoped reference to the current zero-based Loop iteration index."
+  @doc "Builds a scoped reference to the current zero-based Iterator iteration index."
   @spec iteration_index() :: t()
   def iteration_index, do: %__MODULE__{type: :iteration_index}
 
-  @doc "Builds a scoped reference to the latest valid Loop body result."
+  @doc "Builds a scoped reference to the latest valid Iterator body result."
   @spec body_result(atom() | String.t() | integer() | list() | nil) :: t()
   def body_result(path \\ nil),
     do: %__MODULE__{type: :body_result, path: normalize_path(path)}
@@ -182,7 +182,7 @@ defmodule Jido.Flow.Ref do
 
   defp validate_scope(type, scope)
        when type in [:state, :iteration_index, :body_result] and
-              scope in [:loop_input, :loop_update, :loop_completion],
+              scope in [:iterate_input, :iterate_update, :iterate_completion],
        do: :ok
 
   defp validate_scope(type, scope), do: {:error, :scope, %{type: type, scope: scope}}

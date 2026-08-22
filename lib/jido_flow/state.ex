@@ -1,9 +1,9 @@
 defmodule Jido.Flow.State do
   @moduledoc """
-  The static State contract owned by one `Jido.Flow.Loop`. The public Spark DSL
+  The static State contract owned by one `Jido.Flow.Iterator`. The public Spark DSL
   declares this runtime node with `iterate`.
 
-  Runtime State is created for one Loop invocation. This struct contains only
+  Runtime State is created for one Iterator invocation. This struct contains only
   the schema and data expressions that define that runtime value.
   """
 
@@ -24,7 +24,7 @@ defmodule Jido.Flow.State do
   @enforce_keys @config_keys
   defstruct @config_keys
 
-  @doc "Builds a static Loop State contract."
+  @doc "Builds a static Iterator State contract."
   @spec new(map() | keyword() | t()) :: {:ok, t()} | {:error, Exception.t()}
   def new(%__MODULE__{} = state), do: state |> Map.from_struct() |> new()
 
@@ -36,8 +36,8 @@ defmodule Jido.Flow.State do
     with :ok <- validate_known_keys(attrs),
          {:ok, version} <- validate_version(Map.get(attrs, :version, @version)),
          {:ok, schema} <- validate_required_schema(attrs),
-         {:ok, initial} <- validate_required_expression(attrs, :initial, :loop_initial),
-         {:ok, update} <- validate_required_expression(attrs, :update, :loop_update) do
+         {:ok, initial} <- validate_required_expression(attrs, :initial, :iterate_initial),
+         {:ok, update} <- validate_required_expression(attrs, :update, :iterate_update) do
       {:ok,
        %__MODULE__{
          version: version,
@@ -73,7 +73,7 @@ defmodule Jido.Flow.State do
   @spec to_map(t()) :: map()
   def to_map(%__MODULE__{} = state) do
     %{
-      kind: :loop_state,
+      kind: :iterate_state,
       version: state.version,
       schema: state.schema,
       initial: Node.expression_to_map(state.initial),
@@ -85,7 +85,7 @@ defmodule Jido.Flow.State do
   @spec semantic_data(t()) :: map()
   def semantic_data(%__MODULE__{} = state) do
     %{
-      kind: :loop_state,
+      kind: :iterate_state,
       version: state.version,
       schema: state.schema,
       initial: state.initial,
@@ -97,7 +97,7 @@ defmodule Jido.Flow.State do
 
   defp validate_version(version) do
     {:error,
-     Error.validation_error("unsupported loop state version: #{inspect(version)}", %{
+     Error.validation_error("unsupported iterator state version: #{inspect(version)}", %{
        version: version,
        path: [:version]
      })}
@@ -107,7 +107,7 @@ defmodule Jido.Flow.State do
     if Map.has_key?(attrs, :schema) do
       validate_schema(Map.fetch!(attrs, :schema))
     else
-      {:error, Error.validation_error("loop state schema is required", %{path: [:schema]})}
+      {:error, Error.validation_error("iterator state schema is required", %{path: [:schema]})}
     end
   end
 
@@ -118,7 +118,7 @@ defmodule Jido.Flow.State do
     else
       {:error, message} ->
         {:error,
-         Error.validation_error("loop state schema #{message}", %{
+         Error.validation_error("iterator state schema #{message}", %{
            field: :schema,
            path: [:schema]
          })}
@@ -129,7 +129,7 @@ defmodule Jido.Flow.State do
     if Map.has_key?(attrs, field) do
       validate_expression(Map.fetch!(attrs, field), field, scope)
     else
-      {:error, Error.validation_error("loop state #{field} is required", %{path: [field]})}
+      {:error, Error.validation_error("iterator state #{field} is required", %{path: [field]})}
     end
   end
 
@@ -145,7 +145,7 @@ defmodule Jido.Flow.State do
   defp translate_expression_error(error, field) do
     details = Map.get(error, :details, %{})
     path = [field] ++ Map.get(details, :path, [])
-    owner = "loop state #{field}"
+    owner = "iterator state #{field}"
 
     case Node.expression_error_kind(error) do
       :invalid_scope ->
@@ -184,7 +184,7 @@ defmodule Jido.Flow.State do
 
       key ->
         {:error,
-         Error.validation_error("unknown loop state configuration key: #{inspect(key)}", %{
+         Error.validation_error("unknown iterator state configuration key: #{inspect(key)}", %{
            key: key,
            path: [key]
          })}
@@ -192,6 +192,7 @@ defmodule Jido.Flow.State do
   end
 
   defp invalid_configuration do
-    {:error, Error.validation_error("loop state configuration must be a map", %{path: [:state]})}
+    {:error,
+     Error.validation_error("iterator state configuration must be a map", %{path: [:state]})}
   end
 end

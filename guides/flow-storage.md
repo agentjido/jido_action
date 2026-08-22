@@ -54,8 +54,8 @@ stored =
 ```
 
 The selected Action registry must contain exactly one identifier for each
-Action module in the Flow. `state_schema_ids` maps each internal Iterate node
-name to its stable State schema identifier.
+Action module in the Flow. `state_schema_ids` maps each Iterator node name to
+its stable State schema identifier.
 
 Use `provenance: true` when metadata and source annotations must survive the
 round trip. Provenance does not change Flow execution or semantic identity.
@@ -113,6 +113,9 @@ The stored format keeps node names, node definitions, expressions,
 dependencies, output shape, contract identifiers, and optional provenance. A
 stored round trip keeps the Flow meaning. It does not promise source-code
 round-trip formatting.
+
+An Iterator node uses `"kind": "iterate"` in stored JSON. Its State record
+uses `"kind": "iterate_state"`.
 
 Use `Jido.Flow.semantic_identity/1` to compare Flow meaning before and after a
 round trip. See [Inspecting And Storing Flows](flow-inspection.md) for the

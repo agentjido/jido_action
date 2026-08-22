@@ -1172,25 +1172,27 @@ defmodule Jido.Flow.Syntax.LowererTest do
     end
   end
 
-  describe "Loop lowering" do
-    test "normalizes until, while, and repeat into one canonical Loop form" do
+  describe "Iterator lowering" do
+    test "normalizes until, while, and repeat into one canonical Iterator form" do
       until_condition = Syntax.gte(Syntax.state(:count), Syntax.value(3))
 
       until_flow =
-        loop_syntax(:until, until_condition, max_iterations: 5)
+        iterator_syntax(:until, until_condition, max_iterations: 5)
         |> Lowerer.lower()
 
       while_flow =
-        loop_syntax(:while, Syntax.lt(Syntax.state(:count), Syntax.value(3)), max_iterations: 5)
+        iterator_syntax(:while, Syntax.lt(Syntax.state(:count), Syntax.value(3)),
+          max_iterations: 5
+        )
         |> Lowerer.lower()
 
-      repeat_flow = loop_syntax(:repeat, 3) |> Lowerer.lower()
+      repeat_flow = iterator_syntax(:repeat, 3) |> Lowerer.lower()
 
       assert {:ok, until_flow} = until_flow
       assert {:ok, while_flow} = while_flow
       assert {:ok, repeat_flow} = repeat_flow
 
-      assert [%{kind: :loop, completion: %{operator: :gte}, max_iterations: 5}] =
+      assert [%{kind: :iterate, completion: %{operator: :gte}, max_iterations: 5}] =
                Flow.to_map(until_flow).nodes
 
       assert [%{completion: %{operator: :not}, max_iterations: 5}] =
@@ -1214,23 +1216,24 @@ defmodule Jido.Flow.Syntax.LowererTest do
     end
 
     test "rejects absent or several forms and invalid limits with exact errors" do
-      no_form = base_loop_syntax([])
+      no_form = base_iterator_syntax([])
 
       several =
-        base_loop_syntax(
+        base_iterator_syntax(
           until: Syntax.eq(Syntax.value(1), Syntax.value(1)),
           while: Syntax.eq(Syntax.value(1), Syntax.value(1)),
           max_iterations: 1
         )
 
-      repeat_with_max = base_loop_syntax(repeat: 2, max_iterations: 2)
-      bad_repeat = base_loop_syntax(repeat: 0)
+      repeat_with_max = base_iterator_syntax(repeat: 2, max_iterations: 2)
+      bad_repeat = base_iterator_syntax(repeat: 0)
 
       for {syntax, message, path} <- [
-            {no_form, "loop requires exactly one of while, until, or repeat", []},
-            {several, "loop requires exactly one of while, until, or repeat", []},
-            {repeat_with_max, "repeat loop must not set max_iterations", [:max_iterations]},
-            {bad_repeat, "loop repeat count must be an integer from 1 to 10000", [:repeat]}
+            {no_form, "iterate requires exactly one of while, until, or repeat", []},
+            {several, "iterate requires exactly one of while, until, or repeat", []},
+            {repeat_with_max, "iterate with repeat must not set max_iterations",
+             [:max_iterations]},
+            {bad_repeat, "iterate repeat count must be an integer from 1 to 10000", [:repeat]}
           ] do
         assert {:error, %InvalidInputError{message: ^message, details: %{path: ^path}}} =
                  Lowerer.lower(syntax)
@@ -1241,18 +1244,18 @@ defmodule Jido.Flow.Syntax.LowererTest do
       base = %{initial: %{}, update: %{}}
 
       cases = [
-        {base, "loop state schema is required", [:state, :schema]},
+        {base, "iterator state schema is required", [:state, :schema]},
         {Map.put(base, :schema, []) |> Map.put(:extra, true),
-         "unknown loop state configuration key: :extra", [:state, :extra]},
+         "unknown iterator state configuration key: :extra", [:state, :extra]},
         {[schema: [], schema: [], initial: %{}, update: %{}],
-         "duplicate loop state option: :schema", [:state, :schema]},
-        {[:bad], "loop state configuration must be a map", [:state]}
+         "duplicate iterator state option: :schema", [:state, :schema]},
+        {[:bad], "iterator state configuration must be a map", [:state]}
       ]
 
-      for {loop_state, message, path} <- cases do
+      for {iterator_state, message, path} <- cases do
         syntax =
           Syntax.new(name: "bad_state")
-          |> Syntax.loop(:count, Add, %{}, loop_state, repeat: 1)
+          |> Syntax.iterate(:count, Add, %{}, iterator_state, repeat: 1)
           |> Syntax.return(Syntax.result(:count))
 
         assert {:error, %InvalidInputError{message: ^message, details: %{path: ^path}}} =
@@ -1260,11 +1263,11 @@ defmodule Jido.Flow.Syntax.LowererTest do
       end
     end
 
-    test "derives names and dependencies and rejects reserved Loop bindings" do
+    test "derives names and dependencies and rejects reserved Iterator bindings" do
       syntax =
         Syntax.new(name: "deps")
         |> Syntax.step(:seed, Add, %{value: Syntax.input(:count)})
-        |> Syntax.loop(
+        |> Syntax.iterate(
           nil,
           Add,
           %{value: Syntax.state(:count)},
@@ -1281,11 +1284,11 @@ defmodule Jido.Flow.Syntax.LowererTest do
 
       assert {:ok, flow} = Lowerer.lower(syntax)
 
-      assert [%{name: "seed"}, %{kind: :loop, name: "counted", deps: ["seed"]}] =
+      assert [%{name: "seed"}, %{kind: :iterate, name: "counted", deps: ["seed"]}] =
                Flow.to_map(flow).nodes
 
       reserved =
-        base_loop_syntax(repeat: 1, bind: :state)
+        base_iterator_syntax(repeat: 1, bind: :state)
 
       assert {:error, %InvalidInputError{message: "reserved binding alias: :state"}} =
                Lowerer.lower(reserved)
@@ -1624,15 +1627,15 @@ defmodule Jido.Flow.Syntax.LowererTest do
     |> List.first()
   end
 
-  defp loop_syntax(form, value, opts) do
-    base_loop_syntax([{form, value} | opts])
+  defp iterator_syntax(form, value, opts) do
+    base_iterator_syntax([{form, value} | opts])
   end
 
-  defp loop_syntax(form, value), do: loop_syntax(form, value, [])
+  defp iterator_syntax(form, value), do: iterator_syntax(form, value, [])
 
-  defp base_loop_syntax(opts) do
-    Syntax.new(name: "loop")
-    |> Syntax.loop(
+  defp base_iterator_syntax(opts) do
+    Syntax.new(name: "iterator")
+    |> Syntax.iterate(
       :count,
       Add,
       %{value: Syntax.state(:count), index: Syntax.iteration_index()},

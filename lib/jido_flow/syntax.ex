@@ -1,10 +1,5 @@
 defmodule Jido.Flow.Syntax do
-  @moduledoc """
-  Shared authoring syntax for Flow surfaces.
-
-  Spark DSL and Builder authoring paths emit this syntax layer before the
-  lowerer validates and converts it into canonical `%Jido.Flow{}` artifacts.
-  """
+  @moduledoc false
 
   import Kernel, except: [in: 2, not: 1]
 
@@ -186,15 +181,15 @@ defmodule Jido.Flow.Syntax do
   def accumulator(path \\ nil),
     do: %Expr{type: :accumulator, path: normalize_path(path)}
 
-  @doc "Builds a scoped reference to the current Loop State."
+  @doc "Builds a scoped reference to the current Iterator State."
   @spec state(term()) :: Expr.t()
   def state(path \\ nil), do: %Expr{type: :state, path: normalize_path(path)}
 
-  @doc "Builds a scoped reference to the current Loop iteration index."
+  @doc "Builds a scoped reference to the current Iterator iteration index."
   @spec iteration_index() :: Expr.t()
   def iteration_index, do: %Expr{type: :iteration_index}
 
-  @doc "Builds a scoped reference to the latest Loop body result."
+  @doc "Builds a scoped reference to the latest Iterator body result."
   @spec body_result(term()) :: Expr.t()
   def body_result(path \\ nil),
     do: %Expr{type: :body_result, path: normalize_path(path)}
@@ -360,10 +355,10 @@ defmodule Jido.Flow.Syntax do
     add(syntax, operation(:reduce, attrs, provenance: provenance_from_options(opts)))
   end
 
-  @doc "Appends one bounded, stateful Loop operation."
-  @spec loop(t(), atom() | String.t() | nil, module(), term(), map() | keyword(), keyword()) ::
+  @doc "Appends one bounded, stateful Iterate operation."
+  @spec iterate(t(), atom() | String.t() | nil, module(), term(), map() | keyword(), keyword()) ::
           t()
-  def loop(%__MODULE__{} = syntax, name, action, input, state, opts \\ []) do
+  def iterate(%__MODULE__{} = syntax, name, action, input, state, opts \\ []) do
     option_errors =
       operation_option_errors(opts, [
         :while,
@@ -393,7 +388,7 @@ defmodule Jido.Flow.Syntax do
       |> maybe_put_after(option_value(opts, :after))
       |> maybe_put_option_errors(option_errors)
 
-    add(syntax, operation(:loop, attrs, provenance: provenance_from_options(opts)))
+    add(syntax, operation(:iterate, attrs, provenance: provenance_from_options(opts)))
   end
 
   @doc """

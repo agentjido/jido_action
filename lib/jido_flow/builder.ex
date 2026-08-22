@@ -1,11 +1,10 @@
 defmodule Jido.Flow.Builder do
   @moduledoc """
-  Runtime builder for Flow syntax artifacts.
+  Builds Flow artifacts from runtime data.
 
-  The builder only constructs `Jido.Flow.Syntax`; it delegates all semantic
-  validation and canonical IR construction to `Jido.Flow.Syntax.Lowerer`. It
-  is a runtime data-construction API, not a second source language. Developers
-  normally use the compile-time Spark DSL from `Jido.Flow`.
+  The builder uses the same semantic validation as the compile-time DSL. It is
+  a runtime data-construction API, not a second source language. Developers
+  normally use the compile-time DSL from `Jido.Flow`.
   """
 
   import Kernel, except: [in: 2, not: 1]
@@ -120,9 +119,7 @@ defmodule Jido.Flow.Builder do
   @doc false
   defdelegate branch(name, operations, opts \\ []), to: Syntax
 
-  @doc """
-  Appends a provenance-only group operation.
-  """
+  @doc false
   @spec group(t(), [Syntax.Operation.t()], keyword()) :: t()
   def group(%__MODULE__{syntax: syntax} = builder, branches, opts \\ []) do
     %{builder | syntax: Syntax.group(syntax, branches, opts)}
@@ -171,11 +168,11 @@ defmodule Jido.Flow.Builder do
     }
   end
 
-  @doc "Appends one bounded, stateful Loop operation."
-  @spec loop(t(), atom() | String.t() | nil, module(), term(), map() | keyword(), keyword()) ::
+  @doc "Appends one bounded, stateful Iterate operation."
+  @spec iterate(t(), atom() | String.t() | nil, module(), term(), map() | keyword(), keyword()) ::
           t()
-  def loop(%__MODULE__{syntax: syntax} = builder, name, action, input, state, opts \\ []) do
-    %{builder | syntax: Syntax.loop(syntax, name, action, input, state, opts)}
+  def iterate(%__MODULE__{syntax: syntax} = builder, name, action, input, state, opts \\ []) do
+    %{builder | syntax: Syntax.iterate(syntax, name, action, input, state, opts)}
   end
 
   @doc """

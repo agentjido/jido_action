@@ -1,4 +1,4 @@
-defmodule Jido.Flow.LoopRuntimeTest do
+defmodule Jido.Flow.IteratorRuntimeTest do
   use ExUnit.Case, async: false
 
   alias Jido.Action
@@ -12,12 +12,12 @@ defmodule Jido.Flow.LoopRuntimeTest do
   alias Jido.Flow
   alias Jido.Flow.Compiler
   alias Jido.Flow.Condition
-  alias Jido.Flow.Loop
+  alias Jido.Flow.Iterator
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.Ref
   alias JidoTest.TestActions.CountedMapAction
 
-  @state_schema_recorder :jido_flow_loop_runtime_state_schema_recorder
+  @state_schema_recorder :jido_flow_iterator_runtime_state_schema_recorder
 
   def record_state_transform(value, _opts) do
     if owner = Process.whereis(@state_schema_recorder) do
@@ -29,7 +29,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
   defmodule Increment do
     use Action,
-      name: "loop_increment",
+      name: "iterator_increment",
       schema: Zoi.object(%{count: Zoi.integer(), index: Zoi.integer()}),
       output_schema: Zoi.object(%{count: Zoi.integer()})
 
@@ -42,18 +42,18 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
   defmodule Envelope do
     use Action,
-      name: "loop_envelope",
+      name: "iterator_envelope",
       schema: Zoi.object(%{count: Zoi.integer(), index: Zoi.integer()})
 
     @impl true
     def run(%{count: count}, _context) do
-      {:ok, Output.raw(%{count: count + 1}, meta: %{source: :loop_test})}
+      {:ok, Output.raw(%{count: count + 1}, meta: %{source: :iterate_test})}
     end
   end
 
   defmodule FailsSecond do
     use Action,
-      name: "loop_fails_second",
+      name: "iterator_fails_second",
       schema: Zoi.object(%{count: Zoi.integer(), index: Zoi.integer()}),
       output_schema: Zoi.object(%{count: Zoi.integer()})
 
@@ -71,7 +71,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
   defmodule RetryableFailure do
     use Action,
-      name: "loop_retryable_failure",
+      name: "iterator_retryable_failure",
       schema: Zoi.object(%{count: Zoi.integer(), index: Zoi.integer()})
 
     @impl true
@@ -86,7 +86,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
   defmodule ReturnedException do
     use Action,
-      name: "loop_returned_exception",
+      name: "iterator_returned_exception",
       schema: Zoi.object(%{count: Zoi.integer(), index: Zoi.integer()})
 
     @impl true
@@ -95,7 +95,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
   defmodule InvalidOutput do
     use Action,
-      name: "loop_invalid_output",
+      name: "iterator_invalid_output",
       schema: Zoi.object(%{count: Zoi.integer(), index: Zoi.integer()}),
       output_schema: Zoi.object(%{count: Zoi.integer()})
 
@@ -104,7 +104,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
   end
 
   defmodule BrokenFlow do
-    use Action, name: "loop_broken_flow"
+    use Action, name: "iterator_broken_flow"
 
     def __jido_flow__, do: true
     def flow, do: raise("broken nested Flow")
@@ -118,13 +118,13 @@ defmodule Jido.Flow.LoopRuntimeTest do
     defstruct [:count]
   end
 
-  defmodule ChildLoop do
-    use Flow, name: "child_loop"
+  defmodule ChildIterator do
+    use Flow, name: "child_iterator"
 
     flow do
       iterate "child" do
         state([], initial: %{count: 0})
-        action(Jido.Flow.LoopRuntimeTest.Increment)
+        action(Jido.Flow.IteratorRuntimeTest.Increment)
         params(%{count: state(:count), index: iteration_index()})
         update(%{count: body_result(:count)})
         repeat(1)
@@ -151,10 +151,10 @@ defmodule Jido.Flow.LoopRuntimeTest do
     end
   end
 
-  describe "bounded Loop runtime" do
+  describe "bounded Iterator runtime" do
     test "completes at the head without starting a body" do
       flow =
-        loop_flow(
+        iterator_flow(
           initial: %{count: Ref.value(0)},
           completion: eq(Ref.state(:count), Ref.value(0)),
           max_iterations: 3
@@ -162,7 +162,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
       assert {:ok,
               %{
-                kind: :jido_flow_loop_result,
+                kind: :jido_flow_iterate_result,
                 iterations: 0,
                 state: %{count: 0},
                 output: nil
@@ -173,7 +173,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
     test "commits exactly three replacements and lets completion win at the bound" do
       flow =
-        loop_flow(
+        iterator_flow(
           initial: %{count: Ref.value(0)},
           completion: gte(Ref.state(:count), Ref.value(3)),
           max_iterations: 3
@@ -181,7 +181,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
       assert {:ok,
               %{
-                kind: :jido_flow_loop_result,
+                kind: :jido_flow_iterate_result,
                 iterations: 3,
                 state: %{count: 3},
                 output: %{count: 3}
@@ -195,7 +195,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
     test "fails on exhaustion without starting an extra body" do
       flow =
-        loop_flow(
+        iterator_flow(
           initial: %{count: Ref.value(0)},
           completion: eq(Ref.value(false), Ref.value(true)),
           max_iterations: 2
@@ -203,9 +203,9 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
       assert {:error,
               %ExecutionFailureError{
-                message: "flow loop exhausted maximum iterations",
+                message: "flow iterator exhausted maximum iterations",
                 details: %{
-                  phase: :loop_exhaustion,
+                  phase: :iterate_exhaustion,
                   node: "count",
                   max_iterations: 2,
                   completed_iterations: 2,
@@ -221,7 +221,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
     test "preserves a valid Action Output as the latest body result" do
       flow =
-        loop_flow(
+        iterator_flow(
           action: Envelope,
           initial: %{count: Ref.value(0)},
           update: %{count: Ref.body_result([:value, :count])},
@@ -235,7 +235,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
     test "rejects an Action Output as a whole State replacement" do
       flow =
-        loop_flow(
+        iterator_flow(
           action: Envelope,
           initial: %{count: Ref.value(0)},
           update: Ref.body_result(),
@@ -245,9 +245,9 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
       assert {:error,
               %ExecutionFailureError{
-                message: "loop state update must resolve to a plain map",
+                message: "iterator state update must resolve to a plain map",
                 details: %{
-                  phase: :loop_state_update,
+                  phase: :iterate_state_update,
                   node: "count",
                   iteration_index: 0,
                   state_revision: 0,
@@ -260,7 +260,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
     test "rejects an Action Output as initial State" do
       flow =
-        loop_flow(
+        iterator_flow(
           initial: Ref.value(Output.raw(%{count: 0})),
           completion: eq(Ref.value(true), Ref.value(true)),
           max_iterations: 1
@@ -268,9 +268,9 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
       assert {:error,
               %ExecutionFailureError{
-                message: "loop initial state must resolve to a plain map",
+                message: "iterator initial state must resolve to a plain map",
                 details: %{
-                  phase: :loop_state_initial,
+                  phase: :iterate_state_initial,
                   reason: :not_a_plain_map,
                   value_type: :action_output
                 }
@@ -279,7 +279,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
     test "rejects non-map State and hides rejected State values" do
       flow =
-        loop_flow(
+        iterator_flow(
           initial: Ref.value([]),
           completion: eq(Ref.value(true), Ref.value(true)),
           max_iterations: 1
@@ -287,14 +287,14 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
       assert {:error,
               %ExecutionFailureError{
-                message: "loop initial state must resolve to a plain map",
-                details: %{phase: :loop_state_initial, reason: :not_a_plain_map}
+                message: "iterator initial state must resolve to a plain map",
+                details: %{phase: :iterate_state_initial, reason: :not_a_plain_map}
               } = error} = Exec.run(flow, %{}, %{})
 
       refute Map.has_key?(error.details, :value)
 
       nil_flow =
-        loop_flow(
+        iterator_flow(
           initial: Ref.value(nil),
           completion: eq(Ref.value(true), Ref.value(true)),
           max_iterations: 1
@@ -302,7 +302,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
       assert {:error,
               %ExecutionFailureError{
-                message: "loop initial state must resolve to a plain map",
+                message: "iterator initial state must resolve to a plain map",
                 details: %{value_type: nil}
               }} = Exec.run(nil_flow, %{}, %{})
     end
@@ -311,7 +311,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
       schema = Zoi.object(%{count: Zoi.integer()})
 
       flow =
-        loop_flow(
+        iterator_flow(
           schema: schema,
           initial: %{count: Ref.value(0)},
           update: %{count: Ref.value("bad")},
@@ -321,9 +321,9 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
       assert {:error,
               %InvalidInputError{
-                message: "loop state schema validation failed",
+                message: "iterator state schema validation failed",
                 details: %{
-                  phase: :loop_state_update,
+                  phase: :iterate_state_update,
                   node: "count",
                   iteration_index: 0,
                   state_revision: 0
@@ -342,7 +342,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
         |> Zoi.transform({__MODULE__, :record_state_transform, []})
 
       flow =
-        loop_flow(
+        iterator_flow(
           schema: schema,
           initial: %{count: Ref.value(0)},
           completion: gte(Ref.iteration_index(), Ref.value(1)),
@@ -359,7 +359,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
     test "validates and invokes the body exactly once per iteration" do
       flow =
-        loop_flow(
+        iterator_flow(
           action: CountedMapAction,
           input: %{test_pid: Ref.context(:test_pid), index: Ref.iteration_index()},
           initial: %{count: Ref.value(0)},
@@ -379,7 +379,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
       schema = Zoi.struct(StateStruct, %{count: Zoi.integer()}, coerce: true)
 
       flow =
-        loop_flow(
+        iterator_flow(
           schema: schema,
           initial: %{count: Ref.value(0)},
           completion: eq(Ref.value(true), Ref.value(true)),
@@ -388,9 +388,9 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
       assert {:error,
               %ExecutionFailureError{
-                message: "loop state schema must return a plain map",
+                message: "iterator state schema must return a plain map",
                 details: %{
-                  phase: :loop_state_initial,
+                  phase: :iterate_state_initial,
                   reason: :not_a_plain_map,
                   value_type: :map,
                   state_revision: 0
@@ -400,7 +400,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
     test "keeps prior effects but returns no partial State after a body failure" do
       flow =
-        loop_flow(
+        iterator_flow(
           action: FailsSecond,
           initial: %{count: Ref.value(0)},
           completion: eq(Ref.value(false), Ref.value(true)),
@@ -411,7 +411,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
               %ExecutionFailureError{
                 message: "second body failed",
                 details: %{
-                  phase: :loop_body_execution,
+                  phase: :iterate_body_execution,
                   node: "count",
                   target: FailsSecond,
                   iteration_index: 1,
@@ -428,7 +428,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
     test "preserves an explicit target retry policy without target error details" do
       flow =
-        loop_flow(
+        iterator_flow(
           action: RetryableFailure,
           initial: %{count: Ref.value(0)},
           completion: eq(Ref.value(false), Ref.value(true)),
@@ -439,7 +439,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
               %ExecutionFailureError{
                 message: "retryable body failed",
                 details: %{
-                  phase: :loop_body_execution,
+                  phase: :iterate_body_execution,
                   node: "count",
                   target: RetryableFailure,
                   iteration_index: 0,
@@ -454,7 +454,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
     test "adds bounded ownership details to a returned standard exception" do
       flow =
-        loop_flow(
+        iterator_flow(
           action: ReturnedException,
           initial: %{count: Ref.value(0)},
           completion: eq(Ref.value(false), Ref.value(true)),
@@ -465,7 +465,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
                Exec.run(flow, %{}, %{})
 
       assert %{
-               phase: :loop_body_execution,
+               phase: :iterate_body_execution,
                node: "count",
                target: ReturnedException,
                iteration_index: 0,
@@ -476,7 +476,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
     test "preserves bounded body input and output validation failures" do
       bad_input =
-        loop_flow(
+        iterator_flow(
           input: %{count: Ref.value("bad"), index: Ref.iteration_index()},
           initial: %{count: Ref.value(0)},
           completion: eq(Ref.value(false), Ref.value(true)),
@@ -486,7 +486,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
       assert {:error,
               %InvalidInputError{
                 details: %{
-                  phase: :loop_body_input,
+                  phase: :iterate_body_input,
                   node: "count",
                   target: Increment,
                   iteration_index: 0,
@@ -496,7 +496,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
               }} = Exec.run(bad_input, %{}, %{})
 
       bad_output =
-        loop_flow(
+        iterator_flow(
           action: InvalidOutput,
           initial: %{count: Ref.value(0)},
           completion: eq(Ref.value(false), Ref.value(true)),
@@ -506,7 +506,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
       assert {:error,
               %InvalidInputError{
                 details: %{
-                  phase: :loop_body_output,
+                  phase: :iterate_body_output,
                   node: "count",
                   target: InvalidOutput,
                   iteration_index: 0,
@@ -518,11 +518,11 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
     test "normalizes an unexpected body adapter defect and closes the iteration span" do
       events = [
-        [:jido, :flow, :loop, :iteration, :stop],
-        [:jido, :flow, :loop, :failure]
+        [:jido, :flow, :iterate, :iteration, :stop],
+        [:jido, :flow, :iterate, :failure]
       ]
 
-      handler = "loop-internal-#{System.unique_integer([:positive])}"
+      handler = "iterator-internal-#{System.unique_integer([:positive])}"
       owner = self()
 
       :ok =
@@ -530,7 +530,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
           handler,
           events,
           fn event, _measurements, metadata, _config ->
-            send(owner, {:loop_internal_telemetry, event, metadata})
+            send(owner, {:iterate_internal_telemetry, event, metadata})
           end,
           nil
         )
@@ -538,7 +538,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
       on_exit(fn -> :telemetry.detach(handler) end)
 
       flow =
-        loop_flow(
+        iterator_flow(
           action: BrokenFlow,
           initial: %{count: Ref.value(0)},
           completion: eq(Ref.value(false), Ref.value(true)),
@@ -547,9 +547,9 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
       assert {:error,
               %InternalError{
-                message: "flow loop adapter failed",
+                message: "flow iterator adapter failed",
                 details: %{
-                  phase: :loop_internal,
+                  phase: :iterate_internal,
                   node: "count",
                   iteration_index: 0,
                   state_revision: 0,
@@ -558,16 +558,16 @@ defmodule Jido.Flow.LoopRuntimeTest do
                 }
               }} = Exec.run(flow, %{}, %{})
 
-      assert_receive {:loop_internal_telemetry, [:jido, :flow, :loop, :iteration, :stop],
+      assert_receive {:iterate_internal_telemetry, [:jido, :flow, :iterate, :iteration, :stop],
                       %{status: :error, iteration_index: 0}}
 
-      assert_receive {:loop_internal_telemetry, [:jido, :flow, :loop, :failure],
-                      %{termination: :failed, phase: :loop_internal}}
+      assert_receive {:iterate_internal_telemetry, [:jido, :flow, :iterate, :failure],
+                      %{termination: :failed, phase: :iterate_internal}}
     end
 
     test "rejects invalid completion operands before the first body" do
       flow =
-        loop_flow(
+        iterator_flow(
           initial: %{count: Ref.value(0)},
           completion: gte(Ref.state(), Ref.value(1)),
           max_iterations: 1
@@ -575,9 +575,9 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
       assert {:error,
               %ExecutionFailureError{
-                message: "invalid loop completion condition operands",
+                message: "invalid iterator completion condition operands",
                 details: %{
-                  phase: :loop_completion,
+                  phase: :iterate_completion,
                   node: "count",
                   operator: :gte,
                   reason: :invalid_ordering_operands,
@@ -593,7 +593,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
     test "reports a post-commit completion failure at the committed iteration count" do
       flow =
-        loop_flow(
+        iterator_flow(
           initial: %{count: Ref.value(0), guard: Ref.value(-1)},
           update: %{count: Ref.body_result(:count), guard: Ref.value(%{})},
           completion: gte(Ref.state(:guard), Ref.value(0)),
@@ -601,12 +601,12 @@ defmodule Jido.Flow.LoopRuntimeTest do
         )
 
       events = [
-        [:jido, :flow, :loop, :state_transition],
-        [:jido, :flow, :loop, :iteration, :stop],
-        [:jido, :flow, :loop, :failure]
+        [:jido, :flow, :iterate, :state_transition],
+        [:jido, :flow, :iterate, :iteration, :stop],
+        [:jido, :flow, :iterate, :failure]
       ]
 
-      handler = "loop-post-commit-#{System.unique_integer([:positive])}"
+      handler = "iterator-post-commit-#{System.unique_integer([:positive])}"
       owner = self()
 
       :ok =
@@ -614,7 +614,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
           handler,
           events,
           fn event, _measurements, metadata, _config ->
-            send(owner, {:loop_post_commit_telemetry, event, metadata})
+            send(owner, {:iterate_post_commit_telemetry, event, metadata})
           end,
           nil
         )
@@ -628,9 +628,9 @@ defmodule Jido.Flow.LoopRuntimeTest do
                 status: :error,
                 output: nil,
                 error: %ExecutionFailureError{
-                  message: "invalid loop completion condition operands",
+                  message: "invalid iterator completion condition operands",
                   details: %{
-                    phase: :loop_completion,
+                    phase: :iterate_completion,
                     node: "count",
                     operator: :gte,
                     reason: :invalid_ordering_operands,
@@ -645,20 +645,20 @@ defmodule Jido.Flow.LoopRuntimeTest do
       assert failed_execution.revision == 1
       assert Exec.status(failed_execution) == :failed
 
-      assert_receive {:loop_post_commit_telemetry, [:jido, :flow, :loop, :state_transition],
+      assert_receive {:iterate_post_commit_telemetry, [:jido, :flow, :iterate, :state_transition],
                       %{from_revision: 0, to_revision: 1}}
 
-      assert_receive {:loop_post_commit_telemetry, [:jido, :flow, :loop, :iteration, :stop],
+      assert_receive {:iterate_post_commit_telemetry, [:jido, :flow, :iterate, :iteration, :stop],
                       %{status: :error}}
 
-      assert_receive {:loop_post_commit_telemetry, [:jido, :flow, :loop, :failure],
+      assert_receive {:iterate_post_commit_telemetry, [:jido, :flow, :iterate, :failure],
                       %{state_revision: 1, completed_iterations: 1}}
     end
 
-    test "runs a marked child Flow atomically with fresh child Loop State" do
+    test "runs a marked child Flow atomically with fresh child Iterator State" do
       flow =
-        loop_flow(
-          action: ChildLoop,
+        iterator_flow(
+          action: ChildIterator,
           initial: %{count: Ref.value(0)},
           update: %{count: Ref.state(:count)},
           completion: gte(Ref.iteration_index(), Ref.value(2)),
@@ -678,8 +678,8 @@ defmodule Jido.Flow.LoopRuntimeTest do
     end
 
     test "allows nested Map and Reduce to return one serial State candidate" do
-      loop =
-        Loop.new!(
+      iterator =
+        Iterator.new!(
           name: :aggregate,
           action: ChildMapReduce,
           input: %{items: Ref.state(:items)},
@@ -692,7 +692,8 @@ defmodule Jido.Flow.LoopRuntimeTest do
           max_iterations: 1
         )
 
-      flow = Flow.new!(name: "loop_map_reduce", nodes: [loop], return: Ref.result(:aggregate))
+      flow =
+        Flow.new!(name: "iterator_map_reduce", nodes: [iterator], return: Ref.result(:aggregate))
 
       assert {:ok,
               %{
@@ -702,16 +703,16 @@ defmodule Jido.Flow.LoopRuntimeTest do
               }} = Exec.run(flow, %{items: [%{value: 1}, %{value: 2}]}, %{})
     end
 
-    test "creates fresh child Loop State for every Map item" do
+    test "creates fresh child Iterator State for every Map item" do
       map =
         FlowMap.new!(
           name: :per_item,
           collection: Ref.input(:items),
-          action: ChildLoop,
+          action: ChildIterator,
           input: %{item: Ref.item()}
         )
 
-      flow = Flow.new!(name: "map_child_loops", nodes: [map], return: Ref.result(:per_item))
+      flow = Flow.new!(name: "map_child_iterators", nodes: [map], return: Ref.result(:per_item))
 
       assert {:ok, %{results: results, errors: []}} =
                Exec.run(
@@ -731,7 +732,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
     test "is one public step and concurrent stale Execution reuse stays isolated" do
       flow =
-        loop_flow(
+        iterator_flow(
           initial: %{count: Ref.value(0)},
           completion: gte(Ref.state(:count), Ref.value(1)),
           max_iterations: 1
@@ -754,13 +755,13 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
     test "evaluates completion exactly once at the head and after each commit" do
       flow =
-        loop_flow(
+        iterator_flow(
           initial: %{count: Ref.value(0)},
           completion: gte(Ref.state(:count), Ref.value(3)),
           max_iterations: 3
         )
 
-      target = {Compiler, :evaluate_loop_completion, 3}
+      target = {Compiler, :evaluate_iterator_completion, 3}
 
       :erlang.trace_pattern(target, true, [:local, :call_count])
 
@@ -776,9 +777,9 @@ defmodule Jido.Flow.LoopRuntimeTest do
       assert {:ok, %{iterations: 3}} = result
     end
 
-    test "runs independent Loop nodes with isolated State cells in one async wave" do
+    test "runs independent Iterator nodes with isolated State cells in one async wave" do
       left =
-        Loop.new!(
+        Iterator.new!(
           name: :left,
           action: Increment,
           input: %{count: Ref.state(:count), index: Ref.iteration_index()},
@@ -792,7 +793,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
         )
 
       right =
-        Loop.new!(
+        Iterator.new!(
           name: :right,
           action: Increment,
           input: %{count: Ref.state(:count), index: Ref.iteration_index()},
@@ -807,7 +808,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
       flow =
         Flow.new!(
-          name: "parallel_loops",
+          name: "parallel_iterators",
           nodes: [right, left],
           return: %{left: Ref.result(:left), right: Ref.result(:right)}
         )
@@ -823,14 +824,14 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
     test "emits distinct zero-completion and exhaustion terminal telemetry" do
       events = [
-        [:jido, :flow, :loop, :start],
-        [:jido, :flow, :loop, :iteration, :start],
-        [:jido, :flow, :loop, :state_transition],
-        [:jido, :flow, :loop, :completion],
-        [:jido, :flow, :loop, :exhaustion]
+        [:jido, :flow, :iterate, :start],
+        [:jido, :flow, :iterate, :iteration, :start],
+        [:jido, :flow, :iterate, :state_transition],
+        [:jido, :flow, :iterate, :completion],
+        [:jido, :flow, :iterate, :exhaustion]
       ]
 
-      handler = "loop-terminals-#{System.unique_integer([:positive])}"
+      handler = "iterator-terminals-#{System.unique_integer([:positive])}"
       owner = self()
 
       :ok =
@@ -838,7 +839,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
           handler,
           events,
           fn event, _measurements, metadata, _config ->
-            send(owner, {:loop_terminal_telemetry, event, metadata})
+            send(owner, {:iterate_terminal_telemetry, event, metadata})
           end,
           nil
         )
@@ -846,7 +847,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
       on_exit(fn -> :telemetry.detach(handler) end)
 
       zero =
-        loop_flow(
+        iterator_flow(
           initial: %{count: Ref.value(0)},
           completion: eq(Ref.value(true), Ref.value(true)),
           max_iterations: 1
@@ -854,34 +855,38 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
       assert {:ok, %{iterations: 0}} = Exec.run(zero, %{}, %{})
 
-      assert_receive {:loop_terminal_telemetry, [:jido, :flow, :loop, :start], _metadata}
+      assert_receive {:iterate_terminal_telemetry, [:jido, :flow, :iterate, :start], _metadata}
 
-      assert_receive {:loop_terminal_telemetry, [:jido, :flow, :loop, :completion],
+      assert_receive {:iterate_terminal_telemetry, [:jido, :flow, :iterate, :completion],
                       %{termination: :completed, completed_iterations: 0, state_revision: 0}}
 
-      refute_receive {:loop_terminal_telemetry, [:jido, :flow, :loop, :iteration, :start], _}
-      refute_receive {:loop_terminal_telemetry, [:jido, :flow, :loop, :state_transition], _}
-      refute_receive {:loop_terminal_telemetry, [:jido, :flow, :loop, :exhaustion], _}
+      refute_receive {:iterate_terminal_telemetry, [:jido, :flow, :iterate, :iteration, :start],
+                      _}
+
+      refute_receive {:iterate_terminal_telemetry, [:jido, :flow, :iterate, :state_transition], _}
+
+      refute_receive {:iterate_terminal_telemetry, [:jido, :flow, :iterate, :exhaustion], _}
 
       exhausted =
-        loop_flow(
+        iterator_flow(
           initial: %{count: Ref.value(0)},
           completion: eq(Ref.value(false), Ref.value(true)),
           max_iterations: 1
         )
 
-      assert {:error, %ExecutionFailureError{message: "flow loop exhausted maximum iterations"}} =
+      assert {:error,
+              %ExecutionFailureError{message: "flow iterator exhausted maximum iterations"}} =
                Exec.run(exhausted, %{}, %{})
 
-      assert_receive {:loop_terminal_telemetry, [:jido, :flow, :loop, :start], _metadata}
+      assert_receive {:iterate_terminal_telemetry, [:jido, :flow, :iterate, :start], _metadata}
 
-      assert_receive {:loop_terminal_telemetry, [:jido, :flow, :loop, :iteration, :start],
+      assert_receive {:iterate_terminal_telemetry, [:jido, :flow, :iterate, :iteration, :start],
                       %{iteration_index: 0, state_revision: 0}}
 
-      assert_receive {:loop_terminal_telemetry, [:jido, :flow, :loop, :state_transition],
+      assert_receive {:iterate_terminal_telemetry, [:jido, :flow, :iterate, :state_transition],
                       %{from_revision: 0, to_revision: 1}}
 
-      assert_receive {:loop_terminal_telemetry, [:jido, :flow, :loop, :exhaustion],
+      assert_receive {:iterate_terminal_telemetry, [:jido, :flow, :iterate, :exhaustion],
                       %{
                         termination: :exhausted,
                         max_iterations: 1,
@@ -890,18 +895,18 @@ defmodule Jido.Flow.LoopRuntimeTest do
                       }}
     end
 
-    test "emits bounded Loop telemetry in state-machine order" do
+    test "emits bounded Iterator telemetry in state-machine order" do
       events = [
         [:jido, :flow, :node, :start],
-        [:jido, :flow, :loop, :start],
-        [:jido, :flow, :loop, :iteration, :start],
-        [:jido, :flow, :loop, :state_transition],
-        [:jido, :flow, :loop, :iteration, :stop],
-        [:jido, :flow, :loop, :completion],
+        [:jido, :flow, :iterate, :start],
+        [:jido, :flow, :iterate, :iteration, :start],
+        [:jido, :flow, :iterate, :state_transition],
+        [:jido, :flow, :iterate, :iteration, :stop],
+        [:jido, :flow, :iterate, :completion],
         [:jido, :flow, :node, :stop]
       ]
 
-      handler = "loop-runtime-#{System.unique_integer([:positive])}"
+      handler = "iterator-runtime-#{System.unique_integer([:positive])}"
       owner = self()
 
       :ok =
@@ -909,7 +914,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
           handler,
           events,
           fn event, measurements, metadata, _config ->
-            send(owner, {:loop_telemetry, event, measurements, metadata})
+            send(owner, {:iterate_telemetry, event, measurements, metadata})
           end,
           nil
         )
@@ -917,7 +922,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
       on_exit(fn -> :telemetry.detach(handler) end)
 
       flow =
-        loop_flow(
+        iterator_flow(
           initial: %{count: Ref.value(0)},
           completion: gte(Ref.state(:count), Ref.value(1)),
           max_iterations: 1
@@ -927,7 +932,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
       received =
         Enum.map(events, fn expected_event ->
-          assert_receive {:loop_telemetry, ^expected_event, measurements, metadata}
+          assert_receive {:iterate_telemetry, ^expected_event, measurements, metadata}
           {expected_event, measurements, metadata}
         end)
 
@@ -939,7 +944,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
 
       {_, start_measurements, start_metadata} = Enum.at(received, 1)
       assert is_integer(start_measurements.system_time)
-      assert start_metadata.kind == :loop
+      assert start_metadata.kind == :iterate
       assert start_metadata.max_iterations == 1
 
       {_, transition_measurements, transition_metadata} = Enum.at(received, 3)
@@ -953,7 +958,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
     end
   end
 
-  defp loop_flow(opts) do
+  defp iterator_flow(opts) do
     action = Keyword.get(opts, :action, Increment)
     schema = Keyword.get(opts, :schema, [])
 
@@ -965,8 +970,8 @@ defmodule Jido.Flow.LoopRuntimeTest do
     completion = Keyword.fetch!(opts, :completion)
     max_iterations = Keyword.fetch!(opts, :max_iterations)
 
-    loop =
-      Loop.new!(
+    iterator =
+      Iterator.new!(
         name: :count,
         action: action,
         input: input,
@@ -975,7 +980,7 @@ defmodule Jido.Flow.LoopRuntimeTest do
         max_iterations: max_iterations
       )
 
-    Flow.new!(name: "loop_runtime", nodes: [loop], return: Ref.result(:count))
+    Flow.new!(name: "iterator_runtime", nodes: [iterator], return: Ref.result(:count))
   end
 
   defp eq(left, right), do: %Condition{operator: :eq, operands: [left, right]}

@@ -297,8 +297,8 @@ defmodule Jido.Flow.SyntaxTest do
     end
   end
 
-  describe "Loop syntax" do
-    test "builds Loop-local expressions and one closed termination form" do
+  describe "Iterator syntax" do
+    test "builds Iterator-local expressions and one closed termination form" do
       assert %Syntax.Expr{type: :state, path: [:count]} = Syntax.state(:count)
       assert %Syntax.Expr{type: :iteration_index, path: []} = Syntax.iteration_index()
       assert %Syntax.Expr{type: :body_result, path: [:value]} = Syntax.body_result(:value)
@@ -312,8 +312,8 @@ defmodule Jido.Flow.SyntaxTest do
       completion = Syntax.gte(Syntax.state(:count), Syntax.value(3))
 
       syntax =
-        Syntax.new(name: "loop")
-        |> Syntax.loop(:count, Add, %{value: Syntax.state(:count)}, state,
+        Syntax.new(name: "iterator")
+        |> Syntax.iterate(:count, Add, %{value: Syntax.state(:count)}, state,
           until: completion,
           max_iterations: 5,
           bind: :counted,
@@ -323,7 +323,7 @@ defmodule Jido.Flow.SyntaxTest do
 
       assert [
                %Syntax.Operation{
-                 kind: :loop,
+                 kind: :iterate,
                  attrs: %{
                    name: :count,
                    action: Add,

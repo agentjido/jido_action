@@ -3,7 +3,7 @@ defmodule Jido.Integration.FlowParityTest do
 
   alias Jido.Action.Error.ExecutionFailureError
   alias Jido.Flow.Builder
-  alias Jido.Flow.{ContractBundle, Loop, Node, Ref}
+  alias Jido.Flow.{ContractBundle, Iterator, Node, Ref}
   alias Jido.Flow.Syntax
   alias Jido.Flow.Syntax.Lowerer
 
@@ -81,15 +81,15 @@ defmodule Jido.Integration.FlowParityTest do
     end
   end
 
-  test "Spark Iterate preserves Loop runtime behavior and default update" do
+  test "Spark Iterate preserves Iterator runtime behavior and default update" do
     module = create_iterate_flow_module("IterateParity")
     flow = module.flow()
     stored_flow = stored_json_round_trip_flow!(flow)
 
-    assert [%Loop{name: "count", state: %{update: %Ref{type: :body_result}}}] = flow.nodes
+    assert [%Iterator{name: "count", state: %{update: %Ref{type: :body_result}}}] = flow.nodes
 
     for candidate <- [flow, stored_flow] do
-      assert {:ok, %{kind: :jido_flow_loop_result, iterations: 3, state: %{value: 4}}} =
+      assert {:ok, %{kind: :jido_flow_iterate_result, iterations: 3, state: %{value: 4}}} =
                Jido.Exec.run(candidate, %{value: 1}, %{})
     end
   end
@@ -281,7 +281,7 @@ defmodule Jido.Integration.FlowParityTest do
   defp contract_bundle(flow, references) do
     state_schemas =
       Map.new(flow.nodes, fn
-        %Loop{} = loop -> {"loop/#{loop.name}/state/v1", loop.state.schema}
+        %Iterator{} = iterator -> {"iterator/#{iterator.name}/state/v1", iterator.state.schema}
         node -> {"unused/#{node.name}", nil}
       end)
       |> Map.reject(fn {_key, value} -> is_nil(value) end)
@@ -306,7 +306,7 @@ defmodule Jido.Integration.FlowParityTest do
 
   defp state_schema_ids(flow, _namespace) do
     Map.new(flow.nodes, fn
-      %Loop{} = loop -> {loop.name, "loop/#{loop.name}/state/v1"}
+      %Iterator{} = iterator -> {iterator.name, "iterator/#{iterator.name}/state/v1"}
       node -> {node.name, nil}
     end)
     |> Map.reject(fn {_key, value} -> is_nil(value) end)

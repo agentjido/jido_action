@@ -7,16 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- changelog -->
 
-## [v2.3.2](https://github.com/agentjido/jido_action/compare/v2.3.1...v2.3.2) (2026-08-07)
+## [v3.0.0-rc.1](https://github.com/agentjido/jido_action/compare/v2.3.2...v3.0.0-rc.1) (2026-08-22)
 
+### Features:
 
+* add the declarative, compile-time Jido Flow DSL built on Spark
+* add step, choice, map, reduce, and iterate flow forms
+* add dependency-aware parallel flow execution and step-wise execution
+* add portable, versioned Map and JSON storage for runtime and AI-generated flows
+* add canonical flow inspection, validation, identity, and execution contracts
 
+### Breaking Changes:
+
+* replace the earlier Flow authoring syntax with one declarative DSL
+* remove the stored Elixir flow-source parser; stored flows now use Map or JSON data
+* use explicit string names for flow nodes
+* name the canonical repeated-state node `Jido.Flow.Iterator` and use `iterate` in data contracts
 
 ### Bug Fixes:
 
-* deps: update Mint for CVE-2026-59249 by mikehostetler
+* harden action validation, output envelopes, error normalization, and flow execution boundaries
+* preserve deterministic collection ordering, failure details, and runtime context
 
-* deps: relax optional lua constraint (#196) by mikehostetler
+### Documentation:
+
+* add a complete guide set for authoring, executing, inspecting, and storing flows
+
+## [v2.3.2](https://github.com/agentjido/jido_action/compare/v2.3.1...v2.3.2) (2026-08-07)
+
+### Bug Fixes:
+
+* update Mint for CVE-2026-59249
+* relax the optional Lua dependency constraint
 
 ## [v2.3.1](https://github.com/agentjido/jido_action/compare/v2.3.0...v2.3.1) (2026-06-09)
 

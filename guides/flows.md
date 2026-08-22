@@ -24,7 +24,7 @@ canonical artifact. Use public builders and authoring surfaces to create them.
 - **Map**: one named fan-out over a proper list. Each item calls one target.
 - **Reduce**: one named serial left fold over a proper list.
 - **Iterate**: one named bounded iteration with an internal State contract. It
-  lowers to the canonical `Jido.Flow.Loop` runtime node.
+  lowers to the canonical `Jido.Flow.Iterator` runtime node.
 - **Dependencies**: predecessor names inferred from references and explicit
   ordering. An element can run when all of its dependencies have completed.
 - **Choice**: one node with ordered options and a required fallback. The first
@@ -125,7 +125,7 @@ The following guides cover authoring and execution in more detail:
 - [Flow Language](flow-language.livemd) breaks down the language primitives.
 - [Map and Reduce](flow-collections.livemd) explains ordered collection
   processing.
-- [Iterate and State](flow-loops-state.livemd) explains bounded stateful
+- [Iterate and State](flow-iterate-state.livemd) explains bounded stateful
   iteration.
 - [Stored Flow JSON](flow-storage.md) explains lossless canonical storage.
 - [Nested Flows](nested-flows.livemd) explains Flow nodes that call another
