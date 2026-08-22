@@ -71,6 +71,11 @@ defmodule Jido.DocumentationTest do
     refute Code.ensure_loaded?(Jido.Flow.Syntax.Lowerer)
   end
 
+  test "the internal telemetry helper uses the Action namespace" do
+    assert Code.ensure_loaded?(Jido.Action.Telemetry)
+    refute Code.ensure_loaded?(Jido.Telemetry)
+  end
+
   test "runtime Builder reference helpers are visible in the API reference" do
     for {name, arity} <- @public_builder_helpers do
       assert is_map(function_doc(Jido.Flow.Builder, name, arity)),
@@ -115,6 +120,58 @@ defmodule Jido.DocumentationTest do
     assert "CHANGELOG.md" in package_files
     assert "LICENSE" in package_files
     assert "guides" in package_files
+  end
+
+  test "the README presents all supported Flow construction paths" do
+    readme = File.read!("README.md")
+
+    assert readme =~ "defmodule MyApp.Actions.Notify"
+
+    for entry_point <- [
+          "Jido.Flow.Builder",
+          "Jido.Flow.from_stored_map",
+          "Jido.Flow.Registry",
+          "flow do",
+          "Jido.Exec.start"
+        ] do
+      assert readme =~ entry_point
+    end
+  end
+
+  test "published documentation does not use removed Flow terms" do
+    paths = ["README.md", "usage-rules.md" | Path.wildcard("guides/*")]
+    removed_terms = ["contract bundle", "Jido.Flow.Syntax", "Jido.Telemetry"]
+
+    for path <- paths,
+        term <- removed_terms do
+      contents = path |> File.read!() |> String.downcase()
+
+      refute contents =~ String.downcase(term),
+             "expected #{path} not to contain removed term #{inspect(term)}"
+    end
+  end
+
+  test "release metadata points at the release tag" do
+    project = Mix.Project.config()
+    version = project[:version]
+
+    assert version == "3.0.0-rc.1"
+    assert project[:docs][:source_ref] == "v#{version}"
+    assert project[:package][:links]["Changelog"] =~ "/blob/v#{version}/CHANGELOG.md"
+  end
+
+  test "release checks have a coverage floor and non-interactive docs" do
+    project = Mix.Project.config()
+
+    assert project[:test_coverage][:summary][:threshold] >= 79
+    refute Keyword.has_key?(project[:aliases], :docs)
+    assert "credo --min-priority high" in project[:aliases][:quality]
+
+    ci = File.read!(".github/workflows/ci.yml")
+    assert ci =~ "credo_command: mix credo --min-priority high"
+    assert ci =~ "docs_command: mix docs --warnings-as-errors"
+    assert ci =~ "test_command: mix test --cover"
+    assert ci =~ "- v3-spike"
   end
 
   test "usage rules cover each primary developer entry point" do

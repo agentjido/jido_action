@@ -59,6 +59,8 @@ Use `jido_action` for validated work and data-first composition:
 - Use `Jido.Flow.to_stored_map/3` for portable Map or JSON storage.
 - Restore stored data with `Jido.Flow.from_stored_map/2` and the same trusted
   `Jido.Flow.Registry`.
+- Use the returned structured error as feedback when a UI or AI agent submits
+  an invalid stored map. The reader does not raise for validation failures.
 - Do not parse or evaluate stored Elixir DSL source. AI systems can produce
   stored JSON or Map data instead.
 

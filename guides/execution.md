@@ -89,8 +89,10 @@ metadata is `%{execution_id: binary, flow: binary}`. Node metadata is
 The same `execution_id` correlates a Flow, its nodes, and nested Flows. Serial
 events nest as Exec, Flow, and then node. Step-wise execution opens Exec and
 Flow events in `start/4` and closes them only when a step, wave, or continue
-operation reaches a terminal result. Async node events can come from task
-processes and can overlap.
+operation reaches a terminal result. Async node spans can overlap. For an
+async wave, node start events occur in canonical order before dispatch. Node
+stop or error events occur in canonical order after the wave receives all
+outcomes. A killed node task still has one node error event.
 
 There are no item, iteration, State transition, completion, exhaustion, or
 failure telemetry events. Telemetry does not control scheduling or results.

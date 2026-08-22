@@ -36,7 +36,7 @@ defmodule JidoAction.MixProject do
           Jido.Action.Error.Internal,
           Jido.Action.Error.Invalid
         ],
-        summary: [threshold: 0]
+        summary: [threshold: 79]
       ],
 
       # Dialyzer
@@ -201,7 +201,7 @@ defmodule JidoAction.MixProject do
         "GitHub" => @source_url,
         "Website" => "https://jido.run",
         "Discord" => "https://jido.run/discord",
-        "Changelog" => "https://github.com/agentjido/jido_action/blob/main/CHANGELOG.md"
+        "Changelog" => "https://github.com/agentjido/jido_action/blob/v#{@version}/CHANGELOG.md"
       }
     ]
   end
@@ -237,15 +237,12 @@ defmodule JidoAction.MixProject do
       # test: "test --trace --exclude flaky",
       test: "test --exclude flaky",
 
-      # Helper to run docs
-      docs: "docs -f html --open",
-
       # Run to check the quality of your code
       q: ["quality"],
       quality: [
         "format --check-formatted",
         "compile --warnings-as-errors",
-        "credo --min-priority higher",
+        "credo --min-priority high",
         "dialyzer"
       ]
     ]

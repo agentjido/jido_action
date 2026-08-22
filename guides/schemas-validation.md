@@ -99,8 +99,8 @@ state_contract = %{
 
 Use `state([], initial: ...)` when the module DSL needs no additional field
 validation. A stored Flow uses a stable State schema identifier from its host
-contract bundle. See [Iterate and State](flow-iterate-state.livemd) and [Stored
-Flow JSON](flow-storage.md).
+Registry. See [Iterate and State](flow-iterate-state.livemd) and [Stored Flow
+JSON](flow-storage.md).
 
 ## Unknown Keys
 

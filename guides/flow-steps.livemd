@@ -70,7 +70,9 @@ end
 ```
 
 Short and block forms lower to the same canonical node. Do not mix keyword
-fields with a `do` block in one declaration.
+fields with a `do` block in one declaration. Each declaration field and each
+literal map key must occur only once. Duplicate fields or keys cause a compile
+error.
 
 ## Read A Prior Result
 

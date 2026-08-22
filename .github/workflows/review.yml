@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - main
+      - v3-spike
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}

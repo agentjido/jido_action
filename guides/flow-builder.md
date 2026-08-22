@@ -30,6 +30,10 @@ declares the Flow output expression. The compile-time DSL calls this
 declaration `output`; the Builder function name matches the canonical
 `%Jido.Flow{return: ...}` field.
 
+Options cannot replace positional values such as the node kind, name, Action,
+or input expression. An unsupported or duplicate option makes `build/1` return
+a validation error.
+
 ```elixir
 builder =
   builder
@@ -48,10 +52,9 @@ builder =
 {:ok, flow} = Builder.build(builder)
 ```
 
-`result/2` accepts a node name and optional path. `select/2` projects a path
-from any expression. `input/1`, `context/1`, and `value/1` create the other
+`result/2` accepts a node name and optional path. `select/2` appends a path to
+an existing reference. `input/1`, `context/1`, and `value/1` create the other
 common expressions. Prefer a direct result path when the source is one node.
-Use `select/2` when you must project a composed expression or a list path.
 
 ## Map And Reduce Collections
 
@@ -159,23 +162,22 @@ Independent nodes can run at the same time when `Jido.Exec.run/4` uses
 
 ## Provenance
 
-Pass `provenance: %{}` to preserve non-semantic authoring metadata. `label`,
-`tags`, and `note` are also accepted Builder provenance options. Use explicit
-node names and `result/2` for data references.
+Pass `provenance: %{}` to preserve non-semantic authoring metadata. Put labels,
+tags, notes, and other tool-owned values inside that map. Use explicit node
+names and `result/2` for data references.
 
 ```elixir
 builder =
   builder
-  |> Builder.step(:load, MyApp.Actions.Load, %{id: Builder.input(:id)},
-    label: "Load record",
-    tags: [:read]
+  |> Builder.step("load", MyApp.Actions.Load, %{id: Builder.input(:id)},
+    provenance: %{label: "Load record", tags: [:read]}
   )
-  |> Builder.return(Builder.result(:load))
+  |> Builder.return(Builder.result("load"))
 ```
 
 ## Build And Validate
 
-`build/1` lowers and validates the syntax. It returns `{:ok, flow}` or
+`build/1` constructs and validates the Flow. It returns `{:ok, flow}` or
 `{:error, exception}`. Validation checks metadata, static data, Action
 module values, duplicate names, references, dependencies, cycles, and the
 output expression. `Jido.Exec` checks each Action contract before execution.

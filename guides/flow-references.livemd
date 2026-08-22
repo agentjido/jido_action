@@ -122,8 +122,9 @@ end
   Jido.Exec.run(FlowReferences.LiteralExample, %{value: 3}, %{})
 ```
 
-`value(term)` remains available for lower-level syntax parity, but it is not
-needed for normal literals in the Spark DSL.
+`value(literal)` wraps supported scalar, list, and map literals. Tuples and
+executable expressions are not part of the Spark DSL. Normal literals do not
+need `value/1`.
 
 ## Read Prior Results With `result`
 

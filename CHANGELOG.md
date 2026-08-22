@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * add dependency-aware parallel flow execution and step-wise execution
 * add portable, versioned Map and JSON storage for runtime and AI-generated flows
 * add canonical flow inspection, validation, identity, and execution contracts
+* add one flat host-owned Registry for safe Action and schema identifier resolution
+* add stable Exec, Flow, and Flow-node telemetry lifecycles with one execution identifier
 
 ### Breaking Changes:
 
@@ -23,15 +25,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * remove the stored Elixir flow-source parser; stored flows now use Map or JSON data
 * use explicit string names for flow nodes
 * name the canonical repeated-state node `Jido.Flow.Iterator` and use `iterate` in data contracts
+* replace nested stored contract attachments with one flat host-owned Registry
+* remove public graph compilation and alternate Flow execution paths
+* replace detailed collection and iteration telemetry with nine lifecycle events
+* remove the legacy `Jido.Action.Catalog`, `Jido.Action.Tool`, `Jido.Plan`, and
+  `Jido.Tools.*` APIs
+* replace `Jido.Action.Exec.*` and its retry, compensation, propagation, and
+  supervisor helpers with the smaller `Jido.Exec` boundary
+* simplify `Jido.Instruction` to one Action call frame and remove the earlier
+  normalization and execution-policy fields
 
 ### Bug Fixes:
 
 * harden action validation, output envelopes, error normalization, and flow execution boundaries
 * preserve deterministic collection ordering, failure details, and runtime context
+* keep stored Map validation inert, bounded, non-raising, and safe for correction loops
+* reject invalid UTF-8 and over-limit data before the stored writer returns a map
+* normalize raised and thrown Flow schema effects and close their lifecycle events
+* emit a node error event when an asynchronous node task is killed
+* reject Builder option collisions and duplicate declarative fields or map keys
+* use one canonical constructor for the DSL, Builder, and stored Flow maps
 
 ### Documentation:
 
 * add a complete guide set for authoring, executing, inspecting, and storing flows
+* document exact telemetry events, runtime Map validation, and step-wise execution semantics
 
 ## [v2.3.2](https://github.com/agentjido/jido_action/compare/v2.3.1...v2.3.2) (2026-08-07)
 

@@ -41,6 +41,7 @@ dependencies are:
 - `zoi`
 - `runic`
 - `splode`
+- `spark`
 
 Do not add direct production dependencies outside this set without an explicit
 request. Dev and test dependencies should remain pragmatic and support the TDD

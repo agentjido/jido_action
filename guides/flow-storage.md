@@ -18,7 +18,8 @@ registry =
 
 Each identifier maps directly to one typed trusted value. An Action entry is
 `{:action, module}`. A schema entry is `{:schema, schema}`. The Registry rejects
-invalid identifiers, duplicate semantic values, and more than 10,000 entries.
+invalid identifiers, untyped entries, and more than 10,000 entries. Stored
+writing rejects a missing or ambiguous identifier for a semantic value.
 
 ## Write
 
@@ -26,7 +27,7 @@ Call `Jido.Flow.to_stored_map/3`:
 
 ```elixir
 {:ok, stored} = Jido.Flow.to_stored_map(flow, registry)
-json = Jason.encode!(stored)
+json = JSON.encode!(stored)
 ```
 
 The optional third argument accepts only `provenance: true`. Provenance is off
@@ -56,7 +57,7 @@ second registry record or schema attachment.
 Decode JSON to a map and call `Jido.Flow.from_stored_map/2`:
 
 ```elixir
-decoded = Jason.decode!(json)
+decoded = JSON.decode!(json)
 {:ok, restored} = Jido.Flow.from_stored_map(decoded, registry)
 ```
 
@@ -69,9 +70,26 @@ names, load modules, or accept Action modules and schemas from the stored map.
 Call `Jido.Flow.validate_executable/1` or `Jido.Exec.run/4` when you must check
 that resolved Action modules can execute.
 
+This tuple-returning read API supports a correction loop for a web UI or an AI
+agent:
+
+```elixir
+case Jido.Flow.from_stored_map(candidate, registry) do
+  {:ok, flow} -> {:ok, flow}
+  {:error, error} -> {:error, Jido.Action.Error.to_map(error)}
+end
+```
+
+The reader reports the first validation error. Error details include a field,
+record, or path when that context is available.
+
 ## Resource limits
 
-Stored input has fixed limits:
+The writer and reader use the same fixed limits. A successful write does not
+produce a map that the reader rejects for size or structure. All stored string
+values must contain valid UTF-8.
+
+Stored maps have these limits:
 
 - Nesting depth: 64.
 - Total term slots: 100,000.
