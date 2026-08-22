@@ -81,9 +81,9 @@ Flow validation is separate from each node Action's validation: the Flow maps
 data into node inputs, and each Action validates its own input at its node
 boundary.
 
-## Loop State Schemas
+## Iterate State Schemas
 
-Each Loop State contract has a required `schema` field. Jido applies the schema
+Each Iterate State contract has a required `schema` field. Jido applies the schema
 to the initial State and each complete update candidate. The validated value
 must stay a plain map.
 
@@ -95,9 +95,10 @@ state_contract = %{
 }
 ```
 
-Use `schema: []` when the module DSL needs no additional field validation.
-Flow Script writes a stable schema identifier and resolves it through the
-parser `state_schemas` registry. See [Loops and State](flow-loops-state.livemd).
+Use `state([], initial: ...)` when the module DSL needs no additional field
+validation. A stored Flow uses a stable State schema identifier from its host
+contract bundle. See [Iterate and State](flow-loops-state.livemd) and [Stored
+Flow JSON](flow-storage.md).
 
 ## Unknown Keys
 

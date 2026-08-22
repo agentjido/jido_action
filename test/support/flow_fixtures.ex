@@ -53,16 +53,6 @@ defmodule JidoTest.FlowFixtures do
     |> Builder.return(Builder.result(:double))
   end
 
-  def math_source do
-    """
-    flow do
-      step :add_one, JidoTest.TestActions.Add, %{value: input(:value), amount: value(1)}
-      step :double, JidoTest.TestActions.Multiply, %{value: result(:add_one, :value), amount: value(2)}
-      return result(:double)
-    end
-    """
-  end
-
   def binding_syntax do
     Syntax.new(
       name: "binding_flow",
@@ -97,16 +87,6 @@ defmodule JidoTest.FlowFixtures do
     )
     |> Builder.step(:double, Multiply, Builder.binding(:added), bind: :doubled)
     |> Builder.return(Builder.binding(:doubled))
-  end
-
-  def binding_source do
-    """
-    flow do
-      added = step :add_one, JidoTest.TestActions.Add, with: %{value: input(:value), amount: value(1)}
-      doubled = step :double, JidoTest.TestActions.Multiply, with: added
-      return doubled
-    end
-    """
   end
 
   def shaped_return_syntax do
@@ -163,29 +143,6 @@ defmodule JidoTest.FlowFixtures do
     })
   end
 
-  def shaped_return_source do
-    """
-    flow do
-      added =
-        step :add_one, JidoTest.TestActions.Add,
-          with: %{value: input(:value), amount: value(1)}
-
-      doubled =
-        step :double, JidoTest.TestActions.Multiply,
-          with: %{value: select(added, :value), amount: value(2)}
-
-      return %{
-        sum: select(added, :value),
-        product: select(doubled, :value),
-        original: input(:value),
-        trace_id: context(:trace_id),
-        literal: "ok",
-        nested: [select(doubled, :value)]
-      }
-    end
-    """
-  end
-
   def derived_name_syntax do
     Syntax.new(
       name: "derived_name_flow",
@@ -226,22 +183,6 @@ defmodule JidoTest.FlowFixtures do
     |> Builder.return(Builder.binding(:doubled))
   end
 
-  def derived_name_source do
-    """
-    flow do
-      added =
-        step JidoTest.TestActions.Add,
-          with: %{value: input(:value), amount: value(1)}
-
-      doubled =
-        step JidoTest.TestActions.Multiply,
-          with: %{value: select(added, :value), amount: value(2)}
-
-      return doubled
-    end
-    """
-  end
-
   def annotated_syntax do
     Syntax.new(
       name: "annotated_flow",
@@ -280,36 +221,6 @@ defmodule JidoTest.FlowFixtures do
       note: "Visible only in provenance"
     )
     |> Builder.return(Builder.binding(:added))
-  end
-
-  def annotated_source do
-    """
-    flow do
-      added =
-        step :add_one, JidoTest.TestActions.Add,
-          with: %{value: input(:value), amount: value(1)},
-          label: "Add one",
-          tags: [:math, "example"],
-          note: "Visible only in provenance"
-
-      return added
-    end
-    """
-  end
-
-  def stored_annotated_source do
-    """
-    flow do
-      added =
-        step :add_one, "add",
-          with: %{value: input(:value), amount: value(1)},
-          label: "Add one",
-          tags: [:math, "example"],
-          note: "Visible only in provenance"
-
-      return added
-    end
-    """
   end
 
   def projection_syntax do
@@ -375,33 +286,6 @@ defmodule JidoTest.FlowFixtures do
     |> Builder.return(%{total: Builder.select(Builder.binding(:audit), :total)})
   end
 
-  def projection_source do
-    """
-    flow do
-      loaded =
-        step :load_quote, JidoTest.TestActions.EchoParamsAction,
-          with: %{
-            quote: %{
-              id: input(:quote_id),
-              pricing: %{total: input([:items, 0, :price])}
-            },
-            tags: [input(:tag)]
-          }
-
-      audit =
-        step :audit_quote, JidoTest.TestActions.EchoParamsAction,
-          with: %{
-            quote_id: select(loaded, [:quote, :id]),
-            total: select(select(loaded, [:quote, :pricing]), :total),
-            first_item_id: select(input(:items), [0, :id]),
-            tag: select(loaded, [:tags, 0])
-          }
-
-      return %{total: select(audit, :total)}
-    end
-    """
-  end
-
   def context_syntax do
     Syntax.new(
       name: "context_flow",
@@ -438,23 +322,6 @@ defmodule JidoTest.FlowFixtures do
       bind: :audit
     )
     |> Builder.return(Builder.binding(:audit))
-  end
-
-  def context_source do
-    """
-    flow do
-      audit =
-        step :audit_request, JidoTest.TestActions.EchoParamsAction,
-          with: %{
-            user_id: input(:user_id),
-            input_trace_id: input(:trace_id),
-            context_trace_id: context(:trace_id),
-            tenant_id: select(context(:tenant), :id)
-          }
-
-      return audit
-    end
-    """
   end
 
   def explicit_edge_syntax do
@@ -507,26 +374,6 @@ defmodule JidoTest.FlowFixtures do
       after: [:load_quote, Builder.binding(:loaded)]
     )
     |> Builder.return(Builder.binding(:audit))
-  end
-
-  def explicit_edge_source do
-    """
-    flow do
-      loaded =
-        step :load_quote, JidoTest.TestActions.EchoParamsAction,
-          with: %{id: input(:quote_id)}
-
-      step :independent, JidoTest.TestActions.EchoParamsAction,
-        with: %{event: "side"}
-
-      audit =
-        step :audit_quote, JidoTest.TestActions.EchoParamsAction,
-          with: %{event: "quoted"},
-          after: [:load_quote, loaded]
-
-      return audit
-    end
-    """
   end
 
   def fan_in_syntax do
@@ -617,43 +464,6 @@ defmodule JidoTest.FlowFixtures do
       bind: :merged
     )
     |> Builder.return(Builder.binding(:merged))
-  end
-
-  def fan_in_source do
-    """
-    flow do
-      loaded =
-        step :load, JidoTest.TestActions.EchoParamsAction,
-          with: %{
-            id: input(:id),
-            base: input(:base)
-          }
-
-      left_branch =
-        step :left, JidoTest.TestActions.EchoParamsAction,
-          with: %{
-            side: "left",
-            id: select(loaded, :id)
-          }
-
-      right_branch =
-        step :right, JidoTest.TestActions.EchoParamsAction,
-          with: %{
-            side: "right",
-            base: select(loaded, :base)
-          }
-
-      merged =
-        step :merge, JidoTest.TestActions.EchoParamsAction,
-          with: %{
-            left: select(left_branch, :side),
-            right: select(right_branch, :side),
-            id: select(left_branch, :id)
-          }
-
-      return merged
-    end
-    """
   end
 
   def branch_group_syntax do
@@ -819,55 +629,6 @@ defmodule JidoTest.FlowFixtures do
       bind: :final
     )
     |> Builder.return(Builder.binding(:final))
-  end
-
-  def branch_group_source do
-    """
-    flow do
-      cart =
-        step :load_cart, JidoTest.TestActions.EchoParamsAction,
-          with: %{
-            cart_id: input(:cart_id),
-            items: input(:items)
-          }
-
-      group do
-        branch :alpha do
-          priced =
-            step :price_cart, JidoTest.TestActions.EchoParamsAction,
-              with: %{
-                cart_id: select(cart, :cart_id),
-                total: input(:total)
-              }
-
-          step :audit_price, JidoTest.TestActions.EchoParamsAction,
-            with: %{event: "priced"},
-            after: priced
-        end
-
-        branch :beta do
-          reserved =
-            step :reserve_inventory, JidoTest.TestActions.EchoParamsAction,
-              with: %{
-                cart_id: select(cart, :cart_id),
-                items: select(cart, :items)
-              }
-        end
-      end
-
-      step :post_group_independent, JidoTest.TestActions.EchoParamsAction,
-        with: %{event: "side"}
-
-      final =
-        step :finalize, JidoTest.TestActions.EchoParamsAction,
-          with: %{
-            priced: priced,
-            reserved: reserved
-          }
-
-      return final
-    end
-    """
   end
 
   def math_canonical_map do

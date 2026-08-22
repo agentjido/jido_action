@@ -1,12 +1,11 @@
 # Flow Language
 
-The Flow language describes a graph of named Action calls and one return
-expression. Its primitives are data. They do not run Elixir code while the
-Flow is authored.
+The Flow language declares a graph of named Action calls and one output. It is
+a compile-time Spark DSL. Its expressions become data. They do not run
+application code while the module compiles.
 
-The Elixir module DSL, Flow Script, and `Jido.Flow.Builder` all lower to the
-same canonical `%Jido.Flow{}` artifact. This notebook gives a short tour of
-the common language. The focused guides explain each primitive in more depth.
+The DSL, `Jido.Flow.Builder`, and stored JSON all produce the same canonical
+`%Jido.Flow{}`. The DSL is the primary developer authoring surface.
 
 Run the code cells from top to bottom.
 
@@ -52,8 +51,8 @@ end
 
 ## `step`: Call An Action
 
-`step` adds one named node. The `with:` expression maps Flow data to Action
-input.
+`step` declares one named Action or nested Flow call. `params:` maps Flow data
+to target input. The last node becomes the output when `output` is absent.
 
 ```elixir
 defmodule FlowLanguage.StepExample do
@@ -63,56 +62,62 @@ defmodule FlowLanguage.StepExample do
     output_schema: Zoi.map()
 
   flow do
-    echoed = step(:echo, FlowLanguage.Echo, with: %{value: input(:value)})
-    return(echoed)
+    step "echo",
+      action: FlowLanguage.Echo,
+      params: %{value: input(:value)}
   end
 end
 
 {:ok, %{value: 7}} = Jido.Exec.run(FlowLanguage.StepExample, %{value: 7}, %{})
 ```
 
-## `group` And `branch`: Organise Static Branches
+## Independent Nodes Are Implicitly Parallel
 
-`group` contains named `branch` blocks. The group and branch names become
-provenance. Dependencies still come from references and `after:`. The group
-does not enable concurrent execution.
+References define graph dependencies. These two root nodes are independent.
+The final node waits for both because it reads both results.
 
 ```elixir
-defmodule FlowLanguage.GroupExample do
+defmodule FlowLanguage.ParallelExample do
   use Jido.Flow,
-    name: "flow_language_group",
+    name: "flow_language_parallel",
     schema: Zoi.object(%{left: Zoi.integer(), right: Zoi.integer()}),
     output_schema: Zoi.map()
 
   flow do
-    group do
-      branch :left_side do
-        left_result = step(:left, FlowLanguage.Echo, with: %{value: input(:left)})
-      end
+    step "left",
+      action: FlowLanguage.Echo,
+      params: %{value: input(:left)}
 
-      branch :right_side do
-        right_result = step(:right, FlowLanguage.Echo, with: %{value: input(:right)})
-      end
-    end
+    step "right",
+      action: FlowLanguage.Echo,
+      params: %{value: input(:right)}
 
-    merged =
-      step(:merge, FlowLanguage.Echo,
-        with: %{left: select(left_result, :value), right: select(right_result, :value)}
-      )
-
-    return(merged)
+    step "merge",
+      action: FlowLanguage.Echo,
+      params: %{
+        left: select(result("left"), :value),
+        right: select(result("right"), :value)
+      }
   end
 end
 
 {:ok, %{left: 1, right: 2}} =
-  Jido.Exec.run(FlowLanguage.GroupExample, %{left: 1, right: 2}, %{})
+  Jido.Exec.run(
+    FlowLanguage.ParallelExample,
+    %{left: 1, right: 2},
+    %{},
+    async: true,
+    max_concurrency: 2
+  )
 ```
+
+Source order does not add an edge. Use `after:` when you need control ordering
+without a data reference.
 
 ## `map` And `reduce`: Process Collections
 
-`map` calls one target for each item in a proper list. Its `with:` expression
-can use `item`, `item_index`, and `item_id`. `reduce` performs a serial left
-fold. Its `with:` expression can also use the current `accumulator`.
+`map` calls one target for each item. `reduce` performs a serial left fold.
+Both have short and block forms.
 
 ```elixir
 defmodule FlowLanguage.CollectionExample do
@@ -122,20 +127,17 @@ defmodule FlowLanguage.CollectionExample do
     output_schema: Zoi.map()
 
   flow do
-    doubled =
-      map(:double_values, input(:values),
-        run: FlowLanguage.Double,
-        with: %{value: item()}
-      )
+    map "double_values",
+      collection: input(:values),
+      action: FlowLanguage.Double,
+      params: %{value: item()}
 
-    total =
-      reduce(:sum_values, doubled,
-        initial: value(%{total: 0}),
-        run: FlowLanguage.Add,
-        with: %{total: accumulator(:total), value: item(:value)}
-      )
-
-    return(total)
+    reduce "sum_values" do
+      collection(result("double_values"))
+      initial(%{total: 0})
+      action(FlowLanguage.Add)
+      params(%{total: accumulator(:total), value: item(:value)})
+    end
   end
 end
 
@@ -143,53 +145,41 @@ end
   Jido.Exec.run(FlowLanguage.CollectionExample, %{values: [1, 2, 3]}, %{})
 ```
 
-Map has `:fail_fast` and `:collect_errors` modes. Reduce always runs in source
-order. See [Map and Reduce](flow-collections.livemd) for result records, local
-reference scope, errors, concurrency, and runtime Builder syntax.
+Map produces an aggregate. Reduce can consume that complete aggregate and read
+its ordered successful outputs.
 
-## `loop` And State: Repeat Bounded Work
+## `iterate`: Repeat Bounded Work
 
-`loop` repeats one target. Its State contract defines a schema, the initial
-State, and the complete State replacement after each body result. Use exactly
-one `while`, `until`, or `repeat` termination form.
+`iterate` owns a State schema and initial State. It runs one target through
+either a fixed `repeat` count or a bounded `while` condition. If `update` is
+absent, the complete Action result becomes the next State.
 
 ```elixir
-defmodule FlowLanguage.LoopExample do
+defmodule FlowLanguage.IterateExample do
   use Jido.Flow,
-    name: "flow_language_loop",
+    name: "flow_language_iterate",
     output_schema: Zoi.map()
 
   flow do
-    counted =
-      loop(:add_twice,
-        run: FlowLanguage.Add,
-        with: %{total: state(:total), value: value(1)},
-        state: [
-          schema: [],
-          initial: %{total: value(0)},
-          update: %{total: body_result(:total)}
-        ],
-        repeat: 2
-      )
-
-    return(counted)
+    iterate "add_twice" do
+      state([], initial: %{total: 0})
+      action(FlowLanguage.Add)
+      params(%{total: state(:total), value: 1})
+      repeat(2)
+    end
   end
 end
 
 {:ok, %{iterations: 2, state: %{total: 2}, output: %{total: 2}}} =
-  Jido.Exec.run(FlowLanguage.LoopExample, %{}, %{})
+  Jido.Exec.run(FlowLanguage.IterateExample, %{}, %{})
 ```
 
-Loop-local expressions are `state`, `iteration_index`, and `body_result`.
-`while` and `until` loops also require `max_iterations`. See [Loops and
-State](flow-loops-state.livemd) for completion rules, State validation, Flow
-Script schema registries, and Builder syntax.
+See [Iterate and State](flow-loops-state.livemd) for State updates and `while`.
 
-## `choose`: Select One Target
+## `choice`: Select One Target
 
-`choose` creates one Choice node. Its options are checked in authored order.
-The first true condition selects a target. The required `otherwise` target is
-used when no option matches.
+`choice` checks options in source order. The first true native Elixir-style
+condition selects a target. The required `otherwise` target is the fallback.
 
 ```elixir
 defmodule FlowLanguage.ChoiceExample do
@@ -199,21 +189,15 @@ defmodule FlowLanguage.ChoiceExample do
     output_schema: Zoi.map()
 
   flow do
-    selected =
-      choose :route do
-        option(:special,
-          when: eq(input(:kind), value(:special)),
-          run: FlowLanguage.Echo,
-          with: %{route: value(:special)}
-        )
+    choice "route" do
+      option "special",
+        condition: input(:kind) == :special,
+        action: FlowLanguage.Echo,
+        params: %{route: :special}
 
-        otherwise(
-          run: FlowLanguage.Echo,
-          with: %{route: value(:default)}
-        )
-      end
-
-    return(selected)
+      otherwise action: FlowLanguage.Echo,
+                params: %{route: :default}
+    end
   end
 end
 
@@ -224,12 +208,11 @@ end
   Jido.Exec.run(FlowLanguage.ChoiceExample, %{kind: :other}, %{})
 ```
 
-## Expressions, Bindings, And `return`
+## Expressions And Explicit Output
 
-Expressions read `input`, `context`, literal `value`, or earlier `result`
-values. A bound step name can be used as a result expression. `select` projects
-a nested path. `return` is required and can shape a map or list from several
-expressions.
+Expressions can read `input`, `context`, and earlier `result` values. `select`
+projects a nested path. Literals, maps, and lists stay data. Use `output` to
+shape a value from multiple sources.
 
 ```elixir
 defmodule FlowLanguage.ExpressionExample do
@@ -239,22 +222,15 @@ defmodule FlowLanguage.ExpressionExample do
     output_schema: Zoi.map()
 
   flow do
-    source_result = step(:source, FlowLanguage.Echo, with: %{value: input(:value)})
+    step "source",
+      action: FlowLanguage.Echo,
+      params: %{value: input(:value), constant: :constant}
 
-    result_value =
-      step(:result, FlowLanguage.Echo,
-        with: %{
-          source: select(source_result, :value),
-          trace_id: context(:trace_id),
-          constant: value(:constant)
-        }
-      )
-
-    return(%{
-      value: select(result_value, :source),
-      trace_id: select(result_value, :trace_id),
-      constant: select(result_value, :constant)
-    })
+    output %{
+      value: select(result("source"), :value),
+      trace_id: context(:trace_id),
+      constant: select(result("source"), :constant)
+    }
   end
 end
 
@@ -262,29 +238,28 @@ end
   Jido.Exec.run(FlowLanguage.ExpressionExample, %{value: 7}, %{trace_id: "trace-1"})
 ```
 
-## One Canonical Flow Artifact
+The expression surface is closed. Put computation in an Action. Do not call
+application functions inside `params`, `condition`, State, or `output`.
 
-The module authoring surface returns a canonical data value. The other
-authoring surfaces produce the same kind of value, so inspection and execution
-do not depend on how the Flow was authored.
+## One Canonical Flow Artifact
 
 ```elixir
 canonical = FlowLanguage.StepExample.flow()
 
 true = is_struct(canonical, Jido.Flow)
-%Jido.Flow{name: "flow_language_step", nodes: [_node], return: _return} = canonical
+%Jido.Flow{name: "flow_language_step", nodes: [_node], return: _output} = canonical
 
-{:ok, semantic_map} = Jido.Flow.semantic_identity(canonical)
-is_binary(semantic_map.digest)
+{:ok, identity} = Jido.Flow.semantic_identity(canonical)
+true = is_binary(identity.digest)
 ```
 
 ## Focused Guides
 
 - [Build Your First Flow](build-your-first-flow.livemd) builds a complete Flow.
-- [Flow Steps](flow-steps.livemd) explains step forms, bindings, returns, and annotations.
+- [Flow Steps](flow-steps.livemd) explains short and block forms and output.
 - [Flow References](flow-references.livemd) explains data paths and shaped values.
-- [Flow Dependencies](flow-dependencies.livemd) explains graph edges, groups, and ready waves.
+- [Flow Dependencies](flow-dependencies.livemd) explains graph edges and ready waves.
 - [Map and Reduce](flow-collections.livemd) explains ordered collection processing.
-- [Flow Choices](flow-choices.livemd) explains conditions and ordered routing.
-- [Loops and State](flow-loops-state.livemd) explains bounded stateful iteration.
-- [Nested Flows](nested-flows.livemd) explains Flow boundaries and atomic child execution.
+- [Flow Choices](flow-choices.livemd) explains native conditions and routing.
+- [Iterate and State](flow-loops-state.livemd) explains bounded State transitions.
+- [Nested Flows](nested-flows.livemd) explains atomic child execution.

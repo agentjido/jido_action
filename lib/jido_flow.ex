@@ -2,17 +2,41 @@ defmodule Jido.Flow do
   @moduledoc """
   Canonical v4 Flow artifact.
 
-  A Flow is a data artifact describing named action calls, ordered Choices,
-  Map fan-out, Reduce fan-in, and one declared return expression. Authoring
-  surfaces lower into this struct; execution is delegated through `Jido.Exec`.
+  A Flow is a data artifact describing named Action calls, ordered Choices,
+  Map fan-out, Reduce fan-in, bounded Iterate nodes, and one output expression.
+  Execution is delegated through `Jido.Exec`.
+
+  Use the compile-time Spark DSL as the primary developer authoring surface:
+
+      defmodule MyApp.ProcessOrder do
+        use Jido.Flow, name: "process_order"
+
+        flow do
+          step "load",
+            action: MyApp.LoadOrder,
+            params: %{id: input(:id)}
+
+          step "save",
+            action: MyApp.SaveOrder,
+            params: %{order: result("load")}
+        end
+      end
+
+  The last node is the output when an explicit `output` declaration is absent.
+  Result references and `after:` fields define dependencies. Source order does
+  not add execution dependencies.
+
+  Use `Jido.Flow.Builder` for runtime construction. Use `to_map/2` with
+  `format: :stored` and `from_map/2` for versioned storage. There is no runtime
+  parser for DSL source.
 
   A Choice is one Flow node. It evaluates data-only conditions in authored
   order, runs the first matching target, and uses a required routing fallback
   when no option matches.
 
-  Flow nodes consume only an action's output or error reason. Action extras from
-  `Jido.Action.run/2` are an instruction-path delivery channel and are discarded
-  during flow execution.
+  Flow nodes consume only an Action output or error reason. Extra values from
+  an Action callback are an instruction-path delivery channel and are
+  discarded during Flow execution.
   """
 
   alias Jido.Action
@@ -46,9 +70,8 @@ defmodule Jido.Flow do
   defmacro __using__(opts_ast) do
     quote location: :keep do
       @behaviour Jido.Action
+      use Jido.Flow.DSL
       @before_compile Jido.Flow
-
-      import Jido.Flow.DSL, only: [flow: 1]
 
       raw_opts = unquote(opts_ast)
 
@@ -104,20 +127,14 @@ defmodule Jido.Flow do
     opts = Module.get_attribute(env.module, :__jido_flow_opts__)
     schema = Module.get_attribute(env.module, :__jido_flow_schema__)
     output_schema = Module.get_attribute(env.module, :__jido_flow_output_schema__)
-    operations = Module.get_attribute(env.module, :__jido_flow_operations__) || []
-
-    syntax =
-      Jido.Flow.Syntax.new(
-        name: opts[:name],
-        description: opts[:description],
-        schema: schema,
-        output_schema: output_schema
-      )
-
-    syntax = %{syntax | operations: operations}
 
     flow =
-      case Jido.Flow.Syntax.Lowerer.lower(syntax) do
+      case Jido.Flow.DSL.Lowerer.lower(env.module,
+             name: opts[:name],
+             description: opts[:description],
+             schema: schema,
+             output_schema: output_schema
+           ) do
         {:ok, flow} ->
           case Jido.Flow.check(flow) do
             :ok ->
@@ -299,12 +316,6 @@ defmodule Jido.Flow do
   end
 
   defp node_name_sort_key(name), do: to_string(name)
-
-  @doc """
-  Parses trusted developer Flow source into a canonical Flow artifact.
-  """
-  @spec parse(String.t(), map() | keyword()) :: {:ok, t()} | {:error, Exception.t()}
-  def parse(source, opts \\ []), do: Jido.Flow.Parser.parse(source, opts)
 
   @doc """
   Compiles a Flow artifact into a Runic workflow for graph inspection.

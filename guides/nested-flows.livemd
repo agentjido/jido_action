@@ -40,15 +40,12 @@ defmodule NestedFlows.Child do
     output_schema: Zoi.object(%{value: Zoi.integer(), trace_id: Zoi.string()})
 
   flow do
-    described =
-      step(:describe, NestedFlows.Describe,
-        with: %{
-          value: input(:value),
-          trace_id: context(:trace_id)
-        }
-      )
-
-    return(described)
+    step "describe",
+      action: NestedFlows.Describe,
+      params: %{
+        value: input(:value),
+        trace_id: context(:trace_id)
+      }
   end
 end
 ```
@@ -66,12 +63,11 @@ defmodule NestedFlows.ParentStep do
     output_schema: Zoi.map()
 
   flow do
-    child_result =
-      step(:child, NestedFlows.Child,
-        with: %{value: input(:value)}
-      )
+    step "child",
+      action: NestedFlows.Child,
+      params: %{value: input(:value)}
 
-    return(%{child: child_result})
+    output %{child: result("child")}
   end
 end
 
@@ -137,21 +133,15 @@ defmodule NestedFlows.ParentChoice do
     output_schema: Zoi.map()
 
   flow do
-    selected =
-      choose :route do
-        option(:child,
-          when: eq(input(:route), value(:child)),
-          run: NestedFlows.Child,
-          with: %{value: input(:value)}
-        )
+    choice "route" do
+      option "child",
+        condition: input(:route) == :child,
+        action: NestedFlows.Child,
+        params: %{value: input(:value)}
 
-        otherwise(
-          run: NestedFlows.Echo,
-          with: %{route: value(:fallback), value: input(:value)}
-        )
-      end
-
-    return(selected)
+      otherwise action: NestedFlows.Echo,
+                params: %{route: :fallback, value: input(:value)}
+    end
   end
 end
 

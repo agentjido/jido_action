@@ -100,17 +100,13 @@ defmodule MyApp.Flows.GreetAndNotify do
     output_schema: Zoi.map()
 
   flow do
-    greeting =
-      step(:greet, MyApp.Actions.GreetUser,
-        with: %{name: input(:name), excited?: value(false)}
-      )
+    step "greet",
+      action: MyApp.Actions.GreetUser,
+      params: %{name: input(:name), excited?: false}
 
-    notified =
-      step(:notify, MyApp.Actions.Notify,
-        with: %{message: select(greeting, :greeting)}
-      )
-
-    return(notified)
+    step "notify",
+      action: MyApp.Actions.Notify,
+      params: %{message: select(result("greet"), :greeting)}
   end
 end
 
@@ -118,8 +114,9 @@ end
   Jido.Exec.run(MyApp.Flows.GreetAndNotify, %{name: "Ada"}, %{})
 ```
 
-Flows also support ordered Choices, Map and Reduce collections, bounded Loops
-with State, independent parallel branches, and a step-wise execution API.
+The last node is the output when `output` is absent. Flows also support ordered
+Choices, Map and Reduce collections, bounded Iterate nodes with State,
+implicitly parallel independent nodes, and a step-wise execution API.
 
 ## Docs
 
@@ -138,15 +135,15 @@ Livebook. ExDoc adds a **Run in Livebook** link to each `.livemd` guide.
 
 - [Build Your First Flow](guides/build-your-first-flow.livemd)
 - [Flow Language Overview](guides/flow-language.livemd)
-- [Steps, Bindings & Returns](guides/flow-steps.livemd)
+- [Steps & Outputs](guides/flow-steps.livemd)
 - [References & Data Mapping](guides/flow-references.livemd)
-- [Dependencies, Groups & Parallel Branches](guides/flow-dependencies.livemd)
+- [Dependencies & Parallel Work](guides/flow-dependencies.livemd)
 - [Map & Reduce](guides/flow-collections.livemd)
 - [Choices & Conditions](guides/flow-choices.livemd)
-- [Loops & State](guides/flow-loops-state.livemd)
+- [Iterate & State](guides/flow-loops-state.livemd)
 - [Nested Flows](guides/nested-flows.livemd)
 - [Flow Modules](guides/flow-modules.md)
-- [Flow Script](guides/flow-script.md)
+- [Stored Flow JSON](guides/flow-storage.md)
 - [Runtime Builder](guides/flow-builder.md)
 - [Inspecting & Storing Flows](guides/flow-inspection.md)
 

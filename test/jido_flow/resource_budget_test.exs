@@ -10,13 +10,11 @@ defmodule Jido.Flow.ResourceBudgetTest do
   @max_width 10_000
 
   describe "validate/2" do
-    test "accepts each exact stored-term limit" do
-      for surface <- [:map, :source] do
-        assert :ok = ResourceBudget.validate(nested_tuple(@max_depth + 1), surface)
-        assert :ok = ResourceBudget.validate(term_slots(@max_terms), surface)
-        assert :ok = ResourceBudget.validate(:binary.copy("x", @max_binary_bytes), surface)
-        assert :ok = ResourceBudget.validate(List.duplicate(0, @max_width), surface)
-      end
+    test "accepts each exact stored-map limit" do
+      assert :ok = ResourceBudget.validate(nested_tuple(@max_depth + 1), :map)
+      assert :ok = ResourceBudget.validate(term_slots(@max_terms), :map)
+      assert :ok = ResourceBudget.validate(:binary.copy("x", @max_binary_bytes), :map)
+      assert :ok = ResourceBudget.validate(List.duplicate(0, @max_width), :map)
     end
 
     test "rejects each stored-term limit plus one with exact bounded details" do
@@ -30,18 +28,12 @@ defmodule Jido.Flow.ResourceBudgetTest do
         {List.duplicate(0, @max_width + 1), :collection_width, @max_width, @max_width + 1, []}
       ]
 
-      for surface <- [:map, :source],
-          {term, resource, limit, actual, path} <- cases do
-        expected_message =
-          if surface == :map,
-            do: "stored flow map exceeds resource limit",
-            else: "stored flow source exceeds resource limit"
-
+      for {term, resource, limit, actual, path} <- cases do
         assert {:error,
                 %InvalidInputError{
-                  message: ^expected_message,
+                  message: "stored flow map exceeds resource limit",
                   details: details
-                }} = ResourceBudget.validate(term, surface)
+                }} = ResourceBudget.validate(term, :map)
 
         assert details == %{
                  profile: :stored,
@@ -106,27 +98,6 @@ defmodule Jido.Flow.ResourceBudgetTest do
       term = %{metadata: %{uri: URI.parse("https://example.com/flow")}}
 
       assert :ok = ResourceBudget.validate(term, :map)
-    end
-  end
-
-  describe "validate_source_bytes/1" do
-    test "accepts the exact limit and rejects limit plus one before parsing" do
-      assert :ok = ResourceBudget.validate_source_bytes(:binary.copy("x", @max_binary_bytes))
-
-      assert {:error,
-              %InvalidInputError{
-                message: "stored flow source exceeds resource limit",
-                details: details
-              }} =
-               ResourceBudget.validate_source_bytes(:binary.copy("x", @max_binary_bytes + 1))
-
-      assert details == %{
-               profile: :stored,
-               resource: :source_bytes,
-               limit: @max_binary_bytes,
-               actual: @max_binary_bytes + 1,
-               path: []
-             }
     end
   end
 

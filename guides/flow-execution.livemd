@@ -109,25 +109,20 @@ defmodule FlowExecutionLivebook.BuildReport do
     output_schema: Zoi.object(%{account_id: Zoi.string(), order_count: Zoi.integer()})
 
   flow do
-    account =
-      step(:load_account, FlowExecutionLivebook.LoadAccount,
-        with: %{account_id: input(:account_id)}
-      )
+    step "load_account",
+      action: FlowExecutionLivebook.LoadAccount,
+      params: %{account_id: input(:account_id)}
 
-    orders =
-      step(:load_orders, FlowExecutionLivebook.LoadOrders,
-        with: %{account_id: input(:account_id)}
-      )
+    step "load_orders",
+      action: FlowExecutionLivebook.LoadOrders,
+      params: %{account_id: input(:account_id)}
 
-    summary =
-      step(:build_summary, FlowExecutionLivebook.BuildSummary,
-        with: %{
-          account: select(account, :account),
-          orders: select(orders, :orders)
-        }
-      )
-
-    return(summary)
+    step "build_summary",
+      action: FlowExecutionLivebook.BuildSummary,
+      params: %{
+        account: select(result("load_account"), :account),
+        orders: select(result("load_orders"), :orders)
+      }
   end
 end
 ```
@@ -279,14 +274,13 @@ defmodule FlowExecutionLivebook.FailureFlow do
     output_schema: Zoi.object(%{recorded: Zoi.boolean()})
 
   flow do
-    step(:fail, FlowExecutionLivebook.Fail, with: %{})
+    step "fail",
+      action: FlowExecutionLivebook.Fail,
+      params: %{}
 
-    audit =
-      step(:record_audit, FlowExecutionLivebook.RecordAudit,
-        with: %{message: value("failure observed")}
-      )
-
-    return(audit)
+    step "record_audit",
+      action: FlowExecutionLivebook.RecordAudit,
+      params: %{message: "failure observed"}
   end
 end
 
@@ -321,21 +315,15 @@ defmodule FlowExecutionLivebook.RouteFlow do
     output_schema: Zoi.object(%{route: Zoi.atom()})
 
   flow do
-    selected =
-      choose :route do
-        option(:priority,
-          when: eq(input(:route), value(:priority)),
-          run: FlowExecutionLivebook.Route,
-          with: %{route: value(:priority)}
-        )
+    choice "route" do
+      option "priority",
+        condition: input(:route) == :priority,
+        action: FlowExecutionLivebook.Route,
+        params: %{route: :priority}
 
-        otherwise(
-          run: FlowExecutionLivebook.Route,
-          with: %{route: value(:standard)}
-        )
-      end
-
-    return(selected)
+      otherwise action: FlowExecutionLivebook.Route,
+                params: %{route: :standard}
+    end
   end
 end
 
@@ -366,17 +354,17 @@ Do not reuse an older execution value. Reusing it can run an action again and
 repeat an external side effect. The execution can move between processes, but
 it is not a durable checkpoint or a persistence format.
 
-## Collections And Loops Are Atomic Nodes
+## Collections And Iterate Are Atomic Nodes
 
-Map, Reduce, and Loop each appear as one node in `ready/1`. One `step/2` call
-completes all internal item calls or Loop iterations for that node.
+Map, Reduce, and Iterate each appear as one node in `ready/1`. One `step/2`
+call completes all internal item calls or iterations for that node.
 
 With `async: true`, Map can schedule item calls concurrently up to
-`max_concurrency`. Map records stay in source order. Reduce and Loop work stays
-serial. The public API does not pause between collection items or Loop
+`max_concurrency`. Map records stay in source order. Reduce and Iterate work
+stays serial. The public API does not pause between collection items or
 iterations.
 
-See [Map and Reduce](flow-collections.livemd) and [Loops and
+See [Map and Reduce](flow-collections.livemd) and [Iterate and
 State](flow-loops-state.livemd) for the element syntax and result shapes.
 
 ## Nested Flows Are Atomic To The Parent
@@ -391,12 +379,9 @@ defmodule FlowExecutionLivebook.Child do
     output_schema: Zoi.object(%{account_id: Zoi.string(), order_count: Zoi.integer()})
 
   flow do
-    child_summary =
-      step(:summary, FlowExecutionLivebook.ChildSummary,
-        with: %{account_id: input(:account_id)}
-      )
-
-    return(child_summary)
+    step "summary",
+      action: FlowExecutionLivebook.ChildSummary,
+      params: %{account_id: input(:account_id)}
   end
 end
 
@@ -407,12 +392,11 @@ defmodule FlowExecutionLivebook.Parent do
     output_schema: Zoi.object(%{child: Zoi.map()})
 
   flow do
-    child_result =
-      step(:child, FlowExecutionLivebook.Child,
-        with: %{account_id: input(:account_id)}
-      )
+    step "child",
+      action: FlowExecutionLivebook.Child,
+      params: %{account_id: input(:account_id)}
 
-    return(%{child: child_result})
+    output %{child: result("child")}
   end
 end
 
@@ -437,7 +421,7 @@ The current public Flow API does not provide:
 - per-node timeouts or a Flow deadline;
 - cancellation or rewind;
 - persistent checkpoints or restart-safe resume; or
-- step-wise control of Map items, Reduce items, or Loop iterations; or
+- step-wise control of Map items, Reduce items, or Iterate iterations; or
 - exactly-once guarantees for external Action side effects.
 
 Place these policies in the caller or a higher-level runtime package. Design

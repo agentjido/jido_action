@@ -42,8 +42,8 @@ end
 ## Define The Flow Module
 
 `use Jido.Flow` gives the module Flow metadata, validation callbacks, and a
-`flow/0` function. A result reference creates the dependency from `:double`
-to `:add_one`.
+`flow/0` function. A result reference creates the dependency from `"double"`
+to `"add_one"`.
 
 ```elixir
 defmodule BuildFirstFlow.DoubleAfterIncrement do
@@ -54,25 +54,21 @@ defmodule BuildFirstFlow.DoubleAfterIncrement do
     output_schema: Zoi.object(%{value: Zoi.integer()})
 
   flow do
-    added =
-      step(:add_one, BuildFirstFlow.AddOne,
-        with: %{value: input(:value)}
-      )
+    step "add_one",
+      action: BuildFirstFlow.AddOne,
+      params: %{value: input(:value)}
 
-    doubled =
-      step(:double, BuildFirstFlow.Double,
-        with: %{value: select(added, :value)}
-      )
-
-    return(doubled)
+    step "double",
+      action: BuildFirstFlow.Double,
+      params: %{value: select(result("add_one"), :value)}
   end
 end
 ```
 
 ## Run The Flow
 
-Use `Jido.Exec.run/3` with the Flow module. The result is the value declared by
-`return`.
+Use `Jido.Exec.run/3` with the Flow module. Because `double` is the last node
+and there is no `output`, its complete result is the Flow output.
 
 ```elixir
 {:ok, %{value: 8}} =
@@ -92,7 +88,7 @@ flow = BuildFirstFlow.DoubleAfterIncrement.flow()
 
 ## Inspect The Flow
 
-The artifact contains named nodes and one return expression. Use public
+The artifact contains named nodes and one canonical output expression. Use public
 inspection functions to see dependencies and a deterministic explanation.
 
 ```elixir
@@ -110,6 +106,6 @@ expressions into canonical references before execution.
 ## Continue Learning
 
 - [Flow Language](flow-language.livemd) introduces the complete language.
-- [Flow Steps](flow-steps.livemd) explains step names, bindings, returns, and annotations.
+- [Flow Steps](flow-steps.livemd) explains step forms, output, and metadata.
 - [Flow References](flow-references.livemd) explains data mapping and paths.
 - [Executing Flows](flow-execution.livemd) explains run-to-completion and step-wise execution.

@@ -18,7 +18,7 @@ The executable can be an Action module, an `%Jido.Instruction{}`, a
 For Actions and Instructions, `opts` must be an empty list. Flow execution
 supports `async: true | false` and `max_concurrency: positive_integer()`.
 These options schedule independent public nodes and internal Map item calls.
-Reduce and Loop iterations stay serial.
+Reduce and Iterate work stays serial.
 
 ## Validation Pipeline
 
@@ -33,7 +33,7 @@ For a leaf Action, `Jido.Exec`:
 
 For an Instruction, it first merges stored parameters and context with the
 call-site maps. For a Flow, it validates the Flow, checks Action contracts,
-validates Flow input, executes nodes, assembles the declared return expression,
+validates Flow input, executes nodes, assembles the declared output expression,
 and validates Flow output.
 
 An explicit `Jido.Action.Output` envelope is preserved as an envelope. It is
@@ -101,9 +101,9 @@ Jido.Exec.ready(execution)
 node. `wave/1` executes the current ready set; stored Flow concurrency options
 apply to the wave. Nodes that become ready wait for the next operation.
 
-Map, Reduce, Loop, Choice, and nested Flow work is atomic at this public
+Map, Reduce, Iterate, Choice, and nested Flow work is atomic at this public
 boundary. One step completes the selected element's internal work. The API
-does not expose individual Map items, Reduce items, or Loop iterations as
+does not expose individual Map items, Reduce items, or Iterate iterations as
 ready nodes.
 
 A failed node is an applied transition. The step operation returns

@@ -534,8 +534,10 @@ defmodule Jido.Exec.TelemetryTest do
                  use Jido.Flow, name: "choice_nested_telemetry_flow"
 
                  flow do
-                   step(:add, unquote(Add), %{value: input(:value), amount: value(1)})
-                   return(result(:add))
+                   step("add",
+                     action: unquote(Add),
+                     params: %{value: input(:value), amount: 1}
+                   )
                  end
                end,
                Macro.Env.location(__ENV__)

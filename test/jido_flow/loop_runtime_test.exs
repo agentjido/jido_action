@@ -122,19 +122,13 @@ defmodule Jido.Flow.LoopRuntimeTest do
     use Flow, name: "child_loop"
 
     flow do
-      child_result =
-        loop(:child,
-          run: Jido.Flow.LoopRuntimeTest.Increment,
-          with: %{count: state(:count), index: iteration_index()},
-          state: [
-            schema: [],
-            initial: %{count: value(0)},
-            update: %{count: body_result(:count)}
-          ],
-          repeat: 1
-        )
-
-      return(child_result)
+      iterate "child" do
+        state([], initial: %{count: 0})
+        action(Jido.Flow.LoopRuntimeTest.Increment)
+        params(%{count: state(:count), index: iteration_index()})
+        update(%{count: body_result(:count)})
+        repeat(1)
+      end
     end
   end
 
@@ -142,20 +136,18 @@ defmodule Jido.Flow.LoopRuntimeTest do
     use Flow, name: "child_map_reduce"
 
     flow do
-      mapped =
-        map(:enrich, input(:items),
-          run: JidoTest.TestActions.Add,
-          with: %{value: item(:value), amount: value(1)}
-        )
+      map("enrich",
+        collection: input(:items),
+        action: JidoTest.TestActions.Add,
+        params: %{value: item(:value), amount: 1}
+      )
 
-      summary =
-        reduce(:summarize, mapped,
-          initial: value(%{value: 1}),
-          run: JidoTest.TestActions.Multiply,
-          with: %{value: accumulator(:value), amount: item(:value)}
-        )
-
-      return(summary)
+      reduce "summarize" do
+        collection(result("enrich"))
+        initial(%{value: 1})
+        action(JidoTest.TestActions.Multiply)
+        params(%{value: accumulator(:value), amount: item(:value)})
+      end
     end
   end
 

@@ -21,7 +21,7 @@ Jido.Exec.run(MyApp.Flows.BuildReport, input, context,
 
 The `max_concurrency` default is stored on the execution even when `async` is
 `false`. The option has no effect until asynchronous scheduling is enabled.
-Reduce item calls and Loop iterations always stay serial.
+Reduce item calls and Iterate iterations always stay serial.
 
 Pass the options to `run/4` or `start/4`:
 

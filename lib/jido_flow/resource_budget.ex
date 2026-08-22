@@ -8,22 +8,11 @@ defmodule Jido.Flow.ResourceBudget do
   @max_binary_bytes 1_048_576
   @max_width 10_000
 
-  @type surface :: :map | :source
+  @type surface :: :map
 
   @spec validate(term(), surface()) :: :ok | {:error, Exception.t()}
-  def validate(term, surface) when surface in [:map, :source] do
-    traverse([{term, 0, []}], %{term_count: 0, binary_bytes: 0}, surface)
-  end
-
-  @spec validate_source_bytes(binary()) :: :ok | {:error, Exception.t()}
-  def validate_source_bytes(source) when is_binary(source) do
-    actual = byte_size(source)
-
-    if actual <= @max_binary_bytes do
-      :ok
-    else
-      limit_error(:source, :source_bytes, @max_binary_bytes, actual, [])
-    end
+  def validate(term, :map) do
+    traverse([{term, 0, []}], %{term_count: 0, binary_bytes: 0}, :map)
   end
 
   defp traverse([], _counts, _surface), do: :ok
@@ -147,15 +136,9 @@ defmodule Jido.Flow.ResourceBudget do
     limit_error(surface, resource, limit, actual, Enum.reverse(reverse_path))
   end
 
-  defp limit_error(surface, resource, limit, actual, path) do
-    message =
-      case surface do
-        :map -> "stored flow map exceeds resource limit"
-        :source -> "stored flow source exceeds resource limit"
-      end
-
+  defp limit_error(_surface, resource, limit, actual, path) do
     {:error,
-     Error.validation_error(message, %{
+     Error.validation_error("stored flow map exceeds resource limit", %{
        profile: :stored,
        resource: resource,
        limit: limit,

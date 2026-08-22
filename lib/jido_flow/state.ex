@@ -1,6 +1,7 @@
 defmodule Jido.Flow.State do
   @moduledoc """
-  The static State contract owned by one `Jido.Flow.Loop`.
+  The static State contract owned by one `Jido.Flow.Loop`. The public Spark DSL
+  declares this runtime node with `iterate`.
 
   Runtime State is created for one Loop invocation. This struct contains only
   the schema and data expressions that define that runtime value.

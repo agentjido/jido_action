@@ -2,7 +2,9 @@
 
 Use `Jido.Flow.Builder` when the Flow structure is known only at runtime. The
 Builder creates the shared syntax artifact, then lowers it into the same
-canonical `%Jido.Flow{}` used by the module DSL and [Flow Script](flow-script.md).
+canonical `%Jido.Flow{}` used by the compile-time Spark DSL and [stored Flow
+JSON](flow-storage.md). Builder calls are a data-construction API. They are not
+a second source language.
 
 ## Create A Builder
 
@@ -124,9 +126,10 @@ Condition helpers are `eq`, `neq`, `lt`, `lte`, `gt`, `gte`, `in`, `all`,
 `any`, and `not`. They create data expressions. The Choice evaluates them at
 execution time. See [Choices and Conditions](flow-choices.livemd).
 
-## Loops And State
+## Iterate At Runtime
 
-`loop/6` appends one bounded Loop. It receives a State contract with `schema`,
+The public module DSL calls this form `iterate`. The Builder works at the
+canonical runtime level, where `loop/6` appends one bounded Loop. It receives a State contract with `schema`,
 `initial`, and `update` fields. The body input, State update, and completion
 condition can use `state/1`, `iteration_index/0`, and `body_result/1`.
 
@@ -149,9 +152,10 @@ builder =
   )
 ```
 
-Use exactly one `while`, `until`, or `repeat` option. `while` and `until`
-require `max_iterations`. A `repeat` Loop uses its repeat count as the bound
-and must not set `max_iterations`. See [Loops and State](flow-loops-state.livemd).
+Use exactly one `while`, `until`, or `repeat` option in Builder data. `while`
+and `until` require `max_iterations`. A `repeat` Loop uses its repeat count as
+the bound and must not set `max_iterations`. The compile-time DSL exposes
+`while` and `repeat`. See [Iterate and State](flow-loops-state.livemd).
 
 ## Groups, Branches, And Dependencies
 
@@ -174,20 +178,22 @@ left =
 builder = Builder.group(builder, [left], provenance: %{label: "Alternatives"})
 ```
 
-For normal runtime construction, create branch operations with the shared
+For runtime construction, create branch operations with the shared
 `Jido.Flow.Syntax` helpers or construct a small list of syntax operations. The
-Builder has no `parallel` helper. Groups and branches describe graph structure
-and provenance; use `Jido.Exec.run/4` with `async: true` to enable concurrent
-execution of independent nodes. See [Executing Flows](flow-execution.livemd).
+Builder has no `parallel` helper. Groups and branches are lower-level Builder
+provenance data. They are not compile-time DSL forms. Use `Jido.Exec.run/4`
+with `async: true` to execute independent nodes concurrently. See [Executing
+Flows](flow-execution.livemd).
 
 Use `after: :node_name` or `after: [:first, :second]` in the options to add an
 explicit dependency. References to earlier results also create dependencies.
 
 ## Bindings And Provenance
 
-Pass `bind: :alias` to a Step, Choice, Map, Reduce, or Loop helper to create a
-binding reference. Pass `provenance: %{}` to preserve non-semantic authoring
-metadata. `label`, `tags`, and `note` are also accepted provenance options.
+Builder data can use `bind: :alias` for a binding reference. The compile-time
+DSL uses explicit node names and `result("node")` instead. Pass
+`provenance: %{}` to preserve non-semantic authoring metadata. `label`, `tags`,
+and `note` are also accepted Builder provenance options.
 
 ```elixir
 builder =

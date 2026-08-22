@@ -64,7 +64,7 @@ tests when those features are part of the contract.
 ## Test The Flow Graph
 
 Test the canonical graph before testing runtime behavior. Assert node names,
-dependencies, return shape, and semantic identity when these are important to
+dependencies, output shape, and semantic identity when these are important to
 the application.
 
 ```elixir
@@ -126,10 +126,10 @@ When `async: true` is important, assert the ordered records and the configured
 concurrency boundary. Do not use task completion order as a result assertion.
 See [Map and Reduce](flow-collections.livemd).
 
-## Test Loops And State
+## Test Iterate And State
 
 Test the initial head condition, the first State update, normal completion,
-and exhaustion at `max_iterations`. Assert the complete Loop result, including
+and exhaustion at `max_iterations`. Assert the complete Iterate result, including
 `iterations`, `state`, and `output`.
 
 ```elixir
@@ -144,9 +144,9 @@ test "can complete before the first body call" do
 end
 ```
 
-Test State schema failures without exposing rejected State values. If the Loop
+Test State schema failures without exposing rejected State values. If the Iterate
 body has effects, also test the repeat-risk and idempotency boundary. See
-[Loops and State](flow-loops-state.livemd).
+[Iterate and State](flow-loops-state.livemd).
 
 ## Test Nested Flows
 

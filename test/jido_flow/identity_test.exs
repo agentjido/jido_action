@@ -149,8 +149,10 @@ defmodule Jido.Flow.IdentityTest do
         use Jido.Flow, name: "inspection_delegates_flow"
 
         flow do
-          step(:echo, unquote(EchoParamsAction), %{value: input(:value)})
-          return(result(:echo))
+          step("echo",
+            action: unquote(EchoParamsAction),
+            params: %{value: input(:value)}
+          )
         end
       end
     )
