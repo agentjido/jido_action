@@ -68,26 +68,26 @@ The library applies these fixed limits to each stored Flow map:
 - Maximum total binary payload: 1,048,576 bytes.
 - Maximum width of one map, list, or tuple: 10,000 items.
 
-The binary limit is the total for the complete artifact. `Jido.Flow.from_map/2`
+The binary limit is the total for the complete artifact. `Jido.Flow.from_stored_map/2`
 receives a decoded map. It does not limit raw HTTP bytes or JSON decoder work.
 The caller must limit transport bytes and JSON decoding before it calls
-`Jido.Flow.from_map/2`.
+`Jido.Flow.from_stored_map/2`.
 
-## Control Contract Bundles In The Host
+## Control The Registry In The Host
 
-A stored version 1 map contains stable contract and Action identifiers. The
-host supplies an allow-list of `%Jido.Flow.ContractBundle{}` values through the
-`contract_bundles:` option. The allow-list key must equal the selected bundle
-ID. Zoi schemas, Action module atoms, and bundle contents stay in host code.
+A stored version 1 map contains stable schema and Action identifiers. The host
+supplies one flat `Jido.Flow.Registry`. Zoi schemas and Action module atoms stay
+in host code. Stored data can select only identifiers that the Registry owns.
 
-Bundle selection and resolution are inert. They can normalize trusted maps and
-do pure lookup. They do not load a module, call an Action callback, validate
-data through a Zoi schema, emit telemetry, compile, or execute the Flow.
+Registry resolution is inert. It validates trusted entries and does direct
+lookup. It does not derive module names, create atoms, load a module, call an
+Action callback, validate data through a schema, emit telemetry, or execute the
+Flow.
 
-Stored decode, inspection, identity, and graph compilation do not check target
-contracts. `Jido.Flow.validate_executable/1` checks them without execution, and
-`Jido.Exec` repeats the check at the execution boundary. Retry, timeout,
-persistence, and durability policy stay outside the Flow artifact.
+Stored decode, inspection, and identity do not check target contracts.
+`Jido.Flow.validate_executable/1` checks them without execution, and `Jido.Exec`
+repeats the check at the execution boundary. Retry, timeout, persistence, and
+durability policy stay outside the Flow artifact.
 
 ## Bound Runtime Policy
 

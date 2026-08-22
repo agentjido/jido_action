@@ -1,33 +1,28 @@
 # Inspecting Flows
 
-Every authoring surface produces a canonical `%Jido.Flow{}`. Use the public
+Every authoring surface produces one canonical `%Jido.Flow{}`. Use the public
 inspection functions to understand its graph, compare its meaning, and store
-it without depending on the source format. This guide complements [Flows as a
-data type](flows.md).
+it without depending on source form.
 
 ## Inspect Dependencies
 
-`Jido.Flow.dependencies/1` returns direct predecessors for each node. The
-dependencies come from result references and explicit `after:` options.
-Source order does not add dependencies.
+`Jido.Flow.dependencies/1` returns the direct predecessors for each node.
+Result references and explicit `after:` fields create dependencies. Source
+order does not create a dependency.
 
 ```elixir
 flow = MyApp.Flows.Report.flow()
-
 {:ok, dependencies} = Jido.Flow.dependencies(flow)
 
 ["load"] = dependencies["format"]
 [] = dependencies["load"]
 ```
 
-The map uses canonical node names. A node can run after all names in its list
-complete. See [Flow Dependencies](flow-dependencies.livemd).
-
 ## Explain A Flow
 
-`Jido.Flow.explain/1` returns versioned inspection data. It includes the Flow
-metadata, canonical nodes, dependencies, graph edges, output expression, and
-semantic identity.
+`Jido.Flow.explain/1` returns versioned public inspection data. It includes
+Flow metadata, canonical nodes, dependencies, graph edges, the output
+expression, and semantic identity.
 
 ```elixir
 {:ok, explanation} = Jido.Flow.explain(flow)
@@ -37,14 +32,13 @@ semantic identity.
 ["load", "format"] = Enum.map(explanation.nodes, & &1.name)
 ```
 
-The node list is in dependency order with node-name tie breakers. This gives
-stable output for inspection tools.
+The node list uses dependency order with node-name tie breaks. The data does
+not include an execution-engine value.
 
 ## Compare Semantic Identity
 
-`Jido.Flow.semantic_identity/1` returns deterministic SHA-256 and UUIDv8
-identity data for the Flow's semantic meaning. Authoring order and provenance
-do not change that meaning.
+`Jido.Flow.semantic_identity/1` returns deterministic SHA-256 and UUIDv8 data
+for Flow semantics. Author order and provenance do not change this identity.
 
 ```elixir
 {:ok, identity} = Jido.Flow.semantic_identity(flow)
@@ -52,126 +46,49 @@ is_binary(identity.digest)
 is_binary(identity.uuid)
 ```
 
-Use this identity for caches, change detection, and registry uniqueness. A
-registry that stores semantic Flows should reject duplicate identities for
-different stored records unless they intentionally refer to the same Flow.
+Use the identity for caches and change detection.
 
 ## Semantic And Stored Maps
 
-`Jido.Flow.to_map/2` returns a deterministic semantic map by default. It keeps
-Action modules and schemas as module data and omits provenance unless requested.
+`Jido.Flow.to_map/2` returns a deterministic semantic map. It keeps trusted
+Action modules and schemas as Elixir terms. It omits provenance unless you set
+`provenance: true`.
 
 ```elixir
 semantic = Jido.Flow.to_map(flow)
 with_provenance = Jido.Flow.to_map(flow, provenance: true)
 ```
 
-Use `Jido.Flow.to_stored_map/2` to validate and produce a portable stored version
-1 map without raising. The stored map contains stable identifiers. Zoi schemas
-and Action modules stay in a host-supplied contract bundle:
+For database or JSON storage, create one flat host Registry:
 
 ```elixir
-contracts = %{
-  bundle: "my_app/report/v1",
-  input_schema: "my_app/report/input/v1",
-  output_schema: "my_app/report/output/v1",
-  action_registry: "my_app/report/actions/v1"
-}
+registry =
+  Jido.Flow.Registry.new!(%{
+    "actions/load/v1" => {:action, MyApp.Actions.Load},
+    "actions/format/v1" => {:action, MyApp.Actions.Format},
+    "schemas/report-input/v1" => {:schema, flow.schema},
+    "schemas/report-output/v1" => {:schema, flow.output_schema}
+  })
 
-bundle =
-  Jido.Flow.ContractBundle.new!(
-    id: contracts.bundle,
-    schemas: %{
-      contracts.input_schema => flow.schema,
-      contracts.output_schema => flow.output_schema
-    },
-    action_registries: %{
-      contracts.action_registry => %{
-        "my_app/load/v1" => MyApp.Actions.Load,
-        "my_app/format/v1" => MyApp.Actions.Format
-      }
-    }
-  )
-
-contract_bundles = %{bundle.id => bundle}
-
-{:ok, stored} =
-  Jido.Flow.to_stored_map(flow,
-    contracts: contracts,
-    contract_bundles: contract_bundles,
-    provenance: true
-  )
-```
-
-The selected registry must have exactly one identifier for every Action module
-used by the Flow. Missing identifiers and multiple identifiers for one module
-are errors. This rule keeps stored maps unambiguous.
-
-Stored conversion validates canonical Flow structure and stored encoding. It
-does not check Action target contracts. Use `Jido.Flow.validate_executable/1`
-for that separate, inert check.
-
-## Restore A Stored Flow
-
-Stored maps contain the Flow name, node definitions, output expression, stable
-contract references, and stable Action identifiers. Restore the map with the
-same host allow-list:
-
-```elixir
-{:ok, restored} =
-  Jido.Flow.from_map(stored, contract_bundles: contract_bundles)
-
-{:ok, restored} = Jido.Flow.validate_executable(restored)
+{:ok, stored} = Jido.Flow.to_stored_map(flow, registry, provenance: true)
+{:ok, restored} = Jido.Flow.from_stored_map(stored, registry)
 
 Jido.Flow.to_map(restored) == Jido.Flow.to_map(flow)
 ```
 
-The stored round trip preserves deterministic Flow data and optional
-provenance. It does not preserve Elixir source. The host bundle resolves the
-schemas and Action registry without putting runtime terms in JSON. There is no
-second stored-source parser. See [Stored Flow JSON](flow-storage.md).
-
-## Provenance
-
-Provenance is non-semantic metadata attached by authoring tools. Include it in
-maps with `provenance: true` when a review or inspection tool needs labels,
-tags, notes, or source annotations:
-
-```elixir
-{:ok, stored_with_notes} =
-  Jido.Flow.to_stored_map(flow,
-    contracts: contracts,
-    contract_bundles: contract_bundles,
-    provenance: true
-  )
-```
-
-The default semantic map and identity do not include provenance.
+The Registry must have exactly one identifier for every Action and schema
+value that the Flow uses. Missing or ambiguous identifiers are errors.
 
 ## Validate A Flow
 
-`Jido.Flow.validate/1` validates and normalizes canonical Flow data. It checks
-schemas, expressions, references, dependencies, and cycles. It does not load or
-check Action targets.
+`Jido.Flow.validate/1` checks canonical Flow structure, schemas, expressions,
+references, dependencies, and cycles. It does not load or check Action targets.
 
-`Jido.Flow.validate_executable/1` first performs canonical validation and then
-checks every Action or nested-Flow target contract. It does not run Action work.
+`Jido.Flow.validate_executable/1` also checks every Action or nested-Flow target
+contract. It does not run Action work.
 
-`Jido.Flow.to_stored_map/2` first performs canonical validation and then checks
-stored contract references and encoding. It returns the stored map on success,
-so a separate `validate_storable/2` pass is not necessary.
+`Jido.Flow.to_stored_map/3` validates canonical data, identifier resolution,
+and JSON-safe encoding. See [Stored Flow JSON](flow-storage.md).
 
-## Compile A Graph For Inspection
-
-`Jido.Flow.compile/1` returns an inert Runic workflow. It validates the Flow and
-builds graph-shaped node markers for inspection. It does not have runtime input
-or context, and it does not execute Action work.
-
-```elixir
-{:ok, workflow} = Jido.Flow.compile(flow)
-%Runic.Workflow{} = workflow
-```
-
-Use [`Jido.Exec.run/4`](flow-execution.livemd) to execute a Flow. Use
-[`Jido.Exec.start/4`](flow-execution.livemd) and the step-wise API when you need
-runtime status and node results.
+Use `Jido.Exec.run/4` to execute a Flow. Use the step-wise functions when an
+application must inspect ready nodes and node results during execution.

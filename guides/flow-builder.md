@@ -1,10 +1,9 @@
 # Building Flows At Runtime
 
 Use `Jido.Flow.Builder` when the Flow structure is known only at runtime. The
-Builder creates the shared syntax artifact, then lowers it into the same
-canonical `%Jido.Flow{}` used by the compile-time Spark DSL and [stored Flow
-JSON](flow-storage.md). Builder calls are a data-construction API. They are not
-a second source language.
+Builder sends named node data through the same canonical constructor as the
+compile-time Spark DSL and [stored Flow JSON](flow-storage.md). Builder calls
+are a data-construction API. They are not a second source language.
 
 ## Create A Builder
 
@@ -89,7 +88,7 @@ builder =
 ```
 
 Map options include `on_error: :fail_fast | :collect_errors`. Map and Reduce
-also accept `bind`, `after`, and provenance options. See [Map and
+also accept `after` and provenance options. See [Map and
 Reduce](flow-collections.livemd) for output shapes, reference scope, and
 execution rules.
 

@@ -182,9 +182,10 @@ and prior node results.
 ## Store Iterate State Schemas
 
 The DSL uses a static schema term at compile time. Stored Flow JSON replaces
-that term with a stable schema identifier supplied by a host contract bundle.
-Use the node name in `state_schema_ids` when you call `Jido.Flow.to_map/2`.
-See [Stored Flow JSON](flow-storage.md).
+that term with a stable schema identifier from the host
+`Jido.Flow.Registry`. `Jido.Flow.to_stored_map/3` finds the identifier from the
+State schema value and writes it in the Iterate node. See
+[Stored Flow JSON](flow-storage.md).
 
 ## Step Through An Iterate Node
 

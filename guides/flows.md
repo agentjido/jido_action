@@ -63,7 +63,8 @@ produce the same canonical `%Jido.Flow{}` artifact:
 - versioned stored maps or JSON for transport and persistence.
 
 There is no stored text parser. Tools and AI systems can produce a stored map
-or JSON value. `Jido.Flow.from_map/2` validates and restores it.
+or JSON value. `Jido.Flow.from_stored_map/2` validates and restores it through
+a trusted host Registry.
 
 ## Semantic Identity And Maps
 
@@ -76,44 +77,25 @@ Use the public inspection functions to work with a Flow as data:
 
 semantic_map = Jido.Flow.to_map(flow)
 
-contracts = %{
-  bundle: "my_app/double/v1",
-  input_schema: "my_app/double/input/v1",
-  output_schema: "my_app/double/output/v1",
-  action_registry: "my_app/double/actions/v1"
-}
-
-bundle =
-  Jido.Flow.ContractBundle.new!(
-    id: contracts.bundle,
-    schemas: %{
-      contracts.input_schema => flow.schema,
-      contracts.output_schema => flow.output_schema
-    },
-    action_registries: %{
-      contracts.action_registry => %{
-        "my_app/double-action/v1" => MyApp.Actions.Double
-      }
-    }
-  )
-
-contract_bundles = %{bundle.id => bundle}
+registry =
+  Jido.Flow.Registry.new!(%{
+    "my_app/double-action/v1" => {:action, MyApp.Actions.Double},
+    "my_app/double-input/v1" => {:schema, flow.schema},
+    "my_app/double-output/v1" => {:schema, flow.output_schema}
+  })
 
 {:ok, stored_map} =
-  Jido.Flow.to_stored_map(flow,
-    contracts: contracts,
-    contract_bundles: contract_bundles
-  )
+  Jido.Flow.to_stored_map(flow, registry)
 
 {:ok, restored} =
-  Jido.Flow.from_map(stored_map, contract_bundles: contract_bundles)
+  Jido.Flow.from_stored_map(stored_map, registry)
 
 {:ok, restored} = Jido.Flow.validate_executable(restored)
 ```
 
 The semantic map uses deterministic dependency order and excludes provenance.
-The stored version 1 map contains stable contract and Action identifiers. Zoi
-schemas and Action modules stay in the host bundle. Semantic identity
+The stored version 1 map contains stable schema and Action identifiers. Zoi
+schemas and Action modules stay in the host Registry. Semantic identity
 represents the meaning of the resolved Flow, not transport identifiers,
 authoring order, or source location.
 

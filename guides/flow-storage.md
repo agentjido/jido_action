@@ -1,133 +1,95 @@
-# Store And Restore Flows As JSON
+# Stored Flow JSON
 
-The Jido Flow DSL is a compile-time Elixir authoring surface. It does not have
-a second text parser. Use the versioned stored-map format when you must save a
-Flow in a database, send it to another system, or accept a Flow from an AI
-system.
+A stored Flow is a versioned JSON object. It contains stable string identifiers
+for Actions and schemas. It does not contain Elixir module names or schema
+terms.
 
-The stored map is canonical Flow data for the portable stored-value profile. It
-keeps all execution details that are needed to restore the same stored-safe
-Flow. It does not keep the original Elixir source or its layout.
-
-## Create A Stored Map
-
-Action modules and Zoi schemas are runtime terms. A stored map uses stable
-string identifiers for these terms. The host supplies the identifiers through
-a contract bundle.
+The host application owns one flat `Jido.Flow.Registry`:
 
 ```elixir
-flow = MyApp.Flows.ProcessOrder.flow()
+registry =
+  Jido.Flow.Registry.new!(%{
+    "actions/charge-card/v1" => {:action, MyApp.ChargeCard},
+    "schemas/order/v1" => {:schema, MyApp.OrderSchema.schema()},
+    "schemas/result/v1" => {:schema, MyApp.ResultSchema.schema()},
+    "schemas/payment-state/v1" => {:schema, MyApp.PaymentState.schema()}
+  })
+```
 
-contracts = %{
-  bundle: "my_app/process_order/v1",
-  input_schema: "my_app/process_order/input/v1",
-  output_schema: "my_app/process_order/output/v1",
-  action_registry: "my_app/process_order/actions/v1"
+Each identifier maps directly to one typed trusted value. An Action entry is
+`{:action, module}`. A schema entry is `{:schema, schema}`. The Registry rejects
+invalid identifiers, duplicate semantic values, and more than 10,000 entries.
+
+## Write
+
+Call `Jido.Flow.to_stored_map/3`:
+
+```elixir
+{:ok, stored} = Jido.Flow.to_stored_map(flow, registry)
+json = Jason.encode!(stored)
+```
+
+The optional third argument accepts only `provenance: true`. Provenance is off
+by default and does not affect semantic identity.
+
+The root record has these fields:
+
+```elixir
+%{
+  "type" => "flow",
+  "version" => 1,
+  "name" => "process_order",
+  "description" => nil,
+  "input_schema" => "schemas/order/v1",
+  "output_schema" => "schemas/result/v1",
+  "nodes" => [...],
+  "return" => %{...}
 }
-
-bundle =
-  Jido.Flow.ContractBundle.new!(
-    id: contracts.bundle,
-    schemas: %{
-      contracts.input_schema => flow.schema,
-      contracts.output_schema => flow.output_schema,
-      "my_app/payment_state/v1" => MyApp.PaymentState
-    },
-    action_registries: %{
-      contracts.action_registry => %{
-        "my_app/load_order/v1" => MyApp.Actions.LoadOrder,
-        "my_app/process_payment/v1" => MyApp.Actions.ProcessPayment
-      }
-    }
-  )
-
-contract_bundles = %{bundle.id => bundle}
-
-{:ok, stored} =
-  Jido.Flow.to_stored_map(flow,
-    contracts: contracts,
-    contract_bundles: contract_bundles,
-    state_schema_ids: %{"payment" => "my_app/payment_state/v1"},
-    provenance: true
-  )
 ```
 
-The selected Action registry must contain exactly one identifier for each
-Action module in the Flow. `state_schema_ids` maps each Iterator node name to
-its stable State schema identifier.
+Each node stores its Action identifier in its own `"action"` field. An Iterate
+node stores its State schema identifier in `"state"["schema"]`. There is no
+second registry record or schema attachment.
 
-`to_stored_map/2` returns `{:error, exception}` for invalid contract references
-or values that the stored format cannot encode. Stored values can contain JSON
-scalars, existing atoms, lists, and maps. Stored map keys can be atoms, strings,
-or integers. Tuples, structs, and other Elixir-only values are not portable.
+## Read
 
-Use `provenance: true` when metadata and source annotations must survive the
-round trip. Provenance does not change Flow execution or semantic identity.
-
-## Encode And Save JSON
-
-Use the JSON library that your application already owns:
+Decode JSON to a map and call `Jido.Flow.from_stored_map/2`:
 
 ```elixir
-json = JSON.encode!(stored)
-# Save json in the database.
+decoded = Jason.decode!(json)
+{:ok, restored} = Jido.Flow.from_stored_map(decoded, registry)
 ```
 
-Set transport and database size limits before JSON decoding. The stored-map
-reader applies structural limits after decoding, but it does not limit the raw
-JSON input.
+The reader first checks structural resource limits. It then validates the exact
+stored grammar, resolves each identifier through the supplied Registry, and
+uses the same canonical constructor as the Spark DSL and Builder.
 
-## Restore The Flow
+The reader does not convert stored strings to atoms. It does not derive module
+names, load modules, or accept Action modules and schemas from the stored map.
+Call `Jido.Flow.validate_executable/1` or `Jido.Exec.run/4` when you must check
+that resolved Action modules can execute.
 
-Decode the JSON and use the same host allow-list:
+## Resource limits
+
+Stored input has fixed limits:
+
+- Nesting depth: 64.
+- Total term slots: 100,000.
+- Total binary bytes: 1,048,576.
+- One collection width: 10,000.
+
+These checks protect database and AI-produced maps before recursive decoding.
+
+## Round-trip rule
+
+For a valid Registry, this property must hold:
 
 ```elixir
-decoded = JSON.decode!(json)
+{:ok, stored} = Jido.Flow.to_stored_map(flow, registry)
+{:ok, restored} = Jido.Flow.from_stored_map(stored, registry)
 
-{:ok, restored} =
-  Jido.Flow.from_map(decoded, contract_bundles: contract_bundles)
-
-{:ok, restored} = Jido.Flow.validate_executable(restored)
-
-Jido.Flow.to_map(restored, provenance: true) ==
-  Jido.Flow.to_map(flow, provenance: true)
+Jido.Flow.to_map(restored) == Jido.Flow.to_map(flow)
 ```
 
-`from_map/2` is inert. It validates stored and canonical data but does not load
-or check Action targets. `validate_executable/1` checks each Action or nested
-Flow target without running it.
-
-The restored Flow can then be inspected or executed like a compiled module
-Flow:
-
-```elixir
-{:ok, result} = Jido.Exec.run(restored, input, context)
-```
-
-## Generate Flows With AI
-
-Ask an AI system to produce the stored JSON schema or an equivalent Elixir
-map. Do not ask it to produce DSL source that the application then parses.
-Validate the decoded map with `Jido.Flow.from_map/2`. Only allow contract and
-Action identifiers that the host registered.
-
-This gives the application one authoring language and one data transport:
-
-- Developers write the compile-time Spark DSL.
-- Tools and AI systems create stored maps or JSON.
-- `Jido.Flow.from_map/2` restores the canonical Flow.
-- `Jido.Exec` executes the canonical Flow.
-
-## Storage Guarantees
-
-For the portable stored-value profile, the stored format keeps node names, node
-definitions, expressions, dependencies, output shape, contract identifiers,
-and optional provenance. A stored round trip keeps Flow meaning. It does not
-promise source-code formatting, author declaration order, or browser layout.
-
-An Iterator node uses `"kind": "iterate"` in stored JSON. Its State record
-uses `"kind": "iterate_state"`.
-
-Use `Jido.Flow.semantic_identity/1` to compare Flow meaning before and after a
-round trip. See [Inspecting Flows](flow-inspection.md) for the
-inspection API and [Security](security.md) for trust boundaries and limits.
+The stored identifiers can differ between hosts. The resolved Flow semantics
+must not differ.

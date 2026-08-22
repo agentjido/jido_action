@@ -33,7 +33,8 @@ Use `jido_action` for validated work and data-first composition:
 - Prefer precise schemas with defaults for optional action inputs.
 - Use `Jido.Flow.validate/1` for canonical Flow structure and graph rules.
 - Use `Jido.Flow.validate_executable/1` to also check all Flow target contracts.
-- Use `Jido.Flow.to_stored_map/2` to validate and produce stored JSON data without raising.
+- Use `Jido.Flow.to_stored_map/3` with a trusted `Jido.Flow.Registry` to
+  validate and produce stored JSON data without raising.
 
 ## Flow Authoring
 
@@ -55,10 +56,9 @@ Use `jido_action` for validated work and data-first composition:
 ## Runtime Flow Data
 
 - Use `Jido.Flow.Builder` only when graph structure comes from runtime data.
-- Use `Jido.Flow.to_map/2` with `format: :stored` for portable Map or JSON
-  storage.
-- Restore stored data with `Jido.Flow.from_map/2` and a trusted
-  `Jido.Flow.ContractBundle` allow-list.
+- Use `Jido.Flow.to_stored_map/3` for portable Map or JSON storage.
+- Restore stored data with `Jido.Flow.from_stored_map/2` and the same trusted
+  `Jido.Flow.Registry`.
 - Do not parse or evaluate stored Elixir DSL source. AI systems can produce
   stored JSON or Map data instead.
 

@@ -413,6 +413,38 @@ The parent `async` and `max_concurrency` options do not propagate to the child
 Flow. The child uses its own defaults when it runs as a target. Run the child
 directly when you need to step through its nodes or set its execution options.
 
+## Observe Execution With Telemetry
+
+Jido emits only these nine events:
+
+- `[:jido, :exec, :start]`, `[:jido, :exec, :stop]`, and
+  `[:jido, :exec, :error]`;
+- `[:jido, :flow, :start]`, `[:jido, :flow, :stop]`, and
+  `[:jido, :flow, :error]`; and
+- `[:jido, :flow, :node, :start]`, `[:jido, :flow, :node, :stop]`, and
+  `[:jido, :flow, :node, :error]`.
+
+Start measurements are `%{system_time: integer, monotonic_time: integer}`.
+Stop and error measurements are `%{duration: integer, monotonic_time: integer}`.
+
+Exec metadata is `%{execution_id: binary, kind: atom, name: term}`. Flow
+metadata is `%{execution_id: binary, flow: binary}`. Node metadata is
+`%{execution_id: binary, flow: binary, node: binary, kind: :step | :choice |
+:map | :reduce | :iterate}`. Error events add `:error` and `:error_type`.
+
+One `execution_id` correlates the outer execution, nested Flows, and all node
+spans. In serial execution, Exec contains Flow, and Flow contains its node
+spans. Async node spans can overlap and can come from task processes.
+
+For step-wise execution, `start/4` opens the Exec and Flow lifecycles. Node
+events occur only when a step or wave runs them. The operation that reaches a
+terminal result closes the Flow and Exec lifecycles. If a caller abandons a
+paused execution, it has no stop or error event.
+
+Jido does not emit item, iteration, State transition, completion, exhaustion,
+or failure events. Telemetry observes work. It does not schedule work, send
+runtime coordination messages, create helper processes, or change results.
+
 ## Current Execution Limits
 
 The current public Flow API does not provide:

@@ -69,13 +69,31 @@ conservative `:retryable?` value.
 
 ## Telemetry
 
-`Jido.Exec.run/4` emits a span at `[:jido, :exec, :run]` with metadata that
-identifies `:action`, `:instruction`, or `:flow` execution. Stop metadata
-includes the status and error type when execution fails. Flow node calls emit
-`[:jido, :flow, :node]` spans.
+Jido emits only these nine events:
 
-Async Flow node events can be emitted from task processes. Attach telemetry
-handlers if you need metrics or tracing for these boundaries.
+- `[:jido, :exec, :start]`, `[:jido, :exec, :stop]`, and
+  `[:jido, :exec, :error]`;
+- `[:jido, :flow, :start]`, `[:jido, :flow, :stop]`, and
+  `[:jido, :flow, :error]`; and
+- `[:jido, :flow, :node, :start]`, `[:jido, :flow, :node, :stop]`, and
+  `[:jido, :flow, :node, :error]`.
+
+Start measurements are `%{system_time: integer, monotonic_time: integer}`.
+Stop and error measurements are `%{duration: integer, monotonic_time: integer}`.
+
+Exec metadata is `%{execution_id: binary, kind: atom, name: term}`. Flow
+metadata is `%{execution_id: binary, flow: binary}`. Node metadata is
+`%{execution_id: binary, flow: binary, node: binary, kind: :step | :choice |
+:map | :reduce | :iterate}`. Error events add `:error` and `:error_type`.
+
+The same `execution_id` correlates a Flow, its nodes, and nested Flows. Serial
+events nest as Exec, Flow, and then node. Step-wise execution opens Exec and
+Flow events in `start/4` and closes them only when a step, wave, or continue
+operation reaches a terminal result. Async node events can come from task
+processes and can overlap.
+
+There are no item, iteration, State transition, completion, exhaustion, or
+failure telemetry events. Telemetry does not control scheduling or results.
 
 ## Run A Flow Step By Step
 
