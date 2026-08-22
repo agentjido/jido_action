@@ -3,7 +3,7 @@ defmodule Jido.Flow.IdentityTest do
 
   alias Jido.Action.Error.InvalidInputError
   alias Jido.Flow
-  alias Jido.Flow.{Choice, Condition, ContractBundle, Identity, Node, Reduce, Ref}
+  alias Jido.Flow.{Choice, Condition, Identity, Node, Reduce, Ref}
   alias Jido.Flow.Map, as: FlowMap
   alias JidoTest.TestActions.{Add, EchoParamsAction, Multiply}
 
@@ -162,8 +162,8 @@ defmodule Jido.Flow.IdentityTest do
     assert module.semantic_identity() == Flow.semantic_identity(module.flow())
     assert module.validate() == Flow.validate(module.flow())
     assert module.validate_executable() == Flow.validate_executable(module.flow())
-    assert function_exported?(module, :to_stored_map, 0)
     assert function_exported?(module, :to_stored_map, 1)
+    assert function_exported?(module, :to_stored_map, 2)
   end
 
   test "pins the deterministic SHA-256 preimage and UUIDv8 projection" do
@@ -266,90 +266,6 @@ defmodule Jido.Flow.IdentityTest do
 
     assert Flow.semantic_identity(original) == Flow.semantic_identity(reordered)
     assert Flow.semantic_identity(original) == Flow.semantic_identity(provenance_changed)
-  end
-
-  test "keeps the identity golden across stored version 1 transport aliases" do
-    semantic_map = identity_flow() |> Flow.to_map()
-    assert {:ok, original} = Flow.from_map(semantic_map)
-
-    {first_stored, first_bundles} =
-      stored_artifact(original,
-        bundle: "identity/first/v1",
-        input_schema: "identity/first-input/v1",
-        output_schema: "identity/first-output/v1",
-        action_registry: "identity/first-actions/v1",
-        action: "echo/v1"
-      )
-
-    {second_stored, second_bundles} =
-      stored_artifact(original,
-        bundle: "identity/second/v1",
-        input_schema: "identity/second-input/v1",
-        output_schema: "identity/second-output/v1",
-        action_registry: "identity/second-actions/v1",
-        action: "mirror/v1"
-      )
-
-    assert {:ok, first_loaded} = Flow.from_map(first_stored, contract_bundles: first_bundles)
-    assert {:ok, second_loaded} = Flow.from_map(second_stored, contract_bundles: second_bundles)
-
-    refute first_stored == second_stored
-    assert Flow.to_map(first_loaded) == semantic_map
-    assert Flow.to_map(second_loaded) == semantic_map
-
-    for flow <- [original, first_loaded, second_loaded] do
-      assert {:ok,
-              %{
-                version: 1,
-                digest: "f62c5891a3aab53896bcfde84156082887bda6b26c218510fee23638dbcad389",
-                uuid: "f62c5891-a3aa-8538-96bc-fde841560828"
-              }} = Flow.semantic_identity(flow)
-    end
-  end
-
-  test "changes stored identity when a resolved schema or Action changes" do
-    original = identity_flow()
-
-    references = [
-      bundle: "identity/resolution/v1",
-      input_schema: "identity/resolution-input/v1",
-      output_schema: "identity/resolution-output/v1",
-      action_registry: "identity/resolution-actions/v1",
-      action: "echo/v1"
-    ]
-
-    {stored, bundles} = stored_artifact(original, references)
-    references = Map.new(references)
-    bundle = Map.fetch!(bundles, references.bundle)
-
-    changed_bundles = [
-      input_schema: %{
-        bundle
-        | schemas: Map.put(bundle.schemas, references.input_schema, Zoi.object(%{}))
-      },
-      output_schema: %{
-        bundle
-        | schemas: Map.put(bundle.schemas, references.output_schema, Zoi.object(%{}))
-      },
-      action: %{
-        bundle
-        | action_registries: %{
-            references.action_registry => %{references.action => Add}
-          }
-      }
-    ]
-
-    assert {:ok, original_identity} = Flow.semantic_identity(original)
-
-    for {role, changed_bundle} <- changed_bundles do
-      assert {:ok, changed_flow} =
-               Flow.from_map(stored,
-                 contract_bundles: %{changed_bundle.id => changed_bundle}
-               )
-
-      assert {:ok, changed_identity} = Flow.semantic_identity(changed_flow)
-      refute changed_identity == original_identity, "resolved #{role} did not change identity"
-    end
   end
 
   test "changes identity for every semantic field" do
@@ -481,33 +397,6 @@ defmodule Jido.Flow.IdentityTest do
             if element.name == name, do: update.(element), else: element
           end)
     }
-  end
-
-  defp stored_artifact(flow, references) do
-    references = Map.new(references)
-
-    bundle =
-      ContractBundle.new!(
-        id: references.bundle,
-        schemas: %{
-          references.input_schema => flow.schema,
-          references.output_schema => flow.output_schema
-        },
-        action_registries: %{
-          references.action_registry => %{references.action => EchoParamsAction}
-        }
-      )
-
-    bundles = %{bundle.id => bundle}
-
-    stored =
-      Flow.to_map(flow,
-        format: :stored,
-        contracts: Map.delete(references, :action),
-        contract_bundles: bundles
-      )
-
-    {stored, bundles}
   end
 
   defp diamond_flow do

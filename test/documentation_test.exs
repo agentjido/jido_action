@@ -3,7 +3,7 @@ defmodule Jido.DocumentationTest do
 
   @expected_groups [
     {:"Action API", [Jido.Action, Jido.Action.Output, Jido.Instruction]},
-    {:"Flow API", [Jido.Flow, Jido.Flow.Builder, Jido.Flow.ContractBundle]},
+    {:"Flow API", [Jido.Flow, Jido.Flow.Builder, Jido.Flow.Registry]},
     {:"Flow Types",
      [
        Jido.Flow.Choice,
@@ -27,7 +27,7 @@ defmodule Jido.DocumentationTest do
      ]}
   ]
 
-  @internal_modules [Jido.Flow.Compiler, Jido.Flow.Syntax, Jido.Flow.Syntax.Lowerer]
+  @internal_modules [Jido.Flow.Compiler]
 
   @public_builder_helpers [
     {:accumulator, 1},
@@ -47,7 +47,8 @@ defmodule Jido.DocumentationTest do
   @public_builder_types [:choice_fallback, :choice_option, :condition, :expression]
 
   @public_flow_validation_helpers [
-    {:to_stored_map, 2},
+    {:to_stored_map, 3},
+    {:from_stored_map, 2},
     {:validate, 1},
     {:validate_executable, 1}
   ]
@@ -63,6 +64,11 @@ defmodule Jido.DocumentationTest do
     for module <- @internal_modules do
       assert module_doc(module) == :hidden
     end
+  end
+
+  test "removed syntax modules are not available" do
+    refute Code.ensure_loaded?(Jido.Flow.Syntax)
+    refute Code.ensure_loaded?(Jido.Flow.Syntax.Lowerer)
   end
 
   test "runtime Builder reference helpers are visible in the API reference" do

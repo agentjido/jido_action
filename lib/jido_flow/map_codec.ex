@@ -4,16 +4,15 @@ defmodule Jido.Flow.MapCodec do
   alias Jido.Action.Error
 
   alias Jido.Flow.{
-    ActionRegistry,
     Choice,
     Condition,
-    ContractBundle,
+    Constructor,
     Element,
     Iterator,
     Node,
     Reduce,
-    ResourceBudget,
-    State
+    Registry,
+    ResourceBudget
   }
 
   alias Jido.Flow.Map, as: FlowMap
@@ -21,19 +20,6 @@ defmodule Jido.Flow.MapCodec do
 
   @semantic_version 1
   @stored_version 1
-  @ref_types [
-    :input,
-    :context,
-    :result,
-    :value,
-    :item,
-    :item_index,
-    :item_id,
-    :accumulator,
-    :state,
-    :iteration_index,
-    :body_result
-  ]
   @stored_ref_types [
     "input",
     "context",
@@ -47,27 +33,13 @@ defmodule Jido.Flow.MapCodec do
     "iteration_index",
     "body_result"
   ]
-  @direct_attachment_keys [:actions, :schema, :output_schema]
-  @reader_option_keys [:actions, :schema, :output_schema, :contract_bundles]
-  @contract_reference_keys [:bundle, :input_schema, :output_schema, :action_registry]
-  @stored_contract_keys ["bundle", "input_schema", "output_schema", "action_registry"]
-  @semantic_root_keys [
-    :type,
-    :version,
-    :name,
-    :description,
-    :schema,
-    :output_schema,
-    :nodes,
-    :return,
-    :provenance
-  ]
   @stored_root_keys [
     "type",
     "version",
     "name",
     "description",
-    "contracts",
+    "input_schema",
+    "output_schema",
     "nodes",
     "return",
     "provenance"
@@ -93,21 +65,23 @@ defmodule Jido.Flow.MapCodec do
     end
   end
 
-  @spec to_stored_map!(Jido.Flow.t(), [Element.t()], keyword()) :: map()
-  def to_stored_map!(flow, ordered_nodes, opts) do
-    {contracts, action_ids} = validate_stored_writer_options!(flow, ordered_nodes, opts)
+  @spec to_stored_map!(Jido.Flow.t(), [Element.t()], Registry.t(), keyword()) :: map()
+  def to_stored_map!(flow, ordered_nodes, %Registry{} = registry, opts) do
+    {input_schema_id, output_schema_id, action_ids, iterator_schema_ids} =
+      validate_stored_writer!(flow, ordered_nodes, registry, opts)
 
     base = %{
       "type" => "flow",
       "version" => @stored_version,
       "name" => flow.name,
       "description" => flow.description,
-      "contracts" => stringify_contract_references(contracts),
+      "input_schema" => input_schema_id,
+      "output_schema" => output_schema_id,
       "nodes" =>
         ordered_nodes
         |> Enum.with_index()
         |> Enum.map(fn {element, index} ->
-          stored_element!(element, action_ids, opts, ["nodes", index])
+          stored_element!(element, action_ids, iterator_schema_ids, opts, ["nodes", index])
         end),
       "return" => encode_expression!(flow.return, ["return"])
     }
@@ -119,293 +93,104 @@ defmodule Jido.Flow.MapCodec do
     end
   end
 
-  @spec to_stored_map(Jido.Flow.t(), [Element.t()], keyword()) ::
+  @spec to_stored_map(Jido.Flow.t(), [Element.t()], Registry.t(), keyword()) ::
           {:ok, map()} | {:error, Error.InvalidInputError.t()}
-  def to_stored_map(flow, ordered_nodes, opts) do
-    {:ok, to_stored_map!(flow, ordered_nodes, opts)}
+  def to_stored_map(flow, ordered_nodes, %Registry{} = registry, opts) do
+    {:ok, to_stored_map!(flow, ordered_nodes, registry, opts)}
   rescue
     error in [Error.InvalidInputError] -> {:error, error}
   end
 
-  defp validate_stored_writer_options!(flow, ordered_nodes, opts) do
-    case validate_stored_writer_options(flow, ordered_nodes, opts) do
+  def to_stored_map(_flow, _ordered_nodes, registry, _opts) do
+    error("stored flow requires a Jido.Flow.Registry", %{registry: inspect(registry)})
+  end
+
+  defp validate_stored_writer!(flow, ordered_nodes, registry, opts) do
+    case validate_stored_writer(flow, ordered_nodes, registry, opts) do
       {:ok, result} -> result
       {:error, error} -> raise error
     end
   end
 
-  defp validate_stored_writer_options(flow, ordered_nodes, opts) when is_list(opts) do
-    direct_options =
-      opts
-      |> Keyword.keys()
-      |> Enum.filter(&(&1 in @direct_attachment_keys))
-      |> Enum.sort()
-
-    with :ok <- reject_writer_direct_attachments(direct_options),
-         {:ok, contracts} <- fetch_writer_option(opts, :contracts),
-         {:ok, bundles} <- fetch_writer_option(opts, :contract_bundles),
-         {:ok, contracts} <- validate_contract_references(contracts),
-         {:ok, bundles} <- ContractBundle.normalize_collection(bundles),
-         {:ok, bundle} <- fetch_bundle(bundles, contracts.bundle),
-         {:ok, input_schema} <-
-           fetch_schema(bundle, contracts.input_schema, :input_schema),
-         :ok <-
-           validate_writer_schema(
-             flow.schema,
-             input_schema,
-             bundle.id,
-             contracts.input_schema,
-             :input_schema
-           ),
-         {:ok, output_schema} <-
-           fetch_schema(bundle, contracts.output_schema, :output_schema),
-         :ok <-
-           validate_writer_schema(
-             flow.output_schema,
-             output_schema,
-             bundle.id,
-             contracts.output_schema,
-             :output_schema
-           ),
-         {:ok, actions} <- fetch_action_registry(bundle, contracts.action_registry),
-         {:ok, action_ids} <-
-           writer_action_ids(
-             actions,
-             ordered_nodes,
-             bundle.id,
-             contracts.action_registry
-           ),
-         :ok <- validate_state_schema_ids(opts, ordered_nodes, bundle) do
-      {:ok, {contracts, action_ids}}
+  defp validate_stored_writer(flow, ordered_nodes, registry, opts) when is_list(opts) do
+    with :ok <- validate_writer_options(opts),
+         {:ok, input_schema_id} <- Registry.identifier(registry, :schema, flow.schema),
+         {:ok, output_schema_id} <- Registry.identifier(registry, :schema, flow.output_schema),
+         {:ok, action_ids} <- writer_action_ids(registry, ordered_nodes),
+         {:ok, iterator_schema_ids} <- writer_iterator_schema_ids(registry, ordered_nodes) do
+      {:ok, {input_schema_id, output_schema_id, action_ids, iterator_schema_ids}}
     end
   end
 
-  defp validate_stored_writer_options(_flow, _ordered_nodes, _opts) do
+  defp validate_stored_writer(_flow, _ordered_nodes, _registry, _opts) do
     error("flow map options must be a keyword list")
   end
 
-  defp reject_writer_direct_attachments([]), do: :ok
+  defp validate_writer_options(opts) do
+    keys = Keyword.keys(opts)
 
-  defp reject_writer_direct_attachments(options) do
-    error("stored flow does not accept direct contract attachments", %{options: options})
-  end
+    cond do
+      not Keyword.keyword?(opts) ->
+        error("flow map options must be a keyword list")
 
-  defp fetch_writer_option(opts, :contracts) do
-    case Keyword.fetch(opts, :contracts) do
-      {:ok, contracts} when not is_nil(contracts) -> {:ok, contracts}
-      _missing -> error("stored flow requires contract references", %{field: :contracts})
+      duplicate = first_duplicate(keys) ->
+        error("duplicate flow map option: #{inspect(duplicate)}", %{option: duplicate})
+
+      unknown = Enum.find(keys, &(&1 != :provenance)) ->
+        error("unknown flow map option: #{inspect(unknown)}", %{option: unknown})
+
+      true ->
+        :ok
     end
   end
 
-  defp fetch_writer_option(opts, :contract_bundles) do
-    case Keyword.fetch(opts, :contract_bundles) do
-      {:ok, bundles} when not is_nil(bundles) ->
-        {:ok, bundles}
-
-      _missing ->
-        error("stored flow requires external contract_bundles attachment", %{
-          field: :contract_bundles
-        })
-    end
-  end
-
-  defp validate_contract_references(%{} = contracts) do
-    with :ok <-
-           validate_record(
-             contracts,
-             @contract_reference_keys,
-             @contract_reference_keys,
-             :contract_references
-           ),
-         :ok <- validate_writer_contract_identifier(contracts, :bundle),
-         :ok <- validate_writer_contract_identifier(contracts, :input_schema),
-         :ok <- validate_writer_contract_identifier(contracts, :output_schema),
-         :ok <- validate_writer_contract_identifier(contracts, :action_registry) do
-      {:ok, contracts}
-    end
-  end
-
-  defp validate_contract_references(_contracts) do
-    error("flow contract references must be a map", %{record: :contract_references})
-  end
-
-  defp validate_writer_contract_identifier(contracts, field) do
-    ContractBundle.validate_identifier(Map.fetch!(contracts, field), field, [field])
-  end
-
-  defp validate_writer_schema(flow_schema, bundle_schema, bundle_id, identifier, role) do
-    if flow_schema === bundle_schema do
-      :ok
-    else
-      writer_reference_mismatch(bundle_id, identifier, role)
-    end
-  end
-
-  defp writer_action_ids(actions, ordered_nodes, bundle_id, registry_id) do
-    identifiers_by_module =
-      Enum.reduce(actions, %{}, fn {identifier, action}, acc ->
-        Map.update(acc, action, [identifier], &[identifier | &1])
-      end)
-
+  defp writer_action_ids(registry, ordered_nodes) do
     ordered_nodes
     |> Enum.flat_map(&Element.target_modules/1)
     |> Enum.uniq()
     |> Enum.reduce_while({:ok, %{}}, fn module, {:ok, acc} ->
-      case Map.get(identifiers_by_module, module, []) do
-        [identifier] ->
-          {:cont, {:ok, Map.put(acc, module, identifier)}}
-
-        _missing_or_ambiguous ->
-          {:halt, writer_reference_mismatch(bundle_id, registry_id, :action_registry)}
-      end
-    end)
-  end
-
-  defp writer_reference_mismatch(bundle_id, identifier, role) do
-    error("flow contract reference does not match Flow semantics", %{
-      bundle: bundle_id,
-      identifier: identifier,
-      role: role
-    })
-  end
-
-  defp validate_state_schema_ids(opts, ordered_nodes, bundle) do
-    iterators = Enum.filter(ordered_nodes, &match?(%Iterator{}, &1))
-    iterator_names = iterators |> Enum.map(& &1.name) |> Enum.sort()
-
-    case Keyword.get_values(opts, :state_schema_ids) do
-      [_first, _second | _rest] ->
-        error("duplicate flow map option: :state_schema_ids", %{option: :state_schema_ids})
-
-      _zero_or_one ->
-        do_validate_state_schema_ids(opts, iterators, iterator_names, bundle)
-    end
-  end
-
-  defp do_validate_state_schema_ids(opts, iterators, iterator_names, bundle) do
-    case Keyword.fetch(opts, :state_schema_ids) do
-      :error when iterator_names == [] ->
-        :ok
-
-      :error ->
-        error("stored flow requires state_schema_ids for Iterator schemas", %{
-          field: :state_schema_ids
-        })
-
-      {:ok, schema_ids} when is_map(schema_ids) ->
-        with :ok <- validate_state_schema_names(schema_ids, iterator_names) do
-          validate_state_schema_references(iterators, schema_ids, bundle)
-        end
-
-      {:ok, _schema_ids} ->
-        error("stored flow state_schema_ids must be a map", %{field: :state_schema_ids})
-    end
-  end
-
-  defp validate_state_schema_names(schema_ids, iterator_names) do
-    schema_names = schema_ids |> Map.keys() |> Enum.sort()
-
-    case Enum.find(iterator_names, &(&1 not in schema_names)) do
-      nil ->
-        case Enum.find(schema_names, &(&1 not in iterator_names)) do
-          nil ->
-            :ok
-
-          node ->
-            error(
-              "stored flow State schema identifiers contain an unknown Iterator: #{inspect(node)}",
-              %{field: :state_schema_ids, node: node}
-            )
-        end
-
-      node ->
-        error(
-          "stored flow is missing a State schema identifier for Iterator: #{inspect(node)}",
-          %{field: :state_schema_ids, node: node}
-        )
-    end
-  end
-
-  defp validate_state_schema_references(iterators, schema_ids, bundle) do
-    Enum.reduce_while(iterators, :ok, fn iterator, :ok ->
-      identifier = Map.fetch!(schema_ids, iterator.name)
-
-      result =
-        with :ok <-
-               ContractBundle.validate_identifier(
-                 identifier,
-                 :state_schema_ids,
-                 [:state_schema_ids, iterator.name]
-               ),
-             {:ok, schema} <- fetch_iterator_state_schema(bundle, identifier, iterator.name) do
-          validate_iterator_state_schema(iterator, schema, bundle.id, identifier)
-        end
-
-      case result do
-        :ok -> {:cont, :ok}
+      case Registry.identifier(registry, :action, module) do
+        {:ok, identifier} -> {:cont, {:ok, Map.put(acc, module, identifier)}}
         {:error, error} -> {:halt, {:error, error}}
       end
     end)
   end
 
-  defp validate_iterator_state_schema(
-         %Iterator{state: %State{schema: schema}},
-         schema,
-         _bundle,
-         _id
-       ),
-       do: :ok
-
-  defp validate_iterator_state_schema(%Iterator{} = iterator, _schema, bundle, identifier) do
-    error("flow Iterator State schema reference does not match Iterator semantics", %{
-      bundle: bundle,
-      schema: identifier,
-      node: iterator.name
-    })
+  defp writer_iterator_schema_ids(registry, ordered_nodes) do
+    ordered_nodes
+    |> Enum.filter(&match?(%Iterator{}, &1))
+    |> Enum.reduce_while({:ok, %{}}, fn iterator, {:ok, acc} ->
+      case Registry.identifier(registry, :schema, iterator.state.schema) do
+        {:ok, identifier} -> {:cont, {:ok, Map.put(acc, iterator.name, identifier)}}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
   end
 
-  defp fetch_iterator_state_schema(bundle, identifier, node) do
-    case Map.fetch(bundle.schemas, identifier) do
-      {:ok, schema} ->
-        {:ok, schema}
-
-      :error ->
-        error("unknown flow contract schema: #{inspect(identifier)}", %{
-          bundle: bundle.id,
-          schema: identifier,
-          node: node,
-          path: [:state_schema_ids, node]
-        })
+  @spec from_stored_map(map(), Registry.t()) ::
+          {:ok, Jido.Flow.t()} | {:error, Exception.t()}
+  def from_stored_map(%{} = map, %Registry{} = registry) do
+    with :ok <- ResourceBudget.validate(map, :map),
+         :ok <- validate_root_header(map, :stored),
+         :ok <- validate_root(map, :stored),
+         {:ok, decoded} <- decode_flow(map, :stored),
+         {:ok, attrs} <- resolve_registry(decoded, registry) do
+      Constructor.build(attrs)
     end
   end
 
-  defp stringify_contract_references(contracts) do
-    Map.new(contracts, fn {field, identifier} -> {Atom.to_string(field), identifier} end)
-  end
+  def from_stored_map(map, %Registry{}) when not is_map(map), do: error("flow map must be a map")
 
-  @spec from_map(map(), map() | keyword()) :: {:ok, Jido.Flow.t()} | {:error, Exception.t()}
-  def from_map(%{} = map, opts) do
-    with {:ok, opts} <- normalize_options(opts),
-         :ok <- validate_option_keys(opts),
-         {:ok, profile} <- select_profile(map),
-         :ok <- admit_stored_map(map, profile),
-         :ok <- validate_root_header(map, profile),
-         :ok <- validate_root(map, profile),
-         {:ok, decoded} <- decode_flow(map, profile),
-         :ok <- validate_profile_options(opts, profile),
-         {:ok, attrs} <- resolve_contracts(decoded, opts, profile) do
-      Jido.Flow.new(attrs)
-    end
+  def from_stored_map(_map, registry) do
+    error("stored flow requires a Jido.Flow.Registry", %{registry: inspect(registry)})
   end
-
-  def from_map(_map, _opts), do: error("flow map must be a map")
 
   defp semantic_element(element, opts), do: Element.to_map(element, opts)
 
-  defp stored_element!(%Node{} = node, action_ids, opts, path),
+  defp stored_element!(%Node{} = node, action_ids, _iterator_schema_ids, opts, path),
     do: stored_node!(node, action_ids, opts, path)
 
-  defp stored_element!(%Choice{} = choice, action_ids, opts, path) do
+  defp stored_element!(%Choice{} = choice, action_ids, _iterator_schema_ids, opts, path) do
     base = %{
       "kind" => "choice",
       "name" => choice.name,
@@ -437,7 +222,7 @@ defmodule Jido.Flow.MapCodec do
     end
   end
 
-  defp stored_element!(%FlowMap{} = map, action_ids, opts, path) do
+  defp stored_element!(%FlowMap{} = map, action_ids, _iterator_schema_ids, opts, path) do
     base = %{
       "kind" => "map",
       "name" => map.name,
@@ -455,7 +240,7 @@ defmodule Jido.Flow.MapCodec do
     end
   end
 
-  defp stored_element!(%Reduce{} = reduce, action_ids, opts, path) do
+  defp stored_element!(%Reduce{} = reduce, action_ids, _iterator_schema_ids, opts, path) do
     base = %{
       "kind" => "reduce",
       "name" => reduce.name,
@@ -473,9 +258,7 @@ defmodule Jido.Flow.MapCodec do
     end
   end
 
-  defp stored_element!(%Iterator{} = iterator, action_ids, opts, path) do
-    schema_ids = Keyword.fetch!(opts, :state_schema_ids)
-
+  defp stored_element!(%Iterator{} = iterator, action_ids, iterator_schema_ids, opts, path) do
     base = %{
       "kind" => "iterate",
       "name" => iterator.name,
@@ -484,7 +267,7 @@ defmodule Jido.Flow.MapCodec do
       "state" => %{
         "kind" => "iterate_state",
         "version" => iterator.state.version,
-        "schema" => Map.fetch!(schema_ids, iterator.name),
+        "schema" => Map.fetch!(iterator_schema_ids, iterator.name),
         "initial" => encode_expression!(iterator.state.initial, path ++ ["state", "initial"]),
         "update" => encode_expression!(iterator.state.update, path ++ ["state", "update"])
       },
@@ -516,8 +299,9 @@ defmodule Jido.Flow.MapCodec do
   end
 
   defp decode_flow(map, profile) do
-    with {:ok, contracts} <- decode_contracts(map, profile),
-         {:ok, name} <- profile_fetch_required(map, :name, profile, "flow map name is required"),
+    with {:ok, name} <- profile_fetch_required(map, :name, profile, "flow map name is required"),
+         {:ok, input_schema} <- decode_root_schema(map, :input_schema, profile),
+         {:ok, output_schema} <- decode_root_schema(map, :output_schema, profile),
          {:ok, nodes} <-
            profile_fetch_required(map, :nodes, profile, "flow map nodes are required"),
          {:ok, return} <-
@@ -531,11 +315,10 @@ defmodule Jido.Flow.MapCodec do
            |> prepend_error_path([profile_field(:provenance, profile)]) do
       {:ok,
        %{
-         contracts: contracts,
          name: name,
          description: profile_fetch_optional(map, :description, nil, profile),
-         schema: profile_schema(map, :schema, profile),
-         output_schema: profile_schema(map, :output_schema, profile),
+         schema: input_schema,
+         output_schema: output_schema,
          nodes: nodes,
          return: return,
          provenance: provenance
@@ -543,117 +326,44 @@ defmodule Jido.Flow.MapCodec do
     end
   end
 
-  defp decode_contracts(_map, :semantic), do: {:ok, nil}
-
-  defp decode_contracts(map, :stored) do
-    with {:ok, contracts} <-
-           profile_fetch_required(map, :contracts, :stored, "flow contracts are required"),
-         :ok <- validate_contracts_record(contracts),
-         {:ok, bundle} <- decode_contract_identifier(contracts, "bundle", :bundle),
-         {:ok, input_schema} <-
-           decode_contract_identifier(contracts, "input_schema", :input_schema),
-         {:ok, output_schema} <-
-           decode_contract_identifier(contracts, "output_schema", :output_schema),
-         {:ok, action_registry} <-
-           decode_contract_identifier(contracts, "action_registry", :action_registry) do
-      {:ok,
-       %{
-         bundle: bundle,
-         input_schema: input_schema,
-         output_schema: output_schema,
-         action_registry: action_registry
-       }}
-    end
-  end
-
-  defp validate_contracts_record(%{} = contracts) do
-    validate_record(contracts, @stored_contract_keys, @stored_contract_keys, :contracts)
-    |> prepend_error_path(["contracts"])
-  end
-
-  defp validate_contracts_record(_contracts) do
-    error("flow contracts must be a map", %{record: :contracts, path: ["contracts"]})
-  end
-
-  defp decode_contract_identifier(contracts, field, role) do
-    value = Map.fetch!(contracts, field)
-
-    case ContractBundle.validate_identifier(value, role, ["contracts", field]) do
-      :ok -> {:ok, value}
+  defp decode_root_schema(map, field, :stored) do
+    profile_fetch_required(map, field, :stored, "flow #{field} is required")
+    |> then(fn
+      {:ok, identifier} -> decode_registry_identifier(identifier, :schema)
       {:error, error} -> {:error, error}
+    end)
+    |> prepend_error_path([profile_field(field, :stored)])
+  end
+
+  defp decode_registry_identifier(identifier, kind) do
+    if Registry.valid_identifier?(identifier) do
+      {:ok, identifier}
+    else
+      error("invalid flow registry identifier", %{kind: kind, identifier: identifier})
     end
   end
 
-  defp resolve_contracts(decoded, _opts, :semantic), do: {:ok, Map.delete(decoded, :contracts)}
-
-  defp resolve_contracts(%{contracts: contracts} = decoded, opts, :stored) do
-    with {:ok, bundles} <-
-           opts |> Map.fetch!(:contract_bundles) |> ContractBundle.normalize_collection(),
-         {:ok, bundle} <- fetch_bundle(bundles, contracts.bundle),
-         {:ok, input_schema} <-
-           fetch_schema(bundle, contracts.input_schema, :input_schema),
+  defp resolve_registry(decoded, registry) do
+    with {:ok, input_schema} <-
+           Registry.resolve(registry, decoded.schema, :schema)
+           |> prepend_error_path(["input_schema"]),
          {:ok, output_schema} <-
-           fetch_schema(bundle, contracts.output_schema, :output_schema),
-         {:ok, actions} <- fetch_action_registry(bundle, contracts.action_registry),
-         {:ok, nodes} <- resolve_node_actions(decoded.nodes, actions, bundle) do
+           Registry.resolve(registry, decoded.output_schema, :schema)
+           |> prepend_error_path(["output_schema"]),
+         {:ok, nodes} <- resolve_node_actions(decoded.nodes, registry) do
       {:ok,
        decoded
-       |> Map.delete(:contracts)
        |> Map.put(:schema, input_schema)
        |> Map.put(:output_schema, output_schema)
        |> Map.put(:nodes, nodes)}
     end
   end
 
-  defp fetch_bundle(bundles, id) do
-    case Map.fetch(bundles, id) do
-      {:ok, bundle} ->
-        {:ok, bundle}
-
-      :error ->
-        error("unknown flow contract bundle: #{inspect(id)}", %{
-          bundle: id,
-          path: ["contracts", "bundle"]
-        })
-    end
-  end
-
-  defp fetch_schema(bundle, identifier, role) do
-    case Map.fetch(bundle.schemas, identifier) do
-      {:ok, schema} ->
-        {:ok, schema}
-
-      :error ->
-        field = Atom.to_string(role)
-
-        error("unknown flow schema identifier: #{inspect(identifier)}", %{
-          bundle: bundle.id,
-          identifier: identifier,
-          role: role,
-          path: ["contracts", field]
-        })
-    end
-  end
-
-  defp fetch_action_registry(bundle, identifier) do
-    case Map.fetch(bundle.action_registries, identifier) do
-      {:ok, actions} ->
-        {:ok, actions}
-
-      :error ->
-        error("unknown flow action registry identifier: #{inspect(identifier)}", %{
-          bundle: bundle.id,
-          identifier: identifier,
-          path: ["contracts", "action_registry"]
-        })
-    end
-  end
-
-  defp resolve_node_actions(nodes, actions, bundle) do
+  defp resolve_node_actions(nodes, registry) do
     nodes
     |> Enum.with_index()
     |> Enum.reduce_while({:ok, []}, fn {node, index}, {:ok, acc} ->
-      case resolve_node_action(node, actions, bundle) |> prepend_error_path(["nodes", index]) do
+      case resolve_node_action(node, registry) |> prepend_error_path(["nodes", index]) do
         {:ok, node} -> {:cont, {:ok, [node | acc]}}
         {:error, error} -> {:halt, {:error, error}}
       end
@@ -664,10 +374,10 @@ defmodule Jido.Flow.MapCodec do
     end
   end
 
-  defp resolve_node_action(%{options: options, fallback: fallback} = choice, actions, _bundle) do
-    with {:ok, options} <- resolve_choice_actions(options, actions),
+  defp resolve_node_action(%{options: options, fallback: fallback} = choice, registry) do
+    with {:ok, options} <- resolve_choice_actions(options, registry),
          {:ok, fallback_action} <-
-           ActionRegistry.lookup(actions, fallback.action)
+           Registry.resolve(registry, fallback.action, :action)
            |> prepend_error_path(["fallback", "action"]) do
       {:ok,
        %{
@@ -678,34 +388,28 @@ defmodule Jido.Flow.MapCodec do
     end
   end
 
-  defp resolve_node_action(%{kind: :iterate, action: identifier} = iterator, actions, bundle) do
+  defp resolve_node_action(%{kind: :iterate, action: identifier} = iterator, registry) do
     with {:ok, action} <-
-           ActionRegistry.lookup(actions, identifier) |> prepend_error_path(["action"]),
+           Registry.resolve(registry, identifier, :action) |> prepend_error_path(["action"]),
          {:ok, schema} <-
-           fetch_iterator_state_schema(bundle, iterator.state.schema, iterator.name)
-           |> put_iterator_schema_reader_path() do
+           Registry.resolve(registry, iterator.state.schema, :schema)
+           |> prepend_error_path(["state", "schema"]) do
       {:ok, %{iterator | action: action, state: %{iterator.state | schema: schema}}}
     end
   end
 
-  defp resolve_node_action(%{action: identifier} = node, actions, _bundle) do
-    case ActionRegistry.lookup(actions, identifier) |> prepend_error_path(["action"]) do
+  defp resolve_node_action(%{action: identifier} = node, registry) do
+    case Registry.resolve(registry, identifier, :action) |> prepend_error_path(["action"]) do
       {:ok, action} -> {:ok, %{node | action: action}}
       {:error, error} -> {:error, error}
     end
   end
 
-  defp put_iterator_schema_reader_path({:ok, schema}), do: {:ok, schema}
-
-  defp put_iterator_schema_reader_path({:error, %{details: details} = error}) do
-    {:error, %{error | details: Map.put(details, :path, ["state", "schema"])}}
-  end
-
-  defp resolve_choice_actions(options, actions) do
+  defp resolve_choice_actions(options, registry) do
     options
     |> Enum.with_index()
     |> Enum.reduce_while({:ok, []}, fn {option, index}, {:ok, acc} ->
-      case ActionRegistry.lookup(actions, option.action)
+      case Registry.resolve(registry, option.action, :action)
            |> prepend_error_path(["options", index, "action"]) do
         {:ok, action} -> {:cont, {:ok, [%{option | action: action} | acc]}}
         {:error, error} -> {:halt, {:error, error}}
@@ -717,14 +421,12 @@ defmodule Jido.Flow.MapCodec do
     end
   end
 
-  defp validate_version(@semantic_version, :semantic), do: :ok
   defp validate_version(@stored_version, :stored), do: :ok
 
   defp validate_version(version, _profile) do
     error("unsupported flow map version: #{inspect(version)}", %{version: version})
   end
 
-  defp validate_type(:flow, :semantic), do: :ok
   defp validate_type("flow", :stored), do: :ok
 
   defp validate_type(type, _profile) do
@@ -796,6 +498,7 @@ defmodule Jido.Flow.MapCodec do
          {:ok, deps} <- decode_node_deps(profile_fetch_optional(node, :deps, [], profile)) do
       {:ok,
        %{
+         kind: :step,
          name: name,
          action: action,
          input: input,
@@ -975,13 +678,8 @@ defmodule Jido.Flow.MapCodec do
 
   defp decode_iterator_state(_state, _profile), do: error("iterator state must be a map")
 
-  defp decode_iterator_state_schema(schema, :semantic), do: {:ok, schema}
-
   defp decode_iterator_state_schema(identifier, :stored) do
-    case ContractBundle.validate_identifier(identifier, :schema, []) do
-      :ok -> {:ok, identifier}
-      {:error, error} -> {:error, error}
-    end
+    decode_registry_identifier(identifier, :schema)
   end
 
   defp validate_iterator_state_version(1), do: :ok
@@ -990,7 +688,6 @@ defmodule Jido.Flow.MapCodec do
     error("unsupported iterator state version: #{inspect(version)}", %{version: version})
   end
 
-  defp validate_iterator_state_kind(:iterate_state, :semantic), do: :ok
   defp validate_iterator_state_kind("iterate_state", :stored), do: :ok
 
   defp validate_iterator_state_kind(kind, _profile) do
@@ -1016,6 +713,7 @@ defmodule Jido.Flow.MapCodec do
            |> prepend_error_path([profile_field(:provenance, profile)]) do
       {:ok,
        %{
+         kind: :choice,
          name: name,
          options: options,
          fallback: fallback,
@@ -1101,14 +799,6 @@ defmodule Jido.Flow.MapCodec do
   defp decode_choice_fallback(_fallback, _profile),
     do: error("choice fallback must be a map")
 
-  defp explicit_node_kind(node, :semantic) do
-    case Map.fetch(node, :kind) do
-      {:ok, kind} when kind in [:choice, :map, :reduce, :iterate] -> {:ok, kind}
-      {:ok, kind} -> {:error, kind}
-      :error -> :none
-    end
-  end
-
   defp explicit_node_kind(node, :stored) do
     case Map.fetch(node, "kind") do
       {:ok, "choice"} -> {:ok, :choice}
@@ -1120,14 +810,9 @@ defmodule Jido.Flow.MapCodec do
     end
   end
 
-  defp legacy_choice_record?(node, :semantic),
-    do: Map.has_key?(node, :options) or Map.has_key?(node, :fallback)
-
   defp legacy_choice_record?(node, :stored),
     do: Map.has_key?(node, "options") or Map.has_key?(node, "fallback")
 
-  defp decode_map_error_mode(:fail_fast, :semantic), do: {:ok, :fail_fast}
-  defp decode_map_error_mode(:collect_errors, :semantic), do: {:ok, :collect_errors}
   defp decode_map_error_mode("fail_fast", :stored), do: {:ok, :fail_fast}
   defp decode_map_error_mode("collect_errors", :stored), do: {:ok, :collect_errors}
 
@@ -1135,7 +820,6 @@ defmodule Jido.Flow.MapCodec do
     error("map on_error must be fail_fast or collect_errors", %{on_error: mode})
   end
 
-  defp validate_fallback_name(:fallback, :semantic), do: :ok
   defp validate_fallback_name("fallback", :stored), do: :ok
   defp validate_fallback_name(_name, _profile), do: error("choice fallback name must be fallback")
 
@@ -1149,19 +833,8 @@ defmodule Jido.Flow.MapCodec do
 
   defp decode_node_deps(deps), do: error("flow node deps must be a list", %{deps: deps})
 
-  defp decode_action(action, :semantic) when is_atom(action) and not is_nil(action) do
-    {:ok, action}
-  end
-
   defp decode_action(identifier, :stored) do
-    case ContractBundle.validate_identifier(identifier, :action, []) do
-      :ok -> {:ok, identifier}
-      {:error, error} -> {:error, error}
-    end
-  end
-
-  defp decode_action(action, :semantic) do
-    error("semantic flow node action must be a module atom", %{action: action})
+    decode_registry_identifier(identifier, :action)
   end
 
   defp encode_expression!(%Ref{type: :input, path: path}, _error_path) do
@@ -1235,14 +908,6 @@ defmodule Jido.Flow.MapCodec do
     }
   end
 
-  defp decode_expression(%{} = map, :semantic) do
-    case semantic_ref_type(map) do
-      {:ok, type} -> decode_ref(map, type, :semantic)
-      {:error, error} -> {:error, error}
-      :shape -> decode_shape_map(map, :semantic)
-    end
-  end
-
   defp decode_expression(%{} = map, :stored) do
     case Map.fetch(map, "type") do
       {:ok, "map"} ->
@@ -1266,8 +931,6 @@ defmodule Jido.Flow.MapCodec do
       decode_expression_list(list, profile)
     end
   end
-
-  defp decode_expression(value, :semantic), do: {:ok, value}
 
   defp decode_expression(value, :stored) do
     error("stored flow expression must be a tagged record", %{
@@ -1352,10 +1015,6 @@ defmodule Jido.Flow.MapCodec do
   defp decode_condition_operands(_operands, _operator, _profile, _scope),
     do: error("choice condition operands must be a list")
 
-  defp decode_condition_operator(operator, :semantic)
-       when operator in [:eq, :neq, :lt, :lte, :gt, :gte, :in, :all, :any, :not],
-       do: {:ok, operator}
-
   defp decode_condition_operator(operator, :stored) when is_binary(operator) do
     case operator do
       "eq" -> {:ok, :eq}
@@ -1374,74 +1033,6 @@ defmodule Jido.Flow.MapCodec do
 
   defp decode_condition_operator(operator, _profile),
     do: error("unsupported choice condition operator", %{operator: operator})
-
-  defp semantic_ref_type(map) do
-    case Map.fetch(map, :type) do
-      {:ok, type} when type in @ref_types ->
-        {:ok, type}
-
-      {:ok, type} when is_atom(type) or is_binary(type) ->
-        error("unknown flow ref type: #{inspect(type)}", %{type: type})
-
-      {:ok, _shape_value} ->
-        :shape
-
-      :error ->
-        :shape
-    end
-  end
-
-  defp decode_ref(map, :input, :semantic) do
-    with :ok <- validate_ref_record(map, :input, :semantic),
-         {:ok, path} <- validate_semantic_path(Map.fetch!(map, :path)) do
-      {:ok, Ref.input(path)}
-    end
-  end
-
-  defp decode_ref(map, :context, :semantic) do
-    with :ok <- validate_ref_record(map, :context, :semantic),
-         {:ok, path} <- validate_semantic_path(Map.fetch!(map, :path)) do
-      {:ok, Ref.context(path)}
-    end
-  end
-
-  defp decode_ref(map, :result, :semantic) do
-    with :ok <- validate_ref_record(map, :result, :semantic),
-         {:ok, node} <- decode_result_node(Map.fetch!(map, :node), :semantic),
-         {:ok, path} <- validate_semantic_path(Map.fetch!(map, :path)) do
-      {:ok, Ref.result(node, path)}
-    end
-  end
-
-  defp decode_ref(map, :value, :semantic) do
-    with :ok <- validate_ref_record(map, :value, :semantic) do
-      {:ok, Ref.value(Map.fetch!(map, :value))}
-    end
-  end
-
-  defp decode_ref(map, type, :semantic)
-       when type in [:item, :accumulator, :state, :body_result] do
-    with :ok <- validate_ref_record(map, type, :semantic),
-         {:ok, path} <- validate_semantic_path(Map.fetch!(map, :path)) do
-      {:ok, local_path_ref(type, path)}
-    end
-  end
-
-  defp decode_ref(map, :iteration_index, :semantic) do
-    with :ok <- validate_ref_record(map, :iteration_index, :semantic),
-         {:ok, []} <- validate_semantic_path(Map.fetch!(map, :path)) do
-      {:ok, Ref.iteration_index()}
-    else
-      {:ok, path} -> error("iteration index ref path must be empty", %{path: path})
-      {:error, error} -> {:error, error}
-    end
-  end
-
-  defp decode_ref(map, type, :semantic) when type in [:item_index, :item_id] do
-    with :ok <- validate_ref_record(map, type, :semantic) do
-      {:ok, local_scalar_ref(type)}
-    end
-  end
 
   defp decode_ref(map, "input", :stored) do
     with :ok <- validate_ref_record(map, "input", :stored),
@@ -1521,29 +1112,10 @@ defmodule Jido.Flow.MapCodec do
     end
   end
 
-  defp decode_result_node(node, :semantic) when is_atom(node) and not is_nil(node),
-    do: {:ok, node}
-
-  defp decode_result_node(node, :semantic) when is_binary(node), do: {:ok, node}
-
-  defp decode_result_node(node, :semantic) do
-    error("semantic result ref node must be a non-nil atom or binary", %{node: node})
-  end
-
   defp decode_result_node(node, :stored) when is_binary(node), do: {:ok, node}
 
   defp decode_result_node(node, :stored) do
     error("stored result ref node must be a binary", %{node: node})
-  end
-
-  defp decode_shape_map(map, profile) do
-    map
-    |> Enum.reduce_while({:ok, %{}}, fn {key, value}, {:ok, acc} ->
-      case decode_expression(value, profile) do
-        {:ok, value} -> {:cont, {:ok, Map.put(acc, key, value)}}
-        {:error, error} -> {:halt, {:error, error}}
-      end
-    end)
   end
 
   defp encode_path!(path), do: Enum.map(path, &encode_key!/1)
@@ -1610,10 +1182,6 @@ defmodule Jido.Flow.MapCodec do
       value: inspect(value),
       path: path
     })
-  end
-
-  defp decode_optional_data(map, field, default, :semantic) do
-    {:ok, Map.get(map, field, default)}
   end
 
   defp decode_optional_data(map, field, default, :stored) do
@@ -1819,65 +1387,11 @@ defmodule Jido.Flow.MapCodec do
     error("stored flow value is not JSON-safe", %{value: inspect(value)})
   end
 
-  defp normalize_options(opts) when is_list(opts) do
-    if Keyword.keyword?(opts) do
-      keys = Keyword.keys(opts)
-
-      case first_duplicate(keys) do
-        nil -> {:ok, Map.new(opts)}
-        option -> error("duplicate flow map option: #{inspect(option)}", %{option: option})
-      end
-    else
-      error("flow map options must be a map or keyword list")
-    end
-  end
-
-  defp normalize_options(%{} = opts), do: {:ok, opts}
-
-  defp normalize_options(_opts) do
-    error("flow map options must be a map or keyword list")
-  end
-
-  defp validate_option_keys(opts) do
-    case opts |> Map.keys() |> Enum.sort() |> Enum.find(&(&1 not in @reader_option_keys)) do
-      nil -> :ok
-      option -> error("unknown flow map option: #{inspect(option)}", %{option: option})
-    end
-  end
-
-  defp select_profile(map) do
-    cond do
-      Map.has_key?(map, :type) and Map.has_key?(map, "type") ->
-        error("flow map cannot mix semantic and stored root keys", %{fields: [:type, "type"]})
-
-      Map.has_key?(map, :type) ->
-        {:ok, :semantic}
-
-      Map.has_key?(map, "type") ->
-        {:ok, :stored}
-
-      true ->
-        error("flow map type is required")
-    end
-  end
-
-  defp admit_stored_map(map, :stored), do: ResourceBudget.validate(map, :map)
-  defp admit_stored_map(_map, :semantic), do: :ok
-
-  defp validate_root(map, :semantic) do
-    validate_record(
-      map,
-      @semantic_root_keys,
-      [:schema, :output_schema],
-      :root
-    )
-  end
-
   defp validate_root(map, :stored) do
     validate_record(
       map,
       @stored_root_keys,
-      ["type", "version", "name", "contracts", "nodes", "return"],
+      ["type", "version", "name", "input_schema", "output_schema", "nodes", "return"],
       :root
     )
   end
@@ -1892,51 +1406,6 @@ defmodule Jido.Flow.MapCodec do
     end
   end
 
-  defp validate_profile_options(opts, :semantic) when map_size(opts) == 0, do: :ok
-
-  defp validate_profile_options(opts, :semantic) do
-    option = opts |> Map.keys() |> Enum.sort() |> List.first()
-
-    error("semantic flow maps do not accept loader options", %{
-      option: option
-    })
-  end
-
-  defp validate_profile_options(opts, :stored) do
-    direct_options =
-      opts
-      |> Map.keys()
-      |> Enum.filter(&(&1 in @direct_attachment_keys))
-      |> Enum.sort()
-
-    if direct_options == [] do
-      require_attachment(opts, :contract_bundles)
-    else
-      error("stored flow does not accept direct contract attachments", %{
-        options: direct_options
-      })
-    end
-  end
-
-  defp require_attachment(opts, field) do
-    case Map.fetch(opts, field) do
-      {:ok, value} when not is_nil(value) ->
-        :ok
-
-      _missing_or_nil ->
-        error("stored flow requires external #{field} attachment", %{field: field})
-    end
-  end
-
-  defp validate_node_record(node, :semantic) do
-    validate_record(
-      node,
-      [:name, :action, :input, :deps, :provenance],
-      [:name, :action, :input, :deps],
-      :node
-    )
-  end
-
   defp validate_node_record(node, :stored) do
     validate_record(
       node,
@@ -1944,19 +1413,6 @@ defmodule Jido.Flow.MapCodec do
       ["name", "action", "input", "deps"],
       :node
     )
-  end
-
-  defp validate_choice_record(choice, :semantic) do
-    with :ok <-
-           validate_record(
-             choice,
-             [:kind, :name, :options, :fallback, :deps, :provenance],
-             [:kind, :name, :options, :fallback, :deps],
-             :choice
-           ),
-         :ok <- validate_choice_kind(Map.fetch!(choice, :kind), :semantic) do
-      :ok
-    end
   end
 
   defp validate_choice_record(choice, :stored) do
@@ -1972,20 +1428,10 @@ defmodule Jido.Flow.MapCodec do
     end
   end
 
-  defp validate_choice_kind(:choice, :semantic), do: :ok
   defp validate_choice_kind("choice", :stored), do: :ok
 
   defp validate_choice_kind(kind, _profile),
     do: error("unknown flow node kind: #{inspect(kind)}", %{kind: kind})
-
-  defp validate_map_record(map, :semantic) do
-    validate_record(
-      map,
-      [:kind, :name, :collection, :action, :input, :on_error, :deps, :provenance],
-      [:kind, :name, :collection, :action, :input, :on_error, :deps],
-      :map
-    )
-  end
 
   defp validate_map_record(map, :stored) do
     validate_record(
@@ -1996,40 +1442,12 @@ defmodule Jido.Flow.MapCodec do
     )
   end
 
-  defp validate_reduce_record(reduce, :semantic) do
-    validate_record(
-      reduce,
-      [:kind, :name, :collection, :initial, :action, :input, :deps, :provenance],
-      [:kind, :name, :collection, :initial, :action, :input, :deps],
-      :reduce
-    )
-  end
-
   defp validate_reduce_record(reduce, :stored) do
     validate_record(
       reduce,
       ["kind", "name", "collection", "initial", "action", "input", "deps", "provenance"],
       ["kind", "name", "collection", "initial", "action", "input", "deps"],
       :reduce
-    )
-  end
-
-  defp validate_iterator_record(iterator, :semantic) do
-    validate_record(
-      iterator,
-      [
-        :kind,
-        :name,
-        :action,
-        :input,
-        :state,
-        :completion,
-        :max_iterations,
-        :deps,
-        :provenance
-      ],
-      [:kind, :name, :action, :input, :state, :completion, :max_iterations, :deps],
-      :iterate
     )
   end
 
@@ -2052,15 +1470,6 @@ defmodule Jido.Flow.MapCodec do
     )
   end
 
-  defp validate_iterator_state_record(state, :semantic) do
-    validate_record(
-      state,
-      [:kind, :version, :schema, :initial, :update],
-      [:kind, :version, :schema, :initial, :update],
-      :iterate_state
-    )
-  end
-
   defp validate_iterator_state_record(state, :stored) do
     validate_record(
       state,
@@ -2069,15 +1478,6 @@ defmodule Jido.Flow.MapCodec do
       :iterate_state
     )
   end
-
-  defp validate_choice_option_record(option, :semantic),
-    do:
-      validate_record(
-        option,
-        [:name, :condition, :action, :input],
-        [:name, :condition, :action, :input],
-        :choice_option
-      )
 
   defp validate_choice_option_record(option, :stored),
     do:
@@ -2088,15 +1488,6 @@ defmodule Jido.Flow.MapCodec do
         :choice_option
       )
 
-  defp validate_choice_fallback_record(fallback, :semantic),
-    do:
-      validate_record(
-        fallback,
-        [:name, :action, :input],
-        [:name, :action, :input],
-        :choice_fallback
-      )
-
   defp validate_choice_fallback_record(fallback, :stored),
     do:
       validate_record(
@@ -2104,15 +1495,6 @@ defmodule Jido.Flow.MapCodec do
         ["name", "action", "input"],
         ["name", "action", "input"],
         :choice_fallback
-      )
-
-  defp validate_condition_record(condition, :semantic),
-    do:
-      validate_record(
-        condition,
-        [:operator, :operands],
-        [:operator, :operands],
-        :choice_condition
       )
 
   defp validate_condition_record(condition, :stored),
@@ -2128,20 +1510,6 @@ defmodule Jido.Flow.MapCodec do
     {allowed, required} = ref_fields(type, profile)
     validate_record(map, allowed, required, :reference)
   end
-
-  defp ref_fields(type, :semantic)
-       when type in [:input, :context, :item, :accumulator, :state, :body_result],
-       do: {[:type, :path], [:type, :path]}
-
-  defp ref_fields(:result, :semantic),
-    do: {[:type, :node, :path], [:type, :node, :path]}
-
-  defp ref_fields(:value, :semantic), do: {[:type, :value], [:type, :value]}
-
-  defp ref_fields(type, :semantic) when type in [:item_index, :item_id],
-    do: {[:type], [:type]}
-
-  defp ref_fields(:iteration_index, :semantic), do: {[:type, :path], [:type, :path]}
 
   defp ref_fields(type, :stored)
        when type in ["input", "context", "item", "accumulator", "state", "body_result"],
@@ -2183,23 +1551,6 @@ defmodule Jido.Flow.MapCodec do
   defp record_label(:iterate_state), do: "iterator state"
   defp record_label(record), do: to_string(record)
 
-  defp validate_semantic_path(path) when is_list(path) do
-    if List.improper?(path) do
-      error("flow ref path must be a list", %{path: inspect(path)})
-    else
-      case Enum.find(path, &(not valid_path_segment?(&1))) do
-        nil -> {:ok, path}
-        segment -> error("flow ref path contains an invalid segment", %{segment: segment})
-      end
-    end
-  end
-
-  defp validate_semantic_path(path), do: error("flow ref path must be a list", %{path: path})
-
-  defp valid_path_segment?(segment) do
-    (is_atom(segment) and not is_nil(segment)) or is_binary(segment) or is_integer(segment)
-  end
-
   defp validate_unique_entries(entries) do
     case entries |> Enum.map(&elem(&1, 0)) |> first_duplicate() do
       nil -> {:ok, entries}
@@ -2229,22 +1580,13 @@ defmodule Jido.Flow.MapCodec do
     end
   end
 
-  defp profile_fetch_required(map, field, :semantic, message),
-    do: exact_fetch_required(map, field, message)
-
   defp profile_fetch_required(map, field, :stored, message),
     do: exact_fetch_required(map, Atom.to_string(field), message)
-
-  defp profile_fetch_optional(map, field, default, :semantic), do: Map.get(map, field, default)
 
   defp profile_fetch_optional(map, field, default, :stored),
     do: Map.get(map, Atom.to_string(field), default)
 
-  defp profile_field(field, :semantic), do: field
   defp profile_field(field, :stored), do: Atom.to_string(field)
-
-  defp profile_schema(map, field, :semantic), do: Map.fetch!(map, field)
-  defp profile_schema(_map, _field, :stored), do: nil
 
   defp key_sort_key(key) when is_atom(key), do: {0, Atom.to_string(key)}
   defp key_sort_key(key) when is_binary(key), do: {1, key}

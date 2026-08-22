@@ -8,16 +8,39 @@ defmodule Jido.Exec do
 
   ## Telemetry
 
-  Execution emits minimal span events:
+  Execution emits these nine stable events:
 
-  - `[:jido, :exec, :run]` wraps public action, instruction, and flow execution
-    with metadata `%{kind: :action | :instruction | :flow, name: term()}`.
-  - `[:jido, :flow, :node]` wraps each flow node action invocation with
-    metadata `%{flow: flow_name, node: node_name, action: action_module}`.
+  - `[:jido, :exec, :start]`, `[:jido, :exec, :stop]`, and
+    `[:jido, :exec, :error]` for each public or nested execution.
+  - `[:jido, :flow, :start]`, `[:jido, :flow, :stop]`, and
+    `[:jido, :flow, :error]` for each Flow execution.
+  - `[:jido, :flow, :node, :start]`, `[:jido, :flow, :node, :stop]`, and
+    `[:jido, :flow, :node, :error]` for each named Flow node.
 
-  Stop events include `:status`; error stop events also include
-  `:error_type`. Flow node events may be emitted from task processes when
-  flow execution uses `async: true`.
+  Start measurements are exactly `%{system_time: integer,
+  monotonic_time: integer}`. Stop and error measurements are exactly
+  `%{duration: integer, monotonic_time: integer}`.
+
+  Exec metadata is exactly `%{execution_id: binary, kind: atom, name: term}`.
+  Flow metadata is exactly `%{execution_id: binary, flow: binary}`. Node
+  metadata is exactly `%{execution_id: binary, flow: binary, node: binary,
+  kind: :step | :choice | :map | :reduce | :iterate}`. Error metadata adds
+  exactly `:error` and `:error_type` to the lifecycle metadata.
+
+  One `execution_id` correlates an outer Flow, its nodes, and nested Flows.
+  The order for serial run-to-completion is Exec start, Flow start, node spans,
+  Flow stop or error, and Exec stop or error. A nested Flow starts inside its
+  owning node span. With `async: true`, node spans can overlap and can be
+  emitted by task processes.
+
+  `start/4` opens the Exec and Flow lifecycles. Each `step/2` or `wave/1` emits
+  spans only for the nodes that it runs. The call that makes the execution
+  terminal closes the Flow and Exec lifecycles. An execution that the caller
+  abandons has no stop or error event.
+
+  Telemetry observes execution only. It does not select ready nodes, control
+  scheduling, create helper processes, send runtime messages, or change a
+  result.
 
   ## Step-wise Flow execution
 
@@ -39,6 +62,7 @@ defmodule Jido.Exec do
   alias Jido.Exec.NodeResult
   alias Jido.Flow
   alias Jido.Instruction
+  alias Jido.Telemetry
 
   @flow_run_option_keys [:async, :max_concurrency]
 
@@ -56,12 +80,15 @@ defmodule Jido.Exec do
           | {:error, Exception.t()}
           | {:error, Exception.t(), term()}
   def run(executable, input \\ %{}, context \\ %{}, opts \\ []) do
-    metadata = exec_metadata(executable)
+    execution_id = Telemetry.execution_id()
+    run_with_lifecycle(executable, input, context, opts, execution_id)
+  end
 
-    :telemetry.span([:jido, :exec, :run], metadata, fn ->
-      result = do_run(executable, input, context, opts)
-      {result, Map.merge(metadata, result_metadata(result))}
-    end)
+  @doc false
+  @spec run_nested(Flow.t(), map(), map(), String.t()) ::
+          {:ok, term()} | {:error, Exception.t()}
+  def run_nested(%Flow{} = flow, input, context, execution_id) when is_binary(execution_id) do
+    run_with_lifecycle(flow, input, context, [], execution_id)
   end
 
   @doc """
@@ -80,7 +107,17 @@ defmodule Jido.Exec do
   @spec start(term(), map() | keyword() | nil, map() | keyword() | nil, keyword()) ::
           {:ok, Execution.t()} | {:error, Exception.t()}
   def start(executable, input \\ %{}, context \\ %{}, opts \\ []) do
-    do_start(executable, input, context, opts)
+    execution_id = Telemetry.execution_id()
+    exec_span = Telemetry.start([:jido, :exec], exec_metadata(executable, execution_id))
+
+    case do_start(executable, input, context, opts, execution_id, exec_span) do
+      {:ok, execution} ->
+        {:ok, execution}
+
+      {:error, error} = result ->
+        Telemetry.error(exec_span, error)
+        result
+    end
   end
 
   @doc """
@@ -143,31 +180,32 @@ defmodule Jido.Exec do
   @spec result(Execution.t()) :: {:ok, term()} | {:error, Exception.t()}
   def result(%Execution{} = execution), do: FlowEngine.result(execution)
 
-  defp do_run(%Instruction{} = instruction, input, context, opts) do
+  defp run_with_lifecycle(executable, input, context, opts, execution_id) do
+    exec_span = Telemetry.start([:jido, :exec], exec_metadata(executable, execution_id))
+    result = do_run(executable, input, context, opts, execution_id)
+    Telemetry.finish(exec_span, result)
+    result
+  end
+
+  defp do_run(%Instruction{} = instruction, input, context, opts, execution_id) do
     with :ok <- reject_run_opts(opts, :instruction),
          {:ok, instruction} <- normalize_instruction(instruction, input, context) do
-      run_instruction(instruction)
+      run_instruction(instruction, execution_id)
     end
   end
 
-  defp do_run(%Flow{} = flow, input, context, opts) do
-    with {:ok, execution} <- start_flow(flow, input, context, opts),
+  defp do_run(%Flow{} = flow, input, context, opts, execution_id) do
+    with {:ok, execution} <- start_flow(flow, input, context, opts, execution_id, nil),
          {:ok, execution} <- FlowEngine.continue(execution) do
       FlowEngine.result(execution)
     end
   end
 
-  defp do_run(module, input, context, opts) when is_atom(module) and not is_nil(module) do
+  defp do_run(module, input, context, opts, execution_id)
+       when is_atom(module) and not is_nil(module) do
     case Code.ensure_loaded(module) do
       {:module, _module} ->
-        if function_exported?(module, :__jido_flow__, 0) do
-          do_run(module.flow(), input, context, opts)
-        else
-          with :ok <- reject_run_opts(opts, :action),
-               {:ok, instruction} <- normalize_instruction(module, input, context) do
-            run_instruction(instruction)
-          end
-        end
+        run_loaded_module(module, input, context, opts, execution_id)
 
       {:error, reason} ->
         {:error,
@@ -178,24 +216,36 @@ defmodule Jido.Exec do
     end
   end
 
-  defp do_run(executable, _input, _context, _opts) do
+  defp do_run(executable, _input, _context, _opts, _execution_id) do
     {:error,
      Error.config_error("unknown executable: #{inspect(executable)}", %{executable: executable})}
   end
 
-  defp do_start(%Flow{} = flow, input, context, opts) do
-    start_flow(flow, input, context, opts)
+  defp run_loaded_module(module, input, context, opts, execution_id) do
+    if function_exported?(module, :__jido_flow__, 0) do
+      do_run(module.flow(), input, context, opts, execution_id)
+    else
+      with :ok <- reject_run_opts(opts, :action),
+           {:ok, instruction} <- normalize_instruction(module, input, context) do
+        run_instruction(instruction, execution_id)
+      end
+    end
   end
 
-  defp do_start(%Instruction{}, _input, _context, _opts) do
+  defp do_start(%Flow{} = flow, input, context, opts, execution_id, exec_span) do
+    start_flow(flow, input, context, opts, execution_id, exec_span)
+  end
+
+  defp do_start(%Instruction{}, _input, _context, _opts, _execution_id, _exec_span) do
     stepwise_flow_required(:instruction)
   end
 
-  defp do_start(module, input, context, opts) when is_atom(module) and not is_nil(module) do
+  defp do_start(module, input, context, opts, execution_id, exec_span)
+       when is_atom(module) and not is_nil(module) do
     case Code.ensure_loaded(module) do
       {:module, _module} ->
         if function_exported?(module, :__jido_flow__, 0) do
-          start_flow(module.flow(), input, context, opts)
+          start_flow(module.flow(), input, context, opts, execution_id, exec_span)
         else
           stepwise_flow_required(:action)
         end
@@ -209,21 +259,40 @@ defmodule Jido.Exec do
     end
   end
 
-  defp do_start(executable, _input, _context, _opts) do
+  defp do_start(executable, _input, _context, _opts, _execution_id, _exec_span) do
     {:error,
      Error.config_error("unknown executable: #{inspect(executable)}", %{executable: executable})}
   end
 
-  defp start_flow(flow, input, context, opts) do
-    with {:ok, run_opts} <- validate_flow_run_opts(opts),
-         {:ok, flow} <- Flow.validate_executable(flow),
-         {:ok, input} <- normalize_map(input, :input),
-         {:ok, context} <- normalize_map(context, :context),
-         {:ok, input} <- validate_data(flow.schema, input, "Flow", flow, :flow_input),
-         {:ok, input} <- validate_flow_input_shape(flow, input) do
-      FlowEngine.start(flow, input, context, run_opts, fn output ->
-        validate_flow_output(flow, output)
-      end)
+  defp start_flow(flow, input, context, opts, execution_id, exec_span) do
+    flow_span =
+      Telemetry.start([:jido, :flow], %{execution_id: execution_id, flow: flow.name})
+
+    result =
+      with {:ok, run_opts} <- validate_flow_run_opts(opts),
+           {:ok, flow} <- Flow.validate_executable(flow),
+           {:ok, input} <- normalize_map(input, :input),
+           {:ok, context} <- normalize_map(context, :context),
+           {:ok, input} <- validate_data(flow.schema, input, "Flow", flow, :flow_input),
+           {:ok, input} <- validate_flow_input_shape(flow, input) do
+        FlowEngine.start(
+          flow,
+          input,
+          context,
+          run_opts,
+          fn output -> validate_flow_output(flow, output) end,
+          execution_id,
+          %{flow: flow_span, exec: exec_span}
+        )
+      end
+
+    case result do
+      {:ok, _execution} ->
+        result
+
+      {:error, error} ->
+        Telemetry.error(flow_span, error)
+        result
     end
   end
 
@@ -234,21 +303,25 @@ defmodule Jido.Exec do
      })}
   end
 
-  defp exec_metadata(%Instruction{action: action}) do
-    %{kind: :instruction, name: action_name(action)}
+  defp exec_metadata(%Instruction{action: action}, execution_id) do
+    %{execution_id: execution_id, kind: :instruction, name: action_name(action)}
   end
 
-  defp exec_metadata(%Flow{} = flow), do: %{kind: :flow, name: flow.name}
+  defp exec_metadata(%Flow{} = flow, execution_id) do
+    %{execution_id: execution_id, kind: :flow, name: flow.name}
+  end
 
-  defp exec_metadata(module) when is_atom(module) and not is_nil(module) do
+  defp exec_metadata(module, execution_id) when is_atom(module) and not is_nil(module) do
     if flow_module?(module) do
-      exec_metadata(module.flow())
+      exec_metadata(module.flow(), execution_id)
     else
-      %{kind: :action, name: action_name(module)}
+      %{execution_id: execution_id, kind: :action, name: action_name(module)}
     end
   end
 
-  defp exec_metadata(_executable), do: %{kind: :unknown, name: :unknown}
+  defp exec_metadata(_executable, execution_id) do
+    %{execution_id: execution_id, kind: :unknown, name: :unknown}
+  end
 
   defp flow_module?(module) do
     case Code.ensure_loaded(module) do
@@ -270,18 +343,6 @@ defmodule Jido.Exec do
   end
 
   defp action_name(action), do: action
-
-  defp result_metadata({:error, error}) do
-    %{status: :error, error_type: error_type(error)}
-  end
-
-  defp result_metadata({:error, error, _extras}) do
-    %{status: :error, error_type: error_type(error)}
-  end
-
-  defp result_metadata(_result), do: %{status: :ok}
-
-  defp error_type(error), do: error |> Error.to_map() |> Map.get(:type)
 
   defp validate_flow_run_opts(opts) do
     with :ok <- validate_opts_keyword(opts),
@@ -358,10 +419,10 @@ defmodule Jido.Exec do
     exception -> {:error, Error.validation_error(Exception.message(exception))}
   end
 
-  defp run_instruction(%Instruction{action: action} = instruction) do
+  defp run_instruction(%Instruction{action: action} = instruction, execution_id) do
     if flow_module?(action) do
       with :ok <- Instruction.validate_action_contract(action) do
-        do_run(action.flow(), instruction.params, instruction.context, [])
+        do_run(action.flow(), instruction.params, instruction.context, [], execution_id)
       end
     else
       run_action_instruction(instruction)
@@ -520,8 +581,6 @@ defmodule Jido.Exec do
            })
      }}
   end
-
-  defp tag_flow_output_error({:error, error}, _flow), do: {:error, error}
 
   defp validate_flow_output_shape(flow, output) when is_map(output) do
     validate_output_shape(flow, output, :output_schema)

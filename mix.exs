@@ -154,7 +154,7 @@ defmodule JidoAction.MixProject do
         "Flow API": [
           Jido.Flow,
           Jido.Flow.Builder,
-          Jido.Flow.ContractBundle
+          Jido.Flow.Registry
         ],
         "Flow Types": [
           Jido.Flow.Choice,

@@ -26,8 +26,9 @@ defmodule Jido.Flow do
   Result references and `after:` fields define dependencies. Source order does
   not add execution dependencies.
 
-  Use `Jido.Flow.Builder` for runtime construction. Use `to_stored_map/2` and
-  `from_map/2` for versioned storage. There is no runtime parser for DSL source.
+  Use `Jido.Flow.Builder` for runtime construction. Use `to_stored_map/3` and
+  `from_stored_map/2` with a trusted `Jido.Flow.Registry` for versioned storage.
+  There is no runtime parser for DSL source.
 
   A Choice is one Flow node. It evaluates data-only conditions in authored
   order, runs the first matching target, and uses a required routing fallback
@@ -161,10 +162,9 @@ defmodule Jido.Flow do
 
       def flow, do: unquote(escaped_flow)
       def to_map(opts \\ []), do: Jido.Flow.to_map(flow(), opts)
-      def to_stored_map(opts \\ []), do: Jido.Flow.to_stored_map(flow(), opts)
+      def to_stored_map(registry, opts \\ []), do: Jido.Flow.to_stored_map(flow(), registry, opts)
       def validate, do: Jido.Flow.validate(flow())
       def validate_executable, do: Jido.Flow.validate_executable(flow())
-      def compile, do: Jido.Flow.compile(flow())
       def dependencies, do: Jido.Flow.dependencies(flow())
       def explain, do: Jido.Flow.explain(flow())
       def semantic_identity, do: Jido.Flow.semantic_identity(flow())
@@ -221,58 +221,43 @@ defmodule Jido.Flow do
   Node order in the semantic map is dependency order with node-name tiebreaks;
   authoring order is not semantic and is preserved only on the Flow struct.
   Provenance is omitted by default because it does not participate in semantic
-  equality. `format: :stored` remains available as a raising conversion. Prefer
-  `to_stored_map/2` when stored input can fail validation.
+  equality. Use `to_stored_map/3` for database storage.
   """
   @spec to_map(t(), keyword()) :: map()
   def to_map(%__MODULE__{} = flow, opts \\ []) do
     ordered_nodes = canonical_node_order(flow.nodes)
-
-    case Keyword.get(opts, :format, :semantic) do
-      :semantic ->
-        MapCodec.to_semantic_map(flow, ordered_nodes, opts)
-
-      :stored ->
-        MapCodec.to_stored_map!(flow, ordered_nodes, opts)
-
-      format ->
-        raise Error.validation_error("unsupported flow map format: #{inspect(format)}", %{
-                format: format
-              })
-    end
+    MapCodec.to_semantic_map(flow, ordered_nodes, opts)
   end
 
   @doc """
   Validates and converts a Flow to the versioned stored-map format.
 
-  This function validates canonical Flow structure and all stored writer
-  contracts. It returns storage errors instead of raising. It does not check or
-  execute Action targets, so stored conversion remains an inert operation.
-
-  The options are the stored writer options accepted by `to_map/2`, except that
-  `format: :stored` is not required.
+  The Registry supplies stable identifiers for every Action and schema in the
+  Flow. Stored data contains no module names or schema values. The only option
+  is `provenance: true`.
   """
-  @spec to_stored_map(t(), keyword()) ::
+  @spec to_stored_map(t(), Jido.Flow.Registry.t(), keyword()) ::
           {:ok, map()} | {:error, Error.InvalidInputError.t()}
-  def to_stored_map(flow, opts \\ [])
+  def to_stored_map(flow, registry, opts \\ [])
 
-  def to_stored_map(%__MODULE__{} = flow, opts) do
+  def to_stored_map(%__MODULE__{} = flow, registry, opts) do
     with {:ok, flow} <- validate(flow) do
-      MapCodec.to_stored_map(flow, canonical_node_order(flow.nodes), opts)
+      MapCodec.to_stored_map(flow, canonical_node_order(flow.nodes), registry, opts)
     end
   end
 
-  def to_stored_map(value, _opts), do: invalid_flow_subject(value)
+  def to_stored_map(value, _registry, _opts), do: invalid_flow_subject(value)
 
   @doc """
-  Loads a versioned Flow map into the current canonical Flow artifact.
+  Loads a versioned stored map through a trusted host Registry.
 
-  Loading validates the stored grammar and canonical Flow structure. It does
-  not load or check Action targets. Use `validate_executable/1` when target
-  contracts must be checked without execution.
+  Loading validates the stored grammar, resolves stable identifiers, and uses
+  the same canonical constructor as the Spark DSL and Builder. It does not
+  create atoms or derive module names from stored data.
   """
-  @spec from_map(map(), map() | keyword()) :: {:ok, t()} | {:error, Exception.t()}
-  def from_map(map, opts \\ []), do: MapCodec.from_map(map, opts)
+  @spec from_stored_map(map(), Jido.Flow.Registry.t()) ::
+          {:ok, t()} | {:error, Exception.t()}
+  def from_stored_map(map, registry), do: MapCodec.from_stored_map(map, registry)
 
   @doc false
   @spec canonical_nodes([Element.t()]) :: [Element.t()]
@@ -347,15 +332,6 @@ defmodule Jido.Flow do
   end
 
   defp node_name_sort_key(name), do: to_string(name)
-
-  @doc """
-  Compiles a Flow artifact into a Runic workflow for graph inspection.
-
-  The workflow contains inert node markers. It does not execute Action work or
-  resolve runtime input and context. Use `Jido.Exec.run/3` to execute a Flow.
-  """
-  @spec compile(t()) :: {:ok, Runic.Workflow.t()} | {:error, Exception.t()}
-  def compile(%__MODULE__{} = flow), do: Jido.Flow.Compiler.compile(flow)
 
   @doc """
   Returns the direct canonical predecessors for every Flow node.

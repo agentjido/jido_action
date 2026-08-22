@@ -516,27 +516,7 @@ defmodule Jido.Flow.IteratorRuntimeTest do
               }} = Exec.run(bad_output, %{}, %{})
     end
 
-    test "normalizes an unexpected body adapter defect and closes the iteration span" do
-      events = [
-        [:jido, :flow, :iterate, :iteration, :stop],
-        [:jido, :flow, :iterate, :failure]
-      ]
-
-      handler = "iterator-internal-#{System.unique_integer([:positive])}"
-      owner = self()
-
-      :ok =
-        :telemetry.attach_many(
-          handler,
-          events,
-          fn event, _measurements, metadata, _config ->
-            send(owner, {:iterate_internal_telemetry, event, metadata})
-          end,
-          nil
-        )
-
-      on_exit(fn -> :telemetry.detach(handler) end)
-
+    test "normalizes an unexpected body adapter defect" do
       flow =
         iterator_flow(
           action: BrokenFlow,
@@ -557,12 +537,6 @@ defmodule Jido.Flow.IteratorRuntimeTest do
                   retry: false
                 }
               }} = Exec.run(flow, %{}, %{})
-
-      assert_receive {:iterate_internal_telemetry, [:jido, :flow, :iterate, :iteration, :stop],
-                      %{status: :error, iteration_index: 0}}
-
-      assert_receive {:iterate_internal_telemetry, [:jido, :flow, :iterate, :failure],
-                      %{termination: :failed, phase: :iterate_internal}}
     end
 
     test "rejects invalid completion operands before the first body" do
@@ -600,27 +574,6 @@ defmodule Jido.Flow.IteratorRuntimeTest do
           max_iterations: 1
         )
 
-      events = [
-        [:jido, :flow, :iterate, :state_transition],
-        [:jido, :flow, :iterate, :iteration, :stop],
-        [:jido, :flow, :iterate, :failure]
-      ]
-
-      handler = "iterator-post-commit-#{System.unique_integer([:positive])}"
-      owner = self()
-
-      :ok =
-        :telemetry.attach_many(
-          handler,
-          events,
-          fn event, _measurements, metadata, _config ->
-            send(owner, {:iterate_post_commit_telemetry, event, metadata})
-          end,
-          nil
-        )
-
-      on_exit(fn -> :telemetry.detach(handler) end)
-
       assert {:ok, execution} = Exec.start(flow)
 
       assert {:ok,
@@ -644,15 +597,6 @@ defmodule Jido.Flow.IteratorRuntimeTest do
 
       assert failed_execution.revision == 1
       assert Exec.status(failed_execution) == :failed
-
-      assert_receive {:iterate_post_commit_telemetry, [:jido, :flow, :iterate, :state_transition],
-                      %{from_revision: 0, to_revision: 1}}
-
-      assert_receive {:iterate_post_commit_telemetry, [:jido, :flow, :iterate, :iteration, :stop],
-                      %{status: :error}}
-
-      assert_receive {:iterate_post_commit_telemetry, [:jido, :flow, :iterate, :failure],
-                      %{state_revision: 1, completed_iterations: 1}}
     end
 
     test "runs a marked child Flow atomically with fresh child Iterator State" do
@@ -822,30 +766,7 @@ defmodule Jido.Flow.IteratorRuntimeTest do
       assert Exec.status(execution) == :succeeded
     end
 
-    test "emits distinct zero-completion and exhaustion terminal telemetry" do
-      events = [
-        [:jido, :flow, :iterate, :start],
-        [:jido, :flow, :iterate, :iteration, :start],
-        [:jido, :flow, :iterate, :state_transition],
-        [:jido, :flow, :iterate, :completion],
-        [:jido, :flow, :iterate, :exhaustion]
-      ]
-
-      handler = "iterator-terminals-#{System.unique_integer([:positive])}"
-      owner = self()
-
-      :ok =
-        :telemetry.attach_many(
-          handler,
-          events,
-          fn event, _measurements, metadata, _config ->
-            send(owner, {:iterate_terminal_telemetry, event, metadata})
-          end,
-          nil
-        )
-
-      on_exit(fn -> :telemetry.detach(handler) end)
-
+    test "keeps zero-completion and exhaustion as distinct runtime results" do
       zero =
         iterator_flow(
           initial: %{count: Ref.value(0)},
@@ -854,18 +775,6 @@ defmodule Jido.Flow.IteratorRuntimeTest do
         )
 
       assert {:ok, %{iterations: 0}} = Exec.run(zero, %{}, %{})
-
-      assert_receive {:iterate_terminal_telemetry, [:jido, :flow, :iterate, :start], _metadata}
-
-      assert_receive {:iterate_terminal_telemetry, [:jido, :flow, :iterate, :completion],
-                      %{termination: :completed, completed_iterations: 0, state_revision: 0}}
-
-      refute_receive {:iterate_terminal_telemetry, [:jido, :flow, :iterate, :iteration, :start],
-                      _}
-
-      refute_receive {:iterate_terminal_telemetry, [:jido, :flow, :iterate, :state_transition], _}
-
-      refute_receive {:iterate_terminal_telemetry, [:jido, :flow, :iterate, :exhaustion], _}
 
       exhausted =
         iterator_flow(
@@ -877,84 +786,6 @@ defmodule Jido.Flow.IteratorRuntimeTest do
       assert {:error,
               %ExecutionFailureError{message: "flow iterator exhausted maximum iterations"}} =
                Exec.run(exhausted, %{}, %{})
-
-      assert_receive {:iterate_terminal_telemetry, [:jido, :flow, :iterate, :start], _metadata}
-
-      assert_receive {:iterate_terminal_telemetry, [:jido, :flow, :iterate, :iteration, :start],
-                      %{iteration_index: 0, state_revision: 0}}
-
-      assert_receive {:iterate_terminal_telemetry, [:jido, :flow, :iterate, :state_transition],
-                      %{from_revision: 0, to_revision: 1}}
-
-      assert_receive {:iterate_terminal_telemetry, [:jido, :flow, :iterate, :exhaustion],
-                      %{
-                        termination: :exhausted,
-                        max_iterations: 1,
-                        completed_iterations: 1,
-                        state_revision: 1
-                      }}
-    end
-
-    test "emits bounded Iterator telemetry in state-machine order" do
-      events = [
-        [:jido, :flow, :node, :start],
-        [:jido, :flow, :iterate, :start],
-        [:jido, :flow, :iterate, :iteration, :start],
-        [:jido, :flow, :iterate, :state_transition],
-        [:jido, :flow, :iterate, :iteration, :stop],
-        [:jido, :flow, :iterate, :completion],
-        [:jido, :flow, :node, :stop]
-      ]
-
-      handler = "iterator-runtime-#{System.unique_integer([:positive])}"
-      owner = self()
-
-      :ok =
-        :telemetry.attach_many(
-          handler,
-          events,
-          fn event, measurements, metadata, _config ->
-            send(owner, {:iterate_telemetry, event, measurements, metadata})
-          end,
-          nil
-        )
-
-      on_exit(fn -> :telemetry.detach(handler) end)
-
-      flow =
-        iterator_flow(
-          initial: %{count: Ref.value(0)},
-          completion: gte(Ref.state(:count), Ref.value(1)),
-          max_iterations: 1
-        )
-
-      assert {:ok, _result} = Exec.run(flow, %{}, %{test_pid: self()})
-
-      received =
-        Enum.map(events, fn expected_event ->
-          assert_receive {:iterate_telemetry, ^expected_event, measurements, metadata}
-          {expected_event, measurements, metadata}
-        end)
-
-      for {_event, _measurements, metadata} <- received do
-        for forbidden <- [:input, :context, :state, :body_input, :body_output, :output] do
-          refute Map.has_key?(metadata, forbidden)
-        end
-      end
-
-      {_, start_measurements, start_metadata} = Enum.at(received, 1)
-      assert is_integer(start_measurements.system_time)
-      assert start_metadata.kind == :iterate
-      assert start_metadata.max_iterations == 1
-
-      {_, transition_measurements, transition_metadata} = Enum.at(received, 3)
-      assert is_integer(transition_measurements.system_time)
-      assert transition_metadata.from_revision == 0
-      assert transition_metadata.to_revision == 1
-
-      {_, stop_measurements, stop_metadata} = Enum.at(received, 4)
-      assert is_integer(stop_measurements.duration)
-      assert stop_metadata.status == :ok
     end
   end
 

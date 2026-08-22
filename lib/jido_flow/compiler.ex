@@ -16,15 +16,14 @@ defmodule Jido.Flow.Compiler do
   alias Jido.Flow.NodeError
   alias Jido.Flow.Reduce
   alias Jido.Flow.Ref
+  alias Jido.Telemetry
   alias Runic.Workflow
   alias Runic.Workflow.Step
 
-  @collector_key :__jido_flow_error_collector__
-  @run_option_keys [:async, :max_concurrency]
-
   @type node_state :: %{
+          execution_id: String.t(),
           flow: String.t(),
-          flow_digest: String.t() | nil,
+          flow_digest: String.t(),
           input: map(),
           context: map(),
           results: map(),
@@ -32,56 +31,29 @@ defmodule Jido.Flow.Compiler do
           map_nodes: MapSet.t(String.t())
         }
 
-  @doc """
-  Compiles a Flow artifact into a shape-accurate Runic workflow.
-
-  The returned workflow is suitable for graph inspection. Runtime input and
-  context are only available through `run/3`.
-  """
-  @spec compile(Flow.t()) :: {:ok, Workflow.t()} | {:error, Exception.t()}
-  def compile(%Flow{} = flow) do
-    with {:ok, flow} <- Flow.validate(flow),
-         flow_digest = Identity.semantic_digest(flow),
-         {:ok, workflow, _ordered_nodes} <- build(flow, {:inspection, flow_digest}) do
-      {:ok, workflow}
-    end
-  end
-
   @doc false
-  @spec runtime_workflow(Flow.t(), map(), map()) ::
-          {:ok, Workflow.t()} | {:error, Exception.t()}
-  def runtime_workflow(%Flow{} = flow, input, context)
-      when is_map(input) and is_map(context) do
-    with {:ok, _flow, workflow, _ordered_nodes} <- prepare_runtime(flow, input, context, nil) do
-      {:ok, workflow}
-    end
-  end
-
-  def runtime_workflow(%Flow{}, _input, _context) do
-    {:error, Error.validation_error("flow input and context must be maps")}
-  end
-
-  @doc false
-  @spec runtime_workflow_validated(Flow.t(), map(), map()) ::
+  @spec runtime_workflow_validated(Flow.t(), map(), map(), keyword(), String.t()) ::
           {:ok, Workflow.t(), [Element.t()]} | {:error, Exception.t()}
-  def runtime_workflow_validated(%Flow{} = flow, input, context)
-      when is_map(input) and is_map(context) do
-    prepare_validated_runtime(flow, input, context, nil, normalize_runtime_options([]))
+  def runtime_workflow_validated(%Flow{} = flow, input, context, options, execution_id)
+      when is_map(input) and is_map(context) and is_list(options) and is_binary(execution_id) do
+    node_state = %{
+      execution_id: execution_id,
+      flow: flow.name,
+      flow_digest: Identity.semantic_digest(flow),
+      input: input,
+      context: context,
+      results: %{},
+      options: options,
+      map_nodes:
+        flow.nodes
+        |> Enum.filter(&match?(%FlowMap{}, &1))
+        |> MapSet.new(&Element.name/1)
+    }
+
+    build(flow, node_state)
   end
 
-  def runtime_workflow_validated(%Flow{}, _input, _context) do
-    {:error, Error.validation_error("flow input and context must be maps")}
-  end
-
-  @doc false
-  @spec runtime_workflow_validated(Flow.t(), map(), map(), keyword()) ::
-          {:ok, Workflow.t(), [Element.t()]} | {:error, Exception.t()}
-  def runtime_workflow_validated(%Flow{} = flow, input, context, options)
-      when is_map(input) and is_map(context) and is_list(options) do
-    prepare_validated_runtime(flow, input, context, nil, options)
-  end
-
-  def runtime_workflow_validated(%Flow{}, _input, _context, _options) do
+  def runtime_workflow_validated(%Flow{}, _input, _context, _options, _execution_id) do
     {:error, Error.validation_error("flow input and context must be maps")}
   end
 
@@ -93,142 +65,7 @@ defmodule Jido.Flow.Compiler do
     extract_return(flow.return, workflow, input, context)
   end
 
-  @doc """
-  Compiles and executes a Flow artifact, returning its declared output value.
-
-  Accepted runtime options are `:async` and `:max_concurrency`, which are passed
-  through to Runic workflow reaction.
-  """
-  @spec run(Flow.t(), map(), map(), keyword()) :: {:ok, term()} | {:error, Exception.t()}
-  def run(flow, input, context \\ %{}, opts \\ [])
-
-  def run(%Flow{} = flow, input, context, opts) when is_map(input) and is_map(context) do
-    with :ok <- validate_run_opts(opts),
-         {:ok, flow} <- Flow.validate_executable(flow) do
-      execute(flow, input, context, opts)
-    end
-  end
-
-  def run(%Flow{}, _input, _context, _opts) do
-    {:error, Error.validation_error("flow input and context must be maps")}
-  end
-
-  @doc false
-  @spec run_validated(Flow.t(), map(), map(), keyword()) ::
-          {:ok, term()} | {:error, Exception.t()}
-  def run_validated(%Flow{} = flow, input, context, opts)
-      when is_map(input) and is_map(context) and is_list(opts) do
-    execute(flow, input, context, opts)
-  end
-
-  defp execute(flow, input, context, opts) do
-    runner = self()
-    run_ref = make_ref()
-
-    with {:ok, workflow, ordered_nodes} <-
-           prepare_validated_runtime(
-             flow,
-             input,
-             context,
-             {runner, run_ref},
-             normalize_runtime_options(opts)
-           ) do
-      final_workflow = Workflow.react_until_satisfied(workflow, input, opts)
-      node_errors = drain_node_errors(run_ref, ordered_nodes)
-
-      case node_errors do
-        [{_node, error} | _rest] ->
-          {:error, error}
-
-        [] ->
-          extract_return(flow.return, final_workflow, input, context)
-      end
-    end
-  end
-
-  defp validate_run_opts(opts) when is_list(opts) do
-    if Keyword.keyword?(opts) do
-      with :ok <- validate_known_run_opts(opts),
-           :ok <- validate_async_opt(Keyword.get(opts, :async, false)),
-           :ok <- validate_max_concurrency_opt(Keyword.get(opts, :max_concurrency, 1)) do
-        :ok
-      end
-    else
-      {:error, Error.validation_error("run options must be a keyword list")}
-    end
-  end
-
-  defp validate_run_opts(_opts) do
-    {:error, Error.validation_error("run options must be a keyword list")}
-  end
-
-  defp validate_known_run_opts(opts) do
-    opts
-    |> Keyword.keys()
-    |> Enum.find(&(&1 not in @run_option_keys))
-    |> case do
-      nil ->
-        :ok
-
-      option ->
-        {:error,
-         Error.validation_error("unknown run option: #{inspect(option)}", %{option: option})}
-    end
-  end
-
-  defp validate_async_opt(async) when is_boolean(async), do: :ok
-
-  defp validate_async_opt(_async) do
-    {:error, Error.validation_error("async option must be a boolean", %{option: :async})}
-  end
-
-  defp validate_max_concurrency_opt(max_concurrency)
-       when is_integer(max_concurrency) and max_concurrency > 0,
-       do: :ok
-
-  defp validate_max_concurrency_opt(_max_concurrency) do
-    {:error,
-     Error.validation_error("max_concurrency option must be a positive integer", %{
-       option: :max_concurrency
-     })}
-  end
-
-  defp prepare_runtime(flow, input, context, collector) do
-    with {:ok, flow} <- Flow.validate_executable(flow),
-         {:ok, workflow, ordered_nodes} <-
-           prepare_validated_runtime(
-             flow,
-             input,
-             context,
-             collector,
-             normalize_runtime_options([])
-           ) do
-      {:ok, flow, workflow, ordered_nodes}
-    end
-  end
-
-  defp prepare_validated_runtime(flow, input, context, collector, options) do
-    collection_elements = Enum.filter(flow.nodes, &collection_element?/1)
-
-    node_state =
-      %{
-        flow: flow.name,
-        flow_digest: if(collection_elements == [], do: nil, else: Identity.semantic_digest(flow)),
-        input: input,
-        context: context,
-        results: %{},
-        options: options,
-        map_nodes:
-          collection_elements
-          |> Enum.filter(&match?(%FlowMap{}, &1))
-          |> MapSet.new(&Element.name/1)
-      }
-      |> Map.put(@collector_key, collector)
-
-    build(flow, {:runtime, node_state})
-  end
-
-  defp build(%Flow{} = flow, mode) do
+  defp build(%Flow{} = flow, node_state) do
     nodes_by_name = Map.new(flow.nodes, fn node -> {Element.name(node), node} end)
 
     {workflow, _added, ordered} =
@@ -236,22 +73,22 @@ defmodule Jido.Flow.Compiler do
       |> Flow.canonical_nodes()
       |> Enum.reduce({Workflow.new(flow.name), MapSet.new(), []}, fn node,
                                                                      {workflow, added, ordered} ->
-        add_node(Element.name(node), nodes_by_name, workflow, added, ordered, mode)
+        add_node(Element.name(node), nodes_by_name, workflow, added, ordered, node_state)
       end)
 
     {:ok, workflow, ordered}
   end
 
-  defp add_node(name, nodes_by_name, workflow, added, ordered, mode) do
+  defp add_node(name, nodes_by_name, workflow, added, ordered, node_state) do
     if MapSet.member?(added, name) do
       {workflow, added, ordered}
     else
       node = Map.fetch!(nodes_by_name, name)
 
       {workflow, added, ordered} =
-        add_dependencies(Element.deps(node), nodes_by_name, workflow, added, ordered, mode)
+        add_dependencies(Element.deps(node), nodes_by_name, workflow, added, ordered, node_state)
 
-      step = build_step(node, mode)
+      step = build_step(node, node_state)
 
       workflow = add_step(workflow, node, step)
 
@@ -259,7 +96,7 @@ defmodule Jido.Flow.Compiler do
     end
   end
 
-  defp add_dependencies([], _nodes_by_name, workflow, added, ordered, _mode) do
+  defp add_dependencies([], _nodes_by_name, workflow, added, ordered, _node_state) do
     {workflow, added, ordered}
   end
 
@@ -269,25 +106,15 @@ defmodule Jido.Flow.Compiler do
          workflow,
          added,
          ordered,
-         mode
+         node_state
        ) do
     {workflow, added, ordered} =
-      add_node(dep, nodes_by_name, workflow, added, ordered, mode)
+      add_node(dep, nodes_by_name, workflow, added, ordered, node_state)
 
-    add_dependencies(deps, nodes_by_name, workflow, added, ordered, mode)
+    add_dependencies(deps, nodes_by_name, workflow, added, ordered, node_state)
   end
 
-  defp build_step(node, {:inspection, flow_digest}) do
-    name = Element.name(node)
-
-    Step.new(
-      name: name,
-      hash: Identity.step_uuid(flow_digest, name),
-      work: fn _parent_value -> {:jido_flow_node, 1, name} end
-    )
-  end
-
-  defp build_step(node, {:runtime, node_state}) do
+  defp build_step(node, node_state) do
     Step.new(
       name: node.name,
       work: fn parent_value -> run_node(node, parent_value, node_state) end
@@ -304,18 +131,37 @@ defmodule Jido.Flow.Compiler do
 
   defp run_node(node, parent_value, node_state) do
     metadata = node_metadata(node, node_state)
+    span = Telemetry.start([:jido, :flow, :node], metadata)
 
     result =
-      :telemetry.span([:jido, :flow, :node], metadata, fn ->
-        result = run_node_result(node, parent_value, node_state)
-        {result, Map.merge(metadata, node_result_metadata(result))}
-      end)
+      try do
+        run_node_result(node, parent_value, node_state)
+      rescue
+        exception ->
+          Telemetry.error(span, exception)
+          reraise exception, __STACKTRACE__
+      catch
+        kind, reason ->
+          Telemetry.error(span, reason)
+          :erlang.raise(kind, reason, __STACKTRACE__)
+      end
 
     case result do
-      {:ok, output} -> output
-      {:ok, output, _choice_metadata} -> output
-      {:error, error, state} -> raise_node_error(node, error, state)
-      {:error, error, state, _choice_metadata} -> raise_node_error(node, error, state)
+      {:ok, output} ->
+        Telemetry.stop(span)
+        output
+
+      {:ok, output, _metadata} ->
+        Telemetry.stop(span)
+        output
+
+      {:error, error, _state} ->
+        Telemetry.error(span, error)
+        raise_node_error(node, error)
+
+      {:error, error, _state, _metadata} ->
+        Telemetry.error(span, error)
+        raise_node_error(node, error)
     end
   end
 
@@ -332,7 +178,8 @@ defmodule Jido.Flow.Compiler do
                  target.action,
                  params,
                  state.context,
-                 choice_target_owner(choice, target)
+                 choice_target_owner(choice, target),
+                 state.execution_id
                ) do
           {:ok, output, metadata}
         else
@@ -349,7 +196,7 @@ defmodule Jido.Flow.Compiler do
 
     case resolve_expr(map.collection, state) do
       {:ok, collection} -> run_resolved_map(map, collection, state)
-      {:error, error} -> {:error, error, state, map_metadata(map, 0, 0, 0)}
+      {:error, error} -> {:error, error, state}
     end
   end
 
@@ -358,7 +205,7 @@ defmodule Jido.Flow.Compiler do
 
     case resolve_expr(reduce.collection, state) do
       {:ok, collection} -> run_resolved_reduce(reduce, collection, state)
-      {:error, error} -> {:error, error, state, reduce_metadata(reduce, 0, 0)}
+      {:error, error} -> {:error, error, state}
     end
   end
 
@@ -372,7 +219,7 @@ defmodule Jido.Flow.Compiler do
 
     case resolve_expr(node.input, state) do
       {:ok, params} ->
-        case run_resolved_node(node, params, state.context) do
+        case run_resolved_node(node, params, state) do
           {:ok, output} -> {:ok, output}
           {:error, error} -> {:error, error, state}
         end
@@ -382,8 +229,14 @@ defmodule Jido.Flow.Compiler do
     end
   end
 
-  defp run_resolved_node(node, params, context) do
-    run_resolved_target(node.action, params, context, node_target_owner(node))
+  defp run_resolved_node(node, params, state) do
+    run_resolved_target(
+      node.action,
+      params,
+      state.context,
+      node_target_owner(node),
+      state.execution_id
+    )
   end
 
   defp run_resolved_iterator_safely(iterator, state) do
@@ -395,11 +248,6 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp run_resolved_iterator(iterator, state) do
-    emit_iterator_event(
-      [:jido, :flow, :iterate, :start],
-      iterator_start_metadata(iterator, state)
-    )
-
     with {:ok, candidate} <- resolve_expr(iterator.state.initial, state),
          {:ok, candidate} <-
            validate_plain_iterator_state(iterator, candidate, :initial, nil, nil, 0),
@@ -427,14 +275,6 @@ defmodule Jido.Flow.Compiler do
   defp run_iterator_iteration(iterator, state, runtime) do
     index = runtime.completed
     iteration_id = Identity.iteration_uuid(state.flow_digest, iterator.name, index)
-    started_at = System.monotonic_time()
-    metadata = iterator_iteration_metadata(iterator, state, runtime, index, iteration_id)
-
-    :telemetry.execute(
-      [:jido, :flow, :iterate, :iteration, :start],
-      %{monotonic_time: started_at, system_time: System.system_time()},
-      metadata
-    )
 
     local_state =
       state
@@ -455,7 +295,8 @@ defmodule Jido.Flow.Compiler do
                  iterator.action,
                  params,
                  state.context,
-                 iterator_target_owner(iterator, index, iteration_id, runtime.revision)
+                 iterator_target_owner(iterator, index, iteration_id, runtime.revision),
+                 state.execution_id
                ),
              update_state =
                local_state
@@ -486,18 +327,6 @@ defmodule Jido.Flow.Compiler do
             body_result: output
           }
 
-          emit_iterator_event(
-            [:jido, :flow, :iterate, :state_transition],
-            %{
-              flow: state.flow,
-              node: iterator.name,
-              iteration_index: index,
-              iteration_id: iteration_id,
-              from_revision: runtime.revision,
-              to_revision: next_runtime.revision
-            }
-          )
-
           case evaluate_iterator_completion(iterator, state, next_runtime) do
             {:ok, completed?} -> {:ok, completed?, next_runtime}
             {:error, error} -> {:error, error, next_runtime}
@@ -513,16 +342,13 @@ defmodule Jido.Flow.Compiler do
 
     case result do
       {:ok, completed?, next_runtime} ->
-        emit_iterator_iteration_stop(metadata, started_at, :ok, nil)
         continue_iterator_after_iteration(iterator, state, next_runtime, completed?)
 
       {:error, error, failure_runtime} ->
-        emit_iterator_iteration_stop(metadata, started_at, :error, error)
         iterator_fail(iterator, state, failure_runtime, error)
 
       {:internal_error, error_type} ->
         error = iterator_internal_error(iterator, index, runtime.revision, error_type)
-        emit_iterator_iteration_stop(metadata, started_at, :error, error)
         iterator_fail(iterator, state, runtime, error)
     end
   end
@@ -537,18 +363,7 @@ defmodule Jido.Flow.Compiler do
   defp continue_iterator_after_iteration(iterator, state, runtime, false),
     do: run_iterator_iteration(iterator, state, runtime)
 
-  defp iterator_complete(iterator, state, runtime) do
-    emit_iterator_event(
-      [:jido, :flow, :iterate, :completion],
-      %{
-        flow: state.flow,
-        node: iterator.name,
-        termination: :completed,
-        completed_iterations: runtime.completed,
-        state_revision: runtime.revision
-      }
-    )
-
+  defp iterator_complete(_iterator, _state, runtime) do
     output = %{
       kind: :jido_flow_iterate_result,
       iterations: runtime.completed,
@@ -556,21 +371,10 @@ defmodule Jido.Flow.Compiler do
       output: runtime.body_result
     }
 
-    {:ok, output, iterator_runtime_metadata(iterator, runtime, :completed)}
+    {:ok, output}
   end
 
   defp iterator_exhaust(iterator, state, runtime) do
-    metadata = %{
-      flow: state.flow,
-      node: iterator.name,
-      termination: :exhausted,
-      max_iterations: iterator.max_iterations,
-      completed_iterations: runtime.completed,
-      state_revision: runtime.revision
-    }
-
-    emit_iterator_event([:jido, :flow, :iterate, :exhaustion], metadata)
-
     error =
       Error.execution_error("flow iterator exhausted maximum iterations", %{
         phase: :iterate_exhaustion,
@@ -581,27 +385,10 @@ defmodule Jido.Flow.Compiler do
         retry: false
       })
 
-    {:error, error, state, iterator_runtime_metadata(iterator, runtime, :exhausted)}
+    {:error, error, state}
   end
 
-  defp iterator_fail(iterator, state, runtime, error) do
-    phase = error |> Map.get(:details, %{}) |> Map.get(:phase, :iterate_internal)
-
-    emit_iterator_event(
-      [:jido, :flow, :iterate, :failure],
-      %{
-        flow: state.flow,
-        node: iterator.name,
-        termination: :failed,
-        phase: phase,
-        completed_iterations: runtime.completed,
-        state_revision: runtime.revision,
-        error_type: error_type(error)
-      }
-    )
-
-    {:error, error, state, iterator_runtime_metadata(iterator, runtime, :failed)}
-  end
+  defp iterator_fail(_iterator, state, _runtime, error), do: {:error, error, state}
 
   defp iterator_internal_failure(iterator, state, error_type) do
     error = iterator_internal_error(iterator, nil, 0, error_type)
@@ -717,58 +504,6 @@ defmodule Jido.Flow.Compiler do
     end
   end
 
-  defp emit_iterator_iteration_stop(metadata, started_at, status, error) do
-    stopped_at = System.monotonic_time()
-
-    stop_metadata =
-      if status == :error do
-        Map.merge(metadata, %{status: :error, error_type: error_type(error)})
-      else
-        Map.put(metadata, :status, :ok)
-      end
-
-    :telemetry.execute(
-      [:jido, :flow, :iterate, :iteration, :stop],
-      %{duration: stopped_at - started_at, monotonic_time: stopped_at},
-      stop_metadata
-    )
-  end
-
-  defp emit_iterator_event(event, metadata) do
-    :telemetry.execute(event, %{system_time: System.system_time()}, metadata)
-  end
-
-  defp iterator_start_metadata(iterator, state) do
-    %{
-      flow: state.flow,
-      node: iterator.name,
-      kind: :iterate,
-      target: iterator.action,
-      max_iterations: iterator.max_iterations
-    }
-  end
-
-  defp iterator_iteration_metadata(iterator, state, runtime, index, iteration_id) do
-    %{
-      flow: state.flow,
-      node: iterator.name,
-      target: iterator.action,
-      iteration_index: index,
-      iteration_id: iteration_id,
-      state_revision: runtime.revision
-    }
-  end
-
-  defp iterator_runtime_metadata(iterator, runtime, termination) do
-    %{
-      target: iterator.action,
-      max_iterations: iterator.max_iterations,
-      completed_iterations: runtime.completed,
-      state_revision: runtime.revision,
-      termination: termination
-    }
-  end
-
   defp run_resolved_map(map, collection, state) do
     if is_list(collection) and not List.improper?(collection) do
       items =
@@ -785,10 +520,10 @@ defmodule Jido.Flow.Compiler do
       case dispatch_map_items(map, items, state) do
         {:ok, results, errors} ->
           aggregate = %{kind: :jido_flow_map_result, results: results, errors: errors}
-          {:ok, aggregate, map_metadata(map, length(items), length(results), length(errors))}
+          {:ok, aggregate}
 
-        {:error, error, started_count, success_count, error_count} ->
-          {:error, error, state, map_metadata(map, started_count, success_count, error_count)}
+        {:error, error, _started_count, _success_count, _error_count} ->
+          {:error, error, state}
       end
     else
       error =
@@ -800,7 +535,7 @@ defmodule Jido.Flow.Compiler do
           retry: false
         })
 
-      {:error, error, state, map_metadata(map, 0, 0, 0)}
+      {:error, error, state}
     end
   end
 
@@ -810,7 +545,7 @@ defmodule Jido.Flow.Compiler do
          {:ok, initial} <- validate_reduce_initial(reduce, initial) do
       fold_reduce_items(reduce, items, initial, state)
     else
-      {:error, error} -> {:error, error, state, reduce_metadata(reduce, 0, 0)}
+      {:error, error} -> {:error, error, state}
     end
   end
 
@@ -999,35 +734,29 @@ defmodule Jido.Flow.Compiler do
       end
     end)
     |> case do
-      {:ok, accumulator, completed_count} ->
-        {:ok, accumulator, reduce_metadata(reduce, length(items), completed_count)}
+      {:ok, accumulator, _completed_count} ->
+        {:ok, accumulator}
 
-      {:error, error, item_count, completed_count} ->
-        {:error, error, state, reduce_metadata(reduce, item_count, completed_count)}
+      {:error, error, _item_count, _completed_count} ->
+        {:error, error, state}
     end
   end
 
   defp run_reduce_item(reduce, item_state, accumulator, state) do
-    metadata = collection_item_metadata(:reduce, reduce, item_state, state)
+    local_state =
+      state
+      |> Map.merge(item_state)
+      |> Map.put(:accumulator, accumulator)
 
-    :telemetry.span([:jido, :flow, :reduce, :item], metadata, fn ->
-      local_state =
-        state
-        |> Map.merge(item_state)
-        |> Map.put(:accumulator, accumulator)
-
-      result =
-        with {:ok, params} <- resolve_reduce_input(reduce, local_state, item_state) do
-          run_resolved_target(
-            reduce.action,
-            params,
-            state.context,
-            reduce_target_owner(reduce, item_state)
-          )
-        end
-
-      {result, Map.merge(metadata, reduce_item_result_metadata(result))}
-    end)
+    with {:ok, params} <- resolve_reduce_input(reduce, local_state, item_state) do
+      run_resolved_target(
+        reduce.action,
+        params,
+        state.context,
+        reduce_target_owner(reduce, item_state),
+        state.execution_id
+      )
+    end
   end
 
   defp resolve_reduce_input(reduce, state, item_state) do
@@ -1093,81 +822,68 @@ defmodule Jido.Flow.Compiler do
     caller = self()
     reference = make_ref()
 
-    {helper, monitor} =
+    {worker, monitor} =
       spawn_monitor(fn ->
-        helper = self()
-        span_owner = {helper, reference}
-        spawn(fn -> terminate_map_helper_with_caller(caller, helper) end)
+        worker = self()
+        spawn(fn -> terminate_map_worker_with_caller(caller, worker) end)
         Process.flag(:trap_exit, true)
 
         outcomes =
           items
-          |> Task.async_stream(&run_map_item(map, &1, state, span_owner),
+          |> Task.async_stream(&run_map_item(map, &1, state),
             max_concurrency: Keyword.fetch!(state.options, :max_concurrency),
             timeout: :infinity,
             ordered: true
           )
           |> Stream.zip(items)
           |> Enum.map(fn
-            {{:ok, outcome}, item_state} ->
-              take_map_item_span(reference, item_state.item_id)
+            {{:ok, outcome}, _item_state} ->
               outcome
 
             {{:exit, reason}, item_state} ->
-              span = take_map_item_span(reference, item_state.item_id)
-              map_item_task_exit(map, item_state, state, reason, span)
+              map_item_task_exit(map, item_state, reason)
           end)
 
         send(caller, {reference, self(), outcomes})
       end)
 
     receive do
-      {^reference, ^helper, outcomes} ->
+      {^reference, ^worker, outcomes} ->
         Process.demonitor(monitor, [:flush])
         outcomes
 
-      {:DOWN, ^monitor, :process, ^helper, reason} ->
+      {:DOWN, ^monitor, :process, ^worker, reason} ->
         exit(reason)
     end
   end
 
-  defp terminate_map_helper_with_caller(caller, helper) do
+  defp terminate_map_worker_with_caller(caller, worker) do
     caller_monitor = Process.monitor(caller)
-    helper_monitor = Process.monitor(helper)
+    worker_monitor = Process.monitor(worker)
 
     receive do
-      {:DOWN, ^caller_monitor, :process, ^caller, _reason} -> Process.exit(helper, :kill)
-      {:DOWN, ^helper_monitor, :process, ^helper, _reason} -> :ok
+      {:DOWN, ^caller_monitor, :process, ^caller, _reason} -> Process.exit(worker, :kill)
+      {:DOWN, ^worker_monitor, :process, ^worker, _reason} -> :ok
     end
   end
 
   defp run_map_item(map, item_state, state) do
-    run_map_item(map, item_state, state, nil)
-  end
+    local_state = Map.merge(state, item_state)
 
-  defp run_map_item(map, item_state, state, span_owner) do
-    metadata = collection_item_metadata(:map, map, item_state, state)
-
-    map_item_span(metadata, span_owner, item_state.item_id, fn ->
-      local_state = Map.merge(state, item_state)
-
-      result =
-        with {:ok, params} <- resolve_map_input(map, local_state, item_state),
-             {:ok, output} <-
-               run_resolved_target(
-                 map.action,
-                 params,
-                 state.context,
-                 map_target_owner(map, item_state)
-               ) do
-          {:ok, %{item_id: item_state.item_id, index: item_state.item_index, output: output}}
-        else
-          {:error, error} ->
-            {:error, %{item_id: item_state.item_id, index: item_state.item_index, error: error}}
-        end
-
-      {result, Map.merge(metadata, map_item_result_metadata(result))}
-    end)
+    with {:ok, params} <- resolve_map_input(map, local_state, item_state),
+         {:ok, output} <-
+           run_resolved_target(
+             map.action,
+             params,
+             state.context,
+             map_target_owner(map, item_state),
+             state.execution_id
+           ) do
+      {:ok, %{item_id: item_state.item_id, index: item_state.item_index, output: output}}
+    else
+      {:error, error} ->
+        {:error, %{item_id: item_state.item_id, index: item_state.item_index, error: error}}
+    end
   end
 
   defp resolve_map_input(map, state, item_state) do
@@ -1176,62 +892,7 @@ defmodule Jido.Flow.Compiler do
     |> tag_target_validation_error(:input, map_target_owner(map, item_state))
   end
 
-  defp map_item_span(metadata, span_owner, item_id, fun) do
-    start_time = System.monotonic_time()
-    span_context = make_ref()
-    span_metadata = Map.put_new(metadata, :telemetry_span_context, span_context)
-
-    :telemetry.execute(
-      [:jido, :flow, :map, :item, :start],
-      %{monotonic_time: start_time, system_time: System.system_time()},
-      span_metadata
-    )
-
-    notify_map_item_span_owner(span_owner, item_id, start_time, span_context)
-
-    try do
-      {result, stop_metadata} = fun.()
-      stop_time = System.monotonic_time()
-
-      :telemetry.execute(
-        [:jido, :flow, :map, :item, :stop],
-        %{duration: stop_time - start_time, monotonic_time: stop_time},
-        Map.put_new(stop_metadata, :telemetry_span_context, span_context)
-      )
-
-      result
-    catch
-      kind, reason ->
-        stop_time = System.monotonic_time()
-
-        :telemetry.execute(
-          [:jido, :flow, :map, :item, :exception],
-          %{duration: stop_time - start_time, monotonic_time: stop_time},
-          Map.merge(span_metadata, %{
-            kind: kind,
-            reason: reason,
-            stacktrace: __STACKTRACE__
-          })
-        )
-
-        :erlang.raise(kind, reason, __STACKTRACE__)
-    end
-  end
-
-  defp notify_map_item_span_owner(nil, _item_id, _start_time, _span_context), do: :ok
-
-  defp notify_map_item_span_owner({owner, reference}, item_id, start_time, span_context) do
-    send(owner, {:map_item_span_started, reference, item_id, start_time, span_context})
-  end
-
-  defp take_map_item_span(reference, item_id) do
-    receive do
-      {:map_item_span_started, ^reference, ^item_id, start_time, span_context} ->
-        {start_time, span_context}
-    end
-  end
-
-  defp map_item_task_exit(map, item_state, state, reason, span) do
+  defp map_item_task_exit(map, item_state, reason) do
     error =
       Error.execution_error("flow map item task exited", %{
         phase: :map_target_execution,
@@ -1242,29 +903,7 @@ defmodule Jido.Flow.Compiler do
         reason: reason
       })
 
-    metadata =
-      :map
-      |> collection_item_metadata(map, item_state, state)
-      |> Map.merge(%{status: :error, error_type: error_type(error)})
-
-    {measurements, metadata} = map_item_exit_telemetry(metadata, span)
-
-    :telemetry.execute(
-      [:jido, :flow, :map, :item, :stop],
-      measurements,
-      metadata
-    )
-
     {:error, %{item_id: item_state.item_id, index: item_state.item_index, error: error}}
-  end
-
-  defp map_item_exit_telemetry(metadata, {start_time, span_context}) do
-    stop_time = System.monotonic_time()
-
-    {
-      %{duration: stop_time - start_time, monotonic_time: stop_time},
-      Map.put(metadata, :telemetry_span_context, span_context)
-    }
   end
 
   defp map_window_size(options) do
@@ -1274,18 +913,6 @@ defmodule Jido.Flow.Compiler do
       1
     end
   end
-
-  defp normalize_runtime_options(options) do
-    [
-      async: Keyword.get(options, :async, false),
-      max_concurrency: Keyword.get(options, :max_concurrency, System.schedulers_online())
-    ]
-  end
-
-  defp collection_element?(%FlowMap{}), do: true
-  defp collection_element?(%Reduce{}), do: true
-  defp collection_element?(%Iterator{}), do: true
-  defp collection_element?(_element), do: false
 
   defp flow_module?(action) do
     function_exported?(action, :__jido_flow__, 0)
@@ -1414,17 +1041,16 @@ defmodule Jido.Flow.Compiler do
   defp choice_value_type(value) when is_tuple(value), do: :tuple
   defp choice_value_type(_value), do: :other
 
-  defp run_resolved_target(action, params, context, owner) do
+  defp run_resolved_target(action, params, context, owner, execution_id) do
     if flow_module?(action) do
       action
-      |> apply(:flow, [])
-      |> Exec.run(params, context)
+      |> then(& &1.flow())
+      |> Exec.run_nested(params, context, execution_id)
       |> tag_target_error(:execution, owner)
     else
       with {:ok, params} <- validate_target_input(action, params, owner),
-           {:ok, output} <- call_target_action(action, params, context, owner),
-           {:ok, output} <- validate_target_output(action, output, owner) do
-        {:ok, output}
+           {:ok, output} <- call_target_action(action, params, context, owner) do
+        validate_target_output(action, output, owner)
       end
     end
   end
@@ -1529,124 +1155,45 @@ defmodule Jido.Flow.Compiler do
   defp iterator_target_phase(:output), do: :iterate_body_output
 
   defp node_metadata(%Choice{} = choice, node_state) do
-    %{flow: node_state.flow, node: choice.name, kind: :choice}
+    node_metadata(node_state, choice.name, :choice)
   end
 
   defp node_metadata(%FlowMap{} = map, node_state) do
-    %{flow: node_state.flow, node: map.name, kind: :map}
+    node_metadata(node_state, map.name, :map)
   end
 
   defp node_metadata(%Reduce{} = reduce, node_state) do
-    %{flow: node_state.flow, node: reduce.name, kind: :reduce}
+    node_metadata(node_state, reduce.name, :reduce)
   end
 
   defp node_metadata(%Iterator{} = iterator, node_state) do
-    %{flow: node_state.flow, node: iterator.name, kind: :iterate, target: iterator.action}
+    node_metadata(node_state, iterator.name, :iterate)
   end
 
   defp node_metadata(node, node_state) do
-    %{flow: node_state.flow, node: node.name, action: node.action}
+    node_metadata(node_state, node.name, :step)
   end
 
-  defp node_result_metadata({:error, error, _state}) do
-    %{status: :error, error_type: error_type(error)}
-  end
-
-  defp node_result_metadata({:error, error, _state, choice_metadata}) do
-    Map.merge(%{status: :error, error_type: error_type(error)}, choice_metadata)
-  end
-
-  defp node_result_metadata({:ok, _output, choice_metadata}) do
-    Map.merge(%{status: :ok}, choice_metadata)
-  end
-
-  defp node_result_metadata(_result), do: %{status: :ok}
-
-  defp error_type(error), do: error |> Error.to_map() |> Map.get(:type)
-
-  defp map_metadata(map, item_count, success_count, error_count) do
+  defp node_metadata(node_state, node, kind) do
     %{
-      target: map.action,
-      on_error: map.on_error,
-      item_count: item_count,
-      success_count: success_count,
-      error_count: error_count
+      execution_id: node_state.execution_id,
+      flow: node_state.flow,
+      node: node,
+      kind: kind
     }
-  end
-
-  defp map_item_result_metadata({:ok, _result}), do: %{status: :ok}
-
-  defp map_item_result_metadata({:error, %{error: error}}) do
-    %{status: :error, error_type: error_type(error)}
-  end
-
-  defp reduce_metadata(reduce, item_count, completed_count) do
-    %{
-      target: reduce.action,
-      item_count: item_count,
-      completed_count: completed_count
-    }
-  end
-
-  defp collection_item_metadata(kind, element, item_state, state) do
-    %{
-      flow: state.flow,
-      node: element.name,
-      kind: kind,
-      target: element.action,
-      item_id: item_state.item_id,
-      item_index: item_state.item_index
-    }
-  end
-
-  defp reduce_item_result_metadata({:ok, _result}), do: %{status: :ok}
-
-  defp reduce_item_result_metadata({:error, error}) do
-    %{status: :error, error_type: error_type(error)}
   end
 
   defp dependency_results(%{deps: []}, _parent_value), do: %{}
   defp dependency_results(%{deps: [dep]}, parent_value), do: %{dep => parent_value}
 
   defp dependency_results(%{deps: deps}, parent_values) when is_list(parent_values) do
-    # Multi-parent nodes are attached with `to: deps`; Runic joins preserve that same order.
+    # Multi-parent nodes are attached with `to: deps`; engine joins preserve that same order.
     deps
     |> Enum.zip(parent_values)
     |> Map.new()
   end
 
-  defp raise_node_error(node, error, state) do
-    record_node_error(node, error, state)
-    raise NodeError, node: node.name, error: error
-  end
-
-  defp record_node_error(node, error, %{@collector_key => {runner, run_ref}})
-       when is_pid(runner) do
-    send(runner, {run_ref, :node_error, node.name, error})
-  end
-
-  defp record_node_error(_node, _error, _state), do: :ok
-
-  defp drain_node_errors(run_ref, ordered_nodes) do
-    node_index =
-      ordered_nodes
-      |> Enum.with_index()
-      |> Map.new(fn {node, index} -> {node.name, index} end)
-
-    run_ref
-    |> do_drain_node_errors([])
-    |> Enum.sort_by(fn {node, _error} -> Map.fetch!(node_index, node) end)
-  end
-
-  defp do_drain_node_errors(run_ref, acc) do
-    receive do
-      {^run_ref, :node_error, node, error} ->
-        do_drain_node_errors(run_ref, [{node, error} | acc])
-    after
-      0 ->
-        acc
-    end
-  end
+  defp raise_node_error(node, error), do: raise(NodeError, node: node.name, error: error)
 
   # Extras are instruction-path-only; flow nodes deliberately discard them.
   defp drop_action_extras({:ok, output, _extras}), do: {:ok, output}

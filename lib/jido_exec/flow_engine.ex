@@ -5,20 +5,21 @@ defmodule Jido.Exec.FlowEngine do
   alias Jido.Exec.{Execution, NodeResult}
   alias Jido.Flow
   alias Jido.Flow.{Compiler, Element, NodeError}
+  alias Jido.Telemetry
   alias Runic.Workflow
   alias Runic.Workflow.{Fact, Runnable, Step}
 
-  @spec start(Flow.t(), map(), map(), keyword(), function()) ::
+  @spec start(Flow.t(), map(), map(), keyword(), function(), String.t(), map()) ::
           {:ok, Execution.t()} | {:error, Exception.t()}
-  def start(%Flow{} = flow, input, context, options, finalizer)
+  def start(%Flow{} = flow, input, context, options, finalizer, execution_id, lifecycle)
       when is_map(input) and is_map(context) and is_list(options) and
-             is_function(finalizer, 1) do
+             is_function(finalizer, 1) and is_binary(execution_id) and is_map(lifecycle) do
     with {:ok, workflow, ordered_elements} <-
-           Compiler.runtime_workflow_validated(flow, input, context, options) do
+           Compiler.runtime_workflow_validated(flow, input, context, options, execution_id) do
       ordered_nodes = Enum.map(ordered_elements, &Element.name/1)
 
       execution = %Execution{
-        id: make_ref(),
+        id: execution_id,
         flow_name: flow.name,
         status: :running,
         revision: 0,
@@ -36,7 +37,8 @@ defmodule Jido.Exec.FlowEngine do
         node_errors: %{},
         engine_error: nil,
         finalizer: finalizer,
-        final_result: nil
+        final_result: nil,
+        lifecycle: lifecycle
       }
 
       settle(execution)
@@ -209,10 +211,10 @@ defmodule Jido.Exec.FlowEngine do
     caller = self()
     reference = make_ref()
 
-    {helper, monitor} =
+    {worker, monitor} =
       spawn_monitor(fn ->
-        helper = self()
-        spawn(fn -> terminate_helper_with_caller(caller, helper) end)
+        worker = self()
+        spawn(fn -> terminate_worker_with_caller(caller, worker) end)
         Process.flag(:trap_exit, true)
 
         executed =
@@ -241,24 +243,24 @@ defmodule Jido.Exec.FlowEngine do
       end)
 
     receive do
-      {^reference, ^helper, executed} ->
+      {^reference, ^worker, executed} ->
         Process.demonitor(monitor, [:flush])
         executed
 
-      {:DOWN, ^monitor, :process, ^helper, reason} ->
+      {:DOWN, ^monitor, :process, ^worker, reason} ->
         exit(reason)
     end
   end
 
-  defp terminate_helper_with_caller(caller, helper) do
+  defp terminate_worker_with_caller(caller, worker) do
     caller_monitor = Process.monitor(caller)
-    helper_monitor = Process.monitor(helper)
+    worker_monitor = Process.monitor(worker)
 
     receive do
       {:DOWN, ^caller_monitor, :process, ^caller, _reason} ->
-        Process.exit(helper, :kill)
+        Process.exit(worker, :kill)
 
-      {:DOWN, ^helper_monitor, :process, ^helper, _reason} ->
+      {:DOWN, ^worker_monitor, :process, ^worker, _reason} ->
         :ok
     end
   end
@@ -338,13 +340,11 @@ defmodule Jido.Exec.FlowEngine do
       |> Enum.find(&Map.has_key?(node_errors, &1))
       |> then(&Map.fetch!(node_errors, &1))
 
-    {:ok,
-     %{execution | status: :failed, ready: %{}, ready_nodes: [], final_result: {:error, error}}}
+    complete(execution, {:error, error})
   end
 
   defp finalize(%Execution{engine_error: error} = execution) when not is_nil(error) do
-    {:ok,
-     %{execution | status: :failed, ready: %{}, ready_nodes: [], final_result: {:error, error}}}
+    complete(execution, {:error, error})
   end
 
   defp finalize(%Execution{} = execution) do
@@ -359,9 +359,25 @@ defmodule Jido.Exec.FlowEngine do
         {:error, error} -> {:error, error}
       end
 
-    status = if match?({:ok, _output}, final_result), do: :succeeded, else: :failed
+    complete(execution, final_result)
+  end
 
-    {:ok, %{execution | status: status, ready: %{}, ready_nodes: [], final_result: final_result}}
+  defp complete(execution, final_result) do
+    status = if match?({:ok, _output}, final_result), do: :succeeded, else: :failed
+    Telemetry.finish(execution.lifecycle.flow, final_result)
+
+    if execution.lifecycle.exec do
+      Telemetry.finish(execution.lifecycle.exec, final_result)
+    end
+
+    {:ok,
+     %{
+       execution
+       | status: status,
+         ready: %{},
+         ready_nodes: [],
+         final_result: final_result
+     }}
   end
 
   defp execution_not_running(execution) do

@@ -496,11 +496,6 @@ defmodule Jido.ExecTest do
       assert details.field == "schema"
     end
 
-    test "executes a binding-first Flow artifact with whole-result input" do
-      assert {:ok, flow} = Builder.build(FlowFixtures.binding_builder())
-      assert {:ok, %{value: 8}} = Exec.run(flow, %{value: 3}, %{})
-    end
-
     test "normalizes nil and keyword input or context for Flow artifacts" do
       assert {:ok, flow} = Builder.build(FlowFixtures.math_builder())
 

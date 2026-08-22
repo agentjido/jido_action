@@ -1,239 +1,206 @@
 defmodule Jido.Flow.Builder do
   @moduledoc """
-  Builds Flow artifacts from runtime data.
+  Builds a Flow from runtime data.
 
-  The builder uses the same semantic validation as the compile-time DSL. It is
-  a runtime data-construction API, not a second source language. Developers
-  normally use the compile-time DSL from `Jido.Flow`.
+  Each node has an explicit name. References use that name through `result/2`.
+  `build/1` uses the same canonical constructor as the declarative Spark DSL
+  and stored Flow decoder.
   """
 
   import Kernel, except: [in: 2, not: 1]
 
-  alias Jido.Flow.Syntax
-  alias Jido.Flow.Syntax.Lowerer
+  alias Jido.Flow.{Condition, Constructor, Ref}
 
-  @schema Zoi.struct(
-            __MODULE__,
-            %{
-              syntax: Zoi.any(description: "Flow syntax artifact")
-            },
-            coerce: true
-          )
+  @type expression :: Ref.t() | map() | list() | term()
+  @type condition :: Condition.t()
+  @type choice_option :: map()
+  @type choice_fallback :: map()
 
-  @type t :: unquote(Zoi.type_spec(@schema))
+  @type t :: %__MODULE__{
+          config: map(),
+          node_specs: [map()],
+          return: expression() | nil
+        }
 
-  @typedoc "A closed data expression used by the runtime Builder."
-  @opaque expression :: Syntax.Expr.t()
+  @enforce_keys [:config, :node_specs, :return]
+  defstruct [:config, :node_specs, :return]
 
-  @typedoc "A closed Choice or Iterator condition."
-  @opaque condition :: Syntax.Condition.t()
-
-  @typedoc "One named Choice option."
-  @opaque choice_option :: Syntax.Option.t()
-
-  @typedoc "The required Choice fallback."
-  @opaque choice_fallback :: Syntax.Fallback.t()
-
-  @enforce_keys Zoi.Struct.enforce_keys(@schema)
-  defstruct Zoi.Struct.struct_fields(@schema)
-
-  @doc """
-  Starts a builder from Flow metadata.
-  """
+  @doc "Starts a Builder with Flow metadata."
   @spec new(map() | keyword()) :: t()
-  def new(attrs), do: %__MODULE__{syntax: Syntax.new(attrs)}
+  def new(attrs) when is_list(attrs) do
+    if Keyword.keyword?(attrs),
+      do: new(Map.new(attrs)),
+      else: raise(ArgumentError, "invalid Flow metadata")
+  end
 
-  @doc false
-  @spec syntax(t()) :: Syntax.t()
-  def syntax(%__MODULE__{syntax: syntax}), do: syntax
+  def new(%{} = attrs), do: %__MODULE__{config: attrs, node_specs: [], return: nil}
 
-  @doc """
-  Lowers the builder's syntax into a canonical Flow.
-  """
+  @doc "Builds and validates the canonical Flow."
   @spec build(t()) :: {:ok, Jido.Flow.t()} | {:error, Exception.t()}
-  def build(%__MODULE__{syntax: syntax}), do: Lowerer.lower(syntax)
+  def build(%__MODULE__{} = builder) do
+    builder.config
+    |> Map.put(:node_specs, builder.node_specs)
+    |> Map.put(:return, builder.return)
+    |> Constructor.build()
+  end
 
-  @doc "Builds a reference to Flow input at `path`."
-  @spec input(term()) :: expression()
-  defdelegate input(path), to: Syntax
+  @doc "Builds a Flow input reference."
+  @spec input(term()) :: Ref.t()
+  def input(path \\ []), do: Ref.input(path)
 
-  @doc "Builds a reference to runtime context at `path`."
-  @spec context(term()) :: expression()
-  defdelegate context(path), to: Syntax
+  @doc "Builds a runtime context reference."
+  @spec context(term()) :: Ref.t()
+  def context(path \\ []), do: Ref.context(path)
 
-  @doc "Wraps one literal value for use in a runtime expression."
-  @spec value(term()) :: expression()
-  defdelegate value(value), to: Syntax
+  @doc "Wraps one literal value."
+  @spec value(term()) :: Ref.t()
+  def value(value), do: Ref.value(value)
 
-  @doc "Builds a reference to a named node result, with an optional `path`."
-  @spec result(atom() | String.t(), term()) :: expression()
-  defdelegate result(node, path \\ []), to: Syntax
+  @doc "Builds a named node result reference."
+  @spec result(atom() | String.t(), term()) :: Ref.t()
+  def result(node, path \\ []), do: Ref.result(node, path)
 
-  @doc false
-  @spec binding(atom()) :: expression()
-  defdelegate binding(name), to: Syntax
+  @doc "Appends a path to a reference."
+  @spec select(Ref.t(), term()) :: Ref.t()
+  def select(%Ref{} = source, path) do
+    %{source | path: source.path ++ Ref.normalize_path(path)}
+  end
 
-  @doc "Projects `path` from another reference expression."
-  @spec select(expression(), term()) :: expression()
-  defdelegate select(source, path), to: Syntax
+  @doc "Builds a scoped Map or Reduce item reference."
+  @spec item(term()) :: Ref.t()
+  def item(path \\ nil), do: Ref.item(path)
 
-  @doc "Builds a scoped reference to the current Map or Reduce item."
-  @spec item(term()) :: expression()
-  defdelegate item(path \\ nil), to: Syntax
+  @doc "Builds a scoped collection item index reference."
+  @spec item_index() :: Ref.t()
+  def item_index, do: Ref.item_index()
 
-  @doc "Builds a scoped reference to the zero-based collection item index."
-  @spec item_index() :: expression()
-  defdelegate item_index(), to: Syntax
+  @doc "Builds a scoped collection item identifier reference."
+  @spec item_id() :: Ref.t()
+  def item_id, do: Ref.item_id()
 
-  @doc "Builds a scoped reference to the stable collection item identifier."
-  @spec item_id() :: expression()
-  defdelegate item_id(), to: Syntax
+  @doc "Builds a scoped Reduce accumulator reference."
+  @spec accumulator(term()) :: Ref.t()
+  def accumulator(path \\ nil), do: Ref.accumulator(path)
 
-  @doc "Builds a scoped reference to the current Reduce accumulator."
-  @spec accumulator(term()) :: expression()
-  defdelegate accumulator(path \\ nil), to: Syntax
+  @doc "Builds a scoped Iterator state reference."
+  @spec state(term()) :: Ref.t()
+  def state(path \\ nil), do: Ref.state(path)
 
-  @doc "Builds a scoped reference to the current Iterator State."
-  @spec state(term()) :: expression()
-  defdelegate state(path \\ nil), to: Syntax
+  @doc "Builds a scoped Iterator index reference."
+  @spec iteration_index() :: Ref.t()
+  def iteration_index, do: Ref.iteration_index()
 
-  @doc "Builds a scoped reference to the zero-based Iterator index."
-  @spec iteration_index() :: expression()
-  defdelegate iteration_index(), to: Syntax
+  @doc "Builds a scoped Iterator body result reference."
+  @spec body_result(term()) :: Ref.t()
+  def body_result(path \\ nil), do: Ref.body_result(path)
 
-  @doc "Builds a scoped reference to the latest Iterator body result."
-  @spec body_result(term()) :: expression()
-  defdelegate body_result(path \\ nil), to: Syntax
+  @doc "Builds an equality condition."
+  def eq(left, right), do: condition(:eq, [left, right])
 
-  @doc "Builds an equality condition for a Choice option."
-  @spec eq(term(), term()) :: condition()
-  defdelegate eq(left, right), to: Syntax
+  @doc "Builds an inequality condition."
+  def neq(left, right), do: condition(:neq, [left, right])
 
-  @doc "Builds an inequality condition for a Choice option."
-  @spec neq(term(), term()) :: condition()
-  defdelegate neq(left, right), to: Syntax
+  @doc "Builds a less-than condition."
+  def lt(left, right), do: condition(:lt, [left, right])
 
-  @doc "Builds a less-than condition for a Choice option."
-  @spec lt(term(), term()) :: condition()
-  defdelegate lt(left, right), to: Syntax
+  @doc "Builds a less-than-or-equal condition."
+  def lte(left, right), do: condition(:lte, [left, right])
 
-  @doc "Builds a less-than-or-equal condition for a Choice option."
-  @spec lte(term(), term()) :: condition()
-  defdelegate lte(left, right), to: Syntax
+  @doc "Builds a greater-than condition."
+  def gt(left, right), do: condition(:gt, [left, right])
 
-  @doc "Builds a greater-than condition for a Choice option."
-  @spec gt(term(), term()) :: condition()
-  defdelegate gt(left, right), to: Syntax
+  @doc "Builds a greater-than-or-equal condition."
+  def gte(left, right), do: condition(:gte, [left, right])
 
-  @doc "Builds a greater-than-or-equal condition for a Choice option."
-  @spec gte(term(), term()) :: condition()
-  defdelegate gte(left, right), to: Syntax
+  @doc "Builds a membership condition."
+  def unquote(:in)(left, right), do: condition(:in, [left, right])
 
-  @doc "Builds a list-membership condition for a Choice option."
-  @spec unquote(:in)(term(), term()) :: condition()
-  def unquote(:in)(left, right), do: apply(Syntax, :in, [left, right])
+  @doc "Builds a condition that requires all child conditions."
+  def all(conditions), do: condition(:all, conditions)
 
-  @doc "Builds a Choice condition that requires all child conditions to be true."
-  @spec all([condition()]) :: condition()
-  defdelegate all(conditions), to: Syntax
+  @doc "Builds a condition that requires one child condition."
+  def any(conditions), do: condition(:any, conditions)
 
-  @doc "Builds a Choice condition that requires one child condition to be true."
-  @spec any([condition()]) :: condition()
-  defdelegate any(conditions), to: Syntax
-
-  @doc "Builds a Choice condition that inverts one child condition."
-  @spec unquote(:not)(condition()) :: condition()
-  def not condition, do: apply(Syntax, :not, [condition])
+  @doc "Builds an inverted condition."
+  def not child, do: condition(:not, [child])
 
   @doc "Builds one named Choice option."
-  @spec option(atom() | String.t(), condition(), module(), term()) :: choice_option()
-  defdelegate option(name, condition, action, input \\ %{}), to: Syntax
+  @spec option(atom() | String.t(), condition(), module(), expression()) :: choice_option()
+  def option(name, condition, action, input \\ %{}) do
+    %{name: name, condition: condition, action: action, input: input}
+  end
 
   @doc "Builds the required Choice fallback."
-  @spec fallback(module(), term()) :: choice_fallback()
-  defdelegate fallback(action, input \\ %{}), to: Syntax
+  @spec fallback(module(), expression()) :: choice_fallback()
+  def fallback(action, input \\ %{}), do: %{action: action, input: input}
 
-  @doc false
-  defdelegate branch(name, operations, opts \\ []), to: Syntax
-
-  @doc false
-  @spec group(t(), [Syntax.Operation.t()], keyword()) :: t()
-  def group(%__MODULE__{syntax: syntax} = builder, branches, opts \\ []) do
-    %{builder | syntax: Syntax.group(syntax, branches, opts)}
+  @doc "Adds one named Action step."
+  @spec step(t(), atom() | String.t(), module(), expression(), keyword()) :: t()
+  def step(%__MODULE__{} = builder, name, action, input, opts \\ []) do
+    add_node(builder, :step, %{name: name, action: action, input: input}, opts)
   end
 
-  @doc """
-  Appends a step operation.
-  """
-  @spec step(t(), atom() | String.t() | nil, module(), term(), keyword()) :: t()
-  def step(%__MODULE__{syntax: syntax} = builder, name, action, input, opts \\ []) do
-    %{builder | syntax: Syntax.step(syntax, name, action, input, opts)}
+  @doc "Adds one named Map node."
+  @spec map(t(), atom() | String.t(), expression(), module(), expression(), keyword()) :: t()
+  def map(%__MODULE__{} = builder, name, collection, action, input, opts \\ []) do
+    add_node(
+      builder,
+      :map,
+      %{name: name, collection: collection, action: action, input: input},
+      opts
+    )
   end
 
-  @doc """
-  Appends a Map fan-out operation.
-  """
-  @spec map(t(), atom() | String.t() | nil, term(), module(), term(), keyword()) :: t()
-  def map(%__MODULE__{syntax: syntax} = builder, name, collection, action, input, opts \\ []) do
-    %{builder | syntax: Syntax.map(syntax, name, collection, action, input, opts)}
-  end
-
-  @doc """
-  Appends a serial Reduce fan-in operation.
-  """
+  @doc "Adds one named Reduce node."
   @spec reduce(
           t(),
-          atom() | String.t() | nil,
-          term(),
-          term(),
+          atom() | String.t(),
+          expression(),
+          expression(),
           module(),
-          term(),
+          expression(),
           keyword()
         ) :: t()
-  def reduce(
-        %__MODULE__{syntax: syntax} = builder,
-        name,
-        collection,
-        initial,
-        action,
-        input,
-        opts \\ []
-      ) do
-    %{
-      builder
-      | syntax: Syntax.reduce(syntax, name, collection, initial, action, input, opts)
-    }
+  def reduce(%__MODULE__{} = builder, name, collection, initial, action, input, opts \\ []) do
+    add_node(
+      builder,
+      :reduce,
+      %{name: name, collection: collection, initial: initial, action: action, input: input},
+      opts
+    )
   end
 
-  @doc "Appends one bounded, stateful Iterate operation."
-  @spec iterate(t(), atom() | String.t() | nil, module(), term(), map() | keyword(), keyword()) ::
+  @doc "Adds one named, bounded Iterator node."
+  @spec iterate(t(), atom() | String.t(), module(), expression(), map() | keyword(), keyword()) ::
           t()
-  def iterate(%__MODULE__{syntax: syntax} = builder, name, action, input, state, opts \\ []) do
-    %{builder | syntax: Syntax.iterate(syntax, name, action, input, state, opts)}
+  def iterate(%__MODULE__{} = builder, name, action, input, state, opts \\ []) do
+    add_node(builder, :iterate, %{name: name, action: action, input: input, state: state}, opts)
   end
 
-  @doc """
-  Appends a named ordered Choice operation.
-  """
-  @spec choice(
-          t(),
-          atom() | String.t() | nil,
-          [choice_option()],
-          choice_fallback(),
-          keyword()
-        ) :: t()
-  def choice(%__MODULE__{syntax: syntax} = builder, name, options, fallback, opts \\ []) do
-    %{builder | syntax: Syntax.choice(syntax, name, options, fallback, opts)}
+  @doc "Adds one named ordered Choice node."
+  @spec choice(t(), atom() | String.t(), [choice_option()], choice_fallback(), keyword()) :: t()
+  def choice(%__MODULE__{} = builder, name, options, fallback, opts \\ []) do
+    add_node(builder, :choice, %{name: name, options: options, fallback: fallback}, opts)
   end
 
-  @doc """
-  Appends the Flow output expression.
+  @doc "Sets the Flow output expression."
+  @spec return(t(), expression()) :: t()
+  def return(%__MODULE__{} = builder, expression), do: %{builder | return: expression}
 
-  This runtime function is named `return/2` because it writes the canonical
-  Flow `:return` field. The compile-time DSL uses `output` for the same concept.
-  """
-  @spec return(t(), term()) :: t()
-  def return(%__MODULE__{syntax: syntax} = builder, expr) do
-    %{builder | syntax: Syntax.return(syntax, expr)}
+  defp add_node(builder, kind, attrs, opts) do
+    spec = attrs |> Map.put(:kind, kind) |> Map.merge(normalize_options(opts))
+    %{builder | node_specs: builder.node_specs ++ [spec]}
   end
+
+  defp normalize_options(opts) when is_list(opts) do
+    if Keyword.keyword?(opts) and Enum.uniq(Keyword.keys(opts)) == Keyword.keys(opts) do
+      Map.new(opts)
+    else
+      %{__builder_options_error__: opts}
+    end
+  end
+
+  defp normalize_options(opts), do: %{__builder_options_error__: opts}
+
+  defp condition(operator, operands), do: %Condition{operator: operator, operands: operands}
 end

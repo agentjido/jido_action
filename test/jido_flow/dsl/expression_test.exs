@@ -1,8 +1,8 @@
 defmodule Jido.Flow.DSL.ExpressionTest do
   use ExUnit.Case, async: true
 
+  alias Jido.Flow.{Condition, Ref}
   alias Jido.Flow.DSL.Expression
-  alias Jido.Flow.Syntax
 
   test "lowers the closed Flow expression vocabulary" do
     expression =
@@ -32,26 +32,26 @@ defmodule Jido.Flow.DSL.ExpressionTest do
       end
 
     assert {:ok, parsed} = Expression.parse(expression)
-    assert parsed.input == Syntax.input([])
-    assert parsed.input_path == Syntax.input(:id)
-    assert parsed.context == Syntax.context([])
-    assert parsed.context_path == Syntax.context([:request, :id])
-    assert parsed.result == Syntax.result("loaded")
-    assert parsed.result_path == Syntax.result("loaded", :id)
-    assert parsed.selected == Syntax.select(Syntax.result("loaded"), [:customer, :id])
-    assert parsed.item == Syntax.item()
-    assert parsed.item_path == Syntax.item(:price)
-    assert parsed.item_index == Syntax.item_index()
-    assert parsed.item_id == Syntax.item_id()
-    assert parsed.accumulator == Syntax.accumulator()
-    assert parsed.accumulator_path == Syntax.accumulator(:total)
-    assert parsed.state == Syntax.state()
-    assert parsed.state_path == Syntax.state(:status)
-    assert parsed.iteration_index == Syntax.iteration_index()
-    assert parsed.body_result == Syntax.body_result()
-    assert parsed.body_result_path == Syntax.body_result(:status)
-    assert parsed.literal == Syntax.value(:ok)
-    assert parsed.nested == Enum.map([1, true, nil, "value"], &Syntax.value/1)
+    assert parsed.input == Ref.input([])
+    assert parsed.input_path == Ref.input(:id)
+    assert parsed.context == Ref.context([])
+    assert parsed.context_path == Ref.context([:request, :id])
+    assert parsed.result == Ref.result("loaded")
+    assert parsed.result_path == Ref.result("loaded", :id)
+    assert parsed.selected == Ref.result("loaded", [:customer, :id])
+    assert parsed.item == Ref.item()
+    assert parsed.item_path == Ref.item(:price)
+    assert parsed.item_index == Ref.item_index()
+    assert parsed.item_id == Ref.item_id()
+    assert parsed.accumulator == Ref.accumulator()
+    assert parsed.accumulator_path == Ref.accumulator(:total)
+    assert parsed.state == Ref.state()
+    assert parsed.state_path == Ref.state(:status)
+    assert parsed.iteration_index == Ref.iteration_index()
+    assert parsed.body_result == Ref.body_result()
+    assert parsed.body_result_path == Ref.body_result(:status)
+    assert parsed.literal == Ref.value(:ok)
+    assert parsed.nested == Enum.map([1, true, nil, "value"], &Ref.value/1)
   end
 
   test "lowers native and function condition forms" do
@@ -69,8 +69,8 @@ defmodule Jido.Flow.DSL.ExpressionTest do
         ])
       end
 
-    assert {:ok, %Syntax.Condition{operator: :all}} = Expression.parse_condition(native)
-    assert {:ok, %Syntax.Condition{operator: :all}} = Expression.parse_condition(function)
+    assert {:ok, %Condition{operator: :all}} = Expression.parse_condition(native)
+    assert {:ok, %Condition{operator: :all}} = Expression.parse_condition(function)
   end
 
   test "rejects executable expressions, keyword data, and invalid conditions" do

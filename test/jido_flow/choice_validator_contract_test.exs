@@ -2,8 +2,9 @@ defmodule Jido.Flow.ChoiceValidatorContractTest do
   use JidoTest.ActionCase, async: true
 
   alias Jido.Action.Error.ExecutionFailureError
+  alias Jido.Exec
   alias Jido.Flow
-  alias Jido.Flow.{Choice, Compiler, Condition, Ref}
+  alias Jido.Flow.{Choice, Condition, Ref}
 
   alias JidoTest.TestActions.{
     AtomValidationAction,
@@ -24,7 +25,7 @@ defmodule Jido.Flow.ChoiceValidatorContractTest do
 
       for opts <- [[], [async: true]] do
         assert {:error, %ExecutionFailureError{message: "validator failed", details: details}} =
-                 Compiler.run(flow, %{}, %{}, opts)
+                 Exec.run(flow, %{}, %{}, opts)
 
         assert details.callback == :validate_params
         assert details.exception == RuntimeError
@@ -45,7 +46,7 @@ defmodule Jido.Flow.ChoiceValidatorContractTest do
               %ExecutionFailureError{
                 message: "action validator returned an unsupported result",
                 details: details
-              }} = Compiler.run(flow, %{}, %{})
+              }} = Exec.run(flow, %{}, %{})
 
       assert details.callback == :validate_params
       assert details.result == :ok
@@ -64,7 +65,7 @@ defmodule Jido.Flow.ChoiceValidatorContractTest do
               %ExecutionFailureError{
                 message: "action validator returned a value with an invalid shape",
                 details: details
-              }} = Compiler.run(flow, %{}, %{})
+              }} = Exec.run(flow, %{}, %{})
 
       assert details.callback == :validate_params
       assert details.expected == :map
@@ -85,7 +86,7 @@ defmodule Jido.Flow.ChoiceValidatorContractTest do
                 message: "bad_params",
                 class: :execution,
                 details: details
-              }} = Compiler.run(flow, %{}, %{})
+              }} = Exec.run(flow, %{}, %{})
 
       assert details.reason == :bad_params
       assert_choice_details(details, "matched", AtomValidationAction)
