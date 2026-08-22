@@ -101,6 +101,24 @@ defmodule Jido.Flow.BuilderTest do
     assert Exception.message(error) =~ "name"
   end
 
+  test "rejects options that replace positional Step fields" do
+    builder =
+      Builder.new(name: "protected_step")
+      |> Builder.step("original", Add, %{value: 1},
+        kind: :map,
+        name: "changed",
+        action: Multiply,
+        input: %{value: 9},
+        collection: Builder.value([1])
+      )
+
+    assert {:error, error} = Builder.build(builder)
+    assert Exception.message(error) == "Builder step received unsupported options"
+
+    assert error.details.options == [:action, :collection, :input, :kind, :name]
+    assert error.details.path == [:nodes, 0, :options]
+  end
+
   test "does not expose assignment-era forms" do
     refute function_exported?(Builder, :binding, 1)
     refute function_exported?(Builder, :bind, 2)

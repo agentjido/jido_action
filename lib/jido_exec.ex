@@ -30,8 +30,9 @@ defmodule Jido.Exec do
   One `execution_id` correlates an outer Flow, its nodes, and nested Flows.
   The order for serial run-to-completion is Exec start, Flow start, node spans,
   Flow stop or error, and Exec stop or error. A nested Flow starts inside its
-  owning node span. With `async: true`, node spans can overlap and can be
-  emitted by task processes.
+  owning node span. With `async: true`, a wave emits node starts in canonical
+  order before dispatch and node stop or error events in canonical order after
+  it receives all outcomes. These node spans can overlap.
 
   `start/4` opens the Exec and Flow lifecycles. Each `step/2` or `wave/1` emits
   spans only for the nodes that it runs. The call that makes the execution
@@ -62,7 +63,7 @@ defmodule Jido.Exec do
   alias Jido.Exec.NodeResult
   alias Jido.Flow
   alias Jido.Instruction
-  alias Jido.Telemetry
+  alias Jido.Action.Telemetry
 
   @flow_run_option_keys [:async, :max_concurrency]
 

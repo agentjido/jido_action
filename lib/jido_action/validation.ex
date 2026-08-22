@@ -10,9 +10,11 @@ defmodule Jido.Action.Validation do
 
   def open_validate(schema, data, details) when is_map(details) do
     if zoi_schema?(schema) do
-      schema
-      |> parse_schema(data)
-      |> handle_validation_result(schema, details)
+      safely_validate(details, fn ->
+        schema
+        |> parse_schema(data)
+        |> handle_validation_result(schema, details)
+      end)
     else
       {:error, Error.validation_error("Unsupported schema type", details)}
     end
@@ -25,12 +27,35 @@ defmodule Jido.Action.Validation do
 
   def open_validate_preserving_shape(schema, data, details) when is_map(details) do
     if zoi_schema?(schema) do
-      schema
-      |> parse_schema(data)
-      |> handle_shape_preserving_result(schema, details)
+      safely_validate(details, fn ->
+        schema
+        |> parse_schema(data)
+        |> handle_shape_preserving_result(schema, details)
+      end)
     else
       {:error, Error.validation_error("Unsupported schema type", details)}
     end
+  end
+
+  defp safely_validate(details, validate) do
+    validate.()
+  rescue
+    exception ->
+      {:error,
+       Error.validation_error(
+         "schema validation failed",
+         Map.merge(details, %{
+           exception: exception.__struct__,
+           reason: Exception.message(exception)
+         })
+       )}
+  catch
+    kind, reason ->
+      {:error,
+       Error.validation_error(
+         "schema validation failed",
+         Map.merge(details, %{failure_kind: kind, reason: inspect(reason)})
+       )}
   end
 
   @doc false

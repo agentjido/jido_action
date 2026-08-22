@@ -58,6 +58,13 @@ defmodule Jido.ExecTest do
     {:ok, transformed}
   end
 
+  def fail_flow_transform(_value, mode, _opts) do
+    case mode do
+      :raise -> raise "flow schema boom"
+      :throw -> throw(:flow_schema_boom)
+    end
+  end
+
   describe "run/3 with action modules" do
     test "executes a leaf action with input and context validation" do
       assert {:ok, %{value: 6}} = Exec.run(Add, %{value: 5}, %{trace_id: "trace"})
@@ -444,6 +451,30 @@ defmodule Jido.ExecTest do
       end
     end
 
+    test "does not raise when a result path reaches an improper list tail" do
+      module = unique_module("ImproperListOutputAction")
+
+      create_module(
+        module,
+        quote do
+          use Jido.Action, name: "improper_list_output_action"
+
+          @impl true
+          def run(_params, _context), do: {:ok, %{items: [1 | :tail]}}
+        end
+      )
+
+      flow =
+        Flow.new!(
+          name: "improper_list_result",
+          nodes: [Node.new!(name: "output", action: module)],
+          return: Ref.result("output", [:items, 1])
+        )
+
+      assert {:error, %ExecutionFailureError{message: message}} = Exec.run(flow)
+      assert message == "action returned a value that requires an output envelope"
+    end
+
     test "executes a Flow artifact" do
       assert {:ok, flow} = Builder.build(FlowFixtures.math_builder())
       assert {:ok, %{value: 8}} = Exec.run(flow, %{value: 3}, %{})
@@ -648,6 +679,54 @@ defmodule Jido.ExecTest do
       assert message =~ "expected integer"
       assert details.phase == :flow_input
       assert details.context == "Flow"
+    end
+
+    test "normalizes raised and thrown Flow input schema effects" do
+      for mode <- [:raise, :throw] do
+        flow =
+          Flow.new!(
+            name: "failing_input_schema",
+            schema:
+              Zoi.map()
+              |> Zoi.transform({__MODULE__, :fail_flow_transform, [mode]}),
+            nodes: [Node.new!(name: "echo", action: EchoParamsAction)],
+            return: Ref.result("echo")
+          )
+
+        assert {:error, %InvalidInputError{message: message, details: details}} =
+                 Exec.run(flow)
+
+        assert message == "schema validation failed"
+        assert details.phase == :flow_input
+
+        assert {:error, %InvalidInputError{message: ^message}} = Exec.start(flow)
+      end
+    end
+
+    test "normalizes a raised Flow output schema effect in both execution modes" do
+      flow =
+        Flow.new!(
+          name: "failing_output_schema",
+          output_schema:
+            Zoi.map()
+            |> Zoi.transform({__MODULE__, :fail_flow_transform, [:raise]}),
+          nodes: [Node.new!(name: "echo", action: EchoParamsAction)],
+          return: Ref.result("echo")
+        )
+
+      assert {:error, %InvalidInputError{message: "schema validation failed", details: details}} =
+               Exec.run(flow)
+
+      assert details.phase == :flow_output
+
+      assert {:ok, execution} = Exec.start(flow)
+      assert {:ok, _node_result, execution} = Exec.step(execution)
+
+      assert {:error,
+              %InvalidInputError{message: "schema validation failed", details: step_details}} =
+               Exec.result(execution)
+
+      assert step_details.phase == :flow_output
     end
 
     test "rejects scalar Flow input schemas during construction" do

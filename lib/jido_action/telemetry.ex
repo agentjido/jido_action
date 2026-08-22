@@ -1,4 +1,4 @@
-defmodule Jido.Telemetry do
+defmodule Jido.Action.Telemetry do
   @moduledoc false
 
   alias Jido.Action.Error

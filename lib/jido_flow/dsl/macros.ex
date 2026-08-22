@@ -85,9 +85,30 @@ defmodule Jido.Flow.DSL.Macros do
   end
 
   defp validate_options!(options, caller) do
-    unless Keyword.keyword?(options) do
+    if Keyword.keyword?(options) do
+      case first_duplicate(Keyword.keys(options)) do
+        {:ok, field} ->
+          compile_error!(caller, "duplicate Flow declaration field: #{inspect(field)}")
+
+        :none ->
+          :ok
+      end
+    else
       compile_error!(caller, "Flow declaration options must be a keyword list")
     end
+  end
+
+  defp first_duplicate(values) do
+    values
+    |> Enum.reduce_while(MapSet.new(), fn value, seen ->
+      if MapSet.member?(seen, value),
+        do: {:halt, {:ok, value}},
+        else: {:cont, MapSet.put(seen, value)}
+    end)
+    |> then(fn
+      %MapSet{} -> :none
+      duplicate -> duplicate
+    end)
   end
 
   defp compile_error!(caller, description) do
@@ -110,12 +131,7 @@ defmodule Jido.Flow.DSL.ChoiceMacros do
   end
 
   defp nested_entity(name, options, module, function, quoted_fields, caller) do
-    unless Keyword.keyword?(options) do
-      raise CompileError,
-        file: caller.file,
-        line: caller.line,
-        description: "Choice declaration options must be a keyword list"
-    end
+    validate_options!(options, caller)
 
     case Keyword.pop(options, :do) do
       {nil, short_options} ->
@@ -172,6 +188,37 @@ defmodule Jido.Flow.DSL.ChoiceMacros do
       if field in fields, do: {field, Macro.escape(value)}, else: option
     end)
   end
+
+  defp validate_options!(options, caller) do
+    if Keyword.keyword?(options) do
+      case first_duplicate(Keyword.keys(options)) do
+        {:ok, field} ->
+          compile_error!(caller, "duplicate Choice declaration field: #{inspect(field)}")
+
+        :none ->
+          :ok
+      end
+    else
+      compile_error!(caller, "Choice declaration options must be a keyword list")
+    end
+  end
+
+  defp first_duplicate(values) do
+    values
+    |> Enum.reduce_while(MapSet.new(), fn value, seen ->
+      if MapSet.member?(seen, value),
+        do: {:halt, {:ok, value}},
+        else: {:cont, MapSet.put(seen, value)}
+    end)
+    |> then(fn
+      %MapSet{} -> :none
+      duplicate -> duplicate
+    end)
+  end
+
+  defp compile_error!(caller, description) do
+    raise CompileError, file: caller.file, line: caller.line, description: description
+  end
 end
 
 defmodule Jido.Flow.DSL.IterateMacros do
@@ -180,12 +227,7 @@ defmodule Jido.Flow.DSL.IterateMacros do
   @state Jido.Flow.DSL.Extension.Flow.Iterate.State
 
   defmacro state(schema, options) do
-    unless Keyword.keyword?(options) do
-      raise CompileError,
-        file: __CALLER__.file,
-        line: __CALLER__.line,
-        description: "Iterate state options must be a keyword list"
-    end
+    validate_options!(options, __CALLER__)
 
     case Keyword.pop(options, :do) do
       {nil, short_options} ->
@@ -215,5 +257,36 @@ defmodule Jido.Flow.DSL.IterateMacros do
           line: __CALLER__.line,
           description: "do not mix keyword and block fields in Iterate state"
     end
+  end
+
+  defp validate_options!(options, caller) do
+    if Keyword.keyword?(options) do
+      case first_duplicate(Keyword.keys(options)) do
+        {:ok, field} ->
+          compile_error!(caller, "duplicate Iterate state field: #{inspect(field)}")
+
+        :none ->
+          :ok
+      end
+    else
+      compile_error!(caller, "Iterate state options must be a keyword list")
+    end
+  end
+
+  defp first_duplicate(values) do
+    values
+    |> Enum.reduce_while(MapSet.new(), fn value, seen ->
+      if MapSet.member?(seen, value),
+        do: {:halt, {:ok, value}},
+        else: {:cont, MapSet.put(seen, value)}
+    end)
+    |> then(fn
+      %MapSet{} -> :none
+      duplicate -> duplicate
+    end)
+  end
+
+  defp compile_error!(caller, description) do
+    raise CompileError, file: caller.file, line: caller.line, description: description
   end
 end

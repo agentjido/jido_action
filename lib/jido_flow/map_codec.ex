@@ -86,10 +86,16 @@ defmodule Jido.Flow.MapCodec do
       "return" => encode_expression!(flow.return, ["return"])
     }
 
-    if Keyword.get(opts, :provenance, false) do
-      Map.put(base, "provenance", encode_data!(flow.provenance, ["provenance"]))
-    else
-      base
+    stored =
+      if Keyword.get(opts, :provenance, false) do
+        Map.put(base, "provenance", encode_data!(flow.provenance, ["provenance"]))
+      else
+        base
+      end
+
+    case ResourceBudget.validate(stored, :map) do
+      :ok -> stored
+      {:error, error} -> raise error
     end
   end
 
@@ -979,10 +985,8 @@ defmodule Jido.Flow.MapCodec do
            ),
          {:ok, operands} <-
            decode_condition_operands(operands, operator, profile, scope)
-           |> prepend_error_path([profile_field(:operands, profile)]),
-         {:ok, condition} <-
-           Condition.validate(%Condition{operator: operator, operands: operands}, scope) do
-      {:ok, condition}
+           |> prepend_error_path([profile_field(:operands, profile)]) do
+      Condition.validate(%Condition{operator: operator, operands: operands}, scope)
     end
   end
 
@@ -1149,9 +1153,16 @@ defmodule Jido.Flow.MapCodec do
   end
 
   defp encode_data!(list, path) when is_list(list) do
-    list
-    |> Enum.with_index()
-    |> Enum.map(fn {value, index} -> encode_data!(value, path ++ [index]) end)
+    if List.improper?(list) do
+      raise_validation("stored flow value is not JSON-safe", %{
+        value: inspect(list),
+        path: path
+      })
+    else
+      list
+      |> Enum.with_index()
+      |> Enum.map(fn {value, index} -> encode_data!(value, path ++ [index]) end)
+    end
   end
 
   defp encode_data!(%{} = map, path) when not is_struct(map) do
@@ -1400,9 +1411,8 @@ defmodule Jido.Flow.MapCodec do
     with {:ok, version} <-
            profile_fetch_required(map, :version, profile, "flow map version is required"),
          :ok <- validate_version(version, profile),
-         {:ok, type} <- profile_fetch_required(map, :type, profile, "flow map type is required"),
-         :ok <- validate_type(type, profile) do
-      :ok
+         {:ok, type} <- profile_fetch_required(map, :type, profile, "flow map type is required") do
+      validate_type(type, profile)
     end
   end
 
@@ -1422,9 +1432,8 @@ defmodule Jido.Flow.MapCodec do
              ["kind", "name", "options", "fallback", "deps", "provenance"],
              ["kind", "name", "options", "fallback", "deps"],
              :choice
-           ),
-         :ok <- validate_choice_kind(Map.fetch!(choice, "kind"), :stored) do
-      :ok
+           ) do
+      validate_choice_kind(Map.fetch!(choice, "kind"), :stored)
     end
   end
 

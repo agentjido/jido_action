@@ -111,11 +111,20 @@ defmodule Jido.Instruction do
       |> List.last()
       |> Macro.underscore()
 
-    String.to_existing_atom(derived_name)
+    case existing_atom(derived_name) do
+      {:ok, name} ->
+        name
+
+      :error ->
+        raise ArgumentError,
+              "could not derive action name without creating a new atom from #{inspect(action)}; pass an explicit atom name"
+    end
+  end
+
+  defp existing_atom(value) do
+    {:ok, String.to_existing_atom(value)}
   rescue
-    ArgumentError ->
-      raise ArgumentError,
-            "could not derive action name without creating a new atom from #{inspect(action)}; pass an explicit atom name"
+    ArgumentError -> :error
   end
 
   @spec normalize_map!(term(), atom()) :: map()

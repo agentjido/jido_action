@@ -75,10 +75,21 @@ defmodule Jido.Flow.Constructor do
     {:error, Error.validation_error("flow node kind is required", %{path: [:kind]})}
   end
 
-  defp validate_spec_keys(%{__builder_options_error__: options}, _kind) do
+  defp validate_spec_keys(
+         %{__builder_options_error__: %{reason: :unsupported, options: options}},
+         kind
+       ) do
+    {:error,
+     Error.validation_error("Builder #{kind} received unsupported options", %{
+       options: options,
+       path: [:options]
+     })}
+  end
+
+  defp validate_spec_keys(%{__builder_options_error__: error}, _kind) do
     {:error,
      Error.validation_error("Builder node options must be a keyword list with unique keys", %{
-       options: options,
+       options: Map.get(error, :options),
        path: [:options]
      })}
   end

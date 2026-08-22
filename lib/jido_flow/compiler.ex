@@ -16,7 +16,6 @@ defmodule Jido.Flow.Compiler do
   alias Jido.Flow.NodeError
   alias Jido.Flow.Reduce
   alias Jido.Flow.Ref
-  alias Jido.Telemetry
   alias Runic.Workflow
   alias Runic.Workflow.Step
 
@@ -130,37 +129,17 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp run_node(node, parent_value, node_state) do
-    metadata = node_metadata(node, node_state)
-    span = Telemetry.start([:jido, :flow, :node], metadata)
-
-    result =
-      try do
-        run_node_result(node, parent_value, node_state)
-      rescue
-        exception ->
-          Telemetry.error(span, exception)
-          reraise exception, __STACKTRACE__
-      catch
-        kind, reason ->
-          Telemetry.error(span, reason)
-          :erlang.raise(kind, reason, __STACKTRACE__)
-      end
-
-    case result do
+    case run_node_result(node, parent_value, node_state) do
       {:ok, output} ->
-        Telemetry.stop(span)
         output
 
       {:ok, output, _metadata} ->
-        Telemetry.stop(span)
         output
 
       {:error, error, _state} ->
-        Telemetry.error(span, error)
         raise_node_error(node, error)
 
       {:error, error, _state, _metadata} ->
-        Telemetry.error(span, error)
         raise_node_error(node, error)
     end
   end
@@ -1154,35 +1133,6 @@ defmodule Jido.Flow.Compiler do
   defp iterator_target_phase(:execution), do: :iterate_body_execution
   defp iterator_target_phase(:output), do: :iterate_body_output
 
-  defp node_metadata(%Choice{} = choice, node_state) do
-    node_metadata(node_state, choice.name, :choice)
-  end
-
-  defp node_metadata(%FlowMap{} = map, node_state) do
-    node_metadata(node_state, map.name, :map)
-  end
-
-  defp node_metadata(%Reduce{} = reduce, node_state) do
-    node_metadata(node_state, reduce.name, :reduce)
-  end
-
-  defp node_metadata(%Iterator{} = iterator, node_state) do
-    node_metadata(node_state, iterator.name, :iterate)
-  end
-
-  defp node_metadata(node, node_state) do
-    node_metadata(node_state, node.name, :step)
-  end
-
-  defp node_metadata(node_state, node, kind) do
-    %{
-      execution_id: node_state.execution_id,
-      flow: node_state.flow,
-      node: node,
-      kind: kind
-    }
-  end
-
   defp dependency_results(%{deps: []}, _parent_value), do: %{}
   defp dependency_results(%{deps: [dep]}, parent_value), do: %{dep => parent_value}
 
@@ -1507,11 +1457,15 @@ defmodule Jido.Flow.Compiler do
 
   defp fetch_path(value, [key | rest]) when is_list(value) and is_integer(key) and key >= 0 do
     value
-    |> Enum.at(key)
+    |> list_at(key)
     |> fetch_path(rest)
   end
 
   defp fetch_path(_value, _path), do: nil
+
+  defp list_at([head | _tail], 0), do: head
+  defp list_at([_head | tail], index), do: list_at(tail, index - 1)
+  defp list_at(_tail, _index), do: nil
 
   defp fetch_key(map, key) do
     cond do

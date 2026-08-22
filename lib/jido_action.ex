@@ -142,16 +142,25 @@ defmodule Jido.Action do
           line: env.line
     end
 
+    case escapable_static_schema?(schema) do
+      true ->
+        schema
+
+      false ->
+        raise CompileError,
+          description:
+            "#{inspect(option)} must be static module data that can be stored in the Action module. " <>
+              "Use named MFA effects such as {Module, :function, args}",
+          file: env.file,
+          line: env.line
+    end
+  end
+
+  defp escapable_static_schema?(schema) do
     Macro.escape(schema)
-    schema
+    true
   rescue
-    ArgumentError ->
-      raise CompileError,
-        description:
-          "#{inspect(option)} must be static module data that can be stored in the Action module. " <>
-            "Use named MFA effects such as {Module, :function, args}",
-        file: env.file,
-        line: env.line
+    ArgumentError -> false
   end
 
   @doc false

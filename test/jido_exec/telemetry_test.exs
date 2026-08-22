@@ -29,6 +29,16 @@ defmodule Jido.Exec.TelemetryTest do
     @node_error
   ]
 
+  def raise_flow_transform(_value, _opts), do: raise("flow schema boom")
+
+  defmodule KillAction do
+    @moduledoc false
+    use Jido.Action, name: "kill_telemetry_task"
+
+    @impl true
+    def run(_params, _context), do: Process.exit(self(), :kill)
+  end
+
   test "emits the exact Exec lifecycle for an Action" do
     attach(@public_events)
 
@@ -167,6 +177,53 @@ defmodule Jido.Exec.TelemetryTest do
     for measurements <- [node_measurements, flow_measurements, exec_measurements] do
       assert Map.keys(measurements) |> Enum.sort() == [:duration, :monotonic_time]
     end
+  end
+
+  test "closes Exec and Flow lifecycles when an input schema effect raises" do
+    attach(@public_events)
+
+    flow =
+      Flow.new!(
+        name: "raising_schema",
+        schema: Zoi.map() |> Zoi.transform({__MODULE__, :raise_flow_transform, []}),
+        nodes: [Node.new!(name: "add", action: Add)],
+        return: Ref.result("add")
+      )
+
+    assert {:error, error} = Exec.run(flow)
+
+    assert [
+             {@exec_start, _, exec_start},
+             {@flow_start, _, flow_start},
+             {@flow_error, _, flow_error},
+             {@exec_error, _, exec_error}
+           ] = events()
+
+    assert flow_error.execution_id == exec_start.execution_id
+    assert exec_error.execution_id == exec_start.execution_id
+    assert flow_error.error == error
+    assert exec_error.error == error
+    assert Map.drop(flow_error, [:error, :error_type]) == flow_start
+  end
+
+  test "emits a node error when an asynchronous node task is killed" do
+    attach(@public_events)
+    flow = one_node_flow(KillAction, %{})
+
+    assert {:error, error} = Exec.run(flow, %{}, %{}, async: true)
+
+    assert [
+             {@exec_start, _, exec_start},
+             {@flow_start, _, _flow_start},
+             {@node_start, _, node_start},
+             {@node_error, _, node_error},
+             {@flow_error, _, _flow_error},
+             {@exec_error, _, _exec_error}
+           ] = events()
+
+    assert node_error.execution_id == exec_start.execution_id
+    assert node_error.error == error
+    assert Map.drop(node_error, [:error, :error_type]) == node_start
   end
 
   test "step-wise execution closes lifecycle events only at a terminal step" do

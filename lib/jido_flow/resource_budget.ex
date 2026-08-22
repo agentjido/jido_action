@@ -39,13 +39,25 @@ defmodule Jido.Flow.ResourceBudget do
   defp count_binary(term, binary_bytes, surface, reverse_path) when is_binary(term) do
     actual = binary_bytes + byte_size(term)
 
-    case within_limit(surface, :binary_bytes, @max_binary_bytes, actual, reverse_path) do
-      :ok -> {:ok, actual}
-      {:error, error} -> {:error, error}
+    with :ok <- validate_utf8(term, reverse_path),
+         :ok <- within_limit(surface, :binary_bytes, @max_binary_bytes, actual, reverse_path) do
+      {:ok, actual}
     end
   end
 
   defp count_binary(_term, binary_bytes, _surface, _reverse_path), do: {:ok, binary_bytes}
+
+  defp validate_utf8(binary, reverse_path) do
+    if String.valid?(binary) do
+      :ok
+    else
+      {:error,
+       Error.validation_error("stored flow map contains invalid UTF-8", %{
+         profile: :stored,
+         path: Enum.reverse(reverse_path)
+       })}
+    end
+  end
 
   defp check_depth(term, depth, surface, reverse_path)
        when is_map(term) or is_list(term) or is_tuple(term) do

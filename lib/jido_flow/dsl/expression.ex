@@ -53,7 +53,7 @@ defmodule Jido.Flow.DSL.Expression do
   end
 
   defp parse!({:%{}, _meta, pairs}) do
-    Map.new(pairs, fn {key, value} -> {parse_literal!(key), parse!(value)} end)
+    parse_map!(pairs, &parse!/1)
   end
 
   defp parse!(values) when is_list(values) do
@@ -120,7 +120,7 @@ defmodule Jido.Flow.DSL.Expression do
   defp parse_literal!(values) when is_list(values), do: Enum.map(values, &parse_literal!/1)
 
   defp parse_literal!({:%{}, _meta, pairs}) do
-    Map.new(pairs, fn {key, value} -> {parse_literal!(key), parse_literal!(value)} end)
+    parse_map!(pairs, &parse_literal!/1)
   end
 
   defp parse_literal!(value), do: unsupported!(value)
@@ -131,6 +131,29 @@ defmodule Jido.Flow.DSL.Expression do
   defp select!(source, _path), do: unsupported!(source)
 
   defp condition(operator, operands), do: %Condition{operator: operator, operands: operands}
+
+  defp parse_map!(pairs, parse_value) do
+    parsed = Enum.map(pairs, fn {key, value} -> {parse_literal!(key), parse_value.(value)} end)
+
+    case first_duplicate(Enum.map(parsed, &elem(&1, 0))) do
+      {:ok, key} -> raise ArgumentError, "duplicate Flow map key: #{inspect(key)}"
+      :none -> Map.new(parsed)
+    end
+  end
+
+  defp first_duplicate(values) do
+    Enum.reduce_while(values, MapSet.new(), fn value, seen ->
+      if MapSet.member?(seen, value) do
+        {:halt, {:ok, value}}
+      else
+        {:cont, MapSet.put(seen, value)}
+      end
+    end)
+    |> case do
+      %MapSet{} -> :none
+      duplicate -> duplicate
+    end
+  end
 
   defp unsupported!(expression) do
     raise ArgumentError, "unsupported Flow expression: #{Macro.to_string(expression)}"

@@ -185,6 +185,47 @@ defmodule Jido.Flow.SparkDSLTest do
     refute_received :flow_expression_was_evaluated
   end
 
+  test "short forms reject duplicate declaration fields" do
+    module = unique_module("DuplicateStepFieldFlow")
+
+    assert_raise CompileError, ~r/duplicate Flow declaration field: :params/, fn ->
+      create_module(
+        module,
+        quote do
+          use Jido.Flow, name: "duplicate_step_field_flow"
+
+          flow do
+            step("add",
+              action: unquote(Add),
+              params: %{value: value(1)},
+              params: %{value: value(9)}
+            )
+          end
+        end
+      )
+    end
+  end
+
+  test "short forms reject duplicate literal map keys" do
+    module = unique_module("DuplicateLiteralKeyFlow")
+
+    assert_raise CompileError, ~r/duplicate Flow map key: :value/, fn ->
+      create_module(
+        module,
+        quote do
+          use Jido.Flow, name: "duplicate_literal_key_flow"
+
+          flow do
+            step("add",
+              action: unquote(Add),
+              params: %{value: value(1), value: value(9)}
+            )
+          end
+        end
+      )
+    end
+  end
+
   test "executes bounded Iterate while with an explicit state adapter" do
     module = unique_module("WhileIterateFlow")
 

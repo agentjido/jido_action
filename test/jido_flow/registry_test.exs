@@ -154,6 +154,20 @@ defmodule Jido.Flow.RegistryTest do
     assert Exception.message(error) == "stored flow map exceeds resource limit"
   end
 
+  test "returns structured feedback for an incomplete runtime map without raising" do
+    registry = Registry.new!(%{})
+    candidate = %{"type" => "flow", "version" => 1}
+
+    assert {:error, error} = Flow.from_stored_map(candidate, registry)
+
+    assert Jido.Action.Error.to_map(error) == %{
+             type: :validation_error,
+             message: "root is missing required field: \"name\"",
+             details: %{record: :root, field: "name"},
+             retryable?: false
+           }
+  end
+
   test "uses base version one and rejects other versions" do
     {stored, registry} = stored_step()
     assert stored["version"] == 1
@@ -304,6 +318,55 @@ defmodule Jido.Flow.RegistryTest do
     assert {:error, error} = Flow.to_stored_map(flow, registry(), provenance: true)
     assert Exception.message(error) == "stored flow value is not JSON-safe"
     assert error.details.path == ["provenance", {:map_value, 0}]
+  end
+
+  test "rejects an improper list in trusted data without raising" do
+    flow =
+      Flow.new!(
+        name: "improper_provenance",
+        provenance: %{items: [1 | :tail]},
+        nodes: [Node.new!(name: "add", action: Add)],
+        return: Ref.result("add")
+      )
+
+    assert {:error, error} = Flow.to_stored_map(flow, registry(), provenance: true)
+    assert Exception.message(error) == "stored flow value is not JSON-safe"
+    assert error.details.path == ["provenance", {:map_value, 0}]
+  end
+
+  test "rejects invalid UTF-8 before it returns a stored map" do
+    flow =
+      Flow.new!(
+        name: "invalid_utf8",
+        nodes: [
+          Node.new!(name: "add", action: Add, input: %{value: Ref.value(<<255>>)})
+        ],
+        return: Ref.result("add")
+      )
+
+    assert {:error, error} = Flow.to_stored_map(flow, registry())
+    assert Exception.message(error) == "stored flow map contains invalid UTF-8"
+    assert error.details.profile == :stored
+    assert is_list(error.details.path)
+  end
+
+  test "does not write a stored map that exceeds the reader resource budget" do
+    flow =
+      Flow.new!(
+        name: "oversize",
+        nodes: [
+          Node.new!(
+            name: "add",
+            action: Add,
+            input: %{value: Ref.value(String.duplicate("a", 1_048_577))}
+          )
+        ],
+        return: Ref.result("add")
+      )
+
+    assert {:error, error} = Flow.to_stored_map(flow, registry())
+    assert Exception.message(error) == "stored flow map exceeds resource limit"
+    assert error.details.resource == :binary_bytes
   end
 
   defp stored_step do

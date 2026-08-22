@@ -11,6 +11,15 @@ defmodule Jido.Flow.Builder do
 
   alias Jido.Flow.{Condition, Constructor, Ref}
 
+  @common_node_options [:after, :deps, :meta, :provenance]
+  @node_options %{
+    step: @common_node_options,
+    choice: @common_node_options,
+    map: @common_node_options ++ [:on_error],
+    reduce: @common_node_options,
+    iterate: @common_node_options ++ [:completion, :while, :until, :repeat, :max_iterations]
+  }
+
   @type expression :: Ref.t() | map() | list() | term()
   @type condition :: Condition.t()
   @type choice_option :: map()
@@ -188,19 +197,33 @@ defmodule Jido.Flow.Builder do
   def return(%__MODULE__{} = builder, expression), do: %{builder | return: expression}
 
   defp add_node(builder, kind, attrs, opts) do
-    spec = attrs |> Map.put(:kind, kind) |> Map.merge(normalize_options(opts))
+    spec = Map.put(attrs, :kind, kind)
+
+    spec =
+      case normalize_options(opts, kind) do
+        {:ok, options} -> Map.merge(spec, options)
+        {:error, error} -> Map.put(spec, :__builder_options_error__, error)
+      end
+
     %{builder | node_specs: builder.node_specs ++ [spec]}
   end
 
-  defp normalize_options(opts) when is_list(opts) do
+  defp normalize_options(opts, kind) when is_list(opts) do
     if Keyword.keyword?(opts) and Enum.uniq(Keyword.keys(opts)) == Keyword.keys(opts) do
-      Map.new(opts)
+      options = Map.new(opts)
+      allowed = Map.fetch!(@node_options, kind)
+      unsupported = options |> Map.keys() |> Enum.reject(&Enum.member?(allowed, &1))
+
+      case Enum.sort(unsupported) do
+        [] -> {:ok, options}
+        keys -> {:error, %{reason: :unsupported, options: keys}}
+      end
     else
-      %{__builder_options_error__: opts}
+      {:error, %{reason: :invalid, options: opts}}
     end
   end
 
-  defp normalize_options(opts), do: %{__builder_options_error__: opts}
+  defp normalize_options(opts, _kind), do: {:error, %{reason: :invalid, options: opts}}
 
   defp condition(operator, operands), do: %Condition{operator: operator, operands: operands}
 end

@@ -4,8 +4,9 @@ defmodule Jido.Exec.FlowEngine do
   alias Jido.Action.Error
   alias Jido.Exec.{Execution, NodeResult}
   alias Jido.Flow
-  alias Jido.Flow.{Compiler, Element, NodeError}
-  alias Jido.Telemetry
+  alias Jido.Flow.{Choice, Compiler, Element, Iterator, Node, NodeError, Reduce}
+  alias Jido.Flow.Map, as: FlowMap
+  alias Jido.Action.Telemetry
   alias Runic.Workflow
   alias Runic.Workflow.{Fact, Runnable, Step}
 
@@ -79,7 +80,7 @@ defmodule Jido.Exec.FlowEngine do
       {:ok, runnable} ->
         {node_result, execution} =
           execution
-          |> apply_public_runnable(node, Workflow.execute_runnable(runnable))
+          |> apply_public_runnable(node, execute_runnable(execution, runnable))
 
         with {:ok, execution} <- settle(execution) do
           {:ok, node_result, execution}
@@ -113,7 +114,7 @@ defmodule Jido.Exec.FlowEngine do
       execution_not_running(execution)
     else
       runnables = Enum.map(names, &Map.fetch!(execution.ready, &1))
-      executed = execute_runnables(runnables, execution.options)
+      executed = execute_runnables(execution, runnables)
 
       {node_results, execution} =
         names
@@ -198,14 +199,62 @@ defmodule Jido.Exec.FlowEngine do
     end)
   end
 
-  defp execute_runnables(runnables, options) do
-    if Keyword.fetch!(options, :async) do
-      max_concurrency = Keyword.fetch!(options, :max_concurrency)
-      execute_async_runnables(runnables, max_concurrency)
+  defp execute_runnables(execution, runnables) do
+    if Keyword.fetch!(execution.options, :async) do
+      spans = Enum.map(runnables, &start_node_span(execution, &1))
+      max_concurrency = Keyword.fetch!(execution.options, :max_concurrency)
+      executed = execute_async_runnables(runnables, max_concurrency)
+
+      executed
+      |> Enum.zip(spans)
+      |> Enum.map(fn {runnable, span} ->
+        finish_node_span(span, runnable)
+        runnable
+      end)
     else
-      Enum.map(runnables, &Workflow.execute_runnable/1)
+      Enum.map(runnables, &execute_runnable(execution, &1))
     end
   end
+
+  defp execute_runnable(execution, runnable) do
+    span = start_node_span(execution, runnable)
+    executed = Workflow.execute_runnable(runnable)
+    finish_node_span(span, executed)
+    executed
+  end
+
+  defp start_node_span(execution, %Runnable{node: %Step{name: name}}) do
+    element = Enum.find(execution.flow.nodes, &(Element.name(&1) == name))
+
+    Telemetry.start([:jido, :flow, :node], %{
+      execution_id: execution.id,
+      flow: execution.flow_name,
+      node: name,
+      kind: node_kind(element)
+    })
+  end
+
+  defp finish_node_span(span, %Runnable{status: :completed}), do: Telemetry.stop(span)
+
+  defp finish_node_span(span, %Runnable{node: %Step{name: name}, status: :failed, error: error}) do
+    Telemetry.error(span, normalize_node_error(name, error))
+  end
+
+  defp finish_node_span(span, %Runnable{node: %Step{name: name}, status: status}) do
+    Telemetry.error(
+      span,
+      Error.execution_error("flow node returned an unsupported execution status", %{
+        node: name,
+        status: status
+      })
+    )
+  end
+
+  defp node_kind(%Node{}), do: :step
+  defp node_kind(%Choice{}), do: :choice
+  defp node_kind(%FlowMap{}), do: :map
+  defp node_kind(%Reduce{}), do: :reduce
+  defp node_kind(%Iterator{}), do: :iterate
 
   defp execute_async_runnables(runnables, max_concurrency) do
     caller = self()
