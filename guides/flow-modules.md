@@ -1,14 +1,13 @@
-# Authoring Flows With Modules
+# Author Flows With Modules
 
-Use `Jido.Flow` when you want to author a Flow in Elixir and validate it when
-the module compiles. The module DSL lowers to the same canonical `%Jido.Flow{}`
-artifact produced by [Flow Script](flow-script.md) and the
-[`Jido.Flow.Builder`](flow-builder.md).
+Use `Jido.Flow` to author a Flow in Elixir and validate it when the module
+compiles. The Spark DSL lowers to the same canonical `%Jido.Flow{}` that the
+[`Jido.Flow.Builder`](flow-builder.md) and stored JSON format use.
 
 ## Define A Flow Module
 
-The module options define the Flow metadata and its static input and output
-schemas. The `flow do` block defines the graph.
+The module options define Flow metadata and static input and output schemas.
+The `flow do` block declares the graph.
 
 ```elixir
 defmodule MyApp.Flows.DoubleAfterIncrement do
@@ -21,45 +20,84 @@ defmodule MyApp.Flows.DoubleAfterIncrement do
   alias MyApp.Actions.{Add, Multiply}
 
   flow do
-    added =
-      step(:add_one, Add,
-        with: %{value: input(:value), amount: value(1)}
-      )
+    step "add_one",
+      action: Add,
+      params: %{value: input(:value), amount: 1}
 
-    doubled =
-      step(:double, Multiply,
-        with: %{value: select(added, :value), amount: value(2)}
-      )
-
-    return(doubled)
+    step "double",
+      action: Multiply,
+      params: %{value: select(result("add_one"), :value), amount: 2}
   end
 end
 ```
 
-The DSL imports `flow/1` into the module. The expressions inside the block are
-Flow data expressions. They describe input mapping and dependencies; they do
-not run Actions while the module compiles. See [Flow Language](flow-language.livemd)
-for the language primitives.
+The last outer node is the Flow output when `output` is absent. The example
+therefore returns `result("double")`.
 
-The block accepts these public element forms:
+The DSL accepts these public node forms:
 
-- `step` for one target call;
-- `group` and `branch` for static authoring structure;
-- `choose` for ordered routing;
-- `map` and `reduce` for ordered collections; and
-- `loop` for bounded work with internal State.
+- `step` calls one Action or nested Flow.
+- `choice` selects one Action or nested Flow.
+- `map` calls one target for each collection item.
+- `reduce` folds a collection through one target.
+- `iterate` performs bounded State transitions.
 
-See [Map and Reduce](flow-collections.livemd) and [Loops and
-State](flow-loops-state.livemd) for the element-specific expressions and
-options.
+References and `after:` fields define dependencies. Source order does not add
+a dependency. Independent nodes can run in parallel when execution uses
+`async: true`.
+
+## Use Short And Block Forms
+
+Flat declarations have equal short and block forms. Use the form that is most
+clear for the amount of data in the node.
+
+```elixir
+flow do
+  step "load",
+    action: MyApp.Actions.Load,
+    params: %{id: input(:id)}
+
+  step "save" do
+    action(MyApp.Actions.Save)
+    params(%{record: result("load")})
+  end
+end
+```
+
+Do not mix keyword fields and a `do` block in one declaration.
+
+## Declare An Explicit Output
+
+Use `output` when the Flow must shape data from more than one node or include
+Flow input and context.
+
+```elixir
+flow do
+  step "load",
+    action: MyApp.Actions.Load,
+    params: %{id: input(:id)}
+
+  step "audit",
+    action: MyApp.Actions.Audit,
+    params: %{record: result("load")}
+
+  output %{
+    record: result("load"),
+    audit: result("audit"),
+    request_id: context(:request_id)
+  }
+end
+```
+
+`output` must be the final declaration. A Flow must contain at least one node.
 
 ## Static Metadata And Schemas
 
 `name` is required. `description` is optional. `schema` validates the Flow
-input and `output_schema` validates the declared return value. These options
-must be static module data, so they can be stored in the compiled module.
+input. `output_schema` validates the resolved Flow output. These values must be
+static module data.
 
-The module exposes the same validation callbacks as an Action:
+The module exposes Action-compatible validation callbacks:
 
 ```elixir
 MyApp.Flows.DoubleAfterIncrement.name()
@@ -70,39 +108,35 @@ MyApp.Flows.DoubleAfterIncrement.validate_params(%{value: 3})
 MyApp.Flows.DoubleAfterIncrement.validate_output(%{value: 8})
 ```
 
-For schema details, see [Schemas and Validation](schemas-validation.md).
+See [Schemas And Validation](schemas-validation.md) for details.
 
 ## Compile-Time Lowering And Validation
 
-Before the module is compiled, Jido performs these checks:
+Before the module compiles, Jido:
 
-1. It validates the module options and static schemas.
-2. It lowers the `flow do` operations into canonical Flow nodes and
-   expressions.
-3. It checks names, references, dependencies, the return expression, and the
-   Action contracts.
-4. It embeds the resulting `%Jido.Flow{}` value in the module.
+1. Validates module options and schemas.
+2. Lets Spark collect the Flow declarations.
+3. Converts closed expressions and native conditions into Flow data.
+4. Checks names, dependencies, output, and Action contracts.
+5. Embeds the canonical `%Jido.Flow{}` in the module.
 
-An invalid Flow raises a `CompileError` at the Flow definition. This moves
-structural errors close to the authoring code. Runtime input, context, and
-Action work are still handled by [Flow execution](flow-execution.livemd).
+An invalid declaration raises a `CompileError`. Runtime input, context, and
+Action work stay in [Flow execution](flow-execution.livemd).
 
 ## Generated Public Helpers
 
-`use Jido.Flow` generates these public helpers:
+`use Jido.Flow` generates these helpers:
 
 - `flow/0` returns the canonical `%Jido.Flow{}`.
-- `to_map/1` returns a deterministic map. Pass options such as
-  `format: :stored` as the argument.
-- `compile/0` returns the compiled Runic workflow for inspection.
-- `dependencies/0` returns direct canonical predecessors.
+- `to_map/1` returns a deterministic map.
+- `compile/0` returns the compiled Runic graph for inspection.
+- `dependencies/0` returns direct predecessors.
 - `explain/0` returns versioned inspection data.
 - `semantic_identity/0` returns the deterministic Flow identity.
 - `run/2` executes the Flow with input and context.
 
-The generated `run/2` accepts only `(params, context)`. It does not accept
-execution options. To use `async: true` or `max_concurrency`, obtain the Flow
-with `flow/0` and call `Jido.Exec.run/4`:
+The generated `run/2` does not accept execution options. Use `flow/0` and
+`Jido.Exec.run/4` for options:
 
 ```elixir
 {:ok, result} =
@@ -115,28 +149,19 @@ with `flow/0` and call `Jido.Exec.run/4`:
   )
 ```
 
-Read [Executing Flows](flow-execution.livemd) for the run and step-wise APIs.
+## Add Node Metadata
 
-## Provenance Annotations
-
-Module DSL steps can include `label`, `tags`, and `note`. Jido keeps this
-information as provenance, but it does not change the semantic Flow identity
-or execution dependencies. The lower-level Syntax and Builder surfaces can
-also attach provenance to Choices and other operations.
+Use `meta:` for non-semantic data that tools can show. Metadata does not change
+execution, dependencies, or semantic identity.
 
 ```elixir
 flow do
-  loaded =
-    step(:load, MyApp.Actions.Load,
-      with: %{id: input(:id)},
-      label: "Load record",
-      tags: [:read, "database"],
-      note: "Initial lookup"
-    )
-
-  return(loaded)
+  step "load",
+    action: MyApp.Actions.Load,
+    params: %{id: input(:id)},
+    meta: %{label: "Load record", tags: ["read", "database"]}
 end
 ```
 
-Use `Jido.Flow.to_map(flow, provenance: true)` to inspect provenance. See
-[Flow inspection](flow-inspection.md).
+Use `Jido.Flow.to_map(flow, provenance: true)` to include this data. See
+[Flow inspection](flow-inspection.md) and [Stored Flow JSON](flow-storage.md).

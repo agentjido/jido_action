@@ -2,8 +2,8 @@ defmodule Jido.Flow.Loop do
   @moduledoc """
   A bounded, stateful Flow element.
 
-  A Loop is one public Flow node. Its body iterations and State transitions are
-  internal to that node.
+  The public Spark DSL declares this canonical node with `iterate`. Its body
+  iterations and State transitions are internal to one public Flow node.
   """
 
   alias Jido.Action

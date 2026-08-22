@@ -76,7 +76,7 @@ construction. Parameter and output validation occur at the execution boundary.
 An Instruction does not:
 
 - compose multiple Actions,
-- describe dependencies or return expressions,
+- describe dependencies or Flow output expressions,
 - run an Action when it is created,
 - select retry or timeout policy, or
 - store a durable execution checkpoint.

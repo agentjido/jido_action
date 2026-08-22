@@ -1,8 +1,7 @@
 # Flow References
 
-Flow expressions map data into step inputs and the final return value. A
-reference is data, not an Elixir function call. The main reference primitives
-are `input`, `context`, `value`, `result`, and `select`.
+Flow expressions map data into node parameters and the Flow output. A
+reference is stored data. It is not an Elixir function call at runtime.
 
 Run the code cells from top to bottom.
 
@@ -28,8 +27,8 @@ end
 
 ## Read Flow Input With `input`
 
-`input(path)` reads the map passed as the Flow input. A path can be an atom,
-string, integer, or list of those segments.
+`input(path)` reads the map passed as Flow input. A path can be an atom,
+string, integer, or a list of these segments.
 
 ```elixir
 defmodule FlowReferences.InputExample do
@@ -39,36 +38,33 @@ defmodule FlowReferences.InputExample do
     output_schema: Zoi.map()
 
   flow do
-    echoed =
-      step(FlowReferences.Echo,
-        with: %{
-          atom_path: input(:account),
-          nested_path: input([:account, :id]),
-          string_path: input(["account", "id"])
-        }
-      )
-
-    return(echoed)
+    step "echo",
+      action: FlowReferences.Echo,
+      params: %{
+        account: input(:account),
+        nested_id: input([:account, :id]),
+        string_id: input(["account", "id"])
+      }
   end
 end
 
 {:ok, result} =
-    Jido.Exec.run(
+  Jido.Exec.run(
     FlowReferences.InputExample,
     %{"account" => %{"id" => "acct-1"}},
     %{}
   )
 
-%{atom_path: %{"id" => "acct-1"}, nested_path: "acct-1", string_path: "acct-1"} = result
+%{account: %{"id" => "acct-1"}, nested_id: "acct-1", string_id: "acct-1"} = result
 ```
 
-Map lookup accepts atom keys and can also find a string key when the path
-segment is an atom. List paths use non-negative integer segments.
+Map lookup can find a string key when the path segment is an atom. List paths
+use non-negative integer segments.
 
 ## Read Runtime Context With `context`
 
 `context(path)` reads the separate runtime context map. Use it for caller-owned
-metadata such as a tenant or trace identifier.
+data such as a tenant or trace identifier.
 
 ```elixir
 defmodule FlowReferences.ContextExample do
@@ -78,16 +74,13 @@ defmodule FlowReferences.ContextExample do
     output_schema: Zoi.map()
 
   flow do
-    echoed =
-      step(FlowReferences.Echo,
-        with: %{
-          value: input(:value),
-          tenant_id: context([:tenant, :id]),
-          trace_id: context(:trace_id)
-        }
-      )
-
-    return(echoed)
+    step "echo",
+      action: FlowReferences.Echo,
+      params: %{
+        value: input(:value),
+        tenant_id: context([:tenant, :id]),
+        trace_id: context(:trace_id)
+      }
   end
 end
 
@@ -99,43 +92,43 @@ end
   )
 ```
 
-Context references do not create graph dependencies. The context exists before
-the Flow starts.
+Context references do not create graph dependencies.
 
-## Embed Constants With `value`
+## Write Literals Directly
 
-`value(term)` stores a literal in the Flow expression. It is useful for fixed
-flags, labels, and Action options.
+Normal Elixir literals stay literal Flow data. Maps and lists can contain both
+literals and references.
 
 ```elixir
-defmodule FlowReferences.ValueExample do
+defmodule FlowReferences.LiteralExample do
   use Jido.Flow,
-    name: "flow_references_value",
+    name: "flow_references_literal",
     schema: Zoi.object(%{value: Zoi.integer()}),
     output_schema: Zoi.map()
 
   flow do
-    echoed =
-      step(FlowReferences.Echo,
-        with: %{
-          value: input(:value),
-          label: value(:constant),
-          options: value(%{mode: :safe})
-        }
-      )
-
-    return(echoed)
+    step "echo",
+      action: FlowReferences.Echo,
+      params: %{
+        value: input(:value),
+        label: :constant,
+        options: %{mode: :safe},
+        flags: [true, false]
+      }
   end
 end
 
 {:ok, %{value: 3, label: :constant, options: %{mode: :safe}}} =
-  Jido.Exec.run(FlowReferences.ValueExample, %{value: 3}, %{})
+  Jido.Exec.run(FlowReferences.LiteralExample, %{value: 3}, %{})
 ```
 
-## Read Prior Results With `result` And Bindings
+`value(term)` remains available for lower-level syntax parity, but it is not
+needed for normal literals in the Spark DSL.
 
-`result(node, path)` reads a completed node result by its canonical name. In
-the module DSL, a step binding is a shorter way to refer to that result.
+## Read Prior Results With `result`
+
+`result(node)` reads a complete node result. `result(node, path)` reads a path
+directly. Each result reference creates a dependency.
 
 ```elixir
 defmodule FlowReferences.ResultExample do
@@ -145,31 +138,27 @@ defmodule FlowReferences.ResultExample do
     output_schema: Zoi.map()
 
   flow do
-    source = step(FlowReferences.Echo, with: %{value: input(:value)})
+    step "source",
+      action: FlowReferences.Echo,
+      params: %{value: input(:value)}
 
-    copied =
-      step(FlowReferences.Echo,
-        with: %{
-          explicit: result(:source, :value),
-          binding: select(source, :value)
-        }
-      )
-
-    return(copied)
+    step "copy",
+      action: FlowReferences.Echo,
+      params: %{
+        direct: result("source", :value),
+        complete: result("source")
+      }
   end
 end
 
-{:ok, %{explicit: 9, binding: 9}} =
+{:ok, %{direct: 9, complete: %{value: 9}}} =
   Jido.Exec.run(FlowReferences.ResultExample, %{value: 9}, %{})
 ```
 
-Every result reference creates a dependency from the consuming node to the
-referenced node. The `copied` step cannot become ready until `source` finishes.
-
 ## Project Values With `select`
 
-`select(source, path)` projects a path from an input, context, or result
-expression. Use it to pass one nested value instead of a complete result.
+`select(source, path)` projects a path from another expression. It is useful
+when the source is already composed or when a list index is part of the path.
 
 ```elixir
 defmodule FlowReferences.SelectExample do
@@ -179,23 +168,17 @@ defmodule FlowReferences.SelectExample do
     output_schema: Zoi.map()
 
   flow do
-    source =
-      step(FlowReferences.Echo,
-        with: %{
-          payload: %{nested: %{value: input(:value)}},
-          items: [value(:first), value(:second), input(:value)]
-        }
-      )
+    step "source",
+      action: FlowReferences.Echo,
+      params: %{
+        payload: %{nested: %{value: input(:value)}},
+        items: [:first, :second, input(:value)]
+      }
 
-    projected =
-      step(FlowReferences.Echo,
-        with: %{
-          nested_value: select(source, [:payload, :nested, :value]),
-          list_item: select(source, [:items, 1])
-        }
-      )
-
-    return(projected)
+    output %{
+      nested_value: select(result("source"), [:payload, :nested, :value]),
+      list_item: select(result("source"), [:items, 1])
+    }
   end
 end
 
@@ -205,8 +188,7 @@ end
 
 ## Missing Paths Resolve To `nil`
 
-When a map key or list element is missing, path resolution returns `nil`. It
-does not raise an exception.
+When a map key or list element is missing, path resolution returns `nil`.
 
 ```elixir
 defmodule FlowReferences.MissingPath do
@@ -216,12 +198,14 @@ defmodule FlowReferences.MissingPath do
     output_schema: Zoi.map()
 
   flow do
-    source = step(FlowReferences.Echo, with: %{value: input(:value)})
+    step "source",
+      action: FlowReferences.Echo,
+      params: %{value: input(:value)}
 
-    return(%{
+    output %{
       missing_input: select(input(:missing), :nested),
-      missing_result: select(source, [:missing, :nested])
-    })
+      missing_result: select(result("source"), [:missing, :nested])
+    }
   end
 end
 
@@ -229,57 +213,23 @@ end
   Jido.Exec.run(FlowReferences.MissingPath, %{value: 1}, %{})
 ```
 
-## Shape Maps And Lists
+## Use Scoped References
 
-Expressions can be nested in maps and lists. The shape is preserved when the
-Flow resolves the expression.
+Some references exist only inside one node type:
 
-```elixir
-defmodule FlowReferences.Shaped do
-  use Jido.Flow,
-    name: "flow_references_shaped",
-    schema: Zoi.object(%{value: Zoi.integer()}),
-    output_schema: Zoi.map()
-
-  flow do
-    source = step(FlowReferences.Echo, with: %{value: input(:value)})
-
-    return(%{
-      map: %{value: select(source, :value), fixed: value(:fixed)},
-      list: [input(:value), select(source, :value), value(:fixed)]
-    })
-  end
-end
-
-{:ok, %{map: %{value: 2, fixed: :fixed}, list: [2, 2, :fixed]}} =
-  Jido.Exec.run(FlowReferences.Shaped, %{value: 2}, %{})
-```
-
-## Use Scoped Collection And Loop References
-
-Some references exist only inside one element:
-
-| Reference | Valid scope |
+| Reference | Valid DSL field |
 | --- | --- |
-| `item(path)` | Map and Reduce `with:` expressions. |
-| `item_index()` | Map and Reduce `with:` expressions. |
-| `item_id()` | Map and Reduce `with:` expressions. |
-| `accumulator(path)` | Reduce `with:` expressions. |
-| `state(path)` | Loop `with:`, State `update`, and completion conditions. |
-| `iteration_index()` | Loop `with:`, State `update`, and completion conditions. |
-| `body_result(path)` | Loop `with:`, State `update`, and completion conditions. |
+| `item(path)` | Map and Reduce `params`. |
+| `item_index()` | Map and Reduce `params`. |
+| `item_id()` | Map and Reduce `params`. |
+| `accumulator(path)` | Reduce `params`. |
+| `state(path)` | Iterate `params`, `update`, and `while`. |
+| `iteration_index()` | Iterate `params`, `update`, and `while`. |
+| `body_result(path)` | Iterate `params`, `update`, and `while`. |
 
-The authoring surface rejects a scoped reference when its runtime value does
-not exist. For example, `item()` is not valid in a Map collection expression,
-and `state()` is not valid in Loop initial State.
+The compiler rejects a scoped reference when its runtime value does not exist.
+For example, `item()` is not valid in a Map `collection`, and `state()` is not
+valid in Iterate initial State.
 
-See [Map and Reduce](flow-collections.livemd) and [Loops and
+See [Map and Reduce](flow-collections.livemd) and [Iterate and
 State](flow-loops-state.livemd) for complete examples.
-
-## Continue Learning
-
-- [Flow Steps](flow-steps.livemd) explains step inputs and return shapes.
-- [Flow Dependencies](flow-dependencies.livemd) shows how result references form graph edges.
-- [Map and Reduce](flow-collections.livemd) explains item and accumulator references.
-- [Flow Choices](flow-choices.livemd) uses these references in conditions and targets.
-- [Loops and State](flow-loops-state.livemd) explains State and iteration references.

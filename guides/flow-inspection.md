@@ -8,8 +8,8 @@ data type](flows.md).
 ## Inspect Dependencies
 
 `Jido.Flow.dependencies/1` returns direct predecessors for each node. The
-dependencies come from result references and explicit `after:` options. Group
-and branch names do not become runtime nodes or dependencies.
+dependencies come from result references and explicit `after:` options.
+Source order does not add dependencies.
 
 ```elixir
 flow = MyApp.Flows.Report.flow()
@@ -26,7 +26,7 @@ complete. See [Flow Dependencies](flow-dependencies.livemd).
 ## Explain A Flow
 
 `Jido.Flow.explain/1` returns versioned inspection data. It includes the Flow
-metadata, canonical nodes, dependencies, graph edges, return expression, and
+metadata, canonical nodes, dependencies, graph edges, output expression, and
 semantic identity.
 
 ```elixir
@@ -110,7 +110,7 @@ are errors. This rule keeps stored maps unambiguous.
 
 ## Restore A Stored Flow
 
-Stored maps contain the Flow name, node definitions, return expression, stable
+Stored maps contain the Flow name, node definitions, output expression, stable
 contract references, and stable Action identifiers. Restore the map with the
 same host allow-list:
 
@@ -123,8 +123,8 @@ Jido.Flow.to_map(restored) == Jido.Flow.to_map(flow)
 
 The stored round trip preserves deterministic Flow data and optional
 provenance. It does not preserve Elixir source. The host bundle resolves the
-schemas and Action registry without putting runtime terms in JSON. See [Flow
-Script](flow-script.md) for the separate stored source profile.
+schemas and Action registry without putting runtime terms in JSON. There is no
+second stored-source parser. See [Stored Flow JSON](flow-storage.md).
 
 ## Provenance
 

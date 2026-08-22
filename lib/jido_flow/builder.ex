@@ -3,7 +3,9 @@ defmodule Jido.Flow.Builder do
   Runtime builder for Flow syntax artifacts.
 
   The builder only constructs `Jido.Flow.Syntax`; it delegates all semantic
-  validation and canonical IR construction to `Jido.Flow.Syntax.Lowerer`.
+  validation and canonical IR construction to `Jido.Flow.Syntax.Lowerer`. It
+  is a runtime data-construction API, not a second source language. Developers
+  normally use the compile-time Spark DSL from `Jido.Flow`.
   """
 
   import Kernel, except: [in: 2, not: 1]

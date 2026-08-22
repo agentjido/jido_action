@@ -1,11 +1,11 @@
-# Loops And State
+# Iterate And State
 
-`loop` repeats one Action or nested Flow target. Each Loop owns a State
-contract. The contract defines its initial State, its State update, and an
-optional State schema.
+`iterate` repeats one Action or nested Flow. Each Iterate node owns a State
+schema and initial State. It runs with either `repeat` or `while`, and it always
+has a fixed bound.
 
-A Loop is bounded. It uses exactly one `while`, `until`, or `repeat` form.
-The whole Loop is one public Flow node.
+The complete Iterate operation is one public Flow node. Internally, it lowers
+to the canonical `Jido.Flow.Loop` runtime node.
 
 Run the code cells from top to bottom.
 
@@ -15,15 +15,15 @@ Run the code cells from top to bottom.
 Mix.install([{:jido_action, "~> 3.0"}])
 ```
 
-## Define A Loop Body Action
+## Define An Iterate Action
 
-The body receives values from the current State. It can also receive the
+The Action receives values from the current State. It can also receive the
 zero-based iteration index.
 
 ```elixir
-defmodule FlowLoops.Increment do
+defmodule FlowIterate.Increment do
   use Jido.Action,
-    name: "flow_loops_increment",
+    name: "flow_iterate_increment",
     schema: Zoi.object(%{count: Zoi.integer(), index: Zoi.integer()}),
     output_schema: Zoi.object(%{count: Zoi.integer()})
 
@@ -34,42 +34,26 @@ end
 
 ## Repeat A Fixed Number Of Times
 
-The module DSL Loop form is:
-
-```text
-loop(name,
-  run: ActionOrFlow,
-  with: body_input,
-  state: [schema: schema, initial: initial_state, update: next_state],
-  while: condition | until: condition | repeat: count,
-  max_iterations: limit,
-  after: dependencies
-)
-```
-
-`run`, `with`, and all three State fields are required. Use exactly one
-termination form. `after` is optional.
+`state` has one schema argument and an `initial` field. When `update` is
+absent, the complete Action result becomes the next State.
 
 ```elixir
-defmodule FlowLoops.RepeatThree do
+defmodule FlowIterate.RepeatThree do
   use Jido.Flow,
-    name: "flow_loops_repeat_three",
+    name: "flow_iterate_repeat_three",
     output_schema: Zoi.map()
 
   flow do
-    counted =
-      loop(:count,
-        run: FlowLoops.Increment,
-        with: %{count: state(:count), index: iteration_index()},
-        state: [
-          schema: [],
-          initial: %{count: value(0)},
-          update: %{count: body_result(:count)}
-        ],
-        repeat: 3
+    iterate "count" do
+      state(
+        Zoi.object(%{count: Zoi.integer()}),
+        initial: %{count: 0}
       )
 
-    return(counted)
+      action(FlowIterate.Increment)
+      params(%{count: state(:count), index: iteration_index()})
+      repeat(3)
+    end
   end
 end
 
@@ -79,210 +63,135 @@ end
    iterations: 3,
    state: %{count: 3},
    output: %{count: 3}
- }} = Jido.Exec.run(FlowLoops.RepeatThree, %{}, %{})
+ }} = Jido.Exec.run(FlowIterate.RepeatThree, %{}, %{})
 ```
 
-`repeat: count` accepts an integer from 1 through 10,000. It sets the Loop
-bound to the same value. Do not add `max_iterations` to a repeat Loop.
-
-## Stop With `until`
-
-An `until` Loop stops when its condition becomes true. It checks the condition
-before the first body call and after each committed State update. A true
-condition at the start produces a zero-iteration result.
-
-An `until` Loop requires `max_iterations`.
-
-```elixir
-defmodule FlowLoops.UntilTarget do
-  use Jido.Flow,
-    name: "flow_loops_until_target",
-    schema: Zoi.object(%{start: Zoi.integer(), target: Zoi.integer()}),
-    output_schema: Zoi.map()
-
-  flow do
-    counted =
-      loop(:count,
-        run: FlowLoops.Increment,
-        with: %{count: state(:count), index: iteration_index()},
-        state: [
-          schema: [],
-          initial: %{count: input(:start)},
-          update: %{count: body_result(:count)}
-        ],
-        until: gte(state(:count), input(:target)),
-        max_iterations: 10
-      )
-
-    return(counted)
-  end
-end
-
-{:ok, %{iterations: 2, state: %{count: 4}, output: %{count: 4}}} =
-  Jido.Exec.run(FlowLoops.UntilTarget, %{start: 2, target: 4}, %{})
-
-{:ok, %{iterations: 0, state: %{count: 5}, output: nil}} =
-  Jido.Exec.run(FlowLoops.UntilTarget, %{start: 5, target: 4}, %{})
-```
+`repeat` accepts an integer from 1 through 10,000. It is also the bound. Do not
+add `max_iterations` to a repeat declaration.
 
 ## Continue With `while`
 
-A `while` Loop runs while its condition is true. It stops when the condition
-is false. It also checks at the head, so a false initial condition produces a
-zero-iteration result.
+A `while` declaration runs while its condition is true. It checks the
+condition before the first Action call and after each committed State update.
+A false initial condition produces a zero-iteration result.
 
-A `while` Loop requires `max_iterations`.
+Every `while` declaration requires `max_iterations`.
 
 ```elixir
-defmodule FlowLoops.WhileBelowTarget do
+defmodule FlowIterate.WhileBelowTarget do
   use Jido.Flow,
-    name: "flow_loops_while_below_target",
+    name: "flow_iterate_while_below_target",
     schema: Zoi.object(%{start: Zoi.integer(), target: Zoi.integer()}),
     output_schema: Zoi.map()
 
   flow do
-    counted =
-      loop(:count,
-        run: FlowLoops.Increment,
-        with: %{count: state(:count), index: iteration_index()},
-        state: [
-          schema: [],
-          initial: %{count: input(:start)},
-          update: %{count: body_result(:count)}
-        ],
-        while: lt(state(:count), input(:target)),
-        max_iterations: 10
+    iterate "count" do
+      state(
+        Zoi.object(%{count: Zoi.integer()}),
+        initial: %{count: input(:start)}
       )
 
-    return(counted)
+      action(FlowIterate.Increment)
+      params(%{count: state(:count), index: iteration_index()})
+      while(state(:count) < input(:target))
+      max_iterations(10)
+    end
   end
 end
 
-{:ok, %{iterations: 3, state: %{count: 3}}} =
-  Jido.Exec.run(FlowLoops.WhileBelowTarget, %{start: 0, target: 3}, %{})
+{:ok, %{iterations: 3, state: %{count: 3}, output: %{count: 3}}} =
+  Jido.Exec.run(FlowIterate.WhileBelowTarget, %{start: 0, target: 3}, %{})
+
+{:ok, %{iterations: 0, state: %{count: 5}, output: nil}} =
+  Jido.Exec.run(FlowIterate.WhileBelowTarget, %{start: 5, target: 3}, %{})
 ```
 
-`max_iterations` accepts an integer from 1 through 10,000. If the condition
-does not stop the Loop at the bound, execution returns a structured exhaustion
-error. Jido does not start one extra body call after the bound.
+`max_iterations` accepts an integer from 1 through 10,000. If the condition is
+still true at the bound, execution returns an exhaustion error. Jido does not
+start one more Action call.
 
-## Understand State
+## Adapt The Action Result With `update`
 
-The State contract has three fields:
+Omit `update` when the Action output already has the complete State shape. Add
+`update` only when the Action result must be adapted.
 
-| Field | Purpose |
+```elixir
+defmodule FlowIterate.IncrementValue do
+  use Jido.Action,
+    name: "flow_iterate_increment_value",
+    schema: Zoi.object(%{value: Zoi.integer()}),
+    output_schema: Zoi.object(%{value: Zoi.integer()})
+
+  @impl true
+  def run(%{value: value}, _context), do: {:ok, %{value: value + 1}}
+end
+
+defmodule FlowIterate.AdaptedState do
+  use Jido.Flow,
+    name: "flow_iterate_adapted_state",
+    output_schema: Zoi.map()
+
+  flow do
+    iterate "count" do
+      state([], initial: %{count: 0})
+      action(FlowIterate.IncrementValue)
+      params(%{value: state(:count)})
+      update(%{count: body_result(:value)})
+      repeat(2)
+    end
+
+    output %{count: select(result("count"), [:state, :count])}
+  end
+end
+
+{:ok, %{count: 2}} = Jido.Exec.run(FlowIterate.AdaptedState, %{}, %{})
+```
+
+The update is a complete State replacement, not a patch.
+
+## Understand The State Declaration
+
+| Part | Purpose |
 | --- | --- |
-| `schema` | Validates the initial State and every candidate update. |
+| Schema argument | Validates initial State and every next State. |
 | `initial` | Builds the first State from Flow input, context, literals, or prior results. |
-| `update` | Builds the complete next State after one valid body result. |
+| Optional `update` | Builds the complete next State from the Action result and current iteration data. |
 
-Runtime State must be a plain map. The update is a complete replacement, not a
-patch. Put every State key that must continue into each update expression.
+Use `state([], initial: ...)` when no field validation is needed. The plain-map
+State rule still applies. Do not repeat the schema in module options or in
+`iterate`; one `state` declaration owns it.
 
-`schema: []` adds no field checks. The plain-map rule still applies. The
-runtime Builder can use a static Zoi map schema directly. Flow Script uses a
-caller-owned State schema registry.
+State belongs to one Iterate invocation. It is not a process, durable
+checkpoint, or global value. A failed Action or invalid update does not expose
+a partial State result.
 
-State belongs to one Loop invocation. It is not a process, durable checkpoint,
-or global value. A failed body or invalid update does not expose a partial
-State result.
-
-## Use Loop-Local References
-
-Loop expressions add these local references:
+## Use Iterate-Local References
 
 | Reference | Value |
 | --- | --- |
 | `state()` | The complete current State map. |
-| `state(path)` | A value inside the current State. |
-| `iteration_index()` | The zero-based index of the next body call. |
-| `body_result()` | The latest valid body result, or `nil` before the first body call. |
-| `body_result(path)` | A value inside the latest valid body result. |
+| `state(path)` | A value inside current State. |
+| `iteration_index()` | The zero-based index of the next Action call. |
+| `body_result()` | The latest valid Action result, or `nil` before the first call. |
+| `body_result(path)` | A value inside the latest valid Action result. |
 
-These references are valid in the Loop `with:` input, State `update`, and
-completion condition. They are not valid in State `initial`. Initial State can
-use Flow input, context, literals, and prior node results.
+These references are valid in `params`, `update`, and `while`. They are not
+valid in State `initial`. Initial State can use Flow input, context, literals,
+and prior node results.
 
-Loop conditions use the same closed condition primitives as Choices: `eq`,
-`neq`, `lt`, `lte`, `gt`, `gte`, `in`, `all`, `any`, and `not`. Conditions
-are data expressions. They cannot contain arbitrary predicate functions.
+## Store Iterate State Schemas
 
-## Build A Loop At Runtime
+The DSL uses a static schema term at compile time. Stored Flow JSON replaces
+that term with a stable schema identifier supplied by a host contract bundle.
+Use the node name in `state_schema_ids` when you call `Jido.Flow.to_map/2`.
+See [Stored Flow JSON](flow-storage.md).
 
-`Jido.Flow.Builder.loop/6` receives the Builder, name, target, body input,
-State contract, and options.
+## Step Through An Iterate Node
 
-```elixir
-alias Jido.Flow.Builder
-
-state_contract = %{
-  schema: Zoi.object(%{count: Zoi.integer()}),
-  initial: %{count: Builder.input(:start)},
-  update: %{count: Builder.body_result(:count)}
-}
-
-builder =
-  Builder.new(name: "runtime_loop")
-  |> Builder.loop(
-    :count,
-    FlowLoops.Increment,
-    %{count: Builder.state(:count), index: Builder.iteration_index()},
-    state_contract,
-    until: Builder.gte(Builder.state(:count), Builder.input(:target)),
-    max_iterations: 10
-  )
-  |> Builder.return(Builder.result(:count))
-
-{:ok, runtime_loop} = Builder.build(builder)
-
-{:ok, %{iterations: 3, state: %{count: 3}}} =
-  Jido.Exec.run(runtime_loop, %{start: 0, target: 3}, %{})
-```
-
-## Parse A Loop From Flow Script
-
-Flow Script uses the module DSL form. Its `schema` value is a stable registry
-identifier. Pass the matching schema in `state_schemas`.
+One `step/2` call runs all internal iterations until completion or failure.
 
 ```elixir
-source = """
-flow do
-  counted = loop :count,
-    run: FlowLoops.Increment,
-    with: %{count: state(:count), index: iteration_index()},
-    state: [
-      schema: "counter/v1",
-      initial: %{count: input(:start)},
-      update: %{count: body_result(:count)}
-    ],
-    repeat: 2
-
-  return counted
-end
-"""
-
-{:ok, script_loop} =
-  Jido.Flow.parse(source,
-    name: "script_loop",
-    state_schemas: %{
-      "counter/v1" => Zoi.object(%{count: Zoi.integer()})
-    }
-  )
-
-{:ok, %{iterations: 2, state: %{count: 2}}} =
-  Jido.Exec.run(script_loop, %{start: 0}, %{})
-```
-
-For stored Flow Script, use a registered Action identifier in `run:` and the
-same stable State schema identifier in `state:`.
-
-## Step Through A Loop
-
-The public step-wise API exposes the complete Loop as one node. One `step/2`
-call runs all internal iterations until completion or failure.
-
-```elixir
-{:ok, execution} = Jido.Exec.start(FlowLoops.RepeatThree, %{}, %{})
+{:ok, execution} = Jido.Exec.start(FlowIterate.RepeatThree, %{}, %{})
 ["count"] = Jido.Exec.ready(execution)
 
 {:ok, %Jido.Exec.NodeResult{node: "count", output: %{iterations: 3}}, execution} =
@@ -291,9 +200,8 @@ call runs all internal iterations until completion or failure.
 :succeeded = Jido.Exec.status(execution)
 ```
 
-The current public API does not step into one Loop iteration. It also does not
-provide `break`, `continue`, per-iteration retry, durable State, or resume after
-a process restart.
+The public API does not pause inside one Iterate node. It also does not provide
+`break`, `continue`, per-iteration retry, durable State, or restart-safe resume.
 
 Continue with [Executing Flows](flow-execution.livemd) for public node
 execution, waves, and runtime options.

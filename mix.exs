@@ -95,7 +95,7 @@ defmodule JidoAction.MixProject do
           "guides/flow-loops-state.livemd",
           "guides/nested-flows.livemd",
           "guides/flow-modules.md",
-          "guides/flow-script.md",
+          "guides/flow-storage.md",
           "guides/flow-builder.md",
           "guides/flow-inspection.md"
         ],
@@ -122,15 +122,15 @@ defmodule JidoAction.MixProject do
         # Building Flows
         {"guides/build-your-first-flow.livemd", title: "Build Your First Flow"},
         {"guides/flow-language.livemd", title: "Flow Language Overview"},
-        {"guides/flow-steps.livemd", title: "Steps, Bindings & Returns"},
+        {"guides/flow-steps.livemd", title: "Steps & Outputs"},
         {"guides/flow-references.livemd", title: "References & Data Mapping"},
-        {"guides/flow-dependencies.livemd", title: "Dependencies, Groups & Parallel Branches"},
+        {"guides/flow-dependencies.livemd", title: "Dependencies & Parallel Work"},
         {"guides/flow-collections.livemd", title: "Map & Reduce"},
         {"guides/flow-choices.livemd", title: "Choices & Conditions"},
-        {"guides/flow-loops-state.livemd", title: "Loops & State"},
+        {"guides/flow-loops-state.livemd", title: "Iterate & State"},
         {"guides/nested-flows.livemd", title: "Nested Flows"},
         {"guides/flow-modules.md", title: "Flow Modules"},
-        {"guides/flow-script.md", title: "Flow Script"},
+        {"guides/flow-storage.md", title: "Stored Flow JSON"},
         {"guides/flow-builder.md", title: "Runtime Builder"},
         {"guides/flow-inspection.md", title: "Inspecting & Storing Flows"},
         # Operations
@@ -143,7 +143,9 @@ defmodule JidoAction.MixProject do
       formatters: ["html"],
       skip_undefined_reference_warnings_on: [
         "CHANGELOG.md",
-        "LICENSE"
+        "LICENSE",
+        "lib/jido_flow/builder.ex",
+        "lib/jido_flow/syntax.ex"
       ],
       groups_for_modules: [
         Core: [
@@ -205,6 +207,7 @@ defmodule JidoAction.MixProject do
       {:zoi, "~> 0.17"},
       {:runic, "~> 0.1.0-alpha.8"},
       {:splode, "~> 0.3.0"},
+      {:spark, "~> 2.7"},
 
       # Development & Test Dependencies
       {:git_ops, "~> 2.9", only: :dev, runtime: false},

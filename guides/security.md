@@ -43,23 +43,16 @@ Context can contain request metadata, credentials, tenant identifiers, and
 tracing state. Treat it as sensitive input. Do not copy secrets into Flow
 results, error details, or logs.
 
-## Treat Flow Script As Code Data
+## Keep DSL Source At Compile Time
 
-Flow Script authoring has two security profiles:
-
-- **Trusted profile:** use only for source-controlled definitions. Source can
-  refer directly to Action modules.
-- **Stored profile:** use for persisted or user supplied definitions. Use an
-  explicit allow-list registry and the parser safety limits. Do not resolve
-  arbitrary modules from input text.
-
-Keep Flow Script text and registries separate from untrusted request data.
-Accept only a successful parser result. Inspect the result and authorize every
-registry entry before you store or execute it.
+The Spark DSL is compile-time Elixir source. Keep it in trusted application
+code. Do not evaluate generated or user-supplied Elixir source to create a
+Flow. Use the stored-map or JSON format for database data, API input, and AI
+generated Flows.
 
 Do not create atoms from untrusted input. Keep user-provided identifiers as
-strings. A stored Flow map or stored Flow source can use only atoms that
-already exist in the VM. Accepted and rejected artifacts do not create atoms.
+strings. A stored Flow map can use only atoms that already exist in the VM.
+Accepted and rejected artifacts do not create atoms.
 
 The atom map key `:__struct__` is reserved in a stored Flow map. The reader and
 writer reject it before they construct an Elixir map. The string map key
@@ -79,14 +72,6 @@ The binary limit is the total for the complete artifact. `Jido.Flow.from_map/2`
 receives a decoded map. It does not limit raw HTTP bytes or JSON decoder work.
 The caller must limit transport bytes and JSON decoding before it calls
 `Jido.Flow.from_map/2`.
-
-For stored source, the library applies a 1,048,576-byte source limit before
-`Code.string_to_quoted/2`. It then applies the same depth, term-count, binary,
-and collection-width limits to the quoted AST before DSL traversal.
-
-Stored source is restricted developer syntax. It is not a hostile-input
-sandbox. Use the stored map format, with caller-owned transport limits, for
-untrusted ingress.
 
 ## Control Contract Bundles In The Host
 
@@ -114,17 +99,17 @@ retry policy around `Jido.Exec`. Limit `max_concurrency` to a value that the
 application can support. Do not assume asynchronous execution provides a
 timeout; the current scheduler uses an internal task timeout of `:infinity`.
 
-## Bound Collections And Loops
+## Bound Collections And Iterate Nodes
 
 `max_concurrency` limits concurrent Map item tasks. It does not limit the
 number of items in the input list. Validate collection size at the application
 boundary. Remember that `:collect_errors` can retain one record for each
 failed item.
 
-Every Loop has an iteration bound. Keep `repeat` and `max_iterations` small
-enough for the target cost. Loop State is in-memory data. Do not put secrets in
-State or body output when errors, inspection, or telemetry can expose their
-shape.
+Every Iterate node has an iteration bound. Keep `repeat` and `max_iterations`
+small enough for the target cost. Iterate State is in-memory data. Do not put
+secrets in State or body output when errors, inspection, or telemetry can
+expose their shape.
 
 ## Design For Repeat Risk
 

@@ -260,12 +260,13 @@ defmodule Jido.ExecTest do
               |> Zoi.transform({Jido.ExecTest, :count_flow_transform, [:output]})
 
           flow do
-            step(:echo, unquote(EchoParamsAction), %{
-              value: input(:value),
-              input_passes: input(:input_passes)
-            })
-
-            return(result(:echo))
+            step("echo",
+              action: unquote(EchoParamsAction),
+              params: %{
+                value: input(:value),
+                input_passes: input(:input_passes)
+              }
+            )
           end
         end
       )
@@ -295,8 +296,10 @@ defmodule Jido.ExecTest do
               |> Zoi.transform({Jido.ExecTest, :count_flow_transform, [:invalid_output]})
 
           flow do
-            step(:echo, unquote(EchoParamsAction), %{value: input(:value)})
-            return(result(:echo))
+            step("echo",
+              action: unquote(EchoParamsAction),
+              params: %{value: input(:value)}
+            )
           end
         end
       )
@@ -333,8 +336,10 @@ defmodule Jido.ExecTest do
               |> Zoi.transform({Jido.ExecTest, :count_flow_transform, [:invalid_input]})
 
           flow do
-            step(:echo, unquote(EchoParamsAction), %{value: input(:value)})
-            return(result(:echo))
+            step("echo",
+              action: unquote(EchoParamsAction),
+              params: %{value: input(:value)}
+            )
           end
         end
       )
@@ -371,8 +376,10 @@ defmodule Jido.ExecTest do
               |> Zoi.transform({Jido.ExecTest, :count_flow_transform, [:envelope_output]})
 
           flow do
-            step(:envelope, unquote(OutputEnvelopeAction), %{value: input(:value)})
-            return(result(:envelope))
+            step("envelope",
+              action: unquote(OutputEnvelopeAction),
+              params: %{value: input(:value)}
+            )
           end
         end
       )
@@ -419,8 +426,12 @@ defmodule Jido.ExecTest do
           use Jido.Flow, name: "scalar_result_flow"
 
           flow do
-            step(:echo, unquote(EchoParamsAction), %{value: input(:value)})
-            return(result(:echo, :value))
+            step("echo",
+              action: unquote(EchoParamsAction),
+              params: %{value: input(:value)}
+            )
+
+            output(select(result("echo"), [:value]))
           end
         end
       )
@@ -549,18 +560,18 @@ defmodule Jido.ExecTest do
             description: "Adds one and doubles the result"
 
           flow do
-            step(:add_one, unquote(Add), %{value: input(:value), amount: value(1)})
-
-            step(
-              :double,
-              unquote(JidoTest.TestActions.Multiply),
-              %{
-                value: result(:add_one, :value),
-                amount: value(2)
-              }
+            step("add_one",
+              action: unquote(Add),
+              params: %{value: input(:value), amount: 1}
             )
 
-            return(result(:double))
+            step("double",
+              action: unquote(JidoTest.TestActions.Multiply),
+              params: %{
+                value: select(result("add_one"), [:value]),
+                amount: 2
+              }
+            )
           end
         end
       )
@@ -728,12 +739,13 @@ defmodule Jido.ExecTest do
               |> Zoi.transform({Jido.ExecTest, :count_flow_transform, [:output]})
 
           flow do
-            step(:echo, unquote(EchoParamsAction), %{
-              value: input(:value),
-              input_passes: input(:input_passes)
-            })
-
-            return(result(:echo))
+            step("echo",
+              action: unquote(EchoParamsAction),
+              params: %{
+                value: input(:value),
+                input_passes: input(:input_passes)
+              }
+            )
           end
         end
       )
@@ -781,8 +793,10 @@ defmodule Jido.ExecTest do
               |> Zoi.transform({Jido.ExecTest, :count_flow_transform, [:envelope_output]})
 
           flow do
-            step(:envelope, unquote(OutputEnvelopeAction), %{value: input(:value)})
-            return(result(:envelope))
+            step("envelope",
+              action: unquote(OutputEnvelopeAction),
+              params: %{value: input(:value)}
+            )
           end
         end
       )
@@ -825,8 +839,10 @@ defmodule Jido.ExecTest do
           use Jido.Flow, name: "choice_nested_error_flow"
 
           flow do
-            step(:fail, unquote(ErrorAction), %{error_type: value(:validation)})
-            return(result(:fail))
+            step("fail",
+              action: unquote(ErrorAction),
+              params: %{error_type: :validation}
+            )
           end
         end
       )
@@ -919,18 +935,18 @@ defmodule Jido.ExecTest do
           use Jido.Flow, name: "choice_public_paths"
 
           flow do
-            routed =
-              choose :route do
-                option(:priority,
-                  when: eq(input(:kind), value(:priority)),
-                  run: unquote(Add),
-                  with: %{value: input(:value), amount: value(1)}
-                )
-
-                otherwise(run: unquote(Add), with: %{value: input(:value), amount: value(2)})
+            choice "route" do
+              option "priority" do
+                condition(input(:kind) == :priority)
+                action(unquote(Add))
+                params(%{value: input(:value), amount: 1})
               end
 
-            return(routed)
+              otherwise(
+                action: unquote(Add),
+                params: %{value: input(:value), amount: 2}
+              )
+            end
           end
         end
       )
@@ -962,18 +978,18 @@ defmodule Jido.ExecTest do
           use Jido.Flow, name: "choice_envelope_public_paths"
 
           flow do
-            routed =
-              choose :route do
-                option(:envelope,
-                  when: eq(input(:kind), value(:envelope)),
-                  run: unquote(target),
-                  with: %{value: input(:value)}
-                )
-
-                otherwise(run: unquote(Add), with: %{value: input(:value), amount: value(0)})
+            choice "route" do
+              option "envelope" do
+                condition(input(:kind) == :envelope)
+                action(unquote(target))
+                params(%{value: input(:value)})
               end
 
-            return(routed)
+              otherwise(
+                action: unquote(Add),
+                params: %{value: input(:value), amount: 0}
+              )
+            end
           end
         end
       )
@@ -1002,9 +1018,10 @@ defmodule Jido.ExecTest do
               |> Zoi.transform({Jido.ExecTest, :count_flow_transform, [:output]})
 
           flow do
-            step(:echo, unquote(Add), %{value: input(:value), amount: value(0)})
-
-            return(result(:echo))
+            step("echo",
+              action: unquote(Add),
+              params: %{value: input(:value), amount: 0}
+            )
           end
         end
       )
@@ -1015,18 +1032,18 @@ defmodule Jido.ExecTest do
           use Jido.Flow, name: "choice_public_nested_paths"
 
           flow do
-            routed =
-              choose :route do
-                option(:nested,
-                  when: eq(input(:kind), value(:nested)),
-                  run: unquote(target),
-                  with: %{value: input(:value)}
-                )
-
-                otherwise(run: unquote(Add), with: %{value: input(:value), amount: value(0)})
+            choice "route" do
+              option "nested" do
+                condition(input(:kind) == :nested)
+                action(unquote(target))
+                params(%{value: input(:value)})
               end
 
-            return(routed)
+              otherwise(
+                action: unquote(Add),
+                params: %{value: input(:value), amount: 0}
+              )
+            end
           end
         end
       )
@@ -1070,8 +1087,10 @@ defmodule Jido.ExecTest do
               |> Zoi.transform({Jido.ExecTest, :count_flow_transform, [:envelope_output]})
 
           flow do
-            step(:envelope, unquote(envelope), %{value: input(:value)})
-            return(result(:envelope))
+            step("envelope",
+              action: unquote(envelope),
+              params: %{value: input(:value)}
+            )
           end
         end
       )
@@ -1082,18 +1101,18 @@ defmodule Jido.ExecTest do
           use Jido.Flow, name: "choice_public_envelope_paths"
 
           flow do
-            routed =
-              choose :route do
-                option(:nested,
-                  when: eq(input(:kind), value(:nested)),
-                  run: unquote(target),
-                  with: %{value: input(:value)}
-                )
-
-                otherwise(run: unquote(Add), with: %{value: input(:value), amount: value(0)})
+            choice "route" do
+              option "nested" do
+                condition(input(:kind) == :nested)
+                action(unquote(target))
+                params(%{value: input(:value)})
               end
 
-            return(routed)
+              otherwise(
+                action: unquote(Add),
+                params: %{value: input(:value), amount: 0}
+              )
+            end
           end
         end
       )
@@ -1236,12 +1255,13 @@ defmodule Jido.ExecTest do
               |> Zoi.transform({Jido.ExecTest, :count_flow_transform, [:output]})
 
           flow do
-            step(:echo, unquote(EchoParamsAction), %{
-              value: input(:value),
-              input_passes: input(:input_passes)
-            })
-
-            return(result(:echo))
+            step("echo",
+              action: unquote(EchoParamsAction),
+              params: %{
+                value: input(:value),
+                input_passes: input(:input_passes)
+              }
+            )
           end
         end
       )
@@ -1286,13 +1306,14 @@ defmodule Jido.ExecTest do
               |> Zoi.transform({Jido.ExecTest, :count_flow_transform, [:output]})
 
           flow do
-            step(:echo, unquote(EchoParamsAction), %{
-              value: input(:value),
-              previous: input(:previous),
-              input_passes: input(:input_passes)
-            })
-
-            return(result(:echo))
+            step("echo",
+              action: unquote(EchoParamsAction),
+              params: %{
+                value: input(:value),
+                previous: input(:previous),
+                input_passes: input(:input_passes)
+              }
+            )
           end
         end
       )
@@ -1480,17 +1501,20 @@ defmodule Jido.ExecTest do
           use Jido.Flow, name: "choice_nested_run_options"
 
           flow do
-            step(:left, unquote(delayed), %{
-              side: value(:left),
-              sleep_ms: value(100)
-            })
+            step("left",
+              action: unquote(delayed),
+              params: %{side: :left, sleep_ms: 100}
+            )
 
-            step(:right, unquote(delayed), %{
-              side: value(:right),
-              sleep_ms: value(100)
-            })
+            step("right",
+              action: unquote(delayed),
+              params: %{side: :right, sleep_ms: 100}
+            )
 
-            return(%{left: result(:left, :side), right: result(:right, :side)})
+            output(%{
+              left: select(result("left"), [:side]),
+              right: select(result("right"), [:side])
+            })
           end
         end
       )
@@ -1601,8 +1625,10 @@ defmodule Jido.ExecTest do
             description: "Runs through Exec options"
 
           flow do
-            step(:add_one, unquote(Add), %{value: input(:value), amount: value(1)})
-            return(result(:add_one))
+            step("add_one",
+              action: unquote(Add),
+              params: %{value: input(:value), amount: 1}
+            )
           end
         end
       )

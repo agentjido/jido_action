@@ -96,7 +96,7 @@ defmodule Jido.Flow.Compiler do
   end
 
   @doc """
-  Compiles and executes a Flow artifact, returning its declared return value.
+  Compiles and executes a Flow artifact, returning its declared output value.
 
   Accepted runtime options are `:async` and `:max_concurrency`, which are passed
   through to Runic workflow reaction.

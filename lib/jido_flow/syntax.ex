@@ -2,7 +2,7 @@ defmodule Jido.Flow.Syntax do
   @moduledoc """
   Shared authoring syntax for Flow surfaces.
 
-  Macro, parser, and builder authoring paths emit this syntax layer before the
+  Spark DSL and Builder authoring paths emit this syntax layer before the
   lowerer validates and converts it into canonical `%Jido.Flow{}` artifacts.
   """
 

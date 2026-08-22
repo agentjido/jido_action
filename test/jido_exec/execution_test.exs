@@ -631,8 +631,10 @@ defmodule Jido.Exec.ExecutionTest do
               |> Zoi.transform({unquote(__MODULE__), :count_transform, [:output]})
 
           flow do
-            step(:echo, unquote(EchoParamsAction), %{value: input(:value)})
-            return(result(:echo))
+            step("echo",
+              action: unquote(EchoParamsAction),
+              params: %{value: input(:value)}
+            )
           end
         end
       )
@@ -658,8 +660,10 @@ defmodule Jido.Exec.ExecutionTest do
           use Jido.Flow, name: "nested_step_flow"
 
           flow do
-            step(:add, unquote(Add), %{value: input(:value), amount: value(1)})
-            return(result(:add))
+            step("add",
+              action: unquote(Add),
+              params: %{value: input(:value), amount: 1}
+            )
           end
         end
       )

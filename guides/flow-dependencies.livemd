@@ -1,8 +1,8 @@
-# Flow Dependencies
+# Flow Dependencies And Parallel Work
 
-A Flow is a dependency graph. A node becomes ready when its predecessor nodes
-have completed. The graph comes from result references and explicit `after:`
-options. The authoring `group` and `branch` forms do not add runtime ordering.
+A Flow is a dependency graph. A node becomes ready when all its predecessor
+nodes complete. Result references and explicit `after:` fields create edges.
+Source order does not create edges.
 
 Run the code cells from top to bottom.
 
@@ -26,11 +26,11 @@ defmodule FlowDependencies.Echo do
 end
 ```
 
-## Build A Diamond With Implicit And Explicit Edges
+## Build A Diamond
 
-The `:implicit` step reads `:source`, so the result reference creates an edge.
-The `:explicit` step reads only Flow input, but `after: :source` still creates
-an ordering edge.
+The `implicit` node reads `source`, so that result reference creates an edge.
+The `explicit` node reads only Flow input, but `after: "source"` creates the
+same control edge. `left` and `right` are independent roots.
 
 ```elixir
 defmodule FlowDependencies.Diamond do
@@ -40,50 +40,43 @@ defmodule FlowDependencies.Diamond do
     output_schema: Zoi.map()
 
   flow do
-    source_result = step(:source, FlowDependencies.Echo, with: %{value: input(:value)})
+    step "source",
+      action: FlowDependencies.Echo,
+      params: %{value: input(:value)}
 
-    implicit_result =
-      step(:implicit, FlowDependencies.Echo,
-        with: %{value: select(source_result, :value)}
-      )
+    step "implicit",
+      action: FlowDependencies.Echo,
+      params: %{value: select(result("source"), :value)}
 
-    explicit_result =
-      step(:explicit, FlowDependencies.Echo,
-        with: %{value: input(:value)},
-        after: :source
-      )
+    step "explicit",
+      action: FlowDependencies.Echo,
+      params: %{value: input(:value)},
+      after: "source"
 
-    group do
-      branch :left_branch do
-        left_result = step(:left, FlowDependencies.Echo, with: %{value: input(:value)})
-      end
+    step "left",
+      action: FlowDependencies.Echo,
+      params: %{value: input(:value)}
 
-      branch :right_branch do
-        right_result = step(:right, FlowDependencies.Echo, with: %{value: input(:value)})
-      end
-    end
+    step "right",
+      action: FlowDependencies.Echo,
+      params: %{value: input(:value)}
 
-    joined_result =
-      step(:joined, FlowDependencies.Echo,
-        with: %{
-          implicit: select(implicit_result, :value),
-          explicit: select(explicit_result, :value),
-          left: select(left_result, :value),
-          right: select(right_result, :value)
-        }
-      )
-
-    return(joined_result)
+    step "joined",
+      action: FlowDependencies.Echo,
+      params: %{
+        implicit: select(result("implicit"), :value),
+        explicit: select(result("explicit"), :value),
+        left: select(result("left"), :value),
+        right: select(result("right"), :value)
+      }
   end
 end
 ```
 
-Inspect the direct predecessors. The group branch names are not dependencies;
-the `left` and `right` steps are independent roots.
+Inspect the direct predecessors:
 
 ```elixir
 flow = FlowDependencies.Diamond.flow()
-
 {:ok, dependencies} = Jido.Flow.dependencies(flow)
 
 ["source"] = dependencies["implicit"]
@@ -95,9 +88,9 @@ flow = FlowDependencies.Diamond.flow()
 
 ## Ready Waves Are Canonical
 
-Start a paused execution to inspect the graph at runtime. `ready/1` returns
-ready node names in canonical order. `wave/1` executes the current ready set;
-nodes that become ready wait for the next wave.
+Start a paused execution to inspect the graph. `ready/1` returns ready node
+names in canonical order. `wave/1` executes the current ready set. Nodes that
+become ready wait for the next wave.
 
 ```elixir
 {:ok, execution} = Jido.Exec.start(FlowDependencies.Diamond, %{value: 2}, %{})
@@ -105,7 +98,7 @@ nodes that become ready wait for the next wave.
 ["left", "right", "source"] = Jido.Exec.ready(execution)
 
 {:ok, first_wave, execution} = Jido.Exec.wave(execution)
-true = Enum.sort(Enum.map(first_wave, & &1.node)) == ["left", "right", "source"]
+true = Enum.map(first_wave, & &1.node) == ["left", "right", "source"]
 
 ["explicit", "implicit"] = Jido.Exec.ready(execution)
 
@@ -116,16 +109,10 @@ true = Enum.sort(Enum.map(first_wave, & &1.node)) == ["left", "right", "source"]
 {:ok, %{implicit: 2, explicit: 2, left: 2, right: 2}} = Jido.Exec.result(execution)
 ```
 
-The first wave has three independent roots. The join waits for all four
-predecessors, even though `left` and `right` came from a group.
+## Parallel Structure Is Implicit
 
-## Groups Do Not Turn On Parallel Execution
-
-`group` and `branch` are authoring and provenance forms. They do not turn on
-parallel execution. There is no public `parallel` DSL primitive.
-
-Enable concurrent scheduling at the `Jido.Exec` boundary with `async: true` and
-`max_concurrency`:
+There is no `parallel` block in the DSL. The graph already shows which nodes
+are independent. Set `async: true` and `max_concurrency` at execution time:
 
 ```elixir
 {:ok, %{implicit: 2, explicit: 2, left: 2, right: 2}} =
@@ -134,16 +121,22 @@ Enable concurrent scheduling at the `Jido.Exec` boundary with `async: true` and
     %{value: 2},
     %{},
     async: true,
-    max_concurrency: 2
+    max_concurrency: 3
   )
 ```
 
-The option applies to ready waves. The graph still decides which nodes are
-independent and which nodes must wait.
+The execution option applies to ready waves. It does not change dependencies.
+
+## Choose `after:` Only For Control Order
+
+Prefer a result reference when a node needs predecessor data. Use `after:`
+when the dependency exists only for control order, such as an audit that must
+run after a write but does not need the write output. `after:` accepts one node
+name or a list of names.
 
 ## Continue Learning
 
-- [Flow References](flow-references.livemd) explains the references that create implicit edges.
-- [Flow Steps](flow-steps.livemd) explains `after:` and step forms.
+- [Flow References](flow-references.livemd) explains implicit data edges.
+- [Flow Steps](flow-steps.livemd) explains node declarations and output.
 - [Flow Choices](flow-choices.livemd) explains Choice dependencies.
 - [Executing Flows](flow-execution.livemd) explains `run`, `start`, `step`, and `wave`.

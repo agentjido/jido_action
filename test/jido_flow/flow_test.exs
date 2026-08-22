@@ -2913,8 +2913,10 @@ defmodule Jido.FlowTest do
           use Jido.Flow, name: "stored_map_nested_flow"
 
           flow do
-            step(:add, unquote(Add), %{value: input(:value), amount: value(1)})
-            return(result(:add))
+            step("add",
+              action: unquote(Add),
+              params: %{value: input(:value), amount: 1}
+            )
           end
         end
       )
