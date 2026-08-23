@@ -6,9 +6,9 @@ defmodule Jido.Flow.MapCodec.Encoder do
   alias Jido.Flow.{Choice, Iterator, Node, Reduce, Registry, ResourceBudget}
   alias Jido.Flow.Map, as: FlowMap
 
-  alias Jido.Flow.MapCodec.DataCodec
+  alias Jido.Flow.MapCodec.DataEncoder
   alias Jido.Flow.MapCodec.ErrorPath
-  alias Jido.Flow.MapCodec.ExpressionCodec
+  alias Jido.Flow.MapCodec.ExpressionEncoder
   alias Jido.Flow.MapCodec.RecordValidator
   alias Jido.Flow.MapCodec.RegistryLookup
 
@@ -32,12 +32,12 @@ defmodule Jido.Flow.MapCodec.Encoder do
         |> Enum.map(fn {element, index} ->
           stored_element!(element, action_ids, iterator_schema_ids, opts, ["nodes", index])
         end),
-      "return" => ExpressionCodec.encode!(flow.return, ["return"])
+      "return" => ExpressionEncoder.encode!(flow.return, ["return"])
     }
 
     stored =
       if Keyword.get(opts, :provenance, false) do
-        Map.put(base, "provenance", DataCodec.encode!(flow.provenance, ["provenance"]))
+        Map.put(base, "provenance", DataEncoder.encode!(flow.provenance, ["provenance"]))
       else
         base
       end
@@ -107,18 +107,18 @@ defmodule Jido.Flow.MapCodec.Encoder do
           %{
             "name" => option.name,
             "condition" =>
-              ExpressionCodec.encode_condition!(
+              ExpressionEncoder.encode_condition!(
                 option.condition,
                 option_path ++ ["condition"]
               ),
             "action" => Map.fetch!(action_ids, option.action),
-            "input" => ExpressionCodec.encode!(option.input, option_path ++ ["input"])
+            "input" => ExpressionEncoder.encode!(option.input, option_path ++ ["input"])
           }
         end),
       "fallback" => %{
         "name" => "fallback",
         "action" => Map.fetch!(action_ids, choice.fallback.action),
-        "input" => ExpressionCodec.encode!(choice.fallback.input, path ++ ["fallback", "input"])
+        "input" => ExpressionEncoder.encode!(choice.fallback.input, path ++ ["fallback", "input"])
       },
       "deps" => Enum.sort(choice.deps)
     }
@@ -130,9 +130,9 @@ defmodule Jido.Flow.MapCodec.Encoder do
     base = %{
       "kind" => "map",
       "name" => map.name,
-      "collection" => ExpressionCodec.encode!(map.collection, path ++ ["collection"]),
+      "collection" => ExpressionEncoder.encode!(map.collection, path ++ ["collection"]),
       "action" => Map.fetch!(action_ids, map.action),
-      "input" => ExpressionCodec.encode!(map.input, path ++ ["input"]),
+      "input" => ExpressionEncoder.encode!(map.input, path ++ ["input"]),
       "on_error" => Atom.to_string(map.on_error),
       "deps" => Enum.sort(map.deps)
     }
@@ -144,10 +144,10 @@ defmodule Jido.Flow.MapCodec.Encoder do
     base = %{
       "kind" => "reduce",
       "name" => reduce.name,
-      "collection" => ExpressionCodec.encode!(reduce.collection, path ++ ["collection"]),
-      "initial" => ExpressionCodec.encode!(reduce.initial, path ++ ["initial"]),
+      "collection" => ExpressionEncoder.encode!(reduce.collection, path ++ ["collection"]),
+      "initial" => ExpressionEncoder.encode!(reduce.initial, path ++ ["initial"]),
       "action" => Map.fetch!(action_ids, reduce.action),
-      "input" => ExpressionCodec.encode!(reduce.input, path ++ ["input"]),
+      "input" => ExpressionEncoder.encode!(reduce.input, path ++ ["input"]),
       "deps" => Enum.sort(reduce.deps)
     }
 
@@ -159,17 +159,17 @@ defmodule Jido.Flow.MapCodec.Encoder do
       "kind" => "iterate",
       "name" => iterator.name,
       "action" => Map.fetch!(action_ids, iterator.action),
-      "input" => ExpressionCodec.encode!(iterator.input, path ++ ["input"]),
+      "input" => ExpressionEncoder.encode!(iterator.input, path ++ ["input"]),
       "state" => %{
         "kind" => "iterate_state",
         "version" => iterator.state.version,
         "schema" => Map.fetch!(iterator_schema_ids, iterator.name),
         "initial" =>
-          ExpressionCodec.encode!(iterator.state.initial, path ++ ["state", "initial"]),
-        "update" => ExpressionCodec.encode!(iterator.state.update, path ++ ["state", "update"])
+          ExpressionEncoder.encode!(iterator.state.initial, path ++ ["state", "initial"]),
+        "update" => ExpressionEncoder.encode!(iterator.state.update, path ++ ["state", "update"])
       },
       "completion" =>
-        ExpressionCodec.encode_condition!(iterator.completion, path ++ ["completion"]),
+        ExpressionEncoder.encode_condition!(iterator.completion, path ++ ["completion"]),
       "max_iterations" => iterator.max_iterations,
       "deps" => Enum.sort(iterator.deps)
     }
@@ -181,7 +181,7 @@ defmodule Jido.Flow.MapCodec.Encoder do
     base = %{
       "name" => node.name,
       "action" => Map.fetch!(action_ids, node.action),
-      "input" => ExpressionCodec.encode!(node.input, path ++ ["input"]),
+      "input" => ExpressionEncoder.encode!(node.input, path ++ ["input"]),
       "deps" => Enum.sort(node.deps)
     }
 
@@ -190,7 +190,7 @@ defmodule Jido.Flow.MapCodec.Encoder do
 
   defp maybe_put_provenance(base, provenance, opts, path) do
     if Keyword.get(opts, :provenance, false) do
-      Map.put(base, "provenance", DataCodec.encode!(provenance, path ++ ["provenance"]))
+      Map.put(base, "provenance", DataEncoder.encode!(provenance, path ++ ["provenance"]))
     else
       base
     end

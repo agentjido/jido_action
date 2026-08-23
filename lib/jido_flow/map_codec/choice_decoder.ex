@@ -1,9 +1,9 @@
 defmodule Jido.Flow.MapCodec.ChoiceDecoder do
   @moduledoc false
 
-  alias Jido.Flow.MapCodec.DataCodec
+  alias Jido.Flow.MapCodec.DataDecoder
   alias Jido.Flow.MapCodec.ErrorPath
-  alias Jido.Flow.MapCodec.ExpressionCodec
+  alias Jido.Flow.MapCodec.ExpressionDecoder
   alias Jido.Flow.MapCodec.RecordValidator
   alias Jido.Flow.MapCodec.RegistryLookup
 
@@ -25,7 +25,7 @@ defmodule Jido.Flow.MapCodec.ChoiceDecoder do
          {:ok, deps} <-
            RecordValidator.validate_node_deps(RecordValidator.fetch_optional(choice, :deps, [])),
          {:ok, provenance} <-
-           DataCodec.decode_optional(choice, :provenance, %{})
+           DataDecoder.decode_optional(choice, :provenance, %{})
            |> ErrorPath.prepend([RecordValidator.field(:provenance)]) do
       {:ok,
        %{
@@ -71,7 +71,7 @@ defmodule Jido.Flow.MapCodec.ChoiceDecoder do
              "choice option condition is required"
            ),
          {:ok, condition} <-
-           ExpressionCodec.decode_condition(condition)
+           ExpressionDecoder.decode_condition(condition)
            |> ErrorPath.prepend([RecordValidator.field(:condition)]),
          {:ok, action} <-
            RecordValidator.fetch_required(option, :action, "choice option action is required"),
@@ -79,7 +79,7 @@ defmodule Jido.Flow.MapCodec.ChoiceDecoder do
            RegistryLookup.decode_identifier(action, :action)
            |> ErrorPath.prepend([RecordValidator.field(:action)]),
          {:ok, input} <-
-           ExpressionCodec.decode(RecordValidator.fetch_optional(option, :input, %{}))
+           ExpressionDecoder.decode(RecordValidator.fetch_optional(option, :input, %{}))
            |> ErrorPath.prepend([RecordValidator.field(:input)]) do
       {:ok, %{name: name, condition: condition, action: action, input: input}}
     end
@@ -102,7 +102,7 @@ defmodule Jido.Flow.MapCodec.ChoiceDecoder do
            RegistryLookup.decode_identifier(action, :action)
            |> ErrorPath.prepend([RecordValidator.field(:action)]),
          {:ok, input} <-
-           ExpressionCodec.decode(RecordValidator.fetch_optional(fallback, :input, %{}))
+           ExpressionDecoder.decode(RecordValidator.fetch_optional(fallback, :input, %{}))
            |> ErrorPath.prepend([RecordValidator.field(:input)]) do
       {:ok, %{action: action, input: input}}
     end

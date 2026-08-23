@@ -3,9 +3,9 @@ defmodule Jido.Flow.MapCodec.Decoder do
 
   alias Jido.Flow.MapCodec.ChoiceDecoder
   alias Jido.Flow.MapCodec.CollectionDecoder
-  alias Jido.Flow.MapCodec.DataCodec
+  alias Jido.Flow.MapCodec.DataDecoder
   alias Jido.Flow.MapCodec.ErrorPath
-  alias Jido.Flow.MapCodec.ExpressionCodec
+  alias Jido.Flow.MapCodec.ExpressionDecoder
   alias Jido.Flow.MapCodec.IteratorDecoder
   alias Jido.Flow.MapCodec.RecordValidator
   alias Jido.Flow.MapCodec.RegistryLookup
@@ -32,9 +32,10 @@ defmodule Jido.Flow.MapCodec.Decoder do
            RecordValidator.fetch_required(map, :return, "flow map return is required"),
          {:ok, nodes} <- decode_nodes(nodes),
          {:ok, return} <-
-           ExpressionCodec.decode(return) |> ErrorPath.prepend([RecordValidator.field(:return)]),
+           ExpressionDecoder.decode(return)
+           |> ErrorPath.prepend([RecordValidator.field(:return)]),
          {:ok, provenance} <-
-           DataCodec.decode_optional(map, :provenance, %{})
+           DataDecoder.decode_optional(map, :provenance, %{})
            |> ErrorPath.prepend([RecordValidator.field(:provenance)]) do
       {:ok,
        %{
@@ -113,10 +114,10 @@ defmodule Jido.Flow.MapCodec.Decoder do
            RegistryLookup.decode_identifier(action, :action)
            |> ErrorPath.prepend([RecordValidator.field(:action)]),
          {:ok, input} <-
-           ExpressionCodec.decode(RecordValidator.fetch_optional(node, :input, %{}))
+           ExpressionDecoder.decode(RecordValidator.fetch_optional(node, :input, %{}))
            |> ErrorPath.prepend([RecordValidator.field(:input)]),
          {:ok, provenance} <-
-           DataCodec.decode_optional(node, :provenance, %{})
+           DataDecoder.decode_optional(node, :provenance, %{})
            |> ErrorPath.prepend([RecordValidator.field(:provenance)]),
          {:ok, deps} <-
            RecordValidator.validate_node_deps(RecordValidator.fetch_optional(node, :deps, [])) do

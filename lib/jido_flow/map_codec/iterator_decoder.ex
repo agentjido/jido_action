@@ -1,9 +1,9 @@
 defmodule Jido.Flow.MapCodec.IteratorDecoder do
   @moduledoc false
 
-  alias Jido.Flow.MapCodec.DataCodec
+  alias Jido.Flow.MapCodec.DataDecoder
   alias Jido.Flow.MapCodec.ErrorPath
-  alias Jido.Flow.MapCodec.ExpressionCodec
+  alias Jido.Flow.MapCodec.ExpressionDecoder
   alias Jido.Flow.MapCodec.RecordValidator
   alias Jido.Flow.MapCodec.RegistryLookup
 
@@ -20,7 +20,7 @@ defmodule Jido.Flow.MapCodec.IteratorDecoder do
          {:ok, input} <-
            RecordValidator.fetch_required(iterator, :input, "iterator input is required"),
          {:ok, input} <-
-           ExpressionCodec.decode(input)
+           ExpressionDecoder.decode(input)
            |> ErrorPath.prepend([RecordValidator.field(:input)]),
          {:ok, state} <-
            RecordValidator.fetch_required(iterator, :state, "iterator state is required"),
@@ -34,7 +34,7 @@ defmodule Jido.Flow.MapCodec.IteratorDecoder do
              "iterator completion is required"
            ),
          {:ok, completion} <-
-           ExpressionCodec.decode_condition(completion, :iterate_completion)
+           ExpressionDecoder.decode_condition(completion, :iterate_completion)
            |> ErrorPath.prepend([RecordValidator.field(:completion)]),
          {:ok, max_iterations} <-
            RecordValidator.fetch_required(
@@ -46,7 +46,7 @@ defmodule Jido.Flow.MapCodec.IteratorDecoder do
            RecordValidator.fetch_required(iterator, :deps, "iterator deps are required"),
          {:ok, deps} <- RecordValidator.validate_node_deps(deps),
          {:ok, provenance} <-
-           DataCodec.decode_optional(iterator, :provenance, %{})
+           DataDecoder.decode_optional(iterator, :provenance, %{})
            |> ErrorPath.prepend([RecordValidator.field(:provenance)]) do
       {:ok,
        %{
@@ -76,12 +76,12 @@ defmodule Jido.Flow.MapCodec.IteratorDecoder do
          {:ok, initial} <-
            RecordValidator.fetch_required(state, :initial, "iterator state initial is required"),
          {:ok, initial} <-
-           ExpressionCodec.decode(initial)
+           ExpressionDecoder.decode(initial)
            |> ErrorPath.prepend([RecordValidator.field(:initial)]),
          {:ok, update} <-
            RecordValidator.fetch_required(state, :update, "iterator state update is required"),
          {:ok, update} <-
-           ExpressionCodec.decode(update)
+           ExpressionDecoder.decode(update)
            |> ErrorPath.prepend([RecordValidator.field(:update)]) do
       {:ok, %{version: version, schema: schema, initial: initial, update: update}}
     end

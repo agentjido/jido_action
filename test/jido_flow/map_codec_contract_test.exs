@@ -187,6 +187,54 @@ defmodule Jido.Flow.MapCodecContractTest do
     assert_error(Map.put(base_stored(), "provenance", duplicate), "duplicate key")
   end
 
+  test "keeps expression and data codec boundary paths stable" do
+    flow =
+      Flow.new!(
+        name: "nested_codec_error",
+        nodes: [
+          Node.new!(
+            name: "node",
+            action: Add,
+            input: %{payload: Ref.value(%{items: [{:unsupported, 1}]})}
+          )
+        ],
+        return: Ref.result("node")
+      )
+
+    assert {:error, encode_error} = Flow.to_stored_map(flow, registry())
+    assert encode_error.message == "stored flow value is not JSON-safe"
+
+    assert encode_error.details.path == [
+             "nodes",
+             0,
+             "input",
+             {:map_value, 0},
+             "value",
+             {:map_value, 0},
+             0
+           ]
+
+    invalid_data = %{
+      "$type" => "map",
+      "entries" => [
+        %{
+          "key" => typed_key("string", "payload"),
+          "value" => %{"$type" => "unknown"}
+        }
+      ]
+    }
+
+    invalid = Map.put(base_stored(), "return", %{"type" => "value", "value" => invalid_data})
+
+    assert {:error, decode_error} = Flow.from_stored_map(invalid, registry())
+    assert decode_error.message == "unknown encoded value type: \"unknown\""
+
+    assert decode_error.details == %{
+             type: "unknown",
+             path: ["return", "value", {:map_value, 0}]
+           }
+  end
+
   defp complete_flow do
     nodes = [
       Node.new!(

@@ -8,12 +8,12 @@ defmodule Jido.Flow.MapCodec do
   alias Jido.Flow.MapCodec.ErrorPath
   alias Jido.Flow.Registry
 
-  @spec to_stored_map!(Jido.Flow.t(), [Element.t()], Registry.t(), keyword()) :: map()
+  @spec to_stored_map!(Jido.Flow.t(), [Jido.Flow.Element.t()], Registry.t(), keyword()) :: map()
   def to_stored_map!(flow, ordered_nodes, %Registry{} = registry, opts) do
     Encoder.to_stored_map!(flow, ordered_nodes, registry, opts)
   end
 
-  @spec to_stored_map(Jido.Flow.t(), [Element.t()], Registry.t(), keyword()) ::
+  @spec to_stored_map(Jido.Flow.t(), [Jido.Flow.Element.t()], Registry.t(), keyword()) ::
           {:ok, map()} | {:error, Error.InvalidInputError.t()}
   def to_stored_map(flow, ordered_nodes, %Registry{} = registry, opts) do
     Encoder.to_stored_map(flow, ordered_nodes, registry, opts)
