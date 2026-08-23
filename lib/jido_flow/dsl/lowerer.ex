@@ -35,13 +35,15 @@ defmodule Jido.Flow.DSL.Lowerer do
   end
 
   defp lower_entities(entities) do
-    Enum.reduce_while(entities, {:ok, [], nil}, fn entity, {:ok, specs, return} ->
+    entities
+    |> Enum.reduce_while({:ok, [], nil}, fn entity, {:ok, specs, return} ->
       case lower_entity(entity) do
-        {:ok, {:node, spec}} -> {:cont, {:ok, specs ++ [spec], return}}
+        {:ok, {:node, spec}} -> {:cont, {:ok, [spec | specs], return}}
         {:ok, {:return, expression}} -> {:cont, {:ok, specs, expression}}
         {:error, error} -> {:halt, {:error, error}}
       end
     end)
+    |> reverse_lowered_entities()
   end
 
   defp lower_entity(%Step{} = step) do
@@ -293,4 +295,7 @@ defmodule Jido.Flow.DSL.Lowerer do
 
   defp reverse_ok({:ok, values}), do: {:ok, Enum.reverse(values)}
   defp reverse_ok({:error, error}), do: {:error, error}
+
+  defp reverse_lowered_entities({:ok, specs, return}), do: {:ok, Enum.reverse(specs), return}
+  defp reverse_lowered_entities({:error, error}), do: {:error, error}
 end

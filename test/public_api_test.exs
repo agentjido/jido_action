@@ -37,6 +37,8 @@ defmodule Jido.PublicAPITest do
     Jido.Flow.Compiler.Map,
     Jido.Flow.Compiler.Reduce,
     Jido.Flow.Compiler.Target,
+    Jido.Flow.DSL.MacroSupport,
+    Jido.Flow.DSL.ModuleCompiler,
     Jido.Flow.Element.Validation,
     Jido.Flow.Expression,
     Jido.Flow.Graph,
@@ -102,6 +104,10 @@ defmodule Jido.PublicAPITest do
     for {name, arity} <- @hidden_flow_helpers do
       assert function_doc(Jido.Flow, name, arity) == :hidden
     end
+  end
+
+  test "Flow keeps its hidden before-compile compatibility macro" do
+    assert macro_exported?(Jido.Flow, :__before_compile__, 1)
   end
 
   test "runtime Builder reference helpers are visible in the API reference" do
