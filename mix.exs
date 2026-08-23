@@ -77,7 +77,8 @@ defmodule JidoAction.MixProject do
           "LICENSE"
         ],
         "Getting Started": [
-          "guides/getting-started.livemd"
+          "guides/getting-started.livemd",
+          "guides/v3-migration.md"
         ],
         "Core Concepts": [
           "guides/actions.md",
@@ -115,6 +116,7 @@ defmodule JidoAction.MixProject do
         {"LICENSE", title: "Apache 2.0 License"},
         # Getting Started
         {"guides/getting-started.livemd", title: "Getting Started"},
+        {"guides/v3-migration.md", title: "Migrate To v3"},
         # Core Concepts
         {"guides/actions.md", title: "Actions"},
         {"guides/instructions.md", title: "Instructions"},

@@ -3,6 +3,17 @@
 `jido_action` defines validated actions, action call frames, data-first Flows,
 and one public execution boundary.
 
+Jido Flow is a declarative, in-memory graph execution layer for Jido Actions.
+Runic owns graph mechanics, planning, runnable discovery, node execution, and
+graph-state transitions. Jido Flow owns its DSL, validation, lossless Map/JSON
+representation, compilation, and Flow semantics. Jido Exec owns one in-memory
+execution session: step-wise execution, bounded concurrency, Action invocation,
+errors, telemetry, and final results.
+
+Durable orchestration is not provided. An outer system must own persistence,
+queues, scheduling, recovery, retries, cancellation, deadlines, distributed
+coordination, supervision, and deployment-safe continuation.
+
 This foundation keeps the action boundary small:
 
 - `Jido.Action` defines a named action with Zoi input and output schemas.
@@ -12,7 +23,8 @@ This foundation keeps the action boundary small:
 
 Version 3.0.0-rc.1 is a release candidate. It introduces the declarative Flow
 DSL, runtime Flow construction, safe stored Flow maps, and one Flow execution
-engine. Test it before you use it in production.
+engine. Test it before you use it in production. See the [v3 migration
+guide](guides/v3-migration.md) for the confirmed breaking changes.
 
 ## Install
 
@@ -155,7 +167,8 @@ builder =
   Jido.Exec.run(runtime_flow, %{name: "Ada"})
 ```
 
-The Builder and the compile-time DSL use the same canonical constructor.
+The Builder and the Flow module DSL are inputs to the same canonical
+constructor and Flow model.
 
 ## Load A Flow From JSON Or A Map
 
@@ -187,10 +200,10 @@ end
 return a structured error instead of raising. Stored identifiers cannot create
 atoms or select a module outside the host Registry.
 
-The Spark DSL, Builder, and stored Map or JSON format are the three supported
-Flow authoring routes. Flow element structs are stable, read-only data types
-for inspection. The Compiler, Map codec internals, graph analysis, and Runic
-adapters are private.
+The Flow module DSL, Builder, and stored Map or JSON decoder are three inputs
+to one canonical `%Jido.Flow{}` model. Flow element structs and semantic maps
+are inspection views, not additional source languages. Compiler, Map codec,
+and graph engine adapter modules are private.
 
 ## Run A Flow Step By Step
 
@@ -208,7 +221,9 @@ Run-to-completion and step-wise execution use the same engine:
 ```
 
 `wave/1` runs the current ready set. `continue/1` runs until the Flow reaches a
-terminal result. Always pass the newest execution value to the next call.
+terminal result. Always pass the newest execution value to the next call. The
+caller owns this in-memory lifecycle. Jido does not persist or recover it.
+Reusing a stale value can run an Action side effect again.
 
 ## Observe Execution
 
@@ -230,6 +245,7 @@ Livebook. ExDoc adds a **Run in Livebook** link to each `.livemd` guide.
 
 ### Core Concepts
 
+- [Migrate To v3](guides/v3-migration.md)
 - [Actions](guides/actions.md)
 - [Instructions](guides/instructions.md)
 - [Flows](guides/flows.md)

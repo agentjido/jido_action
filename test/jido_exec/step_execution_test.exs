@@ -75,6 +75,33 @@ defmodule Jido.Exec.StepExecutionTest do
       assert Exec.ready(execution) == tl(expected)
     end
 
+    test "reusing a stale execution can run the same Action again" do
+      flow =
+        Flow.new!(
+          name: "stale_execution",
+          nodes: [
+            Node.new!(
+              name: "record",
+              action: RecorderAction,
+              input: %{value: Ref.value(:repeated)}
+            )
+          ],
+          return: Ref.result("record")
+        )
+
+      assert {:ok, stale_execution} = Exec.start(flow, %{}, %{test_pid: self()})
+
+      assert {:ok, %NodeResult{status: :ok}, first_execution} =
+               Exec.step(stale_execution)
+
+      assert {:ok, %NodeResult{status: :ok}, second_execution} =
+               Exec.step(stale_execution)
+
+      assert_receive {RecorderAction, %{value: :repeated}}
+      assert_receive {RecorderAction, %{value: :repeated}}
+      assert first_execution.revision == second_execution.revision
+    end
+
     test "rejects a node that is not ready without changing the execution" do
       assert {:ok, execution} = Exec.start(ExecutionFixtures.linear_flow(), %{value: 3})
 

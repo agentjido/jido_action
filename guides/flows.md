@@ -53,19 +53,28 @@ Action extras are a direct Action or Instruction delivery channel. Flow
 execution uses only the node output or error reason, so node extras do not
 become Flow data.
 
-## One DSL And One Data Type
+## One DSL And One Data Model
 
-Developers use one compile-time Spark DSL. Applications can use
-`Jido.Flow.Builder` when the graph structure comes from runtime data. Both
-produce the same canonical `%Jido.Flow{}` artifact:
+Developers use one compile-time Flow module DSL. Applications can use
+`Jido.Flow.Builder` when the graph structure comes from runtime data. All three
+inputs produce the same canonical `%Jido.Flow{}` artifact:
 
-- `use Jido.Flow` and its compile-time Spark DSL;
+- `use Jido.Flow` and its compile-time module DSL;
 - `Jido.Flow.Builder` for runtime construction; and
 - versioned stored maps or JSON for transport and persistence.
 
 There is no stored text parser. Tools and AI systems can produce a stored map
 or JSON value. `Jido.Flow.from_stored_map/2` validates and restores it through
 a trusted host Registry.
+
+These three inputs use one constructor and one expression model. Element
+structs expose the canonical data. `Jido.Flow.to_map/2` returns a semantic
+inspection view. Neither one is another source language.
+
+The module DSL calls the final declaration `output`. Builder and the canonical
+artifact call the field `return`. The module DSL calls a repeated form
+`iterate`; the artifact stores it as `Jido.Flow.Iterator`. These are deliberate
+source-to-data boundaries.
 
 ## Public And Private Boundaries
 
@@ -74,9 +83,9 @@ is the public runtime construction facade. `Jido.Flow.Registry` controls the
 trusted identifiers in stored maps. `Jido.Exec` is the public execution
 facade.
 
-The Compiler, Map codec internals, graph analysis, and Runic adapters are
-private. They can change without a public API change. Runic workflow values do
-not enter the Flow artifact, stored maps, or step-wise execution results.
+Compiler, Map codec, graph analysis, and graph engine adapter modules are
+private. They can change without a public API change. Treat the execution value
+as opaque and use only `Jido.Exec` functions to read or advance it.
 
 ## Semantic Identity And Maps
 

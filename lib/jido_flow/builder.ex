@@ -3,7 +3,7 @@ defmodule Jido.Flow.Builder do
   Builds a Flow from runtime data.
 
   Each node has an explicit name. References use that name through `result/2`.
-  `build/1` uses the same canonical constructor as the declarative Spark DSL
+  `build/1` uses the same canonical constructor as the Flow module DSL
   and stored Flow decoder.
   """
 

@@ -2,8 +2,8 @@
 
 Use `Jido.Flow.Builder` when the Flow structure is known only at runtime. The
 Builder sends named node data through the same canonical constructor as the
-compile-time Spark DSL and [stored Flow JSON](flow-storage.md). Builder calls
-are a data-construction API. They are not a second source language.
+compile-time Flow module DSL and [stored Flow JSON](flow-storage.md). Builder
+calls are a data-construction API. They are not a second source language.
 
 ## Create A Builder
 

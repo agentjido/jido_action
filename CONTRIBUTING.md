@@ -89,14 +89,10 @@ All public APIs must be properly documented:
 
 Check documentation coverage locally:
 ```bash
-# Generate documentation report
-mix doctor
-
-# Check for missing documentation
-mix doctor --report
+mix docs --warnings-as-errors
 ```
 
-The CI pipeline enforces documentation standards - builds will fail if documentation coverage is incomplete.
+Documentation generation must complete without warnings.
 
 ## Git Hooks and Conventional Commits
 
@@ -161,17 +157,6 @@ The hook will reject non-conforming commits, ensuring a clean changelog can be g
 - Reference any related issues
 - Include tests and documentation updates
 - Ensure CI passes
-
-## Maintenance Policy
-
-This project follows a formal maintenance policy that outlines our commitments for:
-
-- Issue response times and resolution targets
-- Security vulnerability handling procedures  
-- Release cadence and version support windows
-- Long-term support and end-of-life processes
-
-For complete details, see [MAINTENANCE.md](MAINTENANCE.md).
 
 ## Questions?
 

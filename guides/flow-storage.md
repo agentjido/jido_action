@@ -63,7 +63,7 @@ decoded = JSON.decode!(json)
 
 The reader first checks structural resource limits. It then validates the exact
 stored grammar, resolves each identifier through the supplied Registry, and
-uses the same canonical constructor as the Spark DSL and Builder.
+uses the same canonical constructor as the Flow module DSL and Builder.
 
 The reader does not convert stored strings to atoms. It does not derive module
 names, load modules, or accept Action modules and schemas from the stored map.

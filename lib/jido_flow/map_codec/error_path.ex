@@ -8,7 +8,8 @@ defmodule Jido.Flow.MapCodec.ErrorPath do
   def error(message, details \\ %{}), do: {:error, Error.validation_error(message, details)}
 
   @doc false
-  @spec prepend({:ok, term()} | {:error, term()}, list()) :: {:ok, term()} | {:error, term()}
+  @spec prepend(:ok | {:ok, term()} | {:error, term()}, list()) ::
+          :ok | {:ok, term()} | {:error, term()}
   def prepend({:ok, value}, _prefix), do: {:ok, value}
 
   def prepend({:error, %{details: details} = error}, prefix) when is_map(details) do

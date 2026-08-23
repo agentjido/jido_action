@@ -135,14 +135,18 @@ execution records the failure. Selection errors and invalid execution state
 return `{:error, exception}` instead.
 
 Always pass the newest execution to the next operation. Execution values are
-in-memory state, not durable checkpoints or interchange maps.
+caller-owned, in-memory state, not durable checkpoints or interchange maps.
+Each execution stores its own `async` and `max_concurrency` settings. Reusing
+an older value can run an Action and its external side effects again.
 
 ## Runtime Policy Boundary
 
 The current public Flow execution options are `async` and
 `max_concurrency`. Retry, timeout, deadline, cancellation, persistence, and
 rewind are not public Flow execution options. Put those policies in a caller or
-runtime layer that owns the required lifecycle.
+runtime layer that owns the required lifecycle. Jido does not provide queues,
+recovery, supervision, distributed coordination, or deployment-safe
+continuation.
 
 ## Direct Calls And Crash Isolation
 

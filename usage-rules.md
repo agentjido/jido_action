@@ -44,12 +44,16 @@ Use `jido_action` for validated work and data-first composition:
 - Use `step`, `choice`, `map`, `reduce`, and `iterate` for graph structure.
 - Use `input`, `context`, and `result` references to map data. Put computation
   in Actions.
+- Treat DSL expressions as a restricted data grammar, not general Elixir. Do
+  not use assignments, pattern matching, pipes, or application function calls.
 - Let result references create data dependencies. Use `after:` only for
   control order without a data dependency.
 - Do not add a `parallel` block. Independent nodes are already parallel when
   Flow execution uses `async: true`.
 - Omit `output` when the complete result of the final node is correct. Use one
   final `output` declaration to shape a result from one or more nodes.
+- The DSL name is `output`. Builder and canonical data use `return`. Do not add
+  an alias for either boundary.
 - Use `repeat` or a bounded `while` condition for `iterate`. Keep Iterator
   State local to that node.
 
@@ -72,7 +76,10 @@ Use `jido_action` for validated work and data-first composition:
 - Only Flow execution accepts `async` and `max_concurrency` options.
 - Use `start/4`, `ready/1`, `step/1`, `step/2`, `wave/1`, `continue/1`, and
   `result/1` for step-wise Flow execution.
-- Always pass the latest execution value to the next step-wise call.
+- Treat each execution as caller-owned, in-memory state with its own
+  concurrency limit. Always pass the latest value to the next step-wise call.
+- Do not persist an execution as a checkpoint. Reusing a stale value can run an
+  Action side effect again.
 - Keep retry, timeout, cancellation, persistence, and exactly-once policy in
   the caller or a higher-level runtime.
 

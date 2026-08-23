@@ -109,6 +109,4 @@ defmodule Jido.Flow.Builder.Normalizer do
   defp prefix_path(%{details: details} = error, prefix) when is_map(details) do
     %{error | details: Map.put(details, :path, prefix ++ Map.get(details, :path, []))}
   end
-
-  defp prefix_path(error, _prefix), do: error
 end

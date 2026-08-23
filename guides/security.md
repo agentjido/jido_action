@@ -45,10 +45,10 @@ results, error details, or logs.
 
 ## Keep DSL Source At Compile Time
 
-The Spark DSL is compile-time Elixir source. Keep it in trusted application
-code. Do not evaluate generated or user-supplied Elixir source to create a
-Flow. Use the stored-map or JSON format for database data, API input, and AI
-generated Flows.
+The Flow module DSL is compile-time Elixir source. Keep it in trusted
+application code. Do not evaluate generated or user-supplied Elixir source to
+create a Flow. Use the stored-map or JSON format for database data, API input,
+and AI-generated Flows.
 
 Do not create atoms from untrusted input. Keep user-provided identifiers as
 strings. A stored Flow map can use only atoms that already exist in the VM.

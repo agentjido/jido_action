@@ -1,7 +1,7 @@
 # Author Flows With Modules
 
 Use `Jido.Flow` to author a Flow in Elixir and validate it when the module
-compiles. The Spark DSL lowers to the same canonical `%Jido.Flow{}` that the
+compiles. The module DSL lowers to the same canonical `%Jido.Flow{}` that the
 [`Jido.Flow.Builder`](flow-builder.md) and stored JSON format use.
 
 ## Define A Flow Module
@@ -116,13 +116,15 @@ See [Schemas And Validation](schemas-validation.md) for details.
 Before the module compiles, Jido:
 
 1. Validates module options and schemas.
-2. Lets Spark collect the Flow declarations.
-3. Converts closed expressions and native conditions into Flow data.
+2. Collects the Flow declarations.
+3. Converts closed expressions and declarative conditions into Flow data.
 4. Checks names, dependencies, output, and Action contracts.
 5. Embeds the canonical `%Jido.Flow{}` in the module.
 
-An invalid declaration raises a `CompileError`. Runtime input, context, and
-Action work stay in [Flow execution](flow-execution.livemd).
+An invalid declaration raises a `CompileError`. The expression grammar does
+not accept assignments, pattern matching, pipes, or application function
+calls. Runtime input, context, and Action work stay in [Flow
+execution](flow-execution.livemd).
 
 ## Generated Public Helpers
 

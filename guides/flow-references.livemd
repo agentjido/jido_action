@@ -123,8 +123,8 @@ end
 ```
 
 `value(literal)` wraps supported scalar, list, and map literals. Tuples and
-executable expressions are not part of the Spark DSL. Normal literals do not
-need `value/1`.
+executable expressions are not part of the Flow module DSL. Normal literals do
+not need `value/1`.
 
 ## Read Prior Results With `result`
 

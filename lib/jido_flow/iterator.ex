@@ -2,7 +2,7 @@ defmodule Jido.Flow.Iterator do
   @moduledoc """
   A bounded, stateful Flow element.
 
-  The public Spark DSL declares this canonical node with `iterate`. Its body
+  The Flow module DSL declares this canonical node with `iterate`. Its body
   iterations and State transitions are internal to one public Flow node.
   """
 

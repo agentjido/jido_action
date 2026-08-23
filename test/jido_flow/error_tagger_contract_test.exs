@@ -12,7 +12,8 @@ defmodule Jido.Flow.ErrorTaggerContractTest do
     for {owner, input_phase, execution_phase, output_phase, details} <- owners() do
       assert {:error, input_error} =
                ErrorTagger.tag_target_validation_error(
-                 {:error, Error.validation_error("invalid", %{source: :target})},
+                 {:error,
+                  Error.validation_error("invalid", %{source: :target, path: [:payload]})},
                  :input,
                  owner
                )
@@ -20,11 +21,13 @@ defmodule Jido.Flow.ErrorTaggerContractTest do
       assert input_error.message == "invalid"
       assert Map.take(input_error.details, Map.keys(details)) == details
       assert input_error.details.phase == input_phase
+      assert input_error.details.path == [:payload]
 
       for {phase, tagged_phase} <- [execution: execution_phase, output: output_phase] do
         assert {:error, tagged} =
                  ErrorTagger.tag_target_error(
-                   {:error, Error.execution_error("failed", %{source: :target})},
+                   {:error,
+                    Error.execution_error("failed", %{source: :target, path: [:payload]})},
                    phase,
                    owner
                  )
@@ -32,6 +35,7 @@ defmodule Jido.Flow.ErrorTaggerContractTest do
         assert tagged.message == "failed"
         assert Map.take(tagged.details, Map.keys(details)) == details
         assert tagged.details.phase == tagged_phase
+        assert tagged.details.path == [:payload]
       end
     end
   end
@@ -69,12 +73,26 @@ defmodule Jido.Flow.ErrorTaggerContractTest do
     assert tagged.details.retry == false
   end
 
-  test "keeps plain target exceptions and formats all validation reason shapes" do
-    {owner, input_phase, _execution_phase, _output_phase, details} = owners() |> List.first()
-    exception = RuntimeError.exception("plain failure")
+  test "adds phase and ownership details to plain target exceptions" do
+    for {owner, _input_phase, execution_phase, _output_phase, details} <- owners() do
+      exception = RuntimeError.exception("plain failure")
 
-    assert {:error, ^exception} =
-             ErrorTagger.tag_target_error({:error, exception}, :execution, owner)
+      assert {:error,
+              %{
+                __struct__: RuntimeError,
+                message: "plain failure",
+                details: tagged_details
+              } = tagged} =
+               ErrorTagger.tag_target_error({:error, exception}, :execution, owner)
+
+      assert is_exception(tagged)
+      assert Map.take(tagged_details, Map.keys(details)) == details
+      assert tagged_details.phase == execution_phase
+    end
+  end
+
+  test "formats all validation reason shapes" do
+    {owner, input_phase, _execution_phase, _output_phase, details} = owners() |> List.first()
 
     for {reason, message} <- [
           {"invalid input", "invalid input"},

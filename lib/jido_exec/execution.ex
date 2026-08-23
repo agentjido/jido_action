@@ -3,35 +3,13 @@ defmodule Jido.Exec.Execution do
   State for a paused Flow execution.
 
   Create an execution with `Jido.Exec.start/4`. Pass the latest returned value
-  to the other step-wise execution functions. The internal representation is
-  not a storage or interchange format.
+  to the other step-wise execution functions. Use `Jido.Exec` functions to
+  read or update it. Its fields are internal, and the value is not a storage
+  or interchange format.
   """
 
-  alias Jido.Flow
-
-  @typedoc "Current state of a Flow execution."
-  @type t :: %__MODULE__{
-          id: String.t(),
-          flow_name: String.t(),
-          status: :running | :succeeded | :failed,
-          revision: non_neg_integer(),
-          flow: Flow.t(),
-          input: map(),
-          context: map(),
-          options: keyword(),
-          workflow: term(),
-          ordered_nodes: [String.t()],
-          node_names: MapSet.t(String.t()),
-          node_positions: %{String.t() => non_neg_integer()},
-          ready: %{String.t() => term()},
-          ready_nodes: [String.t()],
-          node_results: %{String.t() => Jido.Exec.NodeResult.t()},
-          node_errors: %{String.t() => Exception.t()},
-          engine_error: Exception.t() | nil,
-          finalizer: (term() -> {:ok, term()} | {:error, Exception.t()}),
-          final_result: {:ok, term()} | {:error, Exception.t()} | nil,
-          lifecycle: map()
-        }
+  @typedoc "State for one in-memory Flow execution session."
+  @type t :: struct()
 
   @derive {Inspect, only: [:id, :flow_name, :status, :revision]}
   @enforce_keys [

@@ -1,11 +1,19 @@
 # Flow Language
 
 The Flow language declares a graph of named Action calls and one output. It is
-a compile-time Spark DSL. Its expressions become data. They do not run
-application code while the module compiles.
+a compile-time module DSL. Its expressions become data. They do not run
+application code while the module compiles or the Flow executes.
 
-The DSL, `Jido.Flow.Builder`, and stored JSON all produce the same canonical
-`%Jido.Flow{}`. The DSL is the primary developer authoring surface.
+The syntax uses Elixir forms, but it is not general Elixir. Flow expressions
+accept Flow references, supported literals, maps, and lists. Conditions accept
+a closed set of comparison and Boolean operators. Assignments, pattern
+matching, pipes, and application function calls are not valid Flow
+expressions. The compiler reports the unsupported expression and names the
+accepted data forms.
+
+The module DSL, `Jido.Flow.Builder`, and stored JSON all produce the same
+canonical `%Jido.Flow{}`. The module DSL is the primary developer authoring
+surface.
 
 Run the code cells from top to bottom.
 
@@ -178,8 +186,8 @@ See [Iterate and State](flow-iterate-state.livemd) for State updates and `while`
 
 ## `choice`: Select One Target
 
-`choice` checks options in source order. The first true native Elixir-style
-condition selects a target. The required `otherwise` target is the fallback.
+`choice` checks options in source order. The first true declarative condition
+selects a target. The required `otherwise` target is the fallback.
 
 ```elixir
 defmodule FlowLanguage.ChoiceExample do
@@ -260,6 +268,6 @@ true = is_binary(identity.digest)
 - [Flow References](flow-references.livemd) explains data paths and shaped values.
 - [Flow Dependencies](flow-dependencies.livemd) explains graph edges and ready waves.
 - [Map and Reduce](flow-collections.livemd) explains ordered collection processing.
-- [Flow Choices](flow-choices.livemd) explains native conditions and routing.
+- [Flow Choices](flow-choices.livemd) explains declarative conditions and routing.
 - [Iterate and State](flow-iterate-state.livemd) explains bounded State transitions.
 - [Nested Flows](nested-flows.livemd) explains atomic child execution.

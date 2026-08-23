@@ -46,10 +46,10 @@ Unknown options are rejected. A non-Boolean `async` value or a non-positive
 
 Options belong to the execution created by the current `run/4` or `start/4`
 call. They schedule independent nodes and internal Map items in that Flow.
-The limit applies separately to a ready wave and to each Map scheduling
-boundary. It is not one global task limit across nested scheduling boundaries.
-The options do not change Flow dependencies, and they do not propagate into
-nested Flow targets.
+The limit is local to that execution. It applies separately to a ready wave
+and to each Map scheduling boundary. It is not one global task limit across
+nested scheduling boundaries. The options do not change Flow dependencies,
+and they do not propagate into nested Flow targets.
 
 A nested Flow runs as one atomic parent node and uses its own default execution
 policy. Run the nested Flow directly when it needs its own `async` or

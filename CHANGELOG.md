@@ -7,11 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- changelog -->
 
+## Unreleased
+
+### Bug Fixes:
+
+* preserve target error paths and add Flow node phase and ownership details to
+  returned standard exceptions
+
+### Documentation:
+
+* state the in-memory Flow, internal graph engine, and durable orchestration
+  boundaries
+* define the restricted Flow expression grammar and source-to-data names
+* add a verified v3 migration guide
+
 ## [v3.0.0-rc.1](https://github.com/agentjido/jido_action/compare/v2.3.2...v3.0.0-rc.1) (2026-08-22)
 
 ### Features:
 
-* add the declarative, compile-time Jido Flow DSL built on Spark
+* add the declarative, compile-time Jido Flow module DSL
 * add step, choice, map, reduce, and iterate flow forms
 * add dependency-aware parallel flow execution and step-wise execution
 * add portable, versioned Map and JSON storage for runtime and AI-generated flows

@@ -4,7 +4,8 @@ defmodule Jido.Exec do
 
   `run/4` validates the executable and its input, runs the requested work,
   validates normal output, and returns structured errors. Flows also support
-  paused, step-wise execution.
+  paused, step-wise execution. One Flow execution is a caller-owned, in-memory
+  session with its own bounded concurrency settings.
 
   ## Telemetry
 
@@ -53,9 +54,10 @@ defmodule Jido.Exec do
   execute the current ready set. Use `continue/1` and `result/1` to finish and
   read the same result that `run/4` returns.
 
-  Always pass the latest returned execution to the next operation. Reusing an
-  older execution can run an Action more than once. Execution values are
-  in-memory values and are not a persistent checkpoint format.
+  The caller owns the execution lifecycle. Always pass the latest returned
+  execution to the next operation. Reusing an older execution can run an
+  Action more than once. Execution values are not persistent checkpoints and
+  cannot continue safely after deployment or process recovery.
   """
 
   alias Jido.Action.Error

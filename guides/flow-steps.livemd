@@ -179,8 +179,8 @@ annotated_map = Jido.Flow.to_map(FlowSteps.Annotated.flow(), provenance: true)
   Map.take(provenance, [:label, :note])
 ```
 
-Spark also records source line and column data in provenance when it is
-available.
+The module DSL also records source line and column data in provenance when it
+is available.
 
 ## Keep Computation In Actions
 

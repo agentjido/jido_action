@@ -108,6 +108,29 @@ defmodule Jido.PublicAPITest do
     end
   end
 
+  test "public module documentation does not expose the internal graph engine" do
+    for module <- List.flatten(Keyword.values(@expected_groups)) do
+      refute inspect(module_doc(module)) =~ "Runic"
+    end
+  end
+
+  test "public types and function specifications do not expose the internal graph engine" do
+    for module <- List.flatten(Keyword.values(@expected_groups)) do
+      for rendered <- rendered_types(module) ++ rendered_specs(module) do
+        refute rendered =~ "Runic"
+      end
+    end
+  end
+
+  test "the public Execution type does not list internal state fields" do
+    assert {:ok, types} = Code.Typespec.fetch_types(Jido.Exec.Execution)
+    {:type, type} = Enum.find(types, &match?({_kind, {:t, _definition, []}}, &1))
+
+    rendered = type |> Code.Typespec.type_to_quoted() |> Macro.to_string()
+
+    assert rendered == "t() :: struct()"
+  end
+
   test "Flow compatibility helpers stay hidden from generated documentation" do
     for {name, arity} <- @hidden_flow_helpers do
       assert function_doc(Jido.Flow, name, arity) == :hidden
@@ -164,6 +187,32 @@ defmodule Jido.PublicAPITest do
     case Enum.find(docs, &match?({{:function, ^name, ^arity}, _, _, _, _}, &1)) do
       {{:function, ^name, ^arity}, _, _, doc, _} -> doc
       nil -> :none
+    end
+  end
+
+  defp rendered_types(module) do
+    case Code.Typespec.fetch_types(module) do
+      {:ok, types} ->
+        Enum.map(types, fn {_kind, type} ->
+          type |> Code.Typespec.type_to_quoted() |> Macro.to_string()
+        end)
+
+      :error ->
+        []
+    end
+  end
+
+  defp rendered_specs(module) do
+    case Code.Typespec.fetch_specs(module) do
+      {:ok, specs} ->
+        Enum.flat_map(specs, fn {{name, _arity}, definitions} ->
+          Enum.map(definitions, fn definition ->
+            name |> Code.Typespec.spec_to_quoted(definition) |> Macro.to_string()
+          end)
+        end)
+
+      :error ->
+        []
     end
   end
 end

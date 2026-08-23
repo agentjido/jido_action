@@ -156,10 +156,14 @@ defmodule Jido.Flow.DSL.Expression do
   end
 
   defp unsupported!(expression) do
-    raise ArgumentError, "unsupported Flow expression: #{Macro.to_string(expression)}"
+    raise ArgumentError,
+          "unsupported Flow expression: #{Macro.to_string(expression)}; " <>
+            "use a Flow reference, literal, map, or list"
   end
 
   defp unsupported_condition!(condition) do
-    raise ArgumentError, "unsupported Flow condition: #{Macro.to_string(condition)}"
+    raise ArgumentError,
+          "unsupported Flow condition: #{Macro.to_string(condition)}; " <>
+            "use ==, !=, <, <=, >, >=, in, and, or, not, or a Flow condition function"
   end
 end

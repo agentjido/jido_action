@@ -75,13 +75,28 @@ defmodule Jido.Flow.DSL.ExpressionTest do
 
   test "rejects executable expressions, keyword data, and invalid conditions" do
     assert {:error, error} = Expression.parse(quote(do: Date.utc_today()))
-    assert Exception.message(error) =~ "unsupported Flow expression"
+
+    assert Exception.message(error) ==
+             "unsupported Flow expression: Date.utc_today(); use a Flow reference, literal, map, or list"
 
     assert {:error, error} = Expression.parse(status: :ready)
     assert Exception.message(error) =~ "unsupported Flow expression"
 
     assert {:error, error} = Expression.parse_condition(quote(do: input(:ready)))
-    assert Exception.message(error) =~ "unsupported Flow condition"
+
+    assert Exception.message(error) ==
+             "unsupported Flow condition: input(:ready); use ==, !=, <, <=, >, >=, in, and, or, not, or a Flow condition function"
+  end
+
+  test "rejects assignment, pattern matching, and pipes as declarative data" do
+    for expression <- [
+          quote(do: selected = input(:value)),
+          quote(do: %{value: selected} = input(:payload)),
+          quote(do: input(:value) |> Integer.to_string())
+        ] do
+      assert {:error, error} = Expression.parse(expression)
+      assert Exception.message(error) =~ "use a Flow reference, literal, map, or list"
+    end
   end
 
   test "accepts canonical references and literal maps" do

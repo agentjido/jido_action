@@ -115,6 +115,7 @@ defmodule Jido.Flow.Compiler.TargetContext do
     tagged_details =
       context
       |> details(phase)
+      |> preserve_error_path(error)
       |> Map.put(:retry, iterator_retry_policy(error))
 
     {:replace, tagged_details}
@@ -125,9 +126,17 @@ defmodule Jido.Flow.Compiler.TargetContext do
     {:merge, Map.merge(existing_details, details(context, phase))}
   end
 
-  def exception_strategy(%__MODULE__{}, _phase, _error, _mode), do: :unchanged
+  def exception_strategy(%__MODULE__{} = context, phase, _error, _mode) do
+    {:replace, details(context, phase)}
+  end
 
   defp details(%__MODULE__{details: details}, phase), do: Map.put(details, :phase, phase)
+
+  defp preserve_error_path(details, %{details: %{path: path}}) when is_list(path) do
+    Map.put(details, :path, path)
+  end
+
+  defp preserve_error_path(details, _error), do: details
 
   defp merge_error_details(error, target_details) do
     error

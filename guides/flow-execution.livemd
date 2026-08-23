@@ -189,9 +189,9 @@ the first public node.
 ["load_account", "load_orders"] = Jido.Exec.ready(execution)
 ```
 
-The execution is an opaque, in-memory value. `ready/1` returns public node
-names in canonical order. Internal coordination work is settled before the
-next public node is exposed.
+The execution is an opaque, caller-owned, in-memory value. `ready/1` returns
+public node names in canonical order. Internal coordination work is settled
+before the next public node is exposed.
 
 ## Step One Node
 
@@ -352,7 +352,8 @@ pass the latest value to the next call.
 
 Do not reuse an older execution value. Reusing it can run an action again and
 repeat an external side effect. The execution can move between processes, but
-it is not a durable checkpoint or a persistence format.
+it is not a durable checkpoint or a persistence format. Jido cannot recover
+this value after a process or deployment failure.
 
 ## Collections And Iterate Are Atomic Nodes
 
@@ -460,4 +461,6 @@ The current public Flow API does not provide:
 
 Place these policies in the caller or a higher-level runtime package. Design
 external effects to be idempotent when a stale execution value or process
-failure could cause a repeat.
+failure could cause a repeat. That outer runtime also owns queues, scheduling,
+recovery, supervision, distributed coordination, and deployment-safe
+continuation.

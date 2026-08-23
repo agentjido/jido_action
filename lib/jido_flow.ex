@@ -1,18 +1,18 @@
 defmodule Jido.Flow do
   @moduledoc """
-  Defines the canonical Jido Flow artifact and compile-time authoring DSL.
+  Defines the canonical Jido Flow artifact and compile-time module DSL.
 
   A Flow is a data artifact describing named Action calls, ordered Choices,
   Map fan-out, Reduce fan-in, bounded Iterate nodes, and one output expression.
   Execution is delegated through `Jido.Exec`.
 
-  Flow has three supported authoring routes:
+  Flow has three supported inputs:
 
-  * the compile-time Spark DSL for Flow modules;
+  * the compile-time Flow module DSL;
   * `Jido.Flow.Builder` for runtime construction; and
   * versioned stored maps or JSON for transport and storage.
 
-  Use the compile-time Spark DSL as the primary developer authoring surface:
+  Use the Flow module DSL as the primary developer authoring surface:
 
       defmodule MyApp.ProcessOrder do
         use Jido.Flow, name: "process_order"
@@ -32,17 +32,22 @@ defmodule Jido.Flow do
   Result references and `after:` fields define dependencies. Source order does
   not add execution dependencies.
 
-  All three routes produce the same canonical Flow. The Flow element structs
-  are stable, read-only data types for inspection. Use one of the three
-  authoring routes to create a Flow instead of direct struct construction.
+  All three inputs use the same constructor and produce the same canonical
+  Flow. Flow element structs and semantic maps are views of this model. They
+  are not additional source languages. Do not use direct struct construction
+  as an authoring API.
+
+  The module DSL names the final declaration `output`. The canonical artifact
+  and Builder name its field `return`. The module DSL also names a repeated
+  form `iterate`; the canonical node type is `Jido.Flow.Iterator`. These names
+  mark source and data boundaries. They do not define aliases or extra forms.
 
   Use `to_stored_map/3` and `from_stored_map/2` with a trusted
   `Jido.Flow.Registry` for versioned storage. There is no runtime parser for
   DSL source.
 
-  The Flow compiler, Map codec internals, graph analysis, and Runic adapters
-  are private implementation details. Use this module and `Jido.Exec` as the
-  public facade.
+  The Flow compiler, Map codec internals, graph analysis, and graph engine
+  adapters are private. Use this module and `Jido.Exec` as the public facade.
 
   A Choice is one Flow node. It evaluates data-only conditions in authored
   order, runs the first matching target, and uses a required routing fallback
@@ -145,8 +150,8 @@ defmodule Jido.Flow do
   Loads a versioned stored map through a trusted host Registry.
 
   Loading validates the stored grammar, resolves stable identifiers, and uses
-  the same canonical constructor as the Spark DSL and Builder. It does not
-  create atoms or derive module names from stored data.
+  the same canonical constructor as the Flow module DSL and Builder. It does
+  not create atoms or derive module names from stored data.
   """
   @spec from_stored_map(map(), Jido.Flow.Registry.t()) ::
           {:ok, t()} | {:error, Exception.t()}

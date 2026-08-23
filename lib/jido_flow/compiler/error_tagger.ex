@@ -28,9 +28,6 @@ defmodule Jido.Flow.Compiler.ErrorTagger do
 
       {:replace, details} ->
         {:error, replace_details(error, details)}
-
-      :unchanged ->
-        {:error, error}
     end
   end
 
