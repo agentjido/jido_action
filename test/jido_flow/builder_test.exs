@@ -106,7 +106,8 @@ defmodule Jido.Flow.BuilderTest do
       |> Builder.step(nil, Add, %{value: 1})
 
     assert {:error, error} = Builder.build(builder)
-    assert Exception.message(error) =~ "name"
+    assert Exception.message(error) == "node name must be a non-empty string or atom"
+    assert error.details == %{path: [:nodes, 0]}
   end
 
   test "canonical construction returns errors for improper runtime lists" do
@@ -244,6 +245,20 @@ defmodule Jido.Flow.BuilderTest do
     assert {:ok, flow} = Constructor.build(name: "prebuilt", nodes: nodes)
     assert Enum.map(flow.nodes, & &1.name) == ["step", "choice", "map", "reduce", "iterate"]
     assert flow.return == Ref.result("iterate")
+  end
+
+  test "canonical constructor revalidates a prebuilt node at its indexed path" do
+    invalid = %{Node.new!(name: "invalid", action: Add) | deps: [1]}
+
+    assert {:error, error} =
+             Constructor.build(
+               name: "invalid_prebuilt",
+               nodes: [invalid],
+               return: Ref.result("invalid")
+             )
+
+    assert error.message == "node deps must be a list of step names"
+    assert error.details == %{path: [:nodes, 0]}
   end
 
   test "canonical constructor validates data node specifications" do

@@ -20,50 +20,56 @@ defmodule Jido.Flow.Validation do
 
   def new(%{} = attrs) do
     with :ok <- validate_known_keys(attrs, @artifact_config_keys),
-         {:ok, name} <- validate_name(Map.get(attrs, :name)),
-         {:ok, description} <- validate_description(Map.get(attrs, :description)),
-         {:ok, schema} <- validate_schema(Map.get(attrs, :schema, []), "schema"),
-         {:ok, output_schema} <-
-           validate_schema(Map.get(attrs, :output_schema, []), "output_schema"),
-         {:ok, nodes} <- normalize_nodes(Map.get(attrs, :nodes, [])),
-         {:ok, return} <- validate_return(Map.get(attrs, :return)),
-         {:ok, provenance} <- validate_provenance(Map.get(attrs, :provenance, %{})) do
-      %{
-        name: name,
-        description: description,
-        schema: schema,
-        output_schema: output_schema,
-        nodes: nodes,
-        return: return,
-        provenance: provenance
-      }
-      |> validate()
+         {:ok, flow} <- normalize_flow(attrs, &normalize_nodes/1) do
+      validate_normalized(flow)
     end
   end
 
   def new(_attrs), do: {:error, Error.validation_error("flow configuration must be a map")}
 
   @doc false
+  @spec new_from_validated_nodes(map()) :: {:ok, map()} | {:error, Exception.t()}
+  def new_from_validated_nodes(%{nodes: nodes} = attrs) do
+    with :ok <- validate_known_keys(attrs, @artifact_config_keys),
+         {:ok, flow} <- normalize_flow(attrs, fn _nodes -> {:ok, nodes} end) do
+      validate_normalized(flow)
+    end
+  end
+
+  @doc false
   @spec validate(map()) :: {:ok, map()} | {:error, Exception.t()}
   def validate(%{} = flow) do
-    with {:ok, name} <- validate_name(flow.name),
-         {:ok, description} <- validate_description(flow.description),
-         {:ok, schema} <- validate_schema(flow.schema, "schema"),
-         {:ok, output_schema} <- validate_schema(flow.output_schema, "output_schema"),
-         {:ok, nodes} <- normalize_nodes(flow.nodes),
-         {:ok, return} <- validate_return(flow.return),
-         {:ok, provenance} <- validate_provenance(flow.provenance),
-         flow = %{
-           flow
-           | name: name,
-             description: description,
-             schema: schema,
-             output_schema: output_schema,
-             nodes: nodes,
-             return: return,
-             provenance: provenance
-         },
-         :ok <- validate_static_semantic_data(flow),
+    with {:ok, flow} <- normalize_flow(flow, &normalize_nodes/1) do
+      validate_normalized(flow)
+    end
+  end
+
+  def validate(value), do: invalid_subject(value)
+
+  defp normalize_flow(attrs, node_normalizer) do
+    with {:ok, name} <- validate_name(Map.get(attrs, :name)),
+         {:ok, description} <- validate_description(Map.get(attrs, :description)),
+         {:ok, schema} <- validate_schema(Map.get(attrs, :schema, []), "schema"),
+         {:ok, output_schema} <-
+           validate_schema(Map.get(attrs, :output_schema, []), "output_schema"),
+         {:ok, nodes} <- node_normalizer.(Map.get(attrs, :nodes, [])),
+         {:ok, return} <- validate_return(Map.get(attrs, :return)),
+         {:ok, provenance} <- validate_provenance(Map.get(attrs, :provenance, %{})) do
+      {:ok,
+       %{
+         name: name,
+         description: description,
+         schema: schema,
+         output_schema: output_schema,
+         nodes: nodes,
+         return: return,
+         provenance: provenance
+       }}
+    end
+  end
+
+  defp validate_normalized(flow) do
+    with :ok <- validate_static_semantic_data(flow),
          :ok <- validate_duplicate_nodes(flow.nodes),
          :ok <- validate_known_result_refs(flow),
          flow = normalize_node_deps(flow),
@@ -71,8 +77,6 @@ defmodule Jido.Flow.Validation do
       {:ok, flow}
     end
   end
-
-  def validate(value), do: invalid_subject(value)
 
   @doc false
   @spec validate_executable(map()) :: {:ok, map()} | {:error, Exception.t()}

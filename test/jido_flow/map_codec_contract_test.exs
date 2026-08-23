@@ -81,6 +81,14 @@ defmodule Jido.Flow.MapCodecContractTest do
     end
   end
 
+  test "keeps canonical validation paths after stored-map decoding" do
+    invalid = put_in(base_stored(), ["nodes", Access.at(0), "name"], nil)
+
+    assert {:error, error} = Flow.from_stored_map(invalid, registry())
+    assert error.message == "node name must be a non-empty string or atom"
+    assert error.details == %{path: [:nodes, 0]}
+  end
+
   test "returns structured errors for malformed Choice records" do
     stored = stored_with(choice_record())
 

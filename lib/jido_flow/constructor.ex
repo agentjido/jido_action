@@ -3,7 +3,7 @@ defmodule Jido.Flow.Constructor do
 
   alias Jido.Action.Error
   alias Jido.Flow
-  alias Jido.Flow.{Choice, Iterator, Node, Reduce, Ref}
+  alias Jido.Flow.{Choice, Iterator, Node, Reduce, Ref, Validation}
   alias Jido.Flow.Map, as: FlowMap
 
   @node_kinds [:step, :choice, :map, :reduce, :iterate]
@@ -20,7 +20,7 @@ defmodule Jido.Flow.Constructor do
       attrs
       |> Map.put(:nodes, nodes)
       |> Map.put(:return, return)
-      |> Flow.new()
+      |> build_flow()
     end
   end
 
@@ -173,6 +173,12 @@ defmodule Jido.Flow.Constructor do
     do: {:ok, nodes |> List.last() |> Map.fetch!(:name) |> Ref.result()}
 
   defp build_return(return, _nodes), do: {:ok, return}
+
+  defp build_flow(attrs) do
+    with {:ok, attrs} <- Validation.new_from_validated_nodes(attrs) do
+      {:ok, struct!(Flow, attrs)}
+    end
+  end
 
   defp reverse_ok({:ok, values}), do: {:ok, Enum.reverse(values)}
   defp reverse_ok({:error, error}), do: {:error, error}

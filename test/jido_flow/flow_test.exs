@@ -202,6 +202,54 @@ defmodule Jido.FlowTest do
     assert Flow.canonical_nodes([]) == []
   end
 
+  test "direct construction and validation revalidate prebuilt nodes" do
+    invalid = %{Node.new!(name: "invalid", action: Add) | deps: [1]}
+
+    assert {:error, new_error} =
+             Flow.new(
+               name: "invalid_new",
+               nodes: [invalid],
+               return: Ref.result("invalid")
+             )
+
+    invalid_flow = %Flow{
+      name: "invalid_validate",
+      description: nil,
+      schema: [],
+      output_schema: [],
+      nodes: [invalid],
+      return: Ref.result("invalid"),
+      provenance: %{}
+    }
+
+    assert {:error, validate_error} = Flow.validate(invalid_flow)
+
+    for error <- [new_error, validate_error] do
+      assert error.message == "node deps must be a list of step names"
+      assert error.details == %{}
+    end
+  end
+
+  test "validates Flow fields before direct node data" do
+    assert {:error, new_error} = Flow.new(name: nil, nodes: [:invalid], return: nil)
+
+    invalid_flow = %Flow{
+      name: nil,
+      description: nil,
+      schema: [],
+      output_schema: [],
+      nodes: [:invalid],
+      return: nil,
+      provenance: %{}
+    }
+
+    assert {:error, validate_error} = Flow.validate(invalid_flow)
+
+    for error <- [new_error, validate_error] do
+      assert error.message == "flow name must be a string"
+    end
+  end
+
   test "returns focused configuration errors for invalid Flow data" do
     node = Node.new!(name: "echo", action: EchoParamsAction)
     base = %{name: "invalid", nodes: [node], return: Ref.result("echo")}
