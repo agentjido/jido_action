@@ -11,6 +11,7 @@ defmodule Jido.Flow.State do
 
   alias Jido.Action
   alias Jido.Action.Error
+  alias Jido.Flow.Element.Validation, as: ElementValidation
   alias Jido.Flow.Expression
 
   @version 1
@@ -35,7 +36,7 @@ defmodule Jido.Flow.State do
   end
 
   def new(%{} = attrs) do
-    with :ok <- validate_known_keys(attrs),
+    with :ok <- ElementValidation.known_keys(attrs, @config_keys, "iterator state"),
          {:ok, version} <- validate_version(Map.get(attrs, :version, @version)),
          {:ok, schema} <- validate_required_schema(attrs),
          {:ok, initial} <- validate_required_expression(attrs, :initial, :iterate_initial),
@@ -84,8 +85,8 @@ defmodule Jido.Flow.State do
   end
 
   @doc false
-  @spec semantic_data(t()) :: map()
-  def semantic_data(%__MODULE__{} = state) do
+  @spec static_data(t()) :: map()
+  def static_data(%__MODULE__{} = state) do
     %{
       kind: :iterate_state,
       version: state.version,
@@ -94,6 +95,10 @@ defmodule Jido.Flow.State do
       update: state.update
     }
   end
+
+  @doc false
+  @spec semantic_data(t()) :: map()
+  def semantic_data(%__MODULE__{} = state), do: static_data(state)
 
   defp validate_version(@version), do: {:ok, @version}
 
@@ -129,70 +134,14 @@ defmodule Jido.Flow.State do
 
   defp validate_required_expression(attrs, field, scope) do
     if Map.has_key?(attrs, field) do
-      validate_expression(Map.fetch!(attrs, field), field, scope)
+      ElementValidation.expression(
+        Map.fetch!(attrs, field),
+        scope,
+        "iterator state #{field}",
+        [field]
+      )
     else
       {:error, Error.validation_error("iterator state #{field} is required", %{path: [field]})}
-    end
-  end
-
-  defp validate_expression(expression, field, scope) do
-    with {:ok, expression} <- Expression.normalize(expression),
-         :ok <- Expression.validate(expression, scope) do
-      {:ok, expression}
-    else
-      {:error, error} -> {:error, translate_expression_error(error, field)}
-    end
-  end
-
-  defp translate_expression_error(error, field) do
-    details = Map.get(error, :details, %{})
-    path = [field] ++ Map.get(details, :path, [])
-    owner = "iterator state #{field}"
-
-    case Expression.error_kind(error) do
-      :invalid_scope ->
-        Error.validation_error(
-          "flow expression contains a scoped ref outside its valid scope",
-          %{path: path, ref_type: details.ref_type, scope: details.scope}
-        )
-
-      :invalid_ref_path ->
-        Error.validation_error("#{owner} contains invalid ref path", %{
-          path: path,
-          segment: details.segment
-        })
-
-      :invalid_ref ->
-        Error.validation_error("#{owner} contains invalid ref", %{
-          path: path,
-          type: details.type
-        })
-
-      :improper_list ->
-        Error.validation_error("#{owner} must be a proper list", %{path: path})
-
-      :unsupported_expression ->
-        Error.validation_error("#{owner} contains unsupported expression", %{
-          path: path,
-          expression: details.expression
-        })
-
-      :other ->
-        Error.validation_error("#{owner} must be static module data", %{path: [field]})
-    end
-  end
-
-  defp validate_known_keys(attrs) do
-    case attrs |> Map.keys() |> Enum.find(&(&1 not in @config_keys)) do
-      nil ->
-        :ok
-
-      key ->
-        {:error,
-         Error.validation_error("unknown iterator state configuration key: #{inspect(key)}", %{
-           key: key,
-           path: [key]
-         })}
     end
   end
 

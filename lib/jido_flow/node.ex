@@ -3,8 +3,8 @@ defmodule Jido.Flow.Node do
   A named action invocation inside a canonical Flow artifact.
   """
 
-  alias Jido.Action
   alias Jido.Action.Error
+  alias Jido.Flow.Element.Validation, as: ElementValidation
   alias Jido.Flow.Expression
   alias Jido.Flow.Ref
 
@@ -40,12 +40,13 @@ defmodule Jido.Flow.Node do
   end
 
   def new(%{} = attrs) do
-    with :ok <- validate_known_keys(attrs),
-         {:ok, name} <- validate_name(Map.get(attrs, :name)),
-         {:ok, action} <- validate_action(Map.get(attrs, :action)),
+    with :ok <- ElementValidation.known_keys(attrs, @config_keys, "node", nil),
+         {:ok, name} <- ElementValidation.name(Map.get(attrs, :name), :node),
+         {:ok, action} <- ElementValidation.target(Map.get(attrs, :action), :node, nil),
          {:ok, input} <- validate_input(Map.get(attrs, :input, %{})),
-         {:ok, deps} <- validate_deps(Map.get(attrs, :deps, [])),
-         {:ok, provenance} <- validate_provenance(Map.get(attrs, :provenance, %{})) do
+         {:ok, deps} <- ElementValidation.deps(Map.get(attrs, :deps, []), :node),
+         {:ok, provenance} <-
+           ElementValidation.provenance(Map.get(attrs, :provenance, %{}), :node) do
       {:ok,
        %__MODULE__{
          name: name,
@@ -123,82 +124,12 @@ defmodule Jido.Flow.Node do
           | :other
   def expression_error_kind(error), do: Expression.error_kind(error)
 
-  defp validate_name(name) when is_atom(name) and not is_nil(name) do
-    name
-    |> Atom.to_string()
-    |> validate_name()
-  end
-
-  defp validate_name(name) when is_binary(name) do
-    case Action.validate_name(name) do
-      :ok -> {:ok, name}
-      {:error, message} -> {:error, Error.validation_error(message)}
-    end
-  end
-
-  defp validate_name(_name) do
-    {:error, Error.validation_error("node name must be a non-empty string or atom")}
-  end
-
-  defp validate_action(action) when is_atom(action) and not is_nil(action), do: {:ok, action}
-
-  defp validate_action(_action) do
-    {:error, Error.validation_error("node action must be a module atom")}
-  end
-
   defp validate_input(nil), do: {:ok, %{}}
 
   defp validate_input(input) do
     with {:ok, input} <- Expression.normalize(input),
          :ok <- Expression.validate(input) do
       {:ok, input}
-    end
-  end
-
-  defp validate_deps(nil), do: {:ok, []}
-
-  defp validate_deps(deps) when is_list(deps) do
-    if List.improper?(deps) do
-      {:error, Error.validation_error("node deps must be a proper list")}
-    else
-      validate_proper_deps(deps)
-    end
-  end
-
-  defp validate_deps(_deps), do: {:error, Error.validation_error("node deps must be a list")}
-
-  defp validate_proper_deps(deps) do
-    deps
-    |> Enum.reduce_while({:ok, []}, fn dep, {:ok, acc} ->
-      case validate_name(dep) do
-        {:ok, dep} ->
-          {:cont, {:ok, [dep | acc]}}
-
-        {:error, _error} ->
-          {:halt, {:error, Error.validation_error("node deps must be a list of step names")}}
-      end
-    end)
-    |> case do
-      {:ok, deps} -> {:ok, deps |> Enum.uniq() |> Enum.sort()}
-      {:error, error} -> {:error, error}
-    end
-  end
-
-  defp validate_provenance(nil), do: {:ok, %{}}
-  defp validate_provenance(provenance) when is_map(provenance), do: {:ok, provenance}
-
-  defp validate_provenance(_provenance) do
-    {:error, Error.validation_error("node provenance must be a map")}
-  end
-
-  defp validate_known_keys(attrs) do
-    case attrs |> Map.keys() |> Enum.find(&(&1 not in @config_keys)) do
-      nil ->
-        :ok
-
-      key ->
-        {:error,
-         Error.validation_error("unknown node configuration key: #{inspect(key)}", %{key: key})}
     end
   end
 end

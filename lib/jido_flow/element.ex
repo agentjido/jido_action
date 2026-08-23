@@ -40,6 +40,14 @@ defmodule Jido.Flow.Element do
 
   def new(attrs), do: Node.new(attrs)
 
+  @doc false
+  @spec kind(t()) :: :step | :choice | :map | :reduce | :iterate
+  def kind(%Node{}), do: :step
+  def kind(%Choice{}), do: :choice
+  def kind(%FlowMap{}), do: :map
+  def kind(%Reduce{}), do: :reduce
+  def kind(%Iterator{}), do: :iterate
+
   @spec name(t()) :: String.t()
   def name(%Node{name: name}), do: name
   def name(%Choice{name: name}), do: name
@@ -103,14 +111,18 @@ defmodule Jido.Flow.Element do
   def to_map(%Reduce{} = reduce, opts), do: Reduce.to_map(reduce, opts)
   def to_map(%Iterator{} = iterator, opts), do: Iterator.to_map(iterator, opts)
 
-  @spec semantic_data(t()) :: map()
-  def semantic_data(%Node{} = node),
+  @spec static_data(t()) :: map()
+  def static_data(%Node{} = node),
     do: %{name: node.name, action: node.action, input: node.input, deps: node.deps}
 
-  def semantic_data(%Choice{} = choice), do: Choice.semantic_data(choice)
-  def semantic_data(%FlowMap{} = map), do: FlowMap.semantic_data(map)
-  def semantic_data(%Reduce{} = reduce), do: Reduce.semantic_data(reduce)
-  def semantic_data(%Iterator{} = iterator), do: Iterator.semantic_data(iterator)
+  def static_data(%Choice{} = choice), do: Choice.static_data(choice)
+  def static_data(%FlowMap{} = map), do: FlowMap.static_data(map)
+  def static_data(%Reduce{} = reduce), do: Reduce.static_data(reduce)
+  def static_data(%Iterator{} = iterator), do: Iterator.static_data(iterator)
+
+  @doc false
+  @spec semantic_data(t()) :: map()
+  def semantic_data(element), do: static_data(element)
 
   defp infer_legacy_variant(attrs) when is_map(attrs) do
     if Map.has_key?(attrs, :options) or Map.has_key?(attrs, :fallback) do

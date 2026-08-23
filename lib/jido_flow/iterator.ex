@@ -6,9 +6,9 @@ defmodule Jido.Flow.Iterator do
   iterations and State transitions are internal to one public Flow node.
   """
 
-  alias Jido.Action
   alias Jido.Action.Error
   alias Jido.Flow.Condition
+  alias Jido.Flow.Element.Validation, as: ElementValidation
   alias Jido.Flow.Expression
   alias Jido.Flow.State
   alias Jido.Instruction
@@ -48,15 +48,19 @@ defmodule Jido.Flow.Iterator do
   end
 
   def new(%{} = attrs) do
-    with :ok <- validate_known_keys(attrs),
-         {:ok, name} <- validate_name(Map.get(attrs, :name)),
-         {:ok, action} <- validate_target(Map.get(attrs, :action)),
+    with :ok <- ElementValidation.known_keys(attrs, @config_keys, "iterator"),
+         {:ok, name} <- ElementValidation.name(Map.get(attrs, :name), :iterator),
+         {:ok, action} <-
+           ElementValidation.target(Map.get(attrs, :action), {:label, "iterator body"}, [
+             :action
+           ]),
          {:ok, input} <- validate_input(Map.get(attrs, :input, %{})),
          {:ok, state} <- validate_state(Map.get(attrs, :state)),
          {:ok, completion} <- validate_completion(Map.get(attrs, :completion)),
          {:ok, max_iterations} <- validate_max_iterations(Map.get(attrs, :max_iterations)),
-         {:ok, deps} <- validate_deps(Map.get(attrs, :deps, [])),
-         {:ok, provenance} <- validate_provenance(Map.get(attrs, :provenance, %{})) do
+         {:ok, deps} <- ElementValidation.deps(Map.get(attrs, :deps, []), :iterator),
+         {:ok, provenance} <-
+           ElementValidation.provenance(Map.get(attrs, :provenance, %{}), :iterator) do
       {:ok,
        %__MODULE__{
          name: name,
@@ -136,46 +140,28 @@ defmodule Jido.Flow.Iterator do
   end
 
   @doc false
-  @spec semantic_data(t()) :: map()
-  def semantic_data(%__MODULE__{} = iterator) do
+  @spec static_data(t()) :: map()
+  def static_data(%__MODULE__{} = iterator) do
     %{
       kind: :iterate,
       name: iterator.name,
       action: iterator.action,
       input: iterator.input,
-      state: State.semantic_data(iterator.state),
+      state: State.static_data(iterator.state),
       completion: iterator.completion,
       max_iterations: iterator.max_iterations,
       deps: iterator.deps
     }
   end
 
-  defp validate_name(name) when is_atom(name) and not is_nil(name),
-    do: name |> Atom.to_string() |> validate_name()
-
-  defp validate_name(name) when is_binary(name) do
-    case Action.validate_name(name) do
-      :ok -> {:ok, name}
-      {:error, _message} -> invalid_name()
-    end
-  end
-
-  defp validate_name(_name), do: invalid_name()
-
-  defp invalid_name do
-    {:error,
-     Error.validation_error("iterator name must be a non-empty string or atom", %{path: [:name]})}
-  end
-
-  defp validate_target(action) when is_atom(action) and not is_nil(action), do: {:ok, action}
-
-  defp validate_target(_action) do
-    {:error,
-     Error.validation_error("iterator body target must be a module atom", %{path: [:action]})}
-  end
+  @doc false
+  @spec semantic_data(t()) :: map()
+  def semantic_data(%__MODULE__{} = iterator), do: static_data(iterator)
 
   defp validate_input(nil), do: {:ok, %{}}
-  defp validate_input(input), do: validate_expression(input, :input, :iterate_input)
+
+  defp validate_input(input),
+    do: ElementValidation.expression(input, :iterate_input, "iterator body input", [:input])
 
   defp validate_state(nil) do
     {:error, Error.validation_error("iterator state is required", %{path: [:state]})}
@@ -198,15 +184,8 @@ defmodule Jido.Flow.Iterator do
         {:ok, completion}
 
       {:error, error} ->
-        {:error,
-         error
-         |> put_error_message(iterator_condition_message(Exception.message(error)))
-         |> prefix_error_path(:completion)}
+        {:error, prefix_error_path(error, :completion)}
     end
-  end
-
-  defp iterator_condition_message(message) do
-    String.replace(message, "choice condition", "iterator completion condition")
   end
 
   defp validate_max_iterations(value)
@@ -220,116 +199,6 @@ defmodule Jido.Flow.Iterator do
        %{path: [:max_iterations]}
      )}
   end
-
-  defp validate_expression(expression, field, scope) do
-    with {:ok, expression} <- Expression.normalize(expression),
-         :ok <- Expression.validate(expression, scope) do
-      {:ok, expression}
-    else
-      {:error, error} -> {:error, translate_expression_error(error, field)}
-    end
-  end
-
-  defp translate_expression_error(error, field) do
-    details = Map.get(error, :details, %{})
-    path = [field] ++ Map.get(details, :path, [])
-    owner = "iterator body input"
-
-    case Expression.error_kind(error) do
-      :invalid_scope ->
-        Error.validation_error(
-          "flow expression contains a scoped ref outside its valid scope",
-          %{path: path, ref_type: details.ref_type, scope: details.scope}
-        )
-
-      :invalid_ref_path ->
-        Error.validation_error("#{owner} contains invalid ref path", %{
-          path: path,
-          segment: details.segment
-        })
-
-      :invalid_ref ->
-        Error.validation_error("#{owner} contains invalid ref", %{
-          path: path,
-          type: details.type
-        })
-
-      :improper_list ->
-        Error.validation_error("#{owner} must be a proper list", %{path: path})
-
-      :unsupported_expression ->
-        Error.validation_error("#{owner} contains unsupported expression", %{
-          path: path,
-          expression: details.expression
-        })
-
-      :other ->
-        Error.validation_error("#{owner} must be static module data", %{path: [field]})
-    end
-  end
-
-  defp validate_deps(nil), do: {:ok, []}
-
-  defp validate_deps(deps) when is_list(deps) do
-    if List.improper?(deps) do
-      invalid_deps("iterator deps must be a proper list")
-    else
-      deps
-      |> Enum.reduce_while({:ok, []}, &collect_dependency/2)
-      |> normalize_deps()
-    end
-  end
-
-  defp validate_deps(_deps), do: invalid_deps("iterator deps must be a list")
-
-  defp collect_dependency(dep, {:ok, acc}) do
-    case validate_dependency(dep) do
-      {:ok, dep} -> {:cont, {:ok, [dep | acc]}}
-      :error -> {:halt, invalid_deps("iterator deps must be a list of step names")}
-    end
-  end
-
-  defp normalize_deps({:ok, deps}), do: {:ok, deps |> Enum.uniq() |> Enum.sort()}
-  defp normalize_deps({:error, error}), do: {:error, error}
-
-  defp validate_dependency(dep) when is_atom(dep) and not is_nil(dep),
-    do: dep |> Atom.to_string() |> validate_dependency()
-
-  defp validate_dependency(dep) when is_binary(dep) do
-    case Action.validate_name(dep) do
-      :ok -> {:ok, dep}
-      {:error, _message} -> :error
-    end
-  end
-
-  defp validate_dependency(_dep), do: :error
-
-  defp invalid_deps(message),
-    do: {:error, Error.validation_error(message, %{path: [:deps]})}
-
-  defp validate_provenance(nil), do: {:ok, %{}}
-  defp validate_provenance(provenance) when is_map(provenance), do: {:ok, provenance}
-
-  defp validate_provenance(_provenance) do
-    {:error, Error.validation_error("iterator provenance must be a map", %{path: [:provenance]})}
-  end
-
-  defp validate_known_keys(attrs) do
-    case attrs |> Map.keys() |> Enum.find(&(&1 not in @config_keys)) do
-      nil ->
-        :ok
-
-      key ->
-        {:error,
-         Error.validation_error("unknown iterator configuration key: #{inspect(key)}", %{
-           key: key,
-           path: [key]
-         })}
-    end
-  end
-
-  defp put_error_message(%{message: _message} = error, message), do: %{error | message: message}
-  defp put_error_message(error, _message), do: error
 
   defp prefix_error_path(%{details: details} = error, prefix) when is_map(details) do
     current = Map.get(details, :path, [])

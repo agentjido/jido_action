@@ -37,6 +37,7 @@ defmodule Jido.PublicAPITest do
     Jido.Flow.Compiler.Map,
     Jido.Flow.Compiler.Reduce,
     Jido.Flow.Compiler.Target,
+    Jido.Flow.Element.Validation,
     Jido.Flow.Expression,
     Jido.Flow.Graph,
     Jido.Flow.Inspection,

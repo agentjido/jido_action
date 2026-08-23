@@ -11,26 +11,16 @@ defmodule Jido.Flow.Choice do
   recovery for a selected target.
   """
 
-  alias Jido.Action
   alias Jido.Action.Error
   alias Jido.Flow.Condition
+  alias Jido.Flow.Element.Validation, as: ElementValidation
   alias Jido.Flow.Expression
   alias Jido.Instruction
 
   @config_keys [:name, :options, :fallback, :deps, :provenance]
 
-  @type option :: %{
-          required(:name) => String.t(),
-          required(:condition) => Condition.t(),
-          required(:action) => module(),
-          required(:input) => term()
-        }
-
-  @type fallback :: %{
-          required(:name) => :fallback,
-          required(:action) => module(),
-          required(:input) => term()
-        }
+  @type option :: Option.t()
+  @type fallback :: Fallback.t()
 
   @type t :: %__MODULE__{
           name: String.t(),
@@ -79,12 +69,13 @@ defmodule Jido.Flow.Choice do
   end
 
   def new(%{} = attrs) do
-    with :ok <- validate_known_keys(attrs),
-         {:ok, name} <- validate_name(Map.get(attrs, :name), []),
+    with :ok <- ElementValidation.known_keys(attrs, @config_keys, "choice"),
+         {:ok, name} <- ElementValidation.name(Map.get(attrs, :name), :choice, []),
          {:ok, options} <- validate_options(Map.get(attrs, :options), [:options]),
          {:ok, fallback} <- validate_fallback(Map.get(attrs, :fallback), [:fallback]),
-         {:ok, deps} <- validate_deps(Map.get(attrs, :deps, []), [:deps]),
-         {:ok, provenance} <- validate_provenance(Map.get(attrs, :provenance, %{})) do
+         {:ok, deps} <- ElementValidation.deps(Map.get(attrs, :deps, []), :choice),
+         {:ok, provenance} <-
+           ElementValidation.provenance(Map.get(attrs, :provenance, %{}), :choice) do
       {:ok,
        %__MODULE__{
          name: name,
@@ -180,8 +171,8 @@ defmodule Jido.Flow.Choice do
   end
 
   @doc false
-  @spec semantic_data(t()) :: map()
-  def semantic_data(%__MODULE__{} = choice) do
+  @spec static_data(t()) :: map()
+  def static_data(%__MODULE__{} = choice) do
     %{
       name: choice.name,
       options:
@@ -197,6 +188,10 @@ defmodule Jido.Flow.Choice do
       deps: choice.deps
     }
   end
+
+  @doc false
+  @spec semantic_data(t()) :: map()
+  def semantic_data(%__MODULE__{} = choice), do: static_data(choice)
 
   defp validate_options(options, _path) when not is_list(options) do
     {:error, Error.validation_error("choice options must be a list", %{path: [:options]})}
@@ -256,11 +251,20 @@ defmodule Jido.Flow.Choice do
 
   defp validate_option(%{} = attrs, path) do
     with :ok <-
-           validate_known_keys(attrs, [:name, :condition, :action, :input], "choice option", path),
-         {:ok, name} <- validate_name(Map.get(attrs, :name), path ++ [:name]),
+           ElementValidation.known_keys(
+             attrs,
+             [:name, :condition, :action, :input],
+             "choice option",
+             path
+           ),
+         {:ok, name} <- ElementValidation.name(Map.get(attrs, :name), :choice, path ++ [:name]),
          {:ok, condition} <- validate_condition(Map.get(attrs, :condition), path ++ [:condition]),
          {:ok, action} <-
-           validate_target(Map.get(attrs, :action), "choice option", path ++ [:action]),
+           ElementValidation.target(
+             Map.get(attrs, :action),
+             {:label, "choice option"},
+             path ++ [:action]
+           ),
          {:ok, input} <- validate_input(Map.get(attrs, :input, %{}), path ++ [:input]) do
       {:ok, %Option{name: name, condition: condition, action: action, input: input}}
     end
@@ -293,9 +297,13 @@ defmodule Jido.Flow.Choice do
   end
 
   defp validate_fallback(%{} = attrs, path) do
-    with :ok <- validate_known_keys(attrs, [:action, :input], "choice fallback", path),
+    with :ok <- ElementValidation.known_keys(attrs, [:action, :input], "choice fallback", path),
          {:ok, action} <-
-           validate_target(Map.get(attrs, :action), "choice fallback", path ++ [:action]),
+           ElementValidation.target(
+             Map.get(attrs, :action),
+             {:label, "choice fallback"},
+             path ++ [:action]
+           ),
          {:ok, input} <- validate_input(Map.get(attrs, :input, %{}), path ++ [:input]) do
       {:ok, %Fallback{name: :fallback, action: action, input: input}}
     end
@@ -317,105 +325,10 @@ defmodule Jido.Flow.Choice do
      Error.validation_error("choice option condition must be a Jido.Flow.Condition", %{path: path})}
   end
 
-  defp validate_target(target, _owner, _path) when is_atom(target) and not is_nil(target),
-    do: {:ok, target}
-
-  defp validate_target(_target, owner, path) do
-    {:error, Error.validation_error("#{owner} target must be a module atom", %{path: path})}
-  end
-
   defp validate_input(nil, _path), do: {:ok, %{}}
 
   defp validate_input(input, path) do
-    with {:ok, input} <- Expression.normalize(input),
-         :ok <- Expression.validate(input),
-         :ok <- validate_static_input(input) do
-      {:ok, input}
-    else
-      {:error, error} -> {:error, translate_input_error(error, path)}
-    end
-  end
-
-  defp validate_static_input(input) do
-    case Action.validate_static_data(input) do
-      :ok -> :ok
-      {:error, _reason} -> {:error, Error.validation_error("choice target input is not static")}
-    end
-  end
-
-  defp validate_deps(nil, _path), do: {:ok, []}
-
-  defp validate_deps(deps, _path) when is_list(deps) do
-    if List.improper?(deps) do
-      {:error, Error.validation_error("choice deps must be a proper list", %{path: [:deps]})}
-    else
-      validate_proper_deps(deps)
-    end
-  end
-
-  defp validate_deps(_deps, _path) do
-    {:error, Error.validation_error("choice deps must be a list", %{path: [:deps]})}
-  end
-
-  defp validate_proper_deps(deps) do
-    deps
-    |> Enum.reduce_while({:ok, []}, fn dep, {:ok, acc} ->
-      case validate_name(dep, [:deps]) do
-        {:ok, dep} ->
-          {:cont, {:ok, [dep | acc]}}
-
-        {:error, _error} ->
-          {:halt,
-           {:error,
-            Error.validation_error("choice deps must be a list of step names", %{
-              path: [:deps]
-            })}}
-      end
-    end)
-    |> case do
-      {:ok, deps} -> {:ok, deps |> Enum.uniq() |> Enum.sort()}
-      {:error, error} -> {:error, error}
-    end
-  end
-
-  defp validate_provenance(nil), do: {:ok, %{}}
-  defp validate_provenance(provenance) when is_map(provenance), do: {:ok, provenance}
-
-  defp validate_provenance(_provenance) do
-    {:error, Error.validation_error("choice provenance must be a map", %{path: [:provenance]})}
-  end
-
-  defp validate_name(name, path) when is_atom(name) and not is_nil(name),
-    do: name |> Atom.to_string() |> validate_name(path)
-
-  defp validate_name(name, path) when is_binary(name) do
-    case Action.validate_name(name) do
-      :ok -> {:ok, name}
-      {:error, message} -> {:error, Error.validation_error(message, %{path: path})}
-    end
-  end
-
-  defp validate_name(_name, path) do
-    {:error,
-     Error.validation_error("choice name must be a non-empty string or atom", %{path: path})}
-  end
-
-  defp validate_known_keys(attrs) do
-    validate_known_keys(attrs, @config_keys, "choice", [])
-  end
-
-  defp validate_known_keys(attrs, allowed, owner, path) do
-    case attrs |> Map.keys() |> Enum.find(&(&1 not in allowed)) do
-      nil ->
-        :ok
-
-      key ->
-        {:error,
-         Error.validation_error("unknown #{owner} configuration key: #{inspect(key)}", %{
-           path: path ++ [key],
-           key: key
-         })}
-    end
+    ElementValidation.expression(input, :flow, "choice target input", path, static: true)
   end
 
   defp duplicate_option_name(options) do
@@ -450,43 +363,6 @@ defmodule Jido.Flow.Choice do
            }
            |> Map.merge(error.details)
          )}
-    end
-  end
-
-  defp translate_input_error(error, path) do
-    details = Map.get(error, :details, %{})
-    nested_path = path ++ Map.get(details, :path, [])
-
-    case Expression.error_kind(error) do
-      :invalid_scope ->
-        Error.validation_error(
-          "flow expression contains a scoped ref outside its valid scope",
-          %{path: nested_path, ref_type: details.ref_type, scope: details.scope}
-        )
-
-      :invalid_ref_path ->
-        Error.validation_error("choice target input contains invalid ref path", %{
-          path: nested_path,
-          segment: details.segment
-        })
-
-      :invalid_ref ->
-        Error.validation_error("choice target input contains invalid ref", %{
-          path: nested_path,
-          type: details.type
-        })
-
-      :improper_list ->
-        Error.validation_error("choice target input must be a proper list", %{path: nested_path})
-
-      :unsupported_expression ->
-        Error.validation_error("choice target input contains unsupported expression", %{
-          path: nested_path,
-          expression: details.expression
-        })
-
-      :other ->
-        Error.validation_error("choice target input must be static module data", %{path: path})
     end
   end
 

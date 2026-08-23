@@ -162,7 +162,7 @@ defmodule Jido.Flow.Validation do
     semantic_data = %{
       name: flow.name,
       description: flow.description,
-      nodes: Enum.map(flow.nodes, &Element.semantic_data/1),
+      nodes: Enum.map(flow.nodes, &Element.static_data/1),
       return: flow.return
     }
 
