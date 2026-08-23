@@ -27,6 +27,68 @@ defmodule Jido.Flow.CompilerRuntimeTest do
     end
   end
 
+  test "selects the first matching Choice option" do
+    always = Condition.eq(Ref.value(1), Ref.value(1))
+
+    flow =
+      Flow.new!(
+        name: "first_matching_choice",
+        nodes: [
+          Choice.new!(
+            name: "route",
+            options: [
+              [
+                name: "first",
+                condition: always,
+                action: Add,
+                input: %{value: 1, amount: 1}
+              ],
+              [
+                name: "second",
+                condition: always,
+                action: Multiply,
+                input: %{value: 10, amount: 10}
+              ]
+            ],
+            fallback: [action: Multiply, input: %{value: 20, amount: 20}]
+          )
+        ],
+        return: Ref.result("route")
+      )
+
+    assert {:ok, %{value: 2}} = Exec.run(flow, %{}, %{})
+  end
+
+  test "uses the same Map item identity in records and target inputs" do
+    flow =
+      Flow.new!(
+        name: "map_item_identity",
+        nodes: [
+          FlowMap.new!(
+            name: "mapped",
+            collection: Ref.value([:first, :second]),
+            action: EchoParamsAction,
+            input: %{
+              id: Ref.item_id(),
+              index: Ref.item_index(),
+              value: Ref.item()
+            },
+            on_error: :collect_errors
+          )
+        ],
+        return: Ref.result("mapped")
+      )
+
+    assert {:ok, %{errors: [], results: results}} = Exec.run(flow, %{}, %{})
+
+    assert [
+             %{index: 0, item_id: first_id, output: %{id: first_id, index: 0, value: :first}},
+             %{index: 1, item_id: second_id, output: %{id: second_id, index: 1, value: :second}}
+           ] = results
+
+    assert first_id != second_id
+  end
+
   test "short-circuits all, any, and not conditions" do
     true_condition = Condition.eq(Ref.value(1), Ref.value(1))
     false_condition = Condition.eq(Ref.value(1), Ref.value(2))

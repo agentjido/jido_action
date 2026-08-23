@@ -4,7 +4,7 @@ defmodule Jido.Flow.IteratorInstrumentationTest do
   @moduletag capture_log: true
 
   alias Jido.Exec
-  alias Jido.Flow.Compiler
+  alias Jido.Flow.Compiler.Iterator, as: IteratorCompiler
   alias Jido.Flow.Ref
   alias JidoTest.IteratorFixtures
 
@@ -40,7 +40,7 @@ defmodule Jido.Flow.IteratorInstrumentationTest do
           max_iterations: 3
         )
 
-      target = {Compiler, :evaluate_iterator_completion, 3}
+      target = {IteratorCompiler, :evaluate_iterator_completion, 3}
 
       :erlang.trace_pattern(target, true, [:local, :call_count])
 

@@ -27,7 +27,33 @@ defmodule Jido.PublicAPITest do
      ]}
   ]
 
-  @internal_modules [Jido.Flow.Compiler]
+  @internal_modules [
+    Jido.Flow.Compiler,
+    Jido.Flow.Compiler.Choice,
+    Jido.Flow.Compiler.Condition,
+    Jido.Flow.Compiler.ErrorTagger,
+    Jido.Flow.Compiler.Expression,
+    Jido.Flow.Compiler.Iterator,
+    Jido.Flow.Compiler.Map,
+    Jido.Flow.Compiler.Reduce,
+    Jido.Flow.Compiler.Target,
+    Jido.Flow.Graph,
+    Jido.Flow.Inspection,
+    Jido.Flow.MapCodec,
+    Jido.Flow.MapCodec.DataCodec,
+    Jido.Flow.MapCodec.Decoder,
+    Jido.Flow.MapCodec.Encoder,
+    Jido.Flow.MapCodec.ErrorPath,
+    Jido.Flow.MapCodec.ExpressionCodec,
+    Jido.Flow.MapCodec.RecordValidator,
+    Jido.Flow.MapCodec.RegistryLookup,
+    Jido.Flow.Validation
+  ]
+
+  @hidden_flow_helpers [
+    {:__validate_config__, 1},
+    {:canonical_nodes, 1}
+  ]
 
   @public_builder_helpers [
     {:accumulator, 1},
@@ -63,6 +89,12 @@ defmodule Jido.PublicAPITest do
   test "Flow implementation modules are hidden from generated documentation" do
     for module <- @internal_modules do
       assert module_doc(module) == :hidden
+    end
+  end
+
+  test "Flow compatibility helpers stay hidden from generated documentation" do
+    for {name, arity} <- @hidden_flow_helpers do
+      assert function_doc(Jido.Flow, name, arity) == :hidden
     end
   end
 

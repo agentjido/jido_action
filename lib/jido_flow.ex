@@ -39,14 +39,13 @@ defmodule Jido.Flow do
   Flow execution discards them.
   """
 
-  alias Jido.Action
   alias Jido.Action.Error
   alias Jido.Flow.Element
+  alias Jido.Flow.Graph
+  alias Jido.Flow.Identity
+  alias Jido.Flow.Inspection
   alias Jido.Flow.MapCodec
-  alias Jido.Flow.Node
-
-  @module_config_keys [:name, :description, :schema, :output_schema]
-  @artifact_config_keys @module_config_keys ++ [:nodes, :return, :provenance]
+  alias Jido.Flow.Validation
 
   @schema Zoi.struct(
             __MODULE__,
@@ -178,36 +177,11 @@ defmodule Jido.Flow do
   @spec new(map() | keyword() | t()) :: {:ok, t()} | {:error, Exception.t()}
   def new(%__MODULE__{} = flow), do: flow |> Map.from_struct() |> new()
 
-  def new(attrs) when is_list(attrs) do
-    if Keyword.keyword?(attrs),
-      do: attrs |> Map.new() |> new(),
-      else: {:error, Error.validation_error("flow configuration must be a map")}
-  end
-
-  def new(%{} = attrs) do
-    with :ok <- validate_known_keys(attrs, @artifact_config_keys),
-         {:ok, name} <- validate_name(Map.get(attrs, :name)),
-         {:ok, description} <- validate_description(Map.get(attrs, :description)),
-         {:ok, schema} <- validate_schema(Map.get(attrs, :schema, []), "schema"),
-         {:ok, output_schema} <-
-           validate_schema(Map.get(attrs, :output_schema, []), "output_schema"),
-         {:ok, nodes} <- normalize_nodes(Map.get(attrs, :nodes, [])),
-         {:ok, return} <- validate_return(Map.get(attrs, :return)),
-         {:ok, provenance} <- validate_provenance(Map.get(attrs, :provenance, %{})) do
-      %__MODULE__{
-        name: name,
-        description: description,
-        schema: schema,
-        output_schema: output_schema,
-        nodes: nodes,
-        return: return,
-        provenance: provenance
-      }
-      |> validate()
+  def new(attrs) do
+    with {:ok, attrs} <- Validation.new(attrs) do
+      {:ok, struct!(__MODULE__, attrs)}
     end
   end
-
-  def new(_attrs), do: {:error, Error.validation_error("flow configuration must be a map")}
 
   @doc """
   Builds a Flow artifact or raises on validation failure.
@@ -268,75 +242,11 @@ defmodule Jido.Flow do
   @spec canonical_nodes([Element.t()]) :: [Element.t()]
   def canonical_nodes(nodes), do: canonical_node_order(nodes)
 
-  defp inspection_projection(%__MODULE__{} = flow) do
-    with {:ok, flow} <- validate(flow) do
-      nodes = canonical_nodes(flow.nodes)
-
-      dependencies =
-        Map.new(nodes, fn node ->
-          {Element.name(node), Element.deps(node) |> Enum.sort()}
-        end)
-
-      edges =
-        nodes
-        |> Enum.flat_map(fn node ->
-          Enum.map(Element.deps(node), fn predecessor ->
-            %{from: predecessor, to: Element.name(node)}
-          end)
-        end)
-        |> Enum.sort_by(&{&1.from, &1.to})
-
-      semantic_map = MapCodec.to_semantic_map(flow, nodes, [])
-
-      {:ok,
-       %{
-         flow: flow,
-         nodes: Enum.map(nodes, &Element.to_map/1),
-         dependencies: dependencies,
-         edges: edges,
-         identity: Jido.Flow.Identity.identity(semantic_map)
-       }}
-    end
-  end
-
   defp invalid_flow_subject(value) do
-    {:error, Error.validation_error("expected a Jido.Flow artifact", %{value: value})}
+    Validation.invalid_subject(value)
   end
 
-  defp invalid_inspection_subject(value), do: invalid_flow_subject(value)
-
-  defp canonical_node_order(nodes) do
-    sorted_nodes =
-      nodes
-      |> Map.new(fn node -> {Element.name(node), node} end)
-      |> Map.values()
-      |> Enum.sort_by(fn node -> node |> Element.name() |> node_name_sort_key() end)
-
-    %{levels: levels, max_level: max_level, remaining: remaining} =
-      traverse_dependency_graph(sorted_nodes)
-
-    blocked = MapSet.new(remaining)
-
-    nodes_by_level =
-      sorted_nodes
-      |> Enum.reject(&MapSet.member?(blocked, Element.name(&1)))
-      |> Enum.group_by(&Map.fetch!(levels, Element.name(&1)))
-
-    ordered_nodes =
-      if max_level < 0 do
-        []
-      else
-        Enum.flat_map(0..max_level, fn level ->
-          Map.get(nodes_by_level, level, [])
-        end)
-      end
-
-    blocked_nodes = Enum.filter(sorted_nodes, &MapSet.member?(blocked, Element.name(&1)))
-
-    ordered_nodes ++ blocked_nodes
-  end
-
-  defp node_name_sort_key(name), do: to_string(name)
+  defp canonical_node_order(nodes), do: Graph.canonical_nodes(nodes)
 
   @doc """
   Returns the direct canonical predecessors for every Flow node.
@@ -344,49 +254,36 @@ defmodule Jido.Flow do
   @spec dependencies(t()) ::
           {:ok, %{String.t() => [String.t()]}} | {:error, Error.InvalidInputError.t()}
   def dependencies(%__MODULE__{} = flow) do
-    with {:ok, projection} <- inspection_projection(flow) do
-      {:ok, projection.dependencies}
+    with {:ok, flow} <- validate(flow) do
+      Inspection.dependencies(flow, &inspection_identity/2)
     end
   end
 
-  def dependencies(value), do: invalid_inspection_subject(value)
+  def dependencies(value), do: invalid_flow_subject(value)
 
   @doc """
   Returns the versioned canonical inspection data for a Flow.
   """
   @spec explain(t()) :: {:ok, map()} | {:error, Error.InvalidInputError.t()}
   def explain(%__MODULE__{} = flow) do
-    with {:ok, projection} <- inspection_projection(flow) do
-      {:ok,
-       %{
-         version: 1,
-         kind: :flow,
-         name: projection.flow.name,
-         description: projection.flow.description,
-         schema: projection.flow.schema,
-         output_schema: projection.flow.output_schema,
-         nodes: projection.nodes,
-         dependencies: projection.dependencies,
-         edges: projection.edges,
-         return: Node.expression_to_map(projection.flow.return),
-         identity: projection.identity
-       }}
+    with {:ok, flow} <- validate(flow) do
+      Inspection.explain(flow, &inspection_identity/2)
     end
   end
 
-  def explain(value), do: invalid_inspection_subject(value)
+  def explain(value), do: invalid_flow_subject(value)
 
   @doc """
   Returns the deterministic SHA-256 and UUIDv8 identity for a Flow.
   """
   @spec semantic_identity(t()) :: {:ok, map()} | {:error, Error.InvalidInputError.t()}
   def semantic_identity(%__MODULE__{} = flow) do
-    with {:ok, projection} <- inspection_projection(flow) do
-      {:ok, projection.identity}
+    with {:ok, flow} <- validate(flow) do
+      Inspection.semantic_identity(flow, &inspection_identity/2)
     end
   end
 
-  def semantic_identity(value), do: invalid_inspection_subject(value)
+  def semantic_identity(value), do: invalid_flow_subject(value)
 
   @doc """
   Validates and normalizes the canonical Flow structure.
@@ -397,29 +294,8 @@ defmodule Jido.Flow do
   """
   @spec validate(t()) :: {:ok, t()} | {:error, Exception.t()}
   def validate(%__MODULE__{} = flow) do
-    with {:ok, name} <- validate_name(flow.name),
-         {:ok, description} <- validate_description(flow.description),
-         {:ok, schema} <- validate_schema(flow.schema, "schema"),
-         {:ok, output_schema} <- validate_schema(flow.output_schema, "output_schema"),
-         {:ok, nodes} <- normalize_nodes(flow.nodes),
-         {:ok, return} <- validate_return(flow.return),
-         {:ok, provenance} <- validate_provenance(flow.provenance),
-         flow = %{
-           flow
-           | name: name,
-             description: description,
-             schema: schema,
-             output_schema: output_schema,
-             nodes: nodes,
-             return: return,
-             provenance: provenance
-         },
-         :ok <- validate_static_semantic_data(flow),
-         :ok <- validate_duplicate_nodes(flow.nodes),
-         :ok <- validate_known_result_refs(flow),
-         flow = normalize_node_deps(flow),
-         :ok <- validate_acyclic(flow.nodes) do
-      {:ok, flow}
+    with {:ok, attrs} <- flow |> Map.from_struct() |> Validation.validate() do
+      {:ok, struct!(__MODULE__, attrs)}
     end
   end
 
@@ -432,50 +308,22 @@ defmodule Jido.Flow do
   both canonical structure and executable target contracts are valid.
   """
   @spec validate_executable(t()) :: {:ok, t()} | {:error, Exception.t()}
-  def validate_executable(flow) do
-    with {:ok, flow} <- validate(flow),
-         :ok <- check_action_contracts(flow.nodes) do
-      {:ok, flow}
+  def validate_executable(%__MODULE__{} = flow) do
+    with {:ok, attrs} <- flow |> Map.from_struct() |> Validation.validate_executable() do
+      {:ok, struct!(__MODULE__, attrs)}
     end
   end
+
+  def validate_executable(value), do: invalid_flow_subject(value)
 
   @doc false
   @spec __validate_config__(map()) :: {:ok, map()} | {:error, Exception.t()}
-  def __validate_config__(%{} = attrs) do
-    with :ok <- validate_known_keys(attrs, @module_config_keys),
-         {:ok, name} <- validate_name(Map.get(attrs, :name)),
-         {:ok, description} <- validate_description(Map.get(attrs, :description)),
-         {:ok, schema} <- validate_schema(Map.get(attrs, :schema, []), "schema"),
-         {:ok, output_schema} <-
-           validate_schema(Map.get(attrs, :output_schema, []), "output_schema") do
-      {:ok,
-       %{
-         name: name,
-         description: description,
-         schema: schema,
-         output_schema: output_schema
-       }}
-    end
-  end
+  def __validate_config__(attrs), do: Validation.validate_config(attrs)
 
-  def __validate_config__(_attrs) do
-    {:error, Error.validation_error("flow configuration must be a map")}
-  end
-
-  defp validate_name(name) when is_binary(name) do
-    case Action.validate_name(name) do
-      :ok -> {:ok, name}
-      {:error, message} -> {:error, Error.validation_error(message)}
-    end
-  end
-
-  defp validate_name(_name), do: {:error, Error.validation_error("flow name must be a string")}
-
-  defp validate_description(nil), do: {:ok, nil}
-  defp validate_description(description) when is_binary(description), do: {:ok, description}
-
-  defp validate_description(_description) do
-    {:error, Error.validation_error("flow description must be a string")}
+  defp inspection_identity(flow, nodes) do
+    flow
+    |> MapCodec.to_semantic_map(nodes, [])
+    |> Identity.identity()
   end
 
   defp compile_error_message(error) when is_exception(error) do
@@ -488,268 +336,6 @@ defmodule Jido.Flow do
 
       _other ->
         message
-    end
-  end
-
-  defp validate_schema(nil, _field), do: {:ok, []}
-
-  defp validate_schema(schema, field) do
-    with :ok <- validate_static_schema(schema),
-         :ok <- Action.validate_action_schema(schema) do
-      {:ok, schema}
-    else
-      {:error, message} ->
-        {:error, Error.validation_error("#{field} #{message}", %{field: field})}
-    end
-  end
-
-  defp validate_static_schema(schema) do
-    case Action.validate_static_data(schema) do
-      :ok -> :ok
-      {:error, message} -> {:error, "must be static module data; #{message}"}
-    end
-  end
-
-  defp validate_known_keys(attrs, allowed) do
-    case attrs |> Map.keys() |> Enum.find(&(&1 not in allowed)) do
-      nil ->
-        :ok
-
-      key ->
-        {:error,
-         Error.validation_error("unknown Flow configuration key: #{inspect(key)}", %{key: key})}
-    end
-  end
-
-  defp validate_static_semantic_data(flow) do
-    semantic_data = %{
-      name: flow.name,
-      description: flow.description,
-      nodes: Enum.map(flow.nodes, &Element.semantic_data/1),
-      return: flow.return
-    }
-
-    case Action.validate_static_data(semantic_data) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        {:error,
-         Error.validation_error("Flow semantic data must be static module data; #{reason}", %{
-           field: "semantic"
-         })}
-    end
-  end
-
-  defp normalize_nodes(nodes) when is_list(nodes) do
-    if List.improper?(nodes) do
-      {:error, Error.validation_error("flow nodes must be a proper list")}
-    else
-      normalize_proper_nodes(nodes)
-    end
-  end
-
-  defp normalize_nodes(_nodes), do: {:error, Error.validation_error("flow nodes must be a list")}
-
-  defp normalize_proper_nodes(nodes) do
-    nodes
-    |> Enum.reduce_while({:ok, []}, fn attrs, {:ok, acc} ->
-      case Element.new(attrs) do
-        {:ok, node} -> {:cont, {:ok, [node | acc]}}
-        {:error, error} -> {:halt, {:error, error}}
-      end
-    end)
-    |> case do
-      {:ok, nodes} -> {:ok, Enum.reverse(nodes)}
-      {:error, error} -> {:error, error}
-    end
-  end
-
-  defp validate_return(nil) do
-    {:error, Error.validation_error("return ref is required")}
-  end
-
-  defp validate_return(return) do
-    with {:ok, return} <- Node.normalize_expression(return),
-         :ok <- Node.validate_expression(return),
-         :ok <- validate_return_has_result_ref(return) do
-      {:ok, return}
-    end
-  end
-
-  defp validate_return_has_result_ref(return) do
-    case Node.collect_result_refs(return) do
-      [] -> {:error, Error.validation_error("return must reference at least one step result")}
-      _refs -> :ok
-    end
-  end
-
-  defp validate_provenance(nil), do: {:ok, %{}}
-  defp validate_provenance(provenance) when is_map(provenance), do: {:ok, provenance}
-
-  defp validate_provenance(_provenance) do
-    {:error, Error.validation_error("flow provenance must be a map")}
-  end
-
-  defp validate_duplicate_nodes(nodes) do
-    names = Enum.map(nodes, &Element.name/1)
-    frequencies = Enum.frequencies(names)
-
-    names
-    |> Enum.find(&(Map.fetch!(frequencies, &1) > 1))
-    |> case do
-      nil ->
-        :ok
-
-      name ->
-        {:error, Error.validation_error("duplicate step name: #{inspect(name)}", %{name: name})}
-    end
-  end
-
-  defp check_action_contracts(nodes) do
-    Enum.reduce_while(nodes, :ok, fn node, :ok ->
-      case Element.check(node) do
-        :ok ->
-          {:cont, :ok}
-
-        {:error, error} ->
-          {:halt, {:error, error}}
-      end
-    end)
-  end
-
-  defp validate_known_result_refs(%__MODULE__{} = flow) do
-    known = flow.nodes |> Enum.map(&Element.name/1) |> MapSet.new()
-
-    case flow.return
-         |> Node.collect_result_refs()
-         |> Enum.find(&(not MapSet.member?(known, &1))) do
-      nil ->
-        validate_node_result_refs(flow.nodes, known)
-
-      missing_node ->
-        {:error,
-         Error.validation_error(
-           "return ref points to an unknown step: #{inspect(missing_node)}",
-           %{
-             node: missing_node
-           }
-         )}
-    end
-  end
-
-  defp validate_node_result_refs(nodes, known) do
-    Enum.reduce_while(nodes, :ok, fn node, :ok ->
-      missing = node |> Element.result_deps() |> Enum.reject(&MapSet.member?(known, &1))
-
-      case missing do
-        [] ->
-          {:cont, :ok}
-
-        [missing_node | _] ->
-          {:halt,
-           {:error,
-            Error.validation_error(
-              "node input points to an unknown step: #{inspect(missing_node)}",
-              %{
-                node: Element.name(node),
-                dependency: missing_node
-              }
-            )}}
-      end
-    end)
-  end
-
-  defp normalize_node_deps(%__MODULE__{} = flow) do
-    nodes =
-      Enum.map(flow.nodes, fn node ->
-        Element.put_deps(node, Element.result_deps(node))
-      end)
-
-    %{flow | nodes: nodes}
-  end
-
-  defp validate_acyclic(nodes) do
-    case traverse_dependency_graph(nodes) do
-      %{remaining: []} ->
-        :ok
-
-      %{remaining: remaining} ->
-        {:error,
-         Error.validation_error("flow dependency graph contains a cycle", %{
-           nodes: Enum.sort(remaining)
-         })}
-    end
-  end
-
-  defp traverse_dependency_graph(nodes) do
-    {indegrees, adjacency} =
-      nodes
-      |> Enum.reverse()
-      |> Enum.reduce({%{}, %{}}, fn node, {indegrees, adjacency} ->
-        name = Element.name(node)
-        dependencies = node |> Element.deps() |> MapSet.new()
-
-        adjacency =
-          Enum.reduce(dependencies, adjacency, fn dependency, adjacency ->
-            Map.update(adjacency, dependency, [name], &[name | &1])
-          end)
-
-        {Map.put(indegrees, name, MapSet.size(dependencies)), adjacency}
-      end)
-
-    ready =
-      Enum.reduce(nodes, [], fn node, ready ->
-        name = Element.name(node)
-
-        if Map.fetch!(indegrees, name) == 0 do
-          [name | ready]
-        else
-          ready
-        end
-      end)
-      |> Enum.reverse()
-
-    levels = Map.new(ready, &{&1, 0})
-
-    max_level = if ready == [], do: -1, else: 0
-
-    ready
-    |> :queue.from_list()
-    |> do_traverse_dependency_graph(indegrees, adjacency, levels, max_level)
-  end
-
-  defp do_traverse_dependency_graph(ready, indegrees, adjacency, levels, max_level) do
-    case :queue.out(ready) do
-      {:empty, _ready} ->
-        %{levels: levels, max_level: max_level, remaining: Map.keys(indegrees)}
-
-      {{:value, name}, ready} ->
-        level = Map.fetch!(levels, name)
-        indegrees = Map.delete(indegrees, name)
-
-        {ready, indegrees, levels, max_level} =
-          adjacency
-          |> Map.get(name, [])
-          |> Enum.reduce({ready, indegrees, levels, max_level}, fn dependent,
-                                                                   {ready, indegrees, levels,
-                                                                    max_level} ->
-            next_indegree = Map.fetch!(indegrees, dependent) - 1
-            dependent_level = max(Map.get(levels, dependent, 0), level + 1)
-            levels = Map.put(levels, dependent, dependent_level)
-            indegrees = Map.put(indegrees, dependent, next_indegree)
-
-            {ready, max_level} =
-              if next_indegree == 0 do
-                {:queue.in(dependent, ready), max(max_level, dependent_level)}
-              else
-                {ready, max_level}
-              end
-
-            {ready, indegrees, levels, max_level}
-          end)
-
-        do_traverse_dependency_graph(ready, indegrees, adjacency, levels, max_level)
     end
   end
 end
