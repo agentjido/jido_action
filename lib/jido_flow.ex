@@ -54,8 +54,8 @@ defmodule Jido.Flow do
   """
 
   alias Jido.Action.Error
-  alias Jido.Flow.Element
   alias Jido.Flow.DSL.ModuleCompiler
+  alias Jido.Flow.Element
   alias Jido.Flow.Graph
   alias Jido.Flow.Inspection
   alias Jido.Flow.MapCodec

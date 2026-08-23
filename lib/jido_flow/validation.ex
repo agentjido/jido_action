@@ -4,8 +4,8 @@ defmodule Jido.Flow.Validation do
   alias Jido.Action
   alias Jido.Action.Error
   alias Jido.Flow.Element
-  alias Jido.Flow.Graph
   alias Jido.Flow.Expression
+  alias Jido.Flow.Graph
 
   @module_config_keys [:name, :description, :schema, :output_schema]
   @artifact_config_keys @module_config_keys ++ [:nodes, :return, :provenance]

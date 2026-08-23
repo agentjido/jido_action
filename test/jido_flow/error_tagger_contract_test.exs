@@ -2,10 +2,10 @@ defmodule Jido.Flow.ErrorTaggerContractTest do
   use JidoTest.ActionCase, async: true
 
   alias Jido.Action.Error
-  alias Jido.Flow.{Choice, Iterator, Node, Reduce, Ref, State}
-  alias Jido.Flow.Map, as: FlowMap
+  alias Jido.Flow.{Choice, Condition, Iterator, Node, Reduce, Ref, State}
   alias Jido.Flow.Compiler.ErrorTagger
   alias Jido.Flow.Compiler.TargetContext
+  alias Jido.Flow.Map, as: FlowMap
   alias JidoTest.TestActions.{Add, Multiply}
 
   test "keeps target phase and ownership details for every Flow element" do
@@ -99,7 +99,7 @@ defmodule Jido.Flow.ErrorTaggerContractTest do
         options: [
           [
             name: "selected",
-            condition: Jido.Flow.Condition.eq(Ref.value(1), Ref.value(1)),
+            condition: Condition.eq(Ref.value(1), Ref.value(1)),
             action: Add
           ]
         ],
@@ -121,7 +121,7 @@ defmodule Jido.Flow.ErrorTaggerContractTest do
         name: "iterate",
         action: Add,
         state: State.new!(schema: [], initial: %{}, update: Ref.body_result()),
-        completion: Jido.Flow.Condition.eq(Ref.value(true), Ref.value(true)),
+        completion: Condition.eq(Ref.value(true), Ref.value(true)),
         max_iterations: 1
       )
 
