@@ -69,6 +69,27 @@ defmodule Jido.Flow.ErrorTaggerContractTest do
     assert tagged.details.retry == false
   end
 
+  test "keeps plain target exceptions and formats all validation reason shapes" do
+    {owner, input_phase, _execution_phase, _output_phase, details} = owners() |> List.first()
+    exception = RuntimeError.exception("plain failure")
+
+    assert {:error, ^exception} =
+             ErrorTagger.tag_target_error({:error, exception}, :execution, owner)
+
+    for {reason, message} <- [
+          {"invalid input", "invalid input"},
+          {{:invalid, 1}, "{:invalid, 1}"}
+        ] do
+      assert {:error, tagged} =
+               ErrorTagger.tag_target_validation_error({:error, reason}, :input, owner)
+
+      assert tagged.message == message
+      assert Map.take(tagged.details, Map.keys(details)) == details
+      assert tagged.details.phase == input_phase
+      assert tagged.details.reason == reason
+    end
+  end
+
   defp owners do
     node = Node.new!(name: "step", action: Add)
 
