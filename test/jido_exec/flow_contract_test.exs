@@ -1,6 +1,8 @@
 defmodule Jido.Exec.FlowContractTest do
   use JidoTest.ActionCase, async: true
 
+  @moduletag capture_log: true
+
   alias Jido.Action.Error.{ExecutionFailureError, InvalidInputError}
   alias Jido.Exec
   alias Jido.Flow
