@@ -187,6 +187,11 @@ end
 return a structured error instead of raising. Stored identifiers cannot create
 atoms or select a module outside the host Registry.
 
+The Spark DSL, Builder, and stored Map or JSON format are the three supported
+Flow authoring routes. Flow element structs are stable, read-only data types
+for inspection. The Compiler, Map codec internals, graph analysis, and Runic
+adapters are private.
+
 ## Run A Flow Step By Step
 
 Run-to-completion and step-wise execution use the same engine:

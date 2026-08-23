@@ -15,8 +15,9 @@ inspection, storage, and execution use the same artifact.
 }
 ```
 
-The exact node and expression structs are implementation details of the
-canonical artifact. Use public builders and authoring surfaces to create them.
+Flow element structs are stable, read-only data types. Their fields let tools
+inspect the canonical artifact. Use a supported authoring route to create a
+Flow instead of direct struct construction.
 
 ## What A Flow Contains
 
@@ -65,6 +66,17 @@ produce the same canonical `%Jido.Flow{}` artifact:
 There is no stored text parser. Tools and AI systems can produce a stored map
 or JSON value. `Jido.Flow.from_stored_map/2` validates and restores it through
 a trusted host Registry.
+
+## Public And Private Boundaries
+
+`Jido.Flow` is the public artifact and inspection facade. `Jido.Flow.Builder`
+is the public runtime construction facade. `Jido.Flow.Registry` controls the
+trusted identifiers in stored maps. `Jido.Exec` is the public execution
+facade.
+
+The Compiler, Map codec internals, graph analysis, and Runic adapters are
+private. They can change without a public API change. Runic workflow values do
+not enter the Flow artifact, stored maps, or step-wise execution results.
 
 ## Semantic Identity And Maps
 

@@ -6,6 +6,12 @@ defmodule Jido.Flow do
   Map fan-out, Reduce fan-in, bounded Iterate nodes, and one output expression.
   Execution is delegated through `Jido.Exec`.
 
+  Flow has three supported authoring routes:
+
+  * the compile-time Spark DSL for Flow modules;
+  * `Jido.Flow.Builder` for runtime construction; and
+  * versioned stored maps or JSON for transport and storage.
+
   Use the compile-time Spark DSL as the primary developer authoring surface:
 
       defmodule MyApp.ProcessOrder do
@@ -26,9 +32,17 @@ defmodule Jido.Flow do
   Result references and `after:` fields define dependencies. Source order does
   not add execution dependencies.
 
-  Use `Jido.Flow.Builder` for runtime construction. Use `to_stored_map/3` and
-  `from_stored_map/2` with a trusted `Jido.Flow.Registry` for versioned storage.
-  There is no runtime parser for DSL source.
+  All three routes produce the same canonical Flow. The Flow element structs
+  are stable, read-only data types for inspection. Use one of the three
+  authoring routes to create a Flow instead of direct struct construction.
+
+  Use `to_stored_map/3` and `from_stored_map/2` with a trusted
+  `Jido.Flow.Registry` for versioned storage. There is no runtime parser for
+  DSL source.
+
+  The Flow compiler, Map codec internals, graph analysis, and Runic adapters
+  are private implementation details. Use this module and `Jido.Exec` as the
+  public facade.
 
   A Choice is one Flow node. It evaluates data-only conditions in authored
   order, runs the first matching target, and uses a required routing fallback
