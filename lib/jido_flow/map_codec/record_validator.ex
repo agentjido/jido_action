@@ -17,7 +17,7 @@ defmodule Jido.Flow.MapCodec.RecordValidator do
   ]
 
   @doc false
-  def validate_root(map, :stored) do
+  def validate_root(map) do
     validate_record(
       map,
       @stored_root_keys,
@@ -27,17 +27,17 @@ defmodule Jido.Flow.MapCodec.RecordValidator do
   end
 
   @doc false
-  def validate_root_header(map, profile) do
+  def validate_root_header(map) do
     with {:ok, version} <-
-           profile_fetch_required(map, :version, profile, "flow map version is required"),
-         :ok <- validate_version(version, profile),
-         {:ok, type} <- profile_fetch_required(map, :type, profile, "flow map type is required") do
-      validate_type(type, profile)
+           fetch_required(map, :version, "flow map version is required"),
+         :ok <- validate_version(version),
+         {:ok, type} <- fetch_required(map, :type, "flow map type is required") do
+      validate_type(type)
     end
   end
 
   @doc false
-  def validate_node_record(node, :stored) do
+  def validate_node_record(node) do
     validate_record(
       node,
       ["name", "action", "input", "deps", "provenance"],
@@ -47,7 +47,7 @@ defmodule Jido.Flow.MapCodec.RecordValidator do
   end
 
   @doc false
-  def validate_choice_record(choice, :stored) do
+  def validate_choice_record(choice) do
     with :ok <-
            validate_record(
              choice,
@@ -55,12 +55,12 @@ defmodule Jido.Flow.MapCodec.RecordValidator do
              ["kind", "name", "options", "fallback", "deps"],
              :choice
            ) do
-      validate_choice_kind(Map.fetch!(choice, "kind"), :stored)
+      validate_choice_kind(Map.fetch!(choice, "kind"))
     end
   end
 
   @doc false
-  def validate_map_record(map, :stored) do
+  def validate_map_record(map) do
     validate_record(
       map,
       ["kind", "name", "collection", "action", "input", "on_error", "deps", "provenance"],
@@ -70,7 +70,7 @@ defmodule Jido.Flow.MapCodec.RecordValidator do
   end
 
   @doc false
-  def validate_reduce_record(reduce, :stored) do
+  def validate_reduce_record(reduce) do
     validate_record(
       reduce,
       ["kind", "name", "collection", "initial", "action", "input", "deps", "provenance"],
@@ -80,7 +80,7 @@ defmodule Jido.Flow.MapCodec.RecordValidator do
   end
 
   @doc false
-  def validate_iterator_record(iterator, :stored) do
+  def validate_iterator_record(iterator) do
     validate_record(
       iterator,
       [
@@ -100,7 +100,7 @@ defmodule Jido.Flow.MapCodec.RecordValidator do
   end
 
   @doc false
-  def validate_iterator_state_record(state, :stored) do
+  def validate_iterator_state_record(state) do
     validate_record(
       state,
       ["kind", "version", "schema", "initial", "update"],
@@ -110,7 +110,7 @@ defmodule Jido.Flow.MapCodec.RecordValidator do
   end
 
   @doc false
-  def validate_choice_option_record(option, :stored) do
+  def validate_choice_option_record(option) do
     validate_record(
       option,
       ["name", "condition", "action", "input"],
@@ -120,7 +120,7 @@ defmodule Jido.Flow.MapCodec.RecordValidator do
   end
 
   @doc false
-  def validate_choice_fallback_record(fallback, :stored) do
+  def validate_choice_fallback_record(fallback) do
     validate_record(
       fallback,
       ["name", "action", "input"],
@@ -130,7 +130,7 @@ defmodule Jido.Flow.MapCodec.RecordValidator do
   end
 
   @doc false
-  def validate_condition_record(condition, :stored) do
+  def validate_condition_record(condition) do
     validate_record(
       condition,
       ["operator", "operands"],
@@ -140,10 +140,22 @@ defmodule Jido.Flow.MapCodec.RecordValidator do
   end
 
   @doc false
-  def validate_ref_record(map, type, profile) do
-    {allowed, required} = ref_fields(type, profile)
+  def validate_ref_record(map, type) do
+    {allowed, required} = ref_fields(type)
     validate_record(map, allowed, required, :reference)
   end
+
+  @doc false
+  def validate_node_deps(deps) when is_list(deps) do
+    if List.improper?(deps) do
+      ErrorPath.error("flow node deps must be a list", %{deps: inspect(deps)})
+    else
+      {:ok, deps}
+    end
+  end
+
+  def validate_node_deps(deps),
+    do: ErrorPath.error("flow node deps must be a list", %{deps: deps})
 
   @doc false
   def validate_record(map, allowed, required, record) do
@@ -201,52 +213,52 @@ defmodule Jido.Flow.MapCodec.RecordValidator do
   end
 
   @doc false
-  def profile_fetch_required(map, field, :stored, message) do
+  def fetch_required(map, field, message) do
     exact_fetch_required(map, Atom.to_string(field), message)
   end
 
   @doc false
-  def profile_fetch_optional(map, field, default, :stored) do
+  def fetch_optional(map, field, default) do
     Map.get(map, Atom.to_string(field), default)
   end
 
   @doc false
-  def profile_field(field, :stored), do: Atom.to_string(field)
+  def field(field), do: Atom.to_string(field)
 
-  defp validate_version(@stored_version, :stored), do: :ok
+  defp validate_version(@stored_version), do: :ok
 
-  defp validate_version(version, _profile) do
+  defp validate_version(version) do
     ErrorPath.error("unsupported flow map version: #{inspect(version)}", %{version: version})
   end
 
-  defp validate_type("flow", :stored), do: :ok
+  defp validate_type("flow"), do: :ok
 
-  defp validate_type(type, _profile) do
+  defp validate_type(type) do
     ErrorPath.error("flow map type must be flow", %{type: type})
   end
 
-  defp validate_choice_kind("choice", :stored), do: :ok
+  defp validate_choice_kind("choice"), do: :ok
 
-  defp validate_choice_kind(kind, _profile) do
+  defp validate_choice_kind(kind) do
     ErrorPath.error("unknown flow node kind: #{inspect(kind)}", %{kind: kind})
   end
 
-  defp ref_fields(type, :stored)
+  defp ref_fields(type)
        when type in ["input", "context", "item", "accumulator", "state", "body_result"] do
     {["type", "path"], ["type", "path"]}
   end
 
-  defp ref_fields("result", :stored) do
+  defp ref_fields("result") do
     {["type", "node", "path"], ["type", "node", "path"]}
   end
 
-  defp ref_fields("value", :stored), do: {["type", "value"], ["type", "value"]}
+  defp ref_fields("value"), do: {["type", "value"], ["type", "value"]}
 
-  defp ref_fields(type, :stored) when type in ["item_index", "item_id"] do
+  defp ref_fields(type) when type in ["item_index", "item_id"] do
     {["type"], ["type"]}
   end
 
-  defp ref_fields("iteration_index", :stored) do
+  defp ref_fields("iteration_index") do
     {["type", "path"], ["type", "path"]}
   end
 

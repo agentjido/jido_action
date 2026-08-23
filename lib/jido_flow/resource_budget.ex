@@ -8,44 +8,41 @@ defmodule Jido.Flow.ResourceBudget do
   @max_binary_bytes 1_048_576
   @max_width 10_000
 
-  @type surface :: :map
-
-  @spec validate(term(), surface()) :: :ok | {:error, Exception.t()}
-  def validate(term, :map) do
-    traverse([{term, 0, []}], %{term_count: 0, binary_bytes: 0}, :map)
+  @spec validate(term()) :: :ok | {:error, Exception.t()}
+  def validate(term) do
+    traverse([{term, 0, []}], %{term_count: 0, binary_bytes: 0})
   end
 
-  defp traverse([], _counts, _surface), do: :ok
+  defp traverse([], _counts), do: :ok
 
-  defp traverse([{term, depth, reverse_path} | rest], counts, surface) do
+  defp traverse([{term, depth, reverse_path} | rest], counts) do
     term_count = counts.term_count + 1
 
     with :ok <-
            within_limit(
-             surface,
              :term_count,
              @max_term_slots,
              term_count,
              reverse_path
            ),
          {:ok, binary_bytes} <-
-           count_binary(term, counts.binary_bytes, surface, reverse_path),
-         :ok <- check_depth(term, depth, surface, reverse_path),
-         {:ok, children} <- children(term, depth, surface, reverse_path) do
-      traverse(children ++ rest, %{term_count: term_count, binary_bytes: binary_bytes}, surface)
+           count_binary(term, counts.binary_bytes, reverse_path),
+         :ok <- check_depth(term, depth, reverse_path),
+         {:ok, children} <- children(term, depth, reverse_path) do
+      traverse(children ++ rest, %{term_count: term_count, binary_bytes: binary_bytes})
     end
   end
 
-  defp count_binary(term, binary_bytes, surface, reverse_path) when is_binary(term) do
+  defp count_binary(term, binary_bytes, reverse_path) when is_binary(term) do
     actual = binary_bytes + byte_size(term)
 
     with :ok <- validate_utf8(term, reverse_path),
-         :ok <- within_limit(surface, :binary_bytes, @max_binary_bytes, actual, reverse_path) do
+         :ok <- within_limit(:binary_bytes, @max_binary_bytes, actual, reverse_path) do
       {:ok, actual}
     end
   end
 
-  defp count_binary(_term, binary_bytes, _surface, _reverse_path), do: {:ok, binary_bytes}
+  defp count_binary(_term, binary_bytes, _reverse_path), do: {:ok, binary_bytes}
 
   defp validate_utf8(binary, reverse_path) do
     if String.valid?(binary) do
@@ -59,17 +56,17 @@ defmodule Jido.Flow.ResourceBudget do
     end
   end
 
-  defp check_depth(term, depth, surface, reverse_path)
+  defp check_depth(term, depth, reverse_path)
        when is_map(term) or is_list(term) or is_tuple(term) do
-    within_limit(surface, :nesting_depth, @max_depth, depth, reverse_path)
+    within_limit(:nesting_depth, @max_depth, depth, reverse_path)
   end
 
-  defp check_depth(_term, _depth, _surface, _reverse_path), do: :ok
+  defp check_depth(_term, _depth, _reverse_path), do: :ok
 
-  defp children(term, depth, surface, reverse_path) when is_map(term) do
+  defp children(term, depth, reverse_path) when is_map(term) do
     width = map_size(term)
 
-    with :ok <- within_limit(surface, :collection_width, @max_width, width, reverse_path) do
+    with :ok <- within_limit(:collection_width, @max_width, width, reverse_path) do
       children =
         term
         |> Map.to_list()
@@ -86,10 +83,10 @@ defmodule Jido.Flow.ResourceBudget do
     end
   end
 
-  defp children(term, depth, surface, reverse_path) when is_tuple(term) do
+  defp children(term, depth, reverse_path) when is_tuple(term) do
     width = tuple_size(term)
 
-    with :ok <- within_limit(surface, :collection_width, @max_width, width, reverse_path) do
+    with :ok <- within_limit(:collection_width, @max_width, width, reverse_path) do
       children =
         term
         |> Tuple.to_list()
@@ -102,30 +99,30 @@ defmodule Jido.Flow.ResourceBudget do
     end
   end
 
-  defp children(term, depth, surface, reverse_path) when is_list(term) do
-    list_children(term, depth, surface, reverse_path, 0, [])
+  defp children(term, depth, reverse_path) when is_list(term) do
+    list_children(term, depth, reverse_path, 0, [])
   end
 
-  defp children(_term, _depth, _surface, _reverse_path), do: {:ok, []}
+  defp children(_term, _depth, _reverse_path), do: {:ok, []}
 
-  defp list_children([], _depth, _surface, _reverse_path, _width, reverse_children) do
+  defp list_children([], _depth, _reverse_path, _width, reverse_children) do
     {:ok, Enum.reverse(reverse_children)}
   end
 
-  defp list_children([head | tail], depth, surface, reverse_path, width, reverse_children) do
+  defp list_children([head | tail], depth, reverse_path, width, reverse_children) do
     actual = width + 1
 
-    case within_limit(surface, :collection_width, @max_width, actual, reverse_path) do
+    case within_limit(:collection_width, @max_width, actual, reverse_path) do
       :ok ->
         child = work_item(head, depth, [width | reverse_path])
-        list_children(tail, depth, surface, reverse_path, actual, [child | reverse_children])
+        list_children(tail, depth, reverse_path, actual, [child | reverse_children])
 
       {:error, error} ->
         {:error, error}
     end
   end
 
-  defp list_children(tail, depth, _surface, reverse_path, width, reverse_children) do
+  defp list_children(tail, depth, reverse_path, width, reverse_children) do
     improper_tail = work_item(tail, depth, [width | reverse_path])
     {:ok, Enum.reverse([improper_tail | reverse_children])}
   end
@@ -141,14 +138,14 @@ defmodule Jido.Flow.ResourceBudget do
     {term, depth, reverse_path}
   end
 
-  defp within_limit(_surface, _resource, limit, actual, _reverse_path) when actual <= limit,
+  defp within_limit(_resource, limit, actual, _reverse_path) when actual <= limit,
     do: :ok
 
-  defp within_limit(surface, resource, limit, actual, reverse_path) do
-    limit_error(surface, resource, limit, actual, Enum.reverse(reverse_path))
+  defp within_limit(resource, limit, actual, reverse_path) do
+    limit_error(resource, limit, actual, Enum.reverse(reverse_path))
   end
 
-  defp limit_error(_surface, resource, limit, actual, path) do
+  defp limit_error(resource, limit, actual, path) do
     {:error,
      Error.validation_error("stored flow map exceeds resource limit", %{
        profile: :stored,

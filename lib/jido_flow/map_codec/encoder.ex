@@ -42,7 +42,7 @@ defmodule Jido.Flow.MapCodec.Encoder do
         base
       end
 
-    case ResourceBudget.validate(stored, :map) do
+    case ResourceBudget.validate(stored) do
       :ok -> stored
       {:error, error} -> raise error
     end
@@ -63,9 +63,8 @@ defmodule Jido.Flow.MapCodec.Encoder do
   end
 
   defp validate_stored_writer(flow, ordered_nodes, registry, opts) when is_list(opts) do
-    with :ok <- validate_writer_options(opts),
-         {:ok, identifiers} <- RegistryLookup.writer_identifiers(flow, ordered_nodes, registry) do
-      {:ok, identifiers}
+    with :ok <- validate_writer_options(opts) do
+      RegistryLookup.writer_identifiers(flow, ordered_nodes, registry)
     end
   end
 

@@ -57,7 +57,7 @@ defmodule Jido.Flow.MapCodec.DataCodec do
   end
 
   @doc false
-  def decode_optional(map, field, default, :stored) do
+  def decode_optional(map, field, default) do
     case Map.fetch(map, Atom.to_string(field)) do
       {:ok, value} -> decode(value)
       :error -> {:ok, default}

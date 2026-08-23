@@ -9,12 +9,12 @@ defmodule Jido.Flow.ResourceBudgetTest do
   @max_binary_bytes 1_048_576
   @max_width 10_000
 
-  describe "validate/2" do
+  describe "validate/1" do
     test "accepts each exact stored-map limit" do
-      assert :ok = ResourceBudget.validate(nested_tuple(@max_depth + 1), :map)
-      assert :ok = ResourceBudget.validate(term_slots(@max_terms), :map)
-      assert :ok = ResourceBudget.validate(:binary.copy("x", @max_binary_bytes), :map)
-      assert :ok = ResourceBudget.validate(List.duplicate(0, @max_width), :map)
+      assert :ok = ResourceBudget.validate(nested_tuple(@max_depth + 1))
+      assert :ok = ResourceBudget.validate(term_slots(@max_terms))
+      assert :ok = ResourceBudget.validate(:binary.copy("x", @max_binary_bytes))
+      assert :ok = ResourceBudget.validate(List.duplicate(0, @max_width))
     end
 
     test "rejects each stored-term limit plus one with exact bounded details" do
@@ -33,7 +33,7 @@ defmodule Jido.Flow.ResourceBudgetTest do
                 %InvalidInputError{
                   message: "stored flow map exceeds resource limit",
                   details: details
-                }} = ResourceBudget.validate(term, :map)
+                }} = ResourceBudget.validate(term)
 
         assert details == %{
                  profile: :stored,
@@ -51,7 +51,7 @@ defmodule Jido.Flow.ResourceBudgetTest do
       term = %{"a" => :binary.copy("a", 600_000), "b" => :binary.copy("b", 600_000)}
 
       assert {:error, %InvalidInputError{details: details}} =
-               ResourceBudget.validate(term, :map)
+               ResourceBudget.validate(term)
 
       assert details.resource == :binary_bytes
       assert details.actual == 1_200_002
@@ -64,7 +64,7 @@ defmodule Jido.Flow.ResourceBudgetTest do
 
       for term <- [%{large_key => true}, %{{large_key, :suffix} => true}] do
         assert {:error, %InvalidInputError{details: details} = error} =
-                 ResourceBudget.validate(term, :map)
+                 ResourceBudget.validate(term)
 
         assert details.resource == :binary_bytes
 
@@ -82,7 +82,7 @@ defmodule Jido.Flow.ResourceBudgetTest do
       over_width = List.duplicate(:binary.copy("x", 256), @max_width + 1)
 
       assert {:error, %InvalidInputError{details: details}} =
-               ResourceBudget.validate(over_width, :map)
+               ResourceBudget.validate(over_width)
 
       assert details.resource == :collection_width
       assert details.path == []
@@ -91,13 +91,13 @@ defmodule Jido.Flow.ResourceBudgetTest do
     test "handles maps, lists, tuples, and improper tails without recursive traversal" do
       term = {%{"a" => [1, 2]}, [3 | :tail]}
 
-      assert :ok = ResourceBudget.validate(term, :map)
+      assert :ok = ResourceBudget.validate(term)
     end
 
     test "accepts nested structs that do not implement Enumerable" do
       term = %{metadata: %{uri: URI.parse("https://example.com/flow")}}
 
-      assert :ok = ResourceBudget.validate(term, :map)
+      assert :ok = ResourceBudget.validate(term)
     end
   end
 
