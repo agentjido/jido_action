@@ -257,6 +257,49 @@ defmodule Jido.Exec.TelemetryTest do
     assert Map.drop(node_error, [:error, :error_type]) == node_start
   end
 
+  test "orders asynchronous node spans by the canonical ready set" do
+    attach(@observed_events)
+
+    flow =
+      Flow.new!(
+        name: "async_telemetry_order",
+        nodes: [
+          Node.new!(name: "zeta", action: Add, input: %{value: Ref.input(:value)}),
+          Node.new!(name: "alpha", action: Add, input: %{value: Ref.input(:value)})
+        ],
+        return: %{alpha: Ref.result("alpha"), zeta: Ref.result("zeta")}
+      )
+
+    assert {:ok, execution} = Exec.start(flow, %{value: 1}, %{}, async: true)
+
+    assert [
+             {@flow_start, _, %{execution_id: execution_id}}
+           ] = events()
+
+    assert {:ok, _results, execution} = Exec.wave(execution)
+    assert {:ok, %{alpha: %{value: 2}, zeta: %{value: 2}}} = Exec.result(execution)
+
+    assert [
+             {@node_start, _, alpha_start},
+             {@node_start, _, zeta_start},
+             {@node_stop, _, alpha_stop},
+             {@node_stop, _, zeta_stop},
+             {@flow_stop, _, flow_stop}
+           ] = events()
+
+    assert alpha_start == %{
+             execution_id: execution_id,
+             flow: "async_telemetry_order",
+             node: "alpha",
+             kind: :step
+           }
+
+    assert zeta_start == %{alpha_start | node: "zeta"}
+    assert alpha_stop == alpha_start
+    assert zeta_stop == zeta_start
+    assert flow_stop == %{execution_id: execution_id, flow: "async_telemetry_order"}
+  end
+
   test "reports final result-path errors after the node span stops" do
     attach(@observed_events)
 

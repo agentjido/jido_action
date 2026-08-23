@@ -4,9 +4,9 @@ defmodule Jido.Exec.FlowEngine do
   alias Jido.Action.Error
   alias Jido.Action.Telemetry
   alias Jido.Exec.{Execution, NodeResult}
+  alias Jido.Exec.FlowRunnableExecutor
   alias Jido.Flow
   alias Jido.Flow.{Compiler, Element, NodeError}
-  alias Jido.Flow.Runtime.OrderedTaskRunner
   alias Runic.Workflow
   alias Runic.Workflow.{Fact, Runnable, Step}
 
@@ -97,7 +97,7 @@ defmodule Jido.Exec.FlowEngine do
       {:ok, runnable} ->
         {node_result, execution} =
           execution
-          |> apply_public_runnable(node, execute_runnable(execution, runnable))
+          |> apply_public_runnable(node, FlowRunnableExecutor.execute(execution, runnable))
 
         with {:ok, execution} <- settle(execution) do
           {:ok, node_result, execution}
@@ -131,7 +131,7 @@ defmodule Jido.Exec.FlowEngine do
       execution_not_running(execution)
     else
       runnables = Enum.map(names, &Map.fetch!(execution.ready, &1))
-      executed = execute_runnables(execution, runnables)
+      executed = FlowRunnableExecutor.execute_many(execution, runnables)
 
       {node_results, execution} =
         names
@@ -216,84 +216,6 @@ defmodule Jido.Exec.FlowEngine do
     end)
   end
 
-  defp execute_runnables(execution, runnables) do
-    element_kinds = element_kinds(execution)
-
-    if Keyword.fetch!(execution.options, :async) do
-      spans = Enum.map(runnables, &start_node_span(execution, &1, element_kinds))
-      max_concurrency = Keyword.fetch!(execution.options, :max_concurrency)
-      executed = execute_async_runnables(runnables, max_concurrency)
-
-      executed
-      |> Enum.zip(spans)
-      |> Enum.map(fn {runnable, span} ->
-        finish_node_span(span, runnable)
-        runnable
-      end)
-    else
-      Enum.map(runnables, &execute_runnable(execution, &1, element_kinds))
-    end
-  end
-
-  defp execute_runnable(execution, runnable) do
-    execute_runnable(execution, runnable, element_kinds(execution))
-  end
-
-  defp execute_runnable(execution, runnable, element_kinds) do
-    span = start_node_span(execution, runnable, element_kinds)
-    executed = Workflow.execute_runnable(runnable)
-    finish_node_span(span, executed)
-    executed
-  end
-
-  defp start_node_span(execution, %Runnable{node: %Step{name: name}}, element_kinds) do
-    Telemetry.start([:jido, :flow, :node], %{
-      execution_id: execution.id,
-      flow: execution.flow_name,
-      node: name,
-      kind: Map.fetch!(element_kinds, name)
-    })
-  end
-
-  defp finish_node_span(span, %Runnable{status: :completed}), do: Telemetry.stop(span)
-
-  defp finish_node_span(span, %Runnable{node: %Step{name: name}, status: :failed, error: error}) do
-    Telemetry.error(span, normalize_node_error(name, error))
-  end
-
-  defp finish_node_span(span, %Runnable{node: %Step{name: name}, status: status}) do
-    Telemetry.error(
-      span,
-      Error.execution_error("flow node returned an unsupported execution status", %{
-        node: name,
-        status: status
-      })
-    )
-  end
-
-  defp element_kinds(%Execution{flow: %Flow{nodes: nodes}}) do
-    Map.new(nodes, fn element -> {Element.name(element), Element.kind(element)} end)
-  end
-
-  defp execute_async_runnables(runnables, max_concurrency) do
-    OrderedTaskRunner.run(
-      runnables,
-      max_concurrency,
-      &Workflow.execute_runnable/1,
-      &fail_exited_runnable/2
-    )
-  end
-
-  defp fail_exited_runnable(runnable, reason) do
-    Runnable.fail(
-      runnable,
-      Error.execution_error("flow node task exited", %{
-        node: runnable.node.name,
-        reason: reason
-      })
-    )
-  end
-
   defp apply_public_runnable(execution, node, %Runnable{} = runnable) do
     workflow = Workflow.apply_runnable(execution.workflow, runnable)
     node_result = to_node_result(node, runnable)
@@ -333,7 +255,7 @@ defmodule Jido.Exec.FlowEngine do
       node: node,
       status: :error,
       output: nil,
-      error: normalize_node_error(node, error),
+      error: FlowRunnableExecutor.normalize_error(node, error),
       attempt: 1
     }
   end
@@ -346,13 +268,6 @@ defmodule Jido.Exec.FlowEngine do
       })
 
     %NodeResult{node: node, status: :error, output: nil, error: error, attempt: 1}
-  end
-
-  defp normalize_node_error(_node, %NodeError{error: error}), do: error
-  defp normalize_node_error(_node, error) when is_exception(error), do: error
-
-  defp normalize_node_error(node, reason) do
-    Error.execution_error("flow node failed", %{node: node, reason: reason})
   end
 
   defp normalize_engine_error(%NodeError{error: error}), do: error
