@@ -378,8 +378,7 @@ defmodule Jido.Flow.RegistryTest do
     assert {:error, error} = Registry.new(:invalid)
     assert Exception.message(error) == "flow registry must be a map"
 
-    new_registry! = &Registry.new!/1
-    assert_raise Error.InvalidInputError, fn -> new_registry!.(:invalid) end
+    assert_raise Error.InvalidInputError, fn -> apply(Registry, :new!, [:invalid]) end
 
     refute Registry.valid_identifier?(nil)
     refute Registry.valid_identifier?("")

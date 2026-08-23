@@ -10,13 +10,30 @@ defmodule Jido.Exec.FlowEngine do
   alias Runic.Workflow
   alias Runic.Workflow.{Fact, Runnable, Step}
 
-  @spec start(Flow.t(), map(), map(), keyword(), function(), String.t(), map()) ::
+  @spec start(Flow.t(), map(), map(), keyword(), function(), function(), String.t(), map()) ::
           {:ok, Execution.t()} | {:error, Exception.t()}
-  def start(%Flow{} = flow, input, context, options, finalizer, execution_id, lifecycle)
+  def start(
+        %Flow{} = flow,
+        input,
+        context,
+        options,
+        finalizer,
+        target_runner,
+        execution_id,
+        lifecycle
+      )
       when is_map(input) and is_map(context) and is_list(options) and
-             is_function(finalizer, 1) and is_binary(execution_id) and is_map(lifecycle) do
+             is_function(finalizer, 1) and is_function(target_runner, 4) and
+             is_binary(execution_id) and is_map(lifecycle) do
     with {:ok, workflow, ordered_elements} <-
-           Compiler.runtime_workflow_validated(flow, input, context, options, execution_id) do
+           Compiler.runtime_workflow_validated(
+             flow,
+             input,
+             context,
+             options,
+             target_runner,
+             execution_id
+           ) do
       ordered_nodes = Enum.map(ordered_elements, &Element.name/1)
 
       execution = %Execution{

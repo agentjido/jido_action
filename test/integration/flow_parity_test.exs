@@ -3,7 +3,8 @@ defmodule Jido.Integration.FlowParityTest do
 
   alias Jido.Exec
   alias Jido.Flow
-  alias Jido.Flow.{Builder, Iterator, Ref, Registry}
+  alias Jido.Flow.{Builder, Iterator, Ref}
+  alias JidoTest.FlowFixtures
   alias JidoTest.TestActions.{Add, Multiply}
 
   test "a complete Spark Flow stores, restores, and uses one execution engine" do
@@ -139,10 +140,6 @@ defmodule Jido.Integration.FlowParityTest do
   end
 
   defp registry do
-    Registry.new!(%{
-      "action/add/v1" => {:action, Add},
-      "action/multiply/v1" => {:action, Multiply},
-      "schema/empty/v1" => {:schema, []}
-    })
+    FlowFixtures.storage_registry()
   end
 end

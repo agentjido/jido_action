@@ -4,7 +4,6 @@ defmodule Jido.Flow.Compiler do
   alias Jido.Action.Error
   alias Jido.Action.Output
   alias Jido.Action.Validation
-  alias Jido.Exec
   alias Jido.Flow
   alias Jido.Flow.Choice
   alias Jido.Flow.Condition
@@ -19,6 +18,11 @@ defmodule Jido.Flow.Compiler do
   alias Runic.Workflow
   alias Runic.Workflow.Step
 
+  @type target_phase :: :input | :execution | :output
+  @type target_runner ::
+          (module(), term(), map(), String.t() ->
+             {:ok, term()} | {:error, target_phase(), Exception.t()})
+
   @type node_state :: %{
           execution_id: String.t(),
           flow: String.t(),
@@ -27,14 +31,30 @@ defmodule Jido.Flow.Compiler do
           context: map(),
           results: map(),
           options: keyword(),
-          map_nodes: MapSet.t(String.t())
+          map_nodes: MapSet.t(String.t()),
+          target_runner: target_runner()
         }
 
   @doc false
-  @spec runtime_workflow_validated(Flow.t(), map(), map(), keyword(), String.t()) ::
+  @spec runtime_workflow_validated(
+          Flow.t(),
+          map(),
+          map(),
+          keyword(),
+          target_runner(),
+          String.t()
+        ) ::
           {:ok, Workflow.t(), [Element.t()]} | {:error, Exception.t()}
-  def runtime_workflow_validated(%Flow{} = flow, input, context, options, execution_id)
-      when is_map(input) and is_map(context) and is_list(options) and is_binary(execution_id) do
+  def runtime_workflow_validated(
+        %Flow{} = flow,
+        input,
+        context,
+        options,
+        target_runner,
+        execution_id
+      )
+      when is_map(input) and is_map(context) and is_list(options) and
+             is_function(target_runner, 4) and is_binary(execution_id) do
     node_state = %{
       execution_id: execution_id,
       flow: flow.name,
@@ -43,6 +63,7 @@ defmodule Jido.Flow.Compiler do
       context: context,
       results: %{},
       options: options,
+      target_runner: target_runner,
       map_nodes:
         flow.nodes
         |> Enum.filter(&match?(%FlowMap{}, &1))
@@ -52,7 +73,14 @@ defmodule Jido.Flow.Compiler do
     build(flow, node_state)
   end
 
-  def runtime_workflow_validated(%Flow{}, _input, _context, _options, _execution_id) do
+  def runtime_workflow_validated(
+        %Flow{},
+        _input,
+        _context,
+        _options,
+        _target_runner,
+        _execution_id
+      ) do
     {:error, Error.validation_error("flow input and context must be maps")}
   end
 
@@ -158,7 +186,7 @@ defmodule Jido.Flow.Compiler do
                  params,
                  state.context,
                  choice_target_owner(choice, target),
-                 state.execution_id
+                 state
                ) do
           {:ok, output, metadata}
         else
@@ -214,7 +242,7 @@ defmodule Jido.Flow.Compiler do
       params,
       state.context,
       node_target_owner(node),
-      state.execution_id
+      state
     )
   end
 
@@ -275,7 +303,7 @@ defmodule Jido.Flow.Compiler do
                  params,
                  state.context,
                  iterator_target_owner(iterator, index, iteration_id, runtime.revision),
-                 state.execution_id
+                 state
                ),
              update_state =
                local_state
@@ -733,7 +761,7 @@ defmodule Jido.Flow.Compiler do
         params,
         state.context,
         reduce_target_owner(reduce, item_state),
-        state.execution_id
+        state
       )
     end
   end
@@ -856,7 +884,7 @@ defmodule Jido.Flow.Compiler do
              params,
              state.context,
              map_target_owner(map, item_state),
-             state.execution_id
+             state
            ) do
       {:ok, %{item_id: item_state.item_id, index: item_state.item_index, output: output}}
     else
@@ -891,10 +919,6 @@ defmodule Jido.Flow.Compiler do
     else
       1
     end
-  end
-
-  defp flow_module?(action) do
-    function_exported?(action, :__jido_flow__, 0)
   end
 
   defp select_choice_target(%Choice{} = choice, state) do
@@ -1020,35 +1044,17 @@ defmodule Jido.Flow.Compiler do
   defp choice_value_type(value) when is_tuple(value), do: :tuple
   defp choice_value_type(_value), do: :other
 
-  defp run_resolved_target(action, params, context, owner, execution_id) do
-    if flow_module?(action) do
-      action
-      |> then(& &1.flow())
-      |> Exec.run_nested(params, context, execution_id)
-      |> tag_target_error(:execution, owner)
-    else
-      with {:ok, params} <- validate_target_input(action, params, owner),
-           {:ok, output} <- call_target_action(action, params, context, owner) do
-        validate_target_output(action, output, owner)
-      end
+  defp run_resolved_target(action, params, context, owner, state) do
+    case state.target_runner.(action, params, context, state.execution_id) do
+      {:ok, output} ->
+        {:ok, output}
+
+      {:error, :input, error} ->
+        tag_target_validation_error({:error, error}, :input, owner)
+
+      {:error, phase, error} when phase in [:execution, :output] ->
+        tag_target_error({:error, error}, phase, owner)
     end
-  end
-
-  defp validate_target_input(action, params, owner) do
-    Exec.validate_action_params(action, params)
-    |> tag_target_validation_error(:input, owner)
-  end
-
-  defp call_target_action(action, params, context, owner) do
-    action
-    |> Exec.invoke_action(params, context)
-    |> drop_action_extras()
-    |> tag_target_error(:execution, owner)
-  end
-
-  defp validate_target_output(action, output, owner) do
-    Exec.validate_action_output(action, output)
-    |> tag_target_error(:output, owner)
   end
 
   defp node_target_owner(node), do: %{kind: :node, node: node}
@@ -1145,12 +1151,6 @@ defmodule Jido.Flow.Compiler do
 
   defp raise_node_error(node, error), do: raise(NodeError, node: node.name, error: error)
 
-  # Extras are instruction-path-only; flow nodes deliberately discard them.
-  defp drop_action_extras({:ok, output, _extras}), do: {:ok, output}
-  defp drop_action_extras({:error, error}), do: {:error, error}
-
-  defp tag_step_error({:ok, output}, _phase, _node), do: {:ok, output}
-
   defp tag_step_error({:error, error}, phase, node) when is_exception(error) do
     {:error, put_step_details(error, phase, node)}
   end
@@ -1165,8 +1165,6 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp put_step_details(error, _phase, _node), do: error
-
-  defp tag_choice_target_error({:ok, output}, _choice, _target, _phase), do: {:ok, output}
 
   defp tag_choice_target_error({:error, error}, choice, target, phase) when is_exception(error) do
     {:error, put_choice_target_details(error, choice, target, phase)}
@@ -1190,8 +1188,6 @@ defmodule Jido.Flow.Compiler do
      )}
   end
 
-  defp tag_map_target_error({:ok, output}, _map, _item, _phase), do: {:ok, output}
-
   defp tag_map_target_error({:error, error}, map, item, phase) when is_exception(error) do
     {:error, put_map_target_details(error, map, item, phase)}
   end
@@ -1212,8 +1208,6 @@ defmodule Jido.Flow.Compiler do
        map_target_details(%{reason: reason}, map, item, phase)
      )}
   end
-
-  defp tag_reduce_target_error({:ok, output}, _reduce, _item, _phase), do: {:ok, output}
 
   defp tag_reduce_target_error({:error, error}, reduce, item, phase)
        when is_exception(error) do
@@ -1238,8 +1232,6 @@ defmodule Jido.Flow.Compiler do
        reduce_target_details(%{reason: reason}, reduce, item, phase)
      )}
   end
-
-  defp tag_iterator_target_error({:ok, output}, _owner, _phase), do: {:ok, output}
 
   defp tag_iterator_target_error({:error, error}, owner, phase) when is_exception(error) do
     {:error, put_iterator_target_details(error, owner, phase)}

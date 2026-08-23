@@ -13,7 +13,7 @@ defmodule JidoAction.MixProject do
     [
       app: :jido_action,
       version: @version,
-      elixir: "~> 1.18",
+      elixir: "~> 1.20",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
@@ -45,7 +45,7 @@ defmodule JidoAction.MixProject do
       dialyzer: [
         plt_local_path: "priv/plts/project.plt",
         plt_core_path: "priv/plts/core.plt",
-        plt_add_apps: [:mix, :igniter]
+        plt_add_apps: [:mix]
       ]
     ]
   end
@@ -59,7 +59,7 @@ defmodule JidoAction.MixProject do
   end
 
   # Specifies which paths to compile per environment.
-  defp elixirc_paths(:test), do: ["lib", "test/support", "test/jido/bus/support"]
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
   defp elixirc_paths(:dev), do: ["lib", "bench"]
   defp elixirc_paths(_), do: ["lib"]
 
@@ -224,12 +224,7 @@ defmodule JidoAction.MixProject do
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:mix_audit, "~> 2.0", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
-      {:mix_test_watch, "~> 1.0", only: [:dev, :test], runtime: false},
-      {:mimic, "~> 2.0", only: :test},
-      {:stream_data, "~> 1.0", only: [:dev, :test]},
-
-      # Code generation
-      {:igniter, "~> 0.7", only: [:dev, :test], runtime: false, optional: true}
+      {:mix_test_watch, "~> 1.0", only: [:dev, :test], runtime: false}
     ]
   end
 

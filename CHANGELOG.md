@@ -34,6 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   supervisor helpers with the smaller `Jido.Exec` boundary
 * simplify `Jido.Instruction` to one Action call frame and remove the earlier
   normalization and execution-policy fields
+* remove the Igniter installer and Action generator Mix tasks
+* require Elixir `~> 1.20`
 
 ### Bug Fixes:
 

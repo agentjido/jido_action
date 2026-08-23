@@ -213,7 +213,14 @@ defmodule Jido.Flow.CompilerRuntimeTest do
       )
 
     assert {:error, error} =
-             Compiler.runtime_workflow_validated(flow, [], %{}, [], "execution-id")
+             Compiler.runtime_workflow_validated(
+               flow,
+               [],
+               %{},
+               [],
+               fn _action, _params, _context, _execution_id -> {:ok, %{}} end,
+               "execution-id"
+             )
 
     assert Exception.message(error) == "flow input and context must be maps"
   end

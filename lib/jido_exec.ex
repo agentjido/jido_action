@@ -61,6 +61,7 @@ defmodule Jido.Exec do
   alias Jido.Action.Error
   alias Jido.Action.Output
   alias Jido.Action.Validation
+  alias Jido.Exec.ActionRunner
   alias Jido.Exec.Execution
   alias Jido.Exec.FlowEngine
   alias Jido.Exec.NodeResult
@@ -86,13 +87,6 @@ defmodule Jido.Exec do
   def run(executable, input \\ %{}, context \\ %{}, opts \\ []) do
     execution_id = Telemetry.execution_id()
     run_with_lifecycle(executable, input, context, opts, execution_id)
-  end
-
-  @doc false
-  @spec run_nested(Flow.t(), map(), map(), String.t()) ::
-          {:ok, term()} | {:error, Exception.t()}
-  def run_nested(%Flow{} = flow, input, context, execution_id) when is_binary(execution_id) do
-    do_run(flow, input, context, [], execution_id)
   end
 
   @doc """
@@ -282,6 +276,7 @@ defmodule Jido.Exec do
           context,
           run_opts,
           fn output -> validate_flow_output(flow, output) end,
+          &run_flow_target/4,
           execution_id,
           %{flow: flow_span}
         )
@@ -428,92 +423,18 @@ defmodule Jido.Exec do
         do_run(action.flow(), instruction.params, instruction.context, [], execution_id)
       end
     else
-      run_action_instruction(instruction)
+      ActionRunner.run(instruction)
     end
   end
 
-  defp run_action_instruction(%Instruction{} = instruction) do
-    action = instruction.action
-
-    with :ok <- Instruction.validate_action_contract(action),
-         {:ok, params} <- validate_action_params(action, instruction.params) do
-      case invoke_action_result(action, params, instruction.context) do
-        {:ok, output, extras} ->
-          case validate_action_output(action, output) do
-            {:ok, output} -> success_result(output, extras)
-            {:error, error} -> error_result(error, extras)
-          end
-
-        {:error, error, extras} ->
-          error_result(error, extras)
+  defp run_flow_target(action, params, context, execution_id) do
+    if flow_module?(action) do
+      case do_run(action.flow(), params, context, [], execution_id) do
+        {:ok, output} -> {:ok, output}
+        {:error, error} -> {:error, :execution, error}
       end
-    end
-  end
-
-  @doc false
-  @spec invoke_action(module(), map(), map()) ::
-          {:ok, term(), term() | :none} | {:error, Exception.t()}
-  def invoke_action(action, params, context) do
-    case invoke_action_result(action, params, context) do
-      {:ok, output, :no_extras} -> {:ok, output, :none}
-      {:ok, output, {:extras, extras}} -> {:ok, output, extras}
-      {:error, error, _extras} -> {:error, error}
-    end
-  end
-
-  defp invoke_action_result(action, params, context) do
-    case action.run(params, context) do
-      {:ok, output} ->
-        {:ok, output, :no_extras}
-
-      {:ok, output, extras} ->
-        {:ok, output, {:extras, extras}}
-
-      {:error, reason} ->
-        {:error, normalize_action_error(reason), :no_extras}
-
-      {:error, reason, extras} ->
-        {:error, normalize_action_error(reason), {:extras, extras}}
-
-      other ->
-        {:error,
-         Error.execution_error("action returned an unsupported result", %{
-           action: action,
-           result: other
-         }), :no_extras}
-    end
-  rescue
-    exception ->
-      {:error,
-       Error.execution_error(Exception.message(exception), %{
-         action: action,
-         exception: exception.__struct__
-       }), :no_extras}
-  catch
-    kind, reason ->
-      {:error,
-       Error.execution_error("action #{kind}", %{
-         action: action,
-         reason: reason
-       }), :no_extras}
-  end
-
-  defp success_result(output, :no_extras), do: {:ok, output}
-  defp success_result(output, {:extras, extras}), do: {:ok, output, extras}
-
-  defp error_result(error, :no_extras), do: {:error, error}
-  defp error_result(error, {:extras, extras}), do: {:error, error, extras}
-
-  @doc false
-  @spec validate_action_params(module(), term()) ::
-          {:ok, map()} | {:error, Exception.t()}
-  def validate_action_params(action, params) do
-    with {:ok, validated} <- invoke_validator(action, :validate_params, params) do
-      if is_map(validated) do
-        {:ok, validated}
-      else
-        invalid_validator_value(action, :validate_params, validated, :map)
-      end
+    else
+      ActionRunner.run_target(action, params, context)
     end
   end
 
@@ -527,25 +448,6 @@ defmodule Jido.Exec do
        phase: :flow_input,
        value: input
      })}
-  end
-
-  @doc false
-  @spec validate_action_output(module(), term()) ::
-          {:ok, map() | Output.t()} | {:error, Exception.t()}
-  def validate_action_output(_action, %Output{} = output), do: Output.validate(output)
-
-  def validate_action_output(action, output) when is_map(output) do
-    if is_struct(output) and Enumerable.impl_for(output) do
-      output_envelope_required(action, output, :run)
-    else
-      with {:ok, validated} <- invoke_validator(action, :validate_output, output) do
-        validate_output_shape(action, validated, :validate_output)
-      end
-    end
-  end
-
-  def validate_action_output(action, output) do
-    output_envelope_required(action, output, :run)
   end
 
   defp validate_flow_output(flow, %Output{} = output) do
@@ -609,10 +511,6 @@ defmodule Jido.Exec do
     end
   end
 
-  defp validate_output_shape(action, output, callback) do
-    invalid_validator_value(action, callback, output, :map_or_output_envelope)
-  end
-
   defp output_envelope_required(action, output, callback) do
     {:error,
      Error.execution_error("action returned a value that requires an output envelope", %{
@@ -630,40 +528,6 @@ defmodule Jido.Exec do
        expected: expected,
        result: result
      })}
-  end
-
-  defp invoke_validator(action, callback, value) do
-    case apply(action, callback, [value]) do
-      {:ok, validated} ->
-        {:ok, validated}
-
-      {:error, reason} ->
-        {:error, normalize_action_error(reason)}
-
-      other ->
-        {:error,
-         Error.execution_error("action validator returned an unsupported result", %{
-           action: action,
-           callback: callback,
-           result: other
-         })}
-    end
-  rescue
-    exception ->
-      {:error,
-       Error.execution_error(Exception.message(exception), %{
-         action: action,
-         callback: callback,
-         exception: exception.__struct__
-       })}
-  catch
-    kind, reason ->
-      {:error,
-       Error.execution_error("action validator #{kind}", %{
-         action: action,
-         callback: callback,
-         reason: reason
-       })}
   end
 
   defp normalize_map(nil, _field), do: {:ok, %{}}
@@ -688,14 +552,4 @@ defmodule Jido.Exec do
       phase: phase
     })
   end
-
-  defp normalize_action_error(error) when is_exception(error), do: error
-
-  defp normalize_action_error(reason) do
-    Error.execution_error(to_error_message(reason), %{reason: reason})
-  end
-
-  defp to_error_message(message) when is_binary(message), do: message
-  defp to_error_message(message) when is_atom(message), do: Atom.to_string(message)
-  defp to_error_message(message), do: inspect(message)
 end

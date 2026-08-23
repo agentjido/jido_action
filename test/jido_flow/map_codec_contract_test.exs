@@ -10,12 +10,12 @@ defmodule Jido.Flow.MapCodecContractTest do
     Node,
     Reduce,
     Ref,
-    Registry,
     State
   }
 
   alias Jido.Flow.Map, as: FlowMap
 
+  alias JidoTest.FlowFixtures
   alias JidoTest.TestActions.{Add, Multiply}
 
   test "round-trips every node, reference, condition, and data kind" do
@@ -271,11 +271,7 @@ defmodule Jido.Flow.MapCodecContractTest do
   end
 
   defp registry do
-    Registry.new!(%{
-      "action/add/v1" => {:action, Add},
-      "action/multiply/v1" => {:action, Multiply},
-      "schema/empty/v1" => {:schema, []}
-    })
+    FlowFixtures.storage_registry()
   end
 
   defp base_stored do

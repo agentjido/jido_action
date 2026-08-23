@@ -24,4 +24,4 @@ jobs:
     with:
       credo_command: mix credo --min-priority high
       docs_command: mix docs --warnings-as-errors
-      test_command: mix test --cover
+      test_command: mix test --cover --warnings-as-errors

@@ -7,6 +7,7 @@ defmodule Jido.Exec.TelemetryTest do
   alias Jido.Flow
   alias Jido.Flow.{Node, Ref}
   alias Jido.Instruction
+  alias JidoTest.ExecFixtures.{InstructionTelemetryFlow, TelemetryParentFlow}
   alias JidoTest.TestActions.{Add, ErrorAction}
 
   @action_start [:jido, :action, :start]
@@ -95,21 +96,8 @@ defmodule Jido.Exec.TelemetryTest do
   end
 
   test "nests a Flow lifecycle inside an Instruction Action lifecycle" do
-    flow_module = unique_module("InstructionTelemetryFlow")
-
-    create_module(
-      flow_module,
-      quote do
-        use Jido.Flow, name: "instruction_telemetry_flow"
-
-        flow do
-          step("add", action: unquote(Add), params: %{value: input(:value)})
-        end
-      end
-    )
-
     attach(@observed_events)
-    instruction = Instruction.new!(action: flow_module, params: %{value: 2})
+    instruction = Instruction.new!(action: InstructionTelemetryFlow, params: %{value: 2})
 
     assert {:ok, %{value: 3}} = Exec.run(instruction)
 
@@ -179,34 +167,8 @@ defmodule Jido.Exec.TelemetryTest do
   end
 
   test "keeps one correlation identifier across a nested Flow" do
-    child = unique_module("TelemetryChildFlow")
-
-    create_module(
-      child,
-      quote do
-        use Jido.Flow, name: "telemetry_child_flow"
-
-        flow do
-          step("child_add", action: unquote(Add), params: %{value: input(:value)})
-        end
-      end
-    )
-
-    parent = unique_module("TelemetryParentFlow")
-
-    create_module(
-      parent,
-      quote do
-        use Jido.Flow, name: "telemetry_parent_flow"
-
-        flow do
-          step("child", action: unquote(child), params: %{value: input(:value)})
-        end
-      end
-    )
-
     attach(@observed_events)
-    assert {:ok, %{value: 3}} = Exec.run(parent, %{value: 2})
+    assert {:ok, %{value: 3}} = Exec.run(TelemetryParentFlow, %{value: 2})
 
     recorded = events()
 
