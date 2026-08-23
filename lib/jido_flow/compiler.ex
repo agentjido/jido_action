@@ -12,6 +12,7 @@ defmodule Jido.Flow.Compiler do
   alias Jido.Flow.Compiler.Reduce, as: ReduceCompiler
   alias Jido.Flow.Compiler.Target
   alias Jido.Flow.Element
+  alias Jido.Flow.Graph
   alias Jido.Flow.Identity
   alias Jido.Flow.Iterator
   alias Jido.Flow.Map, as: FlowMap
@@ -95,51 +96,14 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp build(%Flow{} = flow, node_state) do
-    nodes_by_name = Map.new(flow.nodes, fn node -> {Element.name(node), node} end)
+    ordered = Graph.canonical_nodes(flow.nodes)
 
-    {workflow, _added, ordered} =
-      flow.nodes
-      |> Flow.canonical_nodes()
-      |> Enum.reduce({Workflow.new(flow.name), MapSet.new(), []}, fn node,
-                                                                     {workflow, added, ordered} ->
-        add_node(Element.name(node), nodes_by_name, workflow, added, ordered, node_state)
+    workflow =
+      Enum.reduce(ordered, Workflow.new(flow.name), fn node, workflow ->
+        add_step(workflow, node, build_step(node, node_state))
       end)
 
     {:ok, workflow, ordered}
-  end
-
-  defp add_node(name, nodes_by_name, workflow, added, ordered, node_state) do
-    if MapSet.member?(added, name) do
-      {workflow, added, ordered}
-    else
-      node = Map.fetch!(nodes_by_name, name)
-
-      {workflow, added, ordered} =
-        add_dependencies(Element.deps(node), nodes_by_name, workflow, added, ordered, node_state)
-
-      step = build_step(node, node_state)
-      workflow = add_step(workflow, node, step)
-
-      {workflow, MapSet.put(added, name), ordered ++ [node]}
-    end
-  end
-
-  defp add_dependencies([], _nodes_by_name, workflow, added, ordered, _node_state) do
-    {workflow, added, ordered}
-  end
-
-  defp add_dependencies(
-         [dep | deps],
-         nodes_by_name,
-         workflow,
-         added,
-         ordered,
-         node_state
-       ) do
-    {workflow, added, ordered} =
-      add_node(dep, nodes_by_name, workflow, added, ordered, node_state)
-
-    add_dependencies(deps, nodes_by_name, workflow, added, ordered, node_state)
   end
 
   defp build_step(node, node_state) do

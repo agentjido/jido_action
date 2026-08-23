@@ -2,11 +2,10 @@ defmodule Jido.Exec.FlowEngine do
   @moduledoc false
 
   alias Jido.Action.Error
+  alias Jido.Action.Telemetry
   alias Jido.Exec.{Execution, NodeResult}
   alias Jido.Flow
-  alias Jido.Flow.{Choice, Compiler, Element, Iterator, Node, NodeError, Reduce}
-  alias Jido.Flow.Map, as: FlowMap
-  alias Jido.Action.Telemetry
+  alias Jido.Flow.{Compiler, Element, NodeError}
   alias Runic.Workflow
   alias Runic.Workflow.{Fact, Runnable, Step}
 
@@ -217,8 +216,10 @@ defmodule Jido.Exec.FlowEngine do
   end
 
   defp execute_runnables(execution, runnables) do
+    element_kinds = element_kinds(execution)
+
     if Keyword.fetch!(execution.options, :async) do
-      spans = Enum.map(runnables, &start_node_span(execution, &1))
+      spans = Enum.map(runnables, &start_node_span(execution, &1, element_kinds))
       max_concurrency = Keyword.fetch!(execution.options, :max_concurrency)
       executed = execute_async_runnables(runnables, max_concurrency)
 
@@ -229,25 +230,27 @@ defmodule Jido.Exec.FlowEngine do
         runnable
       end)
     else
-      Enum.map(runnables, &execute_runnable(execution, &1))
+      Enum.map(runnables, &execute_runnable(execution, &1, element_kinds))
     end
   end
 
   defp execute_runnable(execution, runnable) do
-    span = start_node_span(execution, runnable)
+    execute_runnable(execution, runnable, element_kinds(execution))
+  end
+
+  defp execute_runnable(execution, runnable, element_kinds) do
+    span = start_node_span(execution, runnable, element_kinds)
     executed = Workflow.execute_runnable(runnable)
     finish_node_span(span, executed)
     executed
   end
 
-  defp start_node_span(execution, %Runnable{node: %Step{name: name}}) do
-    element = Enum.find(execution.flow.nodes, &(Element.name(&1) == name))
-
+  defp start_node_span(execution, %Runnable{node: %Step{name: name}}, element_kinds) do
     Telemetry.start([:jido, :flow, :node], %{
       execution_id: execution.id,
       flow: execution.flow_name,
       node: name,
-      kind: node_kind(element)
+      kind: Map.fetch!(element_kinds, name)
     })
   end
 
@@ -267,11 +270,9 @@ defmodule Jido.Exec.FlowEngine do
     )
   end
 
-  defp node_kind(%Node{}), do: :step
-  defp node_kind(%Choice{}), do: :choice
-  defp node_kind(%FlowMap{}), do: :map
-  defp node_kind(%Reduce{}), do: :reduce
-  defp node_kind(%Iterator{}), do: :iterate
+  defp element_kinds(%Execution{flow: %Flow{nodes: nodes}}) do
+    Map.new(nodes, fn element -> {Element.name(element), Element.kind(element)} end)
+  end
 
   defp execute_async_runnables(runnables, max_concurrency) do
     caller = self()
