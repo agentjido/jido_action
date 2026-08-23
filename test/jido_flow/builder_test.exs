@@ -115,14 +115,14 @@ defmodule Jido.Flow.BuilderTest do
     assert {:error, %Jido.Action.Error.InvalidInputError{}} =
              Constructor.build(%{
                name: "bad_specs",
-               node_specs: [step | :tail],
+               nodes: [step | :tail],
                return: Ref.result("echo")
              })
 
     assert {:error, %Jido.Action.Error.InvalidInputError{}} =
              Constructor.build(%{
-               name: "bad_after",
-               node_specs: [Map.put(step, :after, ["first" | :tail])],
+               name: "bad_deps",
+               nodes: [Map.put(step, :deps, ["first" | :tail])],
                return: Ref.result("echo")
              })
   end
@@ -258,7 +258,8 @@ defmodule Jido.Flow.BuilderTest do
       {%{name: "bad_kind", nodes: [%{base | kind: :unknown}]}, "unsupported flow node kind"},
       {%{name: "bad_key", nodes: [Map.put(base, :unknown, true)]},
        "unknown step configuration key"},
-      {%{name: "bad_meta", nodes: [Map.put(base, :meta, :bad)]}, "node metadata must be a map"},
+      {%{name: "bad_provenance", nodes: [Map.put(base, :provenance, :bad)]},
+       "node provenance must be a map"},
       {%{name: "empty", nodes: []}, "must declare at least one node"}
     ]
 
@@ -268,56 +269,72 @@ defmodule Jido.Flow.BuilderTest do
     end
   end
 
-  test "canonical constructor normalizes termination and dependency forms" do
+  test "canonical constructor accepts normalized termination and dependency forms" do
     first = %{kind: :step, name: "first", action: Add}
-    second = %{kind: :step, name: "second", action: Add, after: :first, meta: %{line: 2}}
+
+    second = %{
+      kind: :step,
+      name: "second",
+      action: Add,
+      deps: ["first"],
+      provenance: %{line: 2}
+    }
 
     assert {:ok, flow} = Constructor.build(name: "deps", nodes: [first, second])
     assert Enum.find(flow.nodes, &(&1.name == "second")).deps == ["first"]
 
+    state = %{schema: [], initial: %{value: 0}, update: Ref.body_result()}
+
+    iterator = %{
+      kind: :iterate,
+      name: "iterate",
+      action: Add,
+      state: state,
+      completion: %Condition{
+        operator: :gte,
+        operands: [Ref.iteration_index(), Ref.value(1)]
+      },
+      max_iterations: 1
+    }
+
+    assert {:ok, flow} = Constructor.build(name: "termination", nodes: [iterator])
+    assert [%Iterator{}] = flow.nodes
+  end
+
+  test "Builder keeps termination validation at build time" do
     state = [schema: [], initial: %{value: 0}]
 
-    for termination <- [
-          [repeat: 1],
-          [until: Condition.eq(Ref.value(true), Ref.value(true)), max_iterations: 1],
-          [while: Condition.eq(Ref.value(false), Ref.value(true)), max_iterations: 1],
-          [
-            completion: %Condition{
-              operator: :gte,
-              operands: [Ref.iteration_index(), Ref.value(1)]
-            },
-            max_iterations: 1
-          ]
-        ] do
-      iterator =
-        %{kind: :iterate, name: "iterate", action: Add, state: state}
-        |> Map.merge(Map.new(termination))
-
-      assert {:ok, flow} = Constructor.build(name: "termination", nodes: [iterator])
-      assert [%Iterator{}] = flow.nodes
-    end
-
     invalid = [
-      {%{kind: :iterate, name: "bad", action: Add, state: [1], repeat: 1},
-       "state configuration must be a map"},
-      {%{kind: :iterate, name: "bad", action: Add, state: state, repeat: 1, max_iterations: 2},
-       "repeat must not set max_iterations"},
-      {%{kind: :iterate, name: "bad", action: Add, state: state, repeat: 0}, "repeat count"},
-      {%{kind: :iterate, name: "bad", action: Add, state: state, until: Ref.value(true)},
-       "max_iterations"},
-      {%{
-         kind: :iterate,
-         name: "bad",
-         action: Add,
-         state: state,
-         repeat: 1,
-         until: Ref.value(true)
-       }, "exactly one"}
+      {[1], [repeat: 1], "state configuration must be a map"},
+      {state, [repeat: 1, max_iterations: 2], "repeat must not set max_iterations"},
+      {state, [repeat: 0], "repeat count"},
+      {state, [until: Ref.value(true)], "max_iterations"},
+      {state, [repeat: 1, until: Ref.value(true)], "exactly one"}
     ]
 
-    for {spec, message} <- invalid do
-      assert {:error, error} = Constructor.build(name: "invalid", nodes: [spec])
+    for {iterator_state, options, message} <- invalid do
+      builder =
+        Builder.new(name: "invalid")
+        |> Builder.iterate("bad", Add, %{}, iterator_state, options)
+
+      assert {:error, error} = Builder.build(builder)
       assert Exception.message(error) =~ message
+    end
+  end
+
+  test "canonical constructor rejects authoring aliases" do
+    state = %{schema: [], initial: %{value: 0}, update: Ref.body_result()}
+
+    aliases = [
+      %{kind: :step, name: "step", action: Add, after: []},
+      %{kind: :step, name: "step", action: Add, meta: %{}},
+      %{kind: :step, name: "step", action: Add, params: %{}},
+      %{kind: :iterate, name: "iterate", action: Add, state: state, repeat: 1}
+    ]
+
+    for spec <- aliases do
+      assert {:error, error} = Constructor.build(name: "aliases", nodes: [spec])
+      assert Exception.message(error) =~ "unknown"
     end
   end
 end

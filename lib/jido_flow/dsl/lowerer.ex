@@ -3,7 +3,7 @@ defmodule Jido.Flow.DSL.Lowerer do
 
   alias Jido.Action.Error
   alias Jido.Flow
-  alias Jido.Flow.{Constructor, Ref}
+  alias Jido.Flow.{Condition, Constructor, Ref}
 
   alias Jido.Flow.DSL.{
     Choice,
@@ -28,7 +28,7 @@ defmodule Jido.Flow.DSL.Lowerer do
         description: Keyword.get(opts, :description),
         schema: Keyword.get(opts, :schema, []),
         output_schema: Keyword.get(opts, :output_schema, []),
-        node_specs: node_specs,
+        nodes: node_specs,
         return: return
       })
     end
@@ -45,7 +45,8 @@ defmodule Jido.Flow.DSL.Lowerer do
   end
 
   defp lower_entity(%Step{} = step) do
-    with {:ok, input} <- Expression.parse(step.params) do
+    with {:ok, input} <- Expression.parse(step.params),
+         {:ok, deps} <- normalize_after(step.after) do
       {:ok,
        {:node,
         %{
@@ -53,7 +54,7 @@ defmodule Jido.Flow.DSL.Lowerer do
           name: step.name,
           action: step.action,
           input: input,
-          after: step.after,
+          deps: deps,
           provenance: provenance(step)
         }}}
     end
@@ -61,7 +62,8 @@ defmodule Jido.Flow.DSL.Lowerer do
 
   defp lower_entity(%Choice{} = choice) do
     with {:ok, options} <- lower_choice_options(choice.options),
-         {:ok, fallback} <- lower_fallback(choice.fallback) do
+         {:ok, fallback} <- lower_fallback(choice.fallback),
+         {:ok, deps} <- normalize_after(choice.after) do
       {:ok,
        {:node,
         %{
@@ -69,7 +71,7 @@ defmodule Jido.Flow.DSL.Lowerer do
           name: choice.name,
           options: options,
           fallback: fallback,
-          after: choice.after,
+          deps: deps,
           provenance: provenance(choice)
         }}}
     end
@@ -77,7 +79,8 @@ defmodule Jido.Flow.DSL.Lowerer do
 
   defp lower_entity(%MapNode{} = map) do
     with {:ok, collection} <- Expression.parse(map.collection),
-         {:ok, input} <- Expression.parse(map.params) do
+         {:ok, input} <- Expression.parse(map.params),
+         {:ok, deps} <- normalize_after(map.after) do
       {:ok,
        {:node,
         %{
@@ -87,7 +90,7 @@ defmodule Jido.Flow.DSL.Lowerer do
           action: map.action,
           input: input,
           on_error: map.on_error,
-          after: map.after,
+          deps: deps,
           provenance: provenance(map)
         }}}
     end
@@ -96,7 +99,8 @@ defmodule Jido.Flow.DSL.Lowerer do
   defp lower_entity(%Reduce{} = reduce) do
     with {:ok, collection} <- Expression.parse(reduce.collection),
          {:ok, initial} <- Expression.parse(reduce.initial),
-         {:ok, input} <- Expression.parse(reduce.params) do
+         {:ok, input} <- Expression.parse(reduce.params),
+         {:ok, deps} <- normalize_after(reduce.after) do
       {:ok,
        {:node,
         %{
@@ -106,7 +110,7 @@ defmodule Jido.Flow.DSL.Lowerer do
           initial: initial,
           action: reduce.action,
           input: input,
-          after: reduce.after,
+          deps: deps,
           provenance: provenance(reduce)
         }}}
     end
@@ -116,26 +120,23 @@ defmodule Jido.Flow.DSL.Lowerer do
     with {:ok, state} <- lower_iterate_state(iterate.state),
          {:ok, input} <- Expression.parse(iterate.params),
          {:ok, update} <- optional_expression(iterate.update, Ref.body_result()),
-         {:ok, while_condition} <- optional_condition(iterate.while) do
-      spec = %{
-        kind: :iterate,
-        name: iterate.name,
-        action: iterate.action,
-        input: input,
-        state: Map.put(state, :update, update),
-        after: iterate.after,
-        provenance: provenance(iterate)
-      }
-
-      spec = if iterate.repeat, do: Map.put(spec, :repeat, iterate.repeat), else: spec
-      spec = if while_condition, do: Map.put(spec, :while, while_condition), else: spec
-
-      spec =
-        if iterate.max_iterations,
-          do: Map.put(spec, :max_iterations, iterate.max_iterations),
-          else: spec
-
-      {:ok, {:node, spec}}
+         {:ok, while_condition} <- optional_condition(iterate.while),
+         {:ok, deps} <- normalize_after(iterate.after),
+         {:ok, completion, max_iterations} <-
+           normalize_termination(iterate, while_condition) do
+      {:ok,
+       {:node,
+        %{
+          kind: :iterate,
+          name: iterate.name,
+          action: iterate.action,
+          input: input,
+          state: Map.put(state, :update, update),
+          completion: completion,
+          max_iterations: max_iterations,
+          deps: deps,
+          provenance: provenance(iterate)
+        }}}
     end
   end
 
@@ -192,6 +193,73 @@ defmodule Jido.Flow.DSL.Lowerer do
 
   defp optional_condition(nil), do: {:ok, nil}
   defp optional_condition(condition), do: Expression.parse_condition(condition)
+
+  defp normalize_termination(iterate, while_condition) do
+    forms =
+      [{:while, while_condition}, {:repeat, iterate.repeat}]
+      |> Enum.reject(fn {_form, value} -> is_nil(value) end)
+      |> Enum.map(&elem(&1, 0))
+
+    case forms do
+      [:while] ->
+        completion = %Condition{operator: :not, operands: [while_condition]}
+        termination_with_limit(completion, iterate.max_iterations)
+
+      [:repeat] ->
+        repeat_termination(iterate.repeat, not is_nil(iterate.max_iterations))
+
+      _forms ->
+        {:error,
+         Error.validation_error("iterate requires exactly one of while, until, or repeat")}
+    end
+  end
+
+  defp termination_with_limit(completion, max_iterations)
+       when is_integer(max_iterations) and max_iterations in 1..10_000 do
+    {:ok, completion, max_iterations}
+  end
+
+  defp termination_with_limit(_completion, _max_iterations) do
+    {:error,
+     Error.validation_error("iterate max_iterations must be an integer from 1 to 10000", %{
+       path: [:max_iterations]
+     })}
+  end
+
+  defp repeat_termination(_count, true) do
+    {:error,
+     Error.validation_error("iterate with repeat must not set max_iterations", %{
+       path: [:max_iterations]
+     })}
+  end
+
+  defp repeat_termination(count, false) when is_integer(count) and count in 1..10_000 do
+    completion = %Condition{
+      operator: :gte,
+      operands: [Ref.iteration_index(), Ref.value(count)]
+    }
+
+    {:ok, completion, count}
+  end
+
+  defp repeat_termination(_count, false) do
+    {:error,
+     Error.validation_error("iterate repeat count must be an integer from 1 to 10000", %{
+       path: [:repeat]
+     })}
+  end
+
+  defp normalize_after(nil), do: {:ok, []}
+
+  defp normalize_after(after_targets) when is_list(after_targets) do
+    if List.improper?(after_targets) do
+      {:error, Error.validation_error("flow node dependencies must be a proper list")}
+    else
+      {:ok, after_targets}
+    end
+  end
+
+  defp normalize_after(after_target), do: {:ok, [after_target]}
 
   defp validate_output_position(entities) do
     case Enum.find_index(entities, &match?(%Output{}, &1)) do

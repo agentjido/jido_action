@@ -3,7 +3,7 @@ defmodule Jido.Flow.Constructor do
 
   alias Jido.Action.Error
   alias Jido.Flow
-  alias Jido.Flow.{Choice, Condition, Iterator, Node, Reduce, Ref}
+  alias Jido.Flow.{Choice, Iterator, Node, Reduce, Ref}
   alias Jido.Flow.Map, as: FlowMap
 
   @node_kinds [:step, :choice, :map, :reduce, :iterate]
@@ -18,7 +18,6 @@ defmodule Jido.Flow.Constructor do
          {:ok, nodes} <- build_nodes(specs),
          {:ok, return} <- build_return(Map.get(attrs, :return), nodes) do
       attrs
-      |> Map.drop([:node_specs])
       |> Map.put(:nodes, nodes)
       |> Map.put(:return, return)
       |> Flow.new()
@@ -27,7 +26,6 @@ defmodule Jido.Flow.Constructor do
 
   def build(_attrs), do: invalid_attributes()
 
-  defp fetch_node_specs(%{node_specs: specs}) when is_list(specs), do: validate_node_specs(specs)
   defp fetch_node_specs(%{nodes: specs}) when is_list(specs), do: validate_node_specs(specs)
 
   defp fetch_node_specs(_attrs) do
@@ -83,44 +81,15 @@ defmodule Jido.Flow.Constructor do
     {:error, Error.validation_error("flow node kind is required", %{path: [:kind]})}
   end
 
-  defp validate_spec_keys(
-         %{__builder_options_error__: %{reason: :unsupported, options: options}},
-         kind
-       ) do
-    {:error,
-     Error.validation_error("Builder #{kind} received unsupported options", %{
-       options: options,
-       path: [:options]
-     })}
-  end
-
-  defp validate_spec_keys(%{__builder_options_error__: error}, _kind) do
-    {:error,
-     Error.validation_error("Builder node options must be a keyword list with unique keys", %{
-       options: Map.get(error, :options),
-       path: [:options]
-     })}
-  end
-
   defp validate_spec_keys(spec, kind) do
-    common = [:kind, :name, :after, :deps, :meta, :provenance]
+    common = [:kind, :name, :deps, :provenance]
 
     kind_keys = %{
-      step: [:action, :input, :params],
+      step: [:action, :input],
       choice: [:options, :fallback],
-      map: [:collection, :action, :input, :params, :on_error],
-      reduce: [:collection, :initial, :action, :input, :params],
-      iterate: [
-        :action,
-        :input,
-        :params,
-        :state,
-        :completion,
-        :while,
-        :until,
-        :repeat,
-        :max_iterations
-      ]
+      map: [:collection, :action, :input, :on_error],
+      reduce: [:collection, :initial, :action, :input],
+      iterate: [:action, :input, :state, :completion, :max_iterations]
     }
 
     case Enum.find(Map.keys(spec), &(&1 not in (common ++ Map.fetch!(kind_keys, kind)))) do
@@ -137,22 +106,19 @@ defmodule Jido.Flow.Constructor do
   end
 
   defp common_node_attrs(spec) do
-    with {:ok, deps} <- normalize_after(Map.get(spec, :after, Map.get(spec, :deps, []))),
-         {:ok, provenance} <- normalize_provenance(spec) do
-      {:ok,
-       %{
-         name: Map.get(spec, :name),
-         deps: deps,
-         provenance: provenance
-       }}
-    end
+    {:ok,
+     %{
+       name: Map.get(spec, :name),
+       deps: Map.get(spec, :deps, []),
+       provenance: Map.get(spec, :provenance, %{})
+     }}
   end
 
   defp build_node_kind(:step, spec, attrs) do
     Node.new(
       Map.merge(attrs, %{
         action: Map.get(spec, :action),
-        input: Map.get(spec, :input, Map.get(spec, :params, %{}))
+        input: Map.get(spec, :input, %{})
       })
     )
   end
@@ -171,7 +137,7 @@ defmodule Jido.Flow.Constructor do
       Map.merge(attrs, %{
         collection: Map.get(spec, :collection),
         action: Map.get(spec, :action),
-        input: Map.get(spec, :input, Map.get(spec, :params, %{})),
+        input: Map.get(spec, :input, %{}),
         on_error: Map.get(spec, :on_error, :fail_fast)
       })
     )
@@ -183,117 +149,21 @@ defmodule Jido.Flow.Constructor do
         collection: Map.get(spec, :collection),
         initial: Map.get(spec, :initial),
         action: Map.get(spec, :action),
-        input: Map.get(spec, :input, Map.get(spec, :params, %{}))
+        input: Map.get(spec, :input, %{})
       })
     )
   end
 
   defp build_node_kind(:iterate, spec, attrs) do
-    with {:ok, state} <- normalize_state(Map.get(spec, :state)),
-         {:ok, completion, max_iterations} <- normalize_termination(spec) do
-      Iterator.new(
-        Map.merge(attrs, %{
-          action: Map.get(spec, :action),
-          input: Map.get(spec, :input, Map.get(spec, :params, %{})),
-          state: state,
-          completion: completion,
-          max_iterations: max_iterations
-        })
-      )
-    end
-  end
-
-  defp normalize_state(%{} = state) when not is_struct(state) do
-    {:ok, Map.put_new(state, :update, Ref.body_result())}
-  end
-
-  defp normalize_state(state) when is_list(state) do
-    if Keyword.keyword?(state),
-      do: state |> Map.new() |> normalize_state(),
-      else: {:error, Error.validation_error("iterator state configuration must be a map")}
-  end
-
-  defp normalize_state(state), do: {:ok, state}
-
-  defp normalize_termination(%{completion: completion, max_iterations: max_iterations}) do
-    {:ok, completion, max_iterations}
-  end
-
-  defp normalize_termination(spec) do
-    forms = Enum.filter([:while, :until, :repeat], &Map.has_key?(spec, &1))
-
-    case forms do
-      [:until] ->
-        termination_with_limit(Map.fetch!(spec, :until), Map.get(spec, :max_iterations))
-
-      [:while] ->
-        completion = %Condition{operator: :not, operands: [Map.fetch!(spec, :while)]}
-        termination_with_limit(completion, Map.get(spec, :max_iterations))
-
-      [:repeat] ->
-        repeat_termination(Map.fetch!(spec, :repeat), Map.has_key?(spec, :max_iterations))
-
-      _forms ->
-        {:error,
-         Error.validation_error("iterate requires exactly one of while, until, or repeat")}
-    end
-  end
-
-  defp termination_with_limit(completion, max_iterations)
-       when is_integer(max_iterations) and max_iterations in 1..10_000 do
-    {:ok, completion, max_iterations}
-  end
-
-  defp termination_with_limit(_completion, _max_iterations) do
-    {:error,
-     Error.validation_error("iterate max_iterations must be an integer from 1 to 10000", %{
-       path: [:max_iterations]
-     })}
-  end
-
-  defp repeat_termination(_count, true) do
-    {:error,
-     Error.validation_error("iterate with repeat must not set max_iterations", %{
-       path: [:max_iterations]
-     })}
-  end
-
-  defp repeat_termination(count, false) when is_integer(count) and count in 1..10_000 do
-    completion = %Condition{
-      operator: :gte,
-      operands: [Ref.iteration_index(), Ref.value(count)]
-    }
-
-    {:ok, completion, count}
-  end
-
-  defp repeat_termination(_count, false) do
-    {:error,
-     Error.validation_error("iterate repeat count must be an integer from 1 to 10000", %{
-       path: [:repeat]
-     })}
-  end
-
-  defp normalize_after(nil), do: {:ok, []}
-
-  defp normalize_after(after_targets) when is_list(after_targets) do
-    if List.improper?(after_targets) do
-      {:error, Error.validation_error("flow node dependencies must be a proper list")}
-    else
-      {:ok, after_targets}
-    end
-  end
-
-  defp normalize_after(after_target), do: {:ok, [after_target]}
-
-  defp normalize_provenance(spec) do
-    provenance = Map.get(spec, :provenance, Map.get(spec, :meta, %{}))
-
-    if is_map(provenance) do
-      {:ok, provenance}
-    else
-      {:error, Error.validation_error("flow node metadata must be a map", %{path: [:meta]})}
-    end
+    Iterator.new(
+      Map.merge(attrs, %{
+        action: Map.get(spec, :action),
+        input: Map.get(spec, :input, %{}),
+        state: Map.get(spec, :state),
+        completion: Map.get(spec, :completion),
+        max_iterations: Map.get(spec, :max_iterations)
+      })
+    )
   end
 
   defp build_return(nil, []),
