@@ -3,7 +3,8 @@ defmodule Jido.Flow.DSL.Lowerer do
 
   alias Jido.Action.Error
   alias Jido.Flow
-  alias Jido.Flow.{Condition, Constructor, Ref}
+  alias Jido.Flow.{Constructor, Ref}
+  alias Jido.Flow.Iterator.Termination
 
   alias Jido.Flow.DSL.{
     Choice,
@@ -197,58 +198,16 @@ defmodule Jido.Flow.DSL.Lowerer do
   defp optional_condition(condition), do: Expression.parse_condition(condition)
 
   defp normalize_termination(iterate, while_condition) do
-    forms =
-      [{:while, while_condition}, {:repeat, iterate.repeat}]
-      |> Enum.reject(fn {_form, value} -> is_nil(value) end)
-      |> Enum.map(&elem(&1, 0))
+    spec =
+      [
+        while: while_condition,
+        repeat: iterate.repeat,
+        max_iterations: iterate.max_iterations
+      ]
+      |> Enum.reject(fn {_field, value} -> is_nil(value) end)
+      |> Map.new()
 
-    case forms do
-      [:while] ->
-        completion = %Condition{operator: :not, operands: [while_condition]}
-        termination_with_limit(completion, iterate.max_iterations)
-
-      [:repeat] ->
-        repeat_termination(iterate.repeat, not is_nil(iterate.max_iterations))
-
-      _forms ->
-        {:error,
-         Error.validation_error("iterate requires exactly one of while, until, or repeat")}
-    end
-  end
-
-  defp termination_with_limit(completion, max_iterations)
-       when is_integer(max_iterations) and max_iterations in 1..10_000 do
-    {:ok, completion, max_iterations}
-  end
-
-  defp termination_with_limit(_completion, _max_iterations) do
-    {:error,
-     Error.validation_error("iterate max_iterations must be an integer from 1 to 10000", %{
-       path: [:max_iterations]
-     })}
-  end
-
-  defp repeat_termination(_count, true) do
-    {:error,
-     Error.validation_error("iterate with repeat must not set max_iterations", %{
-       path: [:max_iterations]
-     })}
-  end
-
-  defp repeat_termination(count, false) when is_integer(count) and count in 1..10_000 do
-    completion = %Condition{
-      operator: :gte,
-      operands: [Ref.iteration_index(), Ref.value(count)]
-    }
-
-    {:ok, completion, count}
-  end
-
-  defp repeat_termination(_count, false) do
-    {:error,
-     Error.validation_error("iterate repeat count must be an integer from 1 to 10000", %{
-       path: [:repeat]
-     })}
+    Termination.normalize(spec, [:while, :repeat])
   end
 
   defp normalize_after(nil), do: {:ok, []}

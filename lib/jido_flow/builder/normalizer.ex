@@ -2,7 +2,8 @@ defmodule Jido.Flow.Builder.Normalizer do
   @moduledoc false
 
   alias Jido.Action.Error
-  alias Jido.Flow.{Condition, Ref}
+  alias Jido.Flow.Iterator.Termination
+  alias Jido.Flow.Ref
 
   @doc false
   def normalize(specs) do
@@ -42,7 +43,8 @@ defmodule Jido.Flow.Builder.Normalizer do
   defp normalize_node_spec(%{kind: :iterate} = spec) do
     with {:ok, spec} <- normalize_common_aliases(spec),
          {:ok, state} <- normalize_state(Map.get(spec, :state)),
-         {:ok, completion, max_iterations} <- normalize_termination(spec) do
+         {:ok, completion, max_iterations} <-
+           Termination.normalize(spec, [:while, :until, :repeat]) do
       {:ok,
        spec
        |> Map.drop([:while, :until, :repeat])
@@ -78,68 +80,6 @@ defmodule Jido.Flow.Builder.Normalizer do
   end
 
   defp normalize_state(state), do: {:ok, state}
-
-  defp normalize_termination(%{completion: completion, max_iterations: max_iterations}) do
-    {:ok, completion, max_iterations}
-  end
-
-  defp normalize_termination(spec) do
-    forms = Enum.filter([:while, :until, :repeat], &Map.has_key?(spec, &1))
-
-    case forms do
-      [:until] ->
-        termination_with_limit(Map.fetch!(spec, :until), Map.get(spec, :max_iterations))
-
-      [:while] ->
-        completion = %Condition{operator: :not, operands: [Map.fetch!(spec, :while)]}
-        termination_with_limit(completion, Map.get(spec, :max_iterations))
-
-      [:repeat] ->
-        repeat_termination(Map.fetch!(spec, :repeat), Map.has_key?(spec, :max_iterations))
-
-      _forms ->
-        {:error,
-         Error.validation_error("iterate requires exactly one of while, until, or repeat")}
-    end
-  end
-
-  defp termination_with_limit(completion, max_iterations)
-       when is_integer(max_iterations) and max_iterations >= 1 and max_iterations <= 10_000 do
-    {:ok, completion, max_iterations}
-  end
-
-  defp termination_with_limit(_completion, _max_iterations) do
-    {:error,
-     Error.validation_error(
-       "iterate max_iterations must be an integer from 1 to 10000",
-       %{path: [:max_iterations]}
-     )}
-  end
-
-  defp repeat_termination(_count, true) do
-    {:error,
-     Error.validation_error("iterate with repeat must not set max_iterations", %{
-       path: [:max_iterations]
-     })}
-  end
-
-  defp repeat_termination(count, false)
-       when is_integer(count) and count >= 1 and count <= 10_000 do
-    completion = %Condition{
-      operator: :gte,
-      operands: [Ref.iteration_index(), Ref.value(count)]
-    }
-
-    {:ok, completion, count}
-  end
-
-  defp repeat_termination(_count, false) do
-    {:error,
-     Error.validation_error(
-       "iterate repeat count must be an integer from 1 to 10000",
-       %{path: [:repeat]}
-     )}
-  end
 
   defp normalize_after(nil), do: {:ok, []}
 

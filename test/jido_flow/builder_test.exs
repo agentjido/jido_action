@@ -322,6 +322,43 @@ defmodule Jido.Flow.BuilderTest do
     end
   end
 
+  test "Builder preserves every Iterator termination form and canonical precedence" do
+    state = %{schema: [], initial: %{value: 0}, update: Ref.body_result()}
+    until_condition = Builder.gte(Ref.state(:value), Ref.value(3))
+    while_condition = Builder.lt(Ref.state(:value), Ref.value(3))
+    canonical_condition = Builder.eq(Ref.state(:value), Ref.value(9))
+
+    cases = [
+      {[until: until_condition, max_iterations: 5], until_condition, 5},
+      {[
+         while: while_condition,
+         max_iterations: 5
+       ], %Condition{operator: :not, operands: [while_condition]}, 5},
+      {[
+         repeat: 3
+       ],
+       %Condition{
+         operator: :gte,
+         operands: [Ref.iteration_index(), Ref.value(3)]
+       }, 3},
+      {[
+         completion: canonical_condition,
+         while: while_condition,
+         max_iterations: 5
+       ], canonical_condition, 5}
+    ]
+
+    for {options, expected_completion, expected_max_iterations} <- cases do
+      builder =
+        Builder.new(name: "termination_form")
+        |> Builder.iterate("iterate", Add, %{value: Ref.state(:value)}, state, options)
+
+      assert {:ok, %Flow{nodes: [%Iterator{} = iterator]}} = Builder.build(builder)
+      assert iterator.completion == expected_completion
+      assert iterator.max_iterations == expected_max_iterations
+    end
+  end
+
   test "canonical constructor rejects authoring aliases" do
     state = %{schema: [], initial: %{value: 0}, update: Ref.body_result()}
 
