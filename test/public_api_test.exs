@@ -39,6 +39,7 @@ defmodule Jido.PublicAPITest do
     Jido.Flow.Compiler.Reduce,
     Jido.Flow.Compiler.Target,
     Jido.Flow.Compiler.TargetContext,
+    Jido.Flow.Builder.Normalizer,
     Jido.Flow.DSL.MacroSupport,
     Jido.Flow.DSL.ModuleCompiler,
     Jido.Flow.Element.Validation,
@@ -110,6 +111,7 @@ defmodule Jido.PublicAPITest do
   end
 
   test "Flow keeps its hidden before-compile compatibility macro" do
+    Code.ensure_loaded!(Jido.Flow)
     assert macro_exported?(Jido.Flow, :__before_compile__, 1)
   end
 

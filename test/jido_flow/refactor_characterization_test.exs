@@ -6,6 +6,8 @@ defmodule Jido.Flow.RefactorCharacterizationTest do
   alias JidoTest.TestActions.{Add, Multiply}
 
   test "keeps the documented Flow facade available without freezing private exports" do
+    Code.ensure_loaded!(Flow)
+
     for {name, arity} <- [
           new: 1,
           new!: 1,
