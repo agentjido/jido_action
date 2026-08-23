@@ -47,6 +47,7 @@ defmodule Jido.PublicAPITest do
     Jido.Flow.MapCodec.ExpressionCodec,
     Jido.Flow.MapCodec.RecordValidator,
     Jido.Flow.MapCodec.RegistryLookup,
+    Jido.Flow.SemanticMap,
     Jido.Flow.Validation
   ]
 

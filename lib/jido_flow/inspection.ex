@@ -3,66 +3,57 @@ defmodule Jido.Flow.Inspection do
 
   alias Jido.Flow.Element
   alias Jido.Flow.Graph
-  alias Jido.Flow.Node
+  alias Jido.Flow.Identity
+  alias Jido.Flow.SemanticMap
 
   @doc false
-  @spec dependencies(map(), function()) :: {:ok, %{String.t() => [String.t()]}}
-  def dependencies(flow, identity_fun) do
-    projection = projection(flow, identity_fun)
-    {:ok, projection.dependencies}
+  @spec dependencies(map()) :: {:ok, %{String.t() => [String.t()]}}
+  def dependencies(flow) do
+    {:ok, flow.nodes |> Graph.canonical_nodes() |> dependency_map()}
   end
 
   @doc false
-  @spec explain(map(), function()) :: {:ok, map()}
-  def explain(flow, identity_fun) do
-    projection = projection(flow, identity_fun)
+  @spec explain(map()) :: {:ok, map()}
+  def explain(flow) do
+    nodes = Graph.canonical_nodes(flow.nodes)
+    semantic_map = SemanticMap.build(flow, nodes, [])
+    dependencies = dependency_map(nodes)
 
     {:ok,
      %{
        version: 1,
        kind: :flow,
-       name: projection.flow.name,
-       description: projection.flow.description,
-       schema: projection.flow.schema,
-       output_schema: projection.flow.output_schema,
-       nodes: projection.nodes,
-       dependencies: projection.dependencies,
-       edges: projection.edges,
-       return: Node.expression_to_map(projection.flow.return),
-       identity: projection.identity
+       name: flow.name,
+       description: flow.description,
+       schema: flow.schema,
+       output_schema: flow.output_schema,
+       nodes: semantic_map.nodes,
+       dependencies: dependencies,
+       edges: edges(nodes),
+       return: semantic_map.return,
+       identity: Identity.identity(semantic_map)
      }}
   end
 
   @doc false
-  @spec semantic_identity(map(), function()) :: {:ok, map()}
-  def semantic_identity(flow, identity_fun) do
-    projection = projection(flow, identity_fun)
-    {:ok, projection.identity}
+  @spec semantic_identity(map()) :: {:ok, map()}
+  def semantic_identity(flow) do
+    {:ok, Identity.for_flow(flow)}
   end
 
-  defp projection(flow, identity_fun) do
-    nodes = Graph.canonical_nodes(flow.nodes)
+  defp dependency_map(nodes) do
+    Map.new(nodes, fn node ->
+      {Element.name(node), Element.deps(node) |> Enum.sort()}
+    end)
+  end
 
-    dependencies =
-      Map.new(nodes, fn node ->
-        {Element.name(node), Element.deps(node) |> Enum.sort()}
+  defp edges(nodes) do
+    nodes
+    |> Enum.flat_map(fn node ->
+      Enum.map(Element.deps(node), fn predecessor ->
+        %{from: predecessor, to: Element.name(node)}
       end)
-
-    edges =
-      nodes
-      |> Enum.flat_map(fn node ->
-        Enum.map(Element.deps(node), fn predecessor ->
-          %{from: predecessor, to: Element.name(node)}
-        end)
-      end)
-      |> Enum.sort_by(&{&1.from, &1.to})
-
-    %{
-      flow: flow,
-      nodes: Enum.map(nodes, &Element.to_map/1),
-      dependencies: dependencies,
-      edges: edges,
-      identity: identity_fun.(flow, nodes)
-    }
+    end)
+    |> Enum.sort_by(&{&1.from, &1.to})
   end
 end

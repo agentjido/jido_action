@@ -42,9 +42,9 @@ defmodule Jido.Flow do
   alias Jido.Action.Error
   alias Jido.Flow.Element
   alias Jido.Flow.Graph
-  alias Jido.Flow.Identity
   alias Jido.Flow.Inspection
   alias Jido.Flow.MapCodec
+  alias Jido.Flow.SemanticMap
   alias Jido.Flow.Validation
 
   @schema Zoi.struct(
@@ -204,8 +204,7 @@ defmodule Jido.Flow do
   """
   @spec to_map(t(), keyword()) :: map()
   def to_map(%__MODULE__{} = flow, opts \\ []) do
-    ordered_nodes = canonical_node_order(flow.nodes)
-    MapCodec.to_semantic_map(flow, ordered_nodes, opts)
+    SemanticMap.build(flow, opts)
   end
 
   @doc """
@@ -255,7 +254,7 @@ defmodule Jido.Flow do
           {:ok, %{String.t() => [String.t()]}} | {:error, Error.InvalidInputError.t()}
   def dependencies(%__MODULE__{} = flow) do
     with {:ok, flow} <- validate(flow) do
-      Inspection.dependencies(flow, &inspection_identity/2)
+      Inspection.dependencies(flow)
     end
   end
 
@@ -267,7 +266,7 @@ defmodule Jido.Flow do
   @spec explain(t()) :: {:ok, map()} | {:error, Error.InvalidInputError.t()}
   def explain(%__MODULE__{} = flow) do
     with {:ok, flow} <- validate(flow) do
-      Inspection.explain(flow, &inspection_identity/2)
+      Inspection.explain(flow)
     end
   end
 
@@ -279,7 +278,7 @@ defmodule Jido.Flow do
   @spec semantic_identity(t()) :: {:ok, map()} | {:error, Error.InvalidInputError.t()}
   def semantic_identity(%__MODULE__{} = flow) do
     with {:ok, flow} <- validate(flow) do
-      Inspection.semantic_identity(flow, &inspection_identity/2)
+      Inspection.semantic_identity(flow)
     end
   end
 
@@ -319,12 +318,6 @@ defmodule Jido.Flow do
   @doc false
   @spec __validate_config__(map()) :: {:ok, map()} | {:error, Exception.t()}
   def __validate_config__(attrs), do: Validation.validate_config(attrs)
-
-  defp inspection_identity(flow, nodes) do
-    flow
-    |> MapCodec.to_semantic_map(nodes, [])
-    |> Identity.identity()
-  end
 
   defp compile_error_message(error) when is_exception(error) do
     message = Exception.message(error)

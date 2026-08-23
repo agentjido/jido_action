@@ -4,6 +4,7 @@ defmodule Jido.Flow.Identity do
   import Bitwise
 
   alias Jido.Flow
+  alias Jido.Flow.SemanticMap
 
   @identity_version 1
   @step_identity_version 1
@@ -14,9 +15,16 @@ defmodule Jido.Flow.Identity do
   @spec semantic_digest(Flow.t()) :: String.t()
   def semantic_digest(%Flow{} = flow) do
     flow
-    |> Flow.to_map()
-    |> identity()
+    |> for_flow()
     |> Map.fetch!(:digest)
+  end
+
+  @doc false
+  @spec for_flow(Flow.t()) :: map()
+  def for_flow(%Flow{} = flow) do
+    flow
+    |> SemanticMap.build()
+    |> identity()
   end
 
   @doc false
