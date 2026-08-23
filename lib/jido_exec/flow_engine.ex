@@ -415,10 +415,6 @@ defmodule Jido.Exec.FlowEngine do
     status = if match?({:ok, _output}, final_result), do: :succeeded, else: :failed
     Telemetry.finish(execution.lifecycle.flow, final_result)
 
-    if execution.lifecycle.exec do
-      Telemetry.finish(execution.lifecycle.exec, final_result)
-    end
-
     {:ok,
      %{
        execution

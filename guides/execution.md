@@ -71,8 +71,8 @@ conservative `:retryable?` value.
 
 Jido emits only these nine events:
 
-- `[:jido, :exec, :start]`, `[:jido, :exec, :stop]`, and
-  `[:jido, :exec, :error]`;
+- `[:jido, :action, :start]`, `[:jido, :action, :stop]`, and
+  `[:jido, :action, :error]` for direct Actions and Instructions;
 - `[:jido, :flow, :start]`, `[:jido, :flow, :stop]`, and
   `[:jido, :flow, :error]`; and
 - `[:jido, :flow, :node, :start]`, `[:jido, :flow, :node, :stop]`, and
@@ -81,18 +81,21 @@ Jido emits only these nine events:
 Start measurements are `%{system_time: integer, monotonic_time: integer}`.
 Stop and error measurements are `%{duration: integer, monotonic_time: integer}`.
 
-Exec metadata is `%{execution_id: binary, kind: atom, name: term}`. Flow
-metadata is `%{execution_id: binary, flow: binary}`. Node metadata is
-`%{execution_id: binary, flow: binary, node: binary, kind: :step | :choice |
-:map | :reduce | :iterate}`. Error events add `:error` and `:error_type`.
+Action metadata is `%{execution_id: binary, kind: :action | :instruction,
+name: term}`. Flow metadata is `%{execution_id: binary, flow: binary}`. Node
+metadata is `%{execution_id: binary, flow: binary, node: binary, kind: :step |
+:choice | :map | :reduce | :iterate}`. Error events add `:error` and
+`:error_type`.
 
 The same `execution_id` correlates a Flow, its nodes, and nested Flows. Serial
-events nest as Exec, Flow, and then node. Step-wise execution opens Exec and
-Flow events in `start/4` and closes them only when a step, wave, or continue
-operation reaches a terminal result. Async node spans can overlap. For an
-async wave, node start events occur in canonical order before dispatch. Node
-stop or error events occur in canonical order after the wave receives all
-outcomes. A killed node task still has one node error event.
+Flow events nest as Flow and then node. Step-wise execution opens one Flow event
+in `start/4` and closes it only when a step, wave, or continue operation reaches
+a terminal result. An Action inside a Flow is represented by its node span and
+does not emit a separate Action lifecycle. An Instruction that targets a Flow
+has the Flow lifecycle inside its Action lifecycle. Async node spans can
+overlap. For an async wave, node start events occur in canonical order before
+dispatch. Node stop or error events occur in canonical order after the wave
+receives all outcomes. A killed node task still has one node error event.
 
 There are no item, iteration, State transition, completion, exhaustion, or
 failure telemetry events. Telemetry does not control scheduling or results.

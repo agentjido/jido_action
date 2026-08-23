@@ -6,11 +6,12 @@ defmodule Jido.Exec.TelemetryTest do
   alias Jido.Exec
   alias Jido.Flow
   alias Jido.Flow.{Node, Ref}
+  alias Jido.Instruction
   alias JidoTest.TestActions.{Add, ErrorAction}
 
-  @exec_start [:jido, :exec, :start]
-  @exec_stop [:jido, :exec, :stop]
-  @exec_error [:jido, :exec, :error]
+  @action_start [:jido, :action, :start]
+  @action_stop [:jido, :action, :stop]
+  @action_error [:jido, :action, :error]
   @flow_start [:jido, :flow, :start]
   @flow_stop [:jido, :flow, :stop]
   @flow_error [:jido, :flow, :error]
@@ -19,9 +20,9 @@ defmodule Jido.Exec.TelemetryTest do
   @node_error [:jido, :flow, :node, :error]
 
   @public_events [
-    @exec_start,
-    @exec_stop,
-    @exec_error,
+    @action_start,
+    @action_stop,
+    @action_error,
     @flow_start,
     @flow_stop,
     @flow_error,
@@ -29,6 +30,14 @@ defmodule Jido.Exec.TelemetryTest do
     @node_stop,
     @node_error
   ]
+
+  @retired_exec_events [
+    [:jido, :exec, :start],
+    [:jido, :exec, :stop],
+    [:jido, :exec, :error]
+  ]
+
+  @observed_events @public_events ++ @retired_exec_events
 
   def raise_flow_transform(_value, _opts), do: raise("flow schema boom")
 
@@ -48,14 +57,14 @@ defmodule Jido.Exec.TelemetryTest do
     def run(_params, _context), do: {:ok, %{items: [%{value: 1}]}}
   end
 
-  test "emits the exact Exec lifecycle for an Action" do
-    attach(@public_events)
+  test "emits the exact Action lifecycle for an Action" do
+    attach(@observed_events)
 
     assert {:ok, %{value: 6}} = Exec.run(Add, %{value: 5})
 
     assert [
-             {@exec_start, start_measurements, start_metadata},
-             {@exec_stop, stop_measurements, stop_metadata}
+             {@action_start, start_measurements, start_metadata},
+             {@action_stop, stop_measurements, stop_metadata}
            ] = events()
 
     assert Map.keys(start_measurements) |> Enum.sort() == [:monotonic_time, :system_time]
@@ -68,22 +77,89 @@ defmodule Jido.Exec.TelemetryTest do
     assert is_binary(start_metadata.execution_id)
   end
 
-  test "nests one Flow lifecycle and one node lifecycle under Exec" do
-    attach(@public_events)
+  test "emits the Action lifecycle for an Instruction" do
+    attach(@observed_events)
+    instruction = Instruction.new!(action: Add, params: %{value: 5})
+
+    assert {:ok, %{value: 6}} = Exec.run(instruction)
+
+    assert [
+             {@action_start, _, start_metadata},
+             {@action_stop, _, stop_metadata}
+           ] = events()
+
+    assert start_metadata == stop_metadata
+    assert start_metadata.kind == :instruction
+    assert start_metadata.name == "add_one"
+    assert is_binary(start_metadata.execution_id)
+  end
+
+  test "nests a Flow lifecycle inside an Instruction Action lifecycle" do
+    flow_module = unique_module("InstructionTelemetryFlow")
+
+    create_module(
+      flow_module,
+      quote do
+        use Jido.Flow, name: "instruction_telemetry_flow"
+
+        flow do
+          step("add", action: unquote(Add), params: %{value: input(:value)})
+        end
+      end
+    )
+
+    attach(@observed_events)
+    instruction = Instruction.new!(action: flow_module, params: %{value: 2})
+
+    assert {:ok, %{value: 3}} = Exec.run(instruction)
+
+    recorded = events()
+
+    assert [
+             @action_start,
+             @flow_start,
+             @node_start,
+             @node_stop,
+             @flow_stop,
+             @action_stop
+           ] == Enum.map(recorded, &elem(&1, 0))
+
+    execution_ids =
+      Enum.map(recorded, fn {_event, _measurements, metadata} -> metadata.execution_id end)
+
+    assert [_execution_id] = Enum.uniq(execution_ids)
+  end
+
+  test "uses the Action error event for a returned Action failure" do
+    attach(@observed_events)
+
+    assert {:error, error} = Exec.run(ErrorAction, %{error_type: :validation})
+
+    assert [
+             {@action_start, _, start_metadata},
+             {@action_error, measurements, error_metadata}
+           ] = events()
+
+    assert Map.drop(error_metadata, [:error, :error_type]) == start_metadata
+    assert error_metadata.error == error
+    assert error_metadata.error_type == :execution_error
+    assert Map.keys(measurements) |> Enum.sort() == [:duration, :monotonic_time]
+  end
+
+  test "emits only the Flow and node lifecycles for a Flow" do
+    attach(@observed_events)
     flow = one_node_flow(Add)
 
     assert {:ok, %{value: 3}} = Exec.run(flow, %{value: 2})
 
     assert [
-             {@exec_start, _, exec_start},
              {@flow_start, _, flow_start},
              {@node_start, _, node_start},
              {@node_stop, node_stop_measurements, node_stop},
-             {@flow_stop, flow_stop_measurements, flow_stop},
-             {@exec_stop, exec_stop_measurements, exec_stop}
+             {@flow_stop, flow_stop_measurements, flow_stop}
            ] = events()
 
-    execution_id = exec_start.execution_id
+    execution_id = flow_start.execution_id
     assert flow_start == %{execution_id: execution_id, flow: "telemetry_flow"}
 
     assert node_start == %{
@@ -95,9 +171,8 @@ defmodule Jido.Exec.TelemetryTest do
 
     assert node_stop == node_start
     assert flow_stop == flow_start
-    assert exec_stop == exec_start
 
-    for measurements <- [node_stop_measurements, flow_stop_measurements, exec_stop_measurements] do
+    for measurements <- [node_stop_measurements, flow_stop_measurements] do
       assert Map.keys(measurements) |> Enum.sort() == [:duration, :monotonic_time]
       assert measurements.duration >= 0
     end
@@ -130,24 +205,20 @@ defmodule Jido.Exec.TelemetryTest do
       end
     )
 
-    attach(@public_events)
+    attach(@observed_events)
     assert {:ok, %{value: 3}} = Exec.run(parent, %{value: 2})
 
     recorded = events()
 
     assert [
-             @exec_start,
              @flow_start,
              @node_start,
-             @exec_start,
              @flow_start,
              @node_start,
              @node_stop,
              @flow_stop,
-             @exec_stop,
              @node_stop,
-             @flow_stop,
-             @exec_stop
+             @flow_stop
            ] == Enum.map(recorded, &elem(&1, 0))
 
     execution_ids =
@@ -157,39 +228,34 @@ defmodule Jido.Exec.TelemetryTest do
   end
 
   test "uses error events for returned execution failures" do
-    attach(@public_events)
+    attach(@observed_events)
     flow = one_node_flow(ErrorAction, %{error_type: Ref.value(:validation)})
 
     assert {:error, error} = Exec.run(flow)
 
     assert [
-             {@exec_start, _, exec_start},
              {@flow_start, _, flow_start},
              {@node_start, _, node_start},
              {@node_error, node_measurements, node_error},
-             {@flow_error, flow_measurements, flow_error},
-             {@exec_error, exec_measurements, exec_error}
+             {@flow_error, flow_measurements, flow_error}
            ] = events()
 
-    assert node_error.execution_id == exec_start.execution_id
-    assert flow_error.execution_id == exec_start.execution_id
-    assert exec_error.execution_id == exec_start.execution_id
+    assert node_error.execution_id == flow_start.execution_id
+    assert flow_error.execution_id == flow_start.execution_id
     assert node_error.error == error
     assert flow_error.error == error
-    assert exec_error.error == error
     assert node_error.error_type == :execution_error
 
     assert Map.drop(node_error, [:error, :error_type]) == node_start
     assert Map.drop(flow_error, [:error, :error_type]) == flow_start
-    assert Map.drop(exec_error, [:error, :error_type]) == exec_start
 
-    for measurements <- [node_measurements, flow_measurements, exec_measurements] do
+    for measurements <- [node_measurements, flow_measurements] do
       assert Map.keys(measurements) |> Enum.sort() == [:duration, :monotonic_time]
     end
   end
 
-  test "closes Exec and Flow lifecycles when an input schema effect raises" do
-    attach(@public_events)
+  test "closes the Flow lifecycle when an input schema effect raises" do
+    attach(@observed_events)
 
     flow =
       Flow.new!(
@@ -202,41 +268,35 @@ defmodule Jido.Exec.TelemetryTest do
     assert {:error, error} = Exec.run(flow)
 
     assert [
-             {@exec_start, _, exec_start},
              {@flow_start, _, flow_start},
-             {@flow_error, _, flow_error},
-             {@exec_error, _, exec_error}
+             {@flow_error, _, flow_error}
            ] = events()
 
-    assert flow_error.execution_id == exec_start.execution_id
-    assert exec_error.execution_id == exec_start.execution_id
+    assert flow_error.execution_id == flow_start.execution_id
     assert flow_error.error == error
-    assert exec_error.error == error
     assert Map.drop(flow_error, [:error, :error_type]) == flow_start
   end
 
   test "emits a node error when an asynchronous node task is killed" do
-    attach(@public_events)
+    attach(@observed_events)
     flow = one_node_flow(KillAction, %{})
 
     assert {:error, error} = Exec.run(flow, %{}, %{}, async: true)
 
     assert [
-             {@exec_start, _, exec_start},
-             {@flow_start, _, _flow_start},
+             {@flow_start, _, flow_start},
              {@node_start, _, node_start},
              {@node_error, _, node_error},
-             {@flow_error, _, _flow_error},
-             {@exec_error, _, _exec_error}
+             {@flow_error, _, _flow_error}
            ] = events()
 
-    assert node_error.execution_id == exec_start.execution_id
+    assert node_error.execution_id == flow_start.execution_id
     assert node_error.error == error
     assert Map.drop(node_error, [:error, :error_type]) == node_start
   end
 
   test "reports final result-path errors after the node span stops" do
-    attach(@public_events)
+    attach(@observed_events)
 
     flow =
       Flow.new!(
@@ -248,23 +308,19 @@ defmodule Jido.Exec.TelemetryTest do
     assert {:error, error} = Exec.run(flow)
 
     assert [
-             {@exec_start, _, exec_start},
-             {@flow_start, _, _flow_start},
+             {@flow_start, _, flow_start},
              {@node_start, _, node_start},
              {@node_stop, _, node_stop},
-             {@flow_error, _, flow_error},
-             {@exec_error, _, exec_error}
+             {@flow_error, _, flow_error}
            ] = events()
 
     assert node_stop == node_start
-    assert flow_error.execution_id == exec_start.execution_id
-    assert exec_error.execution_id == exec_start.execution_id
+    assert flow_error.execution_id == flow_start.execution_id
     assert flow_error.error == error
-    assert exec_error.error == error
   end
 
   test "step-wise execution closes lifecycle events only at a terminal step" do
-    attach(@public_events)
+    attach(@observed_events)
 
     flow =
       Flow.new!(
@@ -278,7 +334,7 @@ defmodule Jido.Exec.TelemetryTest do
 
     assert {:ok, execution} = Exec.start(flow, %{value: 1})
     start_events = events()
-    assert [@exec_start, @flow_start] == Enum.map(start_events, &elem(&1, 0))
+    assert [@flow_start] == Enum.map(start_events, &elem(&1, 0))
 
     assert {:ok, _node_result, execution} = Exec.step(execution)
     first_events = events()
@@ -292,8 +348,7 @@ defmodule Jido.Exec.TelemetryTest do
     assert [
              @node_start,
              @node_stop,
-             @flow_stop,
-             @exec_stop
+             @flow_stop
            ] == Enum.map(terminal_events, &elem(&1, 0))
 
     execution_ids =
@@ -324,7 +379,7 @@ defmodule Jido.Exec.TelemetryTest do
   end
 
   test "classifies non-exception telemetry errors without changing them" do
-    attach([@exec_error])
+    attach([@action_error])
 
     values = [
       {:atom, :atom},
@@ -336,9 +391,9 @@ defmodule Jido.Exec.TelemetryTest do
     ]
 
     for {value, expected_type} <- values do
-      span = %{event: [:jido, :exec], metadata: %{}, started_at: System.monotonic_time()}
+      span = %{event: [:jido, :action], metadata: %{}, started_at: System.monotonic_time()}
       assert :ok = Telemetry.error(span, value)
-      assert [{@exec_error, _measurements, metadata}] = events()
+      assert [{@action_error, _measurements, metadata}] = events()
       assert metadata.error == value
       assert metadata.error_type == expected_type
     end

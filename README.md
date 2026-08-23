@@ -207,10 +207,13 @@ terminal result. Always pass the newest execution value to the next call.
 
 ## Observe Execution
 
-Telemetry has three lifecycle groups: Exec, Flow, and Flow node. Each group
-emits `:start`, `:stop`, and `:error`. One `execution_id` correlates an outer
-Flow, its nodes, and nested Flows. Telemetry observes execution only; it does
-not control scheduling or results.
+Telemetry has three lifecycle groups: Action, Flow, and Flow node. Direct
+Actions and Instructions emit `[:jido, :action, :start]`,
+`[:jido, :action, :stop]`, and `[:jido, :action, :error]`. Flows and their
+nodes use the `[:jido, :flow]` namespace. One `execution_id` correlates nested
+work. An Action inside a Flow is represented by its node span and does not emit
+a separate Action lifecycle. Telemetry observes execution only; it does not
+control scheduling or results.
 
 See [Execution](guides/execution.md) for exact event names, measurements,
 metadata, nesting, and step-wise semantics.

@@ -417,8 +417,8 @@ directly when you need to step through its nodes or set its execution options.
 
 Jido emits only these nine events:
 
-- `[:jido, :exec, :start]`, `[:jido, :exec, :stop]`, and
-  `[:jido, :exec, :error]`;
+- `[:jido, :action, :start]`, `[:jido, :action, :stop]`, and
+  `[:jido, :action, :error]` for direct Actions and Instructions;
 - `[:jido, :flow, :start]`, `[:jido, :flow, :stop]`, and
   `[:jido, :flow, :error]`; and
 - `[:jido, :flow, :node, :start]`, `[:jido, :flow, :node, :stop]`, and
@@ -427,19 +427,21 @@ Jido emits only these nine events:
 Start measurements are `%{system_time: integer, monotonic_time: integer}`.
 Stop and error measurements are `%{duration: integer, monotonic_time: integer}`.
 
-Exec metadata is `%{execution_id: binary, kind: atom, name: term}`. Flow
-metadata is `%{execution_id: binary, flow: binary}`. Node metadata is
-`%{execution_id: binary, flow: binary, node: binary, kind: :step | :choice |
-:map | :reduce | :iterate}`. Error events add `:error` and `:error_type`.
+Action metadata is `%{execution_id: binary, kind: :action | :instruction,
+name: term}`. Flow metadata is `%{execution_id: binary, flow: binary}`. Node
+metadata is `%{execution_id: binary, flow: binary, node: binary, kind: :step |
+:choice | :map | :reduce | :iterate}`. Error events add `:error` and
+`:error_type`.
 
-One `execution_id` correlates the outer execution, nested Flows, and all node
-spans. In serial execution, Exec contains Flow, and Flow contains its node
-spans. Async node spans can overlap and can come from task processes.
+One `execution_id` correlates a Flow, nested Flows, and all node spans. In
+serial execution, a Flow contains its node spans. An Action inside a Flow is
+represented by its node span and does not emit a separate Action lifecycle.
+Async node spans can overlap and can come from task processes.
 
-For step-wise execution, `start/4` opens the Exec and Flow lifecycles. Node
-events occur only when a step or wave runs them. The operation that reaches a
-terminal result closes the Flow and Exec lifecycles. If a caller abandons a
-paused execution, it has no stop or error event.
+For step-wise execution, `start/4` opens the Flow lifecycle. Node events occur
+only when a step or wave runs them. The operation that reaches a terminal
+result closes the Flow lifecycle. If a caller abandons a paused execution, it
+has no stop or error event.
 
 Jido does not emit item, iteration, State transition, completion, exhaustion,
 or failure events. Telemetry observes work. It does not schedule work, send

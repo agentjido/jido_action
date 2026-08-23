@@ -151,6 +151,20 @@ defmodule Jido.DocumentationTest do
     end
   end
 
+  test "published telemetry documentation uses semantic Action events" do
+    paths = ["README.md", "guides/execution.md", "guides/flow-execution.livemd"]
+
+    for path <- paths do
+      contents = File.read!(path)
+      assert contents =~ "[:jido, :action, :start]"
+      refute contents =~ "[:jido, :exec, :start]"
+    end
+
+    exec_doc = Jido.Exec |> module_doc() |> Map.fetch!("en")
+    assert exec_doc =~ "[:jido, :action, :start]"
+    refute exec_doc =~ "[:jido, :exec, :start]"
+  end
+
   test "release metadata points at the release tag" do
     project = Mix.Project.config()
     version = project[:version]

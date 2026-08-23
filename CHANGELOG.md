@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * add portable, versioned Map and JSON storage for runtime and AI-generated flows
 * add canonical flow inspection, validation, identity, and execution contracts
 * add one flat host-owned Registry for safe Action and schema identifier resolution
-* add stable Exec, Flow, and Flow-node telemetry lifecycles with one execution identifier
+* add stable Action, Flow, and Flow-node telemetry lifecycles with one execution identifier
 
 ### Breaking Changes:
 
