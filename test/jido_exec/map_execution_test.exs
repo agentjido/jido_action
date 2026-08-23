@@ -1,6 +1,8 @@
 defmodule Jido.Exec.MapExecutionTest do
   use JidoTest.ActionCase, async: true
 
+  @moduletag capture_log: true
+
   alias Jido.Action.Error.ExecutionFailureError
   alias Jido.Exec
   alias Jido.Exec.NodeResult
