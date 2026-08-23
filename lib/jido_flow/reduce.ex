@@ -8,7 +8,7 @@ defmodule Jido.Flow.Reduce do
 
   alias Jido.Action
   alias Jido.Action.Error
-  alias Jido.Flow.Node
+  alias Jido.Flow.Expression
   alias Jido.Instruction
 
   @config_keys [:name, :collection, :initial, :action, :input, :deps, :provenance]
@@ -76,9 +76,9 @@ defmodule Jido.Flow.Reduce do
   @spec result_deps(t()) :: [String.t()]
   def result_deps(%__MODULE__{} = reduce) do
     reduce.collection
-    |> Node.collect_result_refs()
-    |> Kernel.++(Node.collect_result_refs(reduce.initial))
-    |> Kernel.++(Node.collect_result_refs(reduce.input))
+    |> Expression.result_refs()
+    |> Kernel.++(Expression.result_refs(reduce.initial))
+    |> Kernel.++(Expression.result_refs(reduce.input))
     |> Kernel.++(reduce.deps)
     |> Enum.uniq()
     |> Enum.sort()
@@ -110,10 +110,10 @@ defmodule Jido.Flow.Reduce do
     base = %{
       kind: :reduce,
       name: reduce.name,
-      collection: Node.expression_to_map(reduce.collection),
-      initial: Node.expression_to_map(reduce.initial),
+      collection: Expression.to_map(reduce.collection),
+      initial: Expression.to_map(reduce.initial),
       action: reduce.action,
-      input: Node.expression_to_map(reduce.input),
+      input: Expression.to_map(reduce.input),
       deps: Enum.sort(reduce.deps)
     }
 
@@ -150,8 +150,8 @@ defmodule Jido.Flow.Reduce do
   defp validate_input(input), do: validate_expression(input, :input, :reduce_input)
 
   defp validate_expression(expression, field, scope) do
-    with {:ok, expression} <- Node.normalize_expression(expression),
-         :ok <- Node.validate_expression(expression, scope) do
+    with {:ok, expression} <- Expression.normalize(expression),
+         :ok <- Expression.validate(expression, scope) do
       {:ok, expression}
     else
       {:error, error} -> {:error, translate_expression_error(error, field)}
@@ -163,7 +163,7 @@ defmodule Jido.Flow.Reduce do
     path = [field] ++ Map.get(details, :path, [])
     owner = if field == :input, do: "reduce target input", else: "reduce #{field}"
 
-    case Node.expression_error_kind(error) do
+    case Expression.error_kind(error) do
       :invalid_scope ->
         Error.validation_error(
           "flow expression contains a scoped ref outside its valid scope",

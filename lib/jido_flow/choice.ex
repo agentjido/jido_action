@@ -14,7 +14,7 @@ defmodule Jido.Flow.Choice do
   alias Jido.Action
   alias Jido.Action.Error
   alias Jido.Flow.Condition
-  alias Jido.Flow.Node
+  alias Jido.Flow.Expression
   alias Jido.Instruction
 
   @config_keys [:name, :options, :fallback, :deps, :provenance]
@@ -115,9 +115,9 @@ defmodule Jido.Flow.Choice do
   def result_deps(%__MODULE__{} = choice) do
     choice.options
     |> Enum.flat_map(fn option ->
-      Condition.result_deps(option.condition) ++ Node.collect_result_refs(option.input)
+      Condition.result_deps(option.condition) ++ Expression.result_refs(option.input)
     end)
-    |> Kernel.++(Node.collect_result_refs(choice.fallback.input))
+    |> Kernel.++(Expression.result_refs(choice.fallback.input))
     |> Kernel.++(choice.deps)
     |> Enum.uniq()
     |> Enum.sort()
@@ -161,13 +161,13 @@ defmodule Jido.Flow.Choice do
             name: option.name,
             condition: Condition.to_map(option.condition),
             action: option.action,
-            input: Node.expression_to_map(option.input)
+            input: Expression.to_map(option.input)
           }
         end),
       fallback: %{
         name: :fallback,
         action: choice.fallback.action,
-        input: Node.expression_to_map(choice.fallback.input)
+        input: Expression.to_map(choice.fallback.input)
       },
       deps: Enum.sort(choice.deps)
     }
@@ -327,8 +327,8 @@ defmodule Jido.Flow.Choice do
   defp validate_input(nil, _path), do: {:ok, %{}}
 
   defp validate_input(input, path) do
-    with {:ok, input} <- Node.normalize_expression(input),
-         :ok <- Node.validate_expression(input),
+    with {:ok, input} <- Expression.normalize(input),
+         :ok <- Expression.validate(input),
          :ok <- validate_static_input(input) do
       {:ok, input}
     else
@@ -457,7 +457,7 @@ defmodule Jido.Flow.Choice do
     details = Map.get(error, :details, %{})
     nested_path = path ++ Map.get(details, :path, [])
 
-    case Node.expression_error_kind(error) do
+    case Expression.error_kind(error) do
       :invalid_scope ->
         Error.validation_error(
           "flow expression contains a scoped ref outside its valid scope",

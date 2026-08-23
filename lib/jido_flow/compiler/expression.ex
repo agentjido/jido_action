@@ -3,7 +3,7 @@ defmodule Jido.Flow.Compiler.Expression do
 
   alias Jido.Action.Error
   alias Jido.Action.Output
-  alias Jido.Flow.Node
+  alias Jido.Flow.Expression, as: FlowExpression
   alias Jido.Flow.Ref
   alias Runic.Workflow
 
@@ -73,7 +73,7 @@ defmodule Jido.Flow.Compiler.Expression do
 
   @doc false
   def extract_return(return_expr, workflow, input, context) do
-    result_nodes = return_expr |> Node.collect_result_refs() |> Enum.uniq()
+    result_nodes = return_expr |> FlowExpression.result_refs() |> Enum.uniq()
     facts_by_node = Workflow.results(workflow, result_nodes, facts: true, all: true)
 
     result_nodes

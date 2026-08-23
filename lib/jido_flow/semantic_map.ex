@@ -3,8 +3,8 @@ defmodule Jido.Flow.SemanticMap do
 
   alias Jido.Flow
   alias Jido.Flow.Element
+  alias Jido.Flow.Expression
   alias Jido.Flow.Graph
-  alias Jido.Flow.Node
 
   @semantic_version 1
 
@@ -25,7 +25,7 @@ defmodule Jido.Flow.SemanticMap do
       schema: flow.schema,
       output_schema: flow.output_schema,
       nodes: Enum.map(ordered_nodes, &Element.to_map(&1, opts)),
-      return: Node.expression_to_map(flow.return)
+      return: Expression.to_map(flow.return)
     }
 
     if Keyword.get(opts, :provenance, false) do

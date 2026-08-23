@@ -11,7 +11,7 @@ defmodule Jido.Flow.State do
 
   alias Jido.Action
   alias Jido.Action.Error
-  alias Jido.Flow.Node
+  alias Jido.Flow.Expression
 
   @version 1
   @config_keys [:version, :schema, :initial, :update]
@@ -65,8 +65,8 @@ defmodule Jido.Flow.State do
   @spec result_deps(t()) :: [String.t()]
   def result_deps(%__MODULE__{} = state) do
     state.initial
-    |> Node.collect_result_refs()
-    |> Kernel.++(Node.collect_result_refs(state.update))
+    |> Expression.result_refs()
+    |> Kernel.++(Expression.result_refs(state.update))
     |> Enum.uniq()
     |> Enum.sort()
   end
@@ -78,8 +78,8 @@ defmodule Jido.Flow.State do
       kind: :iterate_state,
       version: state.version,
       schema: state.schema,
-      initial: Node.expression_to_map(state.initial),
-      update: Node.expression_to_map(state.update)
+      initial: Expression.to_map(state.initial),
+      update: Expression.to_map(state.update)
     }
   end
 
@@ -136,8 +136,8 @@ defmodule Jido.Flow.State do
   end
 
   defp validate_expression(expression, field, scope) do
-    with {:ok, expression} <- Node.normalize_expression(expression),
-         :ok <- Node.validate_expression(expression, scope) do
+    with {:ok, expression} <- Expression.normalize(expression),
+         :ok <- Expression.validate(expression, scope) do
       {:ok, expression}
     else
       {:error, error} -> {:error, translate_expression_error(error, field)}
@@ -149,7 +149,7 @@ defmodule Jido.Flow.State do
     path = [field] ++ Map.get(details, :path, [])
     owner = "iterator state #{field}"
 
-    case Node.expression_error_kind(error) do
+    case Expression.error_kind(error) do
       :invalid_scope ->
         Error.validation_error(
           "flow expression contains a scoped ref outside its valid scope",

@@ -12,7 +12,7 @@ defmodule Jido.Flow.Condition do
 
   alias Jido.Action
   alias Jido.Action.Error
-  alias Jido.Flow.Node
+  alias Jido.Flow.Expression
 
   import Kernel, except: [in: 2]
 
@@ -122,7 +122,7 @@ defmodule Jido.Flow.Condition do
       operands:
         Enum.map(operands, fn
           %__MODULE__{} = condition -> to_map(condition)
-          expression -> Node.expression_to_map(expression)
+          expression -> Expression.to_map(expression)
         end)
     }
   end
@@ -230,8 +230,8 @@ defmodule Jido.Flow.Condition do
   end
 
   defp normalize_expression(expression, path, scope) do
-    with {:ok, expression} <- Node.normalize_expression(expression),
-         :ok <- Node.validate_expression(expression, scope),
+    with {:ok, expression} <- Expression.normalize(expression),
+         :ok <- Expression.validate(expression, scope),
          :ok <- validate_static_expression(expression) do
       {:ok, expression}
     else
@@ -253,7 +253,7 @@ defmodule Jido.Flow.Condition do
     details = Map.get(error, :details, %{})
     nested_path = path ++ Map.get(details, :path, [])
 
-    case Node.expression_error_kind(error) do
+    case Expression.error_kind(error) do
       :invalid_scope ->
         Error.validation_error(
           "flow expression contains a scoped ref outside its valid scope",
@@ -293,7 +293,7 @@ defmodule Jido.Flow.Condition do
 
   defp collect_result_deps(%__MODULE__{operator: operator, operands: operands})
        when Kernel.in(operator, @comparison_operators) do
-    Enum.flat_map(operands, &Node.collect_result_refs/1)
+    Enum.flat_map(operands, &Expression.result_refs/1)
   end
 
   defp collect_result_deps(%__MODULE__{operands: operands}) do

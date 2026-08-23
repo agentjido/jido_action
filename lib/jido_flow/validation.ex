@@ -5,7 +5,7 @@ defmodule Jido.Flow.Validation do
   alias Jido.Action.Error
   alias Jido.Flow.Element
   alias Jido.Flow.Graph
-  alias Jido.Flow.Node
+  alias Jido.Flow.Expression
 
   @module_config_keys [:name, :description, :schema, :output_schema]
   @artifact_config_keys @module_config_keys ++ [:nodes, :return, :provenance]
@@ -207,15 +207,15 @@ defmodule Jido.Flow.Validation do
   end
 
   defp validate_return(return) do
-    with {:ok, return} <- Node.normalize_expression(return),
-         :ok <- Node.validate_expression(return),
+    with {:ok, return} <- Expression.normalize(return),
+         :ok <- Expression.validate(return),
          :ok <- validate_return_has_result_ref(return) do
       {:ok, return}
     end
   end
 
   defp validate_return_has_result_ref(return) do
-    case Node.collect_result_refs(return) do
+    case Expression.result_refs(return) do
       [] -> {:error, Error.validation_error("return must reference at least one step result")}
       _refs -> :ok
     end
@@ -256,7 +256,7 @@ defmodule Jido.Flow.Validation do
     known = flow.nodes |> Enum.map(&Element.name/1) |> MapSet.new()
 
     case flow.return
-         |> Node.collect_result_refs()
+         |> Expression.result_refs()
          |> Enum.find(&(not MapSet.member?(known, &1))) do
       nil ->
         validate_node_result_refs(flow.nodes, known)

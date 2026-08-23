@@ -7,7 +7,7 @@ defmodule Jido.Flow.Map do
 
   alias Jido.Action
   alias Jido.Action.Error
-  alias Jido.Flow.Node
+  alias Jido.Flow.Expression
   alias Jido.Instruction
 
   @config_keys [:name, :collection, :action, :input, :on_error, :deps, :provenance]
@@ -75,8 +75,8 @@ defmodule Jido.Flow.Map do
   @spec result_deps(t()) :: [String.t()]
   def result_deps(%__MODULE__{} = map) do
     map.collection
-    |> Node.collect_result_refs()
-    |> Kernel.++(Node.collect_result_refs(map.input))
+    |> Expression.result_refs()
+    |> Kernel.++(Expression.result_refs(map.input))
     |> Kernel.++(map.deps)
     |> Enum.uniq()
     |> Enum.sort()
@@ -108,9 +108,9 @@ defmodule Jido.Flow.Map do
     base = %{
       kind: :map,
       name: map.name,
-      collection: Node.expression_to_map(map.collection),
+      collection: Expression.to_map(map.collection),
       action: map.action,
-      input: Node.expression_to_map(map.input),
+      input: Expression.to_map(map.input),
       on_error: map.on_error,
       deps: Enum.sort(map.deps)
     }
@@ -148,8 +148,8 @@ defmodule Jido.Flow.Map do
   defp validate_input(input), do: validate_expression(input, :input, :map_input)
 
   defp validate_expression(expression, field, scope) do
-    with {:ok, expression} <- Node.normalize_expression(expression),
-         :ok <- Node.validate_expression(expression, scope) do
+    with {:ok, expression} <- Expression.normalize(expression),
+         :ok <- Expression.validate(expression, scope) do
       {:ok, expression}
     else
       {:error, error} -> {:error, translate_expression_error(error, field)}
@@ -161,7 +161,7 @@ defmodule Jido.Flow.Map do
     path = [field] ++ Map.get(details, :path, [])
     owner = if field == :input, do: "map target input", else: "map collection"
 
-    case Node.expression_error_kind(error) do
+    case Expression.error_kind(error) do
       :invalid_scope ->
         Error.validation_error(
           "flow expression contains a scoped ref outside its valid scope",

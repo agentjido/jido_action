@@ -5,6 +5,7 @@ defmodule Jido.Flow.Node do
 
   alias Jido.Action
   alias Jido.Action.Error
+  alias Jido.Flow.Expression
   alias Jido.Flow.Ref
 
   @config_keys [:name, :action, :input, :deps, :provenance]
@@ -75,7 +76,7 @@ defmodule Jido.Flow.Node do
     base = %{
       name: node.name,
       action: node.action,
-      input: expression_to_map(node.input),
+      input: Expression.to_map(node.input),
       deps: Enum.sort(node.deps)
     }
 
@@ -90,7 +91,7 @@ defmodule Jido.Flow.Node do
   @spec result_deps(t()) :: [String.t()]
   def result_deps(%__MODULE__{} = node) do
     node.input
-    |> collect_result_refs()
+    |> Expression.result_refs()
     |> Kernel.++(node.deps)
     |> Enum.uniq()
     |> Enum.sort()
@@ -98,39 +99,19 @@ defmodule Jido.Flow.Node do
 
   @doc false
   @spec normalize_expression(term()) :: {:ok, term()} | {:error, Exception.t()}
-  def normalize_expression(expression), do: do_normalize_expression(expression, [])
+  def normalize_expression(expression), do: Expression.normalize(expression)
 
   @doc false
   @spec validate_expression(term(), Ref.scope()) :: :ok | {:error, Exception.t()}
-  def validate_expression(expression, scope \\ :flow),
-    do: validate_input_expression(expression, [], scope)
+  def validate_expression(expression, scope \\ :flow), do: Expression.validate(expression, scope)
 
   @doc false
   @spec expression_to_map(term()) :: term()
-  def expression_to_map(%Ref{} = ref), do: Ref.to_map(ref)
-
-  def expression_to_map(%{} = map) do
-    Map.new(map, fn {key, value} -> {key, expression_to_map(value)} end)
-  end
-
-  def expression_to_map(list) when is_list(list), do: Enum.map(list, &expression_to_map/1)
-  def expression_to_map(value), do: Ref.value(value) |> Ref.to_map()
+  def expression_to_map(expression), do: Expression.to_map(expression)
 
   @doc false
   @spec collect_result_refs(term()) :: [String.t()]
-  def collect_result_refs(%Ref{type: :result, node: node}), do: [node]
-  def collect_result_refs(%Ref{}), do: []
-
-  def collect_result_refs(%{} = map) do
-    map
-    |> Map.values()
-    |> Enum.flat_map(&collect_result_refs/1)
-  end
-
-  def collect_result_refs(list) when is_list(list),
-    do: Enum.flat_map(list, &collect_result_refs/1)
-
-  def collect_result_refs(_value), do: []
+  def collect_result_refs(expression), do: Expression.result_refs(expression)
 
   @doc false
   @spec expression_error_kind(Exception.t()) ::
@@ -140,14 +121,7 @@ defmodule Jido.Flow.Node do
           | :improper_list
           | :unsupported_expression
           | :other
-  def expression_error_kind(%{details: %{ref_type: _type, scope: _scope}}),
-    do: :invalid_scope
-
-  def expression_error_kind(%{details: %{segment: _segment}}), do: :invalid_ref_path
-  def expression_error_kind(%{details: %{type: _type}}), do: :invalid_ref
-  def expression_error_kind(%{details: %{reason: :improper_list}}), do: :improper_list
-  def expression_error_kind(%{details: %{expression: _expression}}), do: :unsupported_expression
-  def expression_error_kind(_error), do: :other
+  def expression_error_kind(error), do: Expression.error_kind(error)
 
   defp validate_name(name) when is_atom(name) and not is_nil(name) do
     name
@@ -175,8 +149,8 @@ defmodule Jido.Flow.Node do
   defp validate_input(nil), do: {:ok, %{}}
 
   defp validate_input(input) do
-    with {:ok, input} <- normalize_expression(input),
-         :ok <- validate_input_expression(input, [], :flow) do
+    with {:ok, input} <- Expression.normalize(input),
+         :ok <- Expression.validate(input) do
       {:ok, input}
     end
   end
@@ -217,114 +191,6 @@ defmodule Jido.Flow.Node do
     {:error, Error.validation_error("node provenance must be a map")}
   end
 
-  defp validate_input_expression(%Ref{} = ref, path, scope) do
-    case Ref.validate(ref, scope) do
-      :ok ->
-        :ok
-
-      {:error, %{details: %{reason: :path, segment: segment}}} ->
-        {:error,
-         Error.validation_error("node input contains invalid ref path", %{
-           path: path,
-           segment: segment
-         })}
-
-      {:error, %{details: %{reason: :scope, type: type, scope: invalid_scope}}} ->
-        {:error,
-         Error.validation_error(
-           "flow expression contains a scoped ref outside its valid scope",
-           %{path: path, ref_type: type, scope: invalid_scope}
-         )}
-
-      {:error, _error} ->
-        invalid_ref_error(ref.type, path)
-    end
-  end
-
-  defp validate_input_expression(%{} = map, path, scope) when not is_struct(map) do
-    Enum.reduce_while(map, :ok, fn {key, value}, :ok ->
-      case validate_input_expression(value, path ++ [key], scope) do
-        :ok -> {:cont, :ok}
-        {:error, error} -> {:halt, {:error, error}}
-      end
-    end)
-  end
-
-  defp validate_input_expression(list, path, scope) when is_list(list) do
-    if List.improper?(list) do
-      improper_list_error(path)
-    else
-      validate_proper_list_expression(list, path, scope)
-    end
-  end
-
-  defp validate_input_expression(%{__struct__: module}, path, _scope) do
-    {:error,
-     Error.validation_error("node input contains unsupported expression", %{
-       path: path,
-       expression: module
-     })}
-  end
-
-  defp validate_input_expression(_value, _path, _scope), do: :ok
-
-  defp do_normalize_expression(%Ref{type: :result, node: node} = ref, _path)
-       when (is_atom(node) and not is_nil(node)) or is_binary(node) do
-    case validate_name(node) do
-      {:ok, node} -> {:ok, %{ref | node: node}}
-      {:error, error} -> {:error, error}
-    end
-  end
-
-  defp do_normalize_expression(%Ref{type: :result} = ref, _path), do: {:ok, ref}
-
-  defp do_normalize_expression(%Ref{} = ref, _path), do: {:ok, ref}
-
-  defp do_normalize_expression(%{} = map, path) when not is_struct(map) do
-    Enum.reduce_while(map, {:ok, %{}}, fn {key, value}, {:ok, acc} ->
-      case do_normalize_expression(value, path ++ [key]) do
-        {:ok, value} -> {:cont, {:ok, Map.put(acc, key, value)}}
-        {:error, error} -> {:halt, {:error, error}}
-      end
-    end)
-  end
-
-  defp do_normalize_expression(list, path) when is_list(list) do
-    if List.improper?(list) do
-      improper_list_error(path)
-    else
-      normalize_proper_list_expression(list, path)
-    end
-  end
-
-  defp do_normalize_expression(value, _path), do: {:ok, value}
-
-  defp validate_proper_list_expression(list, path, scope) do
-    list
-    |> Enum.with_index()
-    |> Enum.reduce_while(:ok, fn {value, index}, :ok ->
-      case validate_input_expression(value, path ++ [index], scope) do
-        :ok -> {:cont, :ok}
-        {:error, error} -> {:halt, {:error, error}}
-      end
-    end)
-  end
-
-  defp normalize_proper_list_expression(list, path) do
-    list
-    |> Enum.with_index()
-    |> Enum.reduce_while({:ok, []}, fn {value, index}, {:ok, acc} ->
-      case do_normalize_expression(value, path ++ [index]) do
-        {:ok, value} -> {:cont, {:ok, [value | acc]}}
-        {:error, error} -> {:halt, {:error, error}}
-      end
-    end)
-    |> case do
-      {:ok, values} -> {:ok, Enum.reverse(values)}
-      {:error, error} -> {:error, error}
-    end
-  end
-
   defp validate_known_keys(attrs) do
     case attrs |> Map.keys() |> Enum.find(&(&1 not in @config_keys)) do
       nil ->
@@ -334,21 +200,5 @@ defmodule Jido.Flow.Node do
         {:error,
          Error.validation_error("unknown node configuration key: #{inspect(key)}", %{key: key})}
     end
-  end
-
-  defp invalid_ref_error(type, path) do
-    {:error,
-     Error.validation_error("node input contains invalid ref", %{
-       path: path,
-       type: type
-     })}
-  end
-
-  defp improper_list_error(path) do
-    {:error,
-     Error.validation_error("flow expression must be a proper list", %{
-       path: path,
-       reason: :improper_list
-     })}
   end
 end

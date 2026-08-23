@@ -9,7 +9,7 @@ defmodule Jido.Flow.Iterator do
   alias Jido.Action
   alias Jido.Action.Error
   alias Jido.Flow.Condition
-  alias Jido.Flow.Node
+  alias Jido.Flow.Expression
   alias Jido.Flow.State
   alias Jido.Instruction
 
@@ -86,7 +86,7 @@ defmodule Jido.Flow.Iterator do
   @spec result_deps(t()) :: [String.t()]
   def result_deps(%__MODULE__{} = iterator) do
     iterator.input
-    |> Node.collect_result_refs()
+    |> Expression.result_refs()
     |> Kernel.++(State.result_deps(iterator.state))
     |> Kernel.++(Condition.result_deps(iterator.completion))
     |> Kernel.++(iterator.deps)
@@ -121,7 +121,7 @@ defmodule Jido.Flow.Iterator do
       kind: :iterate,
       name: iterator.name,
       action: iterator.action,
-      input: Node.expression_to_map(iterator.input),
+      input: Expression.to_map(iterator.input),
       state: State.to_map(iterator.state),
       completion: Condition.to_map(iterator.completion),
       max_iterations: iterator.max_iterations,
@@ -222,8 +222,8 @@ defmodule Jido.Flow.Iterator do
   end
 
   defp validate_expression(expression, field, scope) do
-    with {:ok, expression} <- Node.normalize_expression(expression),
-         :ok <- Node.validate_expression(expression, scope) do
+    with {:ok, expression} <- Expression.normalize(expression),
+         :ok <- Expression.validate(expression, scope) do
       {:ok, expression}
     else
       {:error, error} -> {:error, translate_expression_error(error, field)}
@@ -235,7 +235,7 @@ defmodule Jido.Flow.Iterator do
     path = [field] ++ Map.get(details, :path, [])
     owner = "iterator body input"
 
-    case Node.expression_error_kind(error) do
+    case Expression.error_kind(error) do
       :invalid_scope ->
         Error.validation_error(
           "flow expression contains a scoped ref outside its valid scope",
