@@ -5,12 +5,12 @@ defmodule Jido.Flow.Compiler do
   alias Jido.Flow
   alias Jido.Flow.Choice
   alias Jido.Flow.Compiler.Choice, as: ChoiceCompiler
-  alias Jido.Flow.Compiler.ErrorTagger
   alias Jido.Flow.Compiler.Expression
   alias Jido.Flow.Compiler.Iterator, as: IteratorCompiler
   alias Jido.Flow.Compiler.Map, as: MapCompiler
   alias Jido.Flow.Compiler.Reduce, as: ReduceCompiler
   alias Jido.Flow.Compiler.Target
+  alias Jido.Flow.Compiler.TargetContext
   alias Jido.Flow.Element
   alias Jido.Flow.Graph
   alias Jido.Flow.Identity
@@ -185,7 +185,7 @@ defmodule Jido.Flow.Compiler do
       node.action,
       params,
       state.context,
-      ErrorTagger.node_target_owner(node),
+      TargetContext.node(node),
       state.execution_id,
       state.target_runner
     )

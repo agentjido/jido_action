@@ -5,7 +5,9 @@ defmodule Jido.Flow.Compiler.Reduce do
   alias Jido.Action.Output
   alias Jido.Flow.Compiler.ErrorTagger
   alias Jido.Flow.Compiler.Expression
+  alias Jido.Flow.Compiler.MapResult
   alias Jido.Flow.Compiler.Target
+  alias Jido.Flow.Compiler.TargetContext
   alias Jido.Flow.Identity
   alias Jido.Flow.Ref
 
@@ -60,18 +62,15 @@ defmodule Jido.Flow.Compiler.Reduce do
     end
   end
 
-  defp normalize_direct_map_result(
-         reduce,
-         %{kind: :jido_flow_map_result, results: results, errors: errors} = aggregate
-       ) do
-    with :ok <- validate_direct_map_keys(aggregate),
-         :ok <- validate_direct_map_records(results, errors) do
-      if errors == [] do
+  defp normalize_direct_map_result(reduce, aggregate) do
+    case MapResult.validate(aggregate) do
+      {:ok, results, []} ->
         {:ok,
          Enum.map(results, fn result ->
            %{item: result.output, item_index: result.index, item_id: result.item_id}
          end)}
-      else
+
+      {:ok, _results, errors} ->
         {:error,
          Error.execution_error("reduce cannot consume a Map result with errors", %{
            phase: :reduce_collection,
@@ -80,88 +79,9 @@ defmodule Jido.Flow.Compiler.Reduce do
            error_indices: Enum.map(errors, & &1.index),
            retry: false
          })}
-      end
-    else
-      {:error, path} -> invalid_direct_map_result(reduce, path)
-    end
-  end
 
-  defp normalize_direct_map_result(reduce, _collection),
-    do: invalid_direct_map_result(reduce, [])
-
-  defp validate_direct_map_keys(aggregate) do
-    if aggregate |> Map.keys() |> MapSet.new() ==
-         MapSet.new([:kind, :results, :errors]) do
-      :ok
-    else
-      {:error, []}
-    end
-  end
-
-  defp validate_direct_map_records(results, errors) do
-    with true <- is_list(results) and not List.improper?(results),
-         true <- is_list(errors) and not List.improper?(errors),
-         :ok <- validate_direct_records(results, :result, [:results]),
-         :ok <- validate_direct_records(errors, :error, [:errors]),
-         :ok <- validate_direct_record_identity(results, errors) do
-      :ok
-    else
-      false -> {:error, []}
-      {:error, path} -> {:error, path}
-    end
-  end
-
-  defp validate_direct_records(records, kind, root_path) do
-    records
-    |> Enum.with_index()
-    |> Enum.reduce_while({:ok, -1}, fn {record, position}, {:ok, previous_index} ->
-      case validate_direct_record(record, kind, previous_index) do
-        {:ok, index} -> {:cont, {:ok, index}}
-        :error -> {:halt, {:error, root_path ++ [position]}}
-      end
-    end)
-    |> case do
-      {:ok, _last_index} -> :ok
-      {:error, path} -> {:error, path}
-    end
-  end
-
-  defp validate_direct_record(record, kind, previous_index) when is_map(record) do
-    index = Map.get(record, :index)
-
-    if valid_direct_record_keys?(record, kind) and valid_direct_record_value?(record, kind) and
-         is_integer(index) and index >= 0 and index > previous_index and
-         is_binary(Map.get(record, :item_id)) do
-      {:ok, index}
-    else
-      :error
-    end
-  end
-
-  defp validate_direct_record(_record, _kind, _previous_index), do: :error
-
-  defp valid_direct_record_keys?(record, :result),
-    do: MapSet.new(Map.keys(record)) == MapSet.new([:item_id, :index, :output])
-
-  defp valid_direct_record_keys?(record, :error),
-    do: MapSet.new(Map.keys(record)) == MapSet.new([:item_id, :index, :error])
-
-  defp valid_direct_record_value?(record, :result),
-    do: valid_reduce_accumulator?(Map.get(record, :output))
-
-  defp valid_direct_record_value?(record, :error),
-    do: is_exception(Map.get(record, :error))
-
-  defp validate_direct_record_identity(results, errors) do
-    records = results ++ errors
-    indexes = Enum.map(records, & &1.index)
-    item_ids = Enum.map(records, & &1.item_id)
-
-    if length(Enum.uniq(indexes)) == length(indexes) and
-         length(Enum.uniq(item_ids)) == length(item_ids) do
-      :ok
-    else
-      {:error, []}
+      {:error, path} ->
+        invalid_direct_map_result(reduce, path)
     end
   end
 
@@ -219,24 +139,23 @@ defmodule Jido.Flow.Compiler.Reduce do
       |> Map.merge(item_state)
       |> Map.put(:accumulator, accumulator)
 
-    with {:ok, params} <- resolve_reduce_input(reduce, local_state, item_state) do
+    target_context = TargetContext.reduce(reduce, item_state)
+
+    with {:ok, params} <- resolve_reduce_input(reduce, local_state, target_context) do
       Target.run(
         reduce.action,
         params,
         state.context,
-        ErrorTagger.reduce_target_owner(reduce, item_state),
+        target_context,
         state.execution_id,
         state.target_runner
       )
     end
   end
 
-  defp resolve_reduce_input(reduce, state, item_state) do
+  defp resolve_reduce_input(reduce, state, target_context) do
     reduce.input
     |> Expression.resolve(state)
-    |> ErrorTagger.tag_target_validation_error(
-      :input,
-      ErrorTagger.reduce_target_owner(reduce, item_state)
-    )
+    |> ErrorTagger.tag_target_validation_error(:input, target_context)
   end
 end

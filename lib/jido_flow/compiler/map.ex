@@ -4,9 +4,12 @@ defmodule Jido.Flow.Compiler.Map do
   alias Jido.Action.Error
   alias Jido.Flow.Compiler.ErrorTagger
   alias Jido.Flow.Compiler.Expression
+  alias Jido.Flow.Compiler.MapResult
   alias Jido.Flow.Compiler.Target
+  alias Jido.Flow.Compiler.TargetContext
   alias Jido.Flow.Identity
   alias Jido.Flow.Map, as: FlowMap
+  alias Jido.Flow.Runtime.OrderedTaskRunner
 
   @doc false
   def run(map, collection, state) do
@@ -24,8 +27,7 @@ defmodule Jido.Flow.Compiler.Map do
 
       case dispatch_map_items(map, items, state) do
         {:ok, results, errors} ->
-          aggregate = %{kind: :jido_flow_map_result, results: results, errors: errors}
-          {:ok, aggregate}
+          {:ok, MapResult.new(results, errors)}
 
         {:error, error, _started_count, _success_count, _error_count} ->
           {:error, error, state}
@@ -98,64 +100,25 @@ defmodule Jido.Flow.Compiler.Map do
   end
 
   defp execute_async_map_items(map, items, state) do
-    caller = self()
-    reference = make_ref()
-
-    {worker, monitor} =
-      spawn_monitor(fn ->
-        worker = self()
-        spawn(fn -> terminate_map_worker_with_caller(caller, worker) end)
-        Process.flag(:trap_exit, true)
-
-        outcomes =
-          items
-          |> Task.async_stream(&run_map_item(map, &1, state),
-            max_concurrency: Keyword.fetch!(state.options, :max_concurrency),
-            timeout: :infinity,
-            ordered: true
-          )
-          |> Stream.zip(items)
-          |> Enum.map(fn
-            {{:ok, outcome}, _item_state} ->
-              outcome
-
-            {{:exit, reason}, item_state} ->
-              map_item_task_exit(map, item_state, reason)
-          end)
-
-        send(caller, {reference, self(), outcomes})
-      end)
-
-    receive do
-      {^reference, ^worker, outcomes} ->
-        Process.demonitor(monitor, [:flush])
-        outcomes
-
-      {:DOWN, ^monitor, :process, ^worker, reason} ->
-        exit(reason)
-    end
-  end
-
-  defp terminate_map_worker_with_caller(caller, worker) do
-    caller_monitor = Process.monitor(caller)
-    worker_monitor = Process.monitor(worker)
-
-    receive do
-      {:DOWN, ^caller_monitor, :process, ^caller, _reason} -> Process.exit(worker, :kill)
-      {:DOWN, ^worker_monitor, :process, ^worker, _reason} -> :ok
-    end
+    OrderedTaskRunner.run(
+      items,
+      Keyword.fetch!(state.options, :max_concurrency),
+      &run_map_item(map, &1, state),
+      &map_item_task_exit(map, &1, &2)
+    )
   end
 
   defp run_map_item(map, item_state, state) do
     local_state = Map.merge(state, item_state)
+    target_context = TargetContext.map(map, item_state)
 
-    with {:ok, params} <- resolve_map_input(map, local_state, item_state),
+    with {:ok, params} <- resolve_map_input(map, local_state, target_context),
          {:ok, output} <-
            Target.run(
              map.action,
              params,
              state.context,
-             ErrorTagger.map_target_owner(map, item_state),
+             target_context,
              state.execution_id,
              state.target_runner
            ) do
@@ -166,13 +129,10 @@ defmodule Jido.Flow.Compiler.Map do
     end
   end
 
-  defp resolve_map_input(map, state, item_state) do
+  defp resolve_map_input(map, state, target_context) do
     map.input
     |> Expression.resolve(state)
-    |> ErrorTagger.tag_target_validation_error(
-      :input,
-      ErrorTagger.map_target_owner(map, item_state)
-    )
+    |> ErrorTagger.tag_target_validation_error(:input, target_context)
   end
 
   defp map_item_task_exit(map, item_state, reason) do

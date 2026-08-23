@@ -7,6 +7,7 @@ defmodule Jido.Flow.Compiler.Iterator do
   alias Jido.Flow.Compiler.ErrorTagger
   alias Jido.Flow.Compiler.Expression
   alias Jido.Flow.Compiler.Target
+  alias Jido.Flow.Compiler.TargetContext
   alias Jido.Flow.Identity
 
   @doc false
@@ -53,30 +54,20 @@ defmodule Jido.Flow.Compiler.Iterator do
       |> Map.put(:iteration_index, index)
       |> Map.put(:body_result, runtime.body_result)
 
+    target_context =
+      TargetContext.iterator(iterator, index, iteration_id, runtime.revision)
+
     result =
       try do
         with {:ok, params} <-
                Expression.resolve(iterator.input, local_state)
-               |> ErrorTagger.tag_target_validation_error(
-                 :input,
-                 ErrorTagger.iterator_target_owner(
-                   iterator,
-                   index,
-                   iteration_id,
-                   runtime.revision
-                 )
-               ),
+               |> ErrorTagger.tag_target_validation_error(:input, target_context),
              {:ok, output} <-
                Target.run(
                  iterator.action,
                  params,
                  state.context,
-                 ErrorTagger.iterator_target_owner(
-                   iterator,
-                   index,
-                   iteration_id,
-                   runtime.revision
-                 ),
+                 target_context,
                  state.execution_id,
                  state.target_runner
                ),

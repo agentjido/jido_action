@@ -35,8 +35,10 @@ defmodule Jido.PublicAPITest do
     Jido.Flow.Compiler.Expression,
     Jido.Flow.Compiler.Iterator,
     Jido.Flow.Compiler.Map,
+    Jido.Flow.Compiler.MapResult,
     Jido.Flow.Compiler.Reduce,
     Jido.Flow.Compiler.Target,
+    Jido.Flow.Compiler.TargetContext,
     Jido.Flow.DSL.MacroSupport,
     Jido.Flow.DSL.ModuleCompiler,
     Jido.Flow.Element.Validation,
@@ -55,6 +57,7 @@ defmodule Jido.PublicAPITest do
     Jido.Flow.MapCodec.RecordValidator,
     Jido.Flow.MapCodec.RegistryLookup,
     Jido.Flow.SemanticMap,
+    Jido.Flow.Runtime.OrderedTaskRunner,
     Jido.Flow.Validation
   ]
 

@@ -5,6 +5,7 @@ defmodule Jido.Flow.ErrorTaggerContractTest do
   alias Jido.Flow.{Choice, Iterator, Node, Reduce, Ref, State}
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.Compiler.ErrorTagger
+  alias Jido.Flow.Compiler.TargetContext
   alias JidoTest.TestActions.{Add, Multiply}
 
   test "keeps target phase and ownership details for every Flow element" do
@@ -106,17 +107,16 @@ defmodule Jido.Flow.ErrorTaggerContractTest do
     item = %{item_index: 3, item_id: "item-id"}
 
     [
-      {ErrorTagger.node_target_owner(node), :step_input, :step_execution, :step_output,
+      {TargetContext.node(node), :step_input, :step_execution, :step_output,
        %{node: "step", action: Add}},
-      {ErrorTagger.choice_target_owner(choice, hd(choice.options)), :choice_target_input,
+      {TargetContext.choice(choice, hd(choice.options)), :choice_target_input,
        :choice_target_execution, :choice_target_output,
        %{node: "choice", option: "selected", target: Add}},
-      {ErrorTagger.map_target_owner(map, item), :map_target_input, :map_target_execution,
-       :map_target_output, %{node: "map", target: Add, item_index: 3, item_id: "item-id"}},
-      {ErrorTagger.reduce_target_owner(reduce, item), :reduce_target_input,
-       :reduce_target_execution, :reduce_target_output,
-       %{node: "reduce", target: Add, item_index: 3, item_id: "item-id"}},
-      {ErrorTagger.iterator_target_owner(iterator, 4, "iteration-id", 5), :iterate_body_input,
+      {TargetContext.map(map, item), :map_target_input, :map_target_execution, :map_target_output,
+       %{node: "map", target: Add, item_index: 3, item_id: "item-id"}},
+      {TargetContext.reduce(reduce, item), :reduce_target_input, :reduce_target_execution,
+       :reduce_target_output, %{node: "reduce", target: Add, item_index: 3, item_id: "item-id"}},
+      {TargetContext.iterator(iterator, 4, "iteration-id", 5), :iterate_body_input,
        :iterate_body_execution, :iterate_body_output,
        %{
          node: "iterate",

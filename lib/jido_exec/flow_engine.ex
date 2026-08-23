@@ -6,6 +6,7 @@ defmodule Jido.Exec.FlowEngine do
   alias Jido.Exec.{Execution, NodeResult}
   alias Jido.Flow
   alias Jido.Flow.{Compiler, Element, NodeError}
+  alias Jido.Flow.Runtime.OrderedTaskRunner
   alias Runic.Workflow
   alias Runic.Workflow.{Fact, Runnable, Step}
 
@@ -275,61 +276,22 @@ defmodule Jido.Exec.FlowEngine do
   end
 
   defp execute_async_runnables(runnables, max_concurrency) do
-    caller = self()
-    reference = make_ref()
-
-    {worker, monitor} =
-      spawn_monitor(fn ->
-        worker = self()
-        spawn(fn -> terminate_worker_with_caller(caller, worker) end)
-        Process.flag(:trap_exit, true)
-
-        executed =
-          runnables
-          |> Task.async_stream(&Workflow.execute_runnable/1,
-            max_concurrency: max_concurrency,
-            timeout: :infinity,
-            ordered: true
-          )
-          |> Enum.zip(runnables)
-          |> Enum.map(fn
-            {{:ok, executed}, _runnable} ->
-              executed
-
-            {{:exit, reason}, runnable} ->
-              Runnable.fail(
-                runnable,
-                Error.execution_error("flow node task exited", %{
-                  node: runnable.node.name,
-                  reason: reason
-                })
-              )
-          end)
-
-        send(caller, {reference, self(), executed})
-      end)
-
-    receive do
-      {^reference, ^worker, executed} ->
-        Process.demonitor(monitor, [:flush])
-        executed
-
-      {:DOWN, ^monitor, :process, ^worker, reason} ->
-        exit(reason)
-    end
+    OrderedTaskRunner.run(
+      runnables,
+      max_concurrency,
+      &Workflow.execute_runnable/1,
+      &fail_exited_runnable/2
+    )
   end
 
-  defp terminate_worker_with_caller(caller, worker) do
-    caller_monitor = Process.monitor(caller)
-    worker_monitor = Process.monitor(worker)
-
-    receive do
-      {:DOWN, ^caller_monitor, :process, ^caller, _reason} ->
-        Process.exit(worker, :kill)
-
-      {:DOWN, ^worker_monitor, :process, ^worker, _reason} ->
-        :ok
-    end
+  defp fail_exited_runnable(runnable, reason) do
+    Runnable.fail(
+      runnable,
+      Error.execution_error("flow node task exited", %{
+        node: runnable.node.name,
+        reason: reason
+      })
+    )
   end
 
   defp apply_public_runnable(execution, node, %Runnable{} = runnable) do
