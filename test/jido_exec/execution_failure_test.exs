@@ -203,7 +203,7 @@ defmodule Jido.Exec.ExecutionFailureTest do
       on_exit(fn -> Process.exit(caller, :kill) end)
 
       assert_receive {:flow_caller_ready, linked}
-      assert_receive {:blocking_flow_node_started, worker}
+      assert_receive {:blocking_flow_node_started, worker}, 1_000
       worker_monitor = Process.monitor(worker)
 
       send(linked, :exit_abnormally)
