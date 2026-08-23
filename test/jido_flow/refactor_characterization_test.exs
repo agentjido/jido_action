@@ -2,42 +2,135 @@ defmodule Jido.Flow.RefactorCharacterizationTest do
   use ExUnit.Case, async: true
 
   alias Jido.Flow
-  alias Jido.Flow.{Compiler, MapCodec, Node, Ref, Registry}
-  alias JidoTest.TestActions.Add
+  alias Jido.Flow.{Builder, Node, Ref, Registry}
+  alias JidoTest.TestActions.{Add, Multiply}
 
-  test "keeps the Flow, MapCodec, and Compiler facade exports stable" do
-    assert MapCodec.__info__(:functions) == [
-             from_stored_map: 2,
-             to_semantic_map: 3,
-             to_stored_map: 4,
-             to_stored_map!: 4
-           ]
+  test "keeps the documented Flow facade available without freezing private exports" do
+    for {name, arity} <- [
+          new: 1,
+          new!: 1,
+          dependencies: 1,
+          explain: 1,
+          from_stored_map: 2,
+          semantic_identity: 1,
+          to_map: 1,
+          to_map: 2,
+          to_stored_map: 2,
+          to_stored_map: 3,
+          validate: 1,
+          validate_executable: 1
+        ] do
+      assert function_exported?(Flow, name, arity)
+    end
 
-    assert Compiler.__info__(:functions) == [
-             runtime_result: 4,
-             runtime_workflow_validated: 6
-           ]
+    assert macro_exported?(Flow, :__using__, 1)
+  end
 
-    assert Flow.__info__(:functions) == [
-             __struct__: 0,
-             __struct__: 1,
-             __validate_config__: 1,
-             canonical_nodes: 1,
-             dependencies: 1,
-             explain: 1,
-             from_stored_map: 2,
-             new: 1,
-             new!: 1,
-             semantic_identity: 1,
-             to_map: 1,
-             to_map: 2,
-             to_stored_map: 2,
-             to_stored_map: 3,
-             validate: 1,
-             validate_executable: 1
-           ]
+  test "keeps DSL, Builder, and stored-map authoring semantically equal" do
+    dsl_module = unique_module()
 
-    assert Flow.__info__(:macros) == [__before_compile__: 1, __using__: 1]
+    Module.create(
+      dsl_module,
+      quote do
+        use Jido.Flow, name: "surface_parity"
+
+        flow do
+          step("seed",
+            action: unquote(Add),
+            params: %{value: input(:value), amount: value(1)}
+          )
+
+          choice "route" do
+            option("positive",
+              condition: select(result("seed"), [:value]) > 0,
+              action: unquote(Add),
+              params: %{value: select(result("seed"), [:value]), amount: value(1)}
+            )
+
+            otherwise(
+              action: unquote(Multiply),
+              params: %{value: select(result("seed"), [:value]), amount: value(2)}
+            )
+          end
+
+          map("mapped",
+            collection: input(:items),
+            action: unquote(Multiply),
+            params: %{value: item(), amount: select(result("route"), [:value])}
+          )
+
+          reduce("total",
+            collection: result("mapped"),
+            initial: %{value: value(0)},
+            action: unquote(Add),
+            params: %{value: accumulator(:value), amount: item(:value)}
+          )
+
+          iterate "count" do
+            state([], initial: %{value: select(result("total"), [:value])})
+            action(unquote(Add))
+            params(%{value: state(:value), amount: value(1)})
+            update(%{value: body_result(:value)})
+            repeat(2)
+          end
+
+          output(result("count"))
+        end
+      end,
+      Macro.Env.location(__ENV__)
+    )
+
+    builder =
+      Builder.new(name: "surface_parity")
+      |> Builder.step("seed", Add, %{value: Builder.input(:value), amount: Builder.value(1)})
+      |> Builder.choice(
+        "route",
+        [
+          Builder.option(
+            "positive",
+            Builder.gt(Builder.result("seed", :value), Builder.value(0)),
+            Add,
+            %{value: Builder.result("seed", :value), amount: Builder.value(1)}
+          )
+        ],
+        Builder.fallback(Multiply, %{
+          value: Builder.result("seed", :value),
+          amount: Builder.value(2)
+        })
+      )
+      |> Builder.map("mapped", Builder.input(:items), Multiply, %{
+        value: Builder.item(),
+        amount: Builder.result("route", :value)
+      })
+      |> Builder.reduce(
+        "total",
+        Builder.result("mapped"),
+        %{value: Builder.value(0)},
+        Add,
+        %{value: Builder.accumulator(:value), amount: Builder.item(:value)}
+      )
+      |> Builder.iterate(
+        "count",
+        Add,
+        %{value: Builder.state(:value), amount: Builder.value(1)},
+        %{
+          schema: [],
+          initial: %{value: Builder.result("total", :value)},
+          update: %{value: Builder.body_result(:value)}
+        },
+        repeat: 2
+      )
+      |> Builder.return(Builder.result("count"))
+
+    assert {:ok, built} = Builder.build(builder)
+    assert Flow.to_map(dsl_module.flow()) == Flow.to_map(built)
+
+    assert {:ok, stored} = Flow.to_stored_map(built, registry())
+
+    assert {:ok, restored} =
+             stored |> Jason.encode!() |> Jason.decode!() |> Flow.from_stored_map(registry())
+
+    assert Flow.to_map(restored) == Flow.to_map(built)
   end
 
   test "keeps the representative stored-map shape stable" do
@@ -156,7 +249,12 @@ defmodule Jido.Flow.RefactorCharacterizationTest do
   defp registry do
     Registry.new!(%{
       "action/add/v1" => {:action, Add},
+      "action/multiply/v1" => {:action, Multiply},
       "schema/empty/v1" => {:schema, []}
     })
+  end
+
+  defp unique_module do
+    Module.concat(__MODULE__, "SurfaceParity#{System.unique_integer([:positive])}")
   end
 end
