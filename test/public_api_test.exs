@@ -28,6 +28,7 @@ defmodule Jido.PublicAPITest do
   ]
 
   @internal_modules [
+    Jido.Exec.FlowRunnableExecutor,
     Jido.Flow.Compiler,
     Jido.Flow.Compiler.Choice,
     Jido.Flow.Compiler.Condition,
@@ -46,6 +47,7 @@ defmodule Jido.PublicAPITest do
     Jido.Flow.Expression,
     Jido.Flow.Graph,
     Jido.Flow.Inspection,
+    Jido.Flow.Iterator.Termination,
     Jido.Flow.MapCodec,
     Jido.Flow.MapCodec.ChoiceDecoder,
     Jido.Flow.MapCodec.CollectionDecoder,
