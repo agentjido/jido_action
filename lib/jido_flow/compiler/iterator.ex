@@ -48,6 +48,19 @@ defmodule Jido.Flow.Compiler.Iterator do
     index = runtime.completed
     iteration_id = Identity.iteration_uuid(state.flow_digest, iterator.name, index)
 
+    span =
+      state.observer.({
+        :start,
+        :iterate_iteration,
+        %{
+          node: iterator.name,
+          target: iterator.action,
+          iteration_index: index,
+          iteration_id: iteration_id,
+          state_revision: runtime.revision
+        }
+      })
+
     local_state =
       state
       |> Map.put(:iterate_state, runtime.state)
@@ -115,13 +128,16 @@ defmodule Jido.Flow.Compiler.Iterator do
 
     case result do
       {:ok, completed?, next_runtime} ->
+        state.observer.({:stop, span})
         continue_iterator_after_iteration(iterator, state, next_runtime, completed?)
 
       {:error, error, failure_runtime} ->
+        state.observer.({:error, span, error})
         iterator_fail(iterator, state, failure_runtime, error)
 
       {:internal_error, error_type} ->
         error = iterator_internal_error(iterator, index, runtime.revision, error_type)
+        state.observer.({:error, span, error})
         iterator_fail(iterator, state, runtime, error)
     end
   end

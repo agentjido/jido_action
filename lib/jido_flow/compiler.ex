@@ -26,6 +26,8 @@ defmodule Jido.Flow.Compiler do
           (module(), term(), map(), String.t() ->
              {:ok, term()} | {:error, target_phase(), Exception.t()})
 
+  @type observer :: (term() -> term())
+
   @type node_state :: %{
           execution_id: String.t(),
           flow: String.t(),
@@ -35,7 +37,8 @@ defmodule Jido.Flow.Compiler do
           results: map(),
           options: keyword(),
           map_nodes: MapSet.t(String.t()),
-          target_runner: target_runner()
+          target_runner: target_runner(),
+          observer: observer()
         }
 
   @doc false
@@ -55,9 +58,41 @@ defmodule Jido.Flow.Compiler do
         options,
         target_runner,
         execution_id
+      ) do
+    runtime_workflow_validated(
+      flow,
+      input,
+      context,
+      options,
+      target_runner,
+      execution_id,
+      &ignore_observation/1
+    )
+  end
+
+  @doc false
+  @spec runtime_workflow_validated(
+          Flow.t(),
+          map(),
+          map(),
+          keyword(),
+          target_runner(),
+          String.t(),
+          observer()
+        ) ::
+          {:ok, Workflow.t(), [Element.t()]} | {:error, Exception.t()}
+  def runtime_workflow_validated(
+        %Flow{} = flow,
+        input,
+        context,
+        options,
+        target_runner,
+        execution_id,
+        observer
       )
       when is_map(input) and is_map(context) and is_list(options) and
-             is_function(target_runner, 4) and is_binary(execution_id) do
+             is_function(target_runner, 4) and is_binary(execution_id) and
+             is_function(observer, 1) do
     node_state = %{
       execution_id: execution_id,
       flow: flow.name,
@@ -67,6 +102,7 @@ defmodule Jido.Flow.Compiler do
       results: %{},
       options: options,
       target_runner: target_runner,
+      observer: observer,
       map_nodes:
         flow.nodes
         |> Enum.filter(&match?(%FlowMap{}, &1))
@@ -82,10 +118,15 @@ defmodule Jido.Flow.Compiler do
         _context,
         _options,
         _target_runner,
-        _execution_id
+        _execution_id,
+        _observer
       ) do
     {:error, Error.validation_error("flow input and context must be maps")}
   end
+
+  defp ignore_observation({:start, _kind, _metadata}), do: nil
+  defp ignore_observation({:stop, _span}), do: :ok
+  defp ignore_observation({:error, _span, _error}), do: :ok
 
   @doc false
   @spec runtime_result(Flow.t(), Workflow.t(), map(), map()) ::

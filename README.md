@@ -229,13 +229,14 @@ Reusing a stale value can run an Action side effect again.
 
 ## Observe Execution
 
-Telemetry has three lifecycle groups: Action, Flow, and Flow node. Direct
-Actions and Instructions emit `[:jido, :action, :start]`,
+Telemetry covers Action, Flow, Flow node, and collection work-unit lifecycles.
+Direct Actions and Instructions emit `[:jido, :action, :start]`,
 `[:jido, :action, :stop]`, and `[:jido, :action, :error]`. Flows and their
-nodes use the `[:jido, :flow]` namespace. One `execution_id` correlates nested
-work. An Action inside a Flow is represented by its node span and does not emit
-a separate Action lifecycle. Telemetry observes execution only; it does not
-control scheduling or results.
+nodes use the `[:jido, :flow]` namespace. Map items, Reduce items, and Iterate
+iterations add work-unit spans in that namespace. One `execution_id`
+correlates nested work. An Action inside a Flow does not emit a separate Action
+lifecycle. Telemetry observes execution only; it does not control scheduling
+or results.
 
 See [Execution](guides/execution.md) for exact event names, measurements,
 metadata, nesting, and step-wise semantics.

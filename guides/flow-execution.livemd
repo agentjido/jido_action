@@ -418,7 +418,7 @@ directly when you need to step through its nodes or set its execution options.
 
 ## Observe Execution With Telemetry
 
-Jido emits only these nine events:
+Jido emits 18 events. Nine events describe the top-level lifecycles:
 
 - `[:jido, :action, :start]`, `[:jido, :action, :stop]`, and
   `[:jido, :action, :error]` for direct Actions and Instructions;
@@ -426,6 +426,12 @@ Jido emits only these nine events:
   `[:jido, :flow, :error]`; and
 - `[:jido, :flow, :node, :start]`, `[:jido, :flow, :node, :stop]`, and
   `[:jido, :flow, :node, :error]`.
+
+Nine events describe Action work inside collection nodes:
+
+- `[:jido, :flow, :map, :item, :start]`, `:stop`, and `:error`;
+- `[:jido, :flow, :reduce, :item, :start]`, `:stop`, and `:error`; and
+- `[:jido, :flow, :iterate, :iteration, :start]`, `:stop`, and `:error`.
 
 Start measurements are `%{system_time: integer, monotonic_time: integer}`.
 Stop and error measurements are `%{duration: integer, monotonic_time: integer}`.
@@ -436,6 +442,11 @@ metadata is `%{execution_id: binary, flow: binary, node: binary, kind: :step |
 :choice | :map | :reduce | :iterate}`. Error events add `:error` and
 `:error_type`.
 
+Map and Reduce work units add `target`, `item_index`, and `item_id`. Iterate
+work units add `target`, `iteration_index`, `iteration_id`, and
+`state_revision`. All work units also include `execution_id`, `flow`, `node`,
+and a work-unit `kind`.
+
 One `execution_id` correlates a Flow, nested Flows, and all node spans. In
 serial execution, a Flow contains its node spans. An Action inside a Flow is
 represented by its node span and does not emit a separate Action lifecycle.
@@ -443,14 +454,18 @@ Async node spans can overlap and can come from task processes. Each span
 measures that worker's node work. Async event order can follow scheduler and
 completion order, so correlate events by `execution_id` and node metadata.
 
+Collection work-unit events can have high volume. Attach a handler only when
+you need item or iteration detail.
+
 For step-wise execution, `start/4` opens the Flow lifecycle. Node events occur
 only when a step or wave runs them. The operation that reaches a terminal
 result closes the Flow lifecycle. If a caller abandons a paused execution, it
 has no stop or error event.
 
-Jido does not emit item, iteration, State transition, completion, exhaustion,
-or failure events. Telemetry observes work. It does not schedule work, send
-runtime coordination messages, create helper processes, or change results.
+Jido does not emit scheduler, State transition, completion, or exhaustion
+point events. Work-unit error events report failed collection Action calls.
+Telemetry observes work. It does not schedule work, send runtime coordination
+messages, create helper processes, or change results.
 
 ## Current Execution Limits
 

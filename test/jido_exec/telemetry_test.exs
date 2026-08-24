@@ -5,7 +5,8 @@ defmodule Jido.Exec.TelemetryTest do
   alias Jido.Action.Telemetry
   alias Jido.Exec
   alias Jido.Flow
-  alias Jido.Flow.{Node, Ref}
+  alias Jido.Flow.{Condition, Iterator, Node, Reduce, Ref, State}
+  alias Jido.Flow.Map, as: FlowMap
   alias Jido.Instruction
   alias JidoTest.ExecFixtures.{InstructionTelemetryFlow, TelemetryParentFlow}
   alias JidoTest.TestActions.{Add, ErrorAction, StacktraceAction}
@@ -19,18 +20,39 @@ defmodule Jido.Exec.TelemetryTest do
   @node_start [:jido, :flow, :node, :start]
   @node_stop [:jido, :flow, :node, :stop]
   @node_error [:jido, :flow, :node, :error]
+  @map_item_start [:jido, :flow, :map, :item, :start]
+  @map_item_stop [:jido, :flow, :map, :item, :stop]
+  @map_item_error [:jido, :flow, :map, :item, :error]
+  @reduce_item_start [:jido, :flow, :reduce, :item, :start]
+  @reduce_item_stop [:jido, :flow, :reduce, :item, :stop]
+  @reduce_item_error [:jido, :flow, :reduce, :item, :error]
+  @iteration_start [:jido, :flow, :iterate, :iteration, :start]
+  @iteration_stop [:jido, :flow, :iterate, :iteration, :stop]
+  @iteration_error [:jido, :flow, :iterate, :iteration, :error]
+
+  @collection_events [
+    @map_item_start,
+    @map_item_stop,
+    @map_item_error,
+    @reduce_item_start,
+    @reduce_item_stop,
+    @reduce_item_error,
+    @iteration_start,
+    @iteration_stop,
+    @iteration_error
+  ]
 
   @public_events [
-    @action_start,
-    @action_stop,
-    @action_error,
-    @flow_start,
-    @flow_stop,
-    @flow_error,
-    @node_start,
-    @node_stop,
-    @node_error
-  ]
+                   @action_start,
+                   @action_stop,
+                   @action_error,
+                   @flow_start,
+                   @flow_stop,
+                   @flow_error,
+                   @node_start,
+                   @node_stop,
+                   @node_error
+                 ] ++ @collection_events
 
   @retired_exec_events [
     [:jido, :exec, :start],
@@ -466,15 +488,136 @@ defmodule Jido.Exec.TelemetryTest do
     assert length(Enum.uniq(execution_ids)) == 1
   end
 
-  test "does not emit internal Map, Reduce, Iterator, or state events" do
+  test "emits Action work-unit spans for Map, Reduce, and Iterate" do
+    attach(@collection_events)
+
+    flow =
+      Flow.new!(
+        name: "collection_telemetry",
+        nodes: [
+          FlowMap.new!(
+            name: "mapped",
+            collection: Ref.value([1, 2]),
+            action: Add,
+            input: %{value: Ref.item(), amount: Ref.value(1)}
+          ),
+          Reduce.new!(
+            name: "total",
+            collection: Ref.result("mapped"),
+            initial: %{value: Ref.value(0)},
+            action: Add,
+            input: %{value: Ref.accumulator(:value), amount: Ref.item(:value)}
+          ),
+          Iterator.new!(
+            name: "count",
+            action: Add,
+            input: %{value: Ref.state(:value), amount: Ref.value(1)},
+            state:
+              State.new!(
+                schema: [],
+                initial: %{value: Ref.result("total", :value)},
+                update: Ref.body_result()
+              ),
+            completion: %Condition{
+              operator: :gte,
+              operands: [Ref.state(:value), Ref.value(7)]
+            },
+            max_iterations: 2
+          )
+        ],
+        return: Ref.result("count")
+      )
+
+    assert {:ok, %{iterations: 2, state: %{value: 7}}} = Exec.run(flow)
+    recorded = events()
+
+    assert [
+             @map_item_start,
+             @map_item_stop,
+             @map_item_start,
+             @map_item_stop,
+             @reduce_item_start,
+             @reduce_item_stop,
+             @reduce_item_start,
+             @reduce_item_stop,
+             @iteration_start,
+             @iteration_stop,
+             @iteration_start,
+             @iteration_stop
+           ] == Enum.map(recorded, &elem(&1, 0))
+
+    assert [{@map_item_start, start_measurements, map_metadata} | _rest] = recorded
+    assert Map.keys(start_measurements) |> Enum.sort() == [:monotonic_time, :system_time]
+
+    assert map_metadata == %{
+             execution_id: map_metadata.execution_id,
+             flow: "collection_telemetry",
+             node: "mapped",
+             kind: :map_item,
+             target: Add,
+             item_index: 0,
+             item_id: map_metadata.item_id
+           }
+
+    assert is_binary(map_metadata.execution_id)
+    assert is_binary(map_metadata.item_id)
+
+    iteration_metadata =
+      Enum.find_value(recorded, fn
+        {@iteration_start, _measurements, metadata} -> metadata
+        _event -> nil
+      end)
+
+    assert iteration_metadata.flow == "collection_telemetry"
+    assert iteration_metadata.node == "count"
+    assert iteration_metadata.kind == :iterate_iteration
+    assert iteration_metadata.target == Add
+    assert iteration_metadata.iteration_index == 0
+    assert iteration_metadata.state_revision == 0
+    assert is_binary(iteration_metadata.iteration_id)
+    assert iteration_metadata.execution_id == map_metadata.execution_id
+
+    for {event, measurements, _metadata} <- recorded,
+        event in [@map_item_stop, @reduce_item_stop, @iteration_stop] do
+      assert Map.keys(measurements) |> Enum.sort() == [:duration, :monotonic_time]
+      assert measurements.duration >= 0
+    end
+  end
+
+  test "emits an item error when Map collects an Action failure" do
+    attach(@collection_events)
+
+    flow =
+      Flow.new!(
+        name: "map_error_telemetry",
+        nodes: [
+          FlowMap.new!(
+            name: "mapped",
+            collection: Ref.value([:one]),
+            action: ErrorAction,
+            input: %{error_type: Ref.value(:validation)},
+            on_error: :collect_errors
+          )
+        ],
+        return: Ref.result("mapped")
+      )
+
+    assert {:ok, %{errors: [%{error: error}]}} = Exec.run(flow)
+
+    assert [
+             {@map_item_start, _, start_metadata},
+             {@map_item_error, measurements, error_metadata}
+           ] = events()
+
+    assert Map.drop(error_metadata, [:error, :error_type]) == start_metadata
+    assert error_metadata.error == error
+    assert error_metadata.error_type == :execution_error
+    assert Map.keys(measurements) |> Enum.sort() == [:duration, :monotonic_time]
+  end
+
+  test "does not emit scheduler, State transition, or outcome point events" do
     internal_events = [
-      [:jido, :flow, :map, :item, :start],
-      [:jido, :flow, :map, :item, :stop],
-      [:jido, :flow, :reduce, :item, :start],
-      [:jido, :flow, :reduce, :item, :stop],
       [:jido, :flow, :iterate, :start],
-      [:jido, :flow, :iterate, :iteration, :start],
-      [:jido, :flow, :iterate, :iteration, :stop],
       [:jido, :flow, :iterate, :state_transition],
       [:jido, :flow, :iterate, :completion],
       [:jido, :flow, :iterate, :exhaustion],

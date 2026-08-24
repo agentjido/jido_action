@@ -3,7 +3,7 @@ defmodule Jido.Exec.FlowEngine do
 
   alias Jido.Action.Error
   alias Jido.Action.Telemetry
-  alias Jido.Exec.{ConcurrencyLimiter, Execution, NodeResult}
+  alias Jido.Exec.{CollectionTelemetry, ConcurrencyLimiter, Execution, NodeResult}
   alias Jido.Exec.FlowRunnableExecutor
   alias Jido.Flow
   alias Jido.Flow.{Compiler, Element, NodeError}
@@ -32,7 +32,8 @@ defmodule Jido.Exec.FlowEngine do
              context,
              options,
              target_runner,
-             execution_id
+             execution_id,
+             CollectionTelemetry.observer(execution_id, flow.name)
            ) do
       ordered_nodes = Enum.map(ordered_elements, &Element.name/1)
 

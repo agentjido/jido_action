@@ -9,7 +9,8 @@ defmodule Jido.Exec do
 
   ## Telemetry
 
-  Execution emits these nine stable events:
+  Execution emits 18 stable events. The first nine describe Action, Flow, and
+  named node lifecycles:
 
   - `[:jido, :action, :start]`, `[:jido, :action, :stop]`, and
     `[:jido, :action, :error]` for each direct Action or Instruction execution.
@@ -17,6 +18,14 @@ defmodule Jido.Exec do
     `[:jido, :flow, :error]` for each Flow execution.
   - `[:jido, :flow, :node, :start]`, `[:jido, :flow, :node, :stop]`, and
     `[:jido, :flow, :node, :error]` for each named Flow node.
+
+  Nine work-unit events describe Action calls inside collection nodes:
+
+  - Map items use `[:jido, :flow, :map, :item, :start]`, `:stop`, and `:error`.
+  - Reduce items use `[:jido, :flow, :reduce, :item, :start]`, `:stop`, and
+    `:error`.
+  - Iterate iterations use `[:jido, :flow, :iterate, :iteration, :start]`,
+    `:stop`, and `:error`.
 
   Start measurements are exactly `%{system_time: integer,
   monotonic_time: integer}`. Stop and error measurements are exactly
@@ -28,6 +37,12 @@ defmodule Jido.Exec do
   `%{execution_id: binary, flow: binary, node: binary, kind: :step | :choice |
   :map | :reduce | :iterate}`. Error metadata adds exactly `:error` and
   `:error_type` to the lifecycle metadata.
+
+  Map and Reduce item metadata adds `node`, `target`, `item_index`, and
+  `item_id` to the Flow correlation fields. Iterate iteration metadata adds
+  `node`, `target`, `iteration_index`, `iteration_id`, and `state_revision`.
+  Their `kind` values are `:map_item`, `:reduce_item`, and
+  `:iterate_iteration`.
 
   One `execution_id` correlates a lifecycle with any nested Flow work. A direct
   Action emits Action start and then Action stop or error. Serial Flow execution
@@ -41,7 +56,9 @@ defmodule Jido.Exec do
   for the nodes that it runs. The call that makes the execution terminal closes
   the Flow lifecycle. An execution that the caller abandons has no stop or error
   event. An Action invoked inside a Flow node is represented by that node span
-  and does not emit a separate Action lifecycle.
+  and its collection work-unit span, when applicable. It does not emit a
+  separate Action lifecycle. Work-unit events can have high volume. Attach a
+  handler only when you need item or iteration detail.
 
   Telemetry observes execution only. It does not select ready nodes, control
   scheduling, create helper processes, send runtime messages, or change a

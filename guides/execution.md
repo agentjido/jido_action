@@ -80,7 +80,7 @@ does not add undeclared keys to the foreign exception struct.
 
 ## Telemetry
 
-Jido emits only these nine events:
+Jido emits 18 events. Nine events describe the top-level lifecycles:
 
 - `[:jido, :action, :start]`, `[:jido, :action, :stop]`, and
   `[:jido, :action, :error]` for direct Actions and Instructions;
@@ -88,6 +88,12 @@ Jido emits only these nine events:
   `[:jido, :flow, :error]`; and
 - `[:jido, :flow, :node, :start]`, `[:jido, :flow, :node, :stop]`, and
   `[:jido, :flow, :node, :error]`.
+
+Nine events describe Action work inside collection nodes:
+
+- `[:jido, :flow, :map, :item, :start]`, `:stop`, and `:error`;
+- `[:jido, :flow, :reduce, :item, :start]`, `:stop`, and `:error`; and
+- `[:jido, :flow, :iterate, :iteration, :start]`, `:stop`, and `:error`.
 
 Start measurements are `%{system_time: integer, monotonic_time: integer}`.
 Stop and error measurements are `%{duration: integer, monotonic_time: integer}`.
@@ -98,6 +104,12 @@ metadata is `%{execution_id: binary, flow: binary, node: binary, kind: :step |
 :choice | :map | :reduce | :iterate}`. Error events add `:error` and
 `:error_type`.
 
+Map and Reduce work units add `target`, `item_index`, and `item_id`. Their
+`kind` values are `:map_item` and `:reduce_item`. Iterate work units add
+`target`, `iteration_index`, `iteration_id`, and `state_revision`. Their
+`kind` is `:iterate_iteration`. All work units also include `execution_id`,
+`flow`, and `node`.
+
 The same `execution_id` correlates a Flow, its nodes, and nested Flows. Serial
 Flow events nest as Flow and then node. Step-wise execution opens one Flow event
 in `start/4` and closes it only when a step, wave, or continue operation reaches
@@ -107,10 +119,12 @@ has the Flow lifecycle inside its Action lifecycle. Async node spans can
 overlap. Each async worker starts and finishes its span around the actual node
 work. Start and stop events can follow scheduler and completion order. Use the
 node metadata and `execution_id` for correlation instead of event position. A
-killed node task still has one node error event.
+killed node task still has one node error event. Collection work-unit events
+can have high volume. Attach a handler only when you need this detail.
 
-There are no item, iteration, State transition, completion, exhaustion, or
-failure telemetry events. Telemetry does not control scheduling or results.
+There are no scheduler, State transition, completion, or exhaustion point
+events. A collection work-unit error event reports a failed Action call.
+Telemetry does not control scheduling or results.
 
 ## Run A Flow Step By Step
 

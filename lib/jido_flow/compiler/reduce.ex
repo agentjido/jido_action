@@ -141,16 +141,32 @@ defmodule Jido.Flow.Compiler.Reduce do
 
     target_context = TargetContext.reduce(reduce, item_state)
 
-    with {:ok, params} <- resolve_reduce_input(reduce, local_state, target_context) do
-      Target.run(
-        reduce.action,
-        params,
-        state.context,
-        target_context,
-        state.execution_id,
-        state.target_runner
-      )
-    end
+    span =
+      state.observer.({
+        :start,
+        :reduce_item,
+        %{
+          node: reduce.name,
+          target: reduce.action,
+          item_index: item_state.item_index,
+          item_id: item_state.item_id
+        }
+      })
+
+    result =
+      with {:ok, params} <- resolve_reduce_input(reduce, local_state, target_context) do
+        Target.run(
+          reduce.action,
+          params,
+          state.context,
+          target_context,
+          state.execution_id,
+          state.target_runner
+        )
+      end
+
+    finish_item_span(state.observer, span, result)
+    result
   end
 
   defp resolve_reduce_input(reduce, state, target_context) do
@@ -158,4 +174,7 @@ defmodule Jido.Flow.Compiler.Reduce do
     |> Expression.resolve(state)
     |> ErrorTagger.tag_target_validation_error(:input, target_context)
   end
+
+  defp finish_item_span(observer, span, {:ok, _result}), do: observer.({:stop, span})
+  defp finish_item_span(observer, span, {:error, error}), do: observer.({:error, span, error})
 end

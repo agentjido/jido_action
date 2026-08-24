@@ -86,7 +86,7 @@ For each migrated Flow:
 2. Check `Jido.Flow.validate_executable/1`.
 3. Compare full and step-wise results.
 4. Round-trip every stored Map or JSON fixture.
-5. Check telemetry consumers against the nine v3 lifecycle events.
+5. Check telemetry consumers against the 18 v3 lifecycle events.
 6. Test Action side effects for repeat safety.
 
 See [Flows](flows.md), [Stored Flow JSON](flow-storage.md), and [Executing

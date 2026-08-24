@@ -112,21 +112,37 @@ defmodule Jido.Flow.Compiler.Map do
     local_state = Map.merge(state, item_state)
     target_context = TargetContext.map(map, item_state)
 
-    with {:ok, params} <- resolve_map_input(map, local_state, target_context),
-         {:ok, output} <-
-           Target.run(
-             map.action,
-             params,
-             state.context,
-             target_context,
-             state.execution_id,
-             state.target_runner
-           ) do
-      {:ok, %{item_id: item_state.item_id, index: item_state.item_index, output: output}}
-    else
-      {:error, error} ->
-        {:error, %{item_id: item_state.item_id, index: item_state.item_index, error: error}}
-    end
+    span =
+      state.observer.({
+        :start,
+        :map_item,
+        %{
+          node: map.name,
+          target: map.action,
+          item_index: item_state.item_index,
+          item_id: item_state.item_id
+        }
+      })
+
+    result =
+      with {:ok, params} <- resolve_map_input(map, local_state, target_context),
+           {:ok, output} <-
+             Target.run(
+               map.action,
+               params,
+               state.context,
+               target_context,
+               state.execution_id,
+               state.target_runner
+             ) do
+        {:ok, %{item_id: item_state.item_id, index: item_state.item_index, output: output}}
+      else
+        {:error, error} ->
+          {:error, %{item_id: item_state.item_id, index: item_state.item_index, error: error}}
+      end
+
+    finish_item_span(state.observer, span, result)
+    result
   end
 
   defp resolve_map_input(map, state, target_context) do
@@ -156,4 +172,9 @@ defmodule Jido.Flow.Compiler.Map do
       1
     end
   end
+
+  defp finish_item_span(observer, span, {:ok, _result}), do: observer.({:stop, span})
+
+  defp finish_item_span(observer, span, {:error, %{error: error}}),
+    do: observer.({:error, span, error})
 end
