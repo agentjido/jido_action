@@ -5,6 +5,11 @@ defmodule Jido.Flow.Builder do
   Each node has an explicit name. References use that name through `result/2`.
   `build/1` uses the same canonical constructor as the Flow module DSL
   and stored Flow decoder.
+
+  Builder expressions are static data. For a Flow that must round-trip through
+  stored Map or JSON data, use references, scalar literals, maps, and proper
+  lists. Put executable computation in an Action. Low-level canonical Flow
+  values can contain some static BEAM terms that the stored format rejects.
   """
 
   import Kernel, except: [in: 2, not: 1]
@@ -21,7 +26,16 @@ defmodule Jido.Flow.Builder do
     iterate: @common_node_options ++ [:completion, :while, :until, :repeat, :max_iterations]
   }
 
-  @type expression :: Ref.t() | map() | list() | term()
+  @type expression ::
+          Ref.t()
+          | nil
+          | boolean()
+          | number()
+          | String.t()
+          | atom()
+          | [expression()]
+          | %{optional(term()) => expression()}
+          | tuple()
   @type condition :: Condition.t()
   @type choice_option :: map()
   @type choice_fallback :: map()
@@ -65,7 +79,13 @@ defmodule Jido.Flow.Builder do
   @spec context(term()) :: Ref.t()
   def context(path \\ []), do: Ref.context(path)
 
-  @doc "Wraps one literal value."
+  @doc """
+  Wraps one static literal value.
+
+  Use scalar values, maps, and proper lists when the Flow must use stored Map
+  or JSON data. Stored Flow data does not support tuples or other BEAM-only
+  values.
+  """
   @spec value(term()) :: Ref.t()
   def value(value), do: Ref.value(value)
 

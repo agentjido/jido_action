@@ -11,6 +11,11 @@ matching, pipes, and application function calls are not valid Flow
 expressions. The compiler reports the unsupported expression and names the
 accepted data forms.
 
+This limit is intentional. It makes dependencies visible and keeps the module
+DSL compatible with stored Flow data. Use maps instead of keyword lists, and
+use lists instead of tuples. Put transformations, calls to application
+functions, and other executable work in an Action.
+
 The module DSL, `Jido.Flow.Builder`, and stored JSON all produce the same
 canonical `%Jido.Flow{}`. The module DSL is the primary developer authoring
 surface.
@@ -249,6 +254,9 @@ end
 
 The expression surface is closed. Put computation in an Action. Do not call
 application functions inside `params`, `condition`, State, or `output`.
+Anonymous functions, tuples, and keyword lists are not module DSL expressions.
+This rule keeps graph dependencies visible and keeps the declared graph
+portable.
 
 ## One Canonical Flow Artifact
 

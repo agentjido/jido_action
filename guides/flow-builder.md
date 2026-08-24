@@ -5,6 +5,12 @@ Builder sends named node data through the same canonical constructor as the
 compile-time Flow module DSL and [stored Flow JSON](flow-storage.md). Builder
 calls are a data-construction API. They are not a second source language.
 
+Builder expressions must be static data. Use references, scalar literals,
+maps, and proper lists when a Flow must round-trip through stored Map or JSON
+data. Put executable work in an Action. The low-level canonical structs can
+hold some static BEAM terms, such as tuples, but the stored format rejects
+these values. Do not use them in a portable Flow.
+
 ## Create A Builder
 
 `Builder.new/1` accepts Flow metadata and optional `schema` and
@@ -60,6 +66,10 @@ result path when the source is one node.
 Runtime list data must be a proper list. The shared constructor returns a
 structured validation error for an improper node list, dependency list,
 condition operand list, or expression list.
+
+The module DSL has a stricter portable surface. It rejects tuples, keyword
+lists, anonymous functions, pipes, and application function calls. Use maps or
+lists for data. Use an Action for computation.
 
 ## Map And Reduce Collections
 

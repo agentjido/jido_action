@@ -126,6 +126,11 @@ end
 executable expressions are not part of the Flow module DSL. Normal literals do
 not need `value/1`.
 
+This is an intentional portability rule. Use maps instead of keyword lists,
+and use lists instead of tuples. Put computation in an Action. Low-level
+canonical Flow values can contain some static BEAM terms, but stored Map or
+JSON data rejects values outside the portable scalar, map, and list subset.
+
 ## Read Prior Results With `result`
 
 `result(node)` reads a complete node result. `result(node, path)` reads a path
