@@ -2,6 +2,7 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
   @moduledoc false
 
   alias Jido.Flow.DSL.Lowerer
+  alias Jido.Flow.Element
 
   @doc false
   def using(opts_ast) do
@@ -97,11 +98,19 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
            output_schema: output_schema
          ) do
       {:ok, flow} ->
+        ensure_targets_compiled(flow)
         validate_executable!(flow, env)
 
       {:error, error} ->
         raise_compile_error!(env, Exception.message(error), error)
     end
+  end
+
+  defp ensure_targets_compiled(flow) do
+    flow.nodes
+    |> Enum.flat_map(&Element.target_modules/1)
+    |> Enum.uniq()
+    |> Enum.each(&Code.ensure_compiled/1)
   end
 
   defp validate_executable!(flow, env) do
