@@ -60,6 +60,33 @@ defmodule Jido.Flow.BuilderTest do
     assert Flow.to_map(built, provenance: true) == Flow.to_map(direct, provenance: true)
   end
 
+  test "infers output only from one terminal node" do
+    terminal =
+      Node.new!(
+        name: "terminal",
+        action: EchoParamsAction,
+        input: %{value: Ref.result("source", :value)}
+      )
+
+    source = Node.new!(name: "source", action: EchoParamsAction)
+
+    assert {:ok, flow} = Constructor.build(name: "one_terminal", nodes: [terminal, source])
+    assert flow.return == Ref.result("terminal")
+
+    assert {:error, error} =
+             Constructor.build(
+               name: "ambiguous_terminals",
+               nodes: [
+                 Node.new!(name: "left", action: EchoParamsAction),
+                 Node.new!(name: "right", action: EchoParamsAction)
+               ]
+             )
+
+    assert error.message == "Flow with multiple terminal nodes must declare an output"
+    assert error.details.path == [:return]
+    assert error.details.terminals == ["left", "right"]
+  end
+
   test "supports canonical collection, choice, and Iterator values" do
     condition = Builder.eq(Builder.input(:route), Builder.value(:add))
 
@@ -242,7 +269,9 @@ defmodule Jido.Flow.BuilderTest do
       )
     ]
 
-    assert {:ok, flow} = Constructor.build(name: "prebuilt", nodes: nodes)
+    assert {:ok, flow} =
+             Constructor.build(name: "prebuilt", nodes: nodes, return: Ref.result("iterate"))
+
     assert Enum.map(flow.nodes, & &1.name) == ["step", "choice", "map", "reduce", "iterate"]
     assert flow.return == Ref.result("iterate")
   end

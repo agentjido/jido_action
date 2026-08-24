@@ -60,7 +60,8 @@ end
 ## `step`: Call An Action
 
 `step` declares one named Action or nested Flow call. `params:` maps Flow data
-to target input. The last node becomes the output when `output` is absent.
+to target input. The only terminal node becomes the output when `output` is
+absent. Declare `output` when the graph has multiple terminal nodes.
 
 ```elixir
 defmodule FlowLanguage.StepExample do

@@ -67,8 +67,8 @@ end
 
 ## Run The Flow
 
-Use `Jido.Exec.run/3` with the Flow module. Because `double` is the last node
-and there is no `output`, its complete result is the Flow output.
+Use `Jido.Exec.run/3` with the Flow module. Because `double` is the only
+terminal node and there is no `output`, its complete result is the Flow output.
 
 ```elixir
 {:ok, %{value: 8}} =

@@ -28,9 +28,10 @@ defmodule Jido.Flow do
         end
       end
 
-  The last node is the output when an explicit `output` declaration is absent.
-  Result references and `after:` fields define dependencies. Source order does
-  not add execution dependencies.
+  When `output` is absent, the only terminal node becomes the output. A Flow
+  with two or more terminal nodes must declare `output`. Result references and
+  `after:` fields define dependencies. Source order does not add execution
+  dependencies or select an output.
 
   All three inputs use the same constructor and produce the same canonical
   Flow. Flow element structs and semantic maps are views of this model. They

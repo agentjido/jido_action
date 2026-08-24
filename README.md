@@ -141,7 +141,8 @@ end
   Jido.Exec.run(MyApp.Flows.GreetAndNotify, %{name: "Ada"}, %{})
 ```
 
-The last node is the output when `output` is absent. Flows also support ordered
+The only terminal node is the output when `output` is absent. A Flow with
+multiple terminal nodes must declare `output`. Flows also support ordered
 Choices, Map and Reduce collections, bounded Iterate nodes with State,
 independent nodes that can run in parallel, and a step-wise execution API.
 

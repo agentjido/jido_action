@@ -31,8 +31,9 @@ Flow instead of direct struct construction.
 - **Choice**: one node with ordered options and a required fallback. The first
   matching condition selects one target.
 - **Output expression**: the value assembled from node results, input,
-  context, literals, and projections. The last node is the output when an
-  explicit `output` declaration is absent.
+  context, literals, and projections. The only terminal node is the output
+  when an explicit `output` declaration is absent. Multiple terminal nodes
+  require an explicit output.
 - **Provenance**: non-semantic authoring information. Provenance helps explain
   where a Flow came from but does not change semantic identity.
 

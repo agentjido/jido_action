@@ -3,6 +3,7 @@ defmodule Jido.Flow.Constructor do
 
   alias Jido.Action.Error
   alias Jido.Flow
+  alias Jido.Flow.Element
   alias Jido.Flow.{Choice, Iterator, Node, Reduce, Ref, Validation}
   alias Jido.Flow.Map, as: FlowMap
 
@@ -169,10 +170,36 @@ defmodule Jido.Flow.Constructor do
   defp build_return(nil, []),
     do: {:error, Error.validation_error("Flow must declare at least one node")}
 
-  defp build_return(nil, nodes),
-    do: {:ok, nodes |> List.last() |> Map.fetch!(:name) |> Ref.result()}
+  defp build_return(nil, nodes) do
+    case terminal_node_names(nodes) do
+      [name] ->
+        {:ok, Ref.result(name)}
+
+      [] ->
+        {:ok, nodes |> List.last() |> Element.name() |> Ref.result()}
+
+      names ->
+        {:error,
+         Error.validation_error("Flow with multiple terminal nodes must declare an output", %{
+           path: [:return],
+           terminals: names
+         })}
+    end
+  end
 
   defp build_return(return, _nodes), do: {:ok, return}
+
+  defp terminal_node_names(nodes) do
+    dependencies =
+      nodes
+      |> Enum.flat_map(&(Element.deps(&1) ++ Element.result_deps(&1)))
+      |> MapSet.new()
+
+    nodes
+    |> Enum.map(&Element.name/1)
+    |> Enum.reject(&MapSet.member?(dependencies, &1))
+    |> Enum.sort()
+  end
 
   defp build_flow(attrs) do
     with {:ok, attrs} <- Validation.new_from_validated_nodes(attrs) do
