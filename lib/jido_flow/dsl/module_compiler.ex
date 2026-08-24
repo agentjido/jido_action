@@ -111,7 +111,14 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
     end
   end
 
-  defp raise_compile_error!(env, description, error, flow \\ nil) do
+  @spec raise_compile_error!(Macro.Env.t(), String.t(), Exception.t()) :: no_return()
+  defp raise_compile_error!(env, description, error) do
+    raise_compile_error!(env, description, error, nil)
+  end
+
+  @spec raise_compile_error!(Macro.Env.t(), String.t(), Exception.t(), Jido.Flow.t() | nil) ::
+          no_return()
+  defp raise_compile_error!(env, description, error, flow) do
     details = Map.get(error, :details, %{})
 
     raise CompileError,
