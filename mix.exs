@@ -173,6 +173,7 @@ defmodule JidoAction.MixProject do
         Execution: [
           Jido.Exec,
           Jido.Exec.Execution,
+          Jido.Exec.FlowFailureError,
           Jido.Exec.NodeResult
         ],
         Errors: [

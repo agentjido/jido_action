@@ -3,6 +3,7 @@ defmodule Jido.Exec.ExecutionFailureTest do
 
   alias Jido.Action.Error.ExecutionFailureError
   alias Jido.Exec
+  alias Jido.Exec.FlowFailureError
   alias Jido.Exec.NodeResult
   alias Jido.Flow
   alias Jido.Flow.{Node, Ref}
@@ -12,7 +13,7 @@ defmodule Jido.Exec.ExecutionFailureTest do
 
   describe "failure behavior" do
     @tag capture_log: true
-    test "records a failed node, skips dependents, and keeps independent work ready" do
+    test "stops before it dispatches independent work after a failed node" do
       flow =
         Flow.new!(
           name: "step_failure",
@@ -47,17 +48,12 @@ defmodule Jido.Exec.ExecutionFailureTest do
                 error: %ExecutionFailureError{message: "failed first"}
               }, execution} = Exec.step(execution, "fail")
 
-      assert Exec.status(execution) == :running
-      assert_ready_cache(execution, ["independent"])
-
-      assert {:ok, %NodeResult{status: :ok}, execution} =
-               Exec.step(execution, "independent")
-
-      assert_receive {RecorderAction, %{side: :independent}}
-      refute_received {RecorderAction, %{value: _}}
-
       assert Exec.status(execution) == :failed
       assert_ready_cache(execution, [])
+
+      assert {:error, _error} = Exec.step(execution, "independent")
+      refute_received {RecorderAction, %{side: :independent}}
+      refute_received {RecorderAction, %{value: _}}
 
       assert {:error, %ExecutionFailureError{message: "failed first", details: details}} =
                Exec.result(execution)
@@ -89,7 +85,35 @@ defmodule Jido.Exec.ExecutionFailureTest do
     end
 
     @tag capture_log: true
-    test "keeps wave results and final failure selection in canonical node order" do
+    test "stops a serial wave after its first failed node" do
+      flow =
+        Flow.new!(
+          name: "serial_wave_failure",
+          nodes: [
+            Node.new!(
+              name: :fail,
+              action: ControlledErrorAction,
+              input: %{message: Ref.value("failed first")}
+            ),
+            Node.new!(
+              name: :independent,
+              action: RecorderAction,
+              input: %{side: Ref.value(:independent)}
+            )
+          ],
+          return: Ref.result(:independent)
+        )
+
+      assert {:ok, execution} = Exec.start(flow, %{}, %{test_pid: self()})
+      assert {:ok, [failed], execution} = Exec.wave(execution)
+      assert failed.node == "fail"
+      assert failed.status == :error
+      assert Exec.status(execution) == :failed
+      refute_received {RecorderAction, %{side: :independent}}
+    end
+
+    @tag capture_log: true
+    test "keeps concurrent failures in canonical node order" do
       flow =
         Flow.new!(
           name: "canonical_failures",
@@ -108,17 +132,21 @@ defmodule Jido.Exec.ExecutionFailureTest do
           return: %{alpha: Ref.result(:alpha), zeta: Ref.result(:zeta)}
         )
 
-      assert {:ok, execution} = Exec.start(flow)
+      assert {:ok, execution} = Exec.start(flow, %{}, %{}, async: true, max_concurrency: 2)
       assert {:ok, results, execution} = Exec.wave(execution)
       assert Enum.map(results, & &1.node) == ["alpha", "zeta"]
       assert Enum.all?(results, &(&1.status == :error))
       assert Exec.status(execution) == :failed
       assert_ready_cache(execution, [])
 
-      assert {:error, %ExecutionFailureError{message: "alpha failed", details: details}} =
-               Exec.result(execution)
-
-      assert details.node == "alpha"
+      assert {:error,
+              %FlowFailureError{
+                flow: "canonical_failures",
+                failures: [
+                  %{node: "alpha", error: %ExecutionFailureError{message: "alpha failed"}},
+                  %{node: "zeta", error: %ExecutionFailureError{message: "zeta failed"}}
+                ]
+              }} = Exec.result(execution)
     end
 
     @tag capture_log: true

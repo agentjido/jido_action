@@ -3,6 +3,7 @@ defmodule Jido.Exec.RunOptionsTest do
 
   alias Jido.Action.Error.{ExecutionFailureError, InvalidInputError}
   alias Jido.Exec
+  alias Jido.Exec.FlowFailureError
   alias Jido.Flow
   alias Jido.Flow.{Choice, Condition, Node, Ref}
   alias Jido.Instruction
@@ -174,11 +175,14 @@ defmodule Jido.Exec.RunOptionsTest do
       assert_receive {:DOWN, ^second_monitor, :process, ^second_worker, _reason}, 1_000
       send(first_worker, {:release, :first})
 
-      assert {:error, %ExecutionFailureError{message: "first failure", details: details}} =
+      assert {:error,
+              %FlowFailureError{
+                failures: [
+                  %{node: "first", error: %ExecutionFailureError{message: "first failure"}},
+                  %{node: "second", error: %ExecutionFailureError{message: "second failure"}}
+                ]
+              }} =
                Task.await(task)
-
-      assert details.node == "first"
-      assert details.action == ControlledErrorAction
     end
 
     test "executes Flow modules with runtime options" do

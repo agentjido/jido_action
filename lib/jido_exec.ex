@@ -71,6 +71,11 @@ defmodule Jido.Exec do
   execute the current ready set. Use `continue/1` and `result/1` to finish and
   read the same result that `run/4` returns.
 
+  A node failure stops the Flow before Jido dispatches more work. A serial wave
+  stops at its first failed node. Nodes in an asynchronous wave are already in
+  progress and can also finish. If two or more of them fail, `result/1` returns
+  `Jido.Exec.FlowFailureError` with all failures in canonical node order.
+
   The caller owns the execution lifecycle. Always pass the latest returned
   execution to the next operation. Reusing an older execution can run an
   Action more than once. Execution values are not persistent checkpoints and
@@ -165,7 +170,9 @@ defmodule Jido.Exec do
   Executes the complete set of nodes that is currently ready.
 
   Nodes that become ready during the wave wait for the next `step/1`, `wave/1`,
-  or `continue/1` call. Stored asynchronous options apply to the wave.
+  or `continue/1` call. Stored asynchronous options apply to the wave. A serial
+  wave stops at its first failure. An asynchronous wave lets work that is
+  already in progress finish, then stops the Flow.
   """
   @spec wave(Execution.t()) ::
           {:ok, [NodeResult.t()], Execution.t()} | {:error, Exception.t()}

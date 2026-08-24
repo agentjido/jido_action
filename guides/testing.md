@@ -220,22 +220,23 @@ end
 
 A node failure is an applied transition. The step result is `{:ok, node_result,
 latest_execution}`, with `node_result.status == :error`. Dependent nodes are
-skipped, while independent nodes can remain ready.
+skipped, and Jido does not dispatch independent nodes after the failure.
 
 ```elixir
-test "keeps independent work ready after a failure" do
+test "stops after a failure" do
   assert {:ok, execution} = Jido.Exec.start(MyApp.Flows.FailureFlow)
   assert {:ok, %Jido.Exec.NodeResult{status: :error}, execution} =
            Jido.Exec.step(execution, "fail")
 
-  assert Jido.Exec.ready(execution) == ["record_audit"]
-  assert {:ok, %Jido.Exec.NodeResult{status: :ok}, execution} =
-           Jido.Exec.step(execution, "record_audit")
-
   assert Jido.Exec.status(execution) == :failed
+  assert Jido.Exec.ready(execution) == []
   assert {:error, _error} = Jido.Exec.result(execution)
 end
 ```
+
+For an asynchronous wave, also test the case where two nodes fail. Assert that
+`Jido.Exec.FlowFailureError.failures` contains both node errors in canonical
+node order.
 
 Use `capture_log: true` when the failure path emits expected error logs.
 Assert error types and important details, not full log formatting.

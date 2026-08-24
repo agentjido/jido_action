@@ -181,7 +181,7 @@ defmodule Jido.Exec.MapExecutionTest do
       assert Exec.status(execution) == :succeeded
     end
 
-    test "blocks a failed Map dependent and keeps independent public work ready" do
+    test "stops after a failed Map before it dispatches independent work" do
       map =
         FlowMap.new!(
           name: :mapped,
@@ -213,11 +213,10 @@ defmodule Jido.Exec.MapExecutionTest do
       assert {:ok, execution} = Exec.start(flow, %{}, %{test_pid: self()})
       assert Exec.ready(execution) == ["independent", "mapped"]
       assert {:ok, %NodeResult{status: :error}, execution} = Exec.step(execution, "mapped")
-      assert Exec.ready(execution) == ["independent"]
-      assert {:ok, %NodeResult{status: :ok}, execution} = Exec.step(execution)
-      assert_receive {RecorderAction, %{value: :independent}}
-      refute_received {RecorderAction, %{value: %{kind: :jido_flow_map_result}}}
+      assert Exec.ready(execution) == []
       assert Exec.status(execution) == :failed
+      refute_received {RecorderAction, %{value: :independent}}
+      refute_received {RecorderAction, %{value: %{kind: :jido_flow_map_result}}}
     end
   end
 

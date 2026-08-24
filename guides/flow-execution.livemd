@@ -246,6 +246,10 @@ wait for the next wave.
 With `async: false`, the nodes in the wave run serially. With `async: true`,
 independent nodes can run concurrently up to `max_concurrency`.
 
+A serial wave stops at its first node failure. In an asynchronous wave, nodes
+that are already in progress can also finish. Jido does not dispatch a later
+wave after a failure.
+
 ## Continue And Read The Result
 
 `continue/1` runs all remaining waves and returns the terminal execution.
@@ -266,7 +270,7 @@ Repeated calls on a terminal execution do not run actions again.
 ## Handle An Applied Node Failure
 
 Define a Flow with one failing root node and one independent root node. A node
-that depends on the failure is skipped. Independent work remains available.
+failure stops the Flow before Jido dispatches the independent work.
 
 ```elixir
 defmodule FlowExecutionLivebook.FailureFlow do
@@ -292,17 +296,16 @@ end
 {:ok, failed_node, failure_execution} = Jido.Exec.step(failure_execution, "fail")
 %Jido.Exec.NodeResult{node: "fail", status: :error, output: nil, attempt: 1} = failed_node
 
-["record_audit"] = Jido.Exec.ready(failure_execution)
-{:ok, audit_node, failure_execution} = Jido.Exec.step(failure_execution)
-%Jido.Exec.NodeResult{node: "record_audit", status: :ok, output: %{recorded: true}} = audit_node
-
 :failed = Jido.Exec.status(failure_execution)
+[] = Jido.Exec.ready(failure_execution)
 {:error, _flow_error} = Jido.Exec.result(failure_execution)
 ```
 
 The `:ok` tuple means Jido applied the requested transition. Inspect the
 `NodeResult` to find the node error. `{:error, error}` is reserved for invalid
-API calls or a transition that Jido could not apply.
+API calls or a transition that Jido could not apply. If two or more nodes in
+one asynchronous wave fail, `result/1` returns `Jido.Exec.FlowFailureError`
+with all failures in canonical node order.
 
 ## Step Through A Choice
 

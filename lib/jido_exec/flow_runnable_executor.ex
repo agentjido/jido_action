@@ -20,7 +20,7 @@ defmodule Jido.Exec.FlowRunnableExecutor do
     if Keyword.fetch!(execution.options, :async) do
       execute_async(execution, runnables, element_kinds)
     else
-      Enum.map(runnables, &execute(execution, &1, element_kinds))
+      execute_serial(execution, runnables, element_kinds)
     end
   end
 
@@ -48,6 +48,17 @@ defmodule Jido.Exec.FlowRunnableExecutor do
       &execute(execution, &1, element_kinds),
       &fail_exited_runnable(execution, &1, &2, element_kinds)
     )
+  end
+
+  defp execute_serial(execution, runnables, element_kinds) do
+    runnables
+    |> Enum.reduce_while([], fn runnable, executed ->
+      result = execute(execution, runnable, element_kinds)
+      next = [result | executed]
+
+      if result.status == :failed, do: {:halt, next}, else: {:cont, next}
+    end)
+    |> Enum.reverse()
   end
 
   defp start_span(execution, %Runnable{node: %Step{name: name}}, element_kinds) do

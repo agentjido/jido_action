@@ -3,7 +3,15 @@ defmodule Jido.Exec.FlowEngine do
 
   alias Jido.Action.Error
   alias Jido.Action.Telemetry
-  alias Jido.Exec.{CollectionTelemetry, ConcurrencyLimiter, Execution, NodeResult}
+
+  alias Jido.Exec.{
+    CollectionTelemetry,
+    ConcurrencyLimiter,
+    Execution,
+    FlowFailureError,
+    NodeResult
+  }
+
   alias Jido.Exec.FlowRunnableExecutor
   alias Jido.Flow
   alias Jido.Flow.{Compiler, Element, NodeError}
@@ -124,6 +132,14 @@ defmodule Jido.Exec.FlowEngine do
   def continue(%Execution{} = execution), do: {:ok, execution}
 
   defp settle(%Execution{} = execution) do
+    if map_size(execution.node_errors) > 0 do
+      finalize(execution)
+    else
+      settle_running(execution)
+    end
+  end
+
+  defp settle_running(%Execution{} = execution) do
     {workflow, runnables} = Workflow.prepare_for_dispatch(execution.workflow)
     execution = %{execution | workflow: workflow, ready: %{}, ready_nodes: []}
     {public, internal} = partition_runnables(execution, runnables)
@@ -244,10 +260,16 @@ defmodule Jido.Exec.FlowEngine do
 
   defp finalize(%Execution{node_errors: node_errors} = execution)
        when map_size(node_errors) > 0 do
-    error =
+    failures =
       execution.ordered_nodes
-      |> Enum.find(&Map.has_key?(node_errors, &1))
-      |> then(&Map.fetch!(node_errors, &1))
+      |> Enum.filter(&Map.has_key?(node_errors, &1))
+      |> Enum.map(&%{node: &1, error: Map.fetch!(node_errors, &1)})
+
+    error =
+      case failures do
+        [%{error: error}] -> error
+        failures -> FlowFailureError.exception(flow: execution.flow_name, failures: failures)
+      end
 
     complete(execution, {:error, error})
   end

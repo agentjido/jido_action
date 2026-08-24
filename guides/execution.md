@@ -150,6 +150,11 @@ Jido.Exec.ready(execution)
 node. `wave/1` executes the current ready set; stored Flow concurrency options
 apply to the wave. Nodes that become ready wait for the next operation.
 
+A failed node stops the Flow before Jido dispatches more work. A serial wave
+stops at its first failure. In an asynchronous wave, work that is already in
+progress can finish. If two or more nodes fail, `result/1` returns a
+`Jido.Exec.FlowFailureError`. Its failures are in canonical node order.
+
 Map, Reduce, Iterate, Choice, and nested Flow work is atomic at this public
 boundary. One step completes the selected element's internal work. The API
 does not expose individual Map items, Reduce items, or Iterate iterations as
@@ -157,8 +162,8 @@ ready nodes.
 
 A failed node is an applied transition. The step operation returns
 `{:ok, %Jido.Exec.NodeResult{status: :error}, execution}` and the updated
-execution records the failure. Selection errors and invalid execution state
-return `{:error, exception}` instead.
+execution records the failure and becomes terminal. Selection errors and
+invalid execution state return `{:error, exception}` instead.
 
 Always pass the newest execution to the next operation. Execution values are
 caller-owned, in-memory state, not durable checkpoints or interchange maps.

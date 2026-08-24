@@ -15,7 +15,8 @@ defmodule Jido.PublicAPITest do
        Jido.Flow.Ref,
        Jido.Flow.State
      ]},
-    {:Execution, [Jido.Exec, Jido.Exec.Execution, Jido.Exec.NodeResult]},
+    {:Execution,
+     [Jido.Exec, Jido.Exec.Execution, Jido.Exec.FlowFailureError, Jido.Exec.NodeResult]},
     {:Errors,
      [
        Jido.Action.Error,
