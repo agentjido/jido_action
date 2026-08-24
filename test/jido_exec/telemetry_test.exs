@@ -8,7 +8,7 @@ defmodule Jido.Exec.TelemetryTest do
   alias Jido.Flow.{Node, Ref}
   alias Jido.Instruction
   alias JidoTest.ExecFixtures.{InstructionTelemetryFlow, TelemetryParentFlow}
-  alias JidoTest.TestActions.{Add, ErrorAction}
+  alias JidoTest.TestActions.{Add, ErrorAction, StacktraceAction}
 
   @action_start [:jido, :action, :start]
   @action_stop [:jido, :action, :stop]
@@ -132,6 +132,19 @@ defmodule Jido.Exec.TelemetryTest do
     assert error_metadata.error == error
     assert error_metadata.error_type == :execution_error
     assert Map.keys(measurements) |> Enum.sort() == [:duration, :monotonic_time]
+  end
+
+  test "includes the caught Action stacktrace in error telemetry" do
+    attach([@action_error])
+
+    assert {:error, error} = Exec.run(StacktraceAction, %{mode: :raise})
+    assert [{@action_error, _measurements, %{error: ^error}}] = events()
+    assert %Splode.Stacktrace{stacktrace: stacktrace} = error.stacktrace
+
+    assert Enum.any?(stacktrace, fn
+             {StacktraceAction, :raise_from_action, 0, _location} -> true
+             _frame -> false
+           end)
   end
 
   test "emits only the Flow and node lifecycles for a Flow" do

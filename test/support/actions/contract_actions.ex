@@ -57,3 +57,18 @@ defmodule JidoTest.TestActions.RaisingOutputValidationAction do
   def validate_output(_output), do: raise("output validator failed")
   def run(params, _context), do: {:ok, params}
 end
+
+defmodule JidoTest.TestActions.StacktraceValidationAction do
+  @moduledoc false
+
+  def validate_params(%{mode: :input}), do: raise_from_input_validator()
+  def validate_params(params), do: {:ok, params}
+
+  def validate_output(%{mode: :output}), do: raise_from_output_validator()
+  def validate_output(output), do: {:ok, output}
+
+  def run(params, _context), do: {:ok, params}
+
+  def raise_from_input_validator, do: raise("input validator stacktrace probe")
+  def raise_from_output_validator, do: raise("output validator stacktrace probe")
+end

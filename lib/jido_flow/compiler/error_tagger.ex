@@ -21,7 +21,8 @@ defmodule Jido.Flow.Compiler.ErrorTagger do
 
     case TargetContext.exception_strategy(context, tagged_phase, error, mode) do
       {:validation, details} ->
-        {:error, Error.validation_error(Exception.message(error), details)}
+        tagged_error = Error.validation_error(Exception.message(error), details)
+        {:error, preserve_stacktrace(tagged_error, error)}
 
       {:merge, details} ->
         {:error, %{error | details: details}}
@@ -46,6 +47,13 @@ defmodule Jido.Flow.Compiler.ErrorTagger do
       Map.put(error, :details, details)
     end
   end
+
+  defp preserve_stacktrace(tagged_error, %{stacktrace: stacktrace})
+       when not is_nil(stacktrace) do
+    %{tagged_error | stacktrace: stacktrace}
+  end
+
+  defp preserve_stacktrace(tagged_error, _error), do: tagged_error
 
   defp to_error_message(message) when is_binary(message), do: message
   defp to_error_message(message) when is_atom(message), do: Atom.to_string(message)

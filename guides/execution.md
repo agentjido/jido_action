@@ -67,6 +67,10 @@ Use `Jido.Action.Error.to_map/1` when an error crosses a process, log, or API
 boundary. Error maps contain a stable `:type`, message, details, and a
 conservative `:retryable?` value.
 
+A caught Action exception, throw, or exit keeps its original stacktrace in the
+runtime error's `%Splode.Stacktrace{}` field. `Jido.Action.Error.to_map/1` and
+JSON encoding do not include this stacktrace.
+
 ## Telemetry
 
 Jido emits only these nine events:

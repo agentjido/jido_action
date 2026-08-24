@@ -1,8 +1,11 @@
 defmodule Jido.Exec.ActionExecutionTest do
   use JidoTest.ActionCase, async: true
+  @moduletag capture_log: true
 
   alias Jido.Action.Error.{ConfigurationError, ExecutionFailureError, InvalidInputError}
   alias Jido.Exec
+  alias Jido.Flow
+  alias Jido.Flow.{Node, Ref}
   alias Jido.Instruction
   alias JidoTest.ExecFixtures.ActionWithFlowFunction
 
@@ -24,6 +27,8 @@ defmodule Jido.Exec.ActionExecutionTest do
     RawOutputAction,
     RawOutputWithExtrasAction,
     ThrowingAction,
+    StacktraceAction,
+    StacktraceValidationAction,
     TupleErrorAction,
     UnsupportedResult
   }
@@ -121,6 +126,54 @@ defmodule Jido.Exec.ActionExecutionTest do
       assert details.exception == RuntimeError
     end
 
+    test "preserves the original Action stacktrace for raised exceptions" do
+      assert {:error, %ExecutionFailureError{} = error} =
+               Exec.run(StacktraceAction, %{mode: :raise}, %{})
+
+      assert_action_frame(error, StacktraceAction, :raise_from_action, 0)
+
+      assert %Splode.Stacktrace{stacktrace: [{module, _function, _arity, _location} | _rest]} =
+               error.stacktrace
+
+      assert module == StacktraceAction
+    end
+
+    test "preserves the original Action stacktrace for throws and exits" do
+      for {mode, reason, function} <- [
+            {:throw, :stacktrace_probe_thrown, :throw_from_action},
+            {:exit, :stacktrace_probe_exited, :exit_from_action}
+          ] do
+        assert {:error, %ExecutionFailureError{details: details} = error} =
+                 Exec.run(StacktraceAction, %{mode: mode}, %{})
+
+        assert details.reason == reason
+        assert_action_frame(error, StacktraceAction, function, 0)
+      end
+    end
+
+    test "preserves the original validator stacktrace" do
+      for {mode, function} <- [
+            {:input, :raise_from_input_validator},
+            {:output, :raise_from_output_validator}
+          ] do
+        assert {:error, %ExecutionFailureError{} = error} =
+                 Exec.run(StacktraceValidationAction, %{mode: mode}, %{})
+
+        assert_action_frame(error, StacktraceValidationAction, function, 0)
+      end
+    end
+
+    test "keeps caught stacktraces out of the stable error map and JSON output" do
+      assert {:error, %ExecutionFailureError{} = error} =
+               Exec.run(StacktraceAction, %{mode: :raise}, %{})
+
+      assert Map.keys(Jido.Action.Error.to_map(error)) |> Enum.sort() ==
+               [:details, :message, :retryable?, :type]
+
+      refute Map.has_key?(Jido.Action.Error.to_map(error), :stacktrace)
+      assert is_binary(JSON.encode!(error))
+    end
+
     test "converts unsupported action result shapes to execution errors" do
       assert {:error, %ExecutionFailureError{message: message, details: details}} =
                Exec.run(UnsupportedResult)
@@ -213,5 +266,52 @@ defmodule Jido.Exec.ActionExecutionTest do
 
     assert message =~ "unknown executable"
     assert details.executable == "not executable"
+  end
+
+  test "preserves Action stacktraces through serial and asynchronous Flow nodes" do
+    flow =
+      Flow.new!(
+        name: "stacktrace_flow",
+        nodes: [
+          Node.new!(
+            name: "failure",
+            action: StacktraceAction,
+            input: %{mode: Ref.value(:raise)}
+          )
+        ],
+        return: Ref.result("failure")
+      )
+
+    for opts <- [[], [async: true]] do
+      assert {:error, %ExecutionFailureError{} = error} = Exec.run(flow, %{}, %{}, opts)
+      assert_action_frame(error, StacktraceAction, :raise_from_action, 0)
+    end
+  end
+
+  test "preserves validator stacktraces when a Flow retags an input failure" do
+    flow =
+      Flow.new!(
+        name: "validator_stacktrace_flow",
+        nodes: [
+          Node.new!(
+            name: "failure",
+            action: StacktraceValidationAction,
+            input: %{mode: Ref.value(:input)}
+          )
+        ],
+        return: Ref.result("failure")
+      )
+
+    assert {:error, %InvalidInputError{} = error} = Exec.run(flow)
+    assert_action_frame(error, StacktraceValidationAction, :raise_from_input_validator, 0)
+  end
+
+  defp assert_action_frame(error, module, function, arity) do
+    assert %Splode.Stacktrace{stacktrace: stacktrace} = error.stacktrace
+
+    assert Enum.any?(stacktrace, fn
+             {^module, ^function, ^arity, _location} -> true
+             _frame -> false
+           end)
   end
 end

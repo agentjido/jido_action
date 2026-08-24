@@ -125,8 +125,10 @@ request identity in those keys when the domain supports it.
 ## Protect Errors And Telemetry
 
 Error structs and telemetry can include Action names, Flow names, node names,
-and error details. Do not include raw credentials, tokens, personal data, or
-full context maps in error messages or telemetry metadata.
+error details, and runtime stacktraces. Stacktraces can include source paths,
+line numbers, and retained argument terms. Do not include raw credentials,
+tokens, personal data, or full context maps in error messages or telemetry
+metadata.
 
 Redact before logging or exporting errors outside the execution boundary.
 Treat telemetry handlers as a data access boundary and restrict who can read

@@ -75,17 +75,25 @@ defmodule Jido.Exec.ActionRunner do
   rescue
     exception ->
       {:error,
-       Error.execution_error(Exception.message(exception), %{
-         action: action,
-         exception: exception.__struct__
-       }), :no_extras}
+       caught_execution_error(
+         Exception.message(exception),
+         %{
+           action: action,
+           exception: exception.__struct__
+         },
+         __STACKTRACE__
+       ), :no_extras}
   catch
     kind, reason ->
       {:error,
-       Error.execution_error("action #{kind}", %{
-         action: action,
-         reason: reason
-       }), :no_extras}
+       caught_execution_error(
+         "action #{kind}",
+         %{
+           action: action,
+           reason: reason
+         },
+         __STACKTRACE__
+       ), :no_extras}
   end
 
   defp success_result(output, :no_extras), do: {:ok, output}
@@ -173,19 +181,36 @@ defmodule Jido.Exec.ActionRunner do
   rescue
     exception ->
       {:error,
-       Error.execution_error(Exception.message(exception), %{
-         action: action,
-         callback: callback,
-         exception: exception.__struct__
-       })}
+       caught_execution_error(
+         Exception.message(exception),
+         %{
+           action: action,
+           callback: callback,
+           exception: exception.__struct__
+         },
+         __STACKTRACE__
+       )}
   catch
     kind, reason ->
       {:error,
-       Error.execution_error("action validator #{kind}", %{
-         action: action,
-         callback: callback,
-         reason: reason
-       })}
+       caught_execution_error(
+         "action validator #{kind}",
+         %{
+           action: action,
+           callback: callback,
+           reason: reason
+         },
+         __STACKTRACE__
+       )}
+  end
+
+  defp caught_execution_error(message, details, stacktrace) do
+    Error.ExecutionFailureError.exception(
+      message: message,
+      details: details,
+      stacktrace: stacktrace,
+      splode: Error
+    )
   end
 
   defp normalize_action_error(error) when is_exception(error), do: error

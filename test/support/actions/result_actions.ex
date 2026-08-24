@@ -66,6 +66,21 @@ defmodule JidoTest.TestActions.ThrowingAction do
   def run(_params, _context), do: throw(:thrown_value)
 end
 
+defmodule JidoTest.TestActions.StacktraceAction do
+  @moduledoc false
+
+  def validate_params(params), do: {:ok, params}
+  def validate_output(output), do: {:ok, output}
+
+  def run(%{mode: :raise}, _context), do: raise_from_action()
+  def run(%{mode: :throw}, _context), do: throw_from_action()
+  def run(%{mode: :exit}, _context), do: exit_from_action()
+
+  def raise_from_action, do: raise("stacktrace probe raised")
+  def throw_from_action, do: throw(:stacktrace_probe_thrown)
+  def exit_from_action, do: exit(:stacktrace_probe_exited)
+end
+
 defmodule JidoTest.TestActions.OutputEnvelopeAction do
   @moduledoc false
   use Jido.Action,
