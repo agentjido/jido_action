@@ -46,7 +46,8 @@ defmodule Jido.Exec.FlowRunnableExecutor do
       runnables,
       max_concurrency,
       &execute(execution, &1, element_kinds),
-      &fail_exited_runnable(execution, &1, &2, element_kinds)
+      &fail_exited_runnable(execution, &1, &2, element_kinds),
+      Jido.Exec.ConcurrencyLimiter.whereis(execution.id)
     )
   end
 

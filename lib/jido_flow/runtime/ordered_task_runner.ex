@@ -1,10 +1,34 @@
 defmodule Jido.Flow.Runtime.OrderedTaskRunner do
   @moduledoc false
 
+  alias Jido.Exec.ConcurrencyLimiter
+
   @doc false
   def run(items, max_concurrency, worker_fun, exit_fun)
       when is_list(items) and is_integer(max_concurrency) and is_function(worker_fun, 1) and
              is_function(exit_fun, 2) do
+    run(items, max_concurrency, worker_fun, exit_fun, nil)
+  end
+
+  @doc false
+  def run(items, max_concurrency, worker_fun, exit_fun, concurrency_limiter)
+      when is_list(items) and is_integer(max_concurrency) and is_function(worker_fun, 1) and
+             is_function(exit_fun, 2) do
+    requested_slots = min(length(items), max_concurrency)
+    task_slots = ConcurrencyLimiter.reserve_task_slots(concurrency_limiter, requested_slots)
+
+    try do
+      if task_slots == 0 do
+        run_inline(items, worker_fun, exit_fun)
+      else
+        run_async(items, task_slots, worker_fun, exit_fun)
+      end
+    after
+      ConcurrencyLimiter.release_task_slots(concurrency_limiter, task_slots)
+    end
+  end
+
+  defp run_async(items, task_slots, worker_fun, exit_fun) do
     caller = self()
     logger_metadata = Logger.metadata()
     reference = make_ref()
@@ -24,7 +48,7 @@ defmodule Jido.Flow.Runtime.OrderedTaskRunner do
         results =
           items
           |> Task.async_stream(task_fun,
-            max_concurrency: max_concurrency,
+            max_concurrency: task_slots,
             timeout: :infinity,
             ordered: true
           )
@@ -45,6 +69,19 @@ defmodule Jido.Flow.Runtime.OrderedTaskRunner do
       {:DOWN, ^monitor, :process, ^worker, reason} ->
         exit(reason)
     end
+  end
+
+  defp run_inline(items, worker_fun, exit_fun) do
+    Enum.map(items, fn item ->
+      try do
+        worker_fun.(item)
+      rescue
+        exception -> exit_fun.(item, {exception, __STACKTRACE__})
+      catch
+        :exit, reason -> exit_fun.(item, reason)
+        kind, reason -> exit_fun.(item, {{kind, reason}, __STACKTRACE__})
+      end
+    end)
   end
 
   defp terminate_with_caller(caller, worker) do

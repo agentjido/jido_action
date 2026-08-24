@@ -104,7 +104,8 @@ defmodule Jido.Flow.Compiler.Map do
       items,
       Keyword.fetch!(state.options, :max_concurrency),
       &run_map_item(map, &1, state),
-      &map_item_task_exit(map, &1, &2)
+      &map_item_task_exit(map, &1, &2),
+      Jido.Exec.ConcurrencyLimiter.whereis(state.execution_id)
     )
   end
 

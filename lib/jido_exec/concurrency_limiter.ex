@@ -50,6 +50,29 @@ defmodule Jido.Exec.ConcurrencyLimiter do
     end
   end
 
+  @doc false
+  @spec reserve_task_slots(t() | nil, non_neg_integer()) :: non_neg_integer()
+  def reserve_task_slots(nil, requested) when is_integer(requested) and requested >= 0,
+    do: requested
+
+  def reserve_task_slots(limiter, requested)
+      when is_pid(limiter) and is_integer(requested) and requested >= 0 do
+    GenServer.call(limiter, {:reserve_task_slots, requested}, :infinity)
+  catch
+    :exit, _reason -> 0
+  end
+
+  @doc false
+  @spec release_task_slots(t() | nil, non_neg_integer()) :: :ok
+  def release_task_slots(nil, released) when is_integer(released) and released >= 0, do: :ok
+
+  def release_task_slots(limiter, released)
+      when is_pid(limiter) and is_integer(released) and released >= 0 do
+    GenServer.call(limiter, {:release_task_slots, self(), released}, :infinity)
+  catch
+    :exit, _reason -> :ok
+  end
+
   @spec stop(t() | nil) :: :ok
   def stop(nil), do: :ok
 
@@ -86,6 +109,8 @@ defmodule Jido.Exec.ConcurrencyLimiter do
        limit: limit,
        owner_monitor: owner_monitor,
        holders: %{},
+       task_count: 0,
+       task_holders: %{},
        waiters: :queue.new(),
        monitors: %{owner_monitor => :owner}
      }}
@@ -108,6 +133,16 @@ defmodule Jido.Exec.ConcurrencyLimiter do
     {:reply, :ok, state}
   end
 
+  def handle_call({:reserve_task_slots, requested}, {pid, _tag}, state) do
+    available = max(state.limit - state.task_count, 0)
+    granted = min(requested, available)
+    {:reply, granted, add_task_holder(state, pid, granted)}
+  end
+
+  def handle_call({:release_task_slots, pid, released}, _from, state) do
+    {:reply, :ok, remove_task_slots(state, pid, released)}
+  end
+
   @impl true
   def handle_info({:DOWN, monitor, :process, _pid, _reason}, %{owner_monitor: monitor} = state) do
     {:stop, :normal, state}
@@ -123,6 +158,9 @@ defmodule Jido.Exec.ConcurrencyLimiter do
 
         {:waiter, ^pid} ->
           remove_waiter(state, monitor)
+
+        {:task_holder, ^pid} ->
+          remove_task_holder(state, pid, false)
 
         _other ->
           state
@@ -215,5 +253,58 @@ defmodule Jido.Exec.ConcurrencyLimiter do
       |> :queue.from_list()
 
     %{state | waiters: waiters, monitors: Map.delete(state.monitors, monitor)}
+  end
+
+  defp add_task_holder(state, _pid, 0), do: state
+
+  defp add_task_holder(state, pid, granted) do
+    case Map.fetch(state.task_holders, pid) do
+      {:ok, %{count: count} = holder} ->
+        task_holders = Map.put(state.task_holders, pid, %{holder | count: count + granted})
+        %{state | task_count: state.task_count + granted, task_holders: task_holders}
+
+      :error ->
+        monitor = Process.monitor(pid)
+
+        %{
+          state
+          | task_count: state.task_count + granted,
+            task_holders: Map.put(state.task_holders, pid, %{count: granted, monitor: monitor}),
+            monitors: Map.put(state.monitors, monitor, {:task_holder, pid})
+        }
+    end
+  end
+
+  defp remove_task_slots(state, _pid, 0), do: state
+
+  defp remove_task_slots(state, pid, released) do
+    case Map.fetch(state.task_holders, pid) do
+      {:ok, %{count: count}} when released >= count ->
+        remove_task_holder(state, pid)
+
+      {:ok, %{count: count} = holder} ->
+        task_holders = Map.put(state.task_holders, pid, %{holder | count: count - released})
+        %{state | task_count: state.task_count - released, task_holders: task_holders}
+
+      :error ->
+        state
+    end
+  end
+
+  defp remove_task_holder(state, pid, demonitor? \\ true) do
+    case Map.pop(state.task_holders, pid) do
+      {nil, _task_holders} ->
+        state
+
+      {%{count: count, monitor: monitor}, task_holders} ->
+        if demonitor?, do: Process.demonitor(monitor, [:flush])
+
+        %{
+          state
+          | task_count: state.task_count - count,
+            task_holders: task_holders,
+            monitors: Map.delete(state.monitors, monitor)
+        }
+    end
   end
 end

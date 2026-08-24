@@ -17,7 +17,7 @@ Jido.Exec.run(MyApp.Flows.BuildReport, input, context,
 | Option | Default | Validation | Scope |
 | --- | --- | --- | --- |
 | `async` | `false` | Must be a Boolean. | Enables concurrent independent nodes and concurrent Map item calls. |
-| `max_concurrency` | `System.schedulers_online()` | Must be a positive integer. | Limits active Action calls across one in-memory execution when `async: true`. |
+| `max_concurrency` | `System.schedulers_online()` | Must be a positive integer. | Limits active Action calls and asynchronous helper workers across one in-memory execution when `async: true`. |
 
 The `max_concurrency` default is stored on the execution even when `async` is
 `false`. The option has no effect until asynchronous scheduling is enabled.
@@ -48,8 +48,9 @@ Options belong to the execution created by the current `run/4` or `start/4`
 call. They schedule independent nodes and internal Map items in that Flow.
 The limit is local to that execution. One shared permit budget bounds active
 Action validation and callback work across ready waves, concurrent Map nodes,
-and nested Flow targets. Internal scheduling boundaries can create waiting
-helper tasks, but they cannot start more Action calls than the shared limit.
+and nested Flow targets. A second non-blocking budget bounds asynchronous
+helper workers. Nested scheduling runs work inline when no helper-worker slot
+is available. Thus, it does not create helper processes that wait for a slot.
 The options do not change Flow dependencies.
 
 A nested Flow runs as one atomic parent node and uses its own default execution

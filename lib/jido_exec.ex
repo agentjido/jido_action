@@ -102,8 +102,10 @@ defmodule Jido.Exec do
   Flow execution accepts `:async` and `:max_concurrency` options. `:async`
   defaults to `false`. When it is `true`, independent Flow nodes and Map items
   can run concurrently. One shared `max_concurrency` budget limits active
-  Action calls across the execution and nested Flow targets. Action and
-  Instruction execution do not accept run options.
+  Action calls across the execution and nested Flow targets. The same numeric
+  limit separately bounds asynchronous helper workers. Nested work runs inline
+  when all helper-worker slots are in use. Action and Instruction execution do
+  not accept run options.
   """
   @spec run(term(), map() | keyword() | nil, map() | keyword() | nil, keyword()) ::
           {:ok, term()}
