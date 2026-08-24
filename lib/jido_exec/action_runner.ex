@@ -230,7 +230,10 @@ defmodule Jido.Exec.ActionRunner do
   defp normalize_action_error(error) when is_exception(error), do: error
 
   defp normalize_action_error(reason) do
-    Error.execution_error(to_error_message(reason), %{reason: reason})
+    Error.execution_error(to_error_message(reason), %{
+      reason: reason,
+      retry: Error.retryable?(reason)
+    })
   end
 
   defp to_error_message(message) when is_binary(message), do: message

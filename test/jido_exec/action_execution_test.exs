@@ -112,11 +112,14 @@ defmodule Jido.Exec.ActionExecutionTest do
     end
 
     test "normalizes atom and tuple action error reasons" do
-      assert {:error, %ExecutionFailureError{message: "bad_atom"}} =
+      assert {:error, %ExecutionFailureError{message: "bad_atom"} = atom_error} =
                Exec.run(AtomErrorAction, %{}, %{})
 
-      assert {:error, %ExecutionFailureError{message: "{:bad, :tuple}"}} =
+      assert {:error, %ExecutionFailureError{message: "{:bad, :tuple}"} = tuple_error} =
                Exec.run(TupleErrorAction, %{}, %{})
+
+      refute Jido.Action.Error.retryable?(atom_error)
+      refute Jido.Action.Error.retryable?(tuple_error)
     end
 
     test "converts raised leaf action exceptions to execution errors" do
@@ -207,8 +210,10 @@ defmodule Jido.Exec.ActionExecutionTest do
     end
 
     test "normalizes validator failures and unsupported results" do
-      assert {:error, %ExecutionFailureError{message: "bad_params"}} =
+      assert {:error, %ExecutionFailureError{message: "bad_params"} = params_error} =
                Exec.run(AtomValidationAction)
+
+      refute Jido.Action.Error.retryable?(params_error)
 
       assert {:error, %ExecutionFailureError{message: message, details: details}} =
                Exec.run(InvalidValidationResultAction)
