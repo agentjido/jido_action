@@ -40,23 +40,14 @@ defmodule Jido.Exec.FlowRunnableExecutor do
   end
 
   defp execute_async(execution, runnables, element_kinds) do
-    spans = Enum.map(runnables, &start_span(execution, &1, element_kinds))
     max_concurrency = Keyword.fetch!(execution.options, :max_concurrency)
 
-    executed =
-      OrderedTaskRunner.run(
-        runnables,
-        max_concurrency,
-        &Workflow.execute_runnable/1,
-        &fail_exited_runnable/2
-      )
-
-    executed
-    |> Enum.zip(spans)
-    |> Enum.map(fn {runnable, span} ->
-      finish_span(span, runnable)
-      runnable
-    end)
+    OrderedTaskRunner.run(
+      runnables,
+      max_concurrency,
+      &execute(execution, &1, element_kinds),
+      &fail_exited_runnable(execution, &1, &2, element_kinds)
+    )
   end
 
   defp start_span(execution, %Runnable{node: %Step{name: name}}, element_kinds) do
@@ -96,5 +87,12 @@ defmodule Jido.Exec.FlowRunnableExecutor do
         reason: reason
       })
     )
+  end
+
+  defp fail_exited_runnable(execution, runnable, reason, element_kinds) do
+    span = start_span(execution, runnable, element_kinds)
+    failed = fail_exited_runnable(runnable, reason)
+    finish_span(span, failed)
+    failed
   end
 end

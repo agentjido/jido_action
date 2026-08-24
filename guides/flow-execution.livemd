@@ -439,7 +439,9 @@ metadata is `%{execution_id: binary, flow: binary, node: binary, kind: :step |
 One `execution_id` correlates a Flow, nested Flows, and all node spans. In
 serial execution, a Flow contains its node spans. An Action inside a Flow is
 represented by its node span and does not emit a separate Action lifecycle.
-Async node spans can overlap and can come from task processes.
+Async node spans can overlap and can come from task processes. Each span
+measures that worker's node work. Async event order can follow scheduler and
+completion order, so correlate events by `execution_id` and node metadata.
 
 For step-wise execution, `start/4` opens the Flow lifecycle. Node events occur
 only when a step or wave runs them. The operation that reaches a terminal

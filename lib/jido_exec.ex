@@ -33,9 +33,9 @@ defmodule Jido.Exec do
   Action emits Action start and then Action stop or error. Serial Flow execution
   emits Flow start, node spans, and then Flow stop or error. A nested Flow starts
   inside its owning node span. An Instruction that targets a Flow has the Flow
-  lifecycle inside its Action lifecycle. With `async: true`, a wave emits node
-  starts in canonical order before dispatch and node stop or error events in
-  canonical order after it receives all outcomes. These node spans can overlap.
+  lifecycle inside its Action lifecycle. With `async: true`, each worker starts
+  and finishes its node span around the actual node work. These spans can overlap,
+  and their start and stop events can follow scheduler and completion order.
 
   `start/4` opens the Flow lifecycle. Each `step/2` or `wave/1` emits spans only
   for the nodes that it runs. The call that makes the execution terminal closes

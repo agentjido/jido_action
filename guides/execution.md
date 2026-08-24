@@ -98,9 +98,10 @@ in `start/4` and closes it only when a step, wave, or continue operation reaches
 a terminal result. An Action inside a Flow is represented by its node span and
 does not emit a separate Action lifecycle. An Instruction that targets a Flow
 has the Flow lifecycle inside its Action lifecycle. Async node spans can
-overlap. For an async wave, node start events occur in canonical order before
-dispatch. Node stop or error events occur in canonical order after the wave
-receives all outcomes. A killed node task still has one node error event.
+overlap. Each async worker starts and finishes its span around the actual node
+work. Start and stop events can follow scheduler and completion order. Use the
+node metadata and `execution_id` for correlation instead of event position. A
+killed node task still has one node error event.
 
 There are no item, iteration, State transition, completion, exhaustion, or
 failure telemetry events. Telemetry does not control scheduling or results.

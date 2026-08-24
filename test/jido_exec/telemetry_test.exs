@@ -58,6 +58,17 @@ defmodule Jido.Exec.TelemetryTest do
     def run(_params, _context), do: {:ok, %{items: [%{value: 1}]}}
   end
 
+  defmodule DelayAction do
+    @moduledoc false
+    use Jido.Action, name: "telemetry_delay"
+
+    @impl true
+    def run(%{delay: delay, value: value}, _context) do
+      Process.sleep(delay)
+      {:ok, %{value: value}}
+    end
+  end
+
   test "emits the exact Action lifecycle for an Action" do
     attach(@observed_events)
 
@@ -285,7 +296,7 @@ defmodule Jido.Exec.TelemetryTest do
     assert Map.drop(node_error, [:error, :error_type]) == node_start
   end
 
-  test "orders asynchronous node spans by the canonical ready set" do
+  test "correlates asynchronous node spans without event-order assumptions" do
     attach(@observed_events)
 
     flow =
@@ -307,13 +318,46 @@ defmodule Jido.Exec.TelemetryTest do
     assert {:ok, _results, execution} = Exec.wave(execution)
     assert {:ok, %{alpha: %{value: 2}, zeta: %{value: 2}}} = Exec.result(execution)
 
-    assert [
-             {@node_start, _, alpha_start},
-             {@node_start, _, zeta_start},
-             {@node_stop, _, alpha_stop},
-             {@node_stop, _, zeta_stop},
-             {@flow_stop, _, flow_stop}
-           ] = events()
+    recorded = events()
+    assert {@flow_stop, _, flow_stop} = List.last(recorded)
+
+    node_events = Enum.filter(recorded, &(elem(&1, 0) in [@node_start, @node_stop]))
+
+    for node <- ["alpha", "zeta"] do
+      assert [{@node_start, _, start_metadata}] =
+               Enum.filter(node_events, fn {event, _, metadata} ->
+                 event == @node_start and metadata.node == node
+               end)
+
+      assert [{@node_stop, _, stop_metadata}] =
+               Enum.filter(node_events, fn {event, _, metadata} ->
+                 event == @node_stop and metadata.node == node
+               end)
+
+      assert start_metadata == stop_metadata
+
+      start_index =
+        Enum.find_index(recorded, fn {event, _, metadata} ->
+          event == @node_start and Map.get(metadata, :node) == node
+        end)
+
+      stop_index =
+        Enum.find_index(recorded, fn {event, _, metadata} ->
+          event == @node_stop and Map.get(metadata, :node) == node
+        end)
+
+      assert start_index < stop_index
+    end
+
+    [{@node_start, _, alpha_start}] =
+      Enum.filter(node_events, fn {event, _, metadata} ->
+        event == @node_start and metadata.node == "alpha"
+      end)
+
+    [{@node_start, _, zeta_start}] =
+      Enum.filter(node_events, fn {event, _, metadata} ->
+        event == @node_start and metadata.node == "zeta"
+      end)
 
     assert alpha_start == %{
              execution_id: execution_id,
@@ -323,9 +367,40 @@ defmodule Jido.Exec.TelemetryTest do
            }
 
     assert zeta_start == %{alpha_start | node: "zeta"}
-    assert alpha_stop == alpha_start
-    assert zeta_stop == zeta_start
     assert flow_stop == %{execution_id: execution_id, flow: "async_telemetry_order"}
+  end
+
+  test "measures asynchronous node work instead of ready-wave residency" do
+    attach(@observed_events)
+
+    flow =
+      Flow.new!(
+        name: "async_telemetry_duration",
+        nodes: [
+          Node.new!(
+            name: "fast",
+            action: DelayAction,
+            input: %{delay: Ref.value(5), value: Ref.value(:fast)}
+          ),
+          Node.new!(
+            name: "slow",
+            action: DelayAction,
+            input: %{delay: Ref.value(150), value: Ref.value(:slow)}
+          )
+        ],
+        return: %{fast: Ref.result("fast"), slow: Ref.result("slow")}
+      )
+
+    assert {:ok, %{fast: %{value: :fast}, slow: %{value: :slow}}} =
+             Exec.run(flow, %{}, %{}, async: true, max_concurrency: 1)
+
+    durations =
+      for {@node_stop, measurements, metadata} <- events(),
+          into: %{},
+          do: {metadata.node, measurements.duration}
+
+    minimum_gap = System.convert_time_unit(80, :millisecond, :native)
+    assert durations["slow"] > durations["fast"] + minimum_gap
   end
 
   test "reports final result-path errors after the node span stops" do
