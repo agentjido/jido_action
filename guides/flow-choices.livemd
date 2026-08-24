@@ -81,6 +81,11 @@ end
 Result references in conditions and target parameters create static
 dependencies. All three predecessor nodes run before `route` is ready.
 
+This rule also applies to unselected options and to `otherwise`. An outer
+predecessor failure prevents the Choice from becoming ready, even when the
+failed result belongs to an unselected target. Jido cannot select a route and
+then remove an edge from the already compiled graph.
+
 ```elixir
 {:ok, dependencies} = Jido.Flow.dependencies(FlowChoices.Routing.flow())
 ["bulk_data", "fallback_data", "priority_data"] = dependencies["route"]
@@ -90,6 +95,12 @@ dependencies. All three predecessor nodes run before `route` is ready.
 
 Jido checks options in source order. The first true condition wins. Only the
 selected target runs.
+
+Keep branch-specific work inside the selected target when that work must be
+lazy. A nested Flow target can load its own data and then call its final Action.
+This structure is also the correct choice when an unselected branch must not
+run or fail the parent Flow. Do not create outer Flow steps for data that only
+one route needs.
 
 ```elixir
 {:ok, %{route: :priority}} =

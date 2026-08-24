@@ -127,6 +127,11 @@ are independent. Set `async: true` and `max_concurrency` at execution time:
 
 The execution option applies to ready waves. It does not change dependencies.
 
+Choice target parameter references also create normal static edges. All such
+predecessors run before the Choice is ready, including predecessors used only
+by an unselected option or fallback. Put branch-specific work in a nested Flow
+target when it must start only after route selection.
+
 ## Choose `after:` Only For Control Order
 
 Prefer a result reference when a node needs predecessor data. Use `after:`
