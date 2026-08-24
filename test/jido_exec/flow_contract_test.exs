@@ -181,13 +181,18 @@ defmodule Jido.Exec.FlowContractTest do
     assert {:ok, execution} = Exec.continue(execution)
     assert {:error, step_error} = Exec.result(execution)
 
-    assert Exception.message(run_error) ==
-             "action returned a value that requires an output envelope"
+    assert Exception.message(run_error) == "flow reference path does not exist"
+    assert run_error.details.ref_type == :result
+    assert run_error.details.node == "output"
+    assert run_error.details.path == [:items, 99]
+    assert run_error.details.reason == :missing_index
+    assert run_error.details.retry == false
 
     assert Exception.message(step_error) == Exception.message(run_error)
+    assert step_error.details == run_error.details
   end
 
-  test "does not raise when a result path reaches an improper list tail" do
+  test "returns a path error when a result path reaches an improper list tail" do
     module = ImproperListOutputAction
 
     flow =
@@ -202,10 +207,13 @@ defmodule Jido.Exec.FlowContractTest do
     assert {:ok, execution} = Exec.continue(execution)
     assert {:error, step_error} = Exec.result(execution)
 
-    assert Exception.message(run_error) ==
-             "action returned a value that requires an output envelope"
+    assert Exception.message(run_error) == "flow reference path does not exist"
+    assert run_error.details.reason == :missing_index
+    assert run_error.details.segment == 1
+    assert run_error.details.resolved_path == [:value, :items]
 
     assert Exception.message(step_error) == Exception.message(run_error)
+    assert step_error.details == run_error.details
   end
 
   test "executes a Flow artifact" do

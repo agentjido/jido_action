@@ -92,6 +92,8 @@ defmodule JidoTest.ExecutionFixtures do
   end
 
   def map_flow(items, on_error) do
+    items = Enum.map(items, &Map.put_new(&1, :block, false))
+
     Flow.new!(
       name: "step_map",
       nodes: [
@@ -116,6 +118,7 @@ defmodule JidoTest.ExecutionFixtures do
         :with_error ->
           [%{value: :zero, outcome: :ok}, %{value: :one, outcome: {:error, "failed"}}]
       end
+      |> Enum.map(&Map.put_new(&1, :block, false))
 
     Flow.new!(
       name: "stepwise_map_reduce",

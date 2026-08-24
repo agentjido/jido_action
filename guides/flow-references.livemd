@@ -192,9 +192,13 @@ end
   Jido.Exec.run(FlowReferences.SelectExample, %{value: 6}, %{})
 ```
 
-## Missing Paths Resolve To `nil`
+## Missing Paths Are Errors
 
-When a map key or list element is missing, path resolution returns `nil`.
+When a map key or list element is missing, execution returns a non-retryable
+error. The error identifies the reference type, full path, failed segment, and
+resolved path prefix. This rule prevents a spelling error from silently
+becoming `nil`. A key or list element that exists and contains `nil` still
+resolves to `nil`.
 
 ```elixir
 defmodule FlowReferences.MissingPath do
@@ -215,8 +219,13 @@ defmodule FlowReferences.MissingPath do
   end
 end
 
-{:ok, %{missing_input: nil, missing_result: nil}} =
-  Jido.Exec.run(FlowReferences.MissingPath, %{value: 1}, %{})
+{:error, error} = Jido.Exec.run(FlowReferences.MissingPath, %{value: 1}, %{})
+
+"flow reference path does not exist" = Exception.message(error)
+:input = error.details.ref_type
+[:missing, :nested] = error.details.path
+[] = error.details.resolved_path
+false = Jido.Action.Error.retryable?(error)
 ```
 
 ## Use Scoped References

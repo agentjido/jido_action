@@ -187,7 +187,7 @@ defmodule Jido.Exec.MapExecutionTest do
       map =
         FlowMap.new!(
           name: :mapped,
-          collection: Ref.value([%{value: :bad, outcome: {:error, "failed"}}]),
+          collection: Ref.value([%{value: :bad, outcome: {:error, "failed"}, block: false}]),
           action: MapProbeAction,
           input: ExecutionFixtures.map_probe_input(),
           on_error: :fail_fast

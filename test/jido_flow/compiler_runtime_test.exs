@@ -152,7 +152,7 @@ defmodule Jido.Flow.CompilerRuntimeTest do
     end
   end
 
-  test "resolves nested maps, lists, alternate map keys, and list indexes" do
+  test "resolves nested maps, lists, alternate map keys, list indexes, and stored nil" do
     flow =
       Flow.new!(
         name: "expression_resolution",
@@ -164,8 +164,7 @@ defmodule Jido.Flow.CompilerRuntimeTest do
               values: [Ref.input(:value), Ref.context(:trace)],
               alternate_key: Ref.input([:data, :value]),
               indexed: Ref.input([:items, 1]),
-              missing_index: Ref.input([:items, 9]),
-              scalar_path: Ref.input([:value, :missing])
+              stored_nil: Ref.input(:stored_nil)
             }
           )
         ],
@@ -177,14 +176,53 @@ defmodule Jido.Flow.CompilerRuntimeTest do
               values: [1, "trace"],
               alternate_key: 2,
               indexed: :one,
-              missing_index: nil,
-              scalar_path: nil
+              stored_nil: nil
             }} =
              Exec.run(
                flow,
-               %{value: 1, data: %{"value" => 2}, items: [:zero, :one]},
+               %{value: 1, data: %{"value" => 2}, items: [:zero, :one], stored_nil: nil},
                %{trace: "trace"}
              )
+  end
+
+  test "rejects missing and non-traversable reference paths" do
+    cases = [
+      {Ref.input([:data, :missing]), :missing_key, :missing, [:data], :map},
+      {Ref.input([:items, 9]), :missing_index, 9, [:items], :list},
+      {Ref.input([:value, :missing]), :not_traversable, :missing, [:value], :number}
+    ]
+
+    for {ref, reason, segment, resolved_path, value_type} <- cases do
+      flow =
+        Flow.new!(
+          name: "strict_expression_resolution",
+          nodes: [
+            Node.new!(name: "echo", action: EchoParamsAction, input: %{resolved: ref})
+          ],
+          return: Ref.result("echo")
+        )
+
+      assert {:error,
+              %ExecutionFailureError{
+                message: "flow reference path does not exist",
+                details: %{
+                  ref_type: :input,
+                  path: path,
+                  reason: ^reason,
+                  segment: ^segment,
+                  resolved_path: ^resolved_path,
+                  value_type: ^value_type,
+                  retry: false
+                }
+              }} =
+               Exec.run(
+                 flow,
+                 %{value: 1, data: %{"value" => 2}, items: [:zero, :one]},
+                 %{}
+               )
+
+      assert path == ref.path
+    end
   end
 
   test "classifies invalid Map collections without starting item work" do
