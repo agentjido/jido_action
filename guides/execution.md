@@ -72,6 +72,12 @@ A caught Action exception, throw, or exit keeps its original stacktrace in the
 runtime error's `%Splode.Stacktrace{}` field. `Jido.Action.Error.to_map/1` and
 JSON encoding do not include this stacktrace.
 
+Direct Action execution preserves an exception returned in `{:error,
+exception}`. When a Flow must add node, phase, or item ownership to a foreign
+exception that has no `details` field, it creates an `ExecutionFailureError`.
+The wrapper keeps the foreign exception module in `details.exception`. Jido
+does not add undeclared keys to the foreign exception struct.
+
 ## Telemetry
 
 Jido emits only these nine events:

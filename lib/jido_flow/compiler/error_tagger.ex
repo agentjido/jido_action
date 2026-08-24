@@ -44,7 +44,15 @@ defmodule Jido.Flow.Compiler.ErrorTagger do
     if Map.has_key?(error, :details) do
       %{error | details: details}
     else
-      Map.put(error, :details, details)
+      details =
+        details
+        |> Map.put(:exception, error.__struct__)
+        |> Map.put_new(:retry, Error.retryable?(error))
+
+      error
+      |> Exception.message()
+      |> Error.execution_error(details)
+      |> preserve_stacktrace(error)
     end
   end
 

@@ -83,7 +83,11 @@ defmodule Jido.Flow.IteratorFailureTest do
           max_iterations: 1
         )
 
-      assert {:error, %RuntimeError{message: "returned body exception"} = error} =
+      assert {:error,
+              %ExecutionFailureError{
+                message: "returned body exception",
+                details: %{exception: RuntimeError}
+              } = error} =
                Exec.run(flow, %{}, %{})
 
       assert %{

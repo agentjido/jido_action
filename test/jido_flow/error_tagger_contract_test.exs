@@ -2,6 +2,7 @@ defmodule Jido.Flow.ErrorTaggerContractTest do
   use JidoTest.ActionCase, async: true
 
   alias Jido.Action.Error
+  alias Jido.Action.Error.ExecutionFailureError
   alias Jido.Flow.{Choice, Condition, Iterator, Node, Reduce, Ref, State}
   alias Jido.Flow.Compiler.ErrorTagger
   alias Jido.Flow.Compiler.TargetContext
@@ -73,21 +74,22 @@ defmodule Jido.Flow.ErrorTaggerContractTest do
     assert tagged.details.retry == false
   end
 
-  test "adds phase and ownership details to plain target exceptions" do
+  test "wraps plain target exceptions without adding undeclared struct fields" do
     for {owner, _input_phase, execution_phase, _output_phase, details} <- owners() do
       exception = RuntimeError.exception("plain failure")
 
       assert {:error,
-              %{
-                __struct__: RuntimeError,
+              %ExecutionFailureError{
                 message: "plain failure",
                 details: tagged_details
               } = tagged} =
                ErrorTagger.tag_target_error({:error, exception}, :execution, owner)
 
-      assert is_exception(tagged)
+      assert tagged_details.exception == RuntimeError
+      assert tagged_details.retry == false
       assert Map.take(tagged_details, Map.keys(details)) == details
       assert tagged_details.phase == execution_phase
+      refute Map.has_key?(tagged, :unexpected)
     end
   end
 
