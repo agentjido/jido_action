@@ -8,7 +8,7 @@ defmodule Jido.Flow.MapCodec.IteratorDecoder do
   alias Jido.Flow.MapCodec.RegistryLookup
 
   @doc false
-  def decode(iterator) do
+  def decode(iterator, registry) do
     with :ok <- RecordValidator.validate_iterator_record(iterator),
          {:ok, name} <-
            RecordValidator.fetch_required(iterator, :name, "iterator name is required"),
@@ -20,12 +20,12 @@ defmodule Jido.Flow.MapCodec.IteratorDecoder do
          {:ok, input} <-
            RecordValidator.fetch_required(iterator, :input, "iterator input is required"),
          {:ok, input} <-
-           ExpressionDecoder.decode(input)
+           ExpressionDecoder.decode(input, registry)
            |> ErrorPath.prepend([RecordValidator.field(:input)]),
          {:ok, state} <-
            RecordValidator.fetch_required(iterator, :state, "iterator state is required"),
          {:ok, state} <-
-           decode_state(state)
+           decode_state(state, registry)
            |> ErrorPath.prepend([RecordValidator.field(:state)]),
          {:ok, completion} <-
            RecordValidator.fetch_required(
@@ -34,7 +34,7 @@ defmodule Jido.Flow.MapCodec.IteratorDecoder do
              "iterator completion is required"
            ),
          {:ok, completion} <-
-           ExpressionDecoder.decode_condition(completion, :iterate_completion)
+           ExpressionDecoder.decode_condition(completion, registry, :iterate_completion)
            |> ErrorPath.prepend([RecordValidator.field(:completion)]),
          {:ok, max_iterations} <-
            RecordValidator.fetch_required(
@@ -46,7 +46,7 @@ defmodule Jido.Flow.MapCodec.IteratorDecoder do
            RecordValidator.fetch_required(iterator, :deps, "iterator deps are required"),
          {:ok, deps} <- RecordValidator.validate_node_deps(deps),
          {:ok, provenance} <-
-           DataDecoder.decode_optional(iterator, :provenance, %{})
+           DataDecoder.decode_optional(iterator, :provenance, %{}, registry)
            |> ErrorPath.prepend([RecordValidator.field(:provenance)]) do
       {:ok,
        %{
@@ -63,7 +63,7 @@ defmodule Jido.Flow.MapCodec.IteratorDecoder do
     end
   end
 
-  defp decode_state(%{} = state) do
+  defp decode_state(%{} = state, registry) do
     with :ok <- RecordValidator.validate_iterator_state_record(state),
          :ok <-
            validate_state_kind(RecordValidator.fetch_optional(state, :kind, nil)),
@@ -76,18 +76,18 @@ defmodule Jido.Flow.MapCodec.IteratorDecoder do
          {:ok, initial} <-
            RecordValidator.fetch_required(state, :initial, "iterator state initial is required"),
          {:ok, initial} <-
-           ExpressionDecoder.decode(initial)
+           ExpressionDecoder.decode(initial, registry)
            |> ErrorPath.prepend([RecordValidator.field(:initial)]),
          {:ok, update} <-
            RecordValidator.fetch_required(state, :update, "iterator state update is required"),
          {:ok, update} <-
-           ExpressionDecoder.decode(update)
+           ExpressionDecoder.decode(update, registry)
            |> ErrorPath.prepend([RecordValidator.field(:update)]) do
       {:ok, %{version: version, schema: schema, initial: initial, update: update}}
     end
   end
 
-  defp decode_state(_state), do: ErrorPath.error("iterator state must be a map")
+  defp decode_state(_state, _registry), do: ErrorPath.error("iterator state must be a map")
 
   defp validate_state_version(1), do: :ok
 

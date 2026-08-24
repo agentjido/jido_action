@@ -8,13 +8,13 @@ defmodule Jido.Flow.MapCodec.CollectionDecoder do
   alias Jido.Flow.MapCodec.RegistryLookup
 
   @doc false
-  def decode_map(map) do
+  def decode_map(map, registry) do
     with :ok <- RecordValidator.validate_map_record(map),
          {:ok, name} <- RecordValidator.fetch_required(map, :name, "map name is required"),
          {:ok, collection} <-
            RecordValidator.fetch_required(map, :collection, "map collection is required"),
          {:ok, collection} <-
-           ExpressionDecoder.decode(collection)
+           ExpressionDecoder.decode(collection, registry)
            |> ErrorPath.prepend([RecordValidator.field(:collection)]),
          {:ok, action} <-
            RecordValidator.fetch_required(map, :action, "map action is required"),
@@ -24,7 +24,7 @@ defmodule Jido.Flow.MapCodec.CollectionDecoder do
          {:ok, input} <-
            RecordValidator.fetch_required(map, :input, "map input is required"),
          {:ok, input} <-
-           ExpressionDecoder.decode(input)
+           ExpressionDecoder.decode(input, registry)
            |> ErrorPath.prepend([RecordValidator.field(:input)]),
          {:ok, on_error} <-
            RecordValidator.fetch_required(map, :on_error, "map on_error is required"),
@@ -34,7 +34,7 @@ defmodule Jido.Flow.MapCodec.CollectionDecoder do
          {:ok, deps} <- RecordValidator.fetch_required(map, :deps, "map deps are required"),
          {:ok, deps} <- RecordValidator.validate_node_deps(deps),
          {:ok, provenance} <-
-           DataDecoder.decode_optional(map, :provenance, %{})
+           DataDecoder.decode_optional(map, :provenance, %{}, registry)
            |> ErrorPath.prepend([RecordValidator.field(:provenance)]) do
       {:ok,
        %{
@@ -51,7 +51,7 @@ defmodule Jido.Flow.MapCodec.CollectionDecoder do
   end
 
   @doc false
-  def decode_reduce(reduce) do
+  def decode_reduce(reduce, registry) do
     with :ok <- RecordValidator.validate_reduce_record(reduce),
          {:ok, name} <-
            RecordValidator.fetch_required(reduce, :name, "reduce name is required"),
@@ -62,12 +62,12 @@ defmodule Jido.Flow.MapCodec.CollectionDecoder do
              "reduce collection is required"
            ),
          {:ok, collection} <-
-           ExpressionDecoder.decode(collection)
+           ExpressionDecoder.decode(collection, registry)
            |> ErrorPath.prepend([RecordValidator.field(:collection)]),
          {:ok, initial} <-
            RecordValidator.fetch_required(reduce, :initial, "reduce initial is required"),
          {:ok, initial} <-
-           ExpressionDecoder.decode(initial)
+           ExpressionDecoder.decode(initial, registry)
            |> ErrorPath.prepend([RecordValidator.field(:initial)]),
          {:ok, action} <-
            RecordValidator.fetch_required(reduce, :action, "reduce action is required"),
@@ -77,13 +77,13 @@ defmodule Jido.Flow.MapCodec.CollectionDecoder do
          {:ok, input} <-
            RecordValidator.fetch_required(reduce, :input, "reduce input is required"),
          {:ok, input} <-
-           ExpressionDecoder.decode(input)
+           ExpressionDecoder.decode(input, registry)
            |> ErrorPath.prepend([RecordValidator.field(:input)]),
          {:ok, deps} <-
            RecordValidator.fetch_required(reduce, :deps, "reduce deps are required"),
          {:ok, deps} <- RecordValidator.validate_node_deps(deps),
          {:ok, provenance} <-
-           DataDecoder.decode_optional(reduce, :provenance, %{})
+           DataDecoder.decode_optional(reduce, :provenance, %{}, registry)
            |> ErrorPath.prepend([RecordValidator.field(:provenance)]) do
       {:ok,
        %{

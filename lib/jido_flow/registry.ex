@@ -1,12 +1,14 @@
 defmodule Jido.Flow.Registry do
   @moduledoc """
-  Resolves stable stored identifiers to trusted host Actions and schemas.
+  Resolves stable stored identifiers to trusted host Actions, schemas, and
+  data atoms.
 
   A Registry is flat. Each string identifier maps to one typed entry:
 
       Jido.Flow.Registry.new!(%{
         "actions/send-email/v1" => {:action, MyApp.SendEmail},
-        "schemas/email/v1" => {:schema, MyApp.EmailSchema.schema()}
+        "schemas/email/v1" => {:schema, MyApp.EmailSchema.schema()},
+        "atoms/approved/v1" => {:atom, :approved}
       })
 
   Stored Flow data contains identifiers only. The reader resolves them through
@@ -20,7 +22,7 @@ defmodule Jido.Flow.Registry do
   @identifier_pattern ~r/\A[A-Za-z0-9][A-Za-z0-9._\/:@-]{0,254}\z/
 
   @type stable_id :: String.t()
-  @type entry :: {:action, module()} | {:schema, term()}
+  @type entry :: {:action, module()} | {:schema, term()} | {:atom, atom()}
   @type t :: %__MODULE__{entries: %{stable_id() => entry()}}
 
   @enforce_keys [:entries]
@@ -66,10 +68,10 @@ defmodule Jido.Flow.Registry do
   end
 
   @doc "Resolves one identifier of the required kind."
-  @spec resolve(t(), stable_id(), :action | :schema) ::
+  @spec resolve(t(), stable_id(), :action | :schema | :atom) ::
           {:ok, module() | term()} | {:error, Exception.t()}
   def resolve(%__MODULE__{entries: entries}, identifier, kind)
-      when kind in [:action, :schema] do
+      when kind in [:action, :schema, :atom] do
     with :ok <- validate_identifier(identifier) do
       case Map.fetch(entries, identifier) do
         {:ok, {^kind, value}} ->
@@ -88,10 +90,11 @@ defmodule Jido.Flow.Registry do
     end
   end
 
-  @doc "Finds the one stable identifier for a trusted Action or schema value."
-  @spec identifier(t(), :action | :schema, term()) ::
+  @doc "Finds the one stable identifier for a trusted Action, schema, or atom value."
+  @spec identifier(t(), :action | :schema | :atom, term()) ::
           {:ok, stable_id()} | {:error, Exception.t()}
-  def identifier(%__MODULE__{entries: entries}, kind, value) when kind in [:action, :schema] do
+  def identifier(%__MODULE__{entries: entries}, kind, value)
+      when kind in [:action, :schema, :atom] do
     identifiers =
       for {identifier, {entry_kind, entry_value}} <- entries,
           entry_kind == kind and entry_value === value,
@@ -130,6 +133,7 @@ defmodule Jido.Flow.Registry do
 
   defp validate_entry({:action, module}) when is_atom(module) and not is_nil(module), do: :ok
   defp validate_entry({:schema, _schema}), do: :ok
+  defp validate_entry({:atom, atom}) when is_atom(atom), do: :ok
 
   defp validate_entry(entry),
     do: error("invalid flow registry entry", %{entry: entry_type(entry)})

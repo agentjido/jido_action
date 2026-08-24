@@ -172,14 +172,14 @@ defmodule Jido.Flow.RefactorCharacterizationTest do
                    "type" => "map",
                    "entries" => [
                      %{
-                       "key" => %{"type" => "atom", "value" => "amount"},
+                       "key" => %{"type" => "atom", "value" => "atom/amount/v1"},
                        "value" => %{"type" => "value", "value" => 2}
                      },
                      %{
                        "key" => %{"type" => "string", "value" => "value"},
                        "value" => %{
                          "type" => "input",
-                         "path" => [%{"type" => "atom", "value" => "value"}]
+                         "path" => [%{"type" => "atom", "value" => "atom/value/v1"}]
                        }
                      }
                    ]
@@ -189,7 +189,7 @@ defmodule Jido.Flow.RefactorCharacterizationTest do
                    "$type" => "map",
                    "entries" => [
                      %{
-                       "key" => %{"type" => "atom", "value" => "line"},
+                       "key" => %{"type" => "atom", "value" => "atom/line/v1"},
                        "value" => 7
                      }
                    ]
@@ -199,13 +199,13 @@ defmodule Jido.Flow.RefactorCharacterizationTest do
              "return" => %{
                "type" => "result",
                "node" => "add",
-               "path" => [%{"type" => "atom", "value" => "value"}]
+               "path" => [%{"type" => "atom", "value" => "atom/value/v1"}]
              },
              "provenance" => %{
                "$type" => "map",
                "entries" => [
                  %{
-                   "key" => %{"type" => "atom", "value" => "source"},
+                   "key" => %{"type" => "atom", "value" => "atom/source/v1"},
                    "value" => "test"
                  }
                ]
@@ -252,7 +252,13 @@ defmodule Jido.Flow.RefactorCharacterizationTest do
     Registry.new!(%{
       "action/add/v1" => {:action, Add},
       "action/multiply/v1" => {:action, Multiply},
-      "schema/empty/v1" => {:schema, []}
+      "schema/empty/v1" => {:schema, []},
+      "atom/amount/v1" => {:atom, :amount},
+      "atom/bad/v1" => {:atom, :bad},
+      "atom/items/v1" => {:atom, :items},
+      "atom/line/v1" => {:atom, :line},
+      "atom/source/v1" => {:atom, :source},
+      "atom/value/v1" => {:atom, :value}
     })
   end
 

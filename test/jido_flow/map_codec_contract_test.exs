@@ -425,7 +425,7 @@ defmodule Jido.Flow.MapCodecContractTest do
 
   defp encoded_entry(key, value) do
     %{
-      "key" => typed_key("atom", Atom.to_string(key)),
+      "key" => typed_key("atom", "atom/#{key}/v1"),
       "value" => value
     }
   end

@@ -45,8 +45,10 @@ portable storage, use a versioned map or JSON object and a host-owned
 {:ok, restored} = Jido.Flow.from_stored_map(stored, registry)
 ```
 
-Stored data contains stable Action and schema identifiers. It does not contain
-Elixir source, module names, or schema terms. Verify the semantic round trip:
+Stored data contains stable Action, schema, and data atom identifiers. Add one
+`{:atom, atom}` Registry entry for each atom literal, atom map key, and atom
+reference path segment. Stored data does not contain Elixir source, module
+names, schema terms, or atom names. Verify the semantic round trip:
 
 ```elixir
 Jido.Flow.to_map(restored) == Jido.Flow.to_map(flow)

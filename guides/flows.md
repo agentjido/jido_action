@@ -102,7 +102,8 @@ registry =
   Jido.Flow.Registry.new!(%{
     "my_app/double-action/v1" => {:action, MyApp.Actions.Double},
     "my_app/double-input/v1" => {:schema, flow.schema},
-    "my_app/double-output/v1" => {:schema, flow.output_schema}
+    "my_app/double-output/v1" => {:schema, flow.output_schema},
+    "my_app/value-atom/v1" => {:atom, :value}
   })
 
 {:ok, stored_map} =
@@ -115,10 +116,10 @@ registry =
 ```
 
 The semantic map uses deterministic dependency order and excludes provenance.
-The stored version 1 map contains stable schema and Action identifiers. Zoi
-schemas and Action modules stay in the host Registry. Semantic identity
-represents the meaning of the resolved Flow, not transport identifiers,
-authoring order, or source location.
+The stored version 1 map contains stable schema, Action, and data atom
+identifiers. Zoi schemas, Action modules, and data atoms stay in the host
+Registry. Semantic identity represents the meaning of the resolved Flow, not
+transport identifiers, authoring order, or source location.
 
 ## Continue With The Flow Guides
 

@@ -3,17 +3,18 @@ defmodule Jido.Flow.MapCodec.DataDecoder do
 
   alias Jido.Flow.MapCodec.ErrorPath
   alias Jido.Flow.MapCodec.RecordValidator
+  alias Jido.Flow.Registry
 
   @doc false
-  def decode_optional(map, field, default) do
+  def decode_optional(map, field, default, registry) do
     case Map.fetch(map, Atom.to_string(field)) do
-      {:ok, value} -> decode(value)
+      {:ok, value} -> decode(value, registry)
       :error -> {:ok, default}
     end
   end
 
   @doc false
-  def decode(%{} = map) do
+  def decode(%{} = map, %Registry{} = registry) do
     case Map.get(map, "$type") do
       "atom" ->
         with :ok <-
@@ -30,7 +31,7 @@ defmodule Jido.Flow.MapCodec.DataDecoder do
                  "encoded atom value is required"
                ),
              {:ok, value} <- decode_encoded_atom_value(value) do
-          existing_atom(value)
+          Registry.resolve(registry, value, :atom)
         end
 
       "map" ->
@@ -47,25 +48,25 @@ defmodule Jido.Flow.MapCodec.DataDecoder do
                  "entries",
                  "encoded map entries are required"
                ),
-             {:ok, entries} <- decode_entries(entries, &decode/1) do
+             {:ok, entries} <- decode_entries(entries, &decode(&1, registry), registry) do
           {:ok, Map.new(entries)}
         end
 
       nil ->
-        decode_plain_data_map(map)
+        decode_plain_data_map(map, registry)
 
       type ->
         ErrorPath.error("unknown encoded value type: #{inspect(type)}", %{type: type})
     end
   end
 
-  def decode(list) when is_list(list) do
+  def decode(list, registry) when is_list(list) do
     if List.improper?(list) do
       stored_data_error(list)
     else
       list
       |> Enum.reduce_while({:ok, []}, fn value, {:ok, acc} ->
-        case decode(value) do
+        case decode(value, registry) do
           {:ok, value} -> {:cont, {:ok, [value | acc]}}
           {:error, error} -> {:halt, {:error, error}}
         end
@@ -77,21 +78,21 @@ defmodule Jido.Flow.MapCodec.DataDecoder do
     end
   end
 
-  def decode(value)
+  def decode(value, _registry)
       when is_nil(value) or is_boolean(value) or is_number(value) or is_binary(value),
       do: {:ok, value}
 
-  def decode(value), do: stored_data_error(value)
+  def decode(value, _registry), do: stored_data_error(value)
 
   @doc false
-  def decode_entries(entries, value_decoder) when is_list(entries) do
+  def decode_entries(entries, value_decoder, registry) when is_list(entries) do
     if List.improper?(entries) do
       ErrorPath.error("encoded map entries must be a list", %{entries: inspect(entries)})
     else
       entries
       |> Enum.with_index()
       |> Enum.reduce_while({:ok, []}, fn {entry, index}, {:ok, acc} ->
-        case decode_entry(entry, value_decoder, index) do
+        case decode_entry(entry, value_decoder, registry, index) do
           {:ok, entry} -> {:cont, {:ok, [entry | acc]}}
           {:error, error} -> {:halt, {:error, error}}
         end
@@ -106,12 +107,12 @@ defmodule Jido.Flow.MapCodec.DataDecoder do
     end
   end
 
-  def decode_entries(entries, _value_decoder) do
+  def decode_entries(entries, _value_decoder, _registry) do
     ErrorPath.error("encoded map entries must be a list", %{entries: entries})
   end
 
   @doc false
-  def decode_key(%{} = segment) do
+  def decode_key(%{} = segment, registry) do
     with :ok <-
            RecordValidator.validate_record(
              segment,
@@ -123,20 +124,20 @@ defmodule Jido.Flow.MapCodec.DataDecoder do
            RecordValidator.exact_fetch_required(segment, "type", "typed key type is required"),
          {:ok, value} <-
            RecordValidator.exact_fetch_required(segment, "value", "typed key value is required") do
-      decode_key(type, value)
+      decode_key(type, value, registry)
     end
   end
 
-  def decode_key(segment) do
+  def decode_key(segment, _registry) do
     ErrorPath.error("malformed flow path segment", %{segment: segment})
   end
 
-  defp decode_plain_data_map(map) do
+  defp decode_plain_data_map(map, registry) do
     case Enum.find(Map.keys(map), &(not is_binary(&1))) do
       nil ->
         map
         |> Enum.reduce_while({:ok, %{}}, fn {key, value}, {:ok, acc} ->
-          case decode(value) do
+          case decode(value, registry) do
             {:ok, value} -> {:cont, {:ok, Map.put(acc, key, value)}}
             {:error, error} -> {:halt, {:error, error}}
           end
@@ -150,7 +151,7 @@ defmodule Jido.Flow.MapCodec.DataDecoder do
     end
   end
 
-  defp decode_entry(%{} = entry, value_decoder, index) do
+  defp decode_entry(%{} = entry, value_decoder, registry, index) do
     with :ok <-
            RecordValidator.validate_record(
              entry,
@@ -160,7 +161,8 @@ defmodule Jido.Flow.MapCodec.DataDecoder do
            ),
          {:ok, key} <-
            RecordValidator.exact_fetch_required(entry, "key", "encoded map key is required"),
-         {:ok, key} <- decode_map_key(key) |> ErrorPath.prepend([{:map_key, index}]),
+         {:ok, key} <-
+           decode_map_key(key, registry) |> ErrorPath.prepend([{:map_key, index}]),
          {:ok, value} <-
            RecordValidator.exact_fetch_required(entry, "value", "encoded map value is required"),
          {:ok, value} <- value_decoder.(value) |> ErrorPath.prepend([{:map_value, index}]) do
@@ -168,20 +170,22 @@ defmodule Jido.Flow.MapCodec.DataDecoder do
     end
   end
 
-  defp decode_entry(entry, _value_decoder, _index) do
+  defp decode_entry(entry, _value_decoder, _registry, _index) do
     ErrorPath.error("encoded map entry must be a map", %{entry: entry})
   end
 
-  defp decode_key("atom", value) when is_binary(value), do: existing_atom(value)
-  defp decode_key("string", value) when is_binary(value), do: {:ok, value}
-  defp decode_key("integer", value) when is_integer(value), do: {:ok, value}
+  defp decode_key("atom", value, registry) when is_binary(value),
+    do: Registry.resolve(registry, value, :atom)
 
-  defp decode_key(type, value) do
+  defp decode_key("string", value, _registry) when is_binary(value), do: {:ok, value}
+  defp decode_key("integer", value, _registry) when is_integer(value), do: {:ok, value}
+
+  defp decode_key(type, value, _registry) do
     ErrorPath.error("malformed flow path segment", %{type: type, value: value})
   end
 
-  defp decode_map_key(segment) do
-    with {:ok, key} <- decode_key(segment),
+  defp decode_map_key(segment, registry) do
+    with {:ok, key} <- decode_key(segment, registry),
          :ok <- validate_decoded_map_key(key) do
       {:ok, key}
     end
@@ -201,13 +205,6 @@ defmodule Jido.Flow.MapCodec.DataDecoder do
 
   defp decode_encoded_atom_value(value) do
     ErrorPath.error("encoded atom value must be a binary", %{value: value})
-  end
-
-  defp existing_atom(value) when is_binary(value) do
-    {:ok, String.to_existing_atom(value)}
-  rescue
-    ArgumentError ->
-      ErrorPath.error("unknown atom in flow map: #{inspect(value)}", %{value: value})
   end
 
   defp stored_data_error(value) do

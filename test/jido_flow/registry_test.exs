@@ -12,12 +12,15 @@ defmodule Jido.Flow.RegistryTest do
     assert {:ok, registry} =
              Registry.new(%{
                "action/add/v1" => {:action, Add},
-               "schema/value/v1" => {:schema, schema}
+               "schema/value/v1" => {:schema, schema},
+               "atom/ready/v1" => {:atom, :ready}
              })
 
     assert {:ok, Add} = Registry.resolve(registry, "action/add/v1", :action)
     assert {:ok, ^schema} = Registry.resolve(registry, "schema/value/v1", :schema)
+    assert {:ok, :ready} = Registry.resolve(registry, "atom/ready/v1", :atom)
     assert {:ok, "action/add/v1"} = Registry.identifier(registry, :action, Add)
+    assert {:ok, "atom/ready/v1"} = Registry.identifier(registry, :atom, :ready)
   end
 
   test "rejects unsafe identifiers and untyped entries" do
@@ -99,7 +102,9 @@ defmodule Jido.Flow.RegistryTest do
       Registry.new!(%{
         "action/add/v1" => {:action, Add},
         "schema/empty/v1" => {:schema, []},
-        "schema/count/v1" => {:schema, state_schema}
+        "schema/count/v1" => {:schema, state_schema},
+        "atom/amount/v1" => {:atom, :amount},
+        "atom/value/v1" => {:atom, :value}
       })
 
     assert {:ok, stored} = Flow.to_stored_map(flow, registry)
@@ -200,20 +205,25 @@ defmodule Jido.Flow.RegistryTest do
     assert Exception.message(node_error) =~ "node contains unknown field"
   end
 
-  test "rejects unknown atom keys without creating atoms" do
+  test "rejects unknown atom identifiers without creating atoms" do
     {stored, registry} = stored_step()
-    unknown = "unknown_key_#{System.unique_integer([:positive])}"
-    assert_raise ArgumentError, fn -> String.to_existing_atom(unknown) end
+    unknown_name = "unknown_key_#{System.unique_integer([:positive])}"
+    unknown_identifier = "atom/#{unknown_name}/v1"
+    assert_raise ArgumentError, fn -> String.to_existing_atom(unknown_name) end
 
-    malformed = Map.put(stored, "return", encoded_atom_key_return(unknown))
+    malformed = Map.put(stored, "return", encoded_atom_key_return(unknown_identifier))
     assert {:error, error} = Flow.from_stored_map(malformed, registry)
-    assert Exception.message(error) =~ "unknown atom in flow map"
-    assert_raise ArgumentError, fn -> String.to_existing_atom(unknown) end
+    assert Exception.message(error) =~ "unknown flow registry identifier"
+    assert_raise ArgumentError, fn -> String.to_existing_atom(unknown_name) end
   end
 
   test "rejects a decoded __struct__ atom key" do
-    {stored, registry} = stored_step()
-    malformed = Map.put(stored, "return", encoded_atom_key_return("__struct__"))
+    {stored, base_registry} = stored_step()
+
+    registry =
+      Registry.new!(Map.put(base_registry.entries, "atom/struct/v1", {:atom, :__struct__}))
+
+    malformed = Map.put(stored, "return", encoded_atom_key_return("atom/struct/v1"))
 
     assert {:error, error} = Flow.from_stored_map(malformed, registry)
     assert Exception.message(error) == "stored flow map key is reserved: :__struct__"
@@ -244,6 +254,40 @@ defmodule Jido.Flow.RegistryTest do
     assert Exception.message(ambiguous_error) =~ "multiple identifiers"
   end
 
+  test "requires stable Registry identifiers for stored data atoms" do
+    flow =
+      Flow.new!(
+        name: "stored_atom",
+        nodes: [
+          Node.new!(name: "add", action: Add, input: %{"status" => Ref.value(:approved)})
+        ],
+        return: Ref.result("add")
+      )
+
+    assert {:error, error} = Flow.to_stored_map(flow, registry())
+    assert Exception.message(error) == "flow registry has no identifier for the required value"
+    assert error.details.kind == :atom
+    assert error.details.path == ["nodes", 0, "input", {:map_value, 0}, "value"]
+
+    registry =
+      Registry.new!(Map.put(registry().entries, "atom/approved/v1", {:atom, :approved}))
+
+    assert {:ok, stored} = Flow.to_stored_map(flow, registry)
+
+    assert get_in(stored, [
+             "nodes",
+             Access.at(0),
+             "input",
+             "entries",
+             Access.at(0),
+             "value",
+             "value"
+           ]) == %{"$type" => "atom", "value" => "atom/approved/v1"}
+
+    assert {:ok, restored} = Flow.from_stored_map(stored, registry)
+    assert Flow.to_map(restored) == Flow.to_map(flow)
+  end
+
   test "accepts plain JSON provenance and stores tagged trusted data losslessly" do
     flow =
       Flow.new!(
@@ -264,6 +308,22 @@ defmodule Jido.Flow.RegistryTest do
 
     registry = registry()
     assert {:ok, stored} = Flow.to_stored_map(flow, registry, provenance: true)
+
+    assert get_in(stored, ["nodes", Access.at(0), "input", "entries", Access.at(0), "key"]) ==
+             %{"type" => "atom", "value" => "atom/payload/v1"}
+
+    assert get_in(stored, [
+             "nodes",
+             Access.at(0),
+             "input",
+             "entries",
+             Access.at(0),
+             "value",
+             "value",
+             "entries",
+             Access.at(0),
+             "value"
+           ]) == %{"$type" => "atom", "value" => "atom/ready/v1"}
 
     assert {:ok, restored} =
              stored
@@ -440,7 +500,17 @@ defmodule Jido.Flow.RegistryTest do
   defp registry do
     Registry.new!(%{
       "action/add/v1" => {:action, Add},
-      "schema/empty/v1" => {:schema, []}
+      "schema/empty/v1" => {:schema, []},
+      "atom/atom-key/v1" => {:atom, :atom_key},
+      "atom/host/v1" => {:atom, :host},
+      "atom/items/v1" => {:atom, :items},
+      "atom/kind/v1" => {:atom, :kind},
+      "atom/line/v1" => {:atom, :line},
+      "atom/payload/v1" => {:atom, :payload},
+      "atom/ready/v1" => {:atom, :ready},
+      "atom/runtime/v1" => {:atom, :runtime},
+      "atom/source/v1" => {:atom, :source},
+      "atom/value/v1" => {:atom, :value}
     })
   end
 

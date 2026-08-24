@@ -17,12 +17,12 @@ defmodule Jido.Flow.MapCodec.Decoder do
     with :ok <- ResourceBudget.validate(map),
          :ok <- RecordValidator.validate_root_header(map),
          :ok <- RecordValidator.validate_root(map),
-         {:ok, decoded} <- decode_flow(map) do
+         {:ok, decoded} <- decode_flow(map, registry) do
       RegistryLookup.resolve(decoded, registry)
     end
   end
 
-  defp decode_flow(map) do
+  defp decode_flow(map, registry) do
     with {:ok, name} <- RecordValidator.fetch_required(map, :name, "flow map name is required"),
          {:ok, input_schema} <- decode_root_schema(map, :input_schema),
          {:ok, output_schema} <- decode_root_schema(map, :output_schema),
@@ -30,12 +30,12 @@ defmodule Jido.Flow.MapCodec.Decoder do
            RecordValidator.fetch_required(map, :nodes, "flow map nodes are required"),
          {:ok, return} <-
            RecordValidator.fetch_required(map, :return, "flow map return is required"),
-         {:ok, nodes} <- decode_nodes(nodes),
+         {:ok, nodes} <- decode_nodes(nodes, registry),
          {:ok, return} <-
-           ExpressionDecoder.decode(return)
+           ExpressionDecoder.decode(return, registry)
            |> ErrorPath.prepend([RecordValidator.field(:return)]),
          {:ok, provenance} <-
-           DataDecoder.decode_optional(map, :provenance, %{})
+           DataDecoder.decode_optional(map, :provenance, %{}, registry)
            |> ErrorPath.prepend([RecordValidator.field(:provenance)]) do
       {:ok,
        %{
@@ -59,14 +59,15 @@ defmodule Jido.Flow.MapCodec.Decoder do
     |> ErrorPath.prepend([RecordValidator.field(field)])
   end
 
-  defp decode_nodes(nodes) when is_list(nodes) do
+  defp decode_nodes(nodes, registry) when is_list(nodes) do
     if List.improper?(nodes) do
       ErrorPath.error("flow nodes must be a list")
     else
       nodes
       |> Enum.with_index()
       |> Enum.reduce_while({:ok, []}, fn {node, index}, {:ok, acc} ->
-        case decode_node(node) |> ErrorPath.prepend([RecordValidator.field(:nodes), index]) do
+        case decode_node(node, registry)
+             |> ErrorPath.prepend([RecordValidator.field(:nodes), index]) do
           {:ok, node} -> {:cont, {:ok, [node | acc]}}
           {:error, error} -> {:halt, {:error, error}}
         end
@@ -78,33 +79,35 @@ defmodule Jido.Flow.MapCodec.Decoder do
     end
   end
 
-  defp decode_nodes(_nodes), do: ErrorPath.error("flow nodes must be a list")
+  defp decode_nodes(_nodes, _registry), do: ErrorPath.error("flow nodes must be a list")
 
-  defp decode_node(%{} = node) do
+  defp decode_node(%{} = node, registry) do
     case explicit_node_kind(node) do
       {:ok, :choice} ->
-        ChoiceDecoder.decode(node)
+        ChoiceDecoder.decode(node, registry)
 
       {:ok, :map} ->
-        CollectionDecoder.decode_map(node)
+        CollectionDecoder.decode_map(node, registry)
 
       {:ok, :reduce} ->
-        CollectionDecoder.decode_reduce(node)
+        CollectionDecoder.decode_reduce(node, registry)
 
       {:ok, :iterate} ->
-        IteratorDecoder.decode(node)
+        IteratorDecoder.decode(node, registry)
 
       {:error, kind} ->
         ErrorPath.error("unknown flow node kind: #{inspect(kind)}", %{kind: kind})
 
       :none ->
-        if legacy_choice_record?(node), do: ChoiceDecoder.decode(node), else: decode_step(node)
+        if legacy_choice_record?(node),
+          do: ChoiceDecoder.decode(node, registry),
+          else: decode_step(node, registry)
     end
   end
 
-  defp decode_node(_node), do: ErrorPath.error("flow node must be a map")
+  defp decode_node(_node, _registry), do: ErrorPath.error("flow node must be a map")
 
-  defp decode_step(node) do
+  defp decode_step(node, registry) do
     with :ok <- RecordValidator.validate_node_record(node),
          {:ok, name} <-
            RecordValidator.fetch_required(node, :name, "flow node name is required"),
@@ -114,10 +117,10 @@ defmodule Jido.Flow.MapCodec.Decoder do
            RegistryLookup.decode_identifier(action, :action)
            |> ErrorPath.prepend([RecordValidator.field(:action)]),
          {:ok, input} <-
-           ExpressionDecoder.decode(RecordValidator.fetch_optional(node, :input, %{}))
+           ExpressionDecoder.decode(RecordValidator.fetch_optional(node, :input, %{}), registry)
            |> ErrorPath.prepend([RecordValidator.field(:input)]),
          {:ok, provenance} <-
-           DataDecoder.decode_optional(node, :provenance, %{})
+           DataDecoder.decode_optional(node, :provenance, %{}, registry)
            |> ErrorPath.prepend([RecordValidator.field(:provenance)]),
          {:ok, deps} <-
            RecordValidator.validate_node_deps(RecordValidator.fetch_optional(node, :deps, [])) do

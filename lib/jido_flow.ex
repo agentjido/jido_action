@@ -130,9 +130,10 @@ defmodule Jido.Flow do
   @doc """
   Validates and converts a Flow to the versioned stored-map format.
 
-  The Registry supplies stable identifiers for every Action and schema in the
-  Flow. Stored data contains no module names or schema values. The only option
-  is `provenance: true`.
+  The Registry supplies stable identifiers for every Action, schema, and data
+  atom in the Flow. Data atoms include atom literals, atom map keys, and atom
+  reference path segments. Stored data contains no module names, schema
+  values, or atom names. The only option is `provenance: true`.
   """
   @spec to_stored_map(t(), Jido.Flow.Registry.t(), keyword()) ::
           {:ok, map()} | {:error, Error.InvalidInputError.t()}

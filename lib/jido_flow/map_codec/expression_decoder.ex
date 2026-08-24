@@ -22,13 +22,13 @@ defmodule Jido.Flow.MapCodec.ExpressionDecoder do
   ]
 
   @doc false
-  def decode(%{} = map) do
+  def decode(%{} = map, registry) do
     case Map.fetch(map, "type") do
       {:ok, "map"} ->
-        decode_expression_map(map)
+        decode_expression_map(map, registry)
 
       {:ok, type} when type in @stored_ref_types ->
-        decode_ref(map, type)
+        decode_ref(map, type, registry)
 
       {:ok, type} ->
         ErrorPath.error("unknown flow ref type: #{inspect(type)}", %{type: type})
@@ -40,15 +40,15 @@ defmodule Jido.Flow.MapCodec.ExpressionDecoder do
     end
   end
 
-  def decode(list) when is_list(list) do
+  def decode(list, registry) when is_list(list) do
     if List.improper?(list) do
       ErrorPath.error("flow expression must be a proper list", %{expression: inspect(list)})
     else
-      decode_expression_list(list)
+      decode_expression_list(list, registry)
     end
   end
 
-  def decode(value) do
+  def decode(value, _registry) do
     ErrorPath.error("stored flow expression must be a tagged record", %{
       record: :expression,
       value: value
@@ -56,10 +56,10 @@ defmodule Jido.Flow.MapCodec.ExpressionDecoder do
   end
 
   @doc false
-  def decode_condition(condition), do: decode_condition(condition, :flow)
+  def decode_condition(condition, registry), do: decode_condition(condition, registry, :flow)
 
   @doc false
-  def decode_condition(%{} = condition, scope) do
+  def decode_condition(%{} = condition, registry, scope) do
     with :ok <- RecordValidator.validate_condition_record(condition),
          {:ok, operator} <-
            RecordValidator.fetch_required(
@@ -77,25 +77,27 @@ defmodule Jido.Flow.MapCodec.ExpressionDecoder do
              "choice condition operands are required"
            ),
          {:ok, operands} <-
-           decode_condition_operands(operands, operator, scope)
+           decode_condition_operands(operands, operator, registry, scope)
            |> ErrorPath.prepend([RecordValidator.field(:operands)]) do
       Condition.validate(%Condition{operator: operator, operands: operands}, scope)
     end
   end
 
-  def decode_condition(_condition, _scope) do
+  def decode_condition(_condition, _registry, _scope) do
     ErrorPath.error("choice condition must be a map")
   end
 
-  defp decode_expression_list(list) do
+  defp decode_expression_list(list, registry) do
     list
     |> Enum.with_index()
-    |> Enum.reduce_while({:ok, []}, &decode_expression_list_item/2)
+    |> Enum.reduce_while({:ok, []}, fn item, acc ->
+      decode_expression_list_item(item, acc, registry)
+    end)
     |> reverse_decoded_expression_list()
   end
 
-  defp decode_expression_list_item({value, index}, {:ok, acc}) do
-    case decode(value) |> ErrorPath.prepend([index]) do
+  defp decode_expression_list_item({value, index}, {:ok, acc}, registry) do
+    case decode(value, registry) |> ErrorPath.prepend([index]) do
       {:ok, value} -> {:cont, {:ok, [value | acc]}}
       {:error, error} -> {:halt, {:error, error}}
     end
@@ -104,14 +106,14 @@ defmodule Jido.Flow.MapCodec.ExpressionDecoder do
   defp reverse_decoded_expression_list({:ok, values}), do: {:ok, Enum.reverse(values)}
   defp reverse_decoded_expression_list({:error, error}), do: {:error, error}
 
-  defp decode_condition_operands(operands, operator, scope) when is_list(operands) do
+  defp decode_condition_operands(operands, operator, registry, scope) when is_list(operands) do
     if List.improper?(operands) do
       ErrorPath.error("choice condition operands must be a list")
     else
       decoder =
         if operator in [:all, :any, :not],
-          do: &decode_condition(&1, scope),
-          else: &decode/1
+          do: &decode_condition(&1, registry, scope),
+          else: &decode(&1, registry)
 
       operands
       |> Enum.with_index()
@@ -128,7 +130,7 @@ defmodule Jido.Flow.MapCodec.ExpressionDecoder do
     end
   end
 
-  defp decode_condition_operands(_operands, _operator, _scope) do
+  defp decode_condition_operands(_operands, _operator, _registry, _scope) do
     ErrorPath.error("choice condition operands must be a list")
   end
 
@@ -152,47 +154,48 @@ defmodule Jido.Flow.MapCodec.ExpressionDecoder do
     ErrorPath.error("unsupported choice condition operator", %{operator: operator})
   end
 
-  defp decode_ref(map, "input") do
+  defp decode_ref(map, "input", registry) do
     with :ok <- RecordValidator.validate_ref_record(map, "input"),
-         {:ok, path} <- decode_stored_path(Map.fetch!(map, "path")) do
+         {:ok, path} <- decode_stored_path(Map.fetch!(map, "path"), registry) do
       {:ok, Ref.input(path)}
     end
   end
 
-  defp decode_ref(map, "context") do
+  defp decode_ref(map, "context", registry) do
     with :ok <- RecordValidator.validate_ref_record(map, "context"),
-         {:ok, path} <- decode_stored_path(Map.fetch!(map, "path")) do
+         {:ok, path} <- decode_stored_path(Map.fetch!(map, "path"), registry) do
       {:ok, Ref.context(path)}
     end
   end
 
-  defp decode_ref(map, "result") do
+  defp decode_ref(map, "result", registry) do
     with :ok <- RecordValidator.validate_ref_record(map, "result"),
          {:ok, node} <- decode_result_node(Map.fetch!(map, "node")),
-         {:ok, path} <- decode_stored_path(Map.fetch!(map, "path")) do
+         {:ok, path} <- decode_stored_path(Map.fetch!(map, "path"), registry) do
       {:ok, Ref.result(node, path)}
     end
   end
 
-  defp decode_ref(map, "value") do
+  defp decode_ref(map, "value", registry) do
     with :ok <- RecordValidator.validate_ref_record(map, "value"),
          {:ok, value} <-
-           DataDecoder.decode(Map.fetch!(map, "value")) |> ErrorPath.prepend(["value"]) do
+           DataDecoder.decode(Map.fetch!(map, "value"), registry)
+           |> ErrorPath.prepend(["value"]) do
       {:ok, Ref.value(value)}
     end
   end
 
-  defp decode_ref(map, type)
+  defp decode_ref(map, type, registry)
        when type in ["item", "accumulator", "state", "body_result"] do
     with :ok <- RecordValidator.validate_ref_record(map, type),
-         {:ok, path} <- decode_stored_path(Map.fetch!(map, "path")) do
+         {:ok, path} <- decode_stored_path(Map.fetch!(map, "path"), registry) do
       {:ok, local_path_ref(type, path)}
     end
   end
 
-  defp decode_ref(map, "iteration_index") do
+  defp decode_ref(map, "iteration_index", registry) do
     with :ok <- RecordValidator.validate_ref_record(map, "iteration_index"),
-         {:ok, []} <- decode_stored_path(Map.fetch!(map, "path")) do
+         {:ok, []} <- decode_stored_path(Map.fetch!(map, "path"), registry) do
       {:ok, Ref.iteration_index()}
     else
       {:ok, path} -> ErrorPath.error("iteration index ref path must be empty", %{path: path})
@@ -200,7 +203,7 @@ defmodule Jido.Flow.MapCodec.ExpressionDecoder do
     end
   end
 
-  defp decode_ref(map, type) when type in ["item_index", "item_id"] do
+  defp decode_ref(map, type, _registry) when type in ["item_index", "item_id"] do
     with :ok <- RecordValidator.validate_ref_record(map, type) do
       {:ok, local_scalar_ref(type)}
     end
@@ -221,7 +224,7 @@ defmodule Jido.Flow.MapCodec.ExpressionDecoder do
   defp local_scalar_ref(type) when type in [:item_index, "item_index"], do: Ref.item_index()
   defp local_scalar_ref(type) when type in [:item_id, "item_id"], do: Ref.item_id()
 
-  defp decode_expression_map(map) do
+  defp decode_expression_map(map, registry) do
     with :ok <-
            RecordValidator.validate_record(
              map,
@@ -235,7 +238,8 @@ defmodule Jido.Flow.MapCodec.ExpressionDecoder do
              "entries",
              "flow expression map entries are required"
            ),
-         {:ok, entries} <- DataDecoder.decode_entries(entries, &decode/1) do
+         {:ok, entries} <-
+           DataDecoder.decode_entries(entries, &decode(&1, registry), registry) do
       {:ok, Map.new(entries)}
     end
   end
@@ -246,13 +250,13 @@ defmodule Jido.Flow.MapCodec.ExpressionDecoder do
     ErrorPath.error("stored result ref node must be a binary", %{node: node})
   end
 
-  defp decode_stored_path(path) when is_list(path) do
+  defp decode_stored_path(path, registry) when is_list(path) do
     if List.improper?(path) do
       ErrorPath.error("flow ref path must be a list", %{path: inspect(path)})
     else
       path
       |> Enum.reduce_while({:ok, []}, fn segment, {:ok, acc} ->
-        case DataDecoder.decode_key(segment) do
+        case DataDecoder.decode_key(segment, registry) do
           {:ok, segment} -> {:cont, {:ok, [segment | acc]}}
           {:error, error} -> {:halt, {:error, error}}
         end
@@ -264,7 +268,7 @@ defmodule Jido.Flow.MapCodec.ExpressionDecoder do
     end
   end
 
-  defp decode_stored_path(path) do
+  defp decode_stored_path(path, _registry) do
     ErrorPath.error("flow ref path must be a list", %{path: path})
   end
 end

@@ -51,8 +51,9 @@ create a Flow. Use the stored-map or JSON format for database data, API input,
 and AI-generated Flows.
 
 Do not create atoms from untrusted input. Keep user-provided identifiers as
-strings. A stored Flow map can use only atoms that already exist in the VM.
-Accepted and rejected artifacts do not create atoms.
+strings. A stored Flow map can select data atoms only through trusted
+`{:atom, atom}` Registry entries. Accepted and rejected artifacts do not create
+atoms and do not use the VM atom table as an implicit Registry.
 
 The atom map key `:__struct__` is reserved in a stored Flow map. The reader and
 writer reject it before they construct an Elixir map. The string map key
@@ -75,9 +76,10 @@ The caller must limit transport bytes and JSON decoding before it calls
 
 ## Control The Registry In The Host
 
-A stored version 1 map contains stable schema and Action identifiers. The host
-supplies one flat `Jido.Flow.Registry`. Zoi schemas and Action module atoms stay
-in host code. Stored data can select only identifiers that the Registry owns.
+A stored version 1 map contains stable schema, Action, and data atom
+identifiers. The host supplies one flat `Jido.Flow.Registry`. Zoi schemas,
+Action module atoms, and data atoms stay in host code. Stored data can select
+only identifiers that the Registry owns.
 
 Registry resolution is inert. It validates trusted entries and does direct
 lookup. It does not derive module names, create atoms, load a module, call an

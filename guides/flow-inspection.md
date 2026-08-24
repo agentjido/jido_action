@@ -76,8 +76,9 @@ registry =
 Jido.Flow.to_map(restored) == Jido.Flow.to_map(flow)
 ```
 
-The Registry must have exactly one identifier for every Action and schema
-value that the Flow uses. Missing or ambiguous identifiers are errors.
+The Registry must have exactly one identifier for every Action, schema, and
+data atom that the Flow uses. Data atoms include literals, map keys, and
+reference path segments. Missing or ambiguous identifiers are errors.
 
 ## Validate A Flow
 

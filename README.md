@@ -174,13 +174,15 @@ constructor and Flow model.
 
 Use a versioned stored map when a database, web UI, or AI system defines the
 Flow. The host owns a flat `Jido.Flow.Registry` that maps stable identifiers to
-trusted Action modules and schemas.
+trusted Action modules, schemas, and data atoms.
 
 ```elixir
 registry =
   Jido.Flow.Registry.new!(%{
     "actions/greet-user/v1" => {:action, MyApp.Actions.GreetUser},
-    "schemas/empty/v1" => {:schema, []}
+    "schemas/empty/v1" => {:schema, []},
+    "atoms/excited/v1" => {:atom, :excited?},
+    "atoms/name/v1" => {:atom, :name}
   })
 
 {:ok, stored} = Jido.Flow.to_stored_map(runtime_flow, registry)
