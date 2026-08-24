@@ -1,6 +1,16 @@
 defmodule Jido.Exec.RunOptionsTest do
   use JidoTest.ActionCase, async: true
 
+  defmodule LoggerMetadataAction do
+    use Jido.Action, name: "logger_metadata_action"
+
+    @impl Jido.Action
+    def run(params, %{test_pid: test_pid}) do
+      send(test_pid, {:action_logger_metadata, params.id, Logger.metadata()})
+      {:ok, params}
+    end
+  end
+
   alias Jido.Action.Error.{ExecutionFailureError, InvalidInputError}
   alias Jido.Exec
   alias Jido.Exec.FlowFailureError
@@ -24,6 +34,29 @@ defmodule Jido.Exec.RunOptionsTest do
   }
 
   describe "run/4 options" do
+    test "preserves caller Logger metadata in asynchronous Flow nodes" do
+      flow =
+        Flow.new!(
+          name: "async_logger_metadata",
+          nodes: [
+            Node.new!(
+              name: :metadata,
+              action: LoggerMetadataAction,
+              input: %{id: Ref.value(:metadata)}
+            )
+          ],
+          return: Ref.result(:metadata)
+        )
+
+      Logger.metadata(jido_request_id: "request-123")
+
+      assert {:ok, %{id: :metadata}} =
+               Exec.run(flow, %{}, %{test_pid: self()}, async: true, max_concurrency: 1)
+
+      assert_receive {:action_logger_metadata, :metadata, metadata}
+      assert metadata[:jido_request_id] == "request-123"
+    end
+
     @tag timeout: 5_000
     test "keeps an independent sibling asynchronous beside a Choice" do
       probe = start_probe()

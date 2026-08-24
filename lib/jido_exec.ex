@@ -51,6 +51,7 @@ defmodule Jido.Exec do
   lifecycle inside its Action lifecycle. With `async: true`, each worker starts
   and finishes its node span around the actual node work. These spans can overlap,
   and their start and stop events can follow scheduler and completion order.
+  Asynchronous workers copy the caller's Logger metadata at dispatch time.
 
   `start/4` opens the Flow lifecycle. Each `step/2` or `wave/1` emits spans only
   for the nodes that it runs. The call that makes the execution terminal closes

@@ -6,17 +6,24 @@ defmodule Jido.Flow.Runtime.OrderedTaskRunner do
       when is_list(items) and is_integer(max_concurrency) and is_function(worker_fun, 1) and
              is_function(exit_fun, 2) do
     caller = self()
+    logger_metadata = Logger.metadata()
     reference = make_ref()
 
     {worker, monitor} =
       spawn_monitor(fn ->
+        Logger.metadata(logger_metadata)
         worker = self()
         spawn(fn -> terminate_with_caller(caller, worker) end)
         Process.flag(:trap_exit, true)
 
+        task_fun = fn item ->
+          Logger.metadata(logger_metadata)
+          worker_fun.(item)
+        end
+
         results =
           items
-          |> Task.async_stream(worker_fun,
+          |> Task.async_stream(task_fun,
             max_concurrency: max_concurrency,
             timeout: :infinity,
             ordered: true

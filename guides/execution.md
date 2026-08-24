@@ -128,6 +128,8 @@ work. Start and stop events can follow scheduler and completion order. Use the
 node metadata and `execution_id` for correlation instead of event position. A
 killed node task still has one node error event. Collection work-unit events
 can have high volume. Attach a handler only when you need this detail.
+Asynchronous node and collection workers copy the caller's Logger metadata at
+dispatch time.
 
 There are no scheduler, State transition, completion, or exhaustion point
 events. A collection work-unit error event reports a failed Action call.
