@@ -5,7 +5,9 @@ defmodule Jido.Exec.Execution do
   Create an execution with `Jido.Exec.start/4`. Pass the latest returned value
   to the other step-wise execution functions. Use `Jido.Exec` functions to
   read or update it. Its fields are internal, and the value is not a storage
-  or interchange format.
+  or interchange format. A successful state-changing operation consumes its
+  revision. Jido rejects concurrent use and reuse of an older revision before
+  it dispatches Action work.
   """
 
   @typedoc "State for one in-memory Flow execution session."
@@ -17,6 +19,7 @@ defmodule Jido.Exec.Execution do
     :flow_name,
     :status,
     :revision,
+    :guard,
     :flow,
     :input,
     :context,

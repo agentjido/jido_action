@@ -40,6 +40,7 @@ defmodule Jido.Flow.IteratorNestedRuntimeTest do
 
   alias Jido.Exec
   alias Jido.Exec.NodeResult
+  alias Jido.Action.Error.InvalidInputError
   alias Jido.Flow
   alias Jido.Flow.Iterator
   alias Jido.Flow.Map, as: FlowMap
@@ -123,7 +124,7 @@ defmodule Jido.Flow.IteratorNestedRuntimeTest do
       refute_received {Increment, 1}
     end
 
-    test "is one public step and concurrent stale Execution reuse stays isolated" do
+    test "is one public step and rejects concurrent stale Execution reuse" do
       flow =
         IteratorFixtures.iterator_flow(
           initial: %{count: Ref.value(0)},
@@ -137,13 +138,19 @@ defmodule Jido.Flow.IteratorNestedRuntimeTest do
       first_task = Task.async(fn -> Exec.step(execution) end)
       second_task = Task.async(fn -> Exec.step(execution) end)
 
-      assert {:ok, %NodeResult{node: "count", status: :ok}, first} = Task.await(first_task)
-      assert {:ok, %NodeResult{node: "count", status: :ok}, second} = Task.await(second_task)
-      assert first.revision == 1
-      assert second.revision == 1
-      assert Exec.result(first) == Exec.result(second)
+      results = [Task.await(first_task), Task.await(second_task)]
+
+      assert [{:ok, %NodeResult{node: "count", status: :ok}, completed}] =
+               Enum.filter(results, &match?({:ok, %NodeResult{}, _execution}, &1))
+
+      assert [{:error, %InvalidInputError{message: "stale flow execution"} = error}] =
+               Enum.filter(results, &match?({:error, %InvalidInputError{}}, &1))
+
+      assert completed.revision == 1
+      assert error.details.reason == :operation_in_progress
+      assert {:ok, %{iterations: 1, state: %{count: 1}}} = Exec.result(completed)
       assert_receive {Increment, 0}
-      assert_receive {Increment, 0}
+      refute_receive {Increment, 0}
     end
 
     test "runs independent Iterator nodes with isolated State cells in one async wave" do

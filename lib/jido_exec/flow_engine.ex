@@ -8,6 +8,7 @@ defmodule Jido.Exec.FlowEngine do
     CollectionTelemetry,
     ConcurrencyLimiter,
     Execution,
+    ExecutionGuard,
     FlowFailureError,
     NodeResult
   }
@@ -50,6 +51,7 @@ defmodule Jido.Exec.FlowEngine do
         flow_name: flow.name,
         status: :running,
         revision: 0,
+        guard: ExecutionGuard.new(),
         flow: flow,
         input: input,
         context: context,
@@ -102,7 +104,11 @@ defmodule Jido.Exec.FlowEngine do
   @spec step(Execution.t(), String.t()) ::
           {:ok, NodeResult.t(), Execution.t()} | {:error, Exception.t()}
   def step(%Execution{status: :running} = execution, node) when is_binary(node) do
-    with_concurrency_limiter(execution, fn -> do_step(execution, node) end)
+    with :ok <- ensure_ready(execution, node) do
+      mutate(execution, fn ->
+        with_concurrency_limiter(execution, fn -> do_step(execution, node) end)
+      end)
+    end
   end
 
   def step(%Execution{status: :running}, node) do
@@ -117,7 +123,15 @@ defmodule Jido.Exec.FlowEngine do
   @spec wave(Execution.t()) ::
           {:ok, [NodeResult.t()], Execution.t()} | {:error, Exception.t()}
   def wave(%Execution{status: :running} = execution) do
-    with_concurrency_limiter(execution, fn -> do_wave(execution) end)
+    case ready(execution) do
+      [] ->
+        execution_not_running(execution)
+
+      _ready ->
+        mutate(execution, fn ->
+          with_concurrency_limiter(execution, fn -> do_wave(execution) end)
+        end)
+    end
   end
 
   def wave(%Execution{} = execution), do: execution_not_running(execution)
@@ -328,6 +342,19 @@ defmodule Jido.Exec.FlowEngine do
     end
   end
 
+  defp ensure_ready(execution, node) do
+    if Map.has_key?(execution.ready, node) do
+      :ok
+    else
+      {:error,
+       Error.validation_error("flow node is not ready", %{
+         flow: execution.flow_name,
+         node: node,
+         ready: ready(execution)
+       })}
+    end
+  end
+
   defp do_wave(execution) do
     names = ready(execution)
 
@@ -358,6 +385,23 @@ defmodule Jido.Exec.FlowEngine do
       Keyword.fetch!(execution.options, :async),
       fun
     )
+  end
+
+  defp mutate(execution, fun) do
+    with :ok <- ExecutionGuard.claim(execution) do
+      mutation = fun.()
+      finish_mutation(execution, mutation)
+    end
+  end
+
+  defp finish_mutation(execution, {:ok, _result, %Execution{} = next_execution} = mutation) do
+    :ok = ExecutionGuard.advance(execution, next_execution)
+    mutation
+  end
+
+  defp finish_mutation(execution, {:error, _error} = mutation) do
+    :ok = ExecutionGuard.release(execution)
+    mutation
   end
 
   defp execution_not_running(execution) do

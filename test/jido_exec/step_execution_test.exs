@@ -75,7 +75,7 @@ defmodule Jido.Exec.StepExecutionTest do
       assert Exec.ready(execution) == tl(expected)
     end
 
-    test "reusing a stale execution can run the same Action again" do
+    test "rejects a stale execution before it can run the same Action again" do
       flow =
         Flow.new!(
           name: "stale_execution",
@@ -94,12 +94,54 @@ defmodule Jido.Exec.StepExecutionTest do
       assert {:ok, %NodeResult{status: :ok}, first_execution} =
                Exec.step(stale_execution)
 
-      assert {:ok, %NodeResult{status: :ok}, second_execution} =
-               Exec.step(stale_execution)
+      assert {:error,
+              %InvalidInputError{
+                message: "stale flow execution",
+                details: %{
+                  reason: :stale_revision,
+                  revision: 0,
+                  current_revision: 1
+                }
+              }} = Exec.step(stale_execution)
 
       assert_receive {RecorderAction, %{value: :repeated}}
-      assert_receive {RecorderAction, %{value: :repeated}}
-      assert first_execution.revision == second_execution.revision
+      refute_receive {RecorderAction, %{value: :repeated}}
+      assert first_execution.revision == 1
+    end
+
+    @tag timeout: 5_000
+    test "allows only one concurrent mutation of an execution revision" do
+      flow =
+        Flow.new!(
+          name: "concurrent_execution_revision",
+          nodes: [
+            Node.new!(
+              name: "block",
+              action: ExecutionFixtures.BlockingAction,
+              input: %{value: Ref.value(:once)}
+            )
+          ],
+          return: Ref.result("block")
+        )
+
+      assert {:ok, execution} = Exec.start(flow, %{}, %{test_pid: self()})
+      task = Task.async(fn -> Exec.step(execution) end)
+      assert_receive {:blocking_flow_node_started, worker}, 1_000
+
+      assert {:error,
+              %InvalidInputError{
+                message: "stale flow execution",
+                details: %{
+                  reason: :operation_in_progress,
+                  revision: 0,
+                  current_revision: 0
+                }
+              }} = Exec.step(execution)
+
+      refute_receive {:blocking_flow_node_started, _other_worker}
+      send(worker, :finish)
+      assert {:ok, %NodeResult{status: :ok}, completed} = Task.await(task)
+      assert Exec.result(completed) == {:ok, %{value: :once}}
     end
 
     test "rejects a node that is not ready without changing the execution" do
@@ -112,6 +154,8 @@ defmodule Jido.Exec.StepExecutionTest do
       assert details.node == "multiply"
       assert details.ready == ["add"]
       assert Exec.ready(execution) == ["add"]
+
+      assert {:ok, %NodeResult{node: "add"}, _execution} = Exec.step(execution)
     end
 
     test "rejects step-wise execution for a leaf action" do

@@ -85,9 +85,11 @@ defmodule Jido.Exec do
   progress and can also finish. If two or more of them fail, `result/1` returns
   `Jido.Exec.FlowFailureError` with all failures in canonical node order.
 
-  The caller owns the execution lifecycle. Always pass the latest returned
-  execution to the next operation. Reusing an older execution can run an
-  Action more than once. Execution values are not persistent checkpoints and
+  The caller owns the execution lifecycle. Each successful `step/2` or
+  `wave/1` call atomically consumes one execution revision. Concurrent use or
+  reuse of an older execution returns a `stale flow execution` error before
+  Jido dispatches Action work. Always pass the latest returned execution to
+  the next operation. Execution values are not persistent checkpoints and
   cannot continue safely after deployment or process recovery.
   """
 

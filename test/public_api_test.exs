@@ -30,6 +30,7 @@ defmodule Jido.PublicAPITest do
 
   @internal_modules [
     Jido.Exec.FlowRunnableExecutor,
+    Jido.Exec.ExecutionGuard,
     Jido.Flow.Compiler,
     Jido.Flow.Compiler.Choice,
     Jido.Flow.Compiler.Condition,
