@@ -3,7 +3,7 @@ defmodule Jido.Exec.FlowEngine do
 
   alias Jido.Action.Error
   alias Jido.Action.Telemetry
-  alias Jido.Exec.{Execution, NodeResult}
+  alias Jido.Exec.{ConcurrencyLimiter, Execution, NodeResult}
   alias Jido.Exec.FlowRunnableExecutor
   alias Jido.Flow
   alias Jido.Flow.{Compiler, Element, NodeError}
@@ -93,24 +93,7 @@ defmodule Jido.Exec.FlowEngine do
   @spec step(Execution.t(), String.t()) ::
           {:ok, NodeResult.t(), Execution.t()} | {:error, Exception.t()}
   def step(%Execution{status: :running} = execution, node) when is_binary(node) do
-    case Map.fetch(execution.ready, node) do
-      {:ok, runnable} ->
-        {node_result, execution} =
-          execution
-          |> apply_public_runnable(node, FlowRunnableExecutor.execute(execution, runnable))
-
-        with {:ok, execution} <- settle(execution) do
-          {:ok, node_result, execution}
-        end
-
-      :error ->
-        {:error,
-         Error.validation_error("flow node is not ready", %{
-           flow: execution.flow_name,
-           node: node,
-           ready: ready(execution)
-         })}
-    end
+    with_concurrency_limiter(execution, fn -> do_step(execution, node) end)
   end
 
   def step(%Execution{status: :running}, node) do
@@ -125,26 +108,7 @@ defmodule Jido.Exec.FlowEngine do
   @spec wave(Execution.t()) ::
           {:ok, [NodeResult.t()], Execution.t()} | {:error, Exception.t()}
   def wave(%Execution{status: :running} = execution) do
-    names = ready(execution)
-
-    if names == [] do
-      execution_not_running(execution)
-    else
-      runnables = Enum.map(names, &Map.fetch!(execution.ready, &1))
-      executed = FlowRunnableExecutor.execute_many(execution, runnables)
-
-      {node_results, execution} =
-        names
-        |> Enum.zip(executed)
-        |> Enum.reduce({[], execution}, fn {node, runnable}, {results, current} ->
-          {node_result, current} = apply_public_runnable(current, node, runnable)
-          {[node_result | results], current}
-        end)
-
-      with {:ok, execution} <- settle(execution) do
-        {:ok, Enum.reverse(node_results), execution}
-      end
-    end
+    with_concurrency_limiter(execution, fn -> do_wave(execution) end)
   end
 
   def wave(%Execution{} = execution), do: execution_not_running(execution)
@@ -318,6 +282,59 @@ defmodule Jido.Exec.FlowEngine do
          ready_nodes: [],
          final_result: final_result
      }}
+  end
+
+  defp do_step(execution, node) do
+    case Map.fetch(execution.ready, node) do
+      {:ok, runnable} ->
+        {node_result, execution} =
+          execution
+          |> apply_public_runnable(node, FlowRunnableExecutor.execute(execution, runnable))
+
+        with {:ok, execution} <- settle(execution) do
+          {:ok, node_result, execution}
+        end
+
+      :error ->
+        {:error,
+         Error.validation_error("flow node is not ready", %{
+           flow: execution.flow_name,
+           node: node,
+           ready: ready(execution)
+         })}
+    end
+  end
+
+  defp do_wave(execution) do
+    names = ready(execution)
+
+    if names == [] do
+      execution_not_running(execution)
+    else
+      runnables = Enum.map(names, &Map.fetch!(execution.ready, &1))
+      executed = FlowRunnableExecutor.execute_many(execution, runnables)
+
+      {node_results, execution} =
+        names
+        |> Enum.zip(executed)
+        |> Enum.reduce({[], execution}, fn {node, runnable}, {results, current} ->
+          {node_result, current} = apply_public_runnable(current, node, runnable)
+          {[node_result | results], current}
+        end)
+
+      with {:ok, execution} <- settle(execution) do
+        {:ok, Enum.reverse(node_results), execution}
+      end
+    end
+  end
+
+  defp with_concurrency_limiter(execution, fun) do
+    ConcurrencyLimiter.with_limiter(
+      execution.id,
+      Keyword.fetch!(execution.options, :max_concurrency),
+      Keyword.fetch!(execution.options, :async),
+      fun
+    )
   end
 
   defp execution_not_running(execution) do

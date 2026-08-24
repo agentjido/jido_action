@@ -185,6 +185,37 @@ defmodule Jido.Exec.RunOptionsTest do
       assert {:ok, %{value: 4}} = Exec.run(AsyncMathFlow, %{value: 3}, %{}, async: true)
     end
 
+    test "scopes the concurrency limiter to an active execution operation" do
+      flow =
+        Flow.new!(
+          name: "limiter_lifecycle",
+          nodes: [
+            Node.new!(
+              name: :blocking,
+              action: ExecutionFixtures.BlockingAction,
+              input: %{test_pid: Ref.context(:test_pid)}
+            )
+          ],
+          return: Ref.result(:blocking)
+        )
+
+      assert {:ok, execution} =
+               Exec.start(flow, %{}, %{test_pid: self()}, async: true, max_concurrency: 2)
+
+      assert Jido.Exec.ConcurrencyLimiter.whereis(execution.id) == nil
+
+      task = Task.async(fn -> Exec.step(execution, "blocking") end)
+
+      assert_receive {:blocking_flow_node_started, worker}, 1_000
+      limiter = Jido.Exec.ConcurrencyLimiter.whereis(execution.id)
+      assert Process.alive?(limiter)
+      send(worker, :finish)
+
+      assert {:ok, _node_result, execution} = Task.await(task)
+      assert Exec.status(execution) == :succeeded
+      assert Jido.Exec.ConcurrencyLimiter.whereis(execution.id) == nil
+    end
+
     test "rejects unknown Flow run options" do
       flow = FlowFixtures.math_flow!()
 

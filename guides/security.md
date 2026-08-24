@@ -102,10 +102,11 @@ timeout; the current scheduler uses an internal task timeout of `:infinity`.
 
 ## Bound Collections And Iterate Nodes
 
-`max_concurrency` limits concurrent Map item tasks. It does not limit the
-number of items in the input list. Validate collection size at the application
-boundary. Remember that `:collect_errors` can retain one record for each
-failed item.
+`max_concurrency` limits active Action calls across concurrent nodes, Map
+items, and nested Flow targets in one execution. It does not limit waiting
+helper tasks or the number of items in the input list. Validate collection size
+at the application boundary. Remember that `:collect_errors` can retain one
+record for each failed item.
 
 Every Iterate node has an iteration bound. Keep `repeat` and `max_iterations`
 small enough for the target cost. Iterate State is in-memory data. Do not put

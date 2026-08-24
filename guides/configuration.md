@@ -17,7 +17,7 @@ Jido.Exec.run(MyApp.Flows.BuildReport, input, context,
 | Option | Default | Validation | Scope |
 | --- | --- | --- | --- |
 | `async` | `false` | Must be a Boolean. | Enables concurrent independent nodes and concurrent Map item calls. |
-| `max_concurrency` | `System.schedulers_online()` | Must be a positive integer. | Limits tasks in each ready-wave or Map scheduling boundary when `async: true`. |
+| `max_concurrency` | `System.schedulers_online()` | Must be a positive integer. | Limits active Action calls across one in-memory execution when `async: true`. |
 
 The `max_concurrency` default is stored on the execution even when `async` is
 `false`. The option has no effect until asynchronous scheduling is enabled.
@@ -46,14 +46,16 @@ Unknown options are rejected. A non-Boolean `async` value or a non-positive
 
 Options belong to the execution created by the current `run/4` or `start/4`
 call. They schedule independent nodes and internal Map items in that Flow.
-The limit is local to that execution. It applies separately to a ready wave
-and to each Map scheduling boundary. It is not one global task limit across
-nested scheduling boundaries. The options do not change Flow dependencies,
-and they do not propagate into nested Flow targets.
+The limit is local to that execution. One shared permit budget bounds active
+Action validation and callback work across ready waves, concurrent Map nodes,
+and nested Flow targets. Internal scheduling boundaries can create waiting
+helper tasks, but they cannot start more Action calls than the shared limit.
+The options do not change Flow dependencies.
 
 A nested Flow runs as one atomic parent node and uses its own default execution
-policy. Run the nested Flow directly when it needs its own `async` or
-`max_concurrency` settings.
+policy. The parent does not enable concurrent node scheduling inside the child,
+but child Action calls share the parent's permit budget. Run the nested Flow
+directly when it needs its own `async` scheduling policy.
 
 ## Current Policy Limits
 

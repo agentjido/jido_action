@@ -39,10 +39,17 @@ defmodule Jido.Exec.ActionRunner do
 
   @spec run_target(module(), term(), map()) :: target_result()
   def run_target(action, params, context) do
-    case run_isolated(fn -> do_run_target(action, params, context) end) do
-      {:ok, result} -> result
-      {:exit, reason} -> {:error, :execution, process_exit_error(action, reason)}
-    end
+    run_target(action, params, context, nil)
+  end
+
+  @doc false
+  def run_target(action, params, context, concurrency_limiter) do
+    Jido.Exec.ConcurrencyLimiter.with_permit(concurrency_limiter, fn ->
+      case run_isolated(fn -> do_run_target(action, params, context) end) do
+        {:ok, result} -> result
+        {:exit, reason} -> {:error, :execution, process_exit_error(action, reason)}
+      end
+    end)
   end
 
   defp do_run_target(action, params, context) do

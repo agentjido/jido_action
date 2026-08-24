@@ -37,6 +37,52 @@ defmodule Jido.Exec.MapExecutionTest do
     end
 
     @tag timeout: 5_000
+    test "shares one concurrency cap across independent Map nodes" do
+      items = [
+        %{value: :zero, outcome: :ok, block: true},
+        %{value: :one, outcome: :ok, block: true}
+      ]
+
+      flow =
+        Flow.new!(
+          name: "shared_map_concurrency",
+          nodes: [
+            FlowMap.new!(
+              name: :left,
+              collection: Ref.value(items),
+              action: MapProbeAction,
+              input: ExecutionFixtures.map_probe_input(),
+              on_error: :collect_errors
+            ),
+            FlowMap.new!(
+              name: :right,
+              collection: Ref.value(items),
+              action: MapProbeAction,
+              input: ExecutionFixtures.map_probe_input(),
+              on_error: :collect_errors
+            )
+          ],
+          return: %{left: Ref.result(:left), right: Ref.result(:right)}
+        )
+
+      owner = self()
+
+      task =
+        Task.async(fn ->
+          Exec.run(flow, %{}, %{test_pid: owner}, async: true, max_concurrency: 2)
+        end)
+
+      first_workers = receive_started_workers(2)
+      refute_receive {MapProbeAction, :started, _index, _worker}, 50
+      Enum.each(first_workers, &send(&1, :release))
+
+      second_workers = receive_started_workers(2)
+      Enum.each(second_workers, &send(&1, :release))
+
+      assert {:ok, %{left: %{results: [_, _]}, right: %{results: [_, _]}}} = Task.await(task)
+    end
+
+    @tag timeout: 5_000
     test "uses the stored node-local concurrency cap inside step/2" do
       items =
         Enum.map(0..3, fn index ->
@@ -228,5 +274,12 @@ defmodule Jido.Exec.MapExecutionTest do
 
       assert Exec.status(execution) == :failed
     end
+  end
+
+  defp receive_started_workers(count) do
+    Enum.map(1..count, fn _index ->
+      assert_receive {MapProbeAction, :started, _item_index, worker}, 1_000
+      worker
+    end)
   end
 end

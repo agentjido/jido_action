@@ -192,7 +192,8 @@ Map uses Flow execution options. `async: false` runs item calls serially. With
 ```
 
 Map records stay in source-index order. Task completion order does not change
-the result order. Reduce stays serial.
+the result order. Concurrent Map nodes share one execution-wide limit for
+active Action calls. Reduce stays serial.
 
 ## Local Reference Scope
 

@@ -156,6 +156,8 @@ flow = FlowExecutionLivebook.BuildReport.flow()
 
 Flows run serially by default. Set `async: true` to schedule independent nodes
 in one ready wave concurrently. `max_concurrency` must be a positive integer.
+It bounds active Action calls across the full in-memory execution, including
+calls from concurrent Map nodes and nested Flow targets.
 
 ```elixir
 {:ok, %{account_id: "acct-789", order_count: 1}} =
@@ -361,9 +363,9 @@ Map, Reduce, and Iterate each appear as one node in `ready/1`. One `step/2`
 call completes all internal item calls or iterations for that node.
 
 With `async: true`, Map can schedule item calls concurrently up to
-`max_concurrency`. Map records stay in source order. Reduce and Iterate work
-stays serial. The public API does not pause between collection items or
-iterations.
+`max_concurrency`. All Map nodes in the execution share that Action-call limit.
+Map records stay in source order. Reduce and Iterate work stays serial. The
+public API does not pause between collection items or iterations.
 
 See [Map and Reduce](flow-collections.livemd) and [Iterate and
 State](flow-iterate-state.livemd) for the element syntax and result shapes.

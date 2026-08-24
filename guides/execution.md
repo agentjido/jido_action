@@ -18,7 +18,8 @@ The executable can be an Action module, an `%Jido.Instruction{}`, a
 For Actions and Instructions, `opts` must be an empty list. Flow execution
 supports `async: true | false` and `max_concurrency: positive_integer()`.
 These options schedule independent public nodes and internal Map item calls.
-Reduce and Iterate work stays serial.
+One shared limit bounds their active Action calls. Reduce and Iterate work
+stays serial.
 
 ## Validation Pipeline
 
