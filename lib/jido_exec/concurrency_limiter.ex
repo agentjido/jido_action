@@ -23,7 +23,7 @@ defmodule Jido.Exec.ConcurrencyLimiter do
   @spec whereis(String.t()) :: t() | nil
   def whereis(execution_id) when is_binary(execution_id) do
     case Registry.lookup(Jido.Exec.ConcurrencyRegistry, execution_id) do
-      [{limiter, _value}] -> limiter
+      [{limiter, _value}] -> if Process.alive?(limiter), do: limiter
       [] -> nil
     end
   end
@@ -141,7 +141,7 @@ defmodule Jido.Exec.ConcurrencyLimiter do
     :exit, _reason -> :ok
   end
 
-  defp with_new_limiter(execution_id, limit, fun) do
+  defp with_new_limiter(execution_id, limit, fun, attempts \\ 10) do
     case start(execution_id, self(), limit) do
       {:ok, limiter} ->
         try do
@@ -150,8 +150,13 @@ defmodule Jido.Exec.ConcurrencyLimiter do
           stop(limiter)
         end
 
-      {:error, {:already_started, _limiter}} ->
-        fun.()
+      {:error, {:already_started, limiter}} when attempts > 0 ->
+        if Process.alive?(limiter) do
+          fun.()
+        else
+          Process.sleep(1)
+          with_new_limiter(execution_id, limit, fun, attempts - 1)
+        end
 
       {:error, reason} ->
         raise "could not start concurrency limiter: #{inspect(reason)}"
