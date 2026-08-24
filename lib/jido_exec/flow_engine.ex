@@ -388,19 +388,32 @@ defmodule Jido.Exec.FlowEngine do
   end
 
   defp mutate(execution, fun) do
-    with :ok <- ExecutionGuard.claim(execution) do
-      mutation = fun.()
-      finish_mutation(execution, mutation)
+    with {:ok, operation} <- ExecutionGuard.claim(execution) do
+      mutation = run_mutation(execution, operation, fun)
+      finish_mutation(execution, operation, mutation)
     end
   end
 
-  defp finish_mutation(execution, {:ok, _result, %Execution{} = next_execution} = mutation) do
-    :ok = ExecutionGuard.advance(execution, next_execution)
+  defp run_mutation(execution, operation, fun) do
+    fun.()
+  catch
+    kind, reason ->
+      stacktrace = __STACKTRACE__
+      :ok = ExecutionGuard.interrupt(operation, execution)
+      :erlang.raise(kind, reason, stacktrace)
+  end
+
+  defp finish_mutation(
+         execution,
+         operation,
+         {:ok, _result, %Execution{} = next_execution} = mutation
+       ) do
+    :ok = ExecutionGuard.advance(operation, execution, next_execution)
     mutation
   end
 
-  defp finish_mutation(execution, {:error, _error} = mutation) do
-    :ok = ExecutionGuard.release(execution)
+  defp finish_mutation(execution, operation, {:error, _error} = mutation) do
+    :ok = ExecutionGuard.release(operation, execution)
     mutation
   end
 
