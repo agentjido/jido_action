@@ -10,6 +10,9 @@ defmodule Jido.Flow.Builder do
   stored Map or JSON data, use references, scalar literals, maps, and proper
   lists. Put executable computation in an Action. Low-level canonical Flow
   values can contain some static BEAM terms that the stored format rejects.
+
+  Treat the Builder struct fields as internal. Use the functions in this
+  module to create and update a Builder.
   """
 
   import Kernel, except: [in: 2, not: 1]
@@ -40,14 +43,14 @@ defmodule Jido.Flow.Builder do
   @type choice_option :: map()
   @type choice_fallback :: map()
 
-  @type t :: %__MODULE__{
-          config: map(),
-          node_specs: [map()],
-          return: expression() | nil
-        }
+  @opaque t :: %__MODULE__{
+            config: map(),
+            reversed_node_specs: [map()],
+            return: expression() | nil
+          }
 
-  @enforce_keys [:config, :node_specs, :return]
-  defstruct [:config, :node_specs, :return]
+  @enforce_keys [:config, :reversed_node_specs, :return]
+  defstruct [:config, :reversed_node_specs, :return]
 
   @doc "Starts a Builder with Flow metadata."
   @spec new(map() | keyword()) :: t()
@@ -57,14 +60,17 @@ defmodule Jido.Flow.Builder do
       else: raise(ArgumentError, "invalid Flow metadata")
   end
 
-  def new(%{} = attrs), do: %__MODULE__{config: attrs, node_specs: [], return: nil}
+  def new(%{} = attrs),
+    do: %__MODULE__{config: attrs, reversed_node_specs: [], return: nil}
 
   @doc "Builds and validates the canonical Flow."
   @spec build(t()) :: {:ok, Jido.Flow.t()} | {:error, Exception.t()}
   def build(%__MODULE__{} = builder) do
-    with {:ok, node_specs} <- Normalizer.normalize(builder.node_specs) do
+    node_specs = Enum.reverse(builder.reversed_node_specs)
+
+    with {:ok, node_specs} <- Normalizer.normalize(node_specs) do
       builder.config
-      |> Map.drop([:node_specs, :nodes, :return])
+      |> Map.drop([:node_specs, :reversed_node_specs, :nodes, :return])
       |> Map.put(:nodes, node_specs)
       |> Map.put(:return, builder.return)
       |> Constructor.build()
@@ -229,7 +235,7 @@ defmodule Jido.Flow.Builder do
         {:error, error} -> Map.put(spec, :__builder_options_error__, error)
       end
 
-    %{builder | node_specs: builder.node_specs ++ [spec]}
+    %{builder | reversed_node_specs: [spec | builder.reversed_node_specs]}
   end
 
   defp normalize_options(opts, kind) when is_list(opts) do

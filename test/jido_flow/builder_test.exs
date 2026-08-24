@@ -31,6 +31,21 @@ defmodule Jido.Flow.BuilderTest do
     assert {:ok, %{value: 8}} = Jido.Exec.run(flow, %{value: 3}, %{})
   end
 
+  test "prepends node specifications internally and restores declaration order at build time" do
+    builder =
+      Builder.new(name: "builder_order")
+      |> Builder.step("first", EchoParamsAction, %{})
+      |> Builder.step("second", EchoParamsAction, %{})
+      |> Builder.step("third", EchoParamsAction, %{})
+      |> Builder.return(Builder.result("third"))
+
+    assert Enum.map(builder.reversed_node_specs, & &1.name) == ["third", "second", "first"]
+    refute Map.has_key?(builder, :node_specs)
+
+    assert {:ok, flow} = Builder.build(builder)
+    assert Enum.map(flow.nodes, & &1.name) == ["first", "second", "third"]
+  end
+
   test "uses the canonical Flow constructor and validation path" do
     builder =
       Builder.new(name: "builder_parity", description: "Shared construction")
