@@ -101,7 +101,7 @@ defmodule Jido.Exec.RunOptionsTest do
     end
 
     @tag timeout: 5_000
-    test "does not pass parent run options into a selected nested Flow" do
+    test "passes parent run options into a selected nested Flow" do
       probe = start_probe()
 
       flow =
@@ -137,7 +137,7 @@ defmodule Jido.Exec.RunOptionsTest do
           )
         end)
 
-      assert [:left, :right] == probe |> receive_serial_starts() |> Enum.sort()
+      assert [:left, :right] == probe |> receive_parallel_starts() |> Enum.sort()
       assert {:ok, %{left: :left, right: :right}} = Task.await(task)
     end
 
@@ -315,15 +315,6 @@ defmodule Jido.Exec.RunOptionsTest do
     starts = Enum.map(1..2, fn _index -> receive_probe_start(probe) end)
     assert Agent.get(probe, & &1.max) == 2
     release_probe_starts(probe, starts)
-  end
-
-  defp receive_serial_starts(probe) do
-    first = receive_probe_start(probe)
-    release_probe_starts(probe, [first])
-    second = receive_probe_start(probe)
-    release_probe_starts(probe, [second])
-    assert Agent.get(probe, & &1.max) == 1
-    [elem(first, 0), elem(second, 0)]
   end
 
   defp receive_probe_start(probe) do

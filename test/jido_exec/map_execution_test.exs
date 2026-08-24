@@ -76,8 +76,10 @@ defmodule Jido.Exec.MapExecutionTest do
       refute_receive {MapProbeAction, :started, _index, _worker}, 50
       Enum.each(first_workers, &send(&1, :release))
 
-      second_workers = receive_started_workers(2)
-      Enum.each(second_workers, &send(&1, :release))
+      [third_worker] = receive_started_workers(1)
+      send(third_worker, :release)
+      [fourth_worker] = receive_started_workers(1)
+      send(fourth_worker, :release)
 
       assert {:ok, %{left: %{results: [_, _]}, right: %{results: [_, _]}}} = Task.await(task)
     end

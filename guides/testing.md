@@ -166,8 +166,8 @@ test "reports a nested Flow as one parent node" do
 end
 ```
 
-The parent does not expose child nodes. Parent `async` and
-`max_concurrency` options do not propagate to a nested Flow.
+The parent does not expose child nodes. A nested Flow inherits the parent's
+`async` and `max_concurrency` options and uses the same execution budgets.
 
 ## Test Step-wise Execution
 

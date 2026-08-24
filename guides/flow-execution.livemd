@@ -415,9 +415,10 @@ end
 :succeeded = Jido.Exec.status(parent_execution)
 ```
 
-The parent `async` and `max_concurrency` options do not propagate to the child
-Flow. The child uses its own defaults when it runs as a target. Run the child
-directly when you need to step through its nodes or set its execution options.
+The child Flow inherits the parent execution's `async` and `max_concurrency`
+options. Both Flows use the same execution-wide Action and helper-worker
+budgets. Run the child directly when you need different options or step-wise
+control of its nodes.
 
 ## Observe Execution With Telemetry
 

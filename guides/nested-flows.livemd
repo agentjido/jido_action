@@ -163,12 +163,11 @@ end
 The Choice remains one parent node. The selected child Flow is not represented
 as a separate ready node in the parent execution.
 
-## Parent Execution Options Do Not Propagate
+## Parent Execution Options Propagate
 
 `async: true` and `max_concurrency` control scheduling of independent nodes in
-the execution being run. They do not propagate into a nested child Flow. A
-child Flow runs with its own execution options (the defaults when called as a
-nested target).
+one in-memory execution. A nested child Flow inherits these options. The child
+uses the same execution-wide Action and helper-worker budgets as the parent.
 
 ```elixir
 {:ok, %{child: %{value: 4, trace_id: "trace-async"}}} =
@@ -181,9 +180,9 @@ nested target).
   )
 ```
 
-These options do not create a child step or enable a child Flow's independent
-nodes to run concurrently. Pass options when running the child directly if
-you need to control that child execution.
+These options do not create child steps in the parent ready set. They can run
+independent child nodes concurrently. Run the child directly when it needs a
+different scheduling policy or step-wise control.
 
 ## Continue Learning
 

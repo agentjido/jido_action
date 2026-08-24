@@ -300,13 +300,23 @@ defmodule Jido.Exec do
            {:ok, context} <- normalize_map(context, :context),
            {:ok, input} <- validate_data(flow.schema, input, "Flow", flow, :flow_input),
            {:ok, input} <- validate_flow_input_shape(flow, input) do
+        target_runner = fn action, params, target_context, target_execution_id ->
+          run_flow_target(
+            action,
+            params,
+            target_context,
+            target_execution_id,
+            run_opts
+          )
+        end
+
         FlowEngine.start(
           flow,
           input,
           context,
           run_opts,
           fn output -> validate_flow_output(flow, output) end,
-          &run_flow_target/4,
+          target_runner,
           execution_id,
           %{flow: flow_span}
         )
@@ -457,9 +467,9 @@ defmodule Jido.Exec do
     end
   end
 
-  defp run_flow_target(action, params, context, execution_id) do
+  defp run_flow_target(action, params, context, execution_id, run_opts) do
     if flow_module?(action) do
-      case do_run(action.flow(), params, context, [], execution_id) do
+      case do_run(action.flow(), params, context, run_opts, execution_id) do
         {:ok, output} -> {:ok, output}
         {:error, error} -> {:error, :execution, error}
       end
