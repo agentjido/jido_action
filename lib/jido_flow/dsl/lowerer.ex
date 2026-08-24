@@ -24,14 +24,17 @@ defmodule Jido.Flow.DSL.Lowerer do
 
     with :ok <- validate_output_position(entities),
          {:ok, node_specs, return} <- lower_entities(entities) do
-      Constructor.build(%{
-        name: Keyword.fetch!(opts, :name),
-        description: Keyword.get(opts, :description),
-        schema: Keyword.get(opts, :schema, []),
-        output_schema: Keyword.get(opts, :output_schema, []),
-        nodes: node_specs,
-        return: return
-      })
+      case Constructor.build(%{
+             name: Keyword.fetch!(opts, :name),
+             description: Keyword.get(opts, :description),
+             schema: Keyword.get(opts, :schema, []),
+             output_schema: Keyword.get(opts, :output_schema, []),
+             nodes: node_specs,
+             return: return
+           }) do
+        {:ok, flow} -> {:ok, flow}
+        {:error, error} -> {:error, attach_constructor_location(error, entities)}
+      end
     end
   end
 
@@ -41,7 +44,7 @@ defmodule Jido.Flow.DSL.Lowerer do
       case lower_entity(entity) do
         {:ok, {:node, spec}} -> {:cont, {:ok, [spec | specs], return}}
         {:ok, {:return, expression}} -> {:cont, {:ok, specs, expression}}
-        {:error, error} -> {:halt, {:error, error}}
+        {:error, error} -> {:halt, {:error, attach_entity_location(error, entity)}}
       end
     end)
     |> reverse_lowered_entities()
@@ -167,7 +170,7 @@ defmodule Jido.Flow.DSL.Lowerer do
 
         {:cont, {:ok, [value | lowered]}}
       else
-        {:error, error} -> {:halt, {:error, error}}
+        {:error, error} -> {:halt, {:error, attach_entity_location(error, option)}}
       end
     end)
     |> reverse_ok()
@@ -224,20 +227,77 @@ defmodule Jido.Flow.DSL.Lowerer do
 
   defp validate_output_position(entities) do
     case Enum.find_index(entities, &match?(%Output{}, &1)) do
-      nil -> :ok
-      index when index == length(entities) - 1 -> :ok
-      _index -> {:error, Error.validation_error("output must be the final Flow declaration")}
+      nil ->
+        :ok
+
+      index when index == length(entities) - 1 ->
+        :ok
+
+      index ->
+        error = Error.validation_error("output must be the final Flow declaration")
+        {:error, attach_entity_location(error, Enum.at(entities, index))}
     end
   end
 
-  defp provenance(%{meta: meta, __spark_metadata__: spark_metadata}) do
+  defp attach_constructor_location(error, entities) do
+    case constructor_error_entity(error, entities) do
+      nil -> error
+      entity -> attach_entity_location(error, entity)
+    end
+  end
+
+  defp constructor_error_entity(error, entities) do
+    details = Map.get(error, :details, %{})
+
+    with nil <- entity_at_error_path(entities, Map.get(details, :path)),
+         nil <- entity_with_name(entities, Map.get(details, :node)),
+         nil <- duplicate_entity(entities, Map.get(details, :name)) do
+      output_entity(entities)
+    end
+  end
+
+  defp entity_at_error_path(entities, [:nodes, index | _rest]) when is_integer(index) do
+    entities |> Enum.reject(&match?(%Output{}, &1)) |> Enum.at(index)
+  end
+
+  defp entity_at_error_path(_entities, _path), do: nil
+
+  defp entity_with_name(_entities, nil), do: nil
+
+  defp entity_with_name(entities, name) do
+    Enum.find(entities, &(Map.get(&1, :name) == name))
+  end
+
+  defp duplicate_entity(_entities, nil), do: nil
+
+  defp duplicate_entity(entities, name) do
+    entities
+    |> Enum.reverse()
+    |> Enum.find(&(Map.get(&1, :name) == name))
+  end
+
+  defp output_entity(entities), do: Enum.find(entities, &match?(%Output{}, &1))
+
+  defp attach_entity_location(%{details: details} = error, entity) when is_map(details) do
     source =
+      entity
+      |> Spark.Dsl.Entity.anno()
+      |> annotation_map()
+      |> Map.merge(Map.get(entity, :__source__, %{}))
+
+    %{error | details: Map.merge(source, details)}
+  end
+
+  defp attach_entity_location(error, _entity), do: error
+
+  defp provenance(%{meta: meta, __source__: macro_source, __spark_metadata__: spark_metadata}) do
+    annotation =
       case spark_metadata do
         %Spark.Dsl.Entity.Meta{anno: anno} -> annotation_map(anno)
         _other -> %{}
       end
 
-    Map.merge(source, meta)
+    annotation |> Map.merge(macro_source) |> Map.merge(meta)
   end
 
   defp annotation_map(nil), do: %{}

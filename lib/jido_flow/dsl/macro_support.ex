@@ -24,6 +24,9 @@ defmodule Jido.Flow.DSL.MacroSupport do
   end
 
   @doc false
+  def source(caller), do: Macro.escape(%{line: caller.line})
+
+  @doc false
   def compile_error!(caller, description) do
     raise CompileError, file: caller.file, line: caller.line, description: description
   end

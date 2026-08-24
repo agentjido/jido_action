@@ -6,6 +6,7 @@ defmodule Jido.Flow.DSL.Step do
     :action,
     :params,
     :__identifier__,
+    __source__: %{},
     __spark_metadata__: nil,
     after: [],
     meta: %{}
@@ -15,7 +16,7 @@ end
 defmodule Jido.Flow.DSL.Output do
   @moduledoc false
 
-  defstruct [:value, :__identifier__, __spark_metadata__: nil]
+  defstruct [:value, :__identifier__, __source__: %{}, __spark_metadata__: nil]
 end
 
 defmodule Jido.Flow.DSL.Choice do
@@ -25,6 +26,7 @@ defmodule Jido.Flow.DSL.Choice do
     :name,
     :fallback,
     :__identifier__,
+    __source__: %{},
     __spark_metadata__: nil,
     options: [],
     after: [],
@@ -41,6 +43,7 @@ defmodule Jido.Flow.DSL.ChoiceOption do
     :params,
     :condition,
     :__identifier__,
+    __source__: %{},
     __spark_metadata__: nil
   ]
 end
@@ -48,7 +51,7 @@ end
 defmodule Jido.Flow.DSL.Otherwise do
   @moduledoc false
 
-  defstruct [:action, :params, :__identifier__, __spark_metadata__: nil]
+  defstruct [:action, :params, :__identifier__, __source__: %{}, __spark_metadata__: nil]
 end
 
 defmodule Jido.Flow.DSL.MapNode do
@@ -60,6 +63,7 @@ defmodule Jido.Flow.DSL.MapNode do
     :action,
     :params,
     :__identifier__,
+    __source__: %{},
     __spark_metadata__: nil,
     on_error: :fail_fast,
     after: [],
@@ -77,6 +81,7 @@ defmodule Jido.Flow.DSL.Reduce do
     :action,
     :params,
     :__identifier__,
+    __source__: %{},
     __spark_metadata__: nil,
     after: [],
     meta: %{}
@@ -96,6 +101,7 @@ defmodule Jido.Flow.DSL.Iterate do
     :repeat,
     :max_iterations,
     :__identifier__,
+    __source__: %{},
     __spark_metadata__: nil,
     after: [],
     meta: %{}
@@ -105,5 +111,5 @@ end
 defmodule Jido.Flow.DSL.IterateState do
   @moduledoc false
 
-  defstruct [:schema, :initial, :__identifier__, __spark_metadata__: nil]
+  defstruct [:schema, :initial, :__identifier__, __source__: %{}, __spark_metadata__: nil]
 end

@@ -2,6 +2,10 @@ defmodule Jido.Flow.DSL.Extension do
   @moduledoc false
 
   @node_fields [
+    __source__: [
+      type: :map,
+      default: %{}
+    ],
     after: [
       type: {:wrap_list, :string},
       default: [],
@@ -17,7 +21,7 @@ defmodule Jido.Flow.DSL.Extension do
   @step %Spark.Dsl.Entity{
     name: :__step__,
     target: Jido.Flow.DSL.Step,
-    args: [:name],
+    args: [:name, :__source__],
     identifier: :name,
     modules: [:action],
     describe: "Declares one named Action call.",
@@ -32,7 +36,7 @@ defmodule Jido.Flow.DSL.Extension do
   @choice_option %Spark.Dsl.Entity{
     name: :__option__,
     target: Jido.Flow.DSL.ChoiceOption,
-    args: [:name],
+    args: [:name, :__source__],
     identifier: :name,
     modules: [:action],
     describe: "Declares one ordered Choice target.",
@@ -40,25 +44,28 @@ defmodule Jido.Flow.DSL.Extension do
       name: [type: :string, required: true],
       action: [type: :atom, required: true],
       params: [type: :quoted, required: true],
-      condition: [type: :quoted, required: true]
+      condition: [type: :quoted, required: true],
+      __source__: [type: :map, default: %{}]
     ]
   }
 
   @otherwise %Spark.Dsl.Entity{
     name: :__otherwise__,
     target: Jido.Flow.DSL.Otherwise,
+    args: [:__source__],
     modules: [:action],
     describe: "Declares the required Choice fallback target.",
     schema: [
       action: [type: :atom, required: true],
-      params: [type: :quoted, required: true]
+      params: [type: :quoted, required: true],
+      __source__: [type: :map, default: %{}]
     ]
   }
 
   @choice %Spark.Dsl.Entity{
     name: :__choice__,
     target: Jido.Flow.DSL.Choice,
-    args: [:name],
+    args: [:name, :__source__],
     identifier: :name,
     describe: "Declares one ordered Action selection.",
     schema: [name: [type: :string, required: true]] ++ @node_fields,
@@ -70,7 +77,7 @@ defmodule Jido.Flow.DSL.Extension do
   @map %Spark.Dsl.Entity{
     name: :__map__,
     target: Jido.Flow.DSL.MapNode,
-    args: [:name],
+    args: [:name, :__source__],
     identifier: :name,
     modules: [:action],
     describe: "Runs one Action for each collection item.",
@@ -87,7 +94,7 @@ defmodule Jido.Flow.DSL.Extension do
   @reduce %Spark.Dsl.Entity{
     name: :__reduce__,
     target: Jido.Flow.DSL.Reduce,
-    args: [:name],
+    args: [:name, :__source__],
     identifier: :name,
     modules: [:action],
     describe: "Folds a collection through one Action.",
@@ -104,19 +111,20 @@ defmodule Jido.Flow.DSL.Extension do
   @iterate_state %Spark.Dsl.Entity{
     name: :__state__,
     target: Jido.Flow.DSL.IterateState,
-    args: [:schema],
+    args: [:schema, :__source__],
     modules: [:schema],
     describe: "Declares the Iterate state contract and initial value.",
     schema: [
       schema: [type: :any, required: true],
-      initial: [type: :quoted, required: true]
+      initial: [type: :quoted, required: true],
+      __source__: [type: :map, default: %{}]
     ]
   }
 
   @iterate %Spark.Dsl.Entity{
     name: :__iterate__,
     target: Jido.Flow.DSL.Iterate,
-    args: [:name],
+    args: [:name, :__source__],
     identifier: :name,
     modules: [:action],
     describe: "Declares bounded repeated state transitions.",
@@ -136,12 +144,13 @@ defmodule Jido.Flow.DSL.Extension do
   }
 
   @output %Spark.Dsl.Entity{
-    name: :output,
+    name: :__output__,
     target: Jido.Flow.DSL.Output,
-    args: [:value],
+    args: [:value, :__source__],
     describe: "Declares the Flow output expression.",
     schema: [
-      value: [type: :quoted, required: true]
+      value: [type: :quoted, required: true],
+      __source__: [type: :map, default: %{}]
     ]
   }
 

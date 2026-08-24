@@ -185,6 +185,81 @@ defmodule Jido.Flow.SparkDSLTest do
     refute_received :flow_expression_was_evaluated
   end
 
+  test "lowering errors report the source declaration line" do
+    module = unique_module("ExpressionSourceLineFlow")
+    file = "expression_source_line_flow.ex"
+
+    source = """
+    defmodule #{inspect(module)} do
+      use Jido.Flow, name: "expression_source_line_flow"
+
+      flow do
+        step("bad",
+          action: JidoTest.TestActions.EchoParamsAction,
+          params: %{value: Date.utc_today()}
+        )
+      end
+    end
+    """
+
+    error =
+      assert_raise CompileError, ~r/unsupported Flow expression/, fn ->
+        Code.compile_string(source, file)
+      end
+
+    assert error.file == file
+    assert error.line == 7
+  end
+
+  test "structural and Action contract errors report the source node line" do
+    structural_module =
+      Module.concat(JidoTest, "StructuralSourceLineFlow#{System.unique_integer([:positive])}")
+
+    structural_file = "structural_source_line_flow.ex"
+
+    structural_source = """
+    defmodule #{inspect(structural_module)} do
+      use Jido.Flow, name: "structural_source_line_flow"
+
+      flow do
+        choice "empty" do
+        end
+      end
+    end
+    """
+
+    structural_error =
+      assert_raise CompileError, ~r/choice must declare at least one option/, fn ->
+        Code.compile_string(structural_source, structural_file)
+      end
+
+    assert structural_error.file == structural_file
+    assert structural_error.line == 5
+
+    contract_module =
+      Module.concat(JidoTest, "ContractSourceLineFlow#{System.unique_integer([:positive])}")
+
+    contract_file = "contract_source_line_flow.ex"
+
+    contract_source = """
+    defmodule #{inspect(contract_module)} do
+      use Jido.Flow, name: "contract_source_line_flow"
+
+      flow do
+        step("bad", action: String, params: %{})
+      end
+    end
+    """
+
+    contract_error =
+      assert_raise CompileError, ~r/node: "bad"/, fn ->
+        Code.compile_string(contract_source, contract_file)
+      end
+
+    assert contract_error.file == contract_file
+    assert contract_error.line == 5
+  end
+
   test "short forms reject duplicate declaration fields" do
     module = unique_module("DuplicateStepFieldFlow")
 

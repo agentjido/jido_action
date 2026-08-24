@@ -49,6 +49,17 @@ defmodule Jido.Flow.DSL.Macros do
     )
   end
 
+  defmacro output(value) do
+    caller = __CALLER__
+    module = extension_module(["Flow", "Output"])
+    source = MacroSupport.source(caller)
+
+    quote generated: true, line: caller.line, file: caller.file do
+      require unquote(module)
+      unquote(module).__output__(unquote(value), unquote(source))
+    end
+  end
+
   defp entity(name, options, module, function, quoted_fields, caller) do
     MacroSupport.validate_options!(
       options,
@@ -57,20 +68,27 @@ defmodule Jido.Flow.DSL.Macros do
       "Flow declaration field"
     )
 
+    source = MacroSupport.source(caller)
+
     case Keyword.pop(options, :do) do
       {nil, short_options} ->
         short_options = MacroSupport.quote_fields(short_options, quoted_fields)
 
-        quote generated: true do
+        quote generated: true, line: caller.line, file: caller.file do
           require unquote(module)
-          unquote(module).unquote(function)(unquote(name), unquote(short_options))
+
+          unquote(module).unquote(function)(
+            unquote(name),
+            unquote(source),
+            unquote(short_options)
+          )
         end
 
       {block, []} ->
-        quote generated: true do
+        quote generated: true, line: caller.line, file: caller.file do
           require unquote(module)
 
-          unquote(module).unquote(function)(unquote(name)) do
+          unquote(module).unquote(function)(unquote(name), unquote(source)) do
             unquote(block)
           end
         end
@@ -91,12 +109,14 @@ defmodule Jido.Flow.DSL.Macros do
       "Flow declaration field"
     )
 
+    source = MacroSupport.source(caller)
+
     case options do
       [do: block] ->
-        quote generated: true do
+        quote generated: true, line: caller.line, file: caller.file do
           require unquote(module)
 
-          unquote(module).unquote(function)(unquote(name)) do
+          unquote(module).unquote(function)(unquote(name), unquote(source)) do
             unquote(block)
           end
         end
@@ -146,13 +166,16 @@ defmodule Jido.Flow.DSL.ChoiceMacros do
       "Choice declaration field"
     )
 
+    source = MacroSupport.source(caller)
+
     case Keyword.pop(options, :do) do
       {nil, short_options} ->
         short_options = MacroSupport.quote_fields(short_options, quoted_fields)
-        call_nested(module, function, name, short_options)
+
+        call_nested(module, function, name, source, short_options, caller)
 
       {block, []} ->
-        call_nested_block(module, function, name, block)
+        call_nested_block(module, function, name, block, source, caller)
 
       {_block, _mixed_options} ->
         MacroSupport.compile_error!(
@@ -162,35 +185,40 @@ defmodule Jido.Flow.DSL.ChoiceMacros do
     end
   end
 
-  defp call_nested(module, function, nil, options) do
-    quote generated: true do
+  defp call_nested(module, function, nil, source, options, caller) do
+    quote generated: true, line: caller.line, file: caller.file do
       require unquote(module)
-      unquote(module).unquote(function)(unquote(options))
+      unquote(module).unquote(function)(unquote(source), unquote(options))
     end
   end
 
-  defp call_nested(module, function, name, options) do
-    quote generated: true do
+  defp call_nested(module, function, name, source, options, caller) do
+    quote generated: true, line: caller.line, file: caller.file do
       require unquote(module)
-      unquote(module).unquote(function)(unquote(name), unquote(options))
+
+      unquote(module).unquote(function)(
+        unquote(name),
+        unquote(source),
+        unquote(options)
+      )
     end
   end
 
-  defp call_nested_block(module, _function, nil, block) do
-    quote generated: true do
+  defp call_nested_block(module, _function, nil, block, source, caller) do
+    quote generated: true, line: caller.line, file: caller.file do
       require unquote(module)
 
-      unquote(module).__otherwise__ do
+      unquote(module).__otherwise__ unquote(source) do
         unquote(block)
       end
     end
   end
 
-  defp call_nested_block(module, function, name, block) do
-    quote generated: true do
+  defp call_nested_block(module, function, name, block, source, caller) do
+    quote generated: true, line: caller.line, file: caller.file do
       require unquote(module)
 
-      unquote(module).unquote(function)(unquote(name)) do
+      unquote(module).unquote(function)(unquote(name), unquote(source)) do
         unquote(block)
       end
     end
@@ -207,36 +235,44 @@ defmodule Jido.Flow.DSL.IterateMacros do
   alias Jido.Flow.DSL.MacroSupport
 
   defmacro state(schema, options) do
+    caller = __CALLER__
+
     MacroSupport.validate_options!(
       options,
-      __CALLER__,
+      caller,
       "Iterate state options must be a keyword list",
       "Iterate state field"
     )
 
     module = extension_module(["Flow", "Iterate", "State"])
+    source = MacroSupport.source(caller)
 
     case Keyword.pop(options, :do) do
       {nil, short_options} ->
         short_options = MacroSupport.quote_fields(short_options, [:initial])
 
-        quote generated: true do
+        quote generated: true, line: caller.line, file: caller.file do
           require unquote(module)
-          unquote(module).__state__(unquote(schema), unquote(short_options))
+
+          unquote(module).__state__(
+            unquote(schema),
+            unquote(source),
+            unquote(short_options)
+          )
         end
 
       {block, []} ->
-        quote generated: true do
+        quote generated: true, line: caller.line, file: caller.file do
           require unquote(module)
 
-          unquote(module).__state__ unquote(schema) do
+          unquote(module).__state__ unquote(schema), unquote(source) do
             unquote(block)
           end
         end
 
       {_block, _mixed_options} ->
         MacroSupport.compile_error!(
-          __CALLER__,
+          caller,
           "do not mix keyword and block fields in Iterate state"
         )
     end

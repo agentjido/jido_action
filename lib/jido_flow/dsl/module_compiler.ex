@@ -100,23 +100,49 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
         validate_executable!(flow, env)
 
       {:error, error} ->
-        raise_compile_error!(env, Exception.message(error))
+        raise_compile_error!(env, Exception.message(error), error)
     end
   end
 
   defp validate_executable!(flow, env) do
     case Jido.Flow.validate_executable(flow) do
       {:ok, flow} -> flow
-      {:error, error} -> raise_compile_error!(env, compile_error_message(error))
+      {:error, error} -> raise_compile_error!(env, compile_error_message(error), error, flow)
     end
   end
 
-  defp raise_compile_error!(env, description) do
+  defp raise_compile_error!(env, description, error, flow \\ nil) do
+    details = Map.get(error, :details, %{})
+
     raise CompileError,
       description: description,
-      file: env.file,
-      line: env.line
+      file: source_file(details, env),
+      line: source_line(details, flow, env)
   end
+
+  defp source_file(%{file: file}, _env) when is_binary(file), do: file
+  defp source_file(_details, env), do: env.file
+
+  defp source_line(%{line: line}, _flow, _env) when is_integer(line) and line > 0, do: line
+
+  defp source_line(details, %Jido.Flow{nodes: nodes}, env) do
+    case source_node(nodes, details) do
+      %{provenance: %{line: line}} when is_integer(line) and line > 0 -> line
+      _node -> env.line
+    end
+  end
+
+  defp source_line(_details, _flow, env), do: env.line
+
+  defp source_node(nodes, %{node: name}) do
+    Enum.find(nodes, &(Jido.Flow.Element.name(&1) == name))
+  end
+
+  defp source_node(nodes, %{path: [:nodes, index | _rest]}) when is_integer(index) do
+    Enum.at(nodes, index)
+  end
+
+  defp source_node(_nodes, _details), do: nil
 
   defp compile_error_message(error) when is_exception(error) do
     message = Exception.message(error)

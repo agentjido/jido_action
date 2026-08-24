@@ -126,6 +126,9 @@ not accept assignments, pattern matching, pipes, or application function
 calls. Runtime input, context, and Action work stay in [Flow
 execution](flow-execution.livemd).
 
+The compile error points to the invalid expression or Flow declaration. This
+source location is available even when compiler debug information is off.
+
 ## Generated Public Helpers
 
 `use Jido.Flow` generates these helpers:

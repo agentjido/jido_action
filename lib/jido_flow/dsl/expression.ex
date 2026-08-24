@@ -8,14 +8,16 @@ defmodule Jido.Flow.DSL.Expression do
   def parse(expression) do
     {:ok, parse!(expression)}
   rescue
-    error in [ArgumentError] -> {:error, Error.validation_error(Exception.message(error))}
+    error in [ArgumentError] ->
+      {:error, Error.validation_error(Exception.message(error), source_details(expression))}
   end
 
   @spec parse_condition(term()) :: {:ok, Condition.t()} | {:error, Exception.t()}
   def parse_condition(condition) do
     {:ok, parse_condition!(condition)}
   rescue
-    error in [ArgumentError] -> {:error, Error.validation_error(Exception.message(error))}
+    error in [ArgumentError] ->
+      {:error, Error.validation_error(Exception.message(error), source_details(condition))}
   end
 
   defp parse!({:input, _meta, []}), do: Ref.input([])
@@ -166,4 +168,15 @@ defmodule Jido.Flow.DSL.Expression do
           "unsupported Flow condition: #{Macro.to_string(condition)}; " <>
             "use ==, !=, <, <=, >, >=, in, and, or, not, or a Flow condition function"
   end
+
+  defp source_details({_form, metadata, _arguments}) when is_list(metadata) do
+    %{}
+    |> maybe_put_source(:line, Keyword.get(metadata, :line))
+    |> maybe_put_source(:column, Keyword.get(metadata, :column))
+  end
+
+  defp source_details(_expression), do: %{}
+
+  defp maybe_put_source(details, _key, nil), do: details
+  defp maybe_put_source(details, key, value), do: Map.put(details, key, value)
 end
