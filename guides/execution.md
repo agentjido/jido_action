@@ -68,6 +68,13 @@ Use `Jido.Action.Error.to_map/1` when an error crosses a process, log, or API
 boundary. Error maps contain a stable `:type`, message, details, and a
 conservative `:retryable?` value.
 
+An `ExecutionFailureError` returned by an Action is retryable by default for
+compatibility with Jido Action v2. The Action can set `details.retry` to a
+Boolean value. Jido sets it to `false` for callback crashes, throws, invalid
+callback results, validator contract failures, and killed Action processes.
+These failures need a code or contract change. A retry alone does not correct
+them.
+
 A caught Action exception, throw, or exit keeps its original stacktrace in the
 runtime error's `%Splode.Stacktrace{}` field. `Jido.Action.Error.to_map/1` and
 JSON encoding do not include this stacktrace.

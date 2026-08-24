@@ -5,6 +5,11 @@ defmodule Jido.Action.Error do
   The public boundary is intentionally small. Concrete Action errors keep their
   canonical type, details, and retry policy. Any unsupported value becomes a
   non-retryable execution error with no structured details.
+
+  An `ExecutionFailureError` is retryable by default for compatibility with
+  Jido Action v2. Set `details.retry` to `true` or `false` when the failure has
+  a known policy. Jido marks callback crashes, invalid callback return values,
+  validator contract failures, and killed Action processes as non-retryable.
   """
 
   use Splode,
@@ -250,9 +255,11 @@ defmodule Jido.Action.Error do
   end
 
   @doc """
-  Returns whether a concrete Action error has an explicit retry policy.
+  Returns whether a concrete Action error is retryable.
 
-  Unsupported values are never retryable.
+  Execution failures default to retryable for compatibility with Jido Action
+  v2. A Boolean `details.retry` value takes precedence. Unsupported values are
+  never retryable.
   """
   @spec retryable?(term()) :: boolean()
   def retryable?({:error, reason, _effects}), do: retryable?(reason)

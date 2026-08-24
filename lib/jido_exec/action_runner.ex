@@ -88,7 +88,7 @@ defmodule Jido.Exec.ActionRunner do
 
       other ->
         {:error,
-         Error.execution_error("action returned an unsupported result", %{
+         programming_error("action returned an unsupported result", %{
            action: action,
            result: other
          }), :no_extras}
@@ -166,7 +166,7 @@ defmodule Jido.Exec.ActionRunner do
 
   defp output_envelope_required(action, output, callback) do
     {:error,
-     Error.execution_error("action returned a value that requires an output envelope", %{
+     programming_error("action returned a value that requires an output envelope", %{
        action: action,
        callback: callback,
        output: output
@@ -175,7 +175,7 @@ defmodule Jido.Exec.ActionRunner do
 
   defp invalid_validator_value(action, callback, result, expected) do
     {:error,
-     Error.execution_error("action validator returned a value with an invalid shape", %{
+     programming_error("action validator returned a value with an invalid shape", %{
        action: action,
        callback: callback,
        expected: expected,
@@ -193,7 +193,7 @@ defmodule Jido.Exec.ActionRunner do
 
       other ->
         {:error,
-         Error.execution_error("action validator returned an unsupported result", %{
+         programming_error("action validator returned an unsupported result", %{
            action: action,
            callback: callback,
            result: other
@@ -228,7 +228,7 @@ defmodule Jido.Exec.ActionRunner do
   defp caught_execution_error(message, details, stacktrace) do
     Error.ExecutionFailureError.exception(
       message: message,
-      details: details,
+      details: Map.put(details, :retry, false),
       stacktrace: stacktrace,
       splode: Error
     )
@@ -290,9 +290,13 @@ defmodule Jido.Exec.ActionRunner do
   end
 
   defp process_exit_error(action, reason) do
-    Error.execution_error("action execution process exited", %{
+    programming_error("action execution process exited", %{
       action: action,
       reason: reason
     })
+  end
+
+  defp programming_error(message, details) do
+    Error.execution_error(message, Map.put(details, :retry, false))
   end
 end

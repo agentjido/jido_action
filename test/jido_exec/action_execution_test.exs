@@ -2,6 +2,7 @@ defmodule Jido.Exec.ActionExecutionTest do
   use JidoTest.ActionCase, async: true
   @moduletag capture_log: true
 
+  alias Jido.Action.Error
   alias Jido.Action.Error.{ConfigurationError, ExecutionFailureError, InvalidInputError}
   alias Jido.Exec
   alias Jido.Flow
@@ -64,9 +65,10 @@ defmodule Jido.Exec.ActionExecutionTest do
 
     test "requires output envelopes for raw and stream values" do
       for value <- [42, Stream.map(1..3, & &1)] do
-        assert {:error, %ExecutionFailureError{message: message, details: details}} =
+        assert {:error, %ExecutionFailureError{message: message, details: details} = error} =
                  Exec.run(RawOutputAction, %{value: value}, %{})
 
+        refute Error.retryable?(error)
         assert message == "action returned a value that requires an output envelope"
         assert details.action == RawOutputAction
       end
@@ -123,9 +125,10 @@ defmodule Jido.Exec.ActionExecutionTest do
     end
 
     test "converts raised leaf action exceptions to execution errors" do
-      assert {:error, %ExecutionFailureError{message: message, details: details}} =
+      assert {:error, %ExecutionFailureError{message: message, details: details} = error} =
                Exec.run(ErrorAction, %{error_type: :runtime}, %{})
 
+      refute Error.retryable?(error)
       assert message =~ "Runtime error"
       assert details.action == ErrorAction
       assert details.exception == RuntimeError
@@ -135,6 +138,7 @@ defmodule Jido.Exec.ActionExecutionTest do
       assert {:error, %ExecutionFailureError{} = error} =
                Exec.run(StacktraceAction, %{mode: :raise}, %{})
 
+      refute Error.retryable?(error)
       assert_action_frame(error, StacktraceAction, :raise_from_action, 0)
 
       assert %Splode.Stacktrace{stacktrace: [{module, _function, _arity, _location} | _rest]} =
@@ -151,6 +155,7 @@ defmodule Jido.Exec.ActionExecutionTest do
         assert {:error, %ExecutionFailureError{details: details} = error} =
                  Exec.run(StacktraceAction, %{mode: mode}, %{})
 
+        refute Error.retryable?(error)
         assert details.reason == reason
         assert_action_frame(error, StacktraceAction, function, 0)
       end
@@ -180,18 +185,20 @@ defmodule Jido.Exec.ActionExecutionTest do
     end
 
     test "converts unsupported action result shapes to execution errors" do
-      assert {:error, %ExecutionFailureError{message: message, details: details}} =
+      assert {:error, %ExecutionFailureError{message: message, details: details} = error} =
                Exec.run(UnsupportedResult)
 
+      refute Error.retryable?(error)
       assert message =~ "action returned an unsupported result"
       assert details.action == UnsupportedResult
       assert details.result == :not_a_result_tuple
     end
 
     test "converts thrown action values to execution errors" do
-      assert {:error, %ExecutionFailureError{message: message, details: details}} =
+      assert {:error, %ExecutionFailureError{message: message, details: details} = error} =
                Exec.run(ThrowingAction)
 
+      refute Error.retryable?(error)
       assert message =~ "action throw"
       assert details.action == ThrowingAction
       assert details.reason == :thrown_value
@@ -205,7 +212,9 @@ defmodule Jido.Exec.ActionExecutionTest do
                 %ExecutionFailureError{
                   message: "action execution process exited",
                   details: %{action: KillingAction, reason: :killed}
-                }} = run_in_monitored_caller(fn -> Exec.run(executable) end)
+                } = error} = run_in_monitored_caller(fn -> Exec.run(executable) end)
+
+        refute Error.retryable?(error)
       end
     end
 
@@ -215,29 +224,35 @@ defmodule Jido.Exec.ActionExecutionTest do
 
       refute Jido.Action.Error.retryable?(params_error)
 
-      assert {:error, %ExecutionFailureError{message: message, details: details}} =
+      assert {:error, %ExecutionFailureError{message: message, details: details} = error} =
                Exec.run(InvalidValidationResultAction)
 
       assert message == "action validator returned an unsupported result"
+      refute Error.retryable?(error)
       assert details.callback == :validate_params
       assert details.result == :ok
 
-      assert {:error, %ExecutionFailureError{message: "validator failed", details: details}} =
+      assert {:error,
+              %ExecutionFailureError{message: "validator failed", details: details} = error} =
                Exec.run(RaisingValidationAction)
 
+      refute Error.retryable?(error)
       assert details.callback == :validate_params
 
       assert {:error,
-              %ExecutionFailureError{message: "output validator failed", details: details}} =
+              %ExecutionFailureError{message: "output validator failed", details: details} =
+                error} =
                Exec.run(RaisingOutputValidationAction)
 
+      refute Error.retryable?(error)
       assert details.callback == :validate_output
 
       for {action, callback} <- [
             {InvalidValidatedParamsAction, :validate_params},
             {InvalidValidatedOutputAction, :validate_output}
           ] do
-        assert {:error, %ExecutionFailureError{details: details}} = Exec.run(action)
+        assert {:error, %ExecutionFailureError{details: details} = error} = Exec.run(action)
+        refute Error.retryable?(error)
         assert details.callback == callback
         assert details.result == 42
       end
