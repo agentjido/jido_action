@@ -45,15 +45,40 @@ defmodule Jido.Flow.RegistryTest do
     refute Code.loaded?(module)
   end
 
-  test "requires one identifier for each semantic value" do
+  test "uses one canonical write identifier and resolves read aliases" do
     registry =
       Registry.new!(%{
-        "action/add/v1" => {:action, Add},
-        "action/add/alias" => {:action, Add}
+        "action/add/v2" => {:action, Add},
+        "action/add/v1" => {:alias, "action/add/v2"}
       })
 
-    assert {:error, error} = Registry.identifier(registry, :action, Add)
-    assert Exception.message(error) =~ "multiple identifiers"
+    assert {:ok, Add} = Registry.resolve(registry, "action/add/v1", :action)
+    assert {:ok, Add} = Registry.resolve(registry, "action/add/v2", :action)
+    assert {:ok, "action/add/v2"} = Registry.identifier(registry, :action, Add)
+  end
+
+  test "rejects ambiguous write identifiers and invalid aliases at construction" do
+    assert {:error, duplicate_error} =
+             Registry.new(%{
+               "action/add/v1" => {:action, Add},
+               "action/add/v2" => {:action, Add}
+             })
+
+    assert Exception.message(duplicate_error) =~ "multiple write identifiers"
+
+    assert {:error, missing_error} =
+             Registry.new(%{"action/add/v1" => {:alias, "action/add/v2"}})
+
+    assert Exception.message(missing_error) =~ "unknown write identifier"
+
+    assert {:error, chain_error} =
+             Registry.new(%{
+               "action/add/v1" => {:alias, "action/add/v2"},
+               "action/add/v2" => {:alias, "action/add/v3"},
+               "action/add/v3" => {:action, Add}
+             })
+
+    assert Exception.message(chain_error) =~ "must refer directly"
   end
 
   test "does not create atoms while it rejects AI-produced identifiers" do
@@ -243,15 +268,21 @@ defmodule Jido.Flow.RegistryTest do
     assert {:error, missing_error} = Flow.to_stored_map(flow, missing_action)
     assert Exception.message(missing_error) =~ "no identifier"
 
-    ambiguous =
+    rotated =
       Registry.new!(%{
-        "action/add/a" => {:action, Add},
-        "action/add/b" => {:action, Add},
+        "action/add/v2" => {:action, Add},
+        "action/add/v1" => {:alias, "action/add/v2"},
         "schema/empty/v1" => {:schema, []}
       })
 
-    assert {:error, ambiguous_error} = Flow.to_stored_map(flow, ambiguous)
-    assert Exception.message(ambiguous_error) =~ "multiple identifiers"
+    assert {:ok, rotated_stored} = Flow.to_stored_map(flow, rotated)
+    assert get_in(rotated_stored, ["nodes", Access.at(0), "action"]) == "action/add/v2"
+
+    legacy_stored =
+      put_in(rotated_stored, ["nodes", Access.at(0), "action"], "action/add/v1")
+
+    assert {:ok, restored} = Flow.from_stored_map(legacy_stored, rotated)
+    assert Flow.to_map(restored) == Flow.to_map(flow)
   end
 
   test "requires stable Registry identifiers for stored data atoms" do

@@ -3,13 +3,20 @@ defmodule Jido.Flow.Registry do
   Resolves stable stored identifiers to trusted host Actions, schemas, and
   data atoms.
 
-  A Registry is flat. Each string identifier maps to one typed entry:
+  A Registry is flat. Each string identifier maps to one typed write entry or
+  one read alias:
 
       Jido.Flow.Registry.new!(%{
-        "actions/send-email/v1" => {:action, MyApp.SendEmail},
+        "actions/send-email/v2" => {:action, MyApp.SendEmail},
+        "actions/send-email/v1" => {:alias, "actions/send-email/v2"},
         "schemas/email/v1" => {:schema, MyApp.EmailSchema.schema()},
         "atoms/approved/v1" => {:atom, :approved}
       })
+
+  A typed entry is the canonical identifier that the writer uses for its
+  value. An alias is accepted only during reads and must refer directly to a
+  typed entry. This permits identifier migration without making writes
+  ambiguous.
 
   Stored Flow data contains identifiers only. The reader resolves them through
   a Registry that the host application owns. Resolution does not create atoms
@@ -22,11 +29,18 @@ defmodule Jido.Flow.Registry do
   @identifier_pattern ~r/\A[A-Za-z0-9][A-Za-z0-9._\/:@-]{0,254}\z/
 
   @type stable_id :: String.t()
-  @type entry :: {:action, module()} | {:schema, term()} | {:atom, atom()}
-  @type t :: %__MODULE__{entries: %{stable_id() => entry()}}
+  @type kind :: :action | :schema | :atom
+  @type write_entry :: {:action, module()} | {:schema, term()} | {:atom, atom()}
+  @type alias_entry :: {:alias, stable_id()}
+  @type entry :: write_entry() | alias_entry()
+  @type write_key :: {kind(), term()}
+  @type t :: %__MODULE__{
+          entries: %{stable_id() => entry()},
+          write_ids: %{write_key() => stable_id()}
+        }
 
-  @enforce_keys [:entries]
-  defstruct [:entries]
+  @enforce_keys [:entries, :write_ids]
+  defstruct [:entries, :write_ids]
 
   @doc "Builds and validates a flat trusted-host Registry."
   @spec new(map() | t()) :: {:ok, t()} | {:error, Exception.t()}
@@ -44,7 +58,7 @@ defmodule Jido.Flow.Registry do
       end
     end)
     |> case do
-      {:ok, normalized} -> {:ok, %__MODULE__{entries: normalized}}
+      {:ok, normalized} -> build_registry(normalized)
       {:error, error} -> {:error, error}
     end
   end
@@ -74,15 +88,11 @@ defmodule Jido.Flow.Registry do
       when kind in [:action, :schema, :atom] do
     with :ok <- validate_identifier(identifier) do
       case Map.fetch(entries, identifier) do
-        {:ok, {^kind, value}} ->
-          {:ok, value}
+        {:ok, {:alias, write_identifier}} ->
+          resolve_write_entry(entries, write_identifier, identifier, kind)
 
-        {:ok, {actual_kind, _value}} ->
-          error("flow registry identifier has the wrong entry kind", %{
-            identifier: identifier,
-            expected: kind,
-            actual: actual_kind
-          })
+        {:ok, entry} ->
+          resolve_entry(entry, identifier, kind)
 
         :error ->
           error("unknown flow registry identifier", %{identifier: identifier, kind: kind})
@@ -90,28 +100,17 @@ defmodule Jido.Flow.Registry do
     end
   end
 
-  @doc "Finds the one stable identifier for a trusted Action, schema, or atom value."
+  @doc "Finds the canonical write identifier for a trusted Action, schema, or atom value."
   @spec identifier(t(), :action | :schema | :atom, term()) ::
           {:ok, stable_id()} | {:error, Exception.t()}
-  def identifier(%__MODULE__{entries: entries}, kind, value)
+  def identifier(%__MODULE__{write_ids: write_ids}, kind, value)
       when kind in [:action, :schema, :atom] do
-    identifiers =
-      for {identifier, {entry_kind, entry_value}} <- entries,
-          entry_kind == kind and entry_value === value,
-          do: identifier
-
-    case Enum.sort(identifiers) do
-      [identifier] ->
+    case Map.fetch(write_ids, {kind, value}) do
+      {:ok, identifier} ->
         {:ok, identifier}
 
-      [] ->
+      :error ->
         error("flow registry has no identifier for the required value", %{kind: kind})
-
-      identifiers ->
-        error("flow registry has multiple identifiers for the same value", %{
-          kind: kind,
-          identifiers: identifiers
-        })
     end
   end
 
@@ -135,6 +134,8 @@ defmodule Jido.Flow.Registry do
   defp validate_entry({:schema, _schema}), do: :ok
   defp validate_entry({:atom, atom}) when is_atom(atom), do: :ok
 
+  defp validate_entry({:alias, identifier}), do: validate_identifier(identifier)
+
   defp validate_entry(entry),
     do: error("invalid flow registry entry", %{entry: entry_type(entry)})
 
@@ -156,6 +157,92 @@ defmodule Jido.Flow.Registry do
 
   defp sort_key(identifier) when is_binary(identifier), do: {0, identifier}
   defp sort_key(identifier), do: {1, inspect(identifier)}
+
+  defp build_registry(entries) do
+    with :ok <- validate_aliases(entries),
+         {:ok, write_ids} <- build_write_ids(entries) do
+      {:ok, %__MODULE__{entries: entries, write_ids: write_ids}}
+    end
+  end
+
+  defp validate_aliases(entries) do
+    entries
+    |> Enum.sort_by(&elem(&1, 0))
+    |> Enum.reduce_while(:ok, fn
+      {identifier, {:alias, write_identifier}}, :ok ->
+        case Map.fetch(entries, write_identifier) do
+          {:ok, {:alias, _next_identifier}} ->
+            {:halt,
+             error("flow registry alias must refer directly to a write identifier", %{
+               identifier: identifier,
+               write_identifier: write_identifier
+             })}
+
+          {:ok, _write_entry} ->
+            {:cont, :ok}
+
+          :error ->
+            {:halt,
+             error("flow registry alias refers to an unknown write identifier", %{
+               identifier: identifier,
+               write_identifier: write_identifier
+             })}
+        end
+
+      {_identifier, _write_entry}, :ok ->
+        {:cont, :ok}
+    end)
+  end
+
+  defp build_write_ids(entries) do
+    entries
+    |> Enum.reject(&match?({_identifier, {:alias, _write_identifier}}, &1))
+    |> Enum.sort_by(&elem(&1, 0))
+    |> Enum.reduce_while({:ok, %{}}, fn {identifier, {kind, value}}, {:ok, write_ids} ->
+      key = {kind, value}
+
+      case Map.fetch(write_ids, key) do
+        {:ok, existing_identifier} ->
+          {:halt,
+           error("flow registry has multiple write identifiers for the same value", %{
+             kind: kind,
+             identifiers: [existing_identifier, identifier]
+           })}
+
+        :error ->
+          {:cont, {:ok, Map.put(write_ids, key, identifier)}}
+      end
+    end)
+  end
+
+  defp resolve_write_entry(entries, write_identifier, alias_identifier, kind) do
+    case Map.fetch(entries, write_identifier) do
+      {:ok, {:alias, _next_identifier}} ->
+        error("flow registry alias must refer directly to a write identifier", %{
+          identifier: alias_identifier,
+          write_identifier: write_identifier
+        })
+
+      {:ok, entry} ->
+        resolve_entry(entry, alias_identifier, kind)
+
+      :error ->
+        error("flow registry alias refers to an unknown write identifier", %{
+          identifier: alias_identifier,
+          write_identifier: write_identifier
+        })
+    end
+  end
+
+  defp resolve_entry({kind, value}, _identifier, kind), do: {:ok, value}
+
+  defp resolve_entry({actual_kind, _value}, identifier, expected_kind) do
+    error("flow registry identifier has the wrong entry kind", %{
+      identifier: identifier,
+      expected: expected_kind,
+      actual: actual_kind
+    })
+  end
 
   defp error(message, details \\ %{}), do: {:error, Error.validation_error(message, details)}
 end

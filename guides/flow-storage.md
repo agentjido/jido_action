@@ -9,7 +9,8 @@ The host application owns one flat `Jido.Flow.Registry`:
 ```elixir
 registry =
   Jido.Flow.Registry.new!(%{
-    "actions/charge-card/v1" => {:action, MyApp.ChargeCard},
+    "actions/charge-card/v2" => {:action, MyApp.ChargeCard},
+    "actions/charge-card/v1" => {:alias, "actions/charge-card/v2"},
     "atoms/amount/v1" => {:atom, :amount},
     "atoms/approved/v1" => {:atom, :approved},
     "atoms/order-id/v1" => {:atom, :order_id},
@@ -19,11 +20,18 @@ registry =
   })
 ```
 
-Each identifier maps directly to one typed trusted value. An Action entry is
-`{:action, module}`. A schema entry is `{:schema, schema}`. A data atom entry is
-`{:atom, atom}`. The Registry rejects invalid identifiers, untyped entries,
-and more than 10,000 entries. Stored writing rejects a missing or ambiguous
-identifier for a semantic value.
+Each canonical write identifier maps directly to one typed trusted value. An
+Action entry is `{:action, module}`. A schema entry is `{:schema, schema}`. A
+data atom entry is `{:atom, atom}`. A read alias is `{:alias,
+canonical_identifier}`. It must refer directly to a typed entry in the same
+Registry.
+
+The writer uses only canonical typed entries. The reader accepts canonical
+identifiers and aliases. Thus, a host can read an old identifier while all new
+stored Flows use its replacement. The Registry builds a reverse write index at
+construction. It rejects duplicate canonical identifiers for one value,
+invalid aliases, invalid identifiers, untyped entries, and more than 10,000
+entries.
 
 Add an atom entry for each atom literal, atom map key, and atom reference path
 segment in the Flow. Fixed grammar values, such as the `:gte` condition
@@ -83,6 +91,10 @@ identifiers only through `{:atom, atom}` entries in the supplied Registry. It
 does not derive module names, load modules, or accept Action modules, schemas,
 or atoms from the stored map. Call `Jido.Flow.validate_executable/1` or
 `Jido.Exec.run/4` when you must check that resolved Action modules can execute.
+
+Keep an old identifier as a read alias for as long as stored artifacts can
+contain it. Remove the alias only after the application no longer needs to read
+those artifacts.
 
 This tuple-returning read API supports a correction loop for a web UI or an AI
 agent:
