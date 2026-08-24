@@ -26,9 +26,7 @@ defmodule Jido.Flow.Condition do
   @enforce_keys [:operator, :operands]
   defstruct [:operator, :operands]
 
-  @doc """
-  Builds a condition from an operator and ordered operands.
-  """
+  @doc false
   @spec new(operator(), list()) :: {:ok, t()} | {:error, Exception.t()}
   def new(operator, operands) do
     with :ok <- validate_operator(operator, "choice condition"),
@@ -38,9 +36,7 @@ defmodule Jido.Flow.Condition do
     end
   end
 
-  @doc """
-  Revalidates a canonical condition.
-  """
+  @doc false
   @spec new(t()) :: {:ok, t()} | {:error, Exception.t()}
   def new(%__MODULE__{} = condition), do: new(condition.operator, condition.operands)
 
@@ -69,9 +65,7 @@ defmodule Jido.Flow.Condition do
      })}
   end
 
-  @doc """
-  Builds a condition or raises on validation failure.
-  """
+  @doc false
   @spec new!(operator(), list()) :: t() | no_return()
   def new!(operator, operands) do
     case new(operator, operands) do

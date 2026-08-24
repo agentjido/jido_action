@@ -92,9 +92,7 @@ defmodule Jido.Flow do
   @doc false
   defmacro __before_compile__(env), do: ModuleCompiler.before_compile(env)
 
-  @doc """
-  Builds and validates a canonical Flow artifact.
-  """
+  @doc false
   @spec new(map() | keyword() | t()) :: {:ok, t()} | {:error, Exception.t()}
   def new(%__MODULE__{} = flow), do: flow |> Map.from_struct() |> new()
 
@@ -104,9 +102,7 @@ defmodule Jido.Flow do
     end
   end
 
-  @doc """
-  Builds a Flow artifact or raises on validation failure.
-  """
+  @doc false
   @spec new!(map() | keyword() | t()) :: t() | no_return()
   def new!(attrs) do
     case new(attrs) do

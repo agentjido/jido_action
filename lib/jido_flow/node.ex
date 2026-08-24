@@ -1,6 +1,9 @@
 defmodule Jido.Flow.Node do
   @moduledoc """
   A named action invocation inside a canonical Flow artifact.
+
+  This is a read-only canonical type. Create it through the Flow module DSL,
+  `Jido.Flow.Builder`, or the stored Flow decoder.
   """
 
   alias Jido.Action.Error
@@ -27,9 +30,7 @@ defmodule Jido.Flow.Node do
   @enforce_keys Zoi.Struct.enforce_keys(@schema)
   defstruct Zoi.Struct.struct_fields(@schema)
 
-  @doc """
-  Builds a Flow node from keyword or map attributes.
-  """
+  @doc false
   @spec new(map() | keyword() | t()) :: {:ok, t()} | {:error, Exception.t()}
   def new(%__MODULE__{} = node), do: node |> Map.from_struct() |> new()
 
@@ -60,9 +61,7 @@ defmodule Jido.Flow.Node do
 
   def new(_attrs), do: {:error, Error.validation_error("node configuration must be a map")}
 
-  @doc """
-  Builds a Flow node or raises on validation failure.
-  """
+  @doc false
   @spec new!(map() | keyword() | t()) :: t() | no_return()
   def new!(attrs) do
     case new(attrs) do

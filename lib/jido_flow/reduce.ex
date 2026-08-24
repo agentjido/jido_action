@@ -4,6 +4,9 @@ defmodule Jido.Flow.Reduce do
 
   A Reduce is one public Flow element. Its target calls form one serial left
   fold inside that element.
+
+  This is a read-only canonical type. Create it through the Flow module DSL,
+  `Jido.Flow.Builder`, or the stored Flow decoder.
   """
 
   alias Jido.Action.Error
@@ -26,9 +29,7 @@ defmodule Jido.Flow.Reduce do
   @enforce_keys @config_keys
   defstruct @config_keys
 
-  @doc """
-  Builds a Reduce from keyword or map attributes.
-  """
+  @doc false
   @spec new(map() | keyword() | t()) :: {:ok, t()} | {:error, Exception.t()}
   def new(%__MODULE__{} = reduce), do: reduce |> Map.from_struct() |> new()
 
@@ -63,9 +64,7 @@ defmodule Jido.Flow.Reduce do
 
   def new(_attrs), do: invalid_configuration()
 
-  @doc """
-  Builds a Reduce or raises on validation failure.
-  """
+  @doc false
   @spec new!(map() | keyword() | t()) :: t() | no_return()
   def new!(attrs) do
     case new(attrs) do

@@ -97,6 +97,17 @@ defmodule Jido.PublicAPITest do
     {:validate_executable, 1}
   ]
 
+  @hidden_flow_constructors [
+    {Jido.Flow, [{:new, 1}, {:new!, 1}]},
+    {Jido.Flow.Node, [{:new, 1}, {:new!, 1}]},
+    {Jido.Flow.Choice, [{:new, 1}, {:new!, 1}]},
+    {Jido.Flow.Map, [{:new, 1}, {:new!, 1}]},
+    {Jido.Flow.Reduce, [{:new, 1}, {:new!, 1}]},
+    {Jido.Flow.Iterator, [{:new, 1}, {:new!, 1}]},
+    {Jido.Flow.State, [{:new, 1}, {:new!, 1}]},
+    {Jido.Flow.Condition, [{:new, 1}, {:new, 2}, {:new!, 2}]}
+  ]
+
   test "the module index contains only supported public modules" do
     groups = Mix.Project.config()[:docs][:groups_for_modules]
 
@@ -169,6 +180,17 @@ defmodule Jido.PublicAPITest do
   test "unsupported runtime Action constructors stay out of the API reference" do
     assert function_doc(Jido.Action, :new, 0) == :hidden
     assert function_doc(Jido.Action, :new, 1) == :hidden
+  end
+
+  test "low-level Flow constructors stay out of the API reference" do
+    for {module, constructors} <- @hidden_flow_constructors,
+        {name, arity} <- constructors do
+      assert function_doc(module, name, arity) == :hidden,
+             "expected #{inspect(module)}.#{name}/#{arity} to be hidden"
+    end
+
+    assert is_map(function_doc(Jido.Flow.Condition, :eq, 2))
+    assert is_map(function_doc(Jido.Flow.Ref, :input, 1))
   end
 
   defp visible_jido_modules do

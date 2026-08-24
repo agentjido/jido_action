@@ -3,6 +3,8 @@ defmodule Jido.Flow.Map do
   A named Flow fan-out operation over one ordered collection.
 
   A Map is one public Flow element. Item work is internal to that element.
+  This is a read-only canonical type. Create it through the Flow module DSL,
+  `Jido.Flow.Builder`, or the stored Flow decoder.
   """
 
   alias Jido.Action.Error
@@ -26,9 +28,7 @@ defmodule Jido.Flow.Map do
   @enforce_keys @config_keys
   defstruct @config_keys
 
-  @doc """
-  Builds a Map from keyword or map attributes.
-  """
+  @doc false
   @spec new(map() | keyword() | t()) :: {:ok, t()} | {:error, Exception.t()}
   def new(%__MODULE__{} = map), do: map |> Map.from_struct() |> new()
 
@@ -61,9 +61,7 @@ defmodule Jido.Flow.Map do
 
   def new(_attrs), do: invalid_configuration()
 
-  @doc """
-  Builds a Map or raises on validation failure.
-  """
+  @doc false
   @spec new!(map() | keyword() | t()) :: t() | no_return()
   def new!(attrs) do
     case new(attrs) do

@@ -9,6 +9,9 @@ defmodule Jido.Flow.Choice do
   A Choice is one Flow node. Its output becomes the Choice node result for
   downstream references. The fallback is a routing fallback, not error
   recovery for a selected target.
+
+  This is a read-only canonical type. Create it through the Flow module DSL,
+  `Jido.Flow.Builder`, or the stored Flow decoder.
   """
 
   alias Jido.Action.Error
@@ -66,9 +69,7 @@ defmodule Jido.Flow.Choice do
     defstruct [:name, :action, :input]
   end
 
-  @doc """
-  Builds a Choice from keyword or map attributes.
-  """
+  @doc false
   @spec new(map() | keyword() | t()) :: {:ok, t()} | {:error, Exception.t()}
   def new(%__MODULE__{} = choice), do: choice |> Map.from_struct() |> new()
 
@@ -100,9 +101,7 @@ defmodule Jido.Flow.Choice do
   def new(_attrs),
     do: {:error, Error.validation_error("choice configuration must be a map", %{path: []})}
 
-  @doc """
-  Builds a Choice or raises on validation failure.
-  """
+  @doc false
   @spec new!(map() | keyword() | t()) :: t() | no_return()
   def new!(attrs) do
     case new(attrs) do

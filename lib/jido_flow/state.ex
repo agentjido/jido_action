@@ -7,6 +7,9 @@ defmodule Jido.Flow.State do
 
   Runtime State is created for one Iterator invocation. This struct contains
   only the schema and data expressions that define that runtime value.
+
+  This is a read-only canonical type. Create it as part of an Iterator through
+  the Flow module DSL, `Jido.Flow.Builder`, or the stored Flow decoder.
   """
 
   alias Jido.Action
@@ -27,7 +30,7 @@ defmodule Jido.Flow.State do
   @enforce_keys @config_keys
   defstruct @config_keys
 
-  @doc "Builds a static Iterator State contract."
+  @doc false
   @spec new(map() | keyword() | t()) :: {:ok, t()} | {:error, Exception.t()}
   def new(%__MODULE__{} = state), do: state |> Map.from_struct() |> new()
 
@@ -53,7 +56,7 @@ defmodule Jido.Flow.State do
 
   def new(_attrs), do: invalid_configuration()
 
-  @doc "Builds a State contract or raises on validation failure."
+  @doc false
   @spec new!(map() | keyword() | t()) :: t() | no_return()
   def new!(attrs) do
     case new(attrs) do

@@ -4,6 +4,9 @@ defmodule Jido.Flow.Iterator do
 
   The Flow module DSL declares this canonical node with `iterate`. Its body
   iterations and State transitions are internal to one public Flow node.
+
+  This is a read-only canonical type. Create it through the Flow module DSL,
+  `Jido.Flow.Builder`, or the stored Flow decoder.
   """
 
   alias Jido.Action.Error
@@ -39,7 +42,7 @@ defmodule Jido.Flow.Iterator do
   @enforce_keys @config_keys
   defstruct @config_keys
 
-  @doc "Builds a canonical bounded Iterator."
+  @doc false
   @spec new(map() | keyword() | t()) :: {:ok, t()} | {:error, Exception.t()}
   def new(%__MODULE__{} = iterator), do: iterator |> Map.from_struct() |> new()
 
@@ -77,7 +80,7 @@ defmodule Jido.Flow.Iterator do
 
   def new(_attrs), do: invalid_configuration()
 
-  @doc "Builds an Iterator or raises on validation failure."
+  @doc false
   @spec new!(map() | keyword() | t()) :: t() | no_return()
   def new!(attrs) do
     case new(attrs) do
