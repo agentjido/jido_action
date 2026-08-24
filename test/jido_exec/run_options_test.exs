@@ -48,13 +48,14 @@ defmodule Jido.Exec.RunOptionsTest do
           return: Ref.result(:metadata)
         )
 
-      Logger.metadata(jido_request_id: "request-123")
+      metadata_key = :jido_test_request_id
+      Logger.metadata([{metadata_key, "request-123"}])
 
       assert {:ok, %{id: :metadata}} =
                Exec.run(flow, %{}, %{test_pid: self()}, async: true, max_concurrency: 1)
 
       assert_receive {:action_logger_metadata, :metadata, metadata}
-      assert metadata[:jido_request_id] == "request-123"
+      assert metadata[metadata_key] == "request-123"
     end
 
     @tag timeout: 5_000
