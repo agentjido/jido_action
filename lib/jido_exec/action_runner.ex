@@ -15,6 +15,13 @@ defmodule Jido.Exec.ActionRunner do
           | {:error, Exception.t()}
           | {:error, Exception.t(), term()}
   def run(%Instruction{action: action} = instruction) do
+    case run_isolated(fn -> do_run(instruction) end) do
+      {:ok, result} -> result
+      {:exit, reason} -> {:error, process_exit_error(action, reason)}
+    end
+  end
+
+  defp do_run(%Instruction{action: action} = instruction) do
     with :ok <- Instruction.validate_action_contract(action),
          {:ok, params} <- validate_params(action, instruction.params) do
       case invoke_result(action, params, instruction.context) do
@@ -32,6 +39,13 @@ defmodule Jido.Exec.ActionRunner do
 
   @spec run_target(module(), term(), map()) :: target_result()
   def run_target(action, params, context) do
+    case run_isolated(fn -> do_run_target(action, params, context) end) do
+      {:ok, result} -> result
+      {:exit, reason} -> {:error, :execution, process_exit_error(action, reason)}
+    end
+  end
+
+  defp do_run_target(action, params, context) do
     case validate_params(action, params) do
       {:ok, params} -> run_validated_target(action, params, context)
       {:error, error} -> {:error, :input, error}
@@ -222,4 +236,53 @@ defmodule Jido.Exec.ActionRunner do
   defp to_error_message(message) when is_binary(message), do: message
   defp to_error_message(message) when is_atom(message), do: Atom.to_string(message)
   defp to_error_message(message), do: inspect(message)
+
+  defp run_isolated(work) do
+    caller = self()
+    caller_group_leader = Process.group_leader()
+    caller_logger_metadata = Logger.metadata()
+    ref = make_ref()
+
+    {:ok, worker} =
+      Task.Supervisor.start_child(Jido.Action.TaskSupervisor, fn ->
+        worker = self()
+        spawn(fn -> terminate_with_caller(caller, worker) end)
+
+        receive do
+          {^ref, :run} ->
+            Process.group_leader(worker, caller_group_leader)
+            Logger.metadata(caller_logger_metadata)
+            send(caller, {ref, worker, work.()})
+        end
+      end)
+
+    monitor = Process.monitor(worker)
+    send(worker, {ref, :run})
+
+    receive do
+      {^ref, ^worker, result} ->
+        Process.demonitor(monitor, [:flush])
+        {:ok, result}
+
+      {:DOWN, ^monitor, :process, ^worker, reason} ->
+        {:exit, reason}
+    end
+  end
+
+  defp terminate_with_caller(caller, worker) do
+    caller_monitor = Process.monitor(caller)
+    worker_monitor = Process.monitor(worker)
+
+    receive do
+      {:DOWN, ^caller_monitor, :process, ^caller, _reason} -> Process.exit(worker, :kill)
+      {:DOWN, ^worker_monitor, :process, ^worker, _reason} -> :ok
+    end
+  end
+
+  defp process_exit_error(action, reason) do
+    Error.execution_error("action execution process exited", %{
+      action: action,
+      reason: reason
+    })
+  end
 end

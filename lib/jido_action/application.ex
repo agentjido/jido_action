@@ -4,7 +4,9 @@ defmodule Jido.Action.Application do
 
   @impl true
   def start(_type, _args) do
-    children = []
+    children = [
+      {Task.Supervisor, name: Jido.Action.TaskSupervisor, max_children: :infinity}
+    ]
 
     opts = [strategy: :one_for_one, name: JidoAction.Supervisor]
     Supervisor.start_link(children, opts)

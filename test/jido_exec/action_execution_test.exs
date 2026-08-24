@@ -8,6 +8,7 @@ defmodule Jido.Exec.ActionExecutionTest do
   alias Jido.Flow.{Node, Ref}
   alias Jido.Instruction
   alias JidoTest.ExecFixtures.ActionWithFlowFunction
+  alias JidoTest.ExecutionFixtures.BlockingAction
 
   alias JidoTest.TestActions.{
     Add,
@@ -20,6 +21,7 @@ defmodule Jido.Exec.ActionExecutionTest do
     InvalidValidatedOutputAction,
     InvalidValidatedParamsAction,
     InvalidValidationResultAction,
+    KillingAction,
     NoneExtrasAction,
     OutputEnvelopeAction,
     RaisingOutputValidationAction,
@@ -192,6 +194,18 @@ defmodule Jido.Exec.ActionExecutionTest do
       assert details.reason == :thrown_value
     end
 
+    test "contains hard Action exits outside the caller process" do
+      instruction = Instruction.new!(action: KillingAction)
+
+      for executable <- [KillingAction, instruction] do
+        assert {:error,
+                %ExecutionFailureError{
+                  message: "action execution process exited",
+                  details: %{action: KillingAction, reason: :killed}
+                }} = run_in_monitored_caller(fn -> Exec.run(executable) end)
+      end
+    end
+
     test "normalizes validator failures and unsupported results" do
       assert {:error, %ExecutionFailureError{message: "bad_params"}} =
                Exec.run(AtomValidationAction)
@@ -306,6 +320,59 @@ defmodule Jido.Exec.ActionExecutionTest do
     assert_action_frame(error, StacktraceValidationAction, :raise_from_input_validator, 0)
   end
 
+  test "terminates the Action worker when the Exec caller exits" do
+    owner = self()
+
+    {caller, caller_monitor} =
+      spawn_monitor(fn ->
+        Exec.run(BlockingAction, %{value: 1}, %{test_pid: owner})
+      end)
+
+    assert_receive {:blocking_flow_node_started, worker}, 1_000
+    refute worker == caller
+    worker_monitor = Process.monitor(worker)
+
+    Process.exit(caller, :kill)
+
+    assert_receive {:DOWN, ^caller_monitor, :process, ^caller, :killed}, 1_000
+    assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :killed}, 1_000
+  end
+
+  test "runs concurrent Action workers under the shared Task Supervisor" do
+    owner = self()
+
+    first_caller =
+      spawn(fn ->
+        result = Exec.run(BlockingAction, %{value: 1}, %{test_pid: owner})
+        send(owner, {:action_result, :first, result})
+      end)
+
+    second_caller =
+      spawn(fn ->
+        result = Exec.run(BlockingAction, %{value: 2}, %{test_pid: owner})
+        send(owner, {:action_result, :second, result})
+      end)
+
+    on_exit(fn ->
+      Process.exit(first_caller, :kill)
+      Process.exit(second_caller, :kill)
+    end)
+
+    assert_receive {:blocking_flow_node_started, first_worker}, 1_000
+    assert_receive {:blocking_flow_node_started, second_worker}, 1_000
+    refute first_worker == second_worker
+
+    supervisor_children = Task.Supervisor.children(Jido.Action.TaskSupervisor)
+    assert first_worker in supervisor_children
+    assert second_worker in supervisor_children
+
+    send(first_worker, :finish)
+    send(second_worker, :finish)
+
+    assert_receive {:action_result, :first, {:ok, %{value: 1}}}, 1_000
+    assert_receive {:action_result, :second, {:ok, %{value: 2}}}, 1_000
+  end
+
   defp assert_action_frame(error, module, function, arity) do
     assert %Splode.Stacktrace{stacktrace: stacktrace} = error.stacktrace
 
@@ -313,5 +380,21 @@ defmodule Jido.Exec.ActionExecutionTest do
              {^module, ^function, ^arity, _location} -> true
              _frame -> false
            end)
+  end
+
+  defp run_in_monitored_caller(fun) do
+    owner = self()
+    ref = make_ref()
+
+    {caller, monitor} =
+      spawn_monitor(fn ->
+        result = fun.()
+        {:messages, messages} = Process.info(self(), :messages)
+        send(owner, {ref, result, messages})
+      end)
+
+    assert_receive {^ref, result, []}, 1_000
+    assert_receive {:DOWN, ^monitor, :process, ^caller, :normal}, 1_000
+    result
   end
 end

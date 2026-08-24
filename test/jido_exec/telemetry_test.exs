@@ -134,6 +134,21 @@ defmodule Jido.Exec.TelemetryTest do
     assert Map.keys(measurements) |> Enum.sort() == [:duration, :monotonic_time]
   end
 
+  test "closes the Action lifecycle when the Action process is killed" do
+    attach(@observed_events)
+
+    assert {:error, error} = Exec.run(KillAction)
+
+    assert [
+             {@action_start, _, start_metadata},
+             {@action_error, _, error_metadata}
+           ] = events()
+
+    assert error_metadata.error == error
+    assert error_metadata.error_type == :execution_error
+    assert Map.drop(error_metadata, [:error, :error_type]) == start_metadata
+  end
+
   test "includes the caught Action stacktrace in error telemetry" do
     attach([@action_error])
 
@@ -252,7 +267,7 @@ defmodule Jido.Exec.TelemetryTest do
     assert Map.drop(flow_error, [:error, :error_type]) == flow_start
   end
 
-  test "emits a node error when an asynchronous node task is killed" do
+  test "emits a node error when an asynchronous Action process is killed" do
     attach(@observed_events)
     flow = one_node_flow(KillAction, %{})
 

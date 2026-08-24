@@ -122,7 +122,53 @@ defmodule Jido.Exec.ExecutionFailureTest do
     end
 
     @tag capture_log: true
-    test "converts a killed async worker into its named failure without losing its sibling" do
+    test "contains a killed Action process in serial run and step-wise paths" do
+      flow =
+        Flow.new!(
+          name: "serial_action_exit",
+          nodes: [Node.new!(name: :kill, action: KillingAction)],
+          return: Ref.result(:kill)
+        )
+
+      operations = [
+        run: fn -> Exec.run(flow) end,
+        step: fn ->
+          with {:ok, execution} <- Exec.start(flow),
+               {:ok, result, _execution} <- Exec.step(execution) do
+            {:error, result.error}
+          end
+        end,
+        wave: fn ->
+          with {:ok, execution} <- Exec.start(flow),
+               {:ok, [result], _execution} <- Exec.wave(execution) do
+            {:error, result.error}
+          end
+        end,
+        continue: fn ->
+          with {:ok, execution} <- Exec.start(flow),
+               {:ok, execution} <- Exec.continue(execution) do
+            Exec.result(execution)
+          end
+        end
+      ]
+
+      for {operation, run} <- operations do
+        assert {:error,
+                %ExecutionFailureError{
+                  message: "action execution process exited",
+                  details: details
+                }} = run_in_monitored_caller(run),
+               to_string(operation)
+
+        assert details.action == KillingAction, to_string(operation)
+        assert details.node == "kill", to_string(operation)
+        assert details.phase == :step_execution, to_string(operation)
+        assert details.reason == :killed, to_string(operation)
+      end
+    end
+
+    @tag capture_log: true
+    test "contains a killed Action process in an async node without losing its sibling" do
       flow =
         Flow.new!(
           name: "async_worker_exit",
@@ -149,8 +195,13 @@ defmodule Jido.Exec.ExecutionFailureTest do
                status: :error,
                output: nil,
                error: %ExecutionFailureError{
-                 message: "flow node task exited",
-                 details: %{node: "kill", reason: :killed}
+                 message: "action execution process exited",
+                 details: %{
+                   action: KillingAction,
+                   node: "kill",
+                   phase: :step_execution,
+                   reason: :killed
+                 }
                }
              } = failed
 
@@ -218,5 +269,19 @@ defmodule Jido.Exec.ExecutionFailureTest do
     assert Exec.ready(execution) == expected
     assert Map.fetch!(execution, :ready_nodes) == expected
     assert execution.ready |> Map.keys() |> Enum.sort() == expected
+  end
+
+  defp run_in_monitored_caller(fun) do
+    owner = self()
+    ref = make_ref()
+
+    {caller, monitor} =
+      spawn_monitor(fn ->
+        send(owner, {ref, fun.()})
+      end)
+
+    assert_receive {^ref, result}, 1_000
+    assert_receive {:DOWN, ^monitor, :process, ^caller, :normal}, 1_000
+    result
   end
 end

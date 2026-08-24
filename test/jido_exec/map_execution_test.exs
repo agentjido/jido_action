@@ -103,7 +103,7 @@ defmodule Jido.Exec.MapExecutionTest do
       assert Exec.status(execution) == :failed
     end
 
-    test "normalizes an async item task exit into an ordered collected error" do
+    test "contains an async item Action exit in an ordered collected error" do
       items = [%{value: :zero, outcome: :kill}, %{value: :one, outcome: :ok}]
 
       assert {:ok, execution} =
@@ -122,15 +122,16 @@ defmodule Jido.Exec.MapExecutionTest do
               }, execution} = Exec.step(execution)
 
       assert %ExecutionFailureError{
-               message: "flow map item task exited",
+               message: "action execution process exited",
                details: details
              } = error
 
       assert details.phase == :map_target_execution
       assert details.node == "mapped"
+      assert details.action == MapProbeAction
       assert details.target == MapProbeAction
       assert details.item_index == 0
-      assert details.reason in [:kill, :killed]
+      assert details.reason == :killed
       assert Exec.status(execution) == :succeeded
     end
 
