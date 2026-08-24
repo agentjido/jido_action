@@ -280,7 +280,7 @@ defmodule Jido.Flow.CompilerRuntimeTest do
                [],
                %{},
                [],
-               fn _action, _params, _context, _execution_id -> {:ok, %{}} end,
+               fn _action, _params, _context, _execution_id, _owner -> {:ok, %{}} end,
                "execution-id"
              )
 

@@ -3,6 +3,9 @@ defmodule Jido.Flow.Compiler.TargetContext do
 
   alias Jido.Action.Error
 
+  @type kind :: :node | :choice | :map | :reduce | :iterate
+  @type t :: %__MODULE__{kind: kind(), details: map()}
+
   @enforce_keys [:kind, :details]
   defstruct [:kind, :details]
 
@@ -82,6 +85,21 @@ defmodule Jido.Flow.Compiler.TargetContext do
       }
     }
   end
+
+  @doc false
+  @spec telemetry_metadata(t(), module()) ::
+          {:ok, %{node: String.t(), kind: :step | :choice, target: module(), option: term()}}
+          | :none
+  def telemetry_metadata(%__MODULE__{kind: :node, details: details}, action) do
+    {:ok, %{node: details.node, kind: :step, target: action, option: nil}}
+  end
+
+  def telemetry_metadata(%__MODULE__{kind: :choice, details: details}, action) do
+    {:ok,
+     %{node: details.node, kind: :choice, target: action, option: Map.fetch!(details, :option)}}
+  end
+
+  def telemetry_metadata(%__MODULE__{}, _action), do: :none
 
   @doc false
   def phase(%__MODULE__{kind: kind}, phase) do

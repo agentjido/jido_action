@@ -31,7 +31,7 @@ defmodule Jido.Exec.FlowEngine do
         lifecycle
       )
       when is_map(input) and is_map(context) and is_list(options) and
-             is_function(finalizer, 1) and is_function(target_runner, 4) and
+             is_function(finalizer, 1) and is_function(target_runner, 5) and
              is_binary(execution_id) and is_map(lifecycle) do
     with {:ok, workflow, ordered_elements} <-
            Compiler.runtime_workflow_validated(

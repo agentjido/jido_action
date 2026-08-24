@@ -23,7 +23,7 @@ defmodule Jido.Flow.Compiler do
 
   @type target_phase :: :input | :execution | :output
   @type target_runner ::
-          (module(), term(), map(), String.t() ->
+          (module(), term(), map(), String.t(), TargetContext.t() ->
              {:ok, term()} | {:error, target_phase(), Exception.t()})
 
   @type observer :: (term() -> term())
@@ -91,7 +91,7 @@ defmodule Jido.Flow.Compiler do
         observer
       )
       when is_map(input) and is_map(context) and is_list(options) and
-             is_function(target_runner, 4) and is_binary(execution_id) and
+             is_function(target_runner, 5) and is_binary(execution_id) and
              is_function(observer, 1) do
     node_state = %{
       execution_id: execution_id,

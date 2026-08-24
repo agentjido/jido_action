@@ -5,7 +5,7 @@ defmodule Jido.Exec.TelemetryTest do
   alias Jido.Action.Telemetry
   alias Jido.Exec
   alias Jido.Flow
-  alias Jido.Flow.{Condition, Iterator, Node, Reduce, Ref, State}
+  alias Jido.Flow.{Choice, Condition, Iterator, Node, Reduce, Ref, State}
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Instruction
   alias JidoTest.ExecFixtures.{InstructionTelemetryFlow, TelemetryParentFlow}
@@ -20,6 +20,9 @@ defmodule Jido.Exec.TelemetryTest do
   @node_start [:jido, :flow, :node, :start]
   @node_stop [:jido, :flow, :node, :stop]
   @node_error [:jido, :flow, :node, :error]
+  @target_start [:jido, :flow, :target, :start]
+  @target_stop [:jido, :flow, :target, :stop]
+  @target_error [:jido, :flow, :target, :error]
   @map_item_start [:jido, :flow, :map, :item, :start]
   @map_item_stop [:jido, :flow, :map, :item, :stop]
   @map_item_error [:jido, :flow, :map, :item, :error]
@@ -42,6 +45,8 @@ defmodule Jido.Exec.TelemetryTest do
     @iteration_error
   ]
 
+  @target_events [@target_start, @target_stop, @target_error]
+
   @public_events [
                    @action_start,
                    @action_stop,
@@ -52,7 +57,7 @@ defmodule Jido.Exec.TelemetryTest do
                    @node_start,
                    @node_stop,
                    @node_error
-                 ] ++ @collection_events
+                 ] ++ @target_events ++ @collection_events
 
   @retired_exec_events [
     [:jido, :exec, :start],
@@ -140,6 +145,8 @@ defmodule Jido.Exec.TelemetryTest do
              @action_start,
              @flow_start,
              @node_start,
+             @target_start,
+             @target_stop,
              @node_stop,
              @flow_stop,
              @action_stop
@@ -195,7 +202,7 @@ defmodule Jido.Exec.TelemetryTest do
            end)
   end
 
-  test "emits only the Flow and node lifecycles for a Flow" do
+  test "emits the Flow, node, and target lifecycles for a Flow" do
     attach(@observed_events)
     flow = one_node_flow(Add)
 
@@ -204,6 +211,8 @@ defmodule Jido.Exec.TelemetryTest do
     assert [
              {@flow_start, _, flow_start},
              {@node_start, _, node_start},
+             {@target_start, _, target_start},
+             {@target_stop, _, target_stop},
              {@node_stop, node_stop_measurements, node_stop},
              {@flow_stop, flow_stop_measurements, flow_stop}
            ] = events()
@@ -219,6 +228,17 @@ defmodule Jido.Exec.TelemetryTest do
            }
 
     assert node_stop == node_start
+
+    assert target_start == %{
+             execution_id: execution_id,
+             flow: "telemetry_flow",
+             node: "add",
+             kind: :step,
+             target: Add,
+             option: nil
+           }
+
+    assert target_stop == target_start
     assert flow_stop == flow_start
 
     for measurements <- [node_stop_measurements, flow_stop_measurements] do
@@ -236,10 +256,14 @@ defmodule Jido.Exec.TelemetryTest do
     assert [
              @flow_start,
              @node_start,
+             @target_start,
              @flow_start,
              @node_start,
+             @target_start,
+             @target_stop,
              @node_stop,
              @flow_stop,
+             @target_stop,
              @node_stop,
              @flow_stop
            ] == Enum.map(recorded, &elem(&1, 0))
@@ -259,6 +283,8 @@ defmodule Jido.Exec.TelemetryTest do
     assert [
              {@flow_start, _, flow_start},
              {@node_start, _, node_start},
+             {@target_start, _, target_start},
+             {@target_error, _, target_error},
              {@node_error, node_measurements, node_error},
              {@flow_error, flow_measurements, flow_error}
            ] = events()
@@ -268,6 +294,9 @@ defmodule Jido.Exec.TelemetryTest do
     assert node_error.error == error
     assert flow_error.error == error
     assert node_error.error_type == :execution_error
+    assert Exception.message(target_error.error) == Exception.message(error)
+    assert target_error.error_type == :execution_error
+    assert Map.drop(target_error, [:error, :error_type]) == target_start
 
     assert Map.drop(node_error, [:error, :error_type]) == node_start
     assert Map.drop(flow_error, [:error, :error_type]) == flow_start
@@ -309,12 +338,17 @@ defmodule Jido.Exec.TelemetryTest do
     assert [
              {@flow_start, _, flow_start},
              {@node_start, _, node_start},
+             {@target_start, _, target_start},
+             {@target_error, _, target_error},
              {@node_error, _, node_error},
              {@flow_error, _, _flow_error}
            ] = events()
 
     assert node_error.execution_id == flow_start.execution_id
     assert node_error.error == error
+    assert Exception.message(target_error.error) == Exception.message(error)
+    assert target_error.error_type == :execution_error
+    assert Map.drop(target_error, [:error, :error_type]) == target_start
     assert Map.drop(node_error, [:error, :error_type]) == node_start
   end
 
@@ -440,11 +474,14 @@ defmodule Jido.Exec.TelemetryTest do
     assert [
              {@flow_start, _, flow_start},
              {@node_start, _, node_start},
+             {@target_start, _, target_start},
+             {@target_stop, _, target_stop},
              {@node_stop, _, node_stop},
              {@flow_error, _, flow_error}
            ] = events()
 
     assert node_stop == node_start
+    assert target_stop == target_start
     assert flow_error.execution_id == flow_start.execution_id
     assert flow_error.error == error
   end
@@ -468,7 +505,9 @@ defmodule Jido.Exec.TelemetryTest do
 
     assert {:ok, _node_result, execution} = Exec.step(execution)
     first_events = events()
-    assert [@node_start, @node_stop] == Enum.map(first_events, &elem(&1, 0))
+
+    assert [@node_start, @target_start, @target_stop, @node_stop] ==
+             Enum.map(first_events, &elem(&1, 0))
 
     assert {:ok, _node_result, execution} = Exec.step(execution)
     assert {:ok, %{value: 3}} = Exec.result(execution)
@@ -477,6 +516,8 @@ defmodule Jido.Exec.TelemetryTest do
 
     assert [
              @node_start,
+             @target_start,
+             @target_stop,
              @node_stop,
              @flow_stop
            ] == Enum.map(terminal_events, &elem(&1, 0))
@@ -486,6 +527,44 @@ defmodule Jido.Exec.TelemetryTest do
       |> Enum.map(fn {_event, _measurements, metadata} -> metadata.execution_id end)
 
     assert length(Enum.uniq(execution_ids)) == 1
+  end
+
+  test "identifies the selected Choice target and option" do
+    attach(@target_events)
+
+    flow =
+      Flow.new!(
+        name: "choice_target_telemetry",
+        nodes: [
+          Choice.new!(
+            name: "route",
+            options: [
+              [
+                name: "selected",
+                condition: Condition.eq(Ref.value(true), Ref.value(true)),
+                action: Add,
+                input: %{value: Ref.value(1)}
+              ]
+            ],
+            fallback: [action: ErrorAction]
+          )
+        ],
+        return: Ref.result("route")
+      )
+
+    assert {:ok, %{value: 2}} = Exec.run(flow)
+
+    assert [
+             {@target_start, _, metadata},
+             {@target_stop, _, stop_metadata}
+           ] = events()
+
+    assert stop_metadata == metadata
+    assert metadata.flow == "choice_target_telemetry"
+    assert metadata.node == "route"
+    assert metadata.kind == :choice
+    assert metadata.target == Add
+    assert metadata.option == "selected"
   end
 
   test "emits Action work-unit spans for Map, Reduce, and Iterate" do

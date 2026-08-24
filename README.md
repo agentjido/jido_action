@@ -234,9 +234,10 @@ Direct Actions and Instructions emit `[:jido, :action, :start]`,
 `[:jido, :action, :stop]`, and `[:jido, :action, :error]`. Flows and their
 nodes use the `[:jido, :flow]` namespace. Map items, Reduce items, and Iterate
 iterations add work-unit spans in that namespace. One `execution_id`
-correlates nested work. An Action inside a Flow does not emit a separate Action
-lifecycle. Telemetry observes execution only; it does not control scheduling
-or results.
+correlates nested work. Step and selected Choice targets emit a Flow target
+lifecycle with the Action module and selected option. An Action inside a Flow
+does not emit a separate direct Action lifecycle. Telemetry observes execution
+only; it does not control scheduling or results.
 
 See [Execution](guides/execution.md) for exact event names, measurements,
 metadata, nesting, and step-wise semantics.

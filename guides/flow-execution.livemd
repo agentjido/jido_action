@@ -422,14 +422,17 @@ control of its nodes.
 
 ## Observe Execution With Telemetry
 
-Jido emits 18 events. Nine events describe the top-level lifecycles:
+Jido emits 21 events. Twelve events describe the top-level lifecycles:
 
 - `[:jido, :action, :start]`, `[:jido, :action, :stop]`, and
   `[:jido, :action, :error]` for direct Actions and Instructions;
 - `[:jido, :flow, :start]`, `[:jido, :flow, :stop]`, and
   `[:jido, :flow, :error]`; and
 - `[:jido, :flow, :node, :start]`, `[:jido, :flow, :node, :stop]`, and
-  `[:jido, :flow, :node, :error]`.
+  `[:jido, :flow, :node, :error]`; and
+- `[:jido, :flow, :target, :start]`, `[:jido, :flow, :target, :stop]`, and
+  `[:jido, :flow, :target, :error]` for Step targets and the selected Choice
+  target.
 
 Nine events describe Action work inside collection nodes:
 
@@ -446,14 +449,19 @@ metadata is `%{execution_id: binary, flow: binary, node: binary, kind: :step |
 :choice | :map | :reduce | :iterate}`. Error events add `:error` and
 `:error_type`.
 
+Target metadata is `%{execution_id: binary, flow: binary, node: binary, kind:
+:step | :choice, target: module, option: term}`. A Step uses `option: nil`. A
+Choice reports the selected option.
+
 Map and Reduce work units add `target`, `item_index`, and `item_id`. Iterate
 work units add `target`, `iteration_index`, `iteration_id`, and
 `state_revision`. All work units also include `execution_id`, `flow`, `node`,
 and a work-unit `kind`.
 
 One `execution_id` correlates a Flow, nested Flows, and all node spans. In
-serial execution, a Flow contains its node spans. An Action inside a Flow is
-represented by its node span and does not emit a separate Action lifecycle.
+serial execution, a Flow contains its node spans. A Step or Choice Action has
+a target span inside its node span. Collection Actions have work-unit spans.
+Flow targets do not emit a separate direct Action lifecycle.
 Async node spans can overlap and can come from task processes. Each span
 measures that worker's node work. Async event order can follow scheduler and
 completion order, so correlate events by `execution_id` and node metadata.

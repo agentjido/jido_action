@@ -9,8 +9,8 @@ defmodule Jido.Exec do
 
   ## Telemetry
 
-  Execution emits 18 stable events. The first nine describe Action, Flow, and
-  named node lifecycles:
+  Execution emits 21 stable events. The first 12 describe Action, Flow, named
+  node, and selected target lifecycles:
 
   - `[:jido, :action, :start]`, `[:jido, :action, :stop]`, and
     `[:jido, :action, :error]` for each direct Action or Instruction execution.
@@ -18,6 +18,9 @@ defmodule Jido.Exec do
     `[:jido, :flow, :error]` for each Flow execution.
   - `[:jido, :flow, :node, :start]`, `[:jido, :flow, :node, :stop]`, and
     `[:jido, :flow, :node, :error]` for each named Flow node.
+  - `[:jido, :flow, :target, :start]`, `[:jido, :flow, :target, :stop]`, and
+    `[:jido, :flow, :target, :error]` for each Step target and selected Choice
+    target.
 
   Nine work-unit events describe Action calls inside collection nodes:
 
@@ -38,6 +41,10 @@ defmodule Jido.Exec do
   :map | :reduce | :iterate}`. Error metadata adds exactly `:error` and
   `:error_type` to the lifecycle metadata.
 
+  Target metadata is exactly `%{execution_id: binary, flow: binary, node:
+  binary, kind: :step | :choice, target: module, option: term}`. `option` is
+  `nil` for a Step and is the selected option name for a Choice.
+
   Map and Reduce item metadata adds `node`, `target`, `item_index`, and
   `item_id` to the Flow correlation fields. Iterate iteration metadata adds
   `node`, `target`, `iteration_index`, `iteration_id`, and `state_revision`.
@@ -56,10 +63,11 @@ defmodule Jido.Exec do
   `start/4` opens the Flow lifecycle. Each `step/2` or `wave/1` emits spans only
   for the nodes that it runs. The call that makes the execution terminal closes
   the Flow lifecycle. An execution that the caller abandons has no stop or error
-  event. An Action invoked inside a Flow node is represented by that node span
-  and its collection work-unit span, when applicable. It does not emit a
-  separate Action lifecycle. Work-unit events can have high volume. Attach a
-  handler only when you need item or iteration detail.
+  event. A Step or selected Choice Action is represented by its node and target
+  spans. A collection Action is represented by its node and work-unit spans.
+  Flow targets do not emit a separate direct Action lifecycle. Work-unit events
+  can have high volume. Attach a handler only when you need item or iteration
+  detail.
 
   Telemetry observes execution only. It does not select ready nodes, control
   scheduling, create helper processes, send runtime messages, or change a
@@ -91,6 +99,7 @@ defmodule Jido.Exec do
   alias Jido.Exec.FlowEngine
   alias Jido.Exec.NodeResult
   alias Jido.Flow
+  alias Jido.Flow.Compiler.TargetContext
   alias Jido.Instruction
   alias Jido.Action.Telemetry
 
@@ -300,13 +309,15 @@ defmodule Jido.Exec do
            {:ok, context} <- normalize_map(context, :context),
            {:ok, input} <- validate_data(flow.schema, input, "Flow", flow, :flow_input),
            {:ok, input} <- validate_flow_input_shape(flow, input) do
-        target_runner = fn action, params, target_context, target_execution_id ->
+        target_runner = fn action, params, target_context, target_execution_id, owner ->
           run_flow_target(
             action,
             params,
             target_context,
             target_execution_id,
-            run_opts
+            run_opts,
+            flow.name,
+            owner
           )
         end
 
@@ -467,20 +478,50 @@ defmodule Jido.Exec do
     end
   end
 
-  defp run_flow_target(action, params, context, execution_id, run_opts) do
-    if flow_module?(action) do
-      case do_run(action.flow(), params, context, run_opts, execution_id) do
-        {:ok, output} -> {:ok, output}
-        {:error, error} -> {:error, :execution, error}
+  defp run_flow_target(action, params, context, execution_id, run_opts, flow_name, owner) do
+    span = start_target_span(action, execution_id, flow_name, owner)
+
+    result =
+      if flow_module?(action) do
+        case do_run(action.flow(), params, context, run_opts, execution_id) do
+          {:ok, output} -> {:ok, output}
+          {:error, error} -> {:error, :execution, error}
+        end
+      else
+        ActionRunner.run_target(
+          action,
+          params,
+          context,
+          Jido.Exec.ConcurrencyLimiter.whereis(execution_id)
+        )
       end
-    else
-      ActionRunner.run_target(
-        action,
-        params,
-        context,
-        Jido.Exec.ConcurrencyLimiter.whereis(execution_id)
-      )
+
+    finish_target_span(span, result)
+  end
+
+  defp start_target_span(action, execution_id, flow_name, owner) do
+    case TargetContext.telemetry_metadata(owner, action) do
+      {:ok, metadata} ->
+        Telemetry.start(
+          [:jido, :flow, :target],
+          Map.merge(metadata, %{execution_id: execution_id, flow: flow_name})
+        )
+
+      :none ->
+        nil
     end
+  end
+
+  defp finish_target_span(nil, result), do: result
+
+  defp finish_target_span(span, {:error, _phase, error} = result) do
+    Telemetry.error(span, error)
+    result
+  end
+
+  defp finish_target_span(span, result) do
+    Telemetry.stop(span)
+    result
   end
 
   defp validate_flow_input_shape(_flow, input) when is_map(input), do: {:ok, input}

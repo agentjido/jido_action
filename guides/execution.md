@@ -87,14 +87,17 @@ does not add undeclared keys to the foreign exception struct.
 
 ## Telemetry
 
-Jido emits 18 events. Nine events describe the top-level lifecycles:
+Jido emits 21 events. Twelve events describe the top-level lifecycles:
 
 - `[:jido, :action, :start]`, `[:jido, :action, :stop]`, and
   `[:jido, :action, :error]` for direct Actions and Instructions;
 - `[:jido, :flow, :start]`, `[:jido, :flow, :stop]`, and
   `[:jido, :flow, :error]`; and
 - `[:jido, :flow, :node, :start]`, `[:jido, :flow, :node, :stop]`, and
-  `[:jido, :flow, :node, :error]`.
+  `[:jido, :flow, :node, :error]`; and
+- `[:jido, :flow, :target, :start]`, `[:jido, :flow, :target, :stop]`, and
+  `[:jido, :flow, :target, :error]` for Step targets and the selected Choice
+  target.
 
 Nine events describe Action work inside collection nodes:
 
@@ -111,6 +114,11 @@ metadata is `%{execution_id: binary, flow: binary, node: binary, kind: :step |
 :choice | :map | :reduce | :iterate}`. Error events add `:error` and
 `:error_type`.
 
+Target metadata is `%{execution_id: binary, flow: binary, node: binary, kind:
+:step | :choice, target: module, option: term}`. A Step has `option: nil`. A
+Choice has the selected option name. No target event occurs when Choice
+condition evaluation fails before selection.
+
 Map and Reduce work units add `target`, `item_index`, and `item_id`. Their
 `kind` values are `:map_item` and `:reduce_item`. Iterate work units add
 `target`, `iteration_index`, `iteration_id`, and `state_revision`. Their
@@ -120,8 +128,9 @@ Map and Reduce work units add `target`, `item_index`, and `item_id`. Their
 The same `execution_id` correlates a Flow, its nodes, and nested Flows. Serial
 Flow events nest as Flow and then node. Step-wise execution opens one Flow event
 in `start/4` and closes it only when a step, wave, or continue operation reaches
-a terminal result. An Action inside a Flow is represented by its node span and
-does not emit a separate Action lifecycle. An Instruction that targets a Flow
+a terminal result. A Step or selected Choice Action has a target span inside
+its node span. Collection Actions have work-unit spans. Flow targets do not
+emit a separate direct Action lifecycle. An Instruction that targets a Flow
 has the Flow lifecycle inside its Action lifecycle. Async node spans can
 overlap. Each async worker starts and finishes its span around the actual node
 work. Start and stop events can follow scheduler and completion order. Use the

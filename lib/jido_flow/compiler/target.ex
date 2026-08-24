@@ -5,7 +5,7 @@ defmodule Jido.Flow.Compiler.Target do
 
   @doc false
   def run(action, params, context, owner, execution_id, target_runner) do
-    case target_runner.(action, params, context, execution_id) do
+    case target_runner.(action, params, context, execution_id, owner) do
       {:ok, output} ->
         {:ok, output}
 
