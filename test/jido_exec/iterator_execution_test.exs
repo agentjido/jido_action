@@ -1,4 +1,4 @@
-defmodule Jido.Flow.IteratorRuntimeTest do
+defmodule JidoActionTest.Exec.IteratorExecutionTest do
   use ExUnit.Case, async: true
 
   @moduletag capture_log: true
@@ -7,9 +7,9 @@ defmodule Jido.Flow.IteratorRuntimeTest do
   alias Jido.Action.Output
   alias Jido.Exec
   alias Jido.Flow.Ref
-  alias JidoTest.IteratorFixtures
-  alias JidoTest.IteratorFixtures.{Envelope, Increment, StateStruct}
-  alias JidoTest.TestActions.CountedMapAction
+  alias JidoActionTest.IteratorFixtures
+  alias JidoActionTest.IteratorFixtures.{Envelope, Increment, StateStruct}
+  alias JidoActionTest.TestActions.CountedMapAction
 
   describe "bounded Iterator runtime" do
     test "completes at the head without starting a body" do

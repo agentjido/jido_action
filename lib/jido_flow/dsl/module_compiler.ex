@@ -9,7 +9,7 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
     module_compiler = __MODULE__
 
     quote location: :keep do
-      @behaviour Jido.Action
+      @behaviour Jido.Executable
       use Jido.Flow.DSL
       @before_compile Jido.Flow.DSL.ModuleCompiler
 
@@ -76,7 +76,7 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
 
     quote do
       @doc false
-      def __jido_flow__, do: true
+      def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
 
       def flow, do: unquote(escaped_flow)
       def to_map(opts \\ []), do: Jido.Flow.to_map(flow(), opts)

@@ -15,6 +15,10 @@ Jido.Exec.run(executable, input \\ %{}, context \\ %{}, opts \\ [])
 The executable can be an Action module, an `%Jido.Instruction{}`, a
 `%Jido.Flow{}`, or a module that uses `Jido.Flow`.
 
+Action and Flow modules expose the same `Jido.Executable` contract. The
+resolver selects an internal Action or Flow adapter. It does not infer a Flow
+from a marker or from the presence of `flow/0`.
+
 For Actions and Instructions, `opts` must be an empty list. Flow execution
 supports `async: true | false` and `max_concurrency: positive_integer()`.
 These options schedule independent public nodes and internal Map item calls.

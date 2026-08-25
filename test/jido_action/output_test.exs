@@ -1,5 +1,5 @@
-defmodule Jido.Action.OutputTest do
-  use JidoTest.ActionCase, async: true
+defmodule JidoActionTest.Action.OutputTest do
+  use ExUnit.Case, async: true
 
   alias Jido.Action.Output
 

@@ -1,4 +1,4 @@
-defmodule Jido.Action.ApplicationTest do
+defmodule JidoActionTest.Action.ApplicationTest do
   use ExUnit.Case, async: true
 
   test "starts the shared Action Task Supervisor" do

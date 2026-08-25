@@ -1,10 +1,11 @@
-defmodule Jido.Flow.MapTest do
-  use JidoTest.ActionCase, async: true
+defmodule JidoActionTest.Flow.MapTest do
+  use ExUnit.Case, async: true
 
   alias Jido.Action.Error.InvalidInputError
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.Ref
-  alias JidoTest.TestActions.{Add, MissingRun}
+  alias JidoActionTest.FlowFixtures.NestedFlow
+  alias JidoActionTest.TestActions.{Add, MissingRun}
 
   describe "new/1" do
     test "raises from new!/1 on an invalid canonical Map" do
@@ -148,24 +149,8 @@ defmodule Jido.Flow.MapTest do
   end
 
   test "accepts a marked nested Flow target" do
-    target = unique_module("MapNestedFlow")
-
-    create_module(
-      target,
-      quote do
-        use Jido.Flow, name: "map_nested_flow"
-
-        flow do
-          step("add",
-            action: unquote(Add),
-            params: %{value: input(:value), amount: 1}
-          )
-        end
-      end
-    )
-
     assert :ok =
-             FlowMap.new!(name: :nested, collection: [], action: target)
+             FlowMap.new!(name: :nested, collection: [], action: NestedFlow)
              |> FlowMap.check()
   end
 end

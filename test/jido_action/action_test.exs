@@ -1,12 +1,12 @@
-defmodule Jido.ActionTest do
-  use JidoTest.ActionCase, async: true
+defmodule JidoActionTest.ActionTest do
+  use JidoActionTest.Case, async: true
 
   alias Jido.Action
   alias Jido.Action.Output
-  alias JidoTest.TestActions.FullAction
-  alias JidoTest.TestActions.NoOutputSchemaAction
-  alias JidoTest.TestActions.NoSchema
-  alias JidoTest.TestActions.OutputSchemaAction
+  alias JidoActionTest.TestActions.FullAction
+  alias JidoActionTest.TestActions.NoOutputSchemaAction
+  alias JidoActionTest.TestActions.NoSchema
+  alias JidoActionTest.TestActions.OutputSchemaAction
 
   describe "action creation and metadata" do
     test "creates a valid action with retained metadata" do
@@ -109,13 +109,13 @@ defmodule Jido.ActionTest do
               Zoi.object(%{
                 value:
                   Zoi.integer()
-                  |> Zoi.refine({Jido.ActionTest, :at_least, [2]})
+                  |> Zoi.refine({JidoActionTest.ActionTest, :at_least, [2]})
               }),
             output_schema:
               Zoi.object(%{
                 result:
                   Zoi.integer()
-                  |> Zoi.refine({Jido.ActionTest, :at_least, [4]})
+                  |> Zoi.refine({JidoActionTest.ActionTest, :at_least, [4]})
               })
         end
       )
@@ -165,7 +165,7 @@ defmodule Jido.ActionTest do
           quote do
             use Jido.Action,
               name: "lazy_schema_action",
-              schema: Zoi.lazy({Jido.ActionTest, :static_lazy_schema, []})
+              schema: Zoi.lazy({JidoActionTest.ActionTest, :static_lazy_schema, []})
           end
         )
       end
@@ -196,7 +196,7 @@ defmodule Jido.ActionTest do
         quote do
           use Jido.Action,
             name: "counted_static_schema_action",
-            schema: Jido.ActionTest.counted_static_schema(unquote(counter))
+            schema: JidoActionTest.ActionTest.counted_static_schema(unquote(counter))
         end
       )
 
@@ -213,7 +213,7 @@ defmodule Jido.ActionTest do
       create_module(
         module,
         quote do
-          use Jido.Action, Jido.ActionTest.counted_options(unquote(counter))
+          use Jido.Action, JidoActionTest.ActionTest.counted_options(unquote(counter))
         end
       )
 
@@ -324,10 +324,10 @@ defmodule Jido.ActionTest do
             name: "scalar_transform_action",
             schema:
               Zoi.object(%{})
-              |> Zoi.transform({Jido.ActionTest, :invalid_transform, []}),
+              |> Zoi.transform({JidoActionTest.ActionTest, :invalid_transform, []}),
             output_schema:
               Zoi.object(%{})
-              |> Zoi.transform({Jido.ActionTest, :invalid_transform, []})
+              |> Zoi.transform({JidoActionTest.ActionTest, :invalid_transform, []})
         end
       )
 

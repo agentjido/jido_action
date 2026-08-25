@@ -1,9 +1,9 @@
-defmodule Jido.Flow.ElementTest do
+defmodule JidoActionTest.Flow.ElementTest do
   use ExUnit.Case, async: true
 
   alias Jido.Flow.{Choice, Condition, Element, Iterator, Node, Reduce, Ref}
   alias Jido.Flow.Map, as: FlowMap
-  alias JidoTest.TestActions.Add
+  alias JidoActionTest.TestActions.Add
 
   test "constructs every tagged map and keyword element form" do
     state = %{schema: [], initial: %{}, update: Ref.body_result()}

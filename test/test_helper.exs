@@ -1,3 +1,3 @@
 ExUnit.start()
 
-ExUnit.configure(exclude: [:skip])
+ExUnit.configure(exclude: [:integration, :skip])

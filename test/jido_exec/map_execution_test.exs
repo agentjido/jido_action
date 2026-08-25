@@ -1,5 +1,5 @@
-defmodule Jido.Exec.MapExecutionTest do
-  use JidoTest.ActionCase, async: true
+defmodule JidoActionTest.Exec.MapExecutionTest do
+  use ExUnit.Case, async: true
 
   @moduletag capture_log: true
 
@@ -9,13 +9,13 @@ defmodule Jido.Exec.MapExecutionTest do
   alias Jido.Flow
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.{Node, Ref}
-  alias JidoTest.ExecutionFixtures
-  alias JidoTest.TestActions.{MapProbeAction, RecorderAction}
+  alias JidoActionTest.ExecFixtures
+  alias JidoActionTest.TestActions.{MapProbeAction, RecorderAction}
 
   describe "Map step-wise execution" do
     test "exposes one public Map node and completes all serial item work in one step" do
       flow =
-        ExecutionFixtures.map_flow(
+        ExecFixtures.map_flow(
           [%{value: :zero, outcome: :ok}, %{value: :one, outcome: :ok}],
           :fail_fast
         )
@@ -51,14 +51,14 @@ defmodule Jido.Exec.MapExecutionTest do
               name: :left,
               collection: Ref.value(items),
               action: MapProbeAction,
-              input: ExecutionFixtures.map_probe_input(),
+              input: ExecFixtures.map_probe_input(),
               on_error: :collect_errors
             ),
             FlowMap.new!(
               name: :right,
               collection: Ref.value(items),
               action: MapProbeAction,
-              input: ExecutionFixtures.map_probe_input(),
+              input: ExecFixtures.map_probe_input(),
               on_error: :collect_errors
             )
           ],
@@ -91,23 +91,23 @@ defmodule Jido.Exec.MapExecutionTest do
           %{value: index, outcome: :ok, block: true}
         end)
 
-      flow = ExecutionFixtures.map_flow(items, :collect_errors)
+      flow = ExecFixtures.map_flow(items, :collect_errors)
 
       assert {:ok, execution} =
                Exec.start(flow, %{}, %{test_pid: self()}, async: true, max_concurrency: 2)
 
       task = Task.async(fn -> Exec.step(execution, "mapped") end)
 
-      assert_receive {MapProbeAction, :started, first_index, first_worker}
-      assert_receive {MapProbeAction, :started, second_index, second_worker}
+      assert_receive {MapProbeAction, :started, first_index, first_worker}, 1_000
+      assert_receive {MapProbeAction, :started, second_index, second_worker}, 1_000
       assert Enum.sort([first_index, second_index]) == [0, 1]
       refute_receive {MapProbeAction, :started, 2, _worker}, 50
 
       send(first_worker, :release)
       send(second_worker, :release)
 
-      assert_receive {MapProbeAction, :started, third_index, third_worker}
-      assert_receive {MapProbeAction, :started, fourth_index, fourth_worker}
+      assert_receive {MapProbeAction, :started, third_index, third_worker}, 1_000
+      assert_receive {MapProbeAction, :started, fourth_index, fourth_worker}, 1_000
       assert Enum.sort([third_index, fourth_index]) == [2, 3]
       send(third_worker, :release)
       send(fourth_worker, :release)
@@ -130,7 +130,7 @@ defmodule Jido.Exec.MapExecutionTest do
       ]
 
       assert {:ok, execution} =
-               Exec.start(ExecutionFixtures.map_flow(items, :fail_fast), %{}, %{test_pid: self()},
+               Exec.start(ExecFixtures.map_flow(items, :fail_fast), %{}, %{test_pid: self()},
                  async: true,
                  max_concurrency: 3
                )
@@ -156,7 +156,7 @@ defmodule Jido.Exec.MapExecutionTest do
 
       assert {:ok, execution} =
                Exec.start(
-                 ExecutionFixtures.map_flow(items, :collect_errors),
+                 ExecFixtures.map_flow(items, :collect_errors),
                  %{},
                  %{test_pid: self()},
                  async: true,
@@ -189,7 +189,7 @@ defmodule Jido.Exec.MapExecutionTest do
           name: :mapped,
           collection: Ref.value([%{value: :bad, outcome: {:error, "failed"}, block: false}]),
           action: MapProbeAction,
-          input: ExecutionFixtures.map_probe_input(),
+          input: ExecFixtures.map_probe_input(),
           on_error: :fail_fast
         )
 
@@ -224,7 +224,7 @@ defmodule Jido.Exec.MapExecutionTest do
 
   describe "Map to Reduce step-wise execution" do
     test "keeps Reduce as one public serial Step in ready, wave, and continue paths" do
-      flow = ExecutionFixtures.map_reduce_flow(:success)
+      flow = ExecFixtures.map_reduce_flow(:success)
 
       assert {:ok, execution} =
                Exec.start(flow, %{}, %{test_pid: self()}, async: true, max_concurrency: 2)
@@ -256,7 +256,7 @@ defmodule Jido.Exec.MapExecutionTest do
 
     test "returns one error NodeResult when direct collected Map errors reach Reduce" do
       assert {:ok, execution} =
-               Exec.start(ExecutionFixtures.map_reduce_flow(:with_error), %{}, %{test_pid: self()})
+               Exec.start(ExecFixtures.map_reduce_flow(:with_error), %{}, %{test_pid: self()})
 
       assert {:ok, %NodeResult{node: "mapped", status: :ok}, execution} = Exec.step(execution)
       assert Exec.ready(execution) == ["reduced"]

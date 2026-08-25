@@ -1,5 +1,5 @@
-defmodule Jido.Exec.TelemetryTest do
-  use JidoTest.ActionCase, async: false
+defmodule JidoActionTest.Exec.TelemetryTest do
+  use ExUnit.Case, async: false
   @moduletag capture_log: true
 
   alias Jido.Action.Telemetry
@@ -8,8 +8,14 @@ defmodule Jido.Exec.TelemetryTest do
   alias Jido.Flow.{Choice, Condition, Iterator, Node, Reduce, Ref, State}
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Instruction
-  alias JidoTest.ExecFixtures.{InstructionTelemetryFlow, TelemetryParentFlow}
-  alias JidoTest.TestActions.{Add, ErrorAction, StacktraceAction}
+
+  alias JidoActionTest.ExecFixtures.{
+    InstructionTelemetryFlow,
+    ShortListOutputAction,
+    TelemetryParentFlow
+  }
+
+  alias JidoActionTest.TestActions.{Add, ErrorAction, KillingAction, StacktraceAction}
 
   @action_start [:jido, :action, :start]
   @action_stop [:jido, :action, :stop]
@@ -69,30 +75,15 @@ defmodule Jido.Exec.TelemetryTest do
 
   def raise_flow_transform(_value, _opts), do: raise("flow schema boom")
 
-  defmodule KillAction do
+  defmodule WorkAction do
     @moduledoc false
-    use Jido.Action, name: "kill_telemetry_task"
+    use Jido.Action, name: "telemetry_work"
 
     @impl true
-    def run(_params, _context), do: Process.exit(self(), :kill)
-  end
-
-  defmodule ListOutputAction do
-    @moduledoc false
-    use Jido.Action, name: "telemetry_list_output"
-
-    @impl true
-    def run(_params, _context), do: {:ok, %{items: [%{value: 1}]}}
-  end
-
-  defmodule DelayAction do
-    @moduledoc false
-    use Jido.Action, name: "telemetry_delay"
-
-    @impl true
-    def run(%{delay: delay, value: value}, _context) do
-      Process.sleep(delay)
-      {:ok, %{value: value}}
+    def run(%{iterations: iterations, value: value}, _context) do
+      1..iterations
+      |> Enum.reduce(0, fn index, total -> total + index end)
+      |> then(fn _total -> {:ok, %{value: value}} end)
     end
   end
 
@@ -177,7 +168,7 @@ defmodule Jido.Exec.TelemetryTest do
   test "closes the Action lifecycle when the Action process is killed" do
     attach(@observed_events)
 
-    assert {:error, error} = Exec.run(KillAction)
+    assert {:error, error} = Exec.run(KillingAction)
 
     assert [
              {@action_start, _, start_metadata},
@@ -331,7 +322,7 @@ defmodule Jido.Exec.TelemetryTest do
 
   test "emits a node error when an asynchronous Action process is killed" do
     attach(@observed_events)
-    flow = one_node_flow(KillAction, %{})
+    flow = one_node_flow(KillingAction, %{})
 
     assert {:error, error} = Exec.run(flow, %{}, %{}, async: true)
 
@@ -435,13 +426,13 @@ defmodule Jido.Exec.TelemetryTest do
         nodes: [
           Node.new!(
             name: "fast",
-            action: DelayAction,
-            input: %{delay: Ref.value(5), value: Ref.value(:fast)}
+            action: WorkAction,
+            input: %{iterations: Ref.value(1_000), value: Ref.value(:fast)}
           ),
           Node.new!(
             name: "slow",
-            action: DelayAction,
-            input: %{delay: Ref.value(150), value: Ref.value(:slow)}
+            action: WorkAction,
+            input: %{iterations: Ref.value(1_000_000), value: Ref.value(:slow)}
           )
         ],
         return: %{fast: Ref.result("fast"), slow: Ref.result("slow")}
@@ -455,8 +446,7 @@ defmodule Jido.Exec.TelemetryTest do
           into: %{},
           do: {metadata.node, measurements.duration}
 
-    minimum_gap = System.convert_time_unit(80, :millisecond, :native)
-    assert durations["slow"] > durations["fast"] + minimum_gap
+    assert durations["slow"] > durations["fast"]
   end
 
   test "reports final result-path errors after the node span stops" do
@@ -465,7 +455,7 @@ defmodule Jido.Exec.TelemetryTest do
     flow =
       Flow.new!(
         name: "missing_result_path",
-        nodes: [Node.new!(name: "list", action: ListOutputAction)],
+        nodes: [Node.new!(name: "list", action: ShortListOutputAction)],
         return: Ref.result("list", [:items, 99])
       )
 

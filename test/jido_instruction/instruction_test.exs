@@ -1,9 +1,9 @@
-defmodule Jido.InstructionTest do
-  use JidoTest.ActionCase, async: true
+defmodule JidoActionTest.InstructionTest do
+  use ExUnit.Case, async: true
 
   alias Jido.Instruction
 
-  alias JidoTest.TestActions.{
+  alias JidoActionTest.TestActions.{
     Add,
     BasicAction,
     MissingRun,

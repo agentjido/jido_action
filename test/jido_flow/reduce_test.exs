@@ -1,11 +1,12 @@
-defmodule Jido.Flow.ReduceTest do
-  use JidoTest.ActionCase, async: true
+defmodule JidoActionTest.Flow.ReduceTest do
+  use ExUnit.Case, async: true
 
   alias Jido.Action.Error.InvalidInputError
   alias Jido.Action.Output
   alias Jido.Flow.Reduce
   alias Jido.Flow.Ref
-  alias JidoTest.TestActions.{Add, MissingRun}
+  alias JidoActionTest.FlowFixtures.NestedFlow
+  alias JidoActionTest.TestActions.{Add, MissingRun}
 
   describe "new/1" do
     test "raises from new!/1 on an invalid canonical Reduce" do
@@ -156,24 +157,8 @@ defmodule Jido.Flow.ReduceTest do
   end
 
   test "accepts a marked nested Flow target" do
-    target = unique_module("ReduceNestedFlow")
-
-    create_module(
-      target,
-      quote do
-        use Jido.Flow, name: "reduce_nested_flow"
-
-        flow do
-          step("add",
-            action: unquote(Add),
-            params: %{value: input(:value), amount: 1}
-          )
-        end
-      end
-    )
-
     assert :ok =
-             Reduce.new!(name: :nested, collection: [], initial: 0, action: target)
+             Reduce.new!(name: :nested, collection: [], initial: 0, action: NestedFlow)
              |> Reduce.check()
   end
 end

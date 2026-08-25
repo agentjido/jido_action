@@ -1,4 +1,4 @@
-defmodule Jido.Exec.ConcurrencyLimiterTest do
+defmodule JidoActionTest.Exec.ConcurrencyLimiterTest do
   use ExUnit.Case, async: true
 
   alias Jido.Exec.ConcurrencyLimiter

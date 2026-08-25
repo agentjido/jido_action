@@ -1,4 +1,4 @@
-defmodule JidoTest.ExecFixtures.ActionWithFlowFunction do
+defmodule JidoActionTest.ExecFixtures.ActionWithFlowFunction do
   @moduledoc false
   use Jido.Action, name: "action_with_flow_function"
 
@@ -6,7 +6,7 @@ defmodule JidoTest.ExecFixtures.ActionWithFlowFunction do
   def run(params, _context), do: {:ok, Map.put(params, :executed_as, :action)}
 end
 
-defmodule JidoTest.ExecFixtures.ListOutputAction do
+defmodule JidoActionTest.ExecFixtures.ListOutputAction do
   @moduledoc false
   use Jido.Action, name: "list_output_action"
 
@@ -14,7 +14,7 @@ defmodule JidoTest.ExecFixtures.ListOutputAction do
   def run(_params, _context), do: {:ok, %{items: [%{value: 1}, %{value: 2}]}}
 end
 
-defmodule JidoTest.ExecFixtures.ShortListOutputAction do
+defmodule JidoActionTest.ExecFixtures.ShortListOutputAction do
   @moduledoc false
   use Jido.Action, name: "short_list_output_action"
 
@@ -22,7 +22,7 @@ defmodule JidoTest.ExecFixtures.ShortListOutputAction do
   def run(_params, _context), do: {:ok, %{items: [%{value: 1}]}}
 end
 
-defmodule JidoTest.ExecFixtures.ImproperListOutputAction do
+defmodule JidoActionTest.ExecFixtures.ImproperListOutputAction do
   @moduledoc false
   use Jido.Action, name: "improper_list_output_action"
 
@@ -32,7 +32,7 @@ defmodule JidoTest.ExecFixtures.ImproperListOutputAction do
   end
 end
 
-defmodule JidoTest.ExecFixtures.ChoiceCountedAction do
+defmodule JidoActionTest.ExecFixtures.ChoiceCountedAction do
   @moduledoc false
 
   def validate_params(%{test_pid: test_pid} = params) do
@@ -51,7 +51,7 @@ defmodule JidoTest.ExecFixtures.ChoiceCountedAction do
   end
 end
 
-defmodule JidoTest.ExecFixtures.ChoiceEnvelopeTarget do
+defmodule JidoActionTest.ExecFixtures.ChoiceEnvelopeTarget do
   @moduledoc false
 
   def validate_params(params), do: {:ok, params}
@@ -62,7 +62,7 @@ defmodule JidoTest.ExecFixtures.ChoiceEnvelopeTarget do
   end
 end
 
-defmodule JidoTest.ExecFixtures.ChoicePublicEnvelopeAction do
+defmodule JidoActionTest.ExecFixtures.ChoicePublicEnvelopeAction do
   @moduledoc false
 
   def validate_params(params), do: {:ok, params}
@@ -73,7 +73,7 @@ defmodule JidoTest.ExecFixtures.ChoicePublicEnvelopeAction do
   end
 end
 
-defmodule JidoTest.ExecFixtures.PreflightRecorder do
+defmodule JidoActionTest.ExecFixtures.PreflightRecorder do
   @moduledoc false
 
   def validate_params(params), do: {:ok, params}
@@ -85,7 +85,7 @@ defmodule JidoTest.ExecFixtures.PreflightRecorder do
   end
 end
 
-defmodule JidoTest.ExecFixtures.UnselectedTarget do
+defmodule JidoActionTest.ExecFixtures.UnselectedTarget do
   @moduledoc false
 
   def validate_params(%{test_pid: test_pid} = params) do
@@ -104,7 +104,7 @@ defmodule JidoTest.ExecFixtures.UnselectedTarget do
   end
 end
 
-defmodule JidoTest.ExecFixtures.ConcurrencyProbeAction do
+defmodule JidoActionTest.ExecFixtures.ConcurrencyProbeAction do
   @moduledoc false
 
   def validate_params(params), do: {:ok, params}
@@ -130,7 +130,7 @@ defmodule JidoTest.ExecFixtures.ConcurrencyProbeAction do
   end
 end
 
-defmodule JidoTest.ExecFixtures.ControlledErrorAction do
+defmodule JidoActionTest.ExecFixtures.ControlledErrorAction do
   @moduledoc false
 
   def validate_params(params), do: {:ok, params}

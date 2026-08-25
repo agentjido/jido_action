@@ -1,4 +1,4 @@
-defmodule Jido.Flow.StateTest do
+defmodule JidoActionTest.Flow.StateTest do
   use ExUnit.Case, async: true
 
   alias Jido.Action.Error.InvalidInputError

@@ -1,5 +1,5 @@
-defmodule Jido.Flow.BuilderTest do
-  use JidoTest.ActionCase, async: true
+defmodule JidoActionTest.Flow.BuilderTest do
+  use ExUnit.Case, async: true
 
   alias Jido.Flow
   alias Jido.Flow.Builder
@@ -13,7 +13,7 @@ defmodule Jido.Flow.BuilderTest do
   alias Jido.Flow.Ref
   alias Jido.Flow.State
 
-  alias JidoTest.TestActions.{Add, EchoParamsAction, Multiply}
+  alias JidoActionTest.TestActions.{Add, EchoParamsAction, Multiply}
 
   test "builds named nodes with named result references" do
     builder =

@@ -16,6 +16,8 @@ coordination, supervision, and deployment-safe continuation.
 
 This foundation keeps the action boundary small:
 
+- `Jido.Executable` defines the common Action and Flow module contract and
+  resolves both module types to one internal executable descriptor.
 - `Jido.Action` defines a named action with Zoi input and output schemas.
 - `Jido.Instruction` captures one requested action call as data.
 - `Jido.Flow` composes actions as a validated graph with steps and Choices.

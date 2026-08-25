@@ -1,4 +1,4 @@
-defmodule Jido.Flow.IteratorFailureTest do
+defmodule JidoActionTest.Exec.IteratorFailureTest do
   use ExUnit.Case, async: true
 
   @moduletag capture_log: true
@@ -8,9 +8,9 @@ defmodule Jido.Flow.IteratorFailureTest do
   alias Jido.Exec
   alias Jido.Exec.NodeResult
   alias Jido.Flow.Ref
-  alias JidoTest.IteratorFixtures
+  alias JidoActionTest.IteratorFixtures
 
-  alias JidoTest.IteratorFixtures.{
+  alias JidoActionTest.IteratorFixtures.{
     BrokenFlow,
     FailsSecond,
     Increment,

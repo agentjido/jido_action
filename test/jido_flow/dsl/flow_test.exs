@@ -1,7 +1,7 @@
-defmodule Jido.Flow.SparkDSLTest do
-  use JidoTest.ActionCase, async: true
+defmodule JidoActionTest.Flow.DSL.FlowTest do
+  use JidoActionTest.Case, async: true
 
-  alias JidoTest.TestActions.{Add, EchoParamsAction, Multiply}
+  alias JidoActionTest.TestActions.{Add, EchoParamsAction, Multiply}
 
   test "executes the declarative Step syntax and infers the final output" do
     module = unique_module("DeclarativeStepFlow")
@@ -195,7 +195,7 @@ defmodule Jido.Flow.SparkDSLTest do
 
       flow do
         step("bad",
-          action: JidoTest.TestActions.EchoParamsAction,
+          action: JidoActionTest.TestActions.EchoParamsAction,
           params: %{value: Date.utc_today()}
         )
       end
@@ -213,7 +213,10 @@ defmodule Jido.Flow.SparkDSLTest do
 
   test "structural and Action contract errors report the source node line" do
     structural_module =
-      Module.concat(JidoTest, "StructuralSourceLineFlow#{System.unique_integer([:positive])}")
+      Module.concat(
+        JidoActionTest,
+        "StructuralSourceLineFlow#{System.unique_integer([:positive])}"
+      )
 
     structural_file = "structural_source_line_flow.ex"
 
@@ -237,7 +240,7 @@ defmodule Jido.Flow.SparkDSLTest do
     assert structural_error.line == 5
 
     contract_module =
-      Module.concat(JidoTest, "ContractSourceLineFlow#{System.unique_integer([:positive])}")
+      Module.concat(JidoActionTest, "ContractSourceLineFlow#{System.unique_integer([:positive])}")
 
     contract_file = "contract_source_line_flow.ex"
 

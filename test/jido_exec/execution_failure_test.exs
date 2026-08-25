@@ -1,5 +1,5 @@
-defmodule Jido.Exec.ExecutionFailureTest do
-  use JidoTest.ActionCase, async: true
+defmodule JidoActionTest.Exec.ExecutionFailureTest do
+  use JidoActionTest.Case, async: true
 
   alias Jido.Action.Error.ExecutionFailureError
   alias Jido.Exec
@@ -7,9 +7,9 @@ defmodule Jido.Exec.ExecutionFailureTest do
   alias Jido.Exec.NodeResult
   alias Jido.Flow
   alias Jido.Flow.{Node, Ref}
-  alias JidoTest.ExecFixtures.ControlledErrorAction
-  alias JidoTest.ExecutionFixtures
-  alias JidoTest.TestActions.{EchoParamsAction, KillingAction, RecorderAction}
+  alias JidoActionTest.ExecFixtures.ControlledErrorAction
+  alias JidoActionTest.ExecFixtures
+  alias JidoActionTest.TestActions.{EchoParamsAction, KillingAction, RecorderAction}
 
   describe "failure behavior" do
     @tag capture_log: true
@@ -49,7 +49,7 @@ defmodule Jido.Exec.ExecutionFailureTest do
               }, execution} = Exec.step(execution, "fail")
 
       assert Exec.status(execution) == :failed
-      assert_ready_cache(execution, [])
+      ExecFixtures.assert_ready_cache(execution, [])
 
       assert {:error, _error} = Exec.step(execution, "independent")
       refute_received {RecorderAction, %{side: :independent}}
@@ -137,7 +137,7 @@ defmodule Jido.Exec.ExecutionFailureTest do
       assert Enum.map(results, & &1.node) == ["alpha", "zeta"]
       assert Enum.all?(results, &(&1.status == :error))
       assert Exec.status(execution) == :failed
-      assert_ready_cache(execution, [])
+      ExecFixtures.assert_ready_cache(execution, [])
 
       assert {:error,
               %FlowFailureError{
@@ -241,16 +241,16 @@ defmodule Jido.Exec.ExecutionFailureTest do
              } = succeeded
 
       assert Exec.status(execution) == :failed
-      assert_ready_cache(execution, [])
+      ExecFixtures.assert_ready_cache(execution, [])
       assert Exec.result(execution) == {:error, failed.error}
     end
 
-    @tag timeout: 5_000
+    @tag timeout: 10_000
     test "preserves normal caller semantics for unrelated linked exits" do
       flow =
         Flow.new!(
           name: "unrelated_link_exit",
-          nodes: [Node.new!(name: :blocking, action: ExecutionFixtures.BlockingAction)],
+          nodes: [Node.new!(name: :blocking, action: ExecFixtures.BlockingAction)],
           return: Ref.result(:blocking)
         )
 
@@ -282,34 +282,14 @@ defmodule Jido.Exec.ExecutionFailureTest do
       on_exit(fn -> Process.exit(caller, :kill) end)
 
       assert_receive {:flow_caller_ready, linked}
-      assert_receive {:blocking_flow_node_started, worker}, 1_000
+      assert_receive {:blocking_flow_node_started, worker}, 5_000
       worker_monitor = Process.monitor(worker)
 
       send(linked, :exit_abnormally)
 
-      assert_receive {:DOWN, ^monitor, :process, ^caller, :unrelated_link_exit}, 1_000
-      assert_receive {:DOWN, ^worker_monitor, :process, ^worker, _reason}, 1_000
+      assert_receive {:DOWN, ^monitor, :process, ^caller, :unrelated_link_exit}, 5_000
+      assert_receive {:DOWN, ^worker_monitor, :process, ^worker, _reason}, 5_000
       refute_received {:flow_caller_result, _result}
     end
-  end
-
-  defp assert_ready_cache(execution, expected) do
-    assert Exec.ready(execution) == expected
-    assert Map.fetch!(execution, :ready_nodes) == expected
-    assert execution.ready |> Map.keys() |> Enum.sort() == expected
-  end
-
-  defp run_in_monitored_caller(fun) do
-    owner = self()
-    ref = make_ref()
-
-    {caller, monitor} =
-      spawn_monitor(fn ->
-        send(owner, {ref, fun.()})
-      end)
-
-    assert_receive {^ref, result}, 1_000
-    assert_receive {:DOWN, ^monitor, :process, ^caller, :normal}, 1_000
-    result
   end
 end

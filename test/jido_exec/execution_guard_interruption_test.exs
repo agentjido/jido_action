@@ -1,13 +1,13 @@
-defmodule Jido.Exec.ExecutionGuardInterruptionTest do
-  use JidoTest.ActionCase, async: false
+defmodule JidoActionTest.Exec.ExecutionGuardInterruptionTest do
+  use ExUnit.Case, async: false
 
   alias Jido.Action.Error.InvalidInputError
   alias Jido.Exec
   alias Jido.Exec.ExecutionGuard
   alias Jido.Flow
   alias Jido.Flow.{Node, Ref}
-  alias JidoTest.ExecutionFixtures
-  alias JidoTest.TestActions.RecorderAction
+  alias JidoActionTest.ExecFixtures
+  alias JidoActionTest.TestActions.RecorderAction
 
   @node_stop [:jido, :flow, :node, :stop]
 
@@ -18,7 +18,7 @@ defmodule Jido.Exec.ExecutionGuardInterruptionTest do
         nodes: [
           Node.new!(
             name: "block",
-            action: ExecutionFixtures.BlockingAction,
+            action: ExecFixtures.BlockingAction,
             input: %{value: Ref.value(:once)}
           )
         ],
@@ -36,8 +36,12 @@ defmodule Jido.Exec.ExecutionGuardInterruptionTest do
     assert_receive {:DOWN, ^caller_monitor, :process, ^caller, :killed}, 1_000
     assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :killed}, 1_000
 
-    assert_indeterminate(fn -> Exec.step(execution) end, 50)
-    refute_receive {:blocking_flow_node_started, _worker}, 50
+    assert_guard_indeterminate(execution)
+
+    assert {:error, %InvalidInputError{details: %{reason: :indeterminate}}} =
+             Exec.step(execution)
+
+    refute_received {:blocking_flow_node_started, _worker}
   end
 
   test "does not replay an Action that completed before its mutation owner exited" do
@@ -74,8 +78,12 @@ defmodule Jido.Exec.ExecutionGuardInterruptionTest do
     assert_receive {:node_stopped_before_guard_advance, ^caller}, 1_000
     assert_receive {:DOWN, ^caller_monitor, :process, ^caller, :killed}, 1_000
 
-    assert_indeterminate(fn -> Exec.step(execution) end, 50)
-    refute_receive {RecorderAction, %{value: :once}}, 50
+    assert_guard_indeterminate(execution)
+
+    assert {:error, %InvalidInputError{details: %{reason: :indeterminate}}} =
+             Exec.step(execution)
+
+    refute_received {RecorderAction, %{value: :once}}
   end
 
   test "keeps an advance that the owner completed before it exited" do
@@ -116,12 +124,18 @@ defmodule Jido.Exec.ExecutionGuardInterruptionTest do
 
     {owner, owner_monitor} =
       spawn_monitor(fn ->
-        {:ok, _operation} = ExecutionGuard.claim(execution)
-        send(test_pid, {:guard_claimed, self()})
-        Process.sleep(:infinity)
+        {:ok, {helper, _operation_ref, _helper_monitor, _token}} =
+          ExecutionGuard.claim(execution)
+
+        send(test_pid, {:guard_claimed, self(), helper})
+
+        receive do
+          :release -> :ok
+        end
       end)
 
-    assert_receive {:guard_claimed, ^owner}, 1_000
+    assert_receive {:guard_claimed, ^owner, helper}, 1_000
+    helper_monitor = Process.monitor(helper)
 
     {claimant, claimant_monitor} =
       spawn_monitor(fn ->
@@ -139,7 +153,10 @@ defmodule Jido.Exec.ExecutionGuardInterruptionTest do
 
     Process.exit(owner, :kill)
     assert_receive {:DOWN, ^owner_monitor, :process, ^owner, :killed}, 1_000
-    assert_indeterminate(fn -> Exec.step(execution) end, 50)
+    assert_receive {:DOWN, ^helper_monitor, :process, ^helper, :normal}, 1_000
+
+    assert {:error, %InvalidInputError{details: %{reason: :indeterminate}}} =
+             Exec.step(execution)
   end
 
   test "marks the guard indeterminate when a mutation error escapes to a live owner" do
@@ -147,7 +164,9 @@ defmodule Jido.Exec.ExecutionGuardInterruptionTest do
     invalid_execution = %{execution | options: [async: false]}
 
     assert_raise KeyError, fn -> Exec.step(invalid_execution) end
-    assert_indeterminate(fn -> Exec.step(execution) end, 50)
+
+    assert {:error, %InvalidInputError{details: %{reason: :indeterminate}}} =
+             Exec.step(execution)
   end
 
   test "marks the guard indeterminate when its operation helper exits" do
@@ -162,7 +181,8 @@ defmodule Jido.Exec.ExecutionGuardInterruptionTest do
       ExecutionGuard.release(operation, execution)
     end
 
-    assert_indeterminate(fn -> Exec.step(execution) end, 50)
+    assert {:error, %InvalidInputError{details: %{reason: :indeterminate}}} =
+             Exec.step(execution)
   end
 
   def kill_owner_after_node_stop(
@@ -175,22 +195,16 @@ defmodule Jido.Exec.ExecutionGuardInterruptionTest do
     Process.exit(self(), :kill)
   end
 
-  defp assert_indeterminate(fun, attempts) do
-    case fun.() do
-      {:error,
-       %InvalidInputError{
-         message: "stale flow execution",
-         details: %{reason: :indeterminate}
-       }} ->
-        :ok
+  defp assert_guard_indeterminate(%{guard: guard}) do
+    assert :indeterminate = await_guard_state(guard, 10_000)
+  end
 
-      {:error, %InvalidInputError{details: %{reason: :operation_in_progress}}}
-      when attempts > 0 ->
-        Process.sleep(10)
-        assert_indeterminate(fun, attempts - 1)
+  defp await_guard_state(_guard, 0), do: :not_indeterminate
 
-      other ->
-        flunk("expected an indeterminate flow execution, got: #{inspect(other)}")
+  defp await_guard_state(guard, attempts) do
+    case :atomics.get(guard, 2) do
+      1 -> :indeterminate
+      _state -> await_guard_state(guard, attempts - 1)
     end
   end
 

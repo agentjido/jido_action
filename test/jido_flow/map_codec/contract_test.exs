@@ -1,4 +1,4 @@
-defmodule Jido.Flow.MapCodecContractTest do
+defmodule JidoActionTest.Flow.MapCodec.ContractTest do
   use ExUnit.Case, async: true
 
   alias Jido.Flow
@@ -15,8 +15,8 @@ defmodule Jido.Flow.MapCodecContractTest do
 
   alias Jido.Flow.Map, as: FlowMap
 
-  alias JidoTest.FlowFixtures
-  alias JidoTest.TestActions.{Add, Multiply}
+  alias JidoActionTest.FlowFixtures
+  alias JidoActionTest.TestActions.{Add, Multiply}
 
   test "round-trips every node, reference, condition, and data kind" do
     flow = complete_flow()
@@ -33,6 +33,89 @@ defmodule Jido.Flow.MapCodecContractTest do
 
     assert seed["input"]["entries"]
            |> Enum.any?(&(&1["key"]["type"] == "integer"))
+  end
+
+  test "keeps the representative stored-map shape stable" do
+    flow =
+      Flow.new!(
+        name: "codec_characterization",
+        description: "stable",
+        nodes: [
+          Node.new!(
+            name: "add",
+            action: Add,
+            input: %{
+              :amount => Ref.value(2),
+              "value" => Ref.input(:value)
+            },
+            provenance: %{line: 7}
+          )
+        ],
+        return: Ref.result("add", :value),
+        provenance: %{source: "test"}
+      )
+
+    assert {:ok, stored} = Flow.to_stored_map(flow, registry(), provenance: true)
+
+    assert stored == %{
+             "type" => "flow",
+             "version" => 1,
+             "name" => "codec_characterization",
+             "description" => "stable",
+             "input_schema" => "schema/empty/v1",
+             "output_schema" => "schema/empty/v1",
+             "nodes" => [
+               %{
+                 "name" => "add",
+                 "action" => "action/add/v1",
+                 "input" => %{
+                   "type" => "map",
+                   "entries" => [
+                     %{
+                       "key" => %{"type" => "atom", "value" => "atom/amount/v1"},
+                       "value" => %{"type" => "value", "value" => 2}
+                     },
+                     %{
+                       "key" => %{"type" => "string", "value" => "value"},
+                       "value" => %{
+                         "type" => "input",
+                         "path" => [%{"type" => "atom", "value" => "atom/value/v1"}]
+                       }
+                     }
+                   ]
+                 },
+                 "deps" => [],
+                 "provenance" => %{
+                   "$type" => "map",
+                   "entries" => [
+                     %{
+                       "key" => %{"type" => "atom", "value" => "atom/line/v1"},
+                       "value" => 7
+                     }
+                   ]
+                 }
+               }
+             ],
+             "return" => %{
+               "type" => "result",
+               "node" => "add",
+               "path" => [%{"type" => "atom", "value" => "atom/value/v1"}]
+             },
+             "provenance" => %{
+               "$type" => "map",
+               "entries" => [
+                 %{
+                   "key" => %{"type" => "atom", "value" => "atom/source/v1"},
+                   "value" => "test"
+                 }
+               ]
+             }
+           }
+
+    assert {:ok, restored} =
+             stored |> Jason.encode!() |> Jason.decode!() |> Flow.from_stored_map(registry())
+
+    assert Flow.to_map(restored, provenance: true) == Flow.to_map(flow, provenance: true)
   end
 
   test "validates writer options and public subjects without raising" do
@@ -241,6 +324,38 @@ defmodule Jido.Flow.MapCodecContractTest do
              type: "unknown",
              path: ["return", "value", {:map_value, 0}]
            }
+
+    clean_flow =
+      Flow.new!(
+        name: "codec_errors",
+        nodes: [Node.new!(name: "add", action: Add, input: %{amount: Ref.value(2)})],
+        return: Ref.result("add")
+      )
+
+    assert {:ok, stored} = Flow.to_stored_map(clean_flow, registry())
+
+    invalid_ref =
+      put_in(
+        stored,
+        ["nodes", Access.at(0), "input", "entries", Access.at(0), "value"],
+        %{"type" => "unknown"}
+      )
+
+    assert {:error, nested_decode_error} = Flow.from_stored_map(invalid_ref, registry())
+    assert nested_decode_error.message == "unknown flow ref type: \"unknown\""
+
+    assert nested_decode_error.details == %{
+             type: "unknown",
+             path: ["nodes", 0, "input", {:map_value, 0}]
+           }
+
+    invalid_provenance = %{clean_flow | provenance: %{bad: self()}}
+
+    assert {:error, provenance_error} =
+             Flow.to_stored_map(invalid_provenance, registry(), provenance: true)
+
+    assert provenance_error.message == "stored flow value is not JSON-safe"
+    assert provenance_error.details.path == ["provenance", {:map_value, 0}]
   end
 
   defp complete_flow do

@@ -1,8 +1,8 @@
-defmodule JidoTest.FlowFixtures do
+defmodule JidoActionTest.FlowFixtures do
   @moduledoc false
 
   alias Jido.Flow.{Builder, Registry}
-  alias JidoTest.TestActions.{Add, Multiply}
+  alias JidoActionTest.TestActions.{Add, Multiply}
 
   def math_builder do
     Builder.new(
@@ -34,6 +34,7 @@ defmodule JidoTest.FlowFixtures do
       "schema/empty/v1" => {:schema, []},
       "atom/amount/v1" => {:atom, :amount},
       "atom/atom-key/v1" => {:atom, :atom_key},
+      "atom/bad/v1" => {:atom, :bad},
       "atom/blocked/v1" => {:atom, :blocked},
       "atom/disabled/v1" => {:atom, :disabled},
       "atom/host/v1" => {:atom, :host},
@@ -53,5 +54,19 @@ defmodule JidoTest.FlowFixtures do
       "atom/test/v1" => {:atom, :test},
       "atom/value/v1" => {:atom, :value}
     })
+  end
+end
+
+Code.ensure_compiled!(JidoActionTest.TestActions.Add)
+
+defmodule JidoActionTest.FlowFixtures.NestedFlow do
+  @moduledoc false
+  use Jido.Flow, name: "nested_fixture_flow"
+
+  flow do
+    step("add",
+      action: JidoActionTest.TestActions.Add,
+      params: %{value: input(:value), amount: 1}
+    )
   end
 end

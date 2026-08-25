@@ -1,5 +1,5 @@
-defmodule Jido.Flow.ConditionTest do
-  use JidoTest.ActionCase, async: true
+defmodule JidoActionTest.Flow.ConditionTest do
+  use ExUnit.Case, async: true
 
   alias Jido.Action.Error.InvalidInputError
   alias Jido.Flow.Condition

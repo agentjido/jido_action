@@ -1,5 +1,5 @@
-defmodule Jido.Action.ValidationTest do
-  use JidoTest.ActionCase, async: true
+defmodule JidoActionTest.Action.ValidationTest do
+  use ExUnit.Case, async: true
 
   alias Jido.Action.Validation
 

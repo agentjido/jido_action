@@ -1,92 +1,92 @@
 Enum.each(
   [
-    JidoTest.ExecFixtures.ChoiceEnvelopeTarget,
-    JidoTest.ExecFixtures.ChoicePublicEnvelopeAction,
-    JidoTest.ExecFixtures.ConcurrencyProbeAction,
-    JidoTest.ExecFixtures.Transforms,
-    JidoTest.TestActions.Add,
-    JidoTest.TestActions.EchoParamsAction,
-    JidoTest.TestActions.ErrorAction,
-    JidoTest.TestActions.Multiply,
-    JidoTest.TestActions.OutputEnvelopeAction
+    JidoActionTest.ExecFixtures.ChoiceEnvelopeTarget,
+    JidoActionTest.ExecFixtures.ChoicePublicEnvelopeAction,
+    JidoActionTest.ExecFixtures.ConcurrencyProbeAction,
+    JidoActionTest.ExecFixtures.Transforms,
+    JidoActionTest.TestActions.Add,
+    JidoActionTest.TestActions.EchoParamsAction,
+    JidoActionTest.TestActions.ErrorAction,
+    JidoActionTest.TestActions.Multiply,
+    JidoActionTest.TestActions.OutputEnvelopeAction
   ],
   &Code.ensure_compiled!/1
 )
 
-defmodule JidoTest.ExecFixtures.CountedValidationFlow do
+defmodule JidoActionTest.ExecFixtures.CountedValidationFlow do
   @moduledoc false
   use Jido.Flow,
     name: "counted_validation_flow",
     schema:
       Zoi.map()
-      |> Zoi.transform({JidoTest.ExecFixtures.Transforms, :count, [:input]}),
+      |> Zoi.transform({JidoActionTest.ExecFixtures.Transforms, :count, [:input]}),
     output_schema:
       Zoi.map()
-      |> Zoi.transform({JidoTest.ExecFixtures.Transforms, :count, [:output]})
+      |> Zoi.transform({JidoActionTest.ExecFixtures.Transforms, :count, [:output]})
 
   flow do
     step("echo",
-      action: JidoTest.TestActions.EchoParamsAction,
+      action: JidoActionTest.TestActions.EchoParamsAction,
       params: %{value: input(:value), input_passes: input(:input_passes)}
     )
   end
 end
 
-defmodule JidoTest.ExecFixtures.ScalarTransformedOutputFlow do
+defmodule JidoActionTest.ExecFixtures.ScalarTransformedOutputFlow do
   @moduledoc false
   use Jido.Flow,
     name: "scalar_transformed_output_flow",
     output_schema:
       Zoi.map()
-      |> Zoi.transform({JidoTest.ExecFixtures.Transforms, :count, [:invalid_output]})
+      |> Zoi.transform({JidoActionTest.ExecFixtures.Transforms, :count, [:invalid_output]})
 
   flow do
     step("echo",
-      action: JidoTest.TestActions.EchoParamsAction,
+      action: JidoActionTest.TestActions.EchoParamsAction,
       params: %{value: input(:value)}
     )
   end
 end
 
-defmodule JidoTest.ExecFixtures.ScalarTransformedInputFlow do
+defmodule JidoActionTest.ExecFixtures.ScalarTransformedInputFlow do
   @moduledoc false
   use Jido.Flow,
     name: "scalar_transformed_input_flow",
     schema:
       Zoi.map()
-      |> Zoi.transform({JidoTest.ExecFixtures.Transforms, :count, [:invalid_input]})
+      |> Zoi.transform({JidoActionTest.ExecFixtures.Transforms, :count, [:invalid_input]})
 
   flow do
     step("echo",
-      action: JidoTest.TestActions.EchoParamsAction,
+      action: JidoActionTest.TestActions.EchoParamsAction,
       params: %{value: input(:value)}
     )
   end
 end
 
-defmodule JidoTest.ExecFixtures.EnvelopeFlow do
+defmodule JidoActionTest.ExecFixtures.EnvelopeFlow do
   @moduledoc false
   use Jido.Flow,
     name: "envelope_flow",
     output_schema:
       Zoi.map()
-      |> Zoi.transform({JidoTest.ExecFixtures.Transforms, :count, [:envelope_output]})
+      |> Zoi.transform({JidoActionTest.ExecFixtures.Transforms, :count, [:envelope_output]})
 
   flow do
     step("envelope",
-      action: JidoTest.TestActions.OutputEnvelopeAction,
+      action: JidoActionTest.TestActions.OutputEnvelopeAction,
       params: %{value: input(:value)}
     )
   end
 end
 
-defmodule JidoTest.ExecFixtures.ScalarResultFlow do
+defmodule JidoActionTest.ExecFixtures.ScalarResultFlow do
   @moduledoc false
   use Jido.Flow, name: "scalar_result_flow"
 
   flow do
     step("echo",
-      action: JidoTest.TestActions.EchoParamsAction,
+      action: JidoActionTest.TestActions.EchoParamsAction,
       params: %{value: input(:value)}
     )
 
@@ -94,7 +94,7 @@ defmodule JidoTest.ExecFixtures.ScalarResultFlow do
   end
 end
 
-defmodule JidoTest.ExecFixtures.MathFlow do
+defmodule JidoActionTest.ExecFixtures.MathFlow do
   @moduledoc false
   use Jido.Flow,
     name: "math_flow",
@@ -102,18 +102,18 @@ defmodule JidoTest.ExecFixtures.MathFlow do
 
   flow do
     step("add_one",
-      action: JidoTest.TestActions.Add,
+      action: JidoActionTest.TestActions.Add,
       params: %{value: input(:value), amount: 1}
     )
 
     step("double",
-      action: JidoTest.TestActions.Multiply,
+      action: JidoActionTest.TestActions.Multiply,
       params: %{value: select(result("add_one"), [:value]), amount: 2}
     )
   end
 end
 
-defmodule JidoTest.ExecFixtures.AsyncMathFlow do
+defmodule JidoActionTest.ExecFixtures.AsyncMathFlow do
   @moduledoc false
   use Jido.Flow,
     name: "async_math_flow",
@@ -121,24 +121,24 @@ defmodule JidoTest.ExecFixtures.AsyncMathFlow do
 
   flow do
     step("add_one",
-      action: JidoTest.TestActions.Add,
+      action: JidoActionTest.TestActions.Add,
       params: %{value: input(:value), amount: 1}
     )
   end
 end
 
-defmodule JidoTest.ExecFixtures.NestedSerialProbeFlow do
+defmodule JidoActionTest.ExecFixtures.NestedSerialProbeFlow do
   @moduledoc false
   use Jido.Flow, name: "nested_serial_probe_flow"
 
   flow do
     step("left",
-      action: JidoTest.ExecFixtures.ConcurrencyProbeAction,
+      action: JidoActionTest.ExecFixtures.ConcurrencyProbeAction,
       params: %{side: :left, probe: input(:probe), test_pid: input(:test_pid)}
     )
 
     step("right",
-      action: JidoTest.ExecFixtures.ConcurrencyProbeAction,
+      action: JidoActionTest.ExecFixtures.ConcurrencyProbeAction,
       params: %{side: :right, probe: input(:probe), test_pid: input(:test_pid)}
     )
 
@@ -149,57 +149,57 @@ defmodule JidoTest.ExecFixtures.NestedSerialProbeFlow do
   end
 end
 
-defmodule JidoTest.ExecFixtures.ChoiceNestedFlow do
+defmodule JidoActionTest.ExecFixtures.ChoiceNestedFlow do
   @moduledoc false
   use Jido.Flow,
     name: "choice_nested_flow",
     schema:
       Zoi.map()
-      |> Zoi.transform({JidoTest.ExecFixtures.Transforms, :count, [:input]}),
+      |> Zoi.transform({JidoActionTest.ExecFixtures.Transforms, :count, [:input]}),
     output_schema:
       Zoi.map()
-      |> Zoi.transform({JidoTest.ExecFixtures.Transforms, :count, [:output]})
+      |> Zoi.transform({JidoActionTest.ExecFixtures.Transforms, :count, [:output]})
 
   flow do
     step("echo",
-      action: JidoTest.TestActions.EchoParamsAction,
+      action: JidoActionTest.TestActions.EchoParamsAction,
       params: %{value: input(:value), input_passes: input(:input_passes)}
     )
   end
 end
 
-defmodule JidoTest.ExecFixtures.ChoiceNestedEnvelopeFlow do
+defmodule JidoActionTest.ExecFixtures.ChoiceNestedEnvelopeFlow do
   @moduledoc false
   use Jido.Flow,
     name: "choice_nested_envelope_flow",
     schema:
       Zoi.map()
-      |> Zoi.transform({JidoTest.ExecFixtures.Transforms, :count, [:input]}),
+      |> Zoi.transform({JidoActionTest.ExecFixtures.Transforms, :count, [:input]}),
     output_schema:
       Zoi.map()
-      |> Zoi.transform({JidoTest.ExecFixtures.Transforms, :count, [:envelope_output]})
+      |> Zoi.transform({JidoActionTest.ExecFixtures.Transforms, :count, [:envelope_output]})
 
   flow do
     step("envelope",
-      action: JidoTest.TestActions.OutputEnvelopeAction,
+      action: JidoActionTest.TestActions.OutputEnvelopeAction,
       params: %{value: input(:value)}
     )
   end
 end
 
-defmodule JidoTest.ExecFixtures.ChoiceNestedErrorFlow do
+defmodule JidoActionTest.ExecFixtures.ChoiceNestedErrorFlow do
   @moduledoc false
   use Jido.Flow, name: "choice_nested_error_flow"
 
   flow do
     step("fail",
-      action: JidoTest.TestActions.ErrorAction,
+      action: JidoActionTest.TestActions.ErrorAction,
       params: %{error_type: :validation}
     )
   end
 end
 
-defmodule JidoTest.ExecFixtures.ChoicePublicPaths do
+defmodule JidoActionTest.ExecFixtures.ChoicePublicPaths do
   @moduledoc false
   use Jido.Flow, name: "choice_public_paths"
 
@@ -207,19 +207,19 @@ defmodule JidoTest.ExecFixtures.ChoicePublicPaths do
     choice "route" do
       option "priority" do
         condition(input(:kind) == :priority)
-        action(JidoTest.TestActions.Add)
+        action(JidoActionTest.TestActions.Add)
         params(%{value: input(:value), amount: 1})
       end
 
       otherwise(
-        action: JidoTest.TestActions.Add,
+        action: JidoActionTest.TestActions.Add,
         params: %{value: input(:value), amount: 2}
       )
     end
   end
 end
 
-defmodule JidoTest.ExecFixtures.ChoiceEnvelopePublicPaths do
+defmodule JidoActionTest.ExecFixtures.ChoiceEnvelopePublicPaths do
   @moduledoc false
   use Jido.Flow, name: "choice_envelope_public_paths"
 
@@ -227,40 +227,40 @@ defmodule JidoTest.ExecFixtures.ChoiceEnvelopePublicPaths do
     choice "route" do
       option "envelope" do
         condition(input(:kind) == :envelope)
-        action(JidoTest.ExecFixtures.ChoiceEnvelopeTarget)
+        action(JidoActionTest.ExecFixtures.ChoiceEnvelopeTarget)
         params(%{value: input(:value)})
       end
 
       otherwise(
-        action: JidoTest.TestActions.Add,
+        action: JidoActionTest.TestActions.Add,
         params: %{value: input(:value), amount: 0}
       )
     end
   end
 end
 
-defmodule JidoTest.ExecFixtures.ChoicePublicNestedFlow do
+defmodule JidoActionTest.ExecFixtures.ChoicePublicNestedFlow do
   @moduledoc false
   use Jido.Flow,
     name: "choice_public_nested_flow",
     schema:
       Zoi.map()
-      |> Zoi.transform({JidoTest.ExecFixtures.Transforms, :count, [:input]}),
+      |> Zoi.transform({JidoActionTest.ExecFixtures.Transforms, :count, [:input]}),
     output_schema:
       Zoi.map()
-      |> Zoi.transform({JidoTest.ExecFixtures.Transforms, :count, [:output]})
+      |> Zoi.transform({JidoActionTest.ExecFixtures.Transforms, :count, [:output]})
 
   flow do
     step("echo",
-      action: JidoTest.TestActions.Add,
+      action: JidoActionTest.TestActions.Add,
       params: %{value: input(:value), amount: 0}
     )
   end
 end
 
-Code.ensure_compiled!(JidoTest.ExecFixtures.ChoicePublicNestedFlow)
+Code.ensure_compiled!(JidoActionTest.ExecFixtures.ChoicePublicNestedFlow)
 
-defmodule JidoTest.ExecFixtures.ChoicePublicNestedPaths do
+defmodule JidoActionTest.ExecFixtures.ChoicePublicNestedPaths do
   @moduledoc false
   use Jido.Flow, name: "choice_public_nested_paths"
 
@@ -268,40 +268,40 @@ defmodule JidoTest.ExecFixtures.ChoicePublicNestedPaths do
     choice "route" do
       option "nested" do
         condition(input(:kind) == :nested)
-        action(JidoTest.ExecFixtures.ChoicePublicNestedFlow)
+        action(JidoActionTest.ExecFixtures.ChoicePublicNestedFlow)
         params(%{value: input(:value)})
       end
 
       otherwise(
-        action: JidoTest.TestActions.Add,
+        action: JidoActionTest.TestActions.Add,
         params: %{value: input(:value), amount: 0}
       )
     end
   end
 end
 
-defmodule JidoTest.ExecFixtures.ChoicePublicEnvelopeFlow do
+defmodule JidoActionTest.ExecFixtures.ChoicePublicEnvelopeFlow do
   @moduledoc false
   use Jido.Flow,
     name: "choice_public_envelope_flow",
     schema:
       Zoi.map()
-      |> Zoi.transform({JidoTest.ExecFixtures.Transforms, :count, [:input]}),
+      |> Zoi.transform({JidoActionTest.ExecFixtures.Transforms, :count, [:input]}),
     output_schema:
       Zoi.map()
-      |> Zoi.transform({JidoTest.ExecFixtures.Transforms, :count, [:envelope_output]})
+      |> Zoi.transform({JidoActionTest.ExecFixtures.Transforms, :count, [:envelope_output]})
 
   flow do
     step("envelope",
-      action: JidoTest.ExecFixtures.ChoicePublicEnvelopeAction,
+      action: JidoActionTest.ExecFixtures.ChoicePublicEnvelopeAction,
       params: %{value: input(:value)}
     )
   end
 end
 
-Code.ensure_compiled!(JidoTest.ExecFixtures.ChoicePublicEnvelopeFlow)
+Code.ensure_compiled!(JidoActionTest.ExecFixtures.ChoicePublicEnvelopeFlow)
 
-defmodule JidoTest.ExecFixtures.ChoicePublicEnvelopePaths do
+defmodule JidoActionTest.ExecFixtures.ChoicePublicEnvelopePaths do
   @moduledoc false
   use Jido.Flow, name: "choice_public_envelope_paths"
 
@@ -309,51 +309,51 @@ defmodule JidoTest.ExecFixtures.ChoicePublicEnvelopePaths do
     choice "route" do
       option "nested" do
         condition(input(:kind) == :nested)
-        action(JidoTest.ExecFixtures.ChoicePublicEnvelopeFlow)
+        action(JidoActionTest.ExecFixtures.ChoicePublicEnvelopeFlow)
         params(%{value: input(:value)})
       end
 
       otherwise(
-        action: JidoTest.TestActions.Add,
+        action: JidoActionTest.TestActions.Add,
         params: %{value: input(:value), amount: 0}
       )
     end
   end
 end
 
-defmodule JidoTest.ExecFixtures.MapNestedFlow do
+defmodule JidoActionTest.ExecFixtures.MapNestedFlow do
   @moduledoc false
   use Jido.Flow,
     name: "map_nested_flow",
     schema:
       Zoi.map()
-      |> Zoi.transform({JidoTest.ExecFixtures.Transforms, :count, [:input]}),
+      |> Zoi.transform({JidoActionTest.ExecFixtures.Transforms, :count, [:input]}),
     output_schema:
       Zoi.map()
-      |> Zoi.transform({JidoTest.ExecFixtures.Transforms, :count, [:output]})
+      |> Zoi.transform({JidoActionTest.ExecFixtures.Transforms, :count, [:output]})
 
   flow do
     step("echo",
-      action: JidoTest.TestActions.EchoParamsAction,
+      action: JidoActionTest.TestActions.EchoParamsAction,
       params: %{value: input(:value), input_passes: input(:input_passes)}
     )
   end
 end
 
-defmodule JidoTest.ExecFixtures.ReduceNestedFlow do
+defmodule JidoActionTest.ExecFixtures.ReduceNestedFlow do
   @moduledoc false
   use Jido.Flow,
     name: "reduce_nested_flow",
     schema:
       Zoi.map()
-      |> Zoi.transform({JidoTest.ExecFixtures.Transforms, :count, [:input]}),
+      |> Zoi.transform({JidoActionTest.ExecFixtures.Transforms, :count, [:input]}),
     output_schema:
       Zoi.map()
-      |> Zoi.transform({JidoTest.ExecFixtures.Transforms, :count, [:output]})
+      |> Zoi.transform({JidoActionTest.ExecFixtures.Transforms, :count, [:output]})
 
   flow do
     step("echo",
-      action: JidoTest.TestActions.EchoParamsAction,
+      action: JidoActionTest.TestActions.EchoParamsAction,
       params: %{
         value: input(:value),
         previous: input(:previous),
@@ -363,33 +363,33 @@ defmodule JidoTest.ExecFixtures.ReduceNestedFlow do
   end
 end
 
-defmodule JidoTest.ExecFixtures.InstructionTelemetryFlow do
+defmodule JidoActionTest.ExecFixtures.InstructionTelemetryFlow do
   @moduledoc false
   use Jido.Flow, name: "instruction_telemetry_flow"
 
   flow do
-    step("add", action: JidoTest.TestActions.Add, params: %{value: input(:value)})
+    step("add", action: JidoActionTest.TestActions.Add, params: %{value: input(:value)})
   end
 end
 
-defmodule JidoTest.ExecFixtures.TelemetryChildFlow do
+defmodule JidoActionTest.ExecFixtures.TelemetryChildFlow do
   @moduledoc false
   use Jido.Flow, name: "telemetry_child_flow"
 
   flow do
-    step("child_add", action: JidoTest.TestActions.Add, params: %{value: input(:value)})
+    step("child_add", action: JidoActionTest.TestActions.Add, params: %{value: input(:value)})
   end
 end
 
-Code.ensure_compiled!(JidoTest.ExecFixtures.TelemetryChildFlow)
+Code.ensure_compiled!(JidoActionTest.ExecFixtures.TelemetryChildFlow)
 
-defmodule JidoTest.ExecFixtures.TelemetryParentFlow do
+defmodule JidoActionTest.ExecFixtures.TelemetryParentFlow do
   @moduledoc false
   use Jido.Flow, name: "telemetry_parent_flow"
 
   flow do
     step("child",
-      action: JidoTest.ExecFixtures.TelemetryChildFlow,
+      action: JidoActionTest.ExecFixtures.TelemetryChildFlow,
       params: %{value: input(:value)}
     )
   end

@@ -1,5 +1,5 @@
-defmodule Jido.Exec.ActionExecutionTest do
-  use JidoTest.ActionCase, async: true
+defmodule JidoActionTest.Exec.ActionExecutionTest do
+  use JidoActionTest.Case, async: true
   @moduletag capture_log: true
 
   alias Jido.Action.Error
@@ -8,10 +8,9 @@ defmodule Jido.Exec.ActionExecutionTest do
   alias Jido.Flow
   alias Jido.Flow.{Node, Ref}
   alias Jido.Instruction
-  alias JidoTest.ExecFixtures.ActionWithFlowFunction
-  alias JidoTest.ExecutionFixtures.BlockingAction
+  alias JidoActionTest.ExecFixtures.{ActionWithFlowFunction, BlockingAction}
 
-  alias JidoTest.TestActions.{
+  alias JidoActionTest.TestActions.{
     Add,
     AtomErrorAction,
     AtomValidationAction,
@@ -212,7 +211,10 @@ defmodule Jido.Exec.ActionExecutionTest do
                 %ExecutionFailureError{
                   message: "action execution process exited",
                   details: %{action: KillingAction, reason: :killed}
-                } = error} = run_in_monitored_caller(fn -> Exec.run(executable) end)
+                } = error} =
+                 run_in_monitored_caller(fn -> Exec.run(executable) end,
+                   assert_mailbox_empty: true
+                 )
 
         refute Error.retryable?(error)
       end
@@ -400,21 +402,5 @@ defmodule Jido.Exec.ActionExecutionTest do
              {^module, ^function, ^arity, _location} -> true
              _frame -> false
            end)
-  end
-
-  defp run_in_monitored_caller(fun) do
-    owner = self()
-    ref = make_ref()
-
-    {caller, monitor} =
-      spawn_monitor(fn ->
-        result = fun.()
-        {:messages, messages} = Process.info(self(), :messages)
-        send(owner, {ref, result, messages})
-      end)
-
-    assert_receive {^ref, result, []}, 1_000
-    assert_receive {:DOWN, ^monitor, :process, ^caller, :normal}, 1_000
-    result
   end
 end

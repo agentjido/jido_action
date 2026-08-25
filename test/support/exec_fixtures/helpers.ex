@@ -1,12 +1,14 @@
-defmodule JidoTest.ExecutionFixtures do
+defmodule JidoActionTest.ExecFixtures do
   @moduledoc false
 
-  alias Jido.Flow
+  import ExUnit.Assertions, only: [assert: 1]
+
+  alias Jido.{Exec, Flow, Instruction}
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.{Node, Reduce, Ref}
-  alias JidoTest.ExecFixtures.ConcurrencyProbeAction
+  alias JidoActionTest.ExecFixtures.ConcurrencyProbeAction
 
-  alias JidoTest.TestActions.{
+  alias JidoActionTest.TestActions.{
     Add,
     EchoParamsAction,
     MapProbeAction,
@@ -33,14 +35,14 @@ defmodule JidoTest.ExecutionFixtures do
       name: "counted_step_flow",
       schema:
         Zoi.map()
-        |> Zoi.transform({JidoTest.ExecutionFixtures, :count_transform, [:input]}),
+        |> Zoi.transform({JidoActionTest.ExecFixtures, :count_transform, [:input]}),
       output_schema:
         Zoi.map()
-        |> Zoi.transform({JidoTest.ExecutionFixtures, :count_transform, [:output]})
+        |> Zoi.transform({JidoActionTest.ExecFixtures, :count_transform, [:output]})
 
     flow do
       step("echo",
-        action: JidoTest.TestActions.EchoParamsAction,
+        action: JidoActionTest.TestActions.EchoParamsAction,
         params: %{value: input(:value)}
       )
     end
@@ -52,7 +54,7 @@ defmodule JidoTest.ExecutionFixtures do
 
     flow do
       step("add",
-        action: JidoTest.TestActions.Add,
+        action: JidoActionTest.TestActions.Add,
         params: %{value: input(:value), amount: 1}
       )
     end
@@ -239,6 +241,31 @@ defmodule JidoTest.ExecutionFixtures do
       nodes: nodes,
       return: Ref.result(node_name(node_count))
     )
+  end
+
+  def flow_execution_paths(module, input) do
+    flow = module.flow()
+    instruction = Instruction.new!(action: module, params: input)
+
+    parent =
+      Flow.new!(
+        name: "parent_#{System.unique_integer([:positive])}",
+        nodes: [Node.new!(name: :inner, action: module, input: Ref.input([]))],
+        return: Ref.result(:inner)
+      )
+
+    [
+      artifact: fn -> Exec.run(flow, input, %{}) end,
+      module: fn -> Exec.run(module, input, %{}) end,
+      instruction: fn -> Exec.run(instruction, %{}, %{}) end,
+      parent: fn -> Exec.run(parent, input, %{}) end
+    ]
+  end
+
+  def assert_ready_cache(execution, expected) do
+    assert Exec.ready(execution) == expected
+    assert Map.fetch!(execution, :ready_nodes) == expected
+    assert execution.ready |> Map.keys() |> Enum.sort() == expected
   end
 
   def node_name(index) do

@@ -1,4 +1,4 @@
-defmodule Jido.Flow.CompilerRuntimeTest do
+defmodule JidoActionTest.Flow.Compiler.RuntimeTest do
   use ExUnit.Case, async: true
 
   alias Jido.Action.Error.ExecutionFailureError
@@ -8,7 +8,7 @@ defmodule Jido.Flow.CompilerRuntimeTest do
   alias Jido.Flow.{Choice, Compiler, Condition, Node, Reduce, Ref}
   alias Jido.Flow.Map, as: FlowMap
 
-  alias JidoTest.TestActions.{Add, EchoParamsAction, Multiply}
+  alias JidoActionTest.TestActions.{Add, EchoParamsAction, Multiply}
 
   test "executes every comparison operator with runtime operands" do
     cases = [

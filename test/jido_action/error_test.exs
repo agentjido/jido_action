@@ -1,9 +1,9 @@
-defmodule Jido.Action.ErrorTest do
+defmodule JidoActionTest.Action.ErrorTest do
   use ExUnit.Case, async: true
 
   alias Jido.Action.Error
   alias Jido.Action.Error.Internal.UnknownError
-  alias JidoTest.Support.RaisingInspectStruct
+  alias JidoActionTest.Support.RaisingInspectStruct
 
   describe "error construction" do
     test "constructors create the concrete Action errors" do

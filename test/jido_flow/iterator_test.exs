@@ -1,9 +1,9 @@
-defmodule Jido.Flow.IteratorTest do
+defmodule JidoActionTest.Flow.IteratorTest do
   use ExUnit.Case, async: true
 
   alias Jido.Action.Error.InvalidInputError
   alias Jido.Flow.{Condition, Iterator, Ref, State}
-  alias JidoTest.TestActions.{Add, MissingRun}
+  alias JidoActionTest.TestActions.{Add, MissingRun}
 
   test "builds a bounded Iterator with explicit State" do
     iterator = iterator()
@@ -67,8 +67,10 @@ defmodule Jido.Flow.IteratorTest do
   end
 
   test "emits a semantic Iterator map without engine values" do
-    map = Iterator.to_map(iterator())
+    iterator = Iterator.new!(%{iterator() | name: :count})
+    map = Iterator.to_map(iterator)
 
+    assert iterator.name == "count"
     assert map.kind == :iterate
     assert map.name == "count"
     assert map.action == Add

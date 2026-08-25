@@ -1,9 +1,9 @@
-defmodule Jido.Flow.ChoiceTest do
-  use JidoTest.ActionCase, async: true
+defmodule JidoActionTest.Flow.ChoiceTest do
+  use ExUnit.Case, async: true
 
   alias Jido.Action.Error.InvalidInputError
   alias Jido.Flow.{Choice, Condition, Ref}
-  alias JidoTest.TestActions.{Add, MissingRun, Multiply}
+  alias JidoActionTest.TestActions.{Add, MissingRun, Multiply}
 
   describe "new/1" do
     test "builds an ordered case choice with a fixed fallback identity" do

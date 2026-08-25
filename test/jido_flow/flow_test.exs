@@ -1,10 +1,10 @@
-defmodule Jido.FlowTest do
-  use JidoTest.ActionCase, async: true
+defmodule JidoActionTest.FlowTest do
+  use ExUnit.Case, async: true
 
   alias Jido.Action.Error.InvalidInputError
   alias Jido.Flow
   alias Jido.Flow.{Choice, Condition, Node, Ref}
-  alias JidoTest.TestActions.{Add, EchoParamsAction, MissingRun, Multiply}
+  alias JidoActionTest.TestActions.{Add, EchoParamsAction, MissingRun, Multiply}
 
   test "builds and orders a canonical Flow" do
     second =

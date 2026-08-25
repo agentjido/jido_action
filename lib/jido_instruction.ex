@@ -17,6 +17,7 @@ defmodule Jido.Instruction do
   """
 
   alias Jido.Action.Error
+  alias Jido.Executable
 
   @schema Zoi.struct(
             __MODULE__,
@@ -73,28 +74,19 @@ defmodule Jido.Instruction do
   @doc false
   @spec validate_action_contract(term()) :: :ok | {:error, Exception.t()}
   def validate_action_contract(action) when is_atom(action) and not is_nil(action) do
-    case Code.ensure_loaded(action) do
-      {:module, _module} ->
-        cond do
-          not function_exported?(action, :run, 2) ->
-            invalid_action_contract(action, "missing run/2")
+    case Executable.resolve(action) do
+      {:ok, executable} ->
+        Executable.validate(executable)
 
-          not function_exported?(action, :validate_params, 1) ->
-            invalid_action_contract(action, "missing validate_params/1")
-
-          not function_exported?(action, :validate_output, 1) ->
-            invalid_action_contract(action, "missing validate_output/1")
-
-          true ->
-            :ok
-        end
-
-      {:error, reason} ->
+      {:error, %Error.ConfigurationError{details: %{reason: reason}}} ->
         {:error,
          Error.validation_error("action module could not be loaded", %{
            action: action,
            reason: reason
          })}
+
+      {:error, error} ->
+        {:error, error}
     end
   end
 
@@ -199,14 +191,6 @@ defmodule Jido.Instruction do
       {:error, error} ->
         raise ArgumentError, Exception.message(error)
     end
-  end
-
-  defp invalid_action_contract(action, reason) do
-    {:error,
-     Error.validation_error("module is not a valid Jido action", %{
-       action: action,
-       reason: reason
-     })}
   end
 
   defp normalize_map_field(nil, _field), do: {:ok, %{}}

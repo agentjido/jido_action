@@ -1,4 +1,4 @@
-defmodule Jido.Flow.RefTest do
+defmodule JidoActionTest.Flow.RefTest do
   use ExUnit.Case, async: true
 
   alias Jido.Flow.Ref

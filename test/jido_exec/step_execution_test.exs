@@ -1,18 +1,18 @@
-defmodule Jido.Exec.StepExecutionTest do
-  use JidoTest.ActionCase, async: true
+defmodule JidoActionTest.Exec.StepExecutionTest do
+  use ExUnit.Case, async: true
 
   alias Jido.Action.Error.InvalidInputError
   alias Jido.Exec
   alias Jido.Exec.{Execution, NodeResult}
   alias Jido.Flow
   alias Jido.Flow.{Node, Ref}
-  alias JidoTest.ExecFixtures.ConcurrencyProbeAction
-  alias JidoTest.ExecutionFixtures
-  alias JidoTest.TestActions.{Add, EchoParamsAction, RecorderAction}
+  alias JidoActionTest.ExecFixtures.ConcurrencyProbeAction
+  alias JidoActionTest.ExecFixtures
+  alias JidoActionTest.TestActions.{Add, EchoParamsAction, RecorderAction}
 
   describe "start/4 and step/2" do
     test "pauses before the first node and executes one named node at a time" do
-      flow = ExecutionFixtures.linear_flow()
+      flow = ExecFixtures.linear_flow()
       context = %{trace_id: "secret-context"}
 
       assert {:ok, %Execution{} = execution} = Exec.start(flow, [value: 3], context)
@@ -65,8 +65,8 @@ defmodule Jido.Exec.StepExecutionTest do
     end
 
     test "uses canonical node order for a wide ready set" do
-      flow = ExecutionFixtures.wide_flow(64)
-      expected = Enum.map(1..64, &ExecutionFixtures.node_name/1)
+      flow = ExecFixtures.wide_flow(64)
+      expected = Enum.map(1..64, &ExecFixtures.node_name/1)
 
       assert {:ok, execution} = Exec.start(flow)
       assert Exec.ready(execution) == expected
@@ -117,7 +117,7 @@ defmodule Jido.Exec.StepExecutionTest do
           nodes: [
             Node.new!(
               name: "block",
-              action: ExecutionFixtures.BlockingAction,
+              action: ExecFixtures.BlockingAction,
               input: %{value: Ref.value(:once)}
             )
           ],
@@ -145,7 +145,7 @@ defmodule Jido.Exec.StepExecutionTest do
     end
 
     test "rejects a node that is not ready without changing the execution" do
-      assert {:ok, execution} = Exec.start(ExecutionFixtures.linear_flow(), %{value: 3})
+      assert {:ok, execution} = Exec.start(ExecFixtures.linear_flow(), %{value: 3})
 
       assert {:error, %InvalidInputError{message: message, details: details}} =
                Exec.step(execution, "multiply")
@@ -168,14 +168,14 @@ defmodule Jido.Exec.StepExecutionTest do
 
     test "uses the same Flow option validation as run/4" do
       assert {:error, %InvalidInputError{message: message, details: details}} =
-               Exec.start(ExecutionFixtures.linear_flow(), %{value: 3}, %{}, timeout: 100)
+               Exec.start(ExecFixtures.linear_flow(), %{value: 3}, %{}, timeout: 100)
 
       assert message =~ "unknown run option"
       assert details.option == :timeout
     end
 
     test "rejects further steps after execution succeeds" do
-      assert {:ok, execution} = Exec.start(ExecutionFixtures.linear_flow(), %{value: 3})
+      assert {:ok, execution} = Exec.start(ExecFixtures.linear_flow(), %{value: 3})
       assert {:ok, execution} = Exec.continue(execution)
 
       assert {:error, %InvalidInputError{message: message, details: details}} =
@@ -186,7 +186,7 @@ defmodule Jido.Exec.StepExecutionTest do
     end
 
     test "rejects non-string names and terminal wave calls" do
-      assert {:ok, execution} = Exec.start(ExecutionFixtures.linear_flow(), %{value: 3})
+      assert {:ok, execution} = Exec.start(ExecFixtures.linear_flow(), %{value: 3})
 
       assert {:error, %InvalidInputError{message: message, details: %{node: :add}}} =
                Exec.step(execution, :add)
@@ -205,7 +205,7 @@ defmodule Jido.Exec.StepExecutionTest do
 
   describe "wave/1" do
     test "executes only the nodes that were ready when the wave started" do
-      flow = ExecutionFixtures.diamond_flow(RecorderAction)
+      flow = ExecFixtures.diamond_flow(RecorderAction)
       context = %{test_pid: self()}
 
       assert {:ok, execution} = Exec.start(flow, %{}, context)
@@ -228,7 +228,7 @@ defmodule Jido.Exec.StepExecutionTest do
     @tag timeout: 5_000
     test "uses the stored asynchronous execution options" do
       probe = start_supervised!({Agent, fn -> %{max: 0, running: 0} end})
-      flow = ExecutionFixtures.probe_diamond_flow()
+      flow = ExecFixtures.probe_diamond_flow()
 
       assert {:ok, parallel} =
                Exec.start(flow, %{}, %{probe: probe, test_pid: self()},
@@ -254,7 +254,7 @@ defmodule Jido.Exec.StepExecutionTest do
     end
 
     test "settles internal multi-parent joins before exposing the next Flow node" do
-      assert {:ok, execution} = Exec.start(ExecutionFixtures.diamond_flow(EchoParamsAction))
+      assert {:ok, execution} = Exec.start(ExecFixtures.diamond_flow(EchoParamsAction))
       assert {:ok, _results, execution} = Exec.wave(execution)
 
       assert Exec.ready(execution) == ["merge"]

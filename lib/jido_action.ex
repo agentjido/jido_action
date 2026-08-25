@@ -249,6 +249,7 @@ defmodule Jido.Action do
 
     quote location: :keep do
       @behaviour Jido.Action
+      @behaviour Jido.Executable
 
       alias Jido.Action
 
@@ -311,6 +312,9 @@ defmodule Jido.Action do
 
           @doc "Returns the output schema of the Action."
           def output_schema, do: @__jido_output_schema__
+
+          @doc false
+          def __jido_executable__, do: Jido.Executable.action(__MODULE__)
 
           @doc unquote(validate_params_doc)
           @spec validate_params(map()) ::

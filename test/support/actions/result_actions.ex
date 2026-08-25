@@ -1,4 +1,4 @@
-defmodule JidoTest.TestActions.ErrorAction do
+defmodule JidoActionTest.TestActions.ErrorAction do
   @moduledoc false
   use Jido.Action, name: "error_action"
 
@@ -17,7 +17,7 @@ defmodule JidoTest.TestActions.ErrorAction do
   def run(_params, _context), do: {:error, "Action failed"}
 end
 
-defmodule JidoTest.TestActions.InvalidOutput do
+defmodule JidoActionTest.TestActions.InvalidOutput do
   @moduledoc false
   use Jido.Action,
     name: "invalid_output",
@@ -28,7 +28,7 @@ defmodule JidoTest.TestActions.InvalidOutput do
   def run(%{value: value}, _context), do: {:ok, %{value: Integer.to_string(value)}}
 end
 
-defmodule JidoTest.TestActions.ExtrasAction do
+defmodule JidoActionTest.TestActions.ExtrasAction do
   @moduledoc false
   use Jido.Action,
     name: "extras_action",
@@ -41,14 +41,14 @@ defmodule JidoTest.TestActions.ExtrasAction do
   end
 end
 
-defmodule JidoTest.TestActions.NoneExtrasAction do
+defmodule JidoActionTest.TestActions.NoneExtrasAction do
   @moduledoc false
   use Jido.Action, name: "none_extras_action"
 
   def run(params, _context), do: {:ok, params, :none}
 end
 
-defmodule JidoTest.TestActions.UnsupportedResult do
+defmodule JidoActionTest.TestActions.UnsupportedResult do
   @moduledoc false
   use Jido.Action,
     name: "unsupported_result",
@@ -57,7 +57,7 @@ defmodule JidoTest.TestActions.UnsupportedResult do
   def run(_params, _context), do: :not_a_result_tuple
 end
 
-defmodule JidoTest.TestActions.ThrowingAction do
+defmodule JidoActionTest.TestActions.ThrowingAction do
   @moduledoc false
   use Jido.Action,
     name: "throwing_action",
@@ -66,7 +66,7 @@ defmodule JidoTest.TestActions.ThrowingAction do
   def run(_params, _context), do: throw(:thrown_value)
 end
 
-defmodule JidoTest.TestActions.StacktraceAction do
+defmodule JidoActionTest.TestActions.StacktraceAction do
   @moduledoc false
 
   def validate_params(params), do: {:ok, params}
@@ -81,7 +81,7 @@ defmodule JidoTest.TestActions.StacktraceAction do
   def exit_from_action, do: exit(:stacktrace_probe_exited)
 end
 
-defmodule JidoTest.TestActions.OutputEnvelopeAction do
+defmodule JidoActionTest.TestActions.OutputEnvelopeAction do
   @moduledoc false
   use Jido.Action,
     name: "output_envelope_action",
@@ -93,21 +93,21 @@ defmodule JidoTest.TestActions.OutputEnvelopeAction do
   end
 end
 
-defmodule JidoTest.TestActions.RawOutputAction do
+defmodule JidoActionTest.TestActions.RawOutputAction do
   @moduledoc false
   use Jido.Action, name: "raw_output_action"
 
   def run(%{value: value}, _context), do: {:ok, value}
 end
 
-defmodule JidoTest.TestActions.RawOutputWithExtrasAction do
+defmodule JidoActionTest.TestActions.RawOutputWithExtrasAction do
   @moduledoc false
   use Jido.Action, name: "raw_output_with_extras_action"
 
   def run(%{value: value}, _context), do: {:ok, value, %{effect: :already_ran}}
 end
 
-defmodule JidoTest.TestActions.ErrorWithExtrasAction do
+defmodule JidoActionTest.TestActions.ErrorWithExtrasAction do
   @moduledoc false
   use Jido.Action, name: "error_with_extras_action"
 
@@ -115,7 +115,7 @@ defmodule JidoTest.TestActions.ErrorWithExtrasAction do
   def run(_params, _context), do: {:error, :bad_with_extras, %{ignored: true}}
 end
 
-defmodule JidoTest.TestActions.ExceptionErrorAction do
+defmodule JidoActionTest.TestActions.ExceptionErrorAction do
   @moduledoc false
   use Jido.Action, name: "exception_error_action"
 
@@ -124,14 +124,14 @@ defmodule JidoTest.TestActions.ExceptionErrorAction do
   end
 end
 
-defmodule JidoTest.TestActions.AtomErrorAction do
+defmodule JidoActionTest.TestActions.AtomErrorAction do
   @moduledoc false
   use Jido.Action, name: "atom_error_action"
 
   def run(_params, _context), do: {:error, :bad_atom}
 end
 
-defmodule JidoTest.TestActions.TupleErrorAction do
+defmodule JidoActionTest.TestActions.TupleErrorAction do
   @moduledoc false
   use Jido.Action, name: "tuple_error_action"
 

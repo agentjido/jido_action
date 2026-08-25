@@ -1,4 +1,4 @@
-defmodule JidoTest.ExecFixtures.Transforms do
+defmodule JidoActionTest.ExecFixtures.Transforms do
   @moduledoc false
 
   @kinds [:input, :invalid_input, :output, :envelope_output, :invalid_output]

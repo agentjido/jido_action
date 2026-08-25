@@ -1,39 +1,4 @@
-defmodule JidoTest.IteratorFixtures.ChildIterator do
-  @moduledoc false
-  use Jido.Flow, name: "child_iterator"
-
-  flow do
-    iterate "child" do
-      state([], initial: %{count: 0})
-      action(JidoTest.IteratorFixtures.Increment)
-      params(%{count: state(:count), index: iteration_index()})
-      update(%{count: body_result(:count)})
-      repeat(1)
-    end
-  end
-end
-
-defmodule JidoTest.IteratorFixtures.ChildMapReduce do
-  @moduledoc false
-  use Jido.Flow, name: "child_map_reduce"
-
-  flow do
-    map("enrich",
-      collection: input(:items),
-      action: JidoTest.TestActions.Add,
-      params: %{value: item(:value), amount: 1}
-    )
-
-    reduce "summarize" do
-      collection(result("enrich"))
-      initial(%{value: 1})
-      action(JidoTest.TestActions.Multiply)
-      params(%{value: accumulator(:value), amount: item(:value)})
-    end
-  end
-end
-
-defmodule Jido.Flow.IteratorNestedRuntimeTest do
+defmodule JidoActionTest.Exec.IteratorNestedExecutionTest do
   use ExUnit.Case, async: true
 
   @moduletag capture_log: true
@@ -45,8 +10,8 @@ defmodule Jido.Flow.IteratorNestedRuntimeTest do
   alias Jido.Flow.Iterator
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.Ref
-  alias JidoTest.IteratorFixtures
-  alias JidoTest.IteratorFixtures.{ChildIterator, ChildMapReduce, Increment}
+  alias JidoActionTest.IteratorFixtures
+  alias JidoActionTest.IteratorFixtures.{ChildIterator, ChildMapReduce, Increment}
 
   describe "nested Iterator execution" do
     test "runs a marked child Flow atomically with fresh child Iterator State" do

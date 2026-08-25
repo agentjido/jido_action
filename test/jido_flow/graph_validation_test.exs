@@ -1,10 +1,10 @@
-defmodule Jido.Flow.GraphValidationTest do
-  use JidoTest.ActionCase, async: true
+defmodule JidoActionTest.Flow.GraphValidationTest do
+  use ExUnit.Case, async: true
 
   alias Jido.Action.Error.InvalidInputError
   alias Jido.Flow
   alias Jido.Flow.{Node, Ref}
-  alias JidoTest.TestActions.Add
+  alias JidoActionTest.TestActions.Add
 
   test "validates long dependency chains with near-linear Jido-owned work" do
     small_nodes = chain_nodes(200)

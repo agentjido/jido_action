@@ -1,11 +1,11 @@
-defmodule JidoTest.TestActions.KillingAction do
+defmodule JidoActionTest.TestActions.KillingAction do
   @moduledoc false
   use Jido.Action, name: "killing_action"
 
   def run(_params, _context), do: Process.exit(self(), :kill)
 end
 
-defmodule JidoTest.TestActions.MapProbeAction do
+defmodule JidoActionTest.TestActions.MapProbeAction do
   @moduledoc false
   use Jido.Action, name: "map_probe_action"
 
@@ -37,7 +37,7 @@ defmodule JidoTest.TestActions.MapProbeAction do
   end
 end
 
-defmodule JidoTest.TestActions.CountedMapAction do
+defmodule JidoActionTest.TestActions.CountedMapAction do
   @moduledoc false
 
   def validate_params(%{test_pid: test_pid, index: index} = params) do
@@ -56,7 +56,7 @@ defmodule JidoTest.TestActions.CountedMapAction do
   end
 end
 
-defmodule JidoTest.TestActions.ReduceProbeAction do
+defmodule JidoActionTest.TestActions.ReduceProbeAction do
   @moduledoc false
   use Jido.Action, name: "reduce_probe_action"
 
@@ -95,7 +95,7 @@ defmodule JidoTest.TestActions.ReduceProbeAction do
   end
 end
 
-defmodule JidoTest.TestActions.RecorderAction do
+defmodule JidoActionTest.TestActions.RecorderAction do
   @moduledoc false
   use Jido.Action, name: "recorder_action"
 

@@ -1,4 +1,4 @@
-defmodule JidoTest.IteratorFixtures.Increment do
+defmodule JidoActionTest.IteratorFixtures.Increment do
   @moduledoc false
   use Jido.Action,
     name: "iterator_increment",
@@ -12,7 +12,7 @@ defmodule JidoTest.IteratorFixtures.Increment do
   end
 end
 
-defmodule JidoTest.IteratorFixtures.Envelope do
+defmodule JidoActionTest.IteratorFixtures.Envelope do
   @moduledoc false
   use Jido.Action,
     name: "iterator_envelope",
@@ -24,7 +24,7 @@ defmodule JidoTest.IteratorFixtures.Envelope do
   end
 end
 
-defmodule JidoTest.IteratorFixtures.FailsSecond do
+defmodule JidoActionTest.IteratorFixtures.FailsSecond do
   @moduledoc false
   use Jido.Action,
     name: "iterator_fails_second",
@@ -43,7 +43,7 @@ defmodule JidoTest.IteratorFixtures.FailsSecond do
   end
 end
 
-defmodule JidoTest.IteratorFixtures.RetryableFailure do
+defmodule JidoActionTest.IteratorFixtures.RetryableFailure do
   @moduledoc false
   use Jido.Action,
     name: "iterator_retryable_failure",
@@ -59,7 +59,7 @@ defmodule JidoTest.IteratorFixtures.RetryableFailure do
   end
 end
 
-defmodule JidoTest.IteratorFixtures.ReturnedException do
+defmodule JidoActionTest.IteratorFixtures.ReturnedException do
   @moduledoc false
   use Jido.Action,
     name: "iterator_returned_exception",
@@ -69,7 +69,7 @@ defmodule JidoTest.IteratorFixtures.ReturnedException do
   def run(_params, _context), do: {:error, RuntimeError.exception("returned body exception")}
 end
 
-defmodule JidoTest.IteratorFixtures.InvalidOutput do
+defmodule JidoActionTest.IteratorFixtures.InvalidOutput do
   @moduledoc false
   use Jido.Action,
     name: "iterator_invalid_output",
@@ -80,18 +80,22 @@ defmodule JidoTest.IteratorFixtures.InvalidOutput do
   def run(_params, _context), do: {:ok, %{count: "bad"}}
 end
 
-defmodule JidoTest.IteratorFixtures.BrokenFlow do
+defmodule JidoActionTest.IteratorFixtures.BrokenFlow do
   @moduledoc false
-  use Jido.Action, name: "iterator_broken_flow"
-
-  def __jido_flow__, do: true
-  def flow, do: raise("broken nested Flow")
+  @behaviour Jido.Executable
 
   @impl true
+  def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+
+  def name, do: "iterator_broken_flow"
+  def validate_params(params), do: {:ok, params}
+  def validate_output(output), do: {:ok, output}
+  def flow, do: raise("broken nested Flow")
+
   def run(params, _context), do: {:ok, params}
 end
 
-defmodule JidoTest.IteratorFixtures.StateStruct do
+defmodule JidoActionTest.IteratorFixtures.StateStruct do
   @moduledoc false
   @enforce_keys [:count]
   defstruct [:count]

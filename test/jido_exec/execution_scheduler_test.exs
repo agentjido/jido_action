@@ -1,72 +1,72 @@
-defmodule Jido.Exec.ExecutionSchedulerTest do
-  use JidoTest.ActionCase, async: true
+defmodule JidoActionTest.Exec.ExecutionSchedulerTest do
+  use ExUnit.Case, async: true
 
   alias Jido.Exec
   alias Jido.Exec.NodeResult
-  alias JidoTest.ExecutionFixtures
-  alias JidoTest.TestActions.EchoParamsAction
+  alias JidoActionTest.ExecFixtures
+  alias JidoActionTest.TestActions.EchoParamsAction
 
   describe "scheduler caches" do
     test "builds static indexes once and keeps the ready map and list in sync" do
-      assert {:ok, execution} = Exec.start(ExecutionFixtures.diamond_flow(EchoParamsAction))
+      assert {:ok, execution} = Exec.start(ExecFixtures.diamond_flow(EchoParamsAction))
 
       node_names = Map.fetch!(execution, :node_names)
       node_positions = Map.fetch!(execution, :node_positions)
 
       assert node_names == MapSet.new(["left", "merge", "right"])
       assert node_positions == %{"left" => 0, "right" => 1, "merge" => 2}
-      assert_ready_cache(execution, ["left", "right"])
+      ExecFixtures.assert_ready_cache(execution, ["left", "right"])
 
       assert {:ok, %NodeResult{node: "left"}, execution} = Exec.step(execution)
       assert Map.fetch!(execution, :node_names) === node_names
       assert Map.fetch!(execution, :node_positions) === node_positions
-      assert_ready_cache(execution, ["right"])
+      ExecFixtures.assert_ready_cache(execution, ["right"])
 
       assert {:ok, [%NodeResult{node: "right"}], execution} = Exec.wave(execution)
       assert Map.fetch!(execution, :node_names) === node_names
       assert Map.fetch!(execution, :node_positions) === node_positions
-      assert_ready_cache(execution, ["merge"])
+      ExecFixtures.assert_ready_cache(execution, ["merge"])
 
       assert {:ok, %NodeResult{node: "merge"}, execution} = Exec.step(execution)
       assert Exec.status(execution) == :succeeded
       assert Map.fetch!(execution, :node_names) === node_names
       assert Map.fetch!(execution, :node_positions) === node_positions
-      assert_ready_cache(execution, [])
+      ExecFixtures.assert_ready_cache(execution, [])
     end
 
     @tag timeout: 120_000
     test "steps through a 1,000-node serial flow one node at a time" do
-      assert {:ok, execution} = Exec.start(ExecutionFixtures.serial_flow(1_000))
+      assert {:ok, execution} = Exec.start(ExecFixtures.serial_flow(1_000))
 
       execution =
         for index <- 1..1_000, reduce: execution do
           current ->
-            name = ExecutionFixtures.node_name(index)
+            name = ExecFixtures.node_name(index)
             assert Exec.ready(current) == [name]
             assert {:ok, %NodeResult{node: ^name}, next} = Exec.step(current)
             next
         end
 
       assert Exec.status(execution) == :succeeded
-      assert_ready_cache(execution, [])
+      ExecFixtures.assert_ready_cache(execution, [])
       assert Exec.result(execution) == {:ok, %{value: 1_000}}
     end
 
     @tag timeout: 120_000
     test "continues a 1,000-node serial flow to completion" do
-      assert {:ok, execution} = Exec.start(ExecutionFixtures.serial_flow(1_000))
+      assert {:ok, execution} = Exec.start(ExecFixtures.serial_flow(1_000))
       assert {:ok, execution} = Exec.continue(execution)
 
       assert execution.revision == 1_000
       assert Exec.status(execution) == :succeeded
-      assert_ready_cache(execution, [])
+      ExecFixtures.assert_ready_cache(execution, [])
       assert Exec.result(execution) == {:ok, %{value: 1_000}}
     end
 
     @tag timeout: 120_000
     test "ready cost is isolated from total node count" do
-      assert {:ok, small} = Exec.start(ExecutionFixtures.serial_flow(2))
-      assert {:ok, large} = Exec.start(ExecutionFixtures.serial_flow(1_000))
+      assert {:ok, small} = Exec.start(ExecFixtures.serial_flow(2))
+      assert {:ok, large} = Exec.start(ExecFixtures.serial_flow(1_000))
       assert Exec.ready(small) == ["node_0001"]
       assert Exec.ready(large) == ["node_0001"]
 
@@ -78,12 +78,6 @@ defmodule Jido.Exec.ExecutionSchedulerTest do
 
       assert large_reductions <= trunc(small_reductions * 1.1) + 2_000
     end
-  end
-
-  defp assert_ready_cache(execution, expected) do
-    assert Exec.ready(execution) == expected
-    assert Map.fetch!(execution, :ready_nodes) == expected
-    assert execution.ready |> Map.keys() |> Enum.sort() == expected
   end
 
   defp ready_reductions(execution, iterations) do

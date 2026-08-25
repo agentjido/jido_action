@@ -1,0 +1,92 @@
+defmodule Jido.Exec.ActionAdapter do
+  @moduledoc false
+
+  alias Jido.Action.Error
+  alias Jido.Executable
+  alias Jido.Exec.ActionRunner
+  alias Jido.Exec.Options
+  alias Jido.Instruction
+
+  @doc false
+  @spec validate(Executable.t()) :: :ok | {:error, Exception.t()}
+  def validate(%Executable{kind: :action, target: action}) when is_atom(action) do
+    Executable.validate_module_callbacks(action)
+  end
+
+  @doc false
+  @spec run(Executable.t(), term(), term(), term(), String.t()) ::
+          {:ok, term()}
+          | {:ok, term(), term()}
+          | {:error, Exception.t()}
+          | {:error, Exception.t(), term()}
+  def run(%Executable{target: action} = executable, input, context, opts, _execution_id) do
+    with :ok <- Options.reject(opts, :action),
+         {:ok, instruction} <- normalize_instruction(action, input, context),
+         :ok <- validate(executable) do
+      ActionRunner.run(instruction)
+    end
+  end
+
+  @doc false
+  @spec run_instruction(Executable.t(), Instruction.t(), String.t()) ::
+          {:ok, term()}
+          | {:ok, term(), term()}
+          | {:error, Exception.t()}
+          | {:error, Exception.t(), term()}
+  def run_instruction(executable, %Instruction{} = instruction, _execution_id) do
+    with :ok <- validate(executable) do
+      ActionRunner.run(instruction)
+    end
+  end
+
+  @doc false
+  @spec run_target(Executable.t(), term(), map(), String.t(), keyword()) ::
+          Jido.Exec.ActionRunner.target_result()
+  def run_target(
+        %Executable{target: action} = executable,
+        params,
+        context,
+        execution_id,
+        _run_opts
+      ) do
+    with :ok <- validate(executable) do
+      ActionRunner.run_target(
+        action,
+        params,
+        context,
+        Jido.Exec.ConcurrencyLimiter.whereis(execution_id)
+      )
+    else
+      {:error, error} -> {:error, :input, error}
+    end
+  end
+
+  @doc false
+  @spec start(Executable.t(), term(), term(), term(), String.t()) :: {:error, Exception.t()}
+  def start(_executable, _input, _context, _opts, _execution_id) do
+    {:error,
+     Error.validation_error("step-wise execution is only supported for flows", %{
+       executable_type: :action
+     })}
+  end
+
+  @doc false
+  @spec lifecycle_metadata(Executable.t(), String.t()) :: {:ok, map()}
+  def lifecycle_metadata(%Executable{target: action}, execution_id) do
+    {:ok, %{execution_id: execution_id, kind: :action, name: action_name(action)}}
+  end
+
+  defp normalize_instruction(action, input, context) do
+    {:ok, Instruction.normalize!(action, input, context)}
+  rescue
+    exception -> {:error, Error.validation_error(Exception.message(exception))}
+  end
+
+  defp action_name(module) do
+    if function_exported?(module, :name, 0), do: module.name(), else: module
+  rescue
+    _exception -> module
+  catch
+    _kind, _reason -> module
+  end
+end

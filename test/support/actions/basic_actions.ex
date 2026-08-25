@@ -1,4 +1,4 @@
-defmodule JidoTest.TestActions.BasicAction do
+defmodule JidoActionTest.TestActions.BasicAction do
   @moduledoc false
   use Jido.Action,
     name: "basic_action",
@@ -8,7 +8,7 @@ defmodule JidoTest.TestActions.BasicAction do
   def run(%{value: value}, _context), do: {:ok, %{value: value}}
 end
 
-defmodule JidoTest.TestActions.NoSchema do
+defmodule JidoActionTest.TestActions.NoSchema do
   @moduledoc false
   use Jido.Action,
     name: "add_two",
@@ -18,7 +18,7 @@ defmodule JidoTest.TestActions.NoSchema do
   def run(_params, _context), do: {:ok, %{result: "No params"}}
 end
 
-defmodule JidoTest.TestActions.OutputSchemaAction do
+defmodule JidoActionTest.TestActions.OutputSchemaAction do
   @moduledoc false
   use Jido.Action,
     name: "output_schema_action",
@@ -31,7 +31,7 @@ defmodule JidoTest.TestActions.OutputSchemaAction do
   end
 end
 
-defmodule JidoTest.TestActions.NoOutputSchemaAction do
+defmodule JidoActionTest.TestActions.NoOutputSchemaAction do
   @moduledoc false
   use Jido.Action,
     name: "no_output_schema_action",
@@ -40,7 +40,7 @@ defmodule JidoTest.TestActions.NoOutputSchemaAction do
   def run(_params, _context), do: {:ok, %{anything: "goes", here: 123}}
 end
 
-defmodule JidoTest.TestActions.FullAction do
+defmodule JidoActionTest.TestActions.FullAction do
   @moduledoc false
   use Jido.Action,
     name: "full_action",
@@ -54,7 +54,7 @@ defmodule JidoTest.TestActions.FullAction do
   end
 end
 
-defmodule JidoTest.TestActions.Add do
+defmodule JidoActionTest.TestActions.Add do
   @moduledoc false
   use Jido.Action,
     name: "add_one",
@@ -65,7 +65,7 @@ defmodule JidoTest.TestActions.Add do
   def run(%{value: value, amount: amount}, _context), do: {:ok, %{value: value + amount}}
 end
 
-defmodule JidoTest.TestActions.Multiply do
+defmodule JidoActionTest.TestActions.Multiply do
   @moduledoc false
   use Jido.Action,
     name: "multiply",
@@ -75,7 +75,7 @@ defmodule JidoTest.TestActions.Multiply do
   def run(%{value: value, amount: amount}, _context), do: {:ok, %{value: value * amount}}
 end
 
-defmodule JidoTest.TestActions.Divide do
+defmodule JidoActionTest.TestActions.Divide do
   @moduledoc false
   use Jido.Action,
     name: "divide",
@@ -89,7 +89,7 @@ defmodule JidoTest.TestActions.Divide do
   def run(_params, _context), do: raise("Cannot divide by zero")
 end
 
-defmodule JidoTest.TestActions.ContextEcho do
+defmodule JidoActionTest.TestActions.ContextEcho do
   @moduledoc false
   use Jido.Action,
     name: "context_echo",
@@ -102,7 +102,7 @@ defmodule JidoTest.TestActions.ContextEcho do
   end
 end
 
-defmodule JidoTest.TestActions.EchoParamsAction do
+defmodule JidoActionTest.TestActions.EchoParamsAction do
   @moduledoc false
   use Jido.Action, name: "echo_params_action"
 

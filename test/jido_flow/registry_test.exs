@@ -1,10 +1,10 @@
-defmodule Jido.Flow.RegistryTest do
+defmodule JidoActionTest.Flow.RegistryTest do
   use ExUnit.Case, async: true
 
   alias Jido.Action.Error
   alias Jido.Flow
   alias Jido.Flow.{Choice, Condition, Iterator, Node, Ref, Registry, State}
-  alias JidoTest.TestActions.Add
+  alias JidoActionTest.TestActions.Add
 
   test "builds one flat typed registry" do
     schema = Zoi.map(%{value: Zoi.integer()})
@@ -36,7 +36,10 @@ defmodule Jido.Flow.RegistryTest do
 
   test "does not load an Action while it validates trusted host entries" do
     module =
-      Module.concat([JidoTest, "UnloadedRegistryAction#{System.unique_integer([:positive])}"])
+      Module.concat([
+        JidoActionTest,
+        "UnloadedRegistryAction#{System.unique_integer([:positive])}"
+      ])
 
     refute Code.loaded?(module)
 

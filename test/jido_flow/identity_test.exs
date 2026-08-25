@@ -1,11 +1,11 @@
-defmodule Jido.Flow.IdentityTest do
-  use JidoTest.ActionCase, async: true
+defmodule JidoActionTest.Flow.IdentityTest do
+  use JidoActionTest.Case, async: true
 
   alias Jido.Action.Error.InvalidInputError
   alias Jido.Flow
   alias Jido.Flow.{Choice, Condition, Identity, Node, Reduce, Ref}
   alias Jido.Flow.Map, as: FlowMap
-  alias JidoTest.TestActions.{Add, EchoParamsAction, Multiply}
+  alias JidoActionTest.TestActions.{Add, EchoParamsAction, Multiply}
 
   test "returns canonical direct predecessor dependencies" do
     flow = diamond_flow()
@@ -185,13 +185,13 @@ defmodule Jido.Flow.IdentityTest do
              uuid: identity.uuid
            }
 
-    assert identity.digest == "f62c5891a3aab53896bcfde84156082887bda6b26c218510fee23638dbcad389"
+    assert identity.digest == "78a86308b9d2ce0ef8735949f653875e8f11afeb40c37d6deca2ca7484711b91"
     assert identity.digest =~ ~r/^[0-9a-f]{64}$/
 
     assert identity.uuid =~
              ~r/^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
-    assert identity.uuid == "f62c5891-a3aa-8538-96bc-fde841560828"
+    assert identity.uuid == "78a86308-b9d2-8e0e-b873-5949f653875e"
   end
 
   test "creates domain-separated stable UUIDv8 item identities" do

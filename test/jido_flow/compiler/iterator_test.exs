@@ -1,4 +1,4 @@
-defmodule Jido.Flow.IteratorInstrumentationTest do
+defmodule JidoActionTest.Flow.Compiler.IteratorTest do
   use ExUnit.Case, async: false
 
   @moduletag capture_log: true
@@ -6,7 +6,7 @@ defmodule Jido.Flow.IteratorInstrumentationTest do
   alias Jido.Exec
   alias Jido.Flow.Compiler.Iterator, as: IteratorCompiler
   alias Jido.Flow.Ref
-  alias JidoTest.IteratorFixtures
+  alias JidoActionTest.IteratorFixtures
 
   describe "Iterator instrumentation" do
     test "runs the State schema transform exactly once per candidate" do

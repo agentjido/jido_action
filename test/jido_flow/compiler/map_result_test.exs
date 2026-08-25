@@ -1,4 +1,4 @@
-defmodule Jido.Flow.MapResultTest do
+defmodule JidoActionTest.Flow.Compiler.MapResultTest do
   use ExUnit.Case, async: true
 
   alias Jido.Action.Error

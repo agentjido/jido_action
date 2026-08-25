@@ -94,18 +94,13 @@ defmodule Jido.Exec do
   """
 
   alias Jido.Action.Error
-  alias Jido.Action.Output
-  alias Jido.Action.Validation
-  alias Jido.Exec.ActionRunner
+  alias Jido.Action.Telemetry
+  alias Jido.Executable
   alias Jido.Exec.Execution
   alias Jido.Exec.FlowEngine
   alias Jido.Exec.NodeResult
-  alias Jido.Flow
-  alias Jido.Flow.Compiler.TargetContext
+  alias Jido.Exec.Options
   alias Jido.Instruction
-  alias Jido.Action.Telemetry
-
-  @flow_run_option_keys [:async, :max_concurrency]
 
   @doc """
   Runs an executable Jido artifact.
@@ -210,138 +205,62 @@ defmodule Jido.Exec do
   @spec result(Execution.t()) :: {:ok, term()} | {:error, Exception.t()}
   def result(%Execution{} = execution), do: FlowEngine.result(execution)
 
+  defp run_with_lifecycle(%Instruction{} = instruction, input, context, opts, execution_id) do
+    metadata = %{
+      execution_id: execution_id,
+      kind: :instruction,
+      name: action_name(instruction.action)
+    }
+
+    action_span = Telemetry.start([:jido, :action], metadata)
+    result = run_instruction(instruction, input, context, opts, execution_id)
+    Telemetry.finish(action_span, result)
+    result
+  end
+
   defp run_with_lifecycle(executable, input, context, opts, execution_id) do
-    case action_metadata(executable, execution_id) do
+    with {:ok, resolved} <- Executable.resolve(executable) do
+      run_resolved_with_lifecycle(resolved, input, context, opts, execution_id)
+    end
+  end
+
+  defp run_resolved_with_lifecycle(
+         %Executable{adapter: adapter} = executable,
+         input,
+         context,
+         opts,
+         execution_id
+       ) do
+    case adapter.lifecycle_metadata(executable, execution_id) do
       {:ok, metadata} ->
         action_span = Telemetry.start([:jido, :action], metadata)
-        result = do_run(executable, input, context, opts, execution_id)
+        result = adapter.run(executable, input, context, opts, execution_id)
         Telemetry.finish(action_span, result)
         result
 
       :none ->
-        do_run(executable, input, context, opts, execution_id)
+        adapter.run(executable, input, context, opts, execution_id)
     end
   end
 
-  defp do_run(%Instruction{} = instruction, input, context, opts, execution_id) do
-    with :ok <- reject_run_opts(opts, :instruction),
-         {:ok, instruction} <- normalize_instruction(instruction, input, context) do
-      run_instruction(instruction, execution_id)
+  defp run_instruction(instruction, input, context, opts, execution_id) do
+    with :ok <- Options.reject(opts, :instruction),
+         {:ok, instruction} <- normalize_instruction(instruction, input, context),
+         :ok <- Instruction.validate_action_contract(instruction.action),
+         {:ok, %Executable{adapter: adapter} = executable} <-
+           Executable.resolve(instruction.action) do
+      adapter.run_instruction(executable, instruction, execution_id)
     end
-  end
-
-  defp do_run(%Flow{} = flow, input, context, opts, execution_id) do
-    with {:ok, execution} <- start_flow(flow, input, context, opts, execution_id),
-         {:ok, execution} <- FlowEngine.continue(execution) do
-      FlowEngine.result(execution)
-    end
-  end
-
-  defp do_run(module, input, context, opts, execution_id)
-       when is_atom(module) and not is_nil(module) do
-    case Code.ensure_loaded(module) do
-      {:module, _module} ->
-        run_loaded_module(module, input, context, opts, execution_id)
-
-      {:error, reason} ->
-        {:error,
-         Error.config_error("unknown executable: #{inspect(module)}", %{
-           executable: module,
-           reason: reason
-         })}
-    end
-  end
-
-  defp do_run(executable, _input, _context, _opts, _execution_id) do
-    {:error,
-     Error.config_error("unknown executable: #{inspect(executable)}", %{executable: executable})}
-  end
-
-  defp run_loaded_module(module, input, context, opts, execution_id) do
-    if function_exported?(module, :__jido_flow__, 0) do
-      do_run(module.flow(), input, context, opts, execution_id)
-    else
-      with :ok <- reject_run_opts(opts, :action),
-           {:ok, instruction} <- normalize_instruction(module, input, context) do
-        run_instruction(instruction, execution_id)
-      end
-    end
-  end
-
-  defp do_start(%Flow{} = flow, input, context, opts, execution_id) do
-    start_flow(flow, input, context, opts, execution_id)
   end
 
   defp do_start(%Instruction{}, _input, _context, _opts, _execution_id) do
     stepwise_flow_required(:instruction)
   end
 
-  defp do_start(module, input, context, opts, execution_id)
-       when is_atom(module) and not is_nil(module) do
-    case Code.ensure_loaded(module) do
-      {:module, _module} ->
-        if function_exported?(module, :__jido_flow__, 0) do
-          start_flow(module.flow(), input, context, opts, execution_id)
-        else
-          stepwise_flow_required(:action)
-        end
-
-      {:error, reason} ->
-        {:error,
-         Error.config_error("unknown executable: #{inspect(module)}", %{
-           executable: module,
-           reason: reason
-         })}
-    end
-  end
-
-  defp do_start(executable, _input, _context, _opts, _execution_id) do
-    {:error,
-     Error.config_error("unknown executable: #{inspect(executable)}", %{executable: executable})}
-  end
-
-  defp start_flow(flow, input, context, opts, execution_id) do
-    flow_span =
-      Telemetry.start([:jido, :flow], %{execution_id: execution_id, flow: flow.name})
-
-    result =
-      with {:ok, run_opts} <- validate_flow_run_opts(opts),
-           {:ok, flow} <- Flow.validate_executable(flow),
-           {:ok, input} <- normalize_map(input, :input),
-           {:ok, context} <- normalize_map(context, :context),
-           {:ok, input} <- validate_data(flow.schema, input, "Flow", flow, :flow_input),
-           {:ok, input} <- validate_flow_input_shape(flow, input) do
-        target_runner = fn action, params, target_context, target_execution_id, owner ->
-          run_flow_target(
-            action,
-            params,
-            target_context,
-            target_execution_id,
-            run_opts,
-            flow.name,
-            owner
-          )
-        end
-
-        FlowEngine.start(
-          flow,
-          input,
-          context,
-          run_opts,
-          fn output -> validate_flow_output(flow, output) end,
-          target_runner,
-          execution_id,
-          %{flow: flow_span}
-        )
-      end
-
-    case result do
-      {:ok, _execution} ->
-        result
-
-      {:error, error} ->
-        Telemetry.error(flow_span, error)
-        result
+  defp do_start(executable, input, context, opts, execution_id) do
+    with {:ok, %Executable{adapter: adapter} = executable} <-
+           Executable.resolve(executable) do
+      adapter.start(executable, input, context, opts, execution_id)
     end
   end
 
@@ -352,33 +271,10 @@ defmodule Jido.Exec do
      })}
   end
 
-  defp action_metadata(%Instruction{action: action}, execution_id) do
-    {:ok, %{execution_id: execution_id, kind: :instruction, name: action_name(action)}}
-  end
-
-  defp action_metadata(%Flow{}, _execution_id), do: :none
-
-  defp action_metadata(module, execution_id) when is_atom(module) and not is_nil(module) do
-    case Code.ensure_loaded(module) do
-      {:module, _module} ->
-        if flow_module?(module) do
-          :none
-        else
-          {:ok, %{execution_id: execution_id, kind: :action, name: action_name(module)}}
-        end
-
-      {:error, _reason} ->
-        :none
-    end
-  end
-
-  defp action_metadata(_executable, _execution_id), do: :none
-
-  defp flow_module?(module) do
-    case Code.ensure_loaded(module) do
-      {:module, _module} -> function_exported?(module, :__jido_flow__, 0)
-      {:error, _reason} -> false
-    end
+  defp normalize_instruction(executable, input, context) do
+    {:ok, Instruction.normalize!(executable, input, context)}
+  rescue
+    exception -> {:error, Error.validation_error(Exception.message(exception))}
   end
 
   defp action_name(module) when is_atom(module) do
@@ -394,250 +290,4 @@ defmodule Jido.Exec do
   end
 
   defp action_name(action), do: action
-
-  defp validate_flow_run_opts(opts) do
-    with :ok <- validate_opts_keyword(opts),
-         :ok <- validate_known_flow_run_opts(opts),
-         :ok <- validate_async_opt(Keyword.get(opts, :async, false)),
-         :ok <- validate_max_concurrency_opt(Keyword.get(opts, :max_concurrency, 1)) do
-      {:ok,
-       [
-         async: Keyword.get(opts, :async, false),
-         max_concurrency: Keyword.get(opts, :max_concurrency, System.schedulers_online())
-       ]}
-    end
-  end
-
-  defp reject_run_opts(opts, executable_type) do
-    with :ok <- validate_opts_keyword(opts) do
-      if opts == [] do
-        :ok
-      else
-        {:error,
-         Error.validation_error("run options are only supported for flows", %{
-           executable_type: executable_type,
-           options: Keyword.keys(opts)
-         })}
-      end
-    end
-  end
-
-  defp validate_opts_keyword(opts) when is_list(opts) do
-    if Keyword.keyword?(opts) do
-      :ok
-    else
-      {:error, Error.validation_error("run options must be a keyword list")}
-    end
-  end
-
-  defp validate_opts_keyword(_opts),
-    do: {:error, Error.validation_error("run options must be a keyword list")}
-
-  defp validate_known_flow_run_opts(opts) do
-    opts
-    |> Keyword.keys()
-    |> Enum.find(&(&1 not in @flow_run_option_keys))
-    |> case do
-      nil ->
-        :ok
-
-      option ->
-        {:error,
-         Error.validation_error("unknown run option: #{inspect(option)}", %{option: option})}
-    end
-  end
-
-  defp validate_async_opt(async) when is_boolean(async), do: :ok
-
-  defp validate_async_opt(_async) do
-    {:error, Error.validation_error("async option must be a boolean", %{option: :async})}
-  end
-
-  defp validate_max_concurrency_opt(max_concurrency)
-       when is_integer(max_concurrency) and max_concurrency > 0,
-       do: :ok
-
-  defp validate_max_concurrency_opt(_max_concurrency) do
-    {:error,
-     Error.validation_error("max_concurrency option must be a positive integer", %{
-       option: :max_concurrency
-     })}
-  end
-
-  defp normalize_instruction(executable, input, context) do
-    {:ok, Instruction.normalize!(executable, input, context)}
-  rescue
-    exception -> {:error, Error.validation_error(Exception.message(exception))}
-  end
-
-  defp run_instruction(%Instruction{action: action} = instruction, execution_id) do
-    if flow_module?(action) do
-      with :ok <- Instruction.validate_action_contract(action) do
-        do_run(action.flow(), instruction.params, instruction.context, [], execution_id)
-      end
-    else
-      ActionRunner.run(instruction)
-    end
-  end
-
-  defp run_flow_target(action, params, context, execution_id, run_opts, flow_name, owner) do
-    span = start_target_span(action, execution_id, flow_name, owner)
-
-    result =
-      if flow_module?(action) do
-        case do_run(action.flow(), params, context, run_opts, execution_id) do
-          {:ok, output} -> {:ok, output}
-          {:error, error} -> {:error, :execution, error}
-        end
-      else
-        ActionRunner.run_target(
-          action,
-          params,
-          context,
-          Jido.Exec.ConcurrencyLimiter.whereis(execution_id)
-        )
-      end
-
-    finish_target_span(span, result)
-  end
-
-  defp start_target_span(action, execution_id, flow_name, owner) do
-    case TargetContext.telemetry_metadata(owner, action) do
-      {:ok, metadata} ->
-        Telemetry.start(
-          [:jido, :flow, :target],
-          Map.merge(metadata, %{execution_id: execution_id, flow: flow_name})
-        )
-
-      :none ->
-        nil
-    end
-  end
-
-  defp finish_target_span(nil, result), do: result
-
-  defp finish_target_span(span, {:error, _phase, error} = result) do
-    Telemetry.error(span, error)
-    result
-  end
-
-  defp finish_target_span(span, result) do
-    Telemetry.stop(span)
-    result
-  end
-
-  defp validate_flow_input_shape(_flow, input) when is_map(input), do: {:ok, input}
-
-  defp validate_flow_input_shape(flow, input) do
-    {:error,
-     Error.validation_error("Flow input validation must return a map", %{
-       context: "Flow",
-       subject: flow,
-       phase: :flow_input,
-       value: input
-     })}
-  end
-
-  defp validate_flow_output(flow, %Output{} = output) do
-    flow
-    |> validate_output_shape(output, :output_schema)
-    |> tag_flow_output_error(flow)
-  end
-
-  defp validate_flow_output(flow, output) when is_map(output) do
-    if is_struct(output) and Enumerable.impl_for(output) do
-      output_envelope_required(flow, output, :run)
-    else
-      with {:ok, validated} <-
-             validate_data(flow.output_schema, output, "Flow output", flow, :flow_output) do
-        validate_flow_output_shape(flow, validated)
-      end
-    end
-  end
-
-  defp validate_flow_output(flow, output) do
-    output_envelope_required(flow, output, :run)
-  end
-
-  defp tag_flow_output_error({:ok, output}, _flow), do: {:ok, output}
-
-  defp tag_flow_output_error({:error, %{details: details} = error}, flow)
-       when is_map(details) do
-    {:error,
-     %{
-       error
-       | details:
-           Map.merge(details, %{
-             context: "Flow output",
-             subject: flow,
-             phase: :flow_output
-           })
-     }}
-  end
-
-  defp validate_flow_output_shape(flow, output) when is_map(output) do
-    validate_output_shape(flow, output, :output_schema)
-  end
-
-  defp validate_flow_output_shape(flow, output) do
-    {:error,
-     Error.validation_error("Flow output validation must return a map", %{
-       context: "Flow output",
-       subject: flow,
-       phase: :flow_output,
-       value: output
-     })}
-  end
-
-  defp validate_output_shape(_action, %Output{} = output, _callback), do: Output.validate(output)
-
-  defp validate_output_shape(action, output, callback) when is_map(output) do
-    if is_struct(output) and Enumerable.impl_for(output) do
-      invalid_validator_value(action, callback, output, :map_or_output_envelope)
-    else
-      {:ok, output}
-    end
-  end
-
-  defp output_envelope_required(action, output, callback) do
-    {:error,
-     Error.execution_error("action returned a value that requires an output envelope", %{
-       action: action,
-       callback: callback,
-       output: output
-     })}
-  end
-
-  defp invalid_validator_value(action, callback, result, expected) do
-    {:error,
-     Error.execution_error("action validator returned a value with an invalid shape", %{
-       action: action,
-       callback: callback,
-       expected: expected,
-       result: result
-     })}
-  end
-
-  defp normalize_map(nil, _field), do: {:ok, %{}}
-  defp normalize_map(value, _field) when is_map(value), do: {:ok, value}
-
-  defp normalize_map(value, _field) when is_list(value) do
-    if Keyword.keyword?(value) do
-      {:ok, Map.new(value)}
-    else
-      {:error, Error.validation_error("expected a map or keyword list")}
-    end
-  end
-
-  defp normalize_map(_value, field) do
-    {:error, Error.validation_error("#{field} must be a map or keyword list")}
-  end
-
-  defp validate_data(schema, data, context, subject, phase) do
-    Validation.open_validate(schema, data, %{
-      context: context,
-      subject: subject,
-      phase: phase
-    })
-  end
 end

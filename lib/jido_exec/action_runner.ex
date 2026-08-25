@@ -22,8 +22,7 @@ defmodule Jido.Exec.ActionRunner do
   end
 
   defp do_run(%Instruction{action: action} = instruction) do
-    with :ok <- Instruction.validate_action_contract(action),
-         {:ok, params} <- validate_params(action, instruction.params) do
+    with {:ok, params} <- validate_params(action, instruction.params) do
       case invoke_result(action, params, instruction.context) do
         {:ok, output, extras} ->
           case validate_output(action, output) do

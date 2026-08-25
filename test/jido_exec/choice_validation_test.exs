@@ -1,12 +1,12 @@
-defmodule Jido.Flow.ChoiceValidatorContractTest do
-  use JidoTest.ActionCase, async: true
+defmodule JidoActionTest.Exec.ChoiceValidationTest do
+  use ExUnit.Case, async: true
 
   alias Jido.Action.Error.ExecutionFailureError
   alias Jido.Exec
   alias Jido.Flow
   alias Jido.Flow.{Choice, Condition, Ref}
 
-  alias JidoTest.TestActions.{
+  alias JidoActionTest.TestActions.{
     AtomValidationAction,
     EchoParamsAction,
     InvalidValidatedParamsAction,

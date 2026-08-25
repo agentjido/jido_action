@@ -1,10 +1,10 @@
-defmodule Jido.Flow.NodeTest do
-  use JidoTest.ActionCase, async: true
+defmodule JidoActionTest.Flow.NodeTest do
+  use ExUnit.Case, async: true
 
   alias Jido.Action.Error.InvalidInputError
   alias Jido.Flow.Node
   alias Jido.Flow.Ref
-  alias JidoTest.TestActions.Add
+  alias JidoActionTest.TestActions.Add
 
   describe "new/1" do
     test "normalizes atom and string node identity to strings" do

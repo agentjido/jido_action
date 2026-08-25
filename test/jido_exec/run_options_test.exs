@@ -1,5 +1,5 @@
-defmodule Jido.Exec.RunOptionsTest do
-  use JidoTest.ActionCase, async: true
+defmodule JidoActionTest.Exec.RunOptionsTest do
+  use ExUnit.Case, async: true
 
   defmodule LoggerMetadataAction do
     use Jido.Action, name: "logger_metadata_action"
@@ -18,17 +18,17 @@ defmodule Jido.Exec.RunOptionsTest do
   alias Jido.Flow.{Choice, Condition, Node, Ref}
   alias Jido.Instruction
 
-  alias JidoTest.ExecFixtures.{
+  alias JidoActionTest.ExecFixtures.{
     AsyncMathFlow,
     ConcurrencyProbeAction,
     ControlledErrorAction,
     NestedSerialProbeFlow
   }
 
-  alias JidoTest.ExecutionFixtures
-  alias JidoTest.FlowFixtures
+  alias JidoActionTest.ExecFixtures
+  alias JidoActionTest.FlowFixtures
 
-  alias JidoTest.TestActions.{
+  alias JidoActionTest.TestActions.{
     Add,
     EchoParamsAction
   }
@@ -145,7 +145,7 @@ defmodule Jido.Exec.RunOptionsTest do
     @tag timeout: 5_000
     test "runs independent flow branches concurrently when async is enabled" do
       probe = start_probe()
-      flow = ExecutionFixtures.probe_diamond_flow()
+      flow = ExecFixtures.probe_diamond_flow()
       test_pid = self()
 
       task =
@@ -230,7 +230,7 @@ defmodule Jido.Exec.RunOptionsTest do
           nodes: [
             Node.new!(
               name: :blocking,
-              action: ExecutionFixtures.BlockingAction,
+              action: ExecFixtures.BlockingAction,
               input: %{test_pid: Ref.context(:test_pid)}
             )
           ],

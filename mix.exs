@@ -28,10 +28,10 @@ defmodule JidoAction.MixProject do
       docs: docs(),
       test_coverage: [
         ignore_modules: [
-          ~r/^Inspect\.JidoTest\./,
+          ~r/^Inspect\.JidoActionTest\./,
           # Spark generates these entity modules. The hand-written DSL macros and lowerer stay covered.
           ~r/^Jido\.Flow\.DSL\.Extension\.Flow\./,
-          ~r/^JidoTest\./,
+          ~r/^JidoActionTest\./,
           ~r/^Mix\.Tasks\./,
           Jido.Action.Error.Config,
           Jido.Action.Error.Execution,
@@ -48,6 +48,10 @@ defmodule JidoAction.MixProject do
         plt_add_apps: [:mix]
       ]
     ]
+  end
+
+  def cli do
+    [preferred_envs: ["test.integration": :test]]
   end
 
   # Run "mix help compile.app" to learn about applications.
@@ -236,6 +240,7 @@ defmodule JidoAction.MixProject do
       # Helper to run tests with trace when needed
       # test: "test --trace --exclude flaky",
       test: "test --exclude flaky",
+      "test.integration": "test test/jido_action/integration --include integration",
 
       # Run to check the quality of your code
       q: ["quality"],

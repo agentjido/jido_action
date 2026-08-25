@@ -1,15 +1,16 @@
-defmodule Jido.Exec.FlowContractTest do
-  use JidoTest.ActionCase, async: true
+defmodule JidoActionTest.Exec.FlowContractTest do
+  use ExUnit.Case, async: true
 
   @moduletag capture_log: true
 
   alias Jido.Action.Error.{ExecutionFailureError, InvalidInputError}
+  alias Jido.Executable
   alias Jido.Exec
   alias Jido.Flow
   alias Jido.Flow.{Node, Ref}
-  alias Jido.Instruction
+  alias JidoActionTest.ExecFixtures
 
-  alias JidoTest.ExecFixtures.{
+  alias JidoActionTest.ExecFixtures.{
     CountedValidationFlow,
     EnvelopeFlow,
     ImproperListOutputAction,
@@ -22,9 +23,9 @@ defmodule Jido.Exec.FlowContractTest do
     Transforms
   }
 
-  alias JidoTest.FlowFixtures
+  alias JidoActionTest.FlowFixtures
 
-  alias JidoTest.TestActions.{
+  alias JidoActionTest.TestActions.{
     Add,
     ContextEcho,
     Divide,
@@ -44,11 +45,11 @@ defmodule Jido.Exec.FlowContractTest do
     end
   end
 
-  test "validates marked Flow modules exactly once in every execution path" do
+  test "validates Flow modules exactly once in every execution path" do
     module = CountedValidationFlow
 
-    for {path, run} <- flow_execution_paths(module, value: 3) do
-      reset_flow_transform_counts()
+    for {path, run} <- ExecFixtures.flow_execution_paths(module, value: 3) do
+      Transforms.reset()
 
       assert {:ok, %{value: 3, input_passes: 1, output_passes: 1}} =
                run.(),
@@ -62,8 +63,8 @@ defmodule Jido.Exec.FlowContractTest do
   test "rejects scalar Flow output transforms in every execution path" do
     module = ScalarTransformedOutputFlow
 
-    for {path, run} <- flow_execution_paths(module, %{value: 3}) do
-      reset_flow_transform_counts()
+    for {path, run} <- ExecFixtures.flow_execution_paths(module, %{value: 3}) do
+      Transforms.reset()
 
       assert {:error, %InvalidInputError{message: message, details: details} = error} = run.(),
              to_string(path)
@@ -84,8 +85,8 @@ defmodule Jido.Exec.FlowContractTest do
   test "rejects scalar Flow input transforms in every execution path" do
     module = ScalarTransformedInputFlow
 
-    for {path, run} <- flow_execution_paths(module, %{value: 3}) do
-      reset_flow_transform_counts()
+    for {path, run} <- ExecFixtures.flow_execution_paths(module, %{value: 3}) do
+      Transforms.reset()
 
       assert {:error, %InvalidInputError{message: message, details: details} = error} = run.(),
              to_string(path)
@@ -108,8 +109,8 @@ defmodule Jido.Exec.FlowContractTest do
 
     expected = %Jido.Action.Output{kind: :raw, value: %{value: 3}, meta: %{source: :test}}
 
-    for {path, run} <- flow_execution_paths(module, %{value: 3}) do
-      reset_flow_transform_counts()
+    for {path, run} <- ExecFixtures.flow_execution_paths(module, %{value: 3}) do
+      Transforms.reset()
 
       assert {:ok, ^expected} = run.(), to_string(path)
       assert Transforms.calls(:envelope_output) == 0, to_string(path)
@@ -142,7 +143,7 @@ defmodule Jido.Exec.FlowContractTest do
   test "rejects raw scalar Flow results in every execution path" do
     module = ScalarResultFlow
 
-    for {path, run} <- flow_execution_paths(module, %{value: 3}) do
+    for {path, run} <- ExecFixtures.flow_execution_paths(module, %{value: 3}) do
       assert {:error, %ExecutionFailureError{message: message}} = run.(), to_string(path)
 
       assert message == "action returned a value that requires an output envelope",
@@ -319,7 +320,7 @@ defmodule Jido.Exec.FlowContractTest do
   test "executes a Flow module and the equivalent Flow artifact with the same result" do
     module = MathFlow
 
-    assert module.__jido_flow__() == true
+    assert {:ok, %Executable{kind: :flow, target: ^module}} = Executable.resolve(module)
     assert Exec.run(module, %{value: 3}, %{}) == Exec.run(module.flow(), %{value: 3}, %{})
     assert {:ok, %{value: 8}} = Exec.run(module, %{value: 3}, %{})
   end
@@ -512,28 +513,5 @@ defmodule Jido.Exec.FlowContractTest do
       )
 
     assert {:ok, %{"value" => 3}} = Exec.run(flow, %{"value" => 3}, %{})
-  end
-
-  defp flow_execution_paths(module, input) do
-    flow = module.flow()
-    instruction = Instruction.new!(action: module, params: input)
-
-    parent =
-      Flow.new!(
-        name: "parent_#{System.unique_integer([:positive])}",
-        nodes: [Node.new!(name: :inner, action: module, input: Ref.input([]))],
-        return: Ref.result(:inner)
-      )
-
-    [
-      artifact: fn -> Exec.run(flow, input, %{}) end,
-      marked_module: fn -> Exec.run(module, input, %{}) end,
-      instruction: fn -> Exec.run(instruction, %{}, %{}) end,
-      parent: fn -> Exec.run(parent, input, %{}) end
-    ]
-  end
-
-  defp reset_flow_transform_counts do
-    Transforms.reset()
   end
 end

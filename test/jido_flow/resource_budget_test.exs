@@ -1,4 +1,4 @@
-defmodule Jido.Flow.ResourceBudgetTest do
+defmodule JidoActionTest.Flow.ResourceBudgetTest do
   use ExUnit.Case, async: true
 
   alias Jido.Action.Error.InvalidInputError

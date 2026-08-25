@@ -1,4 +1,4 @@
-defmodule JidoTest.IteratorFixtures do
+defmodule JidoActionTest.IteratorFixtures do
   @moduledoc false
 
   alias Jido.Exec
@@ -7,7 +7,7 @@ defmodule JidoTest.IteratorFixtures do
 
   @state_schema_recorder :jido_flow_iterator_runtime_state_schema_recorder
 
-  alias JidoTest.IteratorFixtures.Increment
+  alias JidoActionTest.IteratorFixtures.Increment
 
   def record_state_transform(value, _opts) do
     if owner = Process.whereis(@state_schema_recorder) do
