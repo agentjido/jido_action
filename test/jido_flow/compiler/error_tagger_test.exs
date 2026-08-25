@@ -3,7 +3,7 @@ defmodule JidoActionTest.Flow.Compiler.ErrorTaggerTest do
 
   alias Jido.Action.Error
   alias Jido.Action.Error.ExecutionFailureError
-  alias Jido.Flow.{Choice, Condition, Iterator, Node, Reduce, Ref, State}
+  alias Jido.Flow.{Choice, Condition, Iterate, Reduce, Ref, Step}
   alias Jido.Flow.Compiler.ErrorTagger
   alias Jido.Flow.Compiler.TargetContext
   alias Jido.Flow.Map, as: FlowMap
@@ -111,7 +111,7 @@ defmodule JidoActionTest.Flow.Compiler.ErrorTaggerTest do
   end
 
   defp owners do
-    node = Node.new!(name: "step", action: Add)
+    node = Step.new!(name: "step", action: Add)
 
     choice =
       Choice.new!(
@@ -119,29 +119,29 @@ defmodule JidoActionTest.Flow.Compiler.ErrorTaggerTest do
         options: [
           [
             name: "selected",
-            condition: Condition.eq(Ref.value(1), Ref.value(1)),
+            condition: Condition.eq(1, 1),
             action: Add
           ]
         ],
         fallback: [action: Multiply]
       )
 
-    map = FlowMap.new!(name: "map", collection: Ref.value([]), action: Add)
+    map = FlowMap.new!(name: "map", collection: [], action: Add)
 
     reduce =
       Reduce.new!(
         name: "reduce",
-        collection: Ref.value([]),
-        initial: Ref.value(%{}),
+        collection: [],
+        initial: %{},
         action: Add
       )
 
     iterator =
-      Iterator.new!(
+      Iterate.new!(
         name: "iterate",
         action: Add,
-        state: State.new!(schema: [], initial: %{}, update: Ref.body_result()),
-        completion: Condition.eq(Ref.value(true), Ref.value(true)),
+        state: Iterate.State.new!(schema: [], initial: %{}, update: Ref.body_result()),
+        completion: Condition.eq(true, true),
         max_iterations: 1
       )
 

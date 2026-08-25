@@ -1,93 +1,67 @@
 # Migrate To v3
 
-Version 3.0.0-rc.1 is a release candidate. Test this migration with your own
-Actions and stored data before production use. This guide lists only changes
-that are present in the v3 package and changelog.
+The `v3-spike` branch contains the phase-one Jido.Flow data change. Native
+Runic execution and the full `Jido.Exec` migration are phase-two work.
 
-## Update The Runtime
+## Canonical Flow changes
 
-Jido Action v3 requires Elixir `~> 1.20`. Update the dependency and get the
-locked packages:
+Update direct and Builder authoring to these names:
 
-```elixir
-{:jido_action, "~> 3.0.0-rc.1"}
-```
+- `components`, not `nodes`
+- `output`, not `return`
+- `Jido.Flow.Step`, not `Jido.Flow.Node`
+- `Jido.Flow.Iterate`, not `Jido.Flow.Iterator`
+- `params`, not `input`
+- `after`, not `deps`
+- `meta`, not `provenance`
 
-```text
-mix deps.get
-```
+Every Flow now needs an explicit output expression. Result dependencies stay
+derived and do not get copied into `after`.
 
-## Use The Flow Module DSL
+The public Spark DSL shape does not change. Its `step`, `choice`, `map`,
+`reduce`, `iterate`, `state`, `output`, `while`, and `repeat` forms remain.
 
-Use `use Jido.Flow` for developer-authored Flows. Give each node a stable
-string name. Use `input`, `context`, and named `result` references to declare
-data dependencies.
+## Subflow changes
 
-The DSL is declarative. It does not run arbitrary Elixir expressions.
-Assignments, pattern matching, pipes, and application function calls are
-invalid inside Flow expressions. Put computation in an Action.
+A Spark or Builder `step` derives `Jido.Flow.Subflow` when the target has exact
+executable kind `:flow`. Choice options, Choice fallback, Map, Reduce, and
+Iterate require an Action. Replace a Flow target in these fields with an
+Action, or redesign the Flow before migration.
 
-The DSL declaration `output` becomes the canonical `return` field. The DSL
-form `iterate` becomes a `Jido.Flow.Iterator` node. These are naming boundaries,
-not compatibility aliases.
+## Builder changes
 
-Do not restore an earlier Flow syntax or source parser. Convert source modules
-to the current DSL.
+Use `Builder.output/2`. Use canonical `after`, `meta`, `completion`, and
+`max_iterations` data. The Builder does not keep `deps`, `provenance`,
+`return`, `while`, `until`, or `repeat` aliases.
 
-## Move Runtime Flow Data To Maps
+## Stored data changes
 
-Use `Jido.Flow.Builder` only when runtime data defines graph structure. For
-portable storage, use a versioned map or JSON object and a host-owned
-`Jido.Flow.Registry`:
+Use the Codec and a trusted Registry:
 
 ```elixir
-{:ok, stored} = Jido.Flow.to_stored_map(flow, registry)
-{:ok, restored} = Jido.Flow.from_stored_map(stored, registry)
+{:ok, document} = Jido.Flow.Codec.encode(flow, registry)
+{:ok, restored} = Jido.Flow.Codec.decode(document, registry)
+
+restored == flow
 ```
 
-Stored data contains stable Action, schema, and data atom identifiers. Add one
-`{:atom, atom}` Registry entry for each atom literal, atom map key, and atom
-reference path segment. Stored data does not contain Elixir source, module
-names, schema terms, or atom names. Verify the semantic round trip:
+Add distinct Registry entries for Actions and Flows. Every stored component
+has an explicit `kind`. Stored maps use canonical `components`, `output`,
+`params`, `after`, and `meta` names.
 
-```elixir
-Jido.Flow.to_map(restored) == Jido.Flow.to_map(flow)
-```
+This is the initial stored format. No migration reader is required. Do not add
+old record inference to the Codec.
 
-## Use Jido Exec
+## Verify phase one
 
-Use `Jido.Exec.run/4` for full execution. Use `start/4`, `ready/1`, `step/1`,
-`step/2`, `wave/1`, `continue/1`, and `result/1` for step-wise execution.
+For each Flow:
 
-Flow execution accepts only `async` and `max_concurrency`. Each execution is a
-caller-owned, in-memory value. Always retain the newest value. A stale value
-can run an Action side effect again.
+1. Compile the module with warnings as errors.
+2. Call `Jido.Flow.validate_executable/1`.
+3. Compare direct, Builder, Spark, and Codec values where those routes apply.
+4. Round-trip stored records through real JSON bytes.
+5. Check that source data is outside the canonical Flow.
+6. Record old `Jido.Exec` fixtures for the phase-two migration.
 
-Jido Exec does not provide durable orchestration. Keep persistence, queues,
-scheduling, recovery, retries, cancellation, deadlines, distributed
-coordination, supervision, and deployment-safe continuation in an outer
-system.
-
-## Update Instructions And Removed APIs
-
-`Jido.Instruction` now contains one Action module, parameters, and context. Move
-execution policy out of the Instruction.
-
-The v3 package does not provide `Jido.Action.Exec.*`, `Jido.Action.Catalog`,
-`Jido.Action.Tool`, `Jido.Plan`, or `Jido.Tools.*`. It also does not provide the
-old installer and Action generator Mix tasks. Move those concerns to the
-package or application that owns them.
-
-## Verify The Migration
-
-For each migrated Flow:
-
-1. Compile the Flow module with warnings as errors.
-2. Check `Jido.Flow.validate_executable/1`.
-3. Compare full and step-wise results.
-4. Round-trip every stored Map or JSON fixture.
-5. Check telemetry consumers against the 18 v3 lifecycle events.
-6. Test Action side effects for repeat safety.
-
-See [Flows](flows.md), [Stored Flow JSON](flow-storage.md), and [Executing
-Flows](flow-execution.livemd) for the current contracts.
+See [Flows](flows.md), [Runtime Builder](flow-builder.md), and [Stored Flow
+JSON](flow-storage.md) for the current data contract.

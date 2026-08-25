@@ -29,6 +29,8 @@ defmodule JidoActionTest.ExecFixtures.CountedValidationFlow do
       action: JidoActionTest.TestActions.EchoParamsAction,
       params: %{value: input(:value), input_passes: input(:input_passes)}
     )
+
+    output(result("echo"))
   end
 end
 
@@ -45,6 +47,8 @@ defmodule JidoActionTest.ExecFixtures.ScalarTransformedOutputFlow do
       action: JidoActionTest.TestActions.EchoParamsAction,
       params: %{value: input(:value)}
     )
+
+    output(result("echo"))
   end
 end
 
@@ -61,6 +65,8 @@ defmodule JidoActionTest.ExecFixtures.ScalarTransformedInputFlow do
       action: JidoActionTest.TestActions.EchoParamsAction,
       params: %{value: input(:value)}
     )
+
+    output(result("echo"))
   end
 end
 
@@ -77,6 +83,8 @@ defmodule JidoActionTest.ExecFixtures.EnvelopeFlow do
       action: JidoActionTest.TestActions.OutputEnvelopeAction,
       params: %{value: input(:value)}
     )
+
+    output(result("envelope"))
   end
 end
 
@@ -110,6 +118,8 @@ defmodule JidoActionTest.ExecFixtures.MathFlow do
       action: JidoActionTest.TestActions.Multiply,
       params: %{value: select(result("add_one"), [:value]), amount: 2}
     )
+
+    output(result("double"))
   end
 end
 
@@ -124,6 +134,8 @@ defmodule JidoActionTest.ExecFixtures.AsyncMathFlow do
       action: JidoActionTest.TestActions.Add,
       params: %{value: input(:value), amount: 1}
     )
+
+    output(result("add_one"))
   end
 end
 
@@ -165,6 +177,8 @@ defmodule JidoActionTest.ExecFixtures.ChoiceNestedFlow do
       action: JidoActionTest.TestActions.EchoParamsAction,
       params: %{value: input(:value), input_passes: input(:input_passes)}
     )
+
+    output(result("echo"))
   end
 end
 
@@ -184,6 +198,8 @@ defmodule JidoActionTest.ExecFixtures.ChoiceNestedEnvelopeFlow do
       action: JidoActionTest.TestActions.OutputEnvelopeAction,
       params: %{value: input(:value)}
     )
+
+    output(result("envelope"))
   end
 end
 
@@ -196,6 +212,8 @@ defmodule JidoActionTest.ExecFixtures.ChoiceNestedErrorFlow do
       action: JidoActionTest.TestActions.ErrorAction,
       params: %{error_type: :validation}
     )
+
+    output(result("fail"))
   end
 end
 
@@ -216,6 +234,8 @@ defmodule JidoActionTest.ExecFixtures.ChoicePublicPaths do
         params: %{value: input(:value), amount: 2}
       )
     end
+
+    output(result("route"))
   end
 end
 
@@ -236,6 +256,8 @@ defmodule JidoActionTest.ExecFixtures.ChoiceEnvelopePublicPaths do
         params: %{value: input(:value), amount: 0}
       )
     end
+
+    output(result("route"))
   end
 end
 
@@ -255,6 +277,8 @@ defmodule JidoActionTest.ExecFixtures.ChoicePublicNestedFlow do
       action: JidoActionTest.TestActions.Add,
       params: %{value: input(:value), amount: 0}
     )
+
+    output(result("echo"))
   end
 end
 
@@ -268,7 +292,7 @@ defmodule JidoActionTest.ExecFixtures.ChoicePublicNestedPaths do
     choice "route" do
       option "nested" do
         condition(input(:kind) == :nested)
-        action(JidoActionTest.ExecFixtures.ChoicePublicNestedFlow)
+        action(JidoActionTest.TestActions.Add)
         params(%{value: input(:value)})
       end
 
@@ -277,6 +301,8 @@ defmodule JidoActionTest.ExecFixtures.ChoicePublicNestedPaths do
         params: %{value: input(:value), amount: 0}
       )
     end
+
+    output(result("route"))
   end
 end
 
@@ -296,6 +322,8 @@ defmodule JidoActionTest.ExecFixtures.ChoicePublicEnvelopeFlow do
       action: JidoActionTest.ExecFixtures.ChoicePublicEnvelopeAction,
       params: %{value: input(:value)}
     )
+
+    output(result("envelope"))
   end
 end
 
@@ -309,7 +337,7 @@ defmodule JidoActionTest.ExecFixtures.ChoicePublicEnvelopePaths do
     choice "route" do
       option "nested" do
         condition(input(:kind) == :nested)
-        action(JidoActionTest.ExecFixtures.ChoicePublicEnvelopeFlow)
+        action(JidoActionTest.ExecFixtures.ChoicePublicEnvelopeAction)
         params(%{value: input(:value)})
       end
 
@@ -318,6 +346,8 @@ defmodule JidoActionTest.ExecFixtures.ChoicePublicEnvelopePaths do
         params: %{value: input(:value), amount: 0}
       )
     end
+
+    output(result("route"))
   end
 end
 
@@ -337,6 +367,8 @@ defmodule JidoActionTest.ExecFixtures.MapNestedFlow do
       action: JidoActionTest.TestActions.EchoParamsAction,
       params: %{value: input(:value), input_passes: input(:input_passes)}
     )
+
+    output(result("echo"))
   end
 end
 
@@ -360,6 +392,8 @@ defmodule JidoActionTest.ExecFixtures.ReduceNestedFlow do
         input_passes: input(:input_passes)
       }
     )
+
+    output(result("echo"))
   end
 end
 
@@ -369,6 +403,7 @@ defmodule JidoActionTest.ExecFixtures.InstructionTelemetryFlow do
 
   flow do
     step("add", action: JidoActionTest.TestActions.Add, params: %{value: input(:value)})
+    output(result("add"))
   end
 end
 
@@ -378,6 +413,7 @@ defmodule JidoActionTest.ExecFixtures.TelemetryChildFlow do
 
   flow do
     step("child_add", action: JidoActionTest.TestActions.Add, params: %{value: input(:value)})
+    output(result("child_add"))
   end
 end
 
@@ -392,5 +428,7 @@ defmodule JidoActionTest.ExecFixtures.TelemetryParentFlow do
       action: JidoActionTest.ExecFixtures.TelemetryChildFlow,
       params: %{value: input(:value)}
     )
+
+    output(result("child"))
   end
 end

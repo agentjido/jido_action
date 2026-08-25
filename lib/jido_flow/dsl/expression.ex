@@ -24,7 +24,7 @@ defmodule Jido.Flow.DSL.Expression do
   defp parse!({:input, _meta, [path]}), do: Ref.input(parse_path!(path))
   defp parse!({:context, _meta, []}), do: Ref.context([])
   defp parse!({:context, _meta, [path]}), do: Ref.context(parse_path!(path))
-  defp parse!({:value, _meta, [value]}), do: Ref.value(parse_literal!(value))
+  defp parse!({:value, _meta, [value]}), do: parse_literal!(value)
 
   defp parse!({:result, _meta, [node]}), do: Ref.result(parse_node_name!(node))
 
@@ -69,7 +69,7 @@ defmodule Jido.Flow.DSL.Expression do
   defp parse!(value)
        when is_nil(value) or is_boolean(value) or is_atom(value) or is_binary(value) or
               is_number(value),
-       do: Ref.value(value)
+       do: value
 
   defp parse!(expression), do: unsupported!(expression)
 

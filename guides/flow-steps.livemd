@@ -40,6 +40,8 @@ defmodule FlowSteps.ShortForm do
     step "echo",
       action: FlowSteps.Echo,
       params: %{value: input(:value)}
+
+    output result("echo")
   end
 end
 
@@ -63,6 +65,8 @@ defmodule FlowSteps.BlockForm do
       action(FlowSteps.Echo)
       params(%{value: input(:value)})
     end
+
+    output result("echo")
   end
 end
 
@@ -95,6 +99,8 @@ defmodule FlowSteps.ResultReference do
     step "copy",
       action: FlowSteps.Echo,
       params: %{value: select(result("source"), :value)}
+
+    output result("copy")
   end
 end
 
@@ -104,15 +110,14 @@ end
 The DSL does not assign node results to Elixir variables. Explicit names keep
 the source declarative and match stored Flow data.
 
-## Infer The Output
+## Inspect The Output
 
-When `output` is absent, Jido uses the complete result of the last outer node.
-Source order selects this default output only. It does not add execution
-dependencies.
+Every Flow has an explicit output. The output expression can select the
+complete result of one component.
 
 ```elixir
-%Jido.Flow{return: inferred_output} = FlowSteps.ResultReference.flow()
-%Jido.Flow.Ref{type: :result, node: "copy"} = inferred_output
+%Jido.Flow{output: output} = FlowSteps.ResultReference.flow()
+%Jido.Flow.Ref{source: :result, component: "copy"} = output
 ```
 
 ## Shape An Explicit Output
@@ -144,9 +149,8 @@ end
   Jido.Exec.run(FlowSteps.ShapedOutput, %{value: 6}, %{trace_id: "trace-1"})
 ```
 
-A Flow must contain at least one node. `output` is optional, but if it exists,
-it must be the final declaration and contain at least one node result
-reference.
+A Flow must contain at least one component. `output` is required and must be
+the final declaration.
 
 ## Add Metadata
 
@@ -167,20 +171,22 @@ defmodule FlowSteps.Annotated do
       meta: %{
         label: "Copy the value",
         tags: ["example", "mapping"],
-        note: "Visible in provenance"
+        note: "Visible in meta"
       }
+
+    output result("echo")
   end
 end
 
-annotated_map = Jido.Flow.to_map(FlowSteps.Annotated.flow(), provenance: true)
-[%{provenance: provenance}] = annotated_map.nodes
+annotated_map = Jido.Flow.to_map(FlowSteps.Annotated.flow())
+[%{meta: meta}] = annotated_map.components
 
-%{label: "Copy the value", note: "Visible in provenance"} =
-  Map.take(provenance, [:label, :note])
+%{label: "Copy the value", note: "Visible in meta"} =
+  Map.take(meta, [:label, :note])
 ```
 
-The module DSL also records source line and column data in provenance when it
-is available.
+The module compiler records file, line, and column data in a separate source
+map. It does not add this data to `meta`.
 
 ## Keep Computation In Actions
 

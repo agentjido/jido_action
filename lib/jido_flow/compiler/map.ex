@@ -147,7 +147,7 @@ defmodule Jido.Flow.Compiler.Map do
   end
 
   defp resolve_map_input(map, state, target_context) do
-    map.input
+    map.params
     |> Expression.resolve(state)
     |> ErrorTagger.tag_target_validation_error(:input, target_context)
   end

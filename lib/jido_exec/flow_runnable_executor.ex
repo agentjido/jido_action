@@ -3,7 +3,7 @@ defmodule Jido.Exec.FlowRunnableExecutor do
 
   alias Jido.Action.{Error, Telemetry}
   alias Jido.Exec.Execution
-  alias Jido.Flow.{Element, NodeError}
+  alias Jido.Flow.{Component, NodeError}
   alias Jido.Flow.Runtime.OrderedTaskRunner
   alias Runic.Workflow
   alias Runic.Workflow.{Runnable, Step}
@@ -87,8 +87,10 @@ defmodule Jido.Exec.FlowRunnableExecutor do
     )
   end
 
-  defp element_kinds(%Execution{flow: %{nodes: nodes}}) do
-    Map.new(nodes, fn element -> {Element.name(element), Element.kind(element)} end)
+  defp element_kinds(%Execution{flow: %{components: components}}) do
+    Map.new(components, fn component ->
+      {Component.name_of(component), Component.kind(component)}
+    end)
   end
 
   defp fail_exited_runnable(runnable, reason) do

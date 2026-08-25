@@ -58,26 +58,26 @@ defmodule JidoActionTest.Flow.ConditionTest do
       assert {:error, %InvalidInputError{message: message, details: details}} =
                Condition.new(:all, [Condition.eq(1, 1), :not_a_condition])
 
-      assert message == "choice condition :all contains an invalid child condition"
+      assert message == "flow condition :all contains an invalid child condition"
       assert details.path == [1]
 
       assert {:error, %InvalidInputError{message: message, details: details}} =
                Condition.new(:eq, [Ref.input([%{bad: :segment}]), 1])
 
-      assert message == "choice condition contains invalid ref path"
+      assert message == "flow condition contains invalid ref path"
       assert details.path == [0]
 
       assert {:error, %InvalidInputError{message: message, details: details}} =
                Condition.new(:eq, [Date.utc_today(), 1])
 
-      assert message == "choice condition contains unsupported expression"
+      assert message == "flow condition contains unsupported expression"
       assert details.path == [0]
       assert details.expression == Date
 
       assert {:error, %InvalidInputError{message: message, details: details}} =
                Condition.new(:eq, [fn -> :predicate end, 1])
 
-      assert message == "choice condition contains unsupported expression"
+      assert message == "flow condition contains unsupported expression"
       assert details.path == [0]
       assert details.expression == Function
     end

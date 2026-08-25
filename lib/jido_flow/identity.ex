@@ -4,7 +4,9 @@ defmodule Jido.Flow.Identity do
   import Bitwise
 
   alias Jido.Flow
-  alias Jido.Flow.SemanticMap
+  alias Jido.Flow.Component
+  alias Jido.Flow.Expression
+  alias Jido.Flow.Graph
 
   @identity_version 1
   @step_identity_version 1
@@ -23,8 +25,23 @@ defmodule Jido.Flow.Identity do
   @spec for_flow(Flow.t()) :: map()
   def for_flow(%Flow{} = flow) do
     flow
-    |> SemanticMap.build()
+    |> identity_data()
     |> identity()
+  end
+
+  defp identity_data(flow) do
+    %{
+      version: 1,
+      name: flow.name,
+      description: flow.description,
+      schema: flow.schema,
+      output_schema: flow.output_schema,
+      components:
+        flow.components
+        |> Graph.canonical_components()
+        |> Enum.map(&Component.to_map/1),
+      output: Expression.to_map(flow.output)
+    }
   end
 
   @doc false

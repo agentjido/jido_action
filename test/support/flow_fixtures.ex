@@ -19,7 +19,7 @@ defmodule JidoActionTest.FlowFixtures do
       Multiply,
       %{value: Builder.result("add_one", :value), amount: Builder.value(2)}
     )
-    |> Builder.return(Builder.result("double"))
+    |> Builder.output(Builder.result("double"))
   end
 
   def math_flow! do
@@ -68,5 +68,7 @@ defmodule JidoActionTest.FlowFixtures.NestedFlow do
       action: JidoActionTest.TestActions.Add,
       params: %{value: input(:value), amount: 1}
     )
+
+    output(result("add"))
   end
 end

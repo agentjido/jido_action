@@ -14,6 +14,8 @@ defmodule JidoActionTest.IteratorFixtures.ChildIterator do
       update(%{count: body_result(:count)})
       repeat(1)
     end
+
+    output(result("child"))
   end
 end
 
@@ -34,5 +36,7 @@ defmodule JidoActionTest.IteratorFixtures.ChildMapReduce do
       action(JidoActionTest.TestActions.Multiply)
       params(%{value: accumulator(:value), amount: item(:value)})
     end
+
+    output(result("summarize"))
   end
 end

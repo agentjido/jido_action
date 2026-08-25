@@ -10,24 +10,30 @@ defmodule Jido.Flow.Reduce do
   """
 
   alias Jido.Action.Error
-  alias Jido.Flow.Element.Validation, as: ElementValidation
+  alias Jido.Flow.Component
   alias Jido.Flow.Expression
-  alias Jido.Instruction
 
-  @config_keys [:name, :collection, :initial, :action, :input, :deps, :provenance]
+  @config_keys [:name, :collection, :initial, :action, :params, :after, :meta]
 
-  @type t :: %__MODULE__{
-          name: String.t(),
-          collection: term(),
-          initial: term(),
-          action: module(),
-          input: term(),
-          deps: [String.t()],
-          provenance: map()
-        }
+  @schema Zoi.struct(
+            __MODULE__,
+            %{
+              name: Zoi.string(description: "Component name"),
+              collection: Zoi.any(description: "Collection expression"),
+              initial: Zoi.any(description: "Initial accumulator expression"),
+              action: Zoi.atom(description: "Reducer Action module"),
+              params: Zoi.any(description: "Reducer parameter expression") |> Zoi.default(%{}),
+              after:
+                Zoi.list(Zoi.string(), description: "Explicit control order") |> Zoi.default([]),
+              meta: Zoi.map(description: "Portable author metadata") |> Zoi.default(%{})
+            },
+            coerce: true
+          )
 
-  @enforce_keys @config_keys
-  defstruct @config_keys
+  @type t :: unquote(Zoi.type_spec(@schema))
+
+  @enforce_keys Zoi.Struct.enforce_keys(@schema)
+  defstruct Zoi.Struct.struct_fields(@schema)
 
   @doc false
   @spec new(map() | keyword() | t()) :: {:ok, t()} | {:error, Exception.t()}
@@ -38,26 +44,24 @@ defmodule Jido.Flow.Reduce do
   end
 
   def new(%{} = attrs) do
-    with :ok <- ElementValidation.known_keys(attrs, @config_keys, "reduce"),
-         {:ok, name} <- ElementValidation.name(Map.get(attrs, :name), :reduce),
+    with :ok <- known_keys(attrs),
+         {:ok, name} <- Component.name(Map.get(attrs, :name)),
          {:ok, collection} <-
            validate_required_expression(attrs, :collection, :reduce_collection),
          {:ok, initial} <- validate_required_expression(attrs, :initial, :reduce_initial),
-         {:ok, action} <-
-           ElementValidation.target(Map.get(attrs, :action), :reduce, [:action]),
-         {:ok, input} <- validate_input(Map.get(attrs, :input, %{})),
-         {:ok, deps} <- ElementValidation.deps(Map.get(attrs, :deps, []), :reduce),
-         {:ok, provenance} <-
-           ElementValidation.provenance(Map.get(attrs, :provenance, %{}), :reduce) do
+         {:ok, action} <- Component.module(Map.get(attrs, :action), "reduce action"),
+         {:ok, params} <- validate_params(Map.get(attrs, :params, %{})),
+         {:ok, after_names} <- Component.after_names(Map.get(attrs, :after, [])),
+         {:ok, meta} <- Component.meta(Map.get(attrs, :meta, %{})) do
       {:ok,
        %__MODULE__{
          name: name,
          collection: collection,
          initial: initial,
          action: action,
-         input: input,
-         deps: deps,
-         provenance: provenance
+         params: params,
+         after: after_names,
+         meta: meta
        }}
     end
   end
@@ -79,87 +83,51 @@ defmodule Jido.Flow.Reduce do
     reduce.collection
     |> Expression.result_refs()
     |> Kernel.++(Expression.result_refs(reduce.initial))
-    |> Kernel.++(Expression.result_refs(reduce.input))
-    |> Kernel.++(reduce.deps)
+    |> Kernel.++(Expression.result_refs(reduce.params))
     |> Enum.uniq()
     |> Enum.sort()
   end
 
   @doc false
-  @spec put_deps(t(), [String.t()]) :: t()
-  def put_deps(%__MODULE__{} = reduce, deps), do: %{reduce | deps: deps}
-
-  @doc false
-  @spec check(t()) :: :ok | {:error, Exception.t()}
-  def check(%__MODULE__{} = reduce) do
-    case Instruction.validate_action_contract(reduce.action) do
-      :ok ->
-        :ok
-
-      {:error, error} ->
-        {:error,
-         Error.validation_error(
-           error.message,
-           error.details |> Map.merge(%{reduce: reduce.name, target: reduce.action})
-         )}
-    end
-  end
-
-  @doc false
-  @spec to_map(t(), keyword()) :: map()
-  def to_map(%__MODULE__{} = reduce, opts \\ []) do
-    base = %{
+  @spec to_map(t()) :: map()
+  def to_map(%__MODULE__{} = reduce) do
+    %{
       kind: :reduce,
       name: reduce.name,
       collection: Expression.to_map(reduce.collection),
       initial: Expression.to_map(reduce.initial),
       action: reduce.action,
-      input: Expression.to_map(reduce.input),
-      deps: Enum.sort(reduce.deps)
-    }
-
-    if Keyword.get(opts, :provenance, false) do
-      Map.put(base, :provenance, reduce.provenance)
-    else
-      base
-    end
-  end
-
-  @doc false
-  @spec static_data(t()) :: map()
-  def static_data(%__MODULE__{} = reduce) do
-    %{
-      kind: :reduce,
-      name: reduce.name,
-      collection: reduce.collection,
-      initial: reduce.initial,
-      action: reduce.action,
-      input: reduce.input,
-      deps: reduce.deps
+      params: Expression.to_map(reduce.params),
+      after: reduce.after,
+      meta: reduce.meta
     }
   end
-
-  @doc false
-  @spec semantic_data(t()) :: map()
-  def semantic_data(%__MODULE__{} = reduce), do: static_data(reduce)
 
   defp validate_required_expression(attrs, field, scope) do
     if Map.has_key?(attrs, field) do
-      ElementValidation.expression(
-        Map.fetch!(attrs, field),
-        scope,
-        "reduce #{field}",
-        [field]
-      )
+      expression(Map.fetch!(attrs, field), scope)
     else
       {:error, Error.validation_error("reduce #{field} is required", %{path: [field]})}
     end
   end
 
-  defp validate_input(nil), do: {:ok, %{}}
+  defp validate_params(nil), do: {:ok, %{}}
 
-  defp validate_input(input),
-    do: ElementValidation.expression(input, :reduce_input, "reduce target input", [:input])
+  defp validate_params(params), do: expression(params, :reduce_params)
+
+  defp expression(value, scope) do
+    with {:ok, value} <- Expression.normalize(value),
+         :ok <- Expression.validate(value, scope) do
+      {:ok, value}
+    end
+  end
+
+  defp known_keys(attrs) do
+    case Enum.find(Map.keys(attrs), &(&1 not in @config_keys)) do
+      nil -> :ok
+      key -> {:error, Error.validation_error("unknown reduce key: #{inspect(key)}")}
+    end
+  end
 
   defp invalid_configuration,
     do: {:error, Error.validation_error("reduce configuration must be a map", %{path: []})}

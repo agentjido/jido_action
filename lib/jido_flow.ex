@@ -1,16 +1,16 @@
 defmodule Jido.Flow do
   @moduledoc """
-  Defines the canonical Jido Flow artifact and compile-time module DSL.
+  Defines the canonical Jido Flow data artifact and compile-time module DSL.
 
-  A Flow is a data artifact describing named Action calls, ordered Choices,
-  Map fan-out, Reduce fan-in, bounded Iterate nodes, and one output expression.
-  Execution is delegated through `Jido.Exec`.
+  A Flow contains named canonical components and one required output
+  expression. Execution is delegated through `Jido.Exec`.
 
-  Flow has three supported inputs:
+  Flow has four supported authoring inputs:
 
   * the compile-time Flow module DSL;
   * `Jido.Flow.Builder` for runtime construction; and
-  * versioned stored maps or JSON for transport and storage.
+  * versioned stored JSON documents through `Jido.Flow.Codec`; and
+  * direct canonical struct construction.
 
   Use the Flow module DSL as the primary developer authoring surface:
 
@@ -25,47 +25,32 @@ defmodule Jido.Flow do
           step "save",
             action: MyApp.SaveOrder,
             params: %{order: result("load")}
+
+          output result("save")
         end
       end
 
-  When `output` is absent, the only terminal node becomes the output. A Flow
-  with two or more terminal nodes must declare `output`. Result references and
-  `after:` fields define dependencies. Source order does not add execution
-  dependencies or select an output.
+  Result references create data dependencies. `after:` keeps only explicit
+  author control order. Source order does not create a dependency. The Spark
+  compiler keeps source locations outside the canonical Flow value.
 
-  All three inputs use the same constructor and produce the same canonical
-  Flow. Flow element structs and semantic maps are views of this model. They
-  are not additional source languages. Do not use direct struct construction
-  as an authoring API.
+  Use `Jido.Flow.Codec.encode/2` and `Jido.Flow.Codec.decode/2` with a trusted
+  `Jido.Flow.Registry` for database or transport storage.
 
-  The module DSL names the final declaration `output`. The canonical artifact
-  and Builder name its field `return`. The module DSL also names a repeated
-  form `iterate`; the canonical node type is `Jido.Flow.Iterator`. These names
-  mark source and data boundaries. They do not define aliases or extra forms.
-
-  Use `to_stored_map/3` and `from_stored_map/2` with a trusted
-  `Jido.Flow.Registry` for versioned storage. There is no runtime parser for
-  DSL source.
-
-  The Flow compiler, Map codec internals, graph analysis, and graph engine
-  adapters are private. Use this module and `Jido.Exec` as the public facade.
-
-  A Choice is one Flow node. It evaluates data-only conditions in authored
+  A Choice is one Flow component. It evaluates data-only conditions in authored
   order, runs the first matching target, and uses a required routing fallback
   when no option matches.
 
-  Flow nodes consume only an Action output or error reason. Extra values from
+  Flow components consume only an Action output or error reason. Extra values from
   an Action callback are returned only to direct Action or Instruction callers.
   Flow execution discards them.
   """
 
   alias Jido.Action.Error
   alias Jido.Flow.DSL.ModuleCompiler
-  alias Jido.Flow.Element
+  alias Jido.Flow.Component
   alias Jido.Flow.Graph
-  alias Jido.Flow.Inspection
-  alias Jido.Flow.MapCodec
-  alias Jido.Flow.SemanticMap
+  alias Jido.Flow.Identity
   alias Jido.Flow.Validation
 
   @schema Zoi.struct(
@@ -75,14 +60,19 @@ defmodule Jido.Flow do
               description: Zoi.string(description: "Flow description") |> Zoi.optional(),
               schema: Zoi.any(description: "Flow input schema") |> Zoi.default([]),
               output_schema: Zoi.any(description: "Flow output schema") |> Zoi.default([]),
-              nodes: Zoi.list(Zoi.any(), description: "Canonical Flow nodes") |> Zoi.default([]),
-              return: Zoi.any(description: "Declared return reference"),
-              provenance: Zoi.map(description: "Non-semantic provenance") |> Zoi.default(%{})
+              components:
+                Zoi.list(Zoi.any(), description: "Canonical Flow components") |> Zoi.default([]),
+              output: Zoi.any(description: "Declared output expression")
             },
             coerce: true
           )
 
   @type t :: unquote(Zoi.type_spec(@schema))
+  @type dependency_info :: %{
+          after: [String.t()],
+          references: [String.t()],
+          effective: [String.t()]
+        }
 
   @enforce_keys Zoi.Struct.enforce_keys(@schema)
   defstruct Zoi.Struct.struct_fields(@schema)
@@ -114,65 +104,37 @@ defmodule Jido.Flow do
   @doc """
   Converts a Flow artifact to its deterministic semantic map.
 
-  Node order in the semantic map is dependency order with node-name tiebreaks;
-  authoring order is not semantic and is preserved only on the Flow struct.
-  Provenance is omitted by default because it does not participate in semantic
-  equality. Use `to_stored_map/3` for database storage.
+  Component order in this view is author declaration order. Use
+  `Jido.Flow.Codec` for database storage.
   """
-  @spec to_map(t(), keyword()) :: map()
-  def to_map(%__MODULE__{} = flow, opts \\ []) do
-    SemanticMap.build(flow, opts)
+  @spec to_map(t()) :: map()
+  def to_map(%__MODULE__{} = flow) do
+    %{
+      name: flow.name,
+      description: flow.description,
+      schema: flow.schema,
+      output_schema: flow.output_schema,
+      components: Enum.map(flow.components, &Component.to_map/1),
+      output: Jido.Flow.Expression.to_map(flow.output)
+    }
   end
-
-  @doc """
-  Validates and converts a Flow to the versioned stored-map format.
-
-  The Registry supplies stable identifiers for every Action, schema, and data
-  atom in the Flow. Data atoms include atom literals, atom map keys, and atom
-  reference path segments. Stored data contains no module names, schema
-  values, or atom names. The only option is `provenance: true`.
-  """
-  @spec to_stored_map(t(), Jido.Flow.Registry.t(), keyword()) ::
-          {:ok, map()} | {:error, Error.InvalidInputError.t()}
-  def to_stored_map(flow, registry, opts \\ [])
-
-  def to_stored_map(%__MODULE__{} = flow, registry, opts) do
-    with {:ok, flow} <- validate(flow) do
-      MapCodec.to_stored_map(flow, canonical_node_order(flow.nodes), registry, opts)
-    end
-  end
-
-  def to_stored_map(value, _registry, _opts), do: invalid_flow_subject(value)
-
-  @doc """
-  Loads a versioned stored map through a trusted host Registry.
-
-  Loading validates the stored grammar, resolves stable identifiers, and uses
-  the same canonical constructor as the Flow module DSL and Builder. It does
-  not create atoms or derive module names from stored data.
-  """
-  @spec from_stored_map(map(), Jido.Flow.Registry.t()) ::
-          {:ok, t()} | {:error, Exception.t()}
-  def from_stored_map(map, registry), do: MapCodec.from_stored_map(map, registry)
 
   @doc false
-  @spec canonical_nodes([Element.t()]) :: [Element.t()]
-  def canonical_nodes(nodes), do: canonical_node_order(nodes)
+  @spec canonical_components([Component.t()]) :: [Component.t()]
+  def canonical_components(components), do: Graph.canonical_components(components)
 
   defp invalid_flow_subject(value) do
     Validation.invalid_subject(value)
   end
 
-  defp canonical_node_order(nodes), do: Graph.canonical_nodes(nodes)
-
   @doc """
-  Returns the direct canonical predecessors for every Flow node.
+  Returns explicit, reference, and effective dependencies for each component.
   """
   @spec dependencies(t()) ::
-          {:ok, %{String.t() => [String.t()]}} | {:error, Error.InvalidInputError.t()}
+          {:ok, %{String.t() => dependency_info()}} | {:error, Error.InvalidInputError.t()}
   def dependencies(%__MODULE__{} = flow) do
     with {:ok, flow} <- validate(flow) do
-      Inspection.dependencies(flow)
+      {:ok, dependency_map(flow)}
     end
   end
 
@@ -184,7 +146,19 @@ defmodule Jido.Flow do
   @spec explain(t()) :: {:ok, map()} | {:error, Error.InvalidInputError.t()}
   def explain(%__MODULE__{} = flow) do
     with {:ok, flow} <- validate(flow) do
-      Inspection.explain(flow)
+      {:ok,
+       %{
+         version: 1,
+         kind: :flow,
+         name: flow.name,
+         description: flow.description,
+         schema: flow.schema,
+         output_schema: flow.output_schema,
+         components: Graph.canonical_components(flow.components),
+         dependencies: dependency_map(flow),
+         output: Jido.Flow.Expression.to_map(flow.output),
+         identity: Identity.for_flow(flow)
+       }}
     end
   end
 
@@ -196,7 +170,7 @@ defmodule Jido.Flow do
   @spec semantic_identity(t()) :: {:ok, map()} | {:error, Error.InvalidInputError.t()}
   def semantic_identity(%__MODULE__{} = flow) do
     with {:ok, flow} <- validate(flow) do
-      Inspection.semantic_identity(flow)
+      {:ok, Identity.for_flow(flow)}
     end
   end
 
@@ -205,7 +179,7 @@ defmodule Jido.Flow do
   @doc """
   Validates and normalizes the canonical Flow structure.
 
-  This function checks schemas, nodes, expressions, references, dependencies,
+  This function checks schemas, components, expressions, references, dependencies,
   and graph cycles. It is inert: it does not load or check Action targets. Use
   `validate_executable/1` when the Flow must be ready for execution.
   """
@@ -236,4 +210,18 @@ defmodule Jido.Flow do
   @doc false
   @spec __validate_config__(map()) :: {:ok, map()} | {:error, Exception.t()}
   def __validate_config__(attrs), do: Validation.validate_config(attrs)
+
+  defp dependency_map(flow) do
+    Map.new(flow.components, fn component ->
+      after_names = Component.after_of(component)
+      references = Component.reference_dependencies(component)
+
+      {Component.name_of(component),
+       %{
+         after: after_names,
+         references: references,
+         effective: Enum.sort(Enum.uniq(after_names ++ references))
+       }}
+    end)
+  end
 end

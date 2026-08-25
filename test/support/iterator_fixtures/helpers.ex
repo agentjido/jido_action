@@ -3,7 +3,7 @@ defmodule JidoActionTest.IteratorFixtures do
 
   alias Jido.Exec
   alias Jido.Flow
-  alias Jido.Flow.{Condition, Iterator, Ref}
+  alias Jido.Flow.{Condition, Iterate, Ref}
 
   @state_schema_recorder :jido_flow_iterator_runtime_state_schema_recorder
 
@@ -34,16 +34,16 @@ defmodule JidoActionTest.IteratorFixtures do
     max_iterations = Keyword.fetch!(opts, :max_iterations)
 
     iterator =
-      Iterator.new!(
+      Iterate.new!(
         name: :count,
         action: action,
-        input: input,
+        params: input,
         state: [schema: schema, initial: initial, update: update],
         completion: completion,
         max_iterations: max_iterations
       )
 
-    Flow.new!(name: "iterator_runtime", nodes: [iterator], return: Ref.result(:count))
+    Flow.new!(name: "iterator_runtime", components: [iterator], output: Ref.result(:count))
   end
 
   def eq(left, right), do: %Condition{operator: :eq, operands: [left, right]}

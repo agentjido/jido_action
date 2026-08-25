@@ -5,7 +5,7 @@ defmodule JidoActionTest.Flow.Compiler.RuntimeTest do
   alias Jido.Action.Output
   alias Jido.Exec
   alias Jido.Flow
-  alias Jido.Flow.{Choice, Compiler, Condition, Node, Reduce, Ref}
+  alias Jido.Flow.{Choice, Compiler, Condition, Reduce, Ref, Step}
   alias Jido.Flow.Map, as: FlowMap
 
   alias JidoActionTest.TestActions.{Add, EchoParamsAction, Multiply}
@@ -28,12 +28,12 @@ defmodule JidoActionTest.Flow.Compiler.RuntimeTest do
   end
 
   test "selects the first matching Choice option" do
-    always = Condition.eq(Ref.value(1), Ref.value(1))
+    always = Condition.eq(1, 1)
 
     flow =
       Flow.new!(
         name: "first_matching_choice",
-        nodes: [
+        components: [
           Choice.new!(
             name: "route",
             options: [
@@ -41,19 +41,19 @@ defmodule JidoActionTest.Flow.Compiler.RuntimeTest do
                 name: "first",
                 condition: always,
                 action: Add,
-                input: %{value: 1, amount: 1}
+                params: %{value: 1, amount: 1}
               ],
               [
                 name: "second",
                 condition: always,
                 action: Multiply,
-                input: %{value: 10, amount: 10}
+                params: %{value: 10, amount: 10}
               ]
             ],
-            fallback: [action: Multiply, input: %{value: 20, amount: 20}]
+            fallback: [action: Multiply, params: %{value: 20, amount: 20}]
           )
         ],
-        return: Ref.result("route")
+        output: Ref.result("route")
       )
 
     assert {:ok, %{value: 2}} = Exec.run(flow, %{}, %{})
@@ -63,12 +63,12 @@ defmodule JidoActionTest.Flow.Compiler.RuntimeTest do
     flow =
       Flow.new!(
         name: "map_item_identity",
-        nodes: [
+        components: [
           FlowMap.new!(
             name: "mapped",
-            collection: Ref.value([:first, :second]),
+            collection: [:first, :second],
             action: EchoParamsAction,
-            input: %{
+            params: %{
               id: Ref.item_id(),
               index: Ref.item_index(),
               value: Ref.item()
@@ -76,7 +76,7 @@ defmodule JidoActionTest.Flow.Compiler.RuntimeTest do
             on_error: :collect_errors
           )
         ],
-        return: Ref.result("mapped")
+        output: Ref.result("mapped")
       )
 
     assert {:ok, %{errors: [], results: results}} = Exec.run(flow, %{}, %{})
@@ -90,8 +90,8 @@ defmodule JidoActionTest.Flow.Compiler.RuntimeTest do
   end
 
   test "short-circuits all, any, and not conditions" do
-    true_condition = Condition.eq(Ref.value(1), Ref.value(1))
-    false_condition = Condition.eq(Ref.value(1), Ref.value(2))
+    true_condition = Condition.eq(1, 1)
+    false_condition = Condition.eq(1, 2)
 
     cases = [
       {Condition.all([true_condition, true_condition]), 2},
@@ -156,11 +156,11 @@ defmodule JidoActionTest.Flow.Compiler.RuntimeTest do
     flow =
       Flow.new!(
         name: "expression_resolution",
-        nodes: [
-          Node.new!(
+        components: [
+          Step.new!(
             name: "echo",
             action: EchoParamsAction,
-            input: %{
+            params: %{
               values: [Ref.input(:value), Ref.context(:trace)],
               alternate_key: Ref.input([:data, :value]),
               indexed: Ref.input([:items, 1]),
@@ -168,7 +168,7 @@ defmodule JidoActionTest.Flow.Compiler.RuntimeTest do
             }
           )
         ],
-        return: Ref.result("echo")
+        output: Ref.result("echo")
       )
 
     assert {:ok,
@@ -196,10 +196,10 @@ defmodule JidoActionTest.Flow.Compiler.RuntimeTest do
       flow =
         Flow.new!(
           name: "strict_expression_resolution",
-          nodes: [
-            Node.new!(name: "echo", action: EchoParamsAction, input: %{resolved: ref})
+          components: [
+            Step.new!(name: "echo", action: EchoParamsAction, params: %{resolved: ref})
           ],
-          return: Ref.result("echo")
+          output: Ref.result("echo")
         )
 
       assert {:error,
@@ -229,15 +229,15 @@ defmodule JidoActionTest.Flow.Compiler.RuntimeTest do
     flow =
       Flow.new!(
         name: "invalid_map_collection",
-        nodes: [
+        components: [
           FlowMap.new!(
             name: "mapped",
             collection: Ref.input(:items),
             action: EchoParamsAction,
-            input: %{item: Ref.item()}
+            params: %{item: Ref.item()}
           )
         ],
-        return: Ref.result("mapped")
+        output: Ref.result("mapped")
       )
 
     cases = [
@@ -265,16 +265,16 @@ defmodule JidoActionTest.Flow.Compiler.RuntimeTest do
     empty_map =
       Flow.new!(
         name: "empty_map",
-        nodes: [
+        components: [
           FlowMap.new!(
             name: "mapped",
-            collection: Ref.value([]),
+            collection: [],
             action: EchoParamsAction,
-            input: %{item: Ref.item()},
+            params: %{item: Ref.item()},
             on_error: :collect_errors
           )
         ],
-        return: Ref.result("mapped")
+        output: Ref.result("mapped")
       )
 
     assert {:ok, %{results: [], errors: []}} = Exec.run(empty_map, %{}, %{})
@@ -282,16 +282,16 @@ defmodule JidoActionTest.Flow.Compiler.RuntimeTest do
     reduce =
       Flow.new!(
         name: "invalid_reduce",
-        nodes: [
+        components: [
           Reduce.new!(
             name: "reduced",
             collection: Ref.input(:items),
             initial: Ref.input(:initial),
             action: EchoParamsAction,
-            input: %{accumulator: Ref.accumulator(), item: Ref.item()}
+            params: %{accumulator: Ref.accumulator(), item: Ref.item()}
           )
         ],
-        return: Ref.result("reduced")
+        output: Ref.result("reduced")
       )
 
     assert {:error,
@@ -308,8 +308,8 @@ defmodule JidoActionTest.Flow.Compiler.RuntimeTest do
     flow =
       Flow.new!(
         name: "compiler_boundary",
-        nodes: [Node.new!(name: "echo", action: EchoParamsAction)],
-        return: Ref.result("echo")
+        components: [Step.new!(name: "echo", action: EchoParamsAction)],
+        output: Ref.result("echo")
       )
 
     assert {:error, error} =
@@ -328,7 +328,7 @@ defmodule JidoActionTest.Flow.Compiler.RuntimeTest do
   defp choice_flow(condition) do
     Flow.new!(
       name: "condition_runtime",
-      nodes: [
+      components: [
         Choice.new!(
           name: "route",
           options: [
@@ -336,17 +336,17 @@ defmodule JidoActionTest.Flow.Compiler.RuntimeTest do
               name: "matched",
               condition: condition,
               action: Add,
-              input: %{value: 1, amount: 1}
+              params: %{value: 1, amount: 1}
             ]
           ],
-          fallback: [action: Multiply, input: %{value: 10, amount: 2}]
+          fallback: [action: Multiply, params: %{value: 10, amount: 2}]
         )
       ],
-      return: Ref.result("route")
+      output: Ref.result("route")
     )
   end
 
   defp invalid_ordering do
-    Condition.lt(Ref.value(%{}), Ref.value(1))
+    Condition.lt(%{}, 1)
   end
 end

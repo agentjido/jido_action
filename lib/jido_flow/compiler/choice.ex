@@ -11,9 +11,9 @@ defmodule Jido.Flow.Compiler.Choice do
   def run(%Choice{} = choice, state) do
     case select_target(choice, state) do
       {:ok, target} ->
-        metadata = %{option: target.name, target: target.action}
+        metadata = %{option: target_name(target), target: target.action}
 
-        with {:ok, params} <- Expression.resolve(target.input, state),
+        with {:ok, params} <- Expression.resolve(target.params, state),
              {:ok, output} <-
                Target.run(
                  target.action,
@@ -32,6 +32,9 @@ defmodule Jido.Flow.Compiler.Choice do
         {:error, error, state}
     end
   end
+
+  defp target_name(%Choice.Option{name: name}), do: name
+  defp target_name(%Choice.Fallback{}), do: :fallback
 
   defp select_target(%Choice{} = choice, state) do
     choice.options

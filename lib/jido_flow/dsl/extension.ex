@@ -164,3 +164,12 @@ defmodule Jido.Flow.DSL.Extension do
 
   use Spark.Dsl.Extension, sections: [@flow]
 end
+
+defmodule Jido.Flow.DSL do
+  @moduledoc false
+
+  use Spark.Dsl,
+    default_extensions: [
+      extensions: [Jido.Flow.DSL.Extension]
+    ]
+end

@@ -3,6 +3,7 @@ defmodule Jido.Flow.Expression do
 
   alias Jido.Action
   alias Jido.Action.Error
+  alias Jido.Flow.Data
   alias Jido.Flow.Ref
 
   @doc false
@@ -22,11 +23,11 @@ defmodule Jido.Flow.Expression do
   end
 
   def to_map(list) when is_list(list), do: Enum.map(list, &to_map/1)
-  def to_map(value), do: Ref.value(value) |> Ref.to_map()
+  def to_map(value), do: value
 
   @doc false
   @spec result_refs(term()) :: [String.t()]
-  def result_refs(%Ref{type: :result, node: node}), do: [node]
+  def result_refs(%Ref{source: :result, component: component}), do: [component]
   def result_refs(%Ref{}), do: []
 
   def result_refs(%{} = map) do
@@ -48,7 +49,7 @@ defmodule Jido.Flow.Expression do
           | :other
   def error_kind(%{details: %{ref_type: _type, scope: _scope}}), do: :invalid_scope
   def error_kind(%{details: %{segment: _segment}}), do: :invalid_ref_path
-  def error_kind(%{details: %{type: _type}}), do: :invalid_ref
+  def error_kind(%{details: %{source: _source}}), do: :invalid_ref
   def error_kind(%{details: %{reason: :improper_list}}), do: :improper_list
   def error_kind(%{details: %{expression: _expression}}), do: :unsupported_expression
   def error_kind(_error), do: :other
@@ -60,7 +61,7 @@ defmodule Jido.Flow.Expression do
 
       {:error, %{details: %{reason: :path, segment: segment}}} ->
         {:error,
-         Error.validation_error("node input contains invalid ref path", %{
+         Error.validation_error("flow expression contains an invalid reference path", %{
            path: path,
            segment: segment
          })}
@@ -73,15 +74,17 @@ defmodule Jido.Flow.Expression do
          )}
 
       {:error, _error} ->
-        invalid_ref_error(ref.type, path)
+        invalid_ref_error(ref.source, path)
     end
   end
 
   defp do_validate(%{} = map, path, scope) when not is_struct(map) do
     Enum.reduce_while(map, :ok, fn {key, value}, :ok ->
-      case do_validate(value, path ++ [key], scope) do
-        :ok -> {:cont, :ok}
-        {:error, error} -> {:halt, {:error, error}}
+      with :ok <- Data.validate_key(key),
+           :ok <- do_validate(value, path ++ [key], scope) do
+        {:cont, :ok}
+      else
+        {:error, error} -> {:halt, {:error, prefix_path(error, path)}}
       end
     end)
   end
@@ -96,18 +99,23 @@ defmodule Jido.Flow.Expression do
 
   defp do_validate(%{__struct__: module}, path, _scope) do
     {:error,
-     Error.validation_error("node input contains unsupported expression", %{
+     Error.validation_error("flow expression contains an unsupported value", %{
        path: path,
        expression: module
      })}
   end
 
-  defp do_validate(_value, _path, _scope), do: :ok
+  defp do_validate(value, path, _scope) do
+    case Data.validate(value) do
+      :ok -> :ok
+      {:error, error} -> {:error, prefix_path(error, path)}
+    end
+  end
 
-  defp do_normalize(%Ref{type: :result, node: node} = ref, _path)
-       when (is_atom(node) and not is_nil(node)) or is_binary(node) do
-    case normalize_name(node) do
-      {:ok, node} -> {:ok, %{ref | node: node}}
+  defp do_normalize(%Ref{source: :result, component: component} = ref, _path)
+       when (is_atom(component) and not is_nil(component)) or is_binary(component) do
+    case normalize_name(component) do
+      {:ok, component} -> {:ok, %{ref | component: component}}
       {:error, error} -> {:error, error}
     end
   end
@@ -171,12 +179,12 @@ defmodule Jido.Flow.Expression do
   end
 
   defp normalize_name(_name) do
-    {:error, Error.validation_error("node name must be a non-empty string or atom")}
+    {:error, Error.validation_error("component name must be a non-empty string or atom")}
   end
 
   defp invalid_ref_error(type, path) do
     {:error,
-     Error.validation_error("node input contains invalid ref", %{
+     Error.validation_error("flow expression contains an invalid reference", %{
        path: path,
        type: type
      })}
@@ -189,4 +197,10 @@ defmodule Jido.Flow.Expression do
        reason: :improper_list
      })}
   end
+
+  defp prefix_path(%{details: details} = error, path) when is_map(details) do
+    %{error | details: Map.put(details, :path, path ++ Map.get(details, :path, []))}
+  end
+
+  defp prefix_path(error, _path), do: error
 end

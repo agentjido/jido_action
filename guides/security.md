@@ -47,39 +47,31 @@ results, error details, or logs.
 
 The Flow module DSL is compile-time Elixir source. Keep it in trusted
 application code. Do not evaluate generated or user-supplied Elixir source to
-create a Flow. Use the stored-map or JSON format for database data, API input,
-and AI-generated Flows.
+create a Flow. Use `Jido.Flow.Codec` and JSON for database data, API input, and
+AI-generated Flows.
 
 Do not create atoms from untrusted input. Keep user-provided identifiers as
 strings. A stored Flow map can select data atoms only through trusted
 `{:atom, atom}` Registry entries. Accepted and rejected artifacts do not create
 atoms and do not use the VM atom table as an implicit Registry.
 
-The atom map key `:__struct__` is reserved in a stored Flow map. The reader and
-writer reject it before they construct an Elixir map. The string map key
-`"__struct__"` is valid. The atom `:__struct__` is also valid as a typed
-reference path segment because a path does not construct a map.
-
 ## Limit Stored Flow Input
 
-The library applies these fixed limits to each stored Flow map:
+The Codec applies these limits while it encodes and decodes:
 
-- Maximum container depth: 64.
-- Maximum visited term count: 100,000.
-- Maximum total binary payload: 1,048,576 bytes.
-- Maximum width of one map, list, or tuple: 10,000 items.
+- Maximum container depth: 100.
+- Maximum width of one map or list: 10,000 items.
 
-The binary limit is the total for the complete artifact. `Jido.Flow.from_stored_map/2`
-receives a decoded map. It does not limit raw HTTP bytes or JSON decoder work.
-The caller must limit transport bytes and JSON decoding before it calls
-`Jido.Flow.from_stored_map/2`.
+`Jido.Flow.Codec.decode/2` receives a decoded map. It does not limit raw HTTP
+bytes or JSON decoder work. The caller must set transport-byte, JSON-parser,
+and complete-document limits before it calls the Codec.
 
 ## Control The Registry In The Host
 
-A stored version 1 map contains stable schema, Action, and data atom
+A stored Flow map contains stable schema, Action, Flow, and data atom
 identifiers. The host supplies one flat `Jido.Flow.Registry`. Zoi schemas,
-Action module atoms, and data atoms stay in host code. Stored data can select
-only identifiers that the Registry owns.
+module atoms, and data atoms stay in host code. Stored data can select only
+identifiers that the Registry owns.
 
 Registry resolution is inert. It validates trusted entries and does direct
 lookup. It does not derive module names, create atoms, load a module, call an

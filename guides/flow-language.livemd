@@ -65,8 +65,7 @@ end
 ## `step`: Call An Action
 
 `step` declares one named Action or nested Flow call. `params:` maps Flow data
-to target input. The only terminal node becomes the output when `output` is
-absent. Declare `output` when the graph has multiple terminal nodes.
+to target input. Every Flow declares one final `output` expression.
 
 ```elixir
 defmodule FlowLanguage.StepExample do
@@ -79,6 +78,8 @@ defmodule FlowLanguage.StepExample do
     step "echo",
       action: FlowLanguage.Echo,
       params: %{value: input(:value)}
+
+    output result("echo")
   end
 end
 
@@ -112,6 +113,8 @@ defmodule FlowLanguage.ParallelExample do
         left: select(result("left"), :value),
         right: select(result("right"), :value)
       }
+
+    output result("merge")
   end
 end
 
@@ -152,6 +155,8 @@ defmodule FlowLanguage.CollectionExample do
       action(FlowLanguage.Add)
       params(%{total: accumulator(:total), value: item(:value)})
     end
+
+    output result("sum_values")
   end
 end
 
@@ -181,6 +186,8 @@ defmodule FlowLanguage.IterateExample do
       params(%{total: state(:total), value: 1})
       repeat(2)
     end
+
+    output result("add_twice")
   end
 end
 
@@ -212,6 +219,8 @@ defmodule FlowLanguage.ChoiceExample do
       otherwise action: FlowLanguage.Echo,
                 params: %{route: :default}
     end
+
+    output result("route")
   end
 end
 
@@ -264,7 +273,7 @@ portable.
 canonical = FlowLanguage.StepExample.flow()
 
 true = is_struct(canonical, Jido.Flow)
-%Jido.Flow{name: "flow_language_step", nodes: [_node], return: _output} = canonical
+%Jido.Flow{name: "flow_language_step", components: [_component], output: _output} = canonical
 
 {:ok, identity} = Jido.Flow.semantic_identity(canonical)
 true = is_binary(identity.digest)

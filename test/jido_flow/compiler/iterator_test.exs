@@ -19,8 +19,8 @@ defmodule JidoActionTest.Flow.Compiler.IteratorTest do
       flow =
         IteratorFixtures.iterator_flow(
           schema: schema,
-          initial: %{count: Ref.value(0)},
-          completion: IteratorFixtures.gte(Ref.iteration_index(), Ref.value(1)),
+          initial: %{count: 0},
+          completion: IteratorFixtures.gte(Ref.iteration_index(), 1),
           max_iterations: 1
         )
 
@@ -35,13 +35,14 @@ defmodule JidoActionTest.Flow.Compiler.IteratorTest do
     test "evaluates completion exactly once at the head and after each commit" do
       flow =
         IteratorFixtures.iterator_flow(
-          initial: %{count: Ref.value(0)},
-          completion: IteratorFixtures.gte(Ref.state(:count), Ref.value(3)),
+          initial: %{count: 0},
+          completion: IteratorFixtures.gte(Ref.state(:count), 3),
           max_iterations: 3
         )
 
       target = {IteratorCompiler, :evaluate_iterator_completion, 3}
 
+      Code.ensure_loaded!(IteratorCompiler)
       :erlang.trace_pattern(target, true, [:local, :call_count])
 
       result =

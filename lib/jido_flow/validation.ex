@@ -3,156 +3,86 @@ defmodule Jido.Flow.Validation do
 
   alias Jido.Action
   alias Jido.Action.Error
-  alias Jido.Flow.Element
+  alias Jido.Executable
+  alias Jido.Flow.Component
+  alias Jido.Flow.Choice
   alias Jido.Flow.Expression
   alias Jido.Flow.Graph
+  alias Jido.Flow.Iterate
+  alias Jido.Flow.Map, as: FlowMap
+  alias Jido.Flow.Reduce
+  alias Jido.Flow.Step
+  alias Jido.Flow.Subflow
 
   @module_config_keys [:name, :description, :schema, :output_schema]
-  @artifact_config_keys @module_config_keys ++ [:nodes, :return, :provenance]
+  @artifact_config_keys @module_config_keys ++ [:components, :output]
 
   @doc false
-  @spec new(map() | keyword()) :: {:ok, map()} | {:error, Exception.t()}
-  def new(attrs) when is_list(attrs) do
+  def new(attrs), do: validate_attrs(attrs)
+
+  @doc false
+  def validate(attrs), do: validate_attrs(attrs)
+
+  @doc false
+  def validate_executable(attrs) do
+    with {:ok, flow} <- validate_attrs(attrs),
+         :ok <- validate_component_targets(flow.components, []) do
+      {:ok, flow}
+    end
+  end
+
+  @doc false
+  def validate_config(%{} = attrs) do
+    with :ok <- known_keys(attrs, @module_config_keys),
+         {:ok, name} <- name(Map.get(attrs, :name)),
+         {:ok, description} <- description(Map.get(attrs, :description)),
+         {:ok, schema} <- schema(Map.get(attrs, :schema, []), "schema"),
+         {:ok, output_schema} <- schema(Map.get(attrs, :output_schema, []), "output_schema") do
+      {:ok, %{name: name, description: description, schema: schema, output_schema: output_schema}}
+    end
+  end
+
+  def validate_config(_attrs),
+    do: {:error, Error.validation_error("flow configuration must be a map")}
+
+  @doc false
+  def invalid_subject(value),
+    do: {:error, Error.validation_error("expected a Jido.Flow artifact", %{value: value})}
+
+  defp validate_attrs(attrs) when is_list(attrs) do
     if Keyword.keyword?(attrs),
-      do: attrs |> Map.new() |> new(),
+      do: attrs |> Map.new() |> validate_attrs(),
       else: {:error, Error.validation_error("flow configuration must be a map")}
   end
 
-  def new(%{} = attrs) do
-    with :ok <- validate_known_keys(attrs, @artifact_config_keys),
-         {:ok, flow} <- normalize_flow(attrs, &normalize_nodes/1) do
-      validate_normalized(flow)
-    end
-  end
-
-  def new(_attrs), do: {:error, Error.validation_error("flow configuration must be a map")}
-
-  @doc false
-  @spec new_from_validated_nodes(map()) :: {:ok, map()} | {:error, Exception.t()}
-  def new_from_validated_nodes(%{nodes: nodes} = attrs) do
-    with :ok <- validate_known_keys(attrs, @artifact_config_keys),
-         {:ok, flow} <- normalize_flow(attrs, fn _nodes -> {:ok, nodes} end) do
-      validate_normalized(flow)
-    end
-  end
-
-  @doc false
-  @spec validate(map()) :: {:ok, map()} | {:error, Exception.t()}
-  def validate(%{} = flow) do
-    with {:ok, flow} <- normalize_flow(flow, &normalize_nodes/1) do
-      validate_normalized(flow)
-    end
-  end
-
-  def validate(value), do: invalid_subject(value)
-
-  defp normalize_flow(attrs, node_normalizer) do
-    with {:ok, name} <- validate_name(Map.get(attrs, :name)),
-         {:ok, description} <- validate_description(Map.get(attrs, :description)),
-         {:ok, schema} <- validate_schema(Map.get(attrs, :schema, []), "schema"),
-         {:ok, output_schema} <-
-           validate_schema(Map.get(attrs, :output_schema, []), "output_schema"),
-         {:ok, nodes} <- node_normalizer.(Map.get(attrs, :nodes, [])),
-         {:ok, return} <- validate_return(Map.get(attrs, :return)),
-         {:ok, provenance} <- validate_provenance(Map.get(attrs, :provenance, %{})) do
+  defp validate_attrs(%{} = attrs) do
+    with :ok <- known_keys(attrs, @artifact_config_keys),
+         {:ok, name} <- name(Map.get(attrs, :name)),
+         {:ok, description} <- description(Map.get(attrs, :description)),
+         {:ok, schema} <- schema(Map.get(attrs, :schema, []), "schema"),
+         {:ok, output_schema} <- schema(Map.get(attrs, :output_schema, []), "output_schema"),
+         {:ok, components} <- components(Map.get(attrs, :components, [])),
+         {:ok, output} <- output(Map.get(attrs, :output)),
+         :ok <- unique_names(components),
+         :ok <- known_dependencies(components, output),
+         :ok <- acyclic(components) do
       {:ok,
        %{
          name: name,
          description: description,
          schema: schema,
          output_schema: output_schema,
-         nodes: nodes,
-         return: return,
-         provenance: provenance
+         components: components,
+         output: output
        }}
     end
   end
 
-  defp validate_normalized(flow) do
-    with :ok <- validate_static_semantic_data(flow),
-         :ok <- validate_duplicate_nodes(flow.nodes),
-         :ok <- validate_known_result_refs(flow),
-         flow = normalize_node_deps(flow),
-         :ok <- validate_acyclic(flow.nodes) do
-      {:ok, flow}
-    end
-  end
+  defp validate_attrs(_attrs),
+    do: {:error, Error.validation_error("flow configuration must be a map")}
 
-  @doc false
-  @spec validate_executable(map()) :: {:ok, map()} | {:error, Exception.t()}
-  def validate_executable(flow) do
-    with {:ok, flow} <- validate(flow),
-         :ok <- check_action_contracts(flow.nodes) do
-      {:ok, flow}
-    end
-  end
-
-  @doc false
-  @spec validate_config(map()) :: {:ok, map()} | {:error, Exception.t()}
-  def validate_config(%{} = attrs) do
-    with :ok <- validate_known_keys(attrs, @module_config_keys),
-         {:ok, name} <- validate_name(Map.get(attrs, :name)),
-         {:ok, description} <- validate_description(Map.get(attrs, :description)),
-         {:ok, schema} <- validate_schema(Map.get(attrs, :schema, []), "schema"),
-         {:ok, output_schema} <-
-           validate_schema(Map.get(attrs, :output_schema, []), "output_schema") do
-      {:ok,
-       %{
-         name: name,
-         description: description,
-         schema: schema,
-         output_schema: output_schema
-       }}
-    end
-  end
-
-  def validate_config(_attrs) do
-    {:error, Error.validation_error("flow configuration must be a map")}
-  end
-
-  @doc false
-  @spec invalid_subject(term()) :: {:error, Error.InvalidInputError.t()}
-  def invalid_subject(value) do
-    {:error, Error.validation_error("expected a Jido.Flow artifact", %{value: value})}
-  end
-
-  defp validate_name(name) when is_binary(name) do
-    case Action.validate_name(name) do
-      :ok -> {:ok, name}
-      {:error, message} -> {:error, Error.validation_error(message)}
-    end
-  end
-
-  defp validate_name(_name), do: {:error, Error.validation_error("flow name must be a string")}
-
-  defp validate_description(nil), do: {:ok, nil}
-  defp validate_description(description) when is_binary(description), do: {:ok, description}
-
-  defp validate_description(_description) do
-    {:error, Error.validation_error("flow description must be a string")}
-  end
-
-  defp validate_schema(nil, _field), do: {:ok, []}
-
-  defp validate_schema(schema, field) do
-    with :ok <- validate_static_schema(schema),
-         :ok <- Action.validate_action_schema(schema) do
-      {:ok, schema}
-    else
-      {:error, message} ->
-        {:error, Error.validation_error("#{field} #{message}", %{field: field})}
-    end
-  end
-
-  defp validate_static_schema(schema) do
-    case Action.validate_static_data(schema) do
-      :ok -> :ok
-      {:error, message} -> {:error, "must be static module data; #{message}"}
-    end
-  end
-
-  defp validate_known_keys(attrs, allowed) do
-    case attrs |> Map.keys() |> Enum.find(&(&1 not in allowed)) do
+  defp known_keys(attrs, allowed) do
+    case Enum.find(Map.keys(attrs), &(&1 not in allowed)) do
       nil ->
         :ok
 
@@ -162,152 +92,233 @@ defmodule Jido.Flow.Validation do
     end
   end
 
-  defp validate_static_semantic_data(flow) do
-    semantic_data = %{
-      name: flow.name,
-      description: flow.description,
-      nodes: Enum.map(flow.nodes, &Element.static_data/1),
-      return: flow.return
-    }
-
-    case Action.validate_static_data(semantic_data) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        {:error,
-         Error.validation_error("Flow semantic data must be static module data; #{reason}", %{
-           field: "semantic"
-         })}
+  defp name(value) when is_binary(value) do
+    case Action.validate_name(value) do
+      :ok -> {:ok, value}
+      {:error, message} -> {:error, Error.validation_error(message)}
     end
   end
 
-  defp normalize_nodes(nodes) when is_list(nodes) do
-    if List.improper?(nodes) do
-      {:error, Error.validation_error("flow nodes must be a proper list")}
+  defp name(_value), do: {:error, Error.validation_error("flow name must be a string")}
+
+  defp description(nil), do: {:ok, nil}
+  defp description(value) when is_binary(value), do: {:ok, value}
+
+  defp description(_value),
+    do: {:error, Error.validation_error("flow description must be a string")}
+
+  defp schema(nil, _field), do: {:ok, []}
+
+  defp schema(value, field) do
+    with :ok <- static_schema(value),
+         :ok <- Action.validate_action_schema(value) do
+      {:ok, value}
     else
-      normalize_proper_nodes(nodes)
+      {:error, message} ->
+        {:error, Error.validation_error("#{field} #{message}", %{field: field})}
     end
   end
 
-  defp normalize_nodes(_nodes), do: {:error, Error.validation_error("flow nodes must be a list")}
-
-  defp normalize_proper_nodes(nodes) do
-    nodes
-    |> Enum.reduce_while({:ok, []}, fn attrs, {:ok, acc} ->
-      case Element.new(attrs) do
-        {:ok, node} -> {:cont, {:ok, [node | acc]}}
-        {:error, error} -> {:halt, {:error, error}}
-      end
-    end)
-    |> case do
-      {:ok, nodes} -> {:ok, Enum.reverse(nodes)}
-      {:error, error} -> {:error, error}
+  defp static_schema(value) do
+    case Action.validate_static_data(value) do
+      :ok -> :ok
+      {:error, message} -> {:error, "must be static module data; #{message}"}
     end
   end
 
-  defp validate_return(nil) do
-    {:error, Error.validation_error("return ref is required")}
-  end
+  defp components([]),
+    do: {:error, Error.validation_error("Flow must declare at least one component")}
 
-  defp validate_return(return) do
-    with {:ok, return} <- Expression.normalize(return),
-         :ok <- Expression.validate(return),
-         :ok <- validate_return_has_result_ref(return) do
-      {:ok, return}
+  defp components(values) when is_list(values) do
+    if List.improper?(values) do
+      {:error, Error.validation_error("flow components must be a proper list")}
+    else
+      values
+      |> Enum.with_index()
+      |> Enum.reduce_while({:ok, []}, fn {value, index}, {:ok, acc} ->
+        case Component.new(value) do
+          {:ok, component} -> {:cont, {:ok, [component | acc]}}
+          {:error, error} -> {:halt, {:error, prefix(error, [:components, index])}}
+        end
+      end)
+      |> reverse_ok()
     end
   end
 
-  defp validate_return_has_result_ref(return) do
-    case Expression.result_refs(return) do
-      [] -> {:error, Error.validation_error("return must reference at least one step result")}
-      _refs -> :ok
+  defp components(_values), do: {:error, Error.validation_error("flow components must be a list")}
+
+  defp output(nil),
+    do: {:error, Error.validation_error("Flow output is required", %{path: [:output]})}
+
+  defp output(value) do
+    with {:ok, value} <- Expression.normalize(value),
+         :ok <- Expression.validate(value) do
+      {:ok, value}
     end
   end
 
-  defp validate_provenance(nil), do: {:ok, %{}}
-  defp validate_provenance(provenance) when is_map(provenance), do: {:ok, provenance}
+  defp unique_names(components) do
+    names = Enum.map(components, &Component.name_of/1)
 
-  defp validate_provenance(_provenance) do
-    {:error, Error.validation_error("flow provenance must be a map")}
+    case names -- Enum.uniq(names) do
+      [] -> :ok
+      [name | _] -> {:error, Error.validation_error("duplicate component name", %{name: name})}
+    end
   end
 
-  defp validate_duplicate_nodes(nodes) do
-    names = Enum.map(nodes, &Element.name/1)
-    frequencies = Enum.frequencies(names)
+  defp known_dependencies(components, output) do
+    known = components |> Enum.map(&Component.name_of/1) |> MapSet.new()
 
-    names
-    |> Enum.find(&(Map.fetch!(frequencies, &1) > 1))
-    |> case do
+    with :ok <- known_refs(Expression.result_refs(output), known, :output) do
+      Enum.reduce_while(components, :ok, fn component, :ok ->
+        dependencies =
+          Component.after_of(component) ++ Component.reference_dependencies(component)
+
+        case known_refs(dependencies, known, Component.name_of(component)) do
+          :ok -> {:cont, :ok}
+          {:error, error} -> {:halt, {:error, error}}
+        end
+      end)
+    end
+  end
+
+  defp known_refs(names, known, owner) do
+    case Enum.find(names, &(not MapSet.member?(known, &1))) do
       nil ->
         :ok
 
       name ->
-        {:error, Error.validation_error("duplicate step name: #{inspect(name)}", %{name: name})}
+        {:error,
+         Error.validation_error("Flow reference points to an unknown component", %{
+           owner: owner,
+           component: name
+         })}
     end
   end
 
-  defp check_action_contracts(nodes) do
-    Enum.reduce_while(nodes, :ok, fn node, :ok ->
-      case Element.check(node) do
+  defp acyclic(components) do
+    case Graph.analyze(components) do
+      %{remaining: []} ->
+        :ok
+
+      %{remaining: names} ->
+        {:error,
+         Error.validation_error("flow dependency graph contains a cycle", %{components: names})}
+    end
+  end
+
+  defp validate_component_targets(components, module_stack) do
+    Enum.reduce_while(components, :ok, fn component, :ok ->
+      case validate_target(component, module_stack) do
         :ok -> {:cont, :ok}
         {:error, error} -> {:halt, {:error, error}}
       end
     end)
   end
 
-  defp validate_known_result_refs(flow) do
-    known = flow.nodes |> Enum.map(&Element.name/1) |> MapSet.new()
-
-    case flow.return
-         |> Expression.result_refs()
-         |> Enum.find(&(not MapSet.member?(known, &1))) do
-      nil ->
-        validate_node_result_refs(flow.nodes, known)
-
-      missing_node ->
-        {:error,
-         Error.validation_error(
-           "return ref points to an unknown step: #{inspect(missing_node)}",
-           %{node: missing_node}
-         )}
+  defp validate_target(%Step{name: name, action: action}, _module_stack) do
+    with {:ok, executable} <- Executable.resolve(action),
+         :ok <- require_kind(executable, :action, name),
+         :ok <- Executable.validate(executable) do
+      :ok
+    else
+      {:error, error} -> {:error, target_error(error, name, :action)}
     end
   end
 
-  defp validate_node_result_refs(nodes, known) do
-    Enum.reduce_while(nodes, :ok, fn node, :ok ->
-      missing = node |> Element.result_deps() |> Enum.reject(&MapSet.member?(known, &1))
+  defp validate_target(%Subflow{name: name, flow: flow}, module_stack) do
+    with {:ok, executable} <- Executable.resolve(flow),
+         :ok <- require_kind(executable, :flow, name),
+         :ok <- Executable.validate(executable),
+         :ok <- reject_recursive_subflow(flow, module_stack),
+         {:ok, child} <- load_child_flow(flow),
+         {:ok, child} <- validate_attrs(Map.from_struct(child)),
+         :ok <- validate_component_targets(child.components, [flow | module_stack]) do
+      :ok
+    else
+      {:error, error} -> {:error, target_error(error, name, :flow)}
+    end
+  end
 
-      case missing do
-        [] ->
-          {:cont, :ok}
+  defp validate_target(%Choice{} = choice, _module_stack) do
+    targets =
+      Enum.map(choice.options, &{&1.name, &1.action}) ++ [{:fallback, choice.fallback.action}]
 
-        [missing_node | _] ->
-          {:halt,
-           {:error,
-            Error.validation_error(
-              "node input points to an unknown step: #{inspect(missing_node)}",
-              %{node: Element.name(node), dependency: missing_node}
-            )}}
+    validate_action_targets(targets, choice.name)
+  end
+
+  defp validate_target(%FlowMap{name: name, action: action}, _module_stack),
+    do: validate_action_targets([{:action, action}], name)
+
+  defp validate_target(%Reduce{name: name, action: action}, _module_stack),
+    do: validate_action_targets([{:action, action}], name)
+
+  defp validate_target(%Iterate{name: name, action: action}, _module_stack),
+    do: validate_action_targets([{:action, action}], name)
+
+  defp validate_action_targets(targets, component) do
+    Enum.reduce_while(targets, :ok, fn {field, target}, :ok ->
+      with {:ok, executable} <- Executable.resolve(target),
+           :ok <- require_kind(executable, :action, component),
+           :ok <- Executable.validate(executable) do
+        {:cont, :ok}
+      else
+        {:error, error} ->
+          {:halt, {:error, target_error(error, component, field)}}
       end
     end)
   end
 
-  defp normalize_node_deps(flow) do
-    nodes = Enum.map(flow.nodes, &Element.put_deps(&1, Element.result_deps(&1)))
-    %{flow | nodes: nodes}
-  end
-
-  defp validate_acyclic(nodes) do
-    case Graph.analyze(nodes) do
-      %{remaining: []} ->
-        :ok
-
-      %{remaining: remaining} ->
-        {:error,
-         Error.validation_error("flow dependency graph contains a cycle", %{
-           nodes: Enum.sort(remaining)
-         })}
+  defp reject_recursive_subflow(flow, module_stack) do
+    if flow in module_stack do
+      {:error,
+       Error.validation_error("recursive Subflow module cycle", %{
+         flow: flow,
+         module_stack: Enum.reverse([flow | module_stack])
+       })}
+    else
+      :ok
     end
   end
+
+  defp load_child_flow(module) do
+    case module.flow() do
+      %Jido.Flow{} = flow ->
+        {:ok, flow}
+
+      value ->
+        {:error,
+         Error.validation_error("Subflow flow/0 must return a Jido.Flow", %{value: value})}
+    end
+  rescue
+    error -> {:error, Error.validation_error("Subflow flow/0 failed", %{error: error})}
+  catch
+    kind, reason ->
+      {:error, Error.validation_error("Subflow flow/0 failed", %{kind: kind, reason: reason})}
+  end
+
+  defp target_error(%{details: details} = error, component, field) when is_map(details) do
+    %{error | details: Map.merge(details, %{component: component, field: field})}
+  end
+
+  defp target_error(error, _component, _field), do: error
+
+  defp require_kind(%Executable{kind: kind}, kind, _name), do: :ok
+
+  defp require_kind(%Executable{kind: actual}, expected, name) do
+    {:error,
+     Error.validation_error("Flow component has the wrong executable kind", %{
+       component: name,
+       expected: expected,
+       actual: actual
+     })}
+  end
+
+  defp prefix(%{details: details} = error, path) when is_map(details),
+    do: %{error | details: Map.put(details, :path, path ++ Map.get(details, :path, []))}
+
+  defp prefix(error, _path), do: error
+
+  defp reverse_ok({:ok, values}), do: {:ok, Enum.reverse(values)}
+  defp reverse_ok(error), do: error
 end

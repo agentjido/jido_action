@@ -1,16 +1,17 @@
 defmodule Jido.Flow.Registry do
   @moduledoc """
-  Resolves stable stored identifiers to trusted host Actions, schemas, and
-  data atoms.
+  Resolves stable stored identifiers to trusted host Actions, Flows, schemas,
+  and data atoms.
 
   A Registry is flat. Each string identifier maps to one typed write entry or
   one read alias:
 
       Jido.Flow.Registry.new!(%{
-        "actions/send-email/v2" => {:action, MyApp.SendEmail},
-        "actions/send-email/v1" => {:alias, "actions/send-email/v2"},
-        "schemas/email/v1" => {:schema, MyApp.EmailSchema.schema()},
-        "atoms/approved/v1" => {:atom, :approved}
+        "actions/send-email" => {:action, MyApp.SendEmail},
+        "flows/send-email" => {:flow, MyApp.SendEmailFlow},
+        "actions/send-email-old" => {:alias, "actions/send-email"},
+        "schemas/email" => {:schema, MyApp.EmailSchema.schema()},
+        "atoms/approved" => {:atom, :approved}
       })
 
   A typed entry is the canonical identifier that the writer uses for its
@@ -29,8 +30,9 @@ defmodule Jido.Flow.Registry do
   @identifier_pattern ~r/\A[A-Za-z0-9][A-Za-z0-9._\/:@-]{0,254}\z/
 
   @type stable_id :: String.t()
-  @type kind :: :action | :schema | :atom
-  @type write_entry :: {:action, module()} | {:schema, term()} | {:atom, atom()}
+  @type kind :: :action | :flow | :schema | :atom
+  @type write_entry ::
+          {:action, module()} | {:flow, module()} | {:schema, term()} | {:atom, atom()}
   @type alias_entry :: {:alias, stable_id()}
   @type entry :: write_entry() | alias_entry()
   @type write_key :: {kind(), term()}
@@ -82,10 +84,10 @@ defmodule Jido.Flow.Registry do
   end
 
   @doc "Resolves one identifier of the required kind."
-  @spec resolve(t(), stable_id(), :action | :schema | :atom) ::
+  @spec resolve(t(), stable_id(), kind()) ::
           {:ok, module() | term()} | {:error, Exception.t()}
   def resolve(%__MODULE__{entries: entries}, identifier, kind)
-      when kind in [:action, :schema, :atom] do
+      when kind in [:action, :flow, :schema, :atom] do
     with :ok <- validate_identifier(identifier) do
       case Map.fetch(entries, identifier) do
         {:ok, {:alias, write_identifier}} ->
@@ -101,10 +103,10 @@ defmodule Jido.Flow.Registry do
   end
 
   @doc "Finds the canonical write identifier for a trusted Action, schema, or atom value."
-  @spec identifier(t(), :action | :schema | :atom, term()) ::
+  @spec identifier(t(), kind(), term()) ::
           {:ok, stable_id()} | {:error, Exception.t()}
   def identifier(%__MODULE__{write_ids: write_ids}, kind, value)
-      when kind in [:action, :schema, :atom] do
+      when kind in [:action, :flow, :schema, :atom] do
     case Map.fetch(write_ids, {kind, value}) do
       {:ok, identifier} ->
         {:ok, identifier}
@@ -131,6 +133,7 @@ defmodule Jido.Flow.Registry do
   end
 
   defp validate_entry({:action, module}) when is_atom(module) and not is_nil(module), do: :ok
+  defp validate_entry({:flow, module}) when is_atom(module) and not is_nil(module), do: :ok
   defp validate_entry({:schema, _schema}), do: :ok
   defp validate_entry({:atom, atom}) when is_atom(atom), do: :ok
 

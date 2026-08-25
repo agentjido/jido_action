@@ -1,53 +1,54 @@
 defmodule Jido.Flow.Graph do
   @moduledoc false
 
-  alias Jido.Flow.Element
+  alias Jido.Flow.Component
 
   @doc false
-  @spec canonical_nodes([Element.t()]) :: [Element.t()]
-  def canonical_nodes(nodes) do
-    sorted_nodes =
-      nodes
-      |> Map.new(fn node -> {Element.name(node), node} end)
+  @spec canonical_components([Component.t()]) :: [Component.t()]
+  def canonical_components(components) do
+    sorted_components =
+      components
+      |> Map.new(fn component -> {Component.name_of(component), component} end)
       |> Map.values()
-      |> Enum.sort_by(fn node -> node |> Element.name() |> node_name_sort_key() end)
+      |> Enum.sort_by(fn component -> component |> Component.name_of() |> name_sort_key() end)
 
-    %{levels: levels, max_level: max_level, remaining: remaining} = analyze(sorted_nodes)
+    %{levels: levels, max_level: max_level, remaining: remaining} = analyze(sorted_components)
 
     blocked = MapSet.new(remaining)
 
-    nodes_by_level =
-      sorted_nodes
-      |> Enum.reject(&MapSet.member?(blocked, Element.name(&1)))
-      |> Enum.group_by(&Map.fetch!(levels, Element.name(&1)))
+    components_by_level =
+      sorted_components
+      |> Enum.reject(&MapSet.member?(blocked, Component.name_of(&1)))
+      |> Enum.group_by(&Map.fetch!(levels, Component.name_of(&1)))
 
-    ordered_nodes =
+    ordered_components =
       if max_level < 0 do
         []
       else
         Enum.flat_map(0..max_level, fn level ->
-          Map.get(nodes_by_level, level, [])
+          Map.get(components_by_level, level, [])
         end)
       end
 
-    blocked_nodes = Enum.filter(sorted_nodes, &MapSet.member?(blocked, Element.name(&1)))
+    blocked_components =
+      Enum.filter(sorted_components, &MapSet.member?(blocked, Component.name_of(&1)))
 
-    ordered_nodes ++ blocked_nodes
+    ordered_components ++ blocked_components
   end
 
   @doc false
-  @spec analyze([Element.t()]) :: %{
+  @spec analyze([Component.t()]) :: %{
           levels: %{optional(String.t()) => non_neg_integer()},
           max_level: integer(),
           remaining: [String.t()]
         }
-  def analyze(nodes) do
+  def analyze(components) do
     {indegrees, adjacency} =
-      nodes
+      components
       |> Enum.reverse()
-      |> Enum.reduce({%{}, %{}}, fn node, {indegrees, adjacency} ->
-        name = Element.name(node)
-        dependencies = node |> Element.deps() |> MapSet.new()
+      |> Enum.reduce({%{}, %{}}, fn component, {indegrees, adjacency} ->
+        name = Component.name_of(component)
+        dependencies = component |> Component.effective_dependencies() |> MapSet.new()
 
         adjacency =
           Enum.reduce(dependencies, adjacency, fn dependency, adjacency ->
@@ -58,8 +59,8 @@ defmodule Jido.Flow.Graph do
       end)
 
     ready =
-      Enum.reduce(nodes, [], fn node, ready ->
-        name = Element.name(node)
+      Enum.reduce(components, [], fn component, ready ->
+        name = Component.name_of(component)
 
         if Map.fetch!(indegrees, name) == 0 do
           [name | ready]
@@ -77,7 +78,7 @@ defmodule Jido.Flow.Graph do
     |> do_analyze(indegrees, adjacency, levels, max_level)
   end
 
-  defp node_name_sort_key(name), do: to_string(name)
+  defp name_sort_key(name), do: to_string(name)
 
   defp do_analyze(ready, indegrees, adjacency, levels, max_level) do
     case :queue.out(ready) do

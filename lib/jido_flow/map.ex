@@ -8,25 +8,33 @@ defmodule Jido.Flow.Map do
   """
 
   alias Jido.Action.Error
-  alias Jido.Flow.Element.Validation, as: ElementValidation
+  alias Jido.Flow.Component
   alias Jido.Flow.Expression
-  alias Jido.Instruction
 
-  @config_keys [:name, :collection, :action, :input, :on_error, :deps, :provenance]
+  @config_keys [:name, :collection, :action, :params, :on_error, :after, :meta]
+
+  @schema Zoi.struct(
+            __MODULE__,
+            %{
+              name: Zoi.string(description: "Component name"),
+              collection: Zoi.any(description: "Collection expression"),
+              action: Zoi.atom(description: "Item Action module"),
+              params: Zoi.any(description: "Item parameter expression") |> Zoi.default(%{}),
+              on_error:
+                Zoi.enum([:fail_fast, :collect_errors], description: "Map error mode")
+                |> Zoi.default(:fail_fast),
+              after:
+                Zoi.list(Zoi.string(), description: "Explicit control order") |> Zoi.default([]),
+              meta: Zoi.map(description: "Portable author metadata") |> Zoi.default(%{})
+            },
+            coerce: true
+          )
 
   @type error_mode :: :fail_fast | :collect_errors
-  @type t :: %__MODULE__{
-          name: String.t(),
-          collection: term(),
-          action: module(),
-          input: term(),
-          on_error: error_mode(),
-          deps: [String.t()],
-          provenance: map()
-        }
+  @type t :: unquote(Zoi.type_spec(@schema))
 
-  @enforce_keys @config_keys
-  defstruct @config_keys
+  @enforce_keys Zoi.Struct.enforce_keys(@schema)
+  defstruct Zoi.Struct.struct_fields(@schema)
 
   @doc false
   @spec new(map() | keyword() | t()) :: {:ok, t()} | {:error, Exception.t()}
@@ -37,24 +45,23 @@ defmodule Jido.Flow.Map do
   end
 
   def new(%{} = attrs) do
-    with :ok <- ElementValidation.known_keys(attrs, @config_keys, "map"),
-         {:ok, name} <- ElementValidation.name(Map.get(attrs, :name), :map),
+    with :ok <- known_keys(attrs),
+         {:ok, name} <- Component.name(Map.get(attrs, :name)),
          {:ok, collection} <- validate_required_expression(attrs, :collection, :map_collection),
-         {:ok, action} <- ElementValidation.target(Map.get(attrs, :action), :map, [:action]),
-         {:ok, input} <- validate_input(Map.get(attrs, :input, %{})),
+         {:ok, action} <- Component.module(Map.get(attrs, :action), "map action"),
+         {:ok, params} <- validate_params(Map.get(attrs, :params, %{})),
          {:ok, on_error} <- validate_on_error(Map.get(attrs, :on_error, :fail_fast)),
-         {:ok, deps} <- ElementValidation.deps(Map.get(attrs, :deps, []), :map),
-         {:ok, provenance} <-
-           ElementValidation.provenance(Map.get(attrs, :provenance, %{}), :map) do
+         {:ok, after_names} <- Component.after_names(Map.get(attrs, :after, [])),
+         {:ok, meta} <- Component.meta(Map.get(attrs, :meta, %{})) do
       {:ok,
        %__MODULE__{
          name: name,
          collection: collection,
          action: action,
-         input: input,
+         params: params,
          on_error: on_error,
-         deps: deps,
-         provenance: provenance
+         after: after_names,
+         meta: meta
        }}
     end
   end
@@ -75,87 +82,51 @@ defmodule Jido.Flow.Map do
   def result_deps(%__MODULE__{} = map) do
     map.collection
     |> Expression.result_refs()
-    |> Kernel.++(Expression.result_refs(map.input))
-    |> Kernel.++(map.deps)
+    |> Kernel.++(Expression.result_refs(map.params))
     |> Enum.uniq()
     |> Enum.sort()
   end
 
   @doc false
-  @spec put_deps(t(), [String.t()]) :: t()
-  def put_deps(%__MODULE__{} = map, deps), do: %{map | deps: deps}
-
-  @doc false
-  @spec check(t()) :: :ok | {:error, Exception.t()}
-  def check(%__MODULE__{} = map) do
-    case Instruction.validate_action_contract(map.action) do
-      :ok ->
-        :ok
-
-      {:error, error} ->
-        {:error,
-         Error.validation_error(
-           error.message,
-           error.details |> Map.merge(%{map: map.name, target: map.action})
-         )}
-    end
-  end
-
-  @doc false
-  @spec to_map(t(), keyword()) :: map()
-  def to_map(%__MODULE__{} = map, opts \\ []) do
-    base = %{
+  @spec to_map(t()) :: map()
+  def to_map(%__MODULE__{} = map) do
+    %{
       kind: :map,
       name: map.name,
       collection: Expression.to_map(map.collection),
       action: map.action,
-      input: Expression.to_map(map.input),
+      params: Expression.to_map(map.params),
       on_error: map.on_error,
-      deps: Enum.sort(map.deps)
-    }
-
-    if Keyword.get(opts, :provenance, false) do
-      Map.put(base, :provenance, map.provenance)
-    else
-      base
-    end
-  end
-
-  @doc false
-  @spec static_data(t()) :: map()
-  def static_data(%__MODULE__{} = map) do
-    %{
-      kind: :map,
-      name: map.name,
-      collection: map.collection,
-      action: map.action,
-      input: map.input,
-      on_error: map.on_error,
-      deps: map.deps
+      after: map.after,
+      meta: map.meta
     }
   end
-
-  @doc false
-  @spec semantic_data(t()) :: map()
-  def semantic_data(%__MODULE__{} = map), do: static_data(map)
 
   defp validate_required_expression(attrs, field, scope) do
     if Map.has_key?(attrs, field) do
-      ElementValidation.expression(
-        Map.fetch!(attrs, field),
-        scope,
-        "map collection",
-        [field]
-      )
+      expression(Map.fetch!(attrs, field), scope)
     else
       {:error, Error.validation_error("map #{field} is required", %{path: [field]})}
     end
   end
 
-  defp validate_input(nil), do: {:ok, %{}}
+  defp validate_params(nil), do: {:ok, %{}}
 
-  defp validate_input(input),
-    do: ElementValidation.expression(input, :map_input, "map target input", [:input])
+  defp validate_params(params), do: expression(params, :map_params)
+
+  defp expression(value, scope) do
+    with {:ok, value} <- Expression.normalize(value),
+         :ok <- Expression.validate(value, scope) do
+      {:ok, value}
+    end
+  end
+
+  defp known_keys(attrs) do
+    case Enum.find(Map.keys(attrs), &(&1 not in @config_keys)) do
+      nil -> :ok
+      key -> {:error, Error.validation_error("unknown map key: #{inspect(key)}")}
+    end
+  end
 
   defp validate_on_error(on_error) when on_error in [:fail_fast, :collect_errors],
     do: {:ok, on_error}

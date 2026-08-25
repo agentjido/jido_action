@@ -30,8 +30,8 @@ defmodule Jido.Flow.Compiler.Reduce do
     end
   end
 
-  defp direct_map_source?(%Ref{type: :result, node: node, path: []}, map_nodes) do
-    MapSet.member?(map_nodes, node)
+  defp direct_map_source?(%Ref{source: :result, component: component, path: []}, map_nodes) do
+    MapSet.member?(map_nodes, component)
   end
 
   defp direct_map_source?(_collection, _map_nodes), do: false
@@ -170,7 +170,7 @@ defmodule Jido.Flow.Compiler.Reduce do
   end
 
   defp resolve_reduce_input(reduce, state, target_context) do
-    reduce.input
+    reduce.params
     |> Expression.resolve(state)
     |> ErrorTagger.tag_target_validation_error(:input, target_context)
   end

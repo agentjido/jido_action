@@ -61,14 +61,16 @@ defmodule BuildFirstFlow.DoubleAfterIncrement do
     step "double",
       action: BuildFirstFlow.Double,
       params: %{value: select(result("add_one"), :value)}
+
+    output result("double")
   end
 end
 ```
 
 ## Run The Flow
 
-Use `Jido.Exec.run/3` with the Flow module. Because `double` is the only
-terminal node and there is no `output`, its complete result is the Flow output.
+Use `Jido.Exec.run/3` with the Flow module. The required `output` expression
+selects the complete `double` result.
 
 ```elixir
 {:ok, %{value: 8}} =
@@ -80,8 +82,8 @@ The canonical Flow artifact can also be passed directly to `Jido.Exec`.
 ```elixir
 flow = BuildFirstFlow.DoubleAfterIncrement.flow()
 
-%Jido.Flow{name: "double_after_increment", nodes: nodes} = flow
-2 = length(nodes)
+%Jido.Flow{name: "double_after_increment", components: components} = flow
+2 = length(components)
 
 {:ok, %{value: 8}} = Jido.Exec.run(flow, %{value: 3}, %{})
 ```
@@ -92,12 +94,13 @@ The artifact contains named nodes and one canonical output expression. Use publi
 inspection functions to see dependencies and a deterministic explanation.
 
 ```elixir
-{:ok, %{"add_one" => [], "double" => ["add_one"]}} =
-  Jido.Flow.dependencies(flow)
+{:ok, dependencies} = Jido.Flow.dependencies(flow)
+%{after: [], references: [], effective: []} = dependencies["add_one"]
+%{after: [], references: ["add_one"], effective: ["add_one"]} = dependencies["double"]
 
 {:ok, explanation} = Jido.Flow.explain(flow)
 
-[%{name: "add_one"}, %{name: "double", deps: ["add_one"]}] = explanation.nodes
+["add_one", "double"] = Enum.map(explanation.components, & &1.name)
 ```
 
 The node inputs contain data expressions. The Flow lowerer converts those

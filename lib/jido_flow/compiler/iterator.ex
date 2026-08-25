@@ -73,7 +73,7 @@ defmodule Jido.Flow.Compiler.Iterator do
     result =
       try do
         with {:ok, params} <-
-               Expression.resolve(iterator.input, local_state)
+               Expression.resolve(iterator.params, local_state)
                |> ErrorTagger.tag_target_validation_error(:input, target_context),
              {:ok, output} <-
                Target.run(

@@ -1,6 +1,6 @@
 # Flow Choices
 
-A `choice` routes one Flow node to one Action or nested Flow. It checks options
+A `choice` routes one Flow component to one Action. It checks options
 in source order, runs the first matching target, and uses a required
 `otherwise` target when no option matches.
 
@@ -74,6 +74,8 @@ defmodule FlowChoices.Routing do
       otherwise action: FlowChoices.Echo,
                 params: %{route: select(result("fallback_data"), :kind)}
     end
+
+    output result("route")
   end
 end
 ```
@@ -88,7 +90,10 @@ then remove an edge from the already compiled graph.
 
 ```elixir
 {:ok, dependencies} = Jido.Flow.dependencies(FlowChoices.Routing.flow())
-["bulk_data", "fallback_data", "priority_data"] = dependencies["route"]
+%{
+  references: ["bulk_data", "fallback_data", "priority_data"],
+  effective: ["bulk_data", "fallback_data", "priority_data"]
+} = dependencies["route"]
 ```
 
 ## Ordered First Match
@@ -96,11 +101,9 @@ then remove an edge from the already compiled graph.
 Jido checks options in source order. The first true condition wins. Only the
 selected target runs.
 
-Keep branch-specific work inside the selected target when that work must be
-lazy. A nested Flow target can load its own data and then call its final Action.
-This structure is also the correct choice when an unselected branch must not
-run or fail the parent Flow. Do not create outer Flow steps for data that only
-one route needs.
+Keep branch-specific work inside the selected Action when that work must be
+lazy. Choice targets cannot be Flow modules. Use a top-level `step` when a
+separate Subflow boundary is required.
 
 ```elixir
 {:ok, %{route: :priority}} =
@@ -181,6 +184,8 @@ defmodule FlowChoices.NoRecovery do
       otherwise action: FlowChoices.Echo,
                 params: %{route: :fallback}
     end
+
+    output result("route")
   end
 end
 
@@ -209,7 +214,7 @@ builder =
     ],
     Builder.fallback(FlowChoices.Echo, %{route: Builder.value(:no)})
   )
-  |> Builder.return(Builder.result(:route))
+  |> Builder.output(Builder.result(:route))
 
 {:ok, built_flow} = Builder.build(builder)
 %Jido.Flow{name: "builder_choice"} = built_flow
@@ -236,5 +241,5 @@ A Choice is one public node. Its option targets are not separate ready nodes.
 
 - [Flow Language](flow-language.livemd) introduces all Flow nodes.
 - [Flow References](flow-references.livemd) explains condition data.
-- [Nested Flows](nested-flows.livemd) shows a Flow as a Choice target.
+- [Nested Flows](nested-flows.livemd) shows Step-only Subflow derivation.
 - [Executing Flows](flow-execution.livemd) explains step-wise execution.

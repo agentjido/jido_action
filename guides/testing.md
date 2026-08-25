@@ -63,19 +63,23 @@ tests when those features are part of the contract.
 
 ## Test The Flow Graph
 
-Test the canonical graph before testing runtime behavior. Assert node names,
-dependencies, output shape, and semantic identity when these are important to
-the application.
+Test the canonical graph before testing runtime behavior. Assert component
+names, explicit order, inferred dependencies, output shape, and semantic
+identity when these are important to the application.
 
 ```elixir
 test "declares the dependency graph" do
   flow = MyApp.Flows.BuildReport.flow()
 
   assert {:ok, dependencies} = Jido.Flow.dependencies(flow)
-  assert dependencies["build_summary"] == ["load_account", "load_orders"]
+  assert dependencies["build_summary"] == %{
+           after: [],
+           references: ["load_account", "load_orders"],
+           effective: ["load_account", "load_orders"]
+         }
 
   assert {:ok, explanation} = Jido.Flow.explain(flow)
-  assert Enum.map(explanation.nodes, & &1.name) == [
+  assert Enum.map(explanation.components, & &1.name) == [
            "load_account",
            "load_orders",
            "build_summary"

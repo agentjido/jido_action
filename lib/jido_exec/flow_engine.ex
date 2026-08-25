@@ -15,7 +15,7 @@ defmodule Jido.Exec.FlowEngine do
 
   alias Jido.Exec.FlowRunnableExecutor
   alias Jido.Flow
-  alias Jido.Flow.{Compiler, Element, NodeError}
+  alias Jido.Flow.{Compiler, Component, NodeError}
   alias Runic.Workflow
   alias Runic.Workflow.{Fact, Runnable, Step}
 
@@ -44,7 +44,7 @@ defmodule Jido.Exec.FlowEngine do
              execution_id,
              CollectionTelemetry.observer(execution_id, flow.name)
            ) do
-      ordered_nodes = Enum.map(ordered_elements, &Element.name/1)
+      ordered_nodes = Enum.map(ordered_elements, &Component.name_of/1)
 
       execution = %Execution{
         id: execution_id,

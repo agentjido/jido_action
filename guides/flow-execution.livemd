@@ -123,6 +123,8 @@ defmodule FlowExecutionLivebook.BuildReport do
         account: select(result("load_account"), :account),
         orders: select(result("load_orders"), :orders)
       }
+
+    output result("build_summary")
   end
 end
 ```
@@ -287,6 +289,8 @@ defmodule FlowExecutionLivebook.FailureFlow do
     step "record_audit",
       action: FlowExecutionLivebook.RecordAudit,
       params: %{message: "failure observed"}
+
+    output result("record_audit")
   end
 end
 
@@ -329,6 +333,8 @@ defmodule FlowExecutionLivebook.RouteFlow do
       otherwise action: FlowExecutionLivebook.Route,
                 params: %{route: :standard}
     end
+
+    output result("route")
   end
 end
 
@@ -388,6 +394,8 @@ defmodule FlowExecutionLivebook.Child do
     step "summary",
       action: FlowExecutionLivebook.ChildSummary,
       params: %{account_id: input(:account_id)}
+
+    output result("summary")
   end
 end
 

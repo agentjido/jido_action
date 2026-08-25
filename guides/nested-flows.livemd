@@ -1,8 +1,11 @@
 # Nested Flows
 
-A Flow can call another Flow as a step target or as a Choice target. The child
-Flow has its own input schema, nodes, and output schema. The parent maps data
-into the child and receives the child's output as one node result.
+A Flow-compatible Action becomes a Subflow only when it is the target of a
+`step`. The public Spark shape stays unchanged. The lowerer checks the exact
+`Jido.Executable` kind and creates `Jido.Flow.Subflow`.
+
+Choice, Map, Reduce, and Iterate targets must be Actions. They do not derive
+Subflows.
 
 Run the code cells from top to bottom.
 
@@ -12,7 +15,7 @@ Run the code cells from top to bottom.
 Mix.install([{:jido_action, "~> 3.0.0-rc.1"}])
 ```
 
-## Define The Child Action
+## Define the child Action
 
 ```elixir
 defmodule NestedFlows.Describe do
@@ -26,11 +29,7 @@ defmodule NestedFlows.Describe do
 end
 ```
 
-## Define A Child Flow
-
-The child receives only the input map that its parent maps to it. The runtime
-context is also available inside the child, so the child can read caller
-metadata without putting it into the child input map.
+## Define the child Flow
 
 ```elixir
 defmodule NestedFlows.Child do
@@ -46,19 +45,21 @@ defmodule NestedFlows.Child do
         value: input(:value),
         trace_id: context(:trace_id)
       }
+
+    output result("describe")
   end
 end
 ```
 
-## Use A Child Flow As A Step
+The child has its own input schema, output schema, components, and output
+expression.
 
-The parent maps `value` into the child. The child output becomes the result of
-the parent `:child` node.
+## Use the child in a Step
 
 ```elixir
-defmodule NestedFlows.ParentStep do
+defmodule NestedFlows.Parent do
   use Jido.Flow,
-    name: "nested_flows_parent_step",
+    name: "nested_flows_parent",
     schema: Zoi.object(%{value: Zoi.integer()}),
     output_schema: Zoi.map()
 
@@ -70,123 +71,67 @@ defmodule NestedFlows.ParentStep do
     output %{child: result("child")}
   end
 end
+```
+
+The Spark term is still `step`. The canonical value has a Subflow:
+
+```elixir
+%Jido.Flow{components: [%Jido.Flow.Subflow{name: "child", flow: NestedFlows.Child}]} =
+  NestedFlows.Parent.flow()
+```
+
+The Builder applies the same rule:
+
+```elixir
+alias Jido.Flow.Builder
+
+{:ok, built} =
+  Builder.new(name: "runtime_parent")
+  |> Builder.step("child", NestedFlows.Child, %{value: Builder.input(:value)})
+  |> Builder.output(Builder.result("child"))
+  |> Builder.build()
+
+[%Jido.Flow.Subflow{}] = built.components
+```
+
+Direct construction and stored JSON use the explicit Subflow type or kind.
+The Codec requires a trusted `{:flow, NestedFlows.Child}` Registry entry.
+
+## Validate the boundary
+
+```elixir
+{:ok, _flow} = Jido.Flow.validate_executable(NestedFlows.Parent.flow())
 
 {:ok, %{child: %{value: 4, trace_id: "trace-1"}}} =
   Jido.Exec.run(
-    NestedFlows.ParentStep,
+    NestedFlows.Parent,
     %{value: 4},
     %{trace_id: "trace-1"}
   )
 ```
 
-The child input schema validates the mapped `%{value: 4}` input. The child
-output schema validates the result before the parent receives it.
+Executable validation loads `NestedFlows.Child.flow/0`, validates the child,
+and rejects recursive Subflow module cycles.
 
-## The Parent Sees One Atomic Node
+The current phase-one execution adapter keeps a Subflow atomic at the parent
+boundary. Phase two will compile it as a native Runic Workflow boundary with
+instance-scoped names and hashes.
 
-Nested execution is atomic from the parent execution's view. `start/4` exposes
-the parent node name. `step/2` executes the complete child Flow and returns the
-child output in one `NodeResult`.
+## Keep other target slots Action-only
 
-```elixir
-{:ok, execution} =
-  Jido.Exec.start(NestedFlows.ParentStep, %{value: 4}, %{trace_id: "trace-1"})
+These fields reject a Flow module:
 
-["child"] = Jido.Exec.ready(execution)
+- Choice option `action`
+- Choice fallback `action`
+- Map `action`
+- Reduce `action`
+- Iterate `action`
 
-{:ok,
- %Jido.Exec.NodeResult{
-   node: "child",
-   status: :ok,
-   output: %{value: 4, trace_id: "trace-1"}
- }, execution} = Jido.Exec.step(execution, "child")
+Move a child Flow to a top-level Step when it needs a Subflow boundary. Do not
+expect the compiler to generate a replacement graph for an invalid target.
 
-:succeeded = Jido.Exec.status(execution)
-{:ok, %{child: %{value: 4, trace_id: "trace-1"}}} = Jido.Exec.result(execution)
-```
+## Continue learning
 
-There is no public step-into API. A parent step does not expose the child
-nodes. Run the child Flow separately when you need to inspect or step through
-the child graph.
-
-## Use A Child Flow As A Choice Target
-
-A Choice can select a child Flow in the same way that it selects an Action.
-The selected child must satisfy the input and output contracts declared by the
-child Flow.
-
-```elixir
-defmodule NestedFlows.Echo do
-  use Jido.Action,
-    name: "nested_flows_echo",
-    schema: Zoi.map(),
-    output_schema: Zoi.map()
-
-  @impl true
-  def run(params, _context), do: {:ok, params}
-end
-
-defmodule NestedFlows.ParentChoice do
-  use Jido.Flow,
-    name: "nested_flows_parent_choice",
-    schema: Zoi.object(%{route: Zoi.atom(), value: Zoi.integer()}),
-    output_schema: Zoi.map()
-
-  flow do
-    choice "route" do
-      option "child",
-        condition: input(:route) == :child,
-        action: NestedFlows.Child,
-        params: %{value: input(:value)}
-
-      otherwise action: NestedFlows.Echo,
-                params: %{route: :fallback, value: input(:value)}
-    end
-  end
-end
-
-{:ok, %{value: 5, trace_id: "trace-2"}} =
-  Jido.Exec.run(
-    NestedFlows.ParentChoice,
-    %{route: :child, value: 5},
-    %{trace_id: "trace-2"}
-  )
-
-{:ok, %{route: :fallback, value: 5}} =
-  Jido.Exec.run(
-    NestedFlows.ParentChoice,
-    %{route: :other, value: 5},
-    %{trace_id: "trace-2"}
-  )
-```
-
-The Choice remains one parent node. The selected child Flow is not represented
-as a separate ready node in the parent execution.
-
-## Parent Execution Options Propagate
-
-`async: true` and `max_concurrency` control scheduling of independent nodes in
-one in-memory execution. A nested child Flow inherits these options. The child
-uses the same execution-wide Action and helper-worker budgets as the parent.
-
-```elixir
-{:ok, %{child: %{value: 4, trace_id: "trace-async"}}} =
-  Jido.Exec.run(
-    NestedFlows.ParentStep,
-    %{value: 4},
-    %{trace_id: "trace-async"},
-    async: true,
-    max_concurrency: 2
-  )
-```
-
-These options do not create child steps in the parent ready set. They can run
-independent child nodes concurrently. Run the child directly when it needs a
-different scheduling policy or step-wise control.
-
-## Continue Learning
-
-- [Flow Language](flow-language.livemd) introduces Flow nodes and expressions.
-- [Flow Choices](flow-choices.livemd) explains Choice targets and fallback routing.
-- [Flow Dependencies](flow-dependencies.livemd) explains parent graph dependencies.
-- [Executing Flows](flow-execution.livemd) explains the execution boundary.
+- [Flow Language](flow-language.livemd) introduces canonical components.
+- [Flow References](flow-references.livemd) explains data mapping.
+- [Flow Execution](flow-execution.livemd) explains the current execution API.

@@ -2,13 +2,14 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
   @moduledoc false
 
   alias Jido.Flow.DSL.Lowerer
-  alias Jido.Flow.Element
+  alias Jido.Flow.Component
 
   @doc false
   def using(opts_ast) do
     module_compiler = __MODULE__
 
     quote location: :keep do
+      @behaviour Jido.Action
       @behaviour Jido.Executable
       use Jido.Flow.DSL
       @before_compile Jido.Flow.DSL.ModuleCompiler
@@ -71,16 +72,19 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
     schema = Module.get_attribute(env.module, :__jido_flow_schema__)
     output_schema = Module.get_attribute(env.module, :__jido_flow_output_schema__)
 
-    flow = compile_flow!(env, opts, schema, output_schema)
+    {flow, source_map} = compile_flow!(env, opts, schema, output_schema)
     escaped_flow = Macro.escape(flow)
+    escaped_source_map = Macro.escape(source_map)
 
     quote do
       @doc false
       def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
 
       def flow, do: unquote(escaped_flow)
-      def to_map(opts \\ []), do: Jido.Flow.to_map(flow(), opts)
-      def to_stored_map(registry, opts \\ []), do: Jido.Flow.to_stored_map(flow(), registry, opts)
+      @doc false
+      def __jido_flow_source_map__, do: unquote(escaped_source_map)
+
+      def to_map, do: Jido.Flow.to_map(flow())
       def validate, do: Jido.Flow.validate(flow())
       def validate_executable, do: Jido.Flow.validate_executable(flow())
       def dependencies, do: Jido.Flow.dependencies(flow())
@@ -91,6 +95,8 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
   end
 
   defp compile_flow!(env, opts, schema, output_schema) do
+    source_map = Lowerer.source_map(env.module, env.file)
+
     case Lowerer.lower(env.module,
            name: opts[:name],
            description: opts[:description],
@@ -99,7 +105,7 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
          ) do
       {:ok, flow} ->
         ensure_targets_compiled(flow)
-        validate_executable!(flow, env)
+        {validate_executable!(flow, env, source_map), source_map}
 
       {:error, error} ->
         raise_compile_error!(env, Exception.message(error), error)
@@ -107,16 +113,19 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
   end
 
   defp ensure_targets_compiled(flow) do
-    flow.nodes
-    |> Enum.flat_map(&Element.target_modules/1)
+    flow.components
+    |> Enum.flat_map(&Component.target_modules/1)
     |> Enum.uniq()
     |> Enum.each(&Code.ensure_compiled/1)
   end
 
-  defp validate_executable!(flow, env) do
+  defp validate_executable!(flow, env, source_map) do
     case Jido.Flow.validate_executable(flow) do
-      {:ok, flow} -> flow
-      {:error, error} -> raise_compile_error!(env, compile_error_message(error), error, flow)
+      {:ok, flow} ->
+        flow
+
+      {:error, error} ->
+        raise_compile_error!(env, compile_error_message(error), error, source_map)
     end
   end
 
@@ -125,15 +134,20 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
     raise_compile_error!(env, description, error, nil)
   end
 
-  @spec raise_compile_error!(Macro.Env.t(), String.t(), Exception.t(), Jido.Flow.t() | nil) ::
+  @spec raise_compile_error!(
+          Macro.Env.t(),
+          String.t(),
+          Exception.t(),
+          Jido.Flow.Compiled.source_map() | nil
+        ) ::
           no_return()
-  defp raise_compile_error!(env, description, error, flow) do
+  defp raise_compile_error!(env, description, error, source_map) do
     details = Map.get(error, :details, %{})
 
     raise CompileError,
       description: description,
       file: source_file(details, env),
-      line: source_line(details, flow, env)
+      line: source_line(details, source_map, env)
   end
 
   defp source_file(%{file: file}, _env) when is_binary(file), do: file
@@ -141,24 +155,33 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
 
   defp source_line(%{line: line}, _flow, _env) when is_integer(line) and line > 0, do: line
 
-  defp source_line(details, %Jido.Flow{nodes: nodes}, env) do
-    case source_node(nodes, details) do
-      %{provenance: %{line: line}} when is_integer(line) and line > 0 -> line
-      _node -> env.line
+  defp source_line(details, source_map, env) when is_map(source_map) do
+    case source_location(source_map, details) do
+      %{line: line} when is_integer(line) and line > 0 -> line
+      _location -> env.line
     end
   end
 
-  defp source_line(_details, _flow, env), do: env.line
+  defp source_line(_details, _source_map, env), do: env.line
 
-  defp source_node(nodes, %{node: name}) do
-    Enum.find(nodes, &(Jido.Flow.Element.name(&1) == name))
+  defp source_location(source_map, details) do
+    details
+    |> source_paths()
+    |> Enum.find_value(&Map.get(source_map, &1))
   end
 
-  defp source_node(nodes, %{path: [:nodes, index | _rest]}) when is_integer(index) do
-    Enum.at(nodes, index)
+  defp source_paths(%{component: component, field: :fallback}) do
+    [[:components, component, :fallback], [:components, component]]
   end
 
-  defp source_node(_nodes, _details), do: nil
+  defp source_paths(%{component: component, field: field}) when is_binary(field) do
+    [[:components, component, :options, field], [:components, component]]
+  end
+
+  defp source_paths(%{component: component}), do: [[:components, component]]
+  defp source_paths(%{node: component}), do: [[:components, component]]
+  defp source_paths(%{path: [:output | _rest]}), do: [[:output]]
+  defp source_paths(_details), do: []
 
   defp compile_error_message(error) when is_exception(error) do
     message = Exception.message(error)

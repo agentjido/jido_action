@@ -5,7 +5,7 @@ defmodule JidoActionTest.ExecFixtures do
 
   alias Jido.{Exec, Flow, Instruction}
   alias Jido.Flow.Map, as: FlowMap
-  alias Jido.Flow.{Node, Reduce, Ref}
+  alias Jido.Flow.{Reduce, Ref, Step, Subflow}
   alias JidoActionTest.ExecFixtures.ConcurrencyProbeAction
 
   alias JidoActionTest.TestActions.{
@@ -45,6 +45,8 @@ defmodule JidoActionTest.ExecFixtures do
         action: JidoActionTest.TestActions.EchoParamsAction,
         params: %{value: input(:value)}
       )
+
+      output(result("echo"))
     end
   end
 
@@ -57,6 +59,8 @@ defmodule JidoActionTest.ExecFixtures do
         action: JidoActionTest.TestActions.Add,
         params: %{value: input(:value), amount: 1}
       )
+
+      output(result("add"))
     end
   end
 
@@ -77,19 +81,19 @@ defmodule JidoActionTest.ExecFixtures do
   def linear_flow do
     Flow.new!(
       name: "step_linear",
-      nodes: [
-        Node.new!(
+      components: [
+        Step.new!(
           name: :add,
           action: Add,
-          input: %{value: Ref.input(:value), amount: Ref.value(1)}
+          params: %{value: Ref.input(:value), amount: 1}
         ),
-        Node.new!(
+        Step.new!(
           name: :multiply,
           action: Multiply,
-          input: %{value: Ref.result(:add, :value), amount: Ref.value(2)}
+          params: %{value: Ref.result(:add, :value), amount: 2}
         )
       ],
-      return: Ref.result(:multiply)
+      output: Ref.result(:multiply)
     )
   end
 
@@ -98,16 +102,16 @@ defmodule JidoActionTest.ExecFixtures do
 
     Flow.new!(
       name: "step_map",
-      nodes: [
+      components: [
         FlowMap.new!(
           name: :mapped,
-          collection: Ref.value(items),
+          collection: items,
           action: MapProbeAction,
-          input: map_probe_input(),
+          params: map_probe_input(),
           on_error: on_error
         )
       ],
-      return: Ref.result(:mapped)
+      output: Ref.result(:mapped)
     )
   end
 
@@ -124,20 +128,20 @@ defmodule JidoActionTest.ExecFixtures do
 
     Flow.new!(
       name: "stepwise_map_reduce",
-      nodes: [
+      components: [
         FlowMap.new!(
           name: :mapped,
-          collection: Ref.value(items),
+          collection: items,
           action: MapProbeAction,
-          input: map_probe_input(),
+          params: map_probe_input(),
           on_error: :collect_errors
         ),
         Reduce.new!(
           name: :reduced,
           collection: Ref.result(:mapped),
-          initial: Ref.value(%{values: [], indexes: []}),
+          initial: %{values: [], indexes: []},
           action: ReduceProbeAction,
-          input: %{
+          params: %{
             accumulator: Ref.accumulator(),
             item: Ref.item(:value),
             index: Ref.item_index(),
@@ -145,7 +149,7 @@ defmodule JidoActionTest.ExecFixtures do
           }
         )
       ],
-      return: Ref.result(:reduced)
+      output: Ref.result(:reduced)
     )
   end
 
@@ -161,24 +165,24 @@ defmodule JidoActionTest.ExecFixtures do
 
   def diamond_flow(action) do
     branch_input = fn side ->
-      %{side: Ref.value(side)}
+      %{side: side}
     end
 
     Flow.new!(
       name: "step_diamond",
-      nodes: [
-        Node.new!(name: :right, action: action, input: branch_input.(:right)),
-        Node.new!(name: :left, action: action, input: branch_input.(:left)),
-        Node.new!(
+      components: [
+        Step.new!(name: :right, action: action, params: branch_input.(:right)),
+        Step.new!(name: :left, action: action, params: branch_input.(:left)),
+        Step.new!(
           name: :merge,
           action: EchoParamsAction,
-          input: %{
+          params: %{
             left: Ref.result(:left, :side),
             right: Ref.result(:right, :side)
           }
         )
       ],
-      return: Ref.result(:merge)
+      output: Ref.result(:merge)
     )
   end
 
@@ -186,60 +190,60 @@ defmodule JidoActionTest.ExecFixtures do
     branch_input = fn side ->
       %{
         probe: Ref.context(:probe),
-        side: Ref.value(side),
+        side: side,
         test_pid: Ref.context(:test_pid)
       }
     end
 
     Flow.new!(
       name: "step_probe_diamond",
-      nodes: [
-        Node.new!(name: :right, action: ConcurrencyProbeAction, input: branch_input.(:right)),
-        Node.new!(name: :left, action: ConcurrencyProbeAction, input: branch_input.(:left)),
-        Node.new!(
+      components: [
+        Step.new!(name: :right, action: ConcurrencyProbeAction, params: branch_input.(:right)),
+        Step.new!(name: :left, action: ConcurrencyProbeAction, params: branch_input.(:left)),
+        Step.new!(
           name: :merge,
           action: EchoParamsAction,
-          input: %{
+          params: %{
             left: Ref.result(:left, :side),
             right: Ref.result(:right, :side)
           }
         )
       ],
-      return: Ref.result(:merge)
+      output: Ref.result(:merge)
     )
   end
 
   def wide_flow(node_count) do
     names = Enum.map(1..node_count, &node_name/1)
 
-    nodes =
+    components =
       names
       |> Enum.reverse()
       |> Enum.map(fn name ->
-        Node.new!(name: name, action: EchoParamsAction, input: %{name: Ref.value(name)})
+        Step.new!(name: name, action: EchoParamsAction, params: %{name: name})
       end)
 
-    return = Map.new(names, &{&1, Ref.result(&1)})
-    Flow.new!(name: "wide_step_flow", nodes: nodes, return: return)
+    output = Map.new(names, &{&1, Ref.result(&1)})
+    Flow.new!(name: "wide_step_flow", components: components, output: output)
   end
 
   def serial_flow(node_count) do
-    nodes =
+    components =
       Enum.map(1..node_count, fn index ->
-        input =
+        params =
           if index == 1 do
-            %{value: Ref.value(0), amount: Ref.value(1)}
+            %{value: 0, amount: 1}
           else
-            %{value: Ref.result(node_name(index - 1), :value), amount: Ref.value(1)}
+            %{value: Ref.result(node_name(index - 1), :value), amount: 1}
           end
 
-        Node.new!(name: node_name(index), action: Add, input: input)
+        Step.new!(name: node_name(index), action: Add, params: params)
       end)
 
     Flow.new!(
       name: "serial_step_flow_#{node_count}",
-      nodes: nodes,
-      return: Ref.result(node_name(node_count))
+      components: components,
+      output: Ref.result(node_name(node_count))
     )
   end
 
@@ -250,8 +254,8 @@ defmodule JidoActionTest.ExecFixtures do
     parent =
       Flow.new!(
         name: "parent_#{System.unique_integer([:positive])}",
-        nodes: [Node.new!(name: :inner, action: module, input: Ref.input([]))],
-        return: Ref.result(:inner)
+        components: [Subflow.new!(name: :inner, flow: module, params: Ref.input([]))],
+        output: Ref.result(:inner)
       )
 
     [

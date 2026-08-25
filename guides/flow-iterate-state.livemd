@@ -1,11 +1,11 @@
 # Iterate And State
 
-`iterate` repeats one Action or nested Flow. Each declaration creates an
-Iterator node with a State schema and initial State. It runs with either
+`iterate` repeats one Action. Each declaration creates an Iterate component
+with a State schema and initial State. It runs with either
 `repeat` or `while`, and it always has a fixed bound.
 
-The complete Iterate operation is one public Flow node. Internally, it lowers
-to the canonical `Jido.Flow.Iterator` runtime node.
+The complete Iterate operation is one public Flow component. Its canonical
+type is `Jido.Flow.Iterate`.
 
 Run the code cells from top to bottom.
 
@@ -54,6 +54,8 @@ defmodule FlowIterate.RepeatThree do
       params(%{count: state(:count), index: iteration_index()})
       repeat(3)
     end
+
+    output result("count")
   end
 end
 
@@ -96,6 +98,8 @@ defmodule FlowIterate.WhileBelowTarget do
       while(state(:count) < input(:target))
       max_iterations(10)
     end
+
+    output result("count")
   end
 end
 
@@ -183,8 +187,8 @@ and prior node results.
 
 The DSL uses a static schema term at compile time. Stored Flow JSON replaces
 that term with a stable schema identifier from the host
-`Jido.Flow.Registry`. `Jido.Flow.to_stored_map/3` finds the identifier from the
-State schema value and writes it in the Iterate node. See
+`Jido.Flow.Registry`. `Jido.Flow.Codec.encode/2` finds the identifier from the
+State schema value and writes it in the Iterate component. See
 [Stored Flow JSON](flow-storage.md).
 
 ## Step Through An Iterate Node

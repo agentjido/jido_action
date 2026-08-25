@@ -50,8 +50,8 @@ defmodule JidoActionTest.Flow.DSL.ExpressionTest do
     assert parsed.iteration_index == Ref.iteration_index()
     assert parsed.body_result == Ref.body_result()
     assert parsed.body_result_path == Ref.body_result(:status)
-    assert parsed.literal == Ref.value(:ok)
-    assert parsed.nested == Enum.map([1, true, nil, "value"], &Ref.value/1)
+    assert parsed.literal == :ok
+    assert parsed.nested == [1, true, nil, "value"]
   end
 
   test "lowers native and function condition forms" do
@@ -103,11 +103,9 @@ defmodule JidoActionTest.Flow.DSL.ExpressionTest do
     ref = Ref.result("loaded", :value)
     assert {:ok, ^ref} = Expression.parse(ref)
 
-    assert {:ok, %Ref{type: :value, value: %{status: :ready}}} =
-             Expression.parse(quote(do: value(%{status: :ready})))
+    assert {:ok, %{status: :ready}} = Expression.parse(quote(do: value(%{status: :ready})))
 
-    assert {:ok, %{status: %Ref{type: :value, value: :ready}}} =
-             Expression.parse(%{status: :ready})
+    assert {:ok, %{status: :ready}} = Expression.parse(%{status: :ready})
   end
 
   test "lowers every comparison spelling" do

@@ -11,13 +11,15 @@ defmodule Jido.Flow.Compiler do
   alias Jido.Flow.Compiler.Reduce, as: ReduceCompiler
   alias Jido.Flow.Compiler.Target
   alias Jido.Flow.Compiler.TargetContext
-  alias Jido.Flow.Element
+  alias Jido.Flow.Component
   alias Jido.Flow.Graph
   alias Jido.Flow.Identity
-  alias Jido.Flow.Iterator
+  alias Jido.Flow.Iterate
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.NodeError
   alias Jido.Flow.Reduce
+  alias Jido.Flow.Step, as: FlowStep
+  alias Jido.Flow.Subflow
   alias Runic.Workflow
   alias Runic.Workflow.Step
 
@@ -50,7 +52,7 @@ defmodule Jido.Flow.Compiler do
           target_runner(),
           String.t()
         ) ::
-          {:ok, Workflow.t(), [Element.t()]} | {:error, Exception.t()}
+          {:ok, Workflow.t(), [Component.t()]} | {:error, Exception.t()}
   def runtime_workflow_validated(
         %Flow{} = flow,
         input,
@@ -80,7 +82,7 @@ defmodule Jido.Flow.Compiler do
           String.t(),
           observer()
         ) ::
-          {:ok, Workflow.t(), [Element.t()]} | {:error, Exception.t()}
+          {:ok, Workflow.t(), [Component.t()]} | {:error, Exception.t()}
   def runtime_workflow_validated(
         %Flow{} = flow,
         input,
@@ -104,9 +106,9 @@ defmodule Jido.Flow.Compiler do
       target_runner: target_runner,
       observer: observer,
       map_nodes:
-        flow.nodes
+        flow.components
         |> Enum.filter(&match?(%FlowMap{}, &1))
-        |> MapSet.new(&Element.name/1)
+        |> MapSet.new(&Component.name_of/1)
     }
 
     build(flow, node_state)
@@ -133,11 +135,11 @@ defmodule Jido.Flow.Compiler do
           {:ok, term()} | {:error, Exception.t()}
   def runtime_result(%Flow{} = flow, %Workflow{} = workflow, input, context)
       when is_map(input) and is_map(context) do
-    Expression.extract_return(flow.return, workflow, input, context)
+    Expression.extract_return(flow.output, workflow, input, context)
   end
 
   defp build(%Flow{} = flow, node_state) do
-    ordered = Graph.canonical_nodes(flow.nodes)
+    ordered = Graph.canonical_components(flow.components)
 
     workflow =
       Enum.reduce(ordered, Workflow.new(flow.name), fn node, workflow ->
@@ -155,7 +157,7 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp add_step(workflow, element, step) do
-    case Element.deps(element) do
+    case Component.effective_dependencies(element) do
       [] -> Workflow.add(workflow, step, validate: :off)
       [dep] -> Workflow.add(workflow, step, to: dep, validate: :off)
       deps -> Workflow.add(workflow, step, to: deps, validate: :off)
@@ -201,17 +203,17 @@ defmodule Jido.Flow.Compiler do
     end
   end
 
-  defp run_node_result(%Iterator{} = iterator, parent_value, node_state) do
+  defp run_node_result(%Iterate{} = iterator, parent_value, node_state) do
     state = %{node_state | results: dependency_results(iterator, parent_value)}
     IteratorCompiler.run(iterator, state)
   end
 
-  defp run_node_result(node, parent_value, node_state) do
+  defp run_node_result(%FlowStep{} = node, parent_value, node_state) do
     state = %{node_state | results: dependency_results(node, parent_value)}
 
-    case Expression.resolve(node.input, state) do
+    case Expression.resolve(node.params, state) do
       {:ok, params} ->
-        case run_resolved_node(node, params, state) do
+        case run_resolved_node(node, node.action, params, state) do
           {:ok, output} -> {:ok, output}
           {:error, error} -> {:error, error, state}
         end
@@ -221,9 +223,26 @@ defmodule Jido.Flow.Compiler do
     end
   end
 
-  defp run_resolved_node(node, params, state) do
+  # Phase one keeps a Subflow as one outer runnable. Phase two will replace this
+  # adapter with the native Runic Workflow boundary described in the plan.
+  defp run_node_result(%Subflow{} = subflow, parent_value, node_state) do
+    state = %{node_state | results: dependency_results(subflow, parent_value)}
+
+    case Expression.resolve(subflow.params, state) do
+      {:ok, params} ->
+        case run_resolved_node(subflow, subflow.flow, params, state) do
+          {:ok, output} -> {:ok, output}
+          {:error, error} -> {:error, error, state}
+        end
+
+      {:error, error} ->
+        {:error, error, state}
+    end
+  end
+
+  defp run_resolved_node(node, target, params, state) do
     Target.run(
-      node.action,
+      target,
       params,
       state.context,
       TargetContext.node(node),
@@ -232,10 +251,14 @@ defmodule Jido.Flow.Compiler do
     )
   end
 
-  defp dependency_results(%{deps: []}, _parent_value), do: %{}
-  defp dependency_results(%{deps: [dep]}, parent_value), do: %{dep => parent_value}
+  defp dependency_results(component, parent_value) do
+    dependency_results_for(Component.effective_dependencies(component), parent_value)
+  end
 
-  defp dependency_results(%{deps: deps}, parent_values) when is_list(parent_values) do
+  defp dependency_results_for([], _parent_value), do: %{}
+  defp dependency_results_for([dep], parent_value), do: %{dep => parent_value}
+
+  defp dependency_results_for(deps, parent_values) when is_list(parent_values) do
     # Multi-parent nodes are attached with `to: deps`; engine joins preserve that same order.
     deps
     |> Enum.zip(parent_values)

@@ -5,7 +5,7 @@ defmodule Jido.Flow.Condition do
   Comparison operators are `:eq`, `:neq`, `:lt`, `:lte`, `:gt`, `:gte`, and
   `:in`. Boolean operators are `:all`, `:any`, and `:not`.
 
-  Conditions accept Flow input, context, value, and prior-result references.
+  Conditions accept Flow input, context, and prior-result references.
   They do not accept arbitrary predicate functions. `:all` and `:any`
   short-circuit during execution.
   """
@@ -21,10 +21,20 @@ defmodule Jido.Flow.Condition do
   @operators @comparison_operators ++ @group_operators ++ [:not]
 
   @type operator :: :eq | :neq | :lt | :lte | :gt | :gte | :in | :all | :any | :not
-  @type t :: %__MODULE__{operator: operator(), operands: [term()]}
 
-  @enforce_keys [:operator, :operands]
-  defstruct [:operator, :operands]
+  @schema Zoi.struct(
+            __MODULE__,
+            %{
+              operator: Zoi.enum(@operators, description: "Condition operator"),
+              operands: Zoi.list(Zoi.any(), description: "Condition operands")
+            },
+            coerce: true
+          )
+
+  @type t :: unquote(Zoi.type_spec(@schema))
+
+  @enforce_keys Zoi.Struct.enforce_keys(@schema)
+  defstruct Zoi.Struct.struct_fields(@schema)
 
   @doc false
   @spec new(operator(), list()) :: {:ok, t()} | {:error, Exception.t()}
@@ -183,12 +193,12 @@ defmodule Jido.Flow.Condition do
   end
 
   defp normalize_operands(operator, operands) when Kernel.in(operator, @comparison_operators) do
-    normalize_operands(operator, operands, :flow, "choice condition")
+    normalize_operands(operator, operands, :any, "flow condition")
   end
 
   defp normalize_operands(operator, operands)
        when Kernel.in(operator, @group_operators) or operator == :not do
-    normalize_operands(operator, operands, :flow, "choice condition")
+    normalize_operands(operator, operands, :any, "flow condition")
   end
 
   defp normalize_operands(operator, operands, scope, owner)

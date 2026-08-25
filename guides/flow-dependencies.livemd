@@ -69,6 +69,8 @@ defmodule FlowDependencies.Diamond do
         left: select(result("left"), :value),
         right: select(result("right"), :value)
       }
+
+    output result("joined")
   end
 end
 ```
@@ -79,11 +81,14 @@ Inspect the direct predecessors:
 flow = FlowDependencies.Diamond.flow()
 {:ok, dependencies} = Jido.Flow.dependencies(flow)
 
-["source"] = dependencies["implicit"]
-["source"] = dependencies["explicit"]
-["explicit", "implicit", "left", "right"] = dependencies["joined"]
-[] = dependencies["left"]
-[] = dependencies["right"]
+%{after: [], references: ["source"], effective: ["source"]} = dependencies["implicit"]
+%{after: ["source"], references: [], effective: ["source"]} = dependencies["explicit"]
+
+%{references: ["explicit", "implicit", "left", "right"]} =
+  dependencies["joined"]
+
+%{effective: []} = dependencies["left"]
+%{effective: []} = dependencies["right"]
 ```
 
 ## Ready Waves Are Canonical
@@ -129,8 +134,8 @@ The execution option applies to ready waves. It does not change dependencies.
 
 Choice target parameter references also create normal static edges. All such
 predecessors run before the Choice is ready, including predecessors used only
-by an unselected option or fallback. Put branch-specific work in a nested Flow
-target when it must start only after route selection.
+by an unselected option or fallback. Put lazy branch work inside the selected
+Action. Choice targets cannot be Flow modules.
 
 ## Choose `after:` Only For Control Order
 

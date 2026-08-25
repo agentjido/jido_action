@@ -1,140 +1,98 @@
 # Stored Flow JSON
 
-A stored Flow is a versioned JSON object. It contains stable string identifiers
-for Actions, schemas, and data atoms. It does not contain Elixir module names,
-schema terms, or atom names.
+A stored Flow is one JSON object. Use
+`Jido.Flow.Codec.encode/2` and `Jido.Flow.Codec.decode/2`. The same Codec source
+file owns both directions.
 
-The host application owns one flat `Jido.Flow.Registry`:
+The Codec converts between a canonical `%Jido.Flow{}` and a JSON-compatible
+document map. A JSON library converts this map to or from bytes.
+
+## Trusted Registry
+
+The host application owns one `Jido.Flow.Registry`:
 
 ```elixir
 registry =
   Jido.Flow.Registry.new!(%{
-    "actions/charge-card/v2" => {:action, MyApp.ChargeCard},
-    "actions/charge-card/v1" => {:alias, "actions/charge-card/v2"},
-    "atoms/amount/v1" => {:atom, :amount},
-    "atoms/approved/v1" => {:atom, :approved},
-    "atoms/order-id/v1" => {:atom, :order_id},
-    "schemas/order/v1" => {:schema, MyApp.OrderSchema.schema()},
-    "schemas/result/v1" => {:schema, MyApp.ResultSchema.schema()},
-    "schemas/payment-state/v1" => {:schema, MyApp.PaymentState.schema()}
+    "actions/charge" => {:action, MyApp.ChargeCard},
+    "flows/refund" => {:flow, MyApp.RefundFlow},
+    "actions/charge-old" => {:alias, "actions/charge"},
+    "atoms/amount" => {:atom, :amount},
+    "schemas/order" => {:schema, MyApp.OrderSchema.schema()},
+    "schemas/result" => {:schema, MyApp.ResultSchema.schema()}
   })
 ```
 
-Each canonical write identifier maps directly to one typed trusted value. An
-Action entry is `{:action, module}`. A schema entry is `{:schema, schema}`. A
-data atom entry is `{:atom, atom}`. A read alias is `{:alias,
-canonical_identifier}`. It must refer directly to a typed entry in the same
-Registry.
+An Action, Flow, schema, or user-data atom must have a typed Registry entry.
+Read aliases can rotate stored identifiers. The encoder always uses the
+canonical typed identifier.
 
-The writer uses only canonical typed entries. The reader accepts canonical
-identifiers and aliases. Thus, a host can read an old identifier while all new
-stored Flows use its replacement. The Registry builds a reverse write index at
-construction. It rejects duplicate canonical identifiers for one value,
-invalid aliases, invalid identifiers, untyped entries, and more than 10,000
-entries.
+A Flow module uses a `:flow` entry. It does not use an `:action` entry, even
+though the Flow is Action-compatible.
 
-Add an atom entry for each atom literal, atom map key, and atom reference path
-segment in the Flow. Fixed grammar values, such as the `:gte` condition
-operator and the `:fail_fast` Map mode, do not need atom entries. The writer
-stores a data atom as a tagged Registry identifier:
+## Encode and decode
 
 ```elixir
-%{"$type" => "atom", "value" => "atoms/approved/v1"}
+{:ok, document} = Jido.Flow.Codec.encode(flow, registry)
+json = JSON.encode!(document)
+
+decoded_document = JSON.decode!(json)
+{:ok, restored} = Jido.Flow.Codec.decode(decoded_document, registry)
+
+restored == flow
 ```
 
-## Write
-
-Call `Jido.Flow.to_stored_map/3`:
-
-```elixir
-{:ok, stored} = Jido.Flow.to_stored_map(flow, registry)
-json = JSON.encode!(stored)
-```
-
-The optional third argument accepts only `provenance: true`. Provenance is off
-by default and does not affect semantic identity.
-
-The root record has these fields:
+The root record has this shape:
 
 ```elixir
 %{
-  "type" => "flow",
+  "type" => "jido.flow",
   "version" => 1,
   "name" => "process_order",
   "description" => nil,
-  "input_schema" => "schemas/order/v1",
-  "output_schema" => "schemas/result/v1",
-  "nodes" => [...],
-  "return" => %{...}
+  "schema" => "schemas/order",
+  "output_schema" => "schemas/result",
+  "components" => [
+    %{
+      "kind" => "step",
+      "name" => "charge",
+      "action" => "actions/charge",
+      "params" => %{"$type" => "map", "entries" => []},
+      "after" => [],
+      "meta" => %{"$type" => "map", "entries" => []}
+    }
+  ],
+  "output" => %{
+    "$ref" => %{
+      "source" => "result",
+      "component" => "charge",
+      "path" => []
+    }
+  }
 }
 ```
 
-Each node stores its Action identifier in its own `"action"` field. An Iterate
-node stores its State schema identifier in `"state"["schema"]`. There is no
-second registry record or schema attachment.
+Every component has an explicit `kind`. Maps use tagged entry lists so atom,
+string, and integer keys remain distinct after a JSON byte round trip.
+References and conditions also use explicit tagged records.
 
-## Read
+## Trust and validation
 
-Decode JSON to a map and call `Jido.Flow.from_stored_map/2`:
+The decoder rejects unknown fields, component kinds, versions, identifiers,
+and wrong Registry kinds. It does not create atoms, derive modules from
+strings, or execute the Flow.
 
-```elixir
-decoded = JSON.decode!(json)
-{:ok, restored} = Jido.Flow.from_stored_map(decoded, registry)
-```
+The Codec checks collection width and nesting depth before it continues a
+recursive decode. Stored data must also pass the portable data grammar.
+Functions, PIDs, tuples, and arbitrary structs are not portable values.
 
-The reader first checks structural resource limits. It then validates the exact
-stored grammar, resolves each identifier through the supplied Registry, and
-uses the same canonical constructor as the Flow module DSL and Builder.
-
-The reader does not convert stored strings to atoms. It resolves tagged atom
-identifiers only through `{:atom, atom}` entries in the supplied Registry. It
-does not derive module names, load modules, or accept Action modules, schemas,
-or atoms from the stored map. Call `Jido.Flow.validate_executable/1` or
-`Jido.Exec.run/4` when you must check that resolved Action modules can execute.
-
-Keep an old identifier as a read alias for as long as stored artifacts can
-contain it. Remove the alias only after the application no longer needs to read
-those artifacts.
-
-This tuple-returning read API supports a correction loop for a web UI or an AI
-agent:
+Use tuple results for a correction loop:
 
 ```elixir
-case Jido.Flow.from_stored_map(candidate, registry) do
-  {:ok, flow} -> {:ok, flow}
+case Jido.Flow.Codec.decode(candidate, registry) do
+  {:ok, flow} -> Jido.Flow.validate_executable(flow)
   {:error, error} -> {:error, Jido.Action.Error.to_map(error)}
 end
 ```
 
-The reader reports the first validation error. Error details include a field,
-record, or path when that context is available.
-
-## Resource limits
-
-The writer and reader use the same fixed limits. A successful write does not
-produce a map that the reader rejects for size or structure. All stored string
-values must contain valid UTF-8.
-
-Stored maps have these limits:
-
-- Nesting depth: 64.
-- Total term slots: 100,000.
-- Total binary bytes: 1,048,576.
-- One collection width: 10,000.
-
-These checks protect database and AI-produced maps before recursive decoding.
-
-## Round-trip rule
-
-For a valid Registry, this property must hold:
-
-```elixir
-{:ok, stored} = Jido.Flow.to_stored_map(flow, registry)
-{:ok, restored} = Jido.Flow.from_stored_map(stored, registry)
-
-Jido.Flow.to_map(restored) == Jido.Flow.to_map(flow)
-```
-
-Each host that reads the same artifact must know its stored identifiers. A host
-can map those identifiers to equivalent local schema terms, Action modules, and
-atoms. The resolved Flow semantics must not differ.
+This is the initial stored format. The Codec does not infer old record shapes.

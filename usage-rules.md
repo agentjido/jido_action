@@ -33,14 +33,14 @@ Use `jido_action` for validated work and data-first composition:
 - Prefer precise schemas with defaults for optional action inputs.
 - Use `Jido.Flow.validate/1` for canonical Flow structure and graph rules.
 - Use `Jido.Flow.validate_executable/1` to also check all Flow target contracts.
-- Use `Jido.Flow.to_stored_map/3` with a trusted `Jido.Flow.Registry` to
-  validate and produce stored JSON data without raising.
+- Use `Jido.Flow.Codec.encode/2` and `Jido.Flow.Codec.decode/2` with a trusted
+  `Jido.Flow.Registry` for stored JSON data.
 
 ## Flow Authoring
 
 - Use the compile-time `Jido.Flow` DSL as the primary developer authoring
   surface.
-- Give every node a stable string name.
+- Give every component a stable string name.
 - Use `step`, `choice`, `map`, `reduce`, and `iterate` for graph structure.
 - Use `input`, `context`, and `result` references to map data. Put computation
   in Actions.
@@ -50,18 +50,17 @@ Use `jido_action` for validated work and data-first composition:
   control order without a data dependency.
 - Do not add a `parallel` block. Independent nodes are already parallel when
   Flow execution uses `async: true`.
-- Omit `output` when the complete result of the final node is correct. Use one
-  final `output` declaration to shape a result from one or more nodes.
-- The DSL name is `output`. Builder and canonical data use `return`. Do not add
-  an alias for either boundary.
-- Use `repeat` or a bounded `while` condition for `iterate`. Keep Iterator
-  State local to that node.
+- Add one required `output` declaration to every Flow.
+- The DSL, Builder, and canonical data all use the name `output`.
+- Use `repeat` or a bounded `while` condition in the Spark `iterate` form. The
+  lowerer converts it to canonical `completion` and `max_iterations` data.
+- Keep Iterate State local to that component.
 
 ## Runtime Flow Data
 
 - Use `Jido.Flow.Builder` only when graph structure comes from runtime data.
-- Use `Jido.Flow.to_stored_map/3` for portable Map or JSON storage.
-- Restore stored data with `Jido.Flow.from_stored_map/2` and the same trusted
+- Use `Jido.Flow.Codec.encode/2` for portable Map or JSON storage.
+- Restore stored data with `Jido.Flow.Codec.decode/2` and the same trusted
   `Jido.Flow.Registry`.
 - Use the returned structured error as feedback when a UI or AI agent submits
   an invalid stored map. The reader does not raise for validation failures.
@@ -69,6 +68,9 @@ Use `jido_action` for validated work and data-first composition:
   indexes. Invalid values return structured validation errors.
 - Do not parse or evaluate stored Elixir DSL source. AI systems can produce
   stored JSON or Map data instead.
+- Only `Builder.step/5` and a Spark `step` can derive a Subflow from an
+  executable of kind `:flow`. Choice, Map, Reduce, and Iterate target fields
+  accept Actions only.
 
 ## Execution
 

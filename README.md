@@ -136,6 +136,8 @@ defmodule MyApp.Flows.GreetAndNotify do
     step "notify",
       action: MyApp.Actions.Notify,
       params: %{message: select(result("greet"), :greeting)}
+
+    output result("notify")
   end
 end
 
@@ -143,10 +145,9 @@ end
   Jido.Exec.run(MyApp.Flows.GreetAndNotify, %{name: "Ada"}, %{})
 ```
 
-The only terminal node is the output when `output` is absent. A Flow with
-multiple terminal nodes must declare `output`. Flows also support ordered
-Choices, Map and Reduce collections, bounded Iterate nodes with State,
-independent nodes that can run in parallel, and a step-wise execution API.
+Every Flow declares one output expression. Flows also support ordered Choices,
+Map and Reduce collections, bounded Iterate components with State, independent
+components that can run in parallel, and a step-wise execution API.
 
 ## Build A Flow At Runtime
 
@@ -163,15 +164,14 @@ builder =
     MyApp.Actions.GreetUser,
     %{name: Builder.input(:name), excited?: Builder.value(false)}
   )
-  |> Builder.return(Builder.result("greet"))
+  |> Builder.output(Builder.result("greet"))
 
 {:ok, runtime_flow} = Builder.build(builder)
 {:ok, %{greeting: "Hello, Ada."}} =
   Jido.Exec.run(runtime_flow, %{name: "Ada"})
 ```
 
-The Builder and the Flow module DSL are inputs to the same canonical
-constructor and Flow model.
+The Builder and the Flow module DSL produce the same canonical Flow model.
 
 ## Load A Flow From JSON Or A Map
 
@@ -188,11 +188,11 @@ registry =
     "atoms/name/v1" => {:atom, :name}
   })
 
-{:ok, stored} = Jido.Flow.to_stored_map(runtime_flow, registry)
+{:ok, stored} = Jido.Flow.Codec.encode(runtime_flow, registry)
 json = JSON.encode!(stored)
 decoded = JSON.decode!(json)
 
-case Jido.Flow.from_stored_map(decoded, registry) do
+case Jido.Flow.Codec.decode(decoded, registry) do
   {:ok, flow} ->
     Jido.Flow.validate_executable(flow)
 
@@ -201,14 +201,13 @@ case Jido.Flow.from_stored_map(decoded, registry) do
 end
 ```
 
-`from_stored_map/2` does not execute the Flow. Invalid or incomplete maps
+`Jido.Flow.Codec.decode/2` does not execute the Flow. Invalid or incomplete maps
 return a structured error instead of raising. Stored identifiers cannot create
 atoms or select a module outside the host Registry.
 
-The Flow module DSL, Builder, and stored Map or JSON decoder are three inputs
-to one canonical `%Jido.Flow{}` model. Flow element structs and semantic maps
-are inspection views, not additional source languages. Compiler, Map codec,
-and graph engine adapter modules are private.
+The Flow module DSL, Builder, stored JSON Codec, and direct constructors produce
+one canonical `%Jido.Flow{}` model. The Codec uses explicit component kinds.
+It does not infer old records or module names.
 
 ## Run A Flow Step By Step
 
@@ -237,7 +236,7 @@ Direct Actions and Instructions emit `[:jido, :action, :start]`,
 `[:jido, :action, :stop]`, and `[:jido, :action, :error]`. Flows and their
 nodes use the `[:jido, :flow]` namespace. Map items, Reduce items, and Iterate
 iterations add work-unit spans in that namespace. One `execution_id`
-correlates nested work. Step and selected Choice targets emit a Flow target
+correlates nested work. Step and selected Choice Actions emit a target
 lifecycle with the Action module and selected option. An Action inside a Flow
 does not emit a separate direct Action lifecycle. Telemetry observes execution
 only; it does not control scheduling or results.

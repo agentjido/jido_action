@@ -34,17 +34,24 @@ defmodule Jido.Flow.Compiler.TargetContext do
   }
 
   @doc false
-  def node(node) do
+  def node(%Jido.Flow.Step{} = node) do
     %__MODULE__{kind: :node, details: %{node: node.name, action: node.action}}
+  end
+
+  def node(%Jido.Flow.Subflow{} = node) do
+    %__MODULE__{kind: :node, details: %{node: node.name, action: node.flow}}
   end
 
   @doc false
   def choice(choice, target) do
     %__MODULE__{
       kind: :choice,
-      details: %{node: choice.name, option: target.name, target: target.action}
+      details: %{node: choice.name, option: choice_target_name(target), target: target.action}
     }
   end
+
+  defp choice_target_name(%Jido.Flow.Choice.Option{name: name}), do: name
+  defp choice_target_name(%Jido.Flow.Choice.Fallback{}), do: :fallback
 
   @doc false
   def map(map, item) do

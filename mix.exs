@@ -162,17 +162,20 @@ defmodule JidoAction.MixProject do
         "Flow API": [
           Jido.Flow,
           Jido.Flow.Builder,
+          Jido.Flow.Codec,
           Jido.Flow.Registry
         ],
         "Flow Types": [
           Jido.Flow.Choice,
+          Jido.Flow.Compiled,
           Jido.Flow.Condition,
-          Jido.Flow.Iterator,
+          Jido.Flow.Iterate,
           Jido.Flow.Map,
-          Jido.Flow.Node,
           Jido.Flow.Reduce,
           Jido.Flow.Ref,
-          Jido.Flow.State
+          Jido.Flow.SourceMap,
+          Jido.Flow.Step,
+          Jido.Flow.Subflow
         ],
         Execution: [
           Jido.Exec,

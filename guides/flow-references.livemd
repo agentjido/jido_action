@@ -45,6 +45,8 @@ defmodule FlowReferences.InputExample do
         nested_id: input([:account, :id]),
         string_id: input(["account", "id"])
       }
+
+    output result("echo")
   end
 end
 
@@ -81,6 +83,8 @@ defmodule FlowReferences.ContextExample do
         tenant_id: context([:tenant, :id]),
         trace_id: context(:trace_id)
       }
+
+    output result("echo")
   end
 end
 
@@ -115,6 +119,8 @@ defmodule FlowReferences.LiteralExample do
         options: %{mode: :safe},
         flags: [true, false]
       }
+
+    output result("echo")
   end
 end
 
@@ -122,14 +128,13 @@ end
   Jido.Exec.run(FlowReferences.LiteralExample, %{value: 3}, %{})
 ```
 
-`value(literal)` wraps supported scalar, list, and map literals. Tuples and
+`value(literal)` lowers to the same supported scalar, list, or map literal. Tuples and
 executable expressions are not part of the Flow module DSL. Normal literals do
 not need `value/1`.
 
 This is an intentional portability rule. Use maps instead of keyword lists,
-and use lists instead of tuples. Put computation in an Action. Low-level
-canonical Flow values can contain some static BEAM terms, but stored Map or
-JSON data rejects values outside the portable scalar, map, and list subset.
+and use lists instead of tuples. Put computation in an Action. Canonical Flow
+data and stored JSON use the same portable scalar, map, and list subset.
 
 ## Read Prior Results With `result`
 
@@ -154,6 +159,8 @@ defmodule FlowReferences.ResultExample do
         direct: result("source", :value),
         complete: result("source")
       }
+
+    output result("copy")
   end
 end
 

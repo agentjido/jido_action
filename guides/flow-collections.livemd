@@ -161,6 +161,8 @@ defmodule FlowCollections.CollectFailures do
       action: FlowCollections.RejectNegative,
       params: %{value: item()},
       on_error: :collect_errors
+
+    output result("check_values")
   end
 end
 
@@ -233,7 +235,7 @@ builder =
     FlowCollections.AddToTotal,
     %{total: Builder.accumulator(:total), value: Builder.item(:value)}
   )
-  |> Builder.return(Builder.result(:sum_values))
+  |> Builder.output(Builder.result(:sum_values))
 
 {:ok, runtime_flow} = Builder.build(builder)
 {:ok, %{total: 12}} = Jido.Exec.run(runtime_flow, %{values: [1, 2, 3]}, %{})
