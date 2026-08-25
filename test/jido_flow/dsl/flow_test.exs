@@ -73,6 +73,36 @@ defmodule Jido.Flow.DSL.FlowTest do
     assert flow.output == Ref.result("loop")
   end
 
+  test "a Flow module exposes only the required Flow and Action-compatible helpers" do
+    module = Jido.Flow.DSL.FlowTest.MixedFlow
+
+    for {name, arity} <- [
+          __jido_executable__: 0,
+          flow: 0,
+          compiled: 0,
+          name: 0,
+          description: 0,
+          schema: 0,
+          output_schema: 0,
+          validate_params: 1,
+          validate_output: 1,
+          run: 2
+        ] do
+      assert function_exported?(module, name, arity)
+    end
+
+    for name <- [
+          :to_map,
+          :validate,
+          :validate_executable,
+          :dependencies,
+          :explain,
+          :semantic_identity
+        ] do
+      refute function_exported?(module, name, 0)
+    end
+  end
+
   test "Flow output is required" do
     code = """
     defmodule MissingOutputFlow do

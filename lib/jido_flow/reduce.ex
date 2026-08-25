@@ -5,8 +5,8 @@ defmodule Jido.Flow.Reduce do
   A Reduce is one canonical authoring component. It lowers to a native Runic
   Reduce and FanIn. Its target calls form one serial left fold.
 
-  This is a read-only canonical type. Create it through the Flow module DSL,
-  `Jido.Flow.Builder`, or the stored Flow decoder.
+  Create it with `new/1`, the Flow module DSL, `Jido.Flow.Builder`, or
+  `Jido.Flow.Codec`.
   """
 
   alias Jido.Flow.Error
@@ -35,7 +35,7 @@ defmodule Jido.Flow.Reduce do
   @enforce_keys Zoi.Struct.enforce_keys(@schema)
   defstruct Zoi.Struct.struct_fields(@schema)
 
-  @doc false
+  @doc "Builds and validates one canonical Reduce component."
   @spec new(map() | keyword() | t()) :: {:ok, t()} | {:error, Exception.t()}
   def new(%__MODULE__{} = reduce), do: reduce |> Map.from_struct() |> new()
 
@@ -68,7 +68,7 @@ defmodule Jido.Flow.Reduce do
 
   def new(_attrs), do: invalid_configuration()
 
-  @doc false
+  @doc "Builds one canonical Reduce component or raises its validation error."
   @spec new!(map() | keyword() | t()) :: t() | no_return()
   def new!(attrs) do
     case new(attrs) do

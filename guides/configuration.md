@@ -5,7 +5,7 @@ store runtime policy. Configure Flow execution at the `Jido.Exec` boundary.
 
 ## Flow Policy Options
 
-The current public API accepts exactly two Flow policy options:
+The current public API accepts two Flow scheduling options:
 
 ```elixir
 Jido.Exec.run(MyApp.Flows.BuildReport, input, context,
@@ -41,6 +41,10 @@ Pass the options to `run/4` or `start/4`:
 
 Unknown options are rejected. A non-Boolean `async` value or a non-positive
 `max_concurrency` value is rejected before execution starts.
+
+`run/4` also accepts the common `jido:` routing option and one complete-call
+`timeout:` option. `start/4` accepts `jido:`, but it rejects `timeout:` because
+step-wise execution does not start one complete-call clock.
 
 ## Jido Instance Routing
 
@@ -86,9 +90,12 @@ connection work.
 The public Flow API does not currently accept options for:
 
 - retries or retry backoff;
-- per-node timeouts or Flow deadlines;
+- per-node timeouts or step-wise Flow deadlines;
 - cancellation or rewind; or
 - persistent checkpoints or restart-safe resume.
+
+`Jido.Exec.run/4` accepts one `timeout:` for the complete Action, Instruction,
+or Flow call. The default is `:infinity`.
 
 Place these policies in the caller or a higher-level runtime package. Do not
 add them to the Flow artifact or pass them as unknown `Jido.Exec` options.

@@ -1,5 +1,12 @@
 defmodule Jido.Flow.Compiled do
-  @moduledoc "Derived Runic compilation data for one canonical Flow."
+  @moduledoc """
+  Derived Runic compilation data for one canonical Flow.
+
+  Use `Jido.Flow.compile/2` to create this value. The `workflow` field is the
+  native `Runic.Workflow`. The other fields connect authored components,
+  source locations, output data, and deterministic compilation identity to
+  that workflow. This value is not authoring or stored data.
+  """
 
   @type source_path :: [String.t() | atom() | non_neg_integer()]
   @type source_location :: %{

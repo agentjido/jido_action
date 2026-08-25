@@ -17,19 +17,20 @@ a compatibility layer unless the user asks for it.
 The package has four main public parts:
 
 - `Jido.Action` defines one named and validated unit of work.
-- `Jido.Instruction` is data for one Action call.
+- `Jido.Instruction` is data for one Action or Flow call.
 - `Jido.Flow` defines a validated, in-memory graph of Action calls.
 - `Jido.Exec` is the public execution and error boundary.
 
-A Flow has three supported input forms. The module DSL, `Jido.Flow.Builder`,
-and stored maps must all produce the same canonical `%Jido.Flow{}` model.
+A Flow has four supported authoring forms. The module DSL,
+`Jido.Flow.Builder`, stored JSON through `Jido.Flow.Codec`, and direct
+constructors must all produce the same canonical `%Jido.Flow{}` model.
 Changes to one form must keep equivalent behavior in the other forms.
 
 `Jido.Exec` owns one in-memory execution session. It supports run-to-completion
 and step-wise Flow execution. It does not provide durable orchestration.
-Persistence, queues, retries, deadlines, cancellation, recovery, distributed
+Persistence, queues, retries, public cancellation, recovery, distributed
 coordination, and deployment-safe continuation belong to a higher-level
-runtime.
+runtime. `Jido.Exec.run/4` can apply one finite timeout to the complete call.
 
 Read these files before a change that affects their subject:
 
@@ -43,11 +44,12 @@ Read these files before a change that affects their subject:
 ## Source Map
 
 - `lib/jido_action.ex` contains the Action behavior and `use Jido.Action`.
-- `lib/jido_instruction.ex` contains the Action call frame.
+- `lib/jido_instruction.ex` contains the executable call frame.
 - `lib/jido_flow.ex` is the public Flow facade.
 - `lib/jido_flow/dsl/` contains compile-time authoring and lowering.
-- `lib/jido_flow/builder/` contains runtime authoring normalization.
-- `lib/jido_flow/map_codec/` contains the versioned stored-map format.
+- `lib/jido_flow/builder.ex` contains runtime authoring normalization.
+- `lib/jido_flow/codec.ex` and `lib/jido_flow/registry.ex` contain the
+  versioned stored-JSON boundary.
 - `lib/jido_flow/compiler/` converts canonical Flow data for execution.
 - `lib/jido_exec.ex` is the public execution facade.
 - `lib/jido_exec/` contains execution state, scheduling, guards, limits, and
@@ -137,21 +139,22 @@ for validation, return normalization, and error behavior.
   returns must become the documented structured errors at `Jido.Exec`.
 - Preserve useful original failure data and stacktraces in the documented
   error fields. Do not expose internal wrapper shapes as a new contract.
-- An Instruction contains only the Action, params, and context. Do not put
-  Flow structure or runtime policy in it.
+- An Instruction contains one Action or Flow target, params, context, and
+  caller metadata. Do not put Flow structure or runtime policy in it.
 
 ### Flows
 
-- Direct struct construction is not a supported Flow authoring API.
-- The DSL, Builder, and stored-map reader must use the same constructor and
+- Direct Flow and component constructors are a supported Flow authoring API.
+  Raw struct literals can show the canonical shape, but constructors own
+  validation.
+- The DSL, Builder, Codec reader, and direct constructors must use the same
   validation rules.
 - Node names and semantic output must not depend on map enumeration, task
   completion, or scheduler order.
 - Source order does not create a dependency. Result references and `after:`
   create dependencies.
-- A Flow with more than one terminal node must declare its output.
-- The DSL calls the final form `output`. Canonical data and Builder call it
-  `return`. Do not add aliases across this boundary.
+- Every Flow must declare its `output`. Do not infer an output from terminal
+  nodes and do not add a `return` alias.
 - A Flow discards the extra value from a three-item Action return.
 - Stored-map encoding must be deterministic and versioned. Decoding must use
   `Jido.Flow.Registry` and must return structured validation errors.
@@ -176,8 +179,9 @@ for validation, return normalization, and error behavior.
   task slots, registrations, and telemetry spans on all terminal paths.
 - Do not leave stale registered processes, active Tasks, monitors, or messages
   after success, error, exit, or caller interruption.
-- Do not add retry, timeout, deadline, cancellation, rewind, or persistence
-  options to `Jido.Exec` without an explicit public API decision.
+- Keep `timeout:` as one complete-call limit for `Jido.Exec.run/4`. Do not add
+  automatic retry, per-runnable deadlines, public cancellation, rewind, or
+  persistence without an explicit public API decision.
 
 ### Telemetry And Errors
 

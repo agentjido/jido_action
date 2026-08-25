@@ -1,5 +1,20 @@
 defmodule Jido.Flow.Choice do
-  @moduledoc "A named, ordered Choice with a required fallback Action."
+  @moduledoc """
+  A named, ordered Choice with a required fallback Action.
+
+      option =
+        Jido.Flow.Choice.Option.new!(
+          name: "ready",
+          condition: Jido.Flow.Condition.eq(Jido.Flow.Ref.input(:status), :ready),
+          action: MyApp.HandleReady
+        )
+
+      Jido.Flow.Choice.new!(
+        name: "route",
+        options: [option],
+        fallback: Jido.Flow.Choice.Fallback.new!(action: MyApp.HandleOther)
+      )
+  """
 
   alias Jido.Flow.Error
   alias Jido.Flow.Component
@@ -53,6 +68,7 @@ defmodule Jido.Flow.Choice do
     defstruct Zoi.Struct.struct_fields(@schema)
 
     @doc "Builds and validates one Choice option."
+    @spec new(t() | map() | keyword()) :: {:ok, t()} | {:error, Exception.t()}
     def new(%__MODULE__{} = option), do: option |> Map.from_struct() |> new()
 
     def new(attrs) when is_list(attrs),
@@ -71,6 +87,7 @@ defmodule Jido.Flow.Choice do
     def new(_attrs), do: invalid()
 
     @doc "Builds one Choice option or raises its validation error."
+    @spec new!(t() | map() | keyword()) :: t() | no_return()
     def new!(attrs) do
       case new(attrs) do
         {:ok, option} -> option
@@ -124,6 +141,7 @@ defmodule Jido.Flow.Choice do
     defstruct Zoi.Struct.struct_fields(@schema)
 
     @doc "Builds and validates one Choice fallback."
+    @spec new(t() | map() | keyword()) :: {:ok, t()} | {:error, Exception.t()}
     def new(%__MODULE__{} = fallback), do: fallback |> Map.from_struct() |> new()
 
     def new(attrs) when is_list(attrs),
@@ -140,6 +158,7 @@ defmodule Jido.Flow.Choice do
     def new(_attrs), do: invalid()
 
     @doc "Builds one Choice fallback or raises its validation error."
+    @spec new!(t() | map() | keyword()) :: t() | no_return()
     def new!(attrs) do
       case new(attrs) do
         {:ok, fallback} -> fallback
@@ -165,6 +184,7 @@ defmodule Jido.Flow.Choice do
   end
 
   @doc "Builds and validates one canonical Choice."
+  @spec new(t() | map() | keyword()) :: {:ok, t()} | {:error, Exception.t()}
   def new(%__MODULE__{} = choice), do: choice |> Map.from_struct() |> new()
 
   def new(attrs) when is_list(attrs),
@@ -191,6 +211,7 @@ defmodule Jido.Flow.Choice do
   def new(_attrs), do: invalid()
 
   @doc "Builds one canonical Choice or raises its validation error."
+  @spec new!(t() | map() | keyword()) :: t() | no_return()
   def new!(attrs) do
     case new(attrs) do
       {:ok, choice} -> choice
@@ -199,6 +220,7 @@ defmodule Jido.Flow.Choice do
   end
 
   @doc false
+  @spec result_deps(t()) :: [String.t()]
   def result_deps(%__MODULE__{} = choice) do
     choice.options
     |> Enum.flat_map(fn option ->
@@ -210,11 +232,13 @@ defmodule Jido.Flow.Choice do
   end
 
   @doc false
+  @spec targets(t()) :: [{String.t() | :fallback, module()}]
   def targets(%__MODULE__{} = choice) do
     Enum.map(choice.options, &{&1.name, &1.action}) ++ [{:fallback, choice.fallback.action}]
   end
 
   @doc false
+  @spec to_map(t()) :: map()
   def to_map(%__MODULE__{} = choice) do
     %{
       kind: :choice,

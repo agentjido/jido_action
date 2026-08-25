@@ -10,8 +10,11 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
   alias JidoActionTest.Fixtures.Actions.{
     EchoParamsAction,
     ErrorAction,
+    RecorderAction,
     ReduceProbeAction
   }
+
+  alias JidoActionTest.Fixtures.Execution, as: ExecFixtures
 
   alias Runic.Workflow.{FanIn, FanOut, InputBinding, Runnable}
 
@@ -40,6 +43,29 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
               message: "stale flow execution",
               details: %{reason: :stale_revision, revision: 0, current_revision: 1}
             }} = Exec.step(stale)
+  end
+
+  test "one wave consumes one revision and a stale value dispatches no work" do
+    flow = ExecFixtures.diamond_flow(RecorderAction)
+    assert {:ok, stale} = Exec.start(flow, %{}, %{test_pid: self()})
+    assert length(Exec.ready(stale)) == 2
+
+    assert {:ok, executed, current} = Exec.wave(stale)
+    assert length(executed) == 2
+    assert current.revision == 1
+
+    assert_receive {RecorderAction, %{side: :left}}
+    assert_receive {RecorderAction, %{side: :right}}
+
+    assert {:error,
+            %Jido.Flow.Error.InvalidExecutionError{
+              message: "stale flow execution",
+              details: %{reason: :stale_revision, revision: 0, current_revision: 1}
+            }} = Exec.wave(stale)
+
+    refute_received {RecorderAction, _params}
+    assert {:ok, completed} = Exec.continue(current)
+    assert Exec.result(completed) == {:ok, %{left: :left, right: :right}}
   end
 
   test "ready, step, and wave expose Runic support runnables" do
@@ -102,6 +128,11 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
       )
 
     assert Exec.run(flow) == {:ok, %{value: :only_authored_data}}
+
+    assert {:ok, execution} = Exec.start(flow)
+    {runnables, execution} = collect_runnables(execution, [])
+    assert Enum.any?(runnables, &match?(%Runnable{node: %Runic.Workflow.Join{}}, &1))
+    assert Exec.result(execution) == {:ok, %{value: :only_authored_data}}
   end
 
   test "Choice keeps first-match and fallback behavior in one native Step" do

@@ -59,33 +59,43 @@ defmodule Jido.Flow.Ref do
   @enforce_keys Zoi.Struct.enforce_keys(@schema)
   defstruct Zoi.Struct.struct_fields(@schema)
 
+  @doc "Builds a Flow input reference with a required path."
   @spec input(term()) :: t()
   def input(path), do: ref(:input, nil, path)
 
+  @doc "Builds a runtime context reference."
   @spec context(term()) :: t()
   def context(path \\ nil), do: ref(:context, nil, path)
 
+  @doc "Builds a named component result reference."
   @spec result(atom() | String.t(), term()) :: t()
   def result(component, path \\ nil), do: ref(:result, normalize_component(component), path)
 
+  @doc "Builds a Map or Reduce item reference."
   @spec item(term()) :: t()
   def item(path \\ nil), do: ref(:item, nil, path)
 
+  @doc "Builds a collection item index reference."
   @spec item_index() :: t()
   def item_index, do: ref(:item_index)
 
+  @doc "Builds a collection item identifier reference."
   @spec item_id() :: t()
   def item_id, do: ref(:item_id)
 
+  @doc "Builds a Reduce accumulator reference."
   @spec accumulator(term()) :: t()
   def accumulator(path \\ nil), do: ref(:accumulator, nil, path)
 
+  @doc "Builds an Iterate state reference."
   @spec state(term()) :: t()
   def state(path \\ nil), do: ref(:state, nil, path)
 
+  @doc "Builds an Iterate index reference."
   @spec iteration_index() :: t()
   def iteration_index, do: ref(:iteration_index)
 
+  @doc "Builds an Iterate body result reference."
   @spec body_result(term()) :: t()
   def body_result(path \\ nil), do: ref(:body_result, nil, path)
 

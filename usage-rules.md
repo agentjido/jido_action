@@ -91,8 +91,10 @@ Use `jido_action` for validated work and data-first composition:
   concurrency limit. Always pass the latest value to the next step-wise call.
 - Do not persist an execution as a checkpoint. Reusing a stale value can run an
   Action side effect again.
-- Keep retry, timeout, cancellation, persistence, and exactly-once policy in
-  the caller or a higher-level runtime.
+- Let the caller or Jido core select timeout and retry policy. Use
+  `Jido.Exec.run/4` to enforce one finite whole-call timeout. Keep retry,
+  backoff, cancellation policy, persistence, and exactly-once behavior in the
+  higher-level runtime.
 
 ## Package Boundary
 

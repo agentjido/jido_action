@@ -9,16 +9,19 @@ defmodule JidoActionTest.Flow.ErrorTest do
       definition = Error.validation_error("bad definition", path: [:components, 0])
       invalid_execution = Error.invalid_execution_error("not ready", runnable_id: 12)
       execution = Error.execution_error("failed", phase: :runic_execution)
+      timeout = Error.timeout_error("too slow", timeout: 500, flow: "checkout")
       internal = Error.internal_error("compiler defect", phase: :flow_compilation)
 
       assert %Error.InvalidDefinitionError{class: :invalid} = definition
       assert %Error.InvalidExecutionError{class: :invalid} = invalid_execution
       assert %Error.ExecutionFailureError{class: :execution} = execution
+      assert %Error.TimeoutError{class: :execution, timeout: 500, flow: "checkout"} = timeout
       assert %Error.InternalError{class: :internal} = internal
 
       assert Error.splode_error?(definition)
       assert Error.splode_error?(invalid_execution)
       assert Error.splode_error?(execution)
+      assert Error.splode_error?(timeout)
       assert Error.splode_error?(internal)
     end
 
@@ -28,6 +31,9 @@ defmodule JidoActionTest.Flow.ErrorTest do
 
       assert %{details: %{}} = Error.execution_error("bad details", [:not_keyword])
       assert %{details: %{}} = Error.internal_error("bad details", :not_a_map)
+      assert %Error.TimeoutError{details: %{}} = Error.timeout_error("too slow")
+      assert %Error.InternalError{details: %{}} = Error.internal_error("broken")
+      assert Error.retryable?(Error.timeout_error("temporary", retry: true))
     end
   end
 
@@ -98,6 +104,7 @@ defmodule JidoActionTest.Flow.ErrorTest do
       definition = Error.validation_error("bad definition", field: :output)
       invalid_execution = Error.invalid_execution_error("not ready", runnable_id: 12)
       execution = Error.execution_error("failed", phase: :runic_execution)
+      timeout = Error.timeout_error("too slow", timeout: 500, flow: "checkout")
       internal = Error.internal_error("compiler defect", phase: :flow_compilation)
 
       invalid_class =
@@ -135,6 +142,7 @@ defmodule JidoActionTest.Flow.ErrorTest do
         definition,
         invalid_execution,
         execution,
+        timeout,
         internal,
         invalid_class,
         execution_class,

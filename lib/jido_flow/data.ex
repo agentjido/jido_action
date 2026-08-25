@@ -1,9 +1,11 @@
 defmodule Jido.Flow.Data do
   @moduledoc """
-  Validates portable literal and metadata data used by a `Jido.Flow`.
+  Advanced validation for portable literal and metadata data used by a
+  `Jido.Flow`.
 
   Portable data contains JSON values plus existing atoms and non-string map
-  keys that the trusted Flow Registry can encode.
+  keys that the trusted Flow Registry can encode. All strings must contain
+  valid UTF-8 data.
   """
 
   alias Jido.Flow.Error
@@ -31,8 +33,14 @@ defmodule Jido.Flow.Data do
 
   defp validate(value, _path)
        when is_nil(value) or is_boolean(value) or is_integer(value) or is_float(value) or
-              is_binary(value) or is_atom(value),
+              is_atom(value),
        do: :ok
+
+  defp validate(value, path) when is_binary(value) do
+    if String.valid?(value),
+      do: :ok,
+      else: error("flow data strings must be valid UTF-8", path)
+  end
 
   defp validate(value, path) when is_list(value) do
     if List.improper?(value) do
@@ -68,9 +76,10 @@ defmodule Jido.Flow.Data do
      })}
   end
 
+  defp validate_key(key, path) when is_binary(key), do: validate(key, path)
+
   defp validate_key(key, _path)
-       when is_binary(key) or (is_integer(key) and key >= 0) or
-              (is_atom(key) and not is_nil(key)),
+       when (is_integer(key) and key >= 0) or (is_atom(key) and not is_nil(key)),
        do: :ok
 
   defp validate_key(key, path) do

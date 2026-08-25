@@ -1,8 +1,11 @@
 defmodule JidoActionTest.Exec.ConcurrencyLimiterTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Jido.Exec.ConcurrencyLimiter
   alias Jido.Exec.OrderedTaskRunner
+  alias Jido.{Exec, Flow}
+  alias Jido.Flow.{Ref, Step}
+  alias JidoActionTest.Fixtures.Execution, as: ExecFixtures
 
   test "reserves helper-task slots without creating waiters" do
     limiter = start_limiter(2)
@@ -73,9 +76,17 @@ defmodule JidoActionTest.Exec.ConcurrencyLimiterTest do
 
     assert_receive {:holder_ready, ^holder}, 1_000
 
-    dead_waiter = spawn(fn -> ConcurrencyLimiter.with_permit(limiter, fn -> :ok end) end)
-    Process.sleep(5)
+    {dead_waiter, dead_waiter_monitor} =
+      spawn_monitor(fn ->
+        request = make_ref()
+        send(limiter, {:"$gen_call", {self(), request}, :acquire})
+        send(test_pid, {:waiter_request_sent, self()})
+        receive do: ({^request, reply} -> reply)
+      end)
+
+    assert_receive {:waiter_request_sent, ^dead_waiter}, 1_000
     Process.exit(dead_waiter, :kill)
+    assert_receive {:DOWN, ^dead_waiter_monitor, :process, ^dead_waiter, :killed}, 1_000
 
     {next, next_monitor} =
       spawn_monitor(fn ->
@@ -100,9 +111,11 @@ defmodule JidoActionTest.Exec.ConcurrencyLimiterTest do
 
     assert_receive {:slots_reserved, ^holder}, 1_000
     assert ConcurrencyLimiter.reserve_task_slots(limiter, 1) == 0
+    holder_monitor = Process.monitor(holder)
     Process.exit(holder, :kill)
+    assert_receive {:DOWN, ^holder_monitor, :process, ^holder, :killed}, 1_000
 
-    assert eventually(fn -> ConcurrencyLimiter.reserve_task_slots(limiter, 1) == 1 end)
+    assert ConcurrencyLimiter.reserve_task_slots(limiter, 1) == 1
     assert ConcurrencyLimiter.release_task_slots(limiter, 1) == :ok
   end
 
@@ -145,21 +158,64 @@ defmodule JidoActionTest.Exec.ConcurrencyLimiterTest do
     assert ConcurrencyLimiter.stop(limiter) == :ok
   end
 
+  test "a Flow timeout stops and unregisters its execution limiter" do
+    handler_id = "limiter-timeout-#{System.unique_integer([:positive])}"
+    test_pid = self()
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        [:jido, :flow, :start],
+        &__MODULE__.handle_flow_start/4,
+        test_pid
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    flow =
+      Flow.new!(
+        name: "limiter_timeout",
+        components: [
+          Step.new!(name: "left", action: ExecFixtures.BlockingAction, params: %{side: :left}),
+          Step.new!(name: "right", action: ExecFixtures.BlockingAction, params: %{side: :right})
+        ],
+        output: %{left: Ref.result("left"), right: Ref.result("right")}
+      )
+
+    task =
+      Task.async(fn ->
+        Exec.run(flow, %{}, %{test_pid: test_pid},
+          async: true,
+          max_concurrency: 2,
+          timeout: 1_000
+        )
+      end)
+
+    assert_receive {:flow_started, execution_id}, 1_000
+    assert_receive {:blocking_flow_node_started, first_worker}, 1_000
+    assert_receive {:blocking_flow_node_started, second_worker}, 1_000
+
+    limiter = ConcurrencyLimiter.whereis(execution_id)
+    assert is_pid(limiter)
+    limiter_monitor = Process.monitor(limiter)
+    first_monitor = Process.monitor(first_worker)
+    second_monitor = Process.monitor(second_worker)
+
+    assert {:error, %Jido.Flow.Error.TimeoutError{}} = Task.await(task, 2_000)
+    assert_receive {:DOWN, ^limiter_monitor, :process, ^limiter, _reason}, 1_000
+    assert_receive {:DOWN, ^first_monitor, :process, ^first_worker, _reason}, 1_000
+    assert_receive {:DOWN, ^second_monitor, :process, ^second_worker, _reason}, 1_000
+    assert ConcurrencyLimiter.whereis(execution_id) == nil
+  end
+
+  @doc false
+  def handle_flow_start(_event, _measurements, metadata, owner) do
+    send(owner, {:flow_started, metadata.execution_id})
+  end
+
   defp start_limiter(limit) do
     execution_id = "limiter-test-#{System.unique_integer([:positive])}"
     assert {:ok, limiter} = ConcurrencyLimiter.start(execution_id, self(), limit)
     limiter
-  end
-
-  defp eventually(fun, attempts \\ 100)
-  defp eventually(_fun, 0), do: false
-
-  defp eventually(fun, attempts) do
-    if fun.() do
-      true
-    else
-      Process.sleep(1)
-      eventually(fun, attempts - 1)
-    end
   end
 end

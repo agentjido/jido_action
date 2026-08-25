@@ -7,7 +7,6 @@ defmodule JidoActionTest.Exec.IteratorExecutionTest do
   alias Jido.Action.Error.InvalidInputError
   alias Jido.Action.Output
   alias Jido.Exec
-  alias Jido.Flow.Compiler.Iterator, as: IteratorCompiler
   alias Jido.Flow.Ref
   alias Jido.Flow.Error.ExecutionFailureError, as: FlowExecutionFailureError
   alias Jido.Flow.Error.InvalidExecutionError
@@ -47,31 +46,6 @@ defmodule JidoActionTest.Exec.IteratorExecutionTest do
     assert_receive {:state_schema_transform, %{count: 0}}
     assert_receive {:state_schema_transform, %{count: 101}}
     refute_received {:state_schema_transform, _candidate}
-  end
-
-  test "evaluates completion exactly once at the head and after each commit" do
-    flow =
-      IteratorFixtures.iterator_flow(
-        initial: %{count: 0},
-        completion: IteratorFixtures.gte(Ref.state(:count), 3),
-        max_iterations: 3
-      )
-
-    target = {IteratorCompiler, :evaluate_iterator_completion, 3}
-
-    Code.ensure_loaded!(IteratorCompiler)
-    :erlang.trace_pattern(target, true, [:local, :call_count])
-
-    result =
-      try do
-        result = Exec.run(flow, %{}, %{})
-        assert {:call_count, 4} = :erlang.trace_info(target, :call_count)
-        result
-      after
-        :erlang.trace_pattern(target, false, [:local, :call_count])
-      end
-
-    assert {:ok, %{iterations: 3}} = result
   end
 
   test "completes at the head without starting a body" do

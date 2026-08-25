@@ -1,5 +1,5 @@
 defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   @moduletag capture_log: true
 
@@ -14,15 +14,18 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
   end
 
   alias Jido.Action.Error.InvalidInputError
+  alias Jido.Action.Error.TimeoutError, as: ActionTimeoutError
   alias Jido.Exec
   alias Jido.Flow
   alias Jido.Flow.Error.ExecutionFailureError, as: FlowExecutionFailureError
   alias Jido.Flow.Error.InvalidExecutionError
+  alias Jido.Flow.Error.TimeoutError, as: FlowTimeoutError
   alias Jido.Flow.{Ref, Step}
   alias Jido.Instruction
 
   alias JidoActionTest.Fixtures.{
     AsyncMathFlow,
+    BlockingFlow,
     ConcurrencyProbeAction,
     ControlledErrorAction
   }
@@ -78,8 +81,13 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     flow = FlowFixtures.math_flow!()
     assert Exec.run(flow, %{value: 3}) == Exec.run(flow, %{value: 3}, %{}, [])
 
+    assert Exec.run(flow, %{value: 3}, %{}, timeout: 100) == {:ok, %{value: 8}}
+
+    assert {:error, %InvalidExecutionError{details: %{option: :timeout, value: :soon}}} =
+             Exec.run(flow, %{value: 3}, %{}, timeout: :soon)
+
     assert {:error, %InvalidExecutionError{details: %{option: :timeout}}} =
-             Exec.run(flow, %{value: 3}, %{}, timeout: 100)
+             Exec.start(flow, %{value: 3}, %{}, timeout: 100)
 
     assert {:error, %InvalidExecutionError{details: %{option: :async}}} =
              Exec.run(flow, %{value: 3}, %{}, async: :yes)
@@ -89,6 +97,9 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
 
     assert {:error, %InvalidExecutionError{message: "run options must be a keyword list"}} =
              Exec.run(flow, %{}, %{}, :not_options)
+
+    assert {:error, %InvalidExecutionError{message: "run options must be a keyword list"}} =
+             Exec.run(flow, %{}, %{}, [{:timeout, 10}, :not_an_option])
   end
 
   test "rejects Flow run options for Actions and Action Instructions" do
@@ -99,6 +110,82 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
 
     assert {:error, %InvalidInputError{details: %{executable_type: :instruction}}} =
              Exec.run(instruction, %{}, %{}, async: true)
+  end
+
+  test "enforces one complete-call timeout for every executable form" do
+    owner = self()
+    timeout = 500
+
+    for {form, {target, input, context}} <-
+          ExecFixtures.blocking_execution_forms(BlockingFlow, owner) do
+      task = Task.async(fn -> Exec.run(target, input, context, timeout: timeout) end)
+      assert_receive {:blocking_flow_node_started, worker}, 1_000
+
+      case Task.await(task, timeout + 1_000) do
+        {:error, %ActionTimeoutError{timeout: ^timeout, details: %{retry: false}} = error}
+        when form in [:action, :action_instruction] ->
+          refute Jido.Action.Error.retryable?(error)
+
+        {:error, %FlowTimeoutError{timeout: ^timeout, details: %{retry: false}} = error}
+        when form in [:flow_value, :flow_module, :flow_instruction, :subflow] ->
+          refute Jido.Flow.Error.retryable?(error)
+          assert %{type: :flow_timeout, retryable?: false} = Jido.Flow.Error.to_map(error)
+      end
+
+      assert_process_stops(worker)
+    end
+  end
+
+  test "a zero timeout dispatches no work for every executable form" do
+    for {form, {target, input, context}} <-
+          ExecFixtures.blocking_execution_forms(BlockingFlow, self()) do
+      case Exec.run(target, input, context, timeout: 0) do
+        {:error, %ActionTimeoutError{timeout: 0}} when form in [:action, :action_instruction] ->
+          :ok
+
+        {:error, %FlowTimeoutError{timeout: 0}}
+        when form in [:flow_value, :flow_module, :flow_instruction, :subflow] ->
+          :ok
+      end
+
+      refute_received {:blocking_flow_node_started, _worker}
+    end
+  end
+
+  test "a Flow timeout stops concurrent workers and releases its limiter" do
+    flow =
+      Flow.new!(
+        name: "concurrent_flow_timeout",
+        components: [
+          Step.new!(
+            name: "left",
+            action: ExecFixtures.BlockingAction,
+            params: %{value: :left}
+          ),
+          Step.new!(
+            name: "right",
+            action: ExecFixtures.BlockingAction,
+            params: %{value: :right}
+          )
+        ],
+        output: %{left: Ref.result("left"), right: Ref.result("right")}
+      )
+
+    assert {:error, %FlowTimeoutError{}} =
+             Exec.run(flow, %{}, %{test_pid: self()},
+               async: true,
+               max_concurrency: 2,
+               timeout: 1_000
+             )
+
+    workers =
+      for _index <- 1..2 do
+        assert_receive {:blocking_flow_node_started, worker}, 1_000
+        worker
+      end
+
+    assert length(Enum.uniq(workers)) == 2
+    Enum.each(workers, &assert_process_stops/1)
   end
 
   test "validates the Jido instance routing option for Actions and Flows" do
@@ -113,11 +200,38 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     missing_instance = Module.concat(__MODULE__, MissingJidoInstance)
     missing_supervisor = Module.concat(missing_instance, TaskSupervisor)
 
-    assert {:error,
-            %InvalidExecutionError{
-              message: "Task Supervisor is not running",
-              details: %{jido: ^missing_instance, task_supervisor: ^missing_supervisor}
-            }} = Exec.start(flow, %{value: 1}, %{}, jido: missing_instance)
+    for {form, {target, input, context}} <-
+          ExecFixtures.blocking_execution_forms(BlockingFlow, self()) do
+      case Exec.run(target, input, context, jido: missing_instance) do
+        {:error,
+         %InvalidInputError{
+           message: "Task Supervisor is not running",
+           details: %{jido: ^missing_instance, task_supervisor: ^missing_supervisor}
+         }}
+        when form in [:action, :action_instruction] ->
+          :ok
+
+        {:error,
+         %InvalidExecutionError{
+           message: "Task Supervisor is not running",
+           details: %{jido: ^missing_instance, task_supervisor: ^missing_supervisor}
+         }}
+        when form in [:flow_value, :flow_module, :flow_instruction, :subflow] ->
+          :ok
+      end
+
+      refute_received {:blocking_flow_node_started, _worker}
+    end
+  end
+
+  defp assert_process_stops(pid) do
+    monitor = Process.monitor(pid)
+
+    if Process.alive?(pid) do
+      assert_receive {:DOWN, ^monitor, :process, ^pid, _reason}, 1_000
+    else
+      assert_receive {:DOWN, ^monitor, :process, ^pid, :noproc}, 1_000
+    end
   end
 
   test "scopes the concurrency limiter to one execution operation" do

@@ -4,22 +4,19 @@ A Flow is one canonical `%Jido.Flow{}` authoring value. It describes named
 components and one required output expression.
 
 ```elixir
-%Jido.Flow{
-  name: "double_value",
-  description: nil,
-  schema: [],
-  output_schema: [],
-  components: [
-    %Jido.Flow.Step{
-      name: "double",
-      action: MyApp.Actions.Double,
-      params: %{value: Jido.Flow.Ref.input(:value)},
-      after: [],
-      meta: %{}
-    }
-  ],
-  output: Jido.Flow.Ref.result("double")
-}
+step =
+  Jido.Flow.Step.new!(
+    name: "double",
+    action: MyApp.Actions.Double,
+    params: %{value: Jido.Flow.Ref.input(:value)}
+  )
+
+flow =
+  Jido.Flow.new!(
+    name: "double_value",
+    components: [step],
+    output: Jido.Flow.Ref.result("double")
+  )
 ```
 
 The canonical value contains author intent only. It does not contain a Runic
@@ -45,8 +42,8 @@ explicit author control order only. Result references create derived data
 dependencies. Validation does not copy these dependencies into `after`.
 
 `meta` contains portable author data. Spark file, line, and column information
-is stored in a separate `Jido.Flow.SourceMap`. It does not change the canonical
-Flow or its semantic identity.
+is stored in the `source_map` field of `Jido.Flow.Compiled`. It does not change
+the canonical Flow or its semantic identity.
 
 ## One expression grammar
 

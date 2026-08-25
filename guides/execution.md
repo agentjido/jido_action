@@ -74,8 +74,8 @@ main public types are:
 - `Jido.Action.Error.ExecutionFailureError` for callback and execution
   failures,
 - `Jido.Action.Error.ConfigurationError` for invalid executable configuration,
-- `Jido.Action.Error.TimeoutError` for a timeout reported by a caller or
-  adapter, and
+- `Jido.Action.Error.TimeoutError` for a complete Action or Action Instruction
+  timeout, and
 - `Jido.Action.Error.InternalError` for unexpected internal failures.
 
 Flow definition, compilation, native execution, and execution-state failures
@@ -87,6 +87,8 @@ use `Jido.Flow.Error`:
   execution state,
 - `Jido.Flow.Error.ExecutionFailureError` for native Flow execution failures,
   including multiple failed runnables, and
+- `Jido.Flow.Error.TimeoutError` for a complete Flow or Flow Instruction
+  timeout, and
 - `Jido.Flow.Error.InternalError` for an unexpected internal Flow failure.
 
 An Action failure inside a Flow keeps its original `Jido.Action.Error` type.
@@ -99,12 +101,9 @@ Use `Jido.Action.Error.to_map/1` for an Action error. Use
 accepts an Action error, which is useful at a Flow boundary. Error maps contain
 a stable `:type`, message, details, and a conservative `:retryable?` value.
 
-An `ExecutionFailureError` returned by an Action is retryable by default for
-compatibility with Jido Action v2. The Action can set `details.retry` to a
-Boolean value. Jido sets it to `false` for callback crashes, throws, invalid
-callback results, validator contract failures, and killed Action processes.
-These failures need a code or contract change. A retry alone does not correct
-them.
+Execution and timeout errors are non-retryable by default. An Action can set
+`details.retry` to `true` only when another attempt is safe. Jido does not
+perform an automatic retry.
 
 A caught Action exception, throw, or exit keeps its original stacktrace in the
 runtime error's `%Splode.Stacktrace{}` field. Stable error maps and JSON
@@ -223,18 +222,18 @@ rejects an older execution revision before it dispatches work.
 
 ## Runtime Policy Boundary
 
-The current public Flow policy options are `async` and `max_concurrency`.
-Common `jido:` routing selects an OTP instance but does not change Flow policy.
-Retry, timeout, deadline, cancellation, persistence, and rewind are not public
-Flow execution options. Put those policies in a caller or runtime layer that
-owns the required lifecycle. Jido does not provide queues, recovery,
-distributed coordination, or deployment-safe continuation.
+`Jido.Exec.run/4` accepts `timeout: milliseconds | :infinity` for all targets.
+A finite value applies to the complete call. The default is `:infinity`.
+Common `jido:` routing selects an OTP instance. Flow execution also accepts
+`async` and `max_concurrency`. Exec does not provide automatic retries,
+per-node timeouts, a public cancellation handle, persistence, rewind, queues,
+recovery, distributed coordination, or deployment-safe continuation.
 
 ## Direct Calls And Crash Isolation
 
 Calling an Action's `run/2` directly does not add validation, supervision,
 crash isolation, retries, or timeouts. Use `Jido.Exec` when you need the public
-validation and error boundary.
+validation, error, isolation, and whole-call timeout boundary.
 
 `Jido.Exec` owns the global Task Supervisor and the concurrency processes that
 support this boundary. With `jido: MyApp.Jido`, it uses the running Jido core

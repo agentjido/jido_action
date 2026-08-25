@@ -10,28 +10,14 @@ defmodule Jido.Exec.FlowAdapter do
   alias Jido.Exec.Options
   alias Jido.Exec.TargetRunner
   alias Jido.Flow
+  alias Jido.Flow.Compiler
   alias Jido.Flow.Error
   alias Jido.Instruction
 
-  @doc false
-  @spec validate(Executable.t()) :: :ok | {:error, Exception.t()}
-  def validate(%Executable{kind: :flow, target: %Flow{}}), do: :ok
-
-  def validate(%Executable{kind: :flow, target: module}) when is_atom(module) do
-    case Executable.validate_action_compatible_callbacks(module) do
-      :ok ->
-        if function_exported?(module, :flow, 0) do
-          :ok
-        else
-          {:error,
-           Error.validation_error("module is not a valid Jido flow", %{
-             flow: module,
-             reason: "missing flow/0"
-           })}
-        end
-
-      {:error, error} ->
-        {:error, flow_definition_error(error, module)}
+  defp validate(%Executable{kind: :flow, target: module} = executable) when is_atom(module) do
+    case Executable.validate(executable) do
+      :ok -> :ok
+      {:error, error} -> {:error, flow_definition_error(error, module)}
     end
   end
 
@@ -49,27 +35,14 @@ defmodule Jido.Exec.FlowAdapter do
   @spec run_instruction(Executable.t(), Instruction.t(), keyword(), String.t()) ::
           {:ok, term()} | {:error, Exception.t()}
   def run_instruction(executable, %Instruction{} = instruction, opts, execution_id) do
-    with :ok <- validate(executable) do
-      run(executable, instruction.params, instruction.context, opts, execution_id)
-    end
-  end
-
-  @doc false
-  @spec run_target(Executable.t(), term(), map(), String.t(), keyword()) ::
-          {:ok, term()} | {:error, :execution, Exception.t()}
-  def run_target(executable, params, context, execution_id, run_opts) do
-    case run(executable, params, context, run_opts, execution_id) do
-      {:ok, output} -> {:ok, output}
-      {:error, error} -> {:error, :execution, error}
-    end
+    run(executable, instruction.params, instruction.context, opts, execution_id)
   end
 
   @doc false
   @spec start(Executable.t(), term(), term(), term(), String.t()) ::
           {:ok, Execution.t()} | {:error, Exception.t()}
   def start(executable, input, context, opts, execution_id) do
-    with :ok <- validate(executable),
-         {:ok, flow, compiled} <- materialize(executable) do
+    with {:ok, flow, compiled} <- materialize(executable) do
       start_flow(flow, compiled, input, context, opts, execution_id)
     end
   end
@@ -79,25 +52,25 @@ defmodule Jido.Exec.FlowAdapter do
   def lifecycle_metadata(_executable, _execution_id), do: :none
 
   defp materialize(%Executable{target: %Flow{} = flow}) do
-    with {:ok, compiled} <- Flow.compile(flow), do: {:ok, flow, compiled}
+    Compiler.prepare(flow)
   end
 
-  defp materialize(%Executable{target: module}) do
+  defp materialize(%Executable{target: module} = executable) do
     try do
-      case module.flow() do
-        %Flow{} = flow ->
-          source_map = module_source_map(module)
+      with :ok <- validate(executable) do
+        case module.flow() do
+          %Flow{} = flow ->
+            source_map = module_source_map(module)
 
-          with {:ok, compiled} <- Flow.compile(flow, source_map: source_map) do
-            {:ok, flow, compiled}
-          end
+            Compiler.prepare(flow, [source_map: source_map], [module])
 
-        value ->
-          {:error,
-           Error.validation_error("Flow flow/0 must return a Jido.Flow", %{
-             flow: module,
-             value: value
-           })}
+          value ->
+            {:error,
+             Error.validation_error("Flow flow/0 must return a Jido.Flow", %{
+               flow: module,
+               value: value
+             })}
+        end
       end
     rescue
       error ->
@@ -117,16 +90,7 @@ defmodule Jido.Exec.FlowAdapter do
 
   defp module_source_map(module) do
     if function_exported?(module, :__jido_flow_source_map__, 0) do
-      case module.__jido_flow_source_map__() do
-        source_map when is_map(source_map) ->
-          source_map
-
-        value ->
-          raise Error.validation_error("Flow source map must be a map", %{
-                  flow: module,
-                  value: value
-                })
-      end
+      module.__jido_flow_source_map__()
     else
       %{}
     end
@@ -138,7 +102,6 @@ defmodule Jido.Exec.FlowAdapter do
 
     result =
       with {:ok, run_opts} <- Options.validate_flow(opts),
-           {:ok, flow} <- Flow.validate_executable(flow),
            {:ok, input} <- normalize_map(input, :input),
            {:ok, context} <- normalize_map(context, :context),
            {:ok, input} <- validate_data(flow.schema, input, "Flow", flow, :flow_input),

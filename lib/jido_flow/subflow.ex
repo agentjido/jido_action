@@ -26,6 +26,7 @@ defmodule Jido.Flow.Subflow do
   @keys [:name, :flow, :params, :after, :meta]
 
   @doc "Builds and validates one canonical Subflow component."
+  @spec new(map() | keyword() | t()) :: {:ok, t()} | {:error, Exception.t()}
   def new(%__MODULE__{} = subflow), do: subflow |> Map.from_struct() |> new()
 
   def new(attrs) when is_list(attrs),
@@ -45,6 +46,7 @@ defmodule Jido.Flow.Subflow do
   def new(_attrs), do: invalid()
 
   @doc "Builds one canonical Subflow or raises its validation error."
+  @spec new!(map() | keyword() | t()) :: t() | no_return()
   def new!(attrs) do
     case new(attrs) do
       {:ok, subflow} -> subflow
@@ -52,6 +54,8 @@ defmodule Jido.Flow.Subflow do
     end
   end
 
+  @doc false
+  @spec result_refs(t()) :: [String.t()]
   def result_refs(%__MODULE__{params: params}), do: Expression.result_refs(params)
 
   defp expression(value) do

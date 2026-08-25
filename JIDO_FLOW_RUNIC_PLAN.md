@@ -1,7 +1,11 @@
 # Jido.Flow and Runic Design Plan
 
-Status: The phase-one data design, phase-two native Runic execution pass, and
-phase-three test architecture pass are implemented on `v3-spike`.
+Status: Complete on `v3-spike`.
+
+The canonical Flow data design, native Runic execution, and test architecture
+are implemented. This document is now the fixed design baseline for
+`Jido.Flow`. New package simplification work builds on this baseline. See
+`JIDO_PKG_SIMPLIFY.md`.
 
 ## Implementation status
 
@@ -71,9 +75,9 @@ use `Jido.Flow.Error`. An Action failure inside a Flow keeps its original
 
 Verification for this implementation:
 
-- `mix test`: 309 tests passed and 2 tests were excluded.
+- `mix test`: 315 tests passed and 2 tests were excluded.
 - `mix test.integration`: 2 integration tests passed.
-- `mix test --cover`: total coverage is 93.09%.
+- `mix test --cover --warnings-as-errors`: total coverage is 93.13%.
 - `mix quality`: formatting, compilation with warnings as errors, Credo, and
   Dialyzer passed.
 - `mix docs --warnings-as-errors`: the public documentation build passed.

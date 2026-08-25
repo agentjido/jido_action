@@ -85,15 +85,16 @@ durability policy stay outside the Flow artifact.
 
 ## Bound Runtime Policy
 
-The current Flow execution API supports only `async` and `max_concurrency` as
-policy options. The common `jido:` option selects OTP instance routing. It does
-not add a runtime policy. The API does not provide retries, retry backoff,
-per-node timeouts, deadlines, cancellation, rewind, or persistent checkpoints.
+The current Flow execution API supports `async` and `max_concurrency`. The
+common `jido:` option selects OTP instance routing. `Jido.Exec.run/4` also
+accepts one finite whole-call timeout. The API does not provide automatic
+retries, retry backoff, per-node timeouts, a public cancellation handle,
+rewind, or persistent checkpoints.
 
-Set caller-owned supervision, process limits, request deadlines, and external
-retry policy around `Jido.Exec`. Limit `max_concurrency` to a value that the
-application can support. Do not assume asynchronous execution provides a
-timeout; the current scheduler uses an internal task timeout of `:infinity`.
+Set caller-owned process limits and retry policy around `Jido.Exec`. Limit
+`max_concurrency` to a value that the application can support. A complete-call
+timeout terminates active execution work. Internal scheduler waits remain
+`:infinity` because the outer deadline owns termination.
 
 ## Bound Collections And Iterate Nodes
 

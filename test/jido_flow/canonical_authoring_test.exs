@@ -209,7 +209,6 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
              |> Builder.build()
 
     assert Exception.message(error) =~ "unsupported fields"
-    refute function_exported?(Builder, :return, 2)
   end
 
   test "canonical public operations accept one Flow and reject other subjects" do
@@ -218,7 +217,6 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
     assert Flow.new(flow) == {:ok, flow}
     assert %Jido.Flow.Compiled{} = Flow.compile!(flow, %{})
     assert %{name: "math_flow", components: [_first, _second]} = Flow.to_map(flow)
-    assert length(Flow.canonical_components(flow.components)) == 2
     assert {:ok, %{"double" => %{references: ["add_one"]}}} = Flow.dependencies(flow)
     assert {:ok, %{kind: :flow, name: "math_flow"}} = Flow.explain(flow)
     assert {:ok, %{digest: digest, uuid: uuid}} = Flow.semantic_identity(flow)

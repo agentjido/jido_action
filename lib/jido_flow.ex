@@ -8,9 +8,9 @@ defmodule Jido.Flow do
   Flow has four supported authoring inputs:
 
   * the compile-time Flow module DSL;
-  * `Jido.Flow.Builder` for runtime construction; and
+  * `Jido.Flow.Builder` for runtime construction;
   * versioned stored JSON documents through `Jido.Flow.Codec`; and
-  * direct canonical struct construction.
+  * direct canonical construction through `new/1` and component constructors.
 
   Use the Flow module DSL as the primary developer authoring surface:
 
@@ -38,8 +38,9 @@ defmodule Jido.Flow do
   `Jido.Flow.Registry` for database or transport storage.
 
   A Flow module returns one stable canonical value from `flow/0` for the life
-  of the loaded module version. Validation, compilation, and execution can read
-  this value more than once. Put changing runtime data in Flow input or context.
+  of the loaded module version. Each validation, compilation, or execution
+  operation materializes it once. Put changing runtime data in Flow input or
+  context.
 
   A Choice is one Flow component. It evaluates data-only conditions in authored
   order, runs the first matching target, and uses a required routing fallback
@@ -88,7 +89,7 @@ defmodule Jido.Flow do
   @doc false
   defmacro __before_compile__(env), do: ModuleCompiler.before_compile(env)
 
-  @doc false
+  @doc "Builds and validates one canonical Flow value."
   @spec new(map() | keyword() | t()) :: {:ok, t()} | {:error, Exception.t()}
   def new(%__MODULE__{} = flow), do: flow |> Map.from_struct() |> new()
 
@@ -98,7 +99,7 @@ defmodule Jido.Flow do
     end
   end
 
-  @doc false
+  @doc "Builds one canonical Flow value or raises its validation error."
   @spec new!(map() | keyword() | t()) :: t() | no_return()
   def new!(attrs) do
     case new(attrs) do
@@ -112,6 +113,10 @@ defmodule Jido.Flow do
 
   The returned value contains derived runtime data. It is not an authoring or
   storage format. Use `Jido.Flow.Codec` to store a Flow.
+
+  Pass a source map directly, or pass `source_map: source_map`. `source_map`
+  is the only compile option. Unknown options and malformed source locations
+  return a validation error.
   """
   @spec compile(t(), keyword() | Compiled.source_map()) ::
           {:ok, Compiled.t()} | {:error, Exception.t()}
@@ -146,10 +151,6 @@ defmodule Jido.Flow do
       output: Jido.Flow.Expression.to_map(flow.output)
     }
   end
-
-  @doc false
-  @spec canonical_components([Component.t()]) :: [Component.t()]
-  def canonical_components(components), do: Graph.canonical_components(components)
 
   defp invalid_flow_subject(value) do
     Validation.invalid_subject(value)

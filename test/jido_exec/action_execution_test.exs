@@ -4,9 +4,7 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
 
   alias Jido.Action.Error
   alias Jido.Action.Error.{ConfigurationError, ExecutionFailureError, InvalidInputError}
-  alias Jido.Executable
   alias Jido.Exec
-  alias Jido.Exec.ActionAdapter
   alias Jido.Flow
   alias Jido.Flow.{Ref, Step}
   alias Jido.Instruction
@@ -38,10 +36,18 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
   }
 
   defmodule RaisingActionName do
+    def __jido_executable__, do: Jido.Executable.action(__MODULE__)
+    def validate_params(params), do: {:ok, params}
+    def validate_output(output), do: {:ok, output}
+    def run(params, _context), do: {:ok, params}
     def name, do: raise("action name failed")
   end
 
   defmodule ThrowingActionName do
+    def __jido_executable__, do: Jido.Executable.action(__MODULE__)
+    def validate_params(params), do: {:ok, params}
+    def validate_output(output), do: {:ok, output}
+    def run(params, _context), do: {:ok, params}
     def name, do: throw(:action_name_failed)
   end
 
@@ -267,25 +273,16 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
     assert details.executable == "not executable"
   end
 
-  test "ActionAdapter contains its direct boundary failures" do
-    assert {:error, :input, %InvalidInputError{}} =
-             ActionAdapter.run_target(
-               Executable.action(MissingRun),
-               %{},
-               %{},
-               "missing-run",
-               []
-             )
+  test "Exec contains Action boundary failures" do
+    assert {:error, %InvalidInputError{}} = Exec.run(MissingRun)
 
     assert {:error, %InvalidInputError{details: %{executable_type: :action}}} =
-             ActionAdapter.start(Executable.action(Add), %{}, %{}, [], "action-start")
+             Exec.start(Add)
 
-    assert {:error, %InvalidInputError{}} =
-             ActionAdapter.run(Executable.action(Add), :invalid, %{}, [], "invalid-input")
+    assert {:error, %InvalidInputError{}} = Exec.run(Add, :invalid)
 
     for module <- [RaisingActionName, ThrowingActionName] do
-      assert {:ok, %{kind: :action, name: ^module}} =
-               ActionAdapter.lifecycle_metadata(Executable.action(module), "action-name")
+      assert {:ok, %{}} = Exec.run(module)
     end
   end
 

@@ -64,8 +64,8 @@ defmodule JidoActionTest.Action.ErrorTest do
     test "normalizes the concrete Action errors" do
       cases = [
         {Error.validation_error("invalid", field: :count), :validation_error, false},
-        {Error.execution_error("failed"), :execution_error, true},
-        {Error.timeout_error("slow", timeout: 500), :timeout, true},
+        {Error.execution_error("failed"), :execution_error, false},
+        {Error.timeout_error("slow", timeout: 500), :timeout, false},
         {Error.config_error("bad config"), :configuration_error, false},
         {Error.internal_error("broken"), :internal_error, false},
         {UnknownError.exception(message: "unknown"), :internal_error, false}
@@ -90,8 +90,11 @@ defmodule JidoActionTest.Action.ErrorTest do
                retryable?: false
              } = Error.to_map(Error.validation_error("invalid", field: :count, value: -1))
 
-      assert %{details: %{timeout: 500}, retryable?: true} =
+      assert %{details: %{timeout: 500}, retryable?: false} =
                Error.to_map(Error.timeout_error("slow", timeout: 500))
+
+      assert %{retryable?: true} =
+               Error.to_map(Error.timeout_error("slow", timeout: 500, retry: true))
     end
 
     test "unwraps standard error tuples" do
@@ -188,14 +191,16 @@ defmodule JidoActionTest.Action.ErrorTest do
       refute Error.retryable?(Error.config_error("bad config"))
       refute Error.retryable?(Error.internal_error("broken"))
       refute Error.retryable?(UnknownError.exception(message: "unknown"))
-      assert Error.retryable?(Error.timeout_error("slow"))
-      assert Error.retryable?(Error.execution_error("failed"))
+      refute Error.retryable?(Error.timeout_error("slow"))
+      assert Error.retryable?(Error.timeout_error("slow", retry: true))
+      refute Error.retryable?(Error.execution_error("failed"))
       refute Error.retryable?(Error.execution_error("failed", retry: false))
       assert Error.retryable?(Error.execution_error("failed", retry: true))
     end
 
     test "unwraps error tuples" do
-      assert Error.retryable?({:error, Error.timeout_error("slow")})
+      refute Error.retryable?({:error, Error.timeout_error("slow")})
+      assert Error.retryable?({:error, Error.timeout_error("slow", retry: true)})
       refute Error.retryable?({:error, Error.validation_error("invalid"), []})
     end
 

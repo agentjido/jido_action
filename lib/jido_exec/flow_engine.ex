@@ -179,7 +179,7 @@ defmodule Jido.Exec.FlowEngine do
 
   defp do_step(execution, runnable) do
     executed = FlowRunnableExecutor.execute(execution, runnable)
-    execution = apply_runnable(execution, executed)
+    execution = execution |> apply_runnable(executed) |> advance_revision()
 
     with {:ok, execution} <- settle(execution) do
       {:ok, executed, execution}
@@ -188,7 +188,7 @@ defmodule Jido.Exec.FlowEngine do
 
   defp do_wave(execution) do
     executed = FlowRunnableExecutor.execute_many(execution, ready(execution))
-    execution = Enum.reduce(executed, execution, &apply_runnable(&2, &1))
+    execution = executed |> Enum.reduce(execution, &apply_runnable(&2, &1)) |> advance_revision()
 
     with {:ok, execution} <- settle(execution) do
       {:ok, executed, execution}
@@ -211,11 +211,12 @@ defmodule Jido.Exec.FlowEngine do
     %{
       execution
       | workflow: workflow,
-        revision: execution.revision + 1,
         ready: [],
         runnable_errors: errors
     }
   end
+
+  defp advance_revision(execution), do: %{execution | revision: execution.revision + 1}
 
   defp fetch_ready(execution, id) do
     case Enum.find(execution.ready, &(&1.id == id)) do

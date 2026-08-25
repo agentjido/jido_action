@@ -25,9 +25,16 @@ defmodule Jido.Flow.Validation do
 
   @doc false
   def validate_executable(attrs) do
-    with {:ok, flow} <- validate_attrs(attrs),
-         :ok <- validate_component_targets(flow.components, []) do
+    with {:ok, flow, _subflows} <- prepare_executable(attrs) do
       {:ok, flow}
+    end
+  end
+
+  @doc false
+  def prepare_executable(attrs, module_stack \\ []) do
+    with {:ok, flow} <- validate_attrs(attrs),
+         {:ok, subflows} <- validate_component_targets(flow.components, module_stack, %{}) do
+      {:ok, flow, subflows}
     end
   end
 
@@ -102,7 +109,12 @@ defmodule Jido.Flow.Validation do
   defp name(_value), do: {:error, Error.validation_error("flow name must be a string")}
 
   defp description(nil), do: {:ok, nil}
-  defp description(value) when is_binary(value), do: {:ok, value}
+
+  defp description(value) when is_binary(value) do
+    if String.valid?(value),
+      do: {:ok, value},
+      else: {:error, Error.validation_error("flow description must be valid UTF-8")}
+  end
 
   defp description(_value),
     do: {:error, Error.validation_error("flow description must be a string")}
@@ -207,66 +219,79 @@ defmodule Jido.Flow.Validation do
     end
   end
 
-  defp validate_component_targets(components, module_stack) do
-    Enum.reduce_while(components, :ok, fn component, :ok ->
-      case validate_target(component, module_stack) do
-        :ok -> {:cont, :ok}
+  defp validate_component_targets(components, module_stack, subflows) do
+    Enum.reduce_while(components, {:ok, subflows}, fn component, {:ok, subflows} ->
+      case validate_target(component, module_stack, subflows) do
+        {:ok, subflows} -> {:cont, {:ok, subflows}}
         {:error, error} -> {:halt, {:error, error}}
       end
     end)
   end
 
-  defp validate_target(%Step{name: name, action: action}, _module_stack) do
+  defp validate_target(%Step{name: name, action: action}, _module_stack, subflows) do
     with {:ok, executable} <- Executable.resolve(action),
          :ok <- require_kind(executable, :action, name),
          :ok <- Executable.validate(executable) do
-      :ok
+      {:ok, subflows}
     else
       {:error, error} -> {:error, target_error(error, name, :action)}
     end
   end
 
-  defp validate_target(%Subflow{name: name, flow: flow}, module_stack) do
+  defp validate_target(%Subflow{name: name, flow: flow}, module_stack, subflows) do
     with {:ok, executable} <- Executable.resolve(flow),
          :ok <- require_kind(executable, :flow, name),
          :ok <- Executable.validate(executable),
          :ok <- reject_recursive_subflow(flow, module_stack),
-         {:ok, child} <- load_child_flow(flow),
-         {:ok, child} <- validate_attrs(Map.from_struct(child)),
-         :ok <- validate_component_targets(child.components, [flow | module_stack]) do
-      :ok
+         {:ok, subflows} <- materialize_subflow(flow, module_stack, subflows) do
+      {:ok, subflows}
     else
       {:error, error} -> {:error, target_error(error, name, :flow)}
     end
   end
 
-  defp validate_target(%Choice{} = choice, _module_stack) do
+  defp validate_target(%Choice{} = choice, _module_stack, subflows) do
     targets =
       Enum.map(choice.options, &{&1.name, &1.action}) ++ [{:fallback, choice.fallback.action}]
 
-    validate_action_targets(targets, choice.name)
+    validate_action_targets(targets, choice.name, subflows)
   end
 
-  defp validate_target(%FlowMap{name: name, action: action}, _module_stack),
-    do: validate_action_targets([{:action, action}], name)
+  defp validate_target(%FlowMap{name: name, action: action}, _module_stack, subflows),
+    do: validate_action_targets([{:action, action}], name, subflows)
 
-  defp validate_target(%Reduce{name: name, action: action}, _module_stack),
-    do: validate_action_targets([{:action, action}], name)
+  defp validate_target(%Reduce{name: name, action: action}, _module_stack, subflows),
+    do: validate_action_targets([{:action, action}], name, subflows)
 
-  defp validate_target(%Iterate{name: name, action: action}, _module_stack),
-    do: validate_action_targets([{:action, action}], name)
+  defp validate_target(%Iterate{name: name, action: action}, _module_stack, subflows),
+    do: validate_action_targets([{:action, action}], name, subflows)
 
-  defp validate_action_targets(targets, component) do
-    Enum.reduce_while(targets, :ok, fn {field, target}, :ok ->
+  defp validate_action_targets(targets, component, subflows) do
+    Enum.reduce_while(targets, {:ok, subflows}, fn {field, target}, {:ok, subflows} ->
       with {:ok, executable} <- Executable.resolve(target),
            :ok <- require_kind(executable, :action, component),
            :ok <- Executable.validate(executable) do
-        {:cont, :ok}
+        {:cont, {:ok, subflows}}
       else
         {:error, error} ->
           {:halt, {:error, target_error(error, component, field)}}
       end
     end)
+  end
+
+  defp materialize_subflow(module, module_stack, subflows) do
+    case Map.fetch(subflows, module) do
+      {:ok, _flow} ->
+        {:ok, subflows}
+
+      :error ->
+        with {:ok, child} <- load_child_flow(module),
+             {:ok, child} <- validate_attrs(Map.from_struct(child)),
+             {:ok, subflows} <-
+               validate_component_targets(child.components, [module | module_stack], subflows) do
+          {:ok, Map.put(subflows, module, struct!(Jido.Flow, child))}
+        end
+    end
   end
 
   defp reject_recursive_subflow(flow, module_stack) do

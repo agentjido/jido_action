@@ -7,7 +7,8 @@ defmodule JidoActionTest.Exec.TelemetryTest do
   alias Jido.Flow
   alias Jido.Flow.{Condition, Iterate, Reduce, Ref, Step}
   alias Jido.Flow.Map, as: FlowMap
-  alias JidoActionTest.Fixtures.TelemetryParentFlow
+  alias Jido.Instruction
+  alias JidoActionTest.Fixtures.{MathFlow, TelemetryParentFlow}
   alias JidoActionTest.Fixtures.Actions.{Add, ErrorAction}
 
   @flow_start [:jido, :flow, :start]
@@ -26,6 +27,9 @@ defmodule JidoActionTest.Exec.TelemetryTest do
   @reduce_item_stop [:jido, :flow, :reduce, :item, :stop]
   @iterate_start [:jido, :flow, :iterate, :iteration, :start]
   @iterate_stop [:jido, :flow, :iterate, :iteration, :stop]
+  @action_start [:jido, :action, :start]
+  @action_stop [:jido, :action, :stop]
+  @action_error [:jido, :action, :error]
 
   @flow_events [
     @flow_start,
@@ -48,6 +52,44 @@ defmodule JidoActionTest.Exec.TelemetryTest do
     @iterate_start,
     @iterate_stop
   ]
+
+  test "emits one outer lifecycle for every executable target form" do
+    attach([@action_start, @action_stop, @action_error, @flow_start, @flow_stop, @flow_error])
+
+    action_instruction = Instruction.new!(target: Add, params: %{value: 2})
+    flow_instruction = Instruction.new!(target: MathFlow, params: %{value: 2})
+
+    forms = [
+      action: {Add, %{value: 2}, [@action_start, @action_stop], :action, Add.name()},
+      action_instruction:
+        {action_instruction, %{}, [@action_start, @action_stop], :instruction, Add.name()},
+      flow_value: {MathFlow.flow(), %{value: 2}, [@flow_start, @flow_stop], nil, "math_flow"},
+      flow_module: {MathFlow, %{value: 2}, [@flow_start, @flow_stop], nil, "math_flow"},
+      flow_instruction:
+        {flow_instruction, %{}, [@action_start, @flow_start, @flow_stop, @action_stop],
+         :instruction, "math_flow"}
+    ]
+
+    for {form, {target, input, expected_events, kind, name}} <- forms do
+      assert {:ok, _result} = Exec.run(target, input), to_string(form)
+      recorded = events()
+      assert Enum.map(recorded, &elem(&1, 0)) == expected_events
+
+      ids = Enum.map(recorded, fn {_event, _measurements, metadata} -> metadata.execution_id end)
+      assert [_execution_id] = Enum.uniq(ids)
+
+      for {event, measurements, metadata} <- recorded do
+        if event in [@action_start, @action_stop] do
+          assert metadata.kind == kind
+          assert metadata.name == name
+        else
+          assert metadata.flow == name
+        end
+
+        if event in [@action_stop, @flow_stop], do: assert(measurements.duration >= 0)
+      end
+    end
+  end
 
   test "emits Flow, component, and target lifecycles" do
     attach(@flow_events)

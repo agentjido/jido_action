@@ -8,12 +8,6 @@ defmodule Jido.Exec.ActionAdapter do
   alias Jido.Instruction
 
   @doc false
-  @spec validate(Executable.t()) :: :ok | {:error, Exception.t()}
-  def validate(%Executable{kind: :action, target: action}) when is_atom(action) do
-    Executable.validate_action_compatible_callbacks(action)
-  end
-
-  @doc false
   @spec run(Executable.t(), term(), term(), term(), String.t()) ::
           {:ok, term()}
           | {:ok, term(), term()}
@@ -22,7 +16,7 @@ defmodule Jido.Exec.ActionAdapter do
   def run(%Executable{target: action} = executable, input, context, opts, _execution_id) do
     with {:ok, run_opts} <- Options.validate_action(opts, :action),
          {:ok, instruction} <- normalize_instruction(action, input, context),
-         :ok <- validate(executable) do
+         :ok <- Executable.validate(executable) do
       ActionRunner.run(instruction, run_opts)
     end
   end
@@ -35,31 +29,8 @@ defmodule Jido.Exec.ActionAdapter do
           | {:error, Exception.t(), term()}
   def run_instruction(executable, %Instruction{} = instruction, opts, _execution_id) do
     with {:ok, run_opts} <- Options.validate_action(opts, :instruction),
-         :ok <- validate(executable) do
+         :ok <- Executable.validate(executable) do
       ActionRunner.run(instruction, run_opts)
-    end
-  end
-
-  @doc false
-  @spec run_target(Executable.t(), term(), map(), String.t(), keyword()) ::
-          Jido.Exec.ActionRunner.target_result()
-  def run_target(
-        %Executable{target: action} = executable,
-        params,
-        context,
-        execution_id,
-        run_opts
-      ) do
-    with :ok <- validate(executable) do
-      ActionRunner.run_target(
-        action,
-        params,
-        context,
-        Jido.Exec.ConcurrencyLimiter.whereis(execution_id),
-        run_opts
-      )
-    else
-      {:error, error} -> {:error, :input, error}
     end
   end
 
@@ -79,7 +50,7 @@ defmodule Jido.Exec.ActionAdapter do
   end
 
   defp normalize_instruction(action, input, context) do
-    {:ok, Instruction.normalize!(action, input, context)}
+    {:ok, Instruction.normalize_resolved!(action, input, context)}
   rescue
     exception -> {:error, Error.validation_error(Exception.message(exception))}
   end

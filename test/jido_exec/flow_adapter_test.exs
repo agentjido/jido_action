@@ -1,13 +1,63 @@
 defmodule JidoActionTest.Exec.FlowAdapterTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   @moduletag capture_log: true
 
-  alias Jido.Executable
   alias Jido.Exec
-  alias Jido.Exec.FlowAdapter
   alias Jido.Flow.Error
   alias Jido.Flow.Error.InvalidDefinitionError
+
+  defmodule CallCounter do
+    def increment(key),
+      do: Agent.update(__MODULE__, &Map.update(&1, key, 1, fn count -> count + 1 end))
+
+    def value, do: Agent.get(__MODULE__, & &1)
+  end
+
+  defmodule CountingChildFlow do
+    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+
+    def flow do
+      JidoActionTest.Exec.FlowAdapterTest.CallCounter.increment(:child)
+      JidoActionTest.Fixtures.FlowAuthoring.math_flow!()
+    end
+
+    def validate_params(params), do: {:ok, params}
+    def validate_output(output), do: {:ok, output}
+    def run(params, context), do: Jido.Exec.run(__MODULE__, params, context)
+  end
+
+  defmodule CountingRootFlow do
+    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+
+    def flow do
+      JidoActionTest.Exec.FlowAdapterTest.CallCounter.increment(:root)
+
+      Jido.Flow.new!(
+        name: "counting_root",
+        components: [
+          Jido.Flow.Subflow.new!(
+            name: "left",
+            flow: JidoActionTest.Exec.FlowAdapterTest.CountingChildFlow,
+            params: %{value: Jido.Flow.Ref.input(:value)}
+          ),
+          Jido.Flow.Subflow.new!(
+            name: "right",
+            flow: JidoActionTest.Exec.FlowAdapterTest.CountingChildFlow,
+            params: %{value: Jido.Flow.Ref.input(:value)}
+          )
+        ],
+        output: %{
+          left: Jido.Flow.Ref.result("left"),
+          right: Jido.Flow.Ref.result("right")
+        }
+      )
+    end
+
+    def validate_params(params), do: {:ok, params}
+    def validate_output(output), do: {:ok, output}
+    def run(params, context), do: Jido.Exec.run(__MODULE__, params, context)
+  end
 
   defmodule FlowWithoutCompiledCallback do
     def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
@@ -114,32 +164,30 @@ defmodule JidoActionTest.Exec.FlowAdapterTest do
     def validate_output(output), do: {:ok, output}
   end
 
-  test "FlowAdapter compiles the exact flow/0 value" do
-    assert {:ok, %Jido.Exec.Execution{}} =
-             FlowAdapter.start(
-               Executable.flow(FlowWithoutCompiledCallback),
-               %{value: 1},
-               %{},
-               [],
-               "without-compiled"
-             )
+  test "Exec compiles the exact flow/0 value" do
+    assert {:ok, %Jido.Exec.Execution{}} = Exec.start(FlowWithoutCompiledCallback, %{value: 1})
 
     assert {:ok, %{value: 4}} = Exec.run(MismatchedCompiledFlow, %{value: 1})
     assert {:ok, %{value: 4}} = Exec.run(IgnoredCompiledFailureFlow, %{value: 1})
 
-    assert {:ok, execution} =
-             FlowAdapter.start(
-               Executable.flow(SourceMappedFlow),
-               %{value: 1},
-               %{},
-               [],
-               "source-mapped"
-             )
+    assert {:ok, execution} = Exec.start(SourceMappedFlow, %{value: 1})
 
     assert execution.compiled.source_map == SourceMappedFlow.__jido_flow_source_map__()
   end
 
-  test "FlowAdapter contains invalid, raised, and thrown module definitions" do
+  test "one execution materializes each Flow module once" do
+    start_supervised!(%{
+      id: CallCounter,
+      start: {Agent, :start_link, [fn -> %{} end, [name: CallCounter]]}
+    })
+
+    assert Exec.run(CountingRootFlow, %{value: 1}) ==
+             {:ok, %{left: %{value: 4}, right: %{value: 4}}}
+
+    assert CallCounter.value() == %{root: 1, child: 1}
+  end
+
+  test "Exec contains invalid, raised, and thrown module definitions" do
     for module <- [
           InvalidDefinitionFlow,
           InvalidSourceMapFlow,
@@ -148,32 +196,17 @@ defmodule JidoActionTest.Exec.FlowAdapterTest do
           ThrowingDefinitionFlow
         ] do
       assert {:error, error} =
-               FlowAdapter.start(Executable.flow(module), %{}, %{}, [], "invalid-definition")
+               Exec.start(module)
 
       assert Error.owned?(error)
     end
 
-    assert {:error, %InvalidDefinitionError{}} =
-             FlowAdapter.validate(Executable.flow(MissingRunFlow))
-  end
+    assert {:error, %InvalidDefinitionError{}} = Exec.start(MissingRunFlow)
 
-  test "FlowAdapter uses the target runner result contract" do
-    assert {:ok, %{value: 8}} =
-             FlowAdapter.run_target(
-               Executable.flow(FlowWithoutCompiledCallback),
-               %{value: 3},
-               %{},
-               "target-success",
-               []
-             )
-
-    assert {:error, :execution, %InvalidDefinitionError{}} =
-             FlowAdapter.run_target(
-               Executable.flow(InvalidDefinitionFlow),
-               %{value: 3},
-               %{},
-               "target-error",
-               []
-             )
+    assert {:error,
+            %InvalidDefinitionError{
+              message: "Flow source map must be a map",
+              details: %{flow: InvalidSourceMapFlow}
+            }} = Exec.start(InvalidSourceMapFlow)
   end
 end

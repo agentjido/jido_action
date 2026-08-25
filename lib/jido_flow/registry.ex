@@ -102,7 +102,7 @@ defmodule Jido.Flow.Registry do
     end
   end
 
-  @doc "Finds the canonical write identifier for a trusted Action, schema, or atom value."
+  @doc "Finds the canonical write identifier for a trusted Action, Flow, schema, or atom value."
   @spec identifier(t(), kind(), term()) ::
           {:ok, stable_id()} | {:error, Exception.t()}
   def identifier(%__MODULE__{write_ids: write_ids}, kind, value)
@@ -116,13 +116,11 @@ defmodule Jido.Flow.Registry do
     end
   end
 
-  @doc false
-  @spec valid_identifier?(term()) :: boolean()
-  def valid_identifier?(identifier) when is_binary(identifier) do
+  defp valid_identifier?(identifier) when is_binary(identifier) do
     byte_size(identifier) in 1..255 and Regex.match?(@identifier_pattern, identifier)
   end
 
-  def valid_identifier?(_identifier), do: false
+  defp valid_identifier?(_identifier), do: false
 
   defp validate_identifier(identifier) do
     if valid_identifier?(identifier) do

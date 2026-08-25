@@ -3,9 +3,8 @@ defmodule Jido.Flow.Map do
   A named Flow fan-out operation over one ordered collection.
 
   A Map is one canonical authoring component. Native execution exposes its
-  Runic FanOut, item, FanIn, and output work. This is a read-only canonical
-  type. Create it through the Flow module DSL, `Jido.Flow.Builder`, or the
-  stored Flow decoder.
+  Runic FanOut, item, FanIn, and output work. Create it with `new/1`, the Flow
+  module DSL, `Jido.Flow.Builder`, or `Jido.Flow.Codec`.
   """
 
   alias Jido.Flow.Error
@@ -37,7 +36,7 @@ defmodule Jido.Flow.Map do
   @enforce_keys Zoi.Struct.enforce_keys(@schema)
   defstruct Zoi.Struct.struct_fields(@schema)
 
-  @doc false
+  @doc "Builds and validates one canonical Map component."
   @spec new(map() | keyword() | t()) :: {:ok, t()} | {:error, Exception.t()}
   def new(%__MODULE__{} = map), do: map |> Map.from_struct() |> new()
 
@@ -69,7 +68,7 @@ defmodule Jido.Flow.Map do
 
   def new(_attrs), do: invalid_configuration()
 
-  @doc false
+  @doc "Builds one canonical Map component or raises its validation error."
   @spec new!(map() | keyword() | t()) :: t() | no_return()
   def new!(attrs) do
     case new(attrs) do

@@ -2,13 +2,36 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
   use ExUnit.Case, async: true
 
   alias Jido.Action.Output
+  alias Jido.Action.Error.ExecutionFailureError, as: ActionExecutionFailureError
   alias Jido.Exec
   alias Jido.Flow
   alias Jido.Flow.Error.ExecutionFailureError
   alias Jido.Flow.{Choice, Condition, Reduce, Ref, Step}
   alias Jido.Flow.Map, as: FlowMap
 
-  alias JidoActionTest.Fixtures.Actions.{Add, EchoParamsAction, Multiply}
+  alias JidoActionTest.Fixtures.Actions.{Add, EchoParamsAction, ErrorAction, Multiply}
+
+  test "keeps target ownership on public execution errors" do
+    cases = [
+      {target_error_flow(:step), :step_execution, %{node: "target", action: ErrorAction}},
+      {target_error_flow(:choice), :choice_target_execution,
+       %{node: "target", option: "selected", target: ErrorAction}},
+      {target_error_flow(:map), :map_target_execution,
+       %{node: "target", target: ErrorAction, item_index: 0}},
+      {target_error_flow(:reduce), :reduce_target_execution,
+       %{node: "target", target: ErrorAction, item_index: 0}}
+    ]
+
+    for {flow, phase, ownership} <- cases do
+      assert {:error, %ActionExecutionFailureError{details: details}} = Exec.run(flow)
+      assert details.phase == phase
+      assert Map.take(details, Map.keys(ownership)) == ownership
+
+      if phase in [:map_target_execution, :reduce_target_execution] do
+        assert is_binary(details.item_id)
+      end
+    end
+  end
 
   test "executes every comparison operator with runtime operands" do
     cases = [
@@ -313,4 +336,66 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
   end
 
   defp invalid_ordering, do: Condition.lt(%{}, 1)
+
+  defp target_error_flow(:step) do
+    Flow.new!(
+      name: "step_target_error",
+      components: [
+        Step.new!(name: "target", action: ErrorAction, params: %{error_type: :validation})
+      ],
+      output: Ref.result("target")
+    )
+  end
+
+  defp target_error_flow(:choice) do
+    Flow.new!(
+      name: "choice_target_error",
+      components: [
+        Choice.new!(
+          name: "target",
+          options: [
+            [
+              name: "selected",
+              condition: Condition.eq(1, 1),
+              action: ErrorAction,
+              params: %{error_type: :validation}
+            ]
+          ],
+          fallback: [action: ErrorAction, params: %{error_type: :validation}]
+        )
+      ],
+      output: Ref.result("target")
+    )
+  end
+
+  defp target_error_flow(:map) do
+    Flow.new!(
+      name: "map_target_error",
+      components: [
+        FlowMap.new!(
+          name: "target",
+          collection: [:item],
+          action: ErrorAction,
+          params: %{error_type: :validation}
+        )
+      ],
+      output: Ref.result("target")
+    )
+  end
+
+  defp target_error_flow(:reduce) do
+    Flow.new!(
+      name: "reduce_target_error",
+      components: [
+        Reduce.new!(
+          name: "target",
+          collection: [:item],
+          initial: %{},
+          action: ErrorAction,
+          params: %{error_type: :validation}
+        )
+      ],
+      output: Ref.result("target")
+    )
+  end
 end

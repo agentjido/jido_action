@@ -39,8 +39,9 @@ defmodule Jido.Action do
   ## Effects and policy
 
   `run/2` can be pure or can perform I/O. Keep one Action focused on one unit
-  of work. Retry, timeout, scheduling, cancellation, and persistence policy
-  belong to the caller or runtime layer.
+  of work. The caller selects retry, timeout, scheduling, cancellation, and
+  persistence policy. `Jido.Exec` enforces a requested execution timeout and
+  owns process cleanup. It does not retry an Action automatically.
   """
 
   alias Jido.Action.{Error, Output, Validation}
@@ -386,18 +387,6 @@ defmodule Jido.Action do
               | {:ok, map() | Output.t(), any()}
               | {:error, any()}
               | {:error, any(), any()}
-
-  @doc false
-  @spec new() :: {:error, Exception.t()}
-  def new, do: new(%{})
-
-  @doc false
-  @spec new(map() | keyword()) :: {:error, Exception.t()}
-  def new(_map_or_kwlist) do
-    "Actions should not be defined at runtime"
-    |> Error.config_error()
-    |> then(&{:error, &1})
-  end
 
   defp validate_data(schema, data, context, module) do
     Validation.open_validate(schema, data, %{

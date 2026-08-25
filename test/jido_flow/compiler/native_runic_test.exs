@@ -6,7 +6,7 @@ defmodule JidoActionTest.Flow.Compiler.NativeRunicTest do
   alias JidoActionTest.Fixtures.{MathFlow, TelemetryParentFlow}
   alias JidoActionTest.Fixtures.Actions.{EchoParamsAction, ReduceProbeAction}
   alias Runic.Workflow
-  alias Runic.Workflow.{FanIn, FanOut}
+  alias Runic.Workflow.{ComponentAdded, Connection, FanIn, FanOut, InputBinding}
   alias Runic.Workflow.Map, as: RunicMap
   alias Runic.Workflow.Reduce, as: RunicReduce
   alias Runic.Workflow.Step, as: RunicStep
@@ -57,6 +57,21 @@ defmodule JidoActionTest.Flow.Compiler.NativeRunicTest do
     def run(params, context), do: Jido.Exec.run(flow(), params, context)
   end
 
+  defmodule InvalidSourceMapChild do
+    @moduledoc false
+
+    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+    def flow, do: JidoActionTest.Fixtures.MathFlow.flow()
+
+    def __jido_flow_source_map__ do
+      %{[:components, "add_one"] => %{file: "child.ex", line: self()}}
+    end
+
+    def validate_params(params), do: {:ok, params}
+    def validate_output(output), do: {:ok, output}
+    def run(params, context), do: Jido.Exec.run(flow(), params, context)
+  end
+
   test "compiles a Step to a native Runic Step without changing the Flow" do
     flow =
       Flow.new!(
@@ -74,7 +89,13 @@ defmodule JidoActionTest.Flow.Compiler.NativeRunicTest do
     before = flow
     assert {:ok, compiled} = Flow.compile(flow)
     assert flow == before
-    assert %RunicStep{name: "echo"} = compiled.component_index["echo"].component
+    assert %RunicStep{name: "echo"} = step = compiled.component_index["echo"].component
+    assert [in: step_input] = Runic.Component.inputs(step)
+    assert [out: step_output] = Runic.Component.outputs(step)
+    assert step_input[:type] == :any
+    assert Keyword.get(step_input, :cardinality, :one) == :one
+    assert step_output[:type] == :any
+    assert Keyword.get(step_output, :cardinality, :one) == :one
     assert %Workflow{} = compiled.workflow
   end
 
@@ -113,16 +134,29 @@ defmodule JidoActionTest.Flow.Compiler.NativeRunicTest do
     assert %{component: %RunicMap{} = native_map, collector: %RunicReduce{}} =
              compiled.component_index["mapped"]
 
-    assert %RunicReduce{fan_in: %FanIn{map: map_name}} =
-             compiled.component_index["reduced"].component
+    native_reduce = compiled.component_index["reduced"].component
+    assert %RunicReduce{fan_in: %FanIn{map: map_name}} = native_reduce
 
     assert map_name == native_map.name
     assert compiled.component_index["reduced"].direct_map
 
+    assert [items: map_input] = Runic.Component.inputs(native_map)
+    assert [out: map_output] = Runic.Component.outputs(native_map)
+    assert map_input[:cardinality] == :many
+    assert map_output[:cardinality] == :many
+
+    assert [items: reduce_input] = Runic.Component.inputs(native_reduce)
+    assert [result: reduce_output] = Runic.Component.outputs(native_reduce)
+    assert reduce_input[:cardinality] == :many
+    assert Keyword.get(reduce_output, :cardinality, :one) == :one
+
+    assert %FanIn{name: "$reduced/reduce", map: "$mapped/map", mergeable: false} =
+             native_reduce.fan_in
+
     vertices = :maps.values(compiled.workflow.graph.vertices)
-    assert Enum.any?(vertices, &match?(%FanOut{}, &1))
-    assert Enum.any?(vertices, &match?(%FanIn{}, &1))
-    refute Code.ensure_loaded?(Jido.Flow.Compiler.MapResult)
+    assert Enum.any?(vertices, &match?(%FanOut{name: "$mapped/map"}, &1))
+    assert Enum.any?(vertices, &match?(%FanIn{name: "$mapped/map-collector"}, &1))
+    assert Enum.any?(vertices, &match?(%FanIn{name: "$reduced/reduce"}, &1))
   end
 
   test "uses one native Workflow boundary for a Subflow" do
@@ -141,8 +175,36 @@ defmodule JidoActionTest.Flow.Compiler.NativeRunicTest do
 
     assert {:ok, compiled} = Flow.compile(flow)
 
-    assert %Workflow{input_ports: [_], output_ports: [_]} =
-             compiled.component_index["math"].component
+    assert %Workflow{} = child = compiled.component_index["math"].component
+    assert child.input_ports == [in: [type: :any]]
+    assert child.output_ports == [out: [type: :any, from: "math/$output"]]
+
+    assert [in: [type: :any]] = Runic.Component.inputs(child)
+    assert [out: [type: :any, from: "math/$output"]] = Runic.Component.outputs(child)
+
+    assert %ComponentAdded{
+             name: "math",
+             connections: [
+               %Connection{
+                 source: "$math/subflow",
+                 source_port: :out,
+                 target: "math",
+                 target_port: :in,
+                 selector: [],
+                 target_path: []
+               }
+             ]
+           } = Enum.find(compiled.workflow.build_log, &(&1.name == "math"))
+
+    assert [%InputBinding{bindings: [binding], input_ports: [in: _input]}] =
+             compiled.workflow.graph.vertices
+             |> :maps.values()
+             |> Enum.filter(&match?(%InputBinding{}, &1))
+
+    assert binding.source_port == :out
+    assert binding.target_port == :in
+    assert binding.selector == []
+    assert binding.target_path == []
 
     child_names = compiled.component_index["math"].children |> :maps.keys()
     assert child_names == ["add_one", "double"]
@@ -262,9 +324,48 @@ defmodule JidoActionTest.Flow.Compiler.NativeRunicTest do
              with_source.component_index["echo"].component.hash
   end
 
+  test "rejects malformed compile options and source maps" do
+    flow =
+      Flow.new!(
+        name: "source_map_validation",
+        components: [Step.new!(name: "echo", action: EchoParamsAction)],
+        output: Ref.result("echo")
+      )
+
+    invalid_options = [
+      :invalid,
+      [{:source_map, %{}}, :not_an_option],
+      [unknown: true],
+      %{[:components, self()] => %{file: "flow.ex", line: 1}},
+      %{[:components, "echo"] => %{file: <<255>>, line: 1}},
+      %{[:components, "echo"] => %{file: "flow.ex", line: 0}},
+      %{[:components, "echo"] => %{file: "flow.ex", line: 1, extra: true}},
+      %{[:components, "echo"] => self()}
+    ]
+
+    for opts <- invalid_options do
+      assert {:error, %Jido.Flow.Error.InvalidDefinitionError{}} = Flow.compile(flow, opts)
+    end
+
+    nested =
+      Flow.new!(
+        name: "invalid_child_source_map",
+        components: [Subflow.new!(name: "child", flow: InvalidSourceMapChild)],
+        output: Ref.result("child")
+      )
+
+    assert {:error,
+            %Jido.Flow.Error.InvalidDefinitionError{details: %{flow: InvalidSourceMapChild}}} =
+             Flow.compile(nested)
+  end
+
   test "rejects invalid public compilation input" do
     assert {:error, error} = Flow.compile(:not_a_flow)
     assert Exception.message(error) == "expected a Jido.Flow artifact"
+  end
+
+  test "locks the native contract to the tested Runic release" do
+    assert Application.spec(:runic, :vsn) |> to_string() == "0.1.0-alpha.9"
   end
 
   defp define_child_module(module, amount) do

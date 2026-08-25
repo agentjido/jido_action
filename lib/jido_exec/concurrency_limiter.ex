@@ -134,6 +134,7 @@ defmodule Jido.Exec.ConcurrencyLimiter do
   end
 
   def handle_call({:reserve_task_slots, requested}, {pid, _tag}, state) do
+    state = reap_dead_task_holders(state)
     available = max(state.limit - state.task_count, 0)
     granted = min(requested, available)
     {:reply, granted, add_task_holder(state, pid, granted)}
@@ -306,5 +307,12 @@ defmodule Jido.Exec.ConcurrencyLimiter do
             monitors: Map.delete(state.monitors, monitor)
         }
     end
+  end
+
+  defp reap_dead_task_holders(state) do
+    state.task_holders
+    |> Map.keys()
+    |> Enum.reject(&Process.alive?/1)
+    |> Enum.reduce(state, &remove_task_holder(&2, &1))
   end
 end

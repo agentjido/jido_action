@@ -79,8 +79,6 @@ defmodule Jido.Flow.RegistryTest do
 
     assert {:error, %InvalidDefinitionError{}} =
              Registry.new(%{"one" => {:action, Add}, "two" => {:action, Add}})
-
-    refute Registry.valid_identifier?(:not_binary)
   end
 
   test "Registry defends against malformed alias state" do

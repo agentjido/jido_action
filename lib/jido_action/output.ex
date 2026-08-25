@@ -5,6 +5,11 @@ defmodule Jido.Action.Output do
   Normal Action success values are map-shaped and validated by the Action's
   `output_schema`. Use this envelope only when a successful Action must return
   a raw, stream, batch, or opaque value intentionally.
+
+      Jido.Action.Output.raw("complete")
+      Jido.Action.Output.batch([%{id: 1}, %{id: 2}])
+      Jido.Action.Output.stream(Stream.map(1..3, & &1))
+      Jido.Action.Output.opaque(reference, meta: %{owner: "worker"})
   """
 
   alias Jido.Action.Error

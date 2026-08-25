@@ -30,8 +30,7 @@ defmodule JidoActionTest.ExecutableTest do
   test "Action modules expose and resolve one Action descriptor" do
     assert %Executable{
              kind: :action,
-             target: Add,
-             adapter: Jido.Exec.ActionAdapter
+             target: Add
            } = Add.__jido_executable__()
 
     assert {:ok, Add.__jido_executable__()} == Executable.resolve(Add)
@@ -40,8 +39,7 @@ defmodule JidoActionTest.ExecutableTest do
   test "Flow modules expose and resolve one Flow descriptor" do
     assert %Executable{
              kind: :flow,
-             target: MathFlow,
-             adapter: Jido.Exec.FlowAdapter
+             target: MathFlow
            } = MathFlow.__jido_executable__()
 
     assert {:ok, MathFlow.__jido_executable__()} == Executable.resolve(MathFlow)
@@ -53,8 +51,7 @@ defmodule JidoActionTest.ExecutableTest do
     assert {:ok,
             %Executable{
               kind: :flow,
-              target: ^flow,
-              adapter: Jido.Exec.FlowAdapter
+              target: ^flow
             }} = Executable.resolve(flow)
   end
 

@@ -94,6 +94,20 @@ defmodule Jido.Flow.Error do
           }
   end
 
+  defmodule TimeoutError do
+    @moduledoc "Error for a Flow execution timeout."
+    use Splode.Error,
+      class: :execution,
+      fields: [message: "Flow execution timed out", flow: nil, timeout: nil, details: %{}]
+
+    @type t :: %__MODULE__{
+            message: String.t(),
+            flow: String.t() | module() | nil,
+            timeout: non_neg_integer() | nil,
+            details: map()
+          }
+  end
+
   defmodule InternalError do
     @moduledoc "Error for an unexpected internal Flow failure."
     use Splode.Error,
@@ -119,6 +133,19 @@ defmodule Jido.Flow.Error do
   @spec execution_error(String.t(), details_input()) :: ExecutionFailureError.t()
   def execution_error(message, details \\ %{}) do
     ExecutionFailureError.exception(message: message, details: normalize_input(details))
+  end
+
+  @doc "Creates a Flow timeout error."
+  @spec timeout_error(String.t(), details_input()) :: TimeoutError.t()
+  def timeout_error(message, details \\ %{}) do
+    details = normalize_input(details)
+
+    TimeoutError.exception(
+      message: message,
+      flow: Map.get(details, :flow),
+      timeout: Map.get(details, :timeout),
+      details: details
+    )
   end
 
   @doc "Creates one failure for a Flow operation with failed Runic runnables."
@@ -159,6 +186,15 @@ defmodule Jido.Flow.Error do
     error_map(:flow_execution_error, error.message, details, retryable?(error))
   end
 
+  def to_map(%TimeoutError{} = error) do
+    details =
+      error.details
+      |> maybe_put(:flow, error.flow)
+      |> maybe_put(:timeout, error.timeout)
+
+    error_map(:flow_timeout, error.message, details, retryable?(error))
+  end
+
   def to_map(%InternalError{} = error) do
     error_map(:flow_internal_error, error.message, error.details, false)
   end
@@ -191,6 +227,8 @@ defmodule Jido.Flow.Error do
       do: retry
 
   def retryable?(%ExecutionFailureError{}), do: false
+  def retryable?(%TimeoutError{details: %{retry: retry}}) when is_boolean(retry), do: retry
+  def retryable?(%TimeoutError{}), do: false
   def retryable?(%InvalidDefinitionError{}), do: false
   def retryable?(%InvalidExecutionError{}), do: false
   def retryable?(%InternalError{}), do: false
@@ -205,6 +243,7 @@ defmodule Jido.Flow.Error do
   def owned?(%InvalidDefinitionError{}), do: true
   def owned?(%InvalidExecutionError{}), do: true
   def owned?(%ExecutionFailureError{}), do: true
+  def owned?(%TimeoutError{}), do: true
   def owned?(%InternalError{}), do: true
   def owned?(%Internal.UnknownError{}), do: true
   def owned?(%Invalid{}), do: true
@@ -245,6 +284,7 @@ defimpl JSON.Encoder,
     Jido.Flow.Error.InvalidDefinitionError,
     Jido.Flow.Error.InvalidExecutionError,
     Jido.Flow.Error.ExecutionFailureError,
+    Jido.Flow.Error.TimeoutError,
     Jido.Flow.Error.InternalError,
     Jido.Flow.Error.Internal.UnknownError,
     Jido.Flow.Error.Invalid,

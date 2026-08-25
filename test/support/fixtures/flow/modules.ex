@@ -12,6 +12,8 @@ Enum.each(
   &Code.ensure_compiled!/1
 )
 
+Code.ensure_compiled!(JidoActionTest.Fixtures.Execution.BlockingAction)
+
 defmodule JidoActionTest.Fixtures.CountedValidationFlow do
   @moduledoc false
   use Jido.Flow,
@@ -135,6 +137,20 @@ defmodule JidoActionTest.Fixtures.AsyncMathFlow do
     )
 
     output(result("add_one"))
+  end
+end
+
+defmodule JidoActionTest.Fixtures.BlockingFlow do
+  @moduledoc false
+  use Jido.Flow, name: "blocking_flow"
+
+  flow do
+    step("blocking",
+      action: JidoActionTest.Fixtures.Execution.BlockingAction,
+      params: %{value: input(:value)}
+    )
+
+    output(result("blocking"))
   end
 end
 

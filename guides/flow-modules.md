@@ -84,12 +84,6 @@ function calls. Put computation in an Action.
 
 - `flow/0`
 - `compiled/0`
-- `to_map/0`
-- `validate/0`
-- `validate_executable/0`
-- `dependencies/0`
-- `explain/0`
-- `semantic_identity/0`
 - Action-compatible schema, validation, and `run/2` callbacks
 
 `flow/0` returns one stable canonical Flow for the life of the loaded module
@@ -107,3 +101,6 @@ Use the shared Codec for storage:
 ```
 
 Use `flow/0` and `Jido.Exec.run/4` when execution options are required.
+Call `Jido.Flow.to_map/1`, `validate/1`, `validate_executable/1`,
+`dependencies/1`, `explain/1`, or `semantic_identity/1` with `flow/0` when you
+need direct Flow inspection or validation.

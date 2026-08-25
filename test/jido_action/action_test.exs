@@ -448,20 +448,6 @@ defmodule JidoActionTest.ActionTest do
     end
   end
 
-  describe "error handling" do
-    test "new returns an error tuple" do
-      assert {:error, error} = Action.new()
-      assert is_exception(error)
-      assert Exception.message(error) =~ "Actions should not be defined at runtime"
-    end
-
-    test "new/1 returns an error tuple" do
-      assert {:error, error} = Action.new(%{name: "runtime"})
-      assert is_exception(error)
-      assert Exception.message(error) =~ "Actions should not be defined at runtime"
-    end
-  end
-
   describe "output validation" do
     test "action with valid output schema validates successfully" do
       assert {:ok, result} =

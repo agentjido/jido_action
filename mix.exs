@@ -41,7 +41,7 @@ defmodule JidoAction.MixProject do
           Jido.Flow.Error.Internal,
           Jido.Flow.Error.Invalid
         ],
-        summary: [threshold: 90]
+        summary: [threshold: 93]
       ],
 
       # Dialyzer
@@ -73,7 +73,7 @@ defmodule JidoAction.MixProject do
   defp docs do
     [
       main: "readme",
-      api_reference: false,
+      api_reference: true,
       source_ref: "v#{@version}",
       source_url: "https://github.com/agentjido/jido_action",
       authors: ["Mike Hostetler <mike.hostetler@gmail.com>"],
@@ -173,15 +173,22 @@ defmodule JidoAction.MixProject do
         ],
         "Flow Types": [
           Jido.Flow.Choice,
-          Jido.Flow.Compiled,
+          Jido.Flow.Choice.Option,
+          Jido.Flow.Choice.Fallback,
+          Jido.Flow.Component,
           Jido.Flow.Condition,
+          Jido.Flow.Data,
+          Jido.Flow.Expression,
           Jido.Flow.Iterate,
+          Jido.Flow.Iterate.State,
           Jido.Flow.Map,
           Jido.Flow.Reduce,
           Jido.Flow.Ref,
-          Jido.Flow.SourceMap,
           Jido.Flow.Step,
           Jido.Flow.Subflow
+        ],
+        "Flow Compilation": [
+          Jido.Flow.Compiled
         ],
         Execution: [
           Jido.Exec,
@@ -199,7 +206,8 @@ defmodule JidoAction.MixProject do
           Jido.Flow.Error.ExecutionFailureError,
           Jido.Flow.Error.InternalError,
           Jido.Flow.Error.InvalidDefinitionError,
-          Jido.Flow.Error.InvalidExecutionError
+          Jido.Flow.Error.InvalidExecutionError,
+          Jido.Flow.Error.TimeoutError
         ]
       ]
     ]
@@ -233,7 +241,7 @@ defmodule JidoAction.MixProject do
     [
       {:telemetry, "~> 1.3"},
       {:zoi, "~> 0.17"},
-      {:runic, "~> 0.1.0-alpha.9"},
+      {:runic, "== 0.1.0-alpha.9"},
       {:splode, "~> 0.3.0"},
       {:spark, "~> 2.7"},
 
@@ -244,6 +252,7 @@ defmodule JidoAction.MixProject do
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:mix_audit, "~> 2.0", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
+      {:doctor, "~> 0.23.0", only: :dev, runtime: false},
       {:mix_test_watch, "~> 1.0", only: [:dev, :test], runtime: false}
     ]
   end
@@ -260,6 +269,8 @@ defmodule JidoAction.MixProject do
       quality: [
         "format --check-formatted",
         "compile --warnings-as-errors",
+        "doctor --summary",
+        "docs --warnings-as-errors",
         "credo --min-priority high",
         "dialyzer"
       ]

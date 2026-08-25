@@ -215,6 +215,42 @@ defmodule JidoActionTest.Fixtures.Execution do
     ]
   end
 
+  def blocking_execution_forms(module, owner) do
+    flow = module.flow()
+
+    action_instruction =
+      Instruction.new!(target: BlockingAction, params: %{value: :action_instruction})
+
+    flow_instruction =
+      Instruction.new!(
+        target: module,
+        params: %{value: :flow_instruction},
+        context: %{test_pid: owner}
+      )
+
+    parent =
+      Flow.new!(
+        name: "blocking_parent_flow",
+        components: [
+          Subflow.new!(
+            name: "child",
+            flow: module,
+            params: %{value: Ref.input(:value)}
+          )
+        ],
+        output: Ref.result("child")
+      )
+
+    [
+      action: {BlockingAction, %{value: :action}, %{test_pid: owner}},
+      action_instruction: {action_instruction, %{}, %{test_pid: owner}},
+      flow_value: {flow, %{value: :flow_value}, %{test_pid: owner}},
+      flow_module: {module, %{value: :flow_module}, %{test_pid: owner}},
+      flow_instruction: {flow_instruction, %{}, %{}},
+      subflow: {parent, %{value: :subflow}, %{test_pid: owner}}
+    ]
+  end
+
   def node_name(index) do
     "node_#{index |> Integer.to_string() |> String.pad_leading(4, "0")}"
   end

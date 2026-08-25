@@ -33,6 +33,48 @@ defmodule Jido.Flow.CodecTest do
     assert {:ok, ^document} = Codec.encode(decoded, registry)
   end
 
+  test "Codec rejects invalid UTF-8 at every portable string boundary" do
+    invalid = <<255>>
+    registry = CodecRegistry.storage()
+
+    step = Step.new!(name: "stored", action: Add, params: %{value: "valid"})
+
+    flow =
+      Flow.new!(
+        name: "utf8_boundary",
+        description: "valid",
+        components: [step],
+        output: Ref.result("stored")
+      )
+
+    invalid_flows = [
+      %{flow | description: invalid},
+      %{flow | components: [%{step | params: %{value: invalid}}]},
+      %{flow | components: [%{step | params: %{invalid => "value"}}]},
+      %{flow | components: [%{step | meta: %{owner: invalid}}]}
+    ]
+
+    for invalid_flow <- invalid_flows do
+      assert {:error, %InvalidDefinitionError{}} = Codec.encode(invalid_flow, registry)
+    end
+
+    assert {:error, %InvalidDefinitionError{}} =
+             Registry.new(%{invalid => {:action, Add}})
+
+    assert {:ok, document} = Codec.encode(flow, registry)
+
+    assert {:error, %InvalidDefinitionError{}} =
+             Codec.decode(%{document | "description" => invalid}, registry)
+
+    assert {:ok, decoded} =
+             document
+             |> Jason.encode!()
+             |> Jason.decode!()
+             |> Codec.decode(registry)
+
+    assert decoded == flow
+  end
+
   test "the decoder rejects an unsupported version and missing component kinds" do
     {:ok, document} = Codec.encode(FlowAuthoring.mixed_flow!(), CodecRegistry.mixed())
 
@@ -192,6 +234,19 @@ defmodule Jido.Flow.CodecTest do
                replace_component(document, 2, %{choice | "options" => List.duplicate(%{}, 10_001)}),
                registry
              )
+  end
+
+  test "Codec bounds total decode work across permitted collections" do
+    registry = CodecRegistry.mixed()
+    assert {:ok, document} = Codec.encode(FlowAuthoring.mixed_flow!(), registry)
+
+    large_but_locally_valid = List.duplicate(List.duplicate(0, 10_000), 11)
+
+    assert {:error,
+            %InvalidDefinitionError{
+              message: "stored Flow exceeds its total node limit",
+              details: %{maximum_nodes: 100_000}
+            }} = Codec.decode(%{document | "output" => large_but_locally_valid}, registry)
   end
 
   test "nested conditions use one tagged JSON grammar" do

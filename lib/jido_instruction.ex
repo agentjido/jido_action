@@ -27,9 +27,7 @@ defmodule Jido.Instruction do
   @schema Zoi.struct(
             __MODULE__,
             %{
-              target:
-                Zoi.any(description: "Executable target")
-                |> Zoi.refine({__MODULE__, :validate_executable_target, []}),
+              target: Zoi.any(description: "Executable target"),
               params: Zoi.map(description: "Executable parameters") |> Zoi.default(%{}),
               context: Zoi.map(description: "Execution context") |> Zoi.default(%{}),
               metadata: Zoi.map(description: "Invocation metadata") |> Zoi.default(%{})
@@ -47,15 +45,6 @@ defmodule Jido.Instruction do
   defstruct Zoi.Struct.struct_fields(@schema)
 
   @doc false
-  @spec validate_executable_target(term(), keyword()) :: :ok | {:error, String.t()}
-  def validate_executable_target(value, _opts \\ []) do
-    case Executable.resolve(value) do
-      {:ok, _executable} -> :ok
-      {:error, error} -> {:error, Exception.message(error)}
-    end
-  end
-
-  @doc false
   @spec normalize!(executable_target() | t(), map() | keyword(), map() | keyword()) :: t()
   def normalize!(target_or_instruction, params \\ %{}, context \\ %{}) do
     params = normalize_map!(params, :params)
@@ -71,20 +60,37 @@ defmodule Jido.Instruction do
   end
 
   defp normalize_instruction!(instruction, params, context) do
-    attrs = %{
-      target: instruction.target,
-      params: Map.merge(normalize_map!(instruction.params || %{}, :params), params),
-      context: Map.merge(normalize_map!(instruction.context || %{}, :context), context),
-      metadata: normalize_map!(instruction.metadata || %{}, :metadata)
-    }
+    normalized = merge_instruction!(instruction, params, context)
 
-    case new(attrs) do
+    case new(Map.from_struct(normalized)) do
       {:ok, normalized} ->
         normalized
 
       {:error, error} ->
         raise Error.validation_error("Invalid instruction configuration", %{reason: error})
     end
+  end
+
+  @doc false
+  @spec normalize_resolved!(executable_target() | t(), map() | keyword(), map() | keyword()) ::
+          t()
+  def normalize_resolved!(target_or_instruction, params, context) do
+    params = normalize_map!(params, :params)
+    context = normalize_map!(context, :context)
+
+    case target_or_instruction do
+      %__MODULE__{} = instruction -> merge_instruction!(instruction, params, context)
+      target -> %__MODULE__{target: target, params: params, context: context, metadata: %{}}
+    end
+  end
+
+  defp merge_instruction!(instruction, params, context) do
+    %__MODULE__{
+      target: instruction.target,
+      params: Map.merge(normalize_map!(instruction.params || %{}, :params), params),
+      context: Map.merge(normalize_map!(instruction.context || %{}, :context), context),
+      metadata: normalize_map!(instruction.metadata || %{}, :metadata)
+    }
   end
 
   @spec normalize_map!(term(), atom()) :: map()

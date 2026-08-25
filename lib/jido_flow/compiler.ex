@@ -10,7 +10,6 @@ defmodule Jido.Flow.Compiler do
   alias Jido.Flow.Compiler.Expression
   alias Jido.Flow.Compiler.Iterator, as: IterateRuntime
   alias Jido.Flow.Compiler.Target
-  alias Jido.Flow.Compiler.TargetContext
   alias Jido.Flow.Component
   alias Jido.Flow.Graph
   alias Jido.Flow.Identity
@@ -20,6 +19,7 @@ defmodule Jido.Flow.Compiler do
   alias Jido.Flow.Ref
   alias Jido.Flow.Step, as: FlowStep
   alias Jido.Flow.Subflow
+  alias Jido.Flow.Validation
   alias Runic.Workflow
 
   alias Runic.Workflow.{
@@ -42,44 +42,83 @@ defmodule Jido.Flow.Compiler do
 
   @type target_phase :: :input | :execution | :output
   @type target_runner ::
-          (module(), term(), map(), String.t(), TargetContext.t() ->
+          (module(), term(), map(), String.t(), Target.t() ->
              {:ok, term()} | {:error, target_phase(), Exception.t()})
 
   @doc false
   @spec compile(Flow.t(), keyword() | Compiled.source_map()) ::
           {:ok, Compiled.t()} | {:error, Exception.t()}
   def compile(%Flow{} = flow, opts \\ []) do
-    source_map = source_map(opts)
+    with {:ok, _flow, compiled} <- prepare(flow, opts) do
+      {:ok, compiled}
+    end
+  end
 
-    with {:ok, flow} <- Flow.validate_executable(flow) do
-      try do
-        state = compile_flow(flow, [], [], source_map, nil)
+  @doc false
+  @spec prepare(Flow.t(), keyword() | Compiled.source_map()) ::
+          {:ok, Flow.t(), Compiled.t()} | {:error, Exception.t()}
+  def prepare(%Flow{} = flow, opts \\ []) do
+    prepare(flow, opts, [])
+  end
 
-        digest_data = %{
-          compiler: @compiler_version,
-          flow: Identity.semantic_digest(flow),
-          children: Enum.sort(state.child_digests)
-        }
+  @doc false
+  @spec prepare(Flow.t(), keyword() | Compiled.source_map(), [module()]) ::
+          {:ok, Flow.t(), Compiled.t()} | {:error, Exception.t()}
+  def prepare(%Flow{} = flow, opts, module_stack) when is_list(module_stack) do
+    with {:ok, source_map} <- source_map(opts, module_stack),
+         {:ok, attrs, subflows} <-
+           Validation.prepare_executable(Map.from_struct(flow), module_stack) do
+      flow = struct!(Flow, attrs)
 
-        {:ok,
-         %Compiled{
-           workflow: state.workflow,
-           component_index: state.component_index,
-           output: flow.output,
-           source_map: state.source_map,
-           compilation_digest: digest(digest_data)
-         }}
-      rescue
-        error -> {:error, normalize_compile_error(error)}
-      catch
-        kind, reason ->
-          {:error,
-           Error.internal_error("flow compilation failed", %{
-             phase: :flow_compilation,
-             kind: kind,
-             reason: reason
-           })}
+      with {:ok, compiled} <- compile_prepared(flow, source_map, subflows, module_stack) do
+        {:ok, flow, compiled}
       end
+    end
+  end
+
+  defp source_map(opts, module_stack) do
+    case source_map(opts) do
+      {:ok, source_map} ->
+        {:ok, source_map}
+
+      {:error, error} ->
+        {:error, add_source_map_flow(error, module_stack)}
+    end
+  end
+
+  defp add_source_map_flow(error, [module | _rest]),
+    do: %{error | details: Map.put(error.details, :flow, module)}
+
+  defp add_source_map_flow(error, []), do: error
+
+  defp compile_prepared(flow, source_map, subflows, module_stack) do
+    try do
+      state = compile_flow(flow, [], module_stack, source_map, nil, subflows)
+
+      digest_data = %{
+        compiler: @compiler_version,
+        flow: Identity.semantic_digest(flow),
+        children: Enum.sort(state.child_digests)
+      }
+
+      {:ok,
+       %Compiled{
+         workflow: state.workflow,
+         component_index: state.component_index,
+         output: flow.output,
+         source_map: state.source_map,
+         compilation_digest: digest(digest_data)
+       }}
+    rescue
+      error -> {:error, normalize_compile_error(error)}
+    catch
+      kind, reason ->
+        {:error,
+         Error.internal_error("flow compilation failed", %{
+           phase: :flow_compilation,
+           kind: kind,
+           reason: reason
+         })}
     end
   end
 
@@ -126,11 +165,102 @@ defmodule Jido.Flow.Compiler do
   @doc false
   def input_frame(input), do: {:jido_flow_input, input, nil}
 
-  defp source_map(opts) when is_map(opts), do: opts
-  defp source_map(opts) when is_list(opts), do: Keyword.get(opts, :source_map, %{})
-  defp source_map(_opts), do: %{}
+  defp source_map(opts) when is_map(opts) and not is_struct(opts),
+    do: validate_source_map(opts)
 
-  defp compile_flow(flow, namespace, module_stack, source_map, root_parent) do
+  defp source_map(opts) when is_list(opts) do
+    cond do
+      not Keyword.keyword?(opts) ->
+        source_map_error("Flow compile options must be a keyword list or source map")
+
+      Keyword.keys(opts) -- [:source_map] != [] ->
+        [option | _rest] = Keyword.keys(opts) -- [:source_map]
+        source_map_error("unknown Flow compile option: #{inspect(option)}", %{option: option})
+
+      Keyword.get_values(opts, :source_map) |> length() > 1 ->
+        source_map_error("Flow compile option is duplicated", %{option: :source_map})
+
+      true ->
+        opts |> Keyword.get(:source_map, %{}) |> validate_source_map()
+    end
+  end
+
+  defp source_map(_opts),
+    do: source_map_error("Flow compile options must be a keyword list or source map")
+
+  defp validate_source_map(source_map) when is_map(source_map) and not is_struct(source_map) do
+    Enum.reduce_while(source_map, {:ok, %{}}, fn {path, location}, {:ok, validated} ->
+      with :ok <- validate_source_path(path),
+           :ok <- validate_source_location(location, path) do
+        {:cont, {:ok, Map.put(validated, path, location)}}
+      else
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+  end
+
+  defp validate_source_map(_source_map), do: source_map_error("Flow source map must be a map")
+
+  defp validate_source_path(path) when is_list(path) do
+    cond do
+      List.improper?(path) ->
+        source_map_error("Flow source-map path must be a proper list")
+
+      Enum.all?(path, &valid_source_path_segment?/1) ->
+        :ok
+
+      true ->
+        source_map_error("Flow source-map path contains an invalid segment")
+    end
+  end
+
+  defp validate_source_path(_path),
+    do: source_map_error("Flow source-map path must be a proper list")
+
+  defp valid_source_path_segment?(segment) when is_binary(segment), do: String.valid?(segment)
+  defp valid_source_path_segment?(segment) when is_atom(segment), do: not is_nil(segment)
+  defp valid_source_path_segment?(segment) when is_integer(segment), do: segment >= 0
+  defp valid_source_path_segment?(_segment), do: false
+
+  defp validate_source_location(location, path)
+       when is_map(location) and not is_struct(location) do
+    unknown_keys = Map.keys(location) -- [:file, :line, :column]
+
+    cond do
+      unknown_keys != [] ->
+        source_map_error("Flow source location contains an unknown field", %{
+          path: path,
+          field: hd(unknown_keys)
+        })
+
+      not valid_source_file?(Map.get(location, :file)) ->
+        source_map_error("Flow source location file must be a valid UTF-8 string", %{path: path})
+
+      not valid_source_position?(Map.get(location, :line)) ->
+        source_map_error("Flow source location line must be a positive integer", %{path: path})
+
+      not valid_source_position?(Map.get(location, :column)) ->
+        source_map_error("Flow source location column must be a positive integer", %{path: path})
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_source_location(_location, path),
+    do: source_map_error("Flow source location must be a map", %{path: path})
+
+  defp valid_source_file?(nil), do: true
+  defp valid_source_file?(file) when is_binary(file), do: String.valid?(file)
+  defp valid_source_file?(_file), do: false
+
+  defp valid_source_position?(nil), do: true
+  defp valid_source_position?(value), do: is_integer(value) and value > 0
+
+  defp source_map_error(message, details \\ %{}),
+    do: {:error, Error.validation_error(message, details)}
+
+  defp compile_flow(flow, namespace, module_stack, source_map, root_parent, subflows) do
     workflow_name = scoped(namespace, flow.name)
 
     workflow =
@@ -148,7 +278,8 @@ defmodule Jido.Flow.Compiler do
       outputs: %{},
       component_index: %{},
       source_map: source_map,
-      child_digests: []
+      child_digests: [],
+      subflows: subflows
     }
 
     flow.components
@@ -162,7 +293,7 @@ defmodule Jido.Flow.Compiler do
         local = component_state(component, parent, runtime)
 
         local
-        |> resolve_and_run(component.params, component.action, TargetContext.node(component))
+        |> resolve_and_run(component.params, component.action, Target.node(component))
         |> wrap_result()
       end)
 
@@ -311,7 +442,7 @@ defmodule Jido.Flow.Compiler do
           })
 
         owner =
-          TargetContext.map(map, %{
+          Target.map(map, %{
             item_index: token.index,
             item_id: token.id
           })
@@ -556,7 +687,7 @@ defmodule Jido.Flow.Compiler do
           })
 
         owner =
-          TargetContext.reduce(reduce, %{
+          Target.reduce(reduce, %{
             item_index: token.index,
             item_id: token.id
           })
@@ -673,7 +804,7 @@ defmodule Jido.Flow.Compiler do
             })
     end
 
-    child_flow = subflow.flow.flow()
+    child_flow = Map.fetch!(state.subflows, subflow.flow)
     child_source_map = child_source_map(subflow.flow)
     child_namespace = state.namespace ++ [subflow.name]
     params_name = support_name(state, subflow.name, "subflow-input")
@@ -694,7 +825,8 @@ defmodule Jido.Flow.Compiler do
         child_namespace,
         [subflow.flow | state.module_stack],
         prefix_source_map(child_source_map, child_namespace),
-        input_validator
+        input_validator,
+        state.subflows
       )
 
     child_output = child_output_step(subflow, child_state)
@@ -812,9 +944,18 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp child_source_map(module) do
-    if function_exported?(module, :__jido_flow_source_map__, 0),
-      do: module.__jido_flow_source_map__(),
-      else: %{}
+    value =
+      if function_exported?(module, :__jido_flow_source_map__, 0),
+        do: module.__jido_flow_source_map__(),
+        else: %{}
+
+    case validate_source_map(value) do
+      {:ok, source_map} ->
+        source_map
+
+      {:error, error} ->
+        raise %{error | details: Map.put(error.details, :flow, module)}
+    end
   end
 
   defp prefix_source_map(source_map, namespace) do

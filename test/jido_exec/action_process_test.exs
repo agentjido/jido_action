@@ -6,12 +6,11 @@ defmodule JidoActionTest.Exec.ActionProcessTest do
   alias Jido.Action.Error
   alias Jido.Action.Error.ExecutionFailureError
   alias Jido.Exec
-  alias Jido.Flow
-  alias Jido.Flow.{Ref, Step}
   alias Jido.Instruction
   alias JidoActionTest.Fixtures.Execution, as: Fixtures
   alias JidoActionTest.Fixtures.Execution.BlockingAction
   alias JidoActionTest.Fixtures.KillingFlow
+  alias JidoActionTest.Fixtures.BlockingFlow
   alias JidoActionTest.Fixtures.Actions.KillingAction
 
   test "contains a killed Action worker outside the caller process" do
@@ -42,12 +41,33 @@ defmodule JidoActionTest.Exec.ActionProcessTest do
     end
   end
 
-  test "terminates the Action worker when the Exec caller exits" do
+  test "terminates active work when the Exec caller exits for every executable form" do
+    owner = self()
+
+    for {form, {target, input, context}} <-
+          Fixtures.blocking_execution_forms(BlockingFlow, owner) do
+      {caller, caller_monitor} =
+        spawn_monitor(fn ->
+          Exec.run(target, input, context)
+        end)
+
+      assert_receive {:blocking_flow_node_started, worker}, 1_000, to_string(form)
+      refute worker == caller
+      worker_monitor = Process.monitor(worker)
+
+      Process.exit(caller, :kill)
+
+      assert_receive {:DOWN, ^caller_monitor, :process, ^caller, :killed}, 1_000
+      assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :killed}, 1_000
+    end
+  end
+
+  test "terminates finite-timeout work when the Exec caller exits" do
     owner = self()
 
     {caller, caller_monitor} =
       spawn_monitor(fn ->
-        Exec.run(BlockingAction, %{value: 1}, %{test_pid: owner})
+        Exec.run(BlockingAction, %{value: 1}, %{test_pid: owner}, timeout: 10_000)
       end)
 
     assert_receive {:blocking_flow_node_started, worker}, 1_000
@@ -95,37 +115,21 @@ defmodule JidoActionTest.Exec.ActionProcessTest do
     assert_receive {:action_result, :second, {:ok, %{value: 2}}}, 1_000
   end
 
-  test "routes Action, Instruction, and Flow workers through one Jido instance" do
+  test "routes every executable form through one Jido instance" do
     instance = unique_module("JidoInstance")
     task_supervisor = Module.concat(instance, TaskSupervisor)
     start_supervised!({Task.Supervisor, name: task_supervisor})
 
-    flow =
-      Flow.new!(
-        name: "instance_routed_flow",
-        components: [
-          Step.new!(
-            name: "blocking",
-            action: BlockingAction,
-            params: %{value: Ref.input(:value)}
-          )
-        ],
-        output: Ref.result("blocking")
-      )
-
-    instruction = Instruction.new!(target: BlockingAction, params: %{value: 2})
     owner = self()
 
-    paths = [
-      action: fn -> Exec.run(BlockingAction, %{value: 1}, %{test_pid: owner}, jido: instance) end,
-      instruction: fn -> Exec.run(instruction, %{}, %{test_pid: owner}, jido: instance) end,
-      flow: fn -> Exec.run(flow, %{value: 3}, %{test_pid: owner}, jido: instance) end
-    ]
-
-    Enum.each(paths, fn {form, run} ->
+    Enum.each(Fixtures.blocking_execution_forms(BlockingFlow, owner), fn {
+                                                                           form,
+                                                                           {target, input,
+                                                                            context}
+                                                                         } ->
       caller =
         Task.async(fn ->
-          result = run.()
+          result = Exec.run(target, input, context, jido: instance, timeout: 10_000)
           send(owner, {:instance_routed_result, form, result})
         end)
 

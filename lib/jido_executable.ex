@@ -8,32 +8,31 @@ defmodule Jido.Executable do
   * a Flow module with `__jido_executable__/0`; or
   * a `Jido.Flow` value.
 
-  `resolve/1` keeps the exact target and returns one internal descriptor.
+  Resolution returns the target kind and the exact target:
+
+      {:ok, %Jido.Executable{kind: :action, target: MyApp.SendEmail}} =
+        Jido.Executable.resolve(MyApp.SendEmail)
+
+  `resolve/1` keeps the exact target and returns one small descriptor.
   A module callback must identify the module that owns the callback.
 
   A Flow module must return one stable `%Jido.Flow{}` from `flow/0` for the life
-  of the loaded module version. Validation, compilation, and execution can call
-  `flow/0` more than once.
+  of the loaded module version. Each validation or execution operation
+  materializes the value once.
 
   `Jido.Instruction` stores one of these target values and resolves it through
   this module. The target kind selects the Action or Flow execution semantics.
 
   Resolution failures use `Jido.Action.Error.ConfigurationError` because the
-  resolver does not yet know the target kind. The selected adapter owns errors
-  after resolution. This keeps one resolver and avoids a separate executable
-  error model.
-
-  The adapter field is an internal execution detail. It keeps Action and Flow
-  execution semantics separate. It is not a general plugin interface.
+  resolver does not yet know the target kind. Action or Flow execution owns
+  errors after resolution. This keeps one resolver and avoids a separate
+  executable error model.
 
   This module does not define a map or JSON format for executable targets.
   """
 
   alias Jido.Action.Error
   alias Jido.Flow
-
-  @action_adapter Jido.Exec.ActionAdapter
-  @flow_adapter Jido.Exec.FlowAdapter
 
   @typedoc "The executable kind."
   @type kind :: :action | :flow
@@ -45,13 +44,12 @@ defmodule Jido.Executable do
             __MODULE__,
             %{
               kind: Zoi.enum([:action, :flow], description: "Executable kind"),
-              target: Zoi.any(description: "Resolved executable target"),
-              adapter: Zoi.atom(description: "Internal execution adapter")
+              target: Zoi.any(description: "Resolved executable target")
             },
             coerce: true
           )
 
-  @typedoc "The internal resolved executable descriptor."
+  @typedoc "The resolved executable descriptor."
   @type t :: unquote(Zoi.type_spec(@schema))
 
   @enforce_keys Zoi.Struct.enforce_keys(@schema)
@@ -63,17 +61,17 @@ defmodule Jido.Executable do
   @doc false
   @spec action(module()) :: t()
   def action(module) when is_atom(module) and not is_nil(module) do
-    %__MODULE__{kind: :action, target: module, adapter: @action_adapter}
+    %__MODULE__{kind: :action, target: module}
   end
 
   @doc false
   @spec flow(module() | Flow.t()) :: t()
   def flow(%Flow{} = target) do
-    %__MODULE__{kind: :flow, target: target, adapter: @flow_adapter}
+    %__MODULE__{kind: :flow, target: target}
   end
 
   def flow(target) when is_atom(target) and not is_nil(target) do
-    %__MODULE__{kind: :flow, target: target, adapter: @flow_adapter}
+    %__MODULE__{kind: :flow, target: target}
   end
 
   @doc """
@@ -97,13 +95,22 @@ defmodule Jido.Executable do
 
   @doc "Validates an executable descriptor or target."
   @spec validate(t() | target() | term()) :: :ok | {:error, Exception.t()}
-  def validate(%__MODULE__{adapter: adapter} = executable)
-      when (executable.kind == :action and adapter == @action_adapter and
-              is_atom(executable.target) and not is_nil(executable.target)) or
-             (executable.kind == :flow and adapter == @flow_adapter and
-                (is_struct(executable.target, Flow) or
-                   (is_atom(executable.target) and not is_nil(executable.target)))) do
-    adapter.validate(executable)
+  def validate(%__MODULE__{kind: :action, target: target})
+      when is_atom(target) and not is_nil(target) do
+    validate_action_compatible_callbacks(target)
+  end
+
+  def validate(%__MODULE__{kind: :flow, target: %Flow{}}), do: :ok
+
+  def validate(%__MODULE__{kind: :flow, target: target})
+      when is_atom(target) and not is_nil(target) do
+    with :ok <- validate_action_compatible_callbacks(target) do
+      if function_exported?(target, :flow, 0) do
+        :ok
+      else
+        invalid_executable_contract(target, "missing flow/0")
+      end
+    end
   end
 
   def validate(%__MODULE__{} = executable) do
@@ -120,9 +127,7 @@ defmodule Jido.Executable do
     end
   end
 
-  @doc false
-  @spec validate_action_compatible_callbacks(module()) :: :ok | {:error, Exception.t()}
-  def validate_action_compatible_callbacks(module) do
+  defp validate_action_compatible_callbacks(module) do
     cond do
       not function_exported?(module, :run, 2) ->
         invalid_executable_contract(module, "missing run/2")
@@ -158,12 +163,8 @@ defmodule Jido.Executable do
 
   defp invoke_descriptor(module), do: module.__jido_executable__()
 
-  defp validate_descriptor(
-         %__MODULE__{kind: kind, target: module, adapter: adapter} = executable,
-         module
-       )
-       when (kind == :action and adapter == @action_adapter) or
-              (kind == :flow and adapter == @flow_adapter) do
+  defp validate_descriptor(%__MODULE__{kind: kind, target: module} = executable, module)
+       when kind in [:action, :flow] do
     {:ok, executable}
   end
 

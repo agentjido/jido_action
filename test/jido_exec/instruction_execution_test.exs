@@ -1,11 +1,39 @@
 defmodule JidoActionTest.Exec.InstructionExecutionTest do
   use ExUnit.Case, async: true
 
-  alias Jido.Action.Error.InvalidInputError
+  alias Jido.Action.Error.{ConfigurationError, InvalidInputError}
   alias Jido.Exec
   alias Jido.Instruction
   alias JidoActionTest.Fixtures.MathFlow
   alias JidoActionTest.Fixtures.Actions.Add
+
+  defmodule CountingDescriptorAction do
+    def __jido_executable__ do
+      if counter = Process.get(:descriptor_counter) do
+        Agent.update(counter, &(&1 + 1))
+      end
+
+      Jido.Executable.action(__MODULE__)
+    end
+
+    def validate_params(params), do: {:ok, params}
+    def validate_output(output), do: {:ok, output}
+    def run(params, _context), do: {:ok, params}
+  end
+
+  test "resolves each execution target once" do
+    counter = start_supervised!({Agent, fn -> 0 end})
+    Process.put(:descriptor_counter, counter)
+
+    assert Exec.run(CountingDescriptorAction, %{value: 1}) == {:ok, %{value: 1}}
+    assert Agent.get(counter, & &1) == 1
+
+    instruction = Instruction.new!(target: CountingDescriptorAction, params: %{value: 2})
+    assert Agent.get(counter, & &1) == 2
+
+    assert Exec.run(instruction) == {:ok, %{value: 2}}
+    assert Agent.get(counter, & &1) == 3
+  end
 
   test "merges Instruction and call-site input and context" do
     instruction =
@@ -31,8 +59,10 @@ defmodule JidoActionTest.Exec.InstructionExecutionTest do
   test "rejects malformed raw Instruction structs" do
     instruction = %Instruction{target: "not_a_module", params: %{}, context: %{}}
 
-    assert {:error, %InvalidInputError{message: "Invalid instruction configuration"}} =
+    assert {:error, %ConfigurationError{}} =
              Exec.run(instruction)
+
+    assert {:error, %ConfigurationError{}} = Exec.start(instruction)
   end
 
   test "runs module and runtime Flow Instructions with Flow options" do

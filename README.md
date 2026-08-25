@@ -11,13 +11,14 @@ execution session: step-wise execution, bounded concurrency, Action invocation,
 errors, telemetry, and final results.
 
 Durable orchestration is not provided. An outer system must own persistence,
-queues, scheduling, recovery, retries, cancellation, deadlines, distributed
-coordination, supervision, and deployment-safe continuation.
+queues, scheduling, recovery, retries, cancellation policy, distributed
+coordination, supervision, and deployment-safe continuation. `Jido.Exec` can
+enforce one caller-selected timeout for a complete in-memory call.
 
 This foundation keeps the action boundary small:
 
-- `Jido.Executable` defines the common Action and Flow module contract and
-  resolves both module types to one internal executable descriptor.
+- `Jido.Executable` is the advanced descriptor API for the common Action and
+  Flow target contract.
 - `Jido.Action` defines a named action with Zoi input and output schemas.
 - `Jido.Instruction` captures one requested executable call as data.
 - `Jido.Flow` composes actions as a validated graph with steps and Choices.

@@ -6,10 +6,8 @@ defmodule Jido.Action.Error do
   canonical type, details, and retry policy. Any unsupported value becomes a
   non-retryable execution error with no structured details.
 
-  An `ExecutionFailureError` is retryable by default for compatibility with
-  Jido Action v2. Set `details.retry` to `true` or `false` when the failure has
-  a known policy. Jido marks callback crashes, invalid callback return values,
-  validator contract failures, and killed Action processes as non-retryable.
+  Errors are non-retryable by default. Set `details.retry` to `true` only when
+  another attempt is safe. Jido does not perform an automatic retry.
   """
 
   use Splode,
@@ -214,7 +212,7 @@ defmodule Jido.Action.Error do
       type: :timeout,
       message: normalize_message(error.message),
       details: error.details |> normalize_details() |> maybe_put(:timeout, error.timeout),
-      retryable?: true
+      retryable?: retryable?(error)
     }
   end
 
@@ -257,9 +255,9 @@ defmodule Jido.Action.Error do
   @doc """
   Returns whether a concrete Action error is retryable.
 
-  Execution failures default to retryable for compatibility with Jido Action
-  v2. A Boolean `details.retry` value takes precedence. Unsupported values are
-  never retryable.
+  A Boolean `details.retry` value controls the result for execution and timeout
+  errors. All errors are non-retryable by default. Unsupported values are never
+  retryable.
   """
   @spec retryable?(term()) :: boolean()
   def retryable?({:error, reason, _effects}), do: retryable?(reason)
@@ -268,13 +266,14 @@ defmodule Jido.Action.Error do
   def retryable?(%ConfigurationError{}), do: false
   def retryable?(%InternalError{}), do: false
   def retryable?(%Internal.UnknownError{}), do: false
-  def retryable?(%TimeoutError{}), do: true
+  def retryable?(%TimeoutError{details: %{retry: retry}}) when is_boolean(retry), do: retry
+  def retryable?(%TimeoutError{}), do: false
 
   def retryable?(%ExecutionFailureError{details: %{retry: retry}})
       when is_boolean(retry),
       do: retry
 
-  def retryable?(%ExecutionFailureError{}), do: true
+  def retryable?(%ExecutionFailureError{}), do: false
   def retryable?(_reason), do: false
 
   defp normalize_constructor_details(details)

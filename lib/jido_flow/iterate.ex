@@ -1,5 +1,11 @@
 defmodule Jido.Flow.Iterate do
-  @moduledoc "A bounded local loop in a canonical Flow."
+  @moduledoc """
+  A bounded local loop in a canonical Flow.
+
+  Create it with `new/1`, the Flow module DSL, `Jido.Flow.Builder`, or
+  `Jido.Flow.Codec`. An Iterate uses local state and stops when its completion
+  condition is true. It fails when it reaches `max_iterations` first.
+  """
 
   alias Jido.Action
   alias Jido.Flow.Error
@@ -53,7 +59,8 @@ defmodule Jido.Flow.Iterate do
     @enforce_keys Zoi.Struct.enforce_keys(@schema)
     defstruct Zoi.Struct.struct_fields(@schema)
 
-    @doc "Builds and validates Iterate state data."
+    @doc "Builds and validates canonical Iterate state data."
+    @spec new(map() | keyword() | t()) :: {:ok, t()} | {:error, Exception.t()}
     def new(%__MODULE__{} = state), do: state |> Map.from_struct() |> new()
 
     def new(attrs) when is_list(attrs),
@@ -70,7 +77,8 @@ defmodule Jido.Flow.Iterate do
 
     def new(_attrs), do: invalid()
 
-    @doc "Builds Iterate state data or raises its validation error."
+    @doc "Builds canonical Iterate state data or raises its validation error."
+    @spec new!(map() | keyword() | t()) :: t() | no_return()
     def new!(attrs) do
       case new(attrs) do
         {:ok, state} -> state
@@ -78,6 +86,8 @@ defmodule Jido.Flow.Iterate do
       end
     end
 
+    @doc false
+    @spec result_refs(t()) :: [String.t()]
     def result_refs(%__MODULE__{} = state),
       do: Expression.result_refs(state.initial) ++ Expression.result_refs(state.update)
 
@@ -114,6 +124,7 @@ defmodule Jido.Flow.Iterate do
   end
 
   @doc "Builds and validates one canonical Iterate component."
+  @spec new(map() | keyword() | t()) :: {:ok, t()} | {:error, Exception.t()}
   def new(%__MODULE__{} = iterate), do: iterate |> Map.from_struct() |> new()
 
   def new(attrs) when is_list(attrs),
@@ -146,6 +157,7 @@ defmodule Jido.Flow.Iterate do
   def new(_attrs), do: invalid()
 
   @doc "Builds one canonical Iterate component or raises its validation error."
+  @spec new!(map() | keyword() | t()) :: t() | no_return()
   def new!(attrs) do
     case new(attrs) do
       {:ok, iterate} -> iterate
@@ -153,6 +165,8 @@ defmodule Jido.Flow.Iterate do
     end
   end
 
+  @doc false
+  @spec result_refs(t()) :: [String.t()]
   def result_refs(%__MODULE__{} = iterate) do
     Expression.result_refs(iterate.params) ++
       State.result_refs(iterate.state) ++

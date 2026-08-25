@@ -7,6 +7,31 @@ defmodule Jido.Exec.Options do
 
   @routing_option_keys [:jido]
   @flow_run_option_keys [:async, :max_concurrency | @routing_option_keys]
+  @default_max_concurrency System.schedulers_online()
+
+  @doc false
+  @spec take_timeout(term(), ActionError | FlowError) ::
+          {:ok, timeout(), term()} | {:error, Exception.t()}
+  def take_timeout(opts, error_module) when is_list(opts) do
+    if Keyword.keyword?(opts) do
+      timeout = Keyword.get(opts, :timeout, :infinity)
+
+      if timeout == :infinity or (is_integer(timeout) and timeout >= 0) do
+        {:ok, timeout, Keyword.delete(opts, :timeout)}
+      else
+        {:error,
+         execution_option_error(
+           error_module,
+           "timeout option must be :infinity or a non-negative integer",
+           %{option: :timeout, value: timeout}
+         )}
+      end
+    else
+      {:ok, :infinity, opts}
+    end
+  end
+
+  def take_timeout(opts, _error_module), do: {:ok, :infinity, opts}
 
   @doc false
   @spec validate_flow(keyword()) :: {:ok, keyword()} | {:error, Exception.t()}
@@ -15,12 +40,13 @@ defmodule Jido.Exec.Options do
          :ok <- validate_known_flow_options(opts),
          :ok <- validate_jido(opts, FlowError),
          :ok <- validate_task_supervisor(opts, FlowError),
+         max_concurrency = Keyword.get(opts, :max_concurrency, @default_max_concurrency),
          :ok <- validate_async(Keyword.get(opts, :async, false)),
-         :ok <- validate_max_concurrency(Keyword.get(opts, :max_concurrency, 1)) do
+         :ok <- validate_max_concurrency(max_concurrency) do
       {:ok,
        [
          async: Keyword.get(opts, :async, false),
-         max_concurrency: Keyword.get(opts, :max_concurrency, System.schedulers_online())
+         max_concurrency: max_concurrency
        ] ++ routing_options(opts)}
     end
   end

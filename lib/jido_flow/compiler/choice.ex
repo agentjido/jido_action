@@ -5,7 +5,6 @@ defmodule Jido.Flow.Compiler.Choice do
   alias Jido.Flow.Compiler.Condition
   alias Jido.Flow.Compiler.Expression
   alias Jido.Flow.Compiler.Target
-  alias Jido.Flow.Compiler.TargetContext
 
   @doc false
   def run(%Choice{} = choice, state) do
@@ -19,7 +18,7 @@ defmodule Jido.Flow.Compiler.Choice do
                  target.action,
                  params,
                  state.context,
-                 TargetContext.choice(choice, target),
+                 Target.choice(choice, target),
                  state.execution_id,
                  state.target_runner
                ) do

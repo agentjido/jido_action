@@ -6,6 +6,13 @@ defmodule Jido.Exec do
   validates normal output, and returns structured errors. A Flow is compiled to
   one native Runic workflow before execution.
 
+      {:ok, output} = Jido.Exec.run(MyApp.SendNotice, %{address: "a@example.com"})
+
+      {:ok, output} =
+        Jido.Exec.run(MyApp.NoticeFlow, %{address: "a@example.com"}, %{},
+          timeout: 5_000
+        )
+
   ## Step-wise Flow execution
 
   `ready/1` returns native `Runic.Workflow.Runnable` values. These values can
@@ -33,6 +40,9 @@ defmodule Jido.Exec do
   alias Jido.Executable
   alias Jido.Exec.Execution
   alias Jido.Exec.FlowEngine
+  alias Jido.Exec.Options
+  alias Jido.Flow
+  alias Jido.Flow.Error, as: FlowError
   alias Jido.Instruction
 
   @doc """
@@ -42,6 +52,10 @@ defmodule Jido.Exec do
   runs Action work under `MyApp.Jido.TaskSupervisor`. The instance must be
   running. Exec does not fall back to its global Task Supervisor when a caller
   requests an instance.
+
+  All targets accept `timeout: milliseconds | :infinity`. The default is
+  `:infinity`. A finite timeout covers the complete call and terminates its
+  execution process and active child work. It does not retry the target.
 
   A Flow target also accepts `:async` and `:max_concurrency`. `:async` defaults
   to `false`. When it is `true`, independent Runic runnables and Map items can
@@ -58,7 +72,20 @@ defmodule Jido.Exec do
           | {:error, Exception.t(), term()}
   def run(executable, input \\ %{}, context \\ %{}, opts \\ []) do
     execution_id = Telemetry.execution_id()
-    run_with_lifecycle(executable, input, context, opts, execution_id)
+
+    with {:ok, resolved} <- resolve_run_target(executable),
+         timeout_owner = timeout_owner(resolved),
+         {:ok, timeout, run_opts} <- Options.take_timeout(opts, timeout_owner) do
+      execute_with_timeout(
+        fn ->
+          run_with_lifecycle(executable, resolved, input, context, run_opts, execution_id)
+        end,
+        timeout,
+        timeout_owner,
+        resolved,
+        execution_id
+      )
+    end
   end
 
   @doc """
@@ -73,8 +100,9 @@ defmodule Jido.Exec do
   execution. `wave/1` and `continue/1` use the scheduling options. `step/1` and
   `step/2` always execute one runnable.
 
-  The current public API does not accept retry, timeout, deadline,
-  persistence, cancellation, or rewind options.
+  A paused execution has no running timeout. `start/4` does not accept the
+  `:timeout` option. The current step-wise API also does not accept retry,
+  deadline, cancellation, persistence, or rewind options.
   """
   @spec start(term(), map() | keyword() | nil, map() | keyword() | nil, keyword()) ::
           {:ok, Execution.t()} | {:error, Exception.t()}
@@ -143,7 +171,140 @@ defmodule Jido.Exec do
   @spec result(Execution.t()) :: {:ok, term()} | {:error, Exception.t()}
   def result(%Execution{} = execution), do: FlowEngine.result(execution)
 
-  defp run_with_lifecycle(%Instruction{} = instruction, input, context, opts, execution_id) do
+  defp execute_with_timeout(work, :infinity, _owner, _executable, _execution_id), do: work.()
+
+  defp execute_with_timeout(_work, 0, owner, executable, execution_id) do
+    {:error, timeout_error(owner, executable, 0, execution_id)}
+  end
+
+  defp execute_with_timeout(work, timeout, owner, executable, execution_id)
+       when is_integer(timeout) and timeout > 0 do
+    caller = self()
+    caller_group_leader = Process.group_leader()
+    caller_logger_metadata = Logger.metadata()
+    result_ref = make_ref()
+    deadline = System.monotonic_time(:millisecond) + timeout
+
+    {worker, monitor} =
+      spawn_monitor(fn ->
+        worker = self()
+        spawn(fn -> terminate_with_caller(caller, worker) end)
+        Process.group_leader(worker, caller_group_leader)
+        Logger.metadata(caller_logger_metadata)
+        send(caller, {result_ref, worker, work.()})
+      end)
+
+    receive_execution_result(
+      worker,
+      monitor,
+      result_ref,
+      max(deadline - System.monotonic_time(:millisecond), 0),
+      owner,
+      executable,
+      timeout,
+      execution_id
+    )
+  end
+
+  defp receive_execution_result(
+         worker,
+         monitor,
+         result_ref,
+         remaining,
+         owner,
+         executable,
+         timeout,
+         execution_id
+       ) do
+    receive do
+      {^result_ref, ^worker, result} ->
+        Process.demonitor(monitor, [:flush])
+        result
+
+      {:DOWN, ^monitor, :process, ^worker, reason} ->
+        {:error, execution_process_error(owner, reason)}
+    after
+      remaining ->
+        Process.exit(worker, :kill)
+        await_worker_down(monitor, worker)
+        flush_execution_results(result_ref, worker)
+        {:error, timeout_error(owner, executable, timeout, execution_id)}
+    end
+  end
+
+  defp await_worker_down(monitor, worker) do
+    receive do
+      {:DOWN, ^monitor, :process, ^worker, _reason} -> :ok
+    after
+      1_000 -> Process.demonitor(monitor, [:flush])
+    end
+  end
+
+  defp flush_execution_results(result_ref, worker) do
+    receive do
+      {^result_ref, ^worker, _result} -> flush_execution_results(result_ref, worker)
+    after
+      0 -> :ok
+    end
+  end
+
+  defp terminate_with_caller(caller, worker) do
+    caller_monitor = Process.monitor(caller)
+    worker_monitor = Process.monitor(worker)
+
+    receive do
+      {:DOWN, ^caller_monitor, :process, ^caller, _reason} -> Process.exit(worker, :kill)
+      {:DOWN, ^worker_monitor, :process, ^worker, _reason} -> :ok
+    end
+  end
+
+  defp timeout_owner(%Executable{kind: :flow}), do: FlowError
+  defp timeout_owner(%Executable{kind: :action}), do: Error
+
+  defp timeout_error(FlowError, executable, timeout, execution_id) do
+    FlowError.timeout_error("Flow execution timed out after #{timeout}ms", %{
+      timeout: timeout,
+      flow: execution_name(executable),
+      execution_id: execution_id,
+      retry: false
+    })
+  end
+
+  defp timeout_error(Error, executable, timeout, execution_id) do
+    Error.timeout_error("Action execution timed out after #{timeout}ms", %{
+      timeout: timeout,
+      action: execution_name(executable),
+      execution_id: execution_id,
+      retry: false
+    })
+  end
+
+  defp execution_process_error(FlowError, reason) do
+    FlowError.internal_error("Flow execution process exited", %{reason: reason})
+  end
+
+  defp execution_process_error(Error, reason) do
+    Error.internal_error("Action execution process exited", %{reason: reason})
+  end
+
+  defp execution_name(%Executable{target: target}), do: execution_name(target)
+  defp execution_name(%Flow{name: name}), do: name
+  defp execution_name(module) when is_atom(module), do: module
+
+  defp resolve_run_target(%Instruction{target: target}) do
+    Executable.resolve(target)
+  end
+
+  defp resolve_run_target(executable), do: Executable.resolve(executable)
+
+  defp run_with_lifecycle(
+         %Instruction{} = instruction,
+         %Executable{} = executable,
+         input,
+         context,
+         opts,
+         execution_id
+       ) do
     metadata = %{
       execution_id: execution_id,
       kind: :instruction,
@@ -151,24 +312,31 @@ defmodule Jido.Exec do
     }
 
     action_span = Telemetry.start([:jido, :action], metadata)
-    result = run_instruction(instruction, input, context, opts, execution_id)
+    result = run_instruction(instruction, executable, input, context, opts, execution_id)
     Telemetry.finish(action_span, result)
     result
   end
 
-  defp run_with_lifecycle(executable, input, context, opts, execution_id) do
-    with {:ok, resolved} <- Executable.resolve(executable) do
-      run_resolved_with_lifecycle(resolved, input, context, opts, execution_id)
-    end
-  end
-
-  defp run_resolved_with_lifecycle(
-         %Executable{adapter: adapter} = executable,
+  defp run_with_lifecycle(
+         _target,
+         %Executable{} = executable,
          input,
          context,
          opts,
          execution_id
        ) do
+    run_resolved_with_lifecycle(executable, input, context, opts, execution_id)
+  end
+
+  defp run_resolved_with_lifecycle(
+         %Executable{} = executable,
+         input,
+         context,
+         opts,
+         execution_id
+       ) do
+    adapter = adapter_for(executable)
+
     case adapter.lifecycle_metadata(executable, execution_id) do
       {:ok, metadata} ->
         action_span = Telemetry.start([:jido, :action], metadata)
@@ -181,10 +349,16 @@ defmodule Jido.Exec do
     end
   end
 
-  defp run_instruction(instruction, input, context, opts, execution_id) do
-    with {:ok, instruction} <- normalize_instruction(instruction, input, context),
-         {:ok, %Executable{adapter: adapter} = executable} <-
-           Executable.resolve(instruction.target) do
+  defp run_instruction(
+         instruction,
+         %Executable{} = executable,
+         input,
+         context,
+         opts,
+         execution_id
+       ) do
+    with {:ok, instruction} <- normalize_instruction(instruction, input, context) do
+      adapter = adapter_for(executable)
       adapter.run_instruction(executable, instruction, opts, execution_id)
     end
   end
@@ -193,7 +367,8 @@ defmodule Jido.Exec do
     with {:ok, instruction} <- normalize_instruction(instruction, input, context),
          {:ok, %Executable{} = executable} <- Executable.resolve(instruction.target) do
       case executable do
-        %Executable{kind: :flow, adapter: adapter} ->
+        %Executable{kind: :flow} ->
+          adapter = adapter_for(executable)
           adapter.start(executable, instruction.params, instruction.context, opts, execution_id)
 
         %Executable{kind: :action} ->
@@ -203,11 +378,14 @@ defmodule Jido.Exec do
   end
 
   defp do_start(executable, input, context, opts, execution_id) do
-    with {:ok, %Executable{adapter: adapter} = executable} <-
-           Executable.resolve(executable) do
+    with {:ok, %Executable{} = executable} <- Executable.resolve(executable) do
+      adapter = adapter_for(executable)
       adapter.start(executable, input, context, opts, execution_id)
     end
   end
+
+  defp adapter_for(%Executable{kind: :action}), do: Jido.Exec.ActionAdapter
+  defp adapter_for(%Executable{kind: :flow}), do: Jido.Exec.FlowAdapter
 
   defp stepwise_flow_required(executable_type) do
     {:error,
@@ -217,7 +395,7 @@ defmodule Jido.Exec do
   end
 
   defp normalize_instruction(executable, input, context) do
-    {:ok, Instruction.normalize!(executable, input, context)}
+    {:ok, Instruction.normalize_resolved!(executable, input, context)}
   rescue
     exception -> {:error, Error.validation_error(Exception.message(exception))}
   end

@@ -17,6 +17,7 @@ defmodule Jido.Exec.Supervisor do
 
   @type routing_option :: {:jido, atom() | nil}
 
+  @doc "Starts the global Exec supervision tree."
   @spec start_link(keyword()) :: Supervisor.on_start()
   def start_link(opts \\ []) do
     Supervisor.start_link(__MODULE__, opts, name: __MODULE__)

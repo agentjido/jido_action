@@ -201,7 +201,7 @@ end
 ```
 
 Test State schema failures without exposing rejected State values. If the
-Iterator body has effects, also test the repeat-risk and idempotency boundary. See
+Iterate body has effects, also test the repeat-risk and idempotency boundary. See
 [Iterate and State](flow-iterate-state.livemd).
 
 ## Test Nested Flows
@@ -320,6 +320,8 @@ end
 
 Do not assert elapsed time to prove parallelism. Scheduler load makes timing
 tests flaky. Instead, assert the ready set, runnable states, and the stored
-option behavior. Ready-list order is not an authoring contract. The current API does not provide retries, backoff,
-timeouts, deadlines, cancellation, rewind, or persistence; test those policies
-in the higher-level runtime that owns them.
+option behavior. Ready-list order is not an authoring contract. Test the
+complete-call timeout with a blocking Action and process monitoring. The API
+does not provide retries, backoff, per-node deadlines, a public cancellation
+handle, rewind, or persistence. Test those policies in the higher-level
+runtime that owns them.

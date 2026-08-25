@@ -4,6 +4,19 @@ defmodule Jido.Flow.Codec do
 
   The document contains JSON-compatible data. A trusted `Jido.Flow.Registry`
   resolves all Action, Flow, schema, and user-data atom identifiers.
+
+  The decoder rejects invalid UTF-8, data deeper than 100 levels, one
+  collection with more than 10,000 items, and one document with more than
+  100,000 data nodes. These limits apply before module or schema resolution.
+
+      registry =
+        Jido.Flow.Registry.new!(%{
+          "actions/send" => {:action, MyApp.SendNotice},
+          "schemas/none" => {:schema, []}
+        })
+
+      {:ok, document} = Jido.Flow.Codec.encode(flow, registry)
+      {:ok, decoded_flow} = Jido.Flow.Codec.decode(document, registry)
   """
 
   alias Jido.Flow.Error
@@ -24,6 +37,7 @@ defmodule Jido.Flow.Codec do
   @version 1
   @maximum_depth 100
   @maximum_collection_size 10_000
+  @maximum_document_nodes 100_000
 
   @component_kinds %{
     "step" => :step,
@@ -97,7 +111,8 @@ defmodule Jido.Flow.Codec do
   @spec decode(document(), Registry.t()) :: {:ok, Flow.t()} | {:error, Exception.t()}
   def decode(document, %Registry{} = registry)
       when is_map(document) and not is_struct(document) do
-    with :ok <- exact_keys(document, root_keys(), []),
+    with :ok <- validate_document_limits(document),
+         :ok <- exact_keys(document, root_keys(), []),
          :ok <- exact_value(document, "type", "jido.flow", []),
          :ok <- exact_value(document, "version", @version, []),
          {:ok, name} <- string_field(document, "name", []),
@@ -1016,6 +1031,67 @@ defmodule Jido.Flow.Codec do
        Error.validation_error("stored Flow collection exceeds its size limit", %{
          maximum_size: @maximum_collection_size
        })}
+
+  defp validate_document_limits(document) do
+    case count_document_nodes(document, 0, @maximum_document_nodes) do
+      {:ok, _remaining} -> :ok
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp count_document_nodes(_value, _depth, remaining) when remaining <= 0 do
+    {:error,
+     Error.validation_error("stored Flow exceeds its total node limit", %{
+       maximum_nodes: @maximum_document_nodes
+     })}
+  end
+
+  defp count_document_nodes(value, depth, remaining) when is_list(value) do
+    with :ok <- depth(depth),
+         false <- List.improper?(value),
+         :ok <- collection_size(value) do
+      Enum.reduce_while(value, {:ok, remaining - 1}, fn item, {:ok, remaining} ->
+        case count_document_nodes(item, depth + 1, remaining) do
+          {:ok, remaining} -> {:cont, {:ok, remaining}}
+          {:error, error} -> {:halt, {:error, error}}
+        end
+      end)
+    else
+      true ->
+        {:error, Error.validation_error("stored Flow data must contain proper lists")}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp count_document_nodes(value, depth, remaining)
+       when is_map(value) and not is_struct(value) do
+    with :ok <- depth(depth),
+         :ok <- document_map_size(value) do
+      Enum.reduce_while(value, {:ok, remaining - 1}, fn {key, item}, {:ok, remaining} ->
+        with {:ok, remaining} <- count_document_nodes(key, depth + 1, remaining),
+             {:ok, remaining} <- count_document_nodes(item, depth + 1, remaining) do
+          {:cont, {:ok, remaining}}
+        else
+          {:error, error} -> {:halt, {:error, error}}
+        end
+      end)
+    end
+  end
+
+  defp count_document_nodes(_value, depth, remaining) do
+    with :ok <- depth(depth), do: {:ok, remaining - 1}
+  end
+
+  defp document_map_size(value) when map_size(value) <= @maximum_collection_size, do: :ok
+
+  defp document_map_size(_value) do
+    {:error,
+     Error.validation_error("stored Flow collection exceeds its size limit", %{
+       maximum_size: @maximum_collection_size
+     })}
+  end
 
   defp prefix(%{details: details} = error, path) when is_map(details) do
     %{error | details: Map.put(details, :path, path ++ Map.get(details, :path, []))}
