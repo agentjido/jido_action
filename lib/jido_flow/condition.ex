@@ -112,8 +112,8 @@ defmodule Jido.Flow.Condition do
   def gte(left, right), do: new!(:gte, [left, right])
 
   @doc "Builds a list-membership condition."
-  @spec unquote(:in)(Expression.t(), Expression.t()) :: t()
-  def unquote(:in)(left, right), do: new!(:in, [left, right])
+  @spec Expression.t() in Expression.t() :: t()
+  def left in right, do: new!(:in, [left, right])
 
   @doc "Builds a condition that requires all child conditions to be true."
   @spec all([t()]) :: t()

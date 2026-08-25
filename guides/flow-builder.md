@@ -1,137 +1,113 @@
-# Building Flows At Runtime
+# Direct Construction And Builder
 
-Use `Jido.Flow.Builder` when runtime data defines the Flow structure. The
-Builder stores canonical component structs and returns one `%Jido.Flow{}`.
+Direct constructors and `Jido.Flow.Builder` are official Flow APIs. Both
+produce the same canonical `%Jido.Flow{}` as the module DSL.
 
-## Create and build a Flow
+## Direct Construction
+
+Use direct constructors when application code already has the component data.
+
+```elixir
+alias Jido.Flow
+alias Jido.Flow.Ref
+alias Jido.Flow.Step
+
+flow =
+  Flow.new!(
+    name: "runtime_greeting",
+    description: "A directly constructed Flow",
+    schema: [],
+    output_schema: [],
+    components: [
+      Step.new!(
+        name: "greet",
+        action: MyApp.Actions.CreateGreeting,
+        params: %{name: Ref.input(:name)},
+        meta: %{source: "application"}
+      )
+    ],
+    output: Ref.result("greet")
+  )
+```
+
+Use `new/1` for untrusted or fallible construction. Do not use raw struct
+literals as a substitute for constructor validation.
+
+Each canonical component has `new/1` and `new!/1`. Choice options, Choice
+fallbacks, and Iterate State have constructors too.
+
+## Runtime Builder
+
+Use Builder when code adds components in stages.
 
 ```elixir
 alias Jido.Flow.Builder
 
 builder =
   Builder.new(
-    name: "double_after_increment",
-    schema: Zoi.object(%{value: Zoi.integer()}),
-    output_schema: Zoi.object(%{value: Zoi.integer()})
+    name: "runtime_greeting",
+    description: "A Flow built in stages"
   )
   |> Builder.step(
-    "add_one",
-    MyApp.Actions.Add,
-    %{value: Builder.input(:value), amount: Builder.value(1)}
+    "greet",
+    MyApp.Actions.CreateGreeting,
+    %{name: Builder.input(:name)},
+    meta: %{source: "application"}
   )
-  |> Builder.step(
-    "double",
-    MyApp.Actions.Multiply,
-    %{value: Builder.result("add_one", :value), amount: 2}
-  )
-  |> Builder.output(Builder.result("double"))
+  |> Builder.output(Builder.result("greet"))
 
 {:ok, flow} = Builder.build(builder)
 ```
 
-The output expression is required. `Builder.value/1` returns its literal
-unchanged. It does not create a literal reference wrapper.
+Builder keeps the first construction error. Each add function returns the
+Builder. `build/1` returns that error or validates the complete Flow.
 
-`Builder.step/5` resolves the exact `Jido.Executable` kind. It stores a
-`Jido.Flow.Step` for an Action and a `Jido.Flow.Subflow` for a Flow. Other
-Builder component functions accept Action targets only.
+## Builder Functions
 
-## Canonical options
+Builder provides component functions:
 
-All components accept `after` and `meta`. Map also accepts `on_error`. Iterate
-also accepts `completion` and `max_iterations`.
-
-The Builder does not accept the old `deps`, `provenance`, `return`, `while`,
-`until`, or `repeat` aliases. The Spark DSL keeps its existing `while` and
-`repeat` forms. Its lowerer converts them to canonical Iterate fields.
-
-Use `after` only for explicit control order. A named result reference creates
-a separate inferred dependency.
-
-## Map and Reduce
-
-```elixir
-builder =
-  builder
-  |> Builder.map(
-    "enrich",
-    Builder.input(:items),
-    MyApp.Actions.Enrich,
-    %{
-      item: Builder.item(),
-      index: Builder.item_index(),
-      item_id: Builder.item_id()
-    },
-    on_error: :collect_errors
-  )
-  |> Builder.reduce(
-    "summarize",
-    Builder.result("enrich"),
-    %{total: 0},
-    MyApp.Actions.AddToTotal,
-    %{
-      total: Builder.accumulator(:total),
-      value: Builder.item(:value)
-    }
-  )
+```text
+step  choice  map  reduce  iterate  output
 ```
 
-Map and Reduce expressions can use item-local references. Only Reduce can use
-an accumulator reference.
+It also provides the canonical reference and condition helpers:
 
-## Choice
-
-```elixir
-builder =
-  Builder.choice(
-    builder,
-    "route",
-    [
-      Builder.option(
-        "priority",
-        Builder.eq(Builder.input(:tier), :priority),
-        MyApp.Actions.PriorityShipping,
-        %{order_id: Builder.input(:order_id)}
-      )
-    ],
-    Builder.fallback(
-      MyApp.Actions.StandardShipping,
-      %{order_id: Builder.input(:order_id)}
-    )
-  )
+```text
+input  context  result  select  value
+item  item_index  item_id  accumulator
+state  iteration_index  body_result
+eq  neq  lt  lte  gt  gte  in  all  any  not
 ```
 
-Choice options and the fallback must name Actions. They cannot name Flow
-modules.
+`step/5` resolves its target. An Action target becomes `Jido.Flow.Step`. A
+Flow module target becomes `Jido.Flow.Subflow`.
 
-## Iterate
+## Example Choice
 
 ```elixir
-state =
-  Jido.Flow.Iterate.State.new!(
-    schema: Zoi.object(%{count: Zoi.integer()}),
-    initial: %{count: Builder.input(:start)},
-    update: %{count: Builder.body_result(:count)}
+options = [
+  Builder.option(
+    "priority",
+    Builder.eq(Builder.input(:tier), :priority),
+    MyApp.Actions.PriorityRoute,
+    %{request: Builder.input(:request)}
+  )
+]
+
+fallback =
+  Builder.fallback(
+    MyApp.Actions.StandardRoute,
+    %{request: Builder.input(:request)}
   )
 
 builder =
-  Builder.iterate(
-    builder,
-    "count",
-    MyApp.Actions.Increment,
-    %{count: Builder.state(:count)},
-    state,
-    completion: Builder.gte(Builder.state(:count), Builder.input(:target)),
-    max_iterations: 100
-  )
+  Builder.new(name: "route_request")
+  |> Builder.choice("route", options, fallback)
+  |> Builder.output(Builder.result("route"))
+
+{:ok, flow} = Builder.build(builder)
 ```
 
-Iterate has a required local State value, completion condition, and positive
-maximum iteration count.
-
-## Errors
-
-Builder functions keep the first construction error. `build/1` returns
-`{:ok, flow}` or `{:error, exception}`. It validates canonical data, names,
-references, explicit order, inferred dependencies, cycles, and output. Call
-`Jido.Flow.validate_executable/1` when target modules must also be checked.
+Direct constructors give the clearest canonical shape. Builder gives a fluent
+runtime assembly API. Use the module DSL for static source-code definitions
+and Codec for stored JSON.

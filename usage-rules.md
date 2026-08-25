@@ -38,6 +38,8 @@ Use `jido_action` for validated work and data-first composition:
 - Use `Jido.Flow.validate_executable/1` to also check all Flow target contracts.
 - Use `Jido.Flow.Codec.encode/2` and `Jido.Flow.Codec.decode/2` with a trusted
   `Jido.Flow.Registry` for stored JSON data.
+- Use `Jido.Flow.Codec.diagnose/2` when an editor needs all independent stored
+  document and graph errors.
 
 ## Flow Authoring
 
@@ -65,8 +67,9 @@ Use `jido_action` for validated work and data-first composition:
 - Use `Jido.Flow.Codec.encode/2` for portable Map or JSON storage.
 - Restore stored data with `Jido.Flow.Codec.decode/2` and the same trusted
   `Jido.Flow.Registry`.
-- Use the returned structured error as feedback when a UI or AI agent submits
-  an invalid stored map. The reader does not raise for validation failures.
+- Use `Jido.Flow.Codec.diagnose/2` when a UI or AI agent submits an invalid
+  stored map. Diagnostics return ordered, path-based errors and no partial
+  Flow.
 - Use proper lists in runtime Flow data and non-negative integers for list path
   indexes. Invalid values return structured validation errors.
 - Do not parse or evaluate stored Elixir DSL source. AI systems can produce
@@ -86,6 +89,8 @@ Use `jido_action` for validated work and data-first composition:
   `result/1` for a Flow or an Instruction with a Flow target.
 - Treat values from `ready/1`, `step/1`, `step/2`, and `wave/1` as native
   `Runic.Workflow.Runnable` values. Runic support work is visible.
+- Use `Jido.Exec.workflow/1` and `Jido.Exec.compiled/1` for supported live
+  Runic inspection. Other Execution fields are internal.
 - Select `step/2` work with a ready Runnable or its integer ID.
 - Treat each execution as caller-owned, in-memory state with its own
   concurrency limit. Always pass the latest value to the next step-wise call.

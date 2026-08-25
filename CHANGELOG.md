@@ -9,20 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [v3.0.0-beta.1](https://github.com/agentjido/jido_action/compare/v2.3.2...v3.0.0-beta.1) (2026-08-25)
+
 ### Features:
 
+* add the declarative, compile-time Jido Flow module DSL
+* add direct Flow constructors, runtime Builder authoring, and one canonical
+  `%Jido.Flow{}` data model
+* add step, choice, map, reduce, iterate, and derived Subflow forms
 * compile canonical Jido Flows into native Runic workflows
 * expose native Runic Runnable values for step-wise Flow execution
-* add native Map, Reduce, and Subflow execution
+* add dependency-aware parallel Flow execution and run-to-completion execution
+* add portable, versioned Map and JSON storage with a trusted host Registry
+* add aggregate stored-Flow diagnostics for browser and AI authoring tools
 * add a Splode-based `Jido.Flow.Error` boundary for Flow definition,
   compilation, and execution failures
 * let `Jido.Instruction` target Actions, Flow modules, and runtime Flows through
   `Jido.Executable`
 * route Action, Instruction, Flow, and Subflow workers through a running Jido
   instance Task Supervisor with the common `jido:` option
+* add stable Action, Flow, Flow-node, and collection telemetry lifecycles
 
 ### Breaking Changes:
 
+* replace the earlier Flow authoring syntax with one declarative DSL
 * replace the Jido node-result scheduler with the native Runic execution surface
 * replace `MapResult` with ordered Map list output at scalar boundaries
 * replace `Jido.Flow.Iterator` with `Jido.Flow.Iterate`
@@ -32,6 +42,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Jido.Flow.Error.ExecutionFailureError`
 * move the root, Task, and concurrency supervisors under the `Jido.Exec`
   namespace
+* remove the stored Elixir Flow source parser; stored Flows now use Map or JSON
+  data
+* remove the legacy `Jido.Action.Catalog`, `Jido.Action.Tool`, `Jido.Plan`,
+  `Jido.Tools.*`, retry, compensation, and propagation APIs
+* require Elixir `~> 1.20`
 
 ### Bug Fixes:
 
@@ -40,61 +55,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * report invalid reference scopes through the canonical expression validator
 * compile the exact Flow returned by `flow/0` during execution instead of
   trusting an independent `compiled/0` result
+* preserve deterministic collection ordering, failure details, and runtime
+  context
+* keep stored Map validation inert, bounded, non-raising, and safe for
+  correction loops
+* reject invalid UTF-8 and over-limit data before the stored writer returns a
+  map
+* use one canonical constructor for the DSL, Builder, direct data, and stored
+  Flow maps
+* return structured validation errors for improper runtime lists and reject
+  negative reference path indexes
+* reject stale step-wise execution values before a second Action dispatch
 
 ### Documentation:
 
 * state the in-memory Flow, internal graph engine, and durable orchestration
   boundaries
 * define the restricted Flow expression grammar and source-to-data names
-* add a verified v3 migration guide
-
-## [v3.0.0-rc.1](https://github.com/agentjido/jido_action/compare/v2.3.2...v3.0.0-rc.1) (2026-08-22)
-
-### Features:
-
-* add the declarative, compile-time Jido Flow module DSL
-* add step, choice, map, reduce, and iterate flow forms
-* add dependency-aware parallel flow execution and step-wise execution
-* add portable, versioned Map and JSON storage for runtime and AI-generated flows
-* add canonical flow inspection, validation, identity, and execution contracts
-* add one flat host-owned Registry for safe Action and schema identifier resolution
-* add stable Action, Flow, and Flow-node telemetry lifecycles with one execution identifier
-
-### Breaking Changes:
-
-* replace the earlier Flow authoring syntax with one declarative DSL
-* remove the stored Elixir flow-source parser; stored flows now use Map or JSON data
-* use explicit string names for flow nodes
-* name the canonical repeated-state node `Jido.Flow.Iterator` and use `iterate` in data contracts
-* replace nested stored contract attachments with one flat host-owned Registry
-* remove public graph compilation and alternate Flow execution paths
-* replace detailed collection and iteration telemetry with nine lifecycle events
-* remove the legacy `Jido.Action.Catalog`, `Jido.Action.Tool`, `Jido.Plan`, and
-  `Jido.Tools.*` APIs
-* replace `Jido.Action.Exec.*` and its retry, compensation, propagation, and
-  supervisor helpers with the smaller `Jido.Exec` boundary
-* simplify `Jido.Instruction` to one Action call frame and remove the earlier
-  normalization and execution-policy fields
-* remove the Igniter installer and Action generator Mix tasks
-* require Elixir `~> 1.20`
-
-### Bug Fixes:
-
-* harden action validation, output envelopes, error normalization, and flow execution boundaries
-* preserve deterministic collection ordering, failure details, and runtime context
-* keep stored Map validation inert, bounded, non-raising, and safe for correction loops
-* reject invalid UTF-8 and over-limit data before the stored writer returns a map
-* normalize raised and thrown Flow schema effects and close their lifecycle events
-* emit a node error event when an asynchronous node task is killed
-* reject Builder option collisions and duplicate declarative fields or map keys
-* use one canonical constructor for the DSL, Builder, and stored Flow maps
-* return structured validation errors for improper runtime lists and reject negative path indexes
-* raise the repository coverage floor to 90% and add Flow contract and validation coverage
-
-### Documentation:
-
-* add a complete guide set for authoring, executing, inspecting, and storing flows
-* document exact telemetry events, runtime Map validation, and step-wise execution semantics
+* add a verified v3 migration guide and a complete task-based guide set
+* document exact telemetry events, runtime Map validation, debugging, and
+  step-wise execution semantics
 
 ## [v2.3.2](https://github.com/agentjido/jido_action/compare/v2.3.1...v2.3.2) (2026-08-07)
 

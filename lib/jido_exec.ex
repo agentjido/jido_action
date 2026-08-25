@@ -23,6 +23,10 @@ defmodule Jido.Exec do
   Use `continue/1` and `result/1` to get the same final result as `run/4`.
   A failed runnable stops the Flow after Jido applies the failure.
 
+  `workflow/1` returns the live prepared `Runic.Workflow`. `compiled/1`
+  returns its `Jido.Flow.Compiled` index and source map. These functions are
+  the supported escape hatch for native inspection during a paused execution.
+
   The caller owns the execution lifecycle. Each successful `step/2` or
   `wave/1` call atomically consumes one execution revision. Concurrent use or
   reuse of an older execution returns a `stale flow execution` error before
@@ -124,6 +128,26 @@ defmodule Jido.Exec do
   """
   @spec status(Execution.t()) :: :running | :succeeded | :failed
   def status(%Execution{} = execution), do: FlowEngine.status(execution)
+
+  @doc """
+  Returns the live native Runic workflow for a paused execution.
+
+  This is the execution-state escape hatch to Runic. The returned workflow is
+  prepared with the Flow input and Jido runtime context. A caller that executes
+  or changes it outside `Jido.Exec` owns the resulting state and cannot apply
+  that state back to the Execution value through this API.
+  """
+  @spec workflow(Execution.t()) :: Runic.Workflow.t()
+  def workflow(%Execution{workflow: workflow}), do: workflow
+
+  @doc """
+  Returns the derived Flow compilation data for a paused execution.
+
+  Use its component index and source map to connect native Runic nodes to
+  authored Flow components.
+  """
+  @spec compiled(Execution.t()) :: Jido.Flow.Compiled.t()
+  def compiled(%Execution{compiled: compiled}), do: compiled
 
   @doc """
   Executes the first ready native Runic runnable.

@@ -26,6 +26,7 @@ defmodule Jido.Flow.DSL.Lowerer do
     Step
   }
 
+  @doc "Lowers the Spark entities for one module into a canonical Flow."
   @spec lower(module(), keyword()) :: {:ok, Flow.t()} | {:error, Exception.t()}
   def lower(module, opts) do
     entities = Spark.Dsl.Extension.get_entities(module, [:flow])

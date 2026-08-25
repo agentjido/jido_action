@@ -4,6 +4,8 @@ defmodule Jido.Exec.OrderedTaskRunner do
   alias Jido.Exec.ConcurrencyLimiter
 
   @doc false
+  @spec run([item], integer(), (item -> result), (item, term() -> result)) :: [result]
+        when item: term(), result: term()
   def run(items, max_concurrency, worker_fun, exit_fun)
       when is_list(items) and is_integer(max_concurrency) and is_function(worker_fun, 1) and
              is_function(exit_fun, 2) do
@@ -11,6 +13,14 @@ defmodule Jido.Exec.OrderedTaskRunner do
   end
 
   @doc false
+  @spec run(
+          [item],
+          integer(),
+          (item -> result),
+          (item, term() -> result),
+          ConcurrencyLimiter.t() | nil
+        ) :: [result]
+        when item: term(), result: term()
   def run(items, max_concurrency, worker_fun, exit_fun, concurrency_limiter)
       when is_list(items) and is_integer(max_concurrency) and is_function(worker_fun, 1) and
              is_function(exit_fun, 2) do

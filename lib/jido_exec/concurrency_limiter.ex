@@ -5,6 +5,7 @@ defmodule Jido.Exec.ConcurrencyLimiter do
 
   @type t :: pid()
 
+  @doc "Runs a function with an execution-wide limiter when concurrency is enabled."
   @spec with_limiter(String.t(), pos_integer(), boolean(), (-> result)) :: result
         when result: term()
   def with_limiter(_execution_id, _limit, false, fun) when is_function(fun, 0), do: fun.()
@@ -20,6 +21,7 @@ defmodule Jido.Exec.ConcurrencyLimiter do
     end
   end
 
+  @doc "Returns the limiter for an execution identifier when it is alive."
   @spec whereis(String.t()) :: t() | nil
   def whereis(execution_id) when is_binary(execution_id) do
     case Registry.lookup(Jido.Exec.ConcurrencyRegistry, execution_id) do
@@ -28,6 +30,7 @@ defmodule Jido.Exec.ConcurrencyLimiter do
     end
   end
 
+  @doc "Starts a temporary limiter under the Exec concurrency supervisor."
   @spec start(String.t(), pid(), pos_integer()) :: {:ok, t()} | {:error, term()}
   def start(execution_id, owner, limit)
       when is_binary(execution_id) and is_pid(owner) and is_integer(limit) and limit > 0 do
@@ -37,6 +40,7 @@ defmodule Jido.Exec.ConcurrencyLimiter do
     )
   end
 
+  @doc "Runs a function while the caller holds one limiter permit."
   @spec with_permit(t() | nil, (-> result)) :: result when result: term()
   def with_permit(nil, fun) when is_function(fun, 0), do: fun.()
 
@@ -73,6 +77,7 @@ defmodule Jido.Exec.ConcurrencyLimiter do
     :exit, _reason -> :ok
   end
 
+  @doc "Stops a temporary limiter if it is running."
   @spec stop(t() | nil) :: :ok
   def stop(nil), do: :ok
 
@@ -83,6 +88,7 @@ defmodule Jido.Exec.ConcurrencyLimiter do
     end
   end
 
+  @spec child_spec({String.t(), pid(), pos_integer()}) :: Supervisor.child_spec()
   def child_spec({execution_id, owner, limit}) do
     %{
       id: __MODULE__,

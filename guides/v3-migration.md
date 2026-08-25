@@ -1,117 +1,131 @@
 # Migrate To v3
 
-The `v3-spike` branch contains the canonical Jido.Flow data model and native
-Runic execution.
+Version 3 is a deliberate break from the v2 Action execution helpers and the
+earlier Flow spike. It defines one Action-compatible Flow model and one native
+Runic execution path. No compatibility aliases or stored-record inference are
+included.
 
-## Canonical Flow changes
+## Update The Package Boundary
 
-Update direct and Builder authoring to these names:
+Use these four public parts:
 
-- `components`, not `nodes`
-- `output`, not `return`
-- `Jido.Flow.Step`, not `Jido.Flow.Node`
-- `Jido.Flow.Iterate`, not `Jido.Flow.Iterator`
-- `params`, not `input`
-- `after`, not `deps`
-- `meta`, not `provenance`
+- `Jido.Action` defines executable leaf work;
+- `Jido.Instruction` stores one Action or Flow call;
+- `Jido.Flow` defines canonical workflow data; and
+- `Jido.Exec` owns execution and errors.
 
-Every Flow now needs an explicit output expression. Result dependencies stay
-derived and do not get copied into `after`.
+Remove use of legacy Action catalogs, tools, plans, Action Exec helpers,
+retry helpers, compensation helpers, and Action-owned supervisors. Move
+durable orchestration policy to the higher-level runtime that owns it.
 
-The public Spark DSL shape does not change. Its `step`, `choice`, `map`,
-`reduce`, `iterate`, `state`, `output`, `while`, and `repeat` forms remain.
+## Update Flow Data Names
 
-## Subflow changes
+Replace old authoring fields with the canonical names:
 
-A Spark or Builder `step` derives `Jido.Flow.Subflow` when the target has exact
-executable kind `:flow`. Choice options, Choice fallback, Map, Reduce, and
-Iterate require an Action. Replace a Flow target in these fields with an
-Action, or redesign the Flow before migration.
+| Old | v3 |
+| --- | --- |
+| `nodes` | `components` |
+| `return` | `output` |
+| `Jido.Flow.Node` | `Jido.Flow.Step` |
+| `Jido.Flow.Iterator` | `Jido.Flow.Iterate` |
+| `input` on a component | `params` |
+| `deps` | `after` |
+| `provenance` | `meta` |
 
-## Builder changes
+Every Flow must declare `output`. Result references create dependencies. Do
+not copy inferred dependencies into `after`.
 
-Use `Builder.output/2`. Use canonical `after`, `meta`, `completion`, and
-`max_iterations` data. The Builder does not keep `deps`, `provenance`,
-`return`, `while`, `until`, or `repeat` aliases.
+The public Spark DSL shape keeps `step`, `choice`, `map`, `reduce`, `iterate`,
+`state`, `while`, `repeat`, and `output`.
 
-## Stored data changes
+## Update Nested Flows
 
-Use the Codec and a trusted Registry:
+A DSL or Builder `step` becomes `Jido.Flow.Subflow` when its target has exact
+executable kind `:flow`.
+
+Choice option, Choice fallback, Map, Reduce, and Iterate targets must be
+Actions. Redesign any earlier Flow target in those slots.
+
+## Update Instructions
+
+Replace the Action-specific field:
+
+```elixir
+# v2
+%Jido.Instruction{action: MyApp.Actions.SendEmail}
+
+# v3
+Jido.Instruction.new!(
+  target: MyApp.Actions.SendEmail,
+  params: %{to: "user@example.com"}
+)
+```
+
+`target` can be an Action module, Flow module, or runtime Flow value. There is
+no `action` field alias.
+
+## Update Stored Flows
+
+Use Codec with a trusted Registry.
 
 ```elixir
 {:ok, document} = Jido.Flow.Codec.encode(flow, registry)
-{:ok, restored} = Jido.Flow.Codec.decode(document, registry)
+json = Jason.encode!(document)
 
-restored == flow
+{:ok, restored} =
+  json
+  |> Jason.decode!()
+  |> Jido.Flow.Codec.decode(registry)
 ```
 
-Add distinct Registry entries for Actions and Flows. Every stored component
-has an explicit `kind`. Stored maps use canonical `components`, `output`,
-`params`, `after`, and `meta` names.
+Stored documents use explicit component kinds and canonical field names. This
+is the initial stored format. Codec does not read old record shapes or infer
+modules.
 
-This is the initial stored format. No migration reader is required. Do not add
-old record inference to the Codec.
+## Update Execution
 
-## Execution changes
+Use `Jido.Exec.run/4` for complete Action, Instruction, or Flow calls. Use
+`start/4`, `ready/1`, `step/1`, `step/2`, `wave/1`, `continue/1`, and
+`result/1` for step-wise Flows.
 
-`Jido.Flow.compile/2` returns `%Jido.Flow.Compiled{}` with the native Runic
-workflow, component index, source map, output expression, and compilation
-digest. A Spark Flow module also provides `compiled/0` for inspection.
-Execution compiles the exact canonical value from `flow/0`; it does not trust
-an independent compiled result.
+Step-wise execution now exposes native `Runic.Workflow.Runnable` values. Remove
+matches on `Jido.Exec.NodeResult`. Remove use of
+`Jido.Flow.Compiler.MapResult`. A Map produces one ordered result list at a
+scalar boundary.
 
-The step-wise API exposes native `%Runic.Workflow.Runnable{}` values. It can
-show authored work and Runic support work. `Jido.Exec.ready/1` returns these
-values. `step/2` accepts a ready Runnable or its integer ID. `step/1` and
-`wave/1` return executed Runnable values.
+`Jido.Flow.compile/2` returns `Jido.Flow.Compiled`. It is derived runtime data,
+not a Flow authoring or storage form.
 
-Remove code that expects `Jido.Exec.NodeResult`. Remove code that expects
-`Jido.Flow.Compiler.MapResult`. A Map produces native many-valued work and an
-ordered list when one scalar expression value is required.
+Runtime policy is smaller:
 
-## Instruction changes
+- `run/4` supports one complete-call `timeout`;
+- all calls support `jido` instance routing;
+- Flows support `async` and `max_concurrency`; and
+- automatic retry, compensation, public cancellation, and persistence are not
+  in this package.
 
-Replace the Action-specific `action` field with `target`:
+## Update Errors
 
-```elixir
-instruction =
-  Jido.Instruction.new!(
-    target: MyApp.Actions.SendEmail,
-    params: %{to: "user@example.com"}
-  )
-```
-
-The target can be an Action module, a Flow module, or a runtime Flow value. An
-Instruction uses the execution rules of its resolved target. A Flow target
-accepts Flow options and supports `Jido.Exec.start/4`. An Action target does
-not.
-
-There is no `action` field alias. Change stored or constructed Instruction
-values before you update the dependency.
-
-## Error changes
-
-Flow definition, compilation, native execution, and execution-state failures
-now use `Jido.Flow.Error`. An Action failure inside a Flow keeps its original
-`Jido.Action.Error` type. Replace `Jido.Exec.FlowFailureError` matches with
+Flow definition and execution failures now use `Jido.Flow.Error`. Replace
+`Jido.Exec.FlowFailureError` matches with
 `Jido.Flow.Error.ExecutionFailureError`.
 
-Use `Jido.Flow.Error.to_map/1` at a Flow boundary. It accepts Flow and Action
-errors. Unknown executable targets still use
-`Jido.Action.Error.ConfigurationError` because resolution fails before Jido
-knows the target kind.
+An Action failure inside a Flow keeps its `Jido.Action.Error` type when
+possible. Use `Jido.Flow.Error.to_map/1` at a Flow boundary. Unknown executable
+targets use `Jido.Action.Error.ConfigurationError` because resolution fails
+before Jido knows the target kind.
 
-## Verify v3
+## Verify The Migration
 
-For each Flow:
+For each important Flow:
 
-1. Compile the module with warnings as errors.
-2. Call `Jido.Flow.validate_executable/1`.
-3. Call `Jido.Flow.compile/2` and inspect the native Runic workflow.
-4. Compare direct, Builder, Spark, and Codec values where those routes apply.
-5. Round-trip stored records through real JSON bytes.
-6. Check that source data is outside the canonical Flow.
-7. Check run-to-completion and step-wise execution for the same final value.
+1. compile with warnings as errors;
+2. call `Jido.Flow.validate_executable/1`;
+3. compare DSL, direct, Builder, and Codec canonical values when used;
+4. round-trip stored data through real JSON bytes;
+5. inspect `Jido.Flow.compile/2` for the expected native graph;
+6. compare run-to-completion and step-wise final results; and
+7. test timeout, process exit, and cleanup behavior at the Exec boundary.
 
-See [Flows](flows.md), [Runtime Builder](flow-builder.md), and [Stored Flow
-JSON](flow-storage.md) for the current data contract.
+See [Flows](flows.md), [Direct Construction And Builder](flow-builder.md), and
+[Executing Flows](flow-execution.livemd) for the v3 contracts.

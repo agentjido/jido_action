@@ -9,7 +9,7 @@ body:
       value: |
         Thanks for taking the time to report a bug! Please fill out the information below to help us fix the issue.
         
-        Before submitting, please check our [Contributing Guidelines](./CONTRIBUTING.md) and [Best Practices](./EX_BEST_PRACTICES.md).
+        Before you submit, read the [Contributing Guidelines](https://github.com/agentjido/jido_action/blob/main/CONTRIBUTING.md).
 
   - type: input
     id: jido_action_version
@@ -86,9 +86,7 @@ body:
       render: elixir
       placeholder: |
         # Minimal code to reproduce the bug
-        {:ok, action} = Jido.Action.new("test_action", TestAction, %{param: "value"})
-        result = Jido.Action.run(action, %{input: "test"})
-        # ... rest of the code
+        Jido.Exec.run(MyApp.Actions.Example, %{value: 1})
     validations:
       required: false
 
@@ -123,5 +121,5 @@ body:
           required: true
         - label: I have included all relevant information above
           required: true
-        - label: I have reviewed the [Contributing Guidelines](./CONTRIBUTING.md)
+        - label: I have reviewed the [Contributing Guidelines](https://github.com/agentjido/jido_action/blob/main/CONTRIBUTING.md)
           required: true

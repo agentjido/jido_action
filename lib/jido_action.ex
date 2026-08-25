@@ -46,6 +46,16 @@ defmodule Jido.Action do
 
   alias Jido.Action.{Error, Output, Validation}
 
+  @typedoc "A static Action input or output schema."
+  @type schema :: Zoi.schema() | []
+
+  @typedoc "A supported Action callback result."
+  @type result ::
+          {:ok, map() | Output.t()}
+          | {:ok, map() | Output.t(), term()}
+          | {:error, term()}
+          | {:error, term(), term()}
+
   @max_action_name_bytes 256
 
   @action_config_schema Zoi.object(
@@ -303,18 +313,23 @@ defmodule Jido.Action do
           @validated_opts Map.drop(validated_opts, [:schema, :output_schema])
 
           @doc "Returns the name of the Action."
+          @spec name() :: String.t()
           def name, do: @validated_opts[:name]
 
           @doc "Returns the description of the Action."
+          @spec description() :: String.t() | nil
           def description, do: @validated_opts[:description]
 
           @doc "Returns the input schema of the Action."
+          @spec schema() :: Jido.Action.schema()
           def schema, do: @__jido_schema__
 
           @doc "Returns the output schema of the Action."
+          @spec output_schema() :: Jido.Action.schema()
           def output_schema, do: @__jido_output_schema__
 
           @doc false
+          @spec __jido_executable__() :: Jido.Executable.t()
           def __jido_executable__, do: Jido.Executable.action(__MODULE__)
 
           @doc unquote(validate_params_doc)
@@ -333,11 +348,8 @@ defmodule Jido.Action do
 
           The `run/2` function must be implemented in the module using Jido.Action.
           """
-          # Note: @spec annotations are intentionally omitted from these default
-          # implementations. The @callback declarations (below) define the type
-          # contracts. Adding @spec here causes dialyzer `extra_range` warnings in
-          # consumer modules that don't override these functions, because the spec
-          # includes {:error, _} but the default only returns {:ok, _}.
+          @impl Jido.Action
+          @spec run(map(), map()) :: Jido.Action.result()
           def run(params, context) do
             "run/2 must be implemented in your Action"
             |> Error.config_error()
@@ -382,11 +394,7 @@ defmodule Jido.Action do
   action runs as a `Jido.Flow` node, flow execution discards extras and uses only
   the action output or error reason.
   """
-  @callback run(params :: map(), context :: map()) ::
-              {:ok, map() | Output.t()}
-              | {:ok, map() | Output.t(), any()}
-              | {:error, any()}
-              | {:error, any(), any()}
+  @callback run(params :: map(), context :: map()) :: result()
 
   defp validate_data(schema, data, context, module) do
     Validation.open_validate(schema, data, %{

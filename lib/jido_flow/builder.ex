@@ -159,8 +159,8 @@ defmodule Jido.Flow.Builder do
   def gte(left, right), do: Condition.gte(left, right)
 
   @doc "Builds a membership condition."
-  @spec unquote(:in)(expression(), expression()) :: condition()
-  def unquote(:in)(left, right), do: Condition.in(left, right)
+  @spec expression() in expression() :: condition()
+  def left in right, do: Condition.in(left, right)
 
   @doc "Builds a condition that requires all child conditions."
   @spec all([condition()]) :: condition()

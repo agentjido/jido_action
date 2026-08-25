@@ -1,137 +1,89 @@
 # Nested Flows
 
-A Flow-compatible Action becomes a Subflow only when it is the target of a
-`step`. The public Spark shape stays unchanged. The lowerer checks the exact
-`Jido.Executable` kind and creates `Jido.Flow.Subflow`.
+A Flow module used in a `step` becomes a canonical `Jido.Flow.Subflow`. This is
+the only implicit Subflow derivation.
 
-Choice, Map, Reduce, and Iterate targets must be Actions. They do not derive
-Subflows.
+Run the cells from top to bottom.
 
-Run the code cells from top to bottom.
-
-## Install Jido Action
+## Install The Package
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-rc.1"}])
+Mix.install([{:jido_action, "~> 3.0.0-beta.1"}])
 ```
 
-## Define the child Action
+## Define A Child Flow
 
 ```elixir
-defmodule NestedFlows.Describe do
-  use Jido.Action,
-    name: "nested_flows_describe",
-    schema: Zoi.object(%{value: Zoi.integer(), trace_id: Zoi.string()}),
-    output_schema: Zoi.object(%{value: Zoi.integer(), trace_id: Zoi.string()})
+defmodule NestedFlows.AddOne do
+  use Jido.Action, name: "nested_flows_add_one"
 
   @impl true
-  def run(params, _context), do: {:ok, params}
+  def run(%{value: value}, _context), do: {:ok, %{value: value + 1}}
 end
-```
 
-## Define the child Flow
-
-```elixir
 defmodule NestedFlows.Child do
-  use Jido.Flow,
-    name: "nested_flows_child",
-    schema: Zoi.object(%{value: Zoi.integer()}),
-    output_schema: Zoi.object(%{value: Zoi.integer(), trace_id: Zoi.string()})
+  use Jido.Flow, name: "nested_flows_child"
 
   flow do
-    step "describe",
-      action: NestedFlows.Describe,
-      params: %{
-        value: input(:value),
-        trace_id: context(:trace_id)
-      }
+    step "add",
+      action: NestedFlows.AddOne,
+      params: %{value: input(:value)}
 
-    output result("describe")
+    output(%{value: result("add", :value)})
   end
 end
 ```
 
-The child has its own input schema, output schema, components, and output
-expression.
-
-## Use the child in a Step
+## Use The Child In A Step
 
 ```elixir
 defmodule NestedFlows.Parent do
-  use Jido.Flow,
-    name: "nested_flows_parent",
-    schema: Zoi.object(%{value: Zoi.integer()}),
-    output_schema: Zoi.map()
+  use Jido.Flow, name: "nested_flows_parent"
 
   flow do
     step "child",
       action: NestedFlows.Child,
       params: %{value: input(:value)}
 
-    output %{child: result("child")}
+    step "finish",
+      action: NestedFlows.AddOne,
+      params: %{value: result("child", :value)}
+
+    output(%{value: result("finish", :value)})
   end
 end
 ```
 
-The Spark term is still `step`. The canonical value has a Subflow:
-
 ```elixir
-%Jido.Flow{components: [%Jido.Flow.Subflow{name: "child", flow: NestedFlows.Child}]} =
-  NestedFlows.Parent.flow()
+%Jido.Flow.Subflow{} =
+  NestedFlows.Parent.flow().components
+  |> List.first()
+
+{:ok, %{value: 3}} =
+  Jido.Exec.run(NestedFlows.Parent, %{value: 1})
 ```
 
-The Builder applies the same rule:
+The DSL shape stays `step ... action: ChildFlow`. The lowerer resolves the
+target through `Jido.Executable` and stores `Jido.Flow.Subflow`.
+
+## Native Execution Boundary
+
+A Subflow lowers to a nested native Runic Workflow. Step-wise execution can
+show child validators, child Steps, InputBinding, and connection work. Jido
+does not hide these native runnables.
+
+The child inherits the parent context, `async`, `max_concurrency`, `jido`
+routing, and execution ID. Its Action calls share the parent execution budget.
+
+## Limits
+
+Only `step` derives Subflow. Choice options, Choice fallback, Map, Reduce, and
+Iterate target slots require Actions. A canonical Subflow stores a Flow module,
+not an arbitrary runtime Flow value.
+
+Validate the complete boundary without running work:
 
 ```elixir
-alias Jido.Flow.Builder
-
-{:ok, built} =
-  Builder.new(name: "runtime_parent")
-  |> Builder.step("child", NestedFlows.Child, %{value: Builder.input(:value)})
-  |> Builder.output(Builder.result("child"))
-  |> Builder.build()
-
-[%Jido.Flow.Subflow{}] = built.components
+NestedFlows.Parent.flow()
+|> Jido.Flow.validate_executable()
 ```
-
-Direct construction and stored JSON use the explicit Subflow type or kind.
-The Codec requires a trusted `{:flow, NestedFlows.Child}` Registry entry.
-
-## Validate the boundary
-
-```elixir
-{:ok, _flow} = Jido.Flow.validate_executable(NestedFlows.Parent.flow())
-
-{:ok, %{child: %{value: 4, trace_id: "trace-1"}}} =
-  Jido.Exec.run(
-    NestedFlows.Parent,
-    %{value: 4},
-    %{trace_id: "trace-1"}
-  )
-```
-
-Executable validation loads `NestedFlows.Child.flow/0`, validates the child,
-and rejects recursive Subflow module cycles.
-
-The compiler creates a native Runic Workflow boundary with instance-scoped
-names and hashes. `Jido.Exec.ready/1` exposes the child validators, child
-Steps, and connection work.
-
-## Keep other target slots Action-only
-
-These fields reject a Flow module:
-
-- Choice option `action`
-- Choice fallback `action`
-- Map `action`
-- Reduce `action`
-- Iterate `action`
-
-Move a child Flow to a top-level Step when it needs a Subflow boundary. Do not
-expect the compiler to generate a replacement graph for an invalid target.
-
-## Continue learning
-
-- [Flow Language](flow-language.livemd) introduces canonical components.
-- [Flow References](flow-references.livemd) explains data mapping.
-- [Flow Execution](flow-execution.livemd) explains the current execution API.

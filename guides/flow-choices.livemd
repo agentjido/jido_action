@@ -1,246 +1,100 @@
-# Flow Choices
+# Choices And Conditions
 
-A `choice` routes one Flow component to one Action. It checks options
-in source order, runs the first matching target, and uses a required
-`otherwise` target when no option matches.
+A Choice evaluates conditions in author order. It runs the first matching
+Action. A required fallback handles the no-match case.
 
-The fallback is routing logic. It is not error recovery.
+Run the cells from top to bottom.
 
-Run the code cells from top to bottom.
-
-## Install Jido Action
+## Install The Package
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-rc.1"}])
+Mix.install([{:jido_action, "~> 3.0.0-beta.1"}])
 ```
 
-## Define An Echo Action
+## Define A Routing Action
 
 ```elixir
-defmodule FlowChoices.Echo do
-  use Jido.Action,
-    name: "flow_choices_echo",
-    schema: Zoi.map(),
-    output_schema: Zoi.map()
+defmodule FlowChoices.Route do
+  use Jido.Action, name: "flow_choices_route"
 
   @impl true
   def run(params, _context), do: {:ok, params}
 end
 ```
 
-## Define A Choice
-
-Each `option` has a unique name, a native `condition`, an `action`, and
-`params`. `otherwise` has an `action` and `params`.
+## Declare Ordered Options
 
 ```elixir
-defmodule FlowChoices.Routing do
-  use Jido.Flow,
-    name: "flow_choices_routing",
-    schema: Zoi.object(%{tier: Zoi.atom()}),
-    output_schema: Zoi.map()
+defmodule FlowChoices.Example do
+  use Jido.Flow, name: "flow_choices_example"
 
   flow do
-    step "priority_data",
-      action: FlowChoices.Echo,
-      params: %{kind: :priority}
-
-    step "bulk_data",
-      action: FlowChoices.Echo,
-      params: %{kind: :bulk}
-
-    step "fallback_data",
-      action: FlowChoices.Echo,
-      params: %{kind: :standard}
-
     choice "route" do
+      option "urgent",
+        condition: input(:priority) >= 90,
+        action: FlowChoices.Route,
+        params: %{queue: :urgent, id: input(:id)}
+
       option "priority",
-        condition:
-          input(:tier) == :priority and
-            select(result("priority_data"), :kind) == :priority,
-        action: FlowChoices.Echo,
-        params: %{route: :priority}
+        condition: input(:priority) >= 50,
+        action: FlowChoices.Route,
+        params: %{queue: :priority, id: input(:id)}
 
-      option "bulk" do
-        condition(
-          input(:tier) == :bulk and
-            select(result("bulk_data"), :kind) == :bulk
-        )
-
-        action(FlowChoices.Echo)
-        params(%{route: :bulk})
-      end
-
-      otherwise action: FlowChoices.Echo,
-                params: %{route: select(result("fallback_data"), :kind)}
+      otherwise(
+        action: FlowChoices.Route,
+        params: %{queue: :standard, id: input(:id)}
+      )
     end
 
-    output result("route")
+    output(%{route: result("route")})
   end
 end
 ```
 
-Result references in conditions and target parameters create static
-dependencies. All three predecessor nodes run before `route` is ready.
-
-This rule also applies to unselected options and to `otherwise`. An outer
-predecessor failure prevents the Choice from becoming ready, even when the
-failed result belongs to an unselected target. Jido cannot select a route and
-then remove an edge from the already compiled graph.
-
 ```elixir
-{:ok, dependencies} = Jido.Flow.dependencies(FlowChoices.Routing.flow())
-%{
-  references: ["bulk_data", "fallback_data", "priority_data"],
-  effective: ["bulk_data", "fallback_data", "priority_data"]
-} = dependencies["route"]
+{:ok, urgent} =
+  Jido.Exec.run(FlowChoices.Example, %{id: 1, priority: 100})
+
+{:ok, standard} =
+  Jido.Exec.run(FlowChoices.Example, %{id: 2, priority: 10})
+
+{urgent, standard}
 ```
 
-## Ordered First Match
+When two conditions match, only the first option runs. Jido does not evaluate
+later options after a match.
 
-Jido checks options in source order. The first true condition wins. Only the
-selected target runs.
+Result references in every option and in the fallback become static graph
+dependencies. The referenced components run before Choice selection, even
+when Jido does not select the option that contains a reference. Put work that
+must stay lazy inside the selected Action.
 
-Keep branch-specific work inside the selected Action when that work must be
-lazy. Choice targets cannot be Flow modules. Use a top-level `step` when a
-separate Subflow boundary is required.
+## Condition Grammar
 
-```elixir
-{:ok, %{route: :priority}} =
-  Jido.Exec.run(FlowChoices.Routing, %{tier: :priority}, %{})
-
-{:ok, %{route: :bulk}} =
-  Jido.Exec.run(FlowChoices.Routing, %{tier: :bulk}, %{})
-
-{:ok, %{route: :standard}} =
-  Jido.Exec.run(FlowChoices.Routing, %{tier: :other}, %{})
-```
-
-## Use Native Conditions
-
-The DSL captures these operators as Flow data:
-
-- `==` and `!=` compare values.
-- `<`, `<=`, `>`, and `>=` compare two numbers or two strings.
-- `left in right` checks membership in a proper list.
-- `left and right` requires both conditions.
-- `left or right` requires one condition.
-- `not condition` inverts one condition.
-
-For example:
+The DSL accepts:
 
 ```text
-flow do
-  choice "route" do
-    option "priority",
-      condition: input(:tier) in [:gold, :platinum] and input(:blocked) != true,
-      action: MyApp.Actions.Priority,
-      params: %{account_id: input(:account_id)}
-
-    otherwise action: MyApp.Actions.Standard,
-              params: %{account_id: input(:account_id)}
-  end
-end
+==  !=  <  <=  >  >=  in
+and  or  not
+eq  neq  lt  lte  gt  gte
+all  any
 ```
 
-Conditions can read `input`, `context`, and prior `result` values. A missing
-path resolves to `nil`. Arbitrary predicate functions are not accepted.
+Conditions compare Flow expressions. They do not call application functions.
+Put complex or effectful decisions in an Action before the Choice, then test
+that Action result.
 
-## `otherwise` Is Required
+## Fallback Is Routing
 
-A Choice must contain at least one option and exactly one `otherwise`. Missing
-or duplicate fallback declarations fail at compile time. Option names must be
-unique.
+`otherwise` is mandatory. It is the normal route when no option matches. It is
+not an error handler. If a selected Action fails, the Choice fails and does
+not run the fallback.
 
-## Fallback Is Not Error Recovery
+Choice option and fallback targets must be Actions. A Choice does not derive a
+Subflow target.
 
-`otherwise` runs only when no option condition is true. It does not run after a
-selected target error.
+## Canonical Form
 
-```elixir
-defmodule FlowChoices.Failing do
-  use Jido.Action,
-    name: "flow_choices_failing",
-    schema: Zoi.map(),
-    output_schema: Zoi.map()
-
-  @impl true
-  def run(_params, _context), do: {:error, :selected_target_failed}
-end
-
-defmodule FlowChoices.NoRecovery do
-  use Jido.Flow,
-    name: "flow_choices_no_recovery",
-    schema: Zoi.map(),
-    output_schema: Zoi.map()
-
-  flow do
-    choice "route" do
-      option "selected",
-        condition: true == true,
-        action: FlowChoices.Failing,
-        params: %{}
-
-      otherwise action: FlowChoices.Echo,
-                params: %{route: :fallback}
-    end
-
-    output result("route")
-  end
-end
-
-{:error, _error} = Jido.Exec.run(FlowChoices.NoRecovery, %{}, %{})
-```
-
-## Build A Choice At Runtime
-
-`Jido.Flow.Builder` uses normal functions to build the same canonical Choice
-data:
-
-```elixir
-alias Jido.Flow.Builder
-
-builder =
-  Builder.new(name: "builder_choice")
-  |> Builder.choice(
-    :route,
-    [
-      Builder.option(
-        :yes,
-        Builder.eq(Builder.input(:kind), Builder.value(:yes)),
-        FlowChoices.Echo,
-        %{route: Builder.value(:yes)}
-      )
-    ],
-    Builder.fallback(FlowChoices.Echo, %{route: Builder.value(:no)})
-  )
-  |> Builder.output(Builder.result(:route))
-
-{:ok, built_flow} = Builder.build(builder)
-%Jido.Flow{name: "builder_choice"} = built_flow
-```
-
-## Step Through A Choice
-
-A Choice compiles to one native Step. Its option targets are not separate
-runnables.
-
-```elixir
-{:ok, execution} = Jido.Exec.start(FlowChoices.Routing, %{tier: :priority}, %{})
-
-{:ok, _predecessors, execution} = Jido.Exec.wave(execution)
-
-[runnable] = Jido.Exec.ready(execution)
-{:ok, %Runic.Workflow.Runnable{status: :completed}, execution} =
-  Jido.Exec.step(execution, runnable)
-
-{:ok, execution} = Jido.Exec.continue(execution)
-{:ok, %{route: :priority}} = Jido.Exec.result(execution)
-```
-
-## Continue Learning
-
-- [Flow Language](flow-language.livemd) introduces all Flow components.
-- [Flow References](flow-references.livemd) explains condition data.
-- [Nested Flows](nested-flows.livemd) shows Step-only Subflow derivation.
-- [Executing Flows](flow-execution.livemd) explains step-wise execution.
+A `Jido.Flow.Choice` contains ordered `Jido.Flow.Choice.Option` values and one
+`Jido.Flow.Choice.Fallback`. Use their constructors for direct authoring or use
+`Jido.Flow.Builder.option/4` and `fallback/2` for runtime authoring.

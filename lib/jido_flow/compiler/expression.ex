@@ -5,7 +5,11 @@ defmodule Jido.Flow.Compiler.Expression do
   alias Jido.Action.Output
   alias Jido.Flow.Ref
 
+  @type value_type ::
+          nil | :action_output | :list | :map | :binary | :number | :atom | :tuple | :other
+
   @doc false
+  @spec resolve(term(), map()) :: {:ok, term()} | {:error, Exception.t()}
   def resolve(%Ref{source: :input} = ref, state), do: resolve_path(ref, state.input)
 
   def resolve(%Ref{source: :context} = ref, state), do: resolve_path(ref, state.context)
@@ -65,6 +69,7 @@ defmodule Jido.Flow.Compiler.Expression do
   def resolve(value, _state), do: {:ok, value}
 
   @doc false
+  @spec value_type(term()) :: value_type()
   def value_type(nil), do: nil
   def value_type(%Output{}), do: :action_output
   def value_type(value) when is_list(value), do: :list

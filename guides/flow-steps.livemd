@@ -1,204 +1,93 @@
-# Flow Steps And Output
+# Steps And Output
 
-A `step` is one named Action or nested Flow call. It has an `action` target and
-a closed `params` expression. Every node name is explicit and stable.
+A Step calls one Action. Its parameter expression maps Flow data to Action
+input.
 
-Run the code cells from top to bottom.
+Run the cells from top to bottom.
 
-## Install Jido Action
+## Install The Package
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-rc.1"}])
+Mix.install([{:jido_action, "~> 3.0.0-beta.1"}])
 ```
 
-## Define An Echo Action
+## Define An Action
 
 ```elixir
 defmodule FlowSteps.Echo do
-  use Jido.Action,
-    name: "flow_steps_echo",
-    schema: Zoi.map(),
-    output_schema: Zoi.map()
+  use Jido.Action, name: "flow_steps_echo"
 
   @impl true
   def run(params, _context), do: {:ok, params}
 end
 ```
 
-## Use The Short Form
+## Use Short Or Block Form
 
-The short form keeps one small node compact:
+Both forms lower to `Jido.Flow.Step`.
 
 ```elixir
-defmodule FlowSteps.ShortForm do
-  use Jido.Flow,
-    name: "flow_steps_short_form",
-    schema: Zoi.object(%{value: Zoi.integer()}),
-    output_schema: Zoi.map()
+defmodule FlowSteps.Example do
+  use Jido.Flow, name: "flow_steps_example"
 
   flow do
-    step "echo",
-      action: FlowSteps.Echo,
-      params: %{value: input(:value)}
-
-    output result("echo")
-  end
-end
-
-{:ok, %{value: 3}} = Jido.Exec.run(FlowSteps.ShortForm, %{value: 3}, %{})
-```
-
-## Use The Block Form
-
-The block form uses the same fields. Use it when a declaration is easier to
-scan one field per line.
-
-```elixir
-defmodule FlowSteps.BlockForm do
-  use Jido.Flow,
-    name: "flow_steps_block_form",
-    schema: Zoi.object(%{value: Zoi.integer()}),
-    output_schema: Zoi.map()
-
-  flow do
-    step "echo" do
-      action(FlowSteps.Echo)
-      params(%{value: input(:value)})
-    end
-
-    output result("echo")
-  end
-end
-
-{:ok, %{value: 4}} = Jido.Exec.run(FlowSteps.BlockForm, %{value: 4}, %{})
-```
-
-Short and block forms lower to the same canonical node. Do not mix keyword
-fields with a `do` block in one declaration. Each declaration field and each
-literal map key must occur only once. Duplicate fields or keys cause a compile
-error.
-
-## Read A Prior Result
-
-Use `result("node")` for the complete result of an earlier node. Use
-`select(result("node"), path)` for one value. This reference creates the
-dependency.
-
-```elixir
-defmodule FlowSteps.ResultReference do
-  use Jido.Flow,
-    name: "flow_steps_result_reference",
-    schema: Zoi.object(%{value: Zoi.integer()}),
-    output_schema: Zoi.map()
-
-  flow do
-    step "source",
-      action: FlowSteps.Echo,
-      params: %{value: input(:value)}
-
-    step "copy",
-      action: FlowSteps.Echo,
-      params: %{value: select(result("source"), :value)}
-
-    output result("copy")
-  end
-end
-
-{:ok, %{value: 5}} = Jido.Exec.run(FlowSteps.ResultReference, %{value: 5}, %{})
-```
-
-The DSL does not assign node results to Elixir variables. Explicit names keep
-the source declarative and match stored Flow data.
-
-## Inspect The Output
-
-Every Flow has an explicit output. The output expression can select the
-complete result of one component.
-
-```elixir
-%Jido.Flow{output: output} = FlowSteps.ResultReference.flow()
-%Jido.Flow.Ref{source: :result, component: "copy"} = output
-```
-
-## Shape An Explicit Output
-
-Use `output` as the final declaration when the result must combine several
-sources.
-
-```elixir
-defmodule FlowSteps.ShapedOutput do
-  use Jido.Flow,
-    name: "flow_steps_shaped_output",
-    schema: Zoi.object(%{value: Zoi.integer()}),
-    output_schema: Zoi.map()
-
-  flow do
-    step "source",
-      action: FlowSteps.Echo,
-      params: %{value: input(:value), values: [input(:value), :constant]}
-
-    output %{
-      nested: %{value: select(result("source"), :value)},
-      values: select(result("source"), :values),
-      trace_id: context(:trace_id)
-    }
-  end
-end
-
-{:ok, %{nested: %{value: 6}, values: [6, :constant], trace_id: "trace-1"}} =
-  Jido.Exec.run(FlowSteps.ShapedOutput, %{value: 6}, %{trace_id: "trace-1"})
-```
-
-A Flow must contain at least one component. `output` is required and must be
-the final declaration.
-
-## Add Metadata
-
-Use `meta:` for labels, tags, notes, or tool-owned data. Metadata is
-non-semantic. It does not change dependencies, execution, or identity.
-
-```elixir
-defmodule FlowSteps.Annotated do
-  use Jido.Flow,
-    name: "flow_steps_annotated",
-    schema: Zoi.object(%{value: Zoi.integer()}),
-    output_schema: Zoi.map()
-
-  flow do
-    step "echo",
+    step("first",
       action: FlowSteps.Echo,
       params: %{value: input(:value)},
-      meta: %{
-        label: "Copy the value",
-        tags: ["example", "mapping"],
-        note: "Visible in meta"
-      }
+      meta: %{owner: "guide"}
+    )
 
-    output result("echo")
+    step "second" do
+      action(FlowSteps.Echo)
+      params(%{value: result("first", :value), tag: :complete})
+      meta(%{owner: "guide"})
+    end
+
+    output(%{
+      first: result("first"),
+      second: result("second")
+    })
   end
 end
-
-annotated_map = Jido.Flow.to_map(FlowSteps.Annotated.flow())
-[%{meta: meta}] = annotated_map.components
-
-%{label: "Copy the value", note: "Visible in meta"} =
-  Map.take(meta, [:label, :note])
 ```
 
-The module compiler records file, line, and column data in a separate source
-map. It does not add this data to `meta`.
+```elixir
+{:ok, output} = Jido.Exec.run(FlowSteps.Example, %{value: 7})
+output
+```
 
-## Keep Computation In Actions
+The result reference creates the dependency on `first`. Use the short form
+`after: "first"` option only for control order that does not move data.
 
-The DSL accepts references, literals, maps, and lists. It does not execute
-calls such as `String.upcase/1` inside `params`. Such a declaration fails at
-compile time with an unsupported Flow expression error.
+## Step Fields
 
-Use an Action for computation. A Flow maps data between Actions.
+A canonical Step has these fields:
 
-## Continue Learning
+| Field | Meaning |
+| --- | --- |
+| `name` | Unique string component name. |
+| `action` | Action module. |
+| `params` | Canonical expression for Action input. |
+| `after` | Explicit control dependencies. |
+| `meta` | Portable author metadata with no execution meaning. |
 
-- [Flow Language](flow-language.livemd) gives the full language overview.
-- [Flow References](flow-references.livemd) explains each reference primitive.
-- [Flow Dependencies](flow-dependencies.livemd) explains implicit and explicit ordering.
-- [Flow Choices](flow-choices.livemd) explains ordered routing.
+The Action must satisfy the `Jido.Executable` Action contract. A `step` that
+targets a Flow module becomes `Jido.Flow.Subflow` instead.
+
+## Declare Output
+
+`output` is a Flow expression, not an Action call. Shape the final result with
+a map.
+
+```text
+output(%{
+  value: result("second", :value),
+  source: :guide
+})
+```
+
+Normal Flow output must be a map. Use an Action Output envelope when the Flow
+intentionally returns a raw, stream, batch, or opaque value.
+
+Action extras do not become Step results. Flow execution discards extras and
+keeps only the Action result or error reason.

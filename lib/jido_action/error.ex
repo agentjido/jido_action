@@ -60,6 +60,7 @@ defmodule Jido.Action.Error do
               details: map()
             }
 
+      @spec message(t()) :: String.t()
       def message(%{error: error}) when not is_nil(error), do: normalize_message(error)
       def message(%{message: message}), do: message
 

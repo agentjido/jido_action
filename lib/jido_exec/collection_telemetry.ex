@@ -4,6 +4,7 @@ defmodule Jido.Exec.CollectionTelemetry do
   alias Jido.Action.Telemetry
 
   @doc false
+  @spec observer(String.t(), String.t()) :: (term() -> Telemetry.span() | :ok)
   def observer(execution_id, flow) when is_binary(execution_id) and is_binary(flow) do
     fn
       {:start, kind, metadata} ->

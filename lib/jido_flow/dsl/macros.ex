@@ -2,6 +2,7 @@ defmodule Jido.Flow.DSL.MacroSupport do
   @moduledoc false
 
   @doc false
+  @spec validate_options!(term(), Macro.Env.t(), String.t(), String.t()) :: :ok | no_return()
   def validate_options!(options, caller, options_message, duplicate_label) do
     if Keyword.keyword?(options) do
       case first_duplicate(Keyword.keys(options)) do
@@ -17,6 +18,7 @@ defmodule Jido.Flow.DSL.MacroSupport do
   end
 
   @doc false
+  @spec quote_fields(keyword(), [atom()]) :: keyword()
   def quote_fields(options, fields) do
     Enum.map(options, fn {field, value} = option ->
       if field in fields, do: {field, Macro.escape(value)}, else: option
@@ -24,9 +26,11 @@ defmodule Jido.Flow.DSL.MacroSupport do
   end
 
   @doc false
+  @spec source(Macro.Env.t()) :: Macro.t()
   def source(caller), do: Macro.escape(%{line: caller.line})
 
   @doc false
+  @spec compile_error!(Macro.Env.t(), String.t()) :: no_return()
   def compile_error!(caller, description) do
     raise CompileError, file: caller.file, line: caller.line, description: description
   end

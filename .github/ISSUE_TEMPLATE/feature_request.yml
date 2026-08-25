@@ -9,7 +9,7 @@ body:
       value: |
         Thanks for suggesting a new feature! Please provide detailed information about what you'd like to see added to jido_action.
         
-        Before submitting, please check our [Contributing Guidelines](./CONTRIBUTING.md) and [Best Practices](./EX_BEST_PRACTICES.md).
+        Before you submit, read the [Contributing Guidelines](https://github.com/agentjido/jido_action/blob/main/CONTRIBUTING.md).
 
   - type: textarea
     id: feature_summary
@@ -45,9 +45,8 @@ body:
       description: If applicable, show what the API might look like.
       render: elixir
       placeholder: |
-        # Example of how the new feature might be used
-        {:ok, action} = Jido.Action.new_feature(%{...})
-        result = Jido.Action.SomeNewModule.new_function(action, options)
+        # Example of how the new feature can be used
+        {:ok, result} = Jido.Exec.run(MyApp.Actions.Example, %{value: 1})
     validations:
       required: false
 
@@ -131,5 +130,5 @@ body:
           required: true
         - label: This feature aligns with the goals of jido_action
           required: true
-        - label: I have reviewed the [Contributing Guidelines](./CONTRIBUTING.md)
+        - label: I have reviewed the [Contributing Guidelines](https://github.com/agentjido/jido_action/blob/main/CONTRIBUTING.md)
           required: true

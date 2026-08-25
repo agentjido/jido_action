@@ -1,92 +1,80 @@
-# Inspecting Flows
+# Inspect Flows
 
-Every authoring route produces one canonical `%Jido.Flow{}`. Use the public
-inspection functions to examine its meaning without depending on source form.
+Flow inspection works on canonical `%Jido.Flow{}` values. It does not run
+Actions.
 
-## Inspect dependencies
-
-`Jido.Flow.dependencies/1` keeps explicit and inferred order separate:
+## Validate Structure Or Targets
 
 ```elixir
-flow = MyApp.Flows.Report.flow()
-{:ok, dependencies} = Jido.Flow.dependencies(flow)
-
-%{
-  after: ["authorize"],
-  references: ["load"],
-  effective: ["authorize", "load"]
-} = dependencies["format"]
+{:ok, flow} = Jido.Flow.validate(flow)
+{:ok, flow} = Jido.Flow.validate_executable(flow)
 ```
 
-`after` is author control order. `references` contains dependencies inferred
-from result references. `effective` is their unique union. Source order does
-not create a dependency.
+`validate/1` checks schemas, components, expressions, references, dependencies,
+and cycles. It is inert and does not check module contracts.
 
-## Explain a Flow
+`validate_executable/1` also checks each Action and child Flow contract. It
+still does not execute work.
 
-`Jido.Flow.explain/1` returns versioned public inspection data:
+## Read Dependencies
+
+```elixir
+{:ok, dependencies} = Jido.Flow.dependencies(flow)
+
+dependencies["publish"]
+#=> %{
+#=>   after: ["approve"],
+#=>   references: ["render"],
+#=>   effective: ["approve", "render"]
+#=> }
+```
+
+`after` is explicit author order. `references` is derived from result
+references. `effective` is their sorted union.
+
+## Explain A Flow
 
 ```elixir
 {:ok, explanation} = Jido.Flow.explain(flow)
-
-1 = explanation.version
-:flow = explanation.kind
-["load", "format"] = Enum.map(explanation.components, & &1.name)
 ```
 
-The explanation contains canonical components, dependencies, the output
-expression, and semantic identity. It does not contain the Runic runtime.
+The explanation is versioned canonical inspection data. It contains Flow
+metadata, normalized components, dependencies, output, and semantic identity.
+It is useful for tooling and review. It is not the stored JSON format.
 
-## Compare semantic identity
+## Compare Semantic Identity
 
 ```elixir
 {:ok, identity} = Jido.Flow.semantic_identity(flow)
-is_binary(identity.digest)
-is_binary(identity.uuid)
+
+identity.digest
+identity.uuid
 ```
 
-Semantic identity excludes Spark source location and author declaration order.
-Explicit component `meta` is portable author data, but it does not change the
-execution graph.
+Identity uses the canonical semantic form. Runtime compilation data and DSL
+source locations do not change it.
 
-## Get a semantic map
-
-`Jido.Flow.to_map/1` returns canonical inspection data with trusted modules and
-schemas as Elixir terms:
+## Get A Semantic Map
 
 ```elixir
-semantic = Jido.Flow.to_map(flow)
+semantic_map = Jido.Flow.to_map(flow)
 ```
 
-Use `Jido.Flow.Codec` for database or JSON storage:
+This deterministic map keeps component declaration order and module values. It
+is useful for inspection and comparison inside the VM. Use `Jido.Flow.Codec`
+for portable storage.
+
+## Inspect Native Compilation
 
 ```elixir
-{:ok, document} = Jido.Flow.Codec.encode(flow, registry)
-{:ok, restored} = Jido.Flow.Codec.decode(document, registry)
+{:ok, compiled} = Jido.Flow.compile(flow)
 
-restored == flow
+compiled.workflow
+compiled.component_index
+compiled.output
+compiled.source_map
+compiled.compilation_digest
 ```
 
-The Registry must contain each Action, Subflow, schema, and user-data atom in
-the Flow.
-
-## Validate a Flow
-
-`Jido.Flow.validate/1` checks canonical structure, schemas, expressions,
-references, explicit order, inferred dependencies, and cycles. It does not
-load or check executable targets.
-
-`Jido.Flow.validate_executable/1` also resolves every target. Step, Choice,
-Map, Reduce, and Iterate target slots require exact executable kind `:action`.
-Subflow requires exact kind `:flow` and validates the child Flow recursively.
-
-Use `Jido.Flow.compile/2` to create derived native Runic data. Use
-`Jido.Exec.run/4` for execution:
-
-```elixir
-{:ok, %Jido.Flow.Compiled{} = compiled} = Jido.Flow.compile(flow)
-{:ok, output} = Jido.Exec.run(flow, input)
-```
-
-The step-wise execution API exposes native Runic Runnable values. It can show
-support work that has no canonical Jido component.
+`Jido.Flow.Compiled` is derived runtime data. Treat its fields and native
+Runic graph as inspection and execution data, not authoring data.

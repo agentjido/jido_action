@@ -4,6 +4,7 @@ defmodule Jido.Flow.DSL.Expression do
   alias Jido.Flow.Error
   alias Jido.Flow.{Condition, Ref}
 
+  @doc "Parses one DSL expression into canonical Flow data."
   @spec parse(term()) :: {:ok, term()} | {:error, Exception.t()}
   def parse(expression) do
     {:ok, parse!(expression)}
@@ -12,6 +13,7 @@ defmodule Jido.Flow.DSL.Expression do
       {:error, Error.validation_error(Exception.message(error), source_details(expression))}
   end
 
+  @doc "Parses one DSL condition into a canonical Flow condition."
   @spec parse_condition(term()) :: {:ok, Condition.t()} | {:error, Exception.t()}
   def parse_condition(condition) do
     {:ok, parse_condition!(condition)}

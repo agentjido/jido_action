@@ -1,133 +1,74 @@
 # Security
 
-Jido Action provides data contracts and execution boundaries. Your application
-must still control authorization, effects, secrets, and runtime limits.
+Jido validates data and owns execution processes. The host application still
+owns authorization, effects, secrets, and resource policy.
 
-## Validate Action Inputs
+## Keep Source And Stored Data Separate
 
-Use an Action schema to reject malformed data before `run/2` executes. Validate
-authorization and ownership again when they depend on external state.
+The module DSL is trusted compile-time Elixir source. Do not evaluate user or
+generated Elixir source to create a Flow.
 
-```elixir
-defmodule MyApp.Actions.ReadFile do
-  use Jido.Action,
-    name: "read_file",
-    schema: Zoi.object(%{path: Zoi.string() |> Zoi.min(1)}),
-    output_schema: Zoi.object(%{contents: Zoi.string()})
+Use `Jido.Flow.Codec` for database, API, UI, or AI-authored Flow data. The
+Codec accepts decoded map data and a host-owned trusted Registry.
 
-  @impl true
-  def run(%{path: path}, %{allowed_root: root}) do
-    allowed_root = Path.expand(root)
-    expanded = Path.expand(path, allowed_root)
-    relative = Path.relative_to(expanded, allowed_root)
+Stored data cannot create atoms or derive module names. It can select only the
+Actions, Flows, schemas, and atoms that the Registry contains.
 
-    if relative == ".." or String.starts_with?(relative, "../") do
-      {:error, Jido.Action.Error.validation_error("path outside allowed root")}
-    else
-      {:ok, %{contents: File.read!(expanded)}}
-    end
-  end
-end
-```
+## Validate Before Effects
 
-Schemas are not authorization. Keep tenant checks, capability checks, and
-resource ownership checks inside the application boundary.
+Use Action schemas to reject malformed input before `run/2`. A schema is not
+authorization. Check tenant access, object ownership, and current permissions
+at the application boundary or inside the Action before an effect.
 
-## Keep Effects Explicit
+Make file, network, database, and process effects clear in Action names,
+schemas, and tests. Give an Action only the capabilities that it needs.
 
-Actions can perform file, network, database, and process effects. Make these
-effects visible in the Action name, input schema, context contract, and tests.
-Pass only the capabilities that the Action needs.
+Treat context as sensitive caller data. Do not copy secrets into Flow results,
+error details, component metadata, or telemetry.
 
-Context can contain request metadata, credentials, tenant identifiers, and
-tracing state. Treat it as sensitive input. Do not copy secrets into Flow
-results, error details, or logs.
+## Apply Storage Limits
 
-## Keep DSL Source At Compile Time
+The Codec decoder rejects:
 
-The Flow module DSL is compile-time Elixir source. Keep it in trusted
-application code. Do not evaluate generated or user-supplied Elixir source to
-create a Flow. Use `Jido.Flow.Codec` and JSON for database data, API input, and
-AI-generated Flows.
+- invalid UTF-8;
+- depth greater than 100;
+- one collection wider than 10,000 entries; and
+- more than 100,000 data nodes in one document.
 
-Do not create atoms from untrusted input. Keep user-provided identifiers as
-strings. A stored Flow map can select data atoms only through trusted
-`{:atom, atom}` Registry entries. Accepted and rejected artifacts do not create
-atoms and do not use the VM atom table as an implicit Registry.
+These checks occur after the caller decodes JSON. Apply HTTP byte limits,
+parser limits, and request timeouts before Codec.
 
-## Limit Stored Flow Input
+Registry size is limited to 10,000 entries. Registry lookup is inert. It does
+not load or execute an Action.
 
-The Codec applies these limits while it encodes and decodes:
+## Apply Runtime Limits
 
-- Maximum container depth: 100.
-- Maximum width of one map or list: 10,000 items.
+Use a finite complete-call `timeout` when the caller needs a hard in-memory
+limit. Use `max_concurrency` to bound one asynchronous Flow execution. Also
+validate collection sizes in application input. Runtime Map does not use the
+Codec collection limit.
 
-`Jido.Flow.Codec.decode/2` receives a decoded map. It does not limit raw HTTP
-bytes or JSON decoder work. The caller must set transport-byte, JSON-parser,
-and complete-document limits before it calls the Codec.
+Each Iterate has a bound from 1 through 10,000. Select a smaller application
+limit when body work is expensive.
 
-## Control The Registry In The Host
+This package does not provide automatic retry, per-node timeout, public
+cancellation, durable checkpoints, or exactly-once effects.
 
-A stored Flow map contains stable schema, Action, Flow, and data atom
-identifiers. The host supplies one flat `Jido.Flow.Registry`. Zoi schemas,
-module atoms, and data atoms stay in host code. Stored data can select only
-identifiers that the Registry owns.
+## Design Effects For Repetition
 
-Registry resolution is inert. It validates trusted entries and does direct
-lookup. It does not derive module names, create atoms, load a module, call an
-Action callback, validate data through a schema, emit telemetry, or execute the
-Flow.
+A caller, process restart, or higher-level runtime can repeat work. Use
+idempotency keys, conditional writes, deduplication, or transactions when an
+effect must not occur twice.
 
-Stored decode, inspection, and identity do not check target contracts.
-`Jido.Flow.validate_executable/1` checks them without execution, and `Jido.Exec`
-repeats the check at the execution boundary. Retry, timeout, persistence, and
-durability policy stay outside the Flow artifact.
-
-## Bound Runtime Policy
-
-The current Flow execution API supports `async` and `max_concurrency`. The
-common `jido:` option selects OTP instance routing. `Jido.Exec.run/4` also
-accepts one finite whole-call timeout. The API does not provide automatic
-retries, retry backoff, per-node timeouts, a public cancellation handle,
-rewind, or persistent checkpoints.
-
-Set caller-owned process limits and retry policy around `Jido.Exec`. Limit
-`max_concurrency` to a value that the application can support. A complete-call
-timeout terminates active execution work. Internal scheduler waits remain
-`:infinity` because the outer deadline owns termination.
-
-## Bound Collections And Iterate Nodes
-
-`max_concurrency` limits active Action calls and asynchronous helper workers
-across concurrent nodes, Map items, and nested Flow targets in one execution.
-Nested work runs inline when all helper-worker slots are in use. This avoids a
-queue of waiting task processes. The option does not limit the number of items
-in the input list. Validate collection size at the application boundary.
-Remember that `:collect_errors` can retain one record for each failed item.
-
-Every Iterate node has an iteration bound. Keep `repeat` and `max_iterations`
-small enough for the target cost. Iterate State is in-memory data. Do not put
-secrets in State or body output when errors, inspection, or telemetry can
-expose their shape.
-
-## Design For Repeat Risk
-
-Every step returns a new immutable execution value. Reusing a stale value can
-run an Action again. A process restart can also cause a caller to repeat work.
-Jido does not provide exactly-once guarantees for external effects.
-
-Use idempotency keys, conditional writes, deduplication, or transactional
-boundaries for effects that must not run twice. Include the Flow execution or
-request identity in those keys when the domain supports it.
+Step-wise stale-revision checks stop one old Execution value from dispatching
+again. They do not create a durable exactly-once guarantee.
 
 ## Protect Errors And Telemetry
 
-Error structs and telemetry can include Action names, Flow names, node names,
-error details, and runtime stacktraces. Stacktraces can include source paths,
-line numbers, and retained argument terms. Do not include raw credentials,
-tokens, personal data, or full context maps in error messages or telemetry
-metadata.
+Errors can contain module names, node names, details, and in-memory
+stacktraces. Telemetry contains execution, Flow, node, target, item, and
+iteration identifiers.
 
-Redact before logging or exporting errors outside the execution boundary.
-Treat telemetry handlers as a data access boundary and restrict who can read
-their output.
+Redact errors before external logging. Do not place credentials, tokens,
+personal data, or full context maps in error messages or telemetry metadata.
+Treat telemetry handlers as a data-access boundary.

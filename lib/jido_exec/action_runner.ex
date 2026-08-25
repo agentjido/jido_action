@@ -9,6 +9,7 @@ defmodule Jido.Exec.ActionRunner do
   @type target_result ::
           {:ok, term()} | {:error, target_phase(), Exception.t()}
 
+  @doc "Runs one Action Instruction through the isolated Action boundary."
   @spec run(Instruction.t(), keyword()) ::
           {:ok, term()}
           | {:ok, term(), term()}
@@ -38,12 +39,15 @@ defmodule Jido.Exec.ActionRunner do
     end
   end
 
+  @doc "Runs one Action target and reports the failed Action phase."
   @spec run_target(module(), term(), map()) :: target_result()
   def run_target(action, params, context) do
     run_target(action, params, context, nil, [])
   end
 
   @doc false
+  @spec run_target(module(), term(), map(), Jido.Exec.ConcurrencyLimiter.t() | nil, keyword()) ::
+          target_result()
   def run_target(action, params, context, concurrency_limiter, run_opts) do
     with {:ok, task_supervisor} <- Jido.Exec.Supervisor.task_supervisor(run_opts) do
       Jido.Exec.ConcurrencyLimiter.with_permit(concurrency_limiter, fn ->

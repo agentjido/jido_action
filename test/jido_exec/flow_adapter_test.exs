@@ -175,6 +175,17 @@ defmodule JidoActionTest.Exec.FlowAdapterTest do
     assert execution.compiled.source_map == SourceMappedFlow.__jido_flow_source_map__()
   end
 
+  test "Exec exposes the live native workflow and its compilation index" do
+    assert {:ok, execution} = Exec.start(SourceMappedFlow, %{value: 1})
+
+    assert %Runic.Workflow{} = workflow = Exec.workflow(execution)
+    assert %Jido.Flow.Compiled{} = compiled = Exec.compiled(execution)
+    assert workflow == execution.workflow
+    assert compiled == execution.compiled
+    assert compiled.source_map == SourceMappedFlow.__jido_flow_source_map__()
+    assert Map.has_key?(compiled.component_index, "add_one")
+  end
+
   test "one execution materializes each Flow module once" do
     start_supervised!(%{
       id: CallCounter,

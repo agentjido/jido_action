@@ -18,12 +18,15 @@ defmodule Jido.Flow.Validation do
   @artifact_config_keys @module_config_keys ++ [:components, :output]
 
   @doc false
+  @spec new(map() | keyword()) :: {:ok, map()} | {:error, Exception.t()}
   def new(attrs), do: validate_attrs(attrs)
 
   @doc false
+  @spec validate(map() | keyword()) :: {:ok, map()} | {:error, Exception.t()}
   def validate(attrs), do: validate_attrs(attrs)
 
   @doc false
+  @spec validate_executable(map() | keyword()) :: {:ok, map()} | {:error, Exception.t()}
   def validate_executable(attrs) do
     with {:ok, flow, _subflows} <- prepare_executable(attrs) do
       {:ok, flow}
@@ -31,6 +34,8 @@ defmodule Jido.Flow.Validation do
   end
 
   @doc false
+  @spec prepare_executable(map() | keyword(), [module()]) ::
+          {:ok, map(), %{optional(module()) => Jido.Flow.t()}} | {:error, Exception.t()}
   def prepare_executable(attrs, module_stack \\ []) do
     with {:ok, flow} <- validate_attrs(attrs),
          {:ok, subflows} <- validate_component_targets(flow.components, module_stack, %{}) do
@@ -39,6 +44,7 @@ defmodule Jido.Flow.Validation do
   end
 
   @doc false
+  @spec validate_config(term()) :: {:ok, map()} | {:error, Exception.t()}
   def validate_config(%{} = attrs) do
     with :ok <- known_keys(attrs, @module_config_keys),
          {:ok, name} <- name(Map.get(attrs, :name)),
@@ -53,6 +59,7 @@ defmodule Jido.Flow.Validation do
     do: {:error, Error.validation_error("flow configuration must be a map")}
 
   @doc false
+  @spec invalid_subject(term()) :: {:error, Exception.t()}
   def invalid_subject(value),
     do: {:error, Error.validation_error("expected a Jido.Flow artifact", %{value: value})}
 

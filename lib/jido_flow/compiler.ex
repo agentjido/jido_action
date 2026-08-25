@@ -163,6 +163,7 @@ defmodule Jido.Flow.Compiler do
   end
 
   @doc false
+  @spec input_frame(term()) :: {:jido_flow_input, term(), nil}
   def input_frame(input), do: {:jido_flow_input, input, nil}
 
   defp source_map(opts) when is_map(opts) and not is_struct(opts),

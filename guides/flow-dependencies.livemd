@@ -1,155 +1,104 @@
-# Flow Dependencies And Parallel Work
+# Dependencies And Parallel Work
 
-A Flow is a dependency graph. A node becomes ready when all its predecessor
-nodes complete. Result references and explicit `after:` fields create edges.
-Source order does not create edges.
+A Flow graph gets dependencies from result references and explicit `after`
+entries. Source order does not create a dependency.
 
-Run the code cells from top to bottom.
+Run the cells from top to bottom.
 
-## Install Jido Action
+## Install The Package
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-rc.1"}])
+Mix.install([{:jido_action, "~> 3.0.0-beta.1"}])
 ```
 
-## Define An Echo Action
+## Define A Diamond
 
 ```elixir
 defmodule FlowDependencies.Echo do
-  use Jido.Action,
-    name: "flow_dependencies_echo",
-    schema: Zoi.map(),
-    output_schema: Zoi.map()
+  use Jido.Action, name: "flow_dependencies_echo"
 
   @impl true
   def run(params, _context), do: {:ok, params}
 end
-```
 
-## Build A Diamond
-
-The `implicit` node reads `source`, so that result reference creates an edge.
-The `explicit` node reads only Flow input, but `after: "source"` creates the
-same control edge. `left` and `right` are independent roots.
-
-```elixir
 defmodule FlowDependencies.Diamond do
-  use Jido.Flow,
-    name: "flow_dependencies_diamond",
-    schema: Zoi.object(%{value: Zoi.integer()}),
-    output_schema: Zoi.map()
+  use Jido.Flow, name: "flow_dependencies_diamond"
 
   flow do
-    step "source",
-      action: FlowDependencies.Echo,
-      params: %{value: input(:value)}
-
-    step "implicit",
-      action: FlowDependencies.Echo,
-      params: %{value: select(result("source"), :value)}
-
-    step "explicit",
-      action: FlowDependencies.Echo,
-      params: %{value: input(:value)},
-      after: "source"
-
     step "left",
       action: FlowDependencies.Echo,
-      params: %{value: input(:value)}
+      params: %{side: :left, value: input(:value)}
 
     step "right",
       action: FlowDependencies.Echo,
-      params: %{value: input(:value)}
+      params: %{side: :right, value: input(:value)}
 
-    step "joined",
+    step "join",
       action: FlowDependencies.Echo,
       params: %{
-        implicit: select(result("implicit"), :value),
-        explicit: select(result("explicit"), :value),
-        left: select(result("left"), :value),
-        right: select(result("right"), :value)
+        left: result("left", :value),
+        right: result("right", :value)
       }
 
-    output result("joined")
+    output(%{joined: result("join")})
   end
 end
 ```
 
-Inspect the direct predecessors:
+`left` and `right` are independent. `join` depends on both because its
+parameter expression reads both results.
 
 ```elixir
-flow = FlowDependencies.Diamond.flow()
-{:ok, dependencies} = Jido.Flow.dependencies(flow)
+{:ok, dependencies} =
+  FlowDependencies.Diamond.flow()
+  |> Jido.Flow.dependencies()
 
-%{after: [], references: ["source"], effective: ["source"]} = dependencies["implicit"]
-%{after: ["source"], references: [], effective: ["source"]} = dependencies["explicit"]
-
-%{references: ["explicit", "implicit", "left", "right"]} =
-  dependencies["joined"]
-
-%{effective: []} = dependencies["left"]
-%{effective: []} = dependencies["right"]
+dependencies
 ```
 
-## Ready Waves Follow The Native Graph
+## Use After For Control Only
 
-Start a paused execution to inspect the graph. `ready/1` returns native Runic
-runnables. `wave/1` executes the current ready set. Runnables that become ready
-wait for the next wave. Do not use ready-list order as an authoring contract.
+`after:` orders work without copying predecessor output into the next Action.
 
 ```elixir
-{:ok, execution} = Jido.Exec.start(FlowDependencies.Diamond, %{value: 2}, %{})
+step "publish",
+  action: FlowDependencies.Echo,
+  params: %{status: :published},
+  after: ["audit", "approve"]
+```
 
-3 = length(Jido.Exec.ready(execution))
+Use a result reference when the Action needs data. Use `after` only when the
+dependency is an author control decision.
 
-{:ok, first_wave, execution} = Jido.Exec.wave(execution)
-true =
-  first_wave
-  |> Enum.map(& &1.node.name)
-  |> Enum.sort() == ["left", "right", "source"]
+Jido keeps the three forms separate:
 
-2 = length(Jido.Exec.ready(execution))
+```elixir
+%{
+  after: ["audit"],
+  references: ["render"],
+  effective: ["audit", "render"]
+}
+```
 
-{:ok, _second_wave, execution} = Jido.Exec.wave(execution)
-[_native_join] = Jido.Exec.ready(execution)
+## Execute A Ready Wave
 
+```elixir
+{:ok, execution} =
+  Jido.Exec.start(FlowDependencies.Diamond, %{value: 4})
+
+Jido.Exec.ready(execution)
+```
+
+The ready values are native `Runic.Workflow.Runnable` values. Independent
+authored nodes can be in the same ready set. Run one current set with
+`wave/1`.
+
+```elixir
+{:ok, _runnables, execution} = Jido.Exec.wave(execution)
 {:ok, execution} = Jido.Exec.continue(execution)
-{:ok, %{implicit: 2, explicit: 2, left: 2, right: 2}} = Jido.Exec.result(execution)
+{:ok, %{joined: %{left: 4, right: 4}}} = Jido.Exec.result(execution)
 ```
 
-## Parallel Structure Is Implicit
-
-There is no `parallel` block in the DSL. The graph already shows which nodes
-are independent. Set `async: true` and `max_concurrency` at execution time:
-
-```elixir
-{:ok, %{implicit: 2, explicit: 2, left: 2, right: 2}} =
-  Jido.Exec.run(
-    FlowDependencies.Diamond,
-    %{value: 2},
-    %{},
-    async: true,
-    max_concurrency: 3
-  )
-```
-
-The execution option applies to ready waves. It does not change dependencies.
-
-Choice target parameter references also create normal static edges. All such
-predecessors run before the Choice is ready, including predecessors used only
-by an unselected option or fallback. Put lazy branch work inside the selected
-Action. Choice targets cannot be Flow modules.
-
-## Choose `after:` Only For Control Order
-
-Prefer a result reference when a node needs predecessor data. Use `after:`
-when the dependency exists only for control order, such as an audit that must
-run after a write but does not need the write output. `after:` accepts one node
-name or a list of names.
-
-## Continue Learning
-
-- [Flow References](flow-references.livemd) explains implicit data edges.
-- [Flow Steps](flow-steps.livemd) explains node declarations and output.
-- [Flow Choices](flow-choices.livemd) explains Choice dependencies.
-- [Executing Flows](flow-execution.livemd) explains `run`, `start`, `step`, and `wave`.
+Pass `async: true` to `start/4` or `run/4` when ready work can run
+concurrently. `max_concurrency` bounds the execution. The options do not
+change the graph.

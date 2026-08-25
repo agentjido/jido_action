@@ -1,257 +1,94 @@
-# Flow References
+# References And Data
 
-Flow expressions map data into node parameters and the Flow output. A
-reference is stored data. It is not an Elixir function call at runtime.
+A `Jido.Flow.Ref` reads data when a Flow executes. References are also the
+source of inferred graph dependencies.
 
-Run the code cells from top to bottom.
+Run the cells from top to bottom.
 
-## Install Jido Action
+## Install The Package
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-rc.1"}])
+Mix.install([{:jido_action, "~> 3.0.0-beta.1"}])
 ```
 
-## Define An Echo Action
+## Define An Action And Flow
 
 ```elixir
 defmodule FlowReferences.Echo do
-  use Jido.Action,
-    name: "flow_references_echo",
-    schema: Zoi.map(),
-    output_schema: Zoi.map()
+  use Jido.Action, name: "flow_references_echo"
 
   @impl true
   def run(params, _context), do: {:ok, params}
 end
-```
 
-## Read Flow Input With `input`
-
-`input(path)` reads the map passed as Flow input. A path can be an atom,
-string, integer, or a list of these segments.
-
-```elixir
-defmodule FlowReferences.InputExample do
-  use Jido.Flow,
-    name: "flow_references_input",
-    schema: Zoi.map(),
-    output_schema: Zoi.map()
+defmodule FlowReferences.Example do
+  use Jido.Flow, name: "flow_references_example"
 
   flow do
-    step "echo",
+    step "profile",
       action: FlowReferences.Echo,
       params: %{
-        account: input(:account),
-        nested_id: input([:account, :id]),
-        string_id: input(["account", "id"])
+        user: input([:request, :user]),
+        actor_id: context(:actor_id),
+        literal: value("profile")
       }
 
-    output result("echo")
+    step "summary",
+      action: FlowReferences.Echo,
+      params: %{
+        name: result("profile", [:user, :name]),
+        actor_id: select(result("profile"), [:actor_id])
+      }
+
+    output(%{summary: result("summary")})
   end
 end
+```
 
-{:ok, result} =
+```elixir
+{:ok, output} =
   Jido.Exec.run(
-    FlowReferences.InputExample,
-    %{"account" => %{"id" => "acct-1"}},
-    %{}
+    FlowReferences.Example,
+    %{request: %{user: %{name: "Ada"}}},
+    %{actor_id: "user-1"}
   )
 
-%{account: %{"id" => "acct-1"}, nested_id: "acct-1", string_id: "acct-1"} = result
+output
 ```
 
-Map lookup can find a string key when the path segment is an atom. List paths
-use non-negative integer segments.
+## Global References
 
-## Read Runtime Context With `context`
+| DSL helper | Canonical source | Reads |
+| --- | --- | --- |
+| `input(path)` | `:input` | Validated Flow input. |
+| `context(path)` | `:context` | Caller context. |
+| `result(name, path)` | `:result` | Named component output. |
+| `select(ref, path)` | same as source | A deeper path on a reference. |
 
-`context(path)` reads the separate runtime context map. Use it for caller-owned
-data such as a tenant or trace identifier.
+A path can be one atom, string, non-negative integer, or a list of these
+segments. Missing keys and invalid list indexes return structured execution
+errors.
 
-```elixir
-defmodule FlowReferences.ContextExample do
-  use Jido.Flow,
-    name: "flow_references_context",
-    schema: Zoi.object(%{value: Zoi.integer()}),
-    output_schema: Zoi.map()
+A result reference creates an inferred dependency on the named component.
+Input and context references do not.
 
-  flow do
-    step "echo",
-      action: FlowReferences.Echo,
-      params: %{
-        value: input(:value),
-        tenant_id: context([:tenant, :id]),
-        trace_id: context(:trace_id)
-      }
+## Local References
 
-    output result("echo")
-  end
-end
+Local helpers are valid only in their component scope.
 
-{:ok, %{value: 3, tenant_id: "tenant-1", trace_id: "trace-1"}} =
-  Jido.Exec.run(
-    FlowReferences.ContextExample,
-    %{value: 3},
-    %{tenant: %{id: "tenant-1"}, trace_id: "trace-1"}
-  )
-```
-
-Context references do not create graph dependencies.
-
-## Write Literals Directly
-
-Normal Elixir literals stay literal Flow data. Maps and lists can contain both
-literals and references.
-
-```elixir
-defmodule FlowReferences.LiteralExample do
-  use Jido.Flow,
-    name: "flow_references_literal",
-    schema: Zoi.object(%{value: Zoi.integer()}),
-    output_schema: Zoi.map()
-
-  flow do
-    step "echo",
-      action: FlowReferences.Echo,
-      params: %{
-        value: input(:value),
-        label: :constant,
-        options: %{mode: :safe},
-        flags: [true, false]
-      }
-
-    output result("echo")
-  end
-end
-
-{:ok, %{value: 3, label: :constant, options: %{mode: :safe}}} =
-  Jido.Exec.run(FlowReferences.LiteralExample, %{value: 3}, %{})
-```
-
-`value(literal)` lowers to the same supported scalar, list, or map literal. Tuples and
-executable expressions are not part of the Flow module DSL. Normal literals do
-not need `value/1`.
-
-This is an intentional portability rule. Use maps instead of keyword lists,
-and use lists instead of tuples. Put computation in an Action. Canonical Flow
-data and stored JSON use the same portable scalar, map, and list subset.
-
-## Read Prior Results With `result`
-
-`result(node)` reads a complete node result. `result(node, path)` reads a path
-directly. Each result reference creates a dependency.
-
-```elixir
-defmodule FlowReferences.ResultExample do
-  use Jido.Flow,
-    name: "flow_references_result",
-    schema: Zoi.object(%{value: Zoi.integer()}),
-    output_schema: Zoi.map()
-
-  flow do
-    step "source",
-      action: FlowReferences.Echo,
-      params: %{value: input(:value)}
-
-    step "copy",
-      action: FlowReferences.Echo,
-      params: %{
-        direct: result("source", :value),
-        complete: result("source")
-      }
-
-    output result("copy")
-  end
-end
-
-{:ok, %{direct: 9, complete: %{value: 9}}} =
-  Jido.Exec.run(FlowReferences.ResultExample, %{value: 9}, %{})
-```
-
-## Project Values With `select`
-
-`select(source, path)` projects a path from another expression. It is useful
-when the source is already composed or when a list index is part of the path.
-
-```elixir
-defmodule FlowReferences.SelectExample do
-  use Jido.Flow,
-    name: "flow_references_select",
-    schema: Zoi.object(%{value: Zoi.integer()}),
-    output_schema: Zoi.map()
-
-  flow do
-    step "source",
-      action: FlowReferences.Echo,
-      params: %{
-        payload: %{nested: %{value: input(:value)}},
-        items: [:first, :second, input(:value)]
-      }
-
-    output %{
-      nested_value: select(result("source"), [:payload, :nested, :value]),
-      list_item: select(result("source"), [:items, 1])
-    }
-  end
-end
-
-{:ok, %{nested_value: 6, list_item: :second}} =
-  Jido.Exec.run(FlowReferences.SelectExample, %{value: 6}, %{})
-```
-
-## Missing Paths Are Errors
-
-When a map key or list element is missing, execution returns a non-retryable
-error. The error identifies the reference type, full path, failed segment, and
-resolved path prefix. This rule prevents a spelling error from silently
-becoming `nil`. A key or list element that exists and contains `nil` still
-resolves to `nil`.
-
-```elixir
-defmodule FlowReferences.MissingPath do
-  use Jido.Flow,
-    name: "flow_references_missing",
-    schema: Zoi.object(%{value: Zoi.integer()}),
-    output_schema: Zoi.map()
-
-  flow do
-    step "source",
-      action: FlowReferences.Echo,
-      params: %{value: input(:value)}
-
-    output %{
-      missing_input: select(input(:missing), :nested),
-      missing_result: select(result("source"), [:missing, :nested])
-    }
-  end
-end
-
-{:error, error} = Jido.Exec.run(FlowReferences.MissingPath, %{value: 1}, %{})
-
-"flow reference path does not exist" = Exception.message(error)
-:input = error.details.ref_type
-[:missing, :nested] = error.details.path
-[] = error.details.resolved_path
-false = Jido.Flow.Error.retryable?(error)
-```
-
-## Use Scoped References
-
-Some references exist only inside one node type:
-
-| Reference | Valid DSL field |
+| Scope | Helpers |
 | --- | --- |
-| `item(path)` | Map and Reduce `params`. |
-| `item_index()` | Map and Reduce `params`. |
-| `item_id()` | Map and Reduce `params`. |
-| `accumulator(path)` | Reduce `params`. |
-| `state(path)` | Iterate `params`, `update`, and `while`. |
-| `iteration_index()` | Iterate `params`, `update`, and `while`. |
-| `body_result(path)` | Iterate `params`, `update`, and `while`. |
+| Map params | `item`, `item_index`, `item_id` |
+| Reduce params | `item`, `item_index`, `item_id`, `accumulator` |
+| Iterate params | `state`, `iteration_index` |
+| Iterate State update | `state`, `iteration_index`, `body_result` |
+| Iterate completion | `state`, `iteration_index` |
 
-The compiler rejects a scoped reference when its runtime value does not exist.
-For example, `item()` is not valid in a Map `collection`, and `state()` is not
-valid in Iterate initial State.
+The validator rejects a local reference outside its scope. This keeps the data
+grammar explicit before execution.
 
-See [Map and Reduce](flow-collections.livemd) and [Iterate and
-State](flow-iterate-state.livemd) for complete examples.
+## Portable Literals
+
+Flow literals are `nil`, Boolean values, numbers, strings, and registered
+atoms. Lists must be proper lists. Use maps, not keyword lists. Stored JSON
+uses a trusted Registry for atoms and atom map keys.

@@ -28,8 +28,10 @@ defmodule Jido.Flow.Error do
   @type error_map :: ActionError.error_map()
 
   defmodule Invalid do
-    @moduledoc false
+    @moduledoc "An ordered group of invalid Flow definition errors."
     use Splode.ErrorClass, class: :invalid
+
+    @type t :: %__MODULE__{errors: [Exception.t()]}
   end
 
   defmodule Execution do
@@ -53,6 +55,7 @@ defmodule Jido.Flow.Error do
               details: map()
             }
 
+      @spec message(t()) :: String.t()
       def message(%{error: error}) when not is_nil(error), do: normalize_message(error)
       def message(%{message: message}), do: message
 

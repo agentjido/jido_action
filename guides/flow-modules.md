@@ -1,106 +1,73 @@
-# Author Flows With Modules
+# Flow Modules
 
-Use `Jido.Flow` for compile-time Flow authoring. The public Spark DSL shape is
-unchanged. Its one-way lowerer creates the same canonical `%Jido.Flow{}` as the
-Builder, Codec, and direct constructors.
+A Flow module is the primary source-code authoring API. Spark parses the DSL at
+compile time and lowers it once to a canonical `%Jido.Flow{}`.
 
-## Define a Flow module
+## Define A Module
 
 ```elixir
-defmodule MyApp.Flows.DoubleAfterIncrement do
+defmodule MyApp.Flows.Greeting do
   use Jido.Flow,
-    name: "double_after_increment",
-    description: "Adds one, then doubles the result",
-    schema: Zoi.object(%{value: Zoi.integer()}),
-    output_schema: Zoi.object(%{value: Zoi.integer()})
-
-  alias MyApp.Actions.{Add, Multiply}
+    name: "greeting",
+    description: "Creates one greeting",
+    schema: Zoi.object(%{name: Zoi.string()}),
+    output_schema: Zoi.object(%{message: Zoi.string()})
 
   flow do
-    step "add_one",
-      action: Add,
-      params: %{value: input(:value), amount: 1}
+    step "greet",
+      action: MyApp.Actions.CreateGreeting,
+      params: %{name: input(:name)},
+      meta: %{owner: "communications"}
 
-    step "double",
-      action: Multiply,
-      params: %{value: select(result("add_one"), :value), amount: 2}
-
-    output result("double")
+    output result("greet")
   end
 end
 ```
 
-Every Flow requires one final output expression. Result references and
-`after:` fields create dependencies. Source order does not add a dependency.
+The DSL validates syntax, Flow structure, reference scope, graph cycles, and
+target contracts during compilation. Compile errors use DSL source locations.
 
-## Public forms
+## Generated API
 
-- `step` calls one Action or derives one Subflow.
-- `choice` selects one Action option or its Action fallback.
-- `map` calls one Action for each collection item.
-- `reduce` folds a collection through one Action.
-- `iterate` runs one Action in a bounded local State loop.
-- `output` declares the required Flow result.
-
-When a `step action:` module has executable kind `:flow`, the lowerer creates
-`Jido.Flow.Subflow`. A Flow module is invalid in Choice, Map, Reduce, or
-Iterate. This rule keeps Subflow equal to one independent Flow boundary.
-
-Short and block forms remain valid. Do not mix keyword fields and a `do` block
-in one declaration.
-
-## Metadata and source data
-
-Use `meta:` for portable author metadata:
+A Flow module exposes the Action-compatible and Flow-specific functions that
+an application needs:
 
 ```elixir
-step "load",
-  action: MyApp.Actions.Load,
-  params: %{id: input(:id)},
-  meta: %{label: "Load record", tags: ["read", "database"]}
+MyApp.Flows.Greeting.name()
+MyApp.Flows.Greeting.description()
+MyApp.Flows.Greeting.schema()
+MyApp.Flows.Greeting.output_schema()
+MyApp.Flows.Greeting.validate_params(%{name: "Ada"})
+MyApp.Flows.Greeting.validate_output(%{message: "Hello"})
+MyApp.Flows.Greeting.flow()
+MyApp.Flows.Greeting.compiled()
+MyApp.Flows.Greeting.run(%{name: "Ada"}, %{})
 ```
 
-Spark keeps file, line, and column information in a separate source map. It
-does not add source data to component `meta` or the canonical Flow.
+`flow/0` returns the same canonical value for the life of the loaded module
+version. Put changing values in input or context, not in module construction.
 
-## Compile-time validation
+`compiled/0` returns derived `Jido.Flow.Compiled` data. It includes a native
+Runic workflow and the source map. It is not a storage format.
 
-Before the module compiles, Jido:
+`run/2` delegates to `Jido.Exec.run/4` with default options. Use `Jido.Exec`
+directly when you need runtime options.
 
-1. Validates Flow options and static schemas.
-2. Converts quoted expressions and conditions to canonical data.
-3. Constructs canonical component structs directly.
-4. Derives Step or Subflow through `Jido.Executable`.
-5. Checks structure, targets, references, dependencies, cycles, and output.
-6. Embeds the canonical Flow and separate source map in the module.
+## Source Metadata
 
-Invalid data raises a `CompileError` at its Spark source location. Flow
-expressions do not accept assignments, pattern matching, pipes, or application
-function calls. Put computation in an Action.
+The compiler stores file, line, and available column data in a source map
+outside the canonical Flow value. Component `meta` remains portable author
+data. This separation keeps direct, Builder, DSL, and Codec values equal.
 
-## Generated helpers
+## Use The Flow Facade
 
-`use Jido.Flow` generates:
-
-- `flow/0`
-- `compiled/0`
-- Action-compatible schema, validation, and `run/2` callbacks
-
-`flow/0` returns one stable canonical Flow for the life of the loaded module
-version. `compiled/0` is an inspection convenience. Execution reads `flow/0`
-and compiles that exact value with the module source map. It does not use a
-separate compiled value as execution authority. Put changing runtime data in
-Flow input or context.
-
-Use the shared Codec for storage:
+Inspection functions belong to `Jido.Flow`, not to each generated module.
 
 ```elixir
-{:ok, document} =
-  MyApp.Flows.DoubleAfterIncrement.flow()
-  |> Jido.Flow.Codec.encode(registry)
-```
+flow = MyApp.Flows.Greeting.flow()
 
-Use `flow/0` and `Jido.Exec.run/4` when execution options are required.
-Call `Jido.Flow.to_map/1`, `validate/1`, `validate_executable/1`,
-`dependencies/1`, `explain/1`, or `semantic_identity/1` with `flow/0` when you
-need direct Flow inspection or validation.
+Jido.Flow.validate(flow)
+Jido.Flow.dependencies(flow)
+Jido.Flow.explain(flow)
+Jido.Flow.semantic_identity(flow)
+```

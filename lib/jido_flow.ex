@@ -84,7 +84,11 @@ defmodule Jido.Flow do
   @enforce_keys Zoi.Struct.enforce_keys(@schema)
   defstruct Zoi.Struct.struct_fields(@schema)
 
-  defmacro __using__(opts_ast), do: ModuleCompiler.using(opts_ast)
+  defmacro __using__(opts_ast) do
+    quote do
+      use unquote(ModuleCompiler), unquote(opts_ast)
+    end
+  end
 
   @doc false
   defmacro __before_compile__(env), do: ModuleCompiler.before_compile(env)

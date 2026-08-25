@@ -81,6 +81,7 @@ defmodule Jido.Flow.Component do
   end
 
   @doc false
+  @spec to_map(t()) :: map()
   def to_map(%Step{} = step) do
     %{
       kind: :step,
@@ -126,6 +127,7 @@ defmodule Jido.Flow.Component do
   end
 
   @doc false
+  @spec target_modules(t()) :: [module()]
   def target_modules(%Step{action: action}), do: [action]
   def target_modules(%Subflow{flow: flow}), do: [flow]
 

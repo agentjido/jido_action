@@ -7,6 +7,10 @@ defmodule Jido.Flow.Compiler.Choice do
   alias Jido.Flow.Compiler.Target
 
   @doc false
+  @spec run(Choice.t(), map()) ::
+          {:ok, term(), map()}
+          | {:error, Exception.t(), map()}
+          | {:error, Exception.t(), map(), map()}
   def run(%Choice{} = choice, state) do
     case select_target(choice, state) do
       {:ok, target} ->

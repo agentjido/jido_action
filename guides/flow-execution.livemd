@@ -1,501 +1,180 @@
 # Executing Flows
 
-This notebook shows the `Jido.Exec` Flow execution API. It uses the same
-engine for run-to-completion and step-wise execution.
+`Jido.Exec` runs canonical Flows through native Runic workflow state. The same
+engine supports run-to-completion and step-wise execution.
 
-Run the code cells from top to bottom. Each cell returns a concrete value that
-the next cell uses.
+Run the cells from top to bottom.
 
-## Install Jido Action
+## Install The Package
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-rc.1"}])
+Mix.install([{:jido_action, "~> 3.0.0-beta.1"}])
 ```
 
-## Define The Actions
-
-The examples use small actions with explicit input and output schemas.
+## Define Actions And A Flow
 
 ```elixir
-defmodule FlowExecutionLivebook.LoadAccount do
-  use Jido.Action,
-    name: "flow_execution_load_account",
-    schema: Zoi.object(%{account_id: Zoi.string()}),
-    output_schema: Zoi.object(%{account: Zoi.map()})
+defmodule FlowExecution.Add do
+  use Jido.Action, name: "flow_execution_add"
 
   @impl true
-  def run(%{account_id: account_id}, _context) do
-    {:ok, %{account: %{id: account_id, plan: "standard"}}}
+  def run(%{left: left, right: right}, _context) do
+    {:ok, %{value: left + right}}
   end
 end
 
-defmodule FlowExecutionLivebook.LoadOrders do
-  use Jido.Action,
-    name: "flow_execution_load_orders",
-    schema: Zoi.object(%{account_id: Zoi.string()}),
-    output_schema: Zoi.object(%{orders: Zoi.list(Zoi.map())})
+defmodule FlowExecution.Combine do
+  use Jido.Action, name: "flow_execution_combine"
 
   @impl true
-  def run(%{account_id: account_id}, _context) do
-    {:ok, %{orders: [%{account_id: account_id, total: 12}]}}
+  def run(%{left: left, right: right}, _context) do
+    {:ok, %{total: left + right}}
   end
 end
 
-defmodule FlowExecutionLivebook.BuildSummary do
-  use Jido.Action,
-    name: "flow_execution_build_summary",
-    schema: Zoi.object(%{account: Zoi.map(), orders: Zoi.list(Zoi.map())}),
-    output_schema: Zoi.object(%{account_id: Zoi.string(), order_count: Zoi.integer()})
-
-  @impl true
-  def run(%{account: account, orders: orders}, _context) do
-    {:ok, %{account_id: account.id, order_count: length(orders)}}
-  end
-end
-
-defmodule FlowExecutionLivebook.RecordAudit do
-  use Jido.Action,
-    name: "flow_execution_record_audit",
-    schema: Zoi.object(%{message: Zoi.string()}),
-    output_schema: Zoi.object(%{recorded: Zoi.boolean()})
-
-  @impl true
-  def run(%{message: _message}, _context), do: {:ok, %{recorded: true}}
-end
-
-defmodule FlowExecutionLivebook.Fail do
-  use Jido.Action,
-    name: "flow_execution_fail",
-    schema: Zoi.object(%{}),
-    output_schema: Zoi.object(%{ok: Zoi.boolean()})
-
-  @impl true
-  def run(_params, _context), do: {:error, "demo failure"}
-end
-
-defmodule FlowExecutionLivebook.Route do
-  use Jido.Action,
-    name: "flow_execution_route",
-    schema: Zoi.object(%{route: Zoi.atom()}),
-    output_schema: Zoi.object(%{route: Zoi.atom()})
-
-  @impl true
-  def run(params, _context), do: {:ok, params}
-end
-
-defmodule FlowExecutionLivebook.ChildSummary do
-  use Jido.Action,
-    name: "flow_execution_child_summary",
-    schema: Zoi.object(%{account_id: Zoi.string()}),
-    output_schema: Zoi.object(%{account_id: Zoi.string(), order_count: Zoi.integer()})
-
-  @impl true
-  def run(%{account_id: account_id}, _context) do
-    {:ok, %{account_id: account_id, order_count: 0}}
-  end
-end
-```
-
-## Define A Flow
-
-The first two nodes are independent. The summary node depends on both of
-them.
-
-```elixir
-defmodule FlowExecutionLivebook.BuildReport do
-  use Jido.Flow,
-    name: "flow_execution_build_report",
-    schema: Zoi.object(%{account_id: Zoi.string()}),
-    output_schema: Zoi.object(%{account_id: Zoi.string(), order_count: Zoi.integer()})
+defmodule FlowExecution.Diamond do
+  use Jido.Flow, name: "flow_execution_diamond"
 
   flow do
-    step "load_account",
-      action: FlowExecutionLivebook.LoadAccount,
-      params: %{account_id: input(:account_id)}
+    step "left",
+      action: FlowExecution.Add,
+      params: %{left: input(:value), right: 1}
 
-    step "load_orders",
-      action: FlowExecutionLivebook.LoadOrders,
-      params: %{account_id: input(:account_id)}
+    step "right",
+      action: FlowExecution.Add,
+      params: %{left: input(:value), right: 2}
 
-    step "build_summary",
-      action: FlowExecutionLivebook.BuildSummary,
+    step "combine",
+      action: FlowExecution.Combine,
       params: %{
-        account: select(result("load_account"), :account),
-        orders: select(result("load_orders"), :orders)
+        left: result("left", :value),
+        right: result("right", :value)
       }
 
-    output result("build_summary")
+    output(%{result: result("combine")})
   end
 end
 ```
 
 ## Run To Completion
 
-`run/4` validates the Flow, executes all ready waves, and returns the declared
-Flow result.
-
 ```elixir
-{:ok, %{account_id: "acct-123", order_count: 1}} =
-  Jido.Exec.run(
-    FlowExecutionLivebook.BuildReport,
-    %{account_id: "acct-123"},
-    %{request_id: "req-123"}
-  )
+{:ok, %{result: %{total: 13}}} =
+  Jido.Exec.run(FlowExecution.Diamond, %{value: 5})
 ```
 
-The same function accepts a canonical `%Jido.Flow{}` artifact:
+Enable concurrent independent work at the call boundary.
 
 ```elixir
-flow = FlowExecutionLivebook.BuildReport.flow()
-
-%Jido.Flow{name: "flow_execution_build_report"} = flow
-
-{:ok, %{account_id: "acct-456", order_count: 1}} =
-  Jido.Exec.run(flow, %{account_id: "acct-456"}, %{})
-```
-
-## Run Independent Nodes In Parallel
-
-Flows run serially by default. Set `async: true` to schedule independent nodes
-in one ready wave concurrently. `max_concurrency` must be a positive integer.
-It bounds active Action calls across the full in-memory execution, including
-calls from concurrent Map nodes and nested Flow targets.
-
-```elixir
-{:ok, %{account_id: "acct-789", order_count: 1}} =
+{:ok, result} =
   Jido.Exec.run(
-    FlowExecutionLivebook.BuildReport,
-    %{account_id: "acct-789"},
+    FlowExecution.Diamond,
+    %{value: 5},
     %{},
     async: true,
     max_concurrency: 2
   )
 ```
 
-Dependencies do not change when `async` is enabled. `build_summary` still waits
-for both data components. Runic controls runnable readiness. The authored
-output expression controls the final result shape. The current API does not
-expose a per-runnable timeout.
-
-## Start A Paused Execution
-
-`start/4` validates the Flow, input, context, and options, then pauses before
-the first native Runic runnable.
+## Start Paused
 
 ```elixir
 {:ok, execution} =
   Jido.Exec.start(
-    FlowExecutionLivebook.BuildReport,
-    %{account_id: "acct-step"},
-    %{request_id: "req-step"}
-  )
-
-:running = Jido.Exec.status(execution)
-[%Runic.Workflow.Runnable{}, %Runic.Workflow.Runnable{}] = Jido.Exec.ready(execution)
-```
-
-The execution is an opaque, caller-owned, in-memory value. `ready/1` returns
-native Runic work. This can include Steps, joins, bindings, FanOuts, and
-FanIns.
-
-## Step One Node
-
-`step/2` executes a selected ready runnable. `step/1` executes the first ready
-runnable.
-
-```elixir
-[account_runnable | _] = Jido.Exec.ready(execution)
-{:ok, %Runic.Workflow.Runnable{status: :completed}, execution} =
-  Jido.Exec.step(execution, account_runnable)
-
-{:ok, runnables, execution} = Jido.Exec.wave(execution)
-true = Enum.all?(runnables, &(&1.status == :completed))
-```
-
-Selecting a runnable ID that is not ready returns `{:error, error}` and does
-not change the execution. A runnable failure is an applied transition.
-
-## Execute A Wave
-
-`wave/1` freezes the current ready set. Runnables that become ready during the wave
-wait for the next wave.
-
-```elixir
-{:ok, wave_execution} =
-  Jido.Exec.start(
-    FlowExecutionLivebook.BuildReport,
-    %{account_id: "acct-wave"},
+    FlowExecution.Diamond,
+    %{value: 5},
     %{},
     async: true,
     max_concurrency: 2
   )
 
-{:ok, wave_results, wave_execution} = Jido.Exec.wave(wave_execution)
-true = Enum.all?(wave_results, &match?(%Runic.Workflow.Runnable{status: :completed}, &1))
-[%Runic.Workflow.Runnable{node: %{name: "build_summary"}}] =
-  Jido.Exec.ready(wave_execution)
+:running = Jido.Exec.status(execution)
+ready = Jido.Exec.ready(execution)
 ```
 
-With `async: false`, the runnables in the wave run serially. With `async: true`,
-independent runnables can run concurrently up to `max_concurrency`.
+`ready` contains native `Runic.Workflow.Runnable` values. It can include
+authored components and Runic support work.
 
-Jido executes the complete frozen ready set. If a runnable fails, other work in
-that set can also finish. Jido applies all results in the wave and does not
-dispatch a later wave after a failure.
+## Step One Runnable
+
+```elixir
+[runnable | _] = ready
+
+{:ok, %Runic.Workflow.Runnable{} = applied, execution} =
+  Jido.Exec.step(execution, runnable.id)
+
+{applied.status, Jido.Exec.status(execution)}
+```
+
+`step/1` selects the first ready runnable. `step/2` accepts a ready Runnable or
+its integer ID. A work failure can return an applied Runnable with
+`status: :failed`.
+
+## Run A Wave
+
+```elixir
+{:ok, applied, execution} = Jido.Exec.wave(execution)
+
+Enum.map(applied, & &1.status)
+```
+
+A wave runs the complete set that is ready when the call begins. Work that
+becomes ready waits for the next operation. The wave consumes one execution
+revision.
 
 ## Continue And Read The Result
 
-`continue/1` runs all remaining waves and returns the terminal execution.
-`result/1` reads its cached Flow result.
-
 ```elixir
-{:ok, wave_execution} = Jido.Exec.continue(wave_execution)
-:succeeded = Jido.Exec.status(wave_execution)
-[] = Jido.Exec.ready(wave_execution)
+{:ok, execution} = Jido.Exec.continue(execution)
 
-{:ok, %{account_id: "acct-wave", order_count: 1}} =
-  Jido.Exec.result(wave_execution)
+:succeeded = Jido.Exec.status(execution)
+{:ok, %{result: %{total: 13}}} = Jido.Exec.result(execution)
 ```
 
-`result/1` returns a validation error while the execution is still running.
-Repeated calls on a terminal execution do not run actions again.
+Always pass the latest Execution value. Reusing an old revision returns
+`Jido.Flow.Error.InvalidExecutionError` before Action work starts.
 
-## Handle An Applied Runnable Failure
-
-Define a Flow with one failing root component and one independent root
-component. A selected runnable failure stops the Flow before Jido dispatches
-the other ready work.
+## Observe Failure
 
 ```elixir
-defmodule FlowExecutionLivebook.FailureFlow do
-  use Jido.Flow,
-    name: "flow_execution_failure_flow",
-    schema: Zoi.object(%{}),
-    output_schema: Zoi.object(%{recorded: Zoi.boolean()})
+defmodule FlowExecution.Fail do
+  use Jido.Action, name: "flow_execution_fail"
 
-  flow do
-    step "fail",
-      action: FlowExecutionLivebook.Fail,
-      params: %{}
-
-    step "record_audit",
-      action: FlowExecutionLivebook.RecordAudit,
-      params: %{message: "failure observed"}
-
-    output result("record_audit")
-  end
+  @impl true
+  def run(_params, _context), do: {:error, :not_available}
 end
 
-{:ok, failure_execution} = Jido.Exec.start(FlowExecutionLivebook.FailureFlow)
-failed_runnable =
-  Enum.find(Jido.Exec.ready(failure_execution), &(&1.node.name == "fail"))
-
-{:ok, %Runic.Workflow.Runnable{status: :failed}, failure_execution} =
-  Jido.Exec.step(failure_execution, failed_runnable)
-
-:failed = Jido.Exec.status(failure_execution)
-[] = Jido.Exec.ready(failure_execution)
-{:error, _flow_error} = Jido.Exec.result(failure_execution)
-```
-
-The `:ok` tuple means Jido applied the requested transition. Inspect the
-Runnable to find the error. `{:error, error}` is reserved for invalid API calls
-or a transition that Jido could not apply.
-
-## Step Through A Choice
-
-A Choice compiles to one native Step. It evaluates its conditions and runs
-only the selected target.
-
-```elixir
-defmodule FlowExecutionLivebook.RouteFlow do
-  use Jido.Flow,
-    name: "flow_execution_route_flow",
-    schema: Zoi.object(%{route: Zoi.atom()}),
-    output_schema: Zoi.object(%{route: Zoi.atom()})
+defmodule FlowExecution.Failing do
+  use Jido.Flow, name: "flow_execution_failing"
 
   flow do
-    choice "route" do
-      option "priority",
-        condition: input(:route) == :priority,
-        action: FlowExecutionLivebook.Route,
-        params: %{route: :priority}
-
-      otherwise action: FlowExecutionLivebook.Route,
-                params: %{route: :standard}
-    end
-
-    output result("route")
+    step "fail", action: FlowExecution.Fail, params: %{}
+    output(%{result: result("fail")})
   end
 end
-
-{:ok, choice_execution} =
-  Jido.Exec.start(FlowExecutionLivebook.RouteFlow, %{route: :priority}, %{})
-
-[choice_runnable] = Jido.Exec.ready(choice_execution)
-{:ok, %Runic.Workflow.Runnable{status: :completed}, choice_execution} =
-  Jido.Exec.step(choice_execution, choice_runnable)
-:succeeded = Jido.Exec.status(choice_execution)
-{:ok, %{route: :priority}} = Jido.Exec.result(choice_execution)
 ```
-
-## Pass The Latest Execution Value
-
-Execution values are immutable. Every step returns a new execution. Always
-pass the latest value to the next call.
 
 ```elixir
-{:ok, latest_execution} = Jido.Exec.start(FlowExecutionLivebook.BuildReport, %{account_id: "acct-latest"})
-{:ok, _first_node, latest_execution} = Jido.Exec.step(latest_execution)
-{:ok, _second_node, latest_execution} = Jido.Exec.step(latest_execution)
-{:ok, latest_execution} = Jido.Exec.continue(latest_execution)
-:succeeded = Jido.Exec.status(latest_execution)
+{:error, error} = Jido.Exec.run(FlowExecution.Failing)
+Exception.message(error)
 ```
 
-Do not reuse an older execution value. Reusing it can run an action again and
-repeat an external side effect. The execution can move between processes, but
-it is not a durable checkpoint or a persistence format. Jido cannot recover
-this value after a process or deployment failure.
+A failed runnable stops new dispatch after Jido applies the failure. Work that
+already started in the same wave can finish. When multiple wave runnables
+fail, the Flow error keeps a canonical failure list.
 
-## Collections Use Native Runic Work
+## Native Work Is Public
 
-Map lowers to native Map, FanOut, item Step, FanIn, collector, and output work.
-Reduce lowers to native Reduce and FanIn work. `ready/1`, `step/2`, and
-`wave/1` expose this work. A caller can pause at each Runic boundary.
+Map exposes FanOut, item work, FanIn, and output work. Reduce uses native
+Reduce and FanIn work. Subflow exposes its nested Workflow and InputBinding
+work. A Join can enforce explicit or inferred dependencies.
 
-With `async: true`, Map can schedule item calls concurrently up to
-`max_concurrency`. All Map components in the execution share that Action-call
-limit. Map output stays in source order. Reduce work stays serial.
+This native surface keeps one scheduler and one graph state. Do not assume
+that every ready Runnable is one authored component.
 
-Iterate lowers to one bounded native Step. One execution of that Step completes
-all iterations. The API does not pause inside Iterate.
+## Execution Lifetime
 
-See [Map and Reduce](flow-collections.livemd) and [Iterate and
-State](flow-iterate-state.livemd) for the element syntax and result shapes.
-
-## Nested Flows Use Native Workflow Boundaries
-
-A Subflow lowers to a native Runic Workflow boundary. The step-wise API exposes
-the child input validator, child Steps, child output validator, and connection
-work.
-
-```elixir
-defmodule FlowExecutionLivebook.Child do
-  use Jido.Flow,
-    name: "flow_execution_child",
-    schema: Zoi.object(%{account_id: Zoi.string()}),
-    output_schema: Zoi.object(%{account_id: Zoi.string(), order_count: Zoi.integer()})
-
-  flow do
-    step "summary",
-      action: FlowExecutionLivebook.ChildSummary,
-      params: %{account_id: input(:account_id)}
-
-    output result("summary")
-  end
-end
-
-defmodule FlowExecutionLivebook.Parent do
-  use Jido.Flow,
-    name: "flow_execution_parent",
-    schema: Zoi.object(%{account_id: Zoi.string()}),
-    output_schema: Zoi.object(%{child: Zoi.map()})
-
-  flow do
-    step "child",
-      action: FlowExecutionLivebook.Child,
-      params: %{account_id: input(:account_id)}
-
-    output %{child: result("child")}
-  end
-end
-
-{:ok, parent_execution} =
-  Jido.Exec.start(FlowExecutionLivebook.Parent, %{account_id: "acct-child"}, %{})
-
-[%Runic.Workflow.Runnable{} = child_runnable] = Jido.Exec.ready(parent_execution)
-{:ok, %Runic.Workflow.Runnable{status: :completed}, parent_execution} =
-  Jido.Exec.step(parent_execution, child_runnable)
-{:ok, parent_execution} = Jido.Exec.continue(parent_execution)
-:succeeded = Jido.Exec.status(parent_execution)
-```
-
-The native step-wise API exposes child validators, child Steps, and connection
-work. The child Flow inherits the parent context and execution settings.
-
-## Observe Execution With Telemetry
-
-Jido emits 21 events. Twelve events describe the top-level lifecycles:
-
-- `[:jido, :action, :start]`, `[:jido, :action, :stop]`, and
-  `[:jido, :action, :error]` for direct Actions and Instructions;
-- `[:jido, :flow, :start]`, `[:jido, :flow, :stop]`, and
-  `[:jido, :flow, :error]`; and
-- `[:jido, :flow, :node, :start]`, `[:jido, :flow, :node, :stop]`, and
-  `[:jido, :flow, :node, :error]`; and
-- `[:jido, :flow, :target, :start]`, `[:jido, :flow, :target, :stop]`, and
-  `[:jido, :flow, :target, :error]` for Step targets and the selected Choice
-  target.
-
-Nine events describe Action work inside collection nodes:
-
-- `[:jido, :flow, :map, :item, :start]`, `:stop`, and `:error`;
-- `[:jido, :flow, :reduce, :item, :start]`, `:stop`, and `:error`; and
-- `[:jido, :flow, :iterate, :iteration, :start]`, `:stop`, and `:error`.
-
-Start measurements are `%{system_time: integer, monotonic_time: integer}`.
-Stop and error measurements are `%{duration: integer, monotonic_time: integer}`.
-
-Action metadata is `%{execution_id: binary, kind: :action | :instruction,
-name: term}`. Flow metadata is `%{execution_id: binary, flow: binary}`. Node
-metadata is `%{execution_id: binary, flow: binary, node: binary, kind: :step |
-:choice | :map | :reduce | :iterate}`. Error events add `:error` and
-`:error_type`.
-
-Target metadata is `%{execution_id: binary, flow: binary, node: binary, kind:
-:step | :choice, target: module, option: term}`. A Step uses `option: nil`. A
-Choice reports the selected option.
-
-Map and Reduce work units add `target`, `item_index`, and `item_id`. Iterate
-work units add `target`, `iteration_index`, `iteration_id`, and
-`state_revision`. All work units also include `execution_id`, `flow`, `node`,
-and a work-unit `kind`.
-
-One `execution_id` correlates a Flow, child work, and all component spans. In
-serial execution, a Flow contains its component spans. A Step or Choice Action
-has a target span inside its node span. Collection Actions have work-unit
-spans. Flow targets do not emit a separate direct Action lifecycle. Native
-support runnables do not get an artificial Jido component span. Async node
-spans can overlap and can come from task processes. Each span measures that
-worker's node work. Async event order can follow scheduler and completion
-order, so correlate events by `execution_id` and node metadata.
-
-Collection work-unit events can have high volume. Attach a handler only when
-you need item or iteration detail.
-
-For step-wise execution, `start/4` opens the Flow lifecycle. Node events occur
-only when a step or wave runs them. The operation that reaches a terminal
-result closes the Flow lifecycle. If a caller abandons a paused execution, it
-has no stop or error event.
-
-Jido does not emit scheduler, State transition, completion, or exhaustion
-point events. Work-unit error events report failed collection Action calls.
-Telemetry observes work. It does not schedule work, send runtime coordination
-messages, create helper processes, or change results.
-
-## Current Execution Limits
-
-The current public Flow API does not provide:
-
-- per-node retries or retry backoff;
-- per-node timeouts or a Flow deadline;
-- cancellation or rewind;
-- persistent checkpoints or restart-safe resume;
-- step-wise control of Map items, Reduce items, or Iterate iterations; and
-- exactly-once guarantees for external Action side effects.
-
-Place these policies in the caller or a higher-level runtime package. Design
-external effects to be idempotent when a stale execution value or process
-failure could cause a repeat. That outer runtime also owns queues, scheduling,
-recovery, supervision, distributed coordination, and deployment-safe
-continuation.
+An Execution is caller-owned in-memory state. It is not a persistent
+checkpoint. It cannot resume safely after deployment or process recovery.
+Use a higher-level runtime for queues, persistence, retry, cancellation policy,
+recovery, and distributed coordination.

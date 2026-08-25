@@ -1,114 +1,100 @@
 # Build Your First Flow
 
-This notebook builds and runs a two-step Flow. The Flow adds one to a value,
-then doubles the result. It uses the Elixir Flow module authoring surface and
-returns the canonical `%Jido.Flow{}` artifact.
+This Livebook builds a small Flow module. A Flow is a validated graph of Action
+calls with one explicit output.
 
-Run the code cells from top to bottom.
+Run the cells from top to bottom.
 
-## Install Jido Action
+## Install The Package
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-rc.1"}])
+Mix.install([{:jido_action, "~> 3.0.0-beta.1"}])
 ```
 
 ## Define The Actions
 
-Flow steps call normal `Jido.Action` modules. The actions validate their input
-and output so the Flow can pass data between them.
+Keep transformation logic in Actions. Keep the Flow focused on data movement
+and dependencies.
 
 ```elixir
-defmodule BuildFirstFlow.AddOne do
+defmodule FirstFlow.NormalizeName do
   use Jido.Action,
-    name: "add_one",
-    schema: Zoi.object(%{value: Zoi.integer()}),
-    output_schema: Zoi.object(%{value: Zoi.integer()})
+    name: "normalize_name",
+    schema: Zoi.object(%{name: Zoi.string()}),
+    output_schema: Zoi.object(%{name: Zoi.string()})
 
   @impl true
-  def run(%{value: value}, _context), do: {:ok, %{value: value + 1}}
+  def run(%{name: name}, _context) do
+    {:ok, %{name: name |> String.trim() |> String.capitalize()}}
+  end
 end
 
-defmodule BuildFirstFlow.Double do
+defmodule FirstFlow.Greet do
   use Jido.Action,
-    name: "double",
-    schema: Zoi.object(%{value: Zoi.integer()}),
-    output_schema: Zoi.object(%{value: Zoi.integer()})
+    name: "greet",
+    schema: Zoi.object(%{name: Zoi.string()}),
+    output_schema: Zoi.object(%{message: Zoi.string()})
 
   @impl true
-  def run(%{value: value}, _context), do: {:ok, %{value: value * 2}}
-end
-```
-
-## Define The Flow Module
-
-`use Jido.Flow` gives the module Flow metadata, validation callbacks, and a
-`flow/0` function. A result reference creates the dependency from `"double"`
-to `"add_one"`.
-
-```elixir
-defmodule BuildFirstFlow.DoubleAfterIncrement do
-  use Jido.Flow,
-    name: "double_after_increment",
-    description: "Adds one, then doubles the value",
-    schema: Zoi.object(%{value: Zoi.integer()}),
-    output_schema: Zoi.object(%{value: Zoi.integer()})
-
-  flow do
-    step "add_one",
-      action: BuildFirstFlow.AddOne,
-      params: %{value: input(:value)}
-
-    step "double",
-      action: BuildFirstFlow.Double,
-      params: %{value: select(result("add_one"), :value)}
-
-    output result("double")
+  def run(%{name: name}, _context) do
+    {:ok, %{message: "Hello, " <> name <> "!"}}
   end
 end
 ```
 
-## Run The Flow
+## Define The Flow
 
-Use `Jido.Exec.run/3` with the Flow module. The required `output` expression
-selects the complete `double` result.
+`input/1` reads Flow input. `result/2` reads a prior component result. The
+result reference creates the dependency between the two Steps.
 
 ```elixir
-{:ok, %{value: 8}} =
-  Jido.Exec.run(BuildFirstFlow.DoubleAfterIncrement, %{value: 3}, %{})
+defmodule FirstFlow.Greeting do
+  use Jido.Flow,
+    name: "greeting",
+    description: "Normalizes a name and creates a greeting",
+    schema: Zoi.object(%{name: Zoi.string()}),
+    output_schema: Zoi.object(%{message: Zoi.string()})
+
+  flow do
+    step "normalize",
+      action: FirstFlow.NormalizeName,
+      params: %{name: input(:name)}
+
+    step "greet",
+      action: FirstFlow.Greet,
+      params: %{name: result("normalize", :name)}
+
+    output result("greet")
+  end
+end
 ```
 
-The canonical Flow artifact can also be passed directly to `Jido.Exec`.
+Source order does not create a dependency. References and `after:` create
+dependencies.
+
+## Inspect And Run
+
+A Flow module exposes one canonical `%Jido.Flow{}` value.
 
 ```elixir
-flow = BuildFirstFlow.DoubleAfterIncrement.flow()
+flow = FirstFlow.Greeting.flow()
 
-%Jido.Flow{name: "double_after_increment", components: components} = flow
-2 = length(components)
-
-{:ok, %{value: 8}} = Jido.Exec.run(flow, %{value: 3}, %{})
-```
-
-## Inspect The Flow
-
-The artifact contains named nodes and one canonical output expression. Use public
-inspection functions to see dependencies and a deterministic explanation.
-
-```elixir
 {:ok, dependencies} = Jido.Flow.dependencies(flow)
-%{after: [], references: [], effective: []} = dependencies["add_one"]
-%{after: [], references: ["add_one"], effective: ["add_one"]} = dependencies["double"]
-
-{:ok, explanation} = Jido.Flow.explain(flow)
-
-["add_one", "double"] = Enum.map(explanation.components, & &1.name)
+dependencies["greet"]
 ```
 
-The node inputs contain data expressions. The Flow lowerer converts those
-expressions into canonical references before execution.
+Run the module or the canonical value.
 
-## Continue Learning
+```elixir
+{:ok, %{message: "Hello, Ada!"}} =
+  Jido.Exec.run(FirstFlow.Greeting, %{name: "  ada  "})
 
-- [Flow Language](flow-language.livemd) introduces the complete language.
-- [Flow Steps](flow-steps.livemd) explains step forms, output, and metadata.
-- [Flow References](flow-references.livemd) explains data mapping and paths.
-- [Executing Flows](flow-execution.livemd) explains run-to-completion and step-wise execution.
+{:ok, %{message: "Hello, Grace!"}} =
+  Jido.Exec.run(flow, %{name: "grace"})
+```
+
+## Next
+
+Use [Flow DSL](flow-language.livemd) for the complete language. Use
+[Executing Flows](flow-execution.livemd) for run-to-completion and step-wise
+execution.

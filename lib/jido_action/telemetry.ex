@@ -9,6 +9,7 @@ defmodule Jido.Action.Telemetry do
           started_at: integer()
         }
 
+  @doc "Creates a random execution correlation identifier."
   @spec execution_id() :: String.t()
   def execution_id do
     16
@@ -16,6 +17,7 @@ defmodule Jido.Action.Telemetry do
     |> Base.url_encode64(padding: false)
   end
 
+  @doc "Starts one telemetry span and returns its local span data."
   @spec start([atom()], map()) :: span()
   def start(event, metadata) do
     started_at = System.monotonic_time()
@@ -29,16 +31,19 @@ defmodule Jido.Action.Telemetry do
     %{event: event, metadata: metadata, started_at: started_at}
   end
 
+  @doc "Stops one telemetry span successfully."
   @spec stop(span()) :: :ok
   def stop(span) do
     emit_terminal(span, :stop, %{})
   end
 
+  @doc "Stops one telemetry span with an error."
   @spec error(span(), term()) :: :ok
   def error(span, error) do
     emit_terminal(span, :error, %{error: error, error_type: error_type(error)})
   end
 
+  @doc "Stops a span from a result tuple and returns the result unchanged."
   @spec finish(span(), term()) :: term()
   def finish(span, result) do
     case result do

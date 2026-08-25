@@ -34,11 +34,16 @@ defmodule Jido.Flow.Compiler.Target do
   }
 
   @doc false
+  @spec node(Jido.Flow.Step.t()) :: t()
   def node(%Jido.Flow.Step{} = node) do
     %__MODULE__{kind: :node, details: %{node: node.name, action: node.action}}
   end
 
   @doc false
+  @spec choice(
+          Jido.Flow.Choice.t(),
+          Jido.Flow.Choice.Option.t() | Jido.Flow.Choice.Fallback.t()
+        ) :: t()
   def choice(choice, target) do
     %__MODULE__{
       kind: :choice,
@@ -47,6 +52,7 @@ defmodule Jido.Flow.Compiler.Target do
   end
 
   @doc false
+  @spec map(Jido.Flow.Map.t(), map()) :: t()
   def map(map, item) do
     %__MODULE__{
       kind: :map,
@@ -60,6 +66,7 @@ defmodule Jido.Flow.Compiler.Target do
   end
 
   @doc false
+  @spec reduce(Jido.Flow.Reduce.t(), map()) :: t()
   def reduce(reduce, item) do
     %__MODULE__{
       kind: :reduce,
@@ -73,6 +80,7 @@ defmodule Jido.Flow.Compiler.Target do
   end
 
   @doc false
+  @spec iterator(Jido.Flow.Iterate.t(), non_neg_integer(), String.t(), non_neg_integer()) :: t()
   def iterator(iterator, iteration_index, iteration_id, state_revision) do
     %__MODULE__{
       kind: :iterate,
@@ -87,6 +95,8 @@ defmodule Jido.Flow.Compiler.Target do
   end
 
   @doc false
+  @spec run(module(), term(), map(), t(), String.t(), Jido.Flow.Compiler.target_runner()) ::
+          {:ok, term()} | {:error, Exception.t()}
   def run(action, params, context, %__MODULE__{} = owner, execution_id, target_runner) do
     case target_runner.(action, params, context, execution_id, owner) do
       {:ok, output} ->
@@ -101,6 +111,8 @@ defmodule Jido.Flow.Compiler.Target do
   end
 
   @doc false
+  @spec tag_validation({:ok, term()} | {:error, Exception.t()}, t()) ::
+          {:ok, term()} | {:error, Exception.t()}
   def tag_validation(result, %__MODULE__{} = owner) do
     tag(result, :input, owner, :validation)
   end

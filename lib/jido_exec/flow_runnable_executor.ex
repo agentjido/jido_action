@@ -8,6 +8,7 @@ defmodule Jido.Exec.FlowRunnableExecutor do
   alias Runic.Workflow
   alias Runic.Workflow.Runnable
 
+  @doc "Executes one native Runnable and records its node telemetry."
   @spec execute(Execution.t(), Runnable.t()) :: Runnable.t()
   def execute(%Execution{} = execution, %Runnable{} = runnable) do
     span = start_span(execution, runnable)
@@ -16,6 +17,7 @@ defmodule Jido.Exec.FlowRunnableExecutor do
     executed
   end
 
+  @doc "Executes native Runnables in order with the configured concurrency policy."
   @spec execute_many(Execution.t(), [Runnable.t()]) :: [Runnable.t()]
   def execute_many(%Execution{} = execution, runnables) when is_list(runnables) do
     if Keyword.fetch!(execution.options, :async) do

@@ -1,120 +1,89 @@
 # Flows
 
-A Flow is one canonical `%Jido.Flow{}` authoring value. It describes named
-components and one required output expression.
+A `Jido.Flow` is the canonical authoring value for a local workflow. It is
+Action-compatible and lowers to native Runic workflow data for execution.
 
-```elixir
-step =
-  Jido.Flow.Step.new!(
-    name: "double",
-    action: MyApp.Actions.Double,
-    params: %{value: Jido.Flow.Ref.input(:value)}
-  )
+## Canonical Value
 
-flow =
-  Jido.Flow.new!(
-    name: "double_value",
-    components: [step],
-    output: Jido.Flow.Ref.result("double")
-  )
+A Flow has six fields:
+
+| Field | Type | Purpose |
+| --- | --- | --- |
+| `name` | string | Stable human-readable name. |
+| `description` | string or `nil` | Optional description. |
+| `schema` | static Zoi schema or `[]` | Input contract. |
+| `output_schema` | static Zoi schema or `[]` | Output contract. |
+| `components` | ordered component list | Author-declared graph data. |
+| `output` | expression | Required Flow result. |
+
+The component types are:
+
+- `Jido.Flow.Step` for one Action call;
+- `Jido.Flow.Subflow` for one child Flow module;
+- `Jido.Flow.Choice` for ordered routing with a required fallback;
+- `Jido.Flow.Map` for ordered fan-out and fan-in;
+- `Jido.Flow.Reduce` for a serial left fold; and
+- `Jido.Flow.Iterate` for a bounded local loop.
+
+Each component has a name, explicit `after` dependencies, and portable `meta`
+data. Data references create inferred dependencies. Jido keeps explicit and
+inferred dependencies separate.
+
+## One Expression Grammar
+
+Expressions contain portable scalar values, proper lists, maps, and
+`Jido.Flow.Ref` values. Conditions use `Jido.Flow.Condition` with these
+operators:
+
+```text
+eq  neq  lt  lte  gt  gte  in  all  any  not
 ```
 
-The canonical value contains author intent only. It does not contain a Runic
-workflow, effective dependencies, a topological order, runtime results, or
-Spark source locations.
+References can read Flow input, context, prior component results, and
+component-local Map, Reduce, or Iterate values. A reference is valid only in
+its defined scope.
 
-## Canonical components
+The authoring grammar permits any expression at `output`. At execution, a
+normal Flow result must be a map. Use `Jido.Action.Output` when a Flow must
+return an intentional raw, stream, batch, or opaque value.
 
-- `Jido.Flow.Step` calls one Action.
-- `Jido.Flow.Subflow` calls one Flow-compatible Action as a Flow boundary.
-- `Jido.Flow.Choice` selects the first matching Action option or its required
-  Action fallback.
-- `Jido.Flow.Map` applies one Action to collection items.
-- `Jido.Flow.Reduce` folds collection items through one Action.
-- `Jido.Flow.Iterate` runs one Action in a bounded local loop.
+## Four Authoring Forms
 
-Only a Spark `step` or `Builder.step/5` derives a Subflow. It uses the exact
-`Jido.Executable` kind. Choice, Map, Reduce, and Iterate contain Action-only
-slots. A Flow module in one of these slots is an executable validation error.
+All supported forms produce the same canonical value:
 
-Every component has `name`, `after`, and `meta` fields. The `after` list stores
-explicit author control order only. Result references create derived data
-dependencies. Validation does not copy these dependencies into `after`.
+1. a module that uses `Jido.Flow`;
+2. direct construction with `Jido.Flow.new/1` and component constructors;
+3. `Jido.Flow.Builder` for runtime construction; and
+4. `Jido.Flow.Codec.decode/2` for stored JSON data.
 
-`meta` contains portable author data. Spark file, line, and column information
-is stored in the `source_map` field of `Jido.Flow.Compiled`. It does not change
-the canonical Flow or its semantic identity.
+The module DSL is the normal source-code API. Direct constructors are also an
+official API. Builder and Codec input pass through the same canonical
+validation.
 
-## One expression grammar
+## Author Data And Runtime Data
 
-Expressions contain portable scalar data, lists, maps, or `Jido.Flow.Ref`
-values. Literals stay as literals. Conditions use the same expressions.
+A Flow stores author intent. `Jido.Flow.compile/2` derives a
+`Jido.Flow.Compiled` value with a native `Runic.Workflow`, component indexes,
+source locations, and a compilation digest. Do not store the compiled value.
 
-References can read Flow input, runtime context, named component results, and
-component-local values. Map and Reduce add item references. Reduce adds an
-accumulator reference. Iterate adds state, iteration index, and body result
-references. Validation rejects a local reference outside its owner component.
+`Jido.Exec` compiles and runs a Flow. Step-wise execution exposes native
+`Runic.Workflow.Runnable` values, including support work such as Join,
+InputBinding, FanOut, and FanIn.
 
-## Four authoring routes
-
-These routes produce equal canonical values:
-
-- The unchanged Spark module DSL
-- `Jido.Flow.Builder`
-- `Jido.Flow.Codec.decode/2` with a trusted Registry
-- Direct component and Flow construction
-
-The Spark lowerer is a one-way syntax adapter. It creates canonical component
-structs directly. The Builder also stores canonical component structs.
-
-## Stored JSON
-
-Use the Codec for storage:
+## Validation And Inspection
 
 ```elixir
-{:ok, document} = Jido.Flow.Codec.encode(flow, registry)
-json = JSON.encode!(document)
-
-{:ok, restored} =
-  json
-  |> JSON.decode!()
-  |> Jido.Flow.Codec.decode(registry)
-
-restored == flow
-```
-
-The trusted `Jido.Flow.Registry` supplies stable identifiers for Action
-modules, Flow modules, schemas, and user-data atoms. The decoder does not make
-atoms or derive modules from JSON strings.
-
-## Inspection and derived data
-
-```elixir
+{:ok, flow} = Jido.Flow.validate(flow)
+{:ok, flow} = Jido.Flow.validate_executable(flow)
 {:ok, dependencies} = Jido.Flow.dependencies(flow)
 {:ok, explanation} = Jido.Flow.explain(flow)
 {:ok, identity} = Jido.Flow.semantic_identity(flow)
-semantic_map = Jido.Flow.to_map(flow)
 ```
 
-Dependency inspection reports `after`, `references`, and `effective`
-separately. `Jido.Flow.Compiled` is the container for derived Runic workflow
-data, component indexes, compiled output selection, source data, and the
-compilation digest.
+`validate/1` is inert and does not load or check target modules.
+`validate_executable/1` also checks Action and child Flow contracts. Neither
+function runs Action work.
 
-```elixir
-{:ok, %Jido.Flow.Compiled{} = compiled} = Jido.Flow.compile(flow)
-```
-
-`Jido.Exec` executes this native workflow. Its step-wise API exposes native
-Runic Runnable values, including support work when Runic adds it.
-
-## Continue with the Flow guides
-
-- [Build Your First Flow](build-your-first-flow.livemd)
-- [Flow Language](flow-language.livemd)
-- [Map and Reduce](flow-collections.livemd)
-- [Iterate and State](flow-iterate-state.livemd)
-- [Stored Flow JSON](flow-storage.md)
-- [Runtime Builder](flow-builder.md)
-- [Nested Flows](nested-flows.livemd)
-- [Flow Execution](flow-execution.livemd)
+Continue with [Flow DSL](flow-language.livemd),
+[Direct Construction And Builder](flow-builder.md), and
+[Store Flows As JSON](flow-storage.md).

@@ -4,7 +4,7 @@
 
 These instructions apply to the `jido_action` package.
 
-This branch contains the Jido Action v3 release candidate. Treat this package
+This branch contains the Jido Action v3 beta. Treat this package
 as foundational code for the Jido ecosystem. Correct behavior, deterministic
 results, process cleanup, clear errors, and a stable public API have priority
 over fast changes.
@@ -55,7 +55,6 @@ Read these files before a change that affects their subject:
 - `lib/jido_exec/` contains execution state, scheduling, guards, limits, and
   failure handling.
 - `test/support/` contains shared Actions and Flow fixtures.
-- `test/jido_action/integration/` contains the optional pressure-test suite.
 
 Compiler, codec, graph-adapter, scheduler, and guard modules are internal.
 Do not make an internal module public only to make a test easy. Test through a
@@ -79,7 +78,6 @@ Use these commands from the package root:
 ```text
 mix test path/to/test_file.exs
 mix test
-mix test.integration
 mix format --check-formatted
 MIX_ENV=test mix compile --warnings-as-errors
 mix credo --min-priority high
@@ -89,12 +87,11 @@ mix test --cover --warnings-as-errors
 ```
 
 `mix test` excludes tests tagged `:integration`, `:flaky`, and `:skip`.
-`mix test.integration` runs only the pressure-test directory and includes the
-`:integration` tag. Do not add a pressure test to the default suite by mistake.
 
 Run `mix quality` when a broad implementation change is ready. It runs the
-formatter check, compilation with warnings as errors, Credo, and Dialyzer.
-Build the docs when a public module, type, option, result, or error changes.
+formatter check, compilation with warnings as errors, Doctor, ExDoc, Credo,
+and Dialyzer. Build the docs when a public module, type, option, result, or
+error changes.
 
 If the full suite fails but the focused test passes, investigate shared state,
 mailbox use, registered process names, telemetry handlers, and scheduler load.

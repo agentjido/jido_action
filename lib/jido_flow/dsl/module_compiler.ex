@@ -5,7 +5,7 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
   alias Jido.Flow.Component
 
   @doc false
-  def using(opts_ast) do
+  defmacro __using__(opts_ast) do
     module_compiler = __MODULE__
 
     quote location: :keep do
@@ -24,18 +24,58 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
 
       @__jido_flow_opts__ Map.drop(validated_opts, [:schema, :output_schema])
 
+      @doc "Returns the Flow name."
+      @spec name() :: String.t()
       def name, do: @__jido_flow_opts__[:name]
+
+      @doc "Returns the Flow description."
+      @spec description() :: String.t() | nil
       def description, do: @__jido_flow_opts__[:description]
 
+      @doc "Returns the Flow input schema."
+      @spec schema() :: Jido.Action.schema()
       def schema, do: @__jido_schema__
+
+      @doc "Returns the Flow output schema."
+      @spec output_schema() :: Jido.Action.schema()
       def output_schema, do: @__jido_output_schema__
 
+      @doc "Validates Flow input parameters."
+      @spec validate_params(map()) ::
+              {:ok, map()} | {:error, Jido.Action.Error.InvalidInputError.t()}
       def validate_params(params), do: Jido.Action.validate_params_for(params, __MODULE__)
+
+      @doc "Validates a Flow output value."
+      @spec validate_output(map() | Jido.Action.Output.t()) ::
+              {:ok, map() | Jido.Action.Output.t()}
+              | {:error, Jido.Action.Error.InvalidInputError.t()}
       def validate_output(output), do: Jido.Action.validate_output_for(output, __MODULE__)
+
+      @doc false
+      @spec __jido_executable__() :: Jido.Executable.t()
+      def __jido_executable__()
+
+      @doc "Returns the canonical Flow data for this module."
+      @spec flow() :: Jido.Flow.t()
+      def flow()
+
+      @doc false
+      @spec __jido_flow_source_map__() :: Jido.Flow.Compiled.source_map()
+      def __jido_flow_source_map__()
+
+      @doc "Compiles this module's canonical Flow into a Runic workflow."
+      @spec compiled() :: Jido.Flow.Compiled.t()
+      def compiled()
+
+      @doc "Runs this Flow with the given parameters and context."
+      @spec run(map(), map()) :: Jido.Action.result()
+      def run(params, context)
     end
   end
 
   @doc false
+  @spec prepare_config!(term(), Macro.Env.t()) ::
+          {map(), Jido.Action.schema(), Jido.Action.schema()} | no_return()
   def prepare_config!(raw_opts, env) do
     case Jido.Flow.__validate_config__(normalize_options(raw_opts)) do
       {:ok, validated_opts} ->
@@ -67,6 +107,7 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
   defmacro __before_compile__(env), do: before_compile(env)
 
   @doc false
+  @spec before_compile(Macro.Env.t()) :: Macro.t()
   def before_compile(env) do
     opts = Module.get_attribute(env.module, :__jido_flow_opts__)
     schema = Module.get_attribute(env.module, :__jido_flow_schema__)
@@ -77,16 +118,14 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
     escaped_source_map = Macro.escape(source_map)
 
     quote do
-      @doc false
       def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
-
       def flow, do: unquote(escaped_flow)
-      @doc false
       def __jido_flow_source_map__, do: unquote(escaped_source_map)
 
       def compiled,
         do: Jido.Flow.compile!(flow(), source_map: __jido_flow_source_map__())
 
+      @impl Jido.Action
       def run(params, context), do: Jido.Exec.run(__MODULE__, params, context)
     end
   end

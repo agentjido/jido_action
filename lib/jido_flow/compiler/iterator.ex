@@ -9,6 +9,8 @@ defmodule Jido.Flow.Compiler.Iterator do
   alias Jido.Flow.Identity
 
   @doc false
+  @spec run(Jido.Flow.Iterate.t(), map()) ::
+          {:ok, term()} | {:error, Exception.t(), map()}
   def run(iterator, state) do
     run_resolved_iterator(iterator, state)
   rescue

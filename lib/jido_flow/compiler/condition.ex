@@ -6,6 +6,8 @@ defmodule Jido.Flow.Compiler.Condition do
   alias Jido.Flow.Condition
 
   @doc false
+  @spec evaluate(Condition.t(), map(), String.t(), term()) ::
+          {:ok, boolean()} | {:error, Exception.t()}
   def evaluate(%Condition{operator: :all, operands: conditions}, state, node, option) do
     Enum.reduce_while(conditions, {:ok, true}, fn condition, {:ok, true} ->
       case evaluate(condition, state, node, option) do

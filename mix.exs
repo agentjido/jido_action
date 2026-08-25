@@ -1,7 +1,7 @@
 defmodule JidoAction.MixProject do
   use Mix.Project
 
-  @version "3.0.0-rc.1"
+  @version "3.0.0-beta.1"
   @source_url "https://github.com/agentjido/jido_action"
   @description "Validated actions, call frames, and data-first Flow composition for Elixir"
 
@@ -53,10 +53,6 @@ defmodule JidoAction.MixProject do
     ]
   end
 
-  def cli do
-    [preferred_envs: ["test.integration": :test]]
-  end
-
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
@@ -83,37 +79,40 @@ defmodule JidoAction.MixProject do
           "CHANGELOG.md",
           "LICENSE"
         ],
-        "Getting Started": [
+        "Start Here": [
           "guides/getting-started.livemd",
-          "guides/v3-migration.md"
+          "guides/build-your-first-flow.livemd"
         ],
-        "Core Concepts": [
+        "Core Contracts": [
           "guides/actions.md",
           "guides/instructions.md",
           "guides/flows.md",
-          "guides/execution.md",
-          "guides/schemas-validation.md"
+          "guides/schemas-validation.md",
+          "guides/execution.md"
         ],
-        "Building Flows": [
-          "guides/build-your-first-flow.livemd",
+        "Author Flows": [
           "guides/flow-language.livemd",
           "guides/flow-steps.livemd",
           "guides/flow-references.livemd",
           "guides/flow-dependencies.livemd",
-          "guides/flow-collections.livemd",
           "guides/flow-choices.livemd",
+          "guides/flow-collections.livemd",
           "guides/flow-iterate-state.livemd",
           "guides/nested-flows.livemd",
           "guides/flow-modules.md",
-          "guides/flow-storage.md",
           "guides/flow-builder.md",
+          "guides/flow-storage.md",
           "guides/flow-inspection.md"
         ],
-        Operations: [
+        "Run And Operate": [
           "guides/flow-execution.livemd",
+          "guides/debugging-flows.md",
           "guides/configuration.md",
           "guides/security.md",
           "guides/testing.md"
+        ],
+        Upgrade: [
+          "guides/v3-migration.md"
         ]
       ],
       extras: [
@@ -121,34 +120,36 @@ defmodule JidoAction.MixProject do
         {"README.md", title: "Home"},
         {"CHANGELOG.md", title: "Changelog"},
         {"LICENSE", title: "Apache 2.0 License"},
-        # Getting Started
+        # Start Here
         {"guides/getting-started.livemd", title: "Getting Started"},
-        {"guides/v3-migration.md", title: "Migrate To v3"},
-        # Core Concepts
+        {"guides/build-your-first-flow.livemd", title: "Build Your First Flow"},
+        # Core Contracts
         {"guides/actions.md", title: "Actions"},
         {"guides/instructions.md", title: "Instructions"},
         {"guides/flows.md", title: "Flows"},
-        {"guides/execution.md", title: "Execution"},
         {"guides/schemas-validation.md", title: "Schemas & Validation"},
-        # Building Flows
-        {"guides/build-your-first-flow.livemd", title: "Build Your First Flow"},
-        {"guides/flow-language.livemd", title: "Flow Language Overview"},
-        {"guides/flow-steps.livemd", title: "Steps & Outputs"},
-        {"guides/flow-references.livemd", title: "References & Data Mapping"},
-        {"guides/flow-dependencies.livemd", title: "Dependencies & Parallel Work"},
-        {"guides/flow-collections.livemd", title: "Map & Reduce"},
-        {"guides/flow-choices.livemd", title: "Choices & Conditions"},
-        {"guides/flow-iterate-state.livemd", title: "Iterate & State"},
+        {"guides/execution.md", title: "Execution Contract"},
+        # Author Flows
+        {"guides/flow-language.livemd", title: "Flow DSL"},
+        {"guides/flow-steps.livemd", title: "Steps And Output"},
+        {"guides/flow-references.livemd", title: "References And Data"},
+        {"guides/flow-dependencies.livemd", title: "Dependencies And Parallel Work"},
+        {"guides/flow-choices.livemd", title: "Choices And Conditions"},
+        {"guides/flow-collections.livemd", title: "Map And Reduce"},
+        {"guides/flow-iterate-state.livemd", title: "Iterate And State"},
         {"guides/nested-flows.livemd", title: "Nested Flows"},
         {"guides/flow-modules.md", title: "Flow Modules"},
-        {"guides/flow-storage.md", title: "Stored Flow JSON"},
-        {"guides/flow-builder.md", title: "Runtime Builder"},
-        {"guides/flow-inspection.md", title: "Inspecting Flows"},
-        # Operations
+        {"guides/flow-builder.md", title: "Direct Construction And Builder"},
+        {"guides/flow-storage.md", title: "Store Flows As JSON"},
+        {"guides/flow-inspection.md", title: "Inspect Flows"},
+        # Run And Operate
         {"guides/flow-execution.livemd", title: "Executing Flows"},
-        {"guides/configuration.md", title: "Configuration"},
+        {"guides/debugging-flows.md", title: "Debug Flows"},
+        {"guides/configuration.md", title: "Runtime Configuration"},
         {"guides/security.md", title: "Security"},
-        {"guides/testing.md", title: "Testing"}
+        {"guides/testing.md", title: "Testing"},
+        # Upgrade
+        {"guides/v3-migration.md", title: "Migrate To v3"}
       ],
       extra_section: "Guides",
       formatters: ["html"],
@@ -203,6 +204,7 @@ defmodule JidoAction.MixProject do
           Jido.Action.Error.InvalidInputError,
           Jido.Action.Error.TimeoutError,
           Jido.Flow.Error,
+          Jido.Flow.Error.Invalid,
           Jido.Flow.Error.ExecutionFailureError,
           Jido.Flow.Error.InternalError,
           Jido.Flow.Error.InvalidDefinitionError,
@@ -262,7 +264,6 @@ defmodule JidoAction.MixProject do
       # Helper to run tests with trace when needed
       # test: "test --trace --exclude flaky",
       test: "test --exclude flaky",
-      "test.integration": "test test/jido_action/integration --include integration",
 
       # Run to check the quality of your code
       q: ["quality"],

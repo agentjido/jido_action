@@ -1,142 +1,102 @@
-# Schemas and Validation
+# Schemas And Validation
 
-Jido Action uses Zoi schemas for Action and Flow input and output boundaries.
-`schema` validates input parameters and `output_schema` validates successful
-results.
+Jido uses Zoi schemas for Action input and output, Flow input and output, and
+Iterate State. Schemas are static module data.
 
-## Action Input Schema
+## Action Schemas
 
 ```elixir
-defmodule MyApp.Actions.CreateUser do
+defmodule MyApp.Actions.Price do
   use Jido.Action,
-    name: "create_user",
+    name: "price",
     schema:
       Zoi.object(%{
-        email:
-          Zoi.string()
-          |> Zoi.trim()
-          |> Zoi.to_downcase()
-          |> Zoi.regex(Zoi.Regexes.email()),
-        age:
-          Zoi.integer()
-          |> Zoi.min(13)
-          |> Zoi.optional()
-      })
+        quantity: Zoi.integer() |> Zoi.min(1),
+        unit_price: Zoi.number()
+      }),
+    output_schema: Zoi.object(%{total: Zoi.number()})
 
   @impl true
-  def run(params, _context), do: {:ok, params}
+  def run(params, _context) do
+    {:ok, %{total: params.quantity * params.unit_price}}
+  end
 end
 ```
 
-If no validation is needed, omit `schema` or use the empty default.
+An Action schema must accept map-shaped data. `[]` means that no field schema
+is applied, but the Action boundary still requires a map.
 
-Action input schemas must describe map-shaped data. `validate_params/1` returns
-the validated map and preserves unknown object keys.
-
-## Defaults
-
-Use `Zoi.default/2` when missing fields should be filled:
+Object schemas are open at the Jido boundary. Declared fields are validated.
+Unknown fields stay in the returned map.
 
 ```elixir
-schema:
-  Zoi.object(%{
-    limit: Zoi.integer() |> Zoi.min(1) |> Zoi.default(50),
-    sort: Zoi.enum([:asc, :desc]) |> Zoi.default(:asc)
+{:ok, validated} =
+  MyApp.Actions.Price.validate_params(%{
+    quantity: 2,
+    unit_price: 3.5,
+    request_tag: "keep"
   })
+
+validated.request_tag
 ```
-
-Use `Zoi.optional/1` when a missing field should remain absent.
-
-## Action Output Schema
-
-```elixir
-output_schema:
-  Zoi.object(%{
-    id: Zoi.string(),
-    status: Zoi.enum([:created, :updated])
-  })
-```
-
-Call `validate_output/1` for successful `{:ok, result}` returns when the Action
-declares an output schema. The third value in a three-tuple is preserved by
-the Action contract.
-
-Normal Action output is map-shaped. A successful raw, stream, batch, or opaque
-value must use a `Jido.Action.Output` envelope. The envelope is validated as an
-explicit output value.
 
 ## Flow Schemas
 
-`use Jido.Flow` accepts the same `schema` and `output_schema` options:
+A Flow module uses the same options.
 
 ```elixir
-use Jido.Flow,
-  name: "process_order",
-  schema: Zoi.object(%{order_id: Zoi.string()}),
-  output_schema: Zoi.object(%{status: Zoi.string()})
-```
+defmodule MyApp.Flows.PriceOrder do
+  use Jido.Flow,
+    name: "price_order",
+    schema: Zoi.object(%{quantity: Zoi.integer(), unit_price: Zoi.number()}),
+    output_schema: Zoi.object(%{total: Zoi.number()})
 
-`Jido.Exec` validates Flow input before it starts nodes and validates the
-declared Flow result after node execution. Flow schemas must produce map-shaped
-input and output values, unless the result is an explicit output envelope.
-Flow validation is separate from each node Action's validation: the Flow maps
-data into node inputs, and each Action validates its own input at its node
-boundary.
+  flow do
+    step "price",
+      action: MyApp.Actions.Price,
+      params: %{
+        quantity: input(:quantity),
+        unit_price: input(:unit_price)
+      }
 
-## Iterate State Schemas
-
-Each Iterate State contract has a required `schema` field. Jido applies the
-schema to the initial State and each complete update candidate. The validated
-value must stay a plain map.
-
-```elixir
-state_contract = %{
-  schema: Zoi.object(%{count: Zoi.integer()}),
-  initial: %{count: Jido.Flow.Builder.value(0)},
-  update: %{count: Jido.Flow.Builder.body_result(:count)}
-}
-```
-
-Use `state([], initial: ...)` when the module DSL needs no additional field
-validation. A stored Flow uses a stable State schema identifier from its host
-Registry. See [Iterate and State](flow-iterate-state.livemd) and [Stored Flow
-JSON](flow-storage.md).
-
-## Unknown Keys
-
-Action and Flow object validation is intentionally open. Only declared keys
-are checked; unknown keys are merged back into the validated map.
-
-```elixir
-schema = Zoi.object(%{name: Zoi.string()})
-
-{:ok, %{name: "Ada", request_id: "req-1"}} =
-  MyAction.validate_params(%{name: "Ada", request_id: "req-1"})
-```
-
-This keeps request metadata available without forcing every Action to model
-every caller-owned key.
-
-## Errors
-
-Direct Action-compatible `validate_params/1` and `validate_output/1` callback
-failures return `Jido.Action.Error.InvalidInputError`. This rule also applies
-when you call these callbacks directly on a Flow module. The error contains a
-message and structured details, including the validation phase and normalized
-Zoi errors when available.
-
-```elixir
-case MyAction.validate_params(params) do
-  {:ok, validated} -> {:ok, validated}
-  {:error, error} -> {:error, Exception.message(error)}
+    output result("price")
+  end
 end
 ```
 
-The error details include context, subject, and normalized Zoi error data. Use
-`Jido.Action.Error.to_map/1` to serialize the stable error type and details.
+Flow input validation occurs before compilation work starts. Output validation
+occurs after Jido evaluates the explicit output expression.
 
-`Jido.Flow.validate/1`, the Builder, the Codec, and the Spark lowerer return
-`Jido.Flow.Error.InvalidDefinitionError` for invalid Flow definitions.
-`Jido.Exec` returns `Jido.Flow.Error.InvalidExecutionError` for invalid Flow
-input, output, options, or execution state. Use `Jido.Flow.Error.to_map/1` at a
-Flow boundary. It can also serialize an Action error from a Flow node.
+## Static Schema Rule
+
+Action and Flow module schemas must be safe to store in compiled module data.
+Anonymous functions, lazy schemas, PIDs, ports, and references are not
+accepted. Use a named MFA for effects in a refinement or transform.
+
+```elixir
+Zoi.string()
+|> Zoi.refine({MyApp.Validation, :not_blank, []})
+```
+
+The same static-data rule applies to Iterate State schemas and schemas placed
+in a trusted Flow Registry.
+
+## Iterate State
+
+An Iterate State schema validates each state replacement.
+
+```elixir
+state(
+  Zoi.object(%{count: Zoi.integer()}),
+  initial: %{count: 0}
+)
+```
+
+A rejected state stops the Iterate node. Jido does not expose the rejected
+state value in a stable external error form.
+
+## Test Both Boundaries
+
+Test constructors and generated validation functions for data rules. Then use
+`Jido.Exec.run/4` to test the complete execution boundary. Constructor
+validation is inert. It never calls an Action.

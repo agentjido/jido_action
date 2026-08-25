@@ -57,6 +57,7 @@ defmodule Jido.Flow.Step do
   end
 
   @doc false
+  @spec result_refs(t()) :: [String.t()]
   def result_refs(%__MODULE__{params: params}), do: Expression.result_refs(params)
 
   defp expression(value) do

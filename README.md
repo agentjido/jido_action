@@ -24,9 +24,11 @@ This foundation keeps the action boundary small:
 - `Jido.Flow` composes actions as a validated graph with steps and Choices.
 - `Jido.Exec` runs actions, instructions, and Flows, including step-wise Flows.
 
-Version 3.0.0-rc.1 is a release candidate. It introduces the declarative Flow
-DSL, runtime Flow construction, safe stored Flow maps, and one Flow execution
-engine. Test it before you use it in production. See the [v3 migration
+Version 3.0.0-beta.1 is a public beta. It introduces the declarative Flow DSL,
+runtime Flow construction, safe stored Flow maps, and one Flow execution
+engine. The v3 API can still change before the stable release, and this beta
+locks Runic 0.1.0-alpha.9. Use it for evaluation and controlled trials before
+you use it for critical production work. See the [v3 migration
 guide](guides/v3-migration.md) for the confirmed breaking changes.
 
 ## Install
@@ -34,7 +36,7 @@ guide](guides/v3-migration.md) for the confirmed breaking changes.
 ```elixir
 def deps do
   [
-    {:jido_action, "~> 3.0.0-rc.1"}
+    {:jido_action, "~> 3.0.0-beta.1"}
   ]
 end
 ```
@@ -74,15 +76,22 @@ Public action functions:
 - `validate_output/1`
 - `run/2`
 
-## Validate And Run An Action
+## Run An Action
 
 ```elixir
-{:ok, params} = MyApp.Actions.GreetUser.validate_params(%{name: "Ada", excited?: true})
-{:ok, result} = MyApp.Actions.GreetUser.run(params, %{request_id: "req-123"})
-{:ok, result} = MyApp.Actions.GreetUser.validate_output(result)
+{:ok, %{greeting: "Hello, Ada!"}} =
+  Jido.Exec.run(
+    MyApp.Actions.GreetUser,
+    %{name: "Ada", excited?: true},
+    %{request_id: "req-123"}
+  )
 ```
 
-`run/2` must return one of:
+`Jido.Exec` validates the Action input and output and runs the Action under the
+configured Task Supervisor. Code that integrates its own executor can use
+`validate_params/1`, `run/2`, and `validate_output/1` directly.
+
+The Action `run/2` callback must return one of:
 
 - `{:ok, result}`
 - `{:ok, result, extra}`
@@ -207,6 +216,10 @@ end
 return a structured error instead of raising. Stored identifiers cannot create
 atoms or select a module outside the host Registry.
 
+Use `Jido.Flow.Codec.diagnose/2` for a browser or AI editor that needs all
+independent stored-document and graph errors. It returns one ordered Splode
+error group with JSON paths and never returns a partial Flow.
+
 The Flow module DSL, Builder, stored JSON Codec, and direct constructors produce
 one canonical `%Jido.Flow{}` model. The Codec uses explicit component kinds.
 It does not infer old records or module names.
@@ -218,6 +231,9 @@ Run-to-completion and step-wise execution use the same engine:
 ```elixir
 {:ok, execution} = Jido.Exec.start(runtime_flow, %{name: "Ada"})
 [runnable] = Jido.Exec.ready(execution)
+
+%Runic.Workflow{} = Jido.Exec.workflow(execution)
+%Jido.Flow.Compiled{} = Jido.Exec.compiled(execution)
 
 {:ok, %Runic.Workflow.Runnable{status: :completed}, execution} =
   Jido.Exec.step(execution, runnable)
@@ -251,34 +267,41 @@ metadata, nesting, and step-wise semantics.
 Start with the runnable [Getting Started](guides/getting-started.livemd)
 Livebook. ExDoc adds a **Run in Livebook** link to each `.livemd` guide.
 
-### Core Concepts
+### Start Here
 
-- [Migrate To v3](guides/v3-migration.md)
+- [Build Your First Flow](guides/build-your-first-flow.livemd)
+
+### Core Contracts
+
 - [Actions](guides/actions.md)
 - [Instructions](guides/instructions.md)
 - [Flows](guides/flows.md)
-- [Execution](guides/execution.md)
 - [Schemas & Validation](guides/schemas-validation.md)
+- [Execution Contract](guides/execution.md)
 
-### Building Flows
+### Author Flows
 
-- [Build Your First Flow](guides/build-your-first-flow.livemd)
-- [Flow Language Overview](guides/flow-language.livemd)
-- [Steps & Outputs](guides/flow-steps.livemd)
-- [References & Data Mapping](guides/flow-references.livemd)
-- [Dependencies & Parallel Work](guides/flow-dependencies.livemd)
-- [Map & Reduce](guides/flow-collections.livemd)
-- [Choices & Conditions](guides/flow-choices.livemd)
-- [Iterate & State](guides/flow-iterate-state.livemd)
+- [Flow DSL](guides/flow-language.livemd)
+- [Steps And Output](guides/flow-steps.livemd)
+- [References And Data](guides/flow-references.livemd)
+- [Dependencies And Parallel Work](guides/flow-dependencies.livemd)
+- [Choices And Conditions](guides/flow-choices.livemd)
+- [Map And Reduce](guides/flow-collections.livemd)
+- [Iterate And State](guides/flow-iterate-state.livemd)
 - [Nested Flows](guides/nested-flows.livemd)
 - [Flow Modules](guides/flow-modules.md)
-- [Stored Flow JSON](guides/flow-storage.md)
-- [Runtime Builder](guides/flow-builder.md)
-- [Inspecting Flows](guides/flow-inspection.md)
+- [Direct Construction And Builder](guides/flow-builder.md)
+- [Store Flows As JSON](guides/flow-storage.md)
+- [Inspect Flows](guides/flow-inspection.md)
 
-### Operations
+### Run And Operate
 
 - [Executing Flows](guides/flow-execution.livemd)
-- [Configuration](guides/configuration.md)
+- [Debug Flows](guides/debugging-flows.md)
+- [Runtime Configuration](guides/configuration.md)
 - [Security](guides/security.md)
 - [Testing](guides/testing.md)
+
+### Upgrade
+
+- [Migrate To v3](guides/v3-migration.md)

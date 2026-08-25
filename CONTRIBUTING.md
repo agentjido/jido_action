@@ -1,23 +1,26 @@
-# Contributing to Jido Action
+# Contributing To Jido Action
 
-Thank you for your interest in contributing to Jido Action! This document provides guidelines for contributing to the project.
+Thank you for your interest in Jido Action. This document gives the rules for
+contributions.
 
 ## Getting Started
 
-1. Fork the repository
-2. Clone your fork locally
-3. Install dependencies: `mix deps.get`
-4. Run tests: `mix test`
-5. Run quality checks: `mix quality`
+1. Fork the repository.
+2. Clone your fork.
+3. Install dependencies with `mix deps.get`.
+4. Run tests with `mix test`.
+5. Run quality checks with `mix quality`.
+6. Run the dependency audit with `mix deps.audit`.
 
 ## Development Workflow
 
-1. Create a feature branch from `main`
-2. Make your changes
-3. Add tests for new functionality
-4. Ensure all tests pass: `mix test`
-5. Run quality checks: `mix quality`
-6. Submit a pull request
+1. Create a branch from `main`.
+2. Make your changes.
+3. Add tests for new behavior.
+4. Run `mix test`.
+5. Run `mix quality`.
+6. Run `mix deps.audit`.
+7. Submit a pull request.
 
 ## Code Style
 
@@ -28,25 +31,20 @@ Thank you for your interest in contributing to Jido Action! This document provid
 
 ## Security Scanning
 
-The project includes automated security scanning to detect dependency vulnerabilities and code-level security issues.
+The project includes checks for dependency vulnerabilities and code security
+problems.
 
 ### Local Security Scans
 
 Run security checks locally before submitting:
 
 ```bash
-# Check for dependency vulnerabilities
 mix deps.audit
-
-# Run all quality checks including security
-mix quality
 ```
 
 ### CI Security Checks
 
-The CI pipeline automatically runs:
-- **Dependency audit**: Scans for known vulnerabilities in dependencies using `mix_audit`
-- **CodeQL analysis**: Static code analysis for security patterns and vulnerabilities
+The CI pipeline runs the configured dependency and code security checks.
 
 High-severity security findings will cause CI to fail. Address any security issues before merging.
 
@@ -55,17 +53,19 @@ High-severity security findings will cause CI to fail. Address any security issu
 - Add tests for all new functionality
 - Maintain existing test coverage
 - Use property-based testing where appropriate
-- Include integration tests for complex features
+- Add an integration test when a contract crosses a package or OTP boundary.
 
 ### Test Coverage Policy
 
-This spike keeps coverage meaningful while iterating. All contributions should:
+The test suite enforces a 93 percent total coverage floor. All contributions
+must:
 
-- Maintain or improve the overall coverage percentage
-- Include comprehensive tests for new code paths
-- Not introduce uncovered code without justification
+- Keep the coverage check at or above the configured floor.
+- Include direct tests for new behavior.
+- Give a reason for code that cannot have a direct test.
 
 Check coverage locally:
+
 ```bash
 mix test --cover
 ```
@@ -81,13 +81,15 @@ mix test --cover
 
 All public APIs must be properly documented:
 
-- **@moduledoc**: All public modules must have module documentation explaining their purpose
-- **@doc**: All public functions must have function documentation with parameters, returns, and examples
-- **@spec**: All public functions must have type specifications
-- **@typedoc**: Custom types must have type documentation
-- **@moduledoc false**: Use for internal/private modules that shouldn't appear in generated docs
+- Use `@moduledoc` for each public module.
+- Use `@doc` for each public function.
+- Add examples where they help a developer complete a task.
+- Use `@spec` for public function contracts.
+- Use `@typedoc` for public custom types.
+- Use `@moduledoc false` for internal modules.
 
-Check documentation coverage locally:
+Check the documentation locally:
+
 ```bash
 mix docs --warnings-as-errors
 ```

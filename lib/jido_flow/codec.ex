@@ -17,13 +17,21 @@ defmodule Jido.Flow.Codec do
 
       {:ok, document} = Jido.Flow.Codec.encode(flow, registry)
       {:ok, decoded_flow} = Jido.Flow.Codec.decode(document, registry)
+
+      case Jido.Flow.Codec.diagnose(editor_document, registry) do
+        {:ok, flow} -> {:ok, flow}
+        {:error, errors} -> {:error, Jido.Flow.Error.to_map(errors)}
+      end
   """
 
-  alias Jido.Flow.Error
+  alias Jido.Action
   alias Jido.Flow
   alias Jido.Flow.Choice
   alias Jido.Flow.Condition
   alias Jido.Flow.Data
+  alias Jido.Flow.Error
+  alias Jido.Flow.Expression
+  alias Jido.Flow.Graph
   alias Jido.Flow.Iterate
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.Reduce
@@ -109,37 +117,991 @@ defmodule Jido.Flow.Codec do
 
   @doc "Decodes one stored Flow document through a trusted Registry."
   @spec decode(document(), Registry.t()) :: {:ok, Flow.t()} | {:error, Exception.t()}
-  def decode(document, %Registry{} = registry)
-      when is_map(document) and not is_struct(document) do
-    with :ok <- validate_document_limits(document),
-         :ok <- exact_keys(document, root_keys(), []),
-         :ok <- exact_value(document, "type", "jido.flow", []),
-         :ok <- exact_value(document, "version", @version, []),
-         {:ok, name} <- string_field(document, "name", []),
-         {:ok, description} <- optional_string_field(document, "description", []),
-         {:ok, schema} <- resolve_field(document, "schema", :schema, registry, []),
-         {:ok, output_schema} <- resolve_field(document, "output_schema", :schema, registry, []),
-         {:ok, components} <- decode_components(Map.fetch!(document, "components"), registry),
-         {:ok, output} <-
-           decode_expression(Map.fetch!(document, "output"), registry, 0, ["output"]) do
-      Flow.new(%{
-        name: name,
-        description: description,
-        schema: schema,
-        output_schema: output_schema,
-        components: components,
-        output: output
-      })
+  def decode(document, registry) do
+    case diagnose(document, registry) do
+      {:ok, flow} -> {:ok, flow}
+      {:error, %Error.Invalid{errors: [error | _rest]}} -> {:error, error}
     end
   end
 
-  def decode(document, %Registry{}) do
-    {:error, Error.validation_error("stored Flow document must be a map", %{value: document})}
+  @doc """
+  Diagnoses one stored Flow document without producing a partial Flow.
+
+  The function returns the same canonical value as `decode/2` when the complete
+  document is valid. Otherwise, it returns one ordered
+  `Jido.Flow.Error.Invalid` group. Each independent leaf error has a JSON path
+  when a path is applicable.
+
+  Document size, collection size, nesting, root type, and document version
+  errors are terminal. The function does not traverse an unsafe document or a
+  document for another format version.
+  """
+  @spec diagnose(document(), Registry.t()) ::
+          {:ok, Flow.t()} | {:error, Error.Invalid.t()}
+  def diagnose(document, %Registry{} = registry)
+      when is_map(document) and not is_struct(document) do
+    with :ok <- validate_document_limits(document) do
+      case diagnose_envelope(document) do
+        [] -> diagnose_document(document, registry)
+        errors -> diagnostic_failure(errors)
+      end
+    else
+      {:error, error} -> diagnostic_failure([error])
+    end
   end
 
-  def decode(_document, registry) do
+  def diagnose(document, %Registry{}) do
+    diagnostic_failure([
+      Error.validation_error("stored Flow document must be a map", %{value: document})
+    ])
+  end
+
+  def diagnose(_document, registry) do
+    diagnostic_failure([
+      Error.validation_error("flow codec registry must be a Jido.Flow.Registry", %{
+        value: registry
+      })
+    ])
+  end
+
+  defp diagnose_envelope(document) do
+    unknown_field_errors(document, root_keys(), []) ++
+      result_errors(exact_value(document, "type", "jido.flow", [])) ++
+      result_errors(exact_value(document, "version", @version, []))
+  end
+
+  defp diagnose_document(document, registry) do
+    fields = [
+      name: fn -> diagnose_flow_name(document) end,
+      description: fn -> diagnose_flow_description(document) end,
+      schema: fn -> diagnose_schema_field(document, "schema", registry) end,
+      output_schema: fn -> diagnose_schema_field(document, "output_schema", registry) end,
+      components: fn -> diagnose_components_field(document, registry) end,
+      output: fn -> diagnose_output_field(document, registry) end
+    ]
+
+    case collect_values(fields) do
+      {:ok, attrs} -> diagnose_canonical_document(attrs)
+      {:error, errors} -> diagnostic_failure(errors)
+    end
+  end
+
+  defp diagnose_flow_name(document) do
+    with {:ok, name} <- string_field(document, "name", []),
+         :ok <- Action.validate_name(name) do
+      {:ok, name}
+    else
+      {:error, message} when is_binary(message) ->
+        {:error, Error.validation_error(message, %{path: ["name"]})}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp diagnose_flow_description(document) do
+    with {:ok, description} <- optional_string_field(document, "description", []),
+         :ok <- valid_optional_utf8(description) do
+      {:ok, description}
+    end
+  end
+
+  defp valid_optional_utf8(nil), do: :ok
+
+  defp valid_optional_utf8(value) when is_binary(value) do
+    if String.valid?(value),
+      do: :ok,
+      else:
+        {:error,
+         Error.validation_error("flow description must be valid UTF-8", %{
+           path: ["description"]
+         })}
+  end
+
+  defp diagnose_schema_field(document, field, registry) do
+    with {:ok, schema} <- resolve_field(document, field, :schema, registry, []),
+         :ok <- Action.validate_static_data(schema),
+         :ok <- Action.validate_action_schema(schema) do
+      {:ok, schema}
+    else
+      {:error, message} when is_binary(message) ->
+        {:error, Error.validation_error("#{field} #{message}", %{path: [field]})}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp diagnose_components_field(document, registry) do
+    case Map.fetch(document, "components") do
+      {:ok, components} -> diagnose_components(components, registry)
+      :error -> required_field(["components"], "components")
+    end
+  end
+
+  defp diagnose_output_field(document, registry) do
+    case Map.fetch(document, "output") do
+      {:ok, value} ->
+        with {:ok, output} <- diagnose_expression(value, registry, 0, ["output"]),
+             :ok <- Expression.validate(output) do
+          {:ok, output}
+        else
+          {:error, error} -> {:error, ensure_json_path(error, ["output"])}
+        end
+
+      :error ->
+        required_field(["output"], "output")
+    end
+  end
+
+  defp diagnose_canonical_document(attrs) do
+    graph_errors = graph_diagnostics(attrs.components, attrs.output)
+
+    cond do
+      graph_errors != [] ->
+        diagnostic_failure(graph_errors)
+
+      true ->
+        case Flow.new(attrs) do
+          {:ok, flow} -> {:ok, flow}
+          {:error, error} -> diagnostic_failure([ensure_json_path(error, [])])
+        end
+    end
+  end
+
+  defp diagnose_components(values, registry) when is_list(values) do
+    cond do
+      values == [] ->
+        {:error,
+         Error.validation_error("stored Flow must contain at least one component", %{
+           path: ["components"]
+         })}
+
+      true ->
+        case collection_size(values) do
+          :ok ->
+            values
+            |> Enum.with_index()
+            |> collect_sequence(fn {value, index} ->
+              diagnose_component(value, registry, ["components", index])
+            end)
+
+          {:error, error} ->
+            {:error, ensure_json_path(error, ["components"])}
+        end
+    end
+  end
+
+  defp diagnose_components(_values, _registry) do
     {:error,
-     Error.validation_error("flow codec registry must be a Jido.Flow.Registry", %{value: registry})}
+     Error.validation_error("stored Flow components must be a list", %{path: ["components"]})}
+  end
+
+  defp diagnose_component(%{} = record, registry, path) when not is_struct(record) do
+    with {:ok, kind_name} <- string_field(record, "kind", path),
+         {:ok, kind} <-
+           closed_value(@component_kinds, kind_name, "component kind", path ++ ["kind"]) do
+      diagnose_component_kind(kind, record, registry, path)
+    end
+  end
+
+  defp diagnose_component(_record, _registry, path) do
+    {:error, Error.validation_error("stored Flow component must be a map", %{path: path})}
+  end
+
+  defp diagnose_component_kind(:step, record, registry, path) do
+    allowed = ["kind", "name", "action", "params", "after", "meta"]
+
+    diagnose_component_fields(
+      record,
+      registry,
+      path,
+      allowed,
+      [
+        action: fn -> resolve_field(record, "action", :action, registry, path) end,
+        params: fn -> diagnose_expression_field(record, "params", registry, path) end
+      ],
+      &Step.new/1
+    )
+  end
+
+  defp diagnose_component_kind(:subflow, record, registry, path) do
+    allowed = ["kind", "name", "flow", "params", "after", "meta"]
+
+    diagnose_component_fields(
+      record,
+      registry,
+      path,
+      allowed,
+      [
+        flow: fn -> resolve_field(record, "flow", :flow, registry, path) end,
+        params: fn -> diagnose_expression_field(record, "params", registry, path) end
+      ],
+      &Subflow.new/1
+    )
+  end
+
+  defp diagnose_component_kind(:choice, record, registry, path) do
+    allowed = ["kind", "name", "options", "fallback", "after", "meta"]
+
+    diagnose_component_fields(
+      record,
+      registry,
+      path,
+      allowed,
+      [
+        options: fn -> diagnose_choice_options_field(record, registry, path) end,
+        fallback: fn -> diagnose_fallback_field(record, registry, path) end
+      ],
+      &Choice.new/1
+    )
+  end
+
+  defp diagnose_component_kind(:map, record, registry, path) do
+    allowed = ["kind", "name", "collection", "action", "params", "on_error", "after", "meta"]
+
+    diagnose_component_fields(
+      record,
+      registry,
+      path,
+      allowed,
+      [
+        collection: fn -> diagnose_expression_field(record, "collection", registry, path) end,
+        action: fn -> resolve_field(record, "action", :action, registry, path) end,
+        params: fn -> diagnose_expression_field(record, "params", registry, path) end,
+        on_error: fn -> diagnose_on_error_field(record, path) end
+      ],
+      &FlowMap.new/1
+    )
+  end
+
+  defp diagnose_component_kind(:reduce, record, registry, path) do
+    allowed = ["kind", "name", "collection", "initial", "action", "params", "after", "meta"]
+
+    diagnose_component_fields(
+      record,
+      registry,
+      path,
+      allowed,
+      [
+        collection: fn -> diagnose_expression_field(record, "collection", registry, path) end,
+        initial: fn -> diagnose_expression_field(record, "initial", registry, path) end,
+        action: fn -> resolve_field(record, "action", :action, registry, path) end,
+        params: fn -> diagnose_expression_field(record, "params", registry, path) end
+      ],
+      &Reduce.new/1
+    )
+  end
+
+  defp diagnose_component_kind(:iterate, record, registry, path) do
+    allowed = [
+      "kind",
+      "name",
+      "action",
+      "params",
+      "state",
+      "completion",
+      "max_iterations",
+      "after",
+      "meta"
+    ]
+
+    diagnose_component_fields(
+      record,
+      registry,
+      path,
+      allowed,
+      [
+        action: fn -> resolve_field(record, "action", :action, registry, path) end,
+        params: fn -> diagnose_expression_field(record, "params", registry, path) end,
+        state: fn -> diagnose_iterate_state_field(record, registry, path) end,
+        completion: fn -> diagnose_completion_field(record, registry, path) end,
+        max_iterations: fn -> positive_integer_field(record, "max_iterations", path) end
+      ],
+      &Iterate.new/1
+    )
+  end
+
+  defp diagnose_component_fields(
+         record,
+         registry,
+         path,
+         allowed,
+         specific_fields,
+         constructor
+       ) do
+    fields = [common: fn -> diagnose_common(record, registry, path) end] ++ specific_fields
+    initial_errors = unknown_field_errors(record, allowed, path)
+
+    case collect_values(fields, initial_errors) do
+      {:ok, %{common: common} = values} ->
+        attrs = values |> Map.delete(:common) |> Map.merge(common)
+        diagnose_constructor(constructor.(attrs), path)
+
+      {:error, errors} ->
+        {:error, errors}
+    end
+  end
+
+  defp diagnose_common(record, registry, path) do
+    fields = [
+      name: fn -> string_field(record, "name", path) end,
+      after: fn -> string_list_field(record, "after", path) end,
+      meta: fn -> diagnose_meta_field(record, registry, path) end
+    ]
+
+    collect_values(fields)
+  end
+
+  defp diagnose_meta_field(record, registry, path) do
+    case Map.fetch(record, "meta") do
+      {:ok, value} ->
+        with {:ok, meta} <- diagnose_data(value, registry, 0, path ++ ["meta"]),
+             :ok <- Data.validate_object(meta) do
+          {:ok, meta}
+        else
+          {:error, error} -> {:error, ensure_json_path(error, path ++ ["meta"])}
+        end
+
+      :error ->
+        required_field(path ++ ["meta"], "meta")
+    end
+  end
+
+  defp diagnose_expression_field(record, field, registry, path) do
+    case Map.fetch(record, field) do
+      {:ok, value} -> diagnose_expression(value, registry, 0, path ++ [field])
+      :error -> required_field(path ++ [field], field)
+    end
+  end
+
+  defp diagnose_on_error_field(record, path) do
+    with {:ok, name} <- string_field(record, "on_error", path) do
+      closed_value(@on_error, name, "Map on_error", path ++ ["on_error"])
+    end
+  end
+
+  defp diagnose_choice_options_field(record, registry, path) do
+    case Map.fetch(record, "options") do
+      {:ok, values} -> diagnose_choice_options(values, registry, path ++ ["options"])
+      :error -> required_field(path ++ ["options"], "options")
+    end
+  end
+
+  defp diagnose_choice_options(values, registry, path) when is_list(values) do
+    cond do
+      values == [] ->
+        {:error, Error.validation_error("choice options must not be empty", %{path: path})}
+
+      true ->
+        case collection_size(values) do
+          :ok ->
+            values
+            |> Enum.with_index()
+            |> collect_sequence(fn {record, index} ->
+              diagnose_choice_option(record, registry, path ++ [index])
+            end)
+
+          {:error, error} ->
+            {:error, ensure_json_path(error, path)}
+        end
+    end
+  end
+
+  defp diagnose_choice_options(_values, _registry, path) do
+    {:error, Error.validation_error("choice options must be a list", %{path: path})}
+  end
+
+  defp diagnose_choice_option(%{} = record, registry, path) when not is_struct(record) do
+    fields = [
+      name: fn -> string_field(record, "name", path) end,
+      condition: fn -> diagnose_condition_field(record, "condition", registry, path) end,
+      action: fn -> resolve_field(record, "action", :action, registry, path) end,
+      params: fn -> diagnose_expression_field(record, "params", registry, path) end
+    ]
+
+    initial_errors = unknown_field_errors(record, ["name", "condition", "action", "params"], path)
+
+    case collect_values(fields, initial_errors) do
+      {:ok, attrs} -> diagnose_constructor(Choice.Option.new(attrs), path)
+      {:error, errors} -> {:error, errors}
+    end
+  end
+
+  defp diagnose_choice_option(_record, _registry, path) do
+    {:error, Error.validation_error("choice option must be a map", %{path: path})}
+  end
+
+  defp diagnose_condition_field(record, field, registry, path) do
+    case Map.fetch(record, field) do
+      {:ok, value} -> diagnose_condition(value, registry, 0, path ++ [field])
+      :error -> required_field(path ++ [field], field)
+    end
+  end
+
+  defp diagnose_fallback_field(record, registry, path) do
+    case Map.fetch(record, "fallback") do
+      {:ok, value} -> diagnose_fallback(value, registry, path ++ ["fallback"])
+      :error -> required_field(path ++ ["fallback"], "fallback")
+    end
+  end
+
+  defp diagnose_fallback(%{} = record, registry, path) when not is_struct(record) do
+    fields = [
+      action: fn -> resolve_field(record, "action", :action, registry, path) end,
+      params: fn -> diagnose_expression_field(record, "params", registry, path) end
+    ]
+
+    initial_errors = unknown_field_errors(record, ["action", "params"], path)
+
+    case collect_values(fields, initial_errors) do
+      {:ok, attrs} -> diagnose_constructor(Choice.Fallback.new(attrs), path)
+      {:error, errors} -> {:error, errors}
+    end
+  end
+
+  defp diagnose_fallback(_record, _registry, path) do
+    {:error, Error.validation_error("choice fallback must be a map", %{path: path})}
+  end
+
+  defp diagnose_iterate_state_field(record, registry, path) do
+    case Map.fetch(record, "state") do
+      {:ok, value} -> diagnose_iterate_state(value, registry, path ++ ["state"])
+      :error -> required_field(path ++ ["state"], "state")
+    end
+  end
+
+  defp diagnose_iterate_state(%{} = record, registry, path) when not is_struct(record) do
+    fields = [
+      schema: fn -> diagnose_nested_schema_field(record, registry, path) end,
+      initial: fn -> diagnose_expression_field(record, "initial", registry, path) end,
+      update: fn -> diagnose_expression_field(record, "update", registry, path) end
+    ]
+
+    initial_errors = unknown_field_errors(record, ["schema", "initial", "update"], path)
+
+    case collect_values(fields, initial_errors) do
+      {:ok, attrs} -> diagnose_constructor(Iterate.State.new(attrs), path)
+      {:error, errors} -> {:error, errors}
+    end
+  end
+
+  defp diagnose_iterate_state(_record, _registry, path) do
+    {:error, Error.validation_error("iterate state must be a map", %{path: path})}
+  end
+
+  defp diagnose_nested_schema_field(record, registry, path) do
+    with {:ok, schema} <- resolve_field(record, "schema", :schema, registry, path),
+         :ok <- Action.validate_static_data(schema),
+         :ok <- Action.validate_action_schema(schema) do
+      {:ok, schema}
+    else
+      {:error, message} when is_binary(message) ->
+        {:error,
+         Error.validation_error("iterate state schema #{message}", %{
+           path: path ++ ["schema"]
+         })}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp diagnose_completion_field(record, registry, path) do
+    case Map.fetch(record, "completion") do
+      {:ok, value} -> diagnose_condition(value, registry, 0, path ++ ["completion"])
+      :error -> required_field(path ++ ["completion"], "completion")
+    end
+  end
+
+  defp diagnose_expression(value, registry, depth, path) when is_list(value) do
+    diagnose_list(value, registry, depth, path, &diagnose_expression/4)
+  end
+
+  defp diagnose_expression(%{"$ref" => record} = value, registry, depth, path) do
+    initial_errors =
+      unknown_field_errors(value, ["$ref"], path) ++
+        result_errors(ensure_depth(depth, path))
+
+    case plain_map(record, "Flow reference", path ++ ["$ref"]) do
+      :ok ->
+        fields = [
+          source: fn -> diagnose_ref_source(record, path) end,
+          component: fn -> optional_string_field(record, "component", path ++ ["$ref"]) end,
+          path: fn -> diagnose_ref_path(record, registry, depth, path) end
+        ]
+
+        errors =
+          initial_errors ++
+            unknown_field_errors(record, ["source", "component", "path"], path ++ ["$ref"])
+
+        case collect_values(fields, errors) do
+          {:ok, attrs} -> {:ok, struct!(Ref, attrs)}
+          {:error, errors} -> {:error, errors}
+        end
+
+      {:error, error} ->
+        {:error, initial_errors ++ [error]}
+    end
+  end
+
+  defp diagnose_expression(%{"$type" => "map"} = value, registry, depth, path) do
+    diagnose_map(value, registry, depth, path, &diagnose_expression/4)
+  end
+
+  defp diagnose_expression(value, registry, depth, path) when is_map(value) do
+    diagnose_data(value, registry, depth, path)
+  end
+
+  defp diagnose_expression(value, registry, depth, path) do
+    diagnose_data(value, registry, depth, path)
+  end
+
+  defp diagnose_ref_source(record, path) do
+    with {:ok, source_name} <- string_field(record, "source", path ++ ["$ref"]) do
+      closed_value(
+        @sources,
+        source_name,
+        "reference source",
+        path ++ ["$ref", "source"]
+      )
+    end
+  end
+
+  defp diagnose_ref_path(record, registry, depth, path) do
+    case Map.fetch(record, "path") do
+      {:ok, value} ->
+        diagnose_list(
+          value,
+          registry,
+          depth + 1,
+          path ++ ["$ref", "path"],
+          &diagnose_data/4
+        )
+
+      :error ->
+        required_field(path ++ ["$ref", "path"], "path")
+    end
+  end
+
+  defp diagnose_condition(%{"$condition" => record} = value, registry, depth, path) do
+    initial_errors =
+      unknown_field_errors(value, ["$condition"], path) ++
+        result_errors(ensure_depth(depth, path))
+
+    case plain_map(record, "Flow condition", path ++ ["$condition"]) do
+      :ok ->
+        operator_result = diagnose_condition_operator(record, path)
+
+        fields = [
+          operator: fn -> operator_result end,
+          operands: fn ->
+            diagnose_condition_operands_field(record, operator_result, registry, depth, path)
+          end
+        ]
+
+        errors =
+          initial_errors ++
+            unknown_field_errors(record, ["operator", "operands"], path ++ ["$condition"])
+
+        case collect_values(fields, errors) do
+          {:ok, attrs} -> {:ok, struct!(Condition, attrs)}
+          {:error, errors} -> {:error, errors}
+        end
+
+      {:error, error} ->
+        {:error, initial_errors ++ [error]}
+    end
+  end
+
+  defp diagnose_condition(_value, _registry, _depth, path) do
+    {:error,
+     Error.validation_error("stored Flow condition must be a tagged condition", %{path: path})}
+  end
+
+  defp diagnose_condition_operator(record, path) do
+    with {:ok, operator_name} <- string_field(record, "operator", path ++ ["$condition"]) do
+      closed_value(
+        @operators,
+        operator_name,
+        "condition operator",
+        path ++ ["$condition", "operator"]
+      )
+    end
+  end
+
+  defp diagnose_condition_operands_field(record, {:ok, operator}, registry, depth, path) do
+    case Map.fetch(record, "operands") do
+      {:ok, values} when operator in [:all, :any, :not] ->
+        diagnose_list(
+          values,
+          registry,
+          depth + 1,
+          path ++ ["$condition", "operands"],
+          &diagnose_condition/4
+        )
+
+      {:ok, values} ->
+        diagnose_list(
+          values,
+          registry,
+          depth + 1,
+          path ++ ["$condition", "operands"],
+          &diagnose_expression/4
+        )
+
+      :error ->
+        required_field(path ++ ["$condition", "operands"], "operands")
+    end
+  end
+
+  defp diagnose_condition_operands_field(_record, {:error, _error}, _registry, _depth, _path) do
+    {:ok, []}
+  end
+
+  defp diagnose_data(value, _registry, depth, path)
+       when is_nil(value) or is_boolean(value) or is_number(value) or is_binary(value) do
+    with :ok <- ensure_depth(depth, path), do: {:ok, value}
+  end
+
+  defp diagnose_data(%{"$type" => "atom"} = record, registry, depth, path) do
+    fields = [
+      type: fn -> exact_value_as_value(record, "$type", "atom", path) end,
+      value: fn -> diagnose_atom_identifier(record, registry, path) end
+    ]
+
+    initial_errors =
+      unknown_field_errors(record, ["$type", "id"], path) ++
+        result_errors(ensure_depth(depth, path))
+
+    case collect_values(fields, initial_errors) do
+      {:ok, %{value: atom}} -> {:ok, atom}
+      {:error, errors} -> {:error, errors}
+    end
+  end
+
+  defp diagnose_data(%{"$type" => "map"} = record, registry, depth, path) do
+    diagnose_map(record, registry, depth, path, &diagnose_data/4)
+  end
+
+  defp diagnose_data(value, registry, depth, path) when is_list(value) do
+    diagnose_list(value, registry, depth, path, &diagnose_data/4)
+  end
+
+  defp diagnose_data(_value, _registry, _depth, path) do
+    {:error,
+     Error.validation_error("stored Flow data has an invalid tagged value", %{path: path})}
+  end
+
+  defp diagnose_atom_identifier(record, registry, path) do
+    case Map.fetch(record, "id") do
+      {:ok, identifier} when is_binary(identifier) ->
+        case Registry.resolve(registry, identifier, :atom) do
+          {:ok, atom} -> {:ok, atom}
+          {:error, error} -> {:error, ensure_json_path(error, path ++ ["id"])}
+        end
+
+      {:ok, _identifier} ->
+        {:error,
+         Error.validation_error("stored atom identifier must be a string", %{
+           path: path ++ ["id"]
+         })}
+
+      :error ->
+        required_field(path ++ ["id"], "id")
+    end
+  end
+
+  defp diagnose_list(values, registry, depth, path, decoder) when is_list(values) do
+    with :ok <- ensure_depth(depth, path),
+         :ok <- ensure_collection_size(values, path) do
+      values
+      |> Enum.with_index()
+      |> collect_sequence(fn {value, index} ->
+        decoder.(value, registry, depth + 1, path ++ [index])
+      end)
+    end
+  end
+
+  defp diagnose_list(_values, _registry, _depth, path, _decoder) do
+    {:error, Error.validation_error("stored Flow data must be a list", %{path: path})}
+  end
+
+  defp diagnose_map(record, registry, depth, path, value_decoder) do
+    initial_errors =
+      unknown_field_errors(record, ["$type", "entries"], path) ++
+        result_errors(ensure_depth(depth, path)) ++
+        result_errors(exact_value(record, "$type", "map", path))
+
+    entries_result =
+      case Map.fetch(record, "entries") do
+        {:ok, entries} when is_list(entries) ->
+          with :ok <- ensure_collection_size(entries, path ++ ["entries"]) do
+            entries
+            |> Enum.with_index()
+            |> collect_sequence(fn {entry, index} ->
+              diagnose_map_entry(
+                entry,
+                registry,
+                depth,
+                path ++ ["entries", index],
+                value_decoder,
+                index
+              )
+            end)
+          end
+
+        {:ok, _entries} ->
+          {:error,
+           Error.validation_error("stored Flow field must be a list", %{
+             path: path ++ ["entries"]
+           })}
+
+        :error ->
+          required_field(path ++ ["entries"], "entries")
+      end
+
+    case collect_values([entries: fn -> entries_result end], initial_errors) do
+      {:ok, %{entries: entries}} -> diagnose_map_entries(entries, path)
+      {:error, errors} -> {:error, errors}
+    end
+  end
+
+  defp diagnose_map_entry(%{} = entry, registry, depth, path, value_decoder, index)
+       when not is_struct(entry) do
+    fields = [
+      key: fn -> diagnose_map_entry_key(entry, registry, depth, path) end,
+      value: fn -> diagnose_map_entry_value(entry, registry, depth, path, value_decoder) end
+    ]
+
+    initial_errors = unknown_field_errors(entry, ["key", "value"], path)
+
+    case collect_values(fields, initial_errors) do
+      {:ok, decoded} -> {:ok, Map.put(decoded, :index, index)}
+      {:error, errors} -> {:error, errors}
+    end
+  end
+
+  defp diagnose_map_entry(_entry, _registry, _depth, path, _value_decoder, _index) do
+    {:error, Error.validation_error("stored map entry must be a map", %{path: path})}
+  end
+
+  defp diagnose_map_entry_key(entry, registry, depth, path) do
+    case Map.fetch(entry, "key") do
+      {:ok, value} ->
+        with {:ok, key} <- diagnose_data(value, registry, depth + 1, path ++ ["key"]),
+             :ok <- Data.validate_key(key) do
+          {:ok, key}
+        else
+          {:error, error} -> {:error, ensure_json_path(error, path ++ ["key"])}
+        end
+
+      :error ->
+        required_field(path ++ ["key"], "key")
+    end
+  end
+
+  defp diagnose_map_entry_value(entry, registry, depth, path, value_decoder) do
+    case Map.fetch(entry, "value") do
+      {:ok, value} -> value_decoder.(value, registry, depth + 1, path ++ ["value"])
+      :error -> required_field(path ++ ["value"], "value")
+    end
+  end
+
+  defp diagnose_map_entries(entries, path) do
+    {map, errors} =
+      Enum.reduce(entries, {%{}, []}, fn %{index: index, key: key, value: value}, {map, errors} ->
+        if Map.has_key?(map, key) do
+          error =
+            Error.validation_error("stored map contains a duplicate key", %{
+              path: path ++ ["entries", index, "key"]
+            })
+
+          {map, errors ++ [error]}
+        else
+          {Map.put(map, key, value), errors}
+        end
+      end)
+
+    if errors == [], do: {:ok, map}, else: {:error, errors}
+  end
+
+  defp exact_value_as_value(record, field, expected, path) do
+    case exact_value(record, field, expected, path) do
+      :ok -> {:ok, expected}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp ensure_depth(depth, path) do
+    case depth(depth) do
+      :ok -> :ok
+      {:error, error} -> {:error, ensure_json_path(error, path)}
+    end
+  end
+
+  defp ensure_collection_size(values, path) do
+    case collection_size(values) do
+      :ok -> :ok
+      {:error, error} -> {:error, ensure_json_path(error, path)}
+    end
+  end
+
+  defp diagnose_constructor({:ok, value}, _path), do: {:ok, value}
+
+  defp diagnose_constructor({:error, error}, path) do
+    {:error, ensure_json_path(error, path)}
+  end
+
+  defp graph_diagnostics(components, output) do
+    duplicate_errors = duplicate_component_errors(components)
+    reference_errors = unknown_reference_errors(components, output)
+
+    cycle_errors =
+      if duplicate_errors == [] and reference_errors == [] do
+        case Graph.analyze(components) do
+          %{remaining: []} ->
+            []
+
+          %{remaining: names} ->
+            [
+              Error.validation_error("flow dependency graph contains a cycle", %{
+                components: names,
+                path: ["components"]
+              })
+            ]
+        end
+      else
+        []
+      end
+
+    duplicate_errors ++ reference_errors ++ cycle_errors
+  end
+
+  defp duplicate_component_errors(components) do
+    components
+    |> Enum.with_index()
+    |> Enum.reduce({MapSet.new(), []}, fn {component, index}, {seen, errors} ->
+      name = Jido.Flow.Component.name_of(component)
+
+      if MapSet.member?(seen, name) do
+        error =
+          Error.validation_error("duplicate component name", %{
+            name: name,
+            path: ["components", index, "name"]
+          })
+
+        {seen, errors ++ [error]}
+      else
+        {MapSet.put(seen, name), errors}
+      end
+    end)
+    |> elem(1)
+  end
+
+  defp unknown_reference_errors(components, output) do
+    known = components |> Enum.map(&Jido.Flow.Component.name_of/1) |> MapSet.new()
+
+    output_errors =
+      output
+      |> Expression.result_refs()
+      |> Enum.uniq()
+      |> unknown_reference_errors_for(known, :output, ["output"])
+
+    component_errors =
+      components
+      |> Enum.with_index()
+      |> Enum.flat_map(fn {component, index} ->
+        component
+        |> Jido.Flow.Component.effective_dependencies()
+        |> unknown_reference_errors_for(
+          known,
+          Jido.Flow.Component.name_of(component),
+          ["components", index]
+        )
+      end)
+
+    output_errors ++ component_errors
+  end
+
+  defp unknown_reference_errors_for(names, known, owner, path) do
+    names
+    |> Enum.reject(&MapSet.member?(known, &1))
+    |> Enum.uniq()
+    |> Enum.map(fn name ->
+      Error.validation_error("Flow reference points to an unknown component", %{
+        owner: owner,
+        component: name,
+        path: path
+      })
+    end)
+  end
+
+  defp collect_values(fields, initial_errors \\ []) do
+    {values, errors} =
+      Enum.reduce(fields, {%{}, initial_errors}, fn {key, validator}, {values, errors} ->
+        case validator.() do
+          {:ok, value} -> {Map.put(values, key, value), errors}
+          {:error, nested} when is_list(nested) -> {values, errors ++ nested}
+          {:error, error} -> {values, errors ++ [error]}
+        end
+      end)
+
+    if errors == [], do: {:ok, values}, else: {:error, errors}
+  end
+
+  defp collect_sequence(values, validator) do
+    {decoded, errors} =
+      Enum.reduce(values, {[], []}, fn value, {decoded, errors} ->
+        case validator.(value) do
+          {:ok, item} -> {decoded ++ [item], errors}
+          {:error, nested} when is_list(nested) -> {decoded, errors ++ nested}
+          {:error, error} -> {decoded, errors ++ [error]}
+        end
+      end)
+
+    if errors == [], do: {:ok, decoded}, else: {:error, errors}
+  end
+
+  defp unknown_field_errors(record, allowed, path) do
+    record
+    |> Map.keys()
+    |> Enum.reject(&(&1 in allowed))
+    |> Enum.sort()
+    |> Enum.map(fn field ->
+      Error.validation_error("stored Flow contains an unknown field", %{
+        path: path ++ [json_path_segment(field)],
+        field: field
+      })
+    end)
+  end
+
+  defp result_errors(:ok), do: []
+  defp result_errors({:error, error}), do: [error]
+
+  defp required_field(path, field) do
+    {:error, Error.validation_error("stored Flow field is required", %{path: path, field: field})}
+  end
+
+  defp ensure_json_path(%{details: details} = error, base_path) when is_map(details) do
+    local_path = details |> Map.get(:path, []) |> Enum.map(&json_path_segment/1)
+
+    path =
+      if path_starts_with?(local_path, base_path), do: local_path, else: base_path ++ local_path
+
+    %{error | details: Map.put(details, :path, path)}
+  end
+
+  defp ensure_json_path(error, _base_path), do: error
+
+  defp path_starts_with?(path, prefix), do: Enum.take(path, length(prefix)) == prefix
+
+  defp json_path_segment(segment) when is_binary(segment) or is_integer(segment), do: segment
+  defp json_path_segment(segment) when is_atom(segment), do: Atom.to_string(segment)
+  defp json_path_segment(segment), do: inspect(segment)
+
+  defp diagnostic_failure(errors) do
+    {:error, Error.to_class(errors)}
   end
 
   defp root_keys do
@@ -421,422 +1383,6 @@ defmodule Jido.Flow.Codec do
     end)
   end
 
-  defp decode_components(values, registry) when is_list(values) do
-    with :ok <- collection_size(values),
-         false <- values == [] do
-      values
-      |> Enum.with_index()
-      |> Enum.reduce_while({:ok, []}, fn {value, index}, {:ok, decoded} ->
-        case decode_component(value, registry, ["components", index]) do
-          {:ok, component} -> {:cont, {:ok, [component | decoded]}}
-          {:error, error} -> {:halt, {:error, error}}
-        end
-      end)
-      |> reverse_ok()
-    else
-      true ->
-        {:error,
-         Error.validation_error("stored Flow must contain at least one component", %{
-           path: ["components"]
-         })}
-
-      {:error, error} ->
-        {:error, prefix(error, ["components"])}
-    end
-  end
-
-  defp decode_components(_values, _registry) do
-    {:error,
-     Error.validation_error("stored Flow components must be a list", %{path: ["components"]})}
-  end
-
-  defp decode_component(%{} = record, registry, path) when not is_struct(record) do
-    with {:ok, kind_name} <- string_field(record, "kind", path),
-         {:ok, kind} <-
-           closed_value(@component_kinds, kind_name, "component kind", path ++ ["kind"]) do
-      decode_component_kind(kind, record, registry, path)
-    end
-  end
-
-  defp decode_component(_record, _registry, path) do
-    {:error, Error.validation_error("stored Flow component must be a map", %{path: path})}
-  end
-
-  defp decode_component_kind(:step, record, registry, path) do
-    with :ok <- exact_keys(record, ["kind", "name", "action", "params", "after", "meta"], path),
-         {:ok, common} <- decode_common(record, registry, path),
-         {:ok, action} <- resolve_field(record, "action", :action, registry, path),
-         {:ok, params} <-
-           decode_expression(Map.fetch!(record, "params"), registry, 0, path ++ ["params"]) do
-      Step.new(Map.merge(common, %{action: action, params: params}))
-    end
-  end
-
-  defp decode_component_kind(:subflow, record, registry, path) do
-    with :ok <- exact_keys(record, ["kind", "name", "flow", "params", "after", "meta"], path),
-         {:ok, common} <- decode_common(record, registry, path),
-         {:ok, flow} <- resolve_field(record, "flow", :flow, registry, path),
-         {:ok, params} <-
-           decode_expression(Map.fetch!(record, "params"), registry, 0, path ++ ["params"]) do
-      Subflow.new(Map.merge(common, %{flow: flow, params: params}))
-    end
-  end
-
-  defp decode_component_kind(:choice, record, registry, path) do
-    with :ok <- exact_keys(record, ["kind", "name", "options", "fallback", "after", "meta"], path),
-         {:ok, common} <- decode_common(record, registry, path),
-         {:ok, options} <-
-           decode_choice_options(Map.fetch!(record, "options"), registry, path ++ ["options"]),
-         {:ok, fallback} <-
-           decode_fallback(Map.fetch!(record, "fallback"), registry, path ++ ["fallback"]) do
-      Choice.new(Map.merge(common, %{options: options, fallback: fallback}))
-    end
-  end
-
-  defp decode_component_kind(:map, record, registry, path) do
-    keys = ["kind", "name", "collection", "action", "params", "on_error", "after", "meta"]
-
-    with :ok <- exact_keys(record, keys, path),
-         {:ok, common} <- decode_common(record, registry, path),
-         {:ok, collection} <-
-           decode_expression(
-             Map.fetch!(record, "collection"),
-             registry,
-             0,
-             path ++ ["collection"]
-           ),
-         {:ok, action} <- resolve_field(record, "action", :action, registry, path),
-         {:ok, params} <-
-           decode_expression(Map.fetch!(record, "params"), registry, 0, path ++ ["params"]),
-         {:ok, on_error_name} <- string_field(record, "on_error", path),
-         {:ok, on_error} <-
-           closed_value(@on_error, on_error_name, "Map on_error", path ++ ["on_error"]) do
-      FlowMap.new(
-        Map.merge(common, %{
-          collection: collection,
-          action: action,
-          params: params,
-          on_error: on_error
-        })
-      )
-    end
-  end
-
-  defp decode_component_kind(:reduce, record, registry, path) do
-    keys = ["kind", "name", "collection", "initial", "action", "params", "after", "meta"]
-
-    with :ok <- exact_keys(record, keys, path),
-         {:ok, common} <- decode_common(record, registry, path),
-         {:ok, collection} <-
-           decode_expression(
-             Map.fetch!(record, "collection"),
-             registry,
-             0,
-             path ++ ["collection"]
-           ),
-         {:ok, initial} <-
-           decode_expression(Map.fetch!(record, "initial"), registry, 0, path ++ ["initial"]),
-         {:ok, action} <- resolve_field(record, "action", :action, registry, path),
-         {:ok, params} <-
-           decode_expression(Map.fetch!(record, "params"), registry, 0, path ++ ["params"]) do
-      Reduce.new(
-        Map.merge(common, %{
-          collection: collection,
-          initial: initial,
-          action: action,
-          params: params
-        })
-      )
-    end
-  end
-
-  defp decode_component_kind(:iterate, record, registry, path) do
-    keys = [
-      "kind",
-      "name",
-      "action",
-      "params",
-      "state",
-      "completion",
-      "max_iterations",
-      "after",
-      "meta"
-    ]
-
-    with :ok <- exact_keys(record, keys, path),
-         {:ok, common} <- decode_common(record, registry, path),
-         {:ok, action} <- resolve_field(record, "action", :action, registry, path),
-         {:ok, params} <-
-           decode_expression(Map.fetch!(record, "params"), registry, 0, path ++ ["params"]),
-         {:ok, state} <-
-           decode_iterate_state(Map.fetch!(record, "state"), registry, path ++ ["state"]),
-         {:ok, completion} <-
-           decode_condition(Map.fetch!(record, "completion"), registry, 0, path ++ ["completion"]),
-         {:ok, max_iterations} <- positive_integer_field(record, "max_iterations", path) do
-      Iterate.new(
-        Map.merge(common, %{
-          action: action,
-          params: params,
-          state: state,
-          completion: completion,
-          max_iterations: max_iterations
-        })
-      )
-    end
-  end
-
-  defp decode_common(record, registry, path) do
-    with {:ok, name} <- string_field(record, "name", path),
-         {:ok, after_names} <- string_list_field(record, "after", path),
-         {:ok, meta} <- decode_data(Map.fetch!(record, "meta"), registry, 0, path ++ ["meta"]),
-         :ok <- Data.validate_object(meta) do
-      {:ok, %{name: name, after: after_names, meta: meta}}
-    end
-  end
-
-  defp decode_choice_options(values, registry, path) when is_list(values) do
-    with :ok <- collection_size(values),
-         false <- values == [] do
-      values
-      |> Enum.with_index()
-      |> Enum.reduce_while({:ok, []}, fn {record, index}, {:ok, decoded} ->
-        option_path = path ++ [index]
-
-        result =
-          with :ok <- plain_map(record, "choice option", option_path),
-               :ok <- exact_keys(record, ["name", "condition", "action", "params"], option_path),
-               {:ok, name} <- string_field(record, "name", option_path),
-               {:ok, condition} <-
-                 decode_condition(
-                   Map.fetch!(record, "condition"),
-                   registry,
-                   0,
-                   option_path ++ ["condition"]
-                 ),
-               {:ok, action} <- resolve_field(record, "action", :action, registry, option_path),
-               {:ok, params} <-
-                 decode_expression(
-                   Map.fetch!(record, "params"),
-                   registry,
-                   0,
-                   option_path ++ ["params"]
-                 ) do
-            {:ok, %{name: name, condition: condition, action: action, params: params}}
-          end
-
-        case result do
-          {:ok, option} -> {:cont, {:ok, [option | decoded]}}
-          {:error, error} -> {:halt, {:error, error}}
-        end
-      end)
-      |> reverse_ok()
-    else
-      true -> {:error, Error.validation_error("choice options must not be empty", %{path: path})}
-      {:error, error} -> {:error, prefix(error, path)}
-    end
-  end
-
-  defp decode_choice_options(_values, _registry, path) do
-    {:error, Error.validation_error("choice options must be a list", %{path: path})}
-  end
-
-  defp decode_fallback(record, registry, path) do
-    with :ok <- plain_map(record, "choice fallback", path),
-         :ok <- exact_keys(record, ["action", "params"], path),
-         {:ok, action} <- resolve_field(record, "action", :action, registry, path),
-         {:ok, params} <-
-           decode_expression(Map.fetch!(record, "params"), registry, 0, path ++ ["params"]) do
-      {:ok, %{action: action, params: params}}
-    end
-  end
-
-  defp decode_iterate_state(record, registry, path) do
-    with :ok <- plain_map(record, "iterate state", path),
-         :ok <- exact_keys(record, ["schema", "initial", "update"], path),
-         {:ok, schema} <- resolve_field(record, "schema", :schema, registry, path),
-         {:ok, initial} <-
-           decode_expression(Map.fetch!(record, "initial"), registry, 0, path ++ ["initial"]),
-         {:ok, update} <-
-           decode_expression(Map.fetch!(record, "update"), registry, 0, path ++ ["update"]) do
-      {:ok, %{schema: schema, initial: initial, update: update}}
-    end
-  end
-
-  defp decode_expression(value, registry, depth, path) when is_list(value) do
-    decode_list(value, registry, depth, path, &decode_expression/4)
-  end
-
-  defp decode_expression(%{"$ref" => record} = value, registry, depth, path) do
-    with :ok <- exact_keys(value, ["$ref"], path),
-         :ok <- depth(depth),
-         :ok <- plain_map(record, "Flow reference", path ++ ["$ref"]),
-         :ok <- exact_keys(record, ["source", "component", "path"], path ++ ["$ref"]),
-         {:ok, source_name} <- string_field(record, "source", path ++ ["$ref"]),
-         {:ok, source} <-
-           closed_value(@sources, source_name, "reference source", path ++ ["$ref", "source"]),
-         {:ok, component} <- optional_string_field(record, "component", path ++ ["$ref"]),
-         {:ok, ref_path} <-
-           decode_list(
-             Map.fetch!(record, "path"),
-             registry,
-             depth + 1,
-             path ++ ["$ref", "path"],
-             &decode_data/4
-           ) do
-      {:ok, %Ref{source: source, component: component, path: ref_path}}
-    end
-  end
-
-  defp decode_expression(%{"$type" => "map"} = value, registry, depth, path) do
-    decode_map(value, registry, depth, path, &decode_expression/4)
-  end
-
-  defp decode_expression(value, registry, depth, path) when is_map(value) do
-    decode_data(value, registry, depth, path)
-  end
-
-  defp decode_expression(value, registry, depth, path),
-    do: decode_data(value, registry, depth, path)
-
-  defp decode_condition(%{"$condition" => record} = value, registry, depth, path) do
-    with :ok <- exact_keys(value, ["$condition"], path),
-         :ok <- depth(depth),
-         :ok <- plain_map(record, "Flow condition", path ++ ["$condition"]),
-         :ok <- exact_keys(record, ["operator", "operands"], path ++ ["$condition"]),
-         {:ok, operator_name} <- string_field(record, "operator", path ++ ["$condition"]),
-         {:ok, operator} <-
-           closed_value(
-             @operators,
-             operator_name,
-             "condition operator",
-             path ++ ["$condition", "operator"]
-           ),
-         {:ok, operands} <-
-           decode_condition_operands(
-             operator,
-             Map.fetch!(record, "operands"),
-             registry,
-             depth + 1,
-             path ++ ["$condition", "operands"]
-           ) do
-      {:ok, %Condition{operator: operator, operands: operands}}
-    end
-  end
-
-  defp decode_condition(_value, _registry, _depth, path) do
-    {:error,
-     Error.validation_error("stored Flow condition must be a tagged condition", %{path: path})}
-  end
-
-  defp decode_condition_operands(operator, values, registry, depth, path)
-       when operator in [:all, :any, :not] do
-    decode_list(values, registry, depth, path, &decode_condition/4)
-  end
-
-  defp decode_condition_operands(_operator, values, registry, depth, path) do
-    decode_list(values, registry, depth, path, &decode_expression/4)
-  end
-
-  defp decode_data(value, _registry, depth, _path)
-       when is_nil(value) or is_boolean(value) or is_number(value) or is_binary(value) do
-    with :ok <- depth(depth), do: {:ok, value}
-  end
-
-  defp decode_data(%{"$type" => "atom", "id" => identifier} = record, registry, depth, path) do
-    with :ok <- exact_keys(record, ["$type", "id"], path),
-         :ok <- depth(depth),
-         true <- is_binary(identifier),
-         {:ok, atom} <- Registry.resolve(registry, identifier, :atom) do
-      {:ok, atom}
-    else
-      false ->
-        {:error,
-         Error.validation_error("stored atom identifier must be a string", %{path: path ++ ["id"]})}
-
-      {:error, error} ->
-        {:error, prefix(error, path)}
-    end
-  end
-
-  defp decode_data(%{"$type" => "map"} = record, registry, depth, path) do
-    decode_map(record, registry, depth, path, &decode_data/4)
-  end
-
-  defp decode_data(value, registry, depth, path) when is_list(value) do
-    decode_list(value, registry, depth, path, &decode_data/4)
-  end
-
-  defp decode_data(_value, _registry, _depth, path) do
-    {:error,
-     Error.validation_error("stored Flow data has an invalid tagged value", %{path: path})}
-  end
-
-  defp decode_list(values, registry, depth, path, decoder) when is_list(values) do
-    with :ok <- depth(depth),
-         :ok <- collection_size(values) do
-      values
-      |> Enum.with_index()
-      |> Enum.reduce_while({:ok, []}, fn {value, index}, {:ok, decoded} ->
-        case decoder.(value, registry, depth + 1, path ++ [index]) do
-          {:ok, value} -> {:cont, {:ok, [value | decoded]}}
-          {:error, error} -> {:halt, {:error, error}}
-        end
-      end)
-      |> reverse_ok()
-    else
-      {:error, error} -> {:error, prefix(error, path)}
-    end
-  end
-
-  defp decode_list(_values, _registry, _depth, path, _decoder) do
-    {:error, Error.validation_error("stored Flow data must be a list", %{path: path})}
-  end
-
-  defp decode_map(record, registry, depth, path, value_decoder) do
-    with :ok <- depth(depth),
-         :ok <- exact_keys(record, ["$type", "entries"], path),
-         :ok <- exact_value(record, "$type", "map", path),
-         {:ok, entries} <- list_field(record, "entries", path),
-         :ok <- collection_size(entries) do
-      entries
-      |> Enum.with_index()
-      |> Enum.reduce_while({:ok, %{}}, fn {entry, index}, {:ok, decoded} ->
-        entry_path = path ++ ["entries", index]
-
-        result =
-          with :ok <- plain_map(entry, "stored map entry", entry_path),
-               :ok <- exact_keys(entry, ["key", "value"], entry_path),
-               {:ok, key} <-
-                 decode_data(Map.fetch!(entry, "key"), registry, depth + 1, entry_path ++ ["key"]),
-               :ok <- Data.validate_key(key),
-               false <- Map.has_key?(decoded, key),
-               {:ok, value} <-
-                 value_decoder.(
-                   Map.fetch!(entry, "value"),
-                   registry,
-                   depth + 1,
-                   entry_path ++ ["value"]
-                 ) do
-            {:ok, Map.put(decoded, key, value)}
-          else
-            true ->
-              {:error,
-               Error.validation_error("stored map contains a duplicate key", %{
-                 path: entry_path ++ ["key"]
-               })}
-
-            {:error, error} ->
-              {:error, prefix(error, entry_path)}
-          end
-
-        case result do
-          {:ok, decoded} -> {:cont, {:ok, decoded}}
-          {:error, error} -> {:halt, {:error, error}}
-        end
-      end)
-    end
-  end
-
   defp resolve_field(record, field, kind, registry, path) do
     case Map.fetch(record, field) do
       {:ok, identifier} when is_binary(identifier) ->
@@ -854,34 +1400,6 @@ defmodule Jido.Flow.Codec do
       :error ->
         {:error,
          Error.validation_error("stored Flow field is required", %{path: path ++ [field]})}
-    end
-  end
-
-  defp exact_keys(record, keys, path) when is_map(record) do
-    expected = MapSet.new(keys)
-    actual = MapSet.new(Map.keys(record))
-
-    cond do
-      actual == expected ->
-        :ok
-
-      MapSet.size(MapSet.difference(actual, expected)) > 0 ->
-        [key | _] = actual |> MapSet.difference(expected) |> Enum.sort()
-
-        {:error,
-         Error.validation_error("stored Flow contains an unknown field", %{
-           path: path ++ [key],
-           field: key
-         })}
-
-      true ->
-        [key | _] = expected |> MapSet.difference(actual) |> Enum.sort()
-
-        {:error,
-         Error.validation_error("stored Flow field is required", %{
-           path: path ++ [key],
-           field: key
-         })}
     end
   end
 
@@ -956,21 +1474,6 @@ defmodule Jido.Flow.Codec do
           {:error, error} ->
             {:error, prefix(error, path ++ [field])}
         end
-
-      {:ok, _value} ->
-        {:error,
-         Error.validation_error("stored Flow field must be a list", %{path: path ++ [field]})}
-
-      :error ->
-        {:error,
-         Error.validation_error("stored Flow field is required", %{path: path ++ [field]})}
-    end
-  end
-
-  defp list_field(record, field, path) do
-    case Map.fetch(record, field) do
-      {:ok, values} when is_list(values) ->
-        {:ok, values}
 
       {:ok, _value} ->
         {:error,

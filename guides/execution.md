@@ -1,242 +1,139 @@
-# Execution
+# Execution Contract
 
-`Jido.Exec` is the public execution boundary for an Action, an Instruction, or
-a Flow. It applies the shared validation and error rules, then returns a
-normalized result.
+`Jido.Exec` is the public execution and error boundary for Actions,
+Instructions, and Flows.
 
-## Run An Executable
-
-Use `run/4` for run-to-completion execution:
+## Run To Completion
 
 ```elixir
 Jido.Exec.run(executable, input \\ %{}, context \\ %{}, opts \\ [])
 ```
 
-The executable can be an Action module, an `%Jido.Instruction{}`, a
-`%Jido.Flow{}`, or a module that uses `Jido.Flow`.
+The executable can be:
 
-Action and Flow modules expose the same `Jido.Executable` contract. The
-resolver selects an internal Action or Flow adapter. It does not infer a Flow
-from a marker or from the presence of `flow/0`.
+- an Action module;
+- an Instruction;
+- a Flow module; or
+- a runtime `%Jido.Flow{}` value.
 
-All targets support `jido: MyApp.Jido` for OTP instance routing. An Action
-target accepts no Flow policy options. A Flow target also supports `async: true
-| false` and `max_concurrency: positive_integer()`. An Instruction uses the
-option rules of its resolved target. Flow policy options schedule independent
-native Runic runnables and Map item calls. One shared limit bounds their active
-Action calls. Reduce and Iterate Action calls stay serial inside their owning
-runtime work.
+For an Action, Exec validates the target and input, runs `run/2` in an owned
+process, normalizes the callback result, and validates normal output.
 
-The `jido:` option routes each Action worker through
-`MyApp.Jido.TaskSupervisor`, which is the Task Supervisor name used by Jido
-core instances. The instance must be running. A missing instance returns a
-structured validation error. Exec does not silently use its global Task
-Supervisor. If `:jido` is absent or `nil`, Exec uses
-`Jido.Exec.TaskSupervisor`.
+For a Flow, Exec also validates the graph and targets, compiles the canonical
+Flow to Runic, executes the graph, evaluates the explicit output, and validates
+Flow output.
 
-## Validation Pipeline
+## Results And Errors
 
-For a leaf Action, `Jido.Exec`:
-
-1. normalizes input and context to maps,
-2. validates the Action contract,
-3. calls `validate_params/1`,
-4. calls `run/2`,
-5. normalizes the callback return shape, and
-6. calls `validate_output/1` for a normal successful result.
-
-For an Instruction, Jido first merges stored parameters and context with the
-call-site maps. It then runs the Action or Flow pipeline for the resolved
-target. For a Flow, it validates the Flow, checks Action contracts, validates
-Flow input, executes nodes, assembles the declared output expression, and
-validates Flow output.
-
-An explicit `Jido.Action.Output` envelope is preserved as an envelope. It is
-used for raw, stream, batch, and opaque successful values.
-
-## Results, Errors, And Extras
-
-Successful execution returns one of:
+A successful direct Action or Action Instruction returns:
 
 ```elixir
 {:ok, result}
 {:ok, result, extras}
 ```
 
-Direct Action execution and an Instruction with an Action target preserve
-`extras` from `run/2`. Flow nodes use only the output or error reason and
-discard node extras.
+A successful Flow returns `{:ok, result}`. Flow nodes discard Action extras.
 
-Action-owned failures become structured `Jido.Action.Error` exceptions. The
-main public types are:
+Public failures are exception structs. Action boundary errors use:
 
-- `Jido.Action.Error.InvalidInputError` for input or output validation,
-- `Jido.Action.Error.ExecutionFailureError` for callback and execution
-  failures,
-- `Jido.Action.Error.ConfigurationError` for invalid executable configuration,
-- `Jido.Action.Error.TimeoutError` for a complete Action or Action Instruction
-  timeout, and
-- `Jido.Action.Error.InternalError` for unexpected internal failures.
+- `Jido.Action.Error.InvalidInputError`;
+- `Jido.Action.Error.ConfigurationError`;
+- `Jido.Action.Error.ExecutionFailureError`;
+- `Jido.Action.Error.TimeoutError`; and
+- `Jido.Action.Error.InternalError`.
 
-Flow definition, compilation, native execution, and execution-state failures
-use `Jido.Flow.Error`:
+Flow boundary errors use:
 
-- `Jido.Flow.Error.InvalidDefinitionError` for invalid canonical or authored
-  Flow data,
-- `Jido.Flow.Error.InvalidExecutionError` for invalid Flow input, options, or
-  execution state,
-- `Jido.Flow.Error.ExecutionFailureError` for native Flow execution failures,
-  including multiple failed runnables, and
-- `Jido.Flow.Error.TimeoutError` for a complete Flow or Flow Instruction
-  timeout, and
-- `Jido.Flow.Error.InternalError` for an unexpected internal Flow failure.
+- `Jido.Flow.Error.InvalidDefinitionError`;
+- `Jido.Flow.Error.InvalidExecutionError`;
+- `Jido.Flow.Error.ExecutionFailureError`;
+- `Jido.Flow.Error.TimeoutError`; and
+- `Jido.Flow.Error.InternalError`.
 
-An Action failure inside a Flow keeps its original `Jido.Action.Error` type.
-The common `Jido.Executable` resolver uses
-`Jido.Action.Error.ConfigurationError` when resolution fails before it knows
-the executable kind. Jido does not add a third executable error model.
+An Action failure inside a Flow keeps its Action error when possible. Use
+`Jido.Action.Error.to_map/1` or `Jido.Flow.Error.to_map/1` for deterministic
+external data. A runtime error can keep a `Splode.Stacktrace` in memory. The
+stable map does not include it.
 
-Use `Jido.Action.Error.to_map/1` for an Action error. Use
-`Jido.Flow.Error.to_map/1` for a Flow error. `Jido.Flow.Error.to_map/1` also
-accepts an Action error, which is useful at a Flow boundary. Error maps contain
-a stable `:type`, message, details, and a conservative `:retryable?` value.
+Exec does not retry work. Retryability in an error is information for a
+higher-level caller.
 
-Execution and timeout errors are non-retryable by default. An Action can set
-`details.retry` to `true` only when another attempt is safe. Jido does not
-perform an automatic retry.
+## Runtime Options
 
-A caught Action exception, throw, or exit keeps its original stacktrace in the
-runtime error's `%Splode.Stacktrace{}` field. Stable error maps and JSON
-encoding do not include this stacktrace.
+All targets accept:
 
-Direct Action execution preserves an exception returned in `{:error,
-exception}`. When a Flow must add node, phase, or item ownership to a foreign
-exception that has no `details` field, it creates an `ExecutionFailureError`.
-The wrapper keeps the foreign exception module in `details.exception`. Jido
-does not add undeclared keys to the foreign exception struct.
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `timeout` | `:infinity` | Complete-call limit for `run/4`. |
+| `jido` | `nil` | Jido instance used for Action worker routing. |
 
-## Telemetry
+Flow targets also accept:
 
-Jido emits 21 events. Twelve events describe the top-level lifecycles:
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `async` | `false` | Runs independent ready work concurrently. |
+| `max_concurrency` | scheduler count | Bounds Action calls and helper workers in one execution. |
 
-- `[:jido, :action, :start]`, `[:jido, :action, :stop]`, and
-  `[:jido, :action, :error]` for direct Actions and Instructions;
-- `[:jido, :flow, :start]`, `[:jido, :flow, :stop]`, and
-  `[:jido, :flow, :error]`; and
-- `[:jido, :flow, :node, :start]`, `[:jido, :flow, :node, :stop]`, and
-  `[:jido, :flow, :node, :error]`; and
-- `[:jido, :flow, :target, :start]`, `[:jido, :flow, :target, :stop]`, and
-  `[:jido, :flow, :target, :error]` for Step targets and the selected Choice
-  target.
+`start/4` accepts `jido`, `async`, and `max_concurrency`. It does not accept a
+timeout because a paused execution has no complete-call clock.
 
-Nine events describe Action work inside collection nodes:
-
-- `[:jido, :flow, :map, :item, :start]`, `:stop`, and `:error`;
-- `[:jido, :flow, :reduce, :item, :start]`, `:stop`, and `:error`; and
-- `[:jido, :flow, :iterate, :iteration, :start]`, `:stop`, and `:error`.
-
-Start measurements are `%{system_time: integer, monotonic_time: integer}`.
-Stop and error measurements are `%{duration: integer, monotonic_time: integer}`.
-
-Action metadata is `%{execution_id: binary, kind: :action | :instruction,
-name: term}`. Flow metadata is `%{execution_id: binary, flow: binary}`. Node
-metadata is `%{execution_id: binary, flow: binary, node: binary, kind: :step |
-:choice | :map | :reduce | :iterate}`. Error events add `:error` and
-`:error_type`.
-
-Target metadata is `%{execution_id: binary, flow: binary, node: binary, kind:
-:step | :choice, target: module, option: term}`. A Step has `option: nil`. A
-Choice has the selected option name. No target event occurs when Choice
-condition evaluation fails before selection.
-
-Map and Reduce work units add `target`, `item_index`, and `item_id`. Their
-`kind` values are `:map_item` and `:reduce_item`. Iterate work units add
-`target`, `iteration_index`, `iteration_id`, and `state_revision`. Their
-`kind` is `:iterate_iteration`. All work units also include `execution_id`,
-`flow`, and `node`.
-
-The same `execution_id` correlates a Flow, its components, and child work.
-Serial Flow events nest as Flow and then component. Step-wise execution opens
-one Flow event in `start/4`. It closes the event only when a step, wave, or
-continue operation reaches a terminal result. A Step or selected Choice Action
-has a target span inside its node span. Collection Actions have work-unit
-spans. Flow targets do not emit a separate direct Action lifecycle or child
-Flow lifecycle. An Instruction that targets a Flow has the Flow lifecycle
-inside its Action lifecycle. Async node spans can overlap. Each async worker
-starts and finishes its span around the actual node work. Start and stop events
-can follow scheduler and completion order. Use the node metadata and
-`execution_id` for correlation instead of event position. A killed node task
-still has one node error event. Collection work-unit events can have high
-volume. Attach a handler only when you need this detail. Asynchronous node and
-collection workers copy the caller's Logger metadata at dispatch time.
-
-Native support runnables do not get an artificial Jido component span.
-
-There are no scheduler, State transition, completion, or exhaustion point
-events. A collection work-unit error event reports a failed Action call.
-Telemetry does not control scheduling or results.
-
-## Run A Flow Step By Step
-
-A Flow or an Instruction with a Flow target supports the step-wise API. Start
-a paused execution:
+## Step-wise Flow Execution
 
 ```elixir
 {:ok, execution} = Jido.Exec.start(flow, input, context)
-```
 
-Inspect and advance the latest execution value:
-
-```elixir
-Jido.Exec.status(execution)
-Jido.Exec.ready(execution)
+runnables = Jido.Exec.ready(execution)
+status = Jido.Exec.status(execution)
 
 {:ok, runnable, execution} = Jido.Exec.step(execution)
 {:ok, runnables, execution} = Jido.Exec.wave(execution)
 {:ok, execution} = Jido.Exec.continue(execution)
-{:ok, final_result} = Jido.Exec.result(execution)
+{:ok, result} = Jido.Exec.result(execution)
 ```
 
-`ready/1` returns native `Runic.Workflow.Runnable` values. `step/1` executes
-the first ready runnable. `step/2` selects one ready runnable by value or ID.
-`wave/1` executes the current ready set. Runnables that become ready wait for
-the next operation.
+`ready/1` returns native `Runic.Workflow.Runnable` values. The ready set can
+include authored work and native support work. Jido does not hide or drain
+support runnables.
 
-A failed runnable stops the Flow after Jido applies the failure. If two or more
-runnables in one wave fail, `result/1` returns a
-`Jido.Flow.Error.ExecutionFailureError`. Its `failures` field keeps the node,
-native runnable ID, and original error for each failure.
+`workflow/1` returns the live prepared native Runic workflow. `compiled/1`
+returns its component index and source map. These are read escape hatches for
+debugging and native Runic inspection. A workflow changed outside Exec cannot
+be applied back to an Execution through this API.
 
-The API exposes native Runic support work. Ready values can contain Step,
-Join, InputBinding, FanOut, FanIn, collector, validator, and nested Flow work.
-Jido does not create a second public-node scheduler.
+`step/1` runs the first ready runnable. `step/2` selects a ready runnable by
+value or integer ID. `wave/1` runs the set that was ready when the call began.
+`continue/1` runs to a terminal state.
 
-A failed runnable is an applied transition. The step operation returns
-`{:ok, %Runic.Workflow.Runnable{status: :failed}, execution}`. Selection
-errors and invalid execution state return `{:error, exception}`.
+A failed runnable is an applied state transition. A step can return
+`{:ok, failed_runnable, execution}`. Read the terminal error with `result/1`.
 
-Always pass the newest execution to the next operation. Execution values are
-caller-owned, in-memory state, not durable checkpoints or interchange maps.
-Each execution stores its own `async` and `max_concurrency` settings. Jido
-rejects an older execution revision before it dispatches work.
+Always use the newest execution value. Each mutation consumes one revision.
+Jido rejects concurrent reuse or later reuse of an old revision before it
+starts Action work. An Execution is in-memory state, not a checkpoint or
+storage format.
 
-## Runtime Policy Boundary
+## Telemetry Contract
 
-`Jido.Exec.run/4` accepts `timeout: milliseconds | :infinity` for all targets.
-A finite value applies to the complete call. The default is `:infinity`.
-Common `jido:` routing selects an OTP instance. Flow execution also accepts
-`async` and `max_concurrency`. Exec does not provide automatic retries,
-per-node timeouts, a public cancellation handle, persistence, rewind, queues,
-recovery, distributed coordination, or deployment-safe continuation.
+Jido emits `:start`, `:stop`, and `:error` events for these prefixes:
 
-## Direct Calls And Crash Isolation
+```text
+[:jido, :action]
+[:jido, :flow]
+[:jido, :flow, :node]
+[:jido, :flow, :target]
+[:jido, :flow, :map, :item]
+[:jido, :flow, :reduce, :item]
+[:jido, :flow, :iterate, :iteration]
+```
 
-Calling an Action's `run/2` directly does not add validation, supervision,
-crash isolation, retries, or timeouts. Use `Jido.Exec` when you need the public
-validation, error, isolation, and whole-call timeout boundary.
+All nested events use one `execution_id`. Error events add `error` and
+`error_type`. Collection and iteration events can have high volume. Native
+Runic support nodes do not get artificial Jido node events.
 
-`Jido.Exec` owns the global Task Supervisor and the concurrency processes that
-support this boundary. With `jido: MyApp.Jido`, it uses the running Jido core
-instance Task Supervisor for Action workers. The short-lived Flow concurrency
-limiter stays in the Exec-global tree and uses a unique execution ID. These
-processes belong to execution, not to an Action definition.
+## Scope
+
+Exec provides one in-memory execution session. It provides validation, process
+ownership, whole-call timeout, optional concurrency, and Jido instance
+routing. It does not provide automatic retry, per-node deadlines, a public
+cancel handle, persistence, rewind, queues, recovery, or distributed
+coordination.

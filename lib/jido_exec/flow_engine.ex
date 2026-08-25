@@ -15,6 +15,7 @@ defmodule Jido.Exec.FlowEngine do
   alias Runic.Workflow
   alias Runic.Workflow.Runnable
 
+  @doc "Creates a paused Flow execution from prepared Flow and Runic data."
   @spec start(
           Flow.t(),
           Compiled.t(),
@@ -79,12 +80,15 @@ defmodule Jido.Exec.FlowEngine do
     settle(execution)
   end
 
+  @doc "Returns the native Runic runnables that are ready."
   @spec ready(Execution.t()) :: [Runnable.t()]
   def ready(%Execution{ready: ready}), do: ready
 
+  @doc "Returns the current Flow execution status."
   @spec status(Execution.t()) :: :running | :succeeded | :failed
   def status(%Execution{status: status}), do: status
 
+  @doc "Returns the terminal result or an error while execution is running."
   @spec result(Execution.t()) :: {:ok, term()} | {:error, Exception.t()}
   def result(%Execution{status: :running} = execution) do
     {:error,
@@ -97,6 +101,7 @@ defmodule Jido.Exec.FlowEngine do
 
   def result(%Execution{final_result: result}) when not is_nil(result), do: result
 
+  @doc "Executes the first ready native Runnable."
   @spec step(Execution.t()) ::
           {:ok, Runnable.t(), Execution.t()} | {:error, Exception.t()}
   def step(%Execution{} = execution) do
@@ -106,6 +111,7 @@ defmodule Jido.Exec.FlowEngine do
     end
   end
 
+  @doc "Executes one selected ready native Runnable."
   @spec step(Execution.t(), Runnable.t() | integer()) ::
           {:ok, Runnable.t(), Execution.t()} | {:error, Exception.t()}
   def step(%Execution{status: :running} = execution, %Runnable{id: id}),
@@ -128,6 +134,7 @@ defmodule Jido.Exec.FlowEngine do
 
   def step(%Execution{} = execution, _runnable), do: execution_not_running(execution)
 
+  @doc "Executes the complete set of Runnables that is currently ready."
   @spec wave(Execution.t()) ::
           {:ok, [Runnable.t()], Execution.t()} | {:error, Exception.t()}
   def wave(%Execution{status: :running} = execution) do
@@ -144,6 +151,7 @@ defmodule Jido.Exec.FlowEngine do
 
   def wave(%Execution{} = execution), do: execution_not_running(execution)
 
+  @doc "Runs successive waves until the Flow has a terminal status."
   @spec continue(Execution.t()) :: {:ok, Execution.t()} | {:error, Exception.t()}
   def continue(%Execution{status: :running} = execution) do
     with {:ok, _runnables, execution} <- wave(execution) do
