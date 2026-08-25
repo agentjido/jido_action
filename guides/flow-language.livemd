@@ -137,6 +137,8 @@ Use `value/1` when you want to mark one supported literal explicitly. Use
 
 The DSL supports these condition forms:
 
+<!-- livebook:{"force_markdown":true} -->
+
 ```elixir
 input(:status) == :ready
 input(:count) >= 3

@@ -60,6 +60,8 @@ dependencies
 
 `after:` orders work without copying predecessor output into the next Action.
 
+<!-- livebook:{"force_markdown":true} -->
+
 ```elixir
 step "publish",
   action: FlowDependencies.Echo,

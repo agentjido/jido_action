@@ -72,6 +72,8 @@ body output.
 `while` is a head condition. If it is false for the initial State, the body
 does not run. A while form must also set `max_iterations`.
 
+<!-- livebook:{"force_markdown":true} -->
+
 ```elixir
 iterate "counter" do
   state(Zoi.object(%{count: Zoi.integer()}), initial: %{count: 0})
