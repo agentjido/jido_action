@@ -112,7 +112,8 @@ defmodule JidoAction.MixProject do
           "guides/testing.md"
         ],
         Upgrade: [
-          "guides/v3-migration.md"
+          "guides/v3-migration.md",
+          "guides/v2-to-v3-upgrade-skill.md"
         ]
       ],
       extras: [
@@ -149,7 +150,8 @@ defmodule JidoAction.MixProject do
         {"guides/security.md", title: "Security"},
         {"guides/testing.md", title: "Testing"},
         # Upgrade
-        {"guides/v3-migration.md", title: "Migrate To v3"}
+        {"guides/v3-migration.md", title: "Upgrade From v2 To v3"},
+        {"guides/v2-to-v3-upgrade-skill.md", title: "Upgrade From v2 To v3 Skill"}
       ],
       extra_section: "Guides",
       formatters: ["html"],
