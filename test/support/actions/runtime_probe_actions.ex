@@ -39,6 +39,7 @@ end
 
 defmodule JidoActionTest.TestActions.CountedMapAction do
   @moduledoc false
+  def __jido_executable__, do: Jido.Executable.action(__MODULE__)
 
   def validate_params(%{test_pid: test_pid, index: index} = params) do
     send(test_pid, {__MODULE__, :input, index})

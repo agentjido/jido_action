@@ -2,12 +2,19 @@ defmodule Jido.Executable do
   @moduledoc """
   Defines the common executable contract for Jido Actions and Jido Flows.
 
-  Modules that use `Jido.Action` or `Jido.Flow` expose one generated
-  `__jido_executable__/0` descriptor. `resolve/1` converts Action modules,
-  Flow modules, and `Jido.Flow` artifacts to the same internal descriptor.
+  An executable target is one of these values:
+
+  * an Action module with `__jido_executable__/0`;
+  * a Flow module with `__jido_executable__/0`; or
+  * a `Jido.Flow` value.
+
+  `resolve/1` keeps the exact target and returns one internal descriptor.
+  A module callback must identify the module that owns the callback.
 
   The adapter field is an internal execution detail. It keeps Action and Flow
   execution semantics separate. It is not a general plugin interface.
+
+  This module does not define a map or JSON format for executable targets.
   """
 
   alias Jido.Action.Error
@@ -18,6 +25,9 @@ defmodule Jido.Executable do
 
   @typedoc "The executable kind."
   @type kind :: :action | :flow
+
+  @typedoc "An Action module, a Flow module, or a runtime Flow value."
+  @type target :: module() | Flow.t()
 
   @schema Zoi.struct(
             __MODULE__,
@@ -46,17 +56,20 @@ defmodule Jido.Executable do
 
   @doc false
   @spec flow(module() | Flow.t()) :: t()
-  def flow(target) do
+  def flow(%Flow{} = target) do
+    %__MODULE__{kind: :flow, target: target, adapter: @flow_adapter}
+  end
+
+  def flow(target) when is_atom(target) and not is_nil(target) do
     %__MODULE__{kind: :flow, target: target, adapter: @flow_adapter}
   end
 
   @doc """
-  Resolves an Action module, Flow module, or Flow artifact.
+  Resolves an executable target.
 
-  The result is one internal executable descriptor. Modules that use the
-  current Jido macros provide this descriptor directly. Callback-only Action
-  modules continue to resolve as Actions and use the same callback validation
-  rules as before.
+  Action and Flow modules must return a valid descriptor from
+  `__jido_executable__/0`. A loaded module without this callback is not an
+  executable target.
   """
   @spec resolve(term()) :: {:ok, t()} | {:error, Error.ConfigurationError.t()}
   def resolve(%Flow{} = flow), do: {:ok, flow(flow)}
@@ -70,10 +83,29 @@ defmodule Jido.Executable do
 
   def resolve(executable), do: unknown_executable(executable, nil)
 
-  @doc false
-  @spec validate(t()) :: :ok | {:error, Exception.t()}
-  def validate(%__MODULE__{adapter: adapter} = executable) do
+  @doc "Validates an executable descriptor or target."
+  @spec validate(t() | target() | term()) :: :ok | {:error, Exception.t()}
+  def validate(%__MODULE__{adapter: adapter} = executable)
+      when (executable.kind == :action and adapter == @action_adapter and
+              is_atom(executable.target) and not is_nil(executable.target)) or
+             (executable.kind == :flow and adapter == @flow_adapter and
+                (is_struct(executable.target, Flow) or
+                   (is_atom(executable.target) and not is_nil(executable.target)))) do
     adapter.validate(executable)
+  end
+
+  def validate(%__MODULE__{} = executable) do
+    {:error,
+     Error.config_error("invalid executable descriptor", %{
+       executable: executable,
+       reason: :invalid_descriptor
+     })}
+  end
+
+  def validate(target) do
+    with {:ok, executable} <- resolve(target) do
+      validate(executable)
+    end
   end
 
   @doc false
@@ -96,12 +128,20 @@ defmodule Jido.Executable do
 
   defp resolve_loaded_module(module) do
     if function_exported?(module, :__jido_executable__, 0) do
-      module
-      |> invoke_descriptor()
-      |> validate_descriptor(module)
+      resolve_module_descriptor(module)
     else
-      {:ok, action(module)}
+      unknown_executable(module, :missing_descriptor)
     end
+  end
+
+  defp resolve_module_descriptor(module) do
+    module
+    |> invoke_descriptor()
+    |> validate_descriptor(module)
+  rescue
+    error -> descriptor_callback_error(module, error)
+  catch
+    kind, reason -> descriptor_callback_error(module, {kind, reason})
   end
 
   defp invoke_descriptor(module), do: module.__jido_executable__()
@@ -119,7 +159,17 @@ defmodule Jido.Executable do
     {:error,
      Error.config_error("invalid executable descriptor", %{
        executable: module,
-       descriptor: descriptor
+       descriptor: descriptor,
+       reason: :invalid_descriptor
+     })}
+  end
+
+  defp descriptor_callback_error(module, error) do
+    {:error,
+     Error.config_error("invalid executable descriptor", %{
+       executable: module,
+       error: error,
+       reason: :descriptor_callback_failed
      })}
   end
 

@@ -1,19 +1,25 @@
 defmodule Jido.Instruction do
   @moduledoc """
-  A small call frame describing one requested action execution.
+  Defines the invocation value for one executable target.
 
-  `Jido.Instruction` captures intent to run an action with params and context.
-  It does not represent a workflow, graph, program, source artifact, or
-  execution policy. Construction validates the invocation shape; callers can
-  explicitly validate the action callback contract before execution.
+  An Instruction contains a target, params, context, and metadata. The
+  `:action` field keeps its current name, but its value follows the
+  `Jido.Executable` target contract. It can contain an Action module, a Flow
+  module, or a runtime `Jido.Flow` value.
 
       %Jido.Instruction{
         action: MyApp.Actions.SendEmail,
         params: %{to: "user@example.com"},
-        context: %{tenant_id: "tenant_123"}
+        context: %{tenant_id: "tenant_123"},
+        metadata: %{request_id: "req_123"}
       }
 
-  Instructions are plain data for one action invocation.
+  The constructor resolves the target and validates the three invocation maps.
+  It keeps the target value without conversion. Metadata has no execution
+  meaning in this module.
+
+  Constructor maps are not a stored or JSON representation. Executable module
+  atoms and runtime Flow values do not have one general JSON form.
   """
 
   alias Jido.Action.Error
@@ -23,100 +29,67 @@ defmodule Jido.Instruction do
             __MODULE__,
             %{
               action:
-                Zoi.atom(description: "Action module to execute")
-                |> Zoi.refine({__MODULE__, :validate_action_module, []}),
-              params: Zoi.map(description: "Parameters for the action") |> Zoi.default(%{}),
-              context: Zoi.map(description: "Execution context") |> Zoi.default(%{})
+                Zoi.any(description: "Executable target")
+                |> Zoi.refine({__MODULE__, :validate_executable_target, []}),
+              params: Zoi.map(description: "Executable parameters") |> Zoi.default(%{}),
+              context: Zoi.map(description: "Execution context") |> Zoi.default(%{}),
+              metadata: Zoi.map(description: "Invocation metadata") |> Zoi.default(%{})
             },
             coerce: true
           )
 
   @type t :: unquote(Zoi.type_spec(@schema))
-  @type action_module :: module()
-  @type action_params :: map()
-  @type action_context :: map()
+  @type executable_target :: Executable.target()
+  @type params :: map()
+  @type context :: map()
+  @type metadata :: map()
 
   @enforce_keys Zoi.Struct.enforce_keys(@schema)
   defstruct Zoi.Struct.struct_fields(@schema)
 
   @doc false
-  @spec validate_action_module(term(), keyword()) :: :ok | {:error, String.t()}
-  def validate_action_module(value, _opts \\ [])
-  def validate_action_module(value, _opts) when is_atom(value) and not is_nil(value), do: :ok
-  def validate_action_module(value, _opts) when is_atom(value), do: {:error, "cannot be nil"}
-  def validate_action_module(_value, _opts), do: {:error, "must be an atom"}
+  @spec validate_executable_target(term(), keyword()) :: :ok | {:error, String.t()}
+  def validate_executable_target(value, _opts \\ []) do
+    case Executable.resolve(value) do
+      {:ok, _executable} -> :ok
+      {:error, error} -> {:error, Exception.message(error)}
+    end
+  end
 
   @doc false
-  @spec normalize!(term(), map() | keyword(), map() | keyword()) :: t()
-  def normalize!(action_or_instruction, params \\ %{}, context \\ %{}) do
+  @spec normalize!(executable_target() | t(), map() | keyword(), map() | keyword()) :: t()
+  def normalize!(target_or_instruction, params \\ %{}, context \\ %{}) do
     params = normalize_map!(params, :params)
     context = normalize_map!(context, :context)
 
-    cond do
-      is_struct(action_or_instruction, __MODULE__) ->
-        instruction = action_or_instruction
+    case target_or_instruction do
+      %__MODULE__{} = instruction ->
+        normalize_instruction!(instruction, params, context)
 
-        new!(%{
-          action: instruction.action,
-          params: Map.merge(normalize_map!(instruction.params || %{}, :params), params),
-          context: Map.merge(normalize_map!(instruction.context || %{}, :context), context)
-        })
-
-      is_atom(action_or_instruction) and not is_nil(action_or_instruction) ->
-        new!(%{action: action_or_instruction, params: params, context: context})
-
-      true ->
-        raise ArgumentError,
-              "expected an action module or %Jido.Instruction{}, got: #{inspect(action_or_instruction)}"
+      target ->
+        new!(%{action: target, params: params, context: context})
     end
   end
 
   @doc false
   @spec validate_action_contract(term()) :: :ok | {:error, Exception.t()}
-  def validate_action_contract(action) when is_atom(action) and not is_nil(action) do
-    case Executable.resolve(action) do
-      {:ok, executable} ->
-        Executable.validate(executable)
+  def validate_action_contract(target), do: Executable.validate(target)
 
-      {:error, %Error.ConfigurationError{details: %{reason: reason}}} ->
-        {:error,
-         Error.validation_error("action module could not be loaded", %{
-           action: action,
-           reason: reason
-         })}
+  defp normalize_instruction!(instruction, params, context) do
+    attrs = %{
+      action: instruction.action,
+      params: Map.merge(normalize_map!(instruction.params || %{}, :params), params),
+      context: Map.merge(normalize_map!(instruction.context || %{}, :context), context),
+      metadata: normalize_map!(instruction.metadata || %{}, :metadata)
+    }
+
+    case new(attrs) do
+      {:ok, normalized} ->
+        normalized
 
       {:error, error} ->
-        {:error, error}
+        raise Error.validation_error("Invalid instruction configuration", %{reason: error})
     end
-  end
-
-  def validate_action_contract(action) do
-    {:error, Error.validation_error("expected an action module, got: #{inspect(action)}")}
-  end
-
-  @doc false
-  @spec derive_action_name(module()) :: atom()
-  def derive_action_name(action) do
-    derived_name =
-      action
-      |> Module.split()
-      |> List.last()
-      |> Macro.underscore()
-
-    case existing_atom(derived_name) do
-      {:ok, name} ->
-        name
-
-      :error ->
-        raise ArgumentError,
-              "could not derive action name without creating a new atom from #{inspect(action)}; pass an explicit atom name"
-    end
-  end
-
-  defp existing_atom(value) do
-    {:ok, String.to_existing_atom(value)}
-  rescue
-    ArgumentError -> :error
   end
 
   @spec normalize_map!(term(), atom()) :: map()
@@ -133,11 +106,11 @@ defmodule Jido.Instruction do
   @doc """
   Creates an instruction from a map or keyword list.
 
-  `:action` is required. `:params` and `:context` are optional.
-  Params and context may be maps or keyword lists.
+  `:action` is the executable target and is required. `:params`, `:context`,
+  and `:metadata` are optional. The three invocation fields can be maps or
+  keyword lists.
   """
-  @spec new(map() | keyword()) ::
-          {:ok, t()} | {:error, :missing_action | :invalid_action | Exception.t()}
+  @spec new(map() | keyword()) :: {:ok, t()} | {:error, Exception.t()}
   def new(attrs) when is_list(attrs) do
     if Keyword.keyword?(attrs) do
       attrs |> Map.new() |> new()
@@ -149,21 +122,35 @@ defmodule Jido.Instruction do
     end
   end
 
-  def new(%{action: action} = attrs) when is_atom(action) and not is_nil(action) do
-    with {:ok, params} <- normalize_map_field(Map.get(attrs, :params, %{}), :params),
-         {:ok, context} <- normalize_map_field(Map.get(attrs, :context, %{}), :context) do
+  def new(%{action: target} = attrs) do
+    with {:ok, _executable} <- Executable.resolve(target),
+         {:ok, params} <- normalize_map_field(Map.get(attrs, :params, %{}), :params),
+         {:ok, context} <- normalize_map_field(Map.get(attrs, :context, %{}), :context),
+         {:ok, metadata} <- normalize_map_field(Map.get(attrs, :metadata, %{}), :metadata) do
       {:ok,
        %__MODULE__{
-         action: action,
+         action: target,
          params: params,
-         context: context
+         context: context,
+         metadata: metadata
        }}
     end
   end
 
-  def new(%{action: _action}), do: {:error, :invalid_action}
-  def new(%{}), do: {:error, :missing_action}
-  def new(_attrs), do: {:error, :missing_action}
+  def new(%{}) do
+    {:error,
+     Error.validation_error("Invalid instruction configuration", %{
+       field: :action,
+       reason: :missing
+     })}
+  end
+
+  def new(_attrs) do
+    {:error,
+     Error.validation_error("Invalid instruction configuration", %{
+       reason: :invalid_attributes
+     })}
+  end
 
   @doc """
   Creates an instruction or raises on failure.
@@ -177,8 +164,8 @@ defmodule Jido.Instruction do
       {:error, error} when is_exception(error) ->
         raise error
 
-      {:error, reason} ->
-        raise Error.validation_error("Invalid instruction configuration", %{reason: reason})
+      {:error, error} ->
+        raise Error.validation_error("Invalid instruction configuration", %{reason: error})
     end
   end
 

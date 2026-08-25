@@ -68,6 +68,7 @@ end
 
 defmodule JidoActionTest.TestActions.StacktraceAction do
   @moduledoc false
+  def __jido_executable__, do: Jido.Executable.action(__MODULE__)
 
   def validate_params(params), do: {:ok, params}
   def validate_output(output), do: {:ok, output}

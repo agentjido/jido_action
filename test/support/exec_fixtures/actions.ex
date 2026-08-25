@@ -34,6 +34,7 @@ end
 
 defmodule JidoActionTest.ExecFixtures.ChoiceCountedAction do
   @moduledoc false
+  def __jido_executable__, do: Jido.Executable.action(__MODULE__)
 
   def validate_params(%{test_pid: test_pid} = params) do
     send(test_pid, {__MODULE__, :params})
@@ -53,6 +54,7 @@ end
 
 defmodule JidoActionTest.ExecFixtures.ChoiceEnvelopeTarget do
   @moduledoc false
+  def __jido_executable__, do: Jido.Executable.action(__MODULE__)
 
   def validate_params(params), do: {:ok, params}
   def validate_output(output), do: {:ok, output}
@@ -64,6 +66,7 @@ end
 
 defmodule JidoActionTest.ExecFixtures.ChoicePublicEnvelopeAction do
   @moduledoc false
+  def __jido_executable__, do: Jido.Executable.action(__MODULE__)
 
   def validate_params(params), do: {:ok, params}
   def validate_output(output), do: {:ok, output}
@@ -75,6 +78,7 @@ end
 
 defmodule JidoActionTest.ExecFixtures.PreflightRecorder do
   @moduledoc false
+  def __jido_executable__, do: Jido.Executable.action(__MODULE__)
 
   def validate_params(params), do: {:ok, params}
   def validate_output(output), do: {:ok, output}
@@ -87,6 +91,7 @@ end
 
 defmodule JidoActionTest.ExecFixtures.UnselectedTarget do
   @moduledoc false
+  def __jido_executable__, do: Jido.Executable.action(__MODULE__)
 
   def validate_params(%{test_pid: test_pid} = params) do
     send(test_pid, {__MODULE__, :params})
@@ -106,6 +111,7 @@ end
 
 defmodule JidoActionTest.ExecFixtures.ConcurrencyProbeAction do
   @moduledoc false
+  def __jido_executable__, do: Jido.Executable.action(__MODULE__)
 
   def validate_params(params), do: {:ok, params}
   def validate_output(output), do: {:ok, output}
@@ -132,6 +138,7 @@ end
 
 defmodule JidoActionTest.ExecFixtures.ControlledErrorAction do
   @moduledoc false
+  def __jido_executable__, do: Jido.Executable.action(__MODULE__)
 
   def validate_params(params), do: {:ok, params}
   def validate_output(output), do: {:ok, output}
