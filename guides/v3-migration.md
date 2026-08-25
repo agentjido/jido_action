@@ -13,7 +13,7 @@ not an old Flow value, and there is no automatic Plan-to-Flow conversion.
 
 ## Update The Dependency
 
-Version 3 requires Elixir 1.20 or later.
+Version 3 requires Elixir 1.18 or later.
 
 ```elixir
 def deps do

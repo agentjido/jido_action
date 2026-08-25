@@ -73,7 +73,7 @@ change application behavior.
 3. Update the package and platform
 
 - Change the dependency to {:jido_action, "~> 3.0.0-beta.1"}.
-- Set the application to a supported Elixir 1.20 or later release.
+- Set the application to a supported Elixir 1.18 or later release.
 - Update CI to test the selected Elixir and OTP versions.
 - Run mix deps.get.
 - Add direct dependencies for libraries that the application used only

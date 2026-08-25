@@ -206,8 +206,8 @@ behavior.
 
 ## Runtime And Dependencies
 
-- Target Erlang/OTP 29.
-- Target Elixir 1.20. The Mix requirement is `~> 1.20`.
+- Test Erlang/OTP 27, 28, and 29 with the shared v2 compatibility matrix.
+- Support Elixir 1.18 and later. The Mix requirement is `~> 1.18`.
 - The intended direct production dependencies are `telemetry`, `zoi`, `runic`,
   `splode`, and `spark`.
 - Do not add a direct production dependency without an explicit request and a
