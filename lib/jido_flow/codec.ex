@@ -6,7 +6,7 @@ defmodule Jido.Flow.Codec do
   resolves all Action, Flow, schema, and user-data atom identifiers.
   """
 
-  alias Jido.Action.Error
+  alias Jido.Flow.Error
   alias Jido.Flow
   alias Jido.Flow.Choice
   alias Jido.Flow.Condition

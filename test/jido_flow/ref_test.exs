@@ -1,7 +1,7 @@
 defmodule Jido.Flow.RefTest do
   use ExUnit.Case, async: true
 
-  alias Jido.Action.Error.InvalidInputError
+  alias Jido.Flow.Error.InvalidDefinitionError
   alias Jido.Flow.Ref
 
   test "the reference grammar has one source, optional component, and path" do
@@ -19,10 +19,10 @@ defmodule Jido.Flow.RefTest do
   test "result is the only source that accepts a component" do
     assert :ok = Ref.validate(Ref.result("load"))
 
-    assert {:error, %InvalidInputError{}} =
+    assert {:error, %InvalidDefinitionError{}} =
              Ref.validate(%Ref{source: :input, component: "load", path: []})
 
-    assert {:error, %InvalidInputError{}} =
+    assert {:error, %InvalidDefinitionError{}} =
              Ref.validate(%Ref{source: :result, component: nil, path: []})
   end
 
@@ -30,13 +30,13 @@ defmodule Jido.Flow.RefTest do
     assert :ok = Ref.validate(Ref.item(), :map_params)
     assert :ok = Ref.validate(Ref.accumulator(), :reduce_params)
     assert :ok = Ref.validate(Ref.state(), :iterate_completion)
-    assert {:error, %InvalidInputError{}} = Ref.validate(Ref.state(), :flow)
-    assert {:error, %InvalidInputError{}} = Ref.validate(Ref.item(), :iterate_params)
+    assert {:error, %InvalidDefinitionError{}} = Ref.validate(Ref.state(), :flow)
+    assert {:error, %InvalidDefinitionError{}} = Ref.validate(Ref.item(), :iterate_params)
   end
 
   test "paths contain only portable path segments" do
     assert :ok = Ref.validate(Ref.input([:payload, "items", 0]))
-    assert {:error, %InvalidInputError{}} = Ref.validate(Ref.input([-1]))
-    assert {:error, %InvalidInputError{}} = Ref.validate(Ref.input([%{}]))
+    assert {:error, %InvalidDefinitionError{}} = Ref.validate(Ref.input([-1]))
+    assert {:error, %InvalidDefinitionError{}} = Ref.validate(Ref.input([%{}]))
   end
 end

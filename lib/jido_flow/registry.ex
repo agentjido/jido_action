@@ -24,7 +24,7 @@ defmodule Jido.Flow.Registry do
   or derive module names from stored data.
   """
 
-  alias Jido.Action.Error
+  alias Jido.Flow.Error
 
   @maximum_entries 10_000
   @identifier_pattern ~r/\A[A-Za-z0-9][A-Za-z0-9._\/:@-]{0,254}\z/

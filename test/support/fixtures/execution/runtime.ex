@@ -1,12 +1,12 @@
-defmodule JidoActionTest.ExecFixtures do
+defmodule JidoActionTest.Fixtures.Execution do
   @moduledoc false
 
   alias Jido.{Exec, Flow, Instruction}
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.{Reduce, Ref, Step, Subflow}
-  alias JidoActionTest.ExecFixtures.ConcurrencyProbeAction
+  alias JidoActionTest.Fixtures.ConcurrencyProbeAction
 
-  alias JidoActionTest.TestActions.{
+  alias JidoActionTest.Fixtures.Actions.{
     Add,
     EchoParamsAction,
     MapProbeAction,
@@ -25,55 +25,6 @@ defmodule JidoActionTest.ExecFixtures do
         :finish -> {:ok, params}
       end
     end
-  end
-
-  defmodule CountedStepFlow do
-    @moduledoc false
-    use Jido.Flow,
-      name: "counted_step_flow",
-      schema:
-        Zoi.map()
-        |> Zoi.transform({JidoActionTest.ExecFixtures, :count_transform, [:input]}),
-      output_schema:
-        Zoi.map()
-        |> Zoi.transform({JidoActionTest.ExecFixtures, :count_transform, [:output]})
-
-    flow do
-      step("echo",
-        action: JidoActionTest.TestActions.EchoParamsAction,
-        params: %{value: input(:value)}
-      )
-
-      output(result("echo"))
-    end
-  end
-
-  defmodule NestedStepFlow do
-    @moduledoc false
-    use Jido.Flow, name: "nested_step_flow"
-
-    flow do
-      step("add",
-        action: JidoActionTest.TestActions.Add,
-        params: %{value: input(:value), amount: 1}
-      )
-
-      output(result("add"))
-    end
-  end
-
-  def count_transform(value, phase, _opts) do
-    key = {__MODULE__, phase}
-    Process.put(key, Process.get(key, 0) + 1)
-    {:ok, value}
-  end
-
-  def transform_count(phase), do: Process.get({__MODULE__, phase}, 0)
-
-  def reset_transform_counts do
-    Process.delete({__MODULE__, :input})
-    Process.delete({__MODULE__, :output})
-    :ok
   end
 
   def linear_flow do
@@ -247,7 +198,7 @@ defmodule JidoActionTest.ExecFixtures do
 
   def flow_execution_paths(module, input) do
     flow = module.flow()
-    instruction = Instruction.new!(action: module, params: input)
+    instruction = Instruction.new!(target: module, params: input)
 
     parent =
       Flow.new!(
@@ -257,14 +208,93 @@ defmodule JidoActionTest.ExecFixtures do
       )
 
     [
-      artifact: fn -> Exec.run(flow, input, %{}) end,
-      module: fn -> Exec.run(module, input, %{}) end,
-      instruction: fn -> Exec.run(instruction, %{}, %{}) end,
-      parent: fn -> Exec.run(parent, input, %{}) end
+      flow_value: fn -> Exec.run(flow, input, %{}) end,
+      flow_module: fn -> Exec.run(module, input, %{}) end,
+      flow_instruction: fn -> Exec.run(instruction, %{}, %{}) end,
+      subflow: fn -> Exec.run(parent, input, %{}) end
     ]
   end
 
   def node_name(index) do
     "node_#{index |> Integer.to_string() |> String.pad_leading(4, "0")}"
   end
+end
+
+defmodule JidoActionTest.Fixtures.Transforms do
+  @moduledoc false
+
+  @kinds [:input, :invalid_input, :output, :envelope_output, :invalid_output]
+
+  def count(value, kind, _opts) do
+    Process.put({__MODULE__, kind}, calls(kind) + 1)
+
+    transformed =
+      case kind do
+        :input -> Map.update(value, :input_passes, 1, &(&1 + 1))
+        :invalid_input -> :invalid
+        :output -> Map.update(value, :output_passes, 1, &(&1 + 1))
+        :envelope_output -> value
+        :invalid_output -> :invalid
+      end
+
+    {:ok, transformed}
+  end
+
+  def calls(kind), do: Process.get({__MODULE__, kind}, 0)
+
+  def reset do
+    Enum.each(@kinds, &Process.delete({__MODULE__, &1}))
+    :ok
+  end
+end
+
+defmodule JidoActionTest.Fixtures.Iterator do
+  @moduledoc false
+
+  alias Jido.Flow
+  alias Jido.Flow.{Condition, Iterate, Ref}
+
+  @state_schema_recorder :jido_flow_iterator_runtime_state_schema_recorder
+
+  alias JidoActionTest.Fixtures.Increment
+
+  def record_state_transform(value, _opts) do
+    if owner = Process.whereis(@state_schema_recorder) do
+      send(owner, {:state_schema_transform, value})
+    end
+
+    {:ok, Map.update!(value, :count, &(&1 + 100))}
+  end
+
+  def register_state_schema_recorder(pid) when is_pid(pid) do
+    Process.register(pid, @state_schema_recorder)
+  end
+
+  def iterator_flow(opts) do
+    action = Keyword.get(opts, :action, Increment)
+    schema = Keyword.get(opts, :schema, [])
+
+    input =
+      Keyword.get(opts, :input, %{count: Ref.state(:count), index: Ref.iteration_index()})
+
+    initial = Keyword.fetch!(opts, :initial)
+    update = Keyword.get(opts, :update, %{count: Ref.body_result(:count)})
+    completion = Keyword.fetch!(opts, :completion)
+    max_iterations = Keyword.fetch!(opts, :max_iterations)
+
+    iterator =
+      Iterate.new!(
+        name: :count,
+        action: action,
+        params: input,
+        state: [schema: schema, initial: initial, update: update],
+        completion: completion,
+        max_iterations: max_iterations
+      )
+
+    Flow.new!(name: "iterator_runtime", components: [iterator], output: Ref.result(:count))
+  end
+
+  def eq(left, right), do: %Condition{operator: :eq, operands: [left, right]}
+  def gte(left, right), do: %Condition{operator: :gte, operands: [left, right]}
 end

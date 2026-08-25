@@ -2,13 +2,12 @@ defmodule Jido.Instruction do
   @moduledoc """
   Defines the invocation value for one executable target.
 
-  An Instruction contains a target, params, context, and metadata. The
-  `:action` field keeps its current name, but its value follows the
-  `Jido.Executable` target contract. It can contain an Action module, a Flow
-  module, or a runtime `Jido.Flow` value.
+  An Instruction contains a target, params, context, and metadata. The target
+  follows the `Jido.Executable` contract. It can contain an Action module, a
+  Flow module, or a runtime `Jido.Flow` value.
 
       %Jido.Instruction{
-        action: MyApp.Actions.SendEmail,
+        target: MyApp.Actions.SendEmail,
         params: %{to: "user@example.com"},
         context: %{tenant_id: "tenant_123"},
         metadata: %{request_id: "req_123"}
@@ -28,7 +27,7 @@ defmodule Jido.Instruction do
   @schema Zoi.struct(
             __MODULE__,
             %{
-              action:
+              target:
                 Zoi.any(description: "Executable target")
                 |> Zoi.refine({__MODULE__, :validate_executable_target, []}),
               params: Zoi.map(description: "Executable parameters") |> Zoi.default(%{}),
@@ -67,17 +66,13 @@ defmodule Jido.Instruction do
         normalize_instruction!(instruction, params, context)
 
       target ->
-        new!(%{action: target, params: params, context: context})
+        new!(%{target: target, params: params, context: context})
     end
   end
 
-  @doc false
-  @spec validate_action_contract(term()) :: :ok | {:error, Exception.t()}
-  def validate_action_contract(target), do: Executable.validate(target)
-
   defp normalize_instruction!(instruction, params, context) do
     attrs = %{
-      action: instruction.action,
+      target: instruction.target,
       params: Map.merge(normalize_map!(instruction.params || %{}, :params), params),
       context: Map.merge(normalize_map!(instruction.context || %{}, :context), context),
       metadata: normalize_map!(instruction.metadata || %{}, :metadata)
@@ -106,7 +101,7 @@ defmodule Jido.Instruction do
   @doc """
   Creates an instruction from a map or keyword list.
 
-  `:action` is the executable target and is required. `:params`, `:context`,
+  `:target` is the executable target and is required. `:params`, `:context`,
   and `:metadata` are optional. The three invocation fields can be maps or
   keyword lists.
   """
@@ -122,14 +117,14 @@ defmodule Jido.Instruction do
     end
   end
 
-  def new(%{action: target} = attrs) do
+  def new(%{target: target} = attrs) do
     with {:ok, _executable} <- Executable.resolve(target),
          {:ok, params} <- normalize_map_field(Map.get(attrs, :params, %{}), :params),
          {:ok, context} <- normalize_map_field(Map.get(attrs, :context, %{}), :context),
          {:ok, metadata} <- normalize_map_field(Map.get(attrs, :metadata, %{}), :metadata) do
       {:ok,
        %__MODULE__{
-         action: target,
+         target: target,
          params: params,
          context: context,
          metadata: metadata
@@ -140,7 +135,7 @@ defmodule Jido.Instruction do
   def new(%{}) do
     {:error,
      Error.validation_error("Invalid instruction configuration", %{
-       field: :action,
+       field: :target,
        reason: :missing
      })}
   end
@@ -166,17 +161,6 @@ defmodule Jido.Instruction do
 
       {:error, error} ->
         raise Error.validation_error("Invalid instruction configuration", %{reason: error})
-    end
-  end
-
-  @doc false
-  @spec validate_action_contract!(term()) :: :ok | no_return()
-  def validate_action_contract!(action) do
-    with :ok <- validate_action_contract(action) do
-      :ok
-    else
-      {:error, error} ->
-        raise ArgumentError, Exception.message(error)
     end
   end
 

@@ -3,9 +3,9 @@
 Actions and Flow artifacts describe work and data contracts. They do not
 store runtime policy. Configure Flow execution at the `Jido.Exec` boundary.
 
-## Flow Execution Options
+## Flow Policy Options
 
-The current public API accepts exactly two Flow options:
+The current public API accepts exactly two Flow policy options:
 
 ```elixir
 Jido.Exec.run(MyApp.Flows.BuildReport, input, context,
@@ -42,6 +42,28 @@ Pass the options to `run/4` or `start/4`:
 Unknown options are rejected. A non-Boolean `async` value or a non-positive
 `max_concurrency` value is rejected before execution starts.
 
+## Jido Instance Routing
+
+Actions, Instructions, and Flows accept the common `jido:` routing option:
+
+```elixir
+Jido.Exec.run(MyApp.Flows.BuildReport, input, context,
+  jido: MyApp.Jido,
+  async: true,
+  max_concurrency: 4
+)
+```
+
+This routes every Action worker in the call, including nested Flow work,
+through `MyApp.Jido.TaskSupervisor`. This name matches the Jido core instance
+contract. Start the Jido instance in the application supervision tree before
+the call. If the selected Task Supervisor is not running, Exec returns a
+structured error and does not use its global supervisor.
+
+When `:jido` is absent or `nil`, Exec uses `Jido.Exec.TaskSupervisor`. The
+short-lived Flow concurrency limiter stays in the global Exec supervision
+tree. It is isolated by the unique Flow execution ID.
+
 ## Scope And Nested Flows
 
 Options belong to the execution created by the current `run/4` or `start/4`
@@ -54,9 +76,10 @@ is available. Thus, it does not create helper processes that wait for a slot.
 The options do not change Flow dependencies.
 
 A nested Flow compiles as a native Runic Workflow boundary and inherits
-`async` and `max_concurrency` from the parent execution. Its Action calls and
-helper workers use the same execution-wide budgets. The native ready set can
-expose child validators, child Steps, and connection work.
+`async`, `max_concurrency`, and `jido` from the parent execution. Its Action
+calls use the selected instance Task Supervisor and the same execution-wide
+budgets. The native ready set can expose child validators, child Steps, and
+connection work.
 
 ## Current Policy Limits
 

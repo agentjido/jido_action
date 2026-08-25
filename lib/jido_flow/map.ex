@@ -8,7 +8,7 @@ defmodule Jido.Flow.Map do
   stored Flow decoder.
   """
 
-  alias Jido.Action.Error
+  alias Jido.Flow.Error
   alias Jido.Flow.Component
   alias Jido.Flow.Expression
 

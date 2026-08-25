@@ -232,7 +232,7 @@ end
 :input = error.details.ref_type
 [:missing, :nested] = error.details.path
 [] = error.details.resolved_path
-false = Jido.Action.Error.retryable?(error)
+false = Jido.Flow.Error.retryable?(error)
 ```
 
 ## Use Scoped References

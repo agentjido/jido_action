@@ -1,7 +1,7 @@
 defmodule Jido.Flow.Compiler.Iterator do
   @moduledoc false
 
-  alias Jido.Action.Error
+  alias Jido.Flow.Error
   alias Jido.Action.Validation
   alias Jido.Flow.Compiler.Condition
   alias Jido.Flow.Compiler.ErrorTagger
@@ -258,7 +258,8 @@ defmodule Jido.Flow.Compiler.Iterator do
          )}
 
       {:error, _reason} ->
-        {:error, Error.validation_error("iterator state schema validation failed", details)}
+        {:error,
+         Error.invalid_execution_error("iterator state schema validation failed", details)}
     end
   end
 

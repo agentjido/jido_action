@@ -101,7 +101,8 @@ Use `Jido.Exec.run/4` at the public execution boundary:
 
 `Jido.Exec` performs input validation, invokes the callback, validates normal
 output, and normalizes exceptions, unsupported return values, and error
-reasons. Action and Instruction execution do not accept Flow run options.
+reasons. An Action and an Instruction with an Action target accept common
+`jido:` instance routing. They do not accept Flow policy options.
 
 ## Boundary Of An Action
 

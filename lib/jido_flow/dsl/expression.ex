@@ -1,7 +1,7 @@
 defmodule Jido.Flow.DSL.Expression do
   @moduledoc false
 
-  alias Jido.Action.Error
+  alias Jido.Flow.Error
   alias Jido.Flow.{Condition, Ref}
 
   @spec parse(term()) :: {:ok, term()} | {:error, Exception.t()}

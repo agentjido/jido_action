@@ -1,8 +1,8 @@
 defmodule Jido.Exec.ExecutionGuard do
   @moduledoc false
 
-  alias Jido.Action.Error
   alias Jido.Exec.Execution
+  alias Jido.Flow.Error
 
   @type t :: :atomics.atomics_ref()
   @opaque operation :: {pid(), reference(), reference(), pos_integer()}
@@ -171,7 +171,7 @@ defmodule Jido.Exec.ExecutionGuard do
 
   defp stale_error(execution, current_revision, state) do
     {:error,
-     Error.validation_error("stale flow execution", %{
+     Error.invalid_execution_error("stale flow execution", %{
        flow: execution.flow_name,
        execution_id: execution.id,
        reason: stale_reason(state, current_revision, execution.revision),

@@ -1,11 +1,11 @@
 defmodule Jido.Flow.GraphIdentityTest do
   use ExUnit.Case, async: true
 
-  alias Jido.Action.Error.InvalidInputError
+  alias Jido.Flow.Error.InvalidDefinitionError
   alias Jido.Flow
   alias Jido.Flow.Ref
   alias Jido.Flow.Step
-  alias JidoActionTest.TestActions.Add
+  alias JidoActionTest.Fixtures.Actions.Add
 
   test "author order, reference order, and effective order stay separate" do
     first = Step.new!(name: "first", action: Add)
@@ -42,14 +42,14 @@ defmodule Jido.Flow.GraphIdentityTest do
   end
 
   test "unknown references and cycles fail without changing author data" do
-    assert {:error, %InvalidInputError{}} =
+    assert {:error, %InvalidDefinitionError{}} =
              Flow.new(
                name: "unknown",
                components: [Step.new!(name: "one", action: Add, after: ["missing"])],
                output: Ref.result("one")
              )
 
-    assert {:error, %InvalidInputError{message: message}} =
+    assert {:error, %InvalidDefinitionError{message: message}} =
              Flow.new(
                name: "cycle",
                components: [

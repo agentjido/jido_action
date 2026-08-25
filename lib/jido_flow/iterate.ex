@@ -2,7 +2,7 @@ defmodule Jido.Flow.Iterate do
   @moduledoc "A bounded local loop in a canonical Flow."
 
   alias Jido.Action
-  alias Jido.Action.Error
+  alias Jido.Flow.Error
   alias Jido.Flow.Component
   alias Jido.Flow.Condition
   alias Jido.Flow.Expression
@@ -35,7 +35,7 @@ defmodule Jido.Flow.Iterate do
     @moduledoc "Static state data for one `Jido.Flow.Iterate` component."
 
     alias Jido.Action
-    alias Jido.Action.Error
+    alias Jido.Flow.Error
     alias Jido.Flow.Expression
 
     @schema Zoi.struct(

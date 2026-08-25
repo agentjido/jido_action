@@ -11,7 +11,7 @@ defmodule Jido.Flow.Condition do
   """
 
   alias Jido.Action
-  alias Jido.Action.Error
+  alias Jido.Flow.Error
   alias Jido.Flow.Expression
 
   import Kernel, except: [in: 2]

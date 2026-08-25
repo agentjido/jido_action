@@ -131,6 +131,20 @@ defmodule JidoActionTest.Exec.ConcurrencyLimiterTest do
            ]
   end
 
+  test "contains stale limiter calls and unmatched releases" do
+    {dead_limiter, monitor} = spawn_monitor(fn -> :ok end)
+    assert_receive {:DOWN, ^monitor, :process, ^dead_limiter, :normal}, 1_000
+
+    assert ConcurrencyLimiter.reserve_task_slots(dead_limiter, 1) == 0
+    assert ConcurrencyLimiter.release_task_slots(dead_limiter, 1) == :ok
+
+    limiter = start_limiter(1)
+    assert GenServer.call(limiter, {:release, self()}) == :ok
+    assert ConcurrencyLimiter.release_task_slots(limiter, 1) == :ok
+    assert ConcurrencyLimiter.stop(limiter) == :ok
+    assert ConcurrencyLimiter.stop(limiter) == :ok
+  end
+
   defp start_limiter(limit) do
     execution_id = "limiter-test-#{System.unique_integer([:positive])}"
     assert {:ok, limiter} = ConcurrencyLimiter.start(execution_id, self(), limit)

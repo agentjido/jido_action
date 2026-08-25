@@ -2,11 +2,11 @@ defmodule Jido.Flow.Validation do
   @moduledoc false
 
   alias Jido.Action
-  alias Jido.Action.Error
   alias Jido.Executable
   alias Jido.Flow.Component
   alias Jido.Flow.Choice
   alias Jido.Flow.Expression
+  alias Jido.Flow.Error
   alias Jido.Flow.Graph
   alias Jido.Flow.Iterate
   alias Jido.Flow.Map, as: FlowMap
@@ -297,11 +297,14 @@ defmodule Jido.Flow.Validation do
       {:error, Error.validation_error("Subflow flow/0 failed", %{kind: kind, reason: reason})}
   end
 
-  defp target_error(%{details: details} = error, component, field) when is_map(details) do
-    %{error | details: Map.merge(details, %{component: component, field: field})}
-  end
+  defp target_error(error, component, field) do
+    details =
+      error
+      |> Map.get(:details, %{})
+      |> Map.merge(%{component: component, field: field, cause: error.__struct__})
 
-  defp target_error(error, _component, _field), do: error
+    Error.validation_error(Exception.message(error), details)
+  end
 
   defp require_kind(%Executable{kind: kind}, kind, _name), do: :ok
 

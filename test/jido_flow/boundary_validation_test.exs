@@ -1,25 +1,47 @@
 defmodule Jido.Flow.BoundaryValidationTest do
   use ExUnit.Case, async: true
 
+  defmodule InvalidChildFlow do
+    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+    def flow, do: :invalid
+    def validate_params(params), do: {:ok, params}
+    def validate_output(output), do: {:ok, output}
+    def run(_params, _context), do: {:ok, %{}}
+  end
+
+  defmodule RaisingChildFlow do
+    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+    def flow, do: raise("child definition failed")
+    def validate_params(params), do: {:ok, params}
+    def validate_output(output), do: {:ok, output}
+    def run(_params, _context), do: {:ok, %{}}
+  end
+
+  defmodule ThrowingChildFlow do
+    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+    def flow, do: throw(:child_definition_failed)
+    def validate_params(params), do: {:ok, params}
+    def validate_output(output), do: {:ok, output}
+    def run(_params, _context), do: {:ok, %{}}
+  end
+
   alias Jido.Flow
 
   alias Jido.Flow.{
     Builder,
     Choice,
-    Codec,
     Component,
     Data,
     Expression,
     Iterate,
     Reduce,
     Ref,
-    Registry,
     Step
   }
 
   alias Jido.Flow.Map, as: FlowMap
-  alias JidoActionTest.FlowFixtures.NestedFlow
-  alias JidoActionTest.TestActions.{Add, MissingRun}
+  alias JidoActionTest.Fixtures.NestedFlow
+  alias JidoActionTest.Fixtures.Actions.{Add, MissingRun}
 
   test "portable data rejects invalid containers, values, and keys" do
     assert {:error, _error} = Data.validate_object([])
@@ -35,41 +57,6 @@ defmodule Jido.Flow.BoundaryValidationTest do
       assert {:error, error} = Data.validate(%{key => :value})
       assert Exception.message(error) == "flow data contains an unsupported map key"
     end
-  end
-
-  test "Registry rejects unsafe entries and alias graphs" do
-    assert {:error, _error} = Registry.new([])
-    assert {:error, _error} = Registry.new(%{nil => {:action, Add}})
-    assert {:error, _error} = Registry.new(%{"bad space" => {:action, Add}})
-    assert {:error, _error} = Registry.new(%{String.duplicate("a", 256) => {:action, Add}})
-
-    for entry <- [:bad, {:action, nil}, {:flow, nil}, {:atom, "not-atom"}, {:bad, Add}] do
-      assert {:error, _error} = Registry.new(%{"entry" => entry})
-    end
-
-    assert {:error, _error} =
-             Registry.new(%{"old" => {:alias, "next"}, "next" => {:alias, "write"}})
-
-    assert {:error, _error} = Registry.new(%{"old" => {:alias, "missing"}})
-
-    assert {:error, _error} =
-             Registry.new(%{"one" => {:action, Add}, "two" => {:action, Add}})
-
-    registry =
-      Registry.new!(%{
-        "action/add" => {:action, Add},
-        "action/old" => {:alias, "action/add"},
-        "schema/empty" => {:schema, []}
-      })
-
-    assert Registry.new(registry) == {:ok, registry}
-    assert Registry.resolve(registry, "action/old", :action) == {:ok, Add}
-    assert {:error, _error} = Registry.resolve(registry, "action/add", :flow)
-    assert {:error, _error} = Registry.resolve(registry, "missing", :action)
-    assert {:error, _error} = Registry.resolve(registry, :not_binary, :action)
-    assert Registry.identifier(registry, :action, Add) == {:ok, "action/add"}
-    assert {:error, _error} = Registry.identifier(registry, :flow, NestedFlow)
-    refute Registry.valid_identifier?(:not_binary)
   end
 
   test "Component helpers reject invalid common fields" do
@@ -134,9 +121,29 @@ defmodule Jido.Flow.BoundaryValidationTest do
       assert is_exception(error)
     end
 
-    assert_raise Jido.Action.Error.InvalidInputError, fn -> apply(FlowMap, :new!, [:bad]) end
-    assert_raise Jido.Action.Error.InvalidInputError, fn -> apply(Reduce, :new!, [:bad]) end
-    assert_raise Jido.Action.Error.InvalidInputError, fn -> apply(Iterate, :new!, [:bad]) end
+    assert_raise Jido.Flow.Error.InvalidDefinitionError, fn -> apply(FlowMap, :new!, [:bad]) end
+    assert_raise Jido.Flow.Error.InvalidDefinitionError, fn -> apply(Reduce, :new!, [:bad]) end
+    assert_raise Jido.Flow.Error.InvalidDefinitionError, fn -> apply(Iterate, :new!, [:bad]) end
+  end
+
+  test "Iterate state rejects incomplete and invalid authoring data" do
+    assert {:ok, state} = Iterate.State.new(schema: [], initial: %{}, update: %{})
+    assert Iterate.State.new(state) == {:ok, state}
+
+    for attrs <- [
+          :bad,
+          [:not_keyword],
+          %{schema: [], initial: %{}, update: %{}, extra: true},
+          %{schema: fn -> :bad end, initial: %{}, update: %{}},
+          %{schema: [], update: %{}},
+          %{schema: [], initial: %{}}
+        ] do
+      assert {:error, %Jido.Flow.Error.InvalidDefinitionError{}} = Iterate.State.new(attrs)
+    end
+
+    assert_raise Jido.Flow.Error.InvalidDefinitionError, fn ->
+      apply(Iterate.State, :new!, [:bad])
+    end
   end
 
   test "Builder helpers converge and keep the first error" do
@@ -181,12 +188,28 @@ defmodule Jido.Flow.BoundaryValidationTest do
     invalid =
       Builder.new(name: "sticky_error")
       |> Builder.step("bad", :not_an_executable, %{})
+      |> Builder.step("valid_but_ignored", Add, %{})
       |> Builder.step("also_bad", Add, %{}, :not_options)
 
-    assert {:error, first_error} = Builder.build(invalid)
+    assert {:error, %Jido.Flow.Error.InvalidDefinitionError{} = first_error} =
+             Builder.build(invalid)
+
     assert Exception.message(first_error) =~ "executable"
     assert {:error, _error} = Builder.new([:not_keyword]) |> Builder.build()
     assert {:error, _error} = Builder.new(:bad) |> Builder.build()
+  end
+
+  test "Builder keeps constructor failures at each component boundary" do
+    invalid_builders = [
+      Builder.new(name: "bad_map") |> Builder.map("map", [], nil, %{}),
+      Builder.new(name: "bad_reduce") |> Builder.reduce("reduce", [], %{}, nil, %{}),
+      Builder.new(name: "bad_iterate") |> Builder.iterate("iterate", Add, %{}, :bad),
+      Builder.new(name: "bad_choice") |> Builder.choice("choice", [], nil)
+    ]
+
+    for builder <- invalid_builders do
+      assert {:error, %Jido.Flow.Error.InvalidDefinitionError{}} = Builder.build(builder)
+    end
   end
 
   test "Flow validation rejects invalid root shapes and fields" do
@@ -218,27 +241,38 @@ defmodule Jido.Flow.BoundaryValidationTest do
       )
 
     assert {:error, _error} = Flow.validate_executable(invalid_target)
+
+    valid_step = Step.new!(name: "step", action: Add)
+
+    assert {:error, _error} =
+             Flow.new(name: "", components: [valid_step], output: Ref.result("step"))
+
+    assert {:ok, %Flow{schema: [], output_schema: []}} =
+             Flow.new(
+               name: "nil_schemas",
+               schema: nil,
+               output_schema: nil,
+               components: [valid_step],
+               output: Ref.result("step")
+             )
+
+    assert {:error, _error} = Flow.new(name: "bad_component", components: [:bad], output: %{})
+
+    assert {:error, _error} =
+             Flow.new(name: "missing_output", components: [valid_step], output: nil)
   end
 
-  test "Codec validates its public and malformed document boundaries" do
-    registry = JidoActionTest.FlowFixtures.storage_registry()
-    flow = JidoActionTest.FlowFixtures.math_flow!()
-    assert {:ok, document} = Codec.encode(flow, registry)
+  test "Flow validation contains invalid child Flow definitions" do
+    for module <- [InvalidChildFlow, RaisingChildFlow, ThrowingChildFlow] do
+      flow =
+        Flow.new!(
+          name: "invalid_child",
+          components: [Jido.Flow.Subflow.new!(name: "child", flow: module)],
+          output: Ref.result("child")
+        )
 
-    assert {:error, _error} = Codec.encode(:bad, registry)
-    assert {:error, _error} = Codec.encode(flow, :bad)
-    assert {:error, _error} = Codec.decode(:bad, registry)
-    assert {:error, _error} = Codec.decode(document, :bad)
-
-    for changed <- [
-          Map.put(document, "components", :bad),
-          Map.put(document, "components", [%{"kind" => "unknown"}]),
-          Map.put(document, "output", %{"$condition" => "bad"}),
-          Map.delete(document, "name"),
-          Map.put(document, "extra", true)
-        ] do
-      assert {:error, error} = Codec.decode(changed, registry)
-      assert is_exception(error)
+      assert {:error, %Jido.Flow.Error.InvalidDefinitionError{}} =
+               Flow.validate_executable(flow)
     end
   end
 
@@ -273,15 +307,15 @@ defmodule Jido.Flow.BoundaryValidationTest do
       assert is_exception(error)
     end
 
-    assert_raise Jido.Action.Error.InvalidInputError, fn ->
+    assert_raise Jido.Flow.Error.InvalidDefinitionError, fn ->
       apply(Choice.Option, :new!, [:bad])
     end
 
-    assert_raise Jido.Action.Error.InvalidInputError, fn ->
+    assert_raise Jido.Flow.Error.InvalidDefinitionError, fn ->
       apply(Choice.Fallback, :new!, [:bad])
     end
 
-    assert_raise Jido.Action.Error.InvalidInputError, fn -> apply(Choice, :new!, [:bad]) end
+    assert_raise Jido.Flow.Error.InvalidDefinitionError, fn -> apply(Choice, :new!, [:bad]) end
 
     choice =
       Choice.new!(

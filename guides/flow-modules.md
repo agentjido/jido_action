@@ -83,6 +83,7 @@ function calls. Put computation in an Action.
 `use Jido.Flow` generates:
 
 - `flow/0`
+- `compiled/0`
 - `to_map/0`
 - `validate/0`
 - `validate_executable/0`
@@ -90,6 +91,12 @@ function calls. Put computation in an Action.
 - `explain/0`
 - `semantic_identity/0`
 - Action-compatible schema, validation, and `run/2` callbacks
+
+`flow/0` returns one stable canonical Flow for the life of the loaded module
+version. `compiled/0` is an inspection convenience. Execution reads `flow/0`
+and compiles that exact value with the module source map. It does not use a
+separate compiled value as execution authority. Put changing runtime data in
+Flow input or context.
 
 Use the shared Codec for storage:
 

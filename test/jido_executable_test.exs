@@ -2,8 +2,14 @@ defmodule JidoActionTest.ExecutableTest do
   use ExUnit.Case, async: true
 
   alias Jido.Executable
-  alias JidoActionTest.ExecFixtures.MathFlow
-  alias JidoActionTest.TestActions.Add
+  alias JidoActionTest.Fixtures.MathFlow
+
+  alias JidoActionTest.Fixtures.Actions.{
+    Add,
+    MissingRun,
+    MissingValidateOutput,
+    MissingValidateParams
+  }
 
   defmodule CallbackOnlyAction do
     def run(params, _context), do: {:ok, params}
@@ -13,7 +19,7 @@ defmodule JidoActionTest.ExecutableTest do
 
   defmodule InvalidDescriptor do
     def __jido_executable__ do
-      Jido.Executable.action(JidoActionTest.TestActions.Add)
+      Jido.Executable.action(JidoActionTest.Fixtures.Actions.Add)
     end
   end
 
@@ -56,6 +62,21 @@ defmodule JidoActionTest.ExecutableTest do
     assert :ok = Executable.validate(Add)
     assert :ok = Executable.validate(MathFlow)
     assert :ok = Executable.validate(MathFlow.flow())
+  end
+
+  test "validation checks the common Action-compatible module callbacks" do
+    assert {:error, missing_run} = Executable.validate(MissingRun)
+    assert missing_run.message == "module is not a valid Jido executable"
+    assert missing_run.details.executable == MissingRun
+    assert missing_run.details.reason == "missing run/2"
+
+    assert {:error, missing_params} = Executable.validate(MissingValidateParams)
+    assert missing_params.details.executable == MissingValidateParams
+    assert missing_params.details.reason == "missing validate_params/1"
+
+    assert {:error, missing_output} = Executable.validate(MissingValidateOutput)
+    assert missing_output.details.executable == MissingValidateOutput
+    assert missing_output.details.reason == "missing validate_output/1"
   end
 
   test "callback-only modules are not executable targets" do

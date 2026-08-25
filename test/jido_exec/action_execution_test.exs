@@ -4,13 +4,15 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
 
   alias Jido.Action.Error
   alias Jido.Action.Error.{ConfigurationError, ExecutionFailureError, InvalidInputError}
+  alias Jido.Executable
   alias Jido.Exec
+  alias Jido.Exec.ActionAdapter
   alias Jido.Flow
   alias Jido.Flow.{Ref, Step}
   alias Jido.Instruction
-  alias JidoActionTest.ExecFixtures.{ActionWithFlowFunction, BlockingAction}
+  alias JidoActionTest.Fixtures.ActionWithFlowFunction
 
-  alias JidoActionTest.TestActions.{
+  alias JidoActionTest.Fixtures.Actions.{
     Add,
     AtomErrorAction,
     AtomValidationAction,
@@ -21,7 +23,7 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
     InvalidValidatedOutputAction,
     InvalidValidatedParamsAction,
     InvalidValidationResultAction,
-    KillingAction,
+    MissingRun,
     NoneExtrasAction,
     OutputEnvelopeAction,
     RaisingOutputValidationAction,
@@ -34,6 +36,14 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
     TupleErrorAction,
     UnsupportedResult
   }
+
+  defmodule RaisingActionName do
+    def name, do: raise("action name failed")
+  end
+
+  defmodule ThrowingActionName do
+    def name, do: throw(:action_name_failed)
+  end
 
   describe "run/3 with action modules" do
     test "executes a leaf action with input and context validation" do
@@ -73,7 +83,7 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
       end
 
       instruction =
-        Instruction.new!(action: RawOutputWithExtrasAction, params: %{value: 42})
+        Instruction.new!(target: RawOutputWithExtrasAction, params: %{value: 42})
 
       for executable <- [RawOutputWithExtrasAction, instruction] do
         assert {:error, %ExecutionFailureError{}, %{effect: :already_ran}} =
@@ -203,23 +213,6 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
       assert details.reason == :thrown_value
     end
 
-    test "contains hard Action exits outside the caller process" do
-      instruction = Instruction.new!(action: KillingAction)
-
-      for executable <- [KillingAction, instruction] do
-        assert {:error,
-                %ExecutionFailureError{
-                  message: "action execution process exited",
-                  details: %{action: KillingAction, reason: :killed}
-                } = error} =
-                 run_in_monitored_caller(fn -> Exec.run(executable) end,
-                   assert_mailbox_empty: true
-                 )
-
-        refute Error.retryable?(error)
-      end
-    end
-
     test "normalizes validator failures and unsupported results" do
       assert {:error, %ExecutionFailureError{message: "bad_params"} = params_error} =
                Exec.run(AtomValidationAction)
@@ -261,36 +254,6 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
     end
   end
 
-  describe "run/3 with instructions" do
-    test "executes an instruction and merges call-site input and context" do
-      instruction =
-        Instruction.new!(
-          action: Add,
-          params: %{value: 5, amount: 1},
-          context: %{trace_id: "base"}
-        )
-
-      assert {:ok, %{value: 8}} =
-               Exec.run(instruction, %{amount: 3}, %{tenant_id: "tenant"})
-    end
-
-    test "returns validation errors when instruction call-site input is invalid" do
-      instruction = Instruction.new!(action: Add)
-
-      assert {:error, %InvalidInputError{message: message}} =
-               Exec.run(instruction, :not_params, %{})
-
-      assert message =~ "expected params to be a map or keyword list"
-    end
-
-    test "returns validation errors for malformed raw instruction structs" do
-      instruction = %Instruction{action: "not_a_module", params: %{}, context: %{}}
-
-      assert {:error, %InvalidInputError{message: "Invalid instruction configuration"}} =
-               Exec.run(instruction)
-    end
-  end
-
   test "rejects unknown executable values with a configuration error" do
     assert {:error, %ConfigurationError{message: message}} = Exec.run(:not_a_real_executable)
     assert message =~ "unknown executable"
@@ -302,6 +265,28 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
 
     assert message =~ "unknown executable"
     assert details.executable == "not executable"
+  end
+
+  test "ActionAdapter contains its direct boundary failures" do
+    assert {:error, :input, %InvalidInputError{}} =
+             ActionAdapter.run_target(
+               Executable.action(MissingRun),
+               %{},
+               %{},
+               "missing-run",
+               []
+             )
+
+    assert {:error, %InvalidInputError{details: %{executable_type: :action}}} =
+             ActionAdapter.start(Executable.action(Add), %{}, %{}, [], "action-start")
+
+    assert {:error, %InvalidInputError{}} =
+             ActionAdapter.run(Executable.action(Add), :invalid, %{}, [], "invalid-input")
+
+    for module <- [RaisingActionName, ThrowingActionName] do
+      assert {:ok, %{kind: :action, name: ^module}} =
+               ActionAdapter.lifecycle_metadata(Executable.action(module), "action-name")
+    end
   end
 
   test "preserves Action stacktraces through serial and asynchronous Flow nodes" do
@@ -340,59 +325,6 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
 
     assert {:error, %InvalidInputError{} = error} = Exec.run(flow)
     assert_action_frame(error, StacktraceValidationAction, :raise_from_input_validator, 0)
-  end
-
-  test "terminates the Action worker when the Exec caller exits" do
-    owner = self()
-
-    {caller, caller_monitor} =
-      spawn_monitor(fn ->
-        Exec.run(BlockingAction, %{value: 1}, %{test_pid: owner})
-      end)
-
-    assert_receive {:blocking_flow_node_started, worker}, 1_000
-    refute worker == caller
-    worker_monitor = Process.monitor(worker)
-
-    Process.exit(caller, :kill)
-
-    assert_receive {:DOWN, ^caller_monitor, :process, ^caller, :killed}, 1_000
-    assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :killed}, 1_000
-  end
-
-  test "runs concurrent Action workers under the shared Task Supervisor" do
-    owner = self()
-
-    first_caller =
-      spawn(fn ->
-        result = Exec.run(BlockingAction, %{value: 1}, %{test_pid: owner})
-        send(owner, {:action_result, :first, result})
-      end)
-
-    second_caller =
-      spawn(fn ->
-        result = Exec.run(BlockingAction, %{value: 2}, %{test_pid: owner})
-        send(owner, {:action_result, :second, result})
-      end)
-
-    on_exit(fn ->
-      Process.exit(first_caller, :kill)
-      Process.exit(second_caller, :kill)
-    end)
-
-    assert_receive {:blocking_flow_node_started, first_worker}, 1_000
-    assert_receive {:blocking_flow_node_started, second_worker}, 1_000
-    refute first_worker == second_worker
-
-    supervisor_children = Task.Supervisor.children(Jido.Action.TaskSupervisor)
-    assert first_worker in supervisor_children
-    assert second_worker in supervisor_children
-
-    send(first_worker, :finish)
-    send(second_worker, :finish)
-
-    assert_receive {:action_result, :first, {:ok, %{value: 1}}}, 1_000
-    assert_receive {:action_result, :second, {:ok, %{value: 2}}}, 1_000
   end
 
   defp assert_action_frame(error, module, function, arity) do

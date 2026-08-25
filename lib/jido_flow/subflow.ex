@@ -1,7 +1,7 @@
 defmodule Jido.Flow.Subflow do
   @moduledoc "A named child Flow module in a canonical Flow."
 
-  alias Jido.Action.Error
+  alias Jido.Flow.Error
   alias Jido.Flow.Component
   alias Jido.Flow.Expression
 

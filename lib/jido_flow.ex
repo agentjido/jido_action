@@ -37,6 +37,10 @@ defmodule Jido.Flow do
   Use `Jido.Flow.Codec.encode/2` and `Jido.Flow.Codec.decode/2` with a trusted
   `Jido.Flow.Registry` for database or transport storage.
 
+  A Flow module returns one stable canonical value from `flow/0` for the life
+  of the loaded module version. Validation, compilation, and execution can read
+  this value more than once. Put changing runtime data in Flow input or context.
+
   A Choice is one Flow component. It evaluates data-only conditions in authored
   order, runs the first matching target, and uses a required routing fallback
   when no option matches.
@@ -46,7 +50,7 @@ defmodule Jido.Flow do
   Flow execution discards them.
   """
 
-  alias Jido.Action.Error
+  alias Jido.Flow.Error
   alias Jido.Flow.DSL.ModuleCompiler
   alias Jido.Flow.Compiler
   alias Jido.Flow.Compiled
@@ -155,7 +159,8 @@ defmodule Jido.Flow do
   Returns explicit, reference, and effective dependencies for each component.
   """
   @spec dependencies(t()) ::
-          {:ok, %{String.t() => dependency_info()}} | {:error, Error.InvalidInputError.t()}
+          {:ok, %{String.t() => dependency_info()}}
+          | {:error, Error.InvalidDefinitionError.t()}
   def dependencies(%__MODULE__{} = flow) do
     with {:ok, flow} <- validate(flow) do
       {:ok, dependency_map(flow)}
@@ -167,7 +172,7 @@ defmodule Jido.Flow do
   @doc """
   Returns the versioned canonical inspection data for a Flow.
   """
-  @spec explain(t()) :: {:ok, map()} | {:error, Error.InvalidInputError.t()}
+  @spec explain(t()) :: {:ok, map()} | {:error, Error.InvalidDefinitionError.t()}
   def explain(%__MODULE__{} = flow) do
     with {:ok, flow} <- validate(flow) do
       {:ok,
@@ -191,7 +196,8 @@ defmodule Jido.Flow do
   @doc """
   Returns the deterministic SHA-256 and UUIDv8 identity for a Flow.
   """
-  @spec semantic_identity(t()) :: {:ok, map()} | {:error, Error.InvalidInputError.t()}
+  @spec semantic_identity(t()) ::
+          {:ok, map()} | {:error, Error.InvalidDefinitionError.t()}
   def semantic_identity(%__MODULE__{} = flow) do
     with {:ok, flow} <- validate(flow) do
       {:ok, Identity.for_flow(flow)}

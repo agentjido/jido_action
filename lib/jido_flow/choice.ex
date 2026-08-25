@@ -1,7 +1,7 @@
 defmodule Jido.Flow.Choice do
   @moduledoc "A named, ordered Choice with a required fallback Action."
 
-  alias Jido.Action.Error
+  alias Jido.Flow.Error
   alias Jido.Flow.Component
   alias Jido.Flow.Condition
   alias Jido.Flow.Expression
@@ -29,7 +29,7 @@ defmodule Jido.Flow.Choice do
   defmodule Option do
     @moduledoc "One ordered Choice condition and Action."
 
-    alias Jido.Action.Error
+    alias Jido.Flow.Error
     alias Jido.Flow.Component
     alias Jido.Flow.Condition
     alias Jido.Flow.Expression
@@ -103,7 +103,7 @@ defmodule Jido.Flow.Choice do
   defmodule Fallback do
     @moduledoc "The Action used when no Choice option matches."
 
-    alias Jido.Action.Error
+    alias Jido.Flow.Error
     alias Jido.Flow.Component
     alias Jido.Flow.Expression
 

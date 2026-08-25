@@ -7,7 +7,7 @@ defmodule JidoActionTest.Flow.Compiler.ErrorTaggerTest do
   alias Jido.Flow.Compiler.ErrorTagger
   alias Jido.Flow.Compiler.TargetContext
   alias Jido.Flow.Map, as: FlowMap
-  alias JidoActionTest.TestActions.{Add, Multiply}
+  alias JidoActionTest.Fixtures.Actions.{Add, Multiply}
 
   test "keeps target phase and ownership details for every Flow element" do
     for {owner, input_phase, execution_phase, output_phase, details} <- owners() do

@@ -12,7 +12,7 @@ defmodule Jido.Flow.Compiled do
   @type t :: %__MODULE__{
           workflow: Runic.Workflow.t(),
           component_index: map(),
-          output: term(),
+          output: Jido.Flow.Expression.t(),
           source_map: source_map(),
           compilation_digest: binary()
         }

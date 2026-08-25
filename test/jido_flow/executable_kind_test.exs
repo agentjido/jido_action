@@ -1,15 +1,15 @@
 defmodule Jido.Flow.ExecutableKindTest do
   use ExUnit.Case, async: true
 
-  alias Jido.Action.Error.InvalidInputError
   alias Jido.Flow
+  alias Jido.Flow.Error.InvalidDefinitionError
   alias Jido.Flow.Choice
   alias Jido.Flow.Condition
   alias Jido.Flow.Iterate
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.Reduce
   alias Jido.Flow.Ref
-  alias JidoActionTest.FlowFixtures.NestedFlow
+  alias JidoActionTest.Fixtures.NestedFlow
 
   test "embedded Action slots reject a Flow module" do
     components = [
@@ -22,7 +22,7 @@ defmodule Jido.Flow.ExecutableKindTest do
             action: NestedFlow
           )
         ],
-        fallback: Choice.Fallback.new!(action: JidoActionTest.TestActions.Add)
+        fallback: Choice.Fallback.new!(action: JidoActionTest.Fixtures.Actions.Add)
       ),
       FlowMap.new!(name: "map", collection: [], action: NestedFlow),
       Reduce.new!(name: "reduce", collection: [], initial: %{}, action: NestedFlow),
@@ -43,7 +43,9 @@ defmodule Jido.Flow.ExecutableKindTest do
           output: Ref.result(component.name)
         )
 
-      assert {:error, %InvalidInputError{details: details}} = Flow.validate_executable(flow)
+      assert {:error, %InvalidDefinitionError{details: details}} =
+               Flow.validate_executable(flow)
+
       assert details.component == component.name
       assert details.actual == :flow
       assert details.expected == :action

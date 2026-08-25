@@ -1,33 +1,29 @@
-defmodule JidoActionTest.FlowFixtures do
+defmodule JidoActionTest.Fixtures.CodecRegistry do
   @moduledoc false
 
-  alias Jido.Flow.{Builder, Registry}
-  alias JidoActionTest.TestActions.{Add, Multiply}
+  alias Jido.Flow.Registry
+  alias JidoActionTest.Fixtures.NestedFlow
+  alias JidoActionTest.Fixtures.Actions.{Add, Multiply}
 
-  def math_builder do
-    Builder.new(
-      name: "math_flow",
-      description: "Adds one and doubles the result"
-    )
-    |> Builder.step(
-      "add_one",
-      Add,
-      %{value: Builder.input(:value), amount: Builder.value(1)}
-    )
-    |> Builder.step(
-      "double",
-      Multiply,
-      %{value: Builder.result("add_one", :value), amount: Builder.value(2)}
-    )
-    |> Builder.output(Builder.result("double"))
+  def mixed do
+    Registry.new!(%{
+      "actions/add" => {:action, Add},
+      "actions/multiply" => {:action, Multiply},
+      "flows/nested" => {:flow, NestedFlow},
+      "schemas/empty" => {:schema, []},
+      "atoms/add" => {:atom, :add},
+      "atoms/amount" => {:atom, :amount},
+      "atoms/count" => {:atom, :count},
+      "atoms/debug" => {:atom, :debug},
+      "atoms/go" => {:atom, :go},
+      "atoms/items" => {:atom, :items},
+      "atoms/kind" => {:atom, :kind},
+      "atoms/owner" => {:atom, :owner},
+      "atoms/value" => {:atom, :value}
+    })
   end
 
-  def math_flow! do
-    {:ok, flow} = Builder.build(math_builder())
-    flow
-  end
-
-  def storage_registry do
+  def storage do
     Registry.new!(%{
       "action/add/v1" => {:action, Add},
       "action/multiply/v1" => {:action, Multiply},
@@ -54,21 +50,5 @@ defmodule JidoActionTest.FlowFixtures do
       "atom/test/v1" => {:atom, :test},
       "atom/value/v1" => {:atom, :value}
     })
-  end
-end
-
-Code.ensure_compiled!(JidoActionTest.TestActions.Add)
-
-defmodule JidoActionTest.FlowFixtures.NestedFlow do
-  @moduledoc false
-  use Jido.Flow, name: "nested_fixture_flow"
-
-  flow do
-    step("add",
-      action: JidoActionTest.TestActions.Add,
-      params: %{value: input(:value), amount: 1}
-    )
-
-    output(result("add"))
   end
 end

@@ -9,7 +9,7 @@ defmodule Jido.Flow.Reduce do
   `Jido.Flow.Builder`, or the stored Flow decoder.
   """
 
-  alias Jido.Action.Error
+  alias Jido.Flow.Error
   alias Jido.Flow.Component
   alias Jido.Flow.Expression
 

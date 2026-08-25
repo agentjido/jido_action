@@ -1,14 +1,14 @@
-defmodule JidoActionTest.Flow.Compiler.RuntimeTest do
+defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
   use ExUnit.Case, async: true
 
-  alias Jido.Action.Error.ExecutionFailureError
   alias Jido.Action.Output
   alias Jido.Exec
   alias Jido.Flow
+  alias Jido.Flow.Error.ExecutionFailureError
   alias Jido.Flow.{Choice, Condition, Reduce, Ref, Step}
   alias Jido.Flow.Map, as: FlowMap
 
-  alias JidoActionTest.TestActions.{Add, EchoParamsAction, Multiply}
+  alias JidoActionTest.Fixtures.Actions.{Add, EchoParamsAction, Multiply}
 
   test "executes every comparison operator with runtime operands" do
     cases = [
@@ -289,11 +289,6 @@ defmodule JidoActionTest.Flow.Compiler.RuntimeTest do
             %ExecutionFailureError{
               message: "reduce initial value must be a map or Jido.Action.Output"
             }} = Exec.run(reduce, %{items: [], initial: :bad})
-  end
-
-  test "reports invalid public compilation input" do
-    assert {:error, error} = Flow.compile(:not_a_flow)
-    assert Exception.message(error) == "expected a Jido.Flow artifact"
   end
 
   defp choice_flow(condition) do

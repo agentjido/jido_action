@@ -1,6 +1,6 @@
 # Jido Action
 
-`jido_action` defines validated actions, action call frames, data-first Flows,
+`jido_action` defines validated actions, executable call frames, data-first Flows,
 and one public execution boundary.
 
 Jido Flow is a declarative, in-memory graph execution layer for Jido Actions.
@@ -19,7 +19,7 @@ This foundation keeps the action boundary small:
 - `Jido.Executable` defines the common Action and Flow module contract and
   resolves both module types to one internal executable descriptor.
 - `Jido.Action` defines a named action with Zoi input and output schemas.
-- `Jido.Instruction` captures one requested action call as data.
+- `Jido.Instruction` captures one requested executable call as data.
 - `Jido.Flow` composes actions as a validated graph with steps and Choices.
 - `Jido.Exec` runs actions, instructions, and Flows, including step-wise Flows.
 
@@ -92,19 +92,20 @@ Three-tuple returns let callers receive an extra value alongside the result or e
 
 ## Capture A Call Frame
 
-Use `Jido.Instruction` when the intent to run an action needs to be passed,
+Use `Jido.Instruction` when the intent to run an executable needs to be passed,
 logged, queued, or enriched before execution.
 
 ```elixir
 instruction =
   Jido.Instruction.new!(
-    action: MyApp.Actions.GreetUser,
+    target: MyApp.Actions.GreetUser,
     params: %{name: "Ada"},
     context: %{request_id: "req-123"}
   )
 ```
 
-An instruction is one action call frame. It is not a workflow, program, or runtime.
+An Instruction holds one Action module, Flow module, or runtime Flow target. It
+does not define a workflow, program, or runtime policy.
 
 ## Compose A Flow
 
@@ -197,7 +198,7 @@ case Jido.Flow.Codec.decode(decoded, registry) do
     Jido.Flow.validate_executable(flow)
 
   {:error, error} ->
-    {:error, Jido.Action.Error.to_map(error)}
+    {:error, Jido.Flow.Error.to_map(error)}
 end
 ```
 

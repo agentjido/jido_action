@@ -9,19 +9,21 @@ defmodule Jido.Exec.ActionRunner do
   @type target_result ::
           {:ok, term()} | {:error, target_phase(), Exception.t()}
 
-  @spec run(Instruction.t()) ::
+  @spec run(Instruction.t(), keyword()) ::
           {:ok, term()}
           | {:ok, term(), term()}
           | {:error, Exception.t()}
           | {:error, Exception.t(), term()}
-  def run(%Instruction{action: action} = instruction) do
-    case run_isolated(fn -> do_run(instruction) end) do
-      {:ok, result} -> result
-      {:exit, reason} -> {:error, process_exit_error(action, reason)}
+  def run(%Instruction{target: action} = instruction, run_opts \\ []) do
+    with {:ok, task_supervisor} <- Jido.Exec.Supervisor.task_supervisor(run_opts) do
+      case run_isolated(task_supervisor, fn -> do_run(instruction) end) do
+        {:ok, result} -> result
+        {:exit, reason} -> {:error, process_exit_error(action, reason)}
+      end
     end
   end
 
-  defp do_run(%Instruction{action: action} = instruction) do
+  defp do_run(%Instruction{target: action} = instruction) do
     with {:ok, params} <- validate_params(action, instruction.params) do
       case invoke_result(action, params, instruction.context) do
         {:ok, output, extras} ->
@@ -38,17 +40,21 @@ defmodule Jido.Exec.ActionRunner do
 
   @spec run_target(module(), term(), map()) :: target_result()
   def run_target(action, params, context) do
-    run_target(action, params, context, nil)
+    run_target(action, params, context, nil, [])
   end
 
   @doc false
-  def run_target(action, params, context, concurrency_limiter) do
-    Jido.Exec.ConcurrencyLimiter.with_permit(concurrency_limiter, fn ->
-      case run_isolated(fn -> do_run_target(action, params, context) end) do
-        {:ok, result} -> result
-        {:exit, reason} -> {:error, :execution, process_exit_error(action, reason)}
-      end
-    end)
+  def run_target(action, params, context, concurrency_limiter, run_opts) do
+    with {:ok, task_supervisor} <- Jido.Exec.Supervisor.task_supervisor(run_opts) do
+      Jido.Exec.ConcurrencyLimiter.with_permit(concurrency_limiter, fn ->
+        case run_isolated(task_supervisor, fn -> do_run_target(action, params, context) end) do
+          {:ok, result} -> result
+          {:exit, reason} -> {:error, :execution, process_exit_error(action, reason)}
+        end
+      end)
+    else
+      {:error, error} -> {:error, :execution, error}
+    end
   end
 
   defp do_run_target(action, params, context) do
@@ -246,14 +252,14 @@ defmodule Jido.Exec.ActionRunner do
   defp to_error_message(message) when is_atom(message), do: Atom.to_string(message)
   defp to_error_message(message), do: inspect(message)
 
-  defp run_isolated(work) do
+  defp run_isolated(task_supervisor, work) do
     caller = self()
     caller_group_leader = Process.group_leader()
     caller_logger_metadata = Logger.metadata()
     ref = make_ref()
 
     {:ok, worker} =
-      Task.Supervisor.start_child(Jido.Action.TaskSupervisor, fn ->
+      Task.Supervisor.start_child(task_supervisor, fn ->
         worker = self()
         spawn(fn -> terminate_with_caller(caller, worker) end)
 

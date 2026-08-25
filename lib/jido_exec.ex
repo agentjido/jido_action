@@ -33,19 +33,23 @@ defmodule Jido.Exec do
   alias Jido.Executable
   alias Jido.Exec.Execution
   alias Jido.Exec.FlowEngine
-  alias Jido.Exec.Options
   alias Jido.Instruction
 
   @doc """
   Runs an executable Jido artifact.
 
-  Flow execution accepts `:async` and `:max_concurrency` options. `:async`
-  defaults to `false`. When it is `true`, independent Runic runnables and Map
-  items can run concurrently. One shared `max_concurrency` budget limits active
-  Action calls across the execution and nested Flow targets. The same numeric
-  limit separately bounds asynchronous helper workers. Nested work runs inline
-  when all helper-worker slots are in use. Action and Instruction execution do
-  not accept run options.
+  All targets accept `jido: MyApp.Jido` for Jido instance routing. This option
+  runs Action work under `MyApp.Jido.TaskSupervisor`. The instance must be
+  running. Exec does not fall back to its global Task Supervisor when a caller
+  requests an instance.
+
+  A Flow target also accepts `:async` and `:max_concurrency`. `:async` defaults
+  to `false`. When it is `true`, independent Runic runnables and Map items can
+  run concurrently. One shared `max_concurrency` budget limits active Action
+  calls across the execution and nested Flow targets. The same numeric limit
+  separately bounds asynchronous helper workers. Nested work runs inline when
+  all helper-worker slots are in use. An Instruction uses the option rules of
+  its resolved target. An Action target accepts no Flow policy options.
   """
   @spec run(term(), map() | keyword() | nil, map() | keyword() | nil, keyword()) ::
           {:ok, term()}
@@ -60,12 +64,14 @@ defmodule Jido.Exec do
   @doc """
   Starts a paused Flow execution.
 
-  The function accepts a Flow artifact or a module that uses `Jido.Flow`. It
-  validates the Flow, input, context, and run options before it returns. The
-  returned execution is paused before the first native Runic runnable.
+  The function accepts a Flow artifact, a module that uses `Jido.Flow`, or an
+  Instruction with either Flow target. It validates the Flow, input, context,
+  and run options before it returns. The returned execution is paused before
+  the first native Runic runnable.
 
-  `:async` and `:max_concurrency` are stored on the execution and used by
-  `wave/1` and `continue/1`. `step/1` and `step/2` always execute one runnable.
+  `:async`, `:max_concurrency`, and common `:jido` routing are stored on the
+  execution. `wave/1` and `continue/1` use the scheduling options. `step/1` and
+  `step/2` always execute one runnable.
 
   The current public API does not accept retry, timeout, deadline,
   persistence, cancellation, or rewind options.
@@ -141,7 +147,7 @@ defmodule Jido.Exec do
     metadata = %{
       execution_id: execution_id,
       kind: :instruction,
-      name: action_name(instruction.action)
+      name: target_name(instruction.target)
     }
 
     action_span = Telemetry.start([:jido, :action], metadata)
@@ -176,17 +182,24 @@ defmodule Jido.Exec do
   end
 
   defp run_instruction(instruction, input, context, opts, execution_id) do
-    with :ok <- Options.reject(opts, :instruction),
-         {:ok, instruction} <- normalize_instruction(instruction, input, context),
-         :ok <- Instruction.validate_action_contract(instruction.action),
+    with {:ok, instruction} <- normalize_instruction(instruction, input, context),
          {:ok, %Executable{adapter: adapter} = executable} <-
-           Executable.resolve(instruction.action) do
-      adapter.run_instruction(executable, instruction, execution_id)
+           Executable.resolve(instruction.target) do
+      adapter.run_instruction(executable, instruction, opts, execution_id)
     end
   end
 
-  defp do_start(%Instruction{}, _input, _context, _opts, _execution_id) do
-    stepwise_flow_required(:instruction)
+  defp do_start(%Instruction{} = instruction, input, context, opts, execution_id) do
+    with {:ok, instruction} <- normalize_instruction(instruction, input, context),
+         {:ok, %Executable{} = executable} <- Executable.resolve(instruction.target) do
+      case executable do
+        %Executable{kind: :flow, adapter: adapter} ->
+          adapter.start(executable, instruction.params, instruction.context, opts, execution_id)
+
+        %Executable{kind: :action} ->
+          stepwise_flow_required(:instruction)
+      end
+    end
   end
 
   defp do_start(executable, input, context, opts, execution_id) do
@@ -209,7 +222,7 @@ defmodule Jido.Exec do
     exception -> {:error, Error.validation_error(Exception.message(exception))}
   end
 
-  defp action_name(module) when is_atom(module) do
+  defp target_name(module) when is_atom(module) do
     if Code.ensure_loaded?(module) and function_exported?(module, :name, 0) do
       module.name()
     else
@@ -221,5 +234,5 @@ defmodule Jido.Exec do
     _kind, _reason -> module
   end
 
-  defp action_name(action), do: action
+  defp target_name(target), do: target
 end

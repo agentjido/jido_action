@@ -5,7 +5,7 @@
 Use `jido_action` for validated work and data-first composition:
 
 - `Jido.Action` defines one named module, one validated parameter map, one `run/2` callback, and one result.
-- `Jido.Instruction` represents one requested action call as data.
+- `Jido.Instruction` represents one requested executable call as data.
 - `Jido.Flow` composes named Action calls as a validated graph.
 - `Jido.Exec` runs Actions, Instructions, and Flows through one public boundary.
 
@@ -21,9 +21,12 @@ Use `jido_action` for validated work and data-first composition:
 
 ## Instructions
 
-- Use `Jido.Instruction` when one requested action call needs to be represented as data before execution.
-- Store only the action module, params, and context in an instruction.
-- Validate the action callback contract explicitly when a caller needs that guarantee.
+- Use `Jido.Instruction` when one requested executable call must be data before
+  execution.
+- Store only the executable target, params, context, and caller metadata in an
+  Instruction.
+- Use an Action module, Flow module, or runtime Flow value as the target.
+- Validate the executable contract explicitly when a caller needs that guarantee.
 
 ## Validation
 
@@ -75,9 +78,12 @@ Use `jido_action` for validated work and data-first composition:
 ## Execution
 
 - Use `Jido.Exec.run/4` for the public validation and error boundary.
-- Only Flow execution accepts `async` and `max_concurrency` options.
+- Use `jido: MyApp.Jido` with an Action, Instruction, or Flow when work must run
+  under the Task Supervisor for that running Jido core instance.
+- A Flow or an Instruction with a Flow target also accepts `async` and
+  `max_concurrency` policy options.
 - Use `start/4`, `ready/1`, `step/1`, `step/2`, `wave/1`, `continue/1`, and
-  `result/1` for step-wise Flow execution.
+  `result/1` for a Flow or an Instruction with a Flow target.
 - Treat values from `ready/1`, `step/1`, `step/2`, and `wave/1` as native
   `Runic.Workflow.Runnable` values. Runic support work is visible.
 - Select `step/2` work with a ready Runnable or its integer ID.

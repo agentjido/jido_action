@@ -4,10 +4,10 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
   alias Jido.Exec
   alias Jido.Flow
   alias Jido.Flow.{Map, Reduce, Ref, Step, Subflow}
-  alias JidoActionTest.ExecFixtures.{ChoicePublicPaths, MathFlow}
-  alias JidoActionTest.IteratorFixtures.ChildIterator
+  alias JidoActionTest.Fixtures.{ChoicePublicPaths, MathFlow}
+  alias JidoActionTest.Fixtures.ChildIterator
 
-  alias JidoActionTest.TestActions.{
+  alias JidoActionTest.Fixtures.Actions.{
     EchoParamsAction,
     ErrorAction,
     ReduceProbeAction
@@ -36,7 +36,7 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
     assert current.revision == 1
 
     assert {:error,
-            %Jido.Action.Error.InvalidInputError{
+            %Jido.Flow.Error.InvalidExecutionError{
               message: "stale flow execution",
               details: %{reason: :stale_revision, revision: 0, current_revision: 1}
             }} = Exec.step(stale)

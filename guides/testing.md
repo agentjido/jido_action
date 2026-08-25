@@ -5,6 +5,51 @@ validation, Flow structure, and Flow execution. Keep tests deterministic. Use
 `async: true` only when the parallel scheduling contract is the behavior under
 test.
 
+## Organize Tests By Boundary
+
+Give each behavior one primary test owner:
+
+1. Data tests cover Action, Flow, component, expression, and Instruction
+   construction and validation. They do not run a Flow.
+2. Codec tests cover the trusted Registry, stored document grammar, JSON round
+   trips, portability, and resource limits. They do not compile or run a Flow.
+3. Compilation tests cover canonical Flow lowering to native Runic components,
+   ports, connections, source maps, and compilation identity.
+4. Execution tests cover validation during a call, results, native Runnable
+   transitions, errors, process exits, concurrency, and telemetry.
+
+Test error values and runtime failures separately. Test the stable fields and
+JSON form of `Jido.Action.Error` or `Jido.Flow.Error` with the data tests. Test
+raises, throws, killed workers, caller exits, and nested failures with the
+execution tests.
+
+A higher-level test can prove that boundaries connect. Do not repeat the full
+lower-level matrix in that test.
+
+## Keep Fixtures Small
+
+Share a fixture when two or more test modules use it or when it belongs to one
+central failure or Flow contract set. Keep a small incidental one-use Action or
+Flow in its test module. Use small real Actions instead of a general mock layer.
+
+Central fixture modules can provide:
+
+- One valid canonical Flow and its Builder form.
+- One complete trusted Registry for Codec tests.
+- Small successful Actions.
+- Explicit failure Actions for returned errors, raises, throws, exits, and hard
+  process kills.
+- Named execution forms for a Flow value, Flow module, Flow Instruction, and
+  Subflow.
+
+Put shared fixtures under one `test/support/fixtures` tree. Use `action`,
+`flow`, `codec`, and `execution` folders. This layout shows the test boundary
+and keeps one root namespace. Do not create a different fixture root for each
+test file.
+
+Fixture functions must not make assertions. A fixture must not hide the public
+contract that the test proves.
+
 ## Test Actions
 
 Call an Action directly for pure Action behavior.
@@ -26,20 +71,27 @@ not make a log line the only assertion for an Action result.
 
 ## Test Instructions
 
-An Instruction is data for one Action call. Test construction and execution
-merge behavior when the application passes Instructions between boundaries.
+An Instruction is data for one executable call. Test construction, target
+resolution, and merge behavior when the application passes Instructions
+between boundaries.
 
 ```elixir
-test "captures an action call" do
+test "captures an executable call" do
   assert {:ok, instruction} =
-           Jido.Instruction.new(action: MyApp.Actions.Add, params: %{left: 1, right: 2})
+           Jido.Instruction.new(
+             target: MyApp.Actions.Add,
+             params: %{left: 1, right: 2}
+           )
 
-  assert instruction.action == MyApp.Actions.Add
+  assert instruction.target == MyApp.Actions.Add
   assert instruction.params == %{left: 1, right: 2}
 end
 ```
 
 Use `Jido.Exec.run/4` for the execution test of the normalized Instruction.
+Test Action and Flow targets when the application uses both. Test `start/4`
+for an Instruction with a Flow target when the application uses step-wise
+execution.
 
 ## Test Schemas And Validation
 
@@ -232,15 +284,15 @@ end
 ```
 
 For an asynchronous wave, also test the case where two runnables fail. Assert
-that `Jido.Exec.FlowFailureError.failures` contains both errors.
+that `Jido.Flow.Error.ExecutionFailureError.failures` contains both errors.
 
 Use `capture_log: true` when the failure path emits expected error logs.
 Assert error types and important details, not full log formatting.
 
 ## Test Parallel Options
 
-The Flow API supports only `async` and `max_concurrency`. Test option
-validation directly, and use `async: true` to test that independent runnables can
+The Flow API supports only `async` and `max_concurrency` as policy options.
+Test option validation directly, and use `async: true` to test that independent runnables can
 be scheduled in the same wave.
 
 ```elixir
@@ -261,7 +313,7 @@ test "accepts the parallel execution options" do
 end
 
 test "rejects unsupported runtime policy" do
-  assert {:error, %Jido.Action.Error.InvalidInputError{}} =
+  assert {:error, %Jido.Flow.Error.InvalidExecutionError{}} =
            Jido.Exec.start(MyApp.Flows.BuildReport, %{}, %{}, timeout: 100)
 end
 ```

@@ -130,6 +130,10 @@ Reduce can consume a Map result directly. The compiler connects the native
 Map to the native Reduce when the reference is a plain `result(...)` and the
 Reduce has no other data dependency.
 
+Each compiled Map also has one native scalar collector branch. This branch
+makes an ordered list available to normal result expressions. A direct native
+Reduce bypasses this branch and consumes the Map cardinality-many port.
+
 Reduce processes items in source order and always runs serially. An empty Map
 returns an empty list. An empty Reduce returns the valid initial value.
 

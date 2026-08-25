@@ -1,7 +1,7 @@
 defmodule Jido.Flow.Compiler.Condition do
   @moduledoc false
 
-  alias Jido.Action.Error
+  alias Jido.Flow.Error
   alias Jido.Flow.Compiler.Expression
   alias Jido.Flow.Condition
 

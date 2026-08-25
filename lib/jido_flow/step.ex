@@ -1,7 +1,7 @@
 defmodule Jido.Flow.Step do
   @moduledoc "A named Jido Action call in a canonical Flow."
 
-  alias Jido.Action.Error
+  alias Jido.Flow.Error
   alias Jido.Flow.Component
   alias Jido.Flow.Expression
 

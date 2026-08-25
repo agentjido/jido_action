@@ -119,9 +119,11 @@ every caller-owned key.
 
 ## Errors
 
-Validation failures return `Jido.Action.Error.InvalidInputError`. The error
-contains a message and structured details, including the validation phase and
-normalized Zoi errors when available.
+Direct Action-compatible `validate_params/1` and `validate_output/1` callback
+failures return `Jido.Action.Error.InvalidInputError`. This rule also applies
+when you call these callbacks directly on a Flow module. The error contains a
+message and structured details, including the validation phase and normalized
+Zoi errors when available.
 
 ```elixir
 case MyAction.validate_params(params) do
@@ -132,3 +134,9 @@ end
 
 The error details include context, subject, and normalized Zoi error data. Use
 `Jido.Action.Error.to_map/1` to serialize the stable error type and details.
+
+`Jido.Flow.validate/1`, the Builder, the Codec, and the Spark lowerer return
+`Jido.Flow.Error.InvalidDefinitionError` for invalid Flow definitions.
+`Jido.Exec` returns `Jido.Flow.Error.InvalidExecutionError` for invalid Flow
+input, output, options, or execution state. Use `Jido.Flow.Error.to_map/1` at a
+Flow boundary. It can also serialize an Action error from a Flow node.

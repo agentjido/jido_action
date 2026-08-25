@@ -1,11 +1,11 @@
 defmodule Jido.Flow.Compiler do
   @moduledoc false
 
-  alias Jido.Action.Error
   alias Jido.Action.Output
   alias Jido.Flow
   alias Jido.Flow.Choice
   alias Jido.Flow.Compiled
+  alias Jido.Flow.Error
   alias Jido.Flow.Compiler.Choice, as: ChoiceRuntime
   alias Jido.Flow.Compiler.Expression
   alias Jido.Flow.Compiler.Iterator, as: IterateRuntime
@@ -74,7 +74,7 @@ defmodule Jido.Flow.Compiler do
       catch
         kind, reason ->
           {:error,
-           Error.execution_error("flow compilation failed", %{
+           Error.internal_error("flow compilation failed", %{
              phase: :flow_compilation,
              kind: kind,
              reason: reason
@@ -693,7 +693,7 @@ defmodule Jido.Flow.Compiler do
         child_flow,
         child_namespace,
         [subflow.flow | state.module_stack],
-        prefix_source_map(child_source_map, subflow.name),
+        prefix_source_map(child_source_map, child_namespace),
         input_validator
       )
 
@@ -753,12 +753,12 @@ defmodule Jido.Flow.Compiler do
             {:jido_flow_input, validated, parent}
 
           {:ok, result} ->
-            raise Error.validation_error("Subflow input validation must return a map", %{
+            raise Error.invalid_execution_error("Subflow input validation must return a map", %{
                     value: result
                   })
 
           {:error, error} ->
-            raise error
+            raise flow_boundary_error(error, subflow, :subflow_input)
         end
       end
     )
@@ -775,7 +775,7 @@ defmodule Jido.Flow.Compiler do
         validated =
           case subflow.flow.validate_output(output) do
             {:ok, value} -> value
-            {:error, error} -> raise error
+            {:error, error} -> raise flow_boundary_error(error, subflow, :subflow_output)
           end
 
         {:jido_flow_input, _input, parent_input} = local.input_frame
@@ -817,8 +817,9 @@ defmodule Jido.Flow.Compiler do
       else: %{}
   end
 
-  defp prefix_source_map(source_map, name) do
-    Map.new(source_map, fn {path, location} -> {[:components, name | path], location} end)
+  defp prefix_source_map(source_map, namespace) do
+    prefix = Enum.flat_map(namespace, &[:components, &1])
+    Map.new(source_map, fn {path, location} -> {prefix ++ path, location} end)
   end
 
   defp add_with_dependencies(state, component, native_component) do
@@ -988,5 +989,29 @@ defmodule Jido.Flow.Compiler do
     |> Base.encode16(case: :lower)
   end
 
-  defp normalize_compile_error(error) when is_exception(error), do: error
+  defp normalize_compile_error(error) when is_exception(error) do
+    if Error.owned?(error) do
+      error
+    else
+      Error.internal_error("flow compilation failed", %{
+        phase: :flow_compilation,
+        cause: error.__struct__,
+        reason: Exception.message(error)
+      })
+    end
+  end
+
+  defp flow_boundary_error(error, subflow, phase) do
+    details =
+      error
+      |> Map.get(:details, %{})
+      |> Map.merge(%{
+        component: subflow.name,
+        flow: subflow.flow,
+        phase: phase,
+        cause: error.__struct__
+      })
+
+    Error.invalid_execution_error(Exception.message(error), details)
+  end
 end

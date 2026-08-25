@@ -56,7 +56,9 @@ old record inference to the Codec.
 
 `Jido.Flow.compile/2` returns `%Jido.Flow.Compiled{}` with the native Runic
 workflow, component index, source map, output expression, and compilation
-digest. A Spark Flow module also provides `compiled/0`.
+digest. A Spark Flow module also provides `compiled/0` for inspection.
+Execution compiles the exact canonical value from `flow/0`; it does not trust
+an independent compiled result.
 
 The step-wise API exposes native `%Runic.Workflow.Runnable{}` values. It can
 show authored work and Runic support work. `Jido.Exec.ready/1` returns these
@@ -66,6 +68,38 @@ values. `step/2` accepts a ready Runnable or its integer ID. `step/1` and
 Remove code that expects `Jido.Exec.NodeResult`. Remove code that expects
 `Jido.Flow.Compiler.MapResult`. A Map produces native many-valued work and an
 ordered list when one scalar expression value is required.
+
+## Instruction changes
+
+Replace the Action-specific `action` field with `target`:
+
+```elixir
+instruction =
+  Jido.Instruction.new!(
+    target: MyApp.Actions.SendEmail,
+    params: %{to: "user@example.com"}
+  )
+```
+
+The target can be an Action module, a Flow module, or a runtime Flow value. An
+Instruction uses the execution rules of its resolved target. A Flow target
+accepts Flow options and supports `Jido.Exec.start/4`. An Action target does
+not.
+
+There is no `action` field alias. Change stored or constructed Instruction
+values before you update the dependency.
+
+## Error changes
+
+Flow definition, compilation, native execution, and execution-state failures
+now use `Jido.Flow.Error`. An Action failure inside a Flow keeps its original
+`Jido.Action.Error` type. Replace `Jido.Exec.FlowFailureError` matches with
+`Jido.Flow.Error.ExecutionFailureError`.
+
+Use `Jido.Flow.Error.to_map/1` at a Flow boundary. It accepts Flow and Action
+errors. Unknown executable targets still use
+`Jido.Action.Error.ConfigurationError` because resolution fails before Jido
+knows the target kind.
 
 ## Verify v3
 

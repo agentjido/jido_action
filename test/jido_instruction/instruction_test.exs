@@ -2,20 +2,14 @@ defmodule JidoActionTest.InstructionTest do
   use ExUnit.Case, async: true
 
   alias Jido.Instruction
-  alias JidoActionTest.ExecFixtures.MathFlow
+  alias JidoActionTest.Fixtures.MathFlow
 
-  alias JidoActionTest.TestActions.{
-    Add,
-    BasicAction,
-    MissingRun,
-    MissingValidateOutput,
-    MissingValidateParams
-  }
+  alias JidoActionTest.Fixtures.Actions.{Add, BasicAction}
 
   describe "new/1" do
     test "creates an instruction with defaults" do
-      assert {:ok, instruction} = Instruction.new(action: BasicAction)
-      assert instruction.action == BasicAction
+      assert {:ok, instruction} = Instruction.new(target: BasicAction)
+      assert instruction.target == BasicAction
       assert instruction.params == %{}
       assert instruction.context == %{}
       assert instruction.metadata == %{}
@@ -24,13 +18,13 @@ defmodule JidoActionTest.InstructionTest do
     test "creates an instruction with all fields" do
       assert {:ok, instruction} =
                Instruction.new(%{
-                 action: BasicAction,
+                 target: BasicAction,
                  params: [value: 42],
                  context: [request_id: "req-1"],
                  metadata: [source: %{name: "api"}, tags: ["new"]]
                })
 
-      assert instruction.action == BasicAction
+      assert instruction.target == BasicAction
       assert instruction.params == %{value: 42}
       assert instruction.context == %{request_id: "req-1"}
       assert instruction.metadata == %{source: %{name: "api"}, tags: ["new"]}
@@ -39,7 +33,7 @@ defmodule JidoActionTest.InstructionTest do
     test "normalizes nil invocation maps" do
       assert {:ok, instruction} =
                Instruction.new(%{
-                 action: BasicAction,
+                 target: BasicAction,
                  params: nil,
                  context: nil,
                  metadata: nil
@@ -53,13 +47,13 @@ defmodule JidoActionTest.InstructionTest do
     test "stores Flow module targets" do
       assert {:ok, instruction} =
                Instruction.new(
-                 action: MathFlow,
+                 target: MathFlow,
                  params: %{value: 2},
                  context: %{tenant: "acme"},
                  metadata: %{request: %{id: "req-1"}}
                )
 
-      assert instruction.action == MathFlow
+      assert instruction.target == MathFlow
       assert instruction.params == %{value: 2}
       assert instruction.context == %{tenant: "acme"}
       assert instruction.metadata == %{request: %{id: "req-1"}}
@@ -70,12 +64,12 @@ defmodule JidoActionTest.InstructionTest do
 
       assert {:ok, instruction} =
                Instruction.new(
-                 action: flow,
+                 target: flow,
                  params: %{value: 2},
                  metadata: %{origin: :runtime}
                )
 
-      assert instruction.action === flow
+      assert instruction.target === flow
       assert instruction.metadata == %{origin: :runtime}
     end
 
@@ -83,37 +77,44 @@ defmodule JidoActionTest.InstructionTest do
       assert {:error, %Jido.Action.Error.InvalidInputError{details: missing_details}} =
                Instruction.new(%{params: %{value: 1}})
 
-      assert missing_details == %{field: :action, reason: :missing}
+      assert missing_details == %{field: :target, reason: :missing}
 
       for target <- ["not_a_module", nil] do
         assert {:error, %Jido.Action.Error.ConfigurationError{details: details}} =
-                 Instruction.new(%{action: target})
+                 Instruction.new(%{target: target})
 
         assert details.executable == target
       end
     end
 
+    test "does not accept the old action field as a target alias" do
+      assert {:error, %Jido.Action.Error.InvalidInputError{details: details}} =
+               Instruction.new(action: BasicAction)
+
+      assert details == %{field: :target, reason: :missing}
+    end
+
     test "rejects invalid invocation maps" do
       assert {:error, %Jido.Action.Error.InvalidInputError{} = params_error} =
-               Instruction.new(action: BasicAction, params: ["not", "keyword"])
+               Instruction.new(target: BasicAction, params: ["not", "keyword"])
 
       refute Jido.Action.Error.retryable?(params_error)
 
       assert {:error, %Jido.Action.Error.InvalidInputError{}} =
-               Instruction.new(action: BasicAction, context: ["not", "keyword"])
+               Instruction.new(target: BasicAction, context: ["not", "keyword"])
 
       assert {:error, %Jido.Action.Error.InvalidInputError{message: params_message}} =
-               Instruction.new(action: BasicAction, params: 123)
+               Instruction.new(target: BasicAction, params: 123)
 
       assert params_message =~ "Invalid params format"
 
       assert {:error, %Jido.Action.Error.InvalidInputError{message: context_message}} =
-               Instruction.new(action: BasicAction, context: 123)
+               Instruction.new(target: BasicAction, context: 123)
 
       assert context_message =~ "Invalid context format"
 
       assert {:error, %Jido.Action.Error.InvalidInputError{message: metadata_message}} =
-               Instruction.new(action: BasicAction, metadata: 123)
+               Instruction.new(target: BasicAction, metadata: 123)
 
       assert metadata_message =~ "Invalid metadata format"
     end
@@ -137,14 +138,14 @@ defmodule JidoActionTest.InstructionTest do
     test "builds an instruction from an action module" do
       instruction = Instruction.normalize!(Add, [amount: 2], trace_id: "trace")
 
-      assert %Instruction{action: Add, params: %{amount: 2}, context: %{trace_id: "trace"}} =
+      assert %Instruction{target: Add, params: %{amount: 2}, context: %{trace_id: "trace"}} =
                instruction
     end
 
     test "builds from an instruction and merges call-site overrides" do
       base =
         Instruction.new!(
-          action: Add,
+          target: Add,
           params: %{amount: 1, value: 5},
           context: %{trace_id: "base"}
         )
@@ -156,7 +157,7 @@ defmodule JidoActionTest.InstructionTest do
           %{tenant_id: "tenant"}
         )
 
-      assert instruction.action == Add
+      assert instruction.target == Add
       assert instruction.params == %{amount: 3, value: 5}
       assert instruction.context == %{trace_id: "base", tenant_id: "tenant"}
       assert instruction.metadata == %{}
@@ -170,7 +171,7 @@ defmodule JidoActionTest.InstructionTest do
 
       base =
         Instruction.new!(
-          action: MathFlow.flow(),
+          target: MathFlow.flow(),
           params: %{value: 1},
           context: %{trace_id: "base"},
           metadata: metadata
@@ -178,7 +179,7 @@ defmodule JidoActionTest.InstructionTest do
 
       instruction = Instruction.normalize!(base, %{value: 2}, %{tenant: "acme"})
 
-      assert instruction.action === base.action
+      assert instruction.target === base.target
       assert instruction.params == %{value: 2}
       assert instruction.context == %{trace_id: "base", tenant: "acme"}
       assert instruction.metadata === metadata
@@ -188,7 +189,7 @@ defmodule JidoActionTest.InstructionTest do
       flow = MathFlow.flow()
       instruction = Instruction.normalize!(flow, %{value: 2}, %{tenant: "acme"})
 
-      assert instruction.action === flow
+      assert instruction.target === flow
       assert instruction.params == %{value: 2}
       assert instruction.context == %{tenant: "acme"}
       assert instruction.metadata == %{}
@@ -206,7 +207,7 @@ defmodule JidoActionTest.InstructionTest do
         Instruction.normalize!(nil)
       end
 
-      invalid = %Instruction{action: "not executable"}
+      invalid = %Instruction{target: "not executable"}
 
       assert_raise Jido.Action.Error.InvalidInputError,
                    ~r/Invalid instruction configuration/,
@@ -226,45 +227,10 @@ defmodule JidoActionTest.InstructionTest do
     end
   end
 
-  describe "validate_action_contract/1" do
-    test "delegates target validation to Jido.Executable" do
-      assert :ok = Instruction.validate_action_contract(Add)
-      assert :ok = Instruction.validate_action_contract(MathFlow)
-      assert :ok = Instruction.validate_action_contract(MathFlow.flow())
-
-      assert {:error, missing_run} = Instruction.validate_action_contract(MissingRun)
-      assert missing_run.details.reason == "missing run/2"
-
-      assert {:error, missing_params} =
-               Instruction.validate_action_contract(MissingValidateParams)
-
-      assert missing_params.details.reason == "missing validate_params/1"
-
-      assert {:error, missing_output} =
-               Instruction.validate_action_contract(MissingValidateOutput)
-
-      assert missing_output.details.reason == "missing validate_output/1"
-
-      assert {:error, unloaded} =
-               Instruction.validate_action_contract(Module.concat(__MODULE__, Missing))
-
-      assert unloaded.message =~ "unknown executable"
-
-      assert {:error, invalid} = Instruction.validate_action_contract("not a module")
-      assert invalid.message =~ "unknown executable"
-    end
-
-    test "raises action contract errors" do
-      assert_raise ArgumentError, ~r/not a valid Jido action/, fn ->
-        Instruction.validate_action_contract!(MissingRun)
-      end
-    end
-  end
-
   describe "new!/1" do
     test "returns the instruction on success" do
-      instruction = Instruction.new!(action: BasicAction, params: %{value: 7})
-      assert instruction.action == BasicAction
+      instruction = Instruction.new!(target: BasicAction, params: %{value: 7})
+      assert instruction.target == BasicAction
       assert instruction.params == %{value: 7}
       assert instruction.metadata == %{}
     end
@@ -277,7 +243,7 @@ defmodule JidoActionTest.InstructionTest do
 
     test "raises underlying exception errors" do
       assert_raise Jido.Action.Error.InvalidInputError, ~r/Invalid params format/, fn ->
-        Instruction.new!(action: BasicAction, params: 123)
+        Instruction.new!(target: BasicAction, params: 123)
       end
     end
   end

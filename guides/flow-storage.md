@@ -91,7 +91,7 @@ Use tuple results for a correction loop:
 ```elixir
 case Jido.Flow.Codec.decode(candidate, registry) do
   {:ok, flow} -> Jido.Flow.validate_executable(flow)
-  {:error, error} -> {:error, Jido.Action.Error.to_map(error)}
+  {:error, error} -> {:error, Jido.Flow.Error.to_map(error)}
 end
 ```
 

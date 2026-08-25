@@ -1,7 +1,7 @@
 defmodule Jido.Action.Telemetry do
   @moduledoc false
 
-  alias Jido.Action.Error
+  alias Jido.Flow.Error
 
   @type span :: %{
           event: [atom()],

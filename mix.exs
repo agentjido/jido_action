@@ -36,7 +36,10 @@ defmodule JidoAction.MixProject do
           Jido.Action.Error.Config,
           Jido.Action.Error.Execution,
           Jido.Action.Error.Internal,
-          Jido.Action.Error.Invalid
+          Jido.Action.Error.Invalid,
+          Jido.Flow.Error.Execution,
+          Jido.Flow.Error.Internal,
+          Jido.Flow.Error.Invalid
         ],
         summary: [threshold: 90]
       ],
@@ -156,7 +159,10 @@ defmodule JidoAction.MixProject do
       groups_for_modules: [
         "Action API": [
           Jido.Action,
-          Jido.Action.Output,
+          Jido.Action.Output
+        ],
+        "Executable API": [
+          Jido.Executable,
           Jido.Instruction
         ],
         "Flow API": [
@@ -180,7 +186,7 @@ defmodule JidoAction.MixProject do
         Execution: [
           Jido.Exec,
           Jido.Exec.Execution,
-          Jido.Exec.FlowFailureError
+          Jido.Exec.Supervisor
         ],
         Errors: [
           Jido.Action.Error,
@@ -188,7 +194,12 @@ defmodule JidoAction.MixProject do
           Jido.Action.Error.ExecutionFailureError,
           Jido.Action.Error.InternalError,
           Jido.Action.Error.InvalidInputError,
-          Jido.Action.Error.TimeoutError
+          Jido.Action.Error.TimeoutError,
+          Jido.Flow.Error,
+          Jido.Flow.Error.ExecutionFailureError,
+          Jido.Flow.Error.InternalError,
+          Jido.Flow.Error.InvalidDefinitionError,
+          Jido.Flow.Error.InvalidExecutionError
         ]
       ]
     ]

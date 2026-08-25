@@ -3,13 +3,59 @@ defmodule JidoActionTest.Flow.Compiler.NativeRunicTest do
 
   alias Jido.Flow
   alias Jido.Flow.{Map, Reduce, Ref, Step, Subflow}
-  alias JidoActionTest.ExecFixtures.MathFlow
-  alias JidoActionTest.TestActions.{EchoParamsAction, ReduceProbeAction}
+  alias JidoActionTest.Fixtures.{MathFlow, TelemetryParentFlow}
+  alias JidoActionTest.Fixtures.Actions.{EchoParamsAction, ReduceProbeAction}
   alias Runic.Workflow
   alias Runic.Workflow.{FanIn, FanOut}
   alias Runic.Workflow.Map, as: RunicMap
   alias Runic.Workflow.Reduce, as: RunicReduce
   alias Runic.Workflow.Step, as: RunicStep
+
+  defmodule CycleA do
+    @moduledoc false
+
+    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+
+    def flow do
+      Jido.Flow.new!(
+        name: "cycle_a",
+        components: [
+          Jido.Flow.Subflow.new!(
+            name: "b",
+            flow: JidoActionTest.Flow.Compiler.NativeRunicTest.CycleB
+          )
+        ],
+        output: Jido.Flow.Ref.result("b")
+      )
+    end
+
+    def validate_params(params), do: {:ok, params}
+    def validate_output(output), do: {:ok, output}
+    def run(params, context), do: Jido.Exec.run(flow(), params, context)
+  end
+
+  defmodule CycleB do
+    @moduledoc false
+
+    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+
+    def flow do
+      Jido.Flow.new!(
+        name: "cycle_b",
+        components: [
+          Jido.Flow.Subflow.new!(
+            name: "a",
+            flow: JidoActionTest.Flow.Compiler.NativeRunicTest.CycleA
+          )
+        ],
+        output: Jido.Flow.Ref.result("a")
+      )
+    end
+
+    def validate_params(params), do: {:ok, params}
+    def validate_output(output), do: {:ok, output}
+    def run(params, context), do: Jido.Exec.run(flow(), params, context)
+  end
 
   test "compiles a Step to a native Runic Step without changing the Flow" do
     flow =
@@ -102,6 +148,101 @@ defmodule JidoActionTest.Flow.Compiler.NativeRunicTest do
     assert child_names == ["add_one", "double"]
   end
 
+  test "two sibling Subflows have independent native names, hashes, and results" do
+    flow =
+      Flow.new!(
+        name: "sibling_subflows",
+        components: [
+          Subflow.new!(
+            name: "left",
+            flow: MathFlow,
+            params: %{value: Ref.input(:left)}
+          ),
+          Subflow.new!(
+            name: "right",
+            flow: MathFlow,
+            params: %{value: Ref.input(:right)}
+          )
+        ],
+        output: %{left: Ref.result("left"), right: Ref.result("right")}
+      )
+
+    assert {:ok, compiled} = Flow.compile(flow)
+
+    left = compiled.component_index["left"].children["add_one"].component
+    right = compiled.component_index["right"].children["add_one"].component
+
+    assert left.name == "left/add_one"
+    assert right.name == "right/add_one"
+    refute left.hash == right.hash
+
+    assert Jido.Exec.run(flow, %{left: 1, right: 3}) ==
+             {:ok, %{left: %{value: 4}, right: %{value: 8}}}
+  end
+
+  test "rejects a recursive Subflow module cycle before compilation" do
+    assert {:error, error} = CycleA.flow() |> Flow.compile()
+    assert Exception.message(error) =~ "recursive Subflow module cycle"
+  end
+
+  test "a child semantic change changes the parent compilation digest" do
+    child_module =
+      Module.concat(__MODULE__, "VersionedChild#{System.unique_integer([:positive])}")
+
+    define_child_module(child_module, 1)
+
+    on_exit(fn ->
+      :code.purge(child_module)
+      :code.delete(child_module)
+    end)
+
+    flow =
+      Flow.new!(
+        name: "transitive_digest",
+        components: [Subflow.new!(name: "child", flow: child_module)],
+        output: Ref.result("child")
+      )
+
+    assert {:ok, first} = Flow.compile(flow)
+
+    :code.purge(child_module)
+    :code.delete(child_module)
+    define_child_module(child_module, 2)
+    assert {:ok, second} = Flow.compile(flow)
+
+    refute first.compilation_digest == second.compilation_digest
+  end
+
+  test "prefixes source locations through every Subflow level" do
+    flow =
+      Flow.new!(
+        name: "nested_source_map",
+        components: [Subflow.new!(name: "outer", flow: TelemetryParentFlow)],
+        output: Ref.result("outer")
+      )
+
+    assert {:ok, compiled} = Flow.compile(flow)
+
+    assert %{file: parent_file, line: parent_line} =
+             compiled.source_map[[:components, "outer", :components, "child"]]
+
+    assert is_binary(parent_file)
+    assert is_integer(parent_line)
+
+    assert %{file: child_file, line: child_line} =
+             compiled.source_map[
+               [:components, "outer", :components, "child", :components, "child_add"]
+             ]
+
+    assert is_binary(child_file)
+    assert is_integer(child_line)
+
+    refute Elixir.Map.has_key?(
+             compiled.source_map,
+             [:components, "child", :components, "child_add"]
+           )
+  end
+
   test "source locations do not change compilation identity or Runic hashes" do
     flow =
       Flow.new!(
@@ -119,5 +260,39 @@ defmodule JidoActionTest.Flow.Compiler.NativeRunicTest do
 
     assert plain.component_index["echo"].component.hash ==
              with_source.component_index["echo"].component.hash
+  end
+
+  test "rejects invalid public compilation input" do
+    assert {:error, error} = Flow.compile(:not_a_flow)
+    assert Exception.message(error) == "expected a Jido.Flow artifact"
+  end
+
+  defp define_child_module(module, amount) do
+    quoted =
+      quote do
+        @amount unquote(amount)
+
+        def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+
+        def flow do
+          Jido.Flow.new!(
+            name: "versioned_child",
+            components: [
+              Jido.Flow.Step.new!(
+                name: "add",
+                action: JidoActionTest.Fixtures.Actions.Add,
+                params: %{value: Jido.Flow.Ref.input(:value), amount: @amount}
+              )
+            ],
+            output: Jido.Flow.Ref.result("add")
+          )
+        end
+
+        def validate_params(params), do: {:ok, params}
+        def validate_output(output), do: {:ok, output}
+        def run(params, context), do: Jido.Exec.run(flow(), params, context)
+      end
+
+    Module.create(module, quoted, Macro.Env.location(__ENV__))
   end
 end

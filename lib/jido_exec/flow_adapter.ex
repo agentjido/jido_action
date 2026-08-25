@@ -1,7 +1,6 @@
 defmodule Jido.Exec.FlowAdapter do
   @moduledoc false
 
-  alias Jido.Action.Error
   alias Jido.Action.Output
   alias Jido.Action.Telemetry
   alias Jido.Action.Validation
@@ -11,7 +10,7 @@ defmodule Jido.Exec.FlowAdapter do
   alias Jido.Exec.Options
   alias Jido.Exec.TargetRunner
   alias Jido.Flow
-  alias Jido.Flow.Compiled
+  alias Jido.Flow.Error
   alias Jido.Instruction
 
   @doc false
@@ -19,16 +18,20 @@ defmodule Jido.Exec.FlowAdapter do
   def validate(%Executable{kind: :flow, target: %Flow{}}), do: :ok
 
   def validate(%Executable{kind: :flow, target: module}) when is_atom(module) do
-    with :ok <- Executable.validate_module_callbacks(module) do
-      if function_exported?(module, :flow, 0) do
-        :ok
-      else
-        {:error,
-         Error.validation_error("module is not a valid Jido flow", %{
-           flow: module,
-           reason: "missing flow/0"
-         })}
-      end
+    case Executable.validate_action_compatible_callbacks(module) do
+      :ok ->
+        if function_exported?(module, :flow, 0) do
+          :ok
+        else
+          {:error,
+           Error.validation_error("module is not a valid Jido flow", %{
+             flow: module,
+             reason: "missing flow/0"
+           })}
+        end
+
+      {:error, error} ->
+        {:error, flow_definition_error(error, module)}
     end
   end
 
@@ -43,11 +46,11 @@ defmodule Jido.Exec.FlowAdapter do
   end
 
   @doc false
-  @spec run_instruction(Executable.t(), Instruction.t(), String.t()) ::
+  @spec run_instruction(Executable.t(), Instruction.t(), keyword(), String.t()) ::
           {:ok, term()} | {:error, Exception.t()}
-  def run_instruction(executable, %Instruction{} = instruction, execution_id) do
+  def run_instruction(executable, %Instruction{} = instruction, opts, execution_id) do
     with :ok <- validate(executable) do
-      run(executable, instruction.params, instruction.context, [], execution_id)
+      run(executable, instruction.params, instruction.context, opts, execution_id)
     end
   end
 
@@ -80,15 +83,52 @@ defmodule Jido.Exec.FlowAdapter do
   end
 
   defp materialize(%Executable{target: module}) do
-    flow = module.flow()
+    try do
+      case module.flow() do
+        %Flow{} = flow ->
+          source_map = module_source_map(module)
 
-    case if(function_exported?(module, :compiled, 0),
-           do: module.compiled(),
-           else: Flow.compile(flow)
-         ) do
-      %Compiled{} = compiled -> {:ok, flow, compiled}
-      {:ok, %Compiled{} = compiled} -> {:ok, flow, compiled}
-      {:error, error} -> {:error, error}
+          with {:ok, compiled} <- Flow.compile(flow, source_map: source_map) do
+            {:ok, flow, compiled}
+          end
+
+        value ->
+          {:error,
+           Error.validation_error("Flow flow/0 must return a Jido.Flow", %{
+             flow: module,
+             value: value
+           })}
+      end
+    rescue
+      error ->
+        if Error.owned?(error),
+          do: {:error, error},
+          else: {:error, flow_definition_error(error, module)}
+    catch
+      kind, reason ->
+        {:error,
+         Error.internal_error("Flow materialization failed", %{
+           flow: module,
+           kind: kind,
+           reason: reason
+         })}
+    end
+  end
+
+  defp module_source_map(module) do
+    if function_exported?(module, :__jido_flow_source_map__, 0) do
+      case module.__jido_flow_source_map__() do
+        source_map when is_map(source_map) ->
+          source_map
+
+        value ->
+          raise Error.validation_error("Flow source map must be a map", %{
+                  flow: module,
+                  value: value
+                })
+      end
+    else
+      %{}
     end
   end
 
@@ -142,7 +182,7 @@ defmodule Jido.Exec.FlowAdapter do
 
   defp validate_flow_input_shape(flow, input) do
     {:error,
-     Error.validation_error("Flow input validation must return a map", %{
+     Error.invalid_execution_error("Flow input validation must return a map", %{
        context: "Flow",
        subject: flow,
        phase: :flow_input,
@@ -173,27 +213,19 @@ defmodule Jido.Exec.FlowAdapter do
 
   defp tag_flow_output_error({:ok, output}, _flow), do: {:ok, output}
 
-  defp tag_flow_output_error({:error, %{details: details} = error}, flow)
-       when is_map(details) do
-    {:error,
-     %{
-       error
-       | details:
-           Map.merge(details, %{
-             context: "Flow output",
-             subject: flow,
-             phase: :flow_output
-           })
-     }}
+  defp tag_flow_output_error({:error, error}, flow) do
+    {:error, flow_boundary_error(error, "Flow output", flow, :flow_output)}
   end
 
   defp validate_flow_output_shape(flow, output) when is_map(output) do
-    validate_output_shape(flow, output, :output_schema)
+    flow
+    |> validate_output_shape(output, :output_schema)
+    |> tag_flow_output_error(flow)
   end
 
   defp validate_flow_output_shape(flow, output) do
     {:error,
-     Error.validation_error("Flow output validation must return a map", %{
+     Error.invalid_execution_error("Flow output validation must return a map", %{
        context: "Flow output",
        subject: flow,
        phase: :flow_output,
@@ -211,19 +243,19 @@ defmodule Jido.Exec.FlowAdapter do
     end
   end
 
-  defp output_envelope_required(action, output, callback) do
+  defp output_envelope_required(flow, output, callback) do
     {:error,
-     Error.execution_error("action returned a value that requires an output envelope", %{
-       action: action,
+     Error.execution_error("Flow returned a value that requires an output envelope", %{
+       flow: flow,
        callback: callback,
        output: output
      })}
   end
 
-  defp invalid_validator_value(action, callback, result, expected) do
+  defp invalid_validator_value(flow, callback, result, expected) do
     {:error,
-     Error.execution_error("action validator returned a value with an invalid shape", %{
-       action: action,
+     Error.execution_error("Flow validator returned a value with an invalid shape", %{
+       flow: flow,
        callback: callback,
        expected: expected,
        result: result
@@ -237,19 +269,45 @@ defmodule Jido.Exec.FlowAdapter do
     if Keyword.keyword?(value) do
       {:ok, Map.new(value)}
     else
-      {:error, Error.validation_error("expected a map or keyword list")}
+      {:error, Error.invalid_execution_error("expected a map or keyword list")}
     end
   end
 
   defp normalize_map(_value, field) do
-    {:error, Error.validation_error("#{field} must be a map or keyword list")}
+    {:error, Error.invalid_execution_error("#{field} must be a map or keyword list")}
   end
 
   defp validate_data(schema, data, context, subject, phase) do
-    Validation.open_validate(schema, data, %{
-      context: context,
-      subject: subject,
-      phase: phase
-    })
+    case Validation.open_validate(schema, data, %{
+           context: context,
+           subject: subject,
+           phase: phase
+         }) do
+      {:ok, value} -> {:ok, value}
+      {:error, error} -> {:error, flow_boundary_error(error, context, subject, phase)}
+    end
+  end
+
+  defp flow_boundary_error(error, context, subject, phase) do
+    details =
+      error
+      |> Map.get(:details, %{})
+      |> Map.merge(%{
+        context: context,
+        subject: subject,
+        phase: phase,
+        cause: error.__struct__
+      })
+
+    Error.invalid_execution_error(Exception.message(error), details)
+  end
+
+  defp flow_definition_error(error, module) do
+    details =
+      error
+      |> Map.get(:details, %{})
+      |> Map.merge(%{flow: module, cause: error.__struct__})
+
+    Error.validation_error(Exception.message(error), details)
   end
 end

@@ -1,7 +1,7 @@
 defmodule Jido.Flow.ComponentValidationTest do
   use ExUnit.Case, async: true
 
-  alias Jido.Action.Error.InvalidInputError
+  alias Jido.Flow.Error.InvalidDefinitionError
   alias Jido.Flow.Choice
   alias Jido.Flow.Condition
   alias Jido.Flow.Data
@@ -11,8 +11,8 @@ defmodule Jido.Flow.ComponentValidationTest do
   alias Jido.Flow.Ref
   alias Jido.Flow.Step
   alias Jido.Flow.Subflow
-  alias JidoActionTest.FlowFixtures.NestedFlow
-  alias JidoActionTest.TestActions.Add
+  alias JidoActionTest.Fixtures.NestedFlow
+  alias JidoActionTest.Fixtures.Actions.Add
 
   test "all canonical authoring records are strict structs" do
     option = Choice.Option.new!(name: "add", condition: Condition.eq(1, 1), action: Add)
@@ -42,7 +42,7 @@ defmodule Jido.Flow.ComponentValidationTest do
           &Reduce.new/1,
           &Iterate.new/1
         ] do
-      assert {:error, %InvalidInputError{}} = constructor.(%{legacy: true})
+      assert {:error, %InvalidDefinitionError{}} = constructor.(%{legacy: true})
     end
   end
 
@@ -50,10 +50,10 @@ defmodule Jido.Flow.ComponentValidationTest do
     assert {:ok, %FlowMap{}} =
              FlowMap.new(name: "map", collection: [], action: Add, params: %{item: Ref.item()})
 
-    assert {:error, %InvalidInputError{}} =
+    assert {:error, %InvalidDefinitionError{}} =
              Step.new(name: "step", action: Add, params: %{item: Ref.item()})
 
-    assert {:error, %InvalidInputError{}} =
+    assert {:error, %InvalidDefinitionError{}} =
              Reduce.new(
                name: "reduce",
                collection: [],
@@ -66,10 +66,10 @@ defmodule Jido.Flow.ComponentValidationTest do
   test "metadata uses only portable data" do
     assert :ok = Data.validate_object(%{"owner" => "team", 1 => [:ready]})
 
-    assert {:error, %InvalidInputError{}} =
+    assert {:error, %InvalidDefinitionError{}} =
              Step.new(name: "step", action: Add, meta: %{fun: fn -> :bad end})
 
-    assert {:error, %InvalidInputError{}} =
+    assert {:error, %InvalidDefinitionError{}} =
              Step.new(name: "step", action: Add, meta: %{pid: self()})
   end
 

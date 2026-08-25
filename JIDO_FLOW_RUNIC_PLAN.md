@@ -1,7 +1,7 @@
 # Jido.Flow and Runic Design Plan
 
-Status: The phase-one data design and phase-two native Runic execution pass are
-implemented on `v3-spike`.
+Status: The phase-one data design, phase-two native Runic execution pass, and
+phase-three test architecture pass are implemented on `v3-spike`.
 
 ## Implementation status
 
@@ -22,12 +22,58 @@ Stages 1 through 13 are implemented:
 - Native Runnable step-wise execution without a second Jido scheduler
 - Removal of `NodeResult`, `MapResult`, and the temporary runtime compiler
 - A migrated Runic execution test suite and user documentation
+- A Splode-based `Jido.Flow.Error` boundary for Flow definition, compilation,
+  native execution, and execution-state failures
+- One `Jido.Executable` target contract for Actions, Flow modules, and runtime
+  Flow values
+- `Jido.Instruction.target` support for all three executable target forms,
+  including Flow options and step-wise execution for Flow targets
+- Transitive Subflow source paths, sibling instance identity, recursive module
+  cycle checks, and transitive child compilation digests
+- Stored Codec limits and JSON round trips for string, integer, and registered
+  atom map keys
+
+The phase-three test architecture pass is also implemented:
+
+- Data, Codec, compilation, and execution have explicit test owners.
+- One `JidoActionTest.Fixtures` namespace and six fixture files replace four
+  fixture roots and 12 files. The files use `action`, `flow`, `codec`, and
+  `execution` folders.
+- Direct, Builder, Spark, and JSON parity use one canonical mixed Flow and one
+  trusted Registry fixture.
+- Action, Instruction, Flow-adapter, process-ownership, and Flow component
+  execution contracts have focused test files.
+- Public Choice, Map, Reduce, reference, and condition runtime behavior moved
+  out of compiler tests.
+- Duplicate Codec and Registry cases moved out of general Flow validation.
+- Nineteen dead fixture modules and unused helper functions were removed.
+- Killed Action containment covers Action modules, Action Instructions, Flow
+  values, Flow modules, Flow Instructions, and Subflows.
+- `Jido.Exec.Supervisor` owns the Task Supervisor, concurrency Registry, and
+  concurrency DynamicSupervisor. Action data has no supervisor ownership.
+- Jido Action v2 had a `Jido.Exec.Supervisors` resolver for instance-scoped
+  Task Supervisors. V3 keeps the useful `jido:` contract in the smaller
+  `Jido.Exec.Supervisor` module. `jido: MyApp.Jido` routes all Action workers,
+  including Flow and Subflow work, through `MyApp.Jido.TaskSupervisor`. This
+  matches Jido core. A missing instance is an error. There is no silent global
+  fallback.
+- The Flow concurrency Registry and DynamicSupervisor stay Exec-global. Their
+  workers are short-lived and keyed by a unique execution ID. Jido core does
+  not need a second per-instance Exec tree.
+- Flow module execution compiles the exact `flow/0` value with its source map.
+  It does not trust an independent `compiled/0` result.
+
+The shared executable resolver uses `Jido.Action.Error.ConfigurationError` for
+failures that occur before it knows the executable kind. Flow-owned failures
+use `Jido.Flow.Error`. An Action failure inside a Flow keeps its original
+`Jido.Action.Error` type. There is no separate `Jido.Executable.Error` or
+`Jido.Exec.FlowFailureError` model.
 
 Verification for this implementation:
 
-- `mix test`: 272 tests passed and 2 tests were excluded.
+- `mix test`: 309 tests passed and 2 tests were excluded.
 - `mix test.integration`: 2 integration tests passed.
-- `mix test --cover`: total coverage is 90.11%.
+- `mix test --cover`: total coverage is 93.09%.
 - `mix quality`: formatting, compilation with warnings as errors, Credo, and
   Dialyzer passed.
 - `mix docs --warnings-as-errors`: the public documentation build passed.
@@ -410,10 +456,11 @@ For `:fail_fast`, an Action failure fails the Map path. For
 data. The Map still uses native Runic FanOut behavior.
 
 Map uses native Runic cardinality-many output. Remove the current `MapResult`
-aggregate. A direct Reduce consumes the many-valued Map port. When a Map result
-must become one expression value, the compiler collects the item values into
-an input-index-ordered list at that boundary. The approved contract is in the
-design-decisions section.
+aggregate. The compiler also adds one native scalar collector branch to each
+Map. This makes an input-index-ordered list available to any normal result
+expression without a second reference-use planning pass. A direct Reduce
+consumes the many-valued Map port and bypasses the collector. The approved
+contract is in the design-decisions section.
 
 ### Jido.Flow.Reduce
 
@@ -717,13 +764,16 @@ Compilation accepts a validated Flow and returns internal derived data:
 %Jido.Flow.Compiled{
   workflow: %Runic.Workflow{},
   component_index: map(),
-  output: compiled_output_selector,
+  output: Jido.Flow.Expression.t(),
   source_map: Jido.Flow.Compiled.source_map(),
   compilation_digest: binary()
 }
 ```
 
 `Jido.Flow.Compiled` is not an authoring type. It is not stored.
+`output` is the validated canonical output expression. Runtime result handling
+resolves it against the completed native Runic results. A second output selector
+type is not required.
 `source_map` is optional diagnostic data. Spark compilation supplies it.
 Builder, JSON, and direct construction can compile with an empty source map or
 with source data supplied by the caller. It does not affect workflow hashes,
@@ -780,7 +830,7 @@ generates.
 Execution keeps the Action pattern:
 
 1. Validate Flow parameters.
-2. Compile the executable Flow or load a valid cached compilation.
+2. Compile the exact executable Flow value returned by `flow/0`.
 3. Use Runic prepare, execute, and apply phases.
 4. Run each leaf through the normal Jido Action runner.
 5. Evaluate the Flow output expression.
@@ -822,15 +872,23 @@ Generated Flow modules declare both `@behaviour Jido.Action` and
 
 The Spark module compiler stores its source map separately and makes it
 available through a private diagnostic callback. `compiled/0` supplies that
-source map to `Jido.Flow.compile/2` and returns a `%Jido.Flow.Compiled{}`. The
-Flow execution adapter uses this value when it runs the module. Direct and
-decoded Flow values call `Jido.Flow.compile/1` with an empty source map.
+source map to `Jido.Flow.compile/2` and remains a compilation and inspection
+convenience. It is not execution authority. The Flow execution adapter reads
+`flow/0` once and compiles that exact value with the private source map. Direct
+and decoded Flow values call `Jido.Flow.compile/1` with an empty source map.
 
 The compiler recursively reads each trusted child module's `flow/0` value. It
 passes the Subflow instance namespace and active module stack through its own
 private compile state. This creates correct child names and hashes before graph
 construction. It does not require a second generated module callback, and it
 does not rewrite Runic graph internals after compilation.
+
+A Flow module must return one stable canonical value from `flow/0` for the life
+of the loaded module version. Validation, compilation, and execution can read
+this value more than once. A new application version can change that value. Its
+semantic identity and transitive compilation digest then invalidate old
+compiled data. Do not add a resolved intermediate Flow model only to support a
+changing `flow/0` result.
 
 Flow nodes discard Action extras and use only the Action output or error
 reason. This agrees with the present Action contract.
@@ -882,8 +940,10 @@ canonical structs.
 
 The generated Flow module stores the source table separately from `flow/0`.
 Its `compiled/0` function passes the table to `Jido.Flow.compile/2`. This keeps
-the one-way lowerer small and keeps diagnostic data available after module
-compilation.
+the one-way lowerer small and keeps diagnostic data available for inspection.
+Execution reads the same source table but compiles the exact `flow/0` value. It
+does not trust a separate `compiled/0` result that can disagree with that
+value.
 
 ### Runtime Builder
 
@@ -1163,8 +1223,8 @@ Stages 1 through 13 are complete.
 8. Add Runic lowering for Step, Choice, and Iterate. Choice uses a selector and
    dispatcher Step. Iterate uses one bounded Step.
 9. Add native Runic Map and Reduce lowering. Use cardinality-many Map output,
-   direct Map-to-Reduce FanIn, and boundary collection only when one expression
-   value is required.
+   direct Map-to-Reduce FanIn, and one scalar collector branch per Map. Direct
+   Reduce bypasses that collector.
 10. Keep `after` as control-only readiness and result references as expression
     data. Use one native Join when it can satisfy both readiness sets.
 11. Connect execution to the compiled Runic workflow and keep the Action
@@ -1192,7 +1252,184 @@ The phase-two cleanup has these results:
 - Do not automatically drain support runnables to make one authored component
   look like one execution step.
 
-## 9. Approved and open design decisions
+## 9. Phase-three test architecture
+
+Phase three refreshes the test suite around public contracts. It does not add
+a second runtime model, a test-only execution API, or broad production
+abstractions.
+
+### Test ownership rule
+
+Each behavior has one primary test owner. A higher-level test can prove that
+boundaries connect, but it must not repeat the full lower-level test matrix.
+
+Use these four test boundaries:
+
+1. **Data definition** owns Action, Flow, component, expression, condition,
+   Executable, and Instruction construction. It also owns structural and
+   executable validation. These tests do not call `Jido.Exec` unless one
+   small end-to-end parity test needs it.
+2. **Codec** owns `Jido.Flow.Codec`, `Jido.Flow.Registry`, the stored document
+   grammar, Registry trust, portability, resource limits, deterministic
+   encoding, and JSON byte round trips. Codec tests do not compile or execute
+   a Flow.
+3. **Compilation** owns canonical Flow to native Runic lowering. It inspects
+   native components, ports, connections, source maps, instance identity, and
+   compilation digests. It does not repeat public `Jido.Exec` error and
+   scheduling tests.
+4. **Execution** owns Action and Flow input/output validation during a call,
+   native runnable transitions, full-run results, Action error propagation,
+   Flow error propagation, process exits, caller exits, timeouts, concurrency,
+   and telemetry.
+
+Error data and error behavior have different owners:
+
+- `Jido.Action.Error` and `Jido.Flow.Error` struct construction, class
+  selection, stable maps, and JSON protocol behavior are data tests.
+- Raised values, throws, exits, killed Action processes, failed validation,
+  nested Flow failures, and stale execution values are execution tests.
+
+### Test directory rule
+
+Keep the production-module directories because they make ownership clear:
+
+```text
+test/jido_action/       Action data, validation, output, and error values
+test/jido_flow/         Flow data, validation, authoring, Codec, and Registry
+test/jido_flow/compiler Canonical Flow to native Runic compilation
+test/jido_instruction/  Instruction data and merge rules
+test/jido_exec/         Public execution, failures, process policy, and telemetry
+```
+
+Do not create a second directory hierarchy only to label the same modules as
+"data" or "execution". File names and test descriptions state the contract.
+Move an execution test out of a data or compiler file when `Jido.Exec` is the
+subject of the assertion.
+
+### Central fixture rule
+
+Use one fixture namespace and one fixture tree:
+
+```text
+test/support/fixtures/
+├── action/
+│   ├── definitions.ex
+│   └── failures.ex
+├── codec/
+│   └── registry.ex
+├── execution/
+│   └── runtime.ex
+└── flow/
+    ├── authoring.ex
+    └── modules.ex
+```
+
+The root namespace is `JidoActionTest.Fixtures`. Fixture modules below it can
+use `Actions` and `Flows` namespaces where that improves the call site.
+
+- `flow/authoring.ex` owns small canonical Flow values, Builder forms, and
+  authoring-form matrices.
+- `codec/registry.ex` owns trusted Registry values for stored Flow tests.
+- `action/definitions.ex` owns small successful Actions that two or more test
+  files use.
+- `action/failures.ex` owns deliberate validation failures, bad return values,
+  raises, throws, exits, hard kills, and blocking process probes.
+- `flow/modules.ex` owns compiled Spark Flow modules that support a named
+  contract. A small incidental Flow can stay in its test file.
+- `execution/runtime.ex` owns direct runtime Flow factories, transforms,
+  iterator factories, and execution-path matrices. It does not contain
+  assertions.
+
+Do not use generic `helpers.ex`, `basic_actions.ex`, `result_actions.ex`, or
+`runtime_probe_actions.ex` names. A file path must state why the fixture exists.
+Do not keep separate `ExecFixtures`, `IteratorFixtures`,
+`FlowFixtures`, and `TestActions` roots.
+
+A fixture must be deterministic and must not hide the contract under test.
+Use real small Actions instead of mocks. Keep process probes such as a killed
+Action or a blocking Action explicit. They test OTP failure boundaries that a
+generic mock cannot prove.
+
+### Contract matrices
+
+Use small shared matrices only where the same public rule must hold for more
+than one representation:
+
+- Direct Flow, Builder Flow, Spark Flow, and decoded Flow must be equal.
+- A Flow module, runtime `%Jido.Flow{}`, Flow Instruction, and parent Subflow
+  must have the same successful Flow boundary result where all forms apply.
+- A leaf Action module and Action Instruction must have the same Action error
+  containment where both forms apply.
+- Full-run and step-wise execution must have the same final Flow result.
+
+The matrix returns named values or zero-arity functions. It does not make
+assertions. Each test reports the representation name when it fails.
+
+Do not force unlike contracts into one matrix. Action extras, Flow options,
+and step-wise Flow execution have different public shapes and need focused
+tests.
+
+### Execution and failure coverage
+
+Execution tests use a small contract table:
+
+| Boundary | Success | Returned error | Raise or throw | Process exit | Caller exit |
+| --- | --- | --- | --- | --- | --- |
+| Action module | Required | Required | Required | Required | Required |
+| Action Instruction | Required parity | Required parity | Required parity | Required parity | Covered by Action worker ownership |
+| Flow value | Required | Required | Required at a leaf | Required at a leaf | Required |
+| Flow module | Required parity | Required parity | Required parity | Required parity | Covered by Flow execution ownership |
+| Flow Instruction | Required parity | Required parity | Required parity | Required parity | Covered by Flow execution ownership |
+| Subflow | Required | Required | Required at a child leaf | Required at a child leaf | Covered by parent ownership |
+
+Tests for killed and interrupted processes must use monitors and messages.
+They must not depend on sleeps. Concurrency tests must assert active work and
+ordered results, not task completion order. Stale execution tests must retain
+the old value and prove that it cannot mutate the current execution.
+
+### Simplification and deletion rules
+
+- Remove duplicate Registry and Codec boundary cases from general Flow
+  validation files. The Registry and Codec test files own them.
+- Split Instruction execution from Action execution when the Instruction
+  merge or target rule is the subject.
+- Move Choice, Map, Reduce, and Iterate runtime behavior out of compiler tests
+  when the assertion is about public execution rather than the Runic graph.
+- Keep one comprehensive authoring-form convergence test. Component
+  constructor tests then cover only their own fields and invalid boundaries.
+- Keep one full stored Flow round trip. Focus the other Codec tests on one
+  grammar or trust rule each.
+- Remove a support fixture when no active contract reaches it. Keep a small
+  incidental one-use fixture next to its test. A centralized failure or Flow
+  contract fixture can have one test-file consumer when that keeps the contract
+  file clear.
+- Do not add a helper only to save one or two assertion lines.
+- Do not use coverage percentage as the reason for duplicate tests. Coverage
+  is a backstop after the contract suite is clear.
+
+### Phase-three stages
+
+1. Record the test ownership rules and take a green baseline.
+2. Replace the four fixture roots with `JidoActionTest.Fixtures`. Move one-use
+   fixtures into their test files.
+3. Remove duplicate Codec and Registry tests from general Flow boundary tests.
+4. Split mixed Action, Instruction, Flow-adapter, and process-failure tests by
+   public contract.
+5. Move runtime semantic assertions from compiler tests to execution tests.
+   Keep native graph assertions in compiler tests.
+6. Add the execution and failure contract matrix, with explicit hard-kill and
+   caller-exit cases.
+7. Fix production code only when the new contract tests show a defect. First,
+   test that execution compiles the exact Flow value returned by `flow/0` and
+   does not trust a mismatched `compiled/0` value.
+8. Remove redundant tests and fixtures. Then run unit tests, integration tests,
+   coverage, quality checks, and documentation checks.
+
+The target is a smaller and clearer suite. The 93% coverage threshold remains
+a release check, but test ownership and failure-contract coverage have higher
+priority than the raw percentage.
+
+## 10. Approved and open design decisions
 
 ### Map output semantics: approved
 
@@ -1208,9 +1445,10 @@ Define the author-visible behavior as follows:
 - With `:collect_errors`, downstream and collected values are portable tagged
   success or error outcomes.
 - A direct native Reduce consumes the cardinality-many Map port without a
-  collector.
-- When a Map result is used as a normal expression value or as the Flow output,
-  the compiler collects item outcomes into a list in input-index order.
+  collector in its data path.
+- The compiler attaches one scalar collector branch to every Map. Normal result
+  expressions and the Flow output read its input-index-ordered list. This avoids
+  a second compiler pass that plans scalar reference use.
 - The compiler-owned item index and item ID are runtime data. They are not
   fields in the canonical Map.
 
@@ -1219,8 +1457,8 @@ grammar still receives an ordinary list value at a scalar Action parameter or
 Flow output boundary.
 
 Do not keep the current `MapResult` aggregate. The behavior change from
-`MapResult` to native many-valued output, with list collection only at a
-one-value expression boundary, is approved.
+`MapResult` to native many-valued output, with one scalar collector branch for
+normal result expressions, is approved.
 
 ### Stored Codec format: approved and implemented
 

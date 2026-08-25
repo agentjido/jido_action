@@ -1,15 +1,19 @@
 defmodule JidoActionTest.Exec.IteratorExecutionTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   @moduletag capture_log: true
 
-  alias Jido.Action.Error.{ExecutionFailureError, InvalidInputError}
+  alias Jido.Action.Error.ExecutionFailureError, as: ActionExecutionFailureError
+  alias Jido.Action.Error.InvalidInputError
   alias Jido.Action.Output
   alias Jido.Exec
+  alias Jido.Flow.Compiler.Iterator, as: IteratorCompiler
   alias Jido.Flow.Ref
-  alias JidoActionTest.IteratorFixtures
+  alias Jido.Flow.Error.ExecutionFailureError, as: FlowExecutionFailureError
+  alias Jido.Flow.Error.InvalidExecutionError
+  alias JidoActionTest.Fixtures.Iterator, as: IteratorFixtures
 
-  alias JidoActionTest.IteratorFixtures.{
+  alias JidoActionTest.Fixtures.{
     Envelope,
     FailsSecond,
     Increment,
@@ -19,8 +23,56 @@ defmodule JidoActionTest.Exec.IteratorExecutionTest do
     StateStruct
   }
 
-  alias JidoActionTest.TestActions.CountedMapAction
+  alias JidoActionTest.Fixtures.Actions.CountedMapAction
   alias Runic.Workflow.Runnable
+
+  test "runs the State schema transform exactly once per candidate" do
+    IteratorFixtures.register_state_schema_recorder(self())
+
+    schema =
+      Zoi.map()
+      |> Zoi.transform({IteratorFixtures, :record_state_transform, []})
+
+    flow =
+      IteratorFixtures.iterator_flow(
+        schema: schema,
+        initial: %{count: 0},
+        completion: IteratorFixtures.gte(Ref.iteration_index(), 1),
+        max_iterations: 1
+      )
+
+    assert {:ok, %{iterations: 1, state: %{count: 201}, output: %{count: 101}}} =
+             Exec.run(flow, %{}, %{})
+
+    assert_receive {:state_schema_transform, %{count: 0}}
+    assert_receive {:state_schema_transform, %{count: 101}}
+    refute_received {:state_schema_transform, _candidate}
+  end
+
+  test "evaluates completion exactly once at the head and after each commit" do
+    flow =
+      IteratorFixtures.iterator_flow(
+        initial: %{count: 0},
+        completion: IteratorFixtures.gte(Ref.state(:count), 3),
+        max_iterations: 3
+      )
+
+    target = {IteratorCompiler, :evaluate_iterator_completion, 3}
+
+    Code.ensure_loaded!(IteratorCompiler)
+    :erlang.trace_pattern(target, true, [:local, :call_count])
+
+    result =
+      try do
+        result = Exec.run(flow, %{}, %{})
+        assert {:call_count, 4} = :erlang.trace_info(target, :call_count)
+        result
+      after
+        :erlang.trace_pattern(target, false, [:local, :call_count])
+      end
+
+    assert {:ok, %{iterations: 3}} = result
+  end
 
   test "completes at the head without starting a body" do
     flow =
@@ -68,7 +120,7 @@ defmodule JidoActionTest.Exec.IteratorExecutionTest do
       )
 
     assert {:error,
-            %ExecutionFailureError{
+            %FlowExecutionFailureError{
               message: "flow iterator exhausted maximum iterations",
               details: %{
                 phase: :iterate_exhaustion,
@@ -110,7 +162,7 @@ defmodule JidoActionTest.Exec.IteratorExecutionTest do
       )
 
     assert {:error,
-            %ExecutionFailureError{
+            %FlowExecutionFailureError{
               message: "iterator state update must resolve to a plain map",
               details: %{phase: :iterate_state_update, value_type: :action_output}
             }} = Exec.run(updated)
@@ -123,7 +175,7 @@ defmodule JidoActionTest.Exec.IteratorExecutionTest do
       )
 
     assert {:error,
-            %ExecutionFailureError{
+            %FlowExecutionFailureError{
               message: "iterator initial state must resolve to a plain map",
               details: %{phase: :iterate_state_initial, value_type: :action_output}
             }} = Exec.run(initial, %{state: Output.raw(%{count: 0})})
@@ -139,7 +191,7 @@ defmodule JidoActionTest.Exec.IteratorExecutionTest do
         )
 
       assert {:error,
-              %ExecutionFailureError{
+              %FlowExecutionFailureError{
                 message: "iterator initial state must resolve to a plain map",
                 details: %{reason: :not_a_plain_map, value_type: ^value_type} = details
               }} = Exec.run(flow)
@@ -159,7 +211,7 @@ defmodule JidoActionTest.Exec.IteratorExecutionTest do
       )
 
     assert {:error,
-            %InvalidInputError{
+            %InvalidExecutionError{
               message: "iterator state schema validation failed",
               details: %{phase: :iterate_state_update, iteration_index: 0, state_revision: 0}
             } = error} = Exec.run(flow)
@@ -178,7 +230,7 @@ defmodule JidoActionTest.Exec.IteratorExecutionTest do
       )
 
     assert {:error,
-            %ExecutionFailureError{
+            %FlowExecutionFailureError{
               message: "iterator state schema must return a plain map",
               details: %{phase: :iterate_state_initial, reason: :not_a_plain_map}
             }} = Exec.run(flow)
@@ -212,7 +264,7 @@ defmodule JidoActionTest.Exec.IteratorExecutionTest do
       )
 
     assert {:error,
-            %ExecutionFailureError{
+            %ActionExecutionFailureError{
               message: "second body failed",
               details: %{
                 phase: :iterate_body_execution,
@@ -238,7 +290,7 @@ defmodule JidoActionTest.Exec.IteratorExecutionTest do
       )
 
     assert {:error,
-            %ExecutionFailureError{
+            %ActionExecutionFailureError{
               message: "retryable body failed",
               details: %{phase: :iterate_body_execution, retry: true}
             } = error} = Exec.run(flow)
@@ -257,7 +309,7 @@ defmodule JidoActionTest.Exec.IteratorExecutionTest do
       )
 
     assert {:error,
-            %ExecutionFailureError{
+            %ActionExecutionFailureError{
               message: "returned body exception",
               details: %{phase: :iterate_body_execution, exception: RuntimeError}
             }} = Exec.run(flow)
@@ -296,7 +348,7 @@ defmodule JidoActionTest.Exec.IteratorExecutionTest do
       )
 
     assert {:error,
-            %ExecutionFailureError{
+            %FlowExecutionFailureError{
               message: "invalid iterator completion condition operands",
               details: %{iterations: 0, reason: :invalid_ordering_operands}
             }} = Exec.run(initial_failure, %{}, %{test_pid: self()})

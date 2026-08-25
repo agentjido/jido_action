@@ -9,9 +9,9 @@ defmodule Jido.Flow.Builder do
 
   import Kernel, except: [in: 2, not: 1]
 
-  alias Jido.Action.Error
   alias Jido.Executable
   alias Jido.Flow
+  alias Jido.Flow.Error
   alias Jido.Flow.Choice
   alias Jido.Flow.Condition
   alias Jido.Flow.Iterate
@@ -258,7 +258,14 @@ defmodule Jido.Flow.Builder do
   defp fail(%__MODULE__{error: nil} = builder, error), do: %{builder | error: error}
   defp fail(builder, _error), do: builder
 
-  defp normalize_error(error) when is_exception(error), do: error
+  defp normalize_error(error) when is_exception(error) do
+    if Error.owned?(error) do
+      error
+    else
+      details = error |> Map.get(:details, %{}) |> Map.put(:cause, error.__struct__)
+      Error.validation_error(Exception.message(error), details)
+    end
+  end
 
   defp normalize_error(reason),
     do: invalid("Builder could not resolve its target", %{reason: reason})

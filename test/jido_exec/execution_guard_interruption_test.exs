@@ -1,13 +1,13 @@
 defmodule JidoActionTest.Exec.ExecutionGuardInterruptionTest do
   use ExUnit.Case, async: false
 
-  alias Jido.Action.Error.InvalidInputError
+  alias Jido.Flow.Error.InvalidExecutionError
   alias Jido.Exec
   alias Jido.Exec.ExecutionGuard
   alias Jido.Flow
   alias Jido.Flow.{Ref, Step}
-  alias JidoActionTest.ExecFixtures
-  alias JidoActionTest.TestActions.RecorderAction
+  alias JidoActionTest.Fixtures.Execution, as: ExecFixtures
+  alias JidoActionTest.Fixtures.Actions.RecorderAction
 
   @node_stop [:jido, :flow, :node, :stop]
 
@@ -30,7 +30,7 @@ defmodule JidoActionTest.Exec.ExecutionGuardInterruptionTest do
     assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :killed}, 1_000
     assert_guard_indeterminate(execution)
 
-    assert {:error, %InvalidInputError{details: %{reason: :indeterminate}}} =
+    assert {:error, %InvalidExecutionError{details: %{reason: :indeterminate}}} =
              Exec.step(execution)
   end
 
@@ -50,7 +50,7 @@ defmodule JidoActionTest.Exec.ExecutionGuardInterruptionTest do
     assert_receive {:DOWN, ^caller_monitor, :process, ^caller, :killed}, 1_000
     assert_guard_indeterminate(execution)
 
-    assert {:error, %InvalidInputError{details: %{reason: :indeterminate}}} =
+    assert {:error, %InvalidExecutionError{details: %{reason: :indeterminate}}} =
              Exec.step(execution)
 
     refute_received {RecorderAction, %{value: :once}}
@@ -69,7 +69,7 @@ defmodule JidoActionTest.Exec.ExecutionGuardInterruptionTest do
     assert_receive {:DOWN, ^owner_monitor, :process, ^owner, :normal}, 1_000
 
     assert {:error,
-            %InvalidInputError{
+            %InvalidExecutionError{
               details: %{reason: :stale_revision, revision: 0, current_revision: 1}
             }} = Exec.step(execution)
   end
@@ -108,19 +108,19 @@ defmodule JidoActionTest.Exec.ExecutionGuardInterruptionTest do
       spawn_monitor(fn -> send(test_pid, {:failed_claim, ExecutionGuard.claim(execution)}) end)
 
     assert_receive {:failed_claim,
-                    {:error, %InvalidInputError{details: %{reason: :operation_in_progress}}}},
+                    {:error, %InvalidExecutionError{details: %{reason: :operation_in_progress}}}},
                    1_000
 
     assert_receive {:DOWN, ^claimant_monitor, :process, ^claimant, :normal}, 1_000
 
-    assert {:error, %InvalidInputError{details: %{reason: :operation_in_progress}}} =
+    assert {:error, %InvalidExecutionError{details: %{reason: :operation_in_progress}}} =
              Exec.step(execution)
 
     Process.exit(owner, :kill)
     assert_receive {:DOWN, ^owner_monitor, :process, ^owner, :killed}, 1_000
     assert_receive {:DOWN, ^helper_monitor, :process, ^helper, :normal}, 1_000
 
-    assert {:error, %InvalidInputError{details: %{reason: :indeterminate}}} =
+    assert {:error, %InvalidExecutionError{details: %{reason: :indeterminate}}} =
              Exec.step(execution)
   end
 
@@ -130,7 +130,7 @@ defmodule JidoActionTest.Exec.ExecutionGuardInterruptionTest do
 
     assert_raise KeyError, fn -> Exec.step(invalid_execution) end
 
-    assert {:error, %InvalidInputError{details: %{reason: :indeterminate}}} =
+    assert {:error, %InvalidExecutionError{details: %{reason: :indeterminate}}} =
              Exec.step(execution)
   end
 
@@ -146,7 +146,7 @@ defmodule JidoActionTest.Exec.ExecutionGuardInterruptionTest do
       ExecutionGuard.release(operation, execution)
     end
 
-    assert {:error, %InvalidInputError{details: %{reason: :indeterminate}}} =
+    assert {:error, %InvalidExecutionError{details: %{reason: :indeterminate}}} =
              Exec.step(execution)
   end
 

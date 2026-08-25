@@ -1,9 +1,10 @@
 defmodule Jido.Exec.FlowRunnableExecutor do
   @moduledoc false
 
-  alias Jido.Action.{Error, Telemetry}
+  alias Jido.Action.Telemetry
   alias Jido.Exec.Execution
   alias Jido.Exec.OrderedTaskRunner
+  alias Jido.Flow.Error
   alias Runic.Workflow
   alias Runic.Workflow.Runnable
 

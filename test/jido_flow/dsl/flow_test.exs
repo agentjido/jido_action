@@ -5,7 +5,7 @@ defmodule Jido.Flow.DSL.FlowTest.MixedFlow do
 
   flow do
     step("load",
-      action: JidoActionTest.TestActions.Add,
+      action: JidoActionTest.Fixtures.Actions.Add,
       params: %{value: input(:value), amount: 1},
       meta: %{owner: "dsl"}
     )
@@ -13,19 +13,19 @@ defmodule Jido.Flow.DSL.FlowTest.MixedFlow do
     choice "route" do
       option "add" do
         condition(input(:kind) == :add)
-        action(JidoActionTest.TestActions.Add)
+        action(JidoActionTest.Fixtures.Actions.Add)
         params(%{value: result("load", :value), amount: 1})
       end
 
       otherwise(
-        action: JidoActionTest.TestActions.Multiply,
+        action: JidoActionTest.Fixtures.Actions.Multiply,
         params: %{value: result("load", :value), amount: 1}
       )
     end
 
     map("mapped",
       collection: input(:items),
-      action: JidoActionTest.TestActions.Add,
+      action: JidoActionTest.Fixtures.Actions.Add,
       params: %{value: item(:value), amount: 1},
       on_error: :collect_errors
     )
@@ -33,13 +33,13 @@ defmodule Jido.Flow.DSL.FlowTest.MixedFlow do
     reduce "reduced" do
       collection(result("mapped"))
       initial(%{value: 1})
-      action(JidoActionTest.TestActions.Multiply)
+      action(JidoActionTest.Fixtures.Actions.Multiply)
       params(%{value: accumulator(:value), amount: item(:value)})
     end
 
     iterate "loop" do
       state([], initial: %{count: 0})
-      action(JidoActionTest.TestActions.Add)
+      action(JidoActionTest.Fixtures.Actions.Add)
       params(%{value: state(:count), amount: 1})
       update(%{count: body_result(:value)})
       repeat(1)
@@ -79,12 +79,48 @@ defmodule Jido.Flow.DSL.FlowTest do
       use Jido.Flow, name: "missing_output"
 
       flow do
-        step "add", action: JidoActionTest.TestActions.Add, params: %{value: 1}
+        step "add", action: JidoActionTest.Fixtures.Actions.Add, params: %{value: 1}
       end
     end
     """
 
     assert_raise CompileError, ~r/Flow output is required/, fn -> Code.compile_string(code) end
+  end
+
+  test "Flow declaration macros reject duplicate and non-keyword options" do
+    duplicate_options = """
+    defmodule DuplicateStepOptionsFlow do
+      use Jido.Flow, name: "duplicate_step_options"
+
+      flow do
+        step("add",
+          action: JidoActionTest.Fixtures.Actions.Add,
+          action: JidoActionTest.Fixtures.Actions.Add
+        )
+
+        output(result("add"))
+      end
+    end
+    """
+
+    assert_raise CompileError, ~r/duplicate Flow declaration field: :action/, fn ->
+      Code.compile_string(duplicate_options)
+    end
+
+    non_keyword_options = """
+    defmodule NonKeywordStepOptionsFlow do
+      use Jido.Flow, name: "non_keyword_step_options"
+
+      flow do
+        step("add", :invalid)
+        output(result("add"))
+      end
+    end
+    """
+
+    assert_raise CompileError, ~r/Flow declaration options must be a keyword list/, fn ->
+      Code.compile_string(non_keyword_options)
+    end
   end
 
   test "a Flow module in a Choice Action slot is a source-aware compile error" do
@@ -96,11 +132,11 @@ defmodule Jido.Flow.DSL.FlowTest do
         choice "route" do
           option "nested" do
             condition(1 == 1)
-            action(JidoActionTest.FlowFixtures.NestedFlow)
+            action(JidoActionTest.Fixtures.NestedFlow)
             params(%{value: 1})
           end
 
-          otherwise action: JidoActionTest.TestActions.Add, params: %{value: 1}
+          otherwise action: JidoActionTest.Fixtures.Actions.Add, params: %{value: 1}
         end
 
         output(result("route"))
@@ -121,7 +157,7 @@ defmodule Jido.Flow.DSL.FlowTest do
 
       flow do
         output(%{})
-        step "add", action: JidoActionTest.TestActions.Add, params: %{value: 1}
+        step "add", action: JidoActionTest.Fixtures.Actions.Add, params: %{value: 1}
       end
     end
     """
@@ -138,7 +174,7 @@ defmodule Jido.Flow.DSL.FlowTest do
 
       flow do
         choice "route" do
-          otherwise action: JidoActionTest.TestActions.Add, params: %{value: 1}
+          otherwise action: JidoActionTest.Fixtures.Actions.Add, params: %{value: 1}
         end
 
         output(result("route"))
@@ -158,7 +194,7 @@ defmodule Jido.Flow.DSL.FlowTest do
         choice "route" do
           option "yes",
             condition: 1 == 1,
-            action: JidoActionTest.TestActions.Add,
+            action: JidoActionTest.Fixtures.Actions.Add,
             params: %{value: 1}
         end
 
@@ -176,7 +212,7 @@ defmodule Jido.Flow.DSL.FlowTest do
     cases = [
       {"""
        iterate "loop" do
-         action(JidoActionTest.TestActions.Add)
+         action(JidoActionTest.Fixtures.Actions.Add)
          params(%{value: 1})
          repeat(1)
        end
@@ -184,7 +220,7 @@ defmodule Jido.Flow.DSL.FlowTest do
       {"""
        iterate "loop" do
          state([], initial: %{})
-         action(JidoActionTest.TestActions.Add)
+         action(JidoActionTest.Fixtures.Actions.Add)
          params(%{value: 1})
          while(1 == 1)
        end
@@ -192,7 +228,7 @@ defmodule Jido.Flow.DSL.FlowTest do
       {"""
        iterate "loop" do
          state([], initial: %{})
-         action(JidoActionTest.TestActions.Add)
+         action(JidoActionTest.Fixtures.Actions.Add)
          params(%{value: 1})
          repeat(1)
          max_iterations(1)
@@ -201,7 +237,7 @@ defmodule Jido.Flow.DSL.FlowTest do
       {"""
        iterate "loop" do
          state([], initial: %{})
-         action(JidoActionTest.TestActions.Add)
+         action(JidoActionTest.Fixtures.Actions.Add)
          params(%{value: 1})
        end
        """, "iterate requires exactly one of while or repeat"}
@@ -262,16 +298,16 @@ defmodule Jido.Flow.DSL.FlowTest do
       use Jido.Flow, name: "valid_while_and_after"
 
       flow do
-        step "first", action: JidoActionTest.TestActions.Add, params: %{value: 1}
+        step "first", action: JidoActionTest.Fixtures.Actions.Add, params: %{value: 1}
 
         step "second",
-          action: JidoActionTest.TestActions.Add,
+          action: JidoActionTest.Fixtures.Actions.Add,
           params: %{value: 1},
           after: "first"
 
         iterate "loop" do
           state([], initial: %{value: 0})
-          action(JidoActionTest.TestActions.Add)
+          action(JidoActionTest.Fixtures.Actions.Add)
           params(%{value: state(:value)})
           update(body_result())
           while(state(:value) < 1)

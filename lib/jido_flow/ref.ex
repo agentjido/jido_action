@@ -2,7 +2,7 @@ defmodule Jido.Flow.Ref do
   @moduledoc "A portable reference in a canonical Flow expression."
 
   alias Jido.Action
-  alias Jido.Action.Error
+  alias Jido.Flow.Error
 
   @type source ::
           :input
@@ -90,7 +90,7 @@ defmodule Jido.Flow.Ref do
   def body_result(path \\ nil), do: ref(:body_result, nil, path)
 
   @doc false
-  @spec validate(t(), scope()) :: :ok | {:error, Error.InvalidInputError.t()}
+  @spec validate(t(), scope()) :: :ok | {:error, Error.InvalidDefinitionError.t()}
   def validate(ref, scope \\ :flow)
 
   def validate(%__MODULE__{source: source, component: component, path: path} = ref, scope) do

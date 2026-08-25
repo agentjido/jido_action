@@ -67,18 +67,20 @@ it, so an empty map is sufficient.
 
 ## Capture An Instruction
 
-An `Instruction` is data for one requested Action call. It stores the Action,
-its base parameters, and its base context.
+An `Instruction` is data for one requested executable call. It stores its
+target, base parameters, base context, and optional caller metadata. This
+example uses an Action target. A Flow module or runtime Flow can also be the
+target.
 
 ```elixir
 instruction =
   Jido.Instruction.new!(
-    action: GettingStarted.Add,
+    target: GettingStarted.Add,
     params: %{left: 10},
     context: %{request_id: "req-1"}
   )
 
-%Jido.Instruction{action: GettingStarted.Add} = instruction
+%Jido.Instruction{target: GettingStarted.Add} = instruction
 
 {:ok, %{result: 15}} =
   Jido.Exec.run(instruction, %{right: 5}, %{tenant_id: "tenant-1"})

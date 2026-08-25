@@ -4,7 +4,7 @@ defmodule JidoActionTest.Flow.CanonicalDataTest do
   alias Jido.Flow
   alias Jido.Flow.Ref
   alias Jido.Flow.Step
-  alias JidoActionTest.TestActions.Add
+  alias JidoActionTest.Fixtures.Actions.Add
 
   test "constructs the canonical Flow data" do
     load =

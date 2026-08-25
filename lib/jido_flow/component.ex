@@ -2,7 +2,7 @@ defmodule Jido.Flow.Component do
   @moduledoc "Canonical component types and common field validation."
 
   alias Jido.Action
-  alias Jido.Action.Error
+  alias Jido.Flow.Error
   alias Jido.Flow.Data
   alias Jido.Flow.Choice
   alias Jido.Flow.Iterate

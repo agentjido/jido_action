@@ -3,58 +3,83 @@ defmodule JidoActionTest.Flow.Compiler.IteratorTest do
 
   @moduletag capture_log: true
 
-  alias Jido.Exec
+  alias Jido.Flow.Condition
   alias Jido.Flow.Compiler.Iterator, as: IteratorCompiler
-  alias Jido.Flow.Ref
-  alias JidoActionTest.IteratorFixtures
+  alias Jido.Flow.Iterate
+  alias JidoActionTest.Fixtures.Actions.Add
 
-  describe "Iterator instrumentation" do
-    test "runs the State schema transform exactly once per candidate" do
-      IteratorFixtures.register_state_schema_recorder(self())
+  describe "Iterator adapter containment" do
+    test "contains failures before the iteration starts" do
+      state = runtime_state(fn _action, _params, _context, _execution_id, _owner -> :unused end)
 
-      schema =
-        Zoi.map()
-        |> Zoi.transform({IteratorFixtures, :record_state_transform, []})
+      assert {:error, %Jido.Flow.Error.InternalError{details: details}, ^state} =
+               IteratorCompiler.run(%{name: "broken"}, state)
 
-      flow =
-        IteratorFixtures.iterator_flow(
-          schema: schema,
-          initial: %{count: 0},
-          completion: IteratorFixtures.gte(Ref.iteration_index(), 1),
-          max_iterations: 1
-        )
+      assert details.phase == :iterate_internal
+      assert details.node == "broken"
+      assert details.error_type == KeyError
 
-      assert {:ok, %{iterations: 1, state: %{count: 201}, output: %{count: 101}}} =
-               Exec.run(flow, %{}, %{})
+      for {observer, error_type} <- [
+            {fn _event -> raise "observer failed" end, RuntimeError},
+            {fn _event -> throw(:observer_failed) end, :throw}
+          ] do
+        state = %{state | observer: observer}
 
-      assert_receive {:state_schema_transform, %{count: 0}}
-      assert_receive {:state_schema_transform, %{count: 101}}
-      refute_received {:state_schema_transform, _candidate}
+        assert {:error, %Jido.Flow.Error.InternalError{details: details}, ^state} =
+                 IteratorCompiler.run(iterator(), state)
+
+        assert details.error_type == error_type
+        assert details.iteration_index == nil
+      end
     end
 
-    test "evaluates completion exactly once at the head and after each commit" do
-      flow =
-        IteratorFixtures.iterator_flow(
-          initial: %{count: 0},
-          completion: IteratorFixtures.gte(Ref.state(:count), 3),
-          max_iterations: 3
-        )
+    test "contains raised and thrown target runner failures inside an iteration" do
+      failures = [
+        {fn _action, _params, _context, _execution_id, _owner ->
+           raise "target runner failed"
+         end, RuntimeError},
+        {fn _action, _params, _context, _execution_id, _owner ->
+           throw(:target_runner_failed)
+         end, :throw}
+      ]
 
-      target = {IteratorCompiler, :evaluate_iterator_completion, 3}
+      for {target_runner, error_type} <- failures do
+        state = runtime_state(target_runner)
 
-      Code.ensure_loaded!(IteratorCompiler)
-      :erlang.trace_pattern(target, true, [:local, :call_count])
+        assert {:error, %Jido.Flow.Error.InternalError{details: details}, ^state} =
+                 IteratorCompiler.run(iterator(), state)
 
-      result =
-        try do
-          result = Exec.run(flow, %{}, %{})
-          assert {:call_count, 4} = :erlang.trace_info(target, :call_count)
-          result
-        after
-          :erlang.trace_pattern(target, false, [:local, :call_count])
-        end
-
-      assert {:ok, %{iterations: 3}} = result
+        assert details.phase == :iterate_internal
+        assert details.error_type == error_type
+        assert details.iteration_index == 0
+        assert details.state_revision == 0
+      end
     end
+  end
+
+  defp iterator do
+    Iterate.new!(
+      name: "contained_iterator",
+      action: Add,
+      params: %{},
+      state: Iterate.State.new!(schema: [], initial: %{}, update: %{}),
+      completion: Condition.eq(false, true),
+      max_iterations: 1
+    )
+  end
+
+  defp runtime_state(target_runner) do
+    %{
+      input: %{},
+      context: %{},
+      results: %{},
+      flow_digest: "iterator-containment-digest",
+      observer: fn
+        {:start, _kind, _metadata} -> :span
+        _event -> :ok
+      end,
+      execution_id: "iterator-containment",
+      target_runner: target_runner
+    }
   end
 end

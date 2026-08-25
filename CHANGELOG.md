@@ -14,18 +14,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * compile canonical Jido Flows into native Runic workflows
 * expose native Runic Runnable values for step-wise Flow execution
 * add native Map, Reduce, and Subflow execution
+* add a Splode-based `Jido.Flow.Error` boundary for Flow definition,
+  compilation, and execution failures
+* let `Jido.Instruction` target Actions, Flow modules, and runtime Flows through
+  `Jido.Executable`
+* route Action, Instruction, Flow, and Subflow workers through a running Jido
+  instance Task Supervisor with the common `jido:` option
 
 ### Breaking Changes:
 
 * replace the Jido node-result scheduler with the native Runic execution surface
 * replace `MapResult` with ordered Map list output at scalar boundaries
 * replace `Jido.Flow.Iterator` with `Jido.Flow.Iterate`
+* replace the `Jido.Instruction.action` field with the executable-neutral
+  `Jido.Instruction.target` field
+* remove `Jido.Exec.FlowFailureError`; multiple runnable failures now use
+  `Jido.Flow.Error.ExecutionFailureError`
+* move the root, Task, and concurrency supervisors under the `Jido.Exec`
+  namespace
 
 ### Bug Fixes:
 
 * preserve target error paths and add Flow node phase and ownership details to
   returned standard exceptions
 * report invalid reference scopes through the canonical expression validator
+* compile the exact Flow returned by `flow/0` during execution instead of
+  trusting an independent `compiled/0` result
 
 ### Documentation:
 

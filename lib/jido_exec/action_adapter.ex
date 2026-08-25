@@ -10,7 +10,7 @@ defmodule Jido.Exec.ActionAdapter do
   @doc false
   @spec validate(Executable.t()) :: :ok | {:error, Exception.t()}
   def validate(%Executable{kind: :action, target: action}) when is_atom(action) do
-    Executable.validate_module_callbacks(action)
+    Executable.validate_action_compatible_callbacks(action)
   end
 
   @doc false
@@ -20,22 +20,23 @@ defmodule Jido.Exec.ActionAdapter do
           | {:error, Exception.t()}
           | {:error, Exception.t(), term()}
   def run(%Executable{target: action} = executable, input, context, opts, _execution_id) do
-    with :ok <- Options.reject(opts, :action),
+    with {:ok, run_opts} <- Options.validate_action(opts, :action),
          {:ok, instruction} <- normalize_instruction(action, input, context),
          :ok <- validate(executable) do
-      ActionRunner.run(instruction)
+      ActionRunner.run(instruction, run_opts)
     end
   end
 
   @doc false
-  @spec run_instruction(Executable.t(), Instruction.t(), String.t()) ::
+  @spec run_instruction(Executable.t(), Instruction.t(), keyword(), String.t()) ::
           {:ok, term()}
           | {:ok, term(), term()}
           | {:error, Exception.t()}
           | {:error, Exception.t(), term()}
-  def run_instruction(executable, %Instruction{} = instruction, _execution_id) do
-    with :ok <- validate(executable) do
-      ActionRunner.run(instruction)
+  def run_instruction(executable, %Instruction{} = instruction, opts, _execution_id) do
+    with {:ok, run_opts} <- Options.validate_action(opts, :instruction),
+         :ok <- validate(executable) do
+      ActionRunner.run(instruction, run_opts)
     end
   end
 
@@ -47,14 +48,15 @@ defmodule Jido.Exec.ActionAdapter do
         params,
         context,
         execution_id,
-        _run_opts
+        run_opts
       ) do
     with :ok <- validate(executable) do
       ActionRunner.run_target(
         action,
         params,
         context,
-        Jido.Exec.ConcurrencyLimiter.whereis(execution_id)
+        Jido.Exec.ConcurrencyLimiter.whereis(execution_id),
+        run_opts
       )
     else
       {:error, error} -> {:error, :input, error}

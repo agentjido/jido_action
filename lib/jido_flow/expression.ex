@@ -1,10 +1,18 @@
 defmodule Jido.Flow.Expression do
-  @moduledoc false
+  @moduledoc """
+  Defines the canonical Flow expression data union.
+
+  An expression is portable literal data, a nested list or map of expressions,
+  or a `Jido.Flow.Ref`. This module is not an expression wrapper struct.
+  """
 
   alias Jido.Action
-  alias Jido.Action.Error
+  alias Jido.Flow.Error
   alias Jido.Flow.Data
   alias Jido.Flow.Ref
+
+  @typedoc "Canonical portable expression data."
+  @type t :: Data.scalar() | [t()] | %{optional(Data.key()) => t()} | Ref.t()
 
   @doc false
   @spec normalize(term()) :: {:ok, term()} | {:error, Exception.t()}

@@ -3,14 +3,15 @@ defmodule JidoActionTest.Exec.FlowContractTest do
 
   @moduletag capture_log: true
 
-  alias Jido.Action.Error.{ExecutionFailureError, InvalidInputError}
+  alias Jido.Action.Error.ExecutionFailureError, as: ActionExecutionFailureError
   alias Jido.Executable
   alias Jido.Exec
   alias Jido.Flow
+  alias Jido.Flow.Error.{InvalidDefinitionError, InvalidExecutionError}
   alias Jido.Flow.{Ref, Step}
-  alias JidoActionTest.ExecFixtures
+  alias JidoActionTest.Fixtures.Execution, as: ExecFixtures
 
-  alias JidoActionTest.ExecFixtures.{
+  alias JidoActionTest.Fixtures.{
     CountedValidationFlow,
     EnvelopeFlow,
     ImproperListOutputAction,
@@ -23,9 +24,9 @@ defmodule JidoActionTest.Exec.FlowContractTest do
     Transforms
   }
 
-  alias JidoActionTest.FlowFixtures
+  alias JidoActionTest.Fixtures.FlowAuthoring, as: FlowFixtures
 
-  alias JidoActionTest.TestActions.{
+  alias JidoActionTest.Fixtures.Actions.{
     Add,
     ContextEcho,
     Divide,
@@ -62,10 +63,10 @@ defmodule JidoActionTest.Exec.FlowContractTest do
           ExecFixtures.flow_execution_paths(ScalarTransformedOutputFlow, %{value: 3}) do
       Transforms.reset()
 
-      assert {:error, %InvalidInputError{message: message, details: details}} = run.(),
+      assert {:error, %InvalidExecutionError{message: message, details: details}} = run.(),
              to_string(path)
 
-      if path == :parent do
+      if path == :subflow do
         assert message == "Action output validation must return a map"
         assert details.context == "Action output"
       else
@@ -83,10 +84,10 @@ defmodule JidoActionTest.Exec.FlowContractTest do
           ExecFixtures.flow_execution_paths(ScalarTransformedInputFlow, %{value: 3}) do
       Transforms.reset()
 
-      assert {:error, %InvalidInputError{message: message, details: details}} = run.(),
+      assert {:error, %InvalidExecutionError{message: message, details: details}} = run.(),
              to_string(path)
 
-      if path == :parent do
+      if path == :subflow do
         assert message == "Action validation must return a map"
         assert details.context == "Action"
       else
@@ -114,9 +115,9 @@ defmodule JidoActionTest.Exec.FlowContractTest do
       assert {:error, error} = run.(), to_string(path)
 
       expected =
-        if path == :parent,
+        if path == :subflow,
           do: "Action output validation must return a map",
-          else: "action returned a value that requires an output envelope"
+          else: "Flow returned a value that requires an output envelope"
 
       assert Exception.message(error) == expected
     end
@@ -187,12 +188,12 @@ defmodule JidoActionTest.Exec.FlowContractTest do
         output: Ref.result("broken")
       )
 
-    assert {:error, %InvalidInputError{message: message, details: details}} =
+    assert {:error, %InvalidDefinitionError{message: message, details: details}} =
              Exec.run(flow, %{value: 3})
 
-    assert message =~ "module is not a valid Jido action"
+    assert message =~ "module is not a valid Jido executable"
     assert details.component == "broken"
-    assert details.action == MissingRun
+    assert details.executable == MissingRun
   end
 
   test "normalizes nil and keyword Flow input and context" do
@@ -212,13 +213,13 @@ defmodule JidoActionTest.Exec.FlowContractTest do
   test "rejects invalid Flow input and context shapes" do
     flow = FlowFixtures.math_flow!()
 
-    assert {:error, %InvalidInputError{message: message}} = Exec.run(flow, :bad, %{})
+    assert {:error, %InvalidExecutionError{message: message}} = Exec.run(flow, :bad, %{})
     assert message =~ "input must be a map or keyword list"
 
-    assert {:error, %InvalidInputError{message: message}} = Exec.run(flow, %{}, :bad)
+    assert {:error, %InvalidExecutionError{message: message}} = Exec.run(flow, %{}, :bad)
     assert message =~ "context must be a map or keyword list"
 
-    assert {:error, %InvalidInputError{message: message}} = Exec.run(flow, [:bad], %{})
+    assert {:error, %InvalidExecutionError{message: message}} = Exec.run(flow, [:bad], %{})
     assert message =~ "expected a map or keyword list"
   end
 
@@ -236,7 +237,7 @@ defmodule JidoActionTest.Exec.FlowContractTest do
         output: Ref.result("divide", :value)
       )
 
-    assert {:error, %ExecutionFailureError{message: message, details: details}} =
+    assert {:error, %ActionExecutionFailureError{message: message, details: details}} =
              Exec.run(flow, %{value: 5.0})
 
     assert message =~ "Cannot divide by zero"
@@ -255,7 +256,7 @@ defmodule JidoActionTest.Exec.FlowContractTest do
         output: Ref.result("echo")
       )
 
-    assert {:error, %InvalidInputError{details: %{phase: :flow_input}}} =
+    assert {:error, %InvalidExecutionError{details: %{phase: :flow_input}}} =
              Exec.run(input_flow, %{value: "bad"})
 
     output_flow = %{
@@ -265,7 +266,7 @@ defmodule JidoActionTest.Exec.FlowContractTest do
         output_schema: Zoi.object(%{trace_id: Zoi.integer()})
     }
 
-    assert {:error, %InvalidInputError{details: %{phase: :flow_output}}} =
+    assert {:error, %InvalidExecutionError{details: %{phase: :flow_output}}} =
              Exec.run(output_flow, %{value: 3}, %{trace_id: "trace"})
   end
 
@@ -279,8 +280,11 @@ defmodule JidoActionTest.Exec.FlowContractTest do
           output: Ref.result("echo")
         )
 
-      assert {:error, %InvalidInputError{message: "schema validation failed"}} = Exec.run(flow)
-      assert {:error, %InvalidInputError{message: "schema validation failed"}} = Exec.start(flow)
+      assert {:error, %InvalidExecutionError{message: "schema validation failed"}} =
+               Exec.run(flow)
+
+      assert {:error, %InvalidExecutionError{message: "schema validation failed"}} =
+               Exec.start(flow)
     end
 
     flow =
@@ -291,7 +295,7 @@ defmodule JidoActionTest.Exec.FlowContractTest do
         output: Ref.result("echo")
       )
 
-    assert {:error, %InvalidInputError{details: %{phase: :flow_output}}} = Exec.run(flow)
+    assert {:error, %InvalidExecutionError{details: %{phase: :flow_output}}} = Exec.run(flow)
   end
 
   test "keeps unknown input fields after object and struct validation" do

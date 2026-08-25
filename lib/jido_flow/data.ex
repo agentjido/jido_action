@@ -6,7 +6,7 @@ defmodule Jido.Flow.Data do
   keys that the trusted Flow Registry can encode.
   """
 
-  alias Jido.Action.Error
+  alias Jido.Flow.Error
 
   @type scalar :: nil | boolean() | number() | String.t() | atom()
   @type key :: String.t() | non_neg_integer() | atom()
@@ -14,11 +14,11 @@ defmodule Jido.Flow.Data do
   @type object :: %{optional(key()) => t()}
 
   @doc "Validates portable Flow data."
-  @spec validate(term()) :: :ok | {:error, Error.InvalidInputError.t()}
+  @spec validate(term()) :: :ok | {:error, Error.InvalidDefinitionError.t()}
   def validate(value), do: validate(value, [])
 
   @doc "Validates a portable Flow metadata object."
-  @spec validate_object(term()) :: :ok | {:error, Error.InvalidInputError.t()}
+  @spec validate_object(term()) :: :ok | {:error, Error.InvalidDefinitionError.t()}
   def validate_object(value) when is_map(value) and not is_struct(value), do: validate(value)
 
   def validate_object(_value) do
@@ -26,7 +26,7 @@ defmodule Jido.Flow.Data do
   end
 
   @doc false
-  @spec validate_key(term()) :: :ok | {:error, Error.InvalidInputError.t()}
+  @spec validate_key(term()) :: :ok | {:error, Error.InvalidDefinitionError.t()}
   def validate_key(key), do: validate_key(key, [])
 
   defp validate(value, _path)

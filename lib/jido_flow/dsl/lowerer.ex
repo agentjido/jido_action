@@ -1,9 +1,9 @@
 defmodule Jido.Flow.DSL.Lowerer do
   @moduledoc false
 
-  alias Jido.Action.Error
   alias Jido.Flow
   alias Jido.Flow.Condition
+  alias Jido.Flow.Error
   alias Jido.Flow.Ref
   alias Jido.Flow.Step, as: FlowStep
   alias Jido.Flow.Subflow
@@ -185,7 +185,8 @@ defmodule Jido.Flow.DSL.Lowerer do
       end
     else
       {:error, error} when is_exception(error) ->
-        {:error, error}
+        details = error |> Map.get(:details, %{}) |> Map.put(:cause, error.__struct__)
+        {:error, Error.validation_error(Exception.message(error), details)}
 
       {:error, reason} ->
         {:error,

@@ -11,6 +11,18 @@ defmodule Jido.Executable do
   `resolve/1` keeps the exact target and returns one internal descriptor.
   A module callback must identify the module that owns the callback.
 
+  A Flow module must return one stable `%Jido.Flow{}` from `flow/0` for the life
+  of the loaded module version. Validation, compilation, and execution can call
+  `flow/0` more than once.
+
+  `Jido.Instruction` stores one of these target values and resolves it through
+  this module. The target kind selects the Action or Flow execution semantics.
+
+  Resolution failures use `Jido.Action.Error.ConfigurationError` because the
+  resolver does not yet know the target kind. The selected adapter owns errors
+  after resolution. This keeps one resolver and avoids a separate executable
+  error model.
+
   The adapter field is an internal execution detail. It keeps Action and Flow
   execution semantics separate. It is not a general plugin interface.
 
@@ -109,17 +121,17 @@ defmodule Jido.Executable do
   end
 
   @doc false
-  @spec validate_module_callbacks(module()) :: :ok | {:error, Exception.t()}
-  def validate_module_callbacks(module) do
+  @spec validate_action_compatible_callbacks(module()) :: :ok | {:error, Exception.t()}
+  def validate_action_compatible_callbacks(module) do
     cond do
       not function_exported?(module, :run, 2) ->
-        invalid_action_contract(module, "missing run/2")
+        invalid_executable_contract(module, "missing run/2")
 
       not function_exported?(module, :validate_params, 1) ->
-        invalid_action_contract(module, "missing validate_params/1")
+        invalid_executable_contract(module, "missing validate_params/1")
 
       not function_exported?(module, :validate_output, 1) ->
-        invalid_action_contract(module, "missing validate_output/1")
+        invalid_executable_contract(module, "missing validate_output/1")
 
       true ->
         :ok
@@ -173,10 +185,10 @@ defmodule Jido.Executable do
      })}
   end
 
-  defp invalid_action_contract(action, reason) do
+  defp invalid_executable_contract(executable, reason) do
     {:error,
-     Error.validation_error("module is not a valid Jido action", %{
-       action: action,
+     Error.validation_error("module is not a valid Jido executable", %{
+       executable: executable,
        reason: reason
      })}
   end

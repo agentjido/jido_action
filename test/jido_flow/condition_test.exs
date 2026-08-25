@@ -1,7 +1,7 @@
 defmodule JidoActionTest.Flow.ConditionTest do
   use ExUnit.Case, async: true
 
-  alias Jido.Action.Error.InvalidInputError
+  alias Jido.Flow.Error.InvalidDefinitionError
   alias Jido.Flow.Condition
   alias Jido.Flow.Ref
 
@@ -39,7 +39,7 @@ defmodule JidoActionTest.Flow.ConditionTest do
       ]
 
       for {operator, operands, expected_message} <- cases do
-        assert {:error, %InvalidInputError{message: ^expected_message, details: details}} =
+        assert {:error, %InvalidDefinitionError{message: ^expected_message, details: details}} =
                  Condition.new(operator, operands)
 
         assert details.path == []
@@ -48,33 +48,33 @@ defmodule JidoActionTest.Flow.ConditionTest do
 
     test "returns a validation error for improper operands" do
       assert {:error,
-              %InvalidInputError{
+              %InvalidDefinitionError{
                 message: "choice condition operands must be a proper list",
                 details: %{path: []}
               }} = Condition.new(:eq, [1 | :tail])
     end
 
     test "rejects invalid nested conditions, malformed refs, structs, and predicate functions" do
-      assert {:error, %InvalidInputError{message: message, details: details}} =
+      assert {:error, %InvalidDefinitionError{message: message, details: details}} =
                Condition.new(:all, [Condition.eq(1, 1), :not_a_condition])
 
       assert message == "flow condition :all contains an invalid child condition"
       assert details.path == [1]
 
-      assert {:error, %InvalidInputError{message: message, details: details}} =
+      assert {:error, %InvalidDefinitionError{message: message, details: details}} =
                Condition.new(:eq, [Ref.input([%{bad: :segment}]), 1])
 
       assert message == "flow condition contains invalid ref path"
       assert details.path == [0]
 
-      assert {:error, %InvalidInputError{message: message, details: details}} =
+      assert {:error, %InvalidDefinitionError{message: message, details: details}} =
                Condition.new(:eq, [Date.utc_today(), 1])
 
       assert message == "flow condition contains unsupported expression"
       assert details.path == [0]
       assert details.expression == Date
 
-      assert {:error, %InvalidInputError{message: message, details: details}} =
+      assert {:error, %InvalidDefinitionError{message: message, details: details}} =
                Condition.new(:eq, [fn -> :predicate end, 1])
 
       assert message == "flow condition contains unsupported expression"
@@ -87,16 +87,16 @@ defmodule JidoActionTest.Flow.ConditionTest do
       assert %Condition{operator: :gt} = Condition.gt(2, 1)
       assert %Condition{operator: :gte} = Condition.gte(2, 2)
 
-      assert_raise InvalidInputError, fn -> Condition.new!(:eq, [1]) end
+      assert_raise InvalidDefinitionError, fn -> Condition.new!(:eq, [1]) end
 
       assert {:error,
-              %InvalidInputError{
+              %InvalidDefinitionError{
                 message: "choice condition operands must be a list",
                 details: %{path: []}
               }} = Condition.new(:eq, :bad)
 
       assert {:error,
-              %InvalidInputError{message: "choice condition must be a Jido.Flow.Condition"}} =
+              %InvalidDefinitionError{message: "choice condition must be a Jido.Flow.Condition"}} =
                Condition.new(:bad)
     end
   end

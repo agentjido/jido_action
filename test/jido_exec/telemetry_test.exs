@@ -7,8 +7,8 @@ defmodule JidoActionTest.Exec.TelemetryTest do
   alias Jido.Flow
   alias Jido.Flow.{Condition, Iterate, Reduce, Ref, Step}
   alias Jido.Flow.Map, as: FlowMap
-  alias JidoActionTest.ExecFixtures.TelemetryParentFlow
-  alias JidoActionTest.TestActions.{Add, ErrorAction}
+  alias JidoActionTest.Fixtures.TelemetryParentFlow
+  alias JidoActionTest.Fixtures.Actions.{Add, ErrorAction}
 
   @flow_start [:jido, :flow, :start]
   @flow_stop [:jido, :flow, :stop]

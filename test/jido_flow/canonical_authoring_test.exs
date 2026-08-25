@@ -5,7 +5,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest.SparkFlow do
 
   flow do
     step("add",
-      action: JidoActionTest.TestActions.Add,
+      action: JidoActionTest.Fixtures.Actions.Add,
       params: %{value: input(:value), amount: value(1)},
       after: [],
       meta: %{owner: "spark"}
@@ -22,7 +22,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest.SparkSubflow do
 
   flow do
     step("child",
-      action: JidoActionTest.FlowFixtures.NestedFlow,
+      action: JidoActionTest.Fixtures.NestedFlow,
       params: %{value: input(:value)},
       meta: %{owner: "spark"}
     )
@@ -40,13 +40,13 @@ defmodule Jido.Flow.CanonicalAuthoringTest.SparkMixedFlow do
 
   flow do
     step("load",
-      action: JidoActionTest.TestActions.Add,
+      action: JidoActionTest.Fixtures.Actions.Add,
       params: %{value: input(:value), amount: 1},
       meta: %{owner: "parity"}
     )
 
     step("child",
-      action: JidoActionTest.FlowFixtures.NestedFlow,
+      action: JidoActionTest.Fixtures.NestedFlow,
       params: %{value: result("load", :value)},
       after: ["load"]
     )
@@ -54,19 +54,19 @@ defmodule Jido.Flow.CanonicalAuthoringTest.SparkMixedFlow do
     choice "route" do
       option("add",
         condition: input(:kind) == :add,
-        action: JidoActionTest.TestActions.Add,
+        action: JidoActionTest.Fixtures.Actions.Add,
         params: %{value: result("child", :value), amount: 1}
       )
 
       otherwise(
-        action: JidoActionTest.TestActions.Multiply,
+        action: JidoActionTest.Fixtures.Actions.Multiply,
         params: %{value: result("child", :value), amount: 2}
       )
     end
 
     map("mapped",
       collection: input(:items),
-      action: JidoActionTest.TestActions.Add,
+      action: JidoActionTest.Fixtures.Actions.Add,
       params: %{value: item(:value), amount: 1},
       on_error: :collect_errors
     )
@@ -74,13 +74,13 @@ defmodule Jido.Flow.CanonicalAuthoringTest.SparkMixedFlow do
     reduce("reduced",
       collection: result("mapped"),
       initial: %{value: 1},
-      action: JidoActionTest.TestActions.Multiply,
+      action: JidoActionTest.Fixtures.Actions.Multiply,
       params: %{value: accumulator(:value), amount: item(:value)}
     )
 
     iterate "loop" do
       state([], initial: %{count: 0})
-      action(JidoActionTest.TestActions.Add)
+      action(JidoActionTest.Fixtures.Actions.Add)
       params(%{value: state(:count), amount: 1})
       update(%{count: body_result(:value)})
       repeat(2)
@@ -97,16 +97,16 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
   alias Jido.Flow.Builder
   alias Jido.Flow.Choice
   alias Jido.Flow.Codec
-  alias Jido.Flow.Condition
   alias Jido.Flow.Iterate
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.Reduce
   alias Jido.Flow.Ref
-  alias Jido.Flow.Registry
   alias Jido.Flow.Step
   alias Jido.Flow.Subflow
-  alias JidoActionTest.FlowFixtures.NestedFlow
-  alias JidoActionTest.TestActions.{Add, Multiply}
+  alias JidoActionTest.Fixtures.CodecRegistry
+  alias JidoActionTest.Fixtures.FlowAuthoring
+  alias JidoActionTest.Fixtures.NestedFlow
+  alias JidoActionTest.Fixtures.Actions.Add
 
   test "direct, Builder, and Spark Step authoring produce the same canonical data" do
     direct =
@@ -173,13 +173,13 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
   end
 
   test "direct, Builder, Spark, and JSON authoring produce one mixed canonical Flow" do
-    direct = direct_mixed_flow()
+    direct = FlowAuthoring.mixed_flow!()
 
-    assert {:ok, built} = built_mixed_flow()
+    assert {:ok, built} = FlowAuthoring.mixed_builder() |> Builder.build()
     assert Jido.Flow.CanonicalAuthoringTest.SparkMixedFlow.flow() == direct
     assert built == direct
 
-    registry = mixed_registry()
+    registry = CodecRegistry.mixed()
     assert {:ok, document} = Codec.encode(direct, registry)
     json = Jason.encode!(document)
     assert {:ok, decoded} = json |> Jason.decode!() |> Codec.decode(registry)
@@ -213,7 +213,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
   end
 
   test "canonical public operations accept one Flow and reject other subjects" do
-    flow = JidoActionTest.FlowFixtures.math_flow!()
+    flow = FlowAuthoring.math_flow!()
 
     assert Flow.new(flow) == {:ok, flow}
     assert %Jido.Flow.Compiled{} = Flow.compile!(flow, %{})
@@ -242,155 +242,15 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
       Flow.new!(
         name: "compile_bang_error",
         components: [
-          Step.new!(name: "missing", action: JidoActionTest.TestActions.MissingRun)
+          Step.new!(name: "missing", action: JidoActionTest.Fixtures.Actions.MissingRun)
         ],
         output: Ref.result("missing")
       )
 
-    assert_raise Jido.Action.Error.InvalidInputError, fn -> Flow.compile!(invalid) end
-    assert_raise Jido.Action.Error.InvalidInputError, fn -> Flow.new!(name: "missing_output") end
-  end
+    assert_raise Jido.Flow.Error.InvalidDefinitionError, fn -> Flow.compile!(invalid) end
 
-  defp direct_mixed_flow do
-    Flow.new!(
-      name: "canonical_mixed_flow",
-      description: "All canonical authoring forms",
-      components: [
-        Step.new!(
-          name: "load",
-          action: Add,
-          params: %{value: Ref.input(:value), amount: 1},
-          meta: %{owner: "parity"}
-        ),
-        Subflow.new!(
-          name: "child",
-          flow: NestedFlow,
-          params: %{value: Ref.result("load", :value)},
-          after: ["load"]
-        ),
-        Choice.new!(
-          name: "route",
-          options: [
-            Choice.Option.new!(
-              name: "add",
-              condition: Condition.eq(Ref.input(:kind), :add),
-              action: Add,
-              params: %{value: Ref.result("child", :value), amount: 1}
-            )
-          ],
-          fallback:
-            Choice.Fallback.new!(
-              action: Multiply,
-              params: %{value: Ref.result("child", :value), amount: 2}
-            )
-        ),
-        FlowMap.new!(
-          name: "mapped",
-          collection: Ref.input(:items),
-          action: Add,
-          params: %{value: Ref.item(:value), amount: 1},
-          on_error: :collect_errors
-        ),
-        Reduce.new!(
-          name: "reduced",
-          collection: Ref.result("mapped"),
-          initial: %{value: 1},
-          action: Multiply,
-          params: %{value: Ref.accumulator(:value), amount: Ref.item(:value)}
-        ),
-        Iterate.new!(
-          name: "loop",
-          action: Add,
-          params: %{value: Ref.state(:count), amount: 1},
-          state:
-            Iterate.State.new!(
-              schema: [],
-              initial: %{count: 0},
-              update: %{count: Ref.body_result(:value)}
-            ),
-          completion: Condition.gte(Ref.iteration_index(), 2),
-          max_iterations: 2
-        )
-      ],
-      output: Ref.result("loop")
-    )
-  end
-
-  defp built_mixed_flow do
-    Builder.new(
-      name: "canonical_mixed_flow",
-      description: "All canonical authoring forms"
-    )
-    |> Builder.step(
-      "load",
-      Add,
-      %{value: Builder.input(:value), amount: 1},
-      meta: %{owner: "parity"}
-    )
-    |> Builder.step(
-      "child",
-      NestedFlow,
-      %{value: Builder.result("load", :value)},
-      after: ["load"]
-    )
-    |> Builder.choice(
-      "route",
-      [
-        Builder.option(
-          "add",
-          Builder.eq(Builder.input(:kind), :add),
-          Add,
-          %{value: Builder.result("child", :value), amount: 1}
-        )
-      ],
-      Builder.fallback(
-        Multiply,
-        %{value: Builder.result("child", :value), amount: 2}
-      )
-    )
-    |> Builder.map(
-      "mapped",
-      Builder.input(:items),
-      Add,
-      %{value: Builder.item(:value), amount: 1},
-      on_error: :collect_errors
-    )
-    |> Builder.reduce(
-      "reduced",
-      Builder.result("mapped"),
-      %{value: 1},
-      Multiply,
-      %{value: Builder.accumulator(:value), amount: Builder.item(:value)}
-    )
-    |> Builder.iterate(
-      "loop",
-      Add,
-      %{value: Builder.state(:count), amount: 1},
-      %{
-        schema: [],
-        initial: %{count: 0},
-        update: %{count: Builder.body_result(:value)}
-      },
-      completion: Builder.gte(Builder.iteration_index(), 2),
-      max_iterations: 2
-    )
-    |> Builder.output(Builder.result("loop"))
-    |> Builder.build()
-  end
-
-  defp mixed_registry do
-    Registry.new!(%{
-      "actions/add" => {:action, Add},
-      "actions/multiply" => {:action, Multiply},
-      "flows/nested" => {:flow, NestedFlow},
-      "schemas/empty" => {:schema, []},
-      "atoms/add" => {:atom, :add},
-      "atoms/amount" => {:atom, :amount},
-      "atoms/count" => {:atom, :count},
-      "atoms/items" => {:atom, :items},
-      "atoms/kind" => {:atom, :kind},
-      "atoms/owner" => {:atom, :owner},
-      "atoms/value" => {:atom, :value}
-    })
+    assert_raise Jido.Flow.Error.InvalidDefinitionError, fn ->
+      Flow.new!(name: "missing_output")
+    end
   end
 end

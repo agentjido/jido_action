@@ -3,10 +3,10 @@ defmodule JidoActionTest.ActionTest do
 
   alias Jido.Action
   alias Jido.Action.Output
-  alias JidoActionTest.TestActions.FullAction
-  alias JidoActionTest.TestActions.NoOutputSchemaAction
-  alias JidoActionTest.TestActions.NoSchema
-  alias JidoActionTest.TestActions.OutputSchemaAction
+  alias JidoActionTest.Fixtures.Actions.FullAction
+  alias JidoActionTest.Fixtures.Actions.NoOutputSchemaAction
+  alias JidoActionTest.Fixtures.Actions.NoSchema
+  alias JidoActionTest.Fixtures.Actions.OutputSchemaAction
 
   describe "action creation and metadata" do
     test "creates a valid action with retained metadata" do

@@ -13,22 +13,23 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     end
   end
 
-  alias Jido.Action.Error.{ExecutionFailureError, InvalidInputError}
+  alias Jido.Action.Error.InvalidInputError
   alias Jido.Exec
-  alias Jido.Exec.FlowFailureError
   alias Jido.Flow
+  alias Jido.Flow.Error.ExecutionFailureError, as: FlowExecutionFailureError
+  alias Jido.Flow.Error.InvalidExecutionError
   alias Jido.Flow.{Ref, Step}
   alias Jido.Instruction
 
-  alias JidoActionTest.ExecFixtures.{
+  alias JidoActionTest.Fixtures.{
     AsyncMathFlow,
     ConcurrencyProbeAction,
     ControlledErrorAction
   }
 
-  alias JidoActionTest.ExecFixtures
-  alias JidoActionTest.FlowFixtures
-  alias JidoActionTest.TestActions.{Add, EchoParamsAction, KillingAction, RecorderAction}
+  alias JidoActionTest.Fixtures.Execution, as: ExecFixtures
+  alias JidoActionTest.Fixtures.FlowAuthoring, as: FlowFixtures
+  alias JidoActionTest.Fixtures.Actions.{Add, EchoParamsAction, RecorderAction}
   alias Runic.Workflow.Runnable
 
   test "preserves caller Logger metadata in an asynchronous runnable" do
@@ -77,27 +78,46 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     flow = FlowFixtures.math_flow!()
     assert Exec.run(flow, %{value: 3}) == Exec.run(flow, %{value: 3}, %{}, [])
 
-    assert {:error, %InvalidInputError{details: %{option: :timeout}}} =
+    assert {:error, %InvalidExecutionError{details: %{option: :timeout}}} =
              Exec.run(flow, %{value: 3}, %{}, timeout: 100)
 
-    assert {:error, %InvalidInputError{details: %{option: :async}}} =
+    assert {:error, %InvalidExecutionError{details: %{option: :async}}} =
              Exec.run(flow, %{value: 3}, %{}, async: :yes)
 
-    assert {:error, %InvalidInputError{details: %{option: :max_concurrency}}} =
+    assert {:error, %InvalidExecutionError{details: %{option: :max_concurrency}}} =
              Exec.run(flow, %{value: 3}, %{}, max_concurrency: 0)
 
-    assert {:error, %InvalidInputError{message: "run options must be a keyword list"}} =
+    assert {:error, %InvalidExecutionError{message: "run options must be a keyword list"}} =
              Exec.run(flow, %{}, %{}, :not_options)
   end
 
-  test "rejects Flow run options for Actions and Instructions" do
+  test "rejects Flow run options for Actions and Action Instructions" do
     assert {:error, %InvalidInputError{details: %{executable_type: :action}}} =
              Exec.run(Add, %{value: 1}, %{}, async: true)
 
-    instruction = Instruction.new!(action: Add, params: %{value: 1})
+    instruction = Instruction.new!(target: Add, params: %{value: 1})
 
     assert {:error, %InvalidInputError{details: %{executable_type: :instruction}}} =
              Exec.run(instruction, %{}, %{}, async: true)
+  end
+
+  test "validates the Jido instance routing option for Actions and Flows" do
+    flow = FlowFixtures.math_flow!()
+
+    assert {:error, %InvalidInputError{details: %{option: :jido, value: "bad"}}} =
+             Exec.run(Add, %{value: 1}, %{}, jido: "bad")
+
+    assert {:error, %InvalidExecutionError{details: %{option: :jido, value: "bad"}}} =
+             Exec.run(flow, %{value: 1}, %{}, jido: "bad")
+
+    missing_instance = Module.concat(__MODULE__, MissingJidoInstance)
+    missing_supervisor = Module.concat(missing_instance, TaskSupervisor)
+
+    assert {:error,
+            %InvalidExecutionError{
+              message: "Task Supervisor is not running",
+              details: %{jido: ^missing_instance, task_supervisor: ^missing_supervisor}
+            }} = Exec.start(flow, %{value: 1}, %{}, jido: missing_instance)
   end
 
   test "scopes the concurrency limiter to one execution operation" do
@@ -155,7 +175,7 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     assert Enum.all?(runnables, &(&1.status == :failed))
     assert Exec.status(execution) == :failed
 
-    assert {:error, %FlowFailureError{failures: failures}} = Exec.result(execution)
+    assert {:error, %FlowExecutionFailureError{failures: failures}} = Exec.result(execution)
     assert Enum.map(failures, & &1.node) |> Enum.sort() == ["first", "second"]
     assert Enum.all?(failures, &is_integer(&1.runnable_id))
   end
@@ -205,21 +225,6 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     assert Exec.status(execution) == :failed
   end
 
-  test "contains a killed Action inside a native runnable" do
-    flow =
-      Flow.new!(
-        name: "native_action_exit",
-        components: [Step.new!(name: "kill", action: KillingAction)],
-        output: Ref.result("kill")
-      )
-
-    assert {:error,
-            %ExecutionFailureError{
-              message: "action execution process exited",
-              details: %{node: "kill", action: KillingAction, reason: :killed}
-            }} = Exec.run(flow)
-  end
-
   test "validates step selection and terminal operations" do
     flow =
       Flow.new!(
@@ -230,23 +235,25 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
 
     assert {:ok, execution} = Exec.start(flow)
 
-    assert {:error, %InvalidInputError{message: "flow execution is not complete"}} =
+    assert {:error, %InvalidExecutionError{message: "flow execution is not complete"}} =
              Exec.result(execution)
 
-    assert {:error, %InvalidInputError{message: "flow runnable is not ready"}} =
+    assert {:error, %InvalidExecutionError{message: "flow runnable is not ready"}} =
              Exec.step(execution, -1)
 
     assert {:error,
-            %InvalidInputError{message: "flow runnable must be a ready Runnable or runnable ID"}} =
+            %InvalidExecutionError{
+              message: "flow runnable must be a ready Runnable or runnable ID"
+            }} =
              Exec.step(execution, :bad)
 
     assert {:ok, %Runnable{}, execution} = Exec.step(execution)
     assert Exec.status(execution) == :succeeded
 
-    assert {:error, %InvalidInputError{message: "flow execution is not running"}} =
+    assert {:error, %InvalidExecutionError{message: "flow execution is not running"}} =
              Exec.step(execution)
 
-    assert {:error, %InvalidInputError{message: "flow execution is not running"}} =
+    assert {:error, %InvalidExecutionError{message: "flow execution is not running"}} =
              Exec.wave(execution)
 
     assert {:ok, ^execution} = Exec.continue(execution)

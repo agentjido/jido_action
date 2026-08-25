@@ -1,19 +1,17 @@
 defmodule Jido.Exec.FlowEngine do
   @moduledoc false
 
-  alias Jido.Action.Error
   alias Jido.Action.Telemetry
 
   alias Jido.Exec.{
     ConcurrencyLimiter,
     Execution,
     ExecutionGuard,
-    FlowFailureError,
     FlowRunnableExecutor
   }
 
   alias Jido.Flow
-  alias Jido.Flow.{Compiled, Compiler}
+  alias Jido.Flow.{Compiled, Compiler, Error}
   alias Runic.Workflow
   alias Runic.Workflow.Runnable
 
@@ -90,7 +88,7 @@ defmodule Jido.Exec.FlowEngine do
   @spec result(Execution.t()) :: {:ok, term()} | {:error, Exception.t()}
   def result(%Execution{status: :running} = execution) do
     {:error,
-     Error.validation_error("flow execution is not complete", %{
+     Error.invalid_execution_error("flow execution is not complete", %{
        flow: execution.flow_name,
        status: :running,
        ready: Enum.map(ready(execution), & &1.id)
@@ -123,7 +121,7 @@ defmodule Jido.Exec.FlowEngine do
 
   def step(%Execution{status: :running}, runnable) do
     {:error,
-     Error.validation_error("flow runnable must be a ready Runnable or runnable ID", %{
+     Error.invalid_execution_error("flow runnable must be a ready Runnable or runnable ID", %{
        runnable: runnable
      })}
   end
@@ -226,7 +224,7 @@ defmodule Jido.Exec.FlowEngine do
 
       nil ->
         {:error,
-         Error.validation_error("flow runnable is not ready", %{
+         Error.invalid_execution_error("flow runnable is not ready", %{
            flow: execution.flow_name,
            runnable_id: id,
            ready: Enum.map(execution.ready, & &1.id)
@@ -256,7 +254,7 @@ defmodule Jido.Exec.FlowEngine do
     error =
       case failures do
         [%{error: error}] -> error
-        failures -> FlowFailureError.exception(flow: execution.flow_name, failures: failures)
+        failures -> Error.flow_failure(execution.flow_name, failures)
       end
 
     complete(execution, {:error, error})
@@ -331,7 +329,7 @@ defmodule Jido.Exec.FlowEngine do
 
   defp execution_not_running(execution) do
     {:error,
-     Error.validation_error("flow execution is not running", %{
+     Error.invalid_execution_error("flow execution is not running", %{
        flow: execution.flow_name,
        status: execution.status
      })}
