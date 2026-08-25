@@ -150,7 +150,8 @@ git commit -m "fix(runner): resolve timeout handling"
 git commit -m "feat(api)!: change action schema"
 ```
 
-The hook will reject non-conforming commits, ensuring a clean changelog can be generated automatically.
+The hook rejects non-conforming commits and keeps the repository history easy
+to read. Maintainers update `CHANGELOG.md` by hand for each release.
 
 ## Pull Request Guidelines
 

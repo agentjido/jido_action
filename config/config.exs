@@ -1,6 +1,6 @@
 import Config
 
-# Git hooks and git_ops configuration for conventional commits
+# Git hook and git_ops configuration for conventional commit validation
 # Only configure when the dependencies are actually available (dev environment)
 if config_env() == :dev do
   config :git_hooks,
@@ -18,12 +18,6 @@ if config_env() == :dev do
     ]
 
   config :git_ops,
-    mix_project: JidoAction.MixProject,
-    changelog_file: "CHANGELOG.md",
-    repository_url: "https://github.com/agentjido/jido_action",
-    manage_mix_version?: true,
-    manage_readme_version: "README.md",
-    version_tag_prefix: "v",
     types: [
       feat: [header: "Features"],
       fix: [header: "Bug Fixes"],

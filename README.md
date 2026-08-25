@@ -1,5 +1,18 @@
 # Jido Action
 
+[![Hex.pm](https://img.shields.io/badge/hex-3.0.0--beta.1-714a96.svg)](https://hex.pm/packages/jido_action)
+[![Hex Docs](https://img.shields.io/badge/hex-docs-lightgreen.svg)](https://hexdocs.pm/jido_action/3.0.0-beta.1/)
+[![CI](https://github.com/agentjido/jido_action/actions/workflows/ci.yml/badge.svg)](https://github.com/agentjido/jido_action/actions/workflows/ci.yml)
+[![License](https://img.shields.io/hexpm/l/jido_action.svg)](https://github.com/agentjido/jido_action/blob/main/LICENSE)
+[![Website](https://img.shields.io/badge/website-jido.run-0f172a.svg)](https://jido.run)
+[![Ecosystem](https://img.shields.io/badge/ecosystem-jido.run-0ea5e9.svg)](https://jido.run/ecosystem)
+[![Discord](https://img.shields.io/badge/discord-join-5865F2.svg?logo=discord&logoColor=white)](https://jido.run/discord)
+
+> Validated Actions and data-first Flow composition for Elixir.
+
+`jido_action` is part of the [Jido](https://github.com/agentjido/jido)
+ecosystem. See [jido.run](https://jido.run) for the project and its packages.
+
 `jido_action` defines validated actions, executable call frames, data-first Flows,
 and one public execution boundary.
 
@@ -304,4 +317,25 @@ Livebook. ExDoc adds a **Run in Livebook** link to each `.livemd` guide.
 
 ### Upgrade
 
-- [Migrate To v3](guides/v3-migration.md)
+- [Upgrade From v2 To v3](guides/v3-migration.md)
+- [Upgrade From v2 To v3 Skill](guides/v2-to-v3-upgrade-skill.md)
+
+## Jido Ecosystem
+
+- [Jido](https://github.com/agentjido/jido) is the core agent framework.
+- [Jido website](https://jido.run) contains project documentation and news.
+- [Jido ecosystem](https://jido.run/ecosystem) lists the related packages.
+- [Jido Workbench](https://github.com/agentjido/jido_workbench) provides
+  development and inspection tools.
+- [Jido Discord](https://jido.run/discord) is the community support channel.
+
+## Contributing
+
+See the [contribution guide](https://github.com/agentjido/jido_action/blob/main/CONTRIBUTING.md)
+for development and pull-request guidance.
+
+## License
+
+Copyright 2024-2026 Mike Hostetler
+
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE).

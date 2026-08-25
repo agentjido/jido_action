@@ -5,7 +5,8 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-<!-- changelog -->
+This changelog is maintained by hand. Release entries describe the public
+package changes and do not derive their contents from the commit history.
 
 ## Unreleased
 
@@ -75,6 +76,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * add a verified v3 migration guide and a complete task-based guide set
 * document exact telemetry events, runtime Map validation, debugging, and
   step-wise execution semantics
+* restore package status badges and direct links to the Jido ecosystem
+* make release notes and changelog entries explicit maintainer-owned data
 
 ## [v2.3.2](https://github.com/agentjido/jido_action/compare/v2.3.1...v2.3.2) (2026-08-07)
 
