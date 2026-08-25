@@ -11,6 +11,7 @@ defmodule Jido.Exec.FlowAdapter do
   alias Jido.Exec.Options
   alias Jido.Exec.TargetRunner
   alias Jido.Flow
+  alias Jido.Flow.Compiled
   alias Jido.Instruction
 
   @doc false
@@ -65,8 +66,8 @@ defmodule Jido.Exec.FlowAdapter do
           {:ok, Execution.t()} | {:error, Exception.t()}
   def start(executable, input, context, opts, execution_id) do
     with :ok <- validate(executable),
-         {:ok, flow} <- materialize(executable) do
-      start_flow(flow, input, context, opts, execution_id)
+         {:ok, flow, compiled} <- materialize(executable) do
+      start_flow(flow, compiled, input, context, opts, execution_id)
     end
   end
 
@@ -74,10 +75,24 @@ defmodule Jido.Exec.FlowAdapter do
   @spec lifecycle_metadata(Executable.t(), String.t()) :: :none
   def lifecycle_metadata(_executable, _execution_id), do: :none
 
-  defp materialize(%Executable{target: %Flow{} = flow}), do: {:ok, flow}
-  defp materialize(%Executable{target: module}), do: {:ok, module.flow()}
+  defp materialize(%Executable{target: %Flow{} = flow}) do
+    with {:ok, compiled} <- Flow.compile(flow), do: {:ok, flow, compiled}
+  end
 
-  defp start_flow(flow, input, context, opts, execution_id) do
+  defp materialize(%Executable{target: module}) do
+    flow = module.flow()
+
+    case if(function_exported?(module, :compiled, 0),
+           do: module.compiled(),
+           else: Flow.compile(flow)
+         ) do
+      %Compiled{} = compiled -> {:ok, flow, compiled}
+      {:ok, %Compiled{} = compiled} -> {:ok, flow, compiled}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp start_flow(flow, compiled, input, context, opts, execution_id) do
     flow_span =
       Telemetry.start([:jido, :flow], %{execution_id: execution_id, flow: flow.name})
 
@@ -102,6 +117,7 @@ defmodule Jido.Exec.FlowAdapter do
 
         FlowEngine.start(
           flow,
+          compiled,
           input,
           context,
           run_opts,

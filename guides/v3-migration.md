@@ -1,7 +1,7 @@
 # Migrate To v3
 
-The `v3-spike` branch contains the phase-one Jido.Flow data change. Native
-Runic execution and the full `Jido.Exec` migration are phase-two work.
+The `v3-spike` branch contains the canonical Jido.Flow data model and native
+Runic execution.
 
 ## Canonical Flow changes
 
@@ -52,16 +52,32 @@ has an explicit `kind`. Stored maps use canonical `components`, `output`,
 This is the initial stored format. No migration reader is required. Do not add
 old record inference to the Codec.
 
-## Verify phase one
+## Execution changes
+
+`Jido.Flow.compile/2` returns `%Jido.Flow.Compiled{}` with the native Runic
+workflow, component index, source map, output expression, and compilation
+digest. A Spark Flow module also provides `compiled/0`.
+
+The step-wise API exposes native `%Runic.Workflow.Runnable{}` values. It can
+show authored work and Runic support work. `Jido.Exec.ready/1` returns these
+values. `step/2` accepts a ready Runnable or its integer ID. `step/1` and
+`wave/1` return executed Runnable values.
+
+Remove code that expects `Jido.Exec.NodeResult`. Remove code that expects
+`Jido.Flow.Compiler.MapResult`. A Map produces native many-valued work and an
+ordered list when one scalar expression value is required.
+
+## Verify v3
 
 For each Flow:
 
 1. Compile the module with warnings as errors.
 2. Call `Jido.Flow.validate_executable/1`.
-3. Compare direct, Builder, Spark, and Codec values where those routes apply.
-4. Round-trip stored records through real JSON bytes.
-5. Check that source data is outside the canonical Flow.
-6. Record old `Jido.Exec` fixtures for the phase-two migration.
+3. Call `Jido.Flow.compile/2` and inspect the native Runic workflow.
+4. Compare direct, Builder, Spark, and Codec values where those routes apply.
+5. Round-trip stored records through real JSON bytes.
+6. Check that source data is outside the canonical Flow.
+7. Check run-to-completion and step-wise execution for the same final value.
 
 See [Flows](flows.md), [Runtime Builder](flow-builder.md), and [Stored Flow
 JSON](flow-storage.md) for the current data contract.

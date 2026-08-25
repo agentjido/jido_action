@@ -49,7 +49,7 @@ defmodule Jido.Flow.Expression do
           | :other
   def error_kind(%{details: %{ref_type: _type, scope: _scope}}), do: :invalid_scope
   def error_kind(%{details: %{segment: _segment}}), do: :invalid_ref_path
-  def error_kind(%{details: %{source: _source}}), do: :invalid_ref
+  def error_kind(%{details: %{ref_type: _type}}), do: :invalid_ref
   def error_kind(%{details: %{reason: :improper_list}}), do: :improper_list
   def error_kind(%{details: %{expression: _expression}}), do: :unsupported_expression
   def error_kind(_error), do: :other
@@ -66,7 +66,7 @@ defmodule Jido.Flow.Expression do
            segment: segment
          })}
 
-      {:error, %{details: %{reason: :scope, type: type, scope: invalid_scope}}} ->
+      {:error, %{details: %{reason: :scope, source: type, scope: invalid_scope}}} ->
         {:error,
          Error.validation_error(
            "flow expression contains a scoped ref outside its valid scope",
@@ -186,7 +186,7 @@ defmodule Jido.Flow.Expression do
     {:error,
      Error.validation_error("flow expression contains an invalid reference", %{
        path: path,
-       type: type
+       ref_type: type
      })}
   end
 

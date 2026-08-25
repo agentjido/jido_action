@@ -1,14 +1,13 @@
 defmodule Jido.Exec.FlowFailureError do
   @moduledoc """
-  Reports two or more node failures from one concurrent Flow wave.
+  Reports two or more runnable failures from one Flow wave.
 
-  A serial Flow stops when its first node fails. A concurrent wave can finish
-  with more than one failure because its nodes are already in progress. The
-  `failures` field keeps all such failures in canonical node order.
+  A wave can finish with more than one failure because its runnables were
+  already selected. The `failures` field keeps the errors in apply order.
   """
 
-  @typedoc "A failed node and its original error."
-  @type failure :: %{node: String.t(), error: Exception.t()}
+  @typedoc "A failed native runnable and its original error."
+  @type failure :: %{node: term(), runnable_id: integer(), error: Exception.t()}
 
   @type t :: %__MODULE__{
           message: String.t(),
@@ -25,7 +24,7 @@ defmodule Jido.Exec.FlowFailureError do
     failures = Keyword.fetch!(opts, :failures)
 
     %__MODULE__{
-      message: "Flow #{inspect(flow)} failed in #{length(failures)} concurrent nodes",
+      message: "Flow #{inspect(flow)} failed in #{length(failures)} runnables",
       flow: flow,
       failures: failures
     }

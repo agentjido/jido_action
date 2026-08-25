@@ -3,9 +3,7 @@ defmodule Jido.Flow.Compiler.Expression do
 
   alias Jido.Action.Error
   alias Jido.Action.Output
-  alias Jido.Flow.Expression, as: FlowExpression
   alias Jido.Flow.Ref
-  alias Runic.Workflow
 
   @doc false
   def resolve(%Ref{source: :input} = ref, state), do: resolve_path(ref, state.input)
@@ -65,31 +63,6 @@ defmodule Jido.Flow.Compiler.Expression do
   end
 
   def resolve(value, _state), do: {:ok, value}
-
-  @doc false
-  def extract_return(return_expr, workflow, input, context) do
-    result_nodes = return_expr |> FlowExpression.result_refs() |> Enum.uniq()
-    facts_by_node = Workflow.results(workflow, result_nodes, facts: true, all: true)
-
-    result_nodes
-    |> Enum.reduce_while({:ok, %{}}, fn node, {:ok, acc} ->
-      case Map.get(facts_by_node, node, []) do
-        [] ->
-          {:halt, {:error, Error.execution_error("flow execution produced no final state")}}
-
-        facts ->
-          value = facts |> List.last() |> Map.fetch!(:value)
-          {:cont, {:ok, Map.put(acc, node, value)}}
-      end
-    end)
-    |> case do
-      {:ok, results} ->
-        resolve(return_expr, %{input: input, context: context, results: results})
-
-      {:error, error} ->
-        {:error, error}
-    end
-  end
 
   @doc false
   def value_type(nil), do: nil

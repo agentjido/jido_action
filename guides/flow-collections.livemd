@@ -2,7 +2,8 @@
 
 `map` and `reduce` process an ordered collection inside a Flow. Map calls one
 target for each item. Reduce sends the current accumulator and one item to its
-target. Each form is one public Flow node.
+target. Each form is one canonical authoring component. Native execution
+exposes its Runic fan-out and fan-in work.
 
 Run the code cells from top to bottom.
 
@@ -110,32 +111,33 @@ defmodule FlowCollections.DoubleValues do
 end
 ```
 
-Map returns an aggregate with `kind`, `results`, and `errors`. Each successful
-record contains `index`, `item_id`, and `output`.
+Map returns one ordered list of Action outputs. The Action in this example
+copies `index` and `item_id` into each output.
 
 ```elixir
 {:ok,
  %{
-   mapped: %{kind: :jido_flow_map_result, results: results, errors: []},
+   mapped: results,
    total: %{total: 12}
  }} = Jido.Exec.run(FlowCollections.DoubleValues, %{values: [1, 2, 3]}, %{})
 
 [0, 1, 2] = Enum.map(results, & &1.index)
-[2, 4, 6] = Enum.map(results, & &1.output.value)
+[2, 4, 6] = Enum.map(results, & &1.value)
 true = Enum.all?(results, &is_binary(&1.item_id))
 ```
 
-Reduce can consume a complete successful Map aggregate. Each ordered Map
-output becomes one Reduce item. Reduce rejects a direct Map aggregate that
-contains collected errors.
+Reduce can consume a Map result directly. The compiler connects the native
+Map to the native Reduce when the reference is a plain `result(...)` and the
+Reduce has no other data dependency.
 
 Reduce processes items in source order and always runs serially. An empty Map
-returns an empty aggregate. An empty Reduce returns the valid initial value.
+returns an empty list. An empty Reduce returns the valid initial value.
 
 ## Collect Map Errors
 
-`:collect_errors` completes all item work. Successful records stay in
-`results`. Failed records stay in `errors`.
+`:collect_errors` completes all item work. Each list item is a portable tagged
+outcome. A success has `status: :ok` and `value`. A failure has
+`status: :error` and an error map.
 
 ```elixir
 defmodule FlowCollections.RejectNegative do
@@ -162,20 +164,24 @@ defmodule FlowCollections.CollectFailures do
       params: %{value: item()},
       on_error: :collect_errors
 
-    output result("check_values")
+    output %{outcomes: result("check_values")}
   end
 end
 
-{:ok, %{results: [%{index: 0, output: %{value: 4}}], errors: [failure]}} =
+{:ok,
+ %{
+   outcomes: [
+     %{status: :ok, value: %{value: 4}},
+     %{status: :error, error: %{message: message}}
+   ]
+ }} =
   Jido.Exec.run(FlowCollections.CollectFailures, %{values: [2, -1]}, %{})
 
-1 = failure.index
-%Jido.Action.Error.ExecutionFailureError{} = failure.error
+true = is_binary(message)
 ```
 
-`:fail_fast` stops Map at the first failed source item in serial execution. In
-asynchronous execution, it completes the current bounded work window and
-reports the lowest failed source index.
+`:fail_fast` fails the Flow when an item runnable fails. Other item runnables
+in the same frozen wave can also finish. No later wave is dispatched.
 
 ## Run Map Items Concurrently
 
@@ -193,8 +199,8 @@ Map uses Flow execution options. `async: false` runs item calls serially. With
   )
 ```
 
-Map records stay in source-index order. Task completion order does not change
-the result order. Concurrent Map nodes share one execution-wide limit for
+Map output stays in source-index order. Task completion order does not change
+the result order. Concurrent Map components share one execution-wide limit for
 active Action calls. Reduce stays serial.
 
 ## Local Reference Scope
@@ -241,8 +247,9 @@ builder =
 {:ok, %{total: 12}} = Jido.Exec.run(runtime_flow, %{values: [1, 2, 3]}, %{})
 ```
 
-Map and Reduce each appear as one node in `Jido.Exec.ready/1`, `step/2`, and
-`wave/1`. The public execution API does not pause between items.
+`Jido.Exec.ready/1`, `step/2`, and `wave/1` expose native resolver, Map,
+FanOut, item Step, Reduce, FanIn, collector, and output work. The API can pause
+at these Runic boundaries.
 
 Continue with [Iterate And State](flow-iterate-state.livemd) for bounded State
 transitions.

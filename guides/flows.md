@@ -102,8 +102,14 @@ semantic_map = Jido.Flow.to_map(flow)
 Dependency inspection reports `after`, `references`, and `effective`
 separately. `Jido.Flow.Compiled` is the container for derived Runic workflow
 data, component indexes, compiled output selection, source data, and the
-compilation digest. Native Runic compilation is part of the phase-two
-`Jido.Exec` work.
+compilation digest.
+
+```elixir
+{:ok, %Jido.Flow.Compiled{} = compiled} = Jido.Flow.compile(flow)
+```
+
+`Jido.Exec` executes this native workflow. Its step-wise API exposes native
+Runic Runnable values, including support work when Runic adds it.
 
 ## Continue with the Flow guides
 

@@ -197,10 +197,9 @@ One `step/2` call runs all internal iterations until completion or failure.
 
 ```elixir
 {:ok, execution} = Jido.Exec.start(FlowIterate.RepeatThree, %{}, %{})
-["count"] = Jido.Exec.ready(execution)
-
-{:ok, %Jido.Exec.NodeResult{node: "count", output: %{iterations: 3}}, execution} =
-  Jido.Exec.step(execution, "count")
+[runnable] = Jido.Exec.ready(execution)
+{:ok, %Runic.Workflow.Runnable{status: :completed}, execution} =
+  Jido.Exec.step(execution, runnable)
 
 :succeeded = Jido.Exec.status(execution)
 ```
@@ -208,5 +207,5 @@ One `step/2` call runs all internal iterations until completion or failure.
 The public API does not pause inside one Iterate node. It also does not provide
 `break`, `continue`, per-iteration retry, durable State, or restart-safe resume.
 
-Continue with [Executing Flows](flow-execution.livemd) for public node
+Continue with [Executing Flows](flow-execution.livemd) for native runnable
 execution, waves, and runtime options.

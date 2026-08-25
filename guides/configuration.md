@@ -53,11 +53,10 @@ helper workers. Nested scheduling runs work inline when no helper-worker slot
 is available. Thus, it does not create helper processes that wait for a slot.
 The options do not change Flow dependencies.
 
-A nested Flow runs as one atomic parent node and inherits `async` and
-`max_concurrency` from the parent execution. Its Action calls and helper
-workers use the same execution-wide budgets. The parent ready set does not
-expose child nodes. Run the child Flow directly when it needs a different
-scheduling policy or step-wise control.
+A nested Flow compiles as a native Runic Workflow boundary and inherits
+`async` and `max_concurrency` from the parent execution. Its Action calls and
+helper workers use the same execution-wide budgets. The native ready set can
+expose child validators, child Steps, and connection work.
 
 ## Current Policy Limits
 

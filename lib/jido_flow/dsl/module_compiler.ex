@@ -84,13 +84,16 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
       @doc false
       def __jido_flow_source_map__, do: unquote(escaped_source_map)
 
+      def compiled,
+        do: Jido.Flow.compile!(flow(), source_map: __jido_flow_source_map__())
+
       def to_map, do: Jido.Flow.to_map(flow())
       def validate, do: Jido.Flow.validate(flow())
       def validate_executable, do: Jido.Flow.validate_executable(flow())
       def dependencies, do: Jido.Flow.dependencies(flow())
       def explain, do: Jido.Flow.explain(flow())
       def semantic_identity, do: Jido.Flow.semantic_identity(flow())
-      def run(params, context), do: Jido.Exec.run(flow(), params, context)
+      def run(params, context), do: Jido.Exec.run(__MODULE__, params, context)
     end
   end
 

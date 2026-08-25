@@ -6,7 +6,7 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
   alias Jido.Action.Error.{ConfigurationError, ExecutionFailureError, InvalidInputError}
   alias Jido.Exec
   alias Jido.Flow
-  alias Jido.Flow.{Node, Ref}
+  alias Jido.Flow.{Ref, Step}
   alias Jido.Instruction
   alias JidoActionTest.ExecFixtures.{ActionWithFlowFunction, BlockingAction}
 
@@ -308,14 +308,14 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
     flow =
       Flow.new!(
         name: "stacktrace_flow",
-        nodes: [
-          Node.new!(
+        components: [
+          Step.new!(
             name: "failure",
             action: StacktraceAction,
-            input: %{mode: Ref.value(:raise)}
+            params: %{mode: :raise}
           )
         ],
-        return: Ref.result("failure")
+        output: Ref.result("failure")
       )
 
     for opts <- [[], [async: true]] do
@@ -328,14 +328,14 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
     flow =
       Flow.new!(
         name: "validator_stacktrace_flow",
-        nodes: [
-          Node.new!(
+        components: [
+          Step.new!(
             name: "failure",
             action: StacktraceValidationAction,
-            input: %{mode: Ref.value(:input)}
+            params: %{mode: :input}
           )
         ],
-        return: Ref.result("failure")
+        output: Ref.result("failure")
       )
 
     assert {:error, %InvalidInputError{} = error} = Exec.run(flow)

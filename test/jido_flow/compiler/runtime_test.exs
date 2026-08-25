@@ -5,7 +5,7 @@ defmodule JidoActionTest.Flow.Compiler.RuntimeTest do
   alias Jido.Action.Output
   alias Jido.Exec
   alias Jido.Flow
-  alias Jido.Flow.{Choice, Compiler, Condition, Reduce, Ref, Step}
+  alias Jido.Flow.{Choice, Condition, Reduce, Ref, Step}
   alias Jido.Flow.Map, as: FlowMap
 
   alias JidoActionTest.TestActions.{Add, EchoParamsAction, Multiply}
@@ -22,8 +22,8 @@ defmodule JidoActionTest.Flow.Compiler.RuntimeTest do
     ]
 
     for {condition, left, right} <- cases do
-      assert {:ok, %{value: 2}} =
-               Exec.run(choice_flow(condition), %{left: left, right: right}, %{})
+      assert Exec.run(choice_flow(condition), %{left: left, right: right}, %{}) ==
+               {:ok, %{value: 2}}
     end
   end
 
@@ -56,10 +56,10 @@ defmodule JidoActionTest.Flow.Compiler.RuntimeTest do
         output: Ref.result("route")
       )
 
-    assert {:ok, %{value: 2}} = Exec.run(flow, %{}, %{})
+    assert Exec.run(flow) == {:ok, %{value: 2}}
   end
 
-  test "uses the same Map item identity in records and target inputs" do
+  test "uses stable Map item identity in target inputs" do
     flow =
       Flow.new!(
         name: "map_item_identity",
@@ -68,24 +68,23 @@ defmodule JidoActionTest.Flow.Compiler.RuntimeTest do
             name: "mapped",
             collection: [:first, :second],
             action: EchoParamsAction,
-            params: %{
-              id: Ref.item_id(),
-              index: Ref.item_index(),
-              value: Ref.item()
-            },
+            params: %{id: Ref.item_id(), index: Ref.item_index(), value: Ref.item()},
             on_error: :collect_errors
           )
         ],
-        output: Ref.result("mapped")
+        output: %{items: Ref.result("mapped")}
       )
 
-    assert {:ok, %{errors: [], results: results}} = Exec.run(flow, %{}, %{})
+    assert {:ok,
+            %{
+              items: [
+                %{status: :ok, value: %{id: first_id, index: 0, value: :first}},
+                %{status: :ok, value: %{id: second_id, index: 1, value: :second}}
+              ]
+            }} = Exec.run(flow)
 
-    assert [
-             %{index: 0, item_id: first_id, output: %{id: first_id, index: 0, value: :first}},
-             %{index: 1, item_id: second_id, output: %{id: second_id, index: 1, value: :second}}
-           ] = results
-
+    assert is_binary(first_id)
+    assert is_binary(second_id)
     assert first_id != second_id
   end
 
@@ -103,7 +102,7 @@ defmodule JidoActionTest.Flow.Compiler.RuntimeTest do
     ]
 
     for {condition, value} <- cases do
-      assert {:ok, %{value: ^value}} = Exec.run(choice_flow(condition), %{}, %{})
+      assert Exec.run(choice_flow(condition)) == {:ok, %{value: value}}
     end
   end
 
@@ -117,7 +116,7 @@ defmodule JidoActionTest.Flow.Compiler.RuntimeTest do
               %ExecutionFailureError{
                 message: "invalid choice condition operands",
                 details: %{reason: :invalid_ordering_operands}
-              }} = Exec.run(choice_flow(condition), %{}, %{})
+              }} = Exec.run(choice_flow(condition))
     end
   end
 
@@ -139,20 +138,19 @@ defmodule JidoActionTest.Flow.Compiler.RuntimeTest do
                   left_type: ^left_type,
                   right_type: ^right_type
                 }
-              }} = Exec.run(choice_flow(condition), %{left: left, right: right}, %{})
+              }} = Exec.run(choice_flow(condition), %{left: left, right: right})
     end
 
     condition = Condition.in(Ref.input(:left), Ref.input(:right))
 
     for right <- [%{}, [1 | :tail]] do
       assert {:error,
-              %ExecutionFailureError{
-                details: %{reason: :invalid_membership_right_operand}
-              }} = Exec.run(choice_flow(condition), %{left: 1, right: right}, %{})
+              %ExecutionFailureError{details: %{reason: :invalid_membership_right_operand}}} =
+               Exec.run(choice_flow(condition), %{left: 1, right: right})
     end
   end
 
-  test "resolves nested maps, lists, alternate map keys, list indexes, and stored nil" do
+  test "resolves nested values and alternate map keys" do
     flow =
       Flow.new!(
         name: "expression_resolution",
@@ -171,18 +169,12 @@ defmodule JidoActionTest.Flow.Compiler.RuntimeTest do
         output: Ref.result("echo")
       )
 
-    assert {:ok,
-            %{
-              values: [1, "trace"],
-              alternate_key: 2,
-              indexed: :one,
-              stored_nil: nil
-            }} =
-             Exec.run(
-               flow,
-               %{value: 1, data: %{"value" => 2}, items: [:zero, :one], stored_nil: nil},
-               %{trace: "trace"}
-             )
+    assert Exec.run(
+             flow,
+             %{value: 1, data: %{"value" => 2}, items: [:zero, :one], stored_nil: nil},
+             %{trace: "trace"}
+           ) ==
+             {:ok, %{values: [1, "trace"], alternate_key: 2, indexed: :one, stored_nil: nil}}
   end
 
   test "rejects missing and non-traversable reference paths" do
@@ -214,18 +206,13 @@ defmodule JidoActionTest.Flow.Compiler.RuntimeTest do
                   value_type: ^value_type,
                   retry: false
                 }
-              }} =
-               Exec.run(
-                 flow,
-                 %{value: 1, data: %{"value" => 2}, items: [:zero, :one]},
-                 %{}
-               )
+              }} = Exec.run(flow, %{value: 1, data: %{"value" => 2}, items: [:zero, :one]})
 
       assert path == ref.path
     end
   end
 
-  test "classifies invalid Map collections without starting item work" do
+  test "classifies invalid Map collections" do
     flow =
       Flow.new!(
         name: "invalid_map_collection",
@@ -257,11 +244,11 @@ defmodule JidoActionTest.Flow.Compiler.RuntimeTest do
               %ExecutionFailureError{
                 message: "map collection must resolve to a proper list",
                 details: %{value_type: ^value_type}
-              }} = Exec.run(flow, %{items: items}, %{})
+              }} = Exec.run(flow, %{items: items})
     end
   end
 
-  test "handles empty collected Maps and rejects invalid Reduce data" do
+  test "handles empty Maps and rejects invalid Reduce data" do
     empty_map =
       Flow.new!(
         name: "empty_map",
@@ -274,10 +261,10 @@ defmodule JidoActionTest.Flow.Compiler.RuntimeTest do
             on_error: :collect_errors
           )
         ],
-        output: Ref.result("mapped")
+        output: %{items: Ref.result("mapped")}
       )
 
-    assert {:ok, %{results: [], errors: []}} = Exec.run(empty_map, %{}, %{})
+    assert Exec.run(empty_map) == {:ok, %{items: []}}
 
     reduce =
       Flow.new!(
@@ -296,33 +283,17 @@ defmodule JidoActionTest.Flow.Compiler.RuntimeTest do
 
     assert {:error,
             %ExecutionFailureError{message: "reduce collection must resolve to a proper list"}} =
-             Exec.run(reduce, %{items: :bad, initial: %{}}, %{})
+             Exec.run(reduce, %{items: :bad, initial: %{}})
 
     assert {:error,
             %ExecutionFailureError{
               message: "reduce initial value must be a map or Jido.Action.Output"
-            }} = Exec.run(reduce, %{items: [], initial: :bad}, %{})
+            }} = Exec.run(reduce, %{items: [], initial: :bad})
   end
 
-  test "rejects invalid inputs at the validated compiler boundary" do
-    flow =
-      Flow.new!(
-        name: "compiler_boundary",
-        components: [Step.new!(name: "echo", action: EchoParamsAction)],
-        output: Ref.result("echo")
-      )
-
-    assert {:error, error} =
-             Compiler.runtime_workflow_validated(
-               flow,
-               [],
-               %{},
-               [],
-               fn _action, _params, _context, _execution_id, _owner -> {:ok, %{}} end,
-               "execution-id"
-             )
-
-    assert Exception.message(error) == "flow input and context must be maps"
+  test "reports invalid public compilation input" do
+    assert {:error, error} = Flow.compile(:not_a_flow)
+    assert Exception.message(error) == "expected a Jido.Flow artifact"
   end
 
   defp choice_flow(condition) do
@@ -346,7 +317,5 @@ defmodule JidoActionTest.Flow.Compiler.RuntimeTest do
     )
   end
 
-  defp invalid_ordering do
-    Condition.lt(%{}, 1)
-  end
+  defp invalid_ordering, do: Condition.lt(%{}, 1)
 end

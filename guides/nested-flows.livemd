@@ -113,9 +113,9 @@ The Codec requires a trusted `{:flow, NestedFlows.Child}` Registry entry.
 Executable validation loads `NestedFlows.Child.flow/0`, validates the child,
 and rejects recursive Subflow module cycles.
 
-The current phase-one execution adapter keeps a Subflow atomic at the parent
-boundary. Phase two will compile it as a native Runic Workflow boundary with
-instance-scoped names and hashes.
+The compiler creates a native Runic Workflow boundary with instance-scoped
+names and hashes. `Jido.Exec.ready/1` exposes the child validators, child
+Steps, and connection work.
 
 ## Keep other target slots Action-only
 

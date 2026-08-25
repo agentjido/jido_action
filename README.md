@@ -215,10 +215,10 @@ Run-to-completion and step-wise execution use the same engine:
 
 ```elixir
 {:ok, execution} = Jido.Exec.start(runtime_flow, %{name: "Ada"})
-["greet"] = Jido.Exec.ready(execution)
+[runnable] = Jido.Exec.ready(execution)
 
-{:ok, %Jido.Exec.NodeResult{node: "greet"}, execution} =
-  Jido.Exec.step(execution, "greet")
+{:ok, %Runic.Workflow.Runnable{status: :completed}, execution} =
+  Jido.Exec.step(execution, runnable)
 
 :succeeded = Jido.Exec.status(execution)
 {:ok, %{greeting: "Hello, Ada."}} = Jido.Exec.result(execution)
@@ -227,7 +227,7 @@ Run-to-completion and step-wise execution use the same engine:
 `wave/1` runs the current ready set. `continue/1` runs until the Flow reaches a
 terminal result. Always pass the newest execution value to the next call. The
 caller owns this in-memory lifecycle. Jido does not persist or recover it.
-Reusing a stale value can run an Action side effect again.
+Jido rejects reuse of a stale execution revision.
 
 ## Observe Execution
 

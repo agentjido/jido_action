@@ -2,8 +2,8 @@ defmodule Jido.Flow.Reduce do
   @moduledoc """
   A named Flow fan-in operation over one ordered collection.
 
-  A Reduce is one public Flow element. Its target calls form one serial left
-  fold inside that element.
+  A Reduce is one canonical authoring component. It lowers to a native Runic
+  Reduce and FanIn. Its target calls form one serial left fold.
 
   This is a read-only canonical type. Create it through the Flow module DSL,
   `Jido.Flow.Builder`, or the stored Flow decoder.

@@ -9,10 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Features:
+
+* compile canonical Jido Flows into native Runic workflows
+* expose native Runic Runnable values for step-wise Flow execution
+* add native Map, Reduce, and Subflow execution
+
+### Breaking Changes:
+
+* replace the Jido node-result scheduler with the native Runic execution surface
+* replace `MapResult` with ordered Map list output at scalar boundaries
+* replace `Jido.Flow.Iterator` with `Jido.Flow.Iterate`
+
 ### Bug Fixes:
 
 * preserve target error paths and add Flow node phase and ownership details to
   returned standard exceptions
+* report invalid reference scopes through the canonical expression validator
 
 ### Documentation:
 

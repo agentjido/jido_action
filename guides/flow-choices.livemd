@@ -222,16 +222,17 @@ builder =
 
 ## Step Through A Choice
 
-A Choice is one public node. Its option targets are not separate ready nodes.
+A Choice compiles to one native Step. Its option targets are not separate
+runnables.
 
 ```elixir
 {:ok, execution} = Jido.Exec.start(FlowChoices.Routing, %{tier: :priority}, %{})
 
 {:ok, _predecessors, execution} = Jido.Exec.wave(execution)
-["route"] = Jido.Exec.ready(execution)
 
-{:ok, %Jido.Exec.NodeResult{node: "route", status: :ok, output: %{route: :priority}}, execution} =
-  Jido.Exec.step(execution, "route")
+[runnable] = Jido.Exec.ready(execution)
+{:ok, %Runic.Workflow.Runnable{status: :completed}, execution} =
+  Jido.Exec.step(execution, runnable)
 
 {:ok, execution} = Jido.Exec.continue(execution)
 {:ok, %{route: :priority}} = Jido.Exec.result(execution)
@@ -239,7 +240,7 @@ A Choice is one public node. Its option targets are not separate ready nodes.
 
 ## Continue Learning
 
-- [Flow Language](flow-language.livemd) introduces all Flow nodes.
+- [Flow Language](flow-language.livemd) introduces all Flow components.
 - [Flow References](flow-references.livemd) explains condition data.
 - [Nested Flows](nested-flows.livemd) shows Step-only Subflow derivation.
 - [Executing Flows](flow-execution.livemd) explains step-wise execution.

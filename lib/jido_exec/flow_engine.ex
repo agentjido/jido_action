@@ -5,24 +5,32 @@ defmodule Jido.Exec.FlowEngine do
   alias Jido.Action.Telemetry
 
   alias Jido.Exec.{
-    CollectionTelemetry,
     ConcurrencyLimiter,
     Execution,
     ExecutionGuard,
     FlowFailureError,
-    NodeResult
+    FlowRunnableExecutor
   }
 
-  alias Jido.Exec.FlowRunnableExecutor
   alias Jido.Flow
-  alias Jido.Flow.{Compiler, Component, NodeError}
+  alias Jido.Flow.{Compiled, Compiler}
   alias Runic.Workflow
-  alias Runic.Workflow.{Fact, Runnable, Step}
+  alias Runic.Workflow.Runnable
 
-  @spec start(Flow.t(), map(), map(), keyword(), function(), function(), String.t(), map()) ::
-          {:ok, Execution.t()} | {:error, Exception.t()}
+  @spec start(
+          Flow.t(),
+          Compiled.t(),
+          map(),
+          map(),
+          keyword(),
+          function(),
+          function(),
+          String.t(),
+          map()
+        ) :: {:ok, Execution.t()} | {:error, Exception.t()}
   def start(
         %Flow{} = flow,
+        %Compiled{} = compiled,
         input,
         context,
         options,
@@ -34,48 +42,47 @@ defmodule Jido.Exec.FlowEngine do
       when is_map(input) and is_map(context) and is_list(options) and
              is_function(finalizer, 1) and is_function(target_runner, 5) and
              is_binary(execution_id) and is_map(lifecycle) do
-    with {:ok, workflow, ordered_elements} <-
-           Compiler.runtime_workflow_validated(
-             flow,
-             input,
-             context,
-             options,
-             target_runner,
-             execution_id,
-             CollectionTelemetry.observer(execution_id, flow.name)
-           ) do
-      ordered_nodes = Enum.map(ordered_elements, &Component.name_of/1)
+    runtime = %{
+      execution_id: execution_id,
+      flow: flow.name,
+      flow_digest: Flow.Identity.semantic_digest(flow),
+      input: input,
+      context: context,
+      options: options,
+      target_runner: target_runner,
+      observer: Jido.Exec.CollectionTelemetry.observer(execution_id, flow.name)
+    }
 
-      execution = %Execution{
-        id: execution_id,
-        flow_name: flow.name,
-        status: :running,
-        revision: 0,
-        guard: ExecutionGuard.new(),
-        flow: flow,
-        input: input,
-        context: context,
-        options: options,
-        workflow: Workflow.plan_eagerly(workflow, input),
-        ordered_nodes: ordered_nodes,
-        node_names: MapSet.new(ordered_nodes),
-        node_positions: ordered_nodes |> Enum.with_index() |> Map.new(),
-        ready: %{},
-        ready_nodes: [],
-        node_results: %{},
-        node_errors: %{},
-        engine_error: nil,
-        finalizer: finalizer,
-        final_result: nil,
-        lifecycle: lifecycle
-      }
+    workflow =
+      compiled.workflow
+      |> Workflow.put_run_context(%{_global: %{jido: runtime}})
+      |> Workflow.plan_eagerly(Compiler.input_frame(input))
 
-      settle(execution)
-    end
+    execution = %Execution{
+      id: execution_id,
+      flow_name: flow.name,
+      status: :running,
+      revision: 0,
+      guard: ExecutionGuard.new(),
+      flow: flow,
+      compiled: compiled,
+      input: input,
+      context: context,
+      options: options,
+      workflow: workflow,
+      ready: [],
+      runnable_errors: [],
+      engine_error: nil,
+      finalizer: finalizer,
+      final_result: nil,
+      lifecycle: lifecycle
+    }
+
+    settle(execution)
   end
 
-  @spec ready(Execution.t()) :: [String.t()]
-  def ready(%Execution{ready_nodes: ready_nodes}), do: ready_nodes
+  @spec ready(Execution.t()) :: [Runnable.t()]
+  def ready(%Execution{ready: ready}), do: ready
 
   @spec status(Execution.t()) :: :running | :succeeded | :failed
   def status(%Execution{status: status}), do: status
@@ -86,42 +93,45 @@ defmodule Jido.Exec.FlowEngine do
      Error.validation_error("flow execution is not complete", %{
        flow: execution.flow_name,
        status: :running,
-       ready: ready(execution)
+       ready: Enum.map(ready(execution), & &1.id)
      })}
   end
 
   def result(%Execution{final_result: result}) when not is_nil(result), do: result
 
   @spec step(Execution.t()) ::
-          {:ok, NodeResult.t(), Execution.t()} | {:error, Exception.t()}
+          {:ok, Runnable.t(), Execution.t()} | {:error, Exception.t()}
   def step(%Execution{} = execution) do
     case ready(execution) do
-      [node | _rest] -> step(execution, node)
+      [runnable | _rest] -> step(execution, runnable)
       [] -> execution_not_running(execution)
     end
   end
 
-  @spec step(Execution.t(), String.t()) ::
-          {:ok, NodeResult.t(), Execution.t()} | {:error, Exception.t()}
-  def step(%Execution{status: :running} = execution, node) when is_binary(node) do
-    with :ok <- ensure_ready(execution, node) do
+  @spec step(Execution.t(), Runnable.t() | integer()) ::
+          {:ok, Runnable.t(), Execution.t()} | {:error, Exception.t()}
+  def step(%Execution{status: :running} = execution, %Runnable{id: id}),
+    do: step(execution, id)
+
+  def step(%Execution{status: :running} = execution, id) when is_integer(id) do
+    with {:ok, runnable} <- fetch_ready(execution, id) do
       mutate(execution, fn ->
-        with_concurrency_limiter(execution, fn -> do_step(execution, node) end)
+        with_concurrency_limiter(execution, fn -> do_step(execution, runnable) end)
       end)
     end
   end
 
-  def step(%Execution{status: :running}, node) do
+  def step(%Execution{status: :running}, runnable) do
     {:error,
-     Error.validation_error("flow node name must be a string", %{
-       node: node
+     Error.validation_error("flow runnable must be a ready Runnable or runnable ID", %{
+       runnable: runnable
      })}
   end
 
-  def step(%Execution{} = execution, _node), do: execution_not_running(execution)
+  def step(%Execution{} = execution, _runnable), do: execution_not_running(execution)
 
   @spec wave(Execution.t()) ::
-          {:ok, [NodeResult.t()], Execution.t()} | {:error, Exception.t()}
+          {:ok, [Runnable.t()], Execution.t()} | {:error, Exception.t()}
   def wave(%Execution{status: :running} = execution) do
     case ready(execution) do
       [] ->
@@ -138,42 +148,22 @@ defmodule Jido.Exec.FlowEngine do
 
   @spec continue(Execution.t()) :: {:ok, Execution.t()} | {:error, Exception.t()}
   def continue(%Execution{status: :running} = execution) do
-    with {:ok, _node_results, execution} <- wave(execution) do
+    with {:ok, _runnables, execution} <- wave(execution) do
       continue(execution)
     end
   end
 
   def continue(%Execution{} = execution), do: {:ok, execution}
 
-  defp settle(%Execution{} = execution) do
-    if map_size(execution.node_errors) > 0 do
-      finalize(execution)
-    else
-      settle_running(execution)
-    end
-  end
+  defp settle(%Execution{runnable_errors: [_ | _]} = execution), do: finalize(execution)
 
-  defp settle_running(%Execution{} = execution) do
+  defp settle(%Execution{} = execution) do
     {workflow, runnables} = Workflow.prepare_for_dispatch(execution.workflow)
-    execution = %{execution | workflow: workflow, ready: %{}, ready_nodes: []}
-    {public, internal} = partition_runnables(execution, runnables)
+    execution = %{execution | workflow: workflow, ready: runnables}
 
     cond do
-      internal != [] ->
-        execution = apply_internal_runnables(execution, internal)
-        settle(execution)
-
-      public != [] ->
-        {ready_nodes, ready} =
-          public
-          |> Enum.sort_by(fn %Runnable{node: %Step{name: name}} ->
-            Map.fetch!(execution.node_positions, name)
-          end)
-          |> Enum.map_reduce(%{}, fn %Runnable{node: %Step{name: name}} = runnable, ready ->
-            {name, Map.put(ready, name, runnable)}
-          end)
-
-        {:ok, %{execution | status: :running, ready: ready, ready_nodes: ready_nodes}}
+      runnables != [] ->
+        {:ok, execution}
 
       Workflow.is_runnable?(workflow) ->
         error =
@@ -189,95 +179,79 @@ defmodule Jido.Exec.FlowEngine do
     end
   end
 
-  defp partition_runnables(execution, runnables) do
-    Enum.split_with(runnables, fn
-      %Runnable{node: %Step{name: name}} -> MapSet.member?(execution.node_names, name)
-      %Runnable{} -> false
-    end)
+  defp do_step(execution, runnable) do
+    executed = FlowRunnableExecutor.execute(execution, runnable)
+    execution = apply_runnable(execution, executed)
+
+    with {:ok, execution} <- settle(execution) do
+      {:ok, executed, execution}
+    end
   end
 
-  defp apply_internal_runnables(execution, runnables) do
-    Enum.reduce(runnables, execution, fn runnable, current ->
-      executed = Workflow.execute_runnable(runnable)
-      workflow = Workflow.apply_runnable(current.workflow, executed)
+  defp do_wave(execution) do
+    executed = FlowRunnableExecutor.execute_many(execution, ready(execution))
+    execution = Enum.reduce(executed, execution, &apply_runnable(&2, &1))
 
-      case executed do
+    with {:ok, execution} <- settle(execution) do
+      {:ok, executed, execution}
+    end
+  end
+
+  defp apply_runnable(execution, %Runnable{} = runnable) do
+    workflow = Workflow.apply_runnable(execution.workflow, runnable)
+
+    errors =
+      case runnable do
         %Runnable{status: :failed, error: error} ->
-          %{current | workflow: workflow, engine_error: normalize_engine_error(error)}
+          execution.runnable_errors ++
+            [%{runnable: runnable, error: normalize_error(runnable, error)}]
 
         %Runnable{} ->
-          %{current | workflow: workflow}
-      end
-    end)
-  end
-
-  defp apply_public_runnable(execution, node, %Runnable{} = runnable) do
-    workflow = Workflow.apply_runnable(execution.workflow, runnable)
-    node_result = to_node_result(node, runnable)
-
-    node_errors =
-      case node_result do
-        %NodeResult{status: :error, error: error} ->
-          Map.put(execution.node_errors, node, error)
-
-        %NodeResult{} ->
-          execution.node_errors
+          execution.runnable_errors
       end
 
-    execution = %{
+    %{
       execution
       | workflow: workflow,
         revision: execution.revision + 1,
-        ready: %{},
-        ready_nodes: [],
-        node_results: Map.put(execution.node_results, node, node_result),
-        node_errors: node_errors
-    }
-
-    {node_result, execution}
-  end
-
-  defp to_node_result(node, %Runnable{status: :completed, result: %Fact{value: output}}) do
-    %NodeResult{node: node, status: :ok, output: output, error: nil, attempt: 1}
-  end
-
-  defp to_node_result(node, %Runnable{status: :completed, result: output}) do
-    %NodeResult{node: node, status: :ok, output: output, error: nil, attempt: 1}
-  end
-
-  defp to_node_result(node, %Runnable{status: :failed, error: error}) do
-    %NodeResult{
-      node: node,
-      status: :error,
-      output: nil,
-      error: FlowRunnableExecutor.normalize_error(node, error),
-      attempt: 1
+        ready: [],
+        runnable_errors: errors
     }
   end
 
-  defp to_node_result(node, %Runnable{status: status}) do
-    error =
-      Error.execution_error("flow node returned an unsupported execution status", %{
-        node: node,
-        status: status
-      })
+  defp fetch_ready(execution, id) do
+    case Enum.find(execution.ready, &(&1.id == id)) do
+      %Runnable{} = runnable ->
+        {:ok, runnable}
 
-    %NodeResult{node: node, status: :error, output: nil, error: error, attempt: 1}
+      nil ->
+        {:error,
+         Error.validation_error("flow runnable is not ready", %{
+           flow: execution.flow_name,
+           runnable_id: id,
+           ready: Enum.map(execution.ready, & &1.id)
+         })}
+    end
   end
 
-  defp normalize_engine_error(%NodeError{error: error}), do: error
-  defp normalize_engine_error(error) when is_exception(error), do: error
+  defp normalize_error(_runnable, error) when is_exception(error), do: error
 
-  defp normalize_engine_error(reason) do
-    Error.execution_error("flow execution engine failed", %{reason: reason})
+  defp normalize_error(runnable, reason) do
+    Error.execution_error("flow runnable failed", %{
+      runnable_id: runnable.id,
+      node: runnable_name(runnable),
+      reason: reason
+    })
   end
 
-  defp finalize(%Execution{node_errors: node_errors} = execution)
-       when map_size(node_errors) > 0 do
+  defp runnable_name(%Runnable{node: %{name: name}}), do: name
+  defp runnable_name(%Runnable{node: node}), do: node.__struct__
+
+  defp finalize(%Execution{runnable_errors: errors} = execution) when errors != [] do
     failures =
-      execution.ordered_nodes
-      |> Enum.filter(&Map.has_key?(node_errors, &1))
-      |> Enum.map(&%{node: &1, error: Map.fetch!(node_errors, &1)})
+      Enum.map(errors, fn %{runnable: runnable, error: error} ->
+        %{node: runnable_name(runnable), runnable_id: runnable.id, error: error}
+      end)
 
     error =
       case failures do
@@ -295,7 +269,7 @@ defmodule Jido.Exec.FlowEngine do
   defp finalize(%Execution{} = execution) do
     final_result =
       case Compiler.runtime_result(
-             execution.flow,
+             execution.compiled,
              execution.workflow,
              execution.input,
              execution.context
@@ -315,67 +289,9 @@ defmodule Jido.Exec.FlowEngine do
      %{
        execution
        | status: status,
-         ready: %{},
-         ready_nodes: [],
+         ready: [],
          final_result: final_result
      }}
-  end
-
-  defp do_step(execution, node) do
-    case Map.fetch(execution.ready, node) do
-      {:ok, runnable} ->
-        {node_result, execution} =
-          execution
-          |> apply_public_runnable(node, FlowRunnableExecutor.execute(execution, runnable))
-
-        with {:ok, execution} <- settle(execution) do
-          {:ok, node_result, execution}
-        end
-
-      :error ->
-        {:error,
-         Error.validation_error("flow node is not ready", %{
-           flow: execution.flow_name,
-           node: node,
-           ready: ready(execution)
-         })}
-    end
-  end
-
-  defp ensure_ready(execution, node) do
-    if Map.has_key?(execution.ready, node) do
-      :ok
-    else
-      {:error,
-       Error.validation_error("flow node is not ready", %{
-         flow: execution.flow_name,
-         node: node,
-         ready: ready(execution)
-       })}
-    end
-  end
-
-  defp do_wave(execution) do
-    names = ready(execution)
-
-    if names == [] do
-      execution_not_running(execution)
-    else
-      runnables = Enum.map(names, &Map.fetch!(execution.ready, &1))
-      executed = FlowRunnableExecutor.execute_many(execution, runnables)
-
-      {node_results, execution} =
-        names
-        |> Enum.zip(executed)
-        |> Enum.reduce({[], execution}, fn {node, runnable}, {results, current} ->
-          {node_result, current} = apply_public_runnable(current, node, runnable)
-          {[node_result | results], current}
-        end)
-
-      with {:ok, execution} <- settle(execution) do
-        {:ok, Enum.reverse(node_results), execution}
-      end
-    end
   end
 
   defp with_concurrency_limiter(execution, fun) do
@@ -403,12 +319,8 @@ defmodule Jido.Exec.FlowEngine do
       :erlang.raise(kind, reason, stacktrace)
   end
 
-  defp finish_mutation(
-         execution,
-         operation,
-         {:ok, _result, %Execution{} = next_execution} = mutation
-       ) do
-    :ok = ExecutionGuard.advance(operation, execution, next_execution)
+  defp finish_mutation(execution, operation, {:ok, _result, %Execution{} = next} = mutation) do
+    :ok = ExecutionGuard.advance(operation, execution, next)
     mutation
   end
 

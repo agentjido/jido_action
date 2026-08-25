@@ -212,6 +212,45 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
     refute function_exported?(Builder, :return, 2)
   end
 
+  test "canonical public operations accept one Flow and reject other subjects" do
+    flow = JidoActionTest.FlowFixtures.math_flow!()
+
+    assert Flow.new(flow) == {:ok, flow}
+    assert %Jido.Flow.Compiled{} = Flow.compile!(flow, %{})
+    assert %{name: "math_flow", components: [_first, _second]} = Flow.to_map(flow)
+    assert length(Flow.canonical_components(flow.components)) == 2
+    assert {:ok, %{"double" => %{references: ["add_one"]}}} = Flow.dependencies(flow)
+    assert {:ok, %{kind: :flow, name: "math_flow"}} = Flow.explain(flow)
+    assert {:ok, %{digest: digest, uuid: uuid}} = Flow.semantic_identity(flow)
+    assert is_binary(digest)
+    assert is_binary(uuid)
+    assert {:ok, ^flow} = Flow.validate(flow)
+    assert {:ok, ^flow} = Flow.validate_executable(flow)
+
+    for operation <- [
+          &Flow.dependencies/1,
+          &Flow.explain/1,
+          &Flow.semantic_identity/1,
+          &Flow.validate/1,
+          &Flow.validate_executable/1
+        ] do
+      assert {:error, error} = operation.(:not_a_flow)
+      assert Exception.message(error) == "expected a Jido.Flow artifact"
+    end
+
+    invalid =
+      Flow.new!(
+        name: "compile_bang_error",
+        components: [
+          Step.new!(name: "missing", action: JidoActionTest.TestActions.MissingRun)
+        ],
+        output: Ref.result("missing")
+      )
+
+    assert_raise Jido.Action.Error.InvalidInputError, fn -> Flow.compile!(invalid) end
+    assert_raise Jido.Action.Error.InvalidInputError, fn -> Flow.new!(name: "missing_output") end
+  end
+
   defp direct_mixed_flow do
     Flow.new!(
       name: "canonical_mixed_flow",

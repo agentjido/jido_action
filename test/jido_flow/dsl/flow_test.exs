@@ -113,4 +113,202 @@ defmodule Jido.Flow.DSL.FlowTest do
 
     assert error.line == 6
   end
+
+  test "output must be the last declaration" do
+    code = """
+    defmodule OutputBeforeStepFlow do
+      use Jido.Flow, name: "output_before_step"
+
+      flow do
+        output(%{})
+        step "add", action: JidoActionTest.TestActions.Add, params: %{value: 1}
+      end
+    end
+    """
+
+    assert_raise CompileError, ~r/output must be the final Flow declaration/, fn ->
+      Code.compile_string(code)
+    end
+  end
+
+  test "Choice requires options and a fallback" do
+    no_options = """
+    defmodule ChoiceWithoutOptionsFlow do
+      use Jido.Flow, name: "choice_without_options"
+
+      flow do
+        choice "route" do
+          otherwise action: JidoActionTest.TestActions.Add, params: %{value: 1}
+        end
+
+        output(result("route"))
+      end
+    end
+    """
+
+    assert_raise CompileError, ~r/choice must declare at least one option/, fn ->
+      Code.compile_string(no_options)
+    end
+
+    no_fallback = """
+    defmodule ChoiceWithoutFallbackFlow do
+      use Jido.Flow, name: "choice_without_fallback"
+
+      flow do
+        choice "route" do
+          option "yes",
+            condition: 1 == 1,
+            action: JidoActionTest.TestActions.Add,
+            params: %{value: 1}
+        end
+
+        output(result("route"))
+      end
+    end
+    """
+
+    assert_raise CompileError, ~r/choice must declare otherwise/, fn ->
+      Code.compile_string(no_fallback)
+    end
+  end
+
+  test "Iterate requires valid state and termination data" do
+    cases = [
+      {"""
+       iterate "loop" do
+         action(JidoActionTest.TestActions.Add)
+         params(%{value: 1})
+         repeat(1)
+       end
+       """, "iterate must declare one state"},
+      {"""
+       iterate "loop" do
+         state([], initial: %{})
+         action(JidoActionTest.TestActions.Add)
+         params(%{value: 1})
+         while(1 == 1)
+       end
+       """, "iterate max_iterations must be an integer"},
+      {"""
+       iterate "loop" do
+         state([], initial: %{})
+         action(JidoActionTest.TestActions.Add)
+         params(%{value: 1})
+         repeat(1)
+         max_iterations(1)
+       end
+       """, "iterate repeat must not set max_iterations"},
+      {"""
+       iterate "loop" do
+         state([], initial: %{})
+         action(JidoActionTest.TestActions.Add)
+         params(%{value: 1})
+       end
+       """, "iterate requires exactly one of while or repeat"}
+    ]
+
+    cases
+    |> Enum.with_index()
+    |> Enum.each(fn {{iterate, message}, index} ->
+      code = """
+      defmodule InvalidTerminationFlow#{index} do
+        use Jido.Flow, name: "invalid_termination_#{index}"
+
+        flow do
+          #{iterate}
+          output(result("loop"))
+        end
+      end
+      """
+
+      assert_raise CompileError, ~r/#{message}/, fn -> Code.compile_string(code) end
+    end)
+  end
+
+  test "the lowerer reports invalid expressions and unavailable step modules" do
+    invalid_expression = """
+    defmodule InvalidOutputExpressionFlow do
+      use Jido.Flow, name: "invalid_output_expression"
+
+      flow do
+        output(Date.utc_today())
+      end
+    end
+    """
+
+    assert_raise CompileError, ~r/unsupported Flow expression/, fn ->
+      Code.compile_string(invalid_expression)
+    end
+
+    missing_module = """
+    defmodule MissingStepModuleFlow do
+      use Jido.Flow, name: "missing_step_module"
+
+      flow do
+        step "missing", action: Jido.Flow.NotARealModule, params: %{}
+        output(result("missing"))
+      end
+    end
+    """
+
+    assert_raise CompileError, ~r/step action module could not be compiled/, fn ->
+      Code.compile_string(missing_module)
+    end
+  end
+
+  test "a valid while Iterate and scalar Step after lower without DSL shape changes" do
+    code = """
+    defmodule ValidWhileAndAfterFlow do
+      use Jido.Flow, name: "valid_while_and_after"
+
+      flow do
+        step "first", action: JidoActionTest.TestActions.Add, params: %{value: 1}
+
+        step "second",
+          action: JidoActionTest.TestActions.Add,
+          params: %{value: 1},
+          after: "first"
+
+        iterate "loop" do
+          state([], initial: %{value: 0})
+          action(JidoActionTest.TestActions.Add)
+          params(%{value: state(:value)})
+          update(body_result())
+          while(state(:value) < 1)
+          max_iterations(2)
+        end
+
+        output(result("loop"))
+      end
+    end
+    """
+
+    [{module, _bytecode}] = Code.compile_string(code)
+
+    assert [
+             %Jido.Flow.Step{},
+             %Jido.Flow.Step{after: ["first"]},
+             %Jido.Flow.Iterate{}
+           ] = module.flow().components
+
+    assert %{[:components, "loop", :state] => %{line: line}} =
+             module.__jido_flow_source_map__()
+
+    assert is_integer(line)
+  end
+
+  test "invalid module configuration is a compile error" do
+    code = """
+    defmodule InvalidFlowConfiguration do
+      use Jido.Flow, name: 123
+      flow do
+        output(%{})
+      end
+    end
+    """
+
+    assert_raise CompileError, ~r/Flow configuration validation failed/, fn ->
+      Code.compile_string(code)
+    end
+  end
 end

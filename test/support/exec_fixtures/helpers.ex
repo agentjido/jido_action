@@ -1,8 +1,6 @@
 defmodule JidoActionTest.ExecFixtures do
   @moduledoc false
 
-  import ExUnit.Assertions, only: [assert: 1]
-
   alias Jido.{Exec, Flow, Instruction}
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.{Reduce, Ref, Step, Subflow}
@@ -264,12 +262,6 @@ defmodule JidoActionTest.ExecFixtures do
       instruction: fn -> Exec.run(instruction, %{}, %{}) end,
       parent: fn -> Exec.run(parent, input, %{}) end
     ]
-  end
-
-  def assert_ready_cache(execution, expected) do
-    assert Exec.ready(execution) == expected
-    assert Map.fetch!(execution, :ready_nodes) == expected
-    assert execution.ready |> Map.keys() |> Enum.sort() == expected
   end
 
   def node_name(index) do

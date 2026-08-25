@@ -80,5 +80,13 @@ load or check executable targets.
 Map, Reduce, and Iterate target slots require exact executable kind `:action`.
 Subflow requires exact kind `:flow` and validates the child Flow recursively.
 
-Use `Jido.Exec.run/4` for execution. Native Runic compilation and the complete
-execution migration are phase-two work.
+Use `Jido.Flow.compile/2` to create derived native Runic data. Use
+`Jido.Exec.run/4` for execution:
+
+```elixir
+{:ok, %Jido.Flow.Compiled{} = compiled} = Jido.Flow.compile(flow)
+{:ok, output} = Jido.Exec.run(flow, input)
+```
+
+The step-wise execution API exposes native Runic Runnable values. It can show
+support work that has no canonical Jido component.

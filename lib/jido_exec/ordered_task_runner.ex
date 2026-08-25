@@ -1,4 +1,4 @@
-defmodule Jido.Flow.Runtime.OrderedTaskRunner do
+defmodule Jido.Exec.OrderedTaskRunner do
   @moduledoc false
 
   alias Jido.Exec.ConcurrencyLimiter

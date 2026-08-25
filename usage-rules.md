@@ -78,6 +78,9 @@ Use `jido_action` for validated work and data-first composition:
 - Only Flow execution accepts `async` and `max_concurrency` options.
 - Use `start/4`, `ready/1`, `step/1`, `step/2`, `wave/1`, `continue/1`, and
   `result/1` for step-wise Flow execution.
+- Treat values from `ready/1`, `step/1`, `step/2`, and `wave/1` as native
+  `Runic.Workflow.Runnable` values. Runic support work is visible.
+- Select `step/2` work with a ready Runnable or its integer ID.
 - Treat each execution as caller-owned, in-memory state with its own
   concurrency limit. Always pass the latest value to the next step-wise call.
 - Do not persist an execution as a checkpoint. Reusing a stale value can run an

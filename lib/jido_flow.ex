@@ -48,6 +48,8 @@ defmodule Jido.Flow do
 
   alias Jido.Action.Error
   alias Jido.Flow.DSL.ModuleCompiler
+  alias Jido.Flow.Compiler
+  alias Jido.Flow.Compiled
   alias Jido.Flow.Component
   alias Jido.Flow.Graph
   alias Jido.Flow.Identity
@@ -98,6 +100,28 @@ defmodule Jido.Flow do
     case new(attrs) do
       {:ok, flow} -> flow
       {:error, error} when is_exception(error) -> raise error
+    end
+  end
+
+  @doc """
+  Compiles a validated Flow to one native Runic workflow.
+
+  The returned value contains derived runtime data. It is not an authoring or
+  storage format. Use `Jido.Flow.Codec` to store a Flow.
+  """
+  @spec compile(t(), keyword() | Compiled.source_map()) ::
+          {:ok, Compiled.t()} | {:error, Exception.t()}
+  def compile(flow, opts \\ [])
+  def compile(%__MODULE__{} = flow, opts), do: Compiler.compile(flow, opts)
+
+  def compile(value, _opts), do: invalid_flow_subject(value)
+
+  @doc "Compiles a Flow or raises the compilation error."
+  @spec compile!(t(), keyword() | Compiled.source_map()) :: Compiled.t() | no_return()
+  def compile!(%__MODULE__{} = flow, opts \\ []) do
+    case compile(flow, opts) do
+      {:ok, compiled} -> compiled
+      {:error, error} -> raise error
     end
   end
 

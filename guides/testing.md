@@ -118,11 +118,11 @@ an empty Reduce collection and the initial accumulator.
 
 ```elixir
 test "maps and reduces in source order" do
-  assert {:ok, %{mapped: %{results: results, errors: []}, total: %{total: 12}}} =
+  assert {:ok, %{mapped: results, total: %{total: 12}}} =
            Jido.Exec.run(MyApp.Flows.DoubleAndSum, %{values: [1, 2, 3]}, %{})
 
   assert Enum.map(results, & &1.index) == [0, 1, 2]
-  assert Enum.map(results, & &1.output.value) == [2, 4, 6]
+  assert Enum.map(results, & &1.value) == [2, 4, 6]
 end
 ```
 
@@ -155,23 +155,24 @@ Iterator body has effects, also test the repeat-risk and idempotency boundary. S
 ## Test Nested Flows
 
 Test the child Flow directly for its own graph and behavior. Test the parent
-for input mapping, child output mapping, and the atomic parent node boundary.
+for input mapping, child output mapping, and its native Workflow boundary.
 
 ```elixir
-test "reports a nested Flow as one parent node" do
+test "exposes nested Flow runnables" do
   assert {:ok, execution} =
            Jido.Exec.start(MyApp.Flows.Parent, %{value: 4}, %{})
 
-  assert ["child"] = Jido.Exec.ready(execution)
-  assert {:ok, %Jido.Exec.NodeResult{node: "child", status: :ok}, execution} =
-           Jido.Exec.step(execution, "child")
+  assert [%Runic.Workflow.Runnable{} = runnable] = Jido.Exec.ready(execution)
+  assert {:ok, %Runic.Workflow.Runnable{status: :completed}, execution} =
+           Jido.Exec.step(execution, runnable)
 
+  assert {:ok, execution} = Jido.Exec.continue(execution)
   assert Jido.Exec.status(execution) == :succeeded
 end
 ```
 
-The parent does not expose child nodes. A nested Flow inherits the parent's
-`async` and `max_concurrency` options and uses the same execution budgets.
+The parent exposes child Steps, validators, and Runic connection work. A
+nested Flow inherits the parent's context and execution settings.
 
 ## Test Step-wise Execution
 
@@ -182,26 +183,19 @@ Assert the latest execution after every transition.
 test "steps through dependency waves" do
   assert {:ok, execution} = Jido.Exec.start(MyApp.Flows.BuildReport, %{account_id: "acct-1"})
   assert Jido.Exec.status(execution) == :running
-  assert Jido.Exec.ready(execution) == ["load_account", "load_orders"]
+  assert Enum.all?(Jido.Exec.ready(execution), &match?(%Runic.Workflow.Runnable{}, &1))
 
-  assert {:ok, %Jido.Exec.NodeResult{node: "load_account", status: :ok}, execution} =
-           Jido.Exec.step(execution, "load_account")
+  assert {:ok, runnables, execution} = Jido.Exec.wave(execution)
+  assert Enum.all?(runnables, &(&1.status == :completed))
 
-  assert Jido.Exec.ready(execution) == ["load_orders"]
-
-  assert {:ok, %Jido.Exec.NodeResult{node: "load_orders", status: :ok}, execution} =
-           Jido.Exec.step(execution)
-
-  assert Jido.Exec.ready(execution) == ["build_summary"]
-  assert {:ok, %Jido.Exec.NodeResult{node: "build_summary", status: :ok}, execution} =
-           Jido.Exec.step(execution)
+  assert {:ok, execution} = Jido.Exec.continue(execution)
 
   assert Jido.Exec.status(execution) == :succeeded
   assert {:ok, %{account_id: "acct-1", order_count: 1}} = Jido.Exec.result(execution)
 end
 ```
 
-Test that a non-ready node returns `{:error, error}` and leaves the old
+Test that a non-ready runnable ID returns `{:error, error}` and leaves the old
 execution unchanged. Test that a terminal execution rejects further steps.
 
 ## Test Waves
@@ -214,23 +208,22 @@ test "executes one ready wave" do
   assert {:ok, execution} = Jido.Exec.start(MyApp.Flows.BuildReport, %{account_id: "acct-wave"})
   assert {:ok, results, execution} = Jido.Exec.wave(execution)
 
-  assert Enum.map(results, & &1.node) == ["load_account", "load_orders"]
-  assert Enum.all?(results, &(&1.status == :ok))
-  assert Jido.Exec.ready(execution) == ["build_summary"]
+  assert Enum.all?(results, &match?(%Runic.Workflow.Runnable{status: :completed}, &1))
+  assert Enum.all?(Jido.Exec.ready(execution), &match?(%Runic.Workflow.Runnable{}, &1))
 end
 ```
 
 ## Test Failures And Independent Work
 
-A node failure is an applied transition. The step result is `{:ok, node_result,
-latest_execution}`, with `node_result.status == :error`. Dependent nodes are
-skipped, and Jido does not dispatch independent nodes after the failure.
+A runnable failure is an applied transition. The step result is
+`{:ok, runnable, latest_execution}`, with `runnable.status == :failed`.
 
 ```elixir
 test "stops after a failure" do
   assert {:ok, execution} = Jido.Exec.start(MyApp.Flows.FailureFlow)
-  assert {:ok, %Jido.Exec.NodeResult{status: :error}, execution} =
-           Jido.Exec.step(execution, "fail")
+  assert [runnable | _] = Jido.Exec.ready(execution)
+  assert {:ok, %Runic.Workflow.Runnable{status: :failed}, execution} =
+           Jido.Exec.step(execution, runnable)
 
   assert Jido.Exec.status(execution) == :failed
   assert Jido.Exec.ready(execution) == []
@@ -238,9 +231,8 @@ test "stops after a failure" do
 end
 ```
 
-For an asynchronous wave, also test the case where two nodes fail. Assert that
-`Jido.Exec.FlowFailureError.failures` contains both node errors in canonical
-node order.
+For an asynchronous wave, also test the case where two runnables fail. Assert
+that `Jido.Exec.FlowFailureError.failures` contains both errors.
 
 Use `capture_log: true` when the failure path emits expected error logs.
 Assert error types and important details, not full log formatting.
@@ -248,7 +240,7 @@ Assert error types and important details, not full log formatting.
 ## Test Parallel Options
 
 The Flow API supports only `async` and `max_concurrency`. Test option
-validation directly, and use `async: true` to test that independent nodes can
+validation directly, and use `async: true` to test that independent runnables can
 be scheduled in the same wave.
 
 ```elixir
@@ -263,7 +255,9 @@ test "accepts the parallel execution options" do
            )
 
   assert {:ok, results, _execution} = Jido.Exec.wave(execution)
-  assert Enum.map(results, & &1.node) == ["load_account", "load_orders"]
+  assert results
+         |> Enum.map(& &1.node.name)
+         |> Enum.sort() == ["load_account", "load_orders"]
 end
 
 test "rejects unsupported runtime policy" do
@@ -273,7 +267,7 @@ end
 ```
 
 Do not assert elapsed time to prove parallelism. Scheduler load makes timing
-tests flaky. Instead, assert the ready set, the wave result order, and the
-stored option behavior. The current API does not provide retries, backoff,
+tests flaky. Instead, assert the ready set, runnable states, and the stored
+option behavior. Ready-list order is not an authoring contract. The current API does not provide retries, backoff,
 timeouts, deadlines, cancellation, rewind, or persistence; test those policies
 in the higher-level runtime that owns them.

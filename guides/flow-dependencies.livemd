@@ -91,24 +91,27 @@ flow = FlowDependencies.Diamond.flow()
 %{effective: []} = dependencies["right"]
 ```
 
-## Ready Waves Are Canonical
+## Ready Waves Follow The Native Graph
 
-Start a paused execution to inspect the graph. `ready/1` returns ready node
-names in canonical order. `wave/1` executes the current ready set. Nodes that
-become ready wait for the next wave.
+Start a paused execution to inspect the graph. `ready/1` returns native Runic
+runnables. `wave/1` executes the current ready set. Runnables that become ready
+wait for the next wave. Do not use ready-list order as an authoring contract.
 
 ```elixir
 {:ok, execution} = Jido.Exec.start(FlowDependencies.Diamond, %{value: 2}, %{})
 
-["left", "right", "source"] = Jido.Exec.ready(execution)
+3 = length(Jido.Exec.ready(execution))
 
 {:ok, first_wave, execution} = Jido.Exec.wave(execution)
-true = Enum.map(first_wave, & &1.node) == ["left", "right", "source"]
+true =
+  first_wave
+  |> Enum.map(& &1.node.name)
+  |> Enum.sort() == ["left", "right", "source"]
 
-["explicit", "implicit"] = Jido.Exec.ready(execution)
+2 = length(Jido.Exec.ready(execution))
 
 {:ok, _second_wave, execution} = Jido.Exec.wave(execution)
-["joined"] = Jido.Exec.ready(execution)
+[_native_join] = Jido.Exec.ready(execution)
 
 {:ok, execution} = Jido.Exec.continue(execution)
 {:ok, %{implicit: 2, explicit: 2, left: 2, right: 2}} = Jido.Exec.result(execution)

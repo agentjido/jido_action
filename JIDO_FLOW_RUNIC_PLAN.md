@@ -1,12 +1,11 @@
 # Jido.Flow and Runic Design Plan
 
-Status: Phase-one data design is implemented on `v3-spike`. Native Runic
-compilation and the full `Jido.Exec` change are phase-two work.
+Status: The phase-one data design and phase-two native Runic execution pass are
+implemented on `v3-spike`.
 
 ## Implementation status
 
-Phase one implements stages 1 through 6 and the phase-one part of stages 13
-and 14:
+Stages 1 through 13 are implemented:
 
 - `%Jido.Flow{}` and all canonical component structs
 - One expression, reference, condition, and portable data grammar
@@ -17,11 +16,21 @@ and 14:
 - A separate Spark source map
 - The derived `Jido.Flow.Compiled` data container
 - Removal of the old authoring aliases, inference layers, and duplicate models
+- Native Runic Step, Map, Reduce, Workflow, FanOut, FanIn, Join, and
+  InputBinding execution
+- Direct native Map-to-Reduce fan-in and scalar Map collection
+- Native Runnable step-wise execution without a second Jido scheduler
+- Removal of `NodeResult`, `MapResult`, and the temporary runtime compiler
+- A migrated Runic execution test suite and user documentation
 
-Phase one keeps a small adapter to the current execution engine. It does not
-claim native Runic Map, Reduce, Workflow-boundary, or connection semantics.
-Stages 7 through 11, removal of the temporary execution adapter and
-`MapResult`, and a full `Jido.Exec` test migration belong to phase two.
+Verification for this implementation:
+
+- `mix test`: 272 tests passed and 2 tests were excluded.
+- `mix test.integration`: 2 integration tests passed.
+- `mix test --cover`: total coverage is 90.11%.
+- `mix quality`: formatting, compilation with warnings as errors, Credo, and
+  Dialyzer passed.
+- `mix docs --warnings-as-errors`: the public documentation build passed.
 
 ## Goal
 
@@ -76,9 +85,10 @@ to the smallest correct composition of native Runic Steps. Do not force Choice
 into independent Rules or Iterate into StateMachine. Correct semantics are
 more important than matching component names.
 
-## Current code findings
+## Phase-one baseline findings
 
-The present code has these design problems:
+The code inspected before this implementation had these design problems. The
+implemented stages resolve them:
 
 - `%Jido.Flow{}` stores `nodes` and `return`, but the DSL uses `params`,
   `after`, `meta`, and `output`. See `lib/jido_flow.ex` and
@@ -298,12 +308,15 @@ rules:
 - Evaluate the child Flow output expression once.
 - Validate the child Flow output once.
 - Keep the parent context and execution identifier.
-- Keep the child Flow lifecycle and error path.
+- Keep the child error path in the parent Flow lifecycle. Do not add a separate
+  child Flow lifecycle around the native Workflow boundary.
 
 The Runic boundary is one parent component. Its internal child components are
 native Runic components. Parent result references read the boundary output.
-The parent Jido stepwise API must show the Subflow as one outer component. It
-must not expose child internals as parent-ready components.
+The Jido stepwise API exposes native Runic runnables. A nested Workflow is not
+one runnable. Its entry validator, internal components, output resolver, and
+output validator can appear as separate Runic runnables. Do not add a Jido
+boundary scheduler to group or hide them.
 
 Each Subflow `name` is also an instance identity. The compiler recursively
 compiles the child with a path namespace such as `parent/charge`. It gives the
@@ -740,8 +753,8 @@ The compiler:
 - Converts `after` into readiness connections or gates. These connections do
   not become Action params and do not change the value resolved by an
   expression.
-- Converts result references into data connections.
-- Uses Runic selectors and target paths for safe parameter assembly.
+- Converts result references into dependency readiness and expression data.
+- Uses Runic selectors and target paths at native Workflow boundaries.
 - Lets Runic generate InputBinding, Join, FanOut, and FanIn nodes.
 - Keeps a name-to-component and name-to-output-port index.
 - Recursively compiles each Subflow as an instance-scoped Runic Workflow
@@ -752,11 +765,11 @@ The compiler:
   into the Flow or Runic component metadata.
 - Does not change the Flow.
 
-Runic named-port Connections carry data. Jido `after` carries only control
-intent. The compiler must keep these two edge kinds separate. When a component
-has both data references and `after` constraints, a generated gate or Join can
-wait for all required predecessors without adding their output values to the
-Action params.
+Runic named-port Connections carry data at Workflow boundaries. Jido `after`
+carries only control intent. For local components, one native Join can wait for
+both reference and `after` predecessors. The expression resolver reads values
+only for declared result references, so `after` output never enters Action
+parameters. This removes a second gate when one Join is sufficient.
 
 Runic logical Connections are a useful model for this boundary. The authored
 connection stays distinct from the internal executable nodes that Runic
@@ -773,10 +786,28 @@ Execution keeps the Action pattern:
 5. Evaluate the Flow output expression.
 6. Validate the Flow output.
 
+Runic defines the stepwise work units. `Jido.Exec.ready/1` returns native
+`Runic.Workflow.Runnable` values. `step/1`, `step/2`, and `wave/1` execute and
+apply those values through the Runic prepare, execute, and apply phases.
+
+This API can expose Steps, Joins, InputBindings, FanOuts, FanIns, collectors,
+validators, and nested Workflow internals. It does not group these runnables
+into authored Jido component boundaries. It does not promise Jido declaration
+order for ready work.
+
+`Jido.Exec.run/4`, `continue/1`, `status/1`, and `result/1` remain Jido
+convenience functions. They keep Flow input and output validation, Action
+execution, context, execution IDs, Flow lifecycle telemetry, and final error
+handling.
+
+`Jido.Flow.Compiled.component_index` supports inspection, output selection,
+source diagnostics, and authored-to-Runic lookup. It does not control
+scheduling and does not identify hidden runnable groups.
+
 Compilation includes executable validation. Do not maintain separate compiler
 and executor implementations of the same target checks.
 
-In phase two, generated Flow modules will declare both `@behaviour Jido.Action` and
+Generated Flow modules declare both `@behaviour Jido.Action` and
 `@behaviour Jido.Executable`. They provide:
 
 - `name/0`
@@ -787,21 +818,19 @@ In phase two, generated Flow modules will declare both `@behaviour Jido.Action` 
 - `validate_output/1`
 - `run/2`
 - `flow/0`
-- `compiled/0` (phase two)
+- `compiled/0`
 
-The phase-one Spark module compiler stores its source map separately and makes
-it available through a private diagnostic callback. In phase two,
-`compiled/0` supplies that source map to `Jido.Flow.compile/2` and returns a
-`%Jido.Flow.Compiled{}`. `run/2` delegates the compiled value to `Jido.Exec`.
-Direct and decoded Flow values can call `Jido.Flow.compile/1` with an empty
-source map.
+The Spark module compiler stores its source map separately and makes it
+available through a private diagnostic callback. `compiled/0` supplies that
+source map to `Jido.Flow.compile/2` and returns a `%Jido.Flow.Compiled{}`. The
+Flow execution adapter uses this value when it runs the module. Direct and
+decoded Flow values call `Jido.Flow.compile/1` with an empty source map.
 
-The generated module also provides one compiler-owned, `@doc false`
-`__jido_flow_compile__/1` callback. `compiled/0` calls it with an empty
-namespace. A parent Flow calls it with the Subflow instance namespace and the
-active module stack. This lets the child compiler create correct names and
-hashes before it builds the Runic graph. Do not build one child graph and then
-rewrite Runic graph internals.
+The compiler recursively reads each trusted child module's `flow/0` value. It
+passes the Subflow instance namespace and active module stack through its own
+private compile state. This creates correct child names and hashes before graph
+construction. It does not require a second generated module callback, and it
+does not rewrite Runic graph internals after compilation.
 
 Flow nodes discard Action extras and use only the Action output or error
 reason. This agrees with the present Action contract.
@@ -1064,8 +1093,8 @@ uses one canonical identifier.
 - Compile the same child module as two sibling Subflows. Confirm that their
   internal Runic names, hashes, facts, and results are independent.
 - Confirm that a recursive Subflow module cycle fails before graph creation.
-- Confirm that the parent stepwise API shows one Subflow boundary and does not
-  expose child internals as parent-ready components.
+- Confirm that native child Runic runnables are visible through the parent
+  stepwise API.
 - Confirm that a child source map is prefixed with the Subflow path.
 - Confirm that a child semantic change changes the parent compilation digest.
 - Confirm that Map becomes `Runic.Workflow.Map`, uses FanOut, and has native
@@ -1096,17 +1125,18 @@ uses one canonical identifier.
 - Test Action input and output validation for each leaf call.
 - Test Flow output validation.
 - Test Action errors and discarded extras.
-- Test full-run and stepwise-run parity.
+- Test full-run and native-runnable stepwise-run parity.
+- Test that `ready/1`, `step/1`, `step/2`, and `wave/1` expose native Runic
+  Runnable values.
+- Test visible Join, InputBinding, FanOut, FanIn, validator, collector, and
+  nested Workflow runnables where the compiled graph needs them.
 - Test independent component concurrency.
 - Test Map error modes.
 - Test Iterate completion and maximum iteration errors.
 
 ## 8. Staged implementation
 
-Stages 1 through 6 are complete in phase one. Stages 7 through 11 are the
-phase-two Runic and `Jido.Exec` pass. Stage 12 is
-complete for authoring data and remains open for the old execution adapter and
-`MapResult`.
+Stages 1 through 13 are complete.
 
 1. Record the approved public types, native Runic Map contract, and Codec
    contract in failing tests.
@@ -1135,9 +1165,10 @@ complete for authoring data and remains open for the old execution adapter and
 9. Add native Runic Map and Reduce lowering. Use cardinality-many Map output,
    direct Map-to-Reduce FanIn, and boundary collection only when one expression
    value is required.
-10. Add separate control gates for `after` and data bindings for references.
+10. Keep `after` as control-only readiness and result references as expression
+    data. Use one native Join when it can satisfy both readiness sets.
 11. Connect execution to the compiled Runic workflow and keep the Action
-    validation pattern.
+    validation pattern. Expose native Runic runnables from the stepwise API.
 12. Delete old constructors, aliases, inference paths, duplicate models,
     canonical provenance fields, and `MapResult`.
 13. Update documentation and run formatting, unit tests, static analysis, and
@@ -1146,17 +1177,20 @@ complete for authoring data and remains open for the old execution adapter and
 Each stage starts with contract tests. Remove an old path only after the new
 path passes parity and migration tests.
 
-Phase two is not complete until the temporary execution model is removed:
+The phase-two cleanup has these results:
 
-- Replace the component-specific modules under `lib/jido_flow/compiler/` with
-  one native Runic lowerer in `Jido.Flow.Compiler`.
-- Remove `Jido.Flow.Compiler.MapResult`.
-- Remove or move `Jido.Flow.Runtime.OrderedTaskRunner` and
-  `Jido.Flow.NodeError` to `Jido.Exec` if native Runic execution still needs
-  equivalent Jido-owned behavior.
+- `Jido.Flow.Compiler` is the one graph lowerer. Its small helper modules
+  resolve expressions and run local Choice and Iterate Step semantics. They do
+  not construct alternate graphs.
+- `Jido.Flow.Compiler.MapResult` is removed.
+- `OrderedTaskRunner` moved to `Jido.Exec`. `Jido.Flow.NodeError` is removed.
 - Do not keep a Jido implementation of Runic Choice, Map, Reduce, or Iterate
   semantics in parallel with native Runic.
 - Keep `Jido.Flow.Compiled` as the only derived compilation data type.
+- `Jido.Exec.NodeResult` and the Jido component-boundary scheduler are removed.
+- Do not partition Runic runnables into public and internal sets.
+- Do not automatically drain support runnables to make one authored component
+  look like one execution step.
 
 ## 9. Approved and open design decisions
 

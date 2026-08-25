@@ -2,13 +2,13 @@ defmodule Jido.Flow.Compiler do
   @moduledoc false
 
   alias Jido.Action.Error
+  alias Jido.Action.Output
   alias Jido.Flow
   alias Jido.Flow.Choice
-  alias Jido.Flow.Compiler.Choice, as: ChoiceCompiler
+  alias Jido.Flow.Compiled
+  alias Jido.Flow.Compiler.Choice, as: ChoiceRuntime
   alias Jido.Flow.Compiler.Expression
-  alias Jido.Flow.Compiler.Iterator, as: IteratorCompiler
-  alias Jido.Flow.Compiler.Map, as: MapCompiler
-  alias Jido.Flow.Compiler.Reduce, as: ReduceCompiler
+  alias Jido.Flow.Compiler.Iterator, as: IterateRuntime
   alias Jido.Flow.Compiler.Target
   alias Jido.Flow.Compiler.TargetContext
   alias Jido.Flow.Component
@@ -16,254 +16,977 @@ defmodule Jido.Flow.Compiler do
   alias Jido.Flow.Identity
   alias Jido.Flow.Iterate
   alias Jido.Flow.Map, as: FlowMap
-  alias Jido.Flow.NodeError
-  alias Jido.Flow.Reduce
+  alias Jido.Flow.Reduce, as: FlowReduce
+  alias Jido.Flow.Ref
   alias Jido.Flow.Step, as: FlowStep
   alias Jido.Flow.Subflow
   alias Runic.Workflow
-  alias Runic.Workflow.Step
+
+  alias Runic.Workflow.{
+    Components,
+    FanIn,
+    FanOut,
+    Step
+  }
+
+  alias Runic.Workflow.Map, as: RunicMap
+  alias Runic.Workflow.Reduce, as: RunicReduce
+
+  @compiler_version 2
+  @runtime_ref %{
+    kind: :context,
+    target: :jido,
+    context_key: :jido,
+    field_path: []
+  }
 
   @type target_phase :: :input | :execution | :output
   @type target_runner ::
           (module(), term(), map(), String.t(), TargetContext.t() ->
              {:ok, term()} | {:error, target_phase(), Exception.t()})
 
-  @type observer :: (term() -> term())
+  @doc false
+  @spec compile(Flow.t(), keyword() | Compiled.source_map()) ::
+          {:ok, Compiled.t()} | {:error, Exception.t()}
+  def compile(%Flow{} = flow, opts \\ []) do
+    source_map = source_map(opts)
 
-  @type node_state :: %{
-          execution_id: String.t(),
-          flow: String.t(),
-          flow_digest: String.t(),
-          input: map(),
-          context: map(),
-          results: map(),
-          options: keyword(),
-          map_nodes: MapSet.t(String.t()),
-          target_runner: target_runner(),
-          observer: observer()
+    with {:ok, flow} <- Flow.validate_executable(flow) do
+      try do
+        state = compile_flow(flow, [], [], source_map, nil)
+
+        digest_data = %{
+          compiler: @compiler_version,
+          flow: Identity.semantic_digest(flow),
+          children: Enum.sort(state.child_digests)
         }
 
-  @doc false
-  @spec runtime_workflow_validated(
-          Flow.t(),
-          map(),
-          map(),
-          keyword(),
-          target_runner(),
-          String.t()
-        ) ::
-          {:ok, Workflow.t(), [Component.t()]} | {:error, Exception.t()}
-  def runtime_workflow_validated(
-        %Flow{} = flow,
-        input,
-        context,
-        options,
-        target_runner,
-        execution_id
-      ) do
-    runtime_workflow_validated(
-      flow,
-      input,
-      context,
-      options,
-      target_runner,
-      execution_id,
-      &ignore_observation/1
-    )
+        {:ok,
+         %Compiled{
+           workflow: state.workflow,
+           component_index: state.component_index,
+           output: flow.output,
+           source_map: state.source_map,
+           compilation_digest: digest(digest_data)
+         }}
+      rescue
+        error -> {:error, normalize_compile_error(error)}
+      catch
+        kind, reason ->
+          {:error,
+           Error.execution_error("flow compilation failed", %{
+             phase: :flow_compilation,
+             kind: kind,
+             reason: reason
+           })}
+      end
+    end
   end
 
   @doc false
-  @spec runtime_workflow_validated(
-          Flow.t(),
-          map(),
-          map(),
-          keyword(),
-          target_runner(),
-          String.t(),
-          observer()
-        ) ::
-          {:ok, Workflow.t(), [Component.t()]} | {:error, Exception.t()}
-  def runtime_workflow_validated(
-        %Flow{} = flow,
-        input,
-        context,
-        options,
-        target_runner,
-        execution_id,
-        observer
-      )
-      when is_map(input) and is_map(context) and is_list(options) and
-             is_function(target_runner, 5) and is_binary(execution_id) and
-             is_function(observer, 1) do
-    node_state = %{
-      execution_id: execution_id,
-      flow: flow.name,
-      flow_digest: Identity.semantic_digest(flow),
-      input: input,
-      context: context,
-      results: %{},
-      options: options,
-      target_runner: target_runner,
-      observer: observer,
-      map_nodes:
-        flow.components
-        |> Enum.filter(&match?(%FlowMap{}, &1))
-        |> MapSet.new(&Component.name_of/1)
-    }
-
-    build(flow, node_state)
-  end
-
-  def runtime_workflow_validated(
-        %Flow{},
-        _input,
-        _context,
-        _options,
-        _target_runner,
-        _execution_id,
-        _observer
-      ) do
-    {:error, Error.validation_error("flow input and context must be maps")}
-  end
-
-  defp ignore_observation({:start, _kind, _metadata}), do: nil
-  defp ignore_observation({:stop, _span}), do: :ok
-  defp ignore_observation({:error, _span, _error}), do: :ok
-
-  @doc false
-  @spec runtime_result(Flow.t(), Workflow.t(), map(), map()) ::
+  @spec runtime_result(Compiled.t(), Workflow.t(), map(), map()) ::
           {:ok, term()} | {:error, Exception.t()}
-  def runtime_result(%Flow{} = flow, %Workflow{} = workflow, input, context)
+  def runtime_result(%Compiled{} = compiled, %Workflow{} = workflow, input, context)
       when is_map(input) and is_map(context) do
-    Expression.extract_return(flow.output, workflow, input, context)
+    result_names = compiled.output |> Flow.Expression.result_refs() |> Enum.uniq()
+
+    result_names
+    |> Enum.reduce_while({:ok, %{}}, fn name, {:ok, results} ->
+      case Map.fetch(compiled.component_index, name) do
+        {:ok, %{output: output_name}} ->
+          case Workflow.results(workflow, [output_name], facts: true, all: true) do
+            %{^output_name => facts} when is_list(facts) and facts != [] ->
+              value = facts |> List.last() |> Map.fetch!(:value) |> unwrap_value()
+              {:cont, {:ok, Map.put(results, name, value)}}
+
+            _other ->
+              {:halt,
+               {:error,
+                Error.execution_error("flow execution produced no final state", %{
+                  component: name,
+                  output: output_name
+                })}}
+          end
+
+        :error ->
+          {:halt,
+           {:error,
+            Error.execution_error("compiled Flow output is not indexed", %{component: name})}}
+      end
+    end)
+    |> case do
+      {:ok, results} ->
+        Expression.resolve(compiled.output, %{input: input, context: context, results: results})
+
+      {:error, error} ->
+        {:error, error}
+    end
   end
 
-  defp build(%Flow{} = flow, node_state) do
-    ordered = Graph.canonical_components(flow.components)
+  @doc false
+  def input_frame(input), do: {:jido_flow_input, input, nil}
+
+  defp source_map(opts) when is_map(opts), do: opts
+  defp source_map(opts) when is_list(opts), do: Keyword.get(opts, :source_map, %{})
+  defp source_map(_opts), do: %{}
+
+  defp compile_flow(flow, namespace, module_stack, source_map, root_parent) do
+    workflow_name = scoped(namespace, flow.name)
 
     workflow =
-      Enum.reduce(ordered, Workflow.new(flow.name), fn node, workflow ->
-        add_step(workflow, node, build_step(node, node_state))
+      case root_parent do
+        nil -> Workflow.new(name: workflow_name)
+        %Step{} = parent -> Workflow.new(name: workflow_name) |> Workflow.add(parent)
+      end
+
+    initial = %{
+      workflow: workflow,
+      flow: flow,
+      namespace: namespace,
+      module_stack: module_stack,
+      root_parent: root_parent,
+      outputs: %{},
+      component_index: %{},
+      source_map: source_map,
+      child_digests: []
+    }
+
+    flow.components
+    |> Graph.canonical_components()
+    |> Enum.reduce(initial, &add_component/2)
+  end
+
+  defp add_component(%FlowStep{} = component, state) do
+    step =
+      runtime_step(state, component.name, :step, fn parent, runtime ->
+        local = component_state(component, parent, runtime)
+
+        local
+        |> resolve_and_run(component.params, component.action, TargetContext.node(component))
+        |> wrap_result()
       end)
 
-    {:ok, workflow, ordered}
+    add_authored_output(state, component, step, step)
   end
 
-  defp build_step(node, node_state) do
+  defp add_component(%Choice{} = component, state) do
+    step =
+      runtime_step(state, component.name, :choice, fn parent, runtime ->
+        local = component_state(component, parent, runtime)
+        result = ChoiceRuntime.run(component, local)
+        output = unwrap_component_result(result)
+        value(local.input_frame, output)
+      end)
+
+    add_authored_output(state, component, step, step)
+  end
+
+  defp add_component(%Iterate{} = component, state) do
+    step =
+      runtime_step(state, component.name, :iterate, fn parent, runtime ->
+        local = component_state(component, parent, runtime)
+        result = IterateRuntime.run(component, local)
+        output = unwrap_component_result(result)
+        value(local.input_frame, output)
+      end)
+
+    add_authored_output(state, component, step, step)
+  end
+
+  defp add_component(%FlowMap{} = component, state), do: add_map(component, state)
+  defp add_component(%FlowReduce{} = component, state), do: add_reduce(component, state)
+  defp add_component(%Subflow{} = component, state), do: add_subflow(component, state)
+
+  defp add_authored_output(state, component, native_component, output_node) do
+    workflow = add_with_dependencies(state, component, native_component)
+    output_name = output_node.name
+
+    %{
+      state
+      | workflow: workflow,
+        outputs: Map.put(state.outputs, component.name, output_node),
+        component_index:
+          Map.put(state.component_index, component.name, %{
+            kind: Component.kind(component),
+            component: native_component,
+            output: output_name,
+            output_port: :out
+          })
+    }
+  end
+
+  defp add_map(map, state) do
+    resolver_name = support_name(state, map.name, "map-input")
+
+    resolver =
+      runtime_step_named(resolver_name, state, :map_input, fn parent, runtime ->
+        local = component_state(map, parent, runtime)
+
+        case Expression.resolve(map.collection, local) do
+          {:ok, collection} -> map_tokens(map, collection, local, runtime)
+          {:error, error} -> raise error
+        end
+      end)
+
+    workflow = add_with_dependencies(state, map, resolver)
+    native_name = support_name(state, map.name, "map")
+    item_step = map_item_step(state, map, native_name)
+    fan_out = %FanOut{hash: stable_hash({native_name, :fan_out}), name: native_name}
+
+    pipeline =
+      Workflow.new(name: native_name)
+      |> Workflow.add_step(fan_out)
+      |> Workflow.add_step(fan_out, item_step)
+
+    native_map = %RunicMap{
+      name: native_name,
+      hash: stable_hash({native_name, :map}),
+      pipeline: pipeline,
+      components: nil,
+      closure: nil,
+      inputs: nil,
+      outputs: nil
+    }
+
+    workflow = Workflow.add(workflow, native_map, to: resolver)
+    collector_name = support_name(state, map.name, "map-collector")
+
+    collector = %RunicReduce{
+      name: collector_name,
+      hash: stable_hash({collector_name, :reduce}),
+      fan_in: %FanIn{
+        name: collector_name,
+        hash: stable_hash({collector_name, :fan_in}),
+        map: native_name,
+        init: fn -> [] end,
+        reducer: fn token, tokens -> [token | tokens] end,
+        meta_refs: []
+      },
+      closure: nil,
+      inputs: nil,
+      outputs: nil
+    }
+
+    workflow = Workflow.add(workflow, collector, to: native_map)
+
+    output_step =
+      Step.new(
+        name: output_name(state, map.name),
+        hash: stable_hash({state.namespace, map.name, :map_output}),
+        work: fn tokens -> collect_map_tokens(map, tokens) end
+      )
+
+    workflow = Workflow.add(workflow, output_step, to: collector.fan_in)
+
+    index = %{
+      kind: :map,
+      component: native_map,
+      collector: collector,
+      output: output_step.name,
+      output_port: :out
+    }
+
+    %{
+      state
+      | workflow: workflow,
+        outputs: Map.put(state.outputs, map.name, output_step),
+        component_index: Map.put(state.component_index, map.name, index)
+    }
+  end
+
+  defp map_item_step(state, map, native_name) do
+    name = "#{native_name}/item"
+
+    runtime_step_named(name, state, :map_item, fn
+      %{kind: :empty} = token, _runtime ->
+        token
+
+      %{kind: :item} = token, runtime ->
+        local =
+          base_runtime_state(runtime, token.input, token.results)
+          |> Map.merge(%{
+            item: token.item,
+            item_index: token.index,
+            item_id: token.id
+          })
+
+        owner =
+          TargetContext.map(map, %{
+            item_index: token.index,
+            item_id: token.id
+          })
+
+        span =
+          runtime.observer.({
+            :start,
+            :map_item,
+            %{node: map.name, target: map.action, item_index: token.index, item_id: token.id}
+          })
+
+        outcome =
+          with {:ok, params} <- Expression.resolve(map.params, local) do
+            Target.run(
+              map.action,
+              params,
+              runtime.context,
+              owner,
+              runtime.execution_id,
+              runtime.target_runner
+            )
+          end
+
+        case {map.on_error, outcome} do
+          {_, {:ok, output}} ->
+            runtime.observer.({:stop, span})
+
+            output =
+              if map.on_error == :collect_errors,
+                do: %{status: :ok, value: output},
+                else: output
+
+            token |> Map.put(:kind, :result) |> Map.put(:output, output) |> Map.delete(:item)
+
+          {:collect_errors, {:error, error}} ->
+            runtime.observer.({:error, span, error})
+
+            token
+            |> Map.put(:kind, :result)
+            |> Map.put(:output, %{
+              status: :error,
+              error: %{message: Exception.message(error)}
+            })
+            |> Map.delete(:item)
+
+          {:fail_fast, {:error, error}} ->
+            runtime.observer.({:error, span, error})
+            raise error
+        end
+    end)
+  end
+
+  defp map_tokens(map, collection, local, runtime) when is_list(collection) do
+    if List.improper?(collection) do
+      invalid_collection!(:map, map.name, collection)
+    else
+      case collection do
+        [] ->
+          [
+            %{
+              kind: :empty,
+              input: local.input_frame,
+              results: local.results,
+              runtime: runtime
+            }
+          ]
+
+        items ->
+          items
+          |> Enum.with_index()
+          |> Enum.map(fn {item, index} ->
+            %{
+              kind: :item,
+              item: item,
+              index: index,
+              id: Identity.item_uuid(local.flow_digest, map.name, index),
+              input: local.input_frame,
+              results: local.results,
+              runtime: runtime
+            }
+          end)
+      end
+    end
+  end
+
+  defp map_tokens(map, collection, _local, _runtime),
+    do: invalid_collection!(:map, map.name, collection)
+
+  defp collect_map_tokens(map, tokens) do
+    tokens = if is_list(tokens), do: tokens, else: [tokens]
+
+    input =
+      tokens
+      |> Enum.find_value(fn token -> if is_map(token), do: Map.get(token, :input) end)
+
+    values =
+      tokens
+      |> Enum.filter(&match?(%{kind: :result}, &1))
+      |> Enum.sort_by(& &1.index)
+      |> Enum.map(& &1.output)
+
+    if is_nil(input) do
+      raise Error.execution_error("Map collector did not receive Flow input", %{
+              phase: :map_collection,
+              node: map.name
+            })
+    end
+
+    value(input, values)
+  end
+
+  defp add_reduce(reduce, state) do
+    if direct_map_reduce?(reduce, state) do
+      add_direct_map_reduce(reduce, state)
+    else
+      add_list_reduce(reduce, state)
+    end
+  end
+
+  defp add_list_reduce(reduce, state) do
+    resolver_name = support_name(state, reduce.name, "reduce-input")
+
+    resolver =
+      runtime_step_named(resolver_name, state, :reduce_input, fn parent, runtime ->
+        local = component_state(reduce, parent, runtime)
+
+        with {:ok, collection} <- Expression.resolve(reduce.collection, local),
+             {:ok, initial} <- Expression.resolve(reduce.initial, local) do
+          reduce_tokens(reduce, collection, initial, local, runtime)
+        else
+          {:error, error} -> raise error
+        end
+      end)
+
+    workflow = add_with_dependencies(state, reduce, resolver)
+    {native_reduce, output_step} = reduce_components(state, reduce, nil)
+    workflow = Workflow.add(workflow, native_reduce, to: resolver)
+    workflow = Workflow.add(workflow, output_step, to: native_reduce.fan_in)
+    put_reduce_output(state, reduce, workflow, native_reduce, output_step, false)
+  end
+
+  defp add_direct_map_reduce(reduce, state) do
+    %Ref{component: map_name} = reduce.collection
+    %{component: %RunicMap{} = native_map} = Map.fetch!(state.component_index, map_name)
+    {native_reduce, output_step} = reduce_components(state, reduce, native_map.name)
+    workflow = Workflow.add(state.workflow, native_reduce, to: native_map)
+    workflow = Workflow.add(workflow, output_step, to: native_reduce.fan_in)
+    put_reduce_output(state, reduce, workflow, native_reduce, output_step, true)
+  end
+
+  defp reduce_components(state, reduce, mapped_name) do
+    native_name = support_name(state, reduce.name, "reduce")
+
+    native_reduce = %RunicReduce{
+      name: native_name,
+      hash: stable_hash({native_name, :reduce}),
+      fan_in: %FanIn{
+        name: native_name,
+        hash: stable_hash({native_name, :fan_in}),
+        map: mapped_name,
+        init: fn -> %{initialized: false, accumulator: nil, input: nil, error: nil} end,
+        reducer: reduce_fun(reduce, not is_nil(mapped_name)),
+        meta_refs: []
+      },
+      closure: nil,
+      inputs: nil,
+      outputs: nil
+    }
+
+    output_step =
+      Step.new(
+        name: output_name(state, reduce.name),
+        hash: stable_hash({state.namespace, reduce.name, :reduce_output}),
+        work: fn result ->
+          if result.error, do: raise(result.error), else: value(result.input, result.accumulator)
+        end
+      )
+
+    {native_reduce, output_step}
+  end
+
+  defp reduce_fun(reduce, direct?) do
+    # Runic finalizes FanIn during runnable application and calls its arity-2
+    # reducer there. The token carries the execution context for this call.
+    # Store reducer errors in the aggregate. The output Step raises them as a
+    # normal runnable failure.
+    fn token, aggregate ->
+      try do
+        reduce_token(reduce, direct?, token, aggregate)
+      rescue
+        error -> {:halt, %{aggregate | input: token.input, error: error}}
+      catch
+        kind, reason ->
+          error =
+            Error.execution_error("flow Reduce #{kind}", %{
+              node: reduce.name,
+              reason: reason
+            })
+
+          {:halt, %{aggregate | input: token.input, error: error}}
+      end
+    end
+  end
+
+  defp reduce_token(reduce, direct?, token, aggregate) do
+    runtime = token.runtime
+
+    aggregate =
+      if aggregate.initialized do
+        aggregate
+      else
+        local = base_runtime_state(runtime, token.input, Map.get(token, :results, %{}))
+
+        initial =
+          if direct? do
+            Expression.resolve(reduce.initial, local) |> unwrap_ok!()
+          else
+            token.initial
+          end
+
+        validate_reduce_initial!(reduce, initial)
+        %{aggregate | initialized: true, accumulator: initial, input: token.input}
+      end
+
+    case token.kind do
+      :empty ->
+        aggregate
+
+      :init ->
+        aggregate
+
+      kind when kind in [:item, :result] ->
+        item = if kind == :result, do: token.output, else: token.item
+
+        local =
+          base_runtime_state(runtime, token.input, Map.get(token, :results, %{}))
+          |> Map.merge(%{
+            item: item,
+            item_index: token.index,
+            item_id: token.id,
+            accumulator: aggregate.accumulator
+          })
+
+        owner =
+          TargetContext.reduce(reduce, %{
+            item_index: token.index,
+            item_id: token.id
+          })
+
+        span =
+          runtime.observer.({
+            :start,
+            :reduce_item,
+            %{
+              node: reduce.name,
+              target: reduce.action,
+              item_index: token.index,
+              item_id: token.id
+            }
+          })
+
+        result =
+          with {:ok, params} <- Expression.resolve(reduce.params, local) do
+            Target.run(
+              reduce.action,
+              params,
+              runtime.context,
+              owner,
+              runtime.execution_id,
+              runtime.target_runner
+            )
+          end
+
+        case result do
+          {:ok, output} ->
+            runtime.observer.({:stop, span})
+            %{aggregate | accumulator: output}
+
+          {:error, error} ->
+            runtime.observer.({:error, span, error})
+            {:halt, %{aggregate | error: error}}
+        end
+    end
+  end
+
+  defp reduce_tokens(reduce, collection, initial, local, runtime) when is_list(collection) do
+    if List.improper?(collection) do
+      invalid_collection!(:reduce, reduce.name, collection)
+    else
+      validate_reduce_initial!(reduce, initial)
+
+      init = %{
+        kind: :init,
+        initial: initial,
+        input: local.input_frame,
+        results: local.results,
+        runtime: runtime
+      }
+
+      items =
+        collection
+        |> Enum.with_index()
+        |> Enum.map(fn {item, index} ->
+          %{
+            kind: :item,
+            item: item,
+            index: index,
+            id: Identity.item_uuid(local.flow_digest, reduce.name, index),
+            input: local.input_frame,
+            results: local.results,
+            initial: initial,
+            runtime: runtime
+          }
+        end)
+
+      [init | items]
+    end
+  end
+
+  defp reduce_tokens(reduce, collection, _initial, _local, _runtime),
+    do: invalid_collection!(:reduce, reduce.name, collection)
+
+  defp put_reduce_output(state, reduce, workflow, native_reduce, output_step, direct?) do
+    index = %{
+      kind: :reduce,
+      component: native_reduce,
+      direct_map: direct?,
+      output: output_step.name,
+      output_port: :out
+    }
+
+    %{
+      state
+      | workflow: workflow,
+        outputs: Map.put(state.outputs, reduce.name, output_step),
+        component_index: Map.put(state.component_index, reduce.name, index)
+    }
+  end
+
+  defp direct_map_reduce?(%FlowReduce{} = reduce, state) do
+    case reduce.collection do
+      %Ref{source: :result, component: map_name, path: []} ->
+        match?(%{component: %RunicMap{}}, Map.get(state.component_index, map_name)) and
+          Enum.all?(reduce.after, &(&1 == map_name)) and
+          Flow.Expression.result_refs(reduce.initial) == [] and
+          Flow.Expression.result_refs(reduce.params) == []
+
+      _other ->
+        false
+    end
+  end
+
+  defp add_subflow(subflow, state) do
+    if subflow.flow in state.module_stack do
+      raise Error.validation_error("recursive Subflow reference", %{
+              component: subflow.name,
+              flow: subflow.flow,
+              module_stack: Enum.reverse([subflow.flow | state.module_stack])
+            })
+    end
+
+    child_flow = subflow.flow.flow()
+    child_source_map = child_source_map(subflow.flow)
+    child_namespace = state.namespace ++ [subflow.name]
+    params_name = support_name(state, subflow.name, "subflow-input")
+
+    params_step =
+      runtime_step_named(params_name, state, :subflow_input, fn parent, runtime ->
+        local = component_state(subflow, parent, runtime)
+        params = Expression.resolve(subflow.params, local) |> unwrap_ok!()
+        {:jido_flow_input, params, local.input_frame}
+      end)
+
+    workflow = add_with_dependencies(state, subflow, params_step)
+    input_validator = child_input_validator(subflow, child_namespace)
+
+    child_state =
+      compile_flow(
+        child_flow,
+        child_namespace,
+        [subflow.flow | state.module_stack],
+        prefix_source_map(child_source_map, subflow.name),
+        input_validator
+      )
+
+    child_output = child_output_step(subflow, child_state)
+
+    child_workflow =
+      Workflow.add(child_state.workflow, child_output, to: child_output_parents(child_state))
+
+    boundary_name = support_name(state, subflow.name, "subflow")
+
+    child_workflow = %{
+      child_workflow
+      | name: boundary_name,
+        hash: stable_hash({child_namespace, :workflow}),
+        input_ports: [in: [type: :any]],
+        output_ports: [out: [type: :any, from: child_output.name]]
+    }
+
+    workflow = Workflow.add(workflow, child_workflow, to: params_step)
+
+    output_step =
+      Step.new(
+        name: output_name(state, subflow.name),
+        hash: stable_hash({state.namespace, subflow.name, :subflow_output}),
+        work: fn {:jido_subflow_output, output, parent_input} -> value(parent_input, output) end
+      )
+
+    workflow =
+      Workflow.add(workflow, output_step, connections: [[from: {boundary_name, :out}, to: :in]])
+
+    child_digest = {subflow.name, Identity.semantic_digest(child_flow)}
+
+    %{
+      state
+      | workflow: workflow,
+        outputs: Map.put(state.outputs, subflow.name, output_step),
+        component_index:
+          Map.put(state.component_index, subflow.name, %{
+            kind: :subflow,
+            component: child_workflow,
+            output: output_step.name,
+            output_port: :out,
+            children: child_state.component_index
+          }),
+        source_map: Map.merge(state.source_map, child_state.source_map),
+        child_digests: [child_digest | state.child_digests ++ child_state.child_digests]
+    }
+  end
+
+  defp child_input_validator(subflow, namespace) do
     Step.new(
-      name: node.name,
-      work: fn parent_value -> run_node(node, parent_value, node_state) end
+      name: scoped(namespace, "$input"),
+      hash: stable_hash({namespace, :input_validator}),
+      work: fn {:jido_flow_input, params, parent} ->
+        case subflow.flow.validate_params(params) do
+          {:ok, validated} when is_map(validated) ->
+            {:jido_flow_input, validated, parent}
+
+          {:ok, result} ->
+            raise Error.validation_error("Subflow input validation must return a map", %{
+                    value: result
+                  })
+
+          {:error, error} ->
+            raise error
+        end
+      end
     )
   end
 
-  defp add_step(workflow, element, step) do
-    case Component.effective_dependencies(element) do
-      [] -> Workflow.add(workflow, step, validate: :off)
-      [dep] -> Workflow.add(workflow, step, to: dep, validate: :off)
-      deps -> Workflow.add(workflow, step, to: deps, validate: :off)
-    end
-  end
+  defp child_output_step(subflow, child_state) do
+    Step.new(
+      name: scoped(child_state.namespace, "$output"),
+      hash: stable_hash({child_state.namespace, :output_validator}),
+      work: fn parent ->
+        local = component_state_from(child_state.flow.output, parent)
+        output = Expression.resolve(child_state.flow.output, local) |> unwrap_ok!()
 
-  defp run_node(node, parent_value, node_state) do
-    case run_node_result(node, parent_value, node_state) do
-      {:ok, output} ->
-        output
+        validated =
+          case subflow.flow.validate_output(output) do
+            {:ok, value} -> value
+            {:error, error} -> raise error
+          end
 
-      {:ok, output, _metadata} ->
-        output
-
-      {:error, error, _state} ->
-        raise_node_error(node, error)
-
-      {:error, error, _state, _metadata} ->
-        raise_node_error(node, error)
-    end
-  end
-
-  defp run_node_result(%Choice{} = choice, parent_value, node_state) do
-    state = %{node_state | results: dependency_results(choice, parent_value)}
-    ChoiceCompiler.run(choice, state)
-  end
-
-  defp run_node_result(%FlowMap{} = map, parent_value, node_state) do
-    state = %{node_state | results: dependency_results(map, parent_value)}
-
-    case Expression.resolve(map.collection, state) do
-      {:ok, collection} -> MapCompiler.run(map, collection, state)
-      {:error, error} -> {:error, error, state}
-    end
-  end
-
-  defp run_node_result(%Reduce{} = reduce, parent_value, node_state) do
-    state = %{node_state | results: dependency_results(reduce, parent_value)}
-
-    case Expression.resolve(reduce.collection, state) do
-      {:ok, collection} -> ReduceCompiler.run(reduce, collection, state)
-      {:error, error} -> {:error, error, state}
-    end
-  end
-
-  defp run_node_result(%Iterate{} = iterator, parent_value, node_state) do
-    state = %{node_state | results: dependency_results(iterator, parent_value)}
-    IteratorCompiler.run(iterator, state)
-  end
-
-  defp run_node_result(%FlowStep{} = node, parent_value, node_state) do
-    state = %{node_state | results: dependency_results(node, parent_value)}
-
-    case Expression.resolve(node.params, state) do
-      {:ok, params} ->
-        case run_resolved_node(node, node.action, params, state) do
-          {:ok, output} -> {:ok, output}
-          {:error, error} -> {:error, error, state}
-        end
-
-      {:error, error} ->
-        {:error, error, state}
-    end
-  end
-
-  # Phase one keeps a Subflow as one outer runnable. Phase two will replace this
-  # adapter with the native Runic Workflow boundary described in the plan.
-  defp run_node_result(%Subflow{} = subflow, parent_value, node_state) do
-    state = %{node_state | results: dependency_results(subflow, parent_value)}
-
-    case Expression.resolve(subflow.params, state) do
-      {:ok, params} ->
-        case run_resolved_node(subflow, subflow.flow, params, state) do
-          {:ok, output} -> {:ok, output}
-          {:error, error} -> {:error, error, state}
-        end
-
-      {:error, error} ->
-        {:error, error, state}
-    end
-  end
-
-  defp run_resolved_node(node, target, params, state) do
-    Target.run(
-      target,
-      params,
-      state.context,
-      TargetContext.node(node),
-      state.execution_id,
-      state.target_runner
+        {:jido_flow_input, _input, parent_input} = local.input_frame
+        {:jido_subflow_output, validated, parent_input}
+      end
     )
   end
 
-  defp dependency_results(component, parent_value) do
-    dependency_results_for(Component.effective_dependencies(component), parent_value)
+  defp child_output_parents(child_state) do
+    refs = child_state.flow.output |> Flow.Expression.result_refs() |> Enum.uniq() |> Enum.sort()
+
+    case refs do
+      [] -> child_state.root_parent
+      [ref] -> Map.fetch!(child_state.outputs, ref)
+      refs -> Enum.map(refs, &Map.fetch!(child_state.outputs, &1))
+    end
   end
 
-  defp dependency_results_for([], _parent_value), do: %{}
-  defp dependency_results_for([dep], parent_value), do: %{dep => parent_value}
+  defp component_state_from(output, parent) do
+    deps = output |> Flow.Expression.result_refs() |> Enum.uniq() |> Enum.sort()
 
-  defp dependency_results_for(deps, parent_values) when is_list(parent_values) do
-    # Multi-parent nodes are attached with `to: deps`; engine joins preserve that same order.
-    deps
-    |> Enum.zip(parent_values)
-    |> Map.new()
+    runtime = %{
+      input: nil,
+      context: %{},
+      options: [],
+      execution_id: "",
+      target_runner: nil,
+      observer: nil,
+      flow_digest: "",
+      flow: ""
+    }
+
+    dependency_state(deps, deps, parent, runtime)
   end
 
-  defp raise_node_error(node, error), do: raise(NodeError, node: node.name, error: error)
+  defp child_source_map(module) do
+    if function_exported?(module, :__jido_flow_source_map__, 0),
+      do: module.__jido_flow_source_map__(),
+      else: %{}
+  end
+
+  defp prefix_source_map(source_map, name) do
+    Map.new(source_map, fn {path, location} -> {[:components, name | path], location} end)
+  end
+
+  defp add_with_dependencies(state, component, native_component) do
+    dependencies = Component.effective_dependencies(component)
+
+    parents =
+      case dependencies do
+        [] -> state.root_parent
+        names -> Enum.map(names, &Map.fetch!(state.outputs, &1))
+      end
+
+    case parents do
+      nil ->
+        Workflow.add(state.workflow, native_component, validate: :off)
+
+      [] ->
+        Workflow.add(state.workflow, native_component, validate: :off)
+
+      [parent] ->
+        Workflow.add(state.workflow, native_component, to: parent, validate: :off)
+
+      parents when is_list(parents) ->
+        Workflow.add(state.workflow, native_component, to: parents, validate: :off)
+
+      parent ->
+        Workflow.add(state.workflow, native_component, to: parent, validate: :off)
+    end
+  end
+
+  defp runtime_step(state, authored_name, kind, work) do
+    runtime_step_named(output_name(state, authored_name), state, kind, work)
+  end
+
+  defp runtime_step_named(name, state, kind, work) do
+    Step.new(
+      name: name,
+      hash: stable_hash({state.namespace, name, kind}),
+      work: fn input, effective_context ->
+        work.(input, runtime_from_context(effective_context))
+      end,
+      meta_refs: [@runtime_ref]
+    )
+  end
+
+  defp component_state(component, parent, runtime) do
+    dependencies = Component.effective_dependencies(component)
+    references = Component.reference_dependencies(component)
+    dependency_state(dependencies, references, parent, runtime)
+  end
+
+  defp dependency_state(dependencies, references, parent, runtime) do
+    values = dependency_values(dependencies, parent)
+
+    frame =
+      case values do
+        [] -> parent
+        [{_name, output} | _rest] -> input_of(output)
+      end
+
+    results =
+      values
+      |> Enum.filter(fn {name, _value} -> name in references end)
+      |> Map.new(fn {name, result} -> {name, unwrap_value(result)} end)
+
+    base_runtime_state(runtime, frame, results)
+  end
+
+  defp dependency_values([], _parent), do: []
+  defp dependency_values([name], parent), do: [{name, parent}]
+  defp dependency_values(names, parent) when is_list(parent), do: Enum.zip(names, parent)
+  defp dependency_values(names, parent), do: Enum.zip(names, List.wrap(parent))
+
+  defp base_runtime_state(runtime, frame, results) do
+    %{
+      execution_id: runtime.execution_id,
+      flow: runtime.flow,
+      flow_digest: runtime.flow_digest,
+      input: public_input(frame),
+      input_frame: frame,
+      context: runtime.context,
+      results: results,
+      options: runtime.options,
+      target_runner: runtime.target_runner,
+      observer: runtime.observer,
+      map_nodes: MapSet.new()
+    }
+  end
+
+  defp resolve_and_run(state, expression, action, owner) do
+    with {:ok, params} <- Expression.resolve(expression, state),
+         {:ok, output} <-
+           Target.run(
+             action,
+             params,
+             state.context,
+             owner,
+             state.execution_id,
+             state.target_runner
+           ) do
+      {:ok, state.input_frame, output}
+    else
+      {:error, error} -> raise error
+    end
+  end
+
+  defp wrap_result({:ok, frame, output}), do: value(frame, output)
+
+  defp unwrap_component_result({:ok, output}), do: output
+  defp unwrap_component_result({:ok, output, _metadata}), do: output
+  defp unwrap_component_result({:error, error, _state}), do: raise(error)
+  defp unwrap_component_result({:error, error, _state, _metadata}), do: raise(error)
+
+  defp value(frame, output), do: {:jido_flow_value, frame, output}
+  defp unwrap_value({:jido_flow_value, _frame, output}), do: output
+  defp unwrap_value(output), do: output
+
+  defp input_of({:jido_flow_value, frame, _output}), do: frame
+  defp input_of({:jido_flow_input, _input, _parent} = frame), do: frame
+  defp input_of(value), do: value
+
+  defp public_input({:jido_flow_input, input, _parent}), do: input
+  defp public_input(input), do: input
+
+  defp runtime_from_context(%{jido: runtime}), do: runtime
+
+  defp unwrap_ok!({:ok, result}), do: result
+  defp unwrap_ok!({:error, error}), do: raise(error)
+
+  defp validate_reduce_initial!(reduce, initial) do
+    valid? =
+      case initial do
+        %Output{} = output -> match?({:ok, _}, Output.validate(output))
+        value -> is_map(value)
+      end
+
+    unless valid? do
+      raise Error.execution_error("reduce initial value must be a map or Jido.Action.Output", %{
+              phase: :reduce_initial,
+              node: reduce.name,
+              reason: :output_envelope_required,
+              value_type: Expression.value_type(initial),
+              retry: false
+            })
+    end
+  end
+
+  defp invalid_collection!(kind, name, collection) do
+    raise Error.execution_error("#{kind} collection must resolve to a proper list", %{
+            phase: String.to_atom("#{kind}_collection"),
+            node: name,
+            reason: :not_a_proper_list,
+            value_type: Expression.value_type(collection),
+            retry: false
+          })
+  end
+
+  defp output_name(state, name), do: scoped(state.namespace, name)
+  defp support_name(state, name, suffix), do: scoped(state.namespace, "$#{name}/#{suffix}")
+
+  defp scoped([], name), do: to_string(name)
+  defp scoped(namespace, name), do: Enum.join(namespace ++ [to_string(name)], "/")
+
+  defp stable_hash(value), do: Components.fact_hash({:jido_flow, @compiler_version, value})
+
+  defp digest(value) do
+    :crypto.hash(:sha256, :erlang.term_to_binary(value, [:deterministic]))
+    |> Base.encode16(case: :lower)
+  end
+
+  defp normalize_compile_error(error) when is_exception(error), do: error
 end

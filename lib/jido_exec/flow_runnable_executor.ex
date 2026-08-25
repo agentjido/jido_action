@@ -3,110 +3,100 @@ defmodule Jido.Exec.FlowRunnableExecutor do
 
   alias Jido.Action.{Error, Telemetry}
   alias Jido.Exec.Execution
-  alias Jido.Flow.{Component, NodeError}
-  alias Jido.Flow.Runtime.OrderedTaskRunner
+  alias Jido.Exec.OrderedTaskRunner
   alias Runic.Workflow
-  alias Runic.Workflow.{Runnable, Step}
+  alias Runic.Workflow.Runnable
 
   @spec execute(Execution.t(), Runnable.t()) :: Runnable.t()
   def execute(%Execution{} = execution, %Runnable{} = runnable) do
-    execute(execution, runnable, element_kinds(execution))
-  end
-
-  @spec execute_many(Execution.t(), [Runnable.t()]) :: [Runnable.t()]
-  def execute_many(%Execution{} = execution, runnables) when is_list(runnables) do
-    element_kinds = element_kinds(execution)
-
-    if Keyword.fetch!(execution.options, :async) do
-      execute_async(execution, runnables, element_kinds)
-    else
-      execute_serial(execution, runnables, element_kinds)
-    end
-  end
-
-  @spec normalize_error(String.t(), term()) :: Exception.t()
-  def normalize_error(_node, %NodeError{error: error}), do: error
-  def normalize_error(_node, error) when is_exception(error), do: error
-
-  def normalize_error(node, reason) do
-    Error.execution_error("flow node failed", %{node: node, reason: reason})
-  end
-
-  defp execute(execution, runnable, element_kinds) do
-    span = start_span(execution, runnable, element_kinds)
-    executed = Workflow.execute_runnable(runnable)
+    span = start_span(execution, runnable)
+    executed = safely_execute(runnable)
     finish_span(span, executed)
     executed
   end
 
-  defp execute_async(execution, runnables, element_kinds) do
-    max_concurrency = Keyword.fetch!(execution.options, :max_concurrency)
-
-    OrderedTaskRunner.run(
-      runnables,
-      max_concurrency,
-      &execute(execution, &1, element_kinds),
-      &fail_exited_runnable(execution, &1, &2, element_kinds),
-      Jido.Exec.ConcurrencyLimiter.whereis(execution.id)
-    )
+  @spec execute_many(Execution.t(), [Runnable.t()]) :: [Runnable.t()]
+  def execute_many(%Execution{} = execution, runnables) when is_list(runnables) do
+    if Keyword.fetch!(execution.options, :async) do
+      OrderedTaskRunner.run(
+        runnables,
+        Keyword.fetch!(execution.options, :max_concurrency),
+        &execute(execution, &1),
+        &fail_exited_runnable/2,
+        Jido.Exec.ConcurrencyLimiter.whereis(execution.id)
+      )
+    else
+      Enum.map(runnables, &execute(execution, &1))
+    end
   end
 
-  defp execute_serial(execution, runnables, element_kinds) do
-    runnables
-    |> Enum.reduce_while([], fn runnable, executed ->
-      result = execute(execution, runnable, element_kinds)
-      next = [result | executed]
-
-      if result.status == :failed, do: {:halt, next}, else: {:cont, next}
-    end)
-    |> Enum.reverse()
+  defp safely_execute(runnable) do
+    Workflow.execute_runnable(runnable)
+  rescue
+    error -> Runnable.fail(runnable, error)
+  catch
+    kind, reason ->
+      Runnable.fail(
+        runnable,
+        Error.execution_error("flow runnable #{kind}", %{
+          runnable_id: runnable.id,
+          node: runnable_name(runnable),
+          reason: reason
+        })
+      )
   end
 
-  defp start_span(execution, %Runnable{node: %Step{name: name}}, element_kinds) do
-    Telemetry.start([:jido, :flow, :node], %{
-      execution_id: execution.id,
-      flow: execution.flow_name,
-      node: name,
-      kind: Map.fetch!(element_kinds, name)
-    })
+  defp start_span(execution, runnable) do
+    case authored_component(execution, runnable) do
+      {name, kind} ->
+        Telemetry.start([:jido, :flow, :node], %{
+          execution_id: execution.id,
+          flow: execution.flow_name,
+          node: name,
+          kind: kind
+        })
+
+      nil ->
+        nil
+    end
   end
 
+  defp finish_span(nil, _runnable), do: :ok
   defp finish_span(span, %Runnable{status: :completed}), do: Telemetry.stop(span)
+  defp finish_span(span, %Runnable{status: :skipped}), do: Telemetry.stop(span)
 
-  defp finish_span(span, %Runnable{node: %Step{name: name}, status: :failed, error: error}) do
-    Telemetry.error(span, normalize_error(name, error))
+  defp finish_span(span, %Runnable{status: :failed, error: error}) do
+    Telemetry.error(span, normalize_error(error))
   end
 
-  defp finish_span(span, %Runnable{node: %Step{name: name}, status: status}) do
-    Telemetry.error(
-      span,
-      Error.execution_error("flow node returned an unsupported execution status", %{
-        node: name,
-        status: status
-      })
-    )
+  defp finish_span(span, %Runnable{status: status}) do
+    Telemetry.error(span, Error.execution_error("unsupported runnable status", %{status: status}))
   end
 
-  defp element_kinds(%Execution{flow: %{components: components}}) do
-    Map.new(components, fn component ->
-      {Component.name_of(component), Component.kind(component)}
+  defp authored_component(execution, %Runnable{node: %{name: runnable_name}}) do
+    Enum.find_value(execution.compiled.component_index, fn {name, index} ->
+      if index.output == runnable_name, do: {name, index.kind}
     end)
   end
+
+  defp authored_component(_execution, _runnable), do: nil
 
   defp fail_exited_runnable(runnable, reason) do
     Runnable.fail(
       runnable,
-      Error.execution_error("flow node task exited", %{
-        node: runnable.node.name,
+      Error.execution_error("flow runnable task exited", %{
+        runnable_id: runnable.id,
+        node: runnable_name(runnable),
         reason: reason
       })
     )
   end
 
-  defp fail_exited_runnable(execution, runnable, reason, element_kinds) do
-    span = start_span(execution, runnable, element_kinds)
-    failed = fail_exited_runnable(runnable, reason)
-    finish_span(span, failed)
-    failed
-  end
+  defp runnable_name(%Runnable{node: %{name: name}}), do: name
+  defp runnable_name(%Runnable{node: node}), do: node.__struct__
+
+  defp normalize_error(error) when is_exception(error), do: error
+
+  defp normalize_error(reason),
+    do: Error.execution_error("flow runnable failed", %{reason: reason})
 end

@@ -2,9 +2,10 @@ defmodule Jido.Flow.Map do
   @moduledoc """
   A named Flow fan-out operation over one ordered collection.
 
-  A Map is one public Flow element. Item work is internal to that element.
-  This is a read-only canonical type. Create it through the Flow module DSL,
-  `Jido.Flow.Builder`, or the stored Flow decoder.
+  A Map is one canonical authoring component. Native execution exposes its
+  Runic FanOut, item, FanIn, and output work. This is a read-only canonical
+  type. Create it through the Flow module DSL, `Jido.Flow.Builder`, or the
+  stored Flow decoder.
   """
 
   alias Jido.Action.Error

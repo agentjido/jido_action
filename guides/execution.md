@@ -21,9 +21,9 @@ from a marker or from the presence of `flow/0`.
 
 For Actions and Instructions, `opts` must be an empty list. Flow execution
 supports `async: true | false` and `max_concurrency: positive_integer()`.
-These options schedule independent public nodes and internal Map item calls.
-One shared limit bounds their active Action calls. Reduce and Iterate work
-stays serial.
+These options schedule independent native Runic runnables and Map item calls.
+One shared limit bounds their active Action calls. Reduce and Iterate Action
+calls stay serial inside their owning runtime work.
 
 ## Validation Pipeline
 
@@ -129,20 +129,22 @@ Map and Reduce work units add `target`, `item_index`, and `item_id`. Their
 `kind` is `:iterate_iteration`. All work units also include `execution_id`,
 `flow`, and `node`.
 
-The same `execution_id` correlates a Flow, its nodes, and nested Flows. Serial
-Flow events nest as Flow and then node. Step-wise execution opens one Flow event
-in `start/4` and closes it only when a step, wave, or continue operation reaches
-a terminal result. A Step or selected Choice Action has a target span inside
-its node span. Collection Actions have work-unit spans. Flow targets do not
-emit a separate direct Action lifecycle. An Instruction that targets a Flow
-has the Flow lifecycle inside its Action lifecycle. Async node spans can
-overlap. Each async worker starts and finishes its span around the actual node
-work. Start and stop events can follow scheduler and completion order. Use the
-node metadata and `execution_id` for correlation instead of event position. A
-killed node task still has one node error event. Collection work-unit events
-can have high volume. Attach a handler only when you need this detail.
-Asynchronous node and collection workers copy the caller's Logger metadata at
-dispatch time.
+The same `execution_id` correlates a Flow, its components, and child work.
+Serial Flow events nest as Flow and then component. Step-wise execution opens
+one Flow event in `start/4`. It closes the event only when a step, wave, or
+continue operation reaches a terminal result. A Step or selected Choice Action
+has a target span inside its node span. Collection Actions have work-unit
+spans. Flow targets do not emit a separate direct Action lifecycle or child
+Flow lifecycle. An Instruction that targets a Flow has the Flow lifecycle
+inside its Action lifecycle. Async node spans can overlap. Each async worker
+starts and finishes its span around the actual node work. Start and stop events
+can follow scheduler and completion order. Use the node metadata and
+`execution_id` for correlation instead of event position. A killed node task
+still has one node error event. Collection work-unit events can have high
+volume. Attach a handler only when you need this detail. Asynchronous node and
+collection workers copy the caller's Logger metadata at dispatch time.
+
+Native support runnables do not get an artificial Jido component span.
 
 There are no scheduler, State transition, completion, or exhaustion point
 events. A collection work-unit error event reports a failed Action call.
@@ -162,35 +164,33 @@ Inspect and advance the latest execution value:
 Jido.Exec.status(execution)
 Jido.Exec.ready(execution)
 
-{:ok, node_result, execution} = Jido.Exec.step(execution)
-{:ok, results, execution} = Jido.Exec.wave(execution)
+{:ok, runnable, execution} = Jido.Exec.step(execution)
+{:ok, runnables, execution} = Jido.Exec.wave(execution)
 {:ok, execution} = Jido.Exec.continue(execution)
 {:ok, final_result} = Jido.Exec.result(execution)
 ```
 
-`step/1` executes the first ready node. `step/2` executes one named ready
-node. `wave/1` executes the current ready set; stored Flow concurrency options
-apply to the wave. Nodes that become ready wait for the next operation.
+`ready/1` returns native `Runic.Workflow.Runnable` values. `step/1` executes
+the first ready runnable. `step/2` selects one ready runnable by value or ID.
+`wave/1` executes the current ready set. Runnables that become ready wait for
+the next operation.
 
-A failed node stops the Flow before Jido dispatches more work. A serial wave
-stops at its first failure. In an asynchronous wave, work that is already in
-progress can finish. If two or more nodes fail, `result/1` returns a
-`Jido.Exec.FlowFailureError`. Its failures are in canonical node order.
+A failed runnable stops the Flow after Jido applies the failure. If two or more
+runnables in one wave fail, `result/1` returns a
+`Jido.Exec.FlowFailureError`.
 
-Map, Reduce, Iterate, Choice, and nested Flow work is atomic at this public
-boundary. One step completes the selected element's internal work. The API
-does not expose individual Map items, Reduce items, or Iterate iterations as
-ready nodes.
+The API exposes native Runic support work. Ready values can contain Step,
+Join, InputBinding, FanOut, FanIn, collector, validator, and nested Flow work.
+Jido does not create a second public-node scheduler.
 
-A failed node is an applied transition. The step operation returns
-`{:ok, %Jido.Exec.NodeResult{status: :error}, execution}` and the updated
-execution records the failure and becomes terminal. Selection errors and
-invalid execution state return `{:error, exception}` instead.
+A failed runnable is an applied transition. The step operation returns
+`{:ok, %Runic.Workflow.Runnable{status: :failed}, execution}`. Selection
+errors and invalid execution state return `{:error, exception}`.
 
 Always pass the newest execution to the next operation. Execution values are
 caller-owned, in-memory state, not durable checkpoints or interchange maps.
-Each execution stores its own `async` and `max_concurrency` settings. Reusing
-an older value can run an Action and its external side effects again.
+Each execution stores its own `async` and `max_concurrency` settings. Jido
+rejects an older execution revision before it dispatches work.
 
 ## Runtime Policy Boundary
 

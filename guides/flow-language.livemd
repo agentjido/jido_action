@@ -288,4 +288,4 @@ true = is_binary(identity.digest)
 - [Map and Reduce](flow-collections.livemd) explains ordered collection processing.
 - [Flow Choices](flow-choices.livemd) explains declarative conditions and routing.
 - [Iterate and State](flow-iterate-state.livemd) explains bounded State transitions.
-- [Nested Flows](nested-flows.livemd) explains atomic child execution.
+- [Nested Flows](nested-flows.livemd) explains native child Workflow boundaries.
