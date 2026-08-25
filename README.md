@@ -225,6 +225,17 @@ case Jido.Flow.Codec.decode(decoded, registry) do
 end
 ```
 
+For temporary storage or transport within one application version, the Codec
+can generate and return a Registry:
+
+```elixir
+{:ok, stored, temporary_registry} = Jido.Flow.Codec.encode(runtime_flow)
+{:ok, restored} = Jido.Flow.Codec.decode(stored, temporary_registry)
+```
+
+Generated identifiers can change when the Flow changes. Use an
+application-owned Registry for durable storage.
+
 `Jido.Flow.Codec.decode/2` does not execute the Flow. Invalid or incomplete maps
 return a structured error instead of raising. Stored identifiers cannot create
 atoms or select a module outside the host Registry.

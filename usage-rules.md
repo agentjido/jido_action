@@ -65,6 +65,8 @@ Use `jido_action` for validated work and data-first composition:
 
 - Use `Jido.Flow.Builder` only when graph structure comes from runtime data.
 - Use `Jido.Flow.Codec.encode/2` for portable Map or JSON storage.
+- Use `Jido.Flow.Codec.encode/1` only when a generated temporary Registry is
+  sufficient. Keep its returned Registry for decoding.
 - Restore stored data with `Jido.Flow.Codec.decode/2` and the same trusted
   `Jido.Flow.Registry`.
 - Use `Jido.Flow.Codec.diagnose/2` when a UI or AI agent submits an invalid

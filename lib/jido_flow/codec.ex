@@ -18,6 +18,9 @@ defmodule Jido.Flow.Codec do
       {:ok, document} = Jido.Flow.Codec.encode(flow, registry)
       {:ok, decoded_flow} = Jido.Flow.Codec.decode(document, registry)
 
+      {:ok, temporary_document, temporary_registry} =
+        Jido.Flow.Codec.encode(flow)
+
       case Jido.Flow.Codec.diagnose(editor_document, registry) do
         {:ok, flow} -> {:ok, flow}
         {:error, errors} -> {:error, Jido.Flow.Error.to_map(errors)}
@@ -83,6 +86,22 @@ defmodule Jido.Flow.Codec do
   }
 
   @on_error %{"fail_fast" => :fail_fast, "collect_errors" => :collect_errors}
+
+  @doc """
+  Encodes one executable Flow with a generated convenience Registry.
+
+  The generated identifiers are for temporary storage, tests, or transport
+  within one application version. They can change when the Flow changes. Use
+  `encode/2` with an application-owned Registry for durable storage.
+  """
+  @spec encode(Flow.t()) ::
+          {:ok, document(), Registry.t()} | {:error, Exception.t()}
+  def encode(flow) do
+    with {:ok, registry} <- Registry.from_flow(flow),
+         {:ok, document} <- encode(flow, registry) do
+      {:ok, document, registry}
+    end
+  end
 
   @doc "Encodes one canonical Flow as a JSON-compatible document."
   @spec encode(Flow.t(), Registry.t()) :: {:ok, document()} | {:error, Exception.t()}

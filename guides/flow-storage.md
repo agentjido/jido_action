@@ -27,6 +27,29 @@ ambiguous write identifiers.
 The host application owns the Registry. Stored data never creates atoms,
 derives module names, or selects an unregistered schema.
 
+## Generate A Temporary Registry
+
+Use `Jido.Flow.Codec.encode/1` when stable application identifiers are not
+required:
+
+```elixir
+{:ok, document, registry} = Jido.Flow.Codec.encode(flow)
+{:ok, json} = Jason.encode(document)
+
+{:ok, decoded_document} = Jason.decode(json)
+{:ok, decoded_flow} = Jido.Flow.Codec.decode(decoded_document, registry)
+```
+
+`encode/1` validates the executable Flow. It collects its Action modules,
+child Flow modules, schemas, and data atoms. It assigns generated identifiers
+and returns the Registry separately.
+
+The generated identifiers are deterministic only for the exact Flow value.
+They can change after a Flow, module, or schema change. Use them only for
+temporary storage, tests, or transport within one application version. Keep
+the Registry available until decoding is complete. Use an application-owned
+Registry for durable storage.
+
 ## Encode And Decode
 
 ```elixir

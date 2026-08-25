@@ -22,6 +22,10 @@ defmodule Jido.Flow.Registry do
   Stored Flow data contains identifiers only. The reader resolves them through
   a Registry that the host application owns. Resolution does not create atoms
   or derive module names from stored data.
+
+  Use `from_flow/1` only when temporary generated identifiers are sufficient.
+  Keep the returned Registry with the encoded document because the document
+  does not contain the Registry.
   """
 
   alias Jido.Flow.Error
@@ -80,6 +84,27 @@ defmodule Jido.Flow.Registry do
     case new(entries) do
       {:ok, registry} -> registry
       {:error, error} -> raise error
+    end
+  end
+
+  @doc """
+  Builds a convenience Registry from one executable Flow.
+
+  The generated identifiers are deterministic only for the exact canonical
+  Flow value. They can change when the Flow, a target module, or a schema
+  changes. Use this function for temporary storage, tests, or transport within
+  one application version. Use `new/1` with application-owned identifiers for
+  durable storage.
+
+  The function validates the Flow and all Action and child Flow contracts. It
+  does not run Action work.
+  """
+  @spec from_flow(Jido.Flow.t()) :: {:ok, t()} | {:error, Exception.t()}
+  def from_flow(flow) do
+    with {:ok, flow} <- Jido.Flow.validate_executable(flow) do
+      flow
+      |> Jido.Flow.Registry.Deriver.entries()
+      |> new()
     end
   end
 

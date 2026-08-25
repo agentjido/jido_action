@@ -13,6 +13,11 @@ entries return to the normal automated changelog process.
 
 ## Unreleased
 
+### Features:
+
+* add generated temporary Flow registries through
+  `Jido.Flow.Registry.from_flow/1` and `Jido.Flow.Codec.encode/1`
+
 ## [v3.0.0-beta.1](https://github.com/agentjido/jido_action/compare/v2.3.2...v3.0.0-beta.1) (2026-08-25)
 
 ### Features:

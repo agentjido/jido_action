@@ -2,9 +2,49 @@ defmodule Jido.Flow.RegistryTest do
   use ExUnit.Case, async: true
 
   alias Jido.Flow.Error.InvalidDefinitionError
+  alias Jido.Flow
+  alias Jido.Flow.Codec
+  alias Jido.Flow.Ref
   alias Jido.Flow.Registry
+  alias Jido.Flow.Step
+  alias JidoActionTest.Fixtures.FlowAuthoring
   alias JidoActionTest.Fixtures.NestedFlow
-  alias JidoActionTest.Fixtures.Actions.Add
+  alias JidoActionTest.Fixtures.Actions.{Add, Multiply}
+
+  test "from_flow builds a deterministic convenience Registry" do
+    flow = FlowAuthoring.mixed_flow!()
+
+    assert {:ok, registry} = Registry.from_flow(flow)
+    assert {:ok, ^registry} = Registry.from_flow(flow)
+
+    assert {:ok, Add} = Registry.resolve(registry, "actions/generated-1", :action)
+    assert {:ok, Multiply} = Registry.resolve(registry, "actions/generated-2", :action)
+    assert {:ok, NestedFlow} = Registry.resolve(registry, "flows/generated-1", :flow)
+    assert {:ok, []} = Registry.resolve(registry, "schemas/generated-1", :schema)
+
+    for {atom, index} <-
+          Enum.with_index([:add, :amount, :count, :items, :kind, :owner, :value], 1) do
+      assert {:ok, ^atom} = Registry.resolve(registry, "atoms/generated-#{index}", :atom)
+    end
+
+    assert {:error, %InvalidDefinitionError{}} =
+             Registry.identifier(registry, :atom, :collect_errors)
+
+    assert {:ok, document} = Codec.encode(flow, registry)
+    assert {:ok, ^flow} = Codec.decode(document, registry)
+  end
+
+  test "from_flow requires an executable Flow" do
+    flow =
+      Flow.new!(
+        name: "invalid_target",
+        components: [Step.new!(name: "invalid", action: String)],
+        output: Ref.result("invalid")
+      )
+
+    assert {:error, %InvalidDefinitionError{}} = Registry.from_flow(flow)
+    assert {:error, %InvalidDefinitionError{}} = Registry.from_flow(:invalid)
+  end
 
   test "Registry keeps Action and Flow identifiers distinct" do
     registry =

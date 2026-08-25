@@ -35,6 +35,16 @@ defmodule Jido.Flow.CodecTest do
     assert {:ok, ^flow} = Codec.diagnose(decoded_document, registry)
   end
 
+  test "encode/1 returns a generated convenience Registry" do
+    flow = FlowAuthoring.mixed_flow!()
+
+    assert {:ok, document, registry} = Codec.encode(flow)
+    assert {:ok, ^flow} = Codec.decode(document, registry)
+    assert {:ok, ^document, ^registry} = Codec.encode(flow)
+
+    assert {:error, %InvalidDefinitionError{}} = Codec.encode(:invalid)
+  end
+
   test "diagnose returns ordered errors from independent document branches" do
     flow = FlowAuthoring.mixed_flow!()
     registry = CodecRegistry.mixed()

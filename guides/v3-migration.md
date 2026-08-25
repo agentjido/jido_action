@@ -374,6 +374,16 @@ json = JSON.encode!(stored_map)
   |> Jido.Flow.Codec.decode(registry)
 ```
 
+For temporary data within one application version, `Codec.encode/1` can return
+the stored map and a generated Registry:
+
+```elixir
+{:ok, stored_map, temporary_registry} = Jido.Flow.Codec.encode(flow)
+```
+
+Keep that Registry for decoding. Generated identifiers are not stable across
+Flow, module, or schema changes. Do not use them for durable storage.
+
 Use `Jido.Flow.Codec.diagnose/2` when an editor needs all independent document
 and graph errors in one result.
 
