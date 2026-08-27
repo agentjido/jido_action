@@ -1,8 +1,8 @@
-defmodule Jido.Exec.TargetRunner do
+defmodule Jido.Exec.Flow.TargetRunner do
   @moduledoc false
 
   alias Jido.Action.Telemetry
-  alias Jido.Exec.ActionRunner
+  alias Jido.Exec.Action.Runner
   alias Jido.Flow.Compiler.Target
 
   @doc false
@@ -12,7 +12,7 @@ defmodule Jido.Exec.TargetRunner do
     span = start_span(target, execution_id, flow_name, owner)
 
     result =
-      ActionRunner.run_target(
+      Runner.run_target(
         target,
         params,
         context,

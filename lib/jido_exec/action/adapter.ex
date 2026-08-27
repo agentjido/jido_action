@@ -1,9 +1,9 @@
-defmodule Jido.Exec.ActionAdapter do
+defmodule Jido.Exec.Action.Adapter do
   @moduledoc false
 
   alias Jido.Action.Error
   alias Jido.Executable
-  alias Jido.Exec.ActionRunner
+  alias Jido.Exec.Action.Runner
   alias Jido.Exec.Options
   alias Jido.Instruction
 
@@ -17,7 +17,7 @@ defmodule Jido.Exec.ActionAdapter do
     with {:ok, run_opts} <- Options.validate_action(opts, :action),
          {:ok, instruction} <- normalize_instruction(action, input, context),
          :ok <- Executable.validate(executable) do
-      ActionRunner.run(instruction, run_opts)
+      Runner.run(instruction, run_opts)
     end
   end
 
@@ -30,7 +30,7 @@ defmodule Jido.Exec.ActionAdapter do
   def run_instruction(executable, %Instruction{} = instruction, opts, _execution_id) do
     with {:ok, run_opts} <- Options.validate_action(opts, :instruction),
          :ok <- Executable.validate(executable) do
-      ActionRunner.run(instruction, run_opts)
+      Runner.run(instruction, run_opts)
     end
   end
 

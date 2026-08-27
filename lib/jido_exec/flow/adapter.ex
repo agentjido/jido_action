@@ -1,4 +1,4 @@
-defmodule Jido.Exec.FlowAdapter do
+defmodule Jido.Exec.Flow.Adapter do
   @moduledoc false
 
   alias Jido.Action.Output
@@ -6,9 +6,9 @@ defmodule Jido.Exec.FlowAdapter do
   alias Jido.Action.Validation
   alias Jido.Executable
   alias Jido.Exec.Execution
-  alias Jido.Exec.FlowEngine
+  alias Jido.Exec.Flow.Engine
   alias Jido.Exec.Options
-  alias Jido.Exec.TargetRunner
+  alias Jido.Exec.Flow.TargetRunner
   alias Jido.Flow
   alias Jido.Flow.Compiler
   alias Jido.Flow.Error
@@ -26,8 +26,8 @@ defmodule Jido.Exec.FlowAdapter do
           {:ok, term()} | {:error, Exception.t()}
   def run(executable, input, context, opts, execution_id) do
     with {:ok, execution} <- start(executable, input, context, opts, execution_id),
-         {:ok, execution} <- FlowEngine.continue(execution) do
-      FlowEngine.result(execution)
+         {:ok, execution} <- Engine.continue(execution) do
+      Engine.result(execution)
     end
   end
 
@@ -118,7 +118,7 @@ defmodule Jido.Exec.FlowAdapter do
           )
         end
 
-        FlowEngine.start(
+        Engine.start(
           flow,
           compiled,
           input,

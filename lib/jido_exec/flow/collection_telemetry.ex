@@ -1,4 +1,4 @@
-defmodule Jido.Exec.CollectionTelemetry do
+defmodule Jido.Exec.Flow.CollectionTelemetry do
   @moduledoc false
 
   alias Jido.Action.Telemetry

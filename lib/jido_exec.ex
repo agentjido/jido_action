@@ -43,7 +43,7 @@ defmodule Jido.Exec do
   alias Jido.Action.Telemetry
   alias Jido.Executable
   alias Jido.Exec.Execution
-  alias Jido.Exec.FlowEngine
+  alias Jido.Exec.Flow.Engine
   alias Jido.Exec.Options
   alias Jido.Flow
   alias Jido.Flow.Error, as: FlowError
@@ -119,7 +119,7 @@ defmodule Jido.Exec do
   Returns the native Runic runnables that are ready.
   """
   @spec ready(Execution.t()) :: [Runic.Workflow.Runnable.t()]
-  def ready(%Execution{} = execution), do: FlowEngine.ready(execution)
+  def ready(%Execution{} = execution), do: Engine.ready(execution)
 
   @doc """
   Returns the current Flow execution status.
@@ -127,7 +127,7 @@ defmodule Jido.Exec do
   The result is `:running`, `:succeeded`, or `:failed`.
   """
   @spec status(Execution.t()) :: :running | :succeeded | :failed
-  def status(%Execution{} = execution), do: FlowEngine.status(execution)
+  def status(%Execution{} = execution), do: Engine.status(execution)
 
   @doc """
   Returns the live native Runic workflow for a paused execution.
@@ -154,7 +154,7 @@ defmodule Jido.Exec do
   """
   @spec step(Execution.t()) ::
           {:ok, Runic.Workflow.Runnable.t(), Execution.t()} | {:error, Exception.t()}
-  def step(%Execution{} = execution), do: FlowEngine.step(execution)
+  def step(%Execution{} = execution), do: Engine.step(execution)
 
   @doc """
   Executes one ready runnable selected by its value or integer ID.
@@ -164,7 +164,7 @@ defmodule Jido.Exec do
   """
   @spec step(Execution.t(), Runic.Workflow.Runnable.t() | integer()) ::
           {:ok, Runic.Workflow.Runnable.t(), Execution.t()} | {:error, Exception.t()}
-  def step(%Execution{} = execution, runnable), do: FlowEngine.step(execution, runnable)
+  def step(%Execution{} = execution, runnable), do: Engine.step(execution, runnable)
 
   @doc """
   Executes the complete set of runnables that is currently ready.
@@ -175,7 +175,7 @@ defmodule Jido.Exec do
   """
   @spec wave(Execution.t()) ::
           {:ok, [Runic.Workflow.Runnable.t()], Execution.t()} | {:error, Exception.t()}
-  def wave(%Execution{} = execution), do: FlowEngine.wave(execution)
+  def wave(%Execution{} = execution), do: Engine.wave(execution)
 
   @doc """
   Continues a paused Flow execution until it reaches a terminal status.
@@ -184,7 +184,7 @@ defmodule Jido.Exec do
   Flow result.
   """
   @spec continue(Execution.t()) :: {:ok, Execution.t()} | {:error, Exception.t()}
-  def continue(%Execution{} = execution), do: FlowEngine.continue(execution)
+  def continue(%Execution{} = execution), do: Engine.continue(execution)
 
   @doc """
   Returns the cached result of a terminal Flow execution.
@@ -193,7 +193,7 @@ defmodule Jido.Exec do
   It does not repeat Flow output validation.
   """
   @spec result(Execution.t()) :: {:ok, term()} | {:error, Exception.t()}
-  def result(%Execution{} = execution), do: FlowEngine.result(execution)
+  def result(%Execution{} = execution), do: Engine.result(execution)
 
   defp execute_with_timeout(work, :infinity, _owner, _executable, _execution_id), do: work.()
 
@@ -408,8 +408,8 @@ defmodule Jido.Exec do
     end
   end
 
-  defp adapter_for(%Executable{kind: :action}), do: Jido.Exec.ActionAdapter
-  defp adapter_for(%Executable{kind: :flow}), do: Jido.Exec.FlowAdapter
+  defp adapter_for(%Executable{kind: :action}), do: Jido.Exec.Action.Adapter
+  defp adapter_for(%Executable{kind: :flow}), do: Jido.Exec.Flow.Adapter
 
   defp stepwise_flow_required(executable_type) do
     {:error,

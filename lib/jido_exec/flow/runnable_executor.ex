@@ -1,4 +1,4 @@
-defmodule Jido.Exec.FlowRunnableExecutor do
+defmodule Jido.Exec.Flow.RunnableExecutor do
   @moduledoc false
 
   alias Jido.Action.Telemetry

@@ -1,4 +1,4 @@
-defmodule Jido.Exec.ActionRunner do
+defmodule Jido.Exec.Action.Runner do
   @moduledoc false
 
   alias Jido.Action.Error

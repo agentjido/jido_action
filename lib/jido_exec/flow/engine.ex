@@ -1,4 +1,4 @@
-defmodule Jido.Exec.FlowEngine do
+defmodule Jido.Exec.Flow.Engine do
   @moduledoc false
 
   alias Jido.Action.Telemetry
@@ -6,9 +6,10 @@ defmodule Jido.Exec.FlowEngine do
   alias Jido.Exec.{
     ConcurrencyLimiter,
     Execution,
-    ExecutionGuard,
-    FlowRunnableExecutor
+    ExecutionGuard
   }
+
+  alias Jido.Exec.Flow.RunnableExecutor
 
   alias Jido.Flow
   alias Jido.Flow.{Compiled, Compiler, Error}
@@ -49,7 +50,7 @@ defmodule Jido.Exec.FlowEngine do
       context: context,
       options: options,
       target_runner: target_runner,
-      observer: Jido.Exec.CollectionTelemetry.observer(execution_id, flow.name)
+      observer: Jido.Exec.Flow.CollectionTelemetry.observer(execution_id, flow.name)
     }
 
     workflow =
@@ -186,7 +187,7 @@ defmodule Jido.Exec.FlowEngine do
   end
 
   defp do_step(execution, runnable) do
-    executed = FlowRunnableExecutor.execute(execution, runnable)
+    executed = RunnableExecutor.execute(execution, runnable)
     execution = execution |> apply_runnable(executed) |> advance_revision()
 
     with {:ok, execution} <- settle(execution) do
@@ -195,7 +196,7 @@ defmodule Jido.Exec.FlowEngine do
   end
 
   defp do_wave(execution) do
-    executed = FlowRunnableExecutor.execute_many(execution, ready(execution))
+    executed = RunnableExecutor.execute_many(execution, ready(execution))
     execution = executed |> Enum.reduce(execution, &apply_runnable(&2, &1)) |> advance_revision()
 
     with {:ok, execution} <- settle(execution) do
