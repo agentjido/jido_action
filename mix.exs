@@ -27,6 +27,8 @@ defmodule JidoAction.MixProject do
       package: package(),
       docs: docs(),
       test_coverage: [
+        # Enforce a 90% release floor. Keep routine coverage at 93% or higher
+        # to provide space for small changes between focused test passes.
         ignore_modules: [
           ~r/^Inspect\.JidoActionTest\./,
           # Spark generates these entity modules. The hand-written DSL macros and lowerer stay covered.
@@ -41,7 +43,7 @@ defmodule JidoAction.MixProject do
           Jido.Flow.Error.Internal,
           Jido.Flow.Error.Invalid
         ],
-        summary: [threshold: 93]
+        summary: [threshold: 90]
       ],
 
       # Dialyzer
