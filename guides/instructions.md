@@ -33,6 +33,33 @@ case Jido.Instruction.new(target: MyApp.Actions.SendEmail) do
 end
 ```
 
+The constructor also accepts typed target inputs. `action:` must resolve to an
+Action, and `flow:` must resolve to a Flow. Both inputs become the canonical
+`target` field.
+
+```elixir
+action_instruction = Jido.Instruction.new!(action: MyApp.Actions.SendEmail)
+flow_instruction = Jido.Instruction.new!(flow: MyApp.Flows.DeliverOrder)
+```
+
+The `action:` form exists for version 2 migration and emits a runtime warning.
+An old struct literal also compiles and is normalized when it enters
+`Jido.Instruction` or `Jido.Exec`:
+
+```elixir
+%Jido.Instruction{action: MyApp.Actions.SendEmail, params: %{to: address}}
+```
+
+Use `target:` in new code. The compatibility path does not restore the removed
+`id` field.
+
+Version 3 also accepts the deprecated `opts` field so old struct literals
+compile. Exec warns when it consumes a non-empty value. It forwards `timeout`
+and `jido`, leaves out known settings that version 3 removed, and rejects
+unknown settings. Move all execution options to `Jido.Exec.run/4`. See
+[Migration Shims](migration-shims.md) for the package policy and exact option
+rules.
+
 ## Execute An Instruction
 
 ```elixir

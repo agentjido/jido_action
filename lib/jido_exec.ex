@@ -77,7 +77,7 @@ defmodule Jido.Exec do
   def run(executable, input \\ %{}, context \\ %{}, opts \\ []) do
     execution_id = Telemetry.execution_id()
 
-    with {:ok, resolved} <- resolve_run_target(executable),
+    with {:ok, executable, resolved, opts} <- resolve_run_target(executable, opts, :run),
          timeout_owner = timeout_owner(resolved),
          {:ok, timeout, run_opts} <- Options.take_timeout(opts, timeout_owner) do
       execute_with_timeout(
@@ -112,7 +112,10 @@ defmodule Jido.Exec do
           {:ok, Execution.t()} | {:error, Exception.t()}
   def start(executable, input \\ %{}, context \\ %{}, opts \\ []) do
     execution_id = Telemetry.execution_id()
-    do_start(executable, input, context, opts, execution_id)
+
+    with {:ok, executable, resolved, opts} <- resolve_run_target(executable, opts, :start) do
+      do_start(executable, resolved, input, context, opts, execution_id)
+    end
   end
 
   @doc """
@@ -315,11 +318,15 @@ defmodule Jido.Exec do
   defp execution_name(%Flow{name: name}), do: name
   defp execution_name(module) when is_atom(module), do: module
 
-  defp resolve_run_target(%Instruction{target: target}) do
-    Executable.resolve(target)
+  defp resolve_run_target(%Instruction{} = instruction, opts, mode) do
+    Instruction.prepare_execution(instruction, opts, mode)
   end
 
-  defp resolve_run_target(executable), do: Executable.resolve(executable)
+  defp resolve_run_target(executable, opts, _mode) do
+    with {:ok, %Executable{} = resolved} <- Executable.resolve(executable) do
+      {:ok, executable, resolved, opts}
+    end
+  end
 
   defp run_with_lifecycle(
          %Instruction{} = instruction,
@@ -387,9 +394,15 @@ defmodule Jido.Exec do
     end
   end
 
-  defp do_start(%Instruction{} = instruction, input, context, opts, execution_id) do
-    with {:ok, instruction} <- normalize_instruction(instruction, input, context),
-         {:ok, %Executable{} = executable} <- Executable.resolve(instruction.target) do
+  defp do_start(
+         %Instruction{} = instruction,
+         %Executable{} = executable,
+         input,
+         context,
+         opts,
+         execution_id
+       ) do
+    with {:ok, instruction} <- normalize_instruction(instruction, input, context) do
       case executable do
         %Executable{kind: :flow} ->
           adapter = adapter_for(executable)
@@ -401,11 +414,9 @@ defmodule Jido.Exec do
     end
   end
 
-  defp do_start(executable, input, context, opts, execution_id) do
-    with {:ok, %Executable{} = executable} <- Executable.resolve(executable) do
-      adapter = adapter_for(executable)
-      adapter.start(executable, input, context, opts, execution_id)
-    end
+  defp do_start(_target, %Executable{} = executable, input, context, opts, execution_id) do
+    adapter = adapter_for(executable)
+    adapter.start(executable, input, context, opts, execution_id)
   end
 
   defp adapter_for(%Executable{kind: :action}), do: Jido.Exec.Action.Adapter

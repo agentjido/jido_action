@@ -17,6 +17,16 @@ entries return to the normal automated changelog process.
 
 * add generated temporary Flow registries through
   `Jido.Flow.Registry.from_flow/1` and `Jido.Flow.Codec.encode/1`
+* accept deprecated `Jido.Instruction.action` constructor and struct input with
+  a runtime migration warning, and normalize typed `action` and `flow` inputs
+  to the canonical `target` field
+* accept deprecated `Jido.Instruction.opts` input with grouped runtime warnings,
+  forward `timeout` and `jido`, and report removed or unknown version 2 settings
+
+### Documentation:
+
+* add a package-wide migration shim guide with warning behavior, design rules,
+  active shims, deliberate non-shims, and migration steps
 
 ## [v3.0.0-beta.1](https://github.com/agentjido/jido_action/compare/v2.3.2...v3.0.0-beta.1) (2026-08-25)
 

@@ -6,6 +6,8 @@ v2 baseline.
 
 Read [Upgrade From v2 To v3](v3-migration.md) before you use the prompt. The
 migration guide explains the API decisions and the required replacements.
+Read [Migration Shims](migration-shims.md) for the package-wide compatibility
+policy. Do not treat a supported shim as the preferred version 3 API.
 
 ## Before You Start
 
@@ -107,9 +109,13 @@ change application behavior.
 
 5. Migrate Instructions
 
-- Replace the action field with target.
+- Replace the action field with target. Version 3 accepts an action constructor
+  key or struct field as a temporary migration input, emits a runtime warning,
+  and normalizes it to target.
 - Move descriptive id data to metadata or to caller-owned data.
-- Remove opts from the Instruction. Pass execution policy to
+- Remove opts from the Instruction. Version 3 accepts this field as a temporary
+  migration shim and emits a runtime warning. It forwards timeout and jido,
+  but it does not apply removed version 2 settings. Pass execution policy to
   Jido.Exec.run/4.
 - Keep params and context as maps.
 - Replace normalize/3, normalize_single/3, tuple shorthand, list shorthand,

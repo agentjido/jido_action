@@ -195,6 +195,27 @@ Apply these field changes:
 A v3 target can be an Action module, a Flow module, or a runtime Flow value.
 The constructor resolves the target when it builds the Instruction.
 
+As a migration aid, version 3 accepts `action:` in `new/1`, `new!/1`, and raw
+Instruction struct literals. It confirms that the value is an Action, emits a
+runtime warning, and normalizes the value to `target`. This lets old code
+compile so tests and migration tools can find and replace each use.
+
+```elixir
+legacy = %Jido.Instruction{action: MyApp.Actions.SendEmail, params: params}
+{:ok, result} = Jido.Exec.run(legacy)
+```
+
+The compatibility path does not restore `id`, symbolic Action names, or the
+removed normalization functions. It accepts deprecated `opts` so old struct
+literals compile. Exec warns, forwards `timeout` and `jido`, and leaves out
+known version 2 settings that version 3 removed. Unknown settings return an
+error. A typed `flow:` construction input is also accepted and normalized to
+`target`, but it does not emit the version 2 migration warning. Use `target:`
+for the canonical v3 form.
+
+See [Migration Shims](migration-shims.md) for the package compatibility policy,
+warning behavior, and option results.
+
 Version 3 removes `normalize/3`, `normalize_single/3`,
 `validate_allowed_actions/2`, and the module and tuple shorthand formats.
 Build each Instruction explicitly with `new/1` or `new!/1`. Use your own
