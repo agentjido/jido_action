@@ -1,9 +1,8 @@
 # Upgrade From v2 To v3
 
 This guide compares the published `v2.3.2` release with the v3 API introduced
-in `v3.0.0-beta.1`. It does not use an earlier, unpublished Flow design as its
-baseline. Post-beta changes on `release/v3` are identified when they change the
-release requirements.
+in `v3.0.0-beta.1` and refined in `v3.0.0-beta.2`. It does not use an earlier,
+unpublished Flow design as its baseline.
 
 Version 2 has `Jido.Action`, `Jido.Instruction`, `Jido.Exec`, `Jido.Plan`,
 Action catalogs, Action tools, and bundled tool modules. Version 2 does not
@@ -15,15 +14,12 @@ not an old Flow value, and there is no automatic Plan-to-Flow conversion.
 
 ## Update The Dependency
 
-The published `v3.0.0-beta.1` package requires Elixir 1.20 or later. After the
-beta.1 tag, `release/v3` restored the Elixir requirement to 1.18 or later. Use
-an exact post-beta commit for source integration, or use the next published v3
-prerelease before you claim Elixir 1.18 support in a released application.
+The published `v3.0.0-beta.2` package requires Elixir 1.18 or later.
 
 ```elixir
 def deps do
   [
-    {:jido_action, "~> 3.0.0-beta.1"}
+    {:jido_action, "~> 3.0.0-beta.2"}
   ]
 end
 ```

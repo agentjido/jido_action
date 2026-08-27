@@ -15,10 +15,8 @@ Give the agent access to the application repository. Start from a clean branch
 or record all current changes. The agent must preserve changes that are not
 part of the upgrade.
 
-Decide which v3 release you want. The prompt below uses
-`3.0.0-beta.1`, which requires Elixir 1.20. Post-beta source on `release/v3`
-restores Elixir 1.18 support. Use an exact source commit for that work, or
-change the version after a later v3 prerelease is published.
+Decide which v3 release you want. The prompt below uses `3.0.0-beta.2`, which
+requires Elixir 1.18 or later.
 
 ## Agent Prompt
 
@@ -26,7 +24,7 @@ Copy this complete prompt into your coding agent:
 
 ```text
 Upgrade this Elixir application from jido_action v2 to
-jido_action 3.0.0-beta.1.
+jido_action 3.0.0-beta.2.
 
 Use the published jido_action v2.3.2 API as the v2 baseline. Do not use an
 unpublished Flow spike or a mid-development v3 API as the baseline. Version 2
@@ -75,10 +73,8 @@ change application behavior.
 
 3. Update the package and platform
 
-- Change the dependency to {:jido_action, "~> 3.0.0-beta.1"}.
-- Set the application to Elixir 1.20 or later for `3.0.0-beta.1`. If the
-  selected later v3 release supports Elixir 1.18, keep the application's
-  supported 1.18 or later matrix.
+- Change the dependency to {:jido_action, "~> 3.0.0-beta.2"}.
+- Set the application to Elixir 1.18 or later for `3.0.0-beta.2`.
 - Update CI to test the selected Elixir and OTP versions.
 - Run mix deps.get.
 - Add direct dependencies for libraries that the application used only

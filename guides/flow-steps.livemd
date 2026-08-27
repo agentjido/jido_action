@@ -8,7 +8,7 @@ Run the cells from top to bottom.
 ## Install The Package
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-beta.1"}])
+Mix.install([{:jido_action, "~> 3.0.0-beta.2"}])
 ```
 
 ## Define An Action

@@ -13,6 +13,8 @@ entries return to the normal automated changelog process.
 
 ## Unreleased
 
+## [v3.0.0-beta.2](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.1...v3.0.0-beta.2) (2026-08-27)
+
 ### Features:
 
 * add generated temporary Flow registries through
@@ -27,6 +29,15 @@ entries return to the normal automated changelog process.
 
 * add a package-wide migration shim guide with warning behavior, design rules,
   active shims, deliberate non-shims, and migration steps
+
+### Refactoring:
+
+* organize the `Jido.Exec` implementation into focused Action, Flow, runtime,
+  and telemetry modules
+* remove the separate Exec supervisor and custom concurrency limiter, and use
+  Runic ready-wave scheduling with the configured Task Supervisor
+* centralize internal execution telemetry under `Jido.Exec.Telemetry`, close
+  active spans after finite timeouts, and add complete types to Execution data
 
 ## [v3.0.0-beta.1](https://github.com/agentjido/jido_action/compare/v2.3.2...v3.0.0-beta.1) (2026-08-25)
 
