@@ -7,11 +7,35 @@ defmodule Jido.Exec.Execution do
   read or update it. Its fields are internal, and the value is not a storage
   or interchange format. A successful state-changing operation consumes its
   revision. Jido rejects concurrent use and reuse of an older revision before
-  it dispatches Action work.
+  it dispatches Action work. Use `Jido.Exec.continue/1` to finish the
+  lifecycle.
   """
 
+  alias Jido.Flow
+  alias Jido.Flow.Compiled
+  alias Runic.Workflow
+  alias Runic.Workflow.Runnable
+
   @typedoc "State for one in-memory Flow execution session."
-  @type t :: struct()
+  @type t :: %__MODULE__{
+          id: String.t(),
+          flow_name: String.t(),
+          status: :running | :succeeded | :failed,
+          revision: non_neg_integer(),
+          guard: :atomics.atomics_ref(),
+          flow: Flow.t(),
+          compiled: Compiled.t(),
+          input: map(),
+          context: map(),
+          options: keyword(),
+          workflow: Workflow.t(),
+          ready: [Runnable.t()],
+          runnable_errors: [%{runnable: Runnable.t(), error: Exception.t()}],
+          engine_error: Exception.t() | nil,
+          finalizer: (term() -> {:ok, term()} | {:error, Exception.t()}),
+          final_result: {:ok, term()} | {:error, Exception.t()} | nil,
+          lifecycle: %{flow: map()}
+        }
 
   @derive {Inspect, only: [:id, :flow_name, :status, :revision]}
   @enforce_keys [

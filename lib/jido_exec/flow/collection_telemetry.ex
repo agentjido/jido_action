@@ -1,7 +1,7 @@
 defmodule Jido.Exec.Flow.CollectionTelemetry do
   @moduledoc false
 
-  alias Jido.Action.Telemetry
+  alias Jido.Exec.Telemetry
 
   @doc false
   @spec observer(String.t(), String.t()) :: (term() -> Telemetry.span() | :ok)

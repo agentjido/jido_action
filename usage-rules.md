@@ -101,8 +101,9 @@ Use `jido_action` for validated work and data-first composition:
 - Use `Jido.Exec.workflow/1` and `Jido.Exec.compiled/1` for supported live
   Runic inspection. Other Execution fields are internal.
 - Select `step/2` work with a ready Runnable or its integer ID.
-- Treat each execution as caller-owned, in-memory state with its own
-  concurrency limit. Always pass the latest value to the next step-wise call.
+- Treat each execution as caller-owned, in-memory state. `max_concurrency`
+  bounds each asynchronous ready wave. Always pass the latest value to the
+  next step-wise call.
 - Do not persist an execution as a checkpoint. Reusing a stale value can run an
   Action side effect again.
 - Let the caller or Jido core select timeout and retry policy. Use

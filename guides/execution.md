@@ -72,7 +72,7 @@ Flow targets also accept:
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `async` | `false` | Runs independent ready work concurrently. |
-| `max_concurrency` | scheduler count | Bounds Action calls and helper workers in one execution. |
+| `max_concurrency` | scheduler count | Bounds tasks in each ready Runic wave. |
 
 `start/4` accepts `jido`, `async`, and `max_concurrency`. It does not accept a
 timeout because a paused execution has no complete-call clock.
@@ -128,12 +128,13 @@ Jido emits `:start`, `:stop`, and `:error` events for these prefixes:
 
 All nested events use one `execution_id`. Error events add `error` and
 `error_type`. Collection and iteration events can have high volume. Native
-Runic support nodes do not get artificial Jido node events.
+Runic support nodes do not get artificial Jido node events. A complete-call
+timeout closes each active Jido span once with the timeout error.
 
 ## Scope
 
 Exec provides one in-memory execution session. It provides validation, process
 ownership, whole-call timeout, optional concurrency, and Jido instance
 routing. It does not provide automatic retry, per-node deadlines, a public
-cancel handle, persistence, rewind, queues, recovery, or distributed
-coordination.
+cancel handle for running work, persistence, rewind, queues, recovery, or
+distributed coordination.

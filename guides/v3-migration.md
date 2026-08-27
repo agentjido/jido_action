@@ -434,8 +434,8 @@ JSON, or UI boundary needs stable data.
 ## Update Supervisor Names
 
 The default v2 Task Supervisor is `Jido.Action.TaskSupervisor`. The default v3
-Task Supervisor is `Jido.Exec.TaskSupervisor`, under `Jido.Exec.Supervisor`.
-The package application starts this global tree.
+Task Supervisor is `Jido.Exec.TaskSupervisor`. The package application starts
+it.
 
 Update code that refers to the old global supervisor by name.
 

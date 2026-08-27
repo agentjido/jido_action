@@ -1,8 +1,8 @@
 defmodule Jido.Exec.Flow.TargetRunner do
   @moduledoc false
 
-  alias Jido.Action.Telemetry
   alias Jido.Exec.Action.Runner
+  alias Jido.Exec.Telemetry
   alias Jido.Flow.Compiler.Target
 
   @doc false
@@ -11,14 +11,7 @@ defmodule Jido.Exec.Flow.TargetRunner do
   def run(target, params, context, execution_id, run_opts, flow_name, owner) do
     span = start_span(target, execution_id, flow_name, owner)
 
-    result =
-      Runner.run_target(
-        target,
-        params,
-        context,
-        Jido.Exec.ConcurrencyLimiter.whereis(execution_id),
-        run_opts
-      )
+    result = Runner.run_target(target, params, context, run_opts)
 
     finish_span(span, result)
   end

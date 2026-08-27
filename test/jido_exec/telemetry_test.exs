@@ -9,6 +9,7 @@ defmodule JidoActionTest.Exec.TelemetryTest do
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Instruction
   alias JidoActionTest.Fixtures.{MathFlow, TelemetryParentFlow}
+  alias JidoActionTest.Fixtures.Execution.BlockingAction
   alias JidoActionTest.Fixtures.Actions.{Add, ErrorAction}
 
   @flow_start [:jido, :flow, :start]
@@ -144,6 +145,102 @@ defmodule JidoActionTest.Exec.TelemetryTest do
     assert Map.drop(target_error, [:error, :error_type]) == target_start
     assert Map.drop(node_error, [:error, :error_type]) == node_start
     assert Map.drop(flow_error, [:error, :error_type]) == flow_start
+  end
+
+  test "closes a direct Action lifecycle when the complete-call timeout wins" do
+    attach([@action_start, @action_stop, @action_error])
+    owner = self()
+
+    task =
+      Task.async(fn ->
+        Exec.run(BlockingAction, %{value: 1}, %{test_pid: owner}, timeout: 100)
+      end)
+
+    assert_receive {:blocking_flow_node_started, worker}, 1_000
+    assert {:error, timeout_error} = Task.await(task, 1_000)
+    assert %Jido.Action.Error.TimeoutError{} = timeout_error
+
+    assert [
+             {@action_start, _, start_metadata},
+             {@action_error, measurements, error_metadata}
+           ] = events()
+
+    assert Map.drop(error_metadata, [:error, :error_type]) == start_metadata
+    assert error_metadata.error == timeout_error
+    assert error_metadata.error_type == :timeout
+    assert measurements.duration >= 0
+    refute_received {@action_stop, _, _}
+    refute Process.alive?(worker)
+  end
+
+  test "closes active Flow, node, and target lifecycles when timeout wins" do
+    attach(@flow_events)
+
+    flow = one_step_flow(BlockingAction, %{value: 1})
+    owner = self()
+
+    task =
+      Task.async(fn ->
+        Exec.run(flow, %{}, %{test_pid: owner}, timeout: 100)
+      end)
+
+    assert_receive {:blocking_flow_node_started, worker}, 1_000
+    assert {:error, timeout_error} = Task.await(task, 1_000)
+    assert %Jido.Flow.Error.TimeoutError{} = timeout_error
+
+    assert [
+             {@flow_start, _, flow_start},
+             {@node_start, _, node_start},
+             {@target_start, _, target_start},
+             {@target_error, _, target_error},
+             {@node_error, _, node_error},
+             {@flow_error, _, flow_error}
+           ] = events()
+
+    assert target_error.error == timeout_error
+    assert node_error.error == timeout_error
+    assert flow_error.error == timeout_error
+    assert Map.drop(target_error, [:error, :error_type]) == target_start
+    assert Map.drop(node_error, [:error, :error_type]) == node_start
+    assert Map.drop(flow_error, [:error, :error_type]) == flow_start
+    refute Process.alive?(worker)
+  end
+
+  test "the finite-timeout tracker emits one terminal event per span" do
+    attach([@action_start, @action_stop, @action_error])
+    {:ok, tracker} = Jido.Exec.Telemetry.Tracker.start_link()
+
+    Jido.Exec.Telemetry.with_tracker(tracker, fn ->
+      span =
+        Jido.Exec.Telemetry.start([:jido, :action], %{
+          execution_id: "tracker-test",
+          kind: :action,
+          name: :tracker_test
+        })
+
+      assert Jido.Exec.Telemetry.stop(span) == :ok
+      assert Jido.Exec.Telemetry.stop(span) == :ok
+    end)
+
+    assert Jido.Exec.Telemetry.Tracker.fail_all(tracker, :timeout) == :ok
+
+    Jido.Exec.Telemetry.with_tracker(tracker, fn ->
+      suppressed =
+        Jido.Exec.Telemetry.start([:jido, :action], %{
+          execution_id: "tracker-test",
+          kind: :action,
+          name: :suppressed
+        })
+
+      assert Jido.Exec.Telemetry.error(suppressed, :late) == :ok
+    end)
+
+    assert Jido.Exec.Telemetry.Tracker.stop(tracker) == :ok
+
+    assert [
+             {@action_start, _, %{name: :tracker_test}},
+             {@action_stop, _, %{name: :tracker_test}}
+           ] = events()
   end
 
   test "keeps one lifecycle open across step-wise execution" do

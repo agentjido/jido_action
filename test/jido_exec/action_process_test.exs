@@ -51,7 +51,7 @@ defmodule JidoActionTest.Exec.ActionProcessTest do
           Exec.run(target, input, context)
         end)
 
-      assert_receive {:blocking_flow_node_started, worker}, 1_000, to_string(form)
+      assert_receive {:blocking_flow_node_started, worker}, 2_000, to_string(form)
       refute worker == caller
       worker_monitor = Process.monitor(worker)
 

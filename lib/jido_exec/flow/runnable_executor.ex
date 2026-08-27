@@ -1,9 +1,8 @@
 defmodule Jido.Exec.Flow.RunnableExecutor do
   @moduledoc false
 
-  alias Jido.Action.Telemetry
   alias Jido.Exec.Execution
-  alias Jido.Exec.OrderedTaskRunner
+  alias Jido.Exec.Telemetry
   alias Jido.Flow.Error
   alias Runic.Workflow
   alias Runic.Workflow.Runnable
@@ -21,16 +20,35 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
   @spec execute_many(Execution.t(), [Runnable.t()]) :: [Runnable.t()]
   def execute_many(%Execution{} = execution, runnables) when is_list(runnables) do
     if Keyword.fetch!(execution.options, :async) do
-      OrderedTaskRunner.run(
-        runnables,
-        Keyword.fetch!(execution.options, :max_concurrency),
-        &execute(execution, &1),
-        &fail_exited_runnable/2,
-        Jido.Exec.ConcurrencyLimiter.whereis(execution.id)
-      )
+      execute_async(execution, runnables)
     else
       Enum.map(runnables, &execute(execution, &1))
     end
+  end
+
+  defp execute_async(execution, runnables) do
+    logger_metadata = Logger.metadata()
+    telemetry_tracker = Telemetry.tracker()
+    group_leader = Process.group_leader()
+
+    execute = fn runnable ->
+      Process.group_leader(self(), group_leader)
+      Logger.metadata(logger_metadata)
+      Telemetry.put_tracker(telemetry_tracker)
+      execute(execution, runnable)
+    end
+
+    runnables
+    |> Task.async_stream(execute,
+      max_concurrency: Keyword.fetch!(execution.options, :max_concurrency),
+      ordered: true,
+      timeout: :infinity
+    )
+    |> Enum.zip(runnables)
+    |> Enum.map(fn
+      {{:ok, executed}, _runnable} -> executed
+      {{:exit, reason}, runnable} -> fail_exited_runnable(runnable, reason)
+    end)
   end
 
   defp safely_execute(runnable) do

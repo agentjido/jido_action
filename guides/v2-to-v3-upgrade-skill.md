@@ -179,7 +179,8 @@ change application behavior.
   log, and UI boundaries.
 - Replace Jido.Action.TaskSupervisor with Jido.Exec.TaskSupervisor for the
   global execution supervisor.
-- Replace JidoAction.Supervisor references with Jido.Exec.Supervisor.
+- Do not depend on the package root supervisor name. Use
+  Jido.Exec.TaskSupervisor when direct Task Supervisor access is required.
 - Keep MyApp.Jido.TaskSupervisor for jido: MyApp.Jido instance routing.
 - Treat the v3 stored Flow document as a new format. Do not decode v2 Plan,
   Instruction, Action JSON, or development-spike data with Jido.Flow.Codec.

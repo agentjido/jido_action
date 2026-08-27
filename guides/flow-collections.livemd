@@ -99,7 +99,7 @@ Choose the mode as part of author intent. A fallback or retry is not inferred.
 ## Concurrency
 
 Map items can run concurrently when the Flow uses `async: true`.
-`max_concurrency` limits active Action calls and helper workers.
+`max_concurrency` limits the native Runic item runnables in each ready wave.
 
 ```elixir
 Jido.Exec.run(

@@ -16,7 +16,7 @@ A finite timeout covers the complete call. It terminates the execution process
 and active child work. It does not retry the target.
 
 `start/4` accepts `jido` but not `timeout`. A paused step-wise execution does
-not have one complete-call clock.
+not have one complete-call clock. Use `continue/1` to run it to completion.
 
 ## Flow Scheduling Options
 
@@ -27,10 +27,9 @@ Flow modules, Flow values, and Flow Instructions also accept:
 | `async` | `false` | Must be a Boolean. |
 | `max_concurrency` | `System.schedulers_online()` | Must be a positive integer. |
 
-`async: true` permits independent ready Runic work and Map items to run
-concurrently. One shared budget limits active Action calls across nodes,
-collections, and nested Flows. A separate budget limits helper workers.
-Nested work runs inline when no helper-worker slot is available.
+`async: true` dispatches each ready Runic wave with an ordered task stream.
+`max_concurrency` bounds the tasks in that wave. Map items are native Runic
+runnables and use the same rule. There is no second Jido concurrency budget.
 
 Reduce and Iterate Action work stays serial.
 

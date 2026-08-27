@@ -1,13 +1,8 @@
 defmodule Jido.Exec.Flow.Engine do
   @moduledoc false
 
-  alias Jido.Action.Telemetry
-
-  alias Jido.Exec.{
-    ConcurrencyLimiter,
-    Execution,
-    ExecutionGuard
-  }
+  alias Jido.Exec.{Execution, ExecutionGuard}
+  alias Jido.Exec.Telemetry
 
   alias Jido.Exec.Flow.RunnableExecutor
 
@@ -120,9 +115,7 @@ defmodule Jido.Exec.Flow.Engine do
 
   def step(%Execution{status: :running} = execution, id) when is_integer(id) do
     with {:ok, runnable} <- fetch_ready(execution, id) do
-      mutate(execution, fn ->
-        with_concurrency_limiter(execution, fn -> do_step(execution, runnable) end)
-      end)
+      mutate(execution, fn -> do_step(execution, runnable) end)
     end
   end
 
@@ -144,9 +137,7 @@ defmodule Jido.Exec.Flow.Engine do
         execution_not_running(execution)
 
       _ready ->
-        mutate(execution, fn ->
-          with_concurrency_limiter(execution, fn -> do_wave(execution) end)
-        end)
+        mutate(execution, fn -> do_wave(execution) end)
     end
   end
 
@@ -155,8 +146,11 @@ defmodule Jido.Exec.Flow.Engine do
   @doc "Runs successive waves until the Flow has a terminal status."
   @spec continue(Execution.t()) :: {:ok, Execution.t()} | {:error, Exception.t()}
   def continue(%Execution{status: :running} = execution) do
-    with {:ok, _runnables, execution} <- wave(execution) do
-      continue(execution)
+    mutation = mutate(execution, fn -> do_continue(execution) end)
+
+    case mutation do
+      {:ok, :continued, execution} -> {:ok, execution}
+      {:error, _error} = error -> error
     end
   end
 
@@ -204,8 +198,16 @@ defmodule Jido.Exec.Flow.Engine do
     end
   end
 
+  defp do_continue(%Execution{status: :running} = execution) do
+    with {:ok, _runnables, execution} <- do_wave(execution) do
+      do_continue(execution)
+    end
+  end
+
+  defp do_continue(%Execution{} = execution), do: {:ok, :continued, execution}
+
   defp apply_runnable(execution, %Runnable{} = runnable) do
-    workflow = Workflow.apply_runnable(execution.workflow, runnable)
+    workflow = apply_runic_runnable(execution.workflow, runnable)
 
     errors =
       case runnable do
@@ -223,6 +225,23 @@ defmodule Jido.Exec.Flow.Engine do
         ready: [],
         runnable_errors: errors
     }
+  end
+
+  # Runic's failed-runnable clause emits an unconditional warning. Jido owns
+  # the handled failure through its return value and telemetry, so use the two
+  # public Runic state transitions from that clause without the duplicate log.
+  defp apply_runic_runnable(workflow, %Runnable{
+         status: :failed,
+         node: node,
+         input_fact: fact
+       }) do
+    workflow
+    |> Workflow.mark_runnable_as_ran(node, fact)
+    |> Workflow.skip_downstream_subgraph(node)
+  end
+
+  defp apply_runic_runnable(workflow, runnable) do
+    Workflow.apply_runnable(workflow, runnable)
   end
 
   defp advance_revision(execution), do: %{execution | revision: execution.revision + 1}
@@ -302,15 +321,6 @@ defmodule Jido.Exec.Flow.Engine do
      }}
   end
 
-  defp with_concurrency_limiter(execution, fun) do
-    ConcurrencyLimiter.with_limiter(
-      execution.id,
-      Keyword.fetch!(execution.options, :max_concurrency),
-      Keyword.fetch!(execution.options, :async),
-      fun
-    )
-  end
-
   defp mutate(execution, fun) do
     with {:ok, operation} <- ExecutionGuard.claim(execution) do
       mutation = run_mutation(execution, operation, fun)
@@ -329,11 +339,6 @@ defmodule Jido.Exec.Flow.Engine do
 
   defp finish_mutation(execution, operation, {:ok, _result, %Execution{} = next} = mutation) do
     :ok = ExecutionGuard.advance(operation, execution, next)
-    mutation
-  end
-
-  defp finish_mutation(execution, operation, {:error, _error} = mutation) do
-    :ok = ExecutionGuard.release(operation, execution)
     mutation
   end
 

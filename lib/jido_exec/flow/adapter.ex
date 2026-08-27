@@ -2,12 +2,12 @@ defmodule Jido.Exec.Flow.Adapter do
   @moduledoc false
 
   alias Jido.Action.Output
-  alias Jido.Action.Telemetry
   alias Jido.Action.Validation
   alias Jido.Executable
   alias Jido.Exec.Execution
   alias Jido.Exec.Flow.Engine
   alias Jido.Exec.Options
+  alias Jido.Exec.Telemetry
   alias Jido.Exec.Flow.TargetRunner
   alias Jido.Flow
   alias Jido.Flow.Compiler

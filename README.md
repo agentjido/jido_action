@@ -290,7 +290,8 @@ iterations add work-unit spans in that namespace. One `execution_id`
 correlates nested work. Step and selected Choice Actions emit a target
 lifecycle with the Action module and selected option. An Action inside a Flow
 does not emit a separate direct Action lifecycle. Telemetry observes execution
-only; it does not control scheduling or results.
+only; it does not control scheduling or results. A complete-call timeout closes
+all active Jido spans with an error event.
 
 See [Execution](guides/execution.md) for exact event names, measurements,
 metadata, nesting, and step-wise semantics.

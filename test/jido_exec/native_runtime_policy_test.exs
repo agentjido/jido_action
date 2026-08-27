@@ -1,6 +1,8 @@
 defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   @moduletag capture_log: true
 
   defmodule LoggerMetadataAction do
@@ -11,6 +13,21 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
       send(test_pid, {:action_logger_metadata, params.id, Logger.metadata()})
       {:ok, params}
     end
+  end
+
+  defmodule BlockingDescriptorAction do
+    def __jido_executable__ do
+      owner = :persistent_term.get({__MODULE__, :owner})
+      send(owner, {:descriptor_started, self()})
+
+      receive do
+        :release_descriptor -> Jido.Executable.action(__MODULE__)
+      end
+    end
+
+    def validate_params(params), do: {:ok, params}
+    def validate_output(output), do: {:ok, output}
+    def run(params, _context), do: {:ok, params}
   end
 
   alias Jido.Action.Error.InvalidInputError
@@ -76,6 +93,31 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     assert Task.await(task) == {:ok, %{left: :left, right: :right}}
   end
 
+  test "bounds one native ready wave with max_concurrency" do
+    probe = start_supervised!({Agent, fn -> %{max: 0, running: 0} end})
+    flow = ExecFixtures.probe_diamond_flow()
+    test_pid = self()
+
+    task =
+      Task.async(fn ->
+        Exec.run(flow, %{}, %{probe: probe, test_pid: test_pid},
+          async: true,
+          max_concurrency: 1
+        )
+      end)
+
+    first = receive_probe_start(probe)
+    refute_receive {ConcurrencyProbeAction, :started, ^probe, _side, _worker}, 100
+    send(elem(first, 1), {:release, probe})
+
+    second = receive_probe_start(probe)
+    send(elem(second, 1), {:release, probe})
+
+    assert Enum.map([first, second], &elem(&1, 0)) |> Enum.sort() == [:left, :right]
+    assert Task.await(task) == {:ok, %{left: :left, right: :right}}
+    assert Agent.get(probe, & &1.max) == 1
+  end
+
   test "supports Flow module options and validates policy values" do
     assert Exec.run(AsyncMathFlow, %{value: 3}, %{}, async: true) == {:ok, %{value: 4}}
     flow = FlowFixtures.math_flow!()
@@ -136,6 +178,51 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     end
   end
 
+  test "includes executable resolution in the complete-call timeout" do
+    key = {BlockingDescriptorAction, :owner}
+    :persistent_term.put(key, self())
+    on_exit(fn -> :persistent_term.erase(key) end)
+
+    caller =
+      spawn(fn ->
+        result = Exec.run(BlockingDescriptorAction, %{}, %{}, timeout: 100)
+        send(self_or_owner(), {:descriptor_result, result})
+      end)
+
+    on_exit(fn -> Process.exit(caller, :kill) end)
+
+    assert_receive {:descriptor_started, descriptor_process}, 1_000
+    refute descriptor_process == caller
+
+    assert_receive {:descriptor_result, {:error, %ActionTimeoutError{timeout: 100}}}, 1_000
+    assert_process_stops(descriptor_process)
+  end
+
+  test "accepts a timeout above the native receive limit" do
+    assert Exec.run(Add, %{value: 1}, %{}, timeout: 5_000_000_000) ==
+             {:ok, %{value: 2}}
+  end
+
+  test "normalizes Task Supervisor capacity failures for finite and infinite calls" do
+    instance = Module.concat(__MODULE__, CapacityLimitedJido)
+    task_supervisor = Module.concat(instance, TaskSupervisor)
+
+    start_supervised!(
+      Supervisor.child_spec(
+        {Task.Supervisor, name: task_supervisor, max_children: 0},
+        id: task_supervisor
+      )
+    )
+
+    for opts <- [[jido: instance], [jido: instance, timeout: 1_000]] do
+      assert {:error,
+              %Jido.Action.Error.ExecutionFailureError{
+                message: "action execution process could not start",
+                details: %{reason: :max_children, task_supervisor: ^task_supervisor}
+              }} = Exec.run(Add, %{value: 1}, %{}, opts)
+    end
+  end
+
   test "a zero timeout dispatches no work for every executable form" do
     for {form, {target, input, context}} <-
           ExecFixtures.blocking_execution_forms(BlockingFlow, self()) do
@@ -152,7 +239,7 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     end
   end
 
-  test "a Flow timeout stops concurrent workers and releases its limiter" do
+  test "a Flow timeout stops concurrent workers" do
     flow =
       Flow.new!(
         name: "concurrent_flow_timeout",
@@ -234,35 +321,42 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     end
   end
 
-  test "scopes the concurrency limiter to one execution operation" do
+  defp self_or_owner do
+    :persistent_term.get({BlockingDescriptorAction, :owner})
+  end
+
+  test "continue runs dependent waves in order" do
     flow =
       Flow.new!(
-        name: "limiter_lifecycle",
+        name: "ordered_continue_waves",
         components: [
           Step.new!(
-            name: "blocking",
+            name: "first",
             action: ExecFixtures.BlockingAction,
-            params: %{test_pid: Ref.context(:test_pid)}
+            params: %{value: :first}
+          ),
+          Step.new!(
+            name: "second",
+            action: ExecFixtures.BlockingAction,
+            params: %{value: Ref.result("first", :value)}
           )
         ],
-        output: Ref.result("blocking")
+        output: Ref.result("second")
       )
 
     assert {:ok, execution} =
              Exec.start(flow, %{}, %{test_pid: self()}, async: true, max_concurrency: 2)
 
-    assert Jido.Exec.ConcurrencyLimiter.whereis(execution.id) == nil
-    [runnable] = Exec.ready(execution)
-    task = Task.async(fn -> Exec.step(execution, runnable) end)
+    task = Task.async(fn -> Exec.continue(execution) end)
 
-    assert_receive {:blocking_flow_node_started, worker}, 1_000
-    limiter = Jido.Exec.ConcurrencyLimiter.whereis(execution.id)
-    assert Process.alive?(limiter)
-    send(worker, :finish)
+    assert_receive {:blocking_flow_node_started, first_worker}, 1_000
+    send(first_worker, :finish)
 
-    assert {:ok, %Runnable{status: :completed}, execution} = Task.await(task)
-    assert Exec.status(execution) == :succeeded
-    assert Jido.Exec.ConcurrencyLimiter.whereis(execution.id) == nil
+    assert_receive {:blocking_flow_node_started, second_worker}, 1_000
+    send(second_worker, :finish)
+
+    assert {:ok, completed} = Task.await(task, 1_000)
+    assert Exec.result(completed) == {:ok, %{value: :first}}
   end
 
   test "aggregates failures from one asynchronous wave" do
@@ -292,6 +386,28 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     assert {:error, %FlowExecutionFailureError{failures: failures}} = Exec.result(execution)
     assert Enum.map(failures, & &1.node) |> Enum.sort() == ["first", "second"]
     assert Enum.all?(failures, &is_integer(&1.runnable_id))
+  end
+
+  test "does not leak Runic's handled-runnable warning" do
+    flow =
+      Flow.new!(
+        name: "quiet_handled_failure",
+        components: [
+          Step.new!(
+            name: "failure",
+            action: ControlledErrorAction,
+            params: %{message: "expected failure"}
+          )
+        ],
+        output: Ref.result("failure")
+      )
+
+    {result, log} = with_log(fn -> Exec.run(flow) end)
+
+    assert {:error, %Jido.Action.Error.ExecutionFailureError{message: "expected failure"}} =
+             result
+
+    refute log =~ "Runnable failed for node"
   end
 
   test "a selected failure does not dispatch another ready runnable" do

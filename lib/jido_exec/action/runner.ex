@@ -4,6 +4,7 @@ defmodule Jido.Exec.Action.Runner do
   alias Jido.Action.Error
   alias Jido.Action.Output
   alias Jido.Instruction
+  alias Jido.Exec.Telemetry
 
   @type target_phase :: :input | :execution | :output
   @type target_result ::
@@ -16,11 +17,12 @@ defmodule Jido.Exec.Action.Runner do
           | {:error, Exception.t()}
           | {:error, Exception.t(), term()}
   def run(%Instruction{target: action} = instruction, run_opts \\ []) do
-    with {:ok, task_supervisor} <- Jido.Exec.Supervisor.task_supervisor(run_opts) do
-      case run_isolated(task_supervisor, fn -> do_run(instruction) end) do
-        {:ok, result} -> result
-        {:exit, reason} -> {:error, process_exit_error(action, reason)}
-      end
+    task_supervisor = Keyword.fetch!(run_opts, :task_supervisor)
+
+    case run_isolated(task_supervisor, fn -> do_run(instruction) end) do
+      {:ok, result} -> result
+      {:exit, reason} -> {:error, process_exit_error(action, reason)}
+      {:start_error, reason} -> {:error, process_start_error(action, task_supervisor, reason)}
     end
   end
 
@@ -39,25 +41,20 @@ defmodule Jido.Exec.Action.Runner do
     end
   end
 
-  @doc "Runs one Action target and reports the failed Action phase."
-  @spec run_target(module(), term(), map()) :: target_result()
-  def run_target(action, params, context) do
-    run_target(action, params, context, nil, [])
-  end
-
   @doc false
-  @spec run_target(module(), term(), map(), Jido.Exec.ConcurrencyLimiter.t() | nil, keyword()) ::
-          target_result()
-  def run_target(action, params, context, concurrency_limiter, run_opts) do
-    with {:ok, task_supervisor} <- Jido.Exec.Supervisor.task_supervisor(run_opts) do
-      Jido.Exec.ConcurrencyLimiter.with_permit(concurrency_limiter, fn ->
-        case run_isolated(task_supervisor, fn -> do_run_target(action, params, context) end) do
-          {:ok, result} -> result
-          {:exit, reason} -> {:error, :execution, process_exit_error(action, reason)}
-        end
-      end)
-    else
-      {:error, error} -> {:error, :execution, error}
+  @spec run_target(module(), term(), map(), keyword()) :: target_result()
+  def run_target(action, params, context, run_opts) do
+    task_supervisor = Keyword.fetch!(run_opts, :task_supervisor)
+
+    case run_isolated(task_supervisor, fn -> do_run_target(action, params, context) end) do
+      {:ok, result} ->
+        result
+
+      {:exit, reason} ->
+        {:error, :execution, process_exit_error(action, reason)}
+
+      {:start_error, reason} ->
+        {:error, :execution, process_start_error(action, task_supervisor, reason)}
     end
   end
 
@@ -260,21 +257,33 @@ defmodule Jido.Exec.Action.Runner do
     caller = self()
     caller_group_leader = Process.group_leader()
     caller_logger_metadata = Logger.metadata()
+    telemetry_tracker = Telemetry.tracker()
     ref = make_ref()
 
-    {:ok, worker} =
-      Task.Supervisor.start_child(task_supervisor, fn ->
-        worker = self()
-        spawn(fn -> terminate_with_caller(caller, worker) end)
+    case start_worker(task_supervisor, fn ->
+           worker = self()
+           spawn(fn -> terminate_with_caller(caller, worker) end)
+           Telemetry.put_tracker(telemetry_tracker)
 
-        receive do
-          {^ref, :run} ->
-            Process.group_leader(worker, caller_group_leader)
-            Logger.metadata(caller_logger_metadata)
-            send(caller, {ref, worker, work.()})
-        end
-      end)
+           receive do
+             {^ref, :run} ->
+               Process.group_leader(worker, caller_group_leader)
+               Logger.metadata(caller_logger_metadata)
+               send(caller, {ref, worker, work.()})
+           end
+         end) do
+      {:ok, worker} -> await_worker(worker, ref)
+      {:error, reason} -> {:start_error, reason}
+    end
+  end
 
+  defp start_worker(task_supervisor, work) do
+    Task.Supervisor.start_child(task_supervisor, work)
+  catch
+    :exit, reason -> {:error, {:exit, reason}}
+  end
+
+  defp await_worker(worker, ref) do
     monitor = Process.monitor(worker)
     send(worker, {ref, :run})
 
@@ -301,6 +310,14 @@ defmodule Jido.Exec.Action.Runner do
   defp process_exit_error(action, reason) do
     programming_error("action execution process exited", %{
       action: action,
+      reason: reason
+    })
+  end
+
+  defp process_start_error(action, task_supervisor, reason) do
+    programming_error("action execution process could not start", %{
+      action: action,
+      task_supervisor: task_supervisor,
       reason: reason
     })
   end

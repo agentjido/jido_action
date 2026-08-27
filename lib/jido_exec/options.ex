@@ -2,7 +2,7 @@ defmodule Jido.Exec.Options do
   @moduledoc false
 
   alias Jido.Action.Error, as: ActionError
-  alias Jido.Exec.Supervisor, as: ExecSupervisor
+  alias Jido.Exec.Runtime
   alias Jido.Flow.Error, as: FlowError
 
   @routing_option_keys [:jido]
@@ -39,14 +39,15 @@ defmodule Jido.Exec.Options do
     with :ok <- validate_keyword(opts),
          :ok <- validate_known_flow_options(opts),
          :ok <- validate_jido(opts, FlowError),
-         :ok <- validate_task_supervisor(opts, FlowError),
+         {:ok, task_supervisor} <- validate_task_supervisor(opts, FlowError),
          max_concurrency = Keyword.get(opts, :max_concurrency, @default_max_concurrency),
          :ok <- validate_async(Keyword.get(opts, :async, false)),
          :ok <- validate_max_concurrency(max_concurrency) do
       {:ok,
        [
          async: Keyword.get(opts, :async, false),
-         max_concurrency: max_concurrency
+         max_concurrency: max_concurrency,
+         task_supervisor: task_supervisor
        ] ++ routing_options(opts)}
     end
   end
@@ -58,8 +59,8 @@ defmodule Jido.Exec.Options do
     with :ok <- validate_action_keyword(opts),
          :ok <- validate_known_action_options(opts, executable_type),
          :ok <- validate_jido(opts, ActionError),
-         :ok <- validate_task_supervisor(opts, ActionError) do
-      {:ok, routing_options(opts)}
+         {:ok, task_supervisor} <- validate_task_supervisor(opts, ActionError) do
+      {:ok, [task_supervisor: task_supervisor] ++ routing_options(opts)}
     end
   end
 
@@ -105,16 +106,16 @@ defmodule Jido.Exec.Options do
   end
 
   defp validate_task_supervisor(opts, error_module) do
-    case ExecSupervisor.task_supervisor(opts) do
-      {:ok, _supervisor} ->
-        :ok
+    case Runtime.task_supervisor(opts) do
+      {:ok, supervisor} ->
+        {:ok, supervisor}
 
       {:error, error} ->
         {:error,
          execution_option_error(error_module, Exception.message(error), %{
            option: :jido,
            jido: Keyword.get(opts, :jido),
-           task_supervisor: ExecSupervisor.task_supervisor_name(opts)
+           task_supervisor: Runtime.task_supervisor_name(opts)
          })}
     end
   end

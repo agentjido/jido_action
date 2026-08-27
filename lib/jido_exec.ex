@@ -40,14 +40,17 @@ defmodule Jido.Exec do
   """
 
   alias Jido.Action.Error
-  alias Jido.Action.Telemetry
   alias Jido.Executable
   alias Jido.Exec.Execution
   alias Jido.Exec.Flow.Engine
   alias Jido.Exec.Options
+  alias Jido.Exec.Telemetry
+  alias Jido.Exec.Telemetry.Tracker
   alias Jido.Flow
   alias Jido.Flow.Error, as: FlowError
   alias Jido.Instruction
+
+  @max_receive_timeout 2_147_483_647
 
   @doc """
   Runs an executable Jido artifact.
@@ -62,12 +65,11 @@ defmodule Jido.Exec do
   execution process and active child work. It does not retry the target.
 
   A Flow target also accepts `:async` and `:max_concurrency`. `:async` defaults
-  to `false`. When it is `true`, independent Runic runnables and Map items can
-  run concurrently. One shared `max_concurrency` budget limits active Action
-  calls across the execution and nested Flow targets. The same numeric limit
-  separately bounds asynchronous helper workers. Nested work runs inline when
-  all helper-worker slots are in use. An Instruction uses the option rules of
-  its resolved target. An Action target accepts no Flow policy options.
+  to `false`. When it is `true`, Exec dispatches each ready Runic wave with an
+  ordered task stream. `:max_concurrency` bounds the tasks in that wave. Map
+  items are native Runic runnables, so the same wave rule applies to them. An
+  Instruction uses the option rules of its resolved target. An Action target
+  accepts no Flow policy options.
   """
   @spec run(term(), map() | keyword() | nil, map() | keyword() | nil, keyword()) ::
           {:ok, term()}
@@ -76,17 +78,21 @@ defmodule Jido.Exec do
           | {:error, Exception.t(), term()}
   def run(executable, input \\ %{}, context \\ %{}, opts \\ []) do
     execution_id = Telemetry.execution_id()
+    timeout_owner = timeout_owner_hint(executable)
 
-    with {:ok, executable, resolved, opts} <- resolve_run_target(executable, opts, :run),
-         timeout_owner = timeout_owner(resolved),
+    with {:ok, opts} <- prepare_run_options(executable, opts),
          {:ok, timeout, run_opts} <- Options.take_timeout(opts, timeout_owner) do
       execute_with_timeout(
-        fn ->
-          run_with_lifecycle(executable, resolved, input, context, run_opts, execution_id)
+        fn notify ->
+          with {:ok, executable, resolved, run_opts} <-
+                 resolve_run_target(executable, run_opts, :run) do
+            notify.({:resolved, timeout_owner(resolved), resolved})
+            run_with_lifecycle(executable, resolved, input, context, run_opts, execution_id)
+          end
         end,
         timeout,
         timeout_owner,
-        resolved,
+        executable,
         execution_id
       )
     end
@@ -198,7 +204,9 @@ defmodule Jido.Exec do
   @spec result(Execution.t()) :: {:ok, term()} | {:error, Exception.t()}
   def result(%Execution{} = execution), do: Engine.result(execution)
 
-  defp execute_with_timeout(work, :infinity, _owner, _executable, _execution_id), do: work.()
+  defp execute_with_timeout(work, :infinity, _owner, _executable, _execution_id) do
+    work.(fn _update -> :ok end)
+  end
 
   defp execute_with_timeout(_work, 0, owner, executable, execution_id) do
     {:error, timeout_error(owner, executable, 0, execution_id)}
@@ -211,6 +219,7 @@ defmodule Jido.Exec do
     caller_logger_metadata = Logger.metadata()
     result_ref = make_ref()
     deadline = System.monotonic_time(:millisecond) + timeout
+    {:ok, telemetry_tracker} = Tracker.start_link()
 
     {worker, monitor} =
       spawn_monitor(fn ->
@@ -218,18 +227,22 @@ defmodule Jido.Exec do
         spawn(fn -> terminate_with_caller(caller, worker) end)
         Process.group_leader(worker, caller_group_leader)
         Logger.metadata(caller_logger_metadata)
-        send(caller, {result_ref, worker, work.()})
+        notify = fn update -> send(caller, {result_ref, worker, :update, update}) end
+
+        result = Telemetry.with_tracker(telemetry_tracker, fn -> work.(notify) end)
+        send(caller, {result_ref, worker, :result, result})
       end)
 
     receive_execution_result(
       worker,
       monitor,
       result_ref,
-      max(deadline - System.monotonic_time(:millisecond), 0),
+      deadline,
       owner,
       executable,
       timeout,
-      execution_id
+      execution_id,
+      telemetry_tracker
     )
   end
 
@@ -237,25 +250,61 @@ defmodule Jido.Exec do
          worker,
          monitor,
          result_ref,
-         remaining,
+         deadline,
          owner,
          executable,
          timeout,
-         execution_id
+         execution_id,
+         telemetry_tracker
        ) do
+    remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+    receive_timeout = min(remaining, @max_receive_timeout)
+
     receive do
-      {^result_ref, ^worker, result} ->
+      {^result_ref, ^worker, :result, result} ->
         Process.demonitor(monitor, [:flush])
+        Tracker.stop(telemetry_tracker)
         result
 
+      {^result_ref, ^worker, :update, {:resolved, next_owner, next_executable}} ->
+        receive_execution_result(
+          worker,
+          monitor,
+          result_ref,
+          deadline,
+          next_owner,
+          next_executable,
+          timeout,
+          execution_id,
+          telemetry_tracker
+        )
+
       {:DOWN, ^monitor, :process, ^worker, reason} ->
-        {:error, execution_process_error(owner, reason)}
+        error = execution_process_error(owner, reason)
+        close_telemetry_tracker(telemetry_tracker, error)
+        {:error, error}
     after
-      remaining ->
-        Process.exit(worker, :kill)
-        await_worker_down(monitor, worker)
-        flush_execution_results(result_ref, worker)
-        {:error, timeout_error(owner, executable, timeout, execution_id)}
+      receive_timeout ->
+        if System.monotonic_time(:millisecond) >= deadline do
+          Process.exit(worker, :kill)
+          await_worker_down(monitor, worker)
+          flush_execution_results(result_ref, worker)
+          error = timeout_error(owner, executable, timeout, execution_id)
+          close_telemetry_tracker(telemetry_tracker, error)
+          {:error, error}
+        else
+          receive_execution_result(
+            worker,
+            monitor,
+            result_ref,
+            deadline,
+            owner,
+            executable,
+            timeout,
+            execution_id,
+            telemetry_tracker
+          )
+        end
     end
   end
 
@@ -269,10 +318,15 @@ defmodule Jido.Exec do
 
   defp flush_execution_results(result_ref, worker) do
     receive do
-      {^result_ref, ^worker, _result} -> flush_execution_results(result_ref, worker)
+      {^result_ref, ^worker, _kind, _value} -> flush_execution_results(result_ref, worker)
     after
       0 -> :ok
     end
+  end
+
+  defp close_telemetry_tracker(tracker, error) do
+    Tracker.fail_all(tracker, error)
+    Tracker.stop(tracker)
   end
 
   defp terminate_with_caller(caller, worker) do
@@ -287,6 +341,17 @@ defmodule Jido.Exec do
 
   defp timeout_owner(%Executable{kind: :flow}), do: FlowError
   defp timeout_owner(%Executable{kind: :action}), do: Error
+
+  defp timeout_owner_hint(%Instruction{flow: flow}) when not is_nil(flow), do: FlowError
+  defp timeout_owner_hint(%Instruction{action: action}) when not is_nil(action), do: Error
+  defp timeout_owner_hint(%Instruction{target: target}), do: timeout_owner_hint(target)
+  defp timeout_owner_hint(%Flow{}), do: FlowError
+
+  defp timeout_owner_hint(module) when is_atom(module) and not is_nil(module) do
+    if function_exported?(module, :__jido_flow_source_map__, 0), do: FlowError, else: Error
+  end
+
+  defp timeout_owner_hint(_executable), do: Error
 
   defp timeout_error(FlowError, executable, timeout, execution_id) do
     FlowError.timeout_error("Flow execution timed out after #{timeout}ms", %{
@@ -315,8 +380,21 @@ defmodule Jido.Exec do
   end
 
   defp execution_name(%Executable{target: target}), do: execution_name(target)
+
+  defp execution_name(%Instruction{target: target}) when not is_nil(target),
+    do: execution_name(target)
+
+  defp execution_name(%Instruction{action: action}) when not is_nil(action),
+    do: execution_name(action)
+
+  defp execution_name(%Instruction{flow: flow}) when not is_nil(flow), do: execution_name(flow)
   defp execution_name(%Flow{name: name}), do: name
   defp execution_name(module) when is_atom(module), do: module
+  defp execution_name(executable), do: executable
+
+  defp resolve_run_target(%Instruction{} = instruction, opts, :run) do
+    Instruction.prepare_execution_target(instruction, opts)
+  end
 
   defp resolve_run_target(%Instruction{} = instruction, opts, mode) do
     Instruction.prepare_execution(instruction, opts, mode)
@@ -327,6 +405,12 @@ defmodule Jido.Exec do
       {:ok, executable, resolved, opts}
     end
   end
+
+  defp prepare_run_options(%Instruction{} = instruction, opts) do
+    Instruction.prepare_run_options(instruction, opts)
+  end
+
+  defp prepare_run_options(_executable, opts), do: {:ok, opts}
 
   defp run_with_lifecycle(
          %Instruction{} = instruction,

@@ -126,9 +126,10 @@ defmodule JidoActionTest.Exec.ExecutionGuardInterruptionTest do
 
   test "marks the guard indeterminate when a mutation error escapes" do
     assert {:ok, execution} = Exec.start(recorder_flow("guard_escaped_mutation_error"))
-    invalid_execution = %{execution | options: [async: false]}
+    invalid_compiled = %{execution.compiled | component_index: nil}
+    invalid_execution = %{execution | compiled: invalid_compiled}
 
-    assert_raise KeyError, fn -> Exec.step(invalid_execution) end
+    assert_raise Protocol.UndefinedError, fn -> Exec.step(invalid_execution) end
 
     assert {:error, %InvalidExecutionError{details: %{reason: :indeterminate}}} =
              Exec.step(execution)

@@ -111,6 +111,21 @@ defmodule Jido.Instruction do
   end
 
   @doc false
+  @spec prepare_run_options(t(), term()) :: {:ok, term()} | {:error, Exception.t()}
+  def prepare_run_options(%__MODULE__{} = instruction, call_opts) do
+    migrate_legacy_opts(instruction.opts, call_opts, warning_target(instruction), :run)
+  end
+
+  @doc false
+  @spec prepare_execution_target(t(), term()) ::
+          {:ok, t(), Executable.t(), term()} | {:error, Exception.t()}
+  def prepare_execution_target(%__MODULE__{} = instruction, effective_opts) do
+    with {:ok, canonical, executable} <- canonicalize(instruction) do
+      {:ok, %{canonical | opts: []}, executable, effective_opts}
+    end
+  end
+
+  @doc false
   @spec normalize!(executable_target() | t(), map() | keyword(), map() | keyword()) :: t()
   def normalize!(target_or_instruction, params \\ %{}, context \\ %{}) do
     params = normalize_map!(params, :params)
@@ -136,6 +151,11 @@ defmodule Jido.Instruction do
         raise Error.validation_error("Invalid instruction configuration", %{reason: error})
     end
   end
+
+  defp warning_target(%__MODULE__{target: target}) when not is_nil(target), do: target
+  defp warning_target(%__MODULE__{action: action}) when not is_nil(action), do: action
+  defp warning_target(%__MODULE__{flow: flow}) when not is_nil(flow), do: flow
+  defp warning_target(_instruction), do: nil
 
   @doc false
   @spec normalize_resolved!(executable_target() | t(), map() | keyword(), map() | keyword()) ::
