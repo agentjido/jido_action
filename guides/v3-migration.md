@@ -1,7 +1,9 @@
 # Upgrade From v2 To v3
 
-This guide compares the published `v2.3.2` release with `v3.0.0-beta.1`.
-It does not use an unpublished v3 development version as its baseline.
+This guide compares the published `v2.3.2` release with the v3 API introduced
+in `v3.0.0-beta.1`. It does not use an earlier, unpublished Flow design as its
+baseline. Post-beta changes on `release/v3` are identified when they change the
+release requirements.
 
 Version 2 has `Jido.Action`, `Jido.Instruction`, `Jido.Exec`, `Jido.Plan`,
 Action catalogs, Action tools, and bundled tool modules. Version 2 does not
@@ -13,7 +15,10 @@ not an old Flow value, and there is no automatic Plan-to-Flow conversion.
 
 ## Update The Dependency
 
-Version 3 requires Elixir 1.18 or later.
+The published `v3.0.0-beta.1` package requires Elixir 1.20 or later. After the
+beta.1 tag, `release/v3` restored the Elixir requirement to 1.18 or later. Use
+an exact post-beta commit for source integration, or use the next published v3
+prerelease before you claim Elixir 1.18 support in a released application.
 
 ```elixir
 def deps do
@@ -374,8 +379,9 @@ json = JSON.encode!(stored_map)
   |> Jido.Flow.Codec.decode(registry)
 ```
 
-For temporary data within one application version, `Codec.encode/1` can return
-the stored map and a generated Registry:
+Post-beta source on `release/v3` adds `Codec.encode/1` for temporary data
+within one application version. It can return the stored map and a generated
+Registry:
 
 ```elixir
 {:ok, stored_map, temporary_registry} = Jido.Flow.Codec.encode(flow)

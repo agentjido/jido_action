@@ -14,8 +14,9 @@ or record all current changes. The agent must preserve changes that are not
 part of the upgrade.
 
 Decide which v3 release you want. The prompt below uses
-`3.0.0-beta.1`. Change the version before you run it when you want a later
-release.
+`3.0.0-beta.1`, which requires Elixir 1.20. Post-beta source on `release/v3`
+restores Elixir 1.18 support. Use an exact source commit for that work, or
+change the version after a later v3 prerelease is published.
 
 ## Agent Prompt
 
@@ -73,7 +74,9 @@ change application behavior.
 3. Update the package and platform
 
 - Change the dependency to {:jido_action, "~> 3.0.0-beta.1"}.
-- Set the application to a supported Elixir 1.18 or later release.
+- Set the application to Elixir 1.20 or later for `3.0.0-beta.1`. If the
+  selected later v3 release supports Elixir 1.18, keep the application's
+  supported 1.18 or later matrix.
 - Update CI to test the selected Elixir and OTP versions.
 - Run mix deps.get.
 - Add direct dependencies for libraries that the application used only
