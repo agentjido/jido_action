@@ -129,7 +129,11 @@ for validation, return normalization, and error behavior.
 ### Actions And Instructions
 
 - An Action callback returns `{:ok, result}`, `{:ok, result, extra}`,
-  `{:error, reason}`, or `{:error, reason, extra}`.
+  `{:error, reason}`, `{:error, reason, extra}`, or
+  `{:continue, input, target}`.
+- A continuation is a terminal transition. A root Action or terminal Dynamic
+  expander can select the next Action or Flow for the same complete Exec call.
+  Other Flow positions reject it.
 - A normal success result is a map. Other intentional success values use
   `Jido.Action.Output`.
 - Input validation runs before the callback. Normal output validation runs
@@ -164,8 +168,10 @@ for validation, return normalization, and error behavior.
 
 ### Execution And OTP
 
-- Run-to-completion and step-wise execution must use the same Flow semantics
-  and return the same final value.
+- For Flows that support step-wise execution, run-to-completion and step-wise
+  execution must use the same Flow semantics and return the same final value.
+- A Flow with Dynamic is run-to-completion only. Step-wise execution and
+  Subflow use must reject it before Action work starts.
 - A step or wave must consume one execution revision. Reuse or concurrent use
   of an old execution must fail before Action work starts.
 - If a caller stops during a mutation, a later call must not repeat work whose
