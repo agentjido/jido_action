@@ -243,10 +243,10 @@ defmodule Jido.Exec do
   end
 
   defp resolve_transition_target(%Transition{} = transition) do
-    case Executable.resolve(transition.target) do
-      {:ok, %Executable{} = executable} ->
-        {:ok, executable}
-
+    with {:ok, %Executable{} = executable} <- Executable.resolve(transition.target),
+         :ok <- Executable.validate(executable) do
+      {:ok, executable}
+    else
       {:error, cause} ->
         {:error,
          Error.execution_error("action returned an invalid continuation target", %{
@@ -637,7 +637,7 @@ defmodule Jido.Exec do
   defp timeout_owner_hint(%Flow{}), do: FlowError
 
   defp timeout_owner_hint(module) when is_atom(module) and not is_nil(module) do
-    if function_exported?(module, :__jido_flow_source_map__, 0), do: FlowError, else: Error
+    if function_exported?(module, :flow, 0), do: FlowError, else: Error
   end
 
   defp timeout_owner_hint(_executable), do: Error

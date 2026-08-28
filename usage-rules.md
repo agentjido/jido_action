@@ -90,7 +90,8 @@ Use `jido_action` for validated work and data-first composition:
   stored JSON or Map data instead.
 - Only `Builder.step/5` and a Spark `step` can derive a Subflow from an
   executable of kind `:flow`. Choice, Map, Reduce, and Iterate target fields
-  accept Actions only.
+  accept Actions only. Dynamic decision and expander targets also accept
+  Actions only.
 
 ## Execution
 

@@ -210,7 +210,8 @@ end
 
 Every Flow declares one output expression. Flows also support ordered Choices,
 Map and Reduce collections, bounded Iterate components with State, independent
-components that can run in parallel, and a step-wise execution API.
+components that can run in parallel, one terminal Dynamic boundary, and a
+step-wise execution API.
 
 ## Build A Flow At Runtime
 

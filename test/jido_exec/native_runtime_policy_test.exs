@@ -40,8 +40,6 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
   end
 
   defmodule BlockingFlowDescriptor do
-    def __jido_flow_source_map__, do: %{}
-
     def __jido_executable__ do
       owner = :persistent_term.get({__MODULE__, :owner})
       send(owner, {:continuation_flow_descriptor_started, self()})
@@ -50,6 +48,24 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
         :release_descriptor -> Jido.Executable.flow(__MODULE__)
       end
     end
+
+    def flow do
+      Jido.Flow.new!(
+        name: "blocking_descriptor_flow",
+        components: [
+          Jido.Flow.Step.new!(
+            name: "add",
+            action: JidoActionTest.Fixtures.Actions.Add,
+            params: %{value: Jido.Flow.Ref.input(:value)}
+          )
+        ],
+        output: Jido.Flow.Ref.result("add")
+      )
+    end
+
+    def validate_params(params), do: {:ok, params}
+    def validate_output(output), do: {:ok, output}
+    def run(params, context), do: Jido.Exec.run(flow(), params, context)
   end
 
   alias Jido.Action.Error.InvalidInputError

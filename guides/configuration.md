@@ -21,8 +21,10 @@ and active child work. It does not retry the target.
 rejects the first transition. The fixed upper bound prevents a caller from
 removing this safety limit. The complete-call timeout is a second guard.
 
-`start/4` accepts `jido` but not `timeout`. A paused step-wise execution does
-not have one complete-call clock. Use `continue/1` to run it to completion.
+`start/4` accepts `jido` and `max_concurrency`, but not `timeout` or
+`max_continuations`. A paused step-wise execution does not have one
+complete-call clock or a terminal-transition boundary. Use `continue/1` to
+run it to completion.
 
 ## Flow Scheduling
 

@@ -61,6 +61,14 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
     def run(_params, _context), do: {:continue, %{}, :not_an_executable}
   end
 
+  defmodule InvalidResolvedAction do
+    def __jido_executable__, do: Jido.Executable.action(__MODULE__)
+  end
+
+  defmodule InvalidResolvedFlow do
+    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+  end
+
   defmodule ContextTarget do
     use Jido.Action, name: "terminal_context_target"
 
@@ -175,6 +183,14 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
       assert {:error,
               %ExecutionFailureError{message: "action returned an invalid continuation target"}} =
                Exec.run(InvalidContinuationTarget)
+
+      for target <- [InvalidResolvedAction, InvalidResolvedFlow] do
+        assert {:error,
+                %ExecutionFailureError{
+                  message: "action returned an invalid continuation target",
+                  details: %{target: ^target}
+                }} = Exec.run(ContinueToTarget, %{input: %{}, target: target})
+      end
     end
 
     test "stops an infinite continuation chain at one complete-call limit" do
