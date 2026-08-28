@@ -4,6 +4,7 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
   alias Jido.Action.Error.ExecutionFailureError
   alias Jido.Exec
   alias Jido.Exec.Error.AsyncTimeoutError
+  alias Jido.Exec.Transition
   alias Jido.Flow
   alias Jido.Flow.{Dynamic, Ref, Step}
   alias JidoActionTest.Fixtures.Actions.{Add, ExtrasAction}
@@ -74,6 +75,38 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
     def run(params, _context), do: {:continue, params, ContextTarget}
   end
 
+  defmodule TransitionData do
+    use Jido.Action, name: "terminal_transition_data"
+
+    @impl true
+    def run(%{value: value}, context) do
+      {:ok, Transition.new(%{value: value}, Add, __MODULE__, context)}
+    end
+  end
+
+  defmodule ContinueToCountingTarget do
+    use Jido.Action, name: "terminal_continue_to_counting_target"
+
+    @impl true
+    def run(params, _context) do
+      {:continue, params, JidoActionTest.Exec.TerminalTransitionTest.CountingTarget}
+    end
+  end
+
+  defmodule CountingTarget do
+    def __jido_executable__ do
+      if counter = Process.get(:terminal_transition_descriptor_counter) do
+        Agent.update(counter, &(&1 + 1))
+      end
+
+      Jido.Executable.action(__MODULE__)
+    end
+
+    def validate_params(params), do: {:ok, params}
+    def validate_output(output), do: {:ok, output}
+    def run(params, _context), do: {:ok, params}
+  end
+
   defmodule Decision do
     use Jido.Action, name: "terminal_dynamic_decision"
 
@@ -89,6 +122,15 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
 
     def run(%{continue?: true, target: target, value: value}, _context) do
       {:continue, %{value: value}, target}
+    end
+  end
+
+  defmodule TransitionDataExpander do
+    use Jido.Action, name: "terminal_transition_data_expander"
+
+    @impl true
+    def run(%{value: value}, context) do
+      {:ok, Transition.new(%{value: value}, Add, __MODULE__, context)}
     end
   end
 
@@ -115,6 +157,15 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
     test "passes the current Action context to the next executable" do
       assert Exec.run(ContinueWithContext, %{value: 3}, %{trace_id: "trace"}) ==
                {:ok, %{value: 3, trace_id: "trace"}}
+    end
+
+    test "resolves a continuation target exactly one time" do
+      counter = start_supervised!({Agent, fn -> 0 end})
+      Process.put(:terminal_transition_descriptor_counter, counter)
+      on_exit(fn -> Process.delete(:terminal_transition_descriptor_counter) end)
+
+      assert Exec.run(ContinueToCountingTarget, %{value: 3}) == {:ok, %{value: 3}}
+      assert Agent.get(counter, & &1) == 1
     end
 
     test "rejects invalid continuation input and targets" do
@@ -184,6 +235,33 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
                Exec.run(flow, %{continue?: false, value: 3, target: Add})
 
       assert message == "action continuation is not allowed from this Flow position"
+    end
+
+    test "normal Transition-shaped output stays domain data" do
+      step_flow =
+        Flow.new!(
+          name: "transition_data_step",
+          components: [
+            Step.new!(name: "data", action: TransitionData, params: %{value: 3})
+          ],
+          output: Ref.result("data")
+        )
+
+      assert {:ok, %Transition{input: %{value: 3}, target: Add} = data} =
+               Exec.run(step_flow, %{}, %{trace_id: "step"})
+
+      assert {:ok, execution} = Exec.start(step_flow, %{}, %{trace_id: "step"})
+      assert {:ok, execution} = Exec.continue(execution)
+      assert Exec.result(execution) == {:ok, data}
+
+      dynamic_flow = dynamic_flow!(expander: TransitionDataExpander)
+
+      assert {:ok, %Transition{input: %{value: 3}, target: Add}} =
+               Exec.run(
+                 dynamic_flow,
+                 %{continue?: false, value: 3, target: Add},
+                 %{trace_id: "dynamic"}
+               )
     end
 
     test "normal Steps cannot return continuations" do

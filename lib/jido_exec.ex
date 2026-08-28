@@ -160,22 +160,46 @@ defmodule Jido.Exec do
        ) do
     with {:ok, executable, resolved, run_opts} <-
            resolve_run_target(executable, opts, :run) do
-      notify.({:resolved, timeout_owner(resolved), resolved})
+      run_resolved_chain(
+        executable,
+        resolved,
+        input,
+        context,
+        run_opts,
+        execution_id,
+        notify,
+        count,
+        continuation_limit
+      )
+    end
+  end
 
-      case run_with_lifecycle(executable, resolved, input, context, run_opts, execution_id) do
-        {:continue, %Transition{} = transition} ->
-          continue_chain(
-            transition,
-            run_opts,
-            execution_id,
-            notify,
-            count + 1,
-            continuation_limit
-          )
+  defp run_resolved_chain(
+         executable,
+         %Executable{} = resolved,
+         input,
+         context,
+         opts,
+         execution_id,
+         notify,
+         count,
+         continuation_limit
+       ) do
+    notify.({:resolved, timeout_owner(resolved), resolved})
 
-        result ->
-          result
-      end
+    case run_with_lifecycle(executable, resolved, input, context, opts, execution_id) do
+      {:continue, %Transition{} = transition} ->
+        continue_chain(
+          transition,
+          opts,
+          execution_id,
+          notify,
+          count + 1,
+          continuation_limit
+        )
+
+      result ->
+        result
     end
   end
 
@@ -187,18 +211,22 @@ defmodule Jido.Exec do
          count,
          continuation_limit
        ) do
-    with :ok <- check_continuation_limit(transition, count, continuation_limit),
-         :ok <- validate_transition_target(transition) do
-      run_chain(
-        transition.target,
-        transition.input,
-        transition.context,
-        opts,
-        execution_id,
-        notify,
-        count,
-        continuation_limit
-      )
+    with :ok <- check_continuation_limit(transition, count, continuation_limit) do
+      notify.({:resolved, timeout_owner_hint(transition.target), transition.target})
+
+      with {:ok, resolved} <- resolve_transition_target(transition) do
+        run_resolved_chain(
+          transition.target,
+          resolved,
+          transition.input,
+          transition.context,
+          opts,
+          execution_id,
+          notify,
+          count,
+          continuation_limit
+        )
+      end
     end
   end
 
@@ -214,11 +242,11 @@ defmodule Jido.Exec do
      })}
   end
 
-  defp validate_transition_target(%Transition{} = transition) do
-    with {:ok, executable} <- Executable.resolve(transition.target),
-         :ok <- Executable.validate(executable) do
-      :ok
-    else
+  defp resolve_transition_target(%Transition{} = transition) do
+    case Executable.resolve(transition.target) do
+      {:ok, %Executable{} = executable} ->
+        {:ok, executable}
+
       {:error, cause} ->
         {:error,
          Error.execution_error("action returned an invalid continuation target", %{

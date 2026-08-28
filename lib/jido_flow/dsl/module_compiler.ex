@@ -144,7 +144,7 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
         {validate_executable!(flow, env, source_map), source_map}
 
       {:error, error} ->
-        raise_compile_error!(env, Exception.message(error), error)
+        raise_compile_error!(env, Exception.message(error), error, source_map)
     end
   end
 
@@ -165,16 +165,11 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
     end
   end
 
-  @spec raise_compile_error!(Macro.Env.t(), String.t(), Exception.t()) :: no_return()
-  defp raise_compile_error!(env, description, error) do
-    raise_compile_error!(env, description, error, nil)
-  end
-
   @spec raise_compile_error!(
           Macro.Env.t(),
           String.t(),
           Exception.t(),
-          Jido.Flow.Compiled.source_map() | nil
+          Jido.Flow.Compiled.source_map()
         ) ::
           no_return()
   defp raise_compile_error!(env, description, error, source_map) do
@@ -198,8 +193,6 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
     end
   end
 
-  defp source_line(_details, _source_map, env), do: env.line
-
   defp source_location(source_map, details) do
     details
     |> source_paths()
@@ -214,9 +207,9 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
     [[:components, component, :options, field], [:components, component]]
   end
 
+  defp source_paths(%{path: [:output | _rest]}), do: [[:output]]
   defp source_paths(%{component: component}), do: [[:components, component]]
   defp source_paths(%{node: component}), do: [[:components, component]]
-  defp source_paths(%{path: [:output | _rest]}), do: [[:output]]
   defp source_paths(_details), do: []
 
   defp compile_error_message(error) when is_exception(error) do

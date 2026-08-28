@@ -14,7 +14,9 @@ Use `jido_action` for validated work and data-first composition:
 - Use `use Jido.Action` for public actions.
 - Provide stable `name` and useful `description` values.
 - Use Zoi schemas for `schema` and `output_schema`; omit them or use `[]` only when validation is intentionally empty.
-- Keep `run/2` strict: return `{:ok, result}`, `{:ok, result, extra}`, `{:error, reason}`, or `{:error, reason, extra}`.
+- Keep `run/2` strict: return `{:ok, result}`, `{:ok, result, extra}`,
+  `{:continue, input, target}`, `{:error, reason}`, or
+  `{:error, reason, extra}`.
 - Return a normal map for success. Use `Jido.Action.Output` for an intentional
   raw, stream, batch, or opaque success value.
 - Keep side effects explicit inside `run/2` and make them easy to test.
@@ -53,7 +55,8 @@ Use `jido_action` for validated work and data-first composition:
 - Use the compile-time `Jido.Flow` DSL as the primary developer authoring
   surface.
 - Give every component a stable string name.
-- Use `step`, `choice`, `map`, `reduce`, and `iterate` for graph structure.
+- Use `step`, `choice`, `map`, `reduce`, `iterate`, and `dynamic` for graph
+  structure.
 - Use `input`, `context`, and `result` references to map data. Put computation
   in Actions.
 - Treat DSL expressions as a restricted data grammar, not general Elixir. Do
@@ -67,6 +70,8 @@ Use `jido_action` for validated work and data-first composition:
 - Use `repeat` or a bounded `while` condition in the Spark `iterate` form. The
   lowerer converts it to canonical `completion` and `max_iterations` data.
 - Keep Iterate State local to that component.
+- Use at most one `dynamic`. It must be the sole terminal component and the
+  complete Flow output. Run it only through a run-to-completion Exec call.
 
 ## Runtime Flow Data
 
@@ -92,9 +97,10 @@ Use `jido_action` for validated work and data-first composition:
 - Use `Jido.Exec.run/4` for the public validation and error boundary.
 - Use `jido: MyApp.Jido` with an Action, Instruction, or Flow when work must run
   under the Task Supervisor for that running Jido core instance.
-- A Flow or an Instruction with a Flow target also accepts the
-  `max_concurrency` policy option. Its default is `8`. Use `1` for serial
-  execution.
+- All run-to-completion targets accept `max_continuations` and
+  `max_concurrency`. An Action does not use the concurrency limit itself, but
+  it can continue to a Flow. `max_concurrency` defaults to `8`. Use `1` for
+  serial Flow execution.
 - Use `run_async/4` for an asynchronous run-to-completion call. Only the owner
   process can await or cancel its handle. An await timeout cancels that call.
 - Use `start/4`, `ready/1`, `step/1`, `step/2`, `wave/1`, `continue/1`, and

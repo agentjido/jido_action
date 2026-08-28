@@ -30,6 +30,28 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     def run(params, _context), do: {:ok, params}
   end
 
+  defmodule ContinueToBlockingFlowDescriptor do
+    use Jido.Action, name: "continue_to_blocking_flow_descriptor"
+
+    @impl true
+    def run(params, _context) do
+      {:continue, params, JidoActionTest.Exec.NativeRuntimePolicyTest.BlockingFlowDescriptor}
+    end
+  end
+
+  defmodule BlockingFlowDescriptor do
+    def __jido_flow_source_map__, do: %{}
+
+    def __jido_executable__ do
+      owner = :persistent_term.get({__MODULE__, :owner})
+      send(owner, {:continuation_flow_descriptor_started, self()})
+
+      receive do
+        :release_descriptor -> Jido.Executable.flow(__MODULE__)
+      end
+    end
+  end
+
   alias Jido.Action.Error.InvalidInputError
   alias Jido.Action.Error.TimeoutError, as: ActionTimeoutError
   alias Jido.Exec
@@ -202,6 +224,18 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     refute descriptor_process == caller
 
     assert_receive {:descriptor_result, {:error, %ActionTimeoutError{timeout: 100}}}, 1_000
+    assert_process_stops(descriptor_process)
+  end
+
+  test "uses the selected continuation target type while its descriptor resolves" do
+    key = {BlockingFlowDescriptor, :owner}
+    :persistent_term.put(key, self())
+    on_exit(fn -> :persistent_term.erase(key) end)
+
+    assert {:error, %FlowTimeoutError{timeout: 100}} =
+             Exec.run(ContinueToBlockingFlowDescriptor, %{}, %{}, timeout: 100)
+
+    assert_received {:continuation_flow_descriptor_started, descriptor_process}
     assert_process_stops(descriptor_process)
   end
 

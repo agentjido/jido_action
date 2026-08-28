@@ -43,6 +43,7 @@ defmodule Jido.Flow.Codec do
   alias Jido.Flow.Registry
   alias Jido.Flow.Step
   alias Jido.Flow.Subflow
+  alias Jido.Flow.Validation
 
   @type document :: %{required(String.t()) => term()}
 
@@ -1021,7 +1022,16 @@ defmodule Jido.Flow.Codec do
         []
       end
 
-    duplicate_errors ++ reference_errors ++ cycle_errors
+    dynamic_errors =
+      if duplicate_errors == [] and reference_errors == [] and cycle_errors == [] do
+        components
+        |> Validation.dynamic_diagnostics(output)
+        |> Enum.map(&ensure_json_path(&1, []))
+      else
+        []
+      end
+
+    duplicate_errors ++ reference_errors ++ cycle_errors ++ dynamic_errors
   end
 
   defp duplicate_component_errors(components) do

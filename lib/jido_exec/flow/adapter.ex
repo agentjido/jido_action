@@ -29,8 +29,11 @@ defmodule Jido.Exec.Flow.Adapter do
     with {:ok, flow, compiled} <- materialize(executable),
          {:ok, execution} <-
            start_flow(flow, compiled, input, context, opts, execution_id, :run),
-         {:ok, execution} <- Engine.continue(execution) do
+         {:ok, execution} <- Engine.run_to_completion(execution) do
       Engine.result(execution)
+    else
+      {:continue, %Jido.Exec.Transition{} = transition} -> {:continue, transition}
+      {:error, _error} = error -> error
     end
   end
 

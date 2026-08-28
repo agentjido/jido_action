@@ -7,6 +7,7 @@ defmodule Jido.Flow.CodecTest do
   alias Jido.Flow.Codec
   alias Jido.Flow.Condition
   alias Jido.Flow.Error
+  alias Jido.Flow.Dynamic
   alias Jido.Flow.Ref
   alias Jido.Flow.Registry
   alias Jido.Flow.Step
@@ -128,6 +129,43 @@ defmodule Jido.Flow.CodecTest do
              {:output, "missing-output", ["output"]},
              {"add_one", "missing-first", ["components", 0]},
              {"double", "missing-second", ["components", 1]}
+           ]
+  end
+
+  test "diagnose reports independent terminal Dynamic errors at exact paths" do
+    registry = CodecRegistry.mixed()
+
+    dynamic_flow =
+      Flow.new!(
+        name: "stored_dynamic",
+        components: [
+          Dynamic.new!(name: "next", decision: Add, expander: Add, params: %{value: 1})
+        ],
+        output: Ref.result("next")
+      )
+
+    assert {:ok, dynamic_document} = Codec.encode(dynamic_flow, registry)
+    assert {:ok, math_document} = Codec.encode(FlowAuthoring.math_flow!(), registry)
+
+    [dynamic] = dynamic_document["components"]
+    [step | _rest] = math_document["components"]
+
+    wrapped_output = %{
+      "$type" => "map",
+      "entries" => [%{"key" => "value", "value" => dynamic_document["output"]}]
+    }
+
+    invalid = %{
+      dynamic_document
+      | "components" => [dynamic, step],
+        "output" => wrapped_output
+    }
+
+    assert {:error, %Error.Invalid{errors: errors}} = Codec.diagnose(invalid, registry)
+
+    assert Enum.map(errors, &{Exception.message(&1), &1.details.path}) == [
+             {"Dynamic must be the sole terminal Flow component", ["components", 0]},
+             {"Flow output must be the complete Dynamic result", ["output"]}
            ]
   end
 

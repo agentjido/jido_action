@@ -110,10 +110,14 @@ The Action `run/2` callback must return one of:
 
 - `{:ok, result}`
 - `{:ok, result, extra}`
+- `{:continue, input, target}`
 - `{:error, reason}`
 - `{:error, reason, extra}`
 
-Three-tuple returns let callers receive an extra value alongside the result or error.
+The `{:continue, input, target}` result ends the current executable and runs
+the selected Action or Flow in the same bounded Exec call. Normal success and
+error three-tuples let callers receive an extra value. See
+[Terminal Transitions](guides/continuations.md).
 
 ## Run Asynchronously
 

@@ -76,10 +76,10 @@ Jido.Exec.run(
 )
 ```
 
-An Instruction uses the rules of its resolved target. An Action Instruction
-accepts common options such as `timeout:` and `jido:`. A Flow Instruction also
-accepts `max_concurrency:`. An Instruction can be a target for
-`Jido.Exec.run_async/4`.
+An Instruction uses the rules of its resolved target. All run-to-completion
+targets accept `timeout:`, `jido:`, `max_continuations:`, and
+`max_concurrency:`. An Action does not use `max_concurrency` itself, but it can
+continue to a Flow. An Instruction can be a target for `Jido.Exec.run_async/4`.
 
 Only a Flow Instruction supports step-wise execution.
 

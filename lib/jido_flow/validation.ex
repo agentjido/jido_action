@@ -36,6 +36,32 @@ defmodule Jido.Flow.Validation do
   end
 
   @doc false
+  @spec dynamic_diagnostics([Component.t()], term()) :: [Exception.t()]
+  def dynamic_diagnostics(components, output) do
+    dynamics =
+      components
+      |> Enum.with_index()
+      |> Enum.filter(fn {component, _index} -> match?(%Dynamic{}, component) end)
+
+    case dynamics do
+      [] ->
+        []
+
+      [{%Dynamic{name: name}, index}] ->
+        dynamic_sink_errors(components, name, index) ++ dynamic_output_errors(output, name)
+
+      [_first, {%Dynamic{} = second, index} | _rest] ->
+        [
+          Error.validation_error("Flow can contain only one Dynamic component", %{
+            component: second.name,
+            components: Enum.map(dynamics, fn {%Dynamic{name: name}, _index} -> name end),
+            path: [:components, index]
+          })
+        ]
+    end
+  end
+
+  @doc false
   @spec prepare_executable(map() | keyword(), [module()]) ::
           {:ok, map(), %{optional(module()) => Jido.Flow.t()}} | {:error, Exception.t()}
   def prepare_executable(attrs, module_stack \\ []) do
@@ -230,25 +256,13 @@ defmodule Jido.Flow.Validation do
   end
 
   defp validate_terminal_dynamic(components, output) do
-    case Enum.filter(components, &match?(%Dynamic{}, &1)) do
-      [] ->
-        :ok
-
-      [%Dynamic{name: name}] ->
-        case require_dynamic_sink(components, name) do
-          :ok -> require_dynamic_output(output, name)
-          {:error, error} -> {:error, error}
-        end
-
-      dynamics ->
-        {:error,
-         Error.validation_error("Flow can contain only one Dynamic component", %{
-           components: Enum.map(dynamics, & &1.name)
-         })}
+    case dynamic_diagnostics(components, output) do
+      [] -> :ok
+      [error | _rest] -> {:error, error}
     end
   end
 
-  defp require_dynamic_sink(components, dynamic_name) do
+  defp dynamic_sink_errors(components, dynamic_name, dynamic_index) do
     dependencies =
       components
       |> Enum.flat_map(&Component.effective_dependencies/1)
@@ -261,27 +275,32 @@ defmodule Jido.Flow.Validation do
       |> Enum.sort()
 
     if sinks == [dynamic_name] do
-      :ok
+      []
     else
-      {:error,
-       Error.validation_error("Dynamic must be the sole terminal Flow component", %{
-         dynamic: dynamic_name,
-         terminal_components: sinks
-       })}
+      [
+        Error.validation_error("Dynamic must be the sole terminal Flow component", %{
+          component: dynamic_name,
+          dynamic: dynamic_name,
+          terminal_components: sinks,
+          path: [:components, dynamic_index]
+        })
+      ]
     end
   end
 
-  defp require_dynamic_output(
+  defp dynamic_output_errors(
          %Ref{source: :result, component: dynamic_name, path: []},
          dynamic_name
        ),
-       do: :ok
+       do: []
 
-  defp require_dynamic_output(_output, dynamic_name) do
-    {:error,
-     Error.validation_error("Flow output must be the complete Dynamic result", %{
-       dynamic: dynamic_name
-     })}
+  defp dynamic_output_errors(_output, dynamic_name) do
+    [
+      Error.validation_error("Flow output must be the complete Dynamic result", %{
+        dynamic: dynamic_name,
+        path: [:output]
+      })
+    ]
   end
 
   defp validate_component_targets(components, module_stack, subflows) do

@@ -128,7 +128,7 @@ defmodule Jido.Flow.Compiler do
 
   @doc false
   @spec runtime_result(Compiled.t(), Workflow.t(), map(), map()) ::
-          {:ok, term()} | {:error, Exception.t()}
+          {:ok, term()} | {:continue, Transition.t()} | {:error, Exception.t()}
   def runtime_result(%Compiled{} = compiled, %Workflow{} = workflow, input, context)
       when is_map(input) and is_map(context) do
     result_names = compiled.output |> Flow.Expression.result_refs() |> Enum.uniq()
@@ -136,11 +136,18 @@ defmodule Jido.Flow.Compiler do
     result_names
     |> Enum.reduce_while({:ok, %{}}, fn name, {:ok, results} ->
       case Map.fetch(compiled.component_index, name) do
-        {:ok, %{output: output_name}} ->
+        {:ok, %{kind: kind, output: output_name}} ->
           case Workflow.results(workflow, [output_name], facts: true, all: true) do
             %{^output_name => facts} when is_list(facts) and facts != [] ->
-              value = facts |> List.last() |> Map.fetch!(:value) |> unwrap_value()
-              {:cont, {:ok, Map.put(results, name, value)}}
+              raw_value = facts |> List.last() |> Map.fetch!(:value)
+
+              case {kind, raw_value} do
+                {:dynamic, {:jido_flow_transition, %Transition{} = transition}} ->
+                  {:halt, {:continue, transition}}
+
+                {_kind, value} ->
+                  {:cont, {:ok, Map.put(results, name, unwrap_value(value))}}
+              end
 
             _other ->
               {:halt,
@@ -160,6 +167,9 @@ defmodule Jido.Flow.Compiler do
     |> case do
       {:ok, results} ->
         Expression.resolve(compiled.output, %{input: input, context: context, results: results})
+
+      {:continue, %Transition{} = transition} ->
+        {:continue, transition}
 
       {:error, error} ->
         {:error, error}
@@ -1101,7 +1111,7 @@ defmodule Jido.Flow.Compiler do
              state.target_runner
            ) do
         {:ok, output} -> value(state.input_frame, output)
-        {:continue, %Transition{} = transition} -> transition
+        {:continue, %Transition{} = transition} -> {:jido_flow_transition, transition}
         {:error, error} -> raise error
       end
     else

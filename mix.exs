@@ -180,6 +180,7 @@ defmodule JidoAction.MixProject do
           Jido.Flow.Component,
           Jido.Flow.Condition,
           Jido.Flow.Data,
+          Jido.Flow.Dynamic,
           Jido.Flow.Expression,
           Jido.Flow.Iterate,
           Jido.Flow.Iterate.State,
