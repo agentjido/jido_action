@@ -18,6 +18,12 @@ This result is a terminal transition. It does not add work to the current Flow,
 resume a component, or change the Runic graph. The current executable is done.
 The final target owns output validation, extras, and the final return value.
 
+Target resolution is part of the current executable's transition boundary. If
+the complete-call timeout expires before the target descriptor resolves, the
+timeout error belongs to the current executable. After resolution, the target
+owns its execution timeout and lifecycle. An unresolved initial module target
+uses the Action timeout type until its descriptor resolves.
+
 ## Dynamic Flow Boundary
 
 Use `Jido.Flow.Dynamic` when a Flow must calculate its next executable:

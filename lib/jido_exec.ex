@@ -121,7 +121,7 @@ defmodule Jido.Exec do
 
   defp do_run(executable, input, context, opts, control) do
     execution_id = Telemetry.execution_id()
-    timeout_owner = timeout_owner_hint(executable)
+    timeout_owner = initial_timeout_owner(executable)
 
     with {:ok, opts} <- prepare_run_options(executable, opts),
          {:ok, timeout, run_opts} <- Options.take_timeout(opts, timeout_owner),
@@ -212,8 +212,6 @@ defmodule Jido.Exec do
          continuation_limit
        ) do
     with :ok <- check_continuation_limit(transition, count, continuation_limit) do
-      notify.({:resolved, timeout_owner_hint(transition.target), transition.target})
-
       with {:ok, resolved} <- resolve_transition_target(transition) do
         run_resolved_chain(
           transition.target,
@@ -631,16 +629,11 @@ defmodule Jido.Exec do
   defp timeout_owner(%Executable{kind: :flow}), do: FlowError
   defp timeout_owner(%Executable{kind: :action}), do: Error
 
-  defp timeout_owner_hint(%Instruction{flow: flow}) when not is_nil(flow), do: FlowError
-  defp timeout_owner_hint(%Instruction{action: action}) when not is_nil(action), do: Error
-  defp timeout_owner_hint(%Instruction{target: target}), do: timeout_owner_hint(target)
-  defp timeout_owner_hint(%Flow{}), do: FlowError
-
-  defp timeout_owner_hint(module) when is_atom(module) and not is_nil(module) do
-    if function_exported?(module, :flow, 0), do: FlowError, else: Error
-  end
-
-  defp timeout_owner_hint(_executable), do: Error
+  defp initial_timeout_owner(%Instruction{flow: flow}) when not is_nil(flow), do: FlowError
+  defp initial_timeout_owner(%Instruction{action: action}) when not is_nil(action), do: Error
+  defp initial_timeout_owner(%Instruction{target: target}), do: initial_timeout_owner(target)
+  defp initial_timeout_owner(%Flow{}), do: FlowError
+  defp initial_timeout_owner(_executable), do: Error
 
   defp timeout_error(FlowError, executable, timeout, execution_id) do
     FlowError.timeout_error("Flow execution timed out after #{timeout}ms", %{

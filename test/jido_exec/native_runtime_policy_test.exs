@@ -68,6 +68,32 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     def run(params, context), do: Jido.Exec.run(flow(), params, context)
   end
 
+  defmodule ContinueToBlockingActionDescriptor do
+    use Jido.Action, name: "continue_to_blocking_action_descriptor"
+
+    @impl true
+    def run(params, _context) do
+      {:continue, params,
+       JidoActionTest.Exec.NativeRuntimePolicyTest.BlockingActionDescriptorWithFlowHelper}
+    end
+  end
+
+  defmodule BlockingActionDescriptorWithFlowHelper do
+    def __jido_executable__ do
+      owner = :persistent_term.get({__MODULE__, :owner})
+      send(owner, {:continuation_action_descriptor_started, self()})
+
+      receive do
+        :release_descriptor -> Jido.Executable.action(__MODULE__)
+      end
+    end
+
+    def flow, do: :unrelated_application_helper
+    def validate_params(params), do: {:ok, params}
+    def validate_output(output), do: {:ok, output}
+    def run(params, _context), do: {:ok, params}
+  end
+
   alias Jido.Action.Error.InvalidInputError
   alias Jido.Action.Error.TimeoutError, as: ActionTimeoutError
   alias Jido.Exec
@@ -243,15 +269,35 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     assert_process_stops(descriptor_process)
   end
 
-  test "uses the selected continuation target type while its descriptor resolves" do
+  test "keeps continuation resolution under the current Action timeout owner" do
     key = {BlockingFlowDescriptor, :owner}
     :persistent_term.put(key, self())
     on_exit(fn -> :persistent_term.erase(key) end)
 
-    assert {:error, %FlowTimeoutError{timeout: 100}} =
+    assert {:error,
+            %ActionTimeoutError{
+              timeout: 100,
+              details: %{action: ContinueToBlockingFlowDescriptor}
+            }} =
              Exec.run(ContinueToBlockingFlowDescriptor, %{}, %{}, timeout: 100)
 
     assert_received {:continuation_flow_descriptor_started, descriptor_process}
+    assert_process_stops(descriptor_process)
+  end
+
+  test "does not infer timeout ownership from an unrelated flow helper" do
+    key = {BlockingActionDescriptorWithFlowHelper, :owner}
+    :persistent_term.put(key, self())
+    on_exit(fn -> :persistent_term.erase(key) end)
+
+    assert {:error,
+            %ActionTimeoutError{
+              timeout: 100,
+              details: %{action: ContinueToBlockingActionDescriptor}
+            }} =
+             Exec.run(ContinueToBlockingActionDescriptor, %{}, %{}, timeout: 100)
+
+    assert_received {:continuation_action_descriptor_started, descriptor_process}
     assert_process_stops(descriptor_process)
   end
 
@@ -284,11 +330,12 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     for {form, {target, input, context}} <-
           ExecFixtures.blocking_execution_forms(BlockingFlow, self()) do
       case Exec.run(target, input, context, timeout: 0) do
-        {:error, %ActionTimeoutError{timeout: 0}} when form in [:action, :action_instruction] ->
+        {:error, %ActionTimeoutError{timeout: 0}}
+        when form in [:action, :action_instruction, :flow_module, :flow_instruction] ->
           :ok
 
         {:error, %FlowTimeoutError{timeout: 0}}
-        when form in [:flow_value, :flow_module, :flow_instruction, :subflow] ->
+        when form in [:flow_value, :subflow] ->
           :ok
       end
 
