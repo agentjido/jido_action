@@ -169,8 +169,14 @@ defmodule JidoActionTest.Exec.ExecutionGuardInterruptionTest do
 
   defp await_guard_state(guard, attempts) do
     case :atomics.get(guard, 2) do
-      1 -> :indeterminate
-      _state -> await_guard_state(guard, attempts - 1)
+      1 ->
+        :indeterminate
+
+      _state ->
+        receive do
+        after
+          1 -> await_guard_state(guard, attempts - 1)
+        end
     end
   end
 

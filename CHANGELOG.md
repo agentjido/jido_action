@@ -17,11 +17,6 @@ entries return to the normal automated changelog process.
 
 * restore owner-bound asynchronous execution through `Jido.Exec.run_async/4`,
   `await/1`, `await/2`, and `cancel/1` for Actions, Instructions, and Flows
-* add Action and Flow continuations through
-  `{:continue, continuation_input, continuation_target}`
-* add bounded `Jido.Flow.Dynamic` decision and expansion loops
-* add `Jido.Exec.handle_message/2` for OTP async message handling and
-  `Jido.Exec.continuations/1` for sanitized Flow continuation lineage
 
 ### Breaking Changes:
 

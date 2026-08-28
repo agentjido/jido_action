@@ -296,8 +296,9 @@ defmodule JidoActionTest.Exec.AsyncExecutionTest do
   end
 
   test "reports a handle whose process is no longer running" do
-    pid = spawn(fn -> :ok end)
+    pid = spawn(fn -> receive do: (:stop -> :ok) end)
     monitor_ref = Process.monitor(pid)
+    send(pid, :stop)
     assert_receive {:DOWN, ^monitor_ref, :process, ^pid, :normal}, 1_000
 
     handle = %{
