@@ -32,6 +32,7 @@ defmodule Jido.Flow.Codec do
   alias Jido.Flow.Choice
   alias Jido.Flow.Condition
   alias Jido.Flow.Data
+  alias Jido.Flow.Dynamic
   alias Jido.Flow.Error
   alias Jido.Flow.Expression
   alias Jido.Flow.Graph
@@ -56,7 +57,8 @@ defmodule Jido.Flow.Codec do
     "choice" => :choice,
     "map" => :map,
     "reduce" => :reduce,
-    "iterate" => :iterate
+    "iterate" => :iterate,
+    "dynamic" => :dynamic
   }
 
   @sources %{
@@ -438,6 +440,33 @@ defmodule Jido.Flow.Codec do
         max_iterations: fn -> positive_integer_field(record, "max_iterations", path) end
       ],
       &Iterate.new/1
+    )
+  end
+
+  defp diagnose_component_kind(:dynamic, record, registry, path) do
+    allowed = [
+      "kind",
+      "name",
+      "decision",
+      "expander",
+      "params",
+      "max_continuations",
+      "after",
+      "meta"
+    ]
+
+    diagnose_component_fields(
+      record,
+      registry,
+      path,
+      allowed,
+      [
+        decision: fn -> resolve_field(record, "decision", :action, registry, path) end,
+        expander: fn -> resolve_field(record, "expander", :action, registry, path) end,
+        params: fn -> diagnose_expression_field(record, "params", registry, path) end,
+        max_continuations: fn -> positive_integer_field(record, "max_continuations", path) end
+      ],
+      &Dynamic.new/1
     )
   end
 
@@ -1247,6 +1276,25 @@ defmodule Jido.Flow.Codec do
          "completion" => completion,
          "max_iterations" => iterate.max_iterations,
          "after" => iterate.after,
+         "meta" => meta
+       }}
+    end
+  end
+
+  defp encode_component(%Dynamic{} = dynamic, registry) do
+    with {:ok, decision} <- Registry.identifier(registry, :action, dynamic.decision),
+         {:ok, expander} <- Registry.identifier(registry, :action, dynamic.expander),
+         {:ok, params} <- encode_expression(dynamic.params, registry, 0),
+         {:ok, meta} <- encode_data(dynamic.meta, registry, 0) do
+      {:ok,
+       %{
+         "kind" => "dynamic",
+         "name" => dynamic.name,
+         "decision" => decision,
+         "expander" => expander,
+         "params" => params,
+         "max_continuations" => dynamic.max_continuations,
+         "after" => dynamic.after,
          "meta" => meta
        }}
     end

@@ -34,6 +34,8 @@ defmodule Jido.Exec.Execution do
           engine_error: Exception.t() | nil,
           finalizer: (term() -> {:ok, term()} | {:error, Exception.t()}),
           final_result: {:ok, term()} | {:error, Exception.t()} | nil,
+          continuations: [map()],
+          continuation_nodes: map(),
           lifecycle: %{flow: map()}
         }
 
@@ -55,6 +57,8 @@ defmodule Jido.Exec.Execution do
     :engine_error,
     :finalizer,
     :final_result,
+    :continuations,
+    :continuation_nodes,
     :lifecycle
   ]
   defstruct @enforce_keys

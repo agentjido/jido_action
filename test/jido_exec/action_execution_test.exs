@@ -51,6 +51,76 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
     def name, do: throw(:action_name_failed)
   end
 
+  defmodule ContinueToAction do
+    use Jido.Action,
+      name: "continue_to_action",
+      schema: Zoi.object(%{value: Zoi.integer()}),
+      output_schema: Zoi.object(%{value: Zoi.integer()})
+
+    @impl true
+    def run(%{value: value}, _context) do
+      {:continue, %{value: value, amount: 2}, JidoActionTest.Fixtures.Actions.Add}
+    end
+  end
+
+  defmodule ContinueToFlow do
+    use Jido.Action,
+      name: "continue_to_flow",
+      schema: Zoi.object(%{value: Zoi.integer()}),
+      output_schema: Zoi.object(%{value: Zoi.integer()})
+
+    @impl true
+    def run(%{value: value}, _context) do
+      {:continue, %{value: value}, JidoActionTest.Fixtures.MathFlow}
+    end
+  end
+
+  defmodule InvalidContinuationInput do
+    use Jido.Action, name: "invalid_continuation_input"
+
+    @impl true
+    def run(_params, _context), do: {:continue, :not_a_map, Add}
+  end
+
+  defmodule InvalidContinuationTarget do
+    use Jido.Action, name: "invalid_continuation_target"
+
+    @impl true
+    def run(_params, _context), do: {:continue, %{}, :not_an_executable}
+  end
+
+  defmodule ContinueToExtras do
+    use Jido.Action, name: "continue_to_extras"
+
+    @impl true
+    def run(params, _context), do: {:continue, params, ExtrasAction}
+  end
+
+  defmodule ContinueToError do
+    use Jido.Action, name: "continue_to_error"
+
+    @impl true
+    def run(_params, _context), do: {:continue, %{error_type: :validation}, ErrorAction}
+  end
+
+  defmodule ContinueToInvalidOutput do
+    use Jido.Action,
+      name: "continue_to_invalid_output",
+      output_schema: Zoi.object(%{value: Zoi.string()})
+
+    @impl true
+    def run(params, _context), do: {:continue, params, Add}
+  end
+
+  defmodule ContinueTwice do
+    use Jido.Action,
+      name: "continue_twice",
+      output_schema: Zoi.object(%{value: Zoi.integer()})
+
+    @impl true
+    def run(params, _context), do: {:continue, params, ContinueToAction}
+  end
+
   describe "run/3 with action modules" do
     test "executes a leaf action with input and context validation" do
       assert {:ok, %{value: 6}} = Exec.run(Add, %{value: 5}, %{trace_id: "trace"})
@@ -71,6 +141,54 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
 
       assert {:ok, %{value: 5}, :none} =
                Exec.run(NoneExtrasAction, %{value: 5}, %{})
+    end
+
+    test "runs Action and Flow continuation targets to one effective result" do
+      assert Exec.run(ContinueToAction, %{value: 3}, %{trace_id: "trace"}) ==
+               {:ok, %{value: 5}}
+
+      assert Exec.run(ContinueToFlow, %{value: 3}, %{trace_id: "trace"}, max_concurrency: 1) ==
+               {:ok, %{value: 8}}
+    end
+
+    test "enforces the complete execution continuation bound" do
+      assert {:error,
+              %ExecutionFailureError{
+                message: "continuation limit exceeded",
+                details: %{count: 1, max_continuations: 0}
+              }} = Exec.run(ContinueToAction, %{value: 3}, %{}, max_continuations: 0)
+    end
+
+    test "rejects a continuation input that is not a map" do
+      assert {:error, %ExecutionFailureError{message: message, details: details}} =
+               Exec.run(InvalidContinuationInput)
+
+      assert message == "action returned an invalid continuation"
+      assert details.reason == :invalid_input
+    end
+
+    test "normalizes continuation target errors and target extras" do
+      assert {:ok, %{value: 3}} =
+               Exec.run(ContinueToExtras, %{value: 3}, %{trace_id: "discarded"})
+
+      assert {:error, %ExecutionFailureError{message: "Validation error"}} =
+               Exec.run(ContinueToError)
+
+      assert {:error,
+              %ExecutionFailureError{
+                message: "action returned an invalid continuation target"
+              }} = Exec.run(InvalidContinuationTarget)
+
+      assert {:error, %InvalidInputError{}} =
+               Exec.run(ContinueToInvalidOutput, %{value: 1, amount: 1})
+    end
+
+    test "runs nested direct continuations under one counter" do
+      assert Exec.run(ContinueTwice, %{value: 1}, %{}, max_continuations: 2) ==
+               {:ok, %{value: 3}}
+
+      assert {:error, %ExecutionFailureError{message: "continuation limit exceeded"}} =
+               Exec.run(ContinueTwice, %{value: 1}, %{}, max_continuations: 1)
     end
 
     test "validates explicit output envelopes from leaf actions" do

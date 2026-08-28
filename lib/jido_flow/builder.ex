@@ -24,6 +24,7 @@ defmodule Jido.Flow.Builder do
   alias Jido.Flow.Error
   alias Jido.Flow.Choice
   alias Jido.Flow.Condition
+  alias Jido.Flow.Dynamic
   alias Jido.Flow.Expression
   alias Jido.Flow.Iterate
   alias Jido.Flow.Map, as: FlowMap
@@ -254,6 +255,26 @@ defmodule Jido.Flow.Builder do
            Iterate.new(
              options
              |> Map.merge(%{name: name, action: action, params: params, state: state})
+           ) do
+      append(builder, component)
+    else
+      {:error, error} -> fail(builder, normalize_error(error))
+    end
+  end
+
+  @doc "Adds one named bounded Dynamic component."
+  @spec dynamic(t(), atom() | String.t(), module(), module(), expression(), keyword()) :: t()
+  def dynamic(%__MODULE__{} = builder, name, decision, expander, params, opts \\ []) do
+    with {:ok, options} <- options(opts, [:after, :meta, :max_continuations]),
+         {:ok, component} <-
+           Dynamic.new(
+             options
+             |> Map.merge(%{
+               name: name,
+               decision: decision,
+               expander: expander,
+               params: params
+             })
            ) do
       append(builder, component)
     else

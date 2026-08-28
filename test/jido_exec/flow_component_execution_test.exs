@@ -5,11 +5,91 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
   alias Jido.Action.Error.ExecutionFailureError, as: ActionExecutionFailureError
   alias Jido.Exec
   alias Jido.Flow
+  alias Jido.Flow.Dynamic
   alias Jido.Flow.Error.ExecutionFailureError
   alias Jido.Flow.{Choice, Condition, Reduce, Ref, Step}
   alias Jido.Flow.Map, as: FlowMap
 
   alias JidoActionTest.Fixtures.Actions.{Add, EchoParamsAction, ErrorAction, Multiply}
+
+  defmodule ContinueToAdd do
+    use Jido.Action,
+      name: "component_continue_to_add",
+      output_schema: Zoi.object(%{value: Zoi.integer()})
+
+    @impl true
+    def run(%{value: value}, _context) do
+      {:continue, %{value: value, amount: 2}, JidoActionTest.Fixtures.Actions.Add}
+    end
+  end
+
+  defmodule ContinueReduce do
+    use Jido.Action, name: "component_continue_reduce"
+
+    @impl true
+    def run(params, _context) do
+      {:continue, params, JidoActionTest.Fixtures.Actions.ReduceProbeAction}
+    end
+  end
+
+  defmodule DynamicDecision do
+    use Jido.Action, name: "component_dynamic_decision"
+
+    @impl true
+    def run(params, _context), do: {:ok, params}
+  end
+
+  defmodule DynamicExpander do
+    use Jido.Action, name: "component_dynamic_expander"
+
+    @impl true
+    def run(%{value: value}, _context) when value < 2 do
+      {:continue, %{value: value, amount: 1}, JidoActionTest.Fixtures.Actions.Add}
+    end
+
+    def run(%{value: value}, _context), do: {:ok, %{value: value}}
+  end
+
+  defmodule ContinueToError do
+    use Jido.Action, name: "component_continue_to_error"
+
+    @impl true
+    def run(_params, _context) do
+      {:continue, %{error_type: :validation}, JidoActionTest.Fixtures.Actions.ErrorAction}
+    end
+  end
+
+  defmodule ContinueToInvalidTarget do
+    use Jido.Action, name: "component_continue_to_invalid_target"
+
+    @impl true
+    def run(_params, _context), do: {:continue, %{}, :not_an_executable}
+  end
+
+  defmodule DynamicDecisionContinuation do
+    use Jido.Action, name: "component_dynamic_decision_continuation"
+
+    @impl true
+    def run(%{value: value}, _context) do
+      {:continue, %{value: value, amount: 1}, JidoActionTest.Fixtures.Actions.Add}
+    end
+  end
+
+  defmodule DynamicAlwaysContinue do
+    use Jido.Action, name: "component_dynamic_always_continue"
+
+    @impl true
+    def run(%{value: value}, _context) do
+      {:continue, %{value: value, amount: 1}, JidoActionTest.Fixtures.Actions.Add}
+    end
+  end
+
+  defmodule DynamicOpaqueDecision do
+    use Jido.Action, name: "component_dynamic_opaque_decision"
+
+    @impl true
+    def run(_params, _context), do: {:ok, Output.raw(:not_a_map)}
+  end
 
   test "keeps target ownership on public execution errors" do
     cases = [
@@ -80,6 +160,226 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
       )
 
     assert Exec.run(flow) == {:ok, %{value: 2}}
+  end
+
+  test "Choice and Map use the universal continuation boundary" do
+    choice =
+      Choice.new!(
+        name: "chosen",
+        options: [
+          [
+            name: "continue",
+            condition: Condition.eq(1, 1),
+            action: ContinueToAdd,
+            params: %{value: 3}
+          ]
+        ],
+        fallback: [action: EchoParamsAction, params: %{value: 0}]
+      )
+
+    mapped =
+      FlowMap.new!(
+        name: "mapped",
+        collection: [1, 2],
+        action: ContinueToAdd,
+        params: %{value: Ref.item()},
+        on_error: :collect_errors,
+        after: ["chosen"]
+      )
+
+    flow =
+      Flow.new!(
+        name: "choice_map_continuations",
+        components: [choice, mapped],
+        output: %{choice: Ref.result("chosen"), mapped: Ref.result("mapped")}
+      )
+
+    assert Exec.run(flow, %{}, %{}, max_concurrency: 2) ==
+             {:ok,
+              %{
+                choice: %{value: 5},
+                mapped: [
+                  %{status: :ok, value: %{value: 3}},
+                  %{status: :ok, value: %{value: 4}}
+                ]
+              }}
+  end
+
+  test "Map collect_errors owns continuation target failures" do
+    flow =
+      Flow.new!(
+        name: "map_continuation_failure",
+        components: [
+          FlowMap.new!(
+            name: "mapped",
+            collection: [1],
+            action: ContinueToError,
+            params: %{value: Ref.item()},
+            on_error: :collect_errors
+          )
+        ],
+        output: %{items: Ref.result("mapped")}
+      )
+
+    assert {:ok, %{items: [%{status: :error, error: %{message: "Validation error"}}]}} =
+             Exec.run(flow)
+  end
+
+  test "Map collect_errors owns an invalid continuation target" do
+    flow =
+      Flow.new!(
+        name: "map_invalid_continuation_target",
+        components: [
+          FlowMap.new!(
+            name: "mapped",
+            collection: [1],
+            action: ContinueToInvalidTarget,
+            params: %{value: Ref.item()},
+            on_error: :collect_errors
+          )
+        ],
+        output: %{items: Ref.result("mapped")}
+      )
+
+    assert {:ok, %{items: [%{status: :error, error: %{message: message}}]}} = Exec.run(flow)
+    assert message == "action returned an invalid continuation target"
+  end
+
+  test "Reduce resumes its serial fold after each continuation target" do
+    flow =
+      Flow.new!(
+        name: "reduce_continuations",
+        components: [
+          Reduce.new!(
+            name: "reduced",
+            collection: [3, 2, 1],
+            initial: %{value: 10},
+            action: ContinueReduce,
+            params: %{
+              accumulator: Ref.accumulator(),
+              item: Ref.item(),
+              index: Ref.item_index(),
+              item_id: Ref.item_id(),
+              outcome: :subtract
+            }
+          )
+        ],
+        output: Ref.result("reduced")
+      )
+
+    assert Exec.run(flow, %{}, %{test_pid: self()}) == {:ok, %{value: 4}}
+
+    assert_receive {JidoActionTest.Fixtures.Actions.ReduceProbeAction, :called, 0, _, 3,
+                    %{value: 10}}
+
+    assert_receive {JidoActionTest.Fixtures.Actions.ReduceProbeAction, :called, 1, _, 2,
+                    %{value: 7}}
+
+    assert_receive {JidoActionTest.Fixtures.Actions.ReduceProbeAction, :called, 2, _, 1,
+                    %{value: 5}}
+  end
+
+  test "Dynamic repeats decision and expander calls inside one execution graph" do
+    dynamic =
+      Dynamic.new!(
+        name: "reason",
+        decision: DynamicDecision,
+        expander: DynamicExpander,
+        params: %{value: Ref.input(:value)},
+        max_continuations: 2
+      )
+
+    flow = Flow.new!(name: "dynamic_loop", components: [dynamic], output: Ref.result("reason"))
+
+    assert Exec.run(flow, %{value: 0}) == {:ok, %{value: 2}}
+
+    assert {:ok, execution} = Exec.start(flow, %{value: 0})
+    assert {:ok, execution} = Exec.continue(execution)
+
+    assert [first, second] = Exec.continuations(execution)
+    assert first.sequence == 1
+    assert second.sequence == 2
+    assert first.depth == 1
+    assert second.depth == 2
+    assert second.parent == first.occurrence
+    refute Map.has_key?(first, :input)
+    refute Map.has_key?(first, :output)
+
+    continuation_names =
+      execution
+      |> Exec.workflow()
+      |> Runic.Workflow.steps()
+      |> Enum.map(& &1.name)
+      |> Enum.filter(&is_binary/1)
+
+    assert Enum.any?(continuation_names, &String.starts_with?(&1, "$continue/"))
+  end
+
+  test "Dynamic accepts a continuation from its decision Action" do
+    dynamic =
+      Dynamic.new!(
+        name: "reason",
+        decision: DynamicDecisionContinuation,
+        expander: DynamicDecision,
+        params: %{value: Ref.input(:value)},
+        max_continuations: 1
+      )
+
+    flow =
+      Flow.new!(
+        name: "dynamic_decision_continue",
+        components: [dynamic],
+        output: Ref.result("reason")
+      )
+
+    assert Exec.run(flow, %{value: 2}) == {:ok, %{value: 3}}
+  end
+
+  test "Dynamic enforces its local continuation bound" do
+    dynamic =
+      Dynamic.new!(
+        name: "reason",
+        decision: DynamicDecision,
+        expander: DynamicAlwaysContinue,
+        params: %{value: Ref.input(:value)},
+        max_continuations: 1
+      )
+
+    flow =
+      Flow.new!(name: "dynamic_local_limit", components: [dynamic], output: Ref.result("reason"))
+
+    assert {:error, %ExecutionFailureError{message: "dynamic continuation limit exceeded"}} =
+             Exec.run(flow, %{value: 0})
+  end
+
+  test "Dynamic requires plain maps at both Action inputs" do
+    invalid_decision =
+      Dynamic.new!(
+        name: "reason",
+        decision: DynamicDecision,
+        expander: DynamicExpander,
+        params: Ref.input(:value),
+        max_continuations: 1
+      )
+
+    invalid_expander =
+      Dynamic.new!(
+        name: "reason",
+        decision: DynamicOpaqueDecision,
+        expander: DynamicExpander,
+        params: %{},
+        max_continuations: 1
+      )
+
+    for {name, dynamic, input, phase} <- [
+          {"dynamic_invalid_decision", invalid_decision, %{value: 1}, :dynamic_decision_input},
+          {"dynamic_invalid_expander", invalid_expander, %{}, :dynamic_expander_input}
+        ] do
+      flow = Flow.new!(name: name, components: [dynamic], output: Ref.result("reason"))
+
+      assert {:error, %ExecutionFailureError{details: %{phase: ^phase}}} =
+               Exec.run(flow, input)
+    end
   end
 
   test "uses stable Map item identity in target inputs" do

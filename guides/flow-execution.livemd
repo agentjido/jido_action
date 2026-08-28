@@ -163,9 +163,10 @@ fail, the Flow error keeps a canonical failure list.
 
 ## Native Work Is Public
 
-Map exposes FanOut, item work, FanIn, and output work. Reduce uses native
-Reduce and FanIn work. Subflow exposes its nested Workflow and InputBinding
-work. A Join can enforce explicit or inferred dependencies.
+Map exposes FanOut, item work, FanIn, and output work. Reduce uses one serial
+and resumable authored work unit. Dynamic can add continuation work to the
+live graph. Subflow exposes its nested Workflow and InputBinding work. A Join
+can enforce explicit or inferred dependencies.
 
 This native surface keeps one scheduler and one graph state. Do not assume
 that every ready Runnable is one authored component.

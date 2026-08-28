@@ -25,6 +25,16 @@ defmodule JidoActionTest.Exec.IteratorExecutionTest do
   alias JidoActionTest.Fixtures.Actions.CountedMapAction
   alias Runic.Workflow.Runnable
 
+  defmodule ContinueIncrement do
+    use Jido.Action,
+      name: "iterator_continue_increment",
+      schema: Zoi.object(%{count: Zoi.integer(), index: Zoi.integer()}),
+      output_schema: Zoi.object(%{count: Zoi.integer()})
+
+    @impl true
+    def run(params, _context), do: {:continue, params, JidoActionTest.Fixtures.Increment}
+  end
+
   test "runs the State schema transform exactly once per candidate" do
     IteratorFixtures.register_state_schema_recorder(self())
 
@@ -83,6 +93,23 @@ defmodule JidoActionTest.Exec.IteratorExecutionTest do
     assert_receive {Increment, 1}
     assert_receive {Increment, 2}
     refute_received {Increment, 3}
+  end
+
+  test "resumes each iteration after a continuation target" do
+    flow =
+      IteratorFixtures.iterator_flow(
+        action: ContinueIncrement,
+        initial: %{count: 0},
+        completion: IteratorFixtures.gte(Ref.state(:count), 2),
+        max_iterations: 2
+      )
+
+    assert {:ok, %{iterations: 2, state: %{count: 2}, output: %{count: 2}}} =
+             Exec.run(flow, %{}, %{test_pid: self()})
+
+    assert_receive {Increment, 0}
+    assert_receive {Increment, 1}
+    refute_received {Increment, 2}
   end
 
   test "fails on exhaustion without an extra body call" do

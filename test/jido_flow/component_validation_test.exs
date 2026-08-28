@@ -5,6 +5,7 @@ defmodule Jido.Flow.ComponentValidationTest do
   alias Jido.Flow.Choice
   alias Jido.Flow.Condition
   alias Jido.Flow.Data
+  alias Jido.Flow.Dynamic
   alias Jido.Flow.Iterate
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.Reduce
@@ -25,6 +26,14 @@ defmodule Jido.Flow.ComponentValidationTest do
     assert %FlowMap{} = FlowMap.new!(name: "map", collection: [], action: Add)
     assert %Reduce{} = Reduce.new!(name: "reduce", collection: [], initial: %{}, action: Add)
 
+    assert %Dynamic{} =
+             Dynamic.new!(
+               name: "dynamic",
+               decision: Add,
+               expander: Add,
+               max_continuations: 1
+             )
+
     assert %Iterate{} =
              Iterate.new!(
                name: "iterate",
@@ -40,7 +49,8 @@ defmodule Jido.Flow.ComponentValidationTest do
           &Choice.new/1,
           &FlowMap.new/1,
           &Reduce.new/1,
-          &Iterate.new/1
+          &Iterate.new/1,
+          &Dynamic.new/1
         ] do
       assert {:error, %InvalidDefinitionError{}} = constructor.(%{legacy: true})
     end

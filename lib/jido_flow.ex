@@ -49,6 +49,10 @@ defmodule Jido.Flow do
   Flow components consume only an Action output or error reason. Extra values from
   an Action callback are returned only to direct Action or Instruction callers.
   Flow execution discards them.
+
+  An Action continuation is execution control. It can add one Action or Flow
+  target to the live Runic graph. It does not become canonical Flow data or an
+  Action result.
   """
 
   alias Jido.Flow.Error

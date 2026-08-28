@@ -23,7 +23,8 @@ The component types are:
 - `Jido.Flow.Choice` for ordered routing with a required fallback;
 - `Jido.Flow.Map` for ordered fan-out and fan-in;
 - `Jido.Flow.Reduce` for a serial left fold; and
-- `Jido.Flow.Iterate` for a bounded local loop.
+- `Jido.Flow.Iterate` for a bounded local loop; and
+- `Jido.Flow.Dynamic` for a bounded decision and expansion loop.
 
 Each component has a name, explicit `after` dependencies, and portable `meta`
 data. Data references create inferred dependencies. Jido keeps explicit and
@@ -69,6 +70,10 @@ source locations, and a compilation digest. Do not store the compiled value.
 `Jido.Exec` compiles and runs a Flow. Step-wise execution exposes native
 `Runic.Workflow.Runnable` values, including support work such as Join,
 InputBinding, FanOut, and FanIn.
+
+An Action can expand the live execution graph with a continuation. This does
+not change the canonical authored Flow. See
+[Action And Flow Continuations](continuations.md).
 
 ## Validation And Inspection
 

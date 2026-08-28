@@ -29,19 +29,88 @@ defmodule JidoActionTest.Exec.AsyncExecutionTest do
              ref: ref,
              pid: pid,
              owner: owner,
-             monitor_ref: monitor_ref
+             monitor_ref: monitor_ref,
+             token: token
            } = handle
 
     assert is_reference(ref)
     assert is_pid(pid)
     assert owner == self()
     assert is_reference(monitor_ref)
+    assert is_reference(token)
     assert {:ok, %{value: 3}} = Exec.await(handle, 1_000)
 
     extras_handle = Exec.run_async(ExtrasAction, %{value: 4}, %{trace_id: "trace-4"})
 
     assert {:ok, %{value: 4}, %{trace_id: "trace-4"}} =
              Exec.await(extras_handle, 1_000)
+  end
+
+  test "classifies async completion messages for OTP callbacks" do
+    handle = Exec.run_async(Add, %{value: 2})
+
+    assert Exec.handle_message(handle, :unrelated) == :ignore
+
+    assert_receive {:jido_exec_async_result, ref, pid, _result} = message, 1_000
+    assert ref == handle.ref
+    assert pid == handle.pid
+    assert Exec.handle_message(handle, message) == {:done, {:ok, %{value: 3}}}
+    assert Exec.handle_message(handle, message) == :ignore
+
+    monitor_ref = handle.monitor_ref
+    refute_receive {:DOWN, ^monitor_ref, :process, ^pid, _reason}
+    assert {:error, %Error.InvalidHandleError{}} = Exec.await(handle, 0)
+  end
+
+  test "classifies abnormal async worker exits" do
+    handle = Exec.run_async(BlockingAction, %{value: 1}, %{test_pid: self()})
+    assert_receive {:blocking_flow_node_started, _worker}, 1_000
+    Process.exit(handle.pid, :kill)
+
+    assert_receive {:DOWN, monitor_ref, :process, pid, :killed} = message, 1_000
+    assert monitor_ref == handle.monitor_ref
+    assert pid == handle.pid
+
+    assert {:done, {:error, %Error.AsyncExecutionError{details: %{reason: :killed}}}} =
+             Exec.handle_message(handle, message)
+  end
+
+  test "classifies a normal DOWN message after its ordered result" do
+    handle = Exec.run_async(Add, %{value: 2})
+
+    assert_receive {:DOWN, monitor_ref, :process, pid, :normal} = message, 1_000
+    assert monitor_ref == handle.monitor_ref
+    assert pid == handle.pid
+
+    assert Exec.handle_message(handle, message) == {:done, {:ok, %{value: 3}}}
+    assert Exec.handle_message(handle, message) == :ignore
+  end
+
+  test "rejects an async handle with an invalid token" do
+    handle = %{
+      ref: make_ref(),
+      pid: self(),
+      owner: self(),
+      monitor_ref: make_ref(),
+      token: make_ref()
+    }
+
+    assert {:error, %Error.InvalidHandleError{}} = Exec.handle_message(handle, :message)
+  end
+
+  test "only the async owner can classify a completion message" do
+    handle = Exec.run_async(Add, %{value: 2})
+    assert_receive {:jido_exec_async_result, _ref, _pid, _result} = message, 1_000
+    owner = self()
+
+    child =
+      spawn(fn ->
+        send(owner, {:classified, Exec.handle_message(handle, message)})
+      end)
+
+    assert_receive {:classified, {:error, %Error.InvalidHandleError{}}}, 1_000
+    assert is_pid(child)
+    assert {:done, {:ok, %{value: 3}}} = Exec.handle_message(handle, message)
   end
 
   test "supports the default and infinite await limits" do
@@ -220,9 +289,10 @@ defmodule JidoActionTest.Exec.AsyncExecutionTest do
 
     handle = Exec.run_async(BlockingAction, %{value: 1}, %{test_pid: self()})
     assert_receive {:blocking_flow_node_started, worker}, 1_000
+    worker_monitor = Process.monitor(worker)
     assert {:error, %Error.InvalidHandleError{}} = Exec.await(handle, :soon)
     assert :ok = Exec.cancel(handle.pid)
-    refute Process.alive?(worker)
+    assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :killed}, 1_000
   end
 
   test "reports a handle whose process is no longer running" do
@@ -230,7 +300,13 @@ defmodule JidoActionTest.Exec.AsyncExecutionTest do
     monitor_ref = Process.monitor(pid)
     assert_receive {:DOWN, ^monitor_ref, :process, ^pid, :normal}, 1_000
 
-    handle = %{ref: make_ref(), pid: pid, owner: self(), monitor_ref: monitor_ref}
+    handle = %{
+      ref: make_ref(),
+      pid: pid,
+      owner: self(),
+      monitor_ref: monitor_ref,
+      token: :atomics.new(1, signed: false)
+    }
 
     assert {:error, %Error.AsyncExecutionError{details: %{reason: :noproc}}} =
              Exec.await(handle, 10)

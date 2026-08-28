@@ -9,6 +9,7 @@ defmodule Jido.Flow.Compiler.Choice do
   @doc false
   @spec run(Choice.t(), map()) ::
           {:ok, term(), map()}
+          | {:continue, Jido.Exec.Continuation.t(), map()}
           | {:error, Exception.t(), map()}
           | {:error, Exception.t(), map(), map()}
   def run(%Choice{} = choice, state) do
@@ -28,6 +29,7 @@ defmodule Jido.Flow.Compiler.Choice do
                ) do
           {:ok, output, metadata}
         else
+          {:continue, continuation} -> {:continue, continuation, metadata}
           {:error, error} -> {:error, error, state, metadata}
         end
 

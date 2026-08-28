@@ -5,6 +5,7 @@ defmodule Jido.Flow.Validation do
   alias Jido.Executable
   alias Jido.Flow.Component
   alias Jido.Flow.Choice
+  alias Jido.Flow.Dynamic
   alias Jido.Flow.Expression
   alias Jido.Flow.Error
   alias Jido.Flow.Graph
@@ -272,6 +273,14 @@ defmodule Jido.Flow.Validation do
 
   defp validate_target(%Iterate{name: name, action: action}, _module_stack, subflows),
     do: validate_action_targets([{:action, action}], name, subflows)
+
+  defp validate_target(
+         %Dynamic{name: name, decision: decision, expander: expander},
+         _module_stack,
+         subflows
+       ) do
+    validate_action_targets([{:decision, decision}, {:expander, expander}], name, subflows)
+  end
 
   defp validate_action_targets(targets, component, subflows) do
     Enum.reduce_while(targets, {:ok, subflows}, fn {field, target}, {:ok, subflows} ->

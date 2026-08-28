@@ -15,7 +15,13 @@ defmodule Jido.Exec do
 
   `run_async/4` starts the same run-to-completion work and returns a
   caller-owned handle. Use `await/1`, `await/2`, or `cancel/1` from the process
-  that created the handle.
+  that created the handle. OTP processes can use `handle_message/2` to classify
+  one received message without a blocking await.
+
+  An Action can return `{:continue, input, target}`. Exec runs the Action or
+  Flow target and uses its output as the effective result of the Action. In a
+  Flow, this operation expands the live Runic graph before authored downstream
+  work can use the result.
 
   ## Step-wise Flow execution
 
@@ -69,7 +75,8 @@ defmodule Jido.Exec do
           required(:ref) => reference(),
           required(:pid) => pid(),
           required(:owner) => pid(),
-          required(:monitor_ref) => reference()
+          required(:monitor_ref) => reference(),
+          required(:token) => :atomics.atomics_ref()
         }
 
   @type async_control :: %{required(:ref) => reference(), required(:owner) => pid()}
@@ -86,12 +93,16 @@ defmodule Jido.Exec do
   `:infinity`. A finite timeout covers the complete call and terminates its
   execution process and active child work. It does not retry the target.
 
-  A Flow target also accepts `:max_concurrency`, which defaults to `8`. A value
+  All targets accept `:max_concurrency`, which defaults to `8`. A value
   of `1` runs ready work serially. A value greater than `1` runs independent
   ready work concurrently, up to that limit. Map items are native Runic
-  runnables, so the same rule applies to them. An Instruction uses the option
-  rules of its resolved target. An Action target accepts no Flow policy
-  options.
+  runnables, so the same rule applies to them. This option is available for an
+  Action because the Action can continue into a Flow.
+
+  All targets also accept `:max_continuations`. Its default is `32`, and its
+  valid range is 0 through 10,000. One counter covers nested continuations in
+  the complete execution. An Instruction uses the option rules of its resolved
+  target.
   """
   @spec run(term(), map() | keyword() | nil, map() | keyword() | nil, keyword()) :: exec_result()
   def run(executable, input \\ %{}, context \\ %{}, opts \\ []) do
@@ -177,6 +188,17 @@ defmodule Jido.Exec do
   def cancel(async_ref_or_pid), do: Async.cancel(async_ref_or_pid)
 
   @doc """
+  Classifies one mailbox message for a caller-owned asynchronous execution.
+
+  Use this function from `handle_info/2`. It returns `{:done, result}` for the
+  matching terminal message, `:ignore` for unrelated or stale messages, and
+  `{:error, error}` for an invalid handle or a non-owner call.
+  """
+  @spec handle_message(async_ref(), term()) ::
+          {:done, exec_result()} | :ignore | {:error, Exception.t()}
+  def handle_message(async_ref, message), do: Async.handle_message(async_ref, message)
+
+  @doc """
   Starts a paused Flow execution.
 
   The function accepts a Flow artifact, a module that uses `Jido.Flow`, or an
@@ -184,9 +206,9 @@ defmodule Jido.Exec do
   and run options before it returns. The returned execution is paused before
   the first native Runic runnable.
 
-  `:max_concurrency` and common `:jido` routing are stored on the execution.
-  `wave/1` and `continue/1` use the scheduling options. `step/1` and `step/2`
-  always execute one runnable.
+  `:max_concurrency`, `:max_continuations`, and common `:jido` routing are
+  stored on the execution. `wave/1` and `continue/1` use the scheduling
+  options. `step/1` and `step/2` always execute one runnable.
 
   A paused execution has no running timeout. `start/4` does not accept the
   `:timeout` option. The step-wise API also does not accept retry, deadline,
@@ -235,6 +257,15 @@ defmodule Jido.Exec do
   """
   @spec compiled(Execution.t()) :: Jido.Flow.Compiled.t()
   def compiled(%Execution{compiled: compiled}), do: compiled
+
+  @doc """
+  Returns ordered, sanitized continuation lineage for a Flow execution.
+
+  The records do not contain continuation input, target arguments, or output
+  values.
+  """
+  @spec continuations(Execution.t()) :: [map()]
+  def continuations(%Execution{continuations: continuations}), do: continuations
 
   @doc """
   Executes the first ready native Runic runnable.

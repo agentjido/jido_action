@@ -14,7 +14,10 @@ Use `jido_action` for validated work and data-first composition:
 - Use `use Jido.Action` for public actions.
 - Provide stable `name` and useful `description` values.
 - Use Zoi schemas for `schema` and `output_schema`; omit them or use `[]` only when validation is intentionally empty.
-- Keep `run/2` strict: return `{:ok, result}`, `{:ok, result, extra}`, `{:error, reason}`, or `{:error, reason, extra}`.
+- Keep `run/2` strict. Return a documented success, error, or
+  `{:continue, continuation_input, continuation_target}` tuple.
+- Use a map for continuation input. Use one Action module, Flow module, or
+  runtime Flow value as the continuation target.
 - Return a normal map for success. Use `Jido.Action.Output` for an intentional
   raw, stream, batch, or opaque success value.
 - Keep side effects explicit inside `run/2` and make them easy to test.
@@ -53,7 +56,8 @@ Use `jido_action` for validated work and data-first composition:
 - Use the compile-time `Jido.Flow` DSL as the primary developer authoring
   surface.
 - Give every component a stable string name.
-- Use `step`, `choice`, `map`, `reduce`, and `iterate` for graph structure.
+- Use `step`, `choice`, `map`, `reduce`, `iterate`, and `dynamic` for graph
+  structure.
 - Use `input`, `context`, and `result` references to map data. Put computation
   in Actions.
 - Treat DSL expressions as a restricted data grammar, not general Elixir. Do
@@ -84,17 +88,17 @@ Use `jido_action` for validated work and data-first composition:
 - Do not parse or evaluate stored Elixir DSL source. AI systems can produce
   stored JSON or Map data instead.
 - Only `Builder.step/5` and a Spark `step` can derive a Subflow from an
-  executable of kind `:flow`. Choice, Map, Reduce, and Iterate target fields
-  accept Actions only.
+  executable of kind `:flow`. Choice, Map, Reduce, Iterate, and Dynamic target
+  fields accept Actions only.
 
 ## Execution
 
 - Use `Jido.Exec.run/4` for the public validation and error boundary.
 - Use `jido: MyApp.Jido` with an Action, Instruction, or Flow when work must run
   under the Task Supervisor for that running Jido core instance.
-- A Flow or an Instruction with a Flow target also accepts the
-  `max_concurrency` policy option. Its default is `8`. Use `1` for serial
-  execution.
+- All targets accept `max_concurrency` and `max_continuations`. The defaults
+  are `8` and `32`. Use `max_concurrency: 1` for serial Flow execution. Use
+  `max_continuations: 0` to reject continuations.
 - Use `run_async/4` for an asynchronous run-to-completion call. Only the owner
   process can await or cancel its handle. An await timeout cancels that call.
 - Use `start/4`, `ready/1`, `step/1`, `step/2`, `wave/1`, `continue/1`, and
@@ -103,6 +107,7 @@ Use `jido_action` for validated work and data-first composition:
   `Runic.Workflow.Runnable` values. Runic support work is visible.
 - Use `Jido.Exec.workflow/1` and `Jido.Exec.compiled/1` for supported live
   Runic inspection. Other Execution fields are internal.
+- Use `Jido.Exec.continuations/1` to inspect sanitized continuation lineage.
 - Select `step/2` work with a ready Runnable or its integer ID.
 - Treat each execution as caller-owned, in-memory state. `max_concurrency`
   bounds each concurrent ready wave. Always pass the latest value to the next

@@ -141,14 +141,21 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
              Exec.run(flow, %{}, %{}, [{:timeout, 10}, :not_an_option])
   end
 
-  test "rejects Flow run options for Actions and Action Instructions" do
-    assert {:error, %InvalidInputError{details: %{executable_type: :action}}} =
-             Exec.run(Add, %{value: 1}, %{}, max_concurrency: 2)
+  test "accepts continuation scheduling options for Actions and Action Instructions" do
+    assert Exec.run(Add, %{value: 1}, %{}, max_concurrency: 2) == {:ok, %{value: 2}}
 
     instruction = Instruction.new!(target: Add, params: %{value: 1})
 
-    assert {:error, %InvalidInputError{details: %{executable_type: :instruction}}} =
-             Exec.run(instruction, %{}, %{}, max_concurrency: 2)
+    assert Exec.run(instruction, %{}, %{}, max_concurrency: 2) == {:ok, %{value: 2}}
+
+    assert {:error, %InvalidInputError{details: %{option: :max_concurrency}}} =
+             Exec.run(Add, %{value: 1}, %{}, max_concurrency: 0)
+
+    assert {:error, %InvalidInputError{details: %{option: :max_continuations}}} =
+             Exec.run(Add, %{value: 1}, %{}, max_continuations: -1)
+
+    assert {:error, %InvalidExecutionError{details: %{option: :max_continuations}}} =
+             Exec.run(FlowFixtures.math_flow!(), %{value: 1}, %{}, max_continuations: 10_001)
   end
 
   test "enforces one complete-call timeout for every executable form" do
@@ -473,11 +480,15 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
             }} =
              Exec.step(execution, :bad)
 
+    [ready_runnable] = Exec.ready(execution)
     assert {:ok, %Runnable{}, execution} = Exec.step(execution)
     assert Exec.status(execution) == :succeeded
 
     assert {:error, %InvalidExecutionError{message: "flow execution is not running"}} =
              Exec.step(execution)
+
+    assert {:error, %InvalidExecutionError{message: "flow execution is not running"}} =
+             Exec.step(execution, ready_runnable)
 
     assert {:error, %InvalidExecutionError{message: "flow execution is not running"}} =
              Exec.wave(execution)

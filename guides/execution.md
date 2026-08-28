@@ -34,6 +34,12 @@ A successful direct Action or Action Instruction returns:
 
 A successful Flow returns `{:ok, result}`. Flow nodes discard Action extras.
 
+An Action can return
+`{:continue, continuation_input, continuation_target}`. Exec runs the target
+and returns its output as the effective Action result. The continuation target
+can be one Action or one Flow. See
+[Action And Flow Continuations](continuations.md).
+
 Public failures are exception structs. Action boundary errors use:
 
 - `Jido.Action.Error.InvalidInputError`;
@@ -69,9 +75,9 @@ result = Jido.Exec.await(handle, 10_000)
 ```
 
 `run_async/4` accepts each run-to-completion target that `run/4` accepts. It
-returns a handle with `ref`, `pid`, `owner`, and `monitor_ref` fields. The
-process that calls `run_async/4` owns the handle. Only that process can await
-or cancel it.
+returns a handle with `ref`, `pid`, `owner`, `monitor_ref`, and opaque `token`
+fields. The process that calls `run_async/4` owns the handle. Only that process
+can await, cancel, or classify messages for it.
 
 `await/1` waits for up to 5 seconds. `await/2` accepts a non-negative
 millisecond value or `:infinity`. If this wait limit expires, Exec cancels the
@@ -86,6 +92,11 @@ Invalid handles and owner violations return
 `Jido.Exec.Error.InvalidHandleError`. An unexpected failure of the managed
 process returns `Jido.Exec.Error.AsyncExecutionError`.
 
+An OTP process can pass each received message to
+`Jido.Exec.handle_message/2`. The function returns `{:done, result}` for the
+matching completion, `:ignore` for an unrelated or stale message, or
+`{:error, error}` for invalid use. Async handles are one-shot.
+
 ## Runtime Options
 
 All targets accept:
@@ -94,15 +105,13 @@ All targets accept:
 | --- | --- | --- |
 | `timeout` | `:infinity` | Complete-call limit for `run/4`. |
 | `jido` | `nil` | Jido instance used for Action worker routing. |
-
-Flow targets also accept:
-
-| Option | Default | Meaning |
-| --- | --- | --- |
 | `max_concurrency` | `8` | Bounds work in each ready Runic wave. |
+| `max_continuations` | `32` | Bounds nested continuations in one execution. |
 
 Use `max_concurrency: 1` for serial Flow scheduling. A value greater than `1`
 runs independent ready work concurrently, up to the selected limit.
+`max_continuations` must be from 0 through 10,000. A value of `0` rejects all
+continuations.
 
 `start/4` accepts `jido` and `max_concurrency`. It does not accept a timeout
 because a paused execution has no complete-call clock.
@@ -129,6 +138,9 @@ support runnables.
 returns its component index and source map. These are read escape hatches for
 debugging and native Runic inspection. A workflow changed outside Exec cannot
 be applied back to an Execution through this API.
+
+`continuations/1` returns ordered and sanitized lineage for graph expansions.
+It does not include continuation input, target arguments, or output values.
 
 `step/1` runs the first ready runnable. `step/2` selects a ready runnable by
 value or integer ID. `wave/1` runs the set that was ready when the call began.

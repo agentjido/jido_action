@@ -157,6 +157,7 @@ defmodule JidoActionTest.Exec.TelemetryTest do
       end)
 
     assert_receive {:blocking_flow_node_started, worker}, 1_000
+    worker_monitor = Process.monitor(worker)
     assert {:error, timeout_error} = Task.await(task, 1_000)
     assert %Jido.Action.Error.TimeoutError{} = timeout_error
 
@@ -170,7 +171,7 @@ defmodule JidoActionTest.Exec.TelemetryTest do
     assert error_metadata.error_type == :timeout
     assert measurements.duration >= 0
     refute_received {@action_stop, _, _}
-    refute Process.alive?(worker)
+    assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :killed}, 1_000
   end
 
   test "closes active Flow, node, and target lifecycles when timeout wins" do
@@ -185,6 +186,7 @@ defmodule JidoActionTest.Exec.TelemetryTest do
       end)
 
     assert_receive {:blocking_flow_node_started, worker}, 1_000
+    worker_monitor = Process.monitor(worker)
     assert {:error, timeout_error} = Task.await(task, 1_000)
     assert %Jido.Flow.Error.TimeoutError{} = timeout_error
 
@@ -203,7 +205,7 @@ defmodule JidoActionTest.Exec.TelemetryTest do
     assert Map.drop(target_error, [:error, :error_type]) == target_start
     assert Map.drop(node_error, [:error, :error_type]) == node_start
     assert Map.drop(flow_error, [:error, :error_type]) == flow_start
-    refute Process.alive?(worker)
+    assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :killed}, 1_000
   end
 
   test "closes a direct Action lifecycle when asynchronous cancellation wins" do
@@ -211,6 +213,7 @@ defmodule JidoActionTest.Exec.TelemetryTest do
     handle = Exec.run_async(BlockingAction, %{value: 1}, %{test_pid: self()})
 
     assert_receive {:blocking_flow_node_started, worker}, 1_000
+    worker_monitor = Process.monitor(worker)
     assert :ok = Exec.cancel(handle)
 
     assert [
@@ -221,7 +224,7 @@ defmodule JidoActionTest.Exec.TelemetryTest do
     assert Map.drop(error_metadata, [:error, :error_type]) == start_metadata
     assert %Jido.Exec.Error.CancelledError{} = error_metadata.error
     assert error_metadata.error_type == :async_cancelled
-    refute Process.alive?(worker)
+    assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :killed}, 1_000
   end
 
   test "closes active Flow lifecycles when asynchronous cancellation wins" do
@@ -229,6 +232,7 @@ defmodule JidoActionTest.Exec.TelemetryTest do
     handle = Exec.run_async(BlockingFlow, %{value: 1}, %{test_pid: self()})
 
     assert_receive {:blocking_flow_node_started, worker}, 1_000
+    worker_monitor = Process.monitor(worker)
     assert :ok = Exec.cancel(handle)
 
     assert [
@@ -246,7 +250,7 @@ defmodule JidoActionTest.Exec.TelemetryTest do
     assert Map.drop(target_error, [:error, :error_type]) == target_start
     assert Map.drop(node_error, [:error, :error_type]) == node_start
     assert Map.drop(flow_error, [:error, :error_type]) == flow_start
-    refute Process.alive?(worker)
+    assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :killed}, 1_000
   end
 
   test "the finite-timeout tracker emits one terminal event per span" do

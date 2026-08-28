@@ -18,6 +18,46 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
 
   alias Runic.Workflow.{FanIn, FanOut, InputBinding, Runnable}
 
+  defmodule ContinueToAdd do
+    use Jido.Action,
+      name: "flow_continue_to_add",
+      schema: Zoi.object(%{value: Zoi.integer()}),
+      output_schema: Zoi.object(%{value: Zoi.integer()})
+
+    @impl true
+    def run(%{value: value}, _context) do
+      {:continue, %{value: value, amount: 2}, JidoActionTest.Fixtures.Actions.Add}
+    end
+  end
+
+  defmodule ContinueToMathFlow do
+    use Jido.Action,
+      name: "flow_continue_to_math_flow",
+      schema: Zoi.object(%{value: Zoi.integer()}),
+      output_schema: Zoi.object(%{value: Zoi.integer()})
+
+    @impl true
+    def run(%{value: value}, _context) do
+      {:continue, %{value: value}, JidoActionTest.Fixtures.MathFlow}
+    end
+  end
+
+  defmodule ContinueToInvalidTarget do
+    use Jido.Action, name: "flow_continue_to_invalid_target"
+
+    @impl true
+    def run(_params, _context), do: {:continue, %{}, :not_an_executable}
+  end
+
+  defmodule ContinueToError do
+    use Jido.Action, name: "flow_continue_to_error"
+
+    @impl true
+    def run(_params, _context) do
+      {:continue, %{error_type: :validation}, JidoActionTest.Fixtures.Actions.ErrorAction}
+    end
+  end
+
   test "full execution and native-runnable step execution return the same value" do
     assert {:ok, expected} = Exec.run(MathFlow, %{value: 3})
     assert {:ok, execution} = Exec.start(MathFlow, %{value: 3})
@@ -31,6 +71,99 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
     assert {:ok, %Runnable{status: :completed}, execution} = Exec.step(execution, second)
     assert Exec.status(execution) == :succeeded
     assert Exec.result(execution) == {:ok, expected}
+  end
+
+  test "an Action continuation runs before the authored downstream Step" do
+    flow =
+      Flow.new!(
+        name: "action_continuation_order",
+        components: [
+          Step.new!(
+            name: "continue",
+            action: ContinueToAdd,
+            params: %{value: Ref.input(:value)}
+          ),
+          Step.new!(
+            name: "downstream",
+            action: JidoActionTest.Fixtures.Actions.Multiply,
+            params: %{value: Ref.result("continue", :value), amount: 2}
+          )
+        ],
+        output: Ref.result("downstream")
+      )
+
+    assert Exec.run(flow, %{value: 3}) == {:ok, %{value: 10}}
+
+    assert {:ok, execution} = Exec.start(flow, %{value: 3})
+    assert [%Runnable{node: %{name: "continue"}}] = Exec.ready(execution)
+
+    assert {:ok, %Runnable{result: result}, execution} = Exec.step(execution)
+    refute inspect(result) =~ "JidoActionTest.Fixtures.Actions.Add"
+    assert [%Runnable{node: %{name: "$continue/1/target"}}] = Exec.ready(execution)
+
+    assert {:ok, execution} = Exec.continue(execution)
+    assert Exec.result(execution) == {:ok, %{value: 10}}
+  end
+
+  test "a Flow continuation merges into the live workflow before downstream work" do
+    flow =
+      Flow.new!(
+        name: "flow_continuation_order",
+        components: [
+          Step.new!(
+            name: "continue",
+            action: ContinueToMathFlow,
+            params: %{value: Ref.input(:value)}
+          ),
+          Step.new!(
+            name: "downstream",
+            action: JidoActionTest.Fixtures.Actions.Multiply,
+            params: %{value: Ref.result("continue", :value), amount: 2}
+          )
+        ],
+        output: Ref.result("downstream")
+      )
+
+    assert Exec.run(flow, %{value: 3}) == {:ok, %{value: 16}}
+
+    assert {:ok, execution} = Exec.start(flow, %{value: 3})
+    assert {:ok, _runnable, execution} = Exec.step(execution)
+
+    names =
+      execution
+      |> Exec.workflow()
+      |> then(& &1.graph.vertices)
+      |> :maps.values()
+      |> Enum.flat_map(fn
+        %{name: name} when is_binary(name) -> [name]
+        _node -> []
+      end)
+
+    assert "$continue/1/add_one" in names
+    assert "$continue/1/double" in names
+    assert "$continue/1/$output" in names
+
+    assert {:ok, execution} = Exec.continue(execution)
+    assert Exec.result(execution) == {:ok, %{value: 16}}
+  end
+
+  test "continuation attachment and target failures stop normal Steps" do
+    for {name, action, options, message} <- [
+          {"invalid_target", ContinueToInvalidTarget, [],
+           "action returned an invalid continuation target"},
+          {"target_error", ContinueToError, [], "Validation error"},
+          {"global_limit", ContinueToAdd, [max_continuations: 0], "continuation limit exceeded"}
+        ] do
+      flow =
+        Flow.new!(
+          name: name,
+          components: [Step.new!(name: "continue", action: action, params: %{value: 1})],
+          output: Ref.result("continue")
+        )
+
+      assert {:error, error} = Exec.run(flow, %{}, %{}, options)
+      assert Exception.message(error) == message
+    end
   end
 
   test "an older execution revision cannot dispatch the same Runnable again" do

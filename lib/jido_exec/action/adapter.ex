@@ -4,6 +4,7 @@ defmodule Jido.Exec.Action.Adapter do
   alias Jido.Action.Error
   alias Jido.Executable
   alias Jido.Exec.Action.Runner
+  alias Jido.Exec.Continuation
   alias Jido.Exec.Options
   alias Jido.Instruction
 
@@ -13,11 +14,11 @@ defmodule Jido.Exec.Action.Adapter do
           | {:ok, term(), term()}
           | {:error, Exception.t()}
           | {:error, Exception.t(), term()}
-  def run(%Executable{target: action} = executable, input, context, opts, _execution_id) do
+  def run(%Executable{target: action} = executable, input, context, opts, execution_id) do
     with {:ok, run_opts} <- Options.validate_action(opts, :action),
          {:ok, instruction} <- normalize_instruction(action, input, context),
          :ok <- Executable.validate(executable) do
-      Runner.run(instruction, run_opts)
+      run_instruction_result(action, instruction, run_opts, context, execution_id)
     end
   end
 
@@ -27,10 +28,16 @@ defmodule Jido.Exec.Action.Adapter do
           | {:ok, term(), term()}
           | {:error, Exception.t()}
           | {:error, Exception.t(), term()}
-  def run_instruction(executable, %Instruction{} = instruction, opts, _execution_id) do
+  def run_instruction(executable, %Instruction{} = instruction, opts, execution_id) do
     with {:ok, run_opts} <- Options.validate_action(opts, :instruction),
          :ok <- Executable.validate(executable) do
-      Runner.run(instruction, run_opts)
+      run_instruction_result(
+        executable.target,
+        instruction,
+        run_opts,
+        instruction.context,
+        execution_id
+      )
     end
   end
 
@@ -61,5 +68,15 @@ defmodule Jido.Exec.Action.Adapter do
     _exception -> module
   catch
     _kind, _reason -> module
+  end
+
+  defp run_instruction_result(action, instruction, run_opts, context, execution_id) do
+    case Runner.run(instruction, run_opts) do
+      {:continue, input, target} ->
+        Continuation.run_direct(action, input, target, context, run_opts, execution_id)
+
+      result ->
+        result
+    end
   end
 end

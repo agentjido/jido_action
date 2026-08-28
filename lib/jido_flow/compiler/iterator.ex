@@ -7,10 +7,11 @@ defmodule Jido.Flow.Compiler.Iterator do
   alias Jido.Flow.Compiler.Expression
   alias Jido.Flow.Compiler.Target
   alias Jido.Flow.Identity
+  alias Jido.Exec.Continuation
 
   @doc false
   @spec run(Jido.Flow.Iterate.t(), map()) ::
-          {:ok, term()} | {:error, Exception.t(), map()}
+          {:ok, term()} | Continuation.t() | {:error, Exception.t(), map()}
   def run(iterator, state) do
     run_resolved_iterator(iterator, state)
   rescue
@@ -70,60 +71,117 @@ defmodule Jido.Flow.Compiler.Iterator do
     target_context =
       Target.iterator(iterator, index, iteration_id, runtime.revision)
 
-    result =
-      try do
-        with {:ok, params} <-
-               Expression.resolve(iterator.params, local_state)
-               |> Target.tag_validation(target_context),
-             {:ok, output} <-
-               Target.run(
-                 iterator.action,
-                 params,
-                 state.context,
-                 target_context,
-                 state.execution_id,
-                 state.target_runner
-               ),
-             update_state =
-               local_state
-               |> Map.put(:body_result, output),
-             {:ok, candidate} <- Expression.resolve(iterator.state.update, update_state),
-             {:ok, candidate} <-
-               validate_plain_iterator_state(
-                 iterator,
-                 candidate,
-                 :update,
-                 index,
-                 iteration_id,
-                 runtime.revision
-               ),
-             {:ok, next_state} <-
-               validate_iterator_state_schema(
-                 iterator,
-                 candidate,
-                 :update,
-                 index,
-                 iteration_id,
-                 runtime.revision
-               ) do
-          next_runtime = %{
-            state: next_state,
-            revision: runtime.revision + 1,
-            completed: runtime.completed + 1,
-            body_result: output
-          }
+    result = run_iteration_target(iterator, state, local_state, target_context)
 
-          case evaluate_iterator_completion(iterator, state, next_runtime) do
-            {:ok, completed?} -> {:ok, completed?, next_runtime}
-            {:error, error} -> {:error, error, next_runtime}
-          end
-        else
-          {:error, error} -> {:error, error, runtime}
+    case result do
+      {:ok, output} ->
+        finish_iterator_iteration(
+          iterator,
+          state,
+          runtime,
+          local_state,
+          index,
+          iteration_id,
+          span,
+          output
+        )
+
+      {:continue, %Continuation{} = continuation} ->
+        continuation
+        |> Continuation.map_result(fn output ->
+          finish_iterator_iteration(
+            iterator,
+            state,
+            runtime,
+            local_state,
+            index,
+            iteration_id,
+            span,
+            output
+          )
+        end)
+        |> Continuation.on_failure(fn error ->
+          state.observer.({:error, span, error})
+          {:error, error}
+        end)
+
+      {:error, error} ->
+        state.observer.({:error, span, error})
+        iterator_fail(iterator, state, runtime, error)
+
+      {:internal_error, error_type} ->
+        error = iterator_internal_error(iterator, index, runtime.revision, error_type)
+        state.observer.({:error, span, error})
+        iterator_fail(iterator, state, runtime, error)
+    end
+  end
+
+  defp run_iteration_target(iterator, state, local_state, target_context) do
+    with {:ok, params} <-
+           Expression.resolve(iterator.params, local_state)
+           |> Target.tag_validation(target_context) do
+      Target.run(
+        iterator.action,
+        params,
+        state.context,
+        target_context,
+        state.execution_id,
+        state.target_runner
+      )
+    else
+      {:error, error} -> {:error, error}
+    end
+  rescue
+    exception -> {:internal_error, exception.__struct__}
+  catch
+    kind, _reason -> {:internal_error, kind}
+  end
+
+  defp finish_iterator_iteration(
+         iterator,
+         state,
+         runtime,
+         local_state,
+         index,
+         iteration_id,
+         span,
+         output
+       ) do
+    update_state = Map.put(local_state, :body_result, output)
+
+    result =
+      with {:ok, candidate} <- Expression.resolve(iterator.state.update, update_state),
+           {:ok, candidate} <-
+             validate_plain_iterator_state(
+               iterator,
+               candidate,
+               :update,
+               index,
+               iteration_id,
+               runtime.revision
+             ),
+           {:ok, next_state} <-
+             validate_iterator_state_schema(
+               iterator,
+               candidate,
+               :update,
+               index,
+               iteration_id,
+               runtime.revision
+             ) do
+        next_runtime = %{
+          state: next_state,
+          revision: runtime.revision + 1,
+          completed: runtime.completed + 1,
+          body_result: output
+        }
+
+        case evaluate_iterator_completion(iterator, state, next_runtime) do
+          {:ok, completed?} -> {:ok, completed?, next_runtime}
+          {:error, error} -> {:error, error, next_runtime}
         end
-      rescue
-        exception -> {:internal_error, exception.__struct__}
-      catch
-        kind, _reason -> {:internal_error, kind}
+      else
+        {:error, error} -> {:error, error, runtime}
       end
 
     case result do
@@ -134,12 +192,17 @@ defmodule Jido.Flow.Compiler.Iterator do
       {:error, error, failure_runtime} ->
         state.observer.({:error, span, error})
         iterator_fail(iterator, state, failure_runtime, error)
-
-      {:internal_error, error_type} ->
-        error = iterator_internal_error(iterator, index, runtime.revision, error_type)
-        state.observer.({:error, span, error})
-        iterator_fail(iterator, state, runtime, error)
     end
+  rescue
+    exception ->
+      error = iterator_internal_error(iterator, index, runtime.revision, exception.__struct__)
+      state.observer.({:error, span, error})
+      iterator_fail(iterator, state, runtime, error)
+  catch
+    kind, _reason ->
+      error = iterator_internal_error(iterator, index, runtime.revision, kind)
+      state.observer.({:error, span, error})
+      iterator_fail(iterator, state, runtime, error)
   end
 
   defp continue_iterator_after_iteration(iterator, state, runtime, true),

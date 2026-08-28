@@ -32,6 +32,7 @@ defmodule Jido.Flow.BoundaryValidationTest do
     Choice,
     Component,
     Data,
+    Dynamic,
     Expression,
     Iterate,
     Reduce,
@@ -115,6 +116,21 @@ defmodule Jido.Flow.BoundaryValidationTest do
             state: [schema: [], initial: %{}, update: %{}],
             completion: Jido.Flow.Condition.eq(true, true),
             max_iterations: 0
+          }),
+          Dynamic.new(:bad),
+          Dynamic.new([:not_keyword]),
+          Dynamic.new(%{
+            name: "dynamic",
+            decision: Add,
+            expander: Add,
+            max_continuations: 0
+          }),
+          Dynamic.new(%{
+            name: "dynamic",
+            decision: Add,
+            expander: Add,
+            max_continuations: 1,
+            extra: true
           })
         ] do
       assert {:error, error} = result
@@ -124,6 +140,7 @@ defmodule Jido.Flow.BoundaryValidationTest do
     assert_raise Jido.Flow.Error.InvalidDefinitionError, fn -> apply(FlowMap, :new!, [:bad]) end
     assert_raise Jido.Flow.Error.InvalidDefinitionError, fn -> apply(Reduce, :new!, [:bad]) end
     assert_raise Jido.Flow.Error.InvalidDefinitionError, fn -> apply(Iterate, :new!, [:bad]) end
+    assert_raise Jido.Flow.Error.InvalidDefinitionError, fn -> apply(Dynamic, :new!, [:bad]) end
   end
 
   test "Iterate state rejects incomplete and invalid authoring data" do

@@ -88,6 +88,24 @@ defmodule Jido.Exec.Flow.Adapter do
     end
   end
 
+  @doc false
+  @spec prepare_continuation(Executable.t(), term(), [String.t()]) ::
+          {:ok, Flow.t(), map(), Runic.Workflow.t(), Runic.Workflow.Step.t()}
+          | {:error, Exception.t()}
+  def prepare_continuation(%Executable{kind: :flow} = executable, input, namespace)
+      when is_list(namespace) do
+    with {:ok, flow, _compiled} <- materialize(executable),
+         {:ok, input} <- normalize_map(input, :input),
+         {:ok, input} <- validate_data(flow.schema, input, "Flow", flow, :flow_input),
+         {:ok, input} <- validate_flow_input_shape(flow, input),
+         {:ok, workflow, output_step} <-
+           Compiler.continuation_flow(flow, namespace, fn output ->
+             validate_flow_output(flow, output)
+           end) do
+      {:ok, flow, input, workflow, output_step}
+    end
+  end
+
   defp module_source_map(module) do
     if function_exported?(module, :__jido_flow_source_map__, 0) do
       module.__jido_flow_source_map__()

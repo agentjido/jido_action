@@ -11,12 +11,14 @@ defmodule Jido.Flow.DSL.Lowerer do
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.Reduce, as: FlowReduce
   alias Jido.Flow.Iterate, as: FlowIterate
+  alias Jido.Flow.Dynamic, as: FlowDynamic
 
   @maximum_iterations 10_000
 
   alias Jido.Flow.DSL.{
     Choice,
     ChoiceOption,
+    Dynamic,
     Expression,
     Iterate,
     MapNode,
@@ -153,6 +155,23 @@ defmodule Jido.Flow.DSL.Lowerer do
              ) do
         {:ok, {:component, component}}
       end
+    end
+  end
+
+  defp lower_entity(%Dynamic{} = dynamic) do
+    with {:ok, params} <- Expression.parse(dynamic.params),
+         {:ok, after_names} <- normalize_after(dynamic.after),
+         {:ok, component} <-
+           FlowDynamic.new(
+             name: dynamic.name,
+             decision: dynamic.decision,
+             expander: dynamic.expander,
+             params: params,
+             max_continuations: dynamic.max_continuations,
+             after: after_names,
+             meta: dynamic.meta
+           ) do
+      {:ok, {:component, component}}
     end
   end
 

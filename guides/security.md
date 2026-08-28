@@ -44,12 +44,21 @@ not load or execute an Action.
 ## Apply Runtime Limits
 
 Use a finite complete-call `timeout` when the caller needs a hard in-memory
-limit. Use `max_concurrency` to bound one concurrent Flow execution. Also
-validate collection sizes in application input. Runtime Map does not use the
-Codec collection limit.
+limit. Use `max_concurrency` to bound one concurrent Flow execution. Use
+`max_continuations` to bound dynamic graph expansion. Also validate collection
+sizes in application input. Runtime Map does not use the Codec collection
+limit.
+
+Resolve continuation targets from untrusted model or user output through a
+fixed application catalog. Do not convert an arbitrary string to an atom or
+module.
 
 Each Iterate has a bound from 1 through 10,000. Select a smaller application
 limit when body work is expensive.
+
+Each Dynamic component also has one required local continuation bound from 1
+through 10,000. The complete execution has a separate continuation bound. Its
+default is 32.
 
 This package does not provide automatic retry, per-node timeout, public
 cancellation, durable checkpoints, or exactly-once effects.
