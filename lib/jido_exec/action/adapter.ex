@@ -4,7 +4,6 @@ defmodule Jido.Exec.Action.Adapter do
   alias Jido.Action.Error
   alias Jido.Executable
   alias Jido.Exec.Action.Runner
-  alias Jido.Exec.Continuation
   alias Jido.Exec.Options
   alias Jido.Instruction
 
@@ -12,13 +11,14 @@ defmodule Jido.Exec.Action.Adapter do
   @spec run(Executable.t(), term(), term(), term(), String.t()) ::
           {:ok, term()}
           | {:ok, term(), term()}
+          | {:continue, Jido.Exec.Transition.t()}
           | {:error, Exception.t()}
           | {:error, Exception.t(), term()}
-  def run(%Executable{target: action} = executable, input, context, opts, execution_id) do
+  def run(%Executable{target: action} = executable, input, context, opts, _execution_id) do
     with {:ok, run_opts} <- Options.validate_action(opts, :action),
          {:ok, instruction} <- normalize_instruction(action, input, context),
          :ok <- Executable.validate(executable) do
-      run_instruction_result(action, instruction, run_opts, context, execution_id)
+      Runner.run(instruction, run_opts)
     end
   end
 
@@ -26,18 +26,13 @@ defmodule Jido.Exec.Action.Adapter do
   @spec run_instruction(Executable.t(), Instruction.t(), keyword(), String.t()) ::
           {:ok, term()}
           | {:ok, term(), term()}
+          | {:continue, Jido.Exec.Transition.t()}
           | {:error, Exception.t()}
           | {:error, Exception.t(), term()}
-  def run_instruction(executable, %Instruction{} = instruction, opts, execution_id) do
+  def run_instruction(executable, %Instruction{} = instruction, opts, _execution_id) do
     with {:ok, run_opts} <- Options.validate_action(opts, :instruction),
          :ok <- Executable.validate(executable) do
-      run_instruction_result(
-        executable.target,
-        instruction,
-        run_opts,
-        instruction.context,
-        execution_id
-      )
+      Runner.run(instruction, run_opts)
     end
   end
 
@@ -68,15 +63,5 @@ defmodule Jido.Exec.Action.Adapter do
     _exception -> module
   catch
     _kind, _reason -> module
-  end
-
-  defp run_instruction_result(action, instruction, run_opts, context, execution_id) do
-    case Runner.run(instruction, run_opts) do
-      {:continue, input, target} ->
-        Continuation.run_direct(action, input, target, context, run_opts, execution_id)
-
-      result ->
-        result
-    end
   end
 end

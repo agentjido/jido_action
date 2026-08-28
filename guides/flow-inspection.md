@@ -78,18 +78,3 @@ compiled.compilation_digest
 
 `Jido.Flow.Compiled` is derived runtime data. Treat its fields and native
 Runic graph as inspection and execution data, not authoring data.
-
-## Inspect Runtime Continuations
-
-For a paused or complete step-wise execution, compare authored and live data:
-
-```elixir
-authored = Jido.Exec.compiled(execution)
-live = Jido.Exec.workflow(execution)
-lineage = Jido.Exec.continuations(execution)
-```
-
-The live workflow includes continuation targets that Exec added during the
-run. The authored compilation does not change. Lineage is ordered and
-sanitized. It does not contain continuation input, target arguments, or output
-values.

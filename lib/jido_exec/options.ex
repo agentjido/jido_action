@@ -6,13 +6,13 @@ defmodule Jido.Exec.Options do
   alias Jido.Flow.Error, as: FlowError
 
   @routing_option_keys [:jido]
-  @internal_option_keys [:__jido_continuation_counter__, :__jido_task_supervisor__]
   @common_run_option_keys [:max_concurrency, :max_continuations | @routing_option_keys]
-  @flow_run_option_keys @common_run_option_keys ++ @internal_option_keys
-  @action_run_option_keys @common_run_option_keys ++ @internal_option_keys
+  @flow_run_option_keys @common_run_option_keys
+  @flow_start_option_keys [:max_concurrency | @routing_option_keys]
+  @action_run_option_keys @common_run_option_keys
   @default_max_concurrency 8
   @default_max_continuations 32
-  @max_continuations 10_000
+  @maximum_continuations 10_000
 
   @doc false
   @spec take_timeout(term(), ActionError | FlowError) ::
@@ -39,24 +39,43 @@ defmodule Jido.Exec.Options do
   def take_timeout(opts, _error_module), do: {:ok, :infinity, opts}
 
   @doc false
-  @spec validate_flow(keyword()) :: {:ok, keyword()} | {:error, Exception.t()}
-  def validate_flow(opts) do
+  @spec continuation_limit(term(), ActionError | FlowError) ::
+          {:ok, non_neg_integer()} | {:error, Exception.t()}
+  def continuation_limit(opts, error_module) when is_list(opts) do
+    if Keyword.keyword?(opts) do
+      value = Keyword.get(opts, :max_continuations, @default_max_continuations)
+
+      if is_integer(value) and value in 0..@maximum_continuations do
+        {:ok, value}
+      else
+        {:error,
+         execution_option_error(
+           error_module,
+           "max_continuations option must be an integer from 0 through #{@maximum_continuations}",
+           %{option: :max_continuations, value: value}
+         )}
+      end
+    else
+      {:ok, @default_max_continuations}
+    end
+  end
+
+  def continuation_limit(_opts, _error_module), do: {:ok, @default_max_continuations}
+
+  @doc false
+  @spec validate_flow(keyword(), :run | :start) ::
+          {:ok, keyword()} | {:error, Exception.t()}
+  def validate_flow(opts, mode \\ :run) when mode in [:run, :start] do
     with :ok <- validate_keyword(opts),
-         :ok <- validate_known_flow_options(opts),
+         :ok <- validate_known_flow_options(opts, mode),
          :ok <- validate_jido(opts, FlowError),
          {:ok, task_supervisor} <- validate_task_supervisor(opts, FlowError),
          max_concurrency = Keyword.get(opts, :max_concurrency, @default_max_concurrency),
          :ok <- validate_max_concurrency(max_concurrency, FlowError),
-         {:ok, max_continuations, continuation_counter} <-
-           validate_continuation_options(opts, FlowError) do
+         {:ok, continuation_options} <- continuation_options(opts, mode) do
       {:ok,
-       [
-         max_concurrency: max_concurrency,
-         max_continuations: max_continuations,
-         task_supervisor: task_supervisor,
-         __jido_continuation_counter__: continuation_counter,
-         __jido_task_supervisor__: task_supervisor
-       ] ++ routing_options(opts)}
+       [max_concurrency: max_concurrency, task_supervisor: task_supervisor] ++
+         continuation_options ++ routing_options(opts)}
     end
   end
 
@@ -70,15 +89,12 @@ defmodule Jido.Exec.Options do
          {:ok, task_supervisor} <- validate_task_supervisor(opts, ActionError),
          max_concurrency = Keyword.get(opts, :max_concurrency, @default_max_concurrency),
          :ok <- validate_max_concurrency(max_concurrency, ActionError),
-         {:ok, max_continuations, continuation_counter} <-
-           validate_continuation_options(opts, ActionError) do
+         {:ok, max_continuations} <- continuation_limit(opts, ActionError) do
       {:ok,
        [
          max_concurrency: max_concurrency,
          max_continuations: max_continuations,
-         task_supervisor: task_supervisor,
-         __jido_continuation_counter__: continuation_counter,
-         __jido_task_supervisor__: task_supervisor
+         task_supervisor: task_supervisor
        ] ++ routing_options(opts)}
     end
   end
@@ -125,13 +141,6 @@ defmodule Jido.Exec.Options do
   end
 
   defp validate_task_supervisor(opts, error_module) do
-    case Keyword.fetch(opts, :__jido_task_supervisor__) do
-      {:ok, supervisor} -> validate_existing_task_supervisor(supervisor, opts, error_module)
-      :error -> resolve_task_supervisor(opts, error_module)
-    end
-  end
-
-  defp resolve_task_supervisor(opts, error_module) do
     case Runtime.task_supervisor(opts) do
       {:ok, supervisor} ->
         {:ok, supervisor}
@@ -144,28 +153,6 @@ defmodule Jido.Exec.Options do
            task_supervisor: Runtime.task_supervisor_name(opts)
          })}
     end
-  end
-
-  defp validate_existing_task_supervisor(supervisor, _opts, error_module)
-       when is_atom(supervisor) do
-    if Process.whereis(supervisor) do
-      {:ok, supervisor}
-    else
-      {:error,
-       execution_option_error(error_module, "Task Supervisor is not running", %{
-         task_supervisor: supervisor,
-         option: :jido
-       })}
-    end
-  end
-
-  defp validate_existing_task_supervisor(supervisor, opts, error_module) do
-    {:error,
-     execution_option_error(error_module, "internal Task Supervisor option is invalid", %{
-       option: :__jido_task_supervisor__,
-       value: supervisor,
-       jido: Keyword.get(opts, :jido)
-     })}
   end
 
   defp execution_option_error(FlowError, message, details) do
@@ -196,10 +183,12 @@ defmodule Jido.Exec.Options do
   defp validate_keyword(_opts),
     do: {:error, FlowError.invalid_execution_error("run options must be a keyword list")}
 
-  defp validate_known_flow_options(opts) do
+  defp validate_known_flow_options(opts, mode) do
+    known_options = if mode == :run, do: @flow_run_option_keys, else: @flow_start_option_keys
+
     opts
     |> Keyword.keys()
-    |> Enum.find(&(&1 not in @flow_run_option_keys))
+    |> Enum.find(&(&1 not in known_options))
     |> case do
       nil ->
         :ok
@@ -211,6 +200,14 @@ defmodule Jido.Exec.Options do
          })}
     end
   end
+
+  defp continuation_options(opts, :run) do
+    with {:ok, limit} <- continuation_limit(opts, FlowError) do
+      {:ok, [max_continuations: limit]}
+    end
+  end
+
+  defp continuation_options(_opts, :start), do: {:ok, []}
 
   defp validate_max_concurrency(max_concurrency, _error_module)
        when is_integer(max_concurrency) and max_concurrency > 0,
@@ -228,39 +225,5 @@ defmodule Jido.Exec.Options do
      ActionError.validation_error("max_concurrency option must be a positive integer", %{
        option: :max_concurrency
      })}
-  end
-
-  defp validate_continuation_options(opts, error_module) do
-    max_continuations = Keyword.get(opts, :max_continuations, @default_max_continuations)
-    counter = Keyword.get(opts, :__jido_continuation_counter__)
-
-    cond do
-      not (is_integer(max_continuations) and max_continuations in 0..@max_continuations) ->
-        {:error,
-         execution_option_error(
-           error_module,
-           "max_continuations option must be an integer from 0 through #{@max_continuations}",
-           %{option: :max_continuations, value: max_continuations}
-         )}
-
-      is_nil(counter) ->
-        {:ok, max_continuations, :atomics.new(1, signed: false)}
-
-      valid_counter?(counter) ->
-        {:ok, max_continuations, counter}
-
-      true ->
-        {:error,
-         execution_option_error(error_module, "internal continuation counter is invalid", %{
-           option: :__jido_continuation_counter__
-         })}
-    end
-  end
-
-  defp valid_counter?(counter) do
-    :atomics.info(counter)
-    true
-  rescue
-    ArgumentError -> false
   end
 end

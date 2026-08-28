@@ -262,14 +262,13 @@ defmodule Jido.Flow.Builder do
     end
   end
 
-  @doc "Adds one named bounded Dynamic component."
+  @doc "Adds one terminal Dynamic component."
   @spec dynamic(t(), atom() | String.t(), module(), module(), expression(), keyword()) :: t()
   def dynamic(%__MODULE__{} = builder, name, decision, expander, params, opts \\ []) do
-    with {:ok, options} <- options(opts, [:after, :meta, :max_continuations]),
+    with {:ok, options} <- common_options(opts),
          {:ok, component} <-
            Dynamic.new(
-             options
-             |> Map.merge(%{
+             Map.merge(options, %{
                name: name,
                decision: decision,
                expander: expander,

@@ -49,45 +49,10 @@ defmodule Jido.Flow.DSL.FlowTest.MixedFlow do
   end
 end
 
-defmodule Jido.Flow.DSL.FlowTest.DynamicKeywordFlow do
-  @moduledoc false
-
-  use Jido.Flow, name: "dynamic_dsl"
-
-  flow do
-    dynamic("reason",
-      decision: JidoActionTest.Fixtures.Actions.Add,
-      expander: JidoActionTest.Fixtures.Actions.Add,
-      params: %{value: input(:value), amount: 1},
-      max_continuations: 3
-    )
-
-    output(result("reason"))
-  end
-end
-
-defmodule Jido.Flow.DSL.FlowTest.DynamicBlockFlow do
-  @moduledoc false
-
-  use Jido.Flow, name: "dynamic_dsl"
-
-  flow do
-    dynamic "reason" do
-      decision(JidoActionTest.Fixtures.Actions.Add)
-      expander(JidoActionTest.Fixtures.Actions.Add)
-      params(%{value: input(:value), amount: 1})
-      max_continuations(3)
-    end
-
-    output(result("reason"))
-  end
-end
-
 defmodule Jido.Flow.DSL.FlowTest do
   use ExUnit.Case, async: true
 
   alias Jido.Flow.Choice
-  alias Jido.Flow.Dynamic
   alias Jido.Flow.Iterate
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.Reduce
@@ -106,14 +71,6 @@ defmodule Jido.Flow.DSL.FlowTest do
            ] = flow.components
 
     assert flow.output == Ref.result("loop")
-  end
-
-  test "Dynamic keyword and block forms lower to the same canonical record" do
-    keyword = Jido.Flow.DSL.FlowTest.DynamicKeywordFlow.flow()
-    block = Jido.Flow.DSL.FlowTest.DynamicBlockFlow.flow()
-
-    assert keyword == block
-    assert [%Dynamic{name: "reason", max_continuations: 3}] = keyword.components
   end
 
   test "a Flow module exposes only the required Flow and Action-compatible helpers" do

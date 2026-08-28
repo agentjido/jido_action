@@ -6,7 +6,6 @@ defmodule Jido.Flow.CodecTest do
   alias Jido.Flow.Choice
   alias Jido.Flow.Codec
   alias Jido.Flow.Condition
-  alias Jido.Flow.Dynamic
   alias Jido.Flow.Error
   alias Jido.Flow.Ref
   alias Jido.Flow.Registry
@@ -44,24 +43,6 @@ defmodule Jido.Flow.CodecTest do
     assert {:ok, ^document, ^registry} = Codec.encode(flow)
 
     assert {:error, %InvalidDefinitionError{}} = Codec.encode(:invalid)
-  end
-
-  test "Dynamic uses the version 1 stored component contract" do
-    dynamic =
-      Dynamic.new!(
-        name: "reason",
-        decision: Add,
-        expander: Multiply,
-        params: %{value: Ref.input(:value), amount: 1},
-        max_continuations: 4,
-        meta: %{kind: :test}
-      )
-
-    flow = Flow.new!(name: "stored_dynamic", components: [dynamic], output: Ref.result("reason"))
-
-    assert {:ok, document, registry} = Codec.encode(flow)
-    assert [%{"kind" => "dynamic", "max_continuations" => 4}] = document["components"]
-    assert {:ok, ^flow} = Codec.decode(Jason.decode!(Jason.encode!(document)), registry)
   end
 
   test "diagnose returns ordered errors from independent document branches" do

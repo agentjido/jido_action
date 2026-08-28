@@ -3,20 +3,21 @@ defmodule Jido.Exec.Action.Runner do
 
   alias Jido.Action.Error
   alias Jido.Action.Output
+  alias Jido.Exec.Transition
   alias Jido.Instruction
   alias Jido.Exec.Telemetry
 
   @type target_phase :: :input | :execution | :output
   @type target_result ::
           {:ok, term()}
-          | {:continue, map(), Jido.Executable.target()}
+          | {:continue, Transition.t()}
           | {:error, target_phase(), Exception.t()}
 
   @doc "Runs one Action Instruction through the isolated Action boundary."
   @spec run(Instruction.t(), keyword()) ::
           {:ok, term()}
           | {:ok, term(), term()}
-          | {:continue, map(), Jido.Executable.target()}
+          | {:continue, Transition.t()}
           | {:error, Exception.t()}
           | {:error, Exception.t(), term()}
   def run(%Instruction{target: action} = instruction, run_opts \\ []) do
@@ -41,8 +42,8 @@ defmodule Jido.Exec.Action.Runner do
         {:error, error, extras} ->
           error_result(error, extras)
 
-        {:continue, input, target} ->
-          {:continue, input, target}
+        {:continue, %Transition{} = transition} ->
+          {:continue, transition}
       end
     end
   end
@@ -82,28 +83,8 @@ defmodule Jido.Exec.Action.Runner do
       {:error, error, _extras} ->
         {:error, :execution, error}
 
-      {:continue, input, target} ->
-        {:continue, input, target}
-    end
-  end
-
-  @doc false
-  @spec validate_target_output(module(), term(), keyword()) :: target_result()
-  def validate_target_output(action, output, run_opts) do
-    task_supervisor = Keyword.fetch!(run_opts, :task_supervisor)
-
-    case run_isolated(task_supervisor, fn -> validate_output(action, output) end) do
-      {:ok, {:ok, validated}} ->
-        {:ok, validated}
-
-      {:ok, {:error, error}} ->
-        {:error, :output, error}
-
-      {:exit, reason} ->
-        {:error, :output, process_exit_error(action, reason)}
-
-      {:start_error, reason} ->
-        {:error, :output, process_start_error(action, task_supervisor, reason)}
+      {:continue, %Transition{} = transition} ->
+        {:continue, transition}
     end
   end
 
@@ -122,7 +103,7 @@ defmodule Jido.Exec.Action.Runner do
         {:error, normalize_action_error(reason), {:extras, extras}}
 
       {:continue, input, target} when is_map(input) ->
-        {:continue, input, target}
+        {:continue, Transition.new(input, target, action, context)}
 
       {:continue, input, _target} ->
         {:error,

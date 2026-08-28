@@ -2,13 +2,12 @@ defmodule Jido.Flow.Compiler do
   @moduledoc false
 
   alias Jido.Action.Output
-  alias Jido.Exec.Action.Runner
-  alias Jido.Exec.Continuation
+  alias Jido.Exec.Transition
   alias Jido.Flow
   alias Jido.Flow.Choice
   alias Jido.Flow.Compiled
-  alias Jido.Flow.Error
   alias Jido.Flow.Dynamic
+  alias Jido.Flow.Error
   alias Jido.Flow.Compiler.Choice, as: ChoiceRuntime
   alias Jido.Flow.Compiler.Expression
   alias Jido.Flow.Compiler.Iterator, as: IterateRuntime
@@ -19,6 +18,7 @@ defmodule Jido.Flow.Compiler do
   alias Jido.Flow.Iterate
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.Reduce, as: FlowReduce
+  alias Jido.Flow.Ref
   alias Jido.Flow.Step, as: FlowStep
   alias Jido.Flow.Subflow
   alias Jido.Flow.Validation
@@ -46,7 +46,7 @@ defmodule Jido.Flow.Compiler do
   @type target_runner ::
           (module(), term(), map(), String.t(), Target.t() ->
              {:ok, term()}
-             | {:continue, Continuation.t()}
+             | {:continue, Transition.t()}
              | {:error, target_phase(), Exception.t()})
 
   @doc false
@@ -309,17 +309,9 @@ defmodule Jido.Flow.Compiler do
     step =
       runtime_step(state, component.name, :choice, fn parent, runtime ->
         local = component_state(component, parent, runtime)
-
-        case ChoiceRuntime.run(component, local) do
-          {:continue, %Continuation{} = continuation, _metadata} ->
-            continuation
-            |> Continuation.with_frame(local.input_frame)
-            |> Continuation.map_result(&value(local.input_frame, &1))
-
-          result ->
-            output = unwrap_component_result(result)
-            value(local.input_frame, output)
-        end
+        result = ChoiceRuntime.run(component, local)
+        output = unwrap_component_result(result)
+        value(local.input_frame, output)
       end)
 
     add_authored_output(state, component, step, step)
@@ -329,18 +321,9 @@ defmodule Jido.Flow.Compiler do
     step =
       runtime_step(state, component.name, :iterate, fn parent, runtime ->
         local = component_state(component, parent, runtime)
-
-        case IterateRuntime.run(component, local) do
-          %Continuation{} = continuation ->
-            continuation
-            |> Continuation.with_frame(local.input_frame)
-            |> Continuation.map_result(fn result ->
-              result |> unwrap_component_result() |> then(&value(local.input_frame, &1))
-            end)
-
-          result ->
-            result |> unwrap_component_result() |> then(&value(local.input_frame, &1))
-        end
+        result = IterateRuntime.run(component, local)
+        output = unwrap_component_result(result)
+        value(local.input_frame, output)
       end)
 
     add_authored_output(state, component, step, step)
@@ -350,8 +333,7 @@ defmodule Jido.Flow.Compiler do
     step =
       runtime_step(state, component.name, :dynamic, fn parent, runtime ->
         local = component_state(component, parent, runtime)
-        params = Expression.resolve(component.params, local) |> unwrap_ok!()
-        run_dynamic_decision(component, params, 0, local, runtime)
+        run_dynamic(component, local)
       end)
 
     add_authored_output(state, component, step, step)
@@ -524,39 +506,6 @@ defmodule Jido.Flow.Compiler do
           {:fail_fast, {:error, error}} ->
             runtime.observer.({:error, span, error})
             raise error
-
-          {on_error, {:continue, %Continuation{} = continuation}} ->
-            continuation
-            |> Continuation.with_frame(token.input)
-            |> Continuation.map_result(fn output ->
-              runtime.observer.({:stop, span})
-
-              output =
-                if on_error == :collect_errors,
-                  do: %{status: :ok, value: output},
-                  else: output
-
-              token
-              |> Map.put(:kind, :result)
-              |> Map.put(:output, output)
-              |> Map.delete(:item)
-            end)
-            |> Continuation.on_failure(fn error ->
-              runtime.observer.({:error, span, error})
-
-              if on_error == :collect_errors do
-                {:ok,
-                 token
-                 |> Map.put(:kind, :result)
-                 |> Map.put(:output, %{
-                   status: :error,
-                   error: %{message: Exception.message(error)}
-                 })
-                 |> Map.delete(:item)}
-              else
-                {:error, error}
-              end
-            end)
         end
     end)
   end
@@ -621,171 +570,243 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp add_reduce(reduce, state) do
-    step =
-      runtime_step(state, reduce.name, :reduce, fn parent, runtime ->
+    if direct_map_reduce?(reduce, state) do
+      add_direct_map_reduce(reduce, state)
+    else
+      add_list_reduce(reduce, state)
+    end
+  end
+
+  defp add_list_reduce(reduce, state) do
+    resolver_name = support_name(state, reduce.name, "reduce-input")
+
+    resolver =
+      runtime_step_named(resolver_name, state, :reduce_input, fn parent, runtime ->
         local = component_state(reduce, parent, runtime)
 
         with {:ok, collection} <- Expression.resolve(reduce.collection, local),
              {:ok, initial} <- Expression.resolve(reduce.initial, local) do
-          run_reduce(reduce, collection, initial, local, runtime)
+          reduce_tokens(reduce, collection, initial, local, runtime)
         else
           {:error, error} -> raise error
         end
       end)
 
-    add_authored_output(state, reduce, step, step)
+    workflow = add_with_dependencies(state, reduce, resolver)
+    {native_reduce, output_step} = reduce_components(state, reduce, nil)
+    workflow = Workflow.add(workflow, native_reduce, to: resolver)
+    workflow = Workflow.add(workflow, output_step, to: native_reduce.fan_in)
+    put_reduce_output(state, reduce, workflow, native_reduce, output_step, false)
   end
 
-  defp run_reduce(reduce, collection, initial, local, runtime) when is_list(collection) do
+  defp add_direct_map_reduce(reduce, state) do
+    %Ref{component: map_name} = reduce.collection
+    %{component: %RunicMap{} = native_map} = Map.fetch!(state.component_index, map_name)
+    {native_reduce, output_step} = reduce_components(state, reduce, native_map.name)
+    workflow = Workflow.add(state.workflow, native_reduce, to: native_map)
+    workflow = Workflow.add(workflow, output_step, to: native_reduce.fan_in)
+    put_reduce_output(state, reduce, workflow, native_reduce, output_step, true)
+  end
+
+  defp reduce_components(state, reduce, mapped_name) do
+    native_name = support_name(state, reduce.name, "reduce")
+
+    native_reduce = %RunicReduce{
+      name: native_name,
+      hash: stable_hash({native_name, :reduce}),
+      fan_in: %FanIn{
+        name: native_name,
+        hash: stable_hash({native_name, :fan_in}),
+        map: mapped_name,
+        init: fn -> %{initialized: false, accumulator: nil, input: nil, error: nil} end,
+        reducer: reduce_fun(reduce, not is_nil(mapped_name)),
+        meta_refs: []
+      },
+      closure: nil,
+      inputs: nil,
+      outputs: nil
+    }
+
+    output_step =
+      Step.new(
+        name: output_name(state, reduce.name),
+        hash: stable_hash({state.namespace, reduce.name, :reduce_output}),
+        work: fn result ->
+          if result.error, do: raise(result.error), else: value(result.input, result.accumulator)
+        end
+      )
+
+    {native_reduce, output_step}
+  end
+
+  defp reduce_fun(reduce, direct?) do
+    # Runic finalizes FanIn during runnable application and calls its arity-2
+    # reducer there. The token carries the execution context for this call.
+    # Store reducer errors in the aggregate. The output Step raises them as a
+    # normal runnable failure.
+    fn token, aggregate ->
+      try do
+        reduce_token(reduce, direct?, token, aggregate)
+      rescue
+        error -> {:halt, %{aggregate | input: token.input, error: error}}
+      catch
+        kind, reason ->
+          error =
+            Error.execution_error("flow Reduce #{kind}", %{
+              node: reduce.name,
+              reason: reason
+            })
+
+          {:halt, %{aggregate | input: token.input, error: error}}
+      end
+    end
+  end
+
+  defp reduce_token(reduce, direct?, token, aggregate) do
+    runtime = token.runtime
+
+    aggregate =
+      if aggregate.initialized do
+        aggregate
+      else
+        local = base_runtime_state(runtime, token.input, Map.get(token, :results, %{}))
+
+        initial =
+          if direct? do
+            Expression.resolve(reduce.initial, local) |> unwrap_ok!()
+          else
+            token.initial
+          end
+
+        validate_reduce_initial!(reduce, initial)
+        %{aggregate | initialized: true, accumulator: initial, input: token.input}
+      end
+
+    case token.kind do
+      :empty ->
+        aggregate
+
+      :init ->
+        aggregate
+
+      kind when kind in [:item, :result] ->
+        item = if kind == :result, do: token.output, else: token.item
+
+        local =
+          base_runtime_state(runtime, token.input, Map.get(token, :results, %{}))
+          |> Map.merge(%{
+            item: item,
+            item_index: token.index,
+            item_id: token.id,
+            accumulator: aggregate.accumulator
+          })
+
+        owner =
+          Target.reduce(reduce, %{
+            item_index: token.index,
+            item_id: token.id
+          })
+
+        span =
+          runtime.observer.({
+            :start,
+            :reduce_item,
+            %{
+              node: reduce.name,
+              target: reduce.action,
+              item_index: token.index,
+              item_id: token.id
+            }
+          })
+
+        result =
+          with {:ok, params} <- Expression.resolve(reduce.params, local) do
+            Target.run(
+              reduce.action,
+              params,
+              runtime.context,
+              owner,
+              runtime.execution_id,
+              runtime.target_runner
+            )
+          end
+
+        case result do
+          {:ok, output} ->
+            runtime.observer.({:stop, span})
+            %{aggregate | accumulator: output}
+
+          {:error, error} ->
+            runtime.observer.({:error, span, error})
+            {:halt, %{aggregate | error: error}}
+        end
+    end
+  end
+
+  defp reduce_tokens(reduce, collection, initial, local, runtime) when is_list(collection) do
     if List.improper?(collection) do
       invalid_collection!(:reduce, reduce.name, collection)
     else
       validate_reduce_initial!(reduce, initial)
 
-      collection
-      |> Enum.with_index()
-      |> reduce_items(reduce, initial, local, runtime)
+      init = %{
+        kind: :init,
+        initial: initial,
+        input: local.input_frame,
+        results: local.results,
+        runtime: runtime
+      }
+
+      items =
+        collection
+        |> Enum.with_index()
+        |> Enum.map(fn {item, index} ->
+          %{
+            kind: :item,
+            item: item,
+            index: index,
+            id: Identity.item_uuid(local.flow_digest, reduce.name, index),
+            input: local.input_frame,
+            results: local.results,
+            initial: initial,
+            runtime: runtime
+          }
+        end)
+
+      [init | items]
     end
   end
 
-  defp run_reduce(reduce, collection, _initial, _local, _runtime),
+  defp reduce_tokens(reduce, collection, _initial, _local, _runtime),
     do: invalid_collection!(:reduce, reduce.name, collection)
 
-  defp reduce_items([], _reduce, accumulator, local, _runtime) do
-    value(local.input_frame, accumulator)
+  defp put_reduce_output(state, reduce, workflow, native_reduce, output_step, direct?) do
+    index = %{
+      kind: :reduce,
+      component: native_reduce,
+      direct_map: direct?,
+      output: output_step.name,
+      output_port: :out
+    }
+
+    %{
+      state
+      | workflow: workflow,
+        outputs: Map.put(state.outputs, reduce.name, output_step),
+        component_index: Map.put(state.component_index, reduce.name, index)
+    }
   end
 
-  defp reduce_items([{item, index} | rest], reduce, accumulator, local, runtime) do
-    item_id = Identity.item_uuid(local.flow_digest, reduce.name, index)
+  defp direct_map_reduce?(%FlowReduce{} = reduce, state) do
+    case reduce.collection do
+      %Ref{source: :result, component: map_name, path: []} ->
+        match?(%{component: %RunicMap{}}, Map.get(state.component_index, map_name)) and
+          Enum.all?(reduce.after, &(&1 == map_name)) and
+          Flow.Expression.result_refs(reduce.initial) == [] and
+          Flow.Expression.result_refs(reduce.params) == []
 
-    item_state =
-      local
-      |> Map.merge(%{
-        item: item,
-        item_index: index,
-        item_id: item_id,
-        accumulator: accumulator
-      })
-
-    owner = Target.reduce(reduce, %{item_index: index, item_id: item_id})
-
-    span =
-      runtime.observer.({
-        :start,
-        :reduce_item,
-        %{node: reduce.name, target: reduce.action, item_index: index, item_id: item_id}
-      })
-
-    result =
-      with {:ok, params} <- Expression.resolve(reduce.params, item_state) do
-        Target.run(
-          reduce.action,
-          params,
-          runtime.context,
-          owner,
-          runtime.execution_id,
-          runtime.target_runner
-        )
-      end
-
-    case result do
-      {:ok, output} ->
-        runtime.observer.({:stop, span})
-        reduce_items(rest, reduce, output, local, runtime)
-
-      {:continue, %Continuation{} = continuation} ->
-        continuation
-        |> Continuation.with_frame(local.input_frame)
-        |> Continuation.map_result(fn output ->
-          runtime.observer.({:stop, span})
-          reduce_items(rest, reduce, output, local, runtime)
-        end)
-        |> Continuation.on_failure(fn error ->
-          runtime.observer.({:error, span, error})
-          {:error, error}
-        end)
-
-      {:error, error} ->
-        runtime.observer.({:error, span, error})
-        raise error
-    end
-  end
-
-  defp run_dynamic_decision(dynamic, input, cycle, local, runtime) do
-    input = require_dynamic_input!(dynamic, input, :decision, cycle)
-    owner = Target.dynamic(dynamic, :decision, cycle)
-
-    case Target.run(
-           dynamic.decision,
-           input,
-           runtime.context,
-           owner,
-           runtime.execution_id,
-           runtime.target_runner
-         ) do
-      {:ok, decision} ->
-        run_dynamic_expander(dynamic, decision, cycle, local, runtime)
-
-      {:continue, %Continuation{} = continuation} ->
-        continuation
-        |> Continuation.with_frame(local.input_frame)
-        |> Continuation.map_result(fn decision ->
-          run_dynamic_expander(dynamic, decision, cycle, local, runtime)
-        end)
-
-      {:error, error} ->
-        raise error
-    end
-  end
-
-  defp run_dynamic_expander(dynamic, decision, cycle, local, runtime) do
-    decision = require_dynamic_input!(dynamic, decision, :expander, cycle)
-    owner = Target.dynamic(dynamic, :expander, cycle)
-
-    case Target.run(
-           dynamic.expander,
-           decision,
-           runtime.context,
-           owner,
-           runtime.execution_id,
-           runtime.target_runner
-         ) do
-      {:ok, output} ->
-        value(local.input_frame, output)
-
-      {:continue, %Continuation{} = continuation} ->
-        if cycle >= dynamic.max_continuations do
-          raise Error.execution_error("dynamic continuation limit exceeded", %{
-                  phase: :dynamic_limit,
-                  node: dynamic.name,
-                  max_continuations: dynamic.max_continuations,
-                  cycle: cycle,
-                  retry: false
-                })
-        end
-
-        continuation
-        |> Continuation.with_frame(local.input_frame)
-        |> Continuation.map_result(fn output ->
-          run_dynamic_decision(dynamic, output, cycle + 1, local, runtime)
-        end)
-
-      {:error, error} ->
-        raise error
-    end
-  end
-
-  defp require_dynamic_input!(dynamic, value, phase, cycle) do
-    if is_map(value) and not is_struct(value) do
-      value
-    else
-      raise Error.execution_error("dynamic Action input must be a plain map", %{
-              phase: String.to_atom("dynamic_#{phase}_input"),
-              node: dynamic.name,
-              cycle: cycle,
-              value_type: Expression.value_type(value),
-              retry: false
-            })
+      _other ->
+        false
     end
   end
 
@@ -920,46 +941,6 @@ defmodule Jido.Flow.Compiler do
     end
   end
 
-  @doc false
-  @spec continuation_flow(Flow.t(), [String.t()], (term() ->
-                                                     {:ok, term()} | {:error, Exception.t()})) ::
-          {:ok, Workflow.t(), Step.t()} | {:error, Exception.t()}
-  def continuation_flow(%Flow{} = flow, namespace, finalizer)
-      when is_list(namespace) and is_function(finalizer, 1) do
-    with {:ok, attrs, subflows} <- Validation.prepare_executable(Map.from_struct(flow), []) do
-      flow = struct!(Flow, attrs)
-      state = compile_flow(flow, namespace, [], %{}, nil, subflows)
-
-      output_step =
-        Step.new(
-          name: scoped(namespace, "$output"),
-          hash: stable_hash({namespace, :continuation_output}),
-          work: fn parent ->
-            local = component_state_from(flow.output, parent)
-            output = Expression.resolve(flow.output, local) |> unwrap_ok!()
-
-            case finalizer.(output) do
-              {:ok, validated} -> value(local.input_frame, validated)
-              {:error, error} -> raise error
-            end
-          end
-        )
-
-      workflow = Workflow.add(state.workflow, output_step, to: child_output_parents(state))
-      {:ok, workflow, output_step}
-    end
-  rescue
-    error -> {:error, normalize_compile_error(error)}
-  catch
-    kind, reason ->
-      {:error,
-       Error.internal_error("continuation Flow compilation failed", %{
-         phase: :continuation_compilation,
-         kind: kind,
-         reason: reason
-       })}
-  end
-
   defp component_state_from(output, parent) do
     deps = output |> Flow.Expression.result_refs() |> Enum.uniq() |> Enum.sort()
 
@@ -1085,7 +1066,7 @@ defmodule Jido.Flow.Compiler do
 
   defp resolve_and_run(state, expression, action, owner) do
     with {:ok, params} <- Expression.resolve(expression, state),
-         result <-
+         {:ok, output} <-
            Target.run(
              action,
              params,
@@ -1094,102 +1075,48 @@ defmodule Jido.Flow.Compiler do
              state.execution_id,
              state.target_runner
            ) do
-      case result do
-        {:ok, output} ->
-          {:ok, state.input_frame, output}
-
-        {:continue, %Continuation{} = continuation} ->
-          continuation
-          |> Continuation.with_frame(state.input_frame)
-          |> Continuation.map_result(&value(state.input_frame, &1))
-
-        {:error, error} ->
-          raise error
-      end
+      {:ok, state.input_frame, output}
     else
       {:error, error} -> raise error
     end
   end
 
+  defp run_dynamic(dynamic, state) do
+    with {:ok, params} <- Expression.resolve(dynamic.params, state),
+         {:ok, decision} <-
+           Target.run(
+             dynamic.decision,
+             params,
+             state.context,
+             Target.dynamic(dynamic, :decision),
+             state.execution_id,
+             state.target_runner
+           ) do
+      case Target.run(
+             dynamic.expander,
+             decision,
+             state.context,
+             Target.dynamic(dynamic, :expander),
+             state.execution_id,
+             state.target_runner
+           ) do
+        {:ok, output} -> value(state.input_frame, output)
+        {:continue, %Transition{} = transition} -> transition
+        {:error, error} -> raise error
+      end
+    else
+      {:continue, %Transition{}} ->
+        raise Error.execution_error(
+                "action continuation is not allowed from this Flow position",
+                %{component: dynamic.name, component_kind: :dynamic, retry: false}
+              )
+
+      {:error, error} ->
+        raise error
+    end
+  end
+
   defp wrap_result({:ok, frame, output}), do: value(frame, output)
-  defp wrap_result(%Continuation{} = continuation), do: continuation
-
-  @doc false
-  @spec continuation_action_step(String.t(), module(), Target.t()) :: Step.t()
-  def continuation_action_step(name, action, owner)
-      when is_binary(name) and is_atom(action) do
-    Step.new(
-      name: name,
-      hash: stable_hash({:continuation, name, :action, action}),
-      work: fn input, effective_context ->
-        {:jido_continuation_input, _sequence, frame, params} = input
-        runtime = runtime_from_context(effective_context)
-
-        case Target.run(
-               action,
-               params,
-               runtime.context,
-               owner,
-               runtime.execution_id,
-               runtime.target_runner
-             ) do
-          {:ok, output} ->
-            value(frame, output)
-
-          {:continue, %Continuation{} = continuation} ->
-            continuation
-            |> Continuation.with_frame(frame)
-            |> Continuation.map_result(&value(frame, &1))
-
-          {:error, error} ->
-            raise error
-        end
-      end,
-      meta_refs: [@runtime_ref]
-    )
-  end
-
-  @doc false
-  @spec continuation_finalizer_step(String.t(), Continuation.t()) :: Step.t()
-  def continuation_finalizer_step(name, %Continuation{} = continuation) when is_binary(name) do
-    Step.new(
-      name: name,
-      hash: stable_hash({:continuation, name, :finalizer}),
-      work: fn input, effective_context ->
-        runtime = runtime_from_context(effective_context)
-        output = unwrap_value(input)
-
-        case output do
-          {:jido_continuation_recovered, value} ->
-            value
-
-          output ->
-            case Runner.validate_target_output(
-                   continuation.origin_action,
-                   output,
-                   runtime.options
-                 ) do
-              {:ok, validated} ->
-                stop_continuation_span(continuation)
-                Continuation.resume(continuation, validated)
-
-              {:error, _phase, error} ->
-                error_continuation_span(continuation, error)
-                raise error
-            end
-        end
-      end,
-      meta_refs: [@runtime_ref]
-    )
-  end
-
-  defp stop_continuation_span(%Continuation{span: nil}), do: :ok
-  defp stop_continuation_span(%Continuation{span: span}), do: Jido.Exec.Telemetry.stop(span)
-
-  defp error_continuation_span(%Continuation{span: nil}, _error), do: :ok
-
-  defp error_continuation_span(%Continuation{span: span}, error),
-    do: Jido.Exec.Telemetry.error(span, error)
 
   defp unwrap_component_result({:ok, output}), do: output
   defp unwrap_component_result({:ok, output, _metadata}), do: output

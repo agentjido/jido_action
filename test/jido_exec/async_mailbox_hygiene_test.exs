@@ -29,14 +29,7 @@ defmodule JidoActionTest.Exec.AsyncMailboxHygieneTest do
     pid = spawn(fn -> receive do: (:stop -> :ok) end)
     monitor_ref = Process.monitor(pid)
     ref = make_ref()
-
-    handle = %{
-      ref: ref,
-      pid: pid,
-      owner: self(),
-      monitor_ref: monitor_ref,
-      token: :atomics.new(1, signed: false)
-    }
+    handle = %{ref: ref, pid: pid, owner: self(), monitor_ref: monitor_ref}
 
     send(self(), {:DOWN, monitor_ref, :process, pid, :normal})
     send(self(), {:jido_exec_async_result, ref, pid, {:ok, %{value: 2}}})

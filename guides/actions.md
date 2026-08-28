@@ -32,14 +32,14 @@ The module must implement `run/2`.
 
 ## Callback Results
 
-An Action callback returns one of these shapes:
+An Action callback returns one of five shapes:
 
 ```elixir
 {:ok, result}
 {:ok, result, extras}
 {:error, reason}
 {:error, reason, extras}
-{:continue, continuation_input, continuation_target}
+{:continue, input, target}
 ```
 
 A normal success result is a map. Use `Jido.Action.Output` when a successful
@@ -53,10 +53,14 @@ value is intentionally raw, streamed, batched, or opaque.
 Direct Action and Action Instruction calls preserve `extras`. A Flow consumes
 only the result or error reason from an Action node and discards node extras.
 
-A continuation input is a map. Its target is an Action module, a Flow module,
-or a runtime Flow value. Jido runs the target and uses its output as the
-effective result of the current Action. See
-[Action And Flow Continuations](continuations.md).
+`{:continue, input, target}` is a terminal transition. The current Action does
+not return a domain result. `Jido.Exec` runs `target` with `input` and the same
+context. The target can be an Action or a Flow. The final target owns output
+validation and the final result.
+
+Exec permits this result from a root Action and from the expander of a terminal
+`Jido.Flow.Dynamic` component. Other Flow positions reject it. See
+[Terminal Transitions](continuations.md).
 
 ## Validation
 

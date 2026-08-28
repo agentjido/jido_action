@@ -1,19 +1,20 @@
 defmodule Jido.Flow.Dynamic do
   @moduledoc """
-  A bounded dynamic Action loop.
+  A terminal Flow decision and expansion boundary.
 
-  A Dynamic component calls its decision Action, then its expander Action. A
-  normal expander result completes the component. An expander continuation
-  runs inside the current Flow and sends its effective result to the next
-  decision call.
+  Dynamic calls its decision Action and passes that result to its expander
+  Action. A normal expander result completes the Flow. A continuation ends the
+  current Flow and selects the next executable for the same `Jido.Exec` call.
+
+  A Flow can contain at most one Dynamic component. It must be the sole
+  terminal component and the complete Flow output.
   """
 
   alias Jido.Flow.Component
   alias Jido.Flow.Error
   alias Jido.Flow.Expression
 
-  @maximum_continuations 10_000
-  @config_keys [:name, :decision, :expander, :params, :max_continuations, :after, :meta]
+  @config_keys [:name, :decision, :expander, :params, :after, :meta]
 
   @schema Zoi.struct(
             __MODULE__,
@@ -21,8 +22,7 @@ defmodule Jido.Flow.Dynamic do
               name: Zoi.string(description: "Component name"),
               decision: Zoi.atom(description: "Decision Action module"),
               expander: Zoi.atom(description: "Expander Action module"),
-              params: Zoi.any(description: "Initial parameter expression") |> Zoi.default(%{}),
-              max_continuations: Zoi.integer(description: "Maximum local continuation cycles"),
+              params: Zoi.any(description: "Decision input expression") |> Zoi.default(%{}),
               after:
                 Zoi.list(Zoi.string(), description: "Explicit control order") |> Zoi.default([]),
               meta: Zoi.map(description: "Portable author metadata") |> Zoi.default(%{})
@@ -49,7 +49,6 @@ defmodule Jido.Flow.Dynamic do
          {:ok, decision} <- Component.module(Map.get(attrs, :decision), "dynamic decision"),
          {:ok, expander} <- Component.module(Map.get(attrs, :expander), "dynamic expander"),
          {:ok, params} <- expression(Map.get(attrs, :params, %{})),
-         {:ok, max_continuations} <- max_continuations(Map.get(attrs, :max_continuations)),
          {:ok, after_names} <- Component.after_names(Map.get(attrs, :after, [])),
          {:ok, meta} <- Component.meta(Map.get(attrs, :meta, %{})) do
       {:ok,
@@ -58,7 +57,6 @@ defmodule Jido.Flow.Dynamic do
          decision: decision,
          expander: expander,
          params: params,
-         max_continuations: max_continuations,
          after: after_names,
          meta: meta
        }}
@@ -91,7 +89,6 @@ defmodule Jido.Flow.Dynamic do
       decision: dynamic.decision,
       expander: dynamic.expander,
       params: Expression.to_map(dynamic.params),
-      max_continuations: dynamic.max_continuations,
       after: dynamic.after,
       meta: dynamic.meta
     }
@@ -109,17 +106,6 @@ defmodule Jido.Flow.Dynamic do
          :ok <- Expression.validate(value, :flow) do
       {:ok, value}
     end
-  end
-
-  defp max_continuations(value)
-       when is_integer(value) and value in 1..@maximum_continuations,
-       do: {:ok, value}
-
-  defp max_continuations(_value) do
-    {:error,
-     Error.validation_error("dynamic max_continuations must be from 1 to 10000", %{
-       path: [:max_continuations]
-     })}
   end
 
   defp invalid_configuration,

@@ -14,6 +14,7 @@ defmodule Jido.Flow.Validation do
   alias Jido.Flow.Reduce
   alias Jido.Flow.Step
   alias Jido.Flow.Subflow
+  alias Jido.Flow.Ref
 
   @module_config_keys [:name, :description, :schema, :output_schema]
   @artifact_config_keys @module_config_keys ++ [:components, :output]
@@ -80,7 +81,8 @@ defmodule Jido.Flow.Validation do
          {:ok, output} <- output(Map.get(attrs, :output)),
          :ok <- unique_names(components),
          :ok <- known_dependencies(components, output),
-         :ok <- acyclic(components) do
+         :ok <- acyclic(components),
+         :ok <- validate_terminal_dynamic(components, output) do
       {:ok,
        %{
          name: name,
@@ -227,6 +229,61 @@ defmodule Jido.Flow.Validation do
     end
   end
 
+  defp validate_terminal_dynamic(components, output) do
+    case Enum.filter(components, &match?(%Dynamic{}, &1)) do
+      [] ->
+        :ok
+
+      [%Dynamic{name: name}] ->
+        case require_dynamic_sink(components, name) do
+          :ok -> require_dynamic_output(output, name)
+          {:error, error} -> {:error, error}
+        end
+
+      dynamics ->
+        {:error,
+         Error.validation_error("Flow can contain only one Dynamic component", %{
+           components: Enum.map(dynamics, & &1.name)
+         })}
+    end
+  end
+
+  defp require_dynamic_sink(components, dynamic_name) do
+    dependencies =
+      components
+      |> Enum.flat_map(&Component.effective_dependencies/1)
+      |> MapSet.new()
+
+    sinks =
+      components
+      |> Enum.map(&Component.name_of/1)
+      |> Enum.reject(&MapSet.member?(dependencies, &1))
+      |> Enum.sort()
+
+    if sinks == [dynamic_name] do
+      :ok
+    else
+      {:error,
+       Error.validation_error("Dynamic must be the sole terminal Flow component", %{
+         dynamic: dynamic_name,
+         terminal_components: sinks
+       })}
+    end
+  end
+
+  defp require_dynamic_output(
+         %Ref{source: :result, component: dynamic_name, path: []},
+         dynamic_name
+       ),
+       do: :ok
+
+  defp require_dynamic_output(_output, dynamic_name) do
+    {:error,
+     Error.validation_error("Flow output must be the complete Dynamic result", %{
+       dynamic: dynamic_name
+     })}
+  end
+
   defp validate_component_targets(components, module_stack, subflows) do
     Enum.reduce_while(components, {:ok, subflows}, fn component, {:ok, subflows} ->
       case validate_target(component, module_stack, subflows) do
@@ -303,10 +360,20 @@ defmodule Jido.Flow.Validation do
       :error ->
         with {:ok, child} <- load_child_flow(module),
              {:ok, child} <- validate_attrs(Map.from_struct(child)),
+             :ok <- reject_dynamic_subflow(child, module),
              {:ok, subflows} <-
                validate_component_targets(child.components, [module | module_stack], subflows) do
           {:ok, Map.put(subflows, module, struct!(Jido.Flow, child))}
         end
+    end
+  end
+
+  defp reject_dynamic_subflow(%{components: components}, module) do
+    if Enum.any?(components, &match?(%Dynamic{}, &1)) do
+      {:error,
+       Error.validation_error("a Flow with Dynamic cannot be used as a Subflow", %{flow: module})}
+    else
+      :ok
     end
   end
 

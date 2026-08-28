@@ -25,14 +25,7 @@ defmodule Jido.Flow.ComponentValidationTest do
     assert %Choice{} = Choice.new!(name: "choice", options: [option], fallback: fallback)
     assert %FlowMap{} = FlowMap.new!(name: "map", collection: [], action: Add)
     assert %Reduce{} = Reduce.new!(name: "reduce", collection: [], initial: %{}, action: Add)
-
-    assert %Dynamic{} =
-             Dynamic.new!(
-               name: "dynamic",
-               decision: Add,
-               expander: Add,
-               max_continuations: 1
-             )
+    assert %Dynamic{} = Dynamic.new!(name: "dynamic", decision: Add, expander: Add)
 
     assert %Iterate{} =
              Iterate.new!(

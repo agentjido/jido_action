@@ -167,7 +167,6 @@ defmodule Jido.Flow.DSL.Lowerer do
              decision: dynamic.decision,
              expander: dynamic.expander,
              params: params,
-             max_continuations: dynamic.max_continuations,
              after: after_names,
              meta: dynamic.meta
            ) do

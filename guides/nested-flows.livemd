@@ -72,15 +72,14 @@ A Subflow lowers to a nested native Runic Workflow. Step-wise execution can
 show child validators, child Steps, InputBinding, and connection work. Jido
 does not hide these native runnables.
 
-The child inherits the parent context, `max_concurrency`,
-`max_continuations`, `jido` routing, and execution ID. Its Action calls share
-the parent execution budget.
+The child inherits the parent context, `max_concurrency`, `jido` routing, and
+execution ID. Its Action calls share the parent execution budget.
 
 ## Limits
 
-Only `step` derives Subflow. Choice options, Choice fallback, Map, Reduce,
-Iterate, and Dynamic target slots require Actions. A canonical Subflow stores
-a Flow module, not an arbitrary runtime Flow value.
+Only `step` derives Subflow. Choice options, Choice fallback, Map, Reduce, and
+Iterate target slots require Actions. A canonical Subflow stores a Flow module,
+not an arbitrary runtime Flow value.
 
 Validate the complete boundary without running work:
 

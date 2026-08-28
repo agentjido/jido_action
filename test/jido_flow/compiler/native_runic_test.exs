@@ -99,7 +99,7 @@ defmodule JidoActionTest.Flow.Compiler.NativeRunicTest do
     assert %Workflow{} = compiled.workflow
   end
 
-  test "compiles Map natively and keeps Reduce resumable as one serial Step" do
+  test "compiles Map and Reduce to native Runic components with direct fan-in" do
     map =
       Map.new!(
         name: "mapped",
@@ -135,22 +135,28 @@ defmodule JidoActionTest.Flow.Compiler.NativeRunicTest do
              compiled.component_index["mapped"]
 
     native_reduce = compiled.component_index["reduced"].component
-    assert %RunicStep{name: "reduced"} = native_reduce
+    assert %RunicReduce{fan_in: %FanIn{map: map_name}} = native_reduce
+
+    assert map_name == native_map.name
+    assert compiled.component_index["reduced"].direct_map
 
     assert [items: map_input] = Runic.Component.inputs(native_map)
     assert [out: map_output] = Runic.Component.outputs(native_map)
     assert map_input[:cardinality] == :many
     assert map_output[:cardinality] == :many
 
-    assert [in: reduce_input] = Runic.Component.inputs(native_reduce)
-    assert [out: reduce_output] = Runic.Component.outputs(native_reduce)
-    assert Keyword.get(reduce_input, :cardinality, :one) == :one
+    assert [items: reduce_input] = Runic.Component.inputs(native_reduce)
+    assert [result: reduce_output] = Runic.Component.outputs(native_reduce)
+    assert reduce_input[:cardinality] == :many
     assert Keyword.get(reduce_output, :cardinality, :one) == :one
+
+    assert %FanIn{name: "$reduced/reduce", map: "$mapped/map", mergeable: false} =
+             native_reduce.fan_in
 
     vertices = :maps.values(compiled.workflow.graph.vertices)
     assert Enum.any?(vertices, &match?(%FanOut{name: "$mapped/map"}, &1))
     assert Enum.any?(vertices, &match?(%FanIn{name: "$mapped/map-collector"}, &1))
-    refute Enum.any?(vertices, &match?(%FanIn{name: "$reduced/reduce"}, &1))
+    assert Enum.any?(vertices, &match?(%FanIn{name: "$reduced/reduce"}, &1))
   end
 
   test "uses one native Workflow boundary for a Subflow" do

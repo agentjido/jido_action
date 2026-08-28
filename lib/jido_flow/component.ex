@@ -4,8 +4,8 @@ defmodule Jido.Flow.Component do
   alias Jido.Action
   alias Jido.Flow.Error
   alias Jido.Flow.Data
-  alias Jido.Flow.Dynamic
   alias Jido.Flow.Choice
+  alias Jido.Flow.Dynamic
   alias Jido.Flow.Iterate
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.Reduce

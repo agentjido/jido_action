@@ -82,9 +82,9 @@ defmodule JidoAction.MixProject do
           "guides/actions.md",
           "guides/instructions.md",
           "guides/flows.md",
+          "guides/continuations.md",
           "guides/schemas-validation.md",
-          "guides/execution.md",
-          "guides/continuations.md"
+          "guides/execution.md"
         ],
         "Author Flows": [
           "guides/flow-language.livemd",
@@ -125,9 +125,9 @@ defmodule JidoAction.MixProject do
         {"guides/actions.md", title: "Actions"},
         {"guides/instructions.md", title: "Instructions"},
         {"guides/flows.md", title: "Flows"},
+        {"guides/continuations.md", title: "Terminal Transitions"},
         {"guides/schemas-validation.md", title: "Schemas & Validation"},
         {"guides/execution.md", title: "Execution Contract"},
-        {"guides/continuations.md", title: "Action And Flow Continuations"},
         # Author Flows
         {"guides/flow-language.livemd", title: "Flow DSL"},
         {"guides/flow-steps.livemd", title: "Steps And Output"},

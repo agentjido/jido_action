@@ -193,8 +193,7 @@ Native Runic semantics define the available stopping points:
 - Iterate runs its loop in one authored runnable. Iteration telemetry provides
   the detailed view.
 - Map exposes FanOut, item, FanIn, and output work.
-- Reduce runs as one serial and resumable authored work unit.
-- Dynamic expands the live graph when its expander returns a continuation.
+- Reduce uses native Reduce and FanIn work.
 - Subflow exposes its nested Workflow and InputBinding work.
 
 Do not assume that each ready runnable is one authored Flow component.

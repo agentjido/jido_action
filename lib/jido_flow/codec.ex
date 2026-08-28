@@ -450,7 +450,6 @@ defmodule Jido.Flow.Codec do
       "decision",
       "expander",
       "params",
-      "max_continuations",
       "after",
       "meta"
     ]
@@ -463,8 +462,7 @@ defmodule Jido.Flow.Codec do
       [
         decision: fn -> resolve_field(record, "decision", :action, registry, path) end,
         expander: fn -> resolve_field(record, "expander", :action, registry, path) end,
-        params: fn -> diagnose_expression_field(record, "params", registry, path) end,
-        max_continuations: fn -> positive_integer_field(record, "max_continuations", path) end
+        params: fn -> diagnose_expression_field(record, "params", registry, path) end
       ],
       &Dynamic.new/1
     )
@@ -1293,7 +1291,6 @@ defmodule Jido.Flow.Codec do
          "decision" => decision,
          "expander" => expander,
          "params" => params,
-         "max_continuations" => dynamic.max_continuations,
          "after" => dynamic.after,
          "meta" => meta
        }}

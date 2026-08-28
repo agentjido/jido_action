@@ -34,7 +34,7 @@ Use `new/1` for untrusted or fallible construction. Do not use raw struct
 literals as a substitute for constructor validation.
 
 Each canonical component has `new/1` and `new!/1`. Choice options, Choice
-fallbacks, Iterate State, and Dynamic have constructors too.
+fallbacks, and Iterate State have constructors too.
 
 ## Runtime Builder
 
@@ -67,7 +67,7 @@ Builder. `build/1` returns that error or validates the complete Flow.
 Builder provides component functions:
 
 ```text
-step  choice  map  reduce  iterate  dynamic  output
+step  choice  map  reduce  iterate  output
 ```
 
 It also provides the canonical reference and condition helpers:

@@ -15,13 +15,7 @@ defmodule Jido.Exec do
 
   `run_async/4` starts the same run-to-completion work and returns a
   caller-owned handle. Use `await/1`, `await/2`, or `cancel/1` from the process
-  that created the handle. OTP processes can use `handle_message/2` to classify
-  one received message without a blocking await.
-
-  An Action can return `{:continue, input, target}`. Exec runs the Action or
-  Flow target and uses its output as the effective result of the Action. In a
-  Flow, this operation expands the live Runic graph before authored downstream
-  work can use the result.
+  that created the handle.
 
   ## Step-wise Flow execution
 
@@ -57,6 +51,7 @@ defmodule Jido.Exec do
   alias Jido.Exec.Options
   alias Jido.Exec.Telemetry
   alias Jido.Exec.Telemetry.Tracker
+  alias Jido.Exec.Transition
   alias Jido.Flow
   alias Jido.Flow.Error, as: FlowError
   alias Jido.Instruction
@@ -75,8 +70,7 @@ defmodule Jido.Exec do
           required(:ref) => reference(),
           required(:pid) => pid(),
           required(:owner) => pid(),
-          required(:monitor_ref) => reference(),
-          required(:token) => :atomics.atomics_ref()
+          required(:monitor_ref) => reference()
         }
 
   @type async_control :: %{required(:ref) => reference(), required(:owner) => pid()}
@@ -96,13 +90,15 @@ defmodule Jido.Exec do
   All targets accept `:max_concurrency`, which defaults to `8`. A value
   of `1` runs ready work serially. A value greater than `1` runs independent
   ready work concurrently, up to that limit. Map items are native Runic
-  runnables, so the same rule applies to them. This option is available for an
-  Action because the Action can continue into a Flow.
+  runnables, so the same rule applies to them. An Action does not use this
+  option itself, but a continuation can select a Flow in the same call. An
+  Instruction uses the option rules of its resolved target.
 
-  All targets also accept `:max_continuations`. Its default is `32`, and its
-  valid range is 0 through 10,000. One counter covers nested continuations in
-  the complete execution. An Instruction uses the option rules of its resolved
-  target.
+  An Action can return `{:continue, input, target}`. The current executable
+  ends, and Exec runs the target as the next executable in the same complete
+  call. The default `:max_continuations` value is `32`. Its valid range is 0
+  through 10,000. This limit and the complete-call timeout stop infinite
+  continuation chains.
   """
   @spec run(term(), map() | keyword() | nil, map() | keyword() | nil, keyword()) :: exec_result()
   def run(executable, input \\ %{}, context \\ %{}, opts \\ []) do
@@ -128,14 +124,20 @@ defmodule Jido.Exec do
     timeout_owner = timeout_owner_hint(executable)
 
     with {:ok, opts} <- prepare_run_options(executable, opts),
-         {:ok, timeout, run_opts} <- Options.take_timeout(opts, timeout_owner) do
+         {:ok, timeout, run_opts} <- Options.take_timeout(opts, timeout_owner),
+         {:ok, continuation_limit} <- Options.continuation_limit(run_opts, timeout_owner) do
       execute_with_timeout(
         fn notify ->
-          with {:ok, executable, resolved, run_opts} <-
-                 resolve_run_target(executable, run_opts, :run) do
-            notify.({:resolved, timeout_owner(resolved), resolved})
-            run_with_lifecycle(executable, resolved, input, context, run_opts, execution_id)
-          end
+          run_chain(
+            executable,
+            input,
+            context,
+            run_opts,
+            execution_id,
+            notify,
+            0,
+            continuation_limit
+          )
         end,
         timeout,
         timeout_owner,
@@ -143,6 +145,88 @@ defmodule Jido.Exec do
         execution_id,
         control
       )
+    end
+  end
+
+  defp run_chain(
+         executable,
+         input,
+         context,
+         opts,
+         execution_id,
+         notify,
+         count,
+         continuation_limit
+       ) do
+    with {:ok, executable, resolved, run_opts} <-
+           resolve_run_target(executable, opts, :run) do
+      notify.({:resolved, timeout_owner(resolved), resolved})
+
+      case run_with_lifecycle(executable, resolved, input, context, run_opts, execution_id) do
+        {:continue, %Transition{} = transition} ->
+          continue_chain(
+            transition,
+            run_opts,
+            execution_id,
+            notify,
+            count + 1,
+            continuation_limit
+          )
+
+        result ->
+          result
+      end
+    end
+  end
+
+  defp continue_chain(
+         %Transition{} = transition,
+         opts,
+         execution_id,
+         notify,
+         count,
+         continuation_limit
+       ) do
+    with :ok <- check_continuation_limit(transition, count, continuation_limit),
+         :ok <- validate_transition_target(transition) do
+      run_chain(
+        transition.target,
+        transition.input,
+        transition.context,
+        opts,
+        execution_id,
+        notify,
+        count,
+        continuation_limit
+      )
+    end
+  end
+
+  defp check_continuation_limit(_transition, count, limit) when count <= limit, do: :ok
+
+  defp check_continuation_limit(%Transition{} = transition, count, limit) do
+    {:error,
+     Error.execution_error("continuation limit exceeded", %{
+       action: transition.origin,
+       count: count,
+       max_continuations: limit,
+       retry: false
+     })}
+  end
+
+  defp validate_transition_target(%Transition{} = transition) do
+    with {:ok, executable} <- Executable.resolve(transition.target),
+         :ok <- Executable.validate(executable) do
+      :ok
+    else
+      {:error, cause} ->
+        {:error,
+         Error.execution_error("action returned an invalid continuation target", %{
+           action: transition.origin,
+           target: transition.target,
+           cause: cause,
+           retry: false
+         })}
     end
   end
 
@@ -188,17 +272,6 @@ defmodule Jido.Exec do
   def cancel(async_ref_or_pid), do: Async.cancel(async_ref_or_pid)
 
   @doc """
-  Classifies one mailbox message for a caller-owned asynchronous execution.
-
-  Use this function from `handle_info/2`. It returns `{:done, result}` for the
-  matching terminal message, `:ignore` for unrelated or stale messages, and
-  `{:error, error}` for an invalid handle or a non-owner call.
-  """
-  @spec handle_message(async_ref(), term()) ::
-          {:done, exec_result()} | :ignore | {:error, Exception.t()}
-  def handle_message(async_ref, message), do: Async.handle_message(async_ref, message)
-
-  @doc """
   Starts a paused Flow execution.
 
   The function accepts a Flow artifact, a module that uses `Jido.Flow`, or an
@@ -206,9 +279,9 @@ defmodule Jido.Exec do
   and run options before it returns. The returned execution is paused before
   the first native Runic runnable.
 
-  `:max_concurrency`, `:max_continuations`, and common `:jido` routing are
-  stored on the execution. `wave/1` and `continue/1` use the scheduling
-  options. `step/1` and `step/2` always execute one runnable.
+  `:max_concurrency` and common `:jido` routing are stored on the execution.
+  `wave/1` and `continue/1` use the scheduling options. `step/1` and `step/2`
+  always execute one runnable.
 
   A paused execution has no running timeout. `start/4` does not accept the
   `:timeout` option. The step-wise API also does not accept retry, deadline,
@@ -257,15 +330,6 @@ defmodule Jido.Exec do
   """
   @spec compiled(Execution.t()) :: Jido.Flow.Compiled.t()
   def compiled(%Execution{compiled: compiled}), do: compiled
-
-  @doc """
-  Returns ordered, sanitized continuation lineage for a Flow execution.
-
-  The records do not contain continuation input, target arguments, or output
-  values.
-  """
-  @spec continuations(Execution.t()) :: [map()]
-  def continuations(%Execution{continuations: continuations}), do: continuations
 
   @doc """
   Executes the first ready native Runic runnable.

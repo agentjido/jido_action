@@ -118,9 +118,9 @@ errors have JSON paths when a path applies. The stable error map contains the
 leaf errors under `details.errors`.
 
 Diagnostics collect errors across root fields, components, nested Choice
-records, Dynamic records, expressions, conditions, lists, maps, and graph
-references. They do not return a partial Flow. Unknown-reference errors
-suppress a derived cycle error because that cycle result would be misleading.
+records, expressions, conditions, lists, maps, and graph references. They do
+not return a partial Flow. Unknown-reference errors suppress a derived cycle
+error because that cycle result would be misleading.
 
 Document size, collection size, nesting, root type, and document version
 errors are terminal. Diagnostics do not traverse a document after one of

@@ -24,11 +24,21 @@ The component types are:
 - `Jido.Flow.Map` for ordered fan-out and fan-in;
 - `Jido.Flow.Reduce` for a serial left fold; and
 - `Jido.Flow.Iterate` for a bounded local loop; and
-- `Jido.Flow.Dynamic` for a bounded decision and expansion loop.
+- `Jido.Flow.Dynamic` for one terminal decision and expansion boundary.
 
 Each component has a name, explicit `after` dependencies, and portable `meta`
 data. Data references create inferred dependencies. Jido keeps explicit and
 inferred dependencies separate.
+
+A Flow can have at most one Dynamic component. Dynamic must be the sole sink,
+and the Flow output must be the complete Dynamic result. Its decision Action
+returns data for its expander Action. A normal expander result completes the
+Flow. `{:continue, input, target}` ends the Flow and selects the next executable
+for the same `Jido.Exec.run/4` call.
+
+Dynamic is not available through step-wise execution or as part of a Subflow.
+These limits keep a transition at one run-to-completion boundary. See
+[Terminal Transitions](continuations.md).
 
 ## One Expression Grammar
 
@@ -70,10 +80,6 @@ source locations, and a compilation digest. Do not store the compiled value.
 `Jido.Exec` compiles and runs a Flow. Step-wise execution exposes native
 `Runic.Workflow.Runnable` values, including support work such as Join,
 InputBinding, FanOut, and FanIn.
-
-An Action can expand the live execution graph with a continuation. This does
-not change the canonical authored Flow. See
-[Action And Flow Continuations](continuations.md).
 
 ## Validation And Inspection
 

@@ -128,6 +128,9 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     assert {:error, %InvalidExecutionError{details: %{option: :timeout}}} =
              Exec.start(flow, %{value: 3}, %{}, timeout: 100)
 
+    assert {:error, %InvalidExecutionError{details: %{option: :max_continuations}}} =
+             Exec.start(flow, %{value: 3}, %{}, max_continuations: 1)
+
     assert {:error, %InvalidExecutionError{details: %{option: :async}}} =
              Exec.run(flow, %{value: 3}, %{}, async: true)
 
@@ -141,7 +144,7 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
              Exec.run(flow, %{}, %{}, [{:timeout, 10}, :not_an_option])
   end
 
-  test "accepts continuation scheduling options for Actions and Action Instructions" do
+  test "accepts complete-chain options for Actions and Action Instructions" do
     assert Exec.run(Add, %{value: 1}, %{}, max_concurrency: 2) == {:ok, %{value: 2}}
 
     instruction = Instruction.new!(target: Add, params: %{value: 1})
@@ -480,15 +483,11 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
             }} =
              Exec.step(execution, :bad)
 
-    [ready_runnable] = Exec.ready(execution)
     assert {:ok, %Runnable{}, execution} = Exec.step(execution)
     assert Exec.status(execution) == :succeeded
 
     assert {:error, %InvalidExecutionError{message: "flow execution is not running"}} =
              Exec.step(execution)
-
-    assert {:error, %InvalidExecutionError{message: "flow execution is not running"}} =
-             Exec.step(execution, ready_runnable)
 
     assert {:error, %InvalidExecutionError{message: "flow execution is not running"}} =
              Exec.wave(execution)

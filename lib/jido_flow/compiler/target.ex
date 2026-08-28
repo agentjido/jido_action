@@ -2,7 +2,7 @@ defmodule Jido.Flow.Compiler.Target do
   @moduledoc false
 
   alias Jido.Action.Error
-  alias Jido.Exec.Continuation
+  alias Jido.Exec.Transition
 
   @type kind :: :node | :choice | :map | :reduce | :iterate | :dynamic
   @type t :: %__MODULE__{kind: kind(), details: map()}
@@ -101,26 +101,26 @@ defmodule Jido.Flow.Compiler.Target do
   end
 
   @doc false
-  @spec dynamic(Jido.Flow.Dynamic.t(), :decision | :expander, non_neg_integer()) :: t()
-  def dynamic(dynamic, phase, cycle) when phase in [:decision, :expander] do
+  @spec dynamic(Jido.Flow.Dynamic.t(), :decision | :expander) :: t()
+  def dynamic(dynamic, phase) when phase in [:decision, :expander] do
     target = if phase == :decision, do: dynamic.decision, else: dynamic.expander
 
     %__MODULE__{
       kind: :dynamic,
-      details: %{node: dynamic.name, target: target, dynamic_phase: phase, cycle: cycle}
+      details: %{node: dynamic.name, target: target, dynamic_phase: phase}
     }
   end
 
   @doc false
   @spec run(module(), term(), map(), t(), String.t(), Jido.Flow.Compiler.target_runner()) ::
-          {:ok, term()} | {:continue, Continuation.t()} | {:error, Exception.t()}
+          {:ok, term()} | {:continue, Transition.t()} | {:error, Exception.t()}
   def run(action, params, context, %__MODULE__{} = owner, execution_id, target_runner) do
     case target_runner.(action, params, context, execution_id, owner) do
       {:ok, output} ->
         {:ok, output}
 
-      {:continue, %Continuation{} = continuation} ->
-        {:continue, continuation}
+      {:continue, %Transition{} = transition} ->
+        {:continue, transition}
 
       {:error, :input, error} ->
         tag_validation({:error, error}, owner)

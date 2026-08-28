@@ -149,14 +149,13 @@ defmodule Jido.Flow.DSL.Extension do
     args: [:name, :__source__],
     identifier: :name,
     modules: [:decision, :expander],
-    describe: "Declares one bounded dynamic Action loop.",
+    describe: "Declares one terminal decision and expansion boundary.",
     schema:
       [
         name: [type: :string, required: true],
         decision: [type: :atom, required: true],
         expander: [type: :atom, required: true],
-        params: [type: :quoted, required: true],
-        max_continuations: [type: :pos_integer, required: true]
+        params: [type: :quoted, required: true]
       ] ++ @node_fields
   }
 

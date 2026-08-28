@@ -144,13 +144,11 @@ The common v2 return shapes still work:
 {:ok, result_map, extras}
 {:error, reason}
 {:error, reason, extras}
-{:continue, continuation_input, continuation_target}
 ```
 
 Version 3 also provides `Jido.Action.Output` for a successful raw, batch,
-stream, or opaque value. A continuation can run one Action or Flow as the next
-part of the current result. Direct Action and Action Instruction calls
-preserve extras. A Flow node uses only the Action result or error reason.
+stream, or opaque value. Direct Action and Action Instruction calls preserve
+extras. A Flow node uses only the Action result or error reason.
 
 ## Migrate Instructions
 
@@ -236,10 +234,10 @@ smaller and its defaults are different.
 | context propagator options | removed |
 | `jido:` instance routing | kept |
 
-All targets accept a complete-call `timeout`, the `jido` routing option,
-`max_concurrency`, and `max_continuations`. The defaults for the two limits
-are `8` and `32`. Use `max_concurrency: 1` for serial Flow scheduling. The Flow
-`async:` option was removed.
+All targets accept a complete-call `timeout` and the `jido` routing option.
+Flows also accept `max_concurrency`, which defaults to `8`. Use `1` for serial
+Flow scheduling. A value greater than `1` allows independent graph work to
+run at the same time. The Flow `async:` option was removed.
 
 Use the Exec async API for one run-to-completion Action, Instruction, or Flow:
 
