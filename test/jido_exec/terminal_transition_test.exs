@@ -181,6 +181,12 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
       assert {:error,
               %ExecutionFailureError{
                 message: "continuation limit exceeded",
+                details: %{count: 1, max_continuations: 0}
+              }} = Exec.run(ContinueForever, %{}, %{}, max_continuations: 0)
+
+      assert {:error,
+              %ExecutionFailureError{
+                message: "continuation limit exceeded",
                 details: %{count: 3, max_continuations: 2}
               }} = Exec.run(ContinueForever, %{}, %{}, max_continuations: 2)
     end
@@ -301,6 +307,26 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
                )
 
       assert Exception.message(error) == "Flow output must be the complete Dynamic result"
+    end
+
+    test "Flow permits at most one Dynamic component" do
+      first = dynamic_component!()
+      second = dynamic_component!(name: "other")
+
+      assert {:error, error} =
+               Flow.new(
+                 name: "multiple_dynamic_components",
+                 components: [first, second],
+                 output: Ref.result("next")
+               )
+
+      assert Exception.message(error) == "Flow can contain only one Dynamic component"
+
+      assert error.details == %{
+               component: "other",
+               components: ["next", "other"],
+               path: [:components, 1]
+             }
     end
 
     test "step-wise execution rejects a Flow with Dynamic" do
