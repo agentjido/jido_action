@@ -8,7 +8,7 @@ defmodule JidoActionTest.Exec.TelemetryTest do
   alias Jido.Flow.{Condition, Iterate, Reduce, Ref, Step}
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Instruction
-  alias JidoActionTest.Fixtures.{MathFlow, TelemetryParentFlow}
+  alias JidoActionTest.Fixtures.{BlockingFlow, MathFlow, TelemetryParentFlow}
   alias JidoActionTest.Fixtures.Execution.BlockingAction
   alias JidoActionTest.Fixtures.Actions.{Add, ErrorAction}
 
@@ -206,6 +206,49 @@ defmodule JidoActionTest.Exec.TelemetryTest do
     refute Process.alive?(worker)
   end
 
+  test "closes a direct Action lifecycle when asynchronous cancellation wins" do
+    attach([@action_start, @action_stop, @action_error])
+    handle = Exec.run_async(BlockingAction, %{value: 1}, %{test_pid: self()})
+
+    assert_receive {:blocking_flow_node_started, worker}, 1_000
+    assert :ok = Exec.cancel(handle)
+
+    assert [
+             {@action_start, _, start_metadata},
+             {@action_error, _, error_metadata}
+           ] = events()
+
+    assert Map.drop(error_metadata, [:error, :error_type]) == start_metadata
+    assert %Jido.Exec.Error.CancelledError{} = error_metadata.error
+    assert error_metadata.error_type == :async_cancelled
+    refute Process.alive?(worker)
+  end
+
+  test "closes active Flow lifecycles when asynchronous cancellation wins" do
+    attach(@flow_events)
+    handle = Exec.run_async(BlockingFlow, %{value: 1}, %{test_pid: self()})
+
+    assert_receive {:blocking_flow_node_started, worker}, 1_000
+    assert :ok = Exec.cancel(handle)
+
+    assert [
+             {@flow_start, _, flow_start},
+             {@node_start, _, node_start},
+             {@target_start, _, target_start},
+             {@target_error, _, target_error},
+             {@node_error, _, node_error},
+             {@flow_error, _, flow_error}
+           ] = events()
+
+    assert %Jido.Exec.Error.CancelledError{} = flow_error.error
+    assert target_error.error == flow_error.error
+    assert node_error.error == flow_error.error
+    assert Map.drop(target_error, [:error, :error_type]) == target_start
+    assert Map.drop(node_error, [:error, :error_type]) == node_start
+    assert Map.drop(flow_error, [:error, :error_type]) == flow_start
+    refute Process.alive?(worker)
+  end
+
   test "the finite-timeout tracker emits one terminal event per span" do
     attach([@action_start, @action_stop, @action_error])
     {:ok, tracker} = Jido.Exec.Telemetry.Tracker.start_link()
@@ -339,7 +382,9 @@ defmodule JidoActionTest.Exec.TelemetryTest do
         output: Ref.result("count")
       )
 
-    assert {:ok, %{iterations: 2, state: %{value: 7}}} = Exec.run(flow)
+    assert {:ok, %{iterations: 2, state: %{value: 7}}} =
+             Exec.run(flow, %{}, %{}, max_concurrency: 1)
+
     recorded = events()
 
     assert Enum.map(recorded, &elem(&1, 0)) == [

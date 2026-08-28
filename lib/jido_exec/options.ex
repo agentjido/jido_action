@@ -6,8 +6,8 @@ defmodule Jido.Exec.Options do
   alias Jido.Flow.Error, as: FlowError
 
   @routing_option_keys [:jido]
-  @flow_run_option_keys [:async, :max_concurrency | @routing_option_keys]
-  @default_max_concurrency System.schedulers_online()
+  @flow_run_option_keys [:max_concurrency | @routing_option_keys]
+  @default_max_concurrency 8
 
   @doc false
   @spec take_timeout(term(), ActionError | FlowError) ::
@@ -41,11 +41,9 @@ defmodule Jido.Exec.Options do
          :ok <- validate_jido(opts, FlowError),
          {:ok, task_supervisor} <- validate_task_supervisor(opts, FlowError),
          max_concurrency = Keyword.get(opts, :max_concurrency, @default_max_concurrency),
-         :ok <- validate_async(Keyword.get(opts, :async, false)),
          :ok <- validate_max_concurrency(max_concurrency) do
       {:ok,
        [
-         async: Keyword.get(opts, :async, false),
          max_concurrency: max_concurrency,
          task_supervisor: task_supervisor
        ] ++ routing_options(opts)}
@@ -162,13 +160,6 @@ defmodule Jido.Exec.Options do
            option: option
          })}
     end
-  end
-
-  defp validate_async(async) when is_boolean(async), do: :ok
-
-  defp validate_async(_async) do
-    {:error,
-     FlowError.invalid_execution_error("async option must be a boolean", %{option: :async})}
   end
 
   defp validate_max_concurrency(max_concurrency)

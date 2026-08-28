@@ -19,14 +19,14 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
   @doc "Executes native Runnables in order with the configured concurrency policy."
   @spec execute_many(Execution.t(), [Runnable.t()]) :: [Runnable.t()]
   def execute_many(%Execution{} = execution, runnables) when is_list(runnables) do
-    if Keyword.fetch!(execution.options, :async) do
-      execute_async(execution, runnables)
+    if Keyword.fetch!(execution.options, :max_concurrency) > 1 and length(runnables) > 1 do
+      execute_concurrently(execution, runnables)
     else
       Enum.map(runnables, &execute(execution, &1))
     end
   end
 
-  defp execute_async(execution, runnables) do
+  defp execute_concurrently(execution, runnables) do
     logger_metadata = Logger.metadata()
     telemetry_tracker = Telemetry.tracker()
     group_leader = Process.group_leader()

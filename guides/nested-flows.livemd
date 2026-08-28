@@ -72,8 +72,8 @@ A Subflow lowers to a nested native Runic Workflow. Step-wise execution can
 show child validators, child Steps, InputBinding, and connection work. Jido
 does not hide these native runnables.
 
-The child inherits the parent context, `async`, `max_concurrency`, `jido`
-routing, and execution ID. Its Action calls share the parent execution budget.
+The child inherits the parent context, `max_concurrency`, `jido` routing, and
+execution ID. Its Action calls share the parent execution budget.
 
 ## Limits
 

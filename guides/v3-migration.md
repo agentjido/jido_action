@@ -229,29 +229,34 @@ smaller and its defaults are different.
 | default timeout is 30 seconds | default timeout is `:infinity` |
 | automatic retry and backoff | no automatic retry |
 | Action compensation callback | no compensation policy |
-| `run_async/4`, `await/2`, and `cancel/1` | removed |
+| `run_async/4`, `await/1`, `await/2`, and `cancel/1` | kept for owner-bound, in-memory execution |
 | per-call log and telemetry modes | removed |
 | context propagator options | removed |
 | `jido:` instance routing | kept |
 
 All targets accept a complete-call `timeout` and the `jido` routing option.
-Flows also accept `async` and `max_concurrency`. For a Flow, `async: true`
-allows independent graph work to run at the same time. It does not return a
-v2-style asynchronous handle.
+Flows also accept `max_concurrency`, which defaults to `8`. Use `1` for serial
+Flow scheduling. A value greater than `1` allows independent graph work to
+run at the same time. The Flow `async:` option was removed.
 
-If the caller must run an Action asynchronously, let the caller own the Task:
+Use the Exec async API for one run-to-completion Action, Instruction, or Flow:
 
 ```elixir
-task =
-  Task.Supervisor.async_nolink(MyApp.TaskSupervisor, fn ->
-    Jido.Exec.run(MyApp.Actions.CreateOrder, params, context, timeout: 5_000)
-  end)
+handle =
+  Jido.Exec.run_async(
+    MyApp.Actions.CreateOrder,
+    params,
+    context,
+    timeout: 5_000
+  )
 
-Task.await(task)
+Jido.Exec.await(handle)
 ```
 
-Use the same owner to select shutdown or cancellation behavior. Do not expect
-`Jido.Exec` to return a public cancellation handle.
+The creating process owns the handle and must await or cancel it. An await
+timeout cancels the execution. The `timeout:` run option stays a separate
+complete-call limit. This API does not make a paused step-wise Execution
+asynchronous.
 
 Errors can still state whether another attempt is safe. `Jido.Exec` does not
 act on that state. The caller must own the attempt count, delay, deadline, and

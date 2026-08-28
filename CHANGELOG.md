@@ -13,6 +13,17 @@ entries return to the normal automated changelog process.
 
 ## Unreleased
 
+### Features:
+
+* restore owner-bound asynchronous execution through `Jido.Exec.run_async/4`,
+  `await/1`, `await/2`, and `cancel/1` for Actions, Instructions, and Flows
+
+### Breaking Changes:
+
+* remove the Flow `async:` option and use `max_concurrency` alone, with a
+  default of `8`, `1` for serial scheduling, and higher values for concurrent
+  ready work
+
 ## [v3.0.0-beta.2](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.1...v3.0.0-beta.2) (2026-08-27)
 
 ### Features:

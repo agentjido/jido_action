@@ -13,6 +13,10 @@ defmodule Jido.Exec do
           timeout: 5_000
         )
 
+  `run_async/4` starts the same run-to-completion work and returns a
+  caller-owned handle. Use `await/1`, `await/2`, or `cancel/1` from the process
+  that created the handle.
+
   ## Step-wise Flow execution
 
   `ready/1` returns native `Runic.Workflow.Runnable` values. These values can
@@ -41,6 +45,7 @@ defmodule Jido.Exec do
 
   alias Jido.Action.Error
   alias Jido.Executable
+  alias Jido.Exec.Async
   alias Jido.Exec.Execution
   alias Jido.Exec.Flow.Engine
   alias Jido.Exec.Options
@@ -51,6 +56,23 @@ defmodule Jido.Exec do
   alias Jido.Instruction
 
   @max_receive_timeout 2_147_483_647
+
+  @typedoc "The result of an Action, Instruction, or Flow execution."
+  @type exec_result ::
+          {:ok, term()}
+          | {:ok, term(), term()}
+          | {:error, Exception.t()}
+          | {:error, Exception.t(), term()}
+
+  @typedoc "A caller-owned handle for one asynchronous run-to-completion execution."
+  @type async_ref :: %{
+          required(:ref) => reference(),
+          required(:pid) => pid(),
+          required(:owner) => pid(),
+          required(:monitor_ref) => reference()
+        }
+
+  @type async_control :: %{required(:ref) => reference(), required(:owner) => pid()}
 
   @doc """
   Runs an executable Jido artifact.
@@ -64,19 +86,33 @@ defmodule Jido.Exec do
   `:infinity`. A finite timeout covers the complete call and terminates its
   execution process and active child work. It does not retry the target.
 
-  A Flow target also accepts `:async` and `:max_concurrency`. `:async` defaults
-  to `false`. When it is `true`, Exec dispatches each ready Runic wave with an
-  ordered task stream. `:max_concurrency` bounds the tasks in that wave. Map
-  items are native Runic runnables, so the same wave rule applies to them. An
-  Instruction uses the option rules of its resolved target. An Action target
-  accepts no Flow policy options.
+  A Flow target also accepts `:max_concurrency`, which defaults to `8`. A value
+  of `1` runs ready work serially. A value greater than `1` runs independent
+  ready work concurrently, up to that limit. Map items are native Runic
+  runnables, so the same rule applies to them. An Instruction uses the option
+  rules of its resolved target. An Action target accepts no Flow policy
+  options.
   """
-  @spec run(term(), map() | keyword() | nil, map() | keyword() | nil, keyword()) ::
-          {:ok, term()}
-          | {:ok, term(), term()}
-          | {:error, Exception.t()}
-          | {:error, Exception.t(), term()}
+  @spec run(term(), map() | keyword() | nil, map() | keyword() | nil, keyword()) :: exec_result()
   def run(executable, input \\ %{}, context \\ %{}, opts \\ []) do
+    do_run(executable, input, context, opts, nil)
+  end
+
+  @doc false
+  @spec run_controlled(
+          term(),
+          map() | keyword() | nil,
+          map() | keyword() | nil,
+          keyword(),
+          reference(),
+          pid()
+        ) :: exec_result()
+  def run_controlled(executable, input, context, opts, ref, owner)
+      when is_reference(ref) and is_pid(owner) do
+    do_run(executable, input, context, opts, %{ref: ref, owner: owner})
+  end
+
+  defp do_run(executable, input, context, opts, control) do
     execution_id = Telemetry.execution_id()
     timeout_owner = timeout_owner_hint(executable)
 
@@ -93,10 +129,52 @@ defmodule Jido.Exec do
         timeout,
         timeout_owner,
         executable,
-        execution_id
+        execution_id,
+        control
       )
     end
   end
+
+  @doc """
+  Runs an executable asynchronously and immediately returns a caller-owned handle.
+
+  The executable can be any target accepted by `run/4`. The background process
+  uses the same validation, timeout, telemetry, and result contract as
+  `run/4`. Use `await/2` to receive its final result or `cancel/1` to stop it.
+
+  The handle is tied to the mailbox of the process that starts the execution.
+  Only that process can await or cancel it.
+  """
+  @spec run_async(term(), map() | keyword() | nil, map() | keyword() | nil, keyword()) ::
+          async_ref()
+  def run_async(executable, input \\ %{}, context \\ %{}, opts \\ []) do
+    Async.start(executable, input, context, opts)
+  end
+
+  @doc "Waits up to 5 seconds for an asynchronous execution result."
+  @spec await(async_ref()) :: exec_result()
+  def await(async_ref), do: Async.await(async_ref)
+
+  @doc """
+  Waits for an asynchronous execution result.
+
+  A finite wait timeout cancels the running execution and returns a
+  `Jido.Exec.Error.AsyncTimeoutError`. Use `:infinity` to wait without a
+  caller-side limit. The `timeout:` option passed to `run_async/4` remains the
+  separate complete-call execution limit.
+  """
+  @spec await(async_ref(), timeout()) :: exec_result()
+  def await(async_ref, timeout), do: Async.await(async_ref, timeout)
+
+  @doc """
+  Cancels a caller-owned asynchronous execution.
+
+  Cancellation stops active Action and Flow work. It does not undo side
+  effects that already completed and it does not return a partial Flow
+  execution value.
+  """
+  @spec cancel(async_ref() | pid()) :: :ok | {:error, Exception.t()}
+  def cancel(async_ref_or_pid), do: Async.cancel(async_ref_or_pid)
 
   @doc """
   Starts a paused Flow execution.
@@ -106,13 +184,13 @@ defmodule Jido.Exec do
   and run options before it returns. The returned execution is paused before
   the first native Runic runnable.
 
-  `:async`, `:max_concurrency`, and common `:jido` routing are stored on the
-  execution. `wave/1` and `continue/1` use the scheduling options. `step/1` and
-  `step/2` always execute one runnable.
+  `:max_concurrency` and common `:jido` routing are stored on the execution.
+  `wave/1` and `continue/1` use the scheduling options. `step/1` and `step/2`
+  always execute one runnable.
 
   A paused execution has no running timeout. `start/4` does not accept the
-  `:timeout` option. The current step-wise API also does not accept retry,
-  deadline, cancellation, persistence, or rewind options.
+  `:timeout` option. The step-wise API also does not accept retry, deadline,
+  asynchronous execution, cancellation, persistence, or rewind options.
   """
   @spec start(term(), map() | keyword() | nil, map() | keyword() | nil, keyword()) ::
           {:ok, Execution.t()} | {:error, Exception.t()}
@@ -179,8 +257,8 @@ defmodule Jido.Exec do
   Executes the complete set of runnables that is currently ready.
 
   Runnables that become ready during the wave wait for the next operation.
-  Stored asynchronous options apply to the wave. All runnables in the selected
-  ready set finish before Jido applies the wave results.
+  The stored `max_concurrency` limit applies to the wave. All runnables in the
+  selected ready set finish before Jido applies the wave results.
   """
   @spec wave(Execution.t()) ::
           {:ok, [Runic.Workflow.Runnable.t()], Execution.t()} | {:error, Exception.t()}
@@ -204,22 +282,30 @@ defmodule Jido.Exec do
   @spec result(Execution.t()) :: {:ok, term()} | {:error, Exception.t()}
   def result(%Execution{} = execution), do: Engine.result(execution)
 
-  defp execute_with_timeout(work, :infinity, _owner, _executable, _execution_id) do
+  defp execute_with_timeout(
+         work,
+         :infinity,
+         _owner,
+         _executable,
+         _execution_id,
+         nil
+       ) do
     work.(fn _update -> :ok end)
   end
 
-  defp execute_with_timeout(_work, 0, owner, executable, execution_id) do
+  defp execute_with_timeout(_work, 0, owner, executable, execution_id, _control) do
     {:error, timeout_error(owner, executable, 0, execution_id)}
   end
 
-  defp execute_with_timeout(work, timeout, owner, executable, execution_id)
-       when is_integer(timeout) and timeout > 0 do
+  defp execute_with_timeout(work, timeout, owner, executable, execution_id, control)
+       when timeout == :infinity or (is_integer(timeout) and timeout > 0) do
     caller = self()
     caller_group_leader = Process.group_leader()
     caller_logger_metadata = Logger.metadata()
     result_ref = make_ref()
-    deadline = System.monotonic_time(:millisecond) + timeout
+    deadline = execution_deadline(timeout)
     {:ok, telemetry_tracker} = Tracker.start_link()
+    owner_monitor = monitor_control_owner(control)
 
     {worker, monitor} =
       spawn_monitor(fn ->
@@ -242,7 +328,9 @@ defmodule Jido.Exec do
       executable,
       timeout,
       execution_id,
-      telemetry_tracker
+      telemetry_tracker,
+      control,
+      owner_monitor
     )
   end
 
@@ -255,14 +343,16 @@ defmodule Jido.Exec do
          executable,
          timeout,
          execution_id,
-         telemetry_tracker
+         telemetry_tracker,
+         control,
+         owner_monitor
        ) do
-    remaining = max(deadline - System.monotonic_time(:millisecond), 0)
-    receive_timeout = min(remaining, @max_receive_timeout)
+    receive_timeout = execution_receive_timeout(deadline)
 
     receive do
       {^result_ref, ^worker, :result, result} ->
         Process.demonitor(monitor, [:flush])
+        demonitor_control_owner(owner_monitor)
         Tracker.stop(telemetry_tracker)
         result
 
@@ -276,21 +366,64 @@ defmodule Jido.Exec do
           next_executable,
           timeout,
           execution_id,
-          telemetry_tracker
+          telemetry_tracker,
+          control,
+          owner_monitor
         )
 
       {:DOWN, ^monitor, :process, ^worker, reason} ->
         error = execution_process_error(owner, reason)
+        demonitor_control_owner(owner_monitor)
         close_telemetry_tracker(telemetry_tracker, error)
+        {:error, error}
+
+      {Async, control_ref, {:stop, error}}
+      when not is_nil(control) and control.ref == control_ref and is_exception(error) ->
+        demonitor_control_owner(owner_monitor)
+
+        terminate_managed_execution(
+          worker,
+          monitor,
+          result_ref,
+          telemetry_tracker,
+          error
+        )
+
+        {:error, error}
+
+      {:DOWN, ^owner_monitor, :process, control_owner, reason}
+      when not is_nil(control) and control.owner == control_owner ->
+        error =
+          Jido.Exec.Error.cancelled_error("Asynchronous execution owner exited", %{
+            operation: :owner_exit,
+            owner: control_owner,
+            reason: reason,
+            retry: false
+          })
+
+        terminate_managed_execution(
+          worker,
+          monitor,
+          result_ref,
+          telemetry_tracker,
+          error
+        )
+
         {:error, error}
     after
       receive_timeout ->
-        if System.monotonic_time(:millisecond) >= deadline do
-          Process.exit(worker, :kill)
-          await_worker_down(monitor, worker)
-          flush_execution_results(result_ref, worker)
+        if execution_deadline_reached?(deadline) do
           error = timeout_error(owner, executable, timeout, execution_id)
-          close_telemetry_tracker(telemetry_tracker, error)
+          demonitor_control_owner(owner_monitor)
+
+          terminate_managed_execution(
+            worker,
+            monitor,
+            result_ref,
+            telemetry_tracker,
+            error
+          )
+
           {:error, error}
         else
           receive_execution_result(
@@ -302,11 +435,44 @@ defmodule Jido.Exec do
             executable,
             timeout,
             execution_id,
-            telemetry_tracker
+            telemetry_tracker,
+            control,
+            owner_monitor
           )
         end
     end
   end
+
+  defp terminate_managed_execution(worker, monitor, result_ref, telemetry_tracker, error) do
+    Tracker.fail_all(telemetry_tracker, error)
+    Process.exit(worker, :kill)
+    await_worker_down(monitor, worker)
+    flush_execution_results(result_ref, worker)
+    Tracker.stop(telemetry_tracker)
+  end
+
+  defp execution_deadline(:infinity), do: :infinity
+
+  defp execution_deadline(timeout),
+    do: System.monotonic_time(:millisecond) + timeout
+
+  defp execution_receive_timeout(:infinity), do: :infinity
+
+  defp execution_receive_timeout(deadline) do
+    remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+    min(remaining, @max_receive_timeout)
+  end
+
+  defp execution_deadline_reached?(:infinity), do: false
+
+  defp execution_deadline_reached?(deadline),
+    do: System.monotonic_time(:millisecond) >= deadline
+
+  defp monitor_control_owner(nil), do: nil
+  defp monitor_control_owner(%{owner: owner}), do: Process.monitor(owner)
+
+  defp demonitor_control_owner(nil), do: :ok
+  defp demonitor_control_owner(monitor), do: Process.demonitor(monitor, [:flush])
 
   defp await_worker_down(monitor, worker) do
     receive do

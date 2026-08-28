@@ -169,7 +169,7 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
         output: %{items: Ref.result("mapped")}
       )
 
-    assert Exec.run(flow, %{items: [:a, :b, :c]}, %{}, async: true, max_concurrency: 3) ==
+    assert Exec.run(flow, %{items: [:a, :b, :c]}, %{}, max_concurrency: 3) ==
              {:ok,
               %{
                 items: [

@@ -24,12 +24,12 @@ Flow modules, Flow values, and Flow Instructions also accept:
 
 | Option | Default | Rule |
 | --- | --- | --- |
-| `async` | `false` | Must be a Boolean. |
-| `max_concurrency` | `System.schedulers_online()` | Must be a positive integer. |
+| `max_concurrency` | `8` | Must be a positive integer. |
 
-`async: true` dispatches each ready Runic wave with an ordered task stream.
-`max_concurrency` bounds the tasks in that wave. Map items are native Runic
-runnables and use the same rule. There is no second Jido concurrency budget.
+`max_concurrency: 1` runs ready work serially. A value greater than `1`
+dispatches independent work concurrently and bounds the tasks in that wave.
+Map items are native Runic runnables and use the same rule. There is no second
+Jido concurrency budget.
 
 Reduce and Iterate Action work stays serial.
 
@@ -39,13 +39,13 @@ Jido.Exec.run(
   input,
   context,
   timeout: 10_000,
-  async: true,
   max_concurrency: 4
 )
 ```
 
-Unknown options are errors. An Action target rejects `async` and
-`max_concurrency`. An Instruction follows the option rules of its target.
+Unknown options are errors. An Action target rejects `max_concurrency`. An
+Instruction follows the option rules of its target. The removed Flow
+`async:` option is an unknown option.
 
 ## Jido Instance Routing
 
@@ -58,7 +58,6 @@ Jido.Exec.run(
   input,
   context,
   jido: MyApp.Jido,
-  async: true,
   max_concurrency: 4
 )
 ```
@@ -75,6 +74,7 @@ Flow dependencies.
 ## Policy Boundary
 
 This package does not accept options for automatic retry, retry backoff,
-per-node timeout, step-wise deadline, public cancellation, rewind, persistent
-checkpoint, or recovery. Place these policies in the caller or a higher-level
+per-node timeout, step-wise deadline, durable cancellation, rewind, persistent
+checkpoint, or recovery. Async handles provide owner-bound cancellation for
+one in-memory call. Place durable policies in the caller or a higher-level
 runtime.

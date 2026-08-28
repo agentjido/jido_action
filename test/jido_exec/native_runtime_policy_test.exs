@@ -52,7 +52,7 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
   alias JidoActionTest.Fixtures.Actions.{Add, EchoParamsAction, RecorderAction}
   alias Runic.Workflow.Runnable
 
-  test "preserves caller Logger metadata in an asynchronous runnable" do
+  test "preserves caller Logger metadata in a concurrent runnable" do
     flow =
       Flow.new!(
         name: "async_logger_metadata",
@@ -65,7 +65,7 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     metadata_key = :jido_test_request_id
     Logger.metadata([{metadata_key, "request-123"}])
 
-    assert Exec.run(flow, %{}, %{test_pid: self()}, async: true, max_concurrency: 1) ==
+    assert Exec.run(flow, %{}, %{test_pid: self()}, max_concurrency: 1) ==
              {:ok, %{id: :metadata}}
 
     assert_receive {:action_logger_metadata, :metadata, metadata}
@@ -80,10 +80,7 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
 
     task =
       Task.async(fn ->
-        Exec.run(flow, %{}, %{probe: probe, test_pid: test_pid},
-          async: true,
-          max_concurrency: 2
-        )
+        Exec.run(flow, %{}, %{probe: probe, test_pid: test_pid}, max_concurrency: 2)
       end)
 
     starts = Enum.map(1..2, fn _index -> receive_probe_start(probe) end)
@@ -100,10 +97,7 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
 
     task =
       Task.async(fn ->
-        Exec.run(flow, %{}, %{probe: probe, test_pid: test_pid},
-          async: true,
-          max_concurrency: 1
-        )
+        Exec.run(flow, %{}, %{probe: probe, test_pid: test_pid}, max_concurrency: 1)
       end)
 
     first = receive_probe_start(probe)
@@ -119,9 +113,12 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
   end
 
   test "supports Flow module options and validates policy values" do
-    assert Exec.run(AsyncMathFlow, %{value: 3}, %{}, async: true) == {:ok, %{value: 4}}
+    assert Exec.run(AsyncMathFlow, %{value: 3}) == {:ok, %{value: 4}}
     flow = FlowFixtures.math_flow!()
     assert Exec.run(flow, %{value: 3}) == Exec.run(flow, %{value: 3}, %{}, [])
+
+    assert {:ok, execution} = Exec.start(flow, %{value: 3})
+    assert execution.options[:max_concurrency] == 8
 
     assert Exec.run(flow, %{value: 3}, %{}, timeout: 100) == {:ok, %{value: 8}}
 
@@ -132,7 +129,7 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
              Exec.start(flow, %{value: 3}, %{}, timeout: 100)
 
     assert {:error, %InvalidExecutionError{details: %{option: :async}}} =
-             Exec.run(flow, %{value: 3}, %{}, async: :yes)
+             Exec.run(flow, %{value: 3}, %{}, async: true)
 
     assert {:error, %InvalidExecutionError{details: %{option: :max_concurrency}}} =
              Exec.run(flow, %{value: 3}, %{}, max_concurrency: 0)
@@ -146,12 +143,12 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
 
   test "rejects Flow run options for Actions and Action Instructions" do
     assert {:error, %InvalidInputError{details: %{executable_type: :action}}} =
-             Exec.run(Add, %{value: 1}, %{}, async: true)
+             Exec.run(Add, %{value: 1}, %{}, max_concurrency: 2)
 
     instruction = Instruction.new!(target: Add, params: %{value: 1})
 
     assert {:error, %InvalidInputError{details: %{executable_type: :instruction}}} =
-             Exec.run(instruction, %{}, %{}, async: true)
+             Exec.run(instruction, %{}, %{}, max_concurrency: 2)
   end
 
   test "enforces one complete-call timeout for every executable form" do
@@ -260,7 +257,6 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
 
     assert {:error, %FlowTimeoutError{}} =
              Exec.run(flow, %{}, %{test_pid: self()},
-               async: true,
                max_concurrency: 2,
                timeout: 1_000
              )
@@ -345,7 +341,7 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
       )
 
     assert {:ok, execution} =
-             Exec.start(flow, %{}, %{test_pid: self()}, async: true, max_concurrency: 2)
+             Exec.start(flow, %{}, %{test_pid: self()}, max_concurrency: 2)
 
     task = Task.async(fn -> Exec.continue(execution) end)
 
@@ -359,7 +355,7 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     assert Exec.result(completed) == {:ok, %{value: :first}}
   end
 
-  test "aggregates failures from one asynchronous wave" do
+  test "aggregates failures from one concurrent wave" do
     flow =
       Flow.new!(
         name: "native_multiple_failures",
@@ -378,7 +374,7 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
         output: %{first: Ref.result("first"), second: Ref.result("second")}
       )
 
-    assert {:ok, execution} = Exec.start(flow, %{}, %{}, async: true, max_concurrency: 2)
+    assert {:ok, execution} = Exec.start(flow, %{}, %{}, max_concurrency: 2)
     assert {:ok, runnables, execution} = Exec.wave(execution)
     assert Enum.all?(runnables, &(&1.status == :failed))
     assert Exec.status(execution) == :failed

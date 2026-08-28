@@ -24,9 +24,10 @@ execution session: step-wise execution, bounded concurrency, Action invocation,
 errors, telemetry, and final results.
 
 Durable orchestration is not provided. An outer system must own persistence,
-queues, scheduling, recovery, retries, cancellation policy, distributed
-coordination, supervision, and deployment-safe continuation. `Jido.Exec` can
-enforce one caller-selected timeout for a complete in-memory call.
+queues, scheduling, recovery, retries, durable cancellation policy,
+distributed coordination, supervision, and deployment-safe continuation.
+`Jido.Exec` can enforce one caller-selected timeout for a complete in-memory
+call. It can also return an owner-bound handle for one asynchronous call.
 
 This foundation keeps the action boundary small:
 
@@ -35,7 +36,8 @@ This foundation keeps the action boundary small:
 - `Jido.Action` defines a named action with Zoi input and output schemas.
 - `Jido.Instruction` captures one requested executable call as data.
 - `Jido.Flow` composes actions as a validated graph with steps and Choices.
-- `Jido.Exec` runs actions, instructions, and Flows, including step-wise Flows.
+- `Jido.Exec` runs actions, instructions, and Flows, including asynchronous
+  run-to-completion calls and step-wise Flows.
 
 Version 3.0.0-beta.2 is a public beta. It introduces the declarative Flow DSL,
 runtime Flow construction, safe stored Flow maps, and one Flow execution
@@ -112,6 +114,30 @@ The Action `run/2` callback must return one of:
 - `{:error, reason, extra}`
 
 Three-tuple returns let callers receive an extra value alongside the result or error.
+
+## Run Asynchronously
+
+`run_async/4` accepts the same run-to-completion targets and options as
+`run/4`. It returns a handle immediately.
+
+```elixir
+handle =
+  Jido.Exec.run_async(
+    MyApp.Actions.GreetUser,
+    %{name: "Ada", excited?: true},
+    %{request_id: "req-123"}
+  )
+
+{:ok, %{greeting: "Hello, Ada!"}} = Jido.Exec.await(handle)
+```
+
+The process that calls `run_async/4` owns the handle. Only that process can
+call `await/1`, `await/2`, or `cancel/1`. The default wait limit for `await/1`
+is 5 seconds. An `await/2` timeout cancels the work. The `timeout:` run option
+is a separate limit for the complete execution.
+
+`cancel/1` stops active in-memory Action and Flow work. It cannot undo side
+effects that already completed.
 
 ## Capture A Call Frame
 

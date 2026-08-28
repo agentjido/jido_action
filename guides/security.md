@@ -44,7 +44,7 @@ not load or execute an Action.
 ## Apply Runtime Limits
 
 Use a finite complete-call `timeout` when the caller needs a hard in-memory
-limit. Use `max_concurrency` to bound one asynchronous Flow execution. Also
+limit. Use `max_concurrency` to bound one concurrent Flow execution. Also
 validate collection sizes in application input. Runtime Map does not use the
 Codec collection limit.
 

@@ -101,6 +101,6 @@ authored nodes can be in the same ready set. Run one current set with
 {:ok, %{joined: %{left: 4, right: 4}}} = Jido.Exec.result(execution)
 ```
 
-Pass `async: true` to `start/4` or `run/4` when ready work can run
-concurrently. `max_concurrency` bounds the execution. The options do not
-change the graph.
+Ready work runs concurrently when `max_concurrency` is greater than `1`.
+`max_concurrency` bounds the execution and defaults to `8`. Use `1` for serial
+execution. The option does not change the graph.

@@ -286,7 +286,7 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
     end
   end
 
-  test "preserves Action stacktraces through serial and asynchronous Flow nodes" do
+  test "preserves Action stacktraces through serial and concurrent Flow nodes" do
     flow =
       Flow.new!(
         name: "stacktrace_flow",
@@ -300,7 +300,7 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
         output: Ref.result("failure")
       )
 
-    for opts <- [[], [async: true]] do
+    for opts <- [[], [max_concurrency: 8]] do
       assert {:error, %ExecutionFailureError{} = error} = Exec.run(flow, %{}, %{}, opts)
       assert_action_frame(error, StacktraceAction, :raise_from_action, 0)
     end

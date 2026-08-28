@@ -159,7 +159,9 @@ migration warnings:
 - the Action `run/2` callback;
 - the common two-tuple and three-tuple Action results;
 - concrete `Jido.Action.Error` exception types;
-- `Jido.Exec.run/4` as the complete-call execution boundary; and
+- `Jido.Exec.run/4` as the complete-call execution boundary;
+- `Jido.Exec.run_async/4`, `await/1`, `await/2`, and `cancel/1` as the
+  owner-bound asynchronous execution boundary; and
 - `jido:` instance routing.
 
 `timeout` also remains an Exec option. Its location and default changed. Pass
@@ -189,10 +191,11 @@ caller-owned data, and build each Instruction explicitly.
 
 ### Execution
 
-There is no shim for automatic retry, backoff, compensation, asynchronous
-handles, cancellation, Chains, Closures, context propagators, or package
-execution defaults. The caller or a higher-level runtime must own these
-policies.
+There is no shim for automatic retry, backoff, compensation, durable
+cancellation policy, Chains, Closures, context propagators, or package
+execution defaults. Exec async handles support cancellation of one active,
+owner-bound in-memory call. The caller or a higher-level runtime must own the
+durable policies.
 
 ### Plans, Catalogs, Tools, And Generators
 
@@ -240,8 +243,8 @@ Migration warnings use `Logger.warning/1` without added Logger metadata.
 2. Move Instruction `opts` to each `Jido.Exec` call or caller policy.
 3. Move descriptive Instruction identity to metadata or caller-owned data.
 4. Convert Action schemas and remove old Action options and hooks.
-5. Move retry, compensation, cancellation, and context propagation to the
-   caller or Jido runtime.
+5. Move retry, compensation, durable cancellation policy, and context
+   propagation to the caller or Jido runtime.
 6. Replace Plans, catalogs, tools, and generators only where the application
    still needs those concerns.
 7. Treat stored Flows as a new version 3 format.

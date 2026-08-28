@@ -71,7 +71,6 @@ Enable concurrent independent work at the call boundary.
     FlowExecution.Diamond,
     %{value: 5},
     %{},
-    async: true,
     max_concurrency: 2
   )
 ```
@@ -84,7 +83,6 @@ Enable concurrent independent work at the call boundary.
     FlowExecution.Diamond,
     %{value: 5},
     %{},
-    async: true,
     max_concurrency: 2
   )
 

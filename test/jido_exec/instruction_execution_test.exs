@@ -206,7 +206,7 @@ defmodule JidoActionTest.Exec.InstructionExecutionTest do
         )
 
       assert {:ok, %{value: 8}} =
-               Exec.run(instruction, %{value: 3}, %{}, async: true, max_concurrency: 2)
+               Exec.run(instruction, %{value: 3}, %{}, max_concurrency: 2)
     end
   end
 

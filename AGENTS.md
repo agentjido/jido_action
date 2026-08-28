@@ -26,11 +26,13 @@ A Flow has four supported authoring forms. The module DSL,
 constructors must all produce the same canonical `%Jido.Flow{}` model.
 Changes to one form must keep equivalent behavior in the other forms.
 
-`Jido.Exec` owns one in-memory execution session. It supports run-to-completion
-and step-wise Flow execution. It does not provide durable orchestration.
-Persistence, queues, retries, public cancellation, recovery, distributed
-coordination, and deployment-safe continuation belong to a higher-level
-runtime. `Jido.Exec.run/4` can apply one finite timeout to the complete call.
+`Jido.Exec` owns one in-memory execution session. It supports synchronous and
+asynchronous run-to-completion execution and step-wise Flow execution. An
+asynchronous handle supports owner-bound wait and cancellation. It does not
+provide durable orchestration. Persistence, queues, retries, durable
+cancellation policy, recovery, distributed coordination, and deployment-safe
+continuation belong to a higher-level runtime. `Jido.Exec.run/4` can apply one
+finite timeout to the complete call.
 
 Read these files before a change that affects their subject:
 
@@ -176,9 +178,10 @@ for validation, return normalization, and error behavior.
   task slots, registrations, and telemetry spans on all terminal paths.
 - Do not leave stale registered processes, active Tasks, monitors, or messages
   after success, error, exit, or caller interruption.
-- Keep `timeout:` as one complete-call limit for `Jido.Exec.run/4`. Do not add
-  automatic retry, per-runnable deadlines, public cancellation, rewind, or
-  persistence without an explicit public API decision.
+- Keep `timeout:` as one complete-call limit for `Jido.Exec.run/4` and
+  `Jido.Exec.run_async/4`. Keep async cancellation owner-bound and in-memory.
+  Do not add automatic retry, per-runnable deadlines, durable cancellation,
+  rewind, or persistence without an explicit public API decision.
 
 ### Telemetry And Errors
 

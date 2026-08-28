@@ -58,6 +58,34 @@ stable map does not include it.
 Exec does not retry work. Retryability in an error is information for a
 higher-level caller.
 
+## Run Asynchronously
+
+```elixir
+handle = Jido.Exec.run_async(executable, input, context, opts)
+
+result = Jido.Exec.await(handle)
+result = Jido.Exec.await(handle, 10_000)
+:ok = Jido.Exec.cancel(handle)
+```
+
+`run_async/4` accepts each run-to-completion target that `run/4` accepts. It
+returns a handle with `ref`, `pid`, `owner`, and `monitor_ref` fields. The
+process that calls `run_async/4` owns the handle. Only that process can await
+or cancel it.
+
+`await/1` waits for up to 5 seconds. `await/2` accepts a non-negative
+millisecond value or `:infinity`. If this wait limit expires, Exec cancels the
+active execution and returns `Jido.Exec.Error.AsyncTimeoutError`.
+
+The `timeout:` option on `run_async/4` is different. It limits the complete
+target execution and returns the normal Action or Flow timeout error.
+`cancel/1` stops active work and closes its telemetry spans. It cannot undo
+side effects that already completed.
+
+Invalid handles and owner violations return
+`Jido.Exec.Error.InvalidHandleError`. An unexpected failure of the managed
+process returns `Jido.Exec.Error.AsyncExecutionError`.
+
 ## Runtime Options
 
 All targets accept:
@@ -71,11 +99,13 @@ Flow targets also accept:
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `async` | `false` | Runs independent ready work concurrently. |
-| `max_concurrency` | scheduler count | Bounds tasks in each ready Runic wave. |
+| `max_concurrency` | `8` | Bounds work in each ready Runic wave. |
 
-`start/4` accepts `jido`, `async`, and `max_concurrency`. It does not accept a
-timeout because a paused execution has no complete-call clock.
+Use `max_concurrency: 1` for serial Flow scheduling. A value greater than `1`
+runs independent ready work concurrently, up to the selected limit.
+
+`start/4` accepts `jido` and `max_concurrency`. It does not accept a timeout
+because a paused execution has no complete-call clock.
 
 ## Step-wise Flow Execution
 
@@ -112,6 +142,11 @@ Jido rejects concurrent reuse or later reuse of an old revision before it
 starts Action work. An Execution is in-memory state, not a checkpoint or
 storage format.
 
+The step-wise API stays synchronous. `step/1` and `step/2` run one selected
+runnable. `wave/1` and `continue/1` can run independent ready work
+concurrently through `max_concurrency`. A paused Execution is not a target for
+`run_async/4`.
+
 ## Telemetry Contract
 
 Jido emits `:start`, `:stop`, and `:error` events for these prefixes:
@@ -134,7 +169,7 @@ timeout closes each active Jido span once with the timeout error.
 ## Scope
 
 Exec provides one in-memory execution session. It provides validation, process
-ownership, whole-call timeout, optional concurrency, and Jido instance
-routing. It does not provide automatic retry, per-node deadlines, a public
-cancel handle for running work, persistence, rewind, queues, recovery, or
-distributed coordination.
+ownership, whole-call timeout, owner-bound async handles, optional
+concurrency, and Jido instance routing. It does not provide automatic retry,
+per-node deadlines, durable cancellation, persistence, rewind, queues,
+recovery, or distributed coordination.

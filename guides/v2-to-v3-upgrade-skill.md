@@ -128,14 +128,16 @@ change application behavior.
 - Remove max_retries, backoff, log_level, telemetry,
   context_propagators, context_propagator_failure_mode, and
   error_normalization from Exec options.
-- Replace run_async/4, await/2, and cancel/1 with caller-owned Task or runtime
-  policy when asynchronous execution is still required.
-- Move retry count, backoff, deadline, cancellation, and compensation to the
-  caller. Preserve idempotency rules.
+- Keep run_async/4, await/1, await/2, and cancel/1 for owner-bound, in-memory
+  execution. They now accept Actions, Instructions, and Flows.
+- Treat an await timeout as destructive cancellation. Keep the timeout run
+  option as a separate complete-call limit.
+- Move retry count, backoff, durable cancellation policy, deadline, and
+  compensation to the caller. Preserve idempotency rules.
 - Keep jido: instance routing. Confirm that the selected instance Task
   Supervisor is running.
-- Use async and max_concurrency only for Flow scheduling. Flow async does not
-  return a v2 asynchronous handle.
+- Remove the Flow async option. Use max_concurrency alone for Flow scheduling.
+  Its default is 8. Use 1 for serial scheduling.
 
 7. Replace Plans and Chains only where needed
 

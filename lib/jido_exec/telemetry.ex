@@ -1,6 +1,7 @@
 defmodule Jido.Exec.Telemetry do
   @moduledoc false
 
+  alias Jido.Exec.Error, as: ExecError
   alias Jido.Flow.Error
 
   @type span :: %{
@@ -133,9 +134,8 @@ defmodule Jido.Exec.Telemetry do
   end
 
   defp error_type(error) when is_exception(error) do
-    error
-    |> Error.to_map()
-    |> Map.get(:type, error.__struct__)
+    error_map = if ExecError.owned?(error), do: ExecError.to_map(error), else: Error.to_map(error)
+    Map.get(error_map, :type, error.__struct__)
   rescue
     _exception -> error.__struct__
   end
