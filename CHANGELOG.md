@@ -18,6 +18,8 @@ entries return to the normal automated changelog process.
 * restore owner-bound asynchronous execution through `Jido.Exec.run_async/4`,
   `await/1`, `await/2`, and `cancel/1` for Actions, Instructions, and Flows,
   and add `handle_message/2` for one-shot OTP callback handling
+* add `Jido.Exec.task_supervisor_name/1` for higher-level runtimes that build
+  instance-owned Exec supervision trees
 
 ### Breaking Changes:
 

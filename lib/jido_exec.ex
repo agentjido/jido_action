@@ -83,6 +83,31 @@ defmodule Jido.Exec do
   @type async_control :: %{required(:ref) => reference(), required(:owner) => pid()}
 
   @doc """
+  Returns the registered Task Supervisor name for an Exec route.
+
+  Pass `nil` for the global Exec supervisor. Pass a Jido instance name for an
+  instance-owned supervisor. This function only returns the required name. It
+  does not start the supervisor.
+
+      Jido.Exec.task_supervisor_name(nil)
+      #=> Jido.Exec.TaskSupervisor
+
+      Jido.Exec.task_supervisor_name(MyApp.Jido)
+      #=> MyApp.Jido.TaskSupervisor
+
+  A higher-level runtime can use this function when it builds its supervision
+  tree. Calls that use `jido: MyApp.Jido` route Action work through the same
+  name.
+  """
+  @spec task_supervisor_name(atom() | nil) :: atom()
+  def task_supervisor_name(nil), do: Jido.Exec.TaskSupervisor
+  def task_supervisor_name(jido) when is_atom(jido), do: Module.concat(jido, TaskSupervisor)
+
+  def task_supervisor_name(jido) do
+    raise ArgumentError, "Jido instance must be an atom or nil, got: #{inspect(jido)}"
+  end
+
+  @doc """
   Runs an executable Jido artifact.
 
   All targets accept `jido: MyApp.Jido` for Jido instance routing. This option

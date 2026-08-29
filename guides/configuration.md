@@ -70,6 +70,25 @@ supervisor.
 
 When `jido` is absent or `nil`, Exec uses `Jido.Exec.TaskSupervisor`.
 
+### Instance Runtime Setup
+
+A higher-level runtime that owns a Jido instance must start one Task Supervisor
+under that instance. Use `Jido.Exec.task_supervisor_name/1` instead of copying
+the registered-name rule.
+
+```elixir
+children = [
+  {Task.Supervisor,
+   name: Jido.Exec.task_supervisor_name(MyApp.Jido),
+   max_children: 1_000}
+]
+```
+
+The supervisor name in this child specification is the same name selected by
+`jido: MyApp.Jido`. The runtime owns its capacity and shutdown policy. A runtime
+that includes this child should start it automatically when the instance
+starts. Its users must not start a second supervisor with the same name.
+
 Nested Flows inherit the routing and scheduling options. Options do not change
 Flow dependencies.
 

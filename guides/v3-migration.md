@@ -445,7 +445,9 @@ Update code that refers to the old global supervisor by name.
 Instance routing keeps the same convention. `jido: MyApp.Jido` selects
 `MyApp.Jido.TaskSupervisor`. The instance must start that supervisor. Version
 3 returns a structured error when it is not running and does not fall back to
-the global supervisor.
+the global supervisor. Higher-level runtimes can use
+`Jido.Exec.task_supervisor_name/1` when they build the instance supervision
+tree.
 
 ## Verify The Upgrade
 

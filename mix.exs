@@ -52,6 +52,7 @@ defmodule JidoAction.MixProject do
   def application do
     [
       extra_applications: [:logger, :crypto],
+      registered: [Jido.Exec.TaskSupervisor],
       mod: {Jido.Action.Application, []}
     ]
   end

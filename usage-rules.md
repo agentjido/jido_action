@@ -98,6 +98,8 @@ Use `jido_action` for validated work and data-first composition:
 - Use `Jido.Exec.run/4` for the public validation and error boundary.
 - Use `jido: MyApp.Jido` with an Action, Instruction, or Flow when work must run
   under the Task Supervisor for that running Jido core instance.
+- When a higher-level runtime builds a Jido instance supervision tree, use
+  `Jido.Exec.task_supervisor_name/1` for its Task Supervisor name.
 - All run-to-completion targets accept `max_continuations` and
   `max_concurrency`. An Action does not use the concurrency limit itself, but
   it can continue to a Flow. `max_concurrency` defaults to `8`. Use `1` for

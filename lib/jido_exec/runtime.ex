@@ -8,11 +8,11 @@ defmodule Jido.Exec.Runtime do
   @doc false
   @spec task_supervisor_name([routing_option()]) :: atom()
   def task_supervisor_name(opts) when is_list(opts) do
-    case Keyword.get(opts, :jido) do
-      nil -> Jido.Exec.TaskSupervisor
-      jido when is_atom(jido) -> Module.concat(jido, TaskSupervisor)
-      jido -> raise ArgumentError, ":jido must be an atom or nil, got: #{inspect(jido)}"
-    end
+    Jido.Exec.task_supervisor_name(Keyword.get(opts, :jido))
+  rescue
+    ArgumentError ->
+      jido = Keyword.get(opts, :jido)
+      raise ArgumentError, ":jido must be an atom or nil, got: #{inspect(jido)}"
   end
 
   @doc false
