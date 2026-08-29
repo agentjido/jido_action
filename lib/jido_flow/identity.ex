@@ -9,7 +9,6 @@ defmodule Jido.Flow.Identity do
   alias Jido.Flow.Graph
 
   @identity_version 1
-  @step_identity_version 1
   @item_identity_version 1
   @iteration_identity_version 1
 
@@ -62,15 +61,6 @@ defmodule Jido.Flow.Identity do
       digest: Base.encode16(raw_digest, case: :lower),
       uuid: uuid_v8(raw_digest)
     }
-  end
-
-  @doc false
-  @spec step_uuid(String.t(), String.t()) :: String.t()
-  def step_uuid(flow_digest, node_name)
-      when is_binary(flow_digest) and is_binary(node_name) do
-    {:jido_flow_step_identity, @step_identity_version, flow_digest, node_name}
-    |> hash_term()
-    |> uuid_v8()
   end
 
   @doc false
