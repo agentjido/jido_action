@@ -132,7 +132,7 @@ defmodule Jido.Flow.CodecTest do
            ]
   end
 
-  test "diagnose reports independent terminal Dynamic errors at exact paths" do
+  test "diagnose reports Dynamic path and output errors at exact paths" do
     registry = CodecRegistry.mixed()
 
     dynamic_flow =
@@ -164,7 +164,7 @@ defmodule Jido.Flow.CodecTest do
     assert {:error, %Error.Invalid{errors: errors}} = Codec.diagnose(invalid, registry)
 
     assert Enum.map(errors, &{Exception.message(&1), &1.details.path}) == [
-             {"Dynamic must be the sole terminal Flow component", ["components", 0]},
+             {"Every Flow path must end at Dynamic", ["components", 0]},
              {"Flow output must be the complete Dynamic result", ["output"]}
            ]
   end

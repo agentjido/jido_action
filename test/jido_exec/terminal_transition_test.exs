@@ -317,7 +317,7 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
       assert message == "action continuation is not allowed from this Flow position"
     end
 
-    test "Dynamic must be the sole terminal component and exact Flow output" do
+    test "Dynamic must end every Flow path and be the exact Flow output" do
       dynamic = dynamic_component!()
 
       assert {:error, error} =
@@ -330,7 +330,7 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
                  output: Ref.result("later")
                )
 
-      assert Exception.message(error) == "Dynamic must be the sole terminal Flow component"
+      assert Exception.message(error) == "Every Flow path must end at Dynamic"
 
       assert {:error, error} =
                Flow.new(

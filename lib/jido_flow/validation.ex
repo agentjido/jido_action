@@ -278,7 +278,7 @@ defmodule Jido.Flow.Validation do
       []
     else
       [
-        Error.validation_error("Dynamic must be the sole terminal Flow component", %{
+        Error.validation_error("Every Flow path must end at Dynamic", %{
           component: dynamic_name,
           dynamic: dynamic_name,
           terminal_components: sinks,
