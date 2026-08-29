@@ -70,8 +70,8 @@ Use `jido_action` for validated work and data-first composition:
 - Use `repeat` or a bounded `while` condition in the Spark `iterate` form. The
   lowerer converts it to canonical `completion` and `max_iterations` data.
 - Keep Iterate State local to that component.
-- Use at most one `dynamic`. It must be the sole terminal component and the
-  complete Flow output. Run it only through a run-to-completion Exec call.
+- Use at most one `dynamic`. It must be the last component and the complete
+  Flow output. Run it only through a run-to-completion Exec call.
 
 ## Runtime Flow Data
 

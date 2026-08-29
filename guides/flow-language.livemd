@@ -42,8 +42,8 @@ end
 
 The seven component forms are `step`, `choice`, `map`, `reduce`, `iterate`,
 `dynamic`, and a Flow-derived `subflow`. A child Flow is written as a `step`
-whose target is a Flow module. Dynamic is a terminal, run-to-completion
-boundary.
+whose target is a Flow module. Dynamic can only appear at the end of a
+run-to-completion Flow.
 
 ```elixir
 defmodule FlowLanguage.Example do

@@ -53,14 +53,14 @@ value is intentionally raw, streamed, batched, or opaque.
 Direct Action and Action Instruction calls preserve `extras`. A Flow consumes
 only the result or error reason from an Action node and discards node extras.
 
-`{:continue, input, target}` is a terminal transition. The current Action does
-not return a domain result. `Jido.Exec` runs `target` with `input` and the same
-context. The target can be an Action or a Flow. The final target owns output
-validation and the final result.
+`{:continue, input, target}` tells `Jido.Exec` what to run next. The current
+Action does not return a domain result. `Jido.Exec` runs `target` with `input`
+and the same context. The target can be an Action or a Flow. The final target
+owns output validation and the final result.
 
-Exec permits this result from a root Action and from the expander of a terminal
-`Jido.Flow.Dynamic` component. Other Flow positions reject it. See
-[Terminal Transitions](continuations.md).
+Exec permits this result from a root Action and from the expander of a
+`Jido.Flow.Dynamic` component at the end of a Flow. Other Flow positions reject
+it. See [Continue to Another Executable](continuations.md).
 
 ## Validation
 

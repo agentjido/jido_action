@@ -18,13 +18,13 @@ A finite timeout covers the complete call. It terminates the execution process
 and active child work. It does not retry the target.
 
 `max_continuations` covers the complete Action and Flow chain. A value of `0`
-rejects the first transition. The fixed upper bound prevents a caller from
+rejects the first continuation. The fixed upper bound prevents a caller from
 removing this safety limit. The complete-call timeout is a second guard.
 
 `start/4` accepts `jido` and `max_concurrency`, but not `timeout` or
 `max_continuations`. A paused step-wise execution does not have one
-complete-call clock or a terminal-transition boundary. Use `continue/1` to
-run it to completion.
+complete-call clock and cannot run a continuation. Use `continue/1` to run it
+to completion.
 
 ## Flow Scheduling
 
