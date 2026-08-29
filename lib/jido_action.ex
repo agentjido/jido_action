@@ -200,16 +200,18 @@ defmodule Jido.Action do
   Validates the input parameters for the Action.
 
   Returns `{:ok, validated_params}` or
-  `{:error, %Jido.Action.Error.InvalidInputError{}}`. Open object schemas
-  preserve unknown keys in the validated map.
+  `{:error, %Jido.Action.Error.InvalidInputError{}}`. A direct object or struct
+  schema preserves unknown root keys. Nested and wrapped schemas use their Zoi
+  unknown-key policy.
   """
 
   @validate_output_doc """
   Validates the output result for the Action.
 
   Returns `{:ok, validated_output}` or
-  `{:error, %Jido.Action.Error.InvalidInputError{}}`. Open object schemas
-  preserve unknown keys in the validated map. An explicit
+  `{:error, %Jido.Action.Error.InvalidInputError{}}`. A direct object or struct
+  schema preserves unknown root keys. Nested and wrapped schemas use their Zoi
+  unknown-key policy. An explicit
   `Jido.Action.Output` envelope is validated as an envelope.
   """
 

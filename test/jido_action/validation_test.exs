@@ -49,10 +49,10 @@ defmodule JidoActionTest.Action.ValidationTest do
       assert result.extra == "kept"
     end
 
-    test "preserves unknown fields in nested and wrapped object schemas" do
+    test "uses explicit Zoi open policies in nested and wrapped schemas" do
       nested_schema =
         Zoi.object(%{
-          user: Zoi.object(%{name: Zoi.string()})
+          user: Zoi.object(%{name: Zoi.string()}, unrecognized_keys: :preserve)
         })
 
       assert {:ok, %{trace: "trace", user: %{id: 7, name: "Ada"}}} =
@@ -62,7 +62,8 @@ defmodule JidoActionTest.Action.ValidationTest do
                  %{}
                )
 
-      object_schema = Zoi.object(%{value: Zoi.integer()})
+      object_schema =
+        Zoi.object(%{value: Zoi.integer()}, unrecognized_keys: :preserve)
 
       codec_schema =
         Zoi.codec(object_schema, object_schema,
@@ -84,6 +85,65 @@ defmodule JidoActionTest.Action.ValidationTest do
                  )
       end
     end
+
+    test "opens default root objects and honors strict Zoi unknown-key policies" do
+      default_open = Zoi.object(%{name: Zoi.string()})
+
+      assert {:ok, %{extra: true, name: "Ada"}} =
+               Validation.open_validate(default_open, %{extra: true, name: "Ada"}, %{})
+
+      nested_default = Zoi.object(%{user: Zoi.object(%{name: Zoi.string()})})
+
+      assert {:ok, validated_nested} =
+               Validation.open_validate(
+                 nested_default,
+                 %{user: %{id: 7, name: "Ada"}},
+                 %{}
+               )
+
+      assert validated_nested == %{user: %{name: "Ada"}}
+
+      strict = Zoi.object(%{name: Zoi.string()}, unrecognized_keys: :error)
+
+      assert {:error, %Jido.Action.Error.InvalidInputError{}} =
+               Validation.open_validate(strict, %{extra: true, name: "Ada"}, %{})
+
+      strict_struct =
+        Zoi.struct(Params, %{value: Zoi.integer()},
+          coerce: true,
+          unrecognized_keys: :error
+        )
+
+      assert {:error, %Jido.Action.Error.InvalidInputError{}} =
+               Validation.open_validate(strict_struct, %{extra: true, value: 1}, %{})
+
+      typed_unknowns =
+        Zoi.object(%{name: Zoi.string()},
+          unrecognized_keys: {:preserve, {Zoi.atom(), Zoi.integer()}}
+        )
+
+      assert {:ok, %{extra: 1, name: "Ada"}} =
+               Validation.open_validate(typed_unknowns, %{extra: 1, name: "Ada"}, %{})
+
+      assert {:error, %Jido.Action.Error.InvalidInputError{}} =
+               Validation.open_validate(
+                 typed_unknowns,
+                 %{extra: "not an integer", name: "Ada"},
+                 %{}
+               )
+    end
+  end
+
+  test "validates fieldless struct schemas without schema traversal" do
+    fieldless = Zoi.struct(Params)
+
+    assert {:ok, %{value: 1}} =
+             Validation.open_validate(fieldless, %Params{value: 1}, %{})
+
+    nested = Zoi.object(%{params: fieldless})
+    input = %{extra: true, params: %Params{value: 1}}
+
+    assert {:ok, ^input} = Validation.open_validate(nested, input, %{})
   end
 
   describe "open_validate_preserving_shape/3" do
@@ -119,18 +179,28 @@ defmodule JidoActionTest.Action.ValidationTest do
     end
   end
 
-  test "opens nested collection and combination schemas" do
-    cat = Zoi.object(%{type: Zoi.literal("cat"), name: Zoi.string()})
-    dog = Zoi.object(%{type: Zoi.literal("dog"), name: Zoi.string()})
+  test "uses Zoi open policies inside collection and combination schemas" do
+    cat =
+      Zoi.object(%{type: Zoi.literal("cat"), name: Zoi.string()},
+        unrecognized_keys: :preserve
+      )
+
+    dog =
+      Zoi.object(%{type: Zoi.literal("dog"), name: Zoi.string()},
+        unrecognized_keys: :preserve
+      )
 
     schema =
       Zoi.object(%{
         pets: Zoi.array(Zoi.discriminated_union(:type, [cat, dog])),
-        pair: Zoi.tuple({Zoi.object(%{value: Zoi.integer()}), Zoi.integer()}),
+        pair:
+          Zoi.tuple(
+            {Zoi.object(%{value: Zoi.integer()}, unrecognized_keys: :preserve), Zoi.integer()}
+          ),
         merged:
           Zoi.intersection([
-            Zoi.object(%{left: Zoi.integer()}),
-            Zoi.object(%{right: Zoi.integer()})
+            Zoi.object(%{left: Zoi.integer()}, unrecognized_keys: :preserve),
+            Zoi.object(%{right: Zoi.integer()}, unrecognized_keys: :preserve)
           ])
       })
 
@@ -143,6 +213,18 @@ defmodule JidoActionTest.Action.ValidationTest do
     assert {:ok, validated} = Validation.open_validate(schema, value, %{})
     assert get_in(validated, [:pets, Access.at(0), :extra])
     assert validated.pair |> elem(0) |> Map.fetch!(:extra)
+  end
+
+  test "uses a Zoi open policy inside map sets" do
+    schema =
+      Zoi.object(%{
+        users: Zoi.map_set(Zoi.object(%{name: Zoi.string()}, unrecognized_keys: :preserve))
+      })
+
+    input = %{users: MapSet.new([%{id: 7, name: "Ada"}])}
+
+    assert {:ok, %{users: users}} = Validation.open_validate(schema, input, %{})
+    assert MapSet.member?(users, %{id: 7, name: "Ada"})
   end
 
   test "converts raised and thrown schema failures to structured errors" do

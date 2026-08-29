@@ -41,7 +41,11 @@ Use `jido_action` for validated work and data-first composition:
 
 - Validate inputs with `validate_params/1`.
 - Validate outputs with `validate_output/1`.
-- Unknown keys are preserved; only keys declared in the Zoi schema are validated.
+- Direct object and struct schemas use open validation at the Action root:
+  Jido treats Zoi `:strip` as `:preserve`, so declared keys are validated and
+  unknown root keys are preserved.
+- Nested and wrapped schemas use their declared Zoi `unrecognized_keys` policy.
+  Jido keeps Zoi `:error` and typed preservation policies unchanged.
 - Prefer precise schemas with defaults for optional action inputs.
 - Use `Jido.Flow.validate/1` for canonical Flow structure and graph rules.
 - Use `Jido.Flow.validate_executable/1` to also check all Flow target contracts.

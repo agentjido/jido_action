@@ -374,6 +374,24 @@ defmodule JidoActionTest.ActionTest do
       assert params == %{a: 1, b: 2, trace_id: "trace-1"}
     end
 
+    test "honors an explicit Zoi unknown-key policy" do
+      module = unique_module("StrictParamsAction")
+
+      create_module(
+        module,
+        quote do
+          use Jido.Action,
+            name: "strict_params_action",
+            schema: Zoi.object(%{value: Zoi.integer()}, unrecognized_keys: :error)
+        end
+      )
+
+      assert {:error, %Jido.Action.Error.InvalidInputError{message: message}} =
+               module.validate_params(%{extra: true, value: 1})
+
+      assert message =~ "unrecognized key: extra"
+    end
+
     test "supports struct schemas when validating params" do
       params_module = unique_module("StructParams")
       action_module = unique_module("StructSchemaAction")

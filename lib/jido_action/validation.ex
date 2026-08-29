@@ -99,7 +99,15 @@ defmodule Jido.Action.Validation do
 
   defp parse_schema(%Zoi.Types.Map{fields: fields} = schema, data)
        when is_list(fields) and is_map(data) do
-    {Zoi.parse(open_schema(schema), data), %{}}
+    {Zoi.parse(open_root_object(schema), data), %{}}
+  end
+
+  defp parse_schema(
+         %Zoi.Types.Struct{fields: fields, unrecognized_keys: :error} = schema,
+         data
+       )
+       when is_list(fields) and is_map(data) do
+    {Zoi.parse(schema, data), %{}}
   end
 
   defp parse_schema(%Zoi.Types.Struct{fields: fields} = schema, data)
@@ -107,73 +115,25 @@ defmodule Jido.Action.Validation do
     cond do
       is_struct(data, schema.module) ->
         {_known, unknown} = split_known_fields(Map.from_struct(data), fields, schema.coerce)
-        {Zoi.parse(open_schema(schema), data), unknown}
+        {Zoi.parse(schema, data), unknown}
 
       schema.coerce ->
         data = if is_struct(data), do: Map.from_struct(data), else: data
         {known, unknown} = split_known_fields(data, fields, true)
-        {Zoi.parse(open_schema(schema), known), unknown}
+        {Zoi.parse(schema, known), unknown}
 
       true ->
-        {Zoi.parse(open_schema(schema), data), %{}}
+        {Zoi.parse(schema, data), %{}}
     end
   end
 
-  defp parse_schema(schema, data), do: {Zoi.parse(open_schema(schema), data), %{}}
+  defp parse_schema(schema, data), do: {Zoi.parse(schema, data), %{}}
 
-  defp open_schema(%Zoi.Types.Map{fields: fields} = schema) when is_list(fields) do
-    %{schema | fields: open_fields(fields), unrecognized_keys: :preserve}
+  defp open_root_object(%Zoi.Types.Map{unrecognized_keys: :strip} = schema) do
+    %{schema | unrecognized_keys: :preserve}
   end
 
-  defp open_schema(%Zoi.Types.Map{} = schema) do
-    %{schema | key_type: open_schema(schema.key_type), value_type: open_schema(schema.value_type)}
-  end
-
-  defp open_schema(%Zoi.Types.Struct{fields: fields} = schema) when is_list(fields) do
-    %{schema | fields: open_fields(fields)}
-  end
-
-  defp open_schema(%Zoi.Types.Default{} = schema) do
-    %{schema | inner: open_schema(schema.inner)}
-  end
-
-  defp open_schema(%Zoi.Types.Union{} = schema) do
-    %{schema | schemas: Enum.map(schema.schemas, &open_schema/1)}
-  end
-
-  defp open_schema(%Zoi.Types.Intersection{} = schema) do
-    %{schema | schemas: Enum.map(schema.schemas, &open_schema/1)}
-  end
-
-  defp open_schema(%Zoi.Types.Array{} = schema) do
-    %{schema | inner: open_schema(schema.inner)}
-  end
-
-  defp open_schema(%Zoi.Types.Tuple{} = schema) do
-    %{schema | fields: Enum.map(schema.fields, &open_schema/1)}
-  end
-
-  defp open_schema(%Zoi.Types.DiscriminatedUnion{} = schema) do
-    %{schema | schemas: Map.new(schema.schemas, fn {key, value} -> {key, open_schema(value)} end)}
-  end
-
-  defp open_schema(%Zoi.Types.Lazy{fun: {module, function, args}} = schema) do
-    %{schema | fun: fn -> module |> apply(function, args) |> open_schema() end}
-  end
-
-  defp open_schema(%Zoi.Types.Lazy{fun: fun} = schema) when is_function(fun, 0) do
-    %{schema | fun: fn -> fun.() |> open_schema() end}
-  end
-
-  defp open_schema(%Zoi.Types.Codec{} = schema) do
-    %{schema | from: open_schema(schema.from), to: open_schema(schema.to)}
-  end
-
-  defp open_schema(schema), do: schema
-
-  defp open_fields(fields) do
-    Enum.map(fields, fn {key, schema} -> {key, open_schema(schema)} end)
-  end
+  defp open_root_object(schema), do: schema
 
   defp split_known_fields(data, fields, coerce?) do
     normalize_key = if coerce?, do: &to_string/1, else: &Function.identity/1

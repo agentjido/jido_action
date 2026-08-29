@@ -26,8 +26,10 @@ end
 An Action schema must accept map-shaped data. `[]` means that no field schema
 is applied, but the Action boundary still requires a map.
 
-Object schemas are open at the Jido boundary. Declared fields are validated.
-Unknown fields stay in the returned map.
+Direct object and struct schemas are open at the Jido boundary. Declared root
+fields are validated. Unknown root fields stay in the returned map. Jido treats
+Zoi `unrecognized_keys: :strip` as `:preserve` at this root. Zoi `:error` and
+typed preservation policies stay unchanged.
 
 ```elixir
 {:ok, validated} =
@@ -38,6 +40,16 @@ Unknown fields stay in the returned map.
   })
 
 validated.request_tag
+```
+
+Nested and wrapped schemas use normal Zoi unknown-key behavior. Set the policy
+on each nested object that must preserve unknown fields.
+
+```elixir
+Zoi.object(%{
+  customer:
+    Zoi.object(%{name: Zoi.string()}, unrecognized_keys: :preserve)
+})
 ```
 
 ## Flow Schemas
