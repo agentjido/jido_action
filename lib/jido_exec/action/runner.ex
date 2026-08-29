@@ -102,16 +102,14 @@ defmodule Jido.Exec.Action.Runner do
       {:error, reason, extras} ->
         {:error, normalize_action_error(reason), {:extras, extras}}
 
-      {:continue, input, target} when is_map(input) and not is_struct(input, Output) ->
+      {:continue, %Output{} = input, _target} ->
+        invalid_continuation_input(action, input)
+
+      {:continue, input, target} when is_map(input) ->
         {:continue, Transition.new(input, target, action, context)}
 
       {:continue, input, _target} ->
-        {:error,
-         programming_error("action returned an invalid continuation", %{
-           action: action,
-           reason: :invalid_input,
-           input: input
-         }), :no_extras}
+        invalid_continuation_input(action, input)
 
       other ->
         {:error,
@@ -149,6 +147,15 @@ defmodule Jido.Exec.Action.Runner do
 
   defp error_result(error, :no_extras), do: {:error, error}
   defp error_result(error, {:extras, extras}), do: {:error, error, extras}
+
+  defp invalid_continuation_input(action, input) do
+    {:error,
+     programming_error("action returned an invalid continuation", %{
+       action: action,
+       reason: :invalid_input,
+       input: input
+     }), :no_extras}
+  end
 
   defp validate_params(action, params) do
     with {:ok, validated} <- invoke_validator(action, :validate_params, params) do
