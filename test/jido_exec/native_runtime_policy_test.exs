@@ -97,6 +97,7 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
   alias Jido.Action.Error.InvalidInputError
   alias Jido.Action.Error.TimeoutError, as: ActionTimeoutError
   alias Jido.Exec
+  alias Jido.Exec.Options
   alias Jido.Flow
   alias Jido.Flow.Error.ExecutionFailureError, as: FlowExecutionFailureError
   alias Jido.Flow.Error.InvalidExecutionError
@@ -223,6 +224,11 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
 
     assert {:error, %InvalidExecutionError{details: %{option: :max_continuations}}} =
              Exec.run(FlowFixtures.math_flow!(), %{value: 1}, %{}, max_continuations: 10_001)
+  end
+
+  test "defaults the complete-call continuation limit to 256" do
+    assert Options.continuation_limit([], Jido.Action.Error) == {:ok, 256}
+    assert Options.continuation_limit([], Jido.Flow.Error) == {:ok, 256}
   end
 
   test "enforces one complete-call timeout for every executable form" do

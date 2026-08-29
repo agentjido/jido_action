@@ -63,7 +63,7 @@ general graph operation.
 ## Loop Safety
 
 Each `Jido.Exec.run/4` call has one continuation budget for its complete Action
-and Flow chain. `max_continuations` defaults to `32` and accepts values from `0`
+and Flow chain. `max_continuations` defaults to `256` and accepts values from `0`
 through `10_000`.
 
 ```elixir

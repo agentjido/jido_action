@@ -11,7 +11,7 @@ All resolved targets accept these options in `run/4`:
 | --- | --- | --- |
 | `timeout` | `:infinity` | `:infinity` or a non-negative millisecond integer. |
 | `jido` | `nil` | A Jido instance module or `nil`. |
-| `max_continuations` | `32` | An integer from `0` through `10_000`. |
+| `max_continuations` | `256` | An integer from `0` through `10_000`. |
 | `max_concurrency` | `8` | A positive integer used if the chain runs a Flow. |
 
 A finite timeout covers the complete call. It terminates the execution process

@@ -96,7 +96,7 @@ defmodule Jido.Exec do
 
   An Action can return `{:continue, input, target}`. The current executable
   ends, and Exec runs the target as the next executable in the same complete
-  call. The default `:max_continuations` value is `32`. Its valid range is 0
+  call. The default `:max_continuations` value is `256`. Its valid range is 0
   through 10,000. This limit and the complete-call timeout stop infinite
   continuation chains.
   """

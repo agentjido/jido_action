@@ -11,7 +11,7 @@ defmodule Jido.Exec.Options do
   @flow_start_option_keys [:max_concurrency | @routing_option_keys]
   @action_run_option_keys @common_run_option_keys
   @default_max_concurrency 8
-  @default_max_continuations 32
+  @default_max_continuations 256
   @maximum_continuations 10_000
 
   @doc false

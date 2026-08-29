@@ -94,7 +94,7 @@ All targets accept:
 | --- | --- | --- |
 | `timeout` | `:infinity` | Complete-call limit for `run/4`. |
 | `jido` | `nil` | Jido instance used for Action worker routing. |
-| `max_continuations` | `32` | Maximum terminal transitions in one complete call. |
+| `max_continuations` | `256` | Maximum terminal transitions in one complete call. |
 | `max_concurrency` | `8` | Bounds ready Flow work if the chain runs a Flow. |
 
 Use `max_concurrency: 1` for serial Flow scheduling. A value greater than `1`
