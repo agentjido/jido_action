@@ -41,7 +41,7 @@ Read these files before a change that affects their subject:
 - `guides/actions.md`, `guides/flows.md`, and `guides/execution.md` for the main
   contracts.
 - `guides/testing.md` for test patterns.
-- `guides/v3-migration.md` for intentional breaking changes.
+- `guides/v2-to-v3-migration.md` for version 2 to version 3 breaking changes.
 
 ## Source Map
 

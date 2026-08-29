@@ -43,8 +43,9 @@ Version 3.0.0-beta.3 is a public beta. It introduces the declarative Flow DSL,
 runtime Flow construction, safe stored Flow maps, and one Flow execution
 engine. The v3 API can still change before the stable release, and this beta
 locks Runic 0.1.0-alpha.9. Use it for evaluation and controlled trials before
-you use it for critical production work. See the [v3 migration
-guide](guides/v3-migration.md) for the confirmed breaking changes.
+you use it for critical production work. See the [version 2 to version 3
+migration guide](guides/v2-to-v3-migration.md) for the confirmed breaking
+changes.
 
 ## Install
 
@@ -388,7 +389,7 @@ Livebook. ExDoc adds a **Run in Livebook** link to each `.livemd` guide.
 
 ### Upgrade
 
-- [Upgrade From v2 To v3](guides/v3-migration.md)
+- [Version 2 To Version 3 Migration Guide](guides/v2-to-v3-migration.md)
 - [Migration Shims](guides/migration-shims.md)
 - [Upgrade From v2 To v3 Skill](guides/v2-to-v3-upgrade-skill.md)
 

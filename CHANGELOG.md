@@ -129,7 +129,8 @@ entries return to the normal automated changelog process.
 * state the in-memory Flow, internal graph engine, and durable orchestration
   boundaries
 * define the restricted Flow expression grammar and source-to-data names
-* add a verified v3 migration guide and a complete task-based guide set
+* add a verified version 2 to version 3 migration guide and a complete
+  task-based guide set
 * document exact telemetry events, runtime Map validation, debugging, and
   step-wise execution semantics
 * restore package status badges and direct links to the Jido ecosystem
