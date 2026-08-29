@@ -30,9 +30,74 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     def run(params, _context), do: {:ok, params}
   end
 
+  defmodule ContinueToBlockingFlowDescriptor do
+    use Jido.Action, name: "continue_to_blocking_flow_descriptor"
+
+    @impl true
+    def run(params, _context) do
+      {:continue, params, JidoActionTest.Exec.NativeRuntimePolicyTest.BlockingFlowDescriptor}
+    end
+  end
+
+  defmodule BlockingFlowDescriptor do
+    def __jido_executable__ do
+      owner = :persistent_term.get({__MODULE__, :owner})
+      send(owner, {:continuation_flow_descriptor_started, self()})
+
+      receive do
+        :release_descriptor -> Jido.Executable.flow(__MODULE__)
+      end
+    end
+
+    def flow do
+      Jido.Flow.new!(
+        name: "blocking_descriptor_flow",
+        components: [
+          Jido.Flow.Step.new!(
+            name: "add",
+            action: JidoActionTest.Fixtures.Actions.Add,
+            params: %{value: Jido.Flow.Ref.input(:value)}
+          )
+        ],
+        output: Jido.Flow.Ref.result("add")
+      )
+    end
+
+    def validate_params(params), do: {:ok, params}
+    def validate_output(output), do: {:ok, output}
+    def run(params, context), do: Jido.Exec.run(flow(), params, context)
+  end
+
+  defmodule ContinueToBlockingActionDescriptor do
+    use Jido.Action, name: "continue_to_blocking_action_descriptor"
+
+    @impl true
+    def run(params, _context) do
+      {:continue, params,
+       JidoActionTest.Exec.NativeRuntimePolicyTest.BlockingActionDescriptorWithFlowHelper}
+    end
+  end
+
+  defmodule BlockingActionDescriptorWithFlowHelper do
+    def __jido_executable__ do
+      owner = :persistent_term.get({__MODULE__, :owner})
+      send(owner, {:continuation_action_descriptor_started, self()})
+
+      receive do
+        :release_descriptor -> Jido.Executable.action(__MODULE__)
+      end
+    end
+
+    def flow, do: :unrelated_application_helper
+    def validate_params(params), do: {:ok, params}
+    def validate_output(output), do: {:ok, output}
+    def run(params, _context), do: {:ok, params}
+  end
+
   alias Jido.Action.Error.InvalidInputError
   alias Jido.Action.Error.TimeoutError, as: ActionTimeoutError
   alias Jido.Exec
+  alias Jido.Exec.Options
   alias Jido.Flow
   alias Jido.Flow.Error.ExecutionFailureError, as: FlowExecutionFailureError
   alias Jido.Flow.Error.InvalidExecutionError
@@ -128,6 +193,9 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     assert {:error, %InvalidExecutionError{details: %{option: :timeout}}} =
              Exec.start(flow, %{value: 3}, %{}, timeout: 100)
 
+    assert {:error, %InvalidExecutionError{details: %{option: :max_continuations}}} =
+             Exec.start(flow, %{value: 3}, %{}, max_continuations: 1)
+
     assert {:error, %InvalidExecutionError{details: %{option: :async}}} =
              Exec.run(flow, %{value: 3}, %{}, async: true)
 
@@ -141,14 +209,26 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
              Exec.run(flow, %{}, %{}, [{:timeout, 10}, :not_an_option])
   end
 
-  test "rejects Flow run options for Actions and Action Instructions" do
-    assert {:error, %InvalidInputError{details: %{executable_type: :action}}} =
-             Exec.run(Add, %{value: 1}, %{}, max_concurrency: 2)
+  test "accepts complete-chain options for Actions and Action Instructions" do
+    assert Exec.run(Add, %{value: 1}, %{}, max_concurrency: 2) == {:ok, %{value: 2}}
 
     instruction = Instruction.new!(target: Add, params: %{value: 1})
 
-    assert {:error, %InvalidInputError{details: %{executable_type: :instruction}}} =
-             Exec.run(instruction, %{}, %{}, max_concurrency: 2)
+    assert Exec.run(instruction, %{}, %{}, max_concurrency: 2) == {:ok, %{value: 2}}
+
+    assert {:error, %InvalidInputError{details: %{option: :max_concurrency}}} =
+             Exec.run(Add, %{value: 1}, %{}, max_concurrency: 0)
+
+    assert {:error, %InvalidInputError{details: %{option: :max_continuations}}} =
+             Exec.run(Add, %{value: 1}, %{}, max_continuations: -1)
+
+    assert {:error, %InvalidExecutionError{details: %{option: :max_continuations}}} =
+             Exec.run(FlowFixtures.math_flow!(), %{value: 1}, %{}, max_continuations: 10_001)
+  end
+
+  test "defaults the complete-call continuation limit to 256" do
+    assert Options.continuation_limit([], Jido.Action.Error) == {:ok, 256}
+    assert Options.continuation_limit([], Jido.Flow.Error) == {:ok, 256}
   end
 
   test "enforces one complete-call timeout for every executable form" do
@@ -195,6 +275,38 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     assert_process_stops(descriptor_process)
   end
 
+  test "keeps continuation resolution under the current Action timeout owner" do
+    key = {BlockingFlowDescriptor, :owner}
+    :persistent_term.put(key, self())
+    on_exit(fn -> :persistent_term.erase(key) end)
+
+    assert {:error,
+            %ActionTimeoutError{
+              timeout: 100,
+              details: %{action: ContinueToBlockingFlowDescriptor}
+            }} =
+             Exec.run(ContinueToBlockingFlowDescriptor, %{}, %{}, timeout: 100)
+
+    assert_received {:continuation_flow_descriptor_started, descriptor_process}
+    assert_process_stops(descriptor_process)
+  end
+
+  test "does not infer timeout ownership from an unrelated flow helper" do
+    key = {BlockingActionDescriptorWithFlowHelper, :owner}
+    :persistent_term.put(key, self())
+    on_exit(fn -> :persistent_term.erase(key) end)
+
+    assert {:error,
+            %ActionTimeoutError{
+              timeout: 100,
+              details: %{action: ContinueToBlockingActionDescriptor}
+            }} =
+             Exec.run(ContinueToBlockingActionDescriptor, %{}, %{}, timeout: 100)
+
+    assert_received {:continuation_action_descriptor_started, descriptor_process}
+    assert_process_stops(descriptor_process)
+  end
+
   test "accepts a timeout above the native receive limit" do
     assert Exec.run(Add, %{value: 1}, %{}, timeout: 5_000_000_000) ==
              {:ok, %{value: 2}}
@@ -224,11 +336,12 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     for {form, {target, input, context}} <-
           ExecFixtures.blocking_execution_forms(BlockingFlow, self()) do
       case Exec.run(target, input, context, timeout: 0) do
-        {:error, %ActionTimeoutError{timeout: 0}} when form in [:action, :action_instruction] ->
+        {:error, %ActionTimeoutError{timeout: 0}}
+        when form in [:action, :action_instruction, :flow_module, :flow_instruction] ->
           :ok
 
         {:error, %FlowTimeoutError{timeout: 0}}
-        when form in [:flow_value, :flow_module, :flow_instruction, :subflow] ->
+        when form in [:flow_value, :subflow] ->
           :ok
       end
 

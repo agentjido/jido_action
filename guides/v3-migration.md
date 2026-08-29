@@ -234,10 +234,12 @@ smaller and its defaults are different.
 | context propagator options | removed |
 | `jido:` instance routing | kept |
 
-All targets accept a complete-call `timeout` and the `jido` routing option.
-Flows also accept `max_concurrency`, which defaults to `8`. Use `1` for serial
-Flow scheduling. A value greater than `1` allows independent graph work to
-run at the same time. The Flow `async:` option was removed.
+All run-to-completion targets accept `timeout`, `jido`, `max_continuations`,
+and `max_concurrency`. The continuation and concurrency limits apply to the
+complete executable chain. `max_concurrency` defaults to `8`. Use `1` for
+serial Flow scheduling. A value greater than `1` lets independent graph work
+run at the same time. An Action does not use this limit itself, but it can
+continue to a Flow. The Flow `async:` option was removed.
 
 Use the Exec async API for one run-to-completion Action, Instruction, or Flow:
 

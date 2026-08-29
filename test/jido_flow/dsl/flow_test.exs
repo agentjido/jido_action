@@ -117,6 +117,37 @@ defmodule Jido.Flow.DSL.FlowTest do
     assert_raise CompileError, ~r/Flow output is required/, fn -> Code.compile_string(code) end
   end
 
+  test "an invalid Dispatch output points to the output declaration" do
+    code = """
+    defmodule InvalidDispatchOutputSourceFlow do
+      use Jido.Flow, name: "invalid_dispatch_output_source"
+
+      flow do
+        dispatch("next",
+          decision: JidoActionTest.Fixtures.Actions.Add,
+          expander: JidoActionTest.Fixtures.Actions.Add,
+          params: %{value: 1}
+        )
+
+        output(%{value: result("next")})
+      end
+    end
+    """
+
+    output_line =
+      code
+      |> String.split("\n")
+      |> Enum.find_index(&String.contains?(&1, "output("))
+      |> Kernel.+(1)
+
+    error =
+      assert_raise CompileError, ~r/Flow output must be the complete Dispatch result/, fn ->
+        Code.compile_string(code)
+      end
+
+    assert error.line == output_line
+  end
+
   test "Flow declaration macros reject duplicate and non-keyword options" do
     duplicate_options = """
     defmodule DuplicateStepOptionsFlow do

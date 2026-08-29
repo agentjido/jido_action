@@ -31,6 +31,23 @@ defmodule Jido.Flow.CanonicalAuthoringTest.SparkSubflow do
   end
 end
 
+defmodule Jido.Flow.CanonicalAuthoringTest.SparkDispatchFlow do
+  @moduledoc false
+
+  use Jido.Flow, name: "canonical_dispatch_flow"
+
+  flow do
+    dispatch("next",
+      decision: JidoActionTest.Fixtures.Actions.Add,
+      expander: JidoActionTest.Fixtures.Actions.Add,
+      params: %{value: input(:value), amount: 1},
+      meta: %{owner: "spark"}
+    )
+
+    output(result("next"))
+  end
+end
+
 defmodule Jido.Flow.CanonicalAuthoringTest.SparkMixedFlow do
   @moduledoc false
 
@@ -97,6 +114,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
   alias Jido.Flow.Builder
   alias Jido.Flow.Choice
   alias Jido.Flow.Codec
+  alias Jido.Flow.Dispatch
   alias Jido.Flow.Iterate
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.Reduce
@@ -170,6 +188,43 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
     assert built == direct
     assert Jido.Flow.CanonicalAuthoringTest.SparkSubflow.flow() == direct
     assert [%Subflow{}] = built.components
+  end
+
+  test "direct, Builder, Spark, and JSON Dispatch forms produce the same canonical data" do
+    direct =
+      Flow.new!(
+        name: "canonical_dispatch_flow",
+        components: [
+          Dispatch.new!(
+            name: "next",
+            decision: Add,
+            expander: Add,
+            params: %{value: Ref.input(:value), amount: 1},
+            meta: %{owner: "spark"}
+          )
+        ],
+        output: Ref.result("next")
+      )
+
+    {:ok, built} =
+      Builder.new(name: "canonical_dispatch_flow")
+      |> Builder.dispatch(
+        "next",
+        Add,
+        Add,
+        %{value: Builder.input(:value), amount: 1},
+        meta: %{owner: "spark"}
+      )
+      |> Builder.output(Builder.result("next"))
+      |> Builder.build()
+
+    assert built == direct
+    assert Jido.Flow.CanonicalAuthoringTest.SparkDispatchFlow.flow() == direct
+
+    assert {:ok, document, registry} = Codec.encode(direct)
+    assert [%{"kind" => "dispatch"} = encoded] = document["components"]
+    refute Map.has_key?(encoded, "max_continuations")
+    assert Codec.decode(document, registry) == {:ok, direct}
   end
 
   test "direct, Builder, Spark, and JSON authoring produce one mixed canonical Flow" do

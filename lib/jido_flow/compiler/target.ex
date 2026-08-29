@@ -2,8 +2,9 @@ defmodule Jido.Flow.Compiler.Target do
   @moduledoc false
 
   alias Jido.Action.Error
+  alias Jido.Exec.Transition
 
-  @type kind :: :node | :choice | :map | :reduce | :iterate
+  @type kind :: :node | :choice | :map | :reduce | :iterate | :dispatch
   @type t :: %__MODULE__{kind: kind(), details: map()}
 
   @enforce_keys [:kind, :details]
@@ -30,6 +31,11 @@ defmodule Jido.Flow.Compiler.Target do
       input: :iterate_body_input,
       execution: :iterate_body_execution,
       output: :iterate_body_output
+    },
+    dispatch: %{
+      input: :dispatch_target_input,
+      execution: :dispatch_target_execution,
+      output: :dispatch_target_output
     }
   }
 
@@ -95,12 +101,26 @@ defmodule Jido.Flow.Compiler.Target do
   end
 
   @doc false
+  @spec dispatch(Jido.Flow.Dispatch.t(), :decision | :expander) :: t()
+  def dispatch(dispatch, phase) when phase in [:decision, :expander] do
+    target = if phase == :decision, do: dispatch.decision, else: dispatch.expander
+
+    %__MODULE__{
+      kind: :dispatch,
+      details: %{node: dispatch.name, target: target, dispatch_phase: phase}
+    }
+  end
+
+  @doc false
   @spec run(module(), term(), map(), t(), String.t(), Jido.Flow.Compiler.target_runner()) ::
-          {:ok, term()} | {:error, Exception.t()}
+          {:ok, term()} | {:continue, Transition.t()} | {:error, Exception.t()}
   def run(action, params, context, %__MODULE__{} = owner, execution_id, target_runner) do
     case target_runner.(action, params, context, execution_id, owner) do
       {:ok, output} ->
         {:ok, output}
+
+      {:continue, %Transition{} = transition} ->
+        {:continue, transition}
 
       {:error, :input, error} ->
         tag_validation({:error, error}, owner)

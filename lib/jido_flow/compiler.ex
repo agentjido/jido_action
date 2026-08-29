@@ -2,9 +2,11 @@ defmodule Jido.Flow.Compiler do
   @moduledoc false
 
   alias Jido.Action.Output
+  alias Jido.Exec.Transition
   alias Jido.Flow
   alias Jido.Flow.Choice
   alias Jido.Flow.Compiled
+  alias Jido.Flow.Dispatch
   alias Jido.Flow.Error
   alias Jido.Flow.Compiler.Choice, as: ChoiceRuntime
   alias Jido.Flow.Compiler.Expression
@@ -43,7 +45,9 @@ defmodule Jido.Flow.Compiler do
   @type target_phase :: :input | :execution | :output
   @type target_runner ::
           (module(), term(), map(), String.t(), Target.t() ->
-             {:ok, term()} | {:error, target_phase(), Exception.t()})
+             {:ok, term()}
+             | {:continue, Transition.t()}
+             | {:error, target_phase(), Exception.t()})
 
   @doc false
   @spec compile(Flow.t(), keyword() | Compiled.source_map()) ::
@@ -124,7 +128,7 @@ defmodule Jido.Flow.Compiler do
 
   @doc false
   @spec runtime_result(Compiled.t(), Workflow.t(), map(), map()) ::
-          {:ok, term()} | {:error, Exception.t()}
+          {:ok, term()} | {:continue, Transition.t()} | {:error, Exception.t()}
   def runtime_result(%Compiled{} = compiled, %Workflow{} = workflow, input, context)
       when is_map(input) and is_map(context) do
     result_names = compiled.output |> Flow.Expression.result_refs() |> Enum.uniq()
@@ -132,11 +136,18 @@ defmodule Jido.Flow.Compiler do
     result_names
     |> Enum.reduce_while({:ok, %{}}, fn name, {:ok, results} ->
       case Map.fetch(compiled.component_index, name) do
-        {:ok, %{output: output_name}} ->
+        {:ok, %{kind: kind, output: output_name}} ->
           case Workflow.results(workflow, [output_name], facts: true, all: true) do
             %{^output_name => facts} when is_list(facts) and facts != [] ->
-              value = facts |> List.last() |> Map.fetch!(:value) |> unwrap_value()
-              {:cont, {:ok, Map.put(results, name, value)}}
+              raw_value = facts |> List.last() |> Map.fetch!(:value)
+
+              case {kind, raw_value} do
+                {:dispatch, {:jido_flow_transition, %Transition{} = transition}} ->
+                  {:halt, {:continue, transition}}
+
+                {_kind, value} ->
+                  {:cont, {:ok, Map.put(results, name, unwrap_value(value))}}
+              end
 
             _other ->
               {:halt,
@@ -156,6 +167,9 @@ defmodule Jido.Flow.Compiler do
     |> case do
       {:ok, results} ->
         Expression.resolve(compiled.output, %{input: input, context: context, results: results})
+
+      {:continue, %Transition{} = transition} ->
+        {:continue, transition}
 
       {:error, error} ->
         {:error, error}
@@ -320,6 +334,16 @@ defmodule Jido.Flow.Compiler do
         result = IterateRuntime.run(component, local)
         output = unwrap_component_result(result)
         value(local.input_frame, output)
+      end)
+
+    add_authored_output(state, component, step, step)
+  end
+
+  defp add_component(%Dispatch{} = component, state) do
+    step =
+      runtime_step(state, component.name, :dispatch, fn parent, runtime ->
+        local = component_state(component, parent, runtime)
+        run_dispatch(component, local)
       end)
 
     add_authored_output(state, component, step, step)
@@ -1064,6 +1088,41 @@ defmodule Jido.Flow.Compiler do
       {:ok, state.input_frame, output}
     else
       {:error, error} -> raise error
+    end
+  end
+
+  defp run_dispatch(dispatch, state) do
+    with {:ok, params} <- Expression.resolve(dispatch.params, state),
+         {:ok, decision} <-
+           Target.run(
+             dispatch.decision,
+             params,
+             state.context,
+             Target.dispatch(dispatch, :decision),
+             state.execution_id,
+             state.target_runner
+           ) do
+      case Target.run(
+             dispatch.expander,
+             decision,
+             state.context,
+             Target.dispatch(dispatch, :expander),
+             state.execution_id,
+             state.target_runner
+           ) do
+        {:ok, output} -> value(state.input_frame, output)
+        {:continue, %Transition{} = transition} -> {:jido_flow_transition, transition}
+        {:error, error} -> raise error
+      end
+    else
+      {:continue, %Transition{}} ->
+        raise Error.execution_error(
+                "action continuation is not allowed from this Flow position",
+                %{component: dispatch.name, component_kind: :dispatch, retry: false}
+              )
+
+      {:error, error} ->
+        raise error
     end
   end
 

@@ -11,20 +11,22 @@ All resolved targets accept these options in `run/4`:
 | --- | --- | --- |
 | `timeout` | `:infinity` | `:infinity` or a non-negative millisecond integer. |
 | `jido` | `nil` | A Jido instance module or `nil`. |
+| `max_continuations` | `256` | An integer from `0` through `10_000`. |
+| `max_concurrency` | `8` | A positive integer used if the chain runs a Flow. |
 
 A finite timeout covers the complete call. It terminates the execution process
 and active child work. It does not retry the target.
 
-`start/4` accepts `jido` but not `timeout`. A paused step-wise execution does
-not have one complete-call clock. Use `continue/1` to run it to completion.
+`max_continuations` covers the complete Action and Flow chain. A value of `0`
+rejects the first continuation. The fixed upper bound prevents a caller from
+removing this safety limit. The complete-call timeout is a second guard.
 
-## Flow Scheduling Options
+`start/4` accepts `jido` and `max_concurrency`, but not `timeout` or
+`max_continuations`. A paused step-wise execution does not have one
+complete-call clock and cannot run a continuation. Use `continue/1` to run it
+to completion.
 
-Flow modules, Flow values, and Flow Instructions also accept:
-
-| Option | Default | Rule |
-| --- | --- | --- |
-| `max_concurrency` | `8` | Must be a positive integer. |
+## Flow Scheduling
 
 `max_concurrency: 1` runs ready work serially. A value greater than `1`
 dispatches independent work concurrently and bounds the tasks in that wave.
@@ -43,9 +45,9 @@ Jido.Exec.run(
 )
 ```
 
-Unknown options are errors. An Action target rejects `max_concurrency`. An
-Instruction follows the option rules of its target. The removed Flow
-`async:` option is an unknown option.
+Unknown options are errors. An Action does not use `max_concurrency` itself,
+but its continuation can select a Flow. An Instruction follows the option
+rules of its target. The removed Flow `async:` option is an unknown option.
 
 ## Jido Instance Routing
 

@@ -100,6 +100,17 @@ defmodule Jido.Flow.DSL.Macros do
     )
   end
 
+  defmacro dispatch(name, options) do
+    entity(
+      name,
+      options,
+      extension_module(["Flow", "Dispatch"]),
+      :__dispatch__,
+      [:params],
+      __CALLER__
+    )
+  end
+
   defmacro output(value) do
     caller = __CALLER__
     module = extension_module(["Flow", "Output"])

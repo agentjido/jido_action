@@ -51,6 +51,7 @@ defmodule Jido.Exec do
   alias Jido.Exec.Options
   alias Jido.Exec.Telemetry
   alias Jido.Exec.Telemetry.Tracker
+  alias Jido.Exec.Transition
   alias Jido.Flow
   alias Jido.Flow.Error, as: FlowError
   alias Jido.Instruction
@@ -86,12 +87,18 @@ defmodule Jido.Exec do
   `:infinity`. A finite timeout covers the complete call and terminates its
   execution process and active child work. It does not retry the target.
 
-  A Flow target also accepts `:max_concurrency`, which defaults to `8`. A value
+  All targets accept `:max_concurrency`, which defaults to `8`. A value
   of `1` runs ready work serially. A value greater than `1` runs independent
   ready work concurrently, up to that limit. Map items are native Runic
-  runnables, so the same rule applies to them. An Instruction uses the option
-  rules of its resolved target. An Action target accepts no Flow policy
-  options.
+  runnables, so the same rule applies to them. An Action does not use this
+  option itself, but a continuation can select a Flow in the same call. An
+  Instruction uses the option rules of its resolved target.
+
+  An Action can return `{:continue, input, target}`. The current executable
+  ends, and Exec runs the target as the next executable in the same complete
+  call. The default `:max_continuations` value is `256`. Its valid range is 0
+  through 10,000. This limit and the complete-call timeout stop infinite
+  continuation chains.
   """
   @spec run(term(), map() | keyword() | nil, map() | keyword() | nil, keyword()) :: exec_result()
   def run(executable, input \\ %{}, context \\ %{}, opts \\ []) do
@@ -114,17 +121,23 @@ defmodule Jido.Exec do
 
   defp do_run(executable, input, context, opts, control) do
     execution_id = Telemetry.execution_id()
-    timeout_owner = timeout_owner_hint(executable)
+    timeout_owner = initial_timeout_owner(executable)
 
     with {:ok, opts} <- prepare_run_options(executable, opts),
-         {:ok, timeout, run_opts} <- Options.take_timeout(opts, timeout_owner) do
+         {:ok, timeout, run_opts} <- Options.take_timeout(opts, timeout_owner),
+         {:ok, continuation_limit} <- Options.continuation_limit(run_opts, timeout_owner) do
       execute_with_timeout(
         fn notify ->
-          with {:ok, executable, resolved, run_opts} <-
-                 resolve_run_target(executable, run_opts, :run) do
-            notify.({:resolved, timeout_owner(resolved), resolved})
-            run_with_lifecycle(executable, resolved, input, context, run_opts, execution_id)
-          end
+          run_chain(
+            executable,
+            input,
+            context,
+            run_opts,
+            execution_id,
+            notify,
+            0,
+            continuation_limit
+          )
         end,
         timeout,
         timeout_owner,
@@ -132,6 +145,114 @@ defmodule Jido.Exec do
         execution_id,
         control
       )
+    end
+  end
+
+  defp run_chain(
+         executable,
+         input,
+         context,
+         opts,
+         execution_id,
+         notify,
+         count,
+         continuation_limit
+       ) do
+    with {:ok, executable, resolved, run_opts} <-
+           resolve_run_target(executable, opts, :run) do
+      run_resolved_chain(
+        executable,
+        resolved,
+        input,
+        context,
+        run_opts,
+        execution_id,
+        notify,
+        count,
+        continuation_limit
+      )
+    end
+  end
+
+  defp run_resolved_chain(
+         executable,
+         %Executable{} = resolved,
+         input,
+         context,
+         opts,
+         execution_id,
+         notify,
+         count,
+         continuation_limit
+       ) do
+    notify.({:resolved, timeout_owner(resolved), resolved})
+
+    case run_with_lifecycle(executable, resolved, input, context, opts, execution_id) do
+      {:continue, %Transition{} = transition} ->
+        continue_chain(
+          transition,
+          opts,
+          execution_id,
+          notify,
+          count + 1,
+          continuation_limit
+        )
+
+      result ->
+        result
+    end
+  end
+
+  defp continue_chain(
+         %Transition{} = transition,
+         opts,
+         execution_id,
+         notify,
+         count,
+         continuation_limit
+       ) do
+    with :ok <- check_continuation_limit(transition, count, continuation_limit) do
+      with {:ok, resolved} <- resolve_transition_target(transition) do
+        run_resolved_chain(
+          transition.target,
+          resolved,
+          transition.input,
+          transition.context,
+          opts,
+          execution_id,
+          notify,
+          count,
+          continuation_limit
+        )
+      end
+    end
+  end
+
+  defp check_continuation_limit(_transition, count, limit) when count <= limit, do: :ok
+
+  defp check_continuation_limit(%Transition{} = transition, count, limit) do
+    {:error,
+     Error.execution_error("continuation limit exceeded", %{
+       action: transition.origin,
+       count: count,
+       max_continuations: limit,
+       retry: false
+     })}
+  end
+
+  defp resolve_transition_target(%Transition{} = transition) do
+    with {:ok, %Executable{} = executable} <- Executable.resolve(transition.target),
+         :ok <- Executable.validate(executable) do
+      {:ok, executable}
+    else
+      {:error, cause} ->
+        {:error,
+         Error.execution_error("action returned an invalid continuation target", %{
+           action: transition.origin,
+           target: transition.target,
+           cause: cause,
+           retry: false
+         })}
     end
   end
 
@@ -508,16 +629,11 @@ defmodule Jido.Exec do
   defp timeout_owner(%Executable{kind: :flow}), do: FlowError
   defp timeout_owner(%Executable{kind: :action}), do: Error
 
-  defp timeout_owner_hint(%Instruction{flow: flow}) when not is_nil(flow), do: FlowError
-  defp timeout_owner_hint(%Instruction{action: action}) when not is_nil(action), do: Error
-  defp timeout_owner_hint(%Instruction{target: target}), do: timeout_owner_hint(target)
-  defp timeout_owner_hint(%Flow{}), do: FlowError
-
-  defp timeout_owner_hint(module) when is_atom(module) and not is_nil(module) do
-    if function_exported?(module, :__jido_flow_source_map__, 0), do: FlowError, else: Error
-  end
-
-  defp timeout_owner_hint(_executable), do: Error
+  defp initial_timeout_owner(%Instruction{flow: flow}) when not is_nil(flow), do: FlowError
+  defp initial_timeout_owner(%Instruction{action: action}) when not is_nil(action), do: Error
+  defp initial_timeout_owner(%Instruction{target: target}), do: initial_timeout_owner(target)
+  defp initial_timeout_owner(%Flow{}), do: FlowError
+  defp initial_timeout_owner(_executable), do: Error
 
   defp timeout_error(FlowError, executable, timeout, execution_id) do
     FlowError.timeout_error("Flow execution timed out after #{timeout}ms", %{

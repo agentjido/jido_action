@@ -33,7 +33,10 @@ defmodule Jido.Exec.Execution do
           runnable_errors: [%{runnable: Runnable.t(), error: Exception.t()}],
           engine_error: Exception.t() | nil,
           finalizer: (term() -> {:ok, term()} | {:error, Exception.t()}),
-          final_result: {:ok, term()} | {:error, Exception.t()} | nil,
+          final_result:
+            {:ok, term()}
+            | {:error, Exception.t()}
+            | nil,
           lifecycle: %{flow: map()}
         }
 

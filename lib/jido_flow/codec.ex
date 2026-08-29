@@ -32,6 +32,7 @@ defmodule Jido.Flow.Codec do
   alias Jido.Flow.Choice
   alias Jido.Flow.Condition
   alias Jido.Flow.Data
+  alias Jido.Flow.Dispatch
   alias Jido.Flow.Error
   alias Jido.Flow.Expression
   alias Jido.Flow.Graph
@@ -42,6 +43,7 @@ defmodule Jido.Flow.Codec do
   alias Jido.Flow.Registry
   alias Jido.Flow.Step
   alias Jido.Flow.Subflow
+  alias Jido.Flow.Validation
 
   @type document :: %{required(String.t()) => term()}
 
@@ -56,7 +58,8 @@ defmodule Jido.Flow.Codec do
     "choice" => :choice,
     "map" => :map,
     "reduce" => :reduce,
-    "iterate" => :iterate
+    "iterate" => :iterate,
+    "dispatch" => :dispatch
   }
 
   @sources %{
@@ -438,6 +441,31 @@ defmodule Jido.Flow.Codec do
         max_iterations: fn -> positive_integer_field(record, "max_iterations", path) end
       ],
       &Iterate.new/1
+    )
+  end
+
+  defp diagnose_component_kind(:dispatch, record, registry, path) do
+    allowed = [
+      "kind",
+      "name",
+      "decision",
+      "expander",
+      "params",
+      "after",
+      "meta"
+    ]
+
+    diagnose_component_fields(
+      record,
+      registry,
+      path,
+      allowed,
+      [
+        decision: fn -> resolve_field(record, "decision", :action, registry, path) end,
+        expander: fn -> resolve_field(record, "expander", :action, registry, path) end,
+        params: fn -> diagnose_expression_field(record, "params", registry, path) end
+      ],
+      &Dispatch.new/1
     )
   end
 
@@ -994,7 +1022,16 @@ defmodule Jido.Flow.Codec do
         []
       end
 
-    duplicate_errors ++ reference_errors ++ cycle_errors
+    dispatch_errors =
+      if duplicate_errors == [] and reference_errors == [] and cycle_errors == [] do
+        components
+        |> Validation.dispatch_diagnostics(output)
+        |> Enum.map(&ensure_json_path(&1, []))
+      else
+        []
+      end
+
+    duplicate_errors ++ reference_errors ++ cycle_errors ++ dispatch_errors
   end
 
   defp duplicate_component_errors(components) do
@@ -1247,6 +1284,24 @@ defmodule Jido.Flow.Codec do
          "completion" => completion,
          "max_iterations" => iterate.max_iterations,
          "after" => iterate.after,
+         "meta" => meta
+       }}
+    end
+  end
+
+  defp encode_component(%Dispatch{} = dispatch, registry) do
+    with {:ok, decision} <- Registry.identifier(registry, :action, dispatch.decision),
+         {:ok, expander} <- Registry.identifier(registry, :action, dispatch.expander),
+         {:ok, params} <- encode_expression(dispatch.params, registry, 0),
+         {:ok, meta} <- encode_data(dispatch.meta, registry, 0) do
+      {:ok,
+       %{
+         "kind" => "dispatch",
+         "name" => dispatch.name,
+         "decision" => decision,
+         "expander" => expander,
+         "params" => params,
+         "after" => dispatch.after,
          "meta" => meta
        }}
     end

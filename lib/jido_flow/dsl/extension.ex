@@ -143,6 +143,22 @@ defmodule Jido.Flow.DSL.Extension do
     singleton_entity_keys: [:state]
   }
 
+  @dispatch %Spark.Dsl.Entity{
+    name: :__dispatch__,
+    target: Jido.Flow.DSL.Dispatch,
+    args: [:name, :__source__],
+    identifier: :name,
+    modules: [:decision, :expander],
+    describe: "Declares one component that can choose what runs next.",
+    schema:
+      [
+        name: [type: :string, required: true],
+        decision: [type: :atom, required: true],
+        expander: [type: :atom, required: true],
+        params: [type: :quoted, required: true]
+      ] ++ @node_fields
+  }
+
   @output %Spark.Dsl.Entity{
     name: :__output__,
     target: Jido.Flow.DSL.Output,
@@ -158,7 +174,7 @@ defmodule Jido.Flow.DSL.Extension do
     name: :flow,
     describe: "Declares a Jido Flow graph.",
     imports: [Jido.Flow.DSL.Macros],
-    entities: [@step, @choice, @map, @reduce, @iterate, @output],
+    entities: [@step, @choice, @map, @reduce, @iterate, @dispatch, @output],
     singleton_entity_keys: [:output]
   }
 

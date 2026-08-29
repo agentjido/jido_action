@@ -210,3 +210,31 @@ defmodule Jido.Flow.DSL.IterateState do
 
   defstruct [:schema, :initial, :__identifier__, __source__: %{}, __spark_metadata__: nil]
 end
+
+defmodule Jido.Flow.DSL.Dispatch do
+  @moduledoc false
+
+  @type t :: %__MODULE__{
+          name: term(),
+          decision: term(),
+          expander: term(),
+          params: term(),
+          __identifier__: term(),
+          __source__: map(),
+          __spark_metadata__: term(),
+          after: list(),
+          meta: map()
+        }
+
+  defstruct [
+    :name,
+    :decision,
+    :expander,
+    :params,
+    :__identifier__,
+    __source__: %{},
+    __spark_metadata__: nil,
+    after: [],
+    meta: %{}
+  ]
+end

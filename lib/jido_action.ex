@@ -53,6 +53,7 @@ defmodule Jido.Action do
   @type result ::
           {:ok, map() | Output.t()}
           | {:ok, map() | Output.t(), term()}
+          | {:continue, map(), Jido.Executable.target()}
           | {:error, term()}
           | {:error, term(), term()}
 
@@ -387,12 +388,20 @@ defmodule Jido.Action do
   - `{:ok, result, extras}` where `result` is a map and `extras` is additional data (e.g., directives).
   - `{:ok, output}` where `output` is an explicit `Jido.Action.Output` envelope for raw, stream, batch, or opaque success values.
   - `{:ok, output, extras}` where `output` is an explicit `Jido.Action.Output` envelope and `extras` is additional data.
+  - `{:continue, continuation_input, continuation_target}` where the current
+    executable ends and the target becomes the next executable.
   - `{:error, reason}` where `reason` describes why the action failed.
   - `{:error, reason, extras}` where `extras` is additional data (e.g., directives).
 
   Extras are delivered only to direct action or instruction callers. When an
   action runs as a `Jido.Flow` node, flow execution discards extras and uses only
   the action output or error reason.
+
+  A continuation does not resume this Action. Its input must be a map, not a
+  `Jido.Action.Output` envelope. Put an output envelope in a map field when the
+  next executable must receive it. The target must be an Action module, Flow
+  module, or `Jido.Flow` value. The final executable owns output validation,
+  errors, and extras.
   """
   @callback run(params :: map(), context :: map()) :: result()
 

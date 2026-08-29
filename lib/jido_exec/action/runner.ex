@@ -3,17 +3,21 @@ defmodule Jido.Exec.Action.Runner do
 
   alias Jido.Action.Error
   alias Jido.Action.Output
+  alias Jido.Exec.Transition
   alias Jido.Instruction
   alias Jido.Exec.Telemetry
 
   @type target_phase :: :input | :execution | :output
   @type target_result ::
-          {:ok, term()} | {:error, target_phase(), Exception.t()}
+          {:ok, term()}
+          | {:continue, Transition.t()}
+          | {:error, target_phase(), Exception.t()}
 
   @doc "Runs one Action Instruction through the isolated Action boundary."
   @spec run(Instruction.t(), keyword()) ::
           {:ok, term()}
           | {:ok, term(), term()}
+          | {:continue, Transition.t()}
           | {:error, Exception.t()}
           | {:error, Exception.t(), term()}
   def run(%Instruction{target: action} = instruction, run_opts \\ []) do
@@ -37,6 +41,9 @@ defmodule Jido.Exec.Action.Runner do
 
         {:error, error, extras} ->
           error_result(error, extras)
+
+        {:continue, %Transition{} = transition} ->
+          {:continue, transition}
       end
     end
   end
@@ -75,6 +82,9 @@ defmodule Jido.Exec.Action.Runner do
 
       {:error, error, _extras} ->
         {:error, :execution, error}
+
+      {:continue, %Transition{} = transition} ->
+        {:continue, transition}
     end
   end
 
@@ -91,6 +101,15 @@ defmodule Jido.Exec.Action.Runner do
 
       {:error, reason, extras} ->
         {:error, normalize_action_error(reason), {:extras, extras}}
+
+      {:continue, %Output{} = input, _target} ->
+        invalid_continuation_input(action, input)
+
+      {:continue, input, target} when is_map(input) ->
+        {:continue, Transition.new(input, target, action, context)}
+
+      {:continue, input, _target} ->
+        invalid_continuation_input(action, input)
 
       other ->
         {:error,
@@ -128,6 +147,15 @@ defmodule Jido.Exec.Action.Runner do
 
   defp error_result(error, :no_extras), do: {:error, error}
   defp error_result(error, {:extras, extras}), do: {:error, error, extras}
+
+  defp invalid_continuation_input(action, input) do
+    {:error,
+     programming_error("action returned an invalid continuation", %{
+       action: action,
+       reason: :invalid_input,
+       input: input
+     }), :no_extras}
+  end
 
   defp validate_params(action, params) do
     with {:ok, validated} <- invoke_validator(action, :validate_params, params) do

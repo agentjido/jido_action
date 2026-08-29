@@ -94,18 +94,20 @@ All targets accept:
 | --- | --- | --- |
 | `timeout` | `:infinity` | Complete-call limit for `run/4`. |
 | `jido` | `nil` | Jido instance used for Action worker routing. |
-
-Flow targets also accept:
-
-| Option | Default | Meaning |
-| --- | --- | --- |
-| `max_concurrency` | `8` | Bounds work in each ready Runic wave. |
+| `max_continuations` | `256` | Maximum continuations in one complete call. |
+| `max_concurrency` | `8` | Bounds ready Flow work if the chain runs a Flow. |
 
 Use `max_concurrency: 1` for serial Flow scheduling. A value greater than `1`
 runs independent ready work concurrently, up to the selected limit.
 
-`start/4` accepts `jido` and `max_concurrency`. It does not accept a timeout
-because a paused execution has no complete-call clock.
+An Action can return `{:continue, input, target}`. This result ends the current
+executable and starts the target in the same complete call. The timeout and
+continuation limit cover the full chain. See
+[Continue to Another Executable](continuations.md).
+
+`start/4` accepts `jido` and `max_concurrency`. It does not accept a timeout or
+Dispatch because a paused execution cannot run a continuation as part of one
+complete call.
 
 ## Step-wise Flow Execution
 

@@ -11,6 +11,7 @@ defmodule Jido.Exec.Action.Adapter do
   @spec run(Executable.t(), term(), term(), term(), String.t()) ::
           {:ok, term()}
           | {:ok, term(), term()}
+          | {:continue, Jido.Exec.Transition.t()}
           | {:error, Exception.t()}
           | {:error, Exception.t(), term()}
   def run(%Executable{target: action} = executable, input, context, opts, _execution_id) do
@@ -25,6 +26,7 @@ defmodule Jido.Exec.Action.Adapter do
   @spec run_instruction(Executable.t(), Instruction.t(), keyword(), String.t()) ::
           {:ok, term()}
           | {:ok, term(), term()}
+          | {:continue, Jido.Exec.Transition.t()}
           | {:error, Exception.t()}
           | {:error, Exception.t(), term()}
   def run_instruction(executable, %Instruction{} = instruction, opts, _execution_id) do

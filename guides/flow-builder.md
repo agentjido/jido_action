@@ -67,7 +67,7 @@ Builder. `build/1` returns that error or validates the complete Flow.
 Builder provides component functions:
 
 ```text
-step  choice  map  reduce  iterate  output
+step  choice  map  reduce  iterate  dispatch  output
 ```
 
 It also provides the canonical reference and condition helpers:

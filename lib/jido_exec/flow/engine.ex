@@ -3,6 +3,7 @@ defmodule Jido.Exec.Flow.Engine do
 
   alias Jido.Exec.{Execution, ExecutionGuard}
   alias Jido.Exec.Telemetry
+  alias Jido.Exec.Transition
 
   alias Jido.Exec.Flow.RunnableExecutor
 
@@ -97,6 +98,19 @@ defmodule Jido.Exec.Flow.Engine do
 
   def result(%Execution{final_result: result}) when not is_nil(result), do: result
 
+  @doc false
+  @spec run_to_completion(Execution.t()) ::
+          {:ok, Execution.t()} | {:continue, Transition.t()} | {:error, Exception.t()}
+  def run_to_completion(%Execution{status: :running} = execution) do
+    case mutate(execution, fn -> do_continue(execution) end) do
+      {:ok, :continued, execution} -> {:ok, execution}
+      {:transition, %Transition{} = transition, _execution} -> {:continue, transition}
+      {:error, _error} = error -> error
+    end
+  end
+
+  def run_to_completion(%Execution{} = execution), do: {:ok, execution}
+
   @doc "Executes the first ready native Runnable."
   @spec step(Execution.t()) ::
           {:ok, Runnable.t(), Execution.t()} | {:error, Exception.t()}
@@ -115,7 +129,9 @@ defmodule Jido.Exec.Flow.Engine do
 
   def step(%Execution{status: :running} = execution, id) when is_integer(id) do
     with {:ok, runnable} <- fetch_ready(execution, id) do
-      mutate(execution, fn -> do_step(execution, runnable) end)
+      execution
+      |> mutate(fn -> do_step(execution, runnable) end)
+      |> reject_stepwise_transition(execution)
     end
   end
 
@@ -137,7 +153,9 @@ defmodule Jido.Exec.Flow.Engine do
         execution_not_running(execution)
 
       _ready ->
-        mutate(execution, fn -> do_wave(execution) end)
+        execution
+        |> mutate(fn -> do_wave(execution) end)
+        |> reject_stepwise_transition(execution)
     end
   end
 
@@ -148,7 +166,7 @@ defmodule Jido.Exec.Flow.Engine do
   def continue(%Execution{status: :running} = execution) do
     mutation = mutate(execution, fn -> do_continue(execution) end)
 
-    case mutation do
+    case reject_stepwise_transition(mutation, execution) do
       {:ok, :continued, execution} -> {:ok, execution}
       {:error, _error} = error -> error
     end
@@ -184,8 +202,9 @@ defmodule Jido.Exec.Flow.Engine do
     executed = RunnableExecutor.execute(execution, runnable)
     execution = execution |> apply_runnable(executed) |> advance_revision()
 
-    with {:ok, execution} <- settle(execution) do
-      {:ok, executed, execution}
+    case settle(execution) do
+      {:ok, execution} -> {:ok, executed, execution}
+      {:transition, transition, execution} -> {:transition, transition, execution}
     end
   end
 
@@ -193,14 +212,16 @@ defmodule Jido.Exec.Flow.Engine do
     executed = RunnableExecutor.execute_many(execution, ready(execution))
     execution = executed |> Enum.reduce(execution, &apply_runnable(&2, &1)) |> advance_revision()
 
-    with {:ok, execution} <- settle(execution) do
-      {:ok, executed, execution}
+    case settle(execution) do
+      {:ok, execution} -> {:ok, executed, execution}
+      {:transition, transition, execution} -> {:transition, transition, execution}
     end
   end
 
   defp do_continue(%Execution{status: :running} = execution) do
-    with {:ok, _runnables, execution} <- do_wave(execution) do
-      do_continue(execution)
+    case do_wave(execution) do
+      {:ok, _runnables, execution} -> do_continue(execution)
+      {:transition, transition, execution} -> {:transition, transition, execution}
     end
   end
 
@@ -294,22 +315,21 @@ defmodule Jido.Exec.Flow.Engine do
   end
 
   defp finalize(%Execution{} = execution) do
-    final_result =
-      case Compiler.runtime_result(
-             execution.compiled,
-             execution.workflow,
-             execution.input,
-             execution.context
-           ) do
-        {:ok, output} -> execution.finalizer.(output)
-        {:error, error} -> {:error, error}
-      end
-
-    complete(execution, final_result)
+    case Compiler.runtime_result(
+           execution.compiled,
+           execution.workflow,
+           execution.input,
+           execution.context
+         ) do
+      {:continue, %Transition{} = transition} -> complete_transition(execution, transition)
+      {:ok, output} -> complete(execution, execution.finalizer.(output))
+      {:error, error} -> complete(execution, {:error, error})
+    end
   end
 
   defp complete(execution, final_result) do
     status = if match?({:ok, _output}, final_result), do: :succeeded, else: :failed
+
     Telemetry.finish(execution.lifecycle.flow, final_result)
 
     {:ok,
@@ -318,6 +338,18 @@ defmodule Jido.Exec.Flow.Engine do
        | status: status,
          ready: [],
          final_result: final_result
+     }}
+  end
+
+  defp complete_transition(execution, %Transition{} = transition) do
+    Telemetry.finish(execution.lifecycle.flow, {:continue, transition})
+
+    {:transition, transition,
+     %{
+       execution
+       | status: :succeeded,
+         ready: [],
+         final_result: nil
      }}
   end
 
@@ -341,6 +373,28 @@ defmodule Jido.Exec.Flow.Engine do
     :ok = ExecutionGuard.advance(operation, execution, next)
     mutation
   end
+
+  defp finish_mutation(
+         execution,
+         operation,
+         {:transition, %Transition{}, %Execution{} = next} = mutation
+       ) do
+    :ok = ExecutionGuard.advance(operation, execution, next)
+    mutation
+  end
+
+  defp reject_stepwise_transition(
+         {:transition, %Transition{}, %Execution{} = next},
+         _execution
+       ) do
+    {:error,
+     Error.invalid_execution_error("step-wise execution does not support Dispatch", %{
+       flow: next.flow_name,
+       component: :dispatch
+     })}
+  end
+
+  defp reject_stepwise_transition(result, _execution), do: result
 
   defp execution_not_running(execution) do
     {:error,

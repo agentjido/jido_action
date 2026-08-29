@@ -23,11 +23,22 @@ The component types are:
 - `Jido.Flow.Choice` for ordered routing with a required fallback;
 - `Jido.Flow.Map` for ordered fan-out and fan-in;
 - `Jido.Flow.Reduce` for a serial left fold; and
-- `Jido.Flow.Iterate` for a bounded local loop.
+- `Jido.Flow.Iterate` for a bounded local loop; and
+- `Jido.Flow.Dispatch` for one choice at the end of a Flow.
 
 Each component has a name, explicit `after` dependencies, and portable `meta`
 data. Data references create inferred dependencies. Jido keeps explicit and
 inferred dependencies separate.
+
+A Flow can have at most one Dispatch component. Dispatch must be the last
+component, and the Flow output must be the complete Dispatch result. Its
+decision Action returns data for its expander Action. A normal expander result
+completes the Flow. `{:continue, input, target}` ends the Flow and selects the
+next executable for the same `Jido.Exec.run/4` call.
+
+Dispatch is not available through step-wise execution or as part of a Subflow.
+These limits keep continuation in one complete Exec call. See
+[Continue to Another Executable](continuations.md).
 
 ## One Expression Grammar
 

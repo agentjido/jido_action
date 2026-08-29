@@ -11,12 +11,14 @@ defmodule Jido.Flow.DSL.Lowerer do
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.Reduce, as: FlowReduce
   alias Jido.Flow.Iterate, as: FlowIterate
+  alias Jido.Flow.Dispatch, as: FlowDispatch
 
   @maximum_iterations 10_000
 
   alias Jido.Flow.DSL.{
     Choice,
     ChoiceOption,
+    Dispatch,
     Expression,
     Iterate,
     MapNode,
@@ -153,6 +155,22 @@ defmodule Jido.Flow.DSL.Lowerer do
              ) do
         {:ok, {:component, component}}
       end
+    end
+  end
+
+  defp lower_entity(%Dispatch{} = dispatch) do
+    with {:ok, params} <- Expression.parse(dispatch.params),
+         {:ok, after_names} <- normalize_after(dispatch.after),
+         {:ok, component} <-
+           FlowDispatch.new(
+             name: dispatch.name,
+             decision: dispatch.decision,
+             expander: dispatch.expander,
+             params: params,
+             after: after_names,
+             meta: dispatch.meta
+           ) do
+      {:ok, {:component, component}}
     end
   end
 

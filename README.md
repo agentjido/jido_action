@@ -110,10 +110,14 @@ The Action `run/2` callback must return one of:
 
 - `{:ok, result}`
 - `{:ok, result, extra}`
+- `{:continue, input, target}`
 - `{:error, reason}`
 - `{:error, reason, extra}`
 
-Three-tuple returns let callers receive an extra value alongside the result or error.
+The `{:continue, input, target}` result ends the current executable and runs
+the selected Action or Flow in the same bounded Exec call. Normal success and
+error three-tuples let callers receive an extra value. See
+[Continue to Another Executable](guides/continuations.md).
 
 ## Run Asynchronously
 
@@ -206,7 +210,8 @@ end
 
 Every Flow declares one output expression. Flows also support ordered Choices,
 Map and Reduce collections, bounded Iterate components with State, independent
-components that can run in parallel, and a step-wise execution API.
+components that can run in parallel, one Dispatch at the end of a Flow, and a
+step-wise execution API.
 
 ## Build A Flow At Runtime
 
@@ -336,6 +341,7 @@ Livebook. ExDoc adds a **Run in Livebook** link to each `.livemd` guide.
 - [Actions](guides/actions.md)
 - [Instructions](guides/instructions.md)
 - [Flows](guides/flows.md)
+- [Continue to Another Executable](guides/continuations.md)
 - [Schemas & Validation](guides/schemas-validation.md)
 - [Execution Contract](guides/execution.md)
 

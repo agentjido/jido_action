@@ -11,6 +11,7 @@ defmodule Jido.Exec.Flow.Adapter do
   alias Jido.Exec.Flow.TargetRunner
   alias Jido.Flow
   alias Jido.Flow.Compiler
+  alias Jido.Flow.Dispatch
   alias Jido.Flow.Error
   alias Jido.Instruction
 
@@ -23,17 +24,22 @@ defmodule Jido.Exec.Flow.Adapter do
 
   @doc false
   @spec run(Executable.t(), term(), term(), term(), String.t()) ::
-          {:ok, term()} | {:error, Exception.t()}
+          {:ok, term()} | {:continue, Jido.Exec.Transition.t()} | {:error, Exception.t()}
   def run(executable, input, context, opts, execution_id) do
-    with {:ok, execution} <- start(executable, input, context, opts, execution_id),
-         {:ok, execution} <- Engine.continue(execution) do
+    with {:ok, flow, compiled} <- materialize(executable),
+         {:ok, execution} <-
+           start_flow(flow, compiled, input, context, opts, execution_id, :run),
+         {:ok, execution} <- Engine.run_to_completion(execution) do
       Engine.result(execution)
+    else
+      {:continue, %Jido.Exec.Transition{} = transition} -> {:continue, transition}
+      {:error, _error} = error -> error
     end
   end
 
   @doc false
   @spec run_instruction(Executable.t(), Instruction.t(), keyword(), String.t()) ::
-          {:ok, term()} | {:error, Exception.t()}
+          {:ok, term()} | {:continue, Jido.Exec.Transition.t()} | {:error, Exception.t()}
   def run_instruction(executable, %Instruction{} = instruction, opts, execution_id) do
     run(executable, instruction.params, instruction.context, opts, execution_id)
   end
@@ -42,8 +48,20 @@ defmodule Jido.Exec.Flow.Adapter do
   @spec start(Executable.t(), term(), term(), term(), String.t()) ::
           {:ok, Execution.t()} | {:error, Exception.t()}
   def start(executable, input, context, opts, execution_id) do
-    with {:ok, flow, compiled} <- materialize(executable) do
-      start_flow(flow, compiled, input, context, opts, execution_id)
+    with {:ok, flow, compiled} <- materialize(executable),
+         :ok <- reject_stepwise_dispatch(flow) do
+      start_flow(flow, compiled, input, context, opts, execution_id, :start)
+    end
+  end
+
+  defp reject_stepwise_dispatch(%Flow{components: components}) do
+    if Enum.any?(components, &match?(%Dispatch{}, &1)) do
+      {:error,
+       Error.invalid_execution_error("step-wise execution does not support Dispatch", %{
+         component: :dispatch
+       })}
+    else
+      :ok
     end
   end
 
@@ -96,12 +114,12 @@ defmodule Jido.Exec.Flow.Adapter do
     end
   end
 
-  defp start_flow(flow, compiled, input, context, opts, execution_id) do
+  defp start_flow(flow, compiled, input, context, opts, execution_id, mode) do
     flow_span =
       Telemetry.start([:jido, :flow], %{execution_id: execution_id, flow: flow.name})
 
     result =
-      with {:ok, run_opts} <- Options.validate_flow(opts),
+      with {:ok, run_opts} <- Options.validate_flow(opts, mode),
            {:ok, input} <- normalize_map(input, :input),
            {:ok, context} <- normalize_map(context, :context),
            {:ok, input} <- validate_data(flow.schema, input, "Flow", flow, :flow_input),

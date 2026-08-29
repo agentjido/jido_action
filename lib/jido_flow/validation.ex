@@ -5,6 +5,7 @@ defmodule Jido.Flow.Validation do
   alias Jido.Executable
   alias Jido.Flow.Component
   alias Jido.Flow.Choice
+  alias Jido.Flow.Dispatch
   alias Jido.Flow.Expression
   alias Jido.Flow.Error
   alias Jido.Flow.Graph
@@ -13,6 +14,7 @@ defmodule Jido.Flow.Validation do
   alias Jido.Flow.Reduce
   alias Jido.Flow.Step
   alias Jido.Flow.Subflow
+  alias Jido.Flow.Ref
 
   @module_config_keys [:name, :description, :schema, :output_schema]
   @artifact_config_keys @module_config_keys ++ [:components, :output]
@@ -30,6 +32,32 @@ defmodule Jido.Flow.Validation do
   def validate_executable(attrs) do
     with {:ok, flow, _subflows} <- prepare_executable(attrs) do
       {:ok, flow}
+    end
+  end
+
+  @doc false
+  @spec dispatch_diagnostics([Component.t()], term()) :: [Exception.t()]
+  def dispatch_diagnostics(components, output) do
+    dispatches =
+      components
+      |> Enum.with_index()
+      |> Enum.filter(fn {component, _index} -> match?(%Dispatch{}, component) end)
+
+    case dispatches do
+      [] ->
+        []
+
+      [{%Dispatch{name: name}, index}] ->
+        dispatch_sink_errors(components, name, index) ++ dispatch_output_errors(output, name)
+
+      [_first, {%Dispatch{} = second, index} | _rest] ->
+        [
+          Error.validation_error("Flow can contain only one Dispatch component", %{
+            component: second.name,
+            components: Enum.map(dispatches, fn {%Dispatch{name: name}, _index} -> name end),
+            path: [:components, index]
+          })
+        ]
     end
   end
 
@@ -79,7 +107,8 @@ defmodule Jido.Flow.Validation do
          {:ok, output} <- output(Map.get(attrs, :output)),
          :ok <- unique_names(components),
          :ok <- known_dependencies(components, output),
-         :ok <- acyclic(components) do
+         :ok <- acyclic(components),
+         :ok <- validate_terminal_dispatch(components, output) do
       {:ok,
        %{
          name: name,
@@ -226,6 +255,54 @@ defmodule Jido.Flow.Validation do
     end
   end
 
+  defp validate_terminal_dispatch(components, output) do
+    case dispatch_diagnostics(components, output) do
+      [] -> :ok
+      [error | _rest] -> {:error, error}
+    end
+  end
+
+  defp dispatch_sink_errors(components, dispatch_name, dispatch_index) do
+    dependencies =
+      components
+      |> Enum.flat_map(&Component.effective_dependencies/1)
+      |> MapSet.new()
+
+    sinks =
+      components
+      |> Enum.map(&Component.name_of/1)
+      |> Enum.reject(&MapSet.member?(dependencies, &1))
+      |> Enum.sort()
+
+    if sinks == [dispatch_name] do
+      []
+    else
+      [
+        Error.validation_error("Dispatch must be the final component in the Flow", %{
+          component: dispatch_name,
+          dispatch: dispatch_name,
+          terminal_components: sinks,
+          path: [:components, dispatch_index]
+        })
+      ]
+    end
+  end
+
+  defp dispatch_output_errors(
+         %Ref{source: :result, component: dispatch_name, path: []},
+         dispatch_name
+       ),
+       do: []
+
+  defp dispatch_output_errors(_output, dispatch_name) do
+    [
+      Error.validation_error("Flow output must be the complete Dispatch result", %{
+        dispatch: dispatch_name,
+        path: [:output]
+      })
+    ]
+  end
+
   defp validate_component_targets(components, module_stack, subflows) do
     Enum.reduce_while(components, {:ok, subflows}, fn component, {:ok, subflows} ->
       case validate_target(component, module_stack, subflows) do
@@ -273,6 +350,14 @@ defmodule Jido.Flow.Validation do
   defp validate_target(%Iterate{name: name, action: action}, _module_stack, subflows),
     do: validate_action_targets([{:action, action}], name, subflows)
 
+  defp validate_target(
+         %Dispatch{name: name, decision: decision, expander: expander},
+         _module_stack,
+         subflows
+       ) do
+    validate_action_targets([{:decision, decision}, {:expander, expander}], name, subflows)
+  end
+
   defp validate_action_targets(targets, component, subflows) do
     Enum.reduce_while(targets, {:ok, subflows}, fn {field, target}, {:ok, subflows} ->
       with {:ok, executable} <- Executable.resolve(target),
@@ -294,10 +379,20 @@ defmodule Jido.Flow.Validation do
       :error ->
         with {:ok, child} <- load_child_flow(module),
              {:ok, child} <- validate_attrs(Map.from_struct(child)),
+             :ok <- reject_dispatch_subflow(child, module),
              {:ok, subflows} <-
                validate_component_targets(child.components, [module | module_stack], subflows) do
           {:ok, Map.put(subflows, module, struct!(Jido.Flow, child))}
         end
+    end
+  end
+
+  defp reject_dispatch_subflow(%{components: components}, module) do
+    if Enum.any?(components, &match?(%Dispatch{}, &1)) do
+      {:error,
+       Error.validation_error("a Flow with Dispatch cannot be used as a Subflow", %{flow: module})}
+    else
+      :ok
     end
   end
 

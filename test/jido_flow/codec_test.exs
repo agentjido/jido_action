@@ -7,6 +7,7 @@ defmodule Jido.Flow.CodecTest do
   alias Jido.Flow.Codec
   alias Jido.Flow.Condition
   alias Jido.Flow.Error
+  alias Jido.Flow.Dispatch
   alias Jido.Flow.Ref
   alias Jido.Flow.Registry
   alias Jido.Flow.Step
@@ -128,6 +129,43 @@ defmodule Jido.Flow.CodecTest do
              {:output, "missing-output", ["output"]},
              {"add_one", "missing-first", ["components", 0]},
              {"double", "missing-second", ["components", 1]}
+           ]
+  end
+
+  test "diagnose reports Dispatch path and output errors at exact paths" do
+    registry = CodecRegistry.mixed()
+
+    dispatch_flow =
+      Flow.new!(
+        name: "stored_dispatch",
+        components: [
+          Dispatch.new!(name: "next", decision: Add, expander: Add, params: %{value: 1})
+        ],
+        output: Ref.result("next")
+      )
+
+    assert {:ok, dispatch_document} = Codec.encode(dispatch_flow, registry)
+    assert {:ok, math_document} = Codec.encode(FlowAuthoring.math_flow!(), registry)
+
+    [dispatch] = dispatch_document["components"]
+    [step | _rest] = math_document["components"]
+
+    wrapped_output = %{
+      "$type" => "map",
+      "entries" => [%{"key" => "value", "value" => dispatch_document["output"]}]
+    }
+
+    invalid = %{
+      dispatch_document
+      | "components" => [dispatch, step],
+        "output" => wrapped_output
+    }
+
+    assert {:error, %Error.Invalid{errors: errors}} = Codec.diagnose(invalid, registry)
+
+    assert Enum.map(errors, &{Exception.message(&1), &1.details.path}) == [
+             {"Dispatch must be the final component in the Flow", ["components", 0]},
+             {"Flow output must be the complete Dispatch result", ["output"]}
            ]
   end
 
