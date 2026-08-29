@@ -103,7 +103,10 @@ Use `jido_action` for validated work and data-first composition:
   it can continue to a Flow. `max_concurrency` defaults to `8`. Use `1` for
   serial Flow execution.
 - Use `run_async/4` for an asynchronous run-to-completion call. Only the owner
-  process can await or cancel its handle. An await timeout cancels that call.
+  process can await, handle messages for, or cancel its handle. Use
+  `handle_message/2` in OTP callbacks. Await, message handling, and cancellation
+  are alternative one-shot terminal consumers. An await timeout cancels that
+  call.
 - Use `start/4`, `ready/1`, `step/1`, `step/2`, `wave/1`, `continue/1`, and
   `result/1` for a Flow or an Instruction with a Flow target.
 - Treat values from `ready/1`, `step/1`, `step/2`, and `wave/1` as native

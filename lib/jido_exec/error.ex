@@ -3,8 +3,8 @@ defmodule Jido.Exec.Error do
   Defines errors for the target-neutral asynchronous execution lifecycle.
 
   Action and Flow failures keep their original error types. These errors cover
-  only handle validation, waiting, cancellation, and failures of the managed
-  asynchronous execution process.
+  only handle validation, message handling, waiting, cancellation, and
+  failures of the managed asynchronous execution process.
   """
 
   @type details_input :: map() | keyword()

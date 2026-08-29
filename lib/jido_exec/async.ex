@@ -10,8 +10,20 @@ defmodule Jido.Exec.Async do
   @max_receive_timeout 2_147_483_647
   @owner_key {__MODULE__, :owner}
   @ref_key {__MODULE__, :ref}
+  @state_key {__MODULE__, :state}
+  @handle_key {__MODULE__, :handle}
+  @active 0
+  @claimed 1
+  @terminal 2
 
-  @type async_ref :: Exec.async_ref()
+  @typep async_state :: {:jido_exec_async_state, :atomics.atomics_ref()}
+  @type async_ref :: %{
+          required(:ref) => reference(),
+          required(:pid) => pid(),
+          required(:owner) => pid(),
+          required(:monitor_ref) => reference(),
+          required(:state) => async_state()
+        }
   @type exec_result :: Exec.exec_result()
 
   @doc false
@@ -20,6 +32,7 @@ defmodule Jido.Exec.Async do
   def start(executable, input \\ %{}, context \\ %{}, opts \\ []) do
     owner = self()
     ref = make_ref()
+    state = new_state()
     task_supervisor = task_supervisor!(opts)
     group_leader = Process.group_leader()
     logger_metadata = Logger.metadata()
@@ -27,6 +40,7 @@ defmodule Jido.Exec.Async do
     work = fn ->
       Process.put(@owner_key, owner)
       Process.put(@ref_key, ref)
+      Process.put(@state_key, state)
       Process.group_leader(self(), group_leader)
       Logger.metadata(logger_metadata)
 
@@ -37,7 +51,16 @@ defmodule Jido.Exec.Async do
 
     case start_child(task_supervisor, work) do
       {:ok, pid} ->
-        %{ref: ref, pid: pid, owner: owner, monitor_ref: Process.monitor(pid)}
+        handle = %{
+          ref: ref,
+          pid: pid,
+          owner: owner,
+          monitor_ref: Process.monitor(pid),
+          state: state
+        }
+
+        register_handle(handle)
+        handle
 
       {:error, reason} ->
         raise Error.execution_error("Asynchronous execution process could not start", %{
@@ -58,7 +81,20 @@ defmodule Jido.Exec.Async do
     with :ok <- validate_handle(async_ref),
          :ok <- validate_owner(async_ref, :await),
          :ok <- validate_timeout(timeout) do
-      await_valid(async_ref, timeout)
+      case claim(async_ref) do
+        :ok -> await_valid(async_ref, timeout)
+        :consumed -> {:error, consumed_handle_error(async_ref, :await)}
+      end
+    end
+  end
+
+  @doc false
+  @spec handle_message(async_ref(), term()) ::
+          {:done, exec_result()} | :ignore | {:error, Exception.t()}
+  def handle_message(async_ref, message) do
+    with :ok <- validate_handle(async_ref),
+         :ok <- validate_owner(async_ref, :handle_message) do
+      handle_message_valid(async_ref, message)
     end
   end
 
@@ -67,18 +103,20 @@ defmodule Jido.Exec.Async do
   def cancel(%{} = async_ref) do
     with :ok <- validate_handle(async_ref),
          :ok <- validate_owner(async_ref, :cancel) do
-      cancel_valid(async_ref)
+      case claim(async_ref) do
+        :ok -> cancel_valid(async_ref)
+        :consumed -> cleanup(async_ref)
+      end
     end
   end
 
   def cancel(pid) when is_pid(pid) do
-    if Process.alive?(pid) do
-      with {:ok, owner, ref} <- pid_identity(pid),
-           :ok <- validate_owner_pid(owner, :cancel) do
-        cancel_valid(%{ref: ref, pid: pid, owner: owner, monitor_ref: Process.monitor(pid)})
-      end
-    else
-      :ok
+    case registered_handle(pid) do
+      %{owner: owner} = async_ref when owner == self() ->
+        cancel(async_ref)
+
+      _other ->
+        cancel_unregistered_pid(pid)
     end
   end
 
@@ -90,30 +128,79 @@ defmodule Jido.Exec.Async do
      })}
   end
 
-  defp await_valid(%{ref: ref, pid: pid, monitor_ref: monitor_ref}, timeout) do
+  defp handle_message_valid(async_ref, message) do
+    case classify_message(async_ref, message) do
+      :ignore ->
+        :ignore
+
+      terminal_message ->
+        case claim(async_ref) do
+          :ok -> finish_message(async_ref, terminal_message)
+          :consumed -> cleanup(async_ref, :ignore)
+        end
+    end
+  end
+
+  defp classify_message(%{ref: ref, pid: pid}, {:jido_exec_async_result, ref, pid, result}),
+    do: {:result, result}
+
+  defp classify_message(
+         %{pid: pid, monitor_ref: monitor_ref},
+         {:DOWN, monitor_ref, :process, pid, reason}
+       ),
+       do: {:down, reason}
+
+  defp classify_message(_async_ref, _message), do: :ignore
+
+  defp finish_message(async_ref, {:result, result}) do
+    complete(async_ref)
+    {:done, result}
+  end
+
+  defp finish_message(async_ref, {:down, :normal}) do
+    result = missing_result(async_ref, :handle_message)
+
+    complete(async_ref)
+    {:done, result}
+  end
+
+  defp finish_message(async_ref, {:down, reason}) do
+    result =
+      {:error,
+       Error.execution_error("Asynchronous execution process exited", %{
+         operation: :handle_message,
+         pid: async_ref.pid,
+         reason: reason,
+         retry: false
+       })}
+
+    complete(async_ref)
+    {:done, result}
+  end
+
+  defp await_valid(%{ref: ref, pid: pid, monitor_ref: monitor_ref} = async_ref, timeout) do
     if Process.alive?(pid) or result_waiting?(ref, pid) do
       deadline = deadline(timeout)
 
       case receive_result(ref, pid, monitor_ref, deadline) do
         {:result, result} ->
-          cleanup(ref, pid, monitor_ref)
-          result
+          complete(async_ref, result)
 
         {:down, :normal} ->
-          result = receive_late_result(ref, pid)
-          cleanup(ref, pid, monitor_ref)
-          result
+          result = missing_result(async_ref, :await)
+          complete(async_ref, result)
 
         {:down, reason} ->
-          cleanup(ref, pid, monitor_ref)
+          result =
+            {:error,
+             Error.execution_error("Asynchronous execution process exited", %{
+               operation: :await,
+               pid: pid,
+               reason: reason,
+               retry: false
+             })}
 
-          {:error,
-           Error.execution_error("Asynchronous execution process exited", %{
-             operation: :await,
-             pid: pid,
-             reason: reason,
-             retry: false
-           })}
+          complete(async_ref, result)
 
         :timeout ->
           error =
@@ -123,37 +210,36 @@ defmodule Jido.Exec.Async do
               retry: false
             })
 
-          stop(ref, pid, monitor_ref, error)
-          cleanup(ref, pid, monitor_ref)
-          {:error, error}
+          stop(async_ref, error)
+          complete(async_ref, {:error, error})
       end
     else
-      cleanup(ref, pid, monitor_ref)
+      result =
+        {:error,
+         Error.execution_error("Asynchronous execution is no longer running", %{
+           operation: :await,
+           pid: pid,
+           reason: :noproc,
+           retry: false
+         })}
 
-      {:error,
-       Error.execution_error("Asynchronous execution is no longer running", %{
-         operation: :await,
-         pid: pid,
-         reason: :noproc,
-         retry: false
-       })}
+      complete(async_ref, result)
     end
   end
 
-  defp cancel_valid(%{ref: ref, pid: pid, monitor_ref: monitor_ref}) do
+  defp cancel_valid(async_ref) do
     error =
       Error.cancelled_error("Asynchronous execution was cancelled", %{
         operation: :cancel,
-        pid: pid,
+        pid: async_ref.pid,
         retry: false
       })
 
-    stop(ref, pid, monitor_ref, error)
-    cleanup(ref, pid, monitor_ref)
-    :ok
+    stop(async_ref, error)
+    complete(async_ref, :ok)
   end
 
-  defp stop(ref, pid, monitor_ref, error) do
+  defp stop(%{ref: ref, pid: pid, monitor_ref: monitor_ref}, error) do
     if Process.alive?(pid) do
       send(pid, {__MODULE__, ref, {:stop, error}})
 
@@ -218,17 +304,27 @@ defmodule Jido.Exec.Async do
     end
   end
 
-  defp receive_late_result(ref, pid) do
-    receive do
-      {:jido_exec_async_result, ^ref, ^pid, result} -> result
-    after
-      100 ->
+  defp missing_result(async_ref, operation) do
+    case take_result(async_ref) do
+      {:ok, result} ->
+        result
+
+      :none ->
         {:error,
          Error.execution_error("Asynchronous execution finished without a result", %{
-           operation: :await,
-           pid: pid,
+           operation: operation,
+           pid: async_ref.pid,
+           reason: :normal,
            retry: false
          })}
+    end
+  end
+
+  defp take_result(%{ref: ref, pid: pid}) do
+    receive do
+      {:jido_exec_async_result, ^ref, ^pid, result} -> {:ok, result}
+    after
+      0 -> :none
     end
   end
 
@@ -242,10 +338,20 @@ defmodule Jido.Exec.Async do
     end
   end
 
-  defp cleanup(ref, pid, monitor_ref) do
+  defp complete(async_ref, result \\ :ok) do
+    mark_terminal(async_ref)
+    cleanup(async_ref, result)
+  end
+
+  defp cleanup(
+         %{ref: ref, pid: pid, monitor_ref: monitor_ref} = async_ref,
+         result \\ :ok
+       ) do
     Process.demonitor(monitor_ref, [:flush])
     flush_results(ref, pid)
-    flush_down(pid)
+    flush_down(monitor_ref, pid)
+    unregister_handle(async_ref)
+    result
   end
 
   defp flush_results(ref, pid) do
@@ -256,9 +362,9 @@ defmodule Jido.Exec.Async do
     end
   end
 
-  defp flush_down(pid) do
+  defp flush_down(monitor_ref, pid) do
     receive do
-      {:DOWN, _monitor_ref, :process, ^pid, _reason} -> flush_down(pid)
+      {:DOWN, ^monitor_ref, :process, ^pid, _reason} -> flush_down(monitor_ref, pid)
     after
       0 -> :ok
     end
@@ -268,12 +374,34 @@ defmodule Jido.Exec.Async do
          ref: ref,
          pid: pid,
          owner: owner,
-         monitor_ref: monitor_ref
+         monitor_ref: monitor_ref,
+         state: state
        })
        when is_reference(ref) and is_pid(pid) and is_pid(owner) and is_reference(monitor_ref),
-       do: :ok
+       do: validate_state(state)
 
-  defp validate_handle(value) do
+  defp validate_handle(value), do: invalid_handle(value)
+
+  defp validate_state(state) do
+    case state_from_term(state) do
+      {:ok, _state} -> :ok
+      :error -> invalid_handle(state)
+    end
+  end
+
+  defp state_from_term({:jido_exec_async_state, token} = state) do
+    if :atomics.get(token, 1) in [@active, @claimed, @terminal] do
+      {:ok, state}
+    else
+      :error
+    end
+  rescue
+    ArgumentError -> :error
+  end
+
+  defp state_from_term(_state), do: :error
+
+  defp invalid_handle(value) do
     {:error,
      Error.invalid_handle_error("Invalid asynchronous execution handle", %{
        value: value
@@ -310,12 +438,67 @@ defmodule Jido.Exec.Async do
   defp deadline(:infinity), do: :infinity
   defp deadline(timeout), do: System.monotonic_time(:millisecond) + timeout
 
+  defp new_state, do: {:jido_exec_async_state, :atomics.new(1, signed: false)}
+
+  defp claim(%{state: {:jido_exec_async_state, token}}) do
+    case :atomics.compare_exchange(token, 1, @active, @claimed) do
+      :ok -> :ok
+      phase when phase in [@claimed, @terminal] -> :consumed
+    end
+  end
+
+  defp mark_terminal(%{state: {:jido_exec_async_state, token}}),
+    do: :atomics.put(token, 1, @terminal)
+
+  defp consumed_handle_error(async_ref, operation) do
+    Error.invalid_handle_error("Asynchronous execution handle was already consumed", %{
+      operation: operation,
+      pid: async_ref.pid,
+      ref: async_ref.ref
+    })
+  end
+
+  defp register_handle(%{pid: pid} = async_ref) do
+    Process.put({@handle_key, pid}, async_ref)
+    :ok
+  end
+
+  defp registered_handle(pid), do: Process.get({@handle_key, pid})
+
+  defp unregister_handle(%{pid: pid, state: state}) do
+    case registered_handle(pid) do
+      %{state: ^state} -> Process.delete({@handle_key, pid})
+      _other -> nil
+    end
+
+    :ok
+  end
+
+  defp cancel_unregistered_pid(pid) do
+    if Process.alive?(pid) do
+      with {:ok, owner, ref, state} <- pid_identity(pid),
+           :ok <- validate_owner_pid(owner, :cancel) do
+        cancel(%{
+          ref: ref,
+          pid: pid,
+          owner: owner,
+          monitor_ref: Process.monitor(pid),
+          state: state
+        })
+      end
+    else
+      :ok
+    end
+  end
+
   defp pid_identity(pid) do
     case Process.info(pid, :dictionary) do
       {:dictionary, dictionary} ->
         with {@owner_key, owner} when is_pid(owner) <- List.keyfind(dictionary, @owner_key, 0),
-             {@ref_key, ref} when is_reference(ref) <- List.keyfind(dictionary, @ref_key, 0) do
-          {:ok, owner, ref}
+             {@ref_key, ref} when is_reference(ref) <- List.keyfind(dictionary, @ref_key, 0),
+             {@state_key, raw_state} <- List.keyfind(dictionary, @state_key, 0),
+             {:ok, state} <- state_from_term(raw_state) do
+          {:ok, owner, ref, state}
         else
           _value ->
             {:error,

@@ -29,13 +29,16 @@ defmodule JidoActionTest.Exec.AsyncExecutionTest do
              ref: ref,
              pid: pid,
              owner: owner,
-             monitor_ref: monitor_ref
+             monitor_ref: monitor_ref,
+             state: state
            } = handle
 
     assert is_reference(ref)
     assert is_pid(pid)
     assert owner == self()
     assert is_reference(monitor_ref)
+    assert {:jido_exec_async_state, state_ref} = state
+    assert is_reference(state_ref)
     assert {:ok, %{value: 3}} = Exec.await(handle, 1_000)
 
     extras_handle = Exec.run_async(ExtrasAction, %{value: 4}, %{trace_id: "trace-4"})
@@ -160,10 +163,12 @@ defmodule JidoActionTest.Exec.AsyncExecutionTest do
       spawn(fn ->
         send(test_pid, {:non_owner_await, Exec.await(handle, 10)})
         send(test_pid, {:non_owner_cancel, Exec.cancel(handle)})
+        send(test_pid, {:non_owner_pid_cancel, Exec.cancel(handle.pid)})
       end)
 
     assert_receive {:non_owner_await, {:error, %Error.InvalidHandleError{}}}, 1_000
     assert_receive {:non_owner_cancel, {:error, %Error.InvalidHandleError{}}}, 1_000
+    assert_receive {:non_owner_pid_cancel, {:error, %Error.InvalidHandleError{}}}, 1_000
     refute non_owner == handle.owner
     assert Process.alive?(worker)
     assert :ok = Exec.cancel(handle)
@@ -226,11 +231,15 @@ defmodule JidoActionTest.Exec.AsyncExecutionTest do
   end
 
   test "reports a handle whose process is no longer running" do
-    pid = spawn(fn -> :ok end)
-    monitor_ref = Process.monitor(pid)
-    assert_receive {:DOWN, ^monitor_ref, :process, ^pid, :normal}, 1_000
+    handle = Exec.run_async(BlockingAction, %{value: 1}, %{test_pid: self()})
+    assert_receive {:blocking_flow_node_started, worker}, 1_000
+    worker_monitor = Process.monitor(worker)
 
-    handle = %{ref: make_ref(), pid: pid, owner: self(), monitor_ref: monitor_ref}
+    Process.exit(handle.pid, :kill)
+    assert_receive {:DOWN, monitor_ref, :process, pid, :killed}, 1_000
+    assert monitor_ref == handle.monitor_ref
+    assert pid == handle.pid
+    assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :killed}, 1_000
 
     assert {:error, %Error.AsyncExecutionError{details: %{reason: :noproc}}} =
              Exec.await(handle, 10)

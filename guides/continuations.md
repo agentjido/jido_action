@@ -129,4 +129,5 @@ Use both limits for a reasoning loop: one bounds the number of continuations,
 and one bounds elapsed time.
 
 `Jido.Exec.run_async/4` runs the same bounded chain. The handle represents the
-complete chain, not one Action.
+complete chain, not one Action. Its owner can use `handle_message/2` in an OTP
+callback to consume the final chain result without blocking.

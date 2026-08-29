@@ -65,13 +65,25 @@ handle = Jido.Exec.run_async(executable, input, context, opts)
 
 result = Jido.Exec.await(handle)
 result = Jido.Exec.await(handle, 10_000)
+{:done, result} = Jido.Exec.handle_message(handle, message)
 :ok = Jido.Exec.cancel(handle)
 ```
 
 `run_async/4` accepts each run-to-completion target that `run/4` accepts. It
-returns a handle with `ref`, `pid`, `owner`, and `monitor_ref` fields. The
-process that calls `run_async/4` owns the handle. Only that process can await
-or cancel it.
+returns a handle with `ref`, `pid`, `owner`, `monitor_ref`, and shared `state`
+fields. Treat these fields as one handle. The process that calls `run_async/4`
+owns the handle. Only that process can await, handle, or cancel it.
+
+Call `handle_message/2` from `handle_info/2` or an equivalent OTP callback. It
+returns `{:done, result}` for the exact completion message and `:ignore` for an
+unrelated message. A matching process exit returns the execution error inside
+`{:done, {:error, error}}`. An invalid handle or owner returns the outer
+`{:error, error}`.
+
+`await/2`, `handle_message/2`, and `cancel/1` are alternative one-shot
+terminal consumers. A completed message handler removes matching result and
+monitor messages. Later duplicate result or stale monitor messages return
+`:ignore`. A second wait returns `Jido.Exec.Error.InvalidHandleError`.
 
 `await/1` waits for up to 5 seconds. `await/2` accepts a non-negative
 millisecond value or `:infinity`. If this wait limit expires, Exec cancels the

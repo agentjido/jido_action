@@ -229,7 +229,7 @@ smaller and its defaults are different.
 | default timeout is 30 seconds | default timeout is `:infinity` |
 | automatic retry and backoff | no automatic retry |
 | Action compensation callback | no compensation policy |
-| `run_async/4`, `await/1`, `await/2`, and `cancel/1` | kept for owner-bound, in-memory execution |
+| `run_async/4`, `await/1`, `await/2`, and `cancel/1` | kept for owner-bound, in-memory execution; `handle_message/2` adds OTP callback handling |
 | per-call log and telemetry modes | removed |
 | context propagator options | removed |
 | `jido:` instance routing | kept |

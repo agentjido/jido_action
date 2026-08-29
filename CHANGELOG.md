@@ -16,7 +16,8 @@ entries return to the normal automated changelog process.
 ### Features:
 
 * restore owner-bound asynchronous execution through `Jido.Exec.run_async/4`,
-  `await/1`, `await/2`, and `cancel/1` for Actions, Instructions, and Flows
+  `await/1`, `await/2`, and `cancel/1` for Actions, Instructions, and Flows,
+  and add `handle_message/2` for one-shot OTP callback handling
 
 ### Breaking Changes:
 

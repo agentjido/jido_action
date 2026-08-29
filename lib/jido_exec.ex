@@ -14,8 +14,8 @@ defmodule Jido.Exec do
         )
 
   `run_async/4` starts the same run-to-completion work and returns a
-  caller-owned handle. Use `await/1`, `await/2`, or `cancel/1` from the process
-  that created the handle.
+  caller-owned handle. Use `await/1`, `await/2`, `handle_message/2`, or
+  `cancel/1` from the process that created the handle.
 
   ## Step-wise Flow execution
 
@@ -65,13 +65,20 @@ defmodule Jido.Exec do
           | {:error, Exception.t()}
           | {:error, Exception.t(), term()}
 
+  @typedoc "The opaque one-shot state token shared by one asynchronous handle."
+  @opaque async_state :: {:jido_exec_async_state, :atomics.atomics_ref()}
+
   @typedoc "A caller-owned handle for one asynchronous run-to-completion execution."
   @type async_ref :: %{
           required(:ref) => reference(),
           required(:pid) => pid(),
           required(:owner) => pid(),
-          required(:monitor_ref) => reference()
+          required(:monitor_ref) => reference(),
+          required(:state) => async_state()
         }
+
+  @typedoc "The classification result for one asynchronous owner mailbox message."
+  @type async_message_result :: {:done, exec_result()} | :ignore | {:error, Exception.t()}
 
   @type async_control :: %{required(:ref) => reference(), required(:owner) => pid()}
 
@@ -261,10 +268,12 @@ defmodule Jido.Exec do
 
   The executable can be any target accepted by `run/4`. The background process
   uses the same validation, timeout, telemetry, and result contract as
-  `run/4`. Use `await/2` to receive its final result or `cancel/1` to stop it.
+  `run/4`. Use `await/2` to receive its final result, `handle_message/2` in an
+  OTP callback, or `cancel/1` to stop it.
 
   The handle is tied to the mailbox of the process that starts the execution.
-  Only that process can await or cancel it.
+  Only that process can wait for, handle, or cancel it. These operations are
+  alternative one-shot terminal consumers.
   """
   @spec run_async(term(), map() | keyword() | nil, map() | keyword() | nil, keyword()) ::
           async_ref()
@@ -286,6 +295,20 @@ defmodule Jido.Exec do
   """
   @spec await(async_ref(), timeout()) :: exec_result()
   def await(async_ref, timeout), do: Async.await(async_ref, timeout)
+
+  @doc """
+  Classifies one mailbox message for a caller-owned asynchronous execution.
+
+  Use this function from an OTP callback such as `handle_info/2`. It returns
+  `{:done, result}` for the handle's completion message, `:ignore` for an
+  unrelated message, or `{:error, error}` for an invalid handle or owner.
+
+  A completion consumes the handle and removes its matching result and
+  monitor messages. The same owner process must use `run_async/4` and this
+  function.
+  """
+  @spec handle_message(async_ref(), term()) :: async_message_result()
+  def handle_message(async_ref, message), do: Async.handle_message(async_ref, message)
 
   @doc """
   Cancels a caller-owned asynchronous execution.

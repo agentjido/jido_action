@@ -136,9 +136,23 @@ handle =
 ```
 
 The process that calls `run_async/4` owns the handle. Only that process can
-call `await/1`, `await/2`, or `cancel/1`. The default wait limit for `await/1`
-is 5 seconds. An `await/2` timeout cancels the work. The `timeout:` run option
-is a separate limit for the complete execution.
+call `await/1`, `await/2`, `handle_message/2`, or `cancel/1`. Use
+`handle_message/2` to classify messages in an OTP callback without blocking:
+
+```elixir
+def handle_info(message, %{handle: handle} = state) do
+  case Jido.Exec.handle_message(handle, message) do
+    {:done, result} -> {:noreply, %{state | handle: nil, result: result}}
+    :ignore -> {:noreply, state}
+    {:error, error} -> {:stop, error, state}
+  end
+end
+```
+
+`await/2`, `handle_message/2`, and `cancel/1` are alternative one-shot
+terminal consumers. The default wait limit for `await/1` is 5 seconds. An
+`await/2` timeout cancels the work. The `timeout:` run option is a separate
+limit for the complete execution.
 
 `cancel/1` stops active in-memory Action and Flow work. It cannot undo side
 effects that already completed.
