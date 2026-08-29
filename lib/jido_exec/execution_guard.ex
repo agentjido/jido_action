@@ -52,12 +52,6 @@ defmodule Jido.Exec.ExecutionGuard do
   end
 
   @doc false
-  @spec release(operation(), Execution.t()) :: :ok
-  def release(operation, %Execution{guard: guard}) do
-    finish_operation(operation, :release, guard)
-  end
-
-  @doc false
   @spec interrupt(operation(), Execution.t()) :: :ok
   def interrupt(operation, %Execution{guard: guard}) do
     finish_operation(operation, :interrupt, guard)
@@ -99,11 +93,6 @@ defmodule Jido.Exec.ExecutionGuard do
       {^operation_ref, ^owner, {:advance, next_revision}} ->
         finish_claimed_operation(owner, owner_monitor, operation_ref, fn ->
           advance_state(guard, token, next_revision)
-        end)
-
-      {^operation_ref, ^owner, :release} ->
-        finish_claimed_operation(owner, owner_monitor, operation_ref, fn ->
-          :atomics.compare_exchange(guard, @state_index, token, @available)
         end)
 
       {^operation_ref, ^owner, :interrupt} ->

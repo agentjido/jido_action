@@ -74,20 +74,6 @@ defmodule JidoActionTest.Exec.ExecutionGuardInterruptionTest do
             }} = Exec.step(execution)
   end
 
-  test "keeps a released revision available after owner exit" do
-    assert {:ok, execution} = Exec.start(recorder_flow("guard_release_before_down"))
-
-    {owner, owner_monitor} =
-      spawn_monitor(fn ->
-        {:ok, operation} = ExecutionGuard.claim(execution)
-        :ok = ExecutionGuard.release(operation, execution)
-      end)
-
-    assert_receive {:DOWN, ^owner_monitor, :process, ^owner, :normal}, 1_000
-    assert {:ok, _runnable, completed} = Exec.step(execution)
-    assert completed.revision == 1
-  end
-
   test "does not let a failed claimant change the active guard" do
     assert {:ok, execution} = Exec.start(recorder_flow("guard_failed_claimant"))
     test_pid = self()
@@ -144,7 +130,7 @@ defmodule JidoActionTest.Exec.ExecutionGuardInterruptionTest do
     Process.exit(helper, :kill)
 
     assert_raise RuntimeError, ~r/guard helper exited during finish/, fn ->
-      ExecutionGuard.release(operation, execution)
+      ExecutionGuard.interrupt(operation, execution)
     end
 
     assert {:error, %InvalidExecutionError{details: %{reason: :indeterminate}}} =
