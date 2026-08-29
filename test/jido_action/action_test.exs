@@ -354,6 +354,55 @@ defmodule JidoActionTest.ActionTest do
   end
 
   describe "parameter validation" do
+    test "prepares raw parameters before schema validation" do
+      module = unique_module("PrepareParamsAction")
+
+      create_module(
+        module,
+        quote do
+          use Jido.Action,
+            name: "prepare_params_action",
+            schema: Zoi.object(%{enabled: Zoi.boolean()}),
+            output_schema: Zoi.object(%{enabled: Zoi.boolean()})
+
+          @impl true
+          def on_before_validate_params(%{"enabled" => value} = params)
+              when value in ["true", "false"] do
+            prepared =
+              params
+              |> Map.delete("enabled")
+              |> Map.put(:enabled, value == "true")
+
+            {:ok, prepared}
+          end
+
+          @impl true
+          def run(params, _context), do: {:ok, params}
+        end
+      )
+
+      assert {:ok, %{enabled: true}} = module.validate_params(%{"enabled" => "true"})
+      assert {:ok, %{enabled: false}} = Jido.Exec.run(module, %{"enabled" => "false"})
+    end
+
+    test "returns an input preparation error without schema validation" do
+      module = unique_module("RejectPreparedParamsAction")
+
+      create_module(
+        module,
+        quote do
+          use Jido.Action,
+            name: "reject_prepared_params_action",
+            schema: Zoi.object(%{value: Zoi.integer()})
+
+          @impl true
+          def on_before_validate_params(_params), do: {:error, :unsafe_input}
+        end
+      )
+
+      assert {:error, :unsafe_input} = module.validate_params(%{value: "not an integer"})
+    end
+
     test "validates required parameters" do
       assert {:error, %Jido.Action.Error.InvalidInputError{message: message}} =
                FullAction.validate_params(%{})

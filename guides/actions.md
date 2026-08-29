@@ -90,6 +90,31 @@ Exec validates input, calls the Action in an owned process, validates normal
 output, and converts exceptions, throws, exits, and invalid return shapes to
 structured errors. It does not retry the Action.
 
+### Prepare Raw Input
+
+Implement `on_before_validate_params/1` only when raw input must change before
+Zoi can parse it:
+
+```elixir
+@impl true
+def on_before_validate_params(%{"enabled" => value} = params)
+    when value in ["true", "false"] do
+  prepared =
+    params
+    |> Map.delete("enabled")
+    |> Map.put(:enabled, value == "true")
+
+  {:ok, prepared}
+end
+```
+
+`validate_params/1` and `Jido.Exec.run/4` both run this callback before the
+input schema. The callback must return `{:ok, map}` or `{:error, reason}`.
+
+Prefer Zoi coercion, defaults, enums, and refinements when they can express the
+required rule. Keep authentication, authorization, secret lookup, I/O, retry,
+and compensation out of this callback.
+
 ## Action Design Rules
 
 - Keep one Action focused on one unit of work.

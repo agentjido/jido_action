@@ -15,7 +15,7 @@ Give the agent access to the application repository. Start from a clean branch
 or record all current changes. The agent must preserve changes that are not
 part of the upgrade.
 
-Decide which v3 release you want. The prompt below uses `3.0.0-beta.2`, which
+Decide which v3 release you want. The prompt below uses `3.0.0-beta.3`, which
 requires Elixir 1.18 or later.
 
 ## Agent Prompt
@@ -24,7 +24,7 @@ Copy this complete prompt into your coding agent:
 
 ```text
 Upgrade this Elixir application from jido_action v2 to
-jido_action 3.0.0-beta.2.
+jido_action 3.0.0-beta.3.
 
 Use the published jido_action v2.3.2 API as the v2 baseline. Do not use an
 unpublished Flow spike or a mid-development v3 API as the baseline. Version 2
@@ -73,8 +73,8 @@ change application behavior.
 
 3. Update the package and platform
 
-- Change the dependency to {:jido_action, "~> 3.0.0-beta.2"}.
-- Set the application to Elixir 1.18 or later for `3.0.0-beta.2`.
+- Change the dependency to {:jido_action, "~> 3.0.0-beta.3"}.
+- Set the application to Elixir 1.18 or later for `3.0.0-beta.3`.
 - Update CI to test the selected Elixir and OTP versions.
 - Run mix deps.get.
 - Add direct dependencies for libraries that the application used only
@@ -91,17 +91,26 @@ change application behavior.
 - Keep [] only when the Action intentionally has no declared schema.
 - Make schemas static module data. Replace anonymous or lazy schema effects
   with named MFA effects.
-- Remove on_before_validate_params/1, on_after_validate_params/1,
-  on_before_validate_output/1, on_after_validate_output/1, on_after_run/1,
-  and on_error/4.
-- Put schema transformations in Zoi. Put Action work in run/2. Put retry,
-  rollback, and compensation policy in the caller or its runtime.
+- Set the Zoi unknown-key policy on each nested object. Jido preserves unknown
+  keys at a direct Action schema root. Nested and wrapped schemas use their
+  declared Zoi policy.
+- Keep on_before_validate_params/1 only for deterministic raw input
+  preparation that must happen before Zoi validation.
+- Remove on_after_validate_params/1, on_before_validate_output/1,
+  on_after_validate_output/1, on_after_run/1, and on_error/4.
+- Prefer schema transformations in Zoi. Put Action-owned authentication,
+  authorization, and secret lookup in run/2. These controls can also stay in a
+  trusted caller or runtime. Put retry, rollback, and compensation policy in
+  the caller or its runtime.
 - Replace category/0, tags/0, vsn/0, to_json/0, to_tool/0, and
   __action_metadata__/0 call sites.
 - Do not expect Jido.Exec to add :action_metadata to context.
 - Keep the supported two-tuple and three-tuple Action callback results.
 - Use Jido.Action.Output only when success data is intentionally raw, batch,
   stream, or opaque.
+- Use {:continue, input, target} only when a root Action must select the next
+  Action or Flow. Use a terminal Flow Dispatch when a Flow must make this
+  selection.
 
 5. Migrate Instructions
 
@@ -128,10 +137,13 @@ change application behavior.
 - Remove max_retries, backoff, log_level, telemetry,
   context_propagators, context_propagator_failure_mode, and
   error_normalization from Exec options.
-- Keep run_async/4, await/1, await/2, and cancel/1 for owner-bound, in-memory
-  execution. They now accept Actions, Instructions, and Flows.
+- Keep run_async/4, await/1, await/2, handle_message/2, and cancel/1 for
+  owner-bound, in-memory execution. They accept Actions, Instructions, and
+  Flows.
 - Treat an await timeout as destructive cancellation. Keep the timeout run
   option as a separate complete-call limit.
+- Use max_continuations and a finite timeout to bound an executable
+  continuation loop.
 - Move retry count, backoff, durable cancellation policy, deadline, and
   compensation to the caller. Preserve idempotency rules.
 - Keep jido: instance routing. Confirm that the selected instance Task
@@ -179,6 +191,8 @@ change application behavior.
   global execution supervisor.
 - Do not depend on the package root supervisor name. Use
   Jido.Exec.TaskSupervisor when direct Task Supervisor access is required.
+- Use Jido.Exec.task_supervisor_name/1 when a higher-level runtime builds an
+  instance supervision tree.
 - Keep MyApp.Jido.TaskSupervisor for jido: MyApp.Jido instance routing.
 - Treat the v3 stored Flow document as a new format. Do not decode v2 Plan,
   Instruction, Action JSON, or development-spike data with Jido.Flow.Codec.
@@ -191,6 +205,7 @@ change application behavior.
 - Run the complete test suite and the repository quality command.
 - Test Action input validation, output validation, two-tuple and three-tuple
   results, exceptions, throws, exits, and timeouts.
+- Test the declared unknown-key policy at the Action root and in nested data.
 - Test each migrated Flow for validation, dependency order, result data,
   complete execution, and step-wise execution when the application uses it.
 - Round-trip stored Flows through real JSON bytes and the trusted Registry.

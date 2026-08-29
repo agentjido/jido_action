@@ -13,19 +13,32 @@ entries return to the normal automated changelog process.
 
 ## Unreleased
 
+## [v3.0.0-beta.3](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.2...v3.0.0-beta.3) (2026-08-29)
+
 ### Features:
 
+* add bounded executable continuations through the
+  `{:continue, input, target}` Action result and terminal Flow Dispatch
 * restore owner-bound asynchronous execution through `Jido.Exec.run_async/4`,
   `await/1`, `await/2`, and `cancel/1` for Actions, Instructions, and Flows,
   and add `handle_message/2` for one-shot OTP callback handling
 * add `Jido.Exec.task_supervisor_name/1` for higher-level runtimes that build
   instance-owned Exec supervision trees
+* retain `on_before_validate_params/1` as an optional callback for
+  deterministic raw input preparation before Zoi validation
 
 ### Breaking Changes:
 
 * remove the Flow `async:` option and use `max_concurrency` alone, with a
   default of `8`, `1` for serial scheduling, and higher values for concurrent
   ready work
+* apply Jido's open unknown-key policy only at the direct Action schema root;
+  nested and wrapped schemas now use their declared Zoi policy
+
+### Documentation:
+
+* restructure the canonical v2-to-v3 upgrade guide around each breaking change
+  and the application changes that it requires
 
 ## [v3.0.0-beta.2](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.1...v3.0.0-beta.2) (2026-08-27)
 

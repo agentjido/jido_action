@@ -178,9 +178,10 @@ or when version 3 moved the responsibility out of `jido_action`.
 ### Actions
 
 There is no shim for removed Action metadata options, compensation settings,
-NimbleOptions schemas, lifecycle hooks, generated metadata functions, Action
-JSON, or AI tool conversion. Move these concerns to schemas, `run/2`, the
-caller, or the package that owns the integration.
+NimbleOptions schemas, the five removed lifecycle hooks, generated metadata
+functions, Action JSON, or AI tool conversion. Version 3 keeps
+`on_before_validate_params/1` as a supported callback. Move the other concerns
+to schemas, `run/2`, the caller, or the package that owns the integration.
 
 ### Instructions
 

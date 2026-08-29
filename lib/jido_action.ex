@@ -22,8 +22,9 @@ defmodule Jido.Action do
   ## Validation and execution
 
   The generated `validate_params/1` and `validate_output/1` functions apply the
-  declared schemas. Object schemas are open: declared fields are validated and
-  unknown fields stay in the returned map.
+  declared schemas. An Action can implement `c:on_before_validate_params/1` to
+  prepare raw input before its schema runs. Object schemas are open: declared
+  fields are validated and unknown fields stay in the returned map.
 
   A direct callback call does not add validation. Validate both boundaries
   explicitly when you call `run/2` yourself:
@@ -177,9 +178,10 @@ defmodule Jido.Action do
 
   @doc false
   @spec validate_params_for(map(), module()) ::
-          {:ok, map()} | {:error, Error.InvalidInputError.t()}
+          {:ok, map()} | {:error, term()}
   def validate_params_for(params, module) do
-    with {:ok, validated} <- validate_data(module.schema(), params, "Action", module) do
+    with {:ok, params} <- prepare_params(params, module),
+         {:ok, validated} <- validate_data(module.schema(), params, "Action", module) do
       validate_action_map(validated, "Action", module)
     end
   end
@@ -199,10 +201,10 @@ defmodule Jido.Action do
   @validate_params_doc """
   Validates the input parameters for the Action.
 
-  Returns `{:ok, validated_params}` or
-  `{:error, %Jido.Action.Error.InvalidInputError{}}`. A direct object or struct
-  schema preserves unknown root keys. Nested and wrapped schemas use their Zoi
-  unknown-key policy.
+  Runs `on_before_validate_params/1` when the Action implements it, then applies
+  the input schema. Returns `{:ok, validated_params}` or `{:error, reason}`. A
+  direct object or struct schema preserves unknown root keys. Nested and
+  wrapped schemas use their Zoi unknown-key policy.
   """
 
   @validate_output_doc """
@@ -337,7 +339,7 @@ defmodule Jido.Action do
 
           @doc unquote(validate_params_doc)
           @spec validate_params(map()) ::
-                  {:ok, map()} | {:error, Jido.Action.Error.InvalidInputError.t()}
+                  {:ok, map()} | {:error, term()}
           def validate_params(params), do: Action.validate_params_for(params, __MODULE__)
 
           @doc unquote(validate_output_doc)
@@ -406,6 +408,26 @@ defmodule Jido.Action do
   errors, and extras.
   """
   @callback run(params :: map(), context :: map()) :: result()
+
+  @doc """
+  Prepares raw input parameters before schema validation.
+
+  Use this callback only for deterministic input preparation that must happen
+  before Zoi can parse the value. Prefer Zoi coercion, defaults, enums, and
+  refinements when they can express the required rule.
+  """
+  @callback on_before_validate_params(params :: map()) ::
+              {:ok, map()} | {:error, term()}
+
+  @optional_callbacks on_before_validate_params: 1
+
+  defp prepare_params(params, module) do
+    if function_exported?(module, :on_before_validate_params, 1) do
+      module.on_before_validate_params(params)
+    else
+      {:ok, params}
+    end
+  end
 
   defp validate_data(schema, data, context, module) do
     Validation.open_validate(schema, data, %{

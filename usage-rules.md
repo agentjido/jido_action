@@ -41,6 +41,8 @@ Use `jido_action` for validated work and data-first composition:
 
 - Validate inputs with `validate_params/1`.
 - Validate outputs with `validate_output/1`.
+- Use `on_before_validate_params/1` only for deterministic raw input
+  preparation that must happen before Zoi validation.
 - Direct object and struct schemas use open validation at the Action root:
   Jido treats Zoi `:strip` as `:preserve`, so declared keys are validated and
   unknown root keys are preserved.
