@@ -339,7 +339,9 @@ defmodule Jido.Flow.BoundaryValidationTest do
     assert Expression.error_kind(improper) == :improper_list
     assert {:error, _error} = Expression.normalize([Ref.result("ok") | :tail])
 
-    assert Expression.normalize(Ref.result(:component)) ==
+    atom_result_ref = %Ref{source: :result, component: :component, path: []}
+
+    assert Expression.normalize(atom_result_ref) ==
              {:ok, Ref.result("component")}
 
     assert {:error, name_error} = Expression.normalize(Ref.result(""))
@@ -347,5 +349,19 @@ defmodule Jido.Flow.BoundaryValidationTest do
 
     assert Expression.error_kind(%{details: %{segment: :bad}}) == :invalid_ref_path
     assert Expression.error_kind(%{details: %{expression: URI}}) == :unsupported_expression
+  end
+
+  test "Expression preserves nested validation and normalization errors" do
+    assert {:error, scoped_error} = Expression.validate([Ref.item()], :flow)
+
+    assert scoped_error.details == %{
+             path: [0],
+             ref_type: :item,
+             scope: :flow
+           }
+
+    invalid_result_ref = %Ref{source: :result, component: "", path: []}
+    assert {:error, normalization_error} = Expression.normalize([%{result: invalid_result_ref}])
+    assert Exception.message(normalization_error) == "Action name cannot be blank."
   end
 end

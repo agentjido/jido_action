@@ -4,6 +4,8 @@ defmodule JidoActionTest.Exec.TelemetryTest do
   @moduletag capture_log: true
 
   alias Jido.Exec
+  alias Jido.Exec.Telemetry
+  alias Jido.Exec.Telemetry.Tracker
   alias Jido.Flow
   alias Jido.Flow.{Condition, Iterate, Reduce, Ref, Step}
   alias Jido.Flow.Map, as: FlowMap
@@ -284,6 +286,37 @@ defmodule JidoActionTest.Exec.TelemetryTest do
              {@action_start, _, %{name: :tracker_test}},
              {@action_stop, _, %{name: :tracker_test}}
            ] = events()
+  end
+
+  test "tracker calls are safe after the tracker stops" do
+    span =
+      Telemetry.start([:jido, :action], %{
+        execution_id: "stopped-tracker-test",
+        kind: :action,
+        name: :stopped_tracker
+      })
+
+    assert :ok = Telemetry.stop(span)
+    {:ok, tracker} = Tracker.start_link()
+    assert :ok = Tracker.stop(tracker)
+    refute Process.alive?(tracker)
+
+    assert :suppressed = Tracker.open(tracker, span)
+    assert :ok = Tracker.close(tracker, span, :stop, %{})
+    assert :ok = Tracker.fail_all(tracker, :late_failure)
+    assert :ok = Tracker.stop(tracker)
+  end
+
+  test "classifies raw telemetry errors by value type" do
+    for {error, expected_type} <- [
+          {"error", :binary},
+          {%{reason: :failed}, :map},
+          {{:error, :failed}, :tuple},
+          {[:error, :failed], :list},
+          {1.5, :other}
+        ] do
+      assert %{error: ^error, error_type: ^expected_type} = Telemetry.error_metadata(error)
+    end
   end
 
   test "keeps one lifecycle open across step-wise execution" do

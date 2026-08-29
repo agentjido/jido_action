@@ -49,6 +49,21 @@ defmodule Jido.Flow.ComponentValidationTest do
     end
   end
 
+  test "Step, Subflow, and Dispatch constructors reject non-map configuration" do
+    for {module, message} <- [
+          {Step, "step configuration must be a map"},
+          {Subflow, "subflow configuration must be a map"},
+          {Dispatch, "dispatch configuration must be a map"}
+        ] do
+      assert {:error, %InvalidDefinitionError{message: ^message}} =
+               apply(module, :new, [:invalid])
+
+      assert_raise InvalidDefinitionError, message, fn ->
+        apply(module, :new!, [:invalid])
+      end
+    end
+  end
+
   test "params scopes accept only their native local references" do
     assert {:ok, %FlowMap{}} =
              FlowMap.new(name: "map", collection: [], action: Add, params: %{item: Ref.item()})

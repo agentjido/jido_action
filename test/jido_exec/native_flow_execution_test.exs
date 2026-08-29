@@ -43,6 +43,12 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
               message: "stale flow execution",
               details: %{reason: :stale_revision, revision: 0, current_revision: 1}
             }} = Exec.step(stale)
+
+    assert {:error,
+            %Jido.Flow.Error.InvalidExecutionError{
+              message: "stale flow execution",
+              details: %{reason: :stale_revision, revision: 0, current_revision: 1}
+            }} = Exec.continue(stale)
   end
 
   test "one wave consumes one revision and a stale value dispatches no work" do

@@ -156,6 +156,34 @@ defmodule JidoActionTest.Exec.FlowContractTest do
     assert step_error.details == run_error.details
   end
 
+  test "returns a reference error from inside a list" do
+    flow =
+      Flow.new!(
+        name: "missing_input_in_list",
+        components: [
+          Step.new!(
+            name: "echo",
+            action: EchoParamsAction,
+            params: %{values: [Ref.input(:present), Ref.input(:missing)]}
+          )
+        ],
+        output: Ref.result("echo")
+      )
+
+    assert {:error, error} = Exec.run(flow, %{present: :available})
+    assert Exception.message(error) == "flow reference path does not exist"
+
+    assert error.details == %{
+             path: [:missing],
+             reason: :missing_key,
+             ref_type: :input,
+             resolved_path: [],
+             retry: false,
+             segment: :missing,
+             value_type: :map
+           }
+  end
+
   test "reports a result path that reaches an improper list tail" do
     flow =
       Flow.new!(

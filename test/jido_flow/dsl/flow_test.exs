@@ -148,6 +148,46 @@ defmodule Jido.Flow.DSL.FlowTest do
     assert error.line == output_line
   end
 
+  test "a second Dispatch points to its declaration" do
+    code = """
+    defmodule DuplicateDispatchSourceFlow do
+      use Jido.Flow, name: "duplicate_dispatch_source"
+
+      flow do
+        dispatch("first",
+          decision: JidoActionTest.Fixtures.Actions.Add,
+          expander: JidoActionTest.Fixtures.Actions.Add,
+          params: %{}
+        )
+
+        dispatch("second",
+          decision: JidoActionTest.Fixtures.Actions.Add,
+          expander: JidoActionTest.Fixtures.Actions.Add,
+          params: %{}
+        )
+
+        output(result("second"))
+      end
+    end
+    """
+
+    source_file = "duplicate_dispatch_source.ex"
+
+    second_dispatch_line =
+      code
+      |> String.split("\n")
+      |> Enum.find_index(&String.contains?(&1, "dispatch(\"second\""))
+      |> Kernel.+(1)
+
+    error =
+      assert_raise CompileError, ~r/only one Dispatch component/, fn ->
+        Code.compile_string(code, source_file)
+      end
+
+    assert error.file == source_file
+    assert error.line == second_dispatch_line
+  end
+
   test "Flow declaration macros reject duplicate and non-keyword options" do
     duplicate_options = """
     defmodule DuplicateStepOptionsFlow do
@@ -209,6 +249,44 @@ defmodule Jido.Flow.DSL.FlowTest do
       assert_raise CompileError, ~r/wrong executable kind/, fn -> Code.compile_string(code) end
 
     assert error.line == 6
+  end
+
+  test "an invalid Choice fallback points to the otherwise declaration" do
+    code = """
+    defmodule InvalidChoiceFallbackTargetFlow do
+      use Jido.Flow, name: "invalid_choice_fallback_target"
+
+      flow do
+        choice "route" do
+          option "valid" do
+            condition(1 == 1)
+            action(JidoActionTest.Fixtures.Actions.Add)
+            params(%{value: 1})
+          end
+
+          otherwise action: JidoActionTest.Fixtures.NestedFlow, params: %{value: 1}
+        end
+
+        output(result("route"))
+      end
+    end
+    """
+
+    source_file = "invalid_choice_fallback.ex"
+
+    otherwise_line =
+      code
+      |> String.split("\n")
+      |> Enum.find_index(&String.contains?(&1, "otherwise action:"))
+      |> Kernel.+(1)
+
+    error =
+      assert_raise CompileError, ~r/wrong executable kind/, fn ->
+        Code.compile_string(code, source_file)
+      end
+
+    assert error.file == source_file
+    assert error.line == otherwise_line
   end
 
   test "output must be the last declaration" do
@@ -406,6 +484,19 @@ defmodule Jido.Flow.DSL.FlowTest do
 
     assert_raise CompileError, ~r/Flow configuration validation failed/, fn ->
       Code.compile_string(code)
+    end
+
+    non_map_code = """
+    defmodule NonMapFlowConfiguration do
+      use Jido.Flow, :invalid
+      flow do
+        output(%{})
+      end
+    end
+    """
+
+    assert_raise CompileError, ~r/Flow configuration validation failed/, fn ->
+      Code.compile_string(non_map_code)
     end
   end
 end

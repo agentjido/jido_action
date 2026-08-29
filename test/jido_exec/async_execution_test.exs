@@ -226,8 +226,9 @@ defmodule JidoActionTest.Exec.AsyncExecutionTest do
     handle = Exec.run_async(BlockingAction, %{value: 1}, %{test_pid: self()})
     assert_receive {:blocking_flow_node_started, worker}, 1_000
     assert {:error, %Error.InvalidHandleError{}} = Exec.await(handle, :soon)
+    worker_monitor = Process.monitor(worker)
     assert :ok = Exec.cancel(handle.pid)
-    refute Process.alive?(worker)
+    assert_receive {:DOWN, ^worker_monitor, :process, ^worker, _reason}, 1_000
   end
 
   test "reports a handle whose process is no longer running" do
