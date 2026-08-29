@@ -324,7 +324,6 @@ defmodule Jido.Flow.BoundaryValidationTest do
         fallback: valid_fallback
       )
 
-    assert Choice.targets(choice) == [{"yes", Add}, {:fallback, Add}]
     assert %{kind: :choice, options: [_], fallback: %{action: Add}} = Choice.to_map(choice)
   end
 

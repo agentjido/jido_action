@@ -232,12 +232,6 @@ defmodule Jido.Flow.Choice do
   end
 
   @doc false
-  @spec targets(t()) :: [{String.t() | :fallback, module()}]
-  def targets(%__MODULE__{} = choice) do
-    Enum.map(choice.options, &{&1.name, &1.action}) ++ [{:fallback, choice.fallback.action}]
-  end
-
-  @doc false
   @spec to_map(t()) :: map()
   def to_map(%__MODULE__{} = choice) do
     %{
