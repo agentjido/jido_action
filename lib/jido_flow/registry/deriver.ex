@@ -4,7 +4,7 @@ defmodule Jido.Flow.Registry.Deriver do
   alias Jido.Flow
   alias Jido.Flow.Choice
   alias Jido.Flow.Condition
-  alias Jido.Flow.Dynamic
+  alias Jido.Flow.Dispatch
   alias Jido.Flow.Iterate
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.Reduce
@@ -119,12 +119,12 @@ defmodule Jido.Flow.Registry.Deriver do
     |> collect_data(iterate.meta)
   end
 
-  defp collect_component(values, %Dynamic{} = dynamic) do
+  defp collect_component(values, %Dispatch{} = dispatch) do
     values
-    |> add(:action, dynamic.decision)
-    |> add(:action, dynamic.expander)
-    |> collect_expression(dynamic.params)
-    |> collect_data(dynamic.meta)
+    |> add(:action, dispatch.decision)
+    |> add(:action, dispatch.expander)
+    |> collect_expression(dispatch.params)
+    |> collect_data(dispatch.meta)
   end
 
   defp collect_condition(values, %Condition{} = condition) do

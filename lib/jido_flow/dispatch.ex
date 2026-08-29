@@ -1,13 +1,13 @@
-defmodule Jido.Flow.Dynamic do
+defmodule Jido.Flow.Dispatch do
   @moduledoc """
-  A terminal Flow decision and expansion boundary.
+  A Flow component that can choose what runs next.
 
-  Dynamic calls its decision Action and passes that result to its expander
+  Dispatch calls its decision Action and passes that result to its expander
   Action. A normal expander result completes the Flow. A continuation ends the
   current Flow and selects the next executable for the same `Jido.Exec` call.
 
-  A Flow can contain at most one Dynamic component. It must be the sole
-  terminal component and the complete Flow output.
+  A Flow can contain at most one Dispatch component. It must be the final
+  component and the complete Flow output.
   """
 
   alias Jido.Flow.Component
@@ -35,9 +35,9 @@ defmodule Jido.Flow.Dynamic do
   @enforce_keys Zoi.Struct.enforce_keys(@schema)
   defstruct Zoi.Struct.struct_fields(@schema)
 
-  @doc "Builds and validates one canonical Dynamic component."
+  @doc "Builds and validates one canonical Dispatch component."
   @spec new(map() | keyword() | t()) :: {:ok, t()} | {:error, Exception.t()}
-  def new(%__MODULE__{} = dynamic), do: dynamic |> Map.from_struct() |> new()
+  def new(%__MODULE__{} = dispatch), do: dispatch |> Map.from_struct() |> new()
 
   def new(attrs) when is_list(attrs) do
     if Keyword.keyword?(attrs), do: attrs |> Map.new() |> new(), else: invalid_configuration()
@@ -46,8 +46,8 @@ defmodule Jido.Flow.Dynamic do
   def new(%{} = attrs) do
     with :ok <- known_keys(attrs),
          {:ok, name} <- Component.name(Map.get(attrs, :name)),
-         {:ok, decision} <- Component.module(Map.get(attrs, :decision), "dynamic decision"),
-         {:ok, expander} <- Component.module(Map.get(attrs, :expander), "dynamic expander"),
+         {:ok, decision} <- Component.module(Map.get(attrs, :decision), "dispatch decision"),
+         {:ok, expander} <- Component.module(Map.get(attrs, :expander), "dispatch expander"),
          {:ok, params} <- expression(Map.get(attrs, :params, %{})),
          {:ok, after_names} <- Component.after_names(Map.get(attrs, :after, [])),
          {:ok, meta} <- Component.meta(Map.get(attrs, :meta, %{})) do
@@ -65,39 +65,39 @@ defmodule Jido.Flow.Dynamic do
 
   def new(_attrs), do: invalid_configuration()
 
-  @doc "Builds one canonical Dynamic component or raises its validation error."
+  @doc "Builds one canonical Dispatch component or raises its validation error."
   @spec new!(map() | keyword() | t()) :: t() | no_return()
   def new!(attrs) do
     case new(attrs) do
-      {:ok, dynamic} -> dynamic
+      {:ok, dispatch} -> dispatch
       {:error, error} -> raise error
     end
   end
 
   @doc false
   @spec result_deps(t()) :: [String.t()]
-  def result_deps(%__MODULE__{} = dynamic) do
-    dynamic.params |> Expression.result_refs() |> Enum.uniq() |> Enum.sort()
+  def result_deps(%__MODULE__{} = dispatch) do
+    dispatch.params |> Expression.result_refs() |> Enum.uniq() |> Enum.sort()
   end
 
   @doc false
   @spec to_map(t()) :: map()
-  def to_map(%__MODULE__{} = dynamic) do
+  def to_map(%__MODULE__{} = dispatch) do
     %{
-      kind: :dynamic,
-      name: dynamic.name,
-      decision: dynamic.decision,
-      expander: dynamic.expander,
-      params: Expression.to_map(dynamic.params),
-      after: dynamic.after,
-      meta: dynamic.meta
+      kind: :dispatch,
+      name: dispatch.name,
+      decision: dispatch.decision,
+      expander: dispatch.expander,
+      params: Expression.to_map(dispatch.params),
+      after: dispatch.after,
+      meta: dispatch.meta
     }
   end
 
   defp known_keys(attrs) do
     case Enum.find(Map.keys(attrs), &(&1 not in @config_keys)) do
       nil -> :ok
-      key -> {:error, Error.validation_error("unknown dynamic key: #{inspect(key)}")}
+      key -> {:error, Error.validation_error("unknown dispatch key: #{inspect(key)}")}
     end
   end
 
@@ -109,5 +109,5 @@ defmodule Jido.Flow.Dynamic do
   end
 
   defp invalid_configuration,
-    do: {:error, Error.validation_error("dynamic configuration must be a map", %{path: []})}
+    do: {:error, Error.validation_error("dispatch configuration must be a map", %{path: []})}
 end

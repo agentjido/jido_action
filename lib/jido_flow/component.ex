@@ -5,7 +5,7 @@ defmodule Jido.Flow.Component do
   alias Jido.Flow.Error
   alias Jido.Flow.Data
   alias Jido.Flow.Choice
-  alias Jido.Flow.Dynamic
+  alias Jido.Flow.Dispatch
   alias Jido.Flow.Iterate
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.Reduce
@@ -19,7 +19,7 @@ defmodule Jido.Flow.Component do
           | Jido.Flow.Map.t()
           | Jido.Flow.Reduce.t()
           | Jido.Flow.Iterate.t()
-          | Jido.Flow.Dynamic.t()
+          | Jido.Flow.Dispatch.t()
 
   @doc false
   @spec new(term()) :: {:ok, t()} | {:error, Exception.t()}
@@ -29,7 +29,7 @@ defmodule Jido.Flow.Component do
   def new(%FlowMap{} = map), do: FlowMap.new(map)
   def new(%Reduce{} = reduce), do: Reduce.new(reduce)
   def new(%Iterate{} = iterate), do: Iterate.new(iterate)
-  def new(%Dynamic{} = dynamic), do: Dynamic.new(dynamic)
+  def new(%Dispatch{} = dispatch), do: Dispatch.new(dispatch)
 
   def new(value) do
     {:error, Error.validation_error("expected a canonical Flow component", %{value: value})}
@@ -43,17 +43,17 @@ defmodule Jido.Flow.Component do
   def name_of(%FlowMap{name: name}), do: name
   def name_of(%Reduce{name: name}), do: name
   def name_of(%Iterate{name: name}), do: name
-  def name_of(%Dynamic{name: name}), do: name
+  def name_of(%Dispatch{name: name}), do: name
 
   @doc false
-  @spec kind(t()) :: :step | :subflow | :choice | :map | :reduce | :iterate | :dynamic
+  @spec kind(t()) :: :step | :subflow | :choice | :map | :reduce | :iterate | :dispatch
   def kind(%Step{}), do: :step
   def kind(%Subflow{}), do: :subflow
   def kind(%Choice{}), do: :choice
   def kind(%FlowMap{}), do: :map
   def kind(%Reduce{}), do: :reduce
   def kind(%Iterate{}), do: :iterate
-  def kind(%Dynamic{}), do: :dynamic
+  def kind(%Dispatch{}), do: :dispatch
 
   @doc false
   @spec after_of(t()) :: [String.t()]
@@ -63,7 +63,7 @@ defmodule Jido.Flow.Component do
   def after_of(%FlowMap{after: after_names}), do: after_names
   def after_of(%Reduce{after: after_names}), do: after_names
   def after_of(%Iterate{after: after_names}), do: after_names
-  def after_of(%Dynamic{after: after_names}), do: after_names
+  def after_of(%Dispatch{after: after_names}), do: after_names
 
   @doc false
   @spec reference_dependencies(t()) :: [String.t()]
@@ -80,7 +80,7 @@ defmodule Jido.Flow.Component do
   def reference_dependencies(%Iterate{} = iterate),
     do: Iterate.result_refs(iterate) |> Enum.uniq() |> Enum.sort()
 
-  def reference_dependencies(%Dynamic{} = dynamic), do: Dynamic.result_deps(dynamic)
+  def reference_dependencies(%Dispatch{} = dispatch), do: Dispatch.result_deps(dispatch)
 
   @doc false
   @spec effective_dependencies(t()) :: [String.t()]
@@ -134,7 +134,7 @@ defmodule Jido.Flow.Component do
     }
   end
 
-  def to_map(%Dynamic{} = dynamic), do: Dynamic.to_map(dynamic)
+  def to_map(%Dispatch{} = dispatch), do: Dispatch.to_map(dispatch)
 
   @doc false
   @spec target_modules(t()) :: [module()]
@@ -148,7 +148,7 @@ defmodule Jido.Flow.Component do
   def target_modules(%Reduce{action: action}), do: [action]
   def target_modules(%Iterate{action: action}), do: [action]
 
-  def target_modules(%Dynamic{decision: decision, expander: expander}),
+  def target_modules(%Dispatch{decision: decision, expander: expander}),
     do: [decision, expander]
 
   @doc false

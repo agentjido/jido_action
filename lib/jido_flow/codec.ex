@@ -32,7 +32,7 @@ defmodule Jido.Flow.Codec do
   alias Jido.Flow.Choice
   alias Jido.Flow.Condition
   alias Jido.Flow.Data
-  alias Jido.Flow.Dynamic
+  alias Jido.Flow.Dispatch
   alias Jido.Flow.Error
   alias Jido.Flow.Expression
   alias Jido.Flow.Graph
@@ -59,7 +59,7 @@ defmodule Jido.Flow.Codec do
     "map" => :map,
     "reduce" => :reduce,
     "iterate" => :iterate,
-    "dynamic" => :dynamic
+    "dispatch" => :dispatch
   }
 
   @sources %{
@@ -444,7 +444,7 @@ defmodule Jido.Flow.Codec do
     )
   end
 
-  defp diagnose_component_kind(:dynamic, record, registry, path) do
+  defp diagnose_component_kind(:dispatch, record, registry, path) do
     allowed = [
       "kind",
       "name",
@@ -465,7 +465,7 @@ defmodule Jido.Flow.Codec do
         expander: fn -> resolve_field(record, "expander", :action, registry, path) end,
         params: fn -> diagnose_expression_field(record, "params", registry, path) end
       ],
-      &Dynamic.new/1
+      &Dispatch.new/1
     )
   end
 
@@ -1022,16 +1022,16 @@ defmodule Jido.Flow.Codec do
         []
       end
 
-    dynamic_errors =
+    dispatch_errors =
       if duplicate_errors == [] and reference_errors == [] and cycle_errors == [] do
         components
-        |> Validation.dynamic_diagnostics(output)
+        |> Validation.dispatch_diagnostics(output)
         |> Enum.map(&ensure_json_path(&1, []))
       else
         []
       end
 
-    duplicate_errors ++ reference_errors ++ cycle_errors ++ dynamic_errors
+    duplicate_errors ++ reference_errors ++ cycle_errors ++ dispatch_errors
   end
 
   defp duplicate_component_errors(components) do
@@ -1289,19 +1289,19 @@ defmodule Jido.Flow.Codec do
     end
   end
 
-  defp encode_component(%Dynamic{} = dynamic, registry) do
-    with {:ok, decision} <- Registry.identifier(registry, :action, dynamic.decision),
-         {:ok, expander} <- Registry.identifier(registry, :action, dynamic.expander),
-         {:ok, params} <- encode_expression(dynamic.params, registry, 0),
-         {:ok, meta} <- encode_data(dynamic.meta, registry, 0) do
+  defp encode_component(%Dispatch{} = dispatch, registry) do
+    with {:ok, decision} <- Registry.identifier(registry, :action, dispatch.decision),
+         {:ok, expander} <- Registry.identifier(registry, :action, dispatch.expander),
+         {:ok, params} <- encode_expression(dispatch.params, registry, 0),
+         {:ok, meta} <- encode_data(dispatch.meta, registry, 0) do
       {:ok,
        %{
-         "kind" => "dynamic",
-         "name" => dynamic.name,
+         "kind" => "dispatch",
+         "name" => dispatch.name,
          "decision" => decision,
          "expander" => expander,
          "params" => params,
-         "after" => dynamic.after,
+         "after" => dispatch.after,
          "meta" => meta
        }}
     end

@@ -55,7 +55,7 @@ Use `jido_action` for validated work and data-first composition:
 - Use the compile-time `Jido.Flow` DSL as the primary developer authoring
   surface.
 - Give every component a stable string name.
-- Use `step`, `choice`, `map`, `reduce`, `iterate`, and `dynamic` for graph
+- Use `step`, `choice`, `map`, `reduce`, `iterate`, and `dispatch` for graph
   structure.
 - Use `input`, `context`, and `result` references to map data. Put computation
   in Actions.
@@ -70,7 +70,7 @@ Use `jido_action` for validated work and data-first composition:
 - Use `repeat` or a bounded `while` condition in the Spark `iterate` form. The
   lowerer converts it to canonical `completion` and `max_iterations` data.
 - Keep Iterate State local to that component.
-- Use at most one `dynamic`. It must be the last component and the complete
+- Use at most one `dispatch`. It must be the last component and the complete
   Flow output. Run it only through a run-to-completion Exec call.
 
 ## Runtime Flow Data
@@ -90,7 +90,7 @@ Use `jido_action` for validated work and data-first composition:
   stored JSON or Map data instead.
 - Only `Builder.step/5` and a Spark `step` can derive a Subflow from an
   executable of kind `:flow`. Choice, Map, Reduce, and Iterate target fields
-  accept Actions only. Dynamic decision and expander targets also accept
+  accept Actions only. Dispatch decision and expander targets also accept
   Actions only.
 
 ## Execution

@@ -59,7 +59,7 @@ and the same context. The target can be an Action or a Flow. The final target
 owns output validation and the final result.
 
 Exec permits this result from a root Action and from the expander of a
-`Jido.Flow.Dynamic` component at the end of a Flow. Other Flow positions reject
+`Jido.Flow.Dispatch` component at the end of a Flow. Other Flow positions reject
 it. See [Continue to Another Executable](continuations.md).
 
 ## Validation

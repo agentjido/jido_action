@@ -7,7 +7,7 @@ defmodule Jido.Flow.CodecTest do
   alias Jido.Flow.Codec
   alias Jido.Flow.Condition
   alias Jido.Flow.Error
-  alias Jido.Flow.Dynamic
+  alias Jido.Flow.Dispatch
   alias Jido.Flow.Ref
   alias Jido.Flow.Registry
   alias Jido.Flow.Step
@@ -132,40 +132,40 @@ defmodule Jido.Flow.CodecTest do
            ]
   end
 
-  test "diagnose reports Dynamic path and output errors at exact paths" do
+  test "diagnose reports Dispatch path and output errors at exact paths" do
     registry = CodecRegistry.mixed()
 
-    dynamic_flow =
+    dispatch_flow =
       Flow.new!(
-        name: "stored_dynamic",
+        name: "stored_dispatch",
         components: [
-          Dynamic.new!(name: "next", decision: Add, expander: Add, params: %{value: 1})
+          Dispatch.new!(name: "next", decision: Add, expander: Add, params: %{value: 1})
         ],
         output: Ref.result("next")
       )
 
-    assert {:ok, dynamic_document} = Codec.encode(dynamic_flow, registry)
+    assert {:ok, dispatch_document} = Codec.encode(dispatch_flow, registry)
     assert {:ok, math_document} = Codec.encode(FlowAuthoring.math_flow!(), registry)
 
-    [dynamic] = dynamic_document["components"]
+    [dispatch] = dispatch_document["components"]
     [step | _rest] = math_document["components"]
 
     wrapped_output = %{
       "$type" => "map",
-      "entries" => [%{"key" => "value", "value" => dynamic_document["output"]}]
+      "entries" => [%{"key" => "value", "value" => dispatch_document["output"]}]
     }
 
     invalid = %{
-      dynamic_document
-      | "components" => [dynamic, step],
+      dispatch_document
+      | "components" => [dispatch, step],
         "output" => wrapped_output
     }
 
     assert {:error, %Error.Invalid{errors: errors}} = Codec.diagnose(invalid, registry)
 
     assert Enum.map(errors, &{Exception.message(&1), &1.details.path}) == [
-             {"Every Flow path must end at Dynamic", ["components", 0]},
-             {"Flow output must be the complete Dynamic result", ["output"]}
+             {"Dispatch must be the final component in the Flow", ["components", 0]},
+             {"Flow output must be the complete Dispatch result", ["output"]}
            ]
   end
 

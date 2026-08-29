@@ -100,12 +100,12 @@ defmodule Jido.Flow.DSL.Macros do
     )
   end
 
-  defmacro dynamic(name, options) do
+  defmacro dispatch(name, options) do
     entity(
       name,
       options,
-      extension_module(["Flow", "Dynamic"]),
-      :__dynamic__,
+      extension_module(["Flow", "Dispatch"]),
+      :__dispatch__,
       [:params],
       __CALLER__
     )

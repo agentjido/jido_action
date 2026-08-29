@@ -6,7 +6,7 @@ defmodule Jido.Flow.Compiler do
   alias Jido.Flow
   alias Jido.Flow.Choice
   alias Jido.Flow.Compiled
-  alias Jido.Flow.Dynamic
+  alias Jido.Flow.Dispatch
   alias Jido.Flow.Error
   alias Jido.Flow.Compiler.Choice, as: ChoiceRuntime
   alias Jido.Flow.Compiler.Expression
@@ -142,7 +142,7 @@ defmodule Jido.Flow.Compiler do
               raw_value = facts |> List.last() |> Map.fetch!(:value)
 
               case {kind, raw_value} do
-                {:dynamic, {:jido_flow_transition, %Transition{} = transition}} ->
+                {:dispatch, {:jido_flow_transition, %Transition{} = transition}} ->
                   {:halt, {:continue, transition}}
 
                 {_kind, value} ->
@@ -339,11 +339,11 @@ defmodule Jido.Flow.Compiler do
     add_authored_output(state, component, step, step)
   end
 
-  defp add_component(%Dynamic{} = component, state) do
+  defp add_component(%Dispatch{} = component, state) do
     step =
-      runtime_step(state, component.name, :dynamic, fn parent, runtime ->
+      runtime_step(state, component.name, :dispatch, fn parent, runtime ->
         local = component_state(component, parent, runtime)
-        run_dynamic(component, local)
+        run_dispatch(component, local)
       end)
 
     add_authored_output(state, component, step, step)
@@ -1091,22 +1091,22 @@ defmodule Jido.Flow.Compiler do
     end
   end
 
-  defp run_dynamic(dynamic, state) do
-    with {:ok, params} <- Expression.resolve(dynamic.params, state),
+  defp run_dispatch(dispatch, state) do
+    with {:ok, params} <- Expression.resolve(dispatch.params, state),
          {:ok, decision} <-
            Target.run(
-             dynamic.decision,
+             dispatch.decision,
              params,
              state.context,
-             Target.dynamic(dynamic, :decision),
+             Target.dispatch(dispatch, :decision),
              state.execution_id,
              state.target_runner
            ) do
       case Target.run(
-             dynamic.expander,
+             dispatch.expander,
              decision,
              state.context,
-             Target.dynamic(dynamic, :expander),
+             Target.dispatch(dispatch, :expander),
              state.execution_id,
              state.target_runner
            ) do
@@ -1118,7 +1118,7 @@ defmodule Jido.Flow.Compiler do
       {:continue, %Transition{}} ->
         raise Error.execution_error(
                 "action continuation is not allowed from this Flow position",
-                %{component: dynamic.name, component_kind: :dynamic, retry: false}
+                %{component: dispatch.name, component_kind: :dispatch, retry: false}
               )
 
       {:error, error} ->

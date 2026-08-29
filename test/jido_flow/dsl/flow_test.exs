@@ -117,13 +117,13 @@ defmodule Jido.Flow.DSL.FlowTest do
     assert_raise CompileError, ~r/Flow output is required/, fn -> Code.compile_string(code) end
   end
 
-  test "an invalid Dynamic output points to the output declaration" do
+  test "an invalid Dispatch output points to the output declaration" do
     code = """
-    defmodule InvalidDynamicOutputSourceFlow do
-      use Jido.Flow, name: "invalid_dynamic_output_source"
+    defmodule InvalidDispatchOutputSourceFlow do
+      use Jido.Flow, name: "invalid_dispatch_output_source"
 
       flow do
-        dynamic("next",
+        dispatch("next",
           decision: JidoActionTest.Fixtures.Actions.Add,
           expander: JidoActionTest.Fixtures.Actions.Add,
           params: %{value: 1}
@@ -141,7 +141,7 @@ defmodule Jido.Flow.DSL.FlowTest do
       |> Kernel.+(1)
 
     error =
-      assert_raise CompileError, ~r/Flow output must be the complete Dynamic result/, fn ->
+      assert_raise CompileError, ~r/Flow output must be the complete Dispatch result/, fn ->
         Code.compile_string(code)
       end
 

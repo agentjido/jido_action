@@ -54,7 +54,7 @@ defmodule Jido.Exec.Flow.TargetRunner do
 
   defp authorize_transition(
          {:continue, %Transition{} = transition},
-         %Target{kind: :dynamic, details: %{dynamic_phase: :expander}}
+         %Target{kind: :dispatch, details: %{dispatch_phase: :expander}}
        ),
        do: {:continue, transition}
 

@@ -4,7 +4,7 @@ defmodule Jido.Flow.Compiler.Target do
   alias Jido.Action.Error
   alias Jido.Exec.Transition
 
-  @type kind :: :node | :choice | :map | :reduce | :iterate | :dynamic
+  @type kind :: :node | :choice | :map | :reduce | :iterate | :dispatch
   @type t :: %__MODULE__{kind: kind(), details: map()}
 
   @enforce_keys [:kind, :details]
@@ -32,10 +32,10 @@ defmodule Jido.Flow.Compiler.Target do
       execution: :iterate_body_execution,
       output: :iterate_body_output
     },
-    dynamic: %{
-      input: :dynamic_target_input,
-      execution: :dynamic_target_execution,
-      output: :dynamic_target_output
+    dispatch: %{
+      input: :dispatch_target_input,
+      execution: :dispatch_target_execution,
+      output: :dispatch_target_output
     }
   }
 
@@ -101,13 +101,13 @@ defmodule Jido.Flow.Compiler.Target do
   end
 
   @doc false
-  @spec dynamic(Jido.Flow.Dynamic.t(), :decision | :expander) :: t()
-  def dynamic(dynamic, phase) when phase in [:decision, :expander] do
-    target = if phase == :decision, do: dynamic.decision, else: dynamic.expander
+  @spec dispatch(Jido.Flow.Dispatch.t(), :decision | :expander) :: t()
+  def dispatch(dispatch, phase) when phase in [:decision, :expander] do
+    target = if phase == :decision, do: dispatch.decision, else: dispatch.expander
 
     %__MODULE__{
-      kind: :dynamic,
-      details: %{node: dynamic.name, target: target, dynamic_phase: phase}
+      kind: :dispatch,
+      details: %{node: dispatch.name, target: target, dispatch_phase: phase}
     }
   end
 

@@ -388,9 +388,9 @@ defmodule Jido.Exec.Flow.Engine do
          _execution
        ) do
     {:error,
-     Error.invalid_execution_error("step-wise execution does not support Dynamic", %{
+     Error.invalid_execution_error("step-wise execution does not support Dispatch", %{
        flow: next.flow_name,
-       component: :dynamic
+       component: :dispatch
      })}
   end
 

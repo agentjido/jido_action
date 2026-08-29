@@ -11,7 +11,7 @@ defmodule Jido.Exec.Flow.Adapter do
   alias Jido.Exec.Flow.TargetRunner
   alias Jido.Flow
   alias Jido.Flow.Compiler
-  alias Jido.Flow.Dynamic
+  alias Jido.Flow.Dispatch
   alias Jido.Flow.Error
   alias Jido.Instruction
 
@@ -49,16 +49,16 @@ defmodule Jido.Exec.Flow.Adapter do
           {:ok, Execution.t()} | {:error, Exception.t()}
   def start(executable, input, context, opts, execution_id) do
     with {:ok, flow, compiled} <- materialize(executable),
-         :ok <- reject_stepwise_dynamic(flow) do
+         :ok <- reject_stepwise_dispatch(flow) do
       start_flow(flow, compiled, input, context, opts, execution_id, :start)
     end
   end
 
-  defp reject_stepwise_dynamic(%Flow{components: components}) do
-    if Enum.any?(components, &match?(%Dynamic{}, &1)) do
+  defp reject_stepwise_dispatch(%Flow{components: components}) do
+    if Enum.any?(components, &match?(%Dispatch{}, &1)) do
       {:error,
-       Error.invalid_execution_error("step-wise execution does not support Dynamic", %{
-         component: :dynamic
+       Error.invalid_execution_error("step-wise execution does not support Dispatch", %{
+         component: :dispatch
        })}
     else
       :ok

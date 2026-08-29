@@ -7,7 +7,7 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
   alias Jido.Exec.Error.AsyncTimeoutError
   alias Jido.Exec.Transition
   alias Jido.Flow
-  alias Jido.Flow.{Dynamic, Ref, Step}
+  alias Jido.Flow.{Dispatch, Ref, Step}
   alias JidoActionTest.Fixtures.Actions.{Add, ExtrasAction}
   alias JidoActionTest.Fixtures.MathFlow
 
@@ -117,14 +117,14 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
   end
 
   defmodule Decision do
-    use Jido.Action, name: "terminal_dynamic_decision"
+    use Jido.Action, name: "terminal_dispatch_decision"
 
     @impl true
     def run(params, _context), do: {:ok, params}
   end
 
   defmodule Expander do
-    use Jido.Action, name: "terminal_dynamic_expander"
+    use Jido.Action, name: "terminal_dispatch_expander"
 
     @impl true
     def run(%{continue?: false, value: value}, _context), do: {:ok, %{value: value}}
@@ -225,7 +225,7 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
     end
 
     test "shares one continuation limit across Action and Flow boundaries" do
-      flow = dynamic_flow!()
+      flow = dispatch_flow!()
 
       input = %{
         input: %{continue?: true, value: 3, target: Add},
@@ -256,9 +256,9 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
     end
   end
 
-  describe "terminal Dynamic transitions" do
+  describe "terminal Dispatch transitions" do
     test "a terminal expander can close normally or select the next executable" do
-      flow = dynamic_flow!()
+      flow = dispatch_flow!()
 
       assert Exec.run(flow, %{continue?: false, value: 3, target: Add}) ==
                {:ok, %{value: 3}}
@@ -267,8 +267,8 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
                {:ok, %{value: 4}}
     end
 
-    test "a Dynamic decision cannot return a continuation" do
-      flow = dynamic_flow!(decision: ContinuingDecision)
+    test "a Dispatch decision cannot return a continuation" do
+      flow = dispatch_flow!(decision: ContinuingDecision)
 
       assert {:error, %ExecutionFailureError{message: message}} =
                Exec.run(flow, %{continue?: false, value: 3, target: Add})
@@ -293,20 +293,20 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
       assert {:ok, execution} = Exec.continue(execution)
       assert Exec.result(execution) == {:ok, data}
 
-      dynamic_flow = dynamic_flow!(expander: TransitionDataExpander)
+      dispatch_flow = dispatch_flow!(expander: TransitionDataExpander)
 
       assert {:ok, %Transition{input: %{value: 3}, target: Add}} =
                Exec.run(
-                 dynamic_flow,
+                 dispatch_flow,
                  %{continue?: false, value: 3, target: Add},
-                 %{trace_id: "dynamic"}
+                 %{trace_id: "dispatch"}
                )
     end
 
     test "normal Steps cannot return continuations" do
       flow =
         Flow.new!(
-          name: "non_dynamic_transition",
+          name: "non_dispatch_transition",
           components: [
             Step.new!(name: "continue", action: ContinueToAdd, params: %{value: 3})
           ],
@@ -317,43 +317,43 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
       assert message == "action continuation is not allowed from this Flow position"
     end
 
-    test "Dynamic must end every Flow path and be the exact Flow output" do
-      dynamic = dynamic_component!()
+    test "Dispatch must end every Flow path and be the exact Flow output" do
+      dispatch = dispatch_component!()
 
       assert {:error, error} =
                Flow.new(
-                 name: "dynamic_with_downstream",
+                 name: "dispatch_with_downstream",
                  components: [
-                   dynamic,
+                   dispatch,
                    Step.new!(name: "later", action: Add, params: %{value: 1}, after: ["next"])
                  ],
                  output: Ref.result("later")
                )
 
-      assert Exception.message(error) == "Every Flow path must end at Dynamic"
+      assert Exception.message(error) == "Dispatch must be the final component in the Flow"
 
       assert {:error, error} =
                Flow.new(
-                 name: "dynamic_with_wrapped_output",
-                 components: [dynamic],
+                 name: "dispatch_with_wrapped_output",
+                 components: [dispatch],
                  output: %{value: Ref.result("next", :value)}
                )
 
-      assert Exception.message(error) == "Flow output must be the complete Dynamic result"
+      assert Exception.message(error) == "Flow output must be the complete Dispatch result"
     end
 
-    test "Flow permits at most one Dynamic component" do
-      first = dynamic_component!()
-      second = dynamic_component!(name: "other")
+    test "Flow permits at most one Dispatch component" do
+      first = dispatch_component!()
+      second = dispatch_component!(name: "other")
 
       assert {:error, error} =
                Flow.new(
-                 name: "multiple_dynamic_components",
+                 name: "multiple_dispatch_components",
                  components: [first, second],
                  output: Ref.result("next")
                )
 
-      assert Exception.message(error) == "Flow can contain only one Dynamic component"
+      assert Exception.message(error) == "Flow can contain only one Dispatch component"
 
       assert error.details == %{
                component: "other",
@@ -362,23 +362,23 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
              }
     end
 
-    test "step-wise execution rejects a Flow with Dynamic" do
-      assert {:error, error} = Exec.start(dynamic_flow!(), %{continue?: false, value: 3})
-      assert Exception.message(error) == "step-wise execution does not support Dynamic"
+    test "step-wise execution rejects a Flow with Dispatch" do
+      assert {:error, error} = Exec.start(dispatch_flow!(), %{continue?: false, value: 3})
+      assert Exception.message(error) == "step-wise execution does not support Dispatch"
     end
   end
 
-  defp dynamic_flow!(overrides \\ []) do
-    dynamic = dynamic_component!(overrides)
+  defp dispatch_flow!(overrides \\ []) do
+    dispatch = dispatch_component!(overrides)
 
     Flow.new!(
-      name: "terminal_dynamic_flow",
-      components: [dynamic],
+      name: "terminal_dispatch_flow",
+      components: [dispatch],
       output: Ref.result("next")
     )
   end
 
-  defp dynamic_component!(overrides \\ []) do
+  defp dispatch_component!(overrides \\ []) do
     attrs =
       [
         name: "next",
@@ -392,6 +392,6 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
       ]
       |> Keyword.merge(overrides)
 
-    Dynamic.new!(attrs)
+    Dispatch.new!(attrs)
   end
 end

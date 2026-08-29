@@ -31,13 +31,13 @@ defmodule Jido.Flow.CanonicalAuthoringTest.SparkSubflow do
   end
 end
 
-defmodule Jido.Flow.CanonicalAuthoringTest.SparkDynamicFlow do
+defmodule Jido.Flow.CanonicalAuthoringTest.SparkDispatchFlow do
   @moduledoc false
 
-  use Jido.Flow, name: "canonical_dynamic_flow"
+  use Jido.Flow, name: "canonical_dispatch_flow"
 
   flow do
-    dynamic("next",
+    dispatch("next",
       decision: JidoActionTest.Fixtures.Actions.Add,
       expander: JidoActionTest.Fixtures.Actions.Add,
       params: %{value: input(:value), amount: 1},
@@ -114,7 +114,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
   alias Jido.Flow.Builder
   alias Jido.Flow.Choice
   alias Jido.Flow.Codec
-  alias Jido.Flow.Dynamic
+  alias Jido.Flow.Dispatch
   alias Jido.Flow.Iterate
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.Reduce
@@ -190,12 +190,12 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
     assert [%Subflow{}] = built.components
   end
 
-  test "direct, Builder, Spark, and JSON Dynamic forms produce the same canonical data" do
+  test "direct, Builder, Spark, and JSON Dispatch forms produce the same canonical data" do
     direct =
       Flow.new!(
-        name: "canonical_dynamic_flow",
+        name: "canonical_dispatch_flow",
         components: [
-          Dynamic.new!(
+          Dispatch.new!(
             name: "next",
             decision: Add,
             expander: Add,
@@ -207,8 +207,8 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
       )
 
     {:ok, built} =
-      Builder.new(name: "canonical_dynamic_flow")
-      |> Builder.dynamic(
+      Builder.new(name: "canonical_dispatch_flow")
+      |> Builder.dispatch(
         "next",
         Add,
         Add,
@@ -219,10 +219,10 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
       |> Builder.build()
 
     assert built == direct
-    assert Jido.Flow.CanonicalAuthoringTest.SparkDynamicFlow.flow() == direct
+    assert Jido.Flow.CanonicalAuthoringTest.SparkDispatchFlow.flow() == direct
 
     assert {:ok, document, registry} = Codec.encode(direct)
-    assert [%{"kind" => "dynamic"} = encoded] = document["components"]
+    assert [%{"kind" => "dispatch"} = encoded] = document["components"]
     refute Map.has_key?(encoded, "max_continuations")
     assert Codec.decode(document, registry) == {:ok, direct}
   end

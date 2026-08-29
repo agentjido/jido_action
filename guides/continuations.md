@@ -34,10 +34,10 @@ Action timeout type until its descriptor resolves.
 
 ## Continue from a Flow
 
-Use `Jido.Flow.Dynamic` when a Flow must choose its result or what runs next:
+Use `Jido.Flow.Dispatch` when a Flow must choose its result or what runs next:
 
 ```elixir
-dynamic :select_tool,
+dispatch :select_tool,
   decision: MyApp.ChooseTool,
   expander: MyApp.ExpandToolCall,
   params: %{request: input(:request)}
@@ -45,7 +45,7 @@ dynamic :select_tool,
 output result(:select_tool)
 ```
 
-The decision Action returns data. Dynamic gives that data to the expander
+The decision Action returns data. Dispatch gives that data to the expander
 Action. The expander has two valid choices:
 
 ```elixir
@@ -58,14 +58,14 @@ the Exec call run the selected executable next.
 
 These rules apply:
 
-- A Flow has zero or one Dynamic component.
-- Dynamic is the last component in the Flow.
-- The Flow output is exactly the complete Dynamic result.
-- Only the Dynamic expander can continue from inside a Flow.
-- The Dynamic decision and other Flow components cannot continue.
-- Step-wise execution and Subflow use reject Dynamic.
+- A Flow has zero or one Dispatch component.
+- Dispatch is the last component in the Flow.
+- The Flow output is exactly the complete Dispatch result.
+- Only the Dispatch expander can continue from inside a Flow.
+- The Dispatch decision and other Flow components cannot continue.
+- Step-wise execution and Subflow use reject Dispatch.
 
-Dynamic chooses the Flow result or the next executable. It does not change the
+Dispatch chooses the Flow result or the next executable. It does not change the
 Flow graph.
 
 ## Example: an LLM Tool Loop
@@ -74,7 +74,7 @@ Use continuation when the result of the current work tells you what must run
 next. For example, an LLM can return a final answer or ask the application to
 call a tool.
 
-The Dynamic expander handles that choice:
+The Dispatch expander handles that choice:
 
 ```elixir
 defmodule MyApp.HandleLLMResponse do

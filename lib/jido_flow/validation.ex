@@ -5,7 +5,7 @@ defmodule Jido.Flow.Validation do
   alias Jido.Executable
   alias Jido.Flow.Component
   alias Jido.Flow.Choice
-  alias Jido.Flow.Dynamic
+  alias Jido.Flow.Dispatch
   alias Jido.Flow.Expression
   alias Jido.Flow.Error
   alias Jido.Flow.Graph
@@ -36,25 +36,25 @@ defmodule Jido.Flow.Validation do
   end
 
   @doc false
-  @spec dynamic_diagnostics([Component.t()], term()) :: [Exception.t()]
-  def dynamic_diagnostics(components, output) do
-    dynamics =
+  @spec dispatch_diagnostics([Component.t()], term()) :: [Exception.t()]
+  def dispatch_diagnostics(components, output) do
+    dispatches =
       components
       |> Enum.with_index()
-      |> Enum.filter(fn {component, _index} -> match?(%Dynamic{}, component) end)
+      |> Enum.filter(fn {component, _index} -> match?(%Dispatch{}, component) end)
 
-    case dynamics do
+    case dispatches do
       [] ->
         []
 
-      [{%Dynamic{name: name}, index}] ->
-        dynamic_sink_errors(components, name, index) ++ dynamic_output_errors(output, name)
+      [{%Dispatch{name: name}, index}] ->
+        dispatch_sink_errors(components, name, index) ++ dispatch_output_errors(output, name)
 
-      [_first, {%Dynamic{} = second, index} | _rest] ->
+      [_first, {%Dispatch{} = second, index} | _rest] ->
         [
-          Error.validation_error("Flow can contain only one Dynamic component", %{
+          Error.validation_error("Flow can contain only one Dispatch component", %{
             component: second.name,
-            components: Enum.map(dynamics, fn {%Dynamic{name: name}, _index} -> name end),
+            components: Enum.map(dispatches, fn {%Dispatch{name: name}, _index} -> name end),
             path: [:components, index]
           })
         ]
@@ -108,7 +108,7 @@ defmodule Jido.Flow.Validation do
          :ok <- unique_names(components),
          :ok <- known_dependencies(components, output),
          :ok <- acyclic(components),
-         :ok <- validate_terminal_dynamic(components, output) do
+         :ok <- validate_terminal_dispatch(components, output) do
       {:ok,
        %{
          name: name,
@@ -255,14 +255,14 @@ defmodule Jido.Flow.Validation do
     end
   end
 
-  defp validate_terminal_dynamic(components, output) do
-    case dynamic_diagnostics(components, output) do
+  defp validate_terminal_dispatch(components, output) do
+    case dispatch_diagnostics(components, output) do
       [] -> :ok
       [error | _rest] -> {:error, error}
     end
   end
 
-  defp dynamic_sink_errors(components, dynamic_name, dynamic_index) do
+  defp dispatch_sink_errors(components, dispatch_name, dispatch_index) do
     dependencies =
       components
       |> Enum.flat_map(&Component.effective_dependencies/1)
@@ -274,30 +274,30 @@ defmodule Jido.Flow.Validation do
       |> Enum.reject(&MapSet.member?(dependencies, &1))
       |> Enum.sort()
 
-    if sinks == [dynamic_name] do
+    if sinks == [dispatch_name] do
       []
     else
       [
-        Error.validation_error("Every Flow path must end at Dynamic", %{
-          component: dynamic_name,
-          dynamic: dynamic_name,
+        Error.validation_error("Dispatch must be the final component in the Flow", %{
+          component: dispatch_name,
+          dispatch: dispatch_name,
           terminal_components: sinks,
-          path: [:components, dynamic_index]
+          path: [:components, dispatch_index]
         })
       ]
     end
   end
 
-  defp dynamic_output_errors(
-         %Ref{source: :result, component: dynamic_name, path: []},
-         dynamic_name
+  defp dispatch_output_errors(
+         %Ref{source: :result, component: dispatch_name, path: []},
+         dispatch_name
        ),
        do: []
 
-  defp dynamic_output_errors(_output, dynamic_name) do
+  defp dispatch_output_errors(_output, dispatch_name) do
     [
-      Error.validation_error("Flow output must be the complete Dynamic result", %{
-        dynamic: dynamic_name,
+      Error.validation_error("Flow output must be the complete Dispatch result", %{
+        dispatch: dispatch_name,
         path: [:output]
       })
     ]
@@ -351,7 +351,7 @@ defmodule Jido.Flow.Validation do
     do: validate_action_targets([{:action, action}], name, subflows)
 
   defp validate_target(
-         %Dynamic{name: name, decision: decision, expander: expander},
+         %Dispatch{name: name, decision: decision, expander: expander},
          _module_stack,
          subflows
        ) do
@@ -379,7 +379,7 @@ defmodule Jido.Flow.Validation do
       :error ->
         with {:ok, child} <- load_child_flow(module),
              {:ok, child} <- validate_attrs(Map.from_struct(child)),
-             :ok <- reject_dynamic_subflow(child, module),
+             :ok <- reject_dispatch_subflow(child, module),
              {:ok, subflows} <-
                validate_component_targets(child.components, [module | module_stack], subflows) do
           {:ok, Map.put(subflows, module, struct!(Jido.Flow, child))}
@@ -387,10 +387,10 @@ defmodule Jido.Flow.Validation do
     end
   end
 
-  defp reject_dynamic_subflow(%{components: components}, module) do
-    if Enum.any?(components, &match?(%Dynamic{}, &1)) do
+  defp reject_dispatch_subflow(%{components: components}, module) do
+    if Enum.any?(components, &match?(%Dispatch{}, &1)) do
       {:error,
-       Error.validation_error("a Flow with Dynamic cannot be used as a Subflow", %{flow: module})}
+       Error.validation_error("a Flow with Dispatch cannot be used as a Subflow", %{flow: module})}
     else
       :ok
     end

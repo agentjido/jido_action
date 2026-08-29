@@ -106,7 +106,7 @@ continuation limit cover the full chain. See
 [Continue to Another Executable](continuations.md).
 
 `start/4` accepts `jido` and `max_concurrency`. It does not accept a timeout or
-Dynamic because a paused execution cannot run a continuation as part of one
+Dispatch because a paused execution cannot run a continuation as part of one
 complete call.
 
 ## Step-wise Flow Execution

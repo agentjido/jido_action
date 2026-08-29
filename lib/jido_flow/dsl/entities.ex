@@ -211,7 +211,7 @@ defmodule Jido.Flow.DSL.IterateState do
   defstruct [:schema, :initial, :__identifier__, __source__: %{}, __spark_metadata__: nil]
 end
 
-defmodule Jido.Flow.DSL.Dynamic do
+defmodule Jido.Flow.DSL.Dispatch do
   @moduledoc false
 
   @type t :: %__MODULE__{
