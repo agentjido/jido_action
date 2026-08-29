@@ -14,6 +14,13 @@ The tuple has three values:
 - `target` is an Action or Flow module, or a runtime Flow value.
 - The current context passes to the target without a change.
 
+The complete input cannot be a `Jido.Action.Output` envelope. Put the envelope
+in a named map field if the next executable must receive it:
+
+```elixir
+{:continue, %{output: Jido.Action.Output.raw("complete")}, NextAction}
+```
+
 `Jido.Exec` finishes the current executable and runs the selected target next.
 It does not add work to the current Flow, resume a component, or change the
 Runic graph. The final target owns output validation, extras, and the final

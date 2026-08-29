@@ -2,6 +2,7 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
   use JidoActionTest.Case, async: true
 
   alias Jido.Action.Error.ExecutionFailureError
+  alias Jido.Action.Output
   alias Jido.Exec
   alias Jido.Exec.Error.AsyncTimeoutError
   alias Jido.Exec.Transition
@@ -191,6 +192,22 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
                   details: %{target: ^target}
                 }} = Exec.run(ContinueToTarget, %{input: %{}, target: target})
       end
+    end
+
+    test "requires an Action output envelope in a continuation input field" do
+      output = Output.raw("raw value")
+
+      assert {:error,
+              %ExecutionFailureError{
+                message: "action returned an invalid continuation",
+                details: %{reason: :invalid_input, input: ^output}
+              }} =
+               Exec.run(ContinueToTarget, %{input: output, target: CountingTarget})
+
+      assert Exec.run(
+               ContinueToTarget,
+               %{input: %{output: output}, target: CountingTarget}
+             ) == {:ok, %{output: output}}
     end
 
     test "stops an infinite continuation chain at one complete-call limit" do

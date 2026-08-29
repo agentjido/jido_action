@@ -102,7 +102,7 @@ defmodule Jido.Exec.Action.Runner do
       {:error, reason, extras} ->
         {:error, normalize_action_error(reason), {:extras, extras}}
 
-      {:continue, input, target} when is_map(input) ->
+      {:continue, input, target} when is_map(input) and not is_struct(input, Output) ->
         {:continue, Transition.new(input, target, action, context)}
 
       {:continue, input, _target} ->

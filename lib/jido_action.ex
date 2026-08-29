@@ -397,9 +397,11 @@ defmodule Jido.Action do
   action runs as a `Jido.Flow` node, flow execution discards extras and uses only
   the action output or error reason.
 
-  A continuation does not resume this Action. Its input must be a map. Its
-  target must be an Action module, Flow module, or `Jido.Flow` value. The final
-  executable owns output validation, errors, and extras.
+  A continuation does not resume this Action. Its input must be a map, not a
+  `Jido.Action.Output` envelope. Put an output envelope in a map field when the
+  next executable must receive it. The target must be an Action module, Flow
+  module, or `Jido.Flow` value. The final executable owns output validation,
+  errors, and extras.
   """
   @callback run(params :: map(), context :: map()) :: result()
 
