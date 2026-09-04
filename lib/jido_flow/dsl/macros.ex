@@ -52,10 +52,20 @@ end
 defmodule Jido.Flow.DSL.Macros do
   @moduledoc false
 
-  alias Jido.Flow.DSL.{InlineStep, InlineStepCompiler, MacroSupport}
+  alias Jido.Flow.DSL.{InlineStep, InlineStepCompiler, MacroSupport, ModuleCompiler}
 
   defmacro step(name, options) do
-    entity(name, options, extension_module(["Flow", "Step"]), :__step__, [:params], __CALLER__)
+    caller = __CALLER__
+    step_name = Macro.unique_var(:step_name, __MODULE__)
+
+    declaration =
+      entity(step_name, options, extension_module(["Flow", "Step"]), :__step__, [:params], caller)
+
+    quote line: caller.line do
+      unquote(step_name) = unquote(name)
+      unquote(ModuleCompiler).register_step!(unquote(step_name), __ENV__)
+      unquote(declaration)
+    end
   end
 
   defmacro step(name, bindings, options) do

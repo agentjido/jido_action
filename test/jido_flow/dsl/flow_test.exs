@@ -95,6 +95,31 @@ defmodule Jido.Flow.DSL.FlowTest do
              {:ok, %{message: "Hello, Ada!", value: 6}}
   end
 
+  test "step_action returns only canonical Action-backed Step targets" do
+    module = Jido.Flow.DSL.FlowTest.InlineAndExistingFlow
+    [inline, keyword, field_block, _child] = module.flow().components
+
+    for step <- [inline, keyword, field_block] do
+      assert module.step_action(step.name) == step.action
+    end
+
+    assert module.step_action(:inline) == inline.action
+    assert module.step_action(:keyword) == JidoActionTest.Fixtures.Actions.Add
+    assert module.step_action(:field_block) == JidoActionTest.Fixtures.Actions.Multiply
+
+    for name <- ["child", "unknown", nil, "", 17, %{}, <<255>>, String.duplicate("x", 257)] do
+      assert_raise ArgumentError, ~r/expected an Action-backed Step name/, fn ->
+        module.step_action(name)
+      end
+    end
+
+    for name <- ["route", "mapped", "reduced", "loop"] do
+      assert_raise ArgumentError, ~r/expected an Action-backed Step name/, fn ->
+        Jido.Flow.DSL.FlowTest.MixedFlow.step_action(name)
+      end
+    end
+  end
+
   test "the unchanged Spark forms lower directly to canonical records" do
     flow = Jido.Flow.DSL.FlowTest.MixedFlow.flow()
 
@@ -115,6 +140,7 @@ defmodule Jido.Flow.DSL.FlowTest do
     for {name, arity} <- [
           __jido_executable__: 0,
           flow: 0,
+          step_action: 1,
           compiled: 0,
           name: 0,
           description: 0,

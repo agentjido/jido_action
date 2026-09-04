@@ -2,21 +2,48 @@ defmodule Jido.Flow.DSL.InlineStepCompiler do
   @moduledoc false
 
   alias Jido.Flow.Component
-  alias Jido.Flow.DSL.{InlineStep, MacroSupport}
+  alias Jido.Flow.DSL.{InlineStep, MacroSupport, ModuleCompiler}
 
   @doc false
   @spec compile!(Macro.t(), InlineStep.t(), Macro.Env.t()) :: {String.t(), module(), Macro.t()}
   def compile!(name_ast, parsed, caller) do
-    name = normalize_name!(name_ast, caller)
+    name =
+      case Component.name(Macro.expand(name_ast, caller)) do
+        {:ok, name} -> name
+        {:error, error} -> MacroSupport.compile_error!(caller, Exception.message(error))
+      end
+
     {action, function} = identity(caller.module, name)
-    create_action(action, function, name, caller)
-    {name, action, owner_definition(function, parsed, caller)}
+    definition = owner_definition(function, parsed, caller)
+
+    # Run compiler mutations at declaration evaluation, not macro expansion.
+    # This preserves source order and does not register untaken authoring branches.
+    quoted =
+      quote line: caller.line do
+        unquote(__MODULE__).create!(unquote(name), unquote(action), unquote(function), __ENV__)
+        unquote(definition)
+      end
+
+    {name, action, quoted}
   end
 
-  defp normalize_name!(name_ast, caller) do
-    case Component.name(Macro.expand(name_ast, caller)) do
-      {:ok, name} -> name
-      {:error, error} -> MacroSupport.compile_error!(caller, Exception.message(error))
+  @doc false
+  @spec create!(String.t(), module(), atom(), Macro.Env.t()) :: term()
+  def create!(name, action, function, caller) do
+    ModuleCompiler.register_step!(name, caller)
+    ModuleCompiler.reserve_function!(caller, {function, 2})
+    ensure_owner!(action, name, caller)
+    create_action(action, function, name, caller)
+  end
+
+  defp ensure_owner!(action, name, caller) do
+    if Code.ensure_loaded?(action) and
+         not (function_exported?(action, :__jido_inline_step__, 0) and
+                action.__jido_inline_step__() == {caller.module, name}) do
+      MacroSupport.compile_error!(
+        caller,
+        "generated inline Step module #{inspect(action)} already belongs to another definition"
+      )
     end
   end
 
@@ -67,10 +94,13 @@ defmodule Jido.Flow.DSL.InlineStepCompiler do
     # the caller's diagnostics, lexical expansion, and original source lines.
     quote line: caller.line do
       @doc false
+      @__jido_flow_generated_definition__ {unquote(function), 2}
       def unquote(function)(unquote(parsed.pattern_ast), _context) do
         unquote_splicing(unimports)
         unquote(parsed.body_ast)
       end
+
+      Module.delete_attribute(__MODULE__, :__jido_flow_generated_definition__)
     end
   end
 

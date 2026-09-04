@@ -7,6 +7,224 @@ defmodule Jido.Flow.DSL.InlineStepTest do
   @source_file "inline_header.ex"
   @source_line 40
 
+  defmodule NameSource do
+    defmacro literal_name do
+      send(self(), :inline_name_macro_expanded)
+      "macro_name"
+    end
+
+    def expression_name do
+      send(self(), :inline_name_expression_evaluated)
+      "expression_name"
+    end
+  end
+
+  test "legacy Step names expand or evaluate once" do
+    for {expression, marker, name} <- [
+          {"#{inspect(NameSource)}.literal_name()", :inline_name_macro_expanded, "macro_name"},
+          {"#{inspect(NameSource)}.expression_name()", :inline_name_expression_evaluated,
+           "expression_name"}
+        ] do
+      owner = unique_owner("LegacyName")
+
+      declaration =
+        "step #{expression}, action: JidoActionTest.Fixtures.Actions.Add, params: %{value: 1}"
+
+      compile_source(flow_source(owner, declaration, "require #{inspect(NameSource)}"))
+      assert_received ^marker
+      refute_received ^marker
+      assert owner.step_action(name) == JidoActionTest.Fixtures.Actions.Add
+    end
+  end
+
+  test "a dynamic explicit name is registered before a later inline declaration" do
+    owner = unique_owner("DynamicDuplicate")
+    {target, _} = generated_identity(owner, "expression_name")
+
+    source = """
+    defmodule #{inspect(owner)} do
+      use Jido.Flow, name: "dynamic_duplicate"
+      flow do
+        step #{inspect(NameSource)}.expression_name(), action: JidoActionTest.Fixtures.Actions.Add, params: %{value: 1}
+        step "expression_name", [], do: {:ok, %{}}
+        output(%{})
+      end
+    end
+    """
+
+    error =
+      assert_raise CompileError, ~r/duplicate Step name: "expression_name"/, fn ->
+        compile_source(source)
+      end
+
+    assert error.line == 5
+    assert_received :inline_name_expression_evaluated
+    refute_received :inline_name_expression_evaluated
+    refute Code.ensure_loaded?(target)
+  end
+
+  test "a Step in a false authoring branch does not reserve its name" do
+    for unused <- [
+          ~s(step "same", action: JidoActionTest.Fixtures.Actions.Add, params: %{value: 1}),
+          ~s(step "same", [], do: {:ok, %{value: :unused}})
+        ] do
+      owner = unique_owner("Conditional")
+
+      declarations = """
+      if false do
+        #{unused}
+      end
+      step "same", [], do: {:ok, %{value: :used}}
+      """
+
+      compile_source(flow_source(owner, declarations))
+      assert [%Jido.Flow.Step{name: "same"}] = owner.flow().components
+      assert owner.step_action("same").run(%{}, %{}) == {:ok, %{value: :used}}
+    end
+  end
+
+  test "duplicate Steps fail before a second inline target can replace the first" do
+    inline = ~s(step :same, [], do: {:ok, %{value: :first}})
+    replacement = ~s(step "same", [], do: {:ok, %{value: :second}})
+    keyword = ~s(step "same", action: JidoActionTest.Fixtures.Actions.Add, params: %{value: 1})
+
+    block =
+      "step \"same\" do\n action(JidoActionTest.Fixtures.Actions.Add)\n params(%{value: 1})\n end"
+
+    for {first, second} <- [
+          {inline, replacement},
+          {inline, keyword},
+          {keyword, inline},
+          {inline, block},
+          {block, inline}
+        ] do
+      owner = unique_owner("Duplicate")
+      target = generated_identity(owner, "same") |> elem(0)
+
+      assert_raise CompileError, ~r/duplicate Step name: "same"/, fn ->
+        compile_source(flow_source(owner, first <> "\n" <> second))
+      end
+
+      if first == inline do
+        assert target.__jido_inline_step__() == {owner, "same"}
+      else
+        refute Code.ensure_loaded?(target)
+      end
+    end
+  end
+
+  test "foreign generated module names cannot be overwritten" do
+    owner = unique_owner("Foreign")
+    {target, _function} = generated_identity(owner, "same")
+    compile_source("defmodule #{inspect(target)} do\n def untouched, do: :foreign\nend")
+
+    assert_raise CompileError, ~r/generated inline Step module.*already belongs/, fn ->
+      compile_source(flow_source(owner, ~s(step "same", [], do: {:ok, %{}})))
+    end
+
+    assert target.untouched() == :foreign
+    refute function_exported?(target, :run, 2)
+  end
+
+  test "generated owner functions and lookup reject user clauses before and after declarations" do
+    for position <- [:before, :after], kind <- [:body, :lookup], visibility <- [:def, :defp] do
+      owner = unique_owner("Reserved")
+      {_target, body_function} = generated_identity(owner, "same")
+      {function, args} = if kind == :body, do: {body_function, "_, _"}, else: {:step_action, "_"}
+      clause = "#{visibility} #{function}(#{args}), do: :user_clause"
+      declaration = ~s(step "same", [], do: {:ok, %{}})
+      {before, after_code} = if position == :before, do: {clause, ""}, else: {"", clause}
+
+      # Elixir itself rejects a private clause after a public generated body
+      # before it calls the definition callback.
+      message =
+        if position == :after and kind == :body and visibility == :defp,
+          do: ~r/cannot compile file|already defined as def/,
+          else: ~r/reserved Flow function.*#{function}/
+
+      ExUnit.CaptureIO.capture_io(:stderr, fn ->
+        assert_raise CompileError, message, fn ->
+          compile_source(flow_source(owner, declaration, before, after_code))
+        end
+      end)
+    end
+  end
+
+  test "lookup is reserved even when it is defined before use Jido.Flow" do
+    owner = unique_owner("EarlyLookup")
+
+    assert_raise CompileError, ~r/reserved Flow function.*step_action/, fn ->
+      compile_source("""
+      defmodule #{inspect(owner)} do
+        def step_action(_), do: :user_clause
+        use Jido.Flow, name: "early_lookup"
+        flow do
+          step "same", action: JidoActionTest.Fixtures.Actions.Add
+          output(%{})
+        end
+      end
+      """)
+    end
+  end
+
+  test "bounded target names preserve long, punctuation, and Unicode names across owners" do
+    names = [String.duplicate("x", 256), "hello-world?!", "café/世界"]
+    owner = unique_owner(String.duplicate("L", 150))
+    other = unique_owner("Other")
+    declarations = Enum.map_join(names, "\n", &"step #{inspect(&1)}, [], do: {:ok, %{}}")
+    compile_source(flow_source(owner, declarations))
+    compile_source(flow_source(other, declarations))
+
+    for name <- names do
+      target = owner.step_action(name)
+      assert target != other.step_action(name)
+      assert byte_size(Atom.to_string(target)) < 128
+      assert target.name() == name
+      assert target.__jido_inline_step__() == {owner, name}
+    end
+  end
+
+  test "normal recompilation keeps identity and replaces the body" do
+    owner = unique_owner("Recompiled")
+    compile_source(flow_source(owner, ~s(step "same", [], do: {:ok, %{version: 1}})))
+    target = owner.step_action("same")
+
+    ExUnit.CaptureIO.capture_io(:stderr, fn ->
+      compile_source(flow_source(owner, ~s(step "same", [], do: {:ok, %{version: 2}})))
+    end)
+
+    assert owner.step_action("same") == target
+    assert target.run(%{}, %{}) == {:ok, %{version: 2}}
+  end
+
+  test "repeated runtime access creates no target modules or atoms from unknown names" do
+    owner = JidoActionTest.Fixtures.InlineGreetingFlow
+
+    unknown_names =
+      for n <- 1..100, do: "unknown_inline_step_#{n}_#{System.unique_integer([:positive])}"
+
+    access = fn ->
+      for name <- unknown_names do
+        assert_raise ArgumentError, fn -> owner.step_action(name) end
+      end
+
+      assert is_atom(owner.step_action(:greet))
+      assert {:ok, _} = Jido.Flow.validate(owner.flow())
+      assert {:ok, _} = Jido.Exec.run(owner, %{name: "Ada"})
+    end
+
+    access.()
+    targets = generated_modules()
+    atoms = :erlang.system_info(:atom_count)
+    for _ <- 1..3, do: access.()
+    assert :erlang.system_info(:atom_count) == atoms
+    assert generated_modules() == targets
+
+    for name <- unknown_names do
+      assert_raise ArgumentError, fn -> String.to_existing_atom(name) end
+    end
+  end
+
   test "inline bindings compile and run through ordinary Steps with inferred dependencies" do
     assert [%Jido.Flow.Step{action: action, params: params}, %Jido.Flow.Step{}] =
              JidoActionTest.Fixtures.InlineGreetingFlow.flow().components
@@ -546,6 +764,38 @@ defmodule Jido.Flow.DSL.InlineStepTest do
   defp parse(source) do
     {:step, _, [_name | arguments]} = ast(source)
     apply(InlineStep, :parse!, arguments ++ [caller()])
+  end
+
+  defp unique_owner(prefix),
+    do: Module.concat(__MODULE__, "#{prefix}#{System.unique_integer([:positive])}")
+
+  defp flow_source(owner, declarations, before_code \\ "", after_code \\ "") do
+    """
+    defmodule #{inspect(owner)} do
+      use Jido.Flow, name: "inline_test"
+      #{before_code}
+      flow do
+        #{declarations}
+        output(%{})
+      end
+      #{after_code}
+    end
+    """
+  end
+
+  defp generated_identity(owner, name) do
+    digest =
+      :crypto.hash(:sha256, :erlang.term_to_binary({owner, name})) |> Base.encode16(case: :lower)
+
+    {Module.concat(Jido.Flow.Generated.InlineStep, "A" <> digest),
+     String.to_atom("__jido_inline_step_" <> digest)}
+  end
+
+  defp generated_modules do
+    for {module, _} <- :code.all_loaded(),
+        String.starts_with?(Atom.to_string(module), "Elixir.Jido.Flow.Generated.InlineStep."),
+        into: MapSet.new(),
+        do: module
   end
 
   defp ast(source), do: Code.string_to_quoted!(source, line: @source_line, columns: true)
