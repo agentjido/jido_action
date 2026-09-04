@@ -31,7 +31,20 @@ defmodule Jido.Action.Inline.Owner do
 
   @doc false
   @spec reserve_function!(Macro.Env.t(), {atom(), non_neg_integer()}) :: :ok
-  def reserve_function!(caller, function) do
+  def reserve_function!(caller, function),
+    do: reserve_function!(caller, function, "inline Action")
+
+  @doc false
+  @spec reserve_function!(Macro.Env.t(), {atom(), non_neg_integer()}, String.t()) :: :ok
+  def reserve_function!(caller, function, label) do
+    labels = Module.get_attribute(caller.module, :__jido_inline_reserved_labels__) || %{}
+
+    Module.put_attribute(
+      caller.module,
+      :__jido_inline_reserved_labels__,
+      Map.put(labels, function, label)
+    )
+
     if Module.defines?(caller.module, function), do: reserved_error!(caller, function)
     reserved = Module.get_attribute(caller.module, :__jido_inline_reserved__) || []
 
@@ -61,13 +74,16 @@ defmodule Jido.Action.Inline.Owner do
   end
 
   @spec reserved_error!(Macro.Env.t(), {atom(), non_neg_integer()}) :: no_return()
-  defp reserved_error!(caller, {name, arity}),
-    do:
-      Parser.error!(
-        nil,
-        caller,
-        "reserved inline Action function #{name}/#{arity} cannot have user clauses"
-      )
+  defp reserved_error!(caller, {name, arity} = function) do
+    labels = Module.get_attribute(caller.module, :__jido_inline_reserved_labels__) || %{}
+    label = Map.get(labels, function, "inline Action")
+
+    Parser.error!(
+      nil,
+      caller,
+      "reserved #{label} function #{name}/#{arity} cannot have user clauses"
+    )
+  end
 
   @doc false
   @spec validate_path!(term(), Macro.Env.t()) :: Jido.Action.Inline.path()

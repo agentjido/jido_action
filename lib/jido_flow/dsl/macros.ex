@@ -52,7 +52,7 @@ end
 defmodule Jido.Flow.DSL.Macros do
   @moduledoc false
 
-  alias Jido.Flow.DSL.{InlineStep, InlineStepCompiler, MacroSupport, ModuleCompiler}
+  alias Jido.Flow.DSL.{InlineAction, InlineStep, InlineStepCompiler, MacroSupport, ModuleCompiler}
 
   defmacro step(name, options) do
     caller = __CALLER__
@@ -60,6 +60,8 @@ defmodule Jido.Flow.DSL.Macros do
 
     declaration =
       entity(step_name, options, extension_module(["Flow", "Step"]), :__step__, [:params], caller)
+
+    declaration = InlineAction.scoped(step_name, :step, declaration, caller)
 
     quote line: caller.line do
       unquote(step_name) = unquote(name)
@@ -186,6 +188,8 @@ defmodule Jido.Flow.DSL.Macros do
         end
 
       {block, []} ->
+        block = step_fields(block, module)
+
         quote generated: true, line: caller.line, file: caller.file do
           require unquote(module)
 
@@ -201,6 +205,16 @@ defmodule Jido.Flow.DSL.Macros do
         )
     end
   end
+
+  defp step_fields(block, Jido.Flow.DSL.Extension.Flow.Step) do
+    quote do
+      import Jido.Flow.DSL.Extension.Flow.Step.Options, except: [action: 1, params: 1]
+      import Jido.Flow.DSL.InlineAction
+      unquote(block)
+    end
+  end
+
+  defp step_fields(block, _module), do: block
 
   defp block_entity(name, options, module, function, caller) do
     MacroSupport.validate_options!(

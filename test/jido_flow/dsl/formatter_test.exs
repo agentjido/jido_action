@@ -122,11 +122,43 @@ defmodule Jido.Flow.DSL.FormatterTest do
   step "empty", [], do: {:ok, %{ready: true}}
   """
 
+  @nested_inline_flow """
+  flow do
+    step "named" do
+      action name <- input(:name) do
+        {:ok, %{name: String.trim(name)}}
+      end
+    end
+
+    step "configured" do
+      action [value <- input(:value), offset <- context(:offset)],
+        name: "configured",
+        schema: Zoi.object(%{value: Zoi.integer(), offset: Zoi.integer()}),
+        output_schema: Zoi.object(%{value: Zoi.integer()}),
+        context: ctx do
+        {:ok, %{value: value + offset + ctx.extra}}
+      end
+    end
+
+    step "empty" do
+      action [], do: {:ok, %{}}
+    end
+
+    output result("configured")
+  end
+  """
+
   test "the project formatter preserves keyword and block declarations without parentheses" do
     {formatter, _opts} =
       Mix.Tasks.Format.formatter_for_file("flow.ex", dot_formatter: @formatter_path)
 
-    for source <- [@keyword_flow, @block_flow, @inline_flow, @inline_keyword_flow] do
+    for source <- [
+          @keyword_flow,
+          @block_flow,
+          @inline_flow,
+          @inline_keyword_flow,
+          @nested_inline_flow
+        ] do
       assert formatter.(source) == source
       assert formatter.(formatter.(source)) == source
     end
@@ -143,7 +175,13 @@ defmodule Jido.Flow.DSL.FormatterTest do
         deps_paths: %{jido_action: @package_root}
       )
 
-    for source <- [@keyword_flow, @block_flow, @inline_flow, @inline_keyword_flow] do
+    for source <- [
+          @keyword_flow,
+          @block_flow,
+          @inline_flow,
+          @inline_keyword_flow,
+          @nested_inline_flow
+        ] do
       assert formatter.(source) == source
       assert formatter.(formatter.(source)) == source
     end
@@ -170,6 +208,7 @@ defmodule Jido.Flow.DSL.FormatterTest do
     step("two", a <- input(:a), b <- input(:b), do: {:ok, %{sum: a + b}})
     step("list", [a <- input(:a), b <- input(:b), c <- input(:c)], do: {:ok, %{sum: a + b + c}})
     step("empty", [], do: {:ok, %{ready: true}})
+    action([], context: ctx, do: {:ok, ctx})
     """
 
     assert formatter.(source) == source

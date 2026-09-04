@@ -119,6 +119,23 @@ defmodule Jido.Flow.DSL.InlineStepBuildTest do
         value -> "value + #{value}"
       end
 
+    first =
+      if Keyword.get(options, :nested?, false) do
+        """
+        step @step_name do
+          action value <- input(:value) do
+            {:ok, %{value: #{body}}}
+          end
+        end
+        """
+      else
+        """
+        step @step_name, value <- input(:value) do
+          {:ok, %{value: #{body}}}
+        end
+        """
+      end
+
     second =
       if Keyword.get(options, :second?, true) do
         """
@@ -137,13 +154,42 @@ defmodule Jido.Flow.DSL.InlineStepBuildTest do
       @step_name #{inspect(name)}
       #{if version == :macro, do: "require InlineBuild.BodyMacro", else: ""}
       flow do
-        step @step_name, value <- input(:value) do
-          {:ok, %{value: #{body}}}
-        end
+        #{first}
         #{second}
       end
     end
     """
+  end
+
+  test "nested Step wrappers ship, track body macros, and repair through ordinary Mix builds",
+       fixture do
+    write_source(fixture, "macro.ex", macro_source(1))
+    write_source(fixture, "flow.ex", flow_source("first", :macro))
+    assert_compile(fixture)
+    legacy = probe(fixture, "first", 3, 6)
+    legacy_beams = wrapper_beams(fixture)
+
+    write_source(fixture, "flow.ex", flow_source("first", :macro, nested?: true))
+    assert_compile(fixture)
+    nested = probe(fixture, "first", 3, 6)
+    assert nested == legacy
+    assert wrapper_beams(fixture) == legacy_beams
+
+    write_source(fixture, "macro.ex", macro_source(10))
+    assert assert_compile(fixture) =~ "Compiling"
+    changed = probe(fixture, "first", 12, 24)
+    assert changed["target"] == nested["target"]
+
+    write_source(fixture, "flow.ex", flow_source("first", :invalid, nested?: true))
+    {output, status} = compile(fixture)
+    assert status != 0
+    assert output =~ "missing_inline_body_function"
+
+    write_source(fixture, "flow.ex", flow_source("first", 20, nested?: true))
+    assert_compile(fixture)
+    repaired = probe(fixture, "first", 22, 44)
+    assert repaired["target"] == nested["target"]
+    assert wrapper_beams(fixture) == legacy_beams
   end
 
   defp macro_source(increment) do

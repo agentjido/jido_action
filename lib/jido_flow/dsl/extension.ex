@@ -25,6 +25,7 @@ defmodule Jido.Flow.DSL.Extension do
     identifier: :name,
     modules: [:action],
     describe: "Declares one named Action call.",
+    imports: [Jido.Flow.DSL.InlineAction],
     schema:
       [
         name: [type: :string, required: true],
@@ -173,7 +174,7 @@ defmodule Jido.Flow.DSL.Extension do
   @flow %Spark.Dsl.Section{
     name: :flow,
     describe: "Declares a Jido Flow graph.",
-    imports: [Jido.Flow.DSL.Macros],
+    imports: [Jido.Flow.DSL.Macros, Jido.Flow.DSL.InlineAction],
     entities: [@step, @choice, @map, @reduce, @iterate, @dispatch, @output],
     singleton_entity_keys: [:output]
   }

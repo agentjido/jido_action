@@ -12,7 +12,7 @@ defmodule Jido.Action.Inline.Compiler do
     function = Macro.unique_var(:inline_function, __MODULE__)
     config = Keyword.put_new(parsed.options, :name, Keyword.get(options, :default_name))
     definition = owner_definition(function, parsed, caller, options)
-    identity = Keyword.get(options, :identity)
+    internal = Keyword.take(options, [:identity, :reserved_label, :module_label, :emit])
 
     declaration =
       quote line: caller.line do
@@ -21,7 +21,7 @@ defmodule Jido.Action.Inline.Compiler do
             unquote(path_ast),
             unquote(config),
             __ENV__,
-            unquote(Macro.escape(identity))
+            unquote(Macro.escape(internal))
           )
 
         unquote(definition)
@@ -31,16 +31,40 @@ defmodule Jido.Action.Inline.Compiler do
   end
 
   @doc false
-  @spec create!(term(), keyword(), Macro.Env.t(), {module(), atom()} | nil) :: {module(), atom()}
-  def create!(path, config, caller, identity_override) do
+  @spec create!(term(), keyword(), Macro.Env.t(), keyword()) :: {module(), atom()}
+  def create!(path, config, caller, options) do
     Owner.setup!(caller)
     path = Owner.validate_path!(path, caller)
     Owner.check_identity!(path, caller)
+    # Validate before either immediate or deferred emission can replace a target.
     {config, _schema, _output_schema} = Jido.Action.__prepare_config__!(config, caller)
-    {target, function, marker, value} = identity(caller.module, path, identity_override)
-    Owner.reserve_function!(caller, {function, 2})
-    ensure_owner!(target, marker, value, caller)
-    create_action(target, function, marker, value, config, caller)
+
+    {target, function, marker, value} =
+      identity(caller.module, path, Keyword.get(options, :identity))
+
+    Owner.reserve_function!(
+      caller,
+      {function, 2},
+      Keyword.get(options, :reserved_label, "inline Action")
+    )
+
+    ensure_owner!(
+      target,
+      marker,
+      value,
+      caller,
+      Keyword.get(options, :module_label, "inline Action")
+    )
+
+    args = [target, function, marker, value, config, caller]
+
+    # Internal hosts may defer emission until their enclosing fields validate.
+    # The shared compiler still owns the wrapper and its original compiler env.
+    case Keyword.get(options, :emit) do
+      nil -> apply(__MODULE__, :create_action!, args)
+      {module, callback} -> apply(module, callback, [args])
+    end
+
     Owner.register!(path, target, caller)
     {target, function}
   end
@@ -56,18 +80,20 @@ defmodule Jido.Action.Inline.Compiler do
   # Only internal adapters may retain an existing target recipe and marker.
   defp identity(owner, path, {module, function}), do: apply(module, function, [owner, path])
 
-  defp ensure_owner!(target, marker, value, caller) do
+  defp ensure_owner!(target, marker, value, caller, label) do
     if Code.ensure_loaded?(target) and
          not (function_exported?(target, marker, 0) and apply(target, marker, []) == value) do
       Parser.error!(
         nil,
         caller,
-        "generated inline Action module #{inspect(target)} already belongs to another definition"
+        "generated #{label} module #{inspect(target)} already belongs to another definition"
       )
     end
   end
 
-  defp create_action(target, function, marker, value, config, caller) do
+  @doc false
+  @spec create_action!(module(), atom(), atom(), term(), map(), Macro.Env.t()) :: tuple()
+  def create_action!(target, function, marker, value, config, caller) do
     owner = caller.module
 
     definition =
