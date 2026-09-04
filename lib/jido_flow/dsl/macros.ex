@@ -100,21 +100,15 @@ defmodule Jido.Flow.DSL.Macros do
   end
 
   defmacro map(name, options) do
-    entity(
-      name,
-      options,
-      extension_module(["Flow", "Map"]),
-      :__map__,
-      [:collection, :params],
-      __CALLER__
-    )
+    scoped_entity(name, :map, options, "Map", :__map__, [:collection, :params], __CALLER__)
   end
 
   defmacro reduce(name, options) do
-    entity(
+    scoped_entity(
       name,
+      :reduce,
       options,
-      extension_module(["Flow", "Reduce"]),
+      "Reduce",
       :__reduce__,
       [:collection, :initial, :params],
       __CALLER__
@@ -122,23 +116,45 @@ defmodule Jido.Flow.DSL.Macros do
   end
 
   defmacro choice(name, options) do
-    block_entity(
-      name,
-      options,
-      extension_module(["Flow", "Choice"]),
-      :__choice__,
-      __CALLER__
-    )
+    scoped_block_entity(name, :choice, options, "Choice", :__choice__, __CALLER__)
   end
 
   defmacro iterate(name, options) do
-    block_entity(
-      name,
-      options,
-      extension_module(["Flow", "Iterate"]),
-      :__iterate__,
-      __CALLER__
-    )
+    scoped_block_entity(name, :iterate, options, "Iterate", :__iterate__, __CALLER__)
+  end
+
+  defp scoped_entity(name, kind, options, segment, function, quoted_fields, caller) do
+    evaluated_name = Macro.unique_var(:declaration_name, __MODULE__)
+
+    declaration =
+      entity(
+        evaluated_name,
+        options,
+        extension_module(["Flow", segment]),
+        function,
+        quoted_fields,
+        caller
+      )
+
+    scoped_declaration(name, evaluated_name, kind, declaration, caller)
+  end
+
+  defp scoped_block_entity(name, kind, options, segment, function, caller) do
+    evaluated_name = Macro.unique_var(:declaration_name, __MODULE__)
+
+    declaration =
+      block_entity(evaluated_name, options, extension_module(["Flow", segment]), function, caller)
+
+    scoped_declaration(name, evaluated_name, kind, declaration, caller)
+  end
+
+  defp scoped_declaration(name, evaluated_name, kind, declaration, caller) do
+    scoped = InlineAction.scoped(evaluated_name, kind, declaration, caller)
+
+    quote line: caller.line do
+      unquote(evaluated_name) = unquote(name)
+      unquote(scoped)
+    end
   end
 
   defmacro dispatch(name, options) do
@@ -188,7 +204,7 @@ defmodule Jido.Flow.DSL.Macros do
         end
 
       {block, []} ->
-        block = step_fields(block, module)
+        block = action_fields(block, module)
 
         quote generated: true, line: caller.line, file: caller.file do
           require unquote(module)
@@ -206,15 +222,17 @@ defmodule Jido.Flow.DSL.Macros do
     end
   end
 
-  defp step_fields(block, Jido.Flow.DSL.Extension.Flow.Step) do
-    quote do
-      import Jido.Flow.DSL.Extension.Flow.Step.Options, except: [action: 1, params: 1]
-      import Jido.Flow.DSL.InlineAction
-      unquote(block)
-    end
-  end
+  defp action_fields(block, module)
+       when module in [
+              Jido.Flow.DSL.Extension.Flow.Step,
+              Jido.Flow.DSL.Extension.Flow.Map,
+              Jido.Flow.DSL.Extension.Flow.Reduce,
+              Jido.Flow.DSL.Extension.Flow.Iterate,
+              Jido.Flow.DSL.Extension.Flow.Choice
+            ],
+       do: InlineAction.fields(block, module)
 
-  defp step_fields(block, _module), do: block
+  defp action_fields(block, _module), do: block
 
   defp block_entity(name, options, module, function, caller) do
     MacroSupport.validate_options!(
@@ -228,6 +246,8 @@ defmodule Jido.Flow.DSL.Macros do
 
     case options do
       [do: block] ->
+        block = action_fields(block, module)
+
         quote generated: true, line: caller.line, file: caller.file do
           require unquote(module)
 
@@ -249,28 +269,41 @@ end
 defmodule Jido.Flow.DSL.ChoiceMacros do
   @moduledoc false
 
-  alias Jido.Flow.DSL.MacroSupport
+  alias Jido.Flow.DSL.{InlineAction, MacroSupport}
 
   defmacro option(name, options) do
-    nested_entity(
-      name,
-      options,
-      extension_module(["Flow", "Choice", "Option"]),
-      :__option__,
-      [:condition, :params],
-      __CALLER__
-    )
+    evaluated_name = Macro.unique_var(:option_name, __MODULE__)
+
+    declaration =
+      nested_entity(
+        evaluated_name,
+        options,
+        extension_module(["Flow", "Choice", "Option"]),
+        :__option__,
+        [:condition, :params],
+        __CALLER__
+      )
+
+    scoped = InlineAction.scoped(evaluated_name, :option, declaration, __CALLER__)
+
+    quote line: __CALLER__.line do
+      unquote(evaluated_name) = unquote(name)
+      unquote(scoped)
+    end
   end
 
   defmacro otherwise(options) do
-    nested_entity(
-      nil,
-      options,
-      extension_module(["Flow", "Choice", "Otherwise"]),
-      :__otherwise__,
-      [:params],
-      __CALLER__
-    )
+    declaration =
+      nested_entity(
+        nil,
+        options,
+        extension_module(["Flow", "Choice", "Otherwise"]),
+        :__otherwise__,
+        [:params],
+        __CALLER__
+      )
+
+    InlineAction.scoped(:otherwise, :fallback, declaration, __CALLER__)
   end
 
   defp nested_entity(name, options, module, function, quoted_fields, caller) do
@@ -290,6 +323,7 @@ defmodule Jido.Flow.DSL.ChoiceMacros do
         call_nested(module, function, name, source, short_options, caller)
 
       {block, []} ->
+        block = InlineAction.fields(block, module)
         call_nested_block(module, function, name, block, source, caller)
 
       {_block, _mixed_options} ->
@@ -347,7 +381,7 @@ end
 defmodule Jido.Flow.DSL.IterateMacros do
   @moduledoc false
 
-  alias Jido.Flow.DSL.MacroSupport
+  alias Jido.Flow.DSL.{InlineAction, MacroSupport}
 
   defmacro state(schema, options) do
     caller = __CALLER__
@@ -377,6 +411,8 @@ defmodule Jido.Flow.DSL.IterateMacros do
         end
 
       {block, []} ->
+        block = InlineAction.fields(block, module)
+
         quote generated: true, line: caller.line, file: caller.file do
           require unquote(module)
 
