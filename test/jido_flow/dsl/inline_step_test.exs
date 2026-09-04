@@ -824,6 +824,22 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     assert parse(source).pattern_ast == pattern_ast
   end
 
+  test "map patterns reject equivalent signed literal keys" do
+    for pattern <- [
+          "%{-1 => first,\n  -1 => second}",
+          "%{+1 => first, 1 => second}",
+          "%{1 => first, +1 => second}"
+        ] do
+      error =
+        assert_raise CompileError, ~r/duplicate inline Step map key/, fn ->
+          parse("step :read, #{pattern} <- input(), do: :ok")
+        end
+
+      assert error.file == @source_file
+      assert error.line == @source_line
+    end
+  end
+
   defp parse(source) do
     {:step, _, [_name | arguments]} = ast(source)
     apply(InlineStep, :parse!, arguments ++ [caller()])
