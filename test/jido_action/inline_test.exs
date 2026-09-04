@@ -124,11 +124,52 @@ defmodule Jido.Action.InlineTest do
              end)
     end
 
-    for type <- [:mode, :path, :t, :compilation, :remove_imports] do
+    for type <- [
+          :mode,
+          :path,
+          :t,
+          :compilation,
+          :remove_imports,
+          :action_option,
+          :compiler_option
+        ] do
       assert Enum.any?(docs, fn
                {{:type, ^type, 0}, _, _, documentation, _} -> documentation != :none
                _ -> false
              end)
+    end
+  end
+
+  test "shared compiler and owner exports have BEAM docs and function specs" do
+    for module <- [Jido.Action.Inline.Compiler, Jido.Action.Inline.Owner] do
+      functions = module.__info__(:functions)
+      macros = module.__info__(:macros)
+      assert functions != []
+      assert {:docs_v1, _, _, _, :hidden, _, docs} = Code.fetch_docs(module)
+      assert {:ok, specs} = Code.Typespec.fetch_specs(module)
+
+      documented =
+        for {{kind, name, arity}, _, _, doc, _} <- docs,
+            kind in [:function, :macro],
+            doc != :none,
+            into: MapSet.new(),
+            do: {kind, name, arity}
+
+      specified = MapSet.new(specs, &elem(&1, 0))
+
+      for {name, arity} = function <- functions do
+        assert MapSet.member?(documented, {:function, name, arity}),
+               "missing BEAM doc for #{inspect(module)}.#{name}/#{arity}"
+
+        assert MapSet.member?(specified, function),
+               "missing BEAM spec for #{inspect(module)}.#{name}/#{arity}"
+      end
+
+      # Macro docs are required; macros do not have normal function specs.
+      for {name, arity} <- macros do
+        assert MapSet.member?(documented, {:macro, name, arity}),
+               "missing BEAM doc for #{inspect(module)}.#{name}/#{arity}"
+      end
     end
   end
 

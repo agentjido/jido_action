@@ -122,6 +122,29 @@ defmodule Jido.Flow.DSL.InlineStepDocsTest do
     assert Keyword.fetch!(bindings, :document)["version"] == 2
   end
 
+  test "the earlier guides link to the portable contract without Step-only claims" do
+    for relative_path <- [
+          "README.md",
+          "usage-rules.md",
+          "guides/actions.md",
+          "guides/flow-steps.livemd",
+          "guides/flow-collections.livemd",
+          "guides/flow-choices.livemd",
+          "guides/flow-iterate-state.livemd",
+          "guides/flow-language.livemd",
+          "guides/flow-modules.md",
+          "guides/flow-builder.md",
+          "guides/flow-storage.md",
+          "guides/flow-expressions.md"
+        ] do
+      source = @root |> Path.join(relative_path) |> File.read!()
+      assert source =~ "inline-actions.md", relative_path
+      refute source =~ "Only `step` supports inline bodies", relative_path
+      refute source =~ "Keep inline bodies limited to `step`", relative_path
+      refute source =~ "still use Action targets, not inline bodies", relative_path
+    end
+  end
+
   defp eval_cells(relative_path, opts) do
     path = Path.join(@root, relative_path)
     source = path |> File.read!() |> select_section(opts)
@@ -186,8 +209,12 @@ defmodule Jido.Flow.DSL.InlineStepDocsTest do
       String.starts_with?(name, @owners) ->
         true
 
-      String.starts_with?(name, "Elixir.Jido.Flow.Generated.InlineStep.") ->
+      function_exported?(module, :__jido_inline_step__, 0) ->
         {owner, _step} = module.__jido_inline_step__()
+        String.starts_with?(Atom.to_string(owner), @owners)
+
+      function_exported?(module, :__jido_inline_action__, 0) ->
+        {owner, _path} = module.__jido_inline_action__()
         String.starts_with?(Atom.to_string(owner), @owners)
 
       true ->

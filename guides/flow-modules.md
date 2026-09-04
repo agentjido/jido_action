@@ -97,22 +97,30 @@ that Action directly, supply `:ctx` in its input map. Passing only the Exec
 context does not recreate the binding. Reuse through a new Step also needs an
 explicit context reference in that Step's parameters.
 
+The unreleased shared block also accepts `context: ctx`, which binds actual
+execution context without adding a parameter. For other inline roles, use
+`Jido.Action.Inline.target!/2` with the exact typed path. `step_action/1` stays
+Step-only. See [lookup paths](inline-actions.md#stable-lookup-and-deployment).
+
 ## Convert An Action To An Inline Step
 
-Inline Steps reduce source code for small transformations. They do not infer
-field types or defaults from the bindings. A generated Action has empty input
-and output schemas. It does not inherit the owning Flow's schemas or the
-validation hooks of an Action that it replaces.
+Inline bodies reduce source code for small transformations. They do not infer
+field types or defaults from bindings. The shipped Step shorthand has empty
+input and output schemas. The unreleased nested `action` form can declare
+explicit schemas, defaults, and metadata. Neither form inherits the owning
+Flow's schemas or the validation hooks of an Action that it replaces.
 
-Keep a named Action when callers need field validation, defaults, output
-validation, custom hooks, or a separate public API. Keep it when a tool or
-router needs to derive named arguments from its schema. Inline binding names
-do not provide that schema.
+When you use the nested form, copy any required static input and output
+schemas explicitly. Tools and routers can read these declared Action schemas;
+binding names alone do not provide them. Keep a named Action for custom
+lifecycle hooks or a separate public module API. See
+[Portable Inline Actions](inline-actions.md), which is not in `3.0.0-beta.5`.
 
 The owning Flow still validates its input and final output. Those schemas do
 not validate each intermediate Step result. Calling an extracted target with
 `step_action/1` also bypasses the owning Flow's validation and defaults. A
-missing binding can then fail as a function-clause error during execution.
+missing binding can then fail as a function-clause error during execution
+unless the target's own schema rejects it or supplies a default first.
 
 Moving a direct Action call into a Flow also changes how its return extras
 reach the caller. This rule applies to explicit and inline Steps. See

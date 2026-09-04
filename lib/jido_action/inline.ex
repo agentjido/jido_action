@@ -23,6 +23,10 @@ defmodule Jido.Action.Inline do
   and generated Action BEAM files together. Lookup is available only after the
   owner compiles. It does not execute work or create atoms. Do not pass runtime
   or stored code to the compile-time APIs.
+
+  This API is unreleased; it is not part of `3.0.0-beta.5`. See
+  [Portable Inline Actions](inline-actions.md) for a complete public-only host
+  with bound input, callback input, schemas, execution context, and lookup.
   """
 
   alias Jido.Action.Inline.{Compiler, Owner, Parser}
@@ -36,7 +40,15 @@ defmodule Jido.Action.Inline do
   @typedoc "A typed host identity. It starts with `:host` and ends with `:role`."
   @type path :: [{atom(), atom() | String.t() | integer()}]
 
-  @typedoc "Parsed compile-time code. `params_ast` is nil only in callback mode."
+  @typedoc """
+  Parsed compile-time code, not a runtime model.
+
+  `params_ast` contains the source AST in bound mode and is `nil` only in
+  callback mode. `pattern_ast` matches validated Action input. `body_ast`
+  contains the owner body. `options` contains metadata and schema AST; the
+  parser extracts `do` and `context` into `body_ast` and `context_ast`.
+  Hosts must parse and validate source AST before they compile a declaration.
+  """
   @type t :: %__MODULE__{
           mode: mode(),
           params_ast: Macro.t() | nil,
@@ -52,6 +64,18 @@ defmodule Jido.Action.Inline do
   @typedoc "Declaration-only imports to remove from the body, by module and exact arity."
   @type remove_imports :: [{module(), [{atom(), non_neg_integer()}]}]
 
+  @typedoc "Action declaration options. Values are source AST evaluated or compiled in the owner."
+  @type action_option ::
+          {:do, Macro.t()}
+          | {:name, Macro.t()}
+          | {:description, Macro.t()}
+          | {:schema, Macro.t()}
+          | {:output_schema, Macro.t()}
+          | {:context, Macro.t()}
+
+  @typedoc "Host compiler options. `default_name` is AST; the import list is an exact value."
+  @type compiler_option :: {:default_name, Macro.t()} | {:remove_imports, remove_imports()}
+
   @doc "Installs owner hooks. Repeated use preserves declarations and host hooks."
   defmacro __using__(_options) do
     quote do
@@ -59,31 +83,55 @@ defmodule Jido.Action.Inline do
     end
   end
 
-  @doc "Installs owner hooks during module construction. Usually called through `use`."
+  @doc """
+  Installs owner hooks during module construction. Usually called through `use`.
+
+  Repeated setup preserves existing inline declarations and the host's hooks.
+  Raises `CompileError` outside a compiling module or for reserved function
+  conflicts. Setup does not run an inline body.
+  """
   @spec setup!(Macro.Env.t()) :: :ok
   def setup!(caller), do: Owner.setup!(caller)
 
   @doc """
   Parses named bindings, a binding list, a sole map binding, or `[]`.
 
-  Options are `do:`, `name:`, `description:`, `schema:`, `output_schema:`, and
-  `context: named_variable`. Schemas are not inferred from patterns. This only
-  checks header shape; the host must validate the returned source AST before
-  calling `compile!/4`. It does not expand or evaluate source calls.
+  A named binding is `value <- source`. A list groups named bindings. A sole
+  map binding, such as `%{name: name} <- source`, uses the complete source as
+  Action params. `[]` produces an empty parameter map. Duplicate names, mixed
+  map and named bindings, bare `_`, pins, guards, and top-level struct patterns
+  are not supported.
+
+  Options:
+
+  - `do:` is the required Action body.
+  - `name:` overrides the host's default public Action name, not its identity.
+  - `description:` sets public Action metadata; it defaults to `nil`.
+  - `schema:` and `output_schema:` use static Action schemas and default to
+    `[]`. Schemas are not inferred from patterns. Input defaults apply before
+    the body matches its parameters.
+  - `context: named_variable` binds actual callback context without adding a
+    parameter or a schema field. It must not collide with a pattern variable.
+
+  Parsing checks header and option shape only. The host must parse and
+  validate the returned source AST before calling `compile!/4`. The parser
+  does not expand or evaluate source calls. Bindings belong to the host's
+  parameter mapping; they are not retained by an extracted Action target.
 
   Raises `CompileError` for an invalid header or option, at the source location.
   """
-  @spec parse_bound!(Macro.t(), keyword(), Macro.Env.t()) :: t()
+  @spec parse_bound!(Macro.t(), [action_option()], Macro.Env.t()) :: t()
   def parse_bound!(bindings, options, caller), do: Parser.bound!(bindings, options, caller)
 
   @doc """
   Parses a named parameter variable or a map pattern for direct callback input.
 
   Accepts the same options as `parse_bound!/3`, but rejects source bindings.
-  The generated callback receives its parameters unchanged and has no host
-  parameter mapping. Raises `CompileError` for invalid headers or options.
+  There is no host parameter mapping and `params_ast` is `nil`. Normal Action
+  input validation still runs, including schema defaults before the callback
+  pattern matches. Raises `CompileError` for invalid headers or options.
   """
-  @spec parse_callback!(Macro.t(), keyword(), Macro.Env.t()) :: t()
+  @spec parse_callback!(Macro.t(), [action_option()], Macro.Env.t()) :: t()
   def parse_callback!(pattern, options, caller), do: Parser.callback!(pattern, options, caller)
 
   @doc """
@@ -109,7 +157,7 @@ defmodule Jido.Action.Inline do
   reserved owner functions, or calls outside a compiling owner. The returned
   AST is a compile-time implementation detail; it is not a runtime model.
   """
-  @spec compile!(Macro.t(), t(), Macro.Env.t(), keyword()) :: compilation()
+  @spec compile!(Macro.t(), t(), Macro.Env.t(), [compiler_option()]) :: compilation()
   def compile!(path_ast, %__MODULE__{} = parsed, caller, options) do
     Parser.options!(options, [:default_name, :remove_imports], caller, "compiler")
     Compiler.compile!(path_ast, parsed, caller, options)
@@ -125,6 +173,10 @@ defmodule Jido.Action.Inline do
   Raises `ArgumentError` for an invalid or unknown path, an owner without inline
   targets, or an owner that is still compiling. Lookup does not create atoms,
   compile code, execute a body, or return the original source mapping.
+
+  Deploy the owner and generated Action BEAM files together. Path identity
+  identifies the declaration, not a code version. The returned module is an
+  ordinary Action target for Exec or a trusted host Registry.
   """
   @spec target!(module(), path()) :: module()
   def target!(owner, path), do: Owner.target!(owner, path)

@@ -1,7 +1,7 @@
 # Flow DSL
 
 The Flow DSL is compile-time Elixir syntax for canonical Flow data. Its data
-expressions are restricted. An inline `step` body is normal Elixir code that
+expressions are restricted. An inline Action body is normal Elixir code that
 compiles to an Action.
 
 Run the cells from top to bottom.
@@ -121,6 +121,10 @@ A Flow expression, including each inline binding source, can contain:
 - maps with supported data keys; and
 - Flow references.
 
+The unreleased `Jido.Expr` API adds fixed portable operations to these data
+fields. See [Expressions](flow-expressions.md). It is not in the beta.5 install
+cell above.
+
 These forms are not Flow expressions:
 
 ```text
@@ -137,7 +141,7 @@ Use `value/1` when you want to mark one supported literal explicitly. Use
 `select/2` to append a path to a reference. The Reduce example uses
 `value([])` to mark its empty-list accumulator as literal data.
 
-These restrictions do not apply inside an inline Step body. It can call
+These restrictions do not apply inside an inline Action body. It can call
 functions, use pipes, match patterns, and create local anonymous functions.
 Those functions are not Flow targets. Flow reference helpers have no runtime
 meaning in the body; bind their data in the header first. See
@@ -145,12 +149,17 @@ meaning in the body; bind their data in the header first. See
 
 An inline body has the owning Flow module's function scope. It can use private
 helpers, aliases, available imports, declaration-time module attributes, and
-`__MODULE__`. It does not capture runtime variables outside the Step. Jido
+`__MODULE__`. It does not capture runtime variables outside the declaration. Jido
 removes its declaration imports inside the body. Spark can also remove an
 outer import that conflicts with a DSL name. Use a qualified call such as
 `MyApp.Helpers.output(value)`, or import that helper inside the body.
 
-Only `step` has this body form. Other components keep their Action fields.
+Only `step` has the shipped top-level shorthand. The unreleased nested
+`action` form also supports Map, Reduce, Choice options and fallback, and
+Iterate. Dispatch uses bound `decision` and direct callback `expander` forms.
+All forms lower to ordinary Action fields and host data. See
+[Portable Inline Actions](inline-actions.md) for the syntax and public
+downstream host API. These forms are not in `3.0.0-beta.5`.
 
 ## Use Closed Conditions
 

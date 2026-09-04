@@ -275,11 +275,18 @@ end
 ```
 
 Binding sources use Flow data expressions. Bodies use normal Elixir and
-compile to ordinary Actions. This version supports inline `step` bodies only.
-Use a named Action when a step needs field schemas or validation hooks.
+compile to ordinary Actions. This shipped shorthand has empty field schemas
+and accepts only Step `after:` and `meta:` options.
 Use `MyApp.Flows.SimpleGreeting.step_action("greet")` to reuse its target in
 Builder or a trusted Registry. Neither Builder nor JSON accepts body code,
 closures, or MFAs. See [Build Your First Flow](guides/build-your-first-flow.livemd).
+
+The unreleased [portable inline Action API](guides/inline-actions.md) adds
+nested blocks for Step, Map, Reduce, Choice options and fallback, Iterate,
+and Dispatch. These blocks accept explicit schemas, metadata, and execution
+context. A downstream DSL can use `Jido.Action.Inline` without Flow. This API
+and `Jido.Expr` are not included in `3.0.0-beta.5`. Keep a named Action for
+custom validation hooks or a separate public module API.
 
 ## Build A Flow At Runtime
 

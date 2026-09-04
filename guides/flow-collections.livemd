@@ -125,3 +125,14 @@ Jido.Exec.run(
 
 Result order stays equal to input order. Reduce work always stays serial.
 Collection targets must be Actions, not Flow modules.
+
+## Inline Collection Actions
+
+The unreleased nested `action` form can define Map and Reduce bodies at their
+point of use. Map bindings use the same `item`, `item_index`, and `item_id`
+scope as Map params. Reduce also permits `accumulator`. An inline block
+supplies both the Action target and params; do not add a separate params field.
+Order, empty-list behavior, errors, and concurrency rules stay the same.
+
+See the complete [inline Map and Reduce example](inline-actions.md#use-inline-actions-in-flow).
+It requires a checkout with the portable API, not the beta.5 install above.

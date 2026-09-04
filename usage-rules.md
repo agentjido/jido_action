@@ -67,7 +67,7 @@ Use `jido_action` for validated work and data-first composition:
   structure.
 - Use `input`, `context`, and `result` references to map data. Use `Jido.Expr`
   operations for short calculations and conditions. Put application calls and
-  complex work in Actions or inline Step bodies. See
+  complex work in Actions or inline bodies. See
   [Expressions](guides/flow-expressions.md) for the complete operation list.
 - Treat DSL expressions as a restricted data grammar, not general Elixir. Do
   not use assignments, pattern matching, pipes, or application function calls
@@ -76,13 +76,21 @@ Use `jido_action` for validated work and data-first composition:
   body. Use a binding list for more than two inputs, a sole map pattern for
   complete params, or `[]` for no input. Only `after:` and `meta:` are header
   options. This form requires `3.0.0-beta.5` or later.
-- Write normal Elixir inside the body. Bind context explicitly with
-  `ctx <- context()`. Bodies retain the owner's private helpers and lexical
-  scope, not runtime closure captures. Qualify helper calls that conflict with
-  DSL imports, or import those helpers inside the body.
-- Inline bodies compile to ordinary Actions with empty field schemas. Extract
-  a named Action for field schemas, validation hooks, or an independent API.
-- Keep inline bodies limited to `step`. Other components retain Action targets.
+- Write normal Elixir inside the body. The shorthand binds context with
+  `ctx <- context()` as an Action parameter. Bodies retain the owner's private
+  helpers and lexical scope, not runtime closure captures. Qualify helper
+  calls that conflict with DSL imports, or import those helpers inside the body.
+- The shipped Step shorthand has empty field schemas. The unreleased nested
+  `action` form accepts `name`, `description`, `schema`, `output_schema`, and
+  `context: ctx`. Schemas are static and are not inferred from bindings.
+- Use nested bound `action` blocks in Step, Map, Reduce, Choice options and
+  fallback, and Iterate. Dispatch uses bound `decision` and callback
+  `expander` blocks. Callback input is a named variable or map pattern without
+  `<-`. These forms compile to ordinary Action targets.
+- `context: ctx` binds actual execution context without adding parameters or
+  schema fields. Keep custom lifecycle hooks and independent public module
+  APIs in named Actions. See [Portable Inline Actions](guides/inline-actions.md).
+  This shared API and `Jido.Expr` are not in `3.0.0-beta.5`.
 - Let result references create data dependencies. Use `after:` only for
   control order without a data dependency.
 - Do not add a `parallel` block. Independent nodes run concurrently when
@@ -113,6 +121,9 @@ Use `jido_action` for validated work and data-first composition:
 - Reuse compiled inline Actions with `FlowModule.step_action(name)` after the
   owner compiles. It returns only the target, not params, `after`, or `meta`.
   Invalid or unknown names and non-Step components raise `ArgumentError`.
+- For other inline roles, use `Jido.Action.Inline.target!/2` with the exact
+  owner and typed host path. It returns only the target. Supply a new source
+  mapping in the receiving host; lookup does not retain old bindings.
 - Register that target with a stable host-owned Action identifier for JSON.
   Register named binding keys as atoms. Do not add body, function, or MFA data
   to Builder, Registry, or Codec input.
