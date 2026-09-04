@@ -48,7 +48,7 @@ defmodule ActionGuide.Greeting do
 end
 ```
 
-This unreleased v3 feature compiles the body to an ordinary Action. It does
+This form, added in `3.0.0-beta.5`, compiles the body to an ordinary Action. It does
 not add inline methods to `use Jido.Action` or function/MFA executable targets.
 The Action has empty field schemas, with the normal map input and output
 boundary. Exec still owns validation, errors, timeouts, and telemetry.

@@ -11,6 +11,27 @@ entries return to the normal automated changelog process.
 
 <!-- changelog -->
 
+## [3.0.0-beta.5](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.4...v3.0.0-beta.5) (2026-09-04)
+
+
+
+
+### Features:
+
+* flow: support inline step bodies and compiled target reuse (#220) by mikehostetler
+
+### Bug Fixes:
+
+* flow: retain Map results across Reduce consumers by mikehostetler
+
+* flow: retain authored paths on nested failures by mikehostetler
+
+* exec: stop pending admission after Flow failure by mikehostetler
+
+* flow: accept empty list literals in DSL expressions by mikehostetler
+
+* flow: preserve structured Map errors by mikehostetler
+
 ## [3.0.0-beta.4](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.3...v3.0.0-beta.4) (2026-09-04)
 
 

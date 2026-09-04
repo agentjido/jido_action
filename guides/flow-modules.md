@@ -25,7 +25,7 @@ end
 
 The DSL validates syntax, Flow structure, reference scope, graph cycles, and
 target contracts during compilation. Compile errors use DSL source locations.
-This inline form needs the unreleased v3 source, not `3.0.0-beta.4`.
+This inline form requires `3.0.0-beta.5` or later.
 
 An inline body becomes an ordinary Action. The Flow owns the body, so it can
 call the module's private helpers. Headers use data expressions; the body is

@@ -1,7 +1,7 @@
 # Jido Action
 
-[![Hex.pm](https://img.shields.io/badge/hex-3.0.0--beta.4-714a96.svg)](https://hex.pm/packages/jido_action)
-[![Hex Docs](https://img.shields.io/badge/hex-docs-lightgreen.svg)](https://hexdocs.pm/jido_action/3.0.0-beta.4/)
+[![Hex.pm](https://img.shields.io/badge/hex-3.0.0--beta.5-714a96.svg)](https://hex.pm/packages/jido_action)
+[![Hex Docs](https://img.shields.io/badge/hex-docs-lightgreen.svg)](https://hexdocs.pm/jido_action/3.0.0-beta.5/)
 [![CI](https://github.com/agentjido/jido_action/actions/workflows/ci.yml/badge.svg)](https://github.com/agentjido/jido_action/actions/workflows/ci.yml)
 [![License](https://img.shields.io/hexpm/l/jido_action.svg)](https://github.com/agentjido/jido_action/blob/main/LICENSE)
 [![Website](https://img.shields.io/badge/website-jido.run-0f172a.svg)](https://jido.run)
@@ -39,7 +39,7 @@ This foundation keeps the action boundary small:
 - `Jido.Exec` runs actions, instructions, and Flows, including asynchronous
   run-to-completion calls and step-wise Flows.
 
-Version 3.0.0-beta.4 is a public beta. It introduces the declarative Flow DSL,
+Version 3.0.0-beta.5 is a public beta. It introduces the declarative Flow DSL,
 runtime Flow construction, safe stored Flow maps, and one Flow execution
 engine. The v3 API can still change before the stable release, and this beta
 locks Runic 0.1.0-alpha.9. Use it for evaluation and controlled trials before
@@ -52,7 +52,7 @@ changes.
 ```elixir
 def deps do
   [
-    {:jido_action, "~> 3.0.0-beta.4"}
+    {:jido_action, "~> 3.0.0-beta.5"}
   ]
 end
 ```
@@ -247,8 +247,8 @@ step-wise execution API.
 
 ### Use Inline Steps For Small Operations
 
-The unreleased v3 source also supports inline Step bodies. This form is not
-included in `3.0.0-beta.4`; use a source checkout that contains the feature.
+Version `3.0.0-beta.5` adds inline Step bodies for small operations that do not
+need a separate named Action.
 
 ```elixir
 defmodule MyApp.Flows.SimpleGreeting do

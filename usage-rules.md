@@ -73,7 +73,7 @@ Use `jido_action` for validated work and data-first composition:
 - Use `step "name", value <- input(:value) do ... end` for a small inline
   body. Use a binding list for more than two inputs, a sole map pattern for
   complete params, or `[]` for no input. Only `after:` and `meta:` are header
-  options. This is an unreleased v3 feature, not part of `3.0.0-beta.4`.
+  options. This form requires `3.0.0-beta.5` or later.
 - Write normal Elixir inside the body. Bind context explicitly with
   `ctx <- context()`. Bodies retain the owner's private helpers and lexical
   scope, not runtime closure captures. Qualify helper calls that conflict with

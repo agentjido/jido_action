@@ -8,12 +8,10 @@ Run the cells from top to bottom.
 
 ## Install The Package
 
-Inline Steps are an unreleased v3 feature, not part of `3.0.0-beta.4`. Set
-`JIDO_ACTION_PATH` in the Livebook runtime environment to the absolute path
-of a local source checkout that contains this feature.
+Inline Steps require `3.0.0-beta.5` or later.
 
 ```elixir
-Mix.install([{:jido_action, path: System.fetch_env!("JIDO_ACTION_PATH")}])
+Mix.install([{:jido_action, "~> 3.0.0-beta.5"}])
 ```
 
 ## Define Small Actions

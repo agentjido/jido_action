@@ -131,7 +131,9 @@ defmodule Jido.Flow.DSL.InlineStepDocsTest do
 
     if opts[:install] do
       assert [install_cell] = install
-      assert install_cell =~ ~s|path: System.fetch_env!("JIDO_ACTION_PATH")|
+
+      assert String.trim(install_cell) ==
+               ~s|Mix.install([{:jido_action, "~> #{Mix.Project.config()[:version]}"}])|
     else
       assert install == []
     end
