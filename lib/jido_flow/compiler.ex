@@ -509,7 +509,7 @@ defmodule Jido.Flow.Compiler do
             |> Map.put(:kind, :result)
             |> Map.put(:output, %{
               status: :error,
-              error: %{message: Exception.message(error)}
+              error: Error.to_map(error)
             })
             |> Map.delete(:item)
 

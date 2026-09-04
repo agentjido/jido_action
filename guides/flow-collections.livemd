@@ -94,6 +94,12 @@ order:
 %{status: :error, error: portable_error_map}
 ```
 
+The error map uses `Jido.Flow.Error.to_map/1`: `type`, `message`, `details`,
+and `retryable?`. Action failures retain their error type and existing details,
+including the Map node, target, phase, item index, and item ID. A parameter
+reference failure retains its reference path and reason; it does not add
+target or item identity. Runtime stacktraces are not included in this map.
+
 Choose the mode as part of author intent. A fallback or retry is not inferred.
 
 ## Concurrency
