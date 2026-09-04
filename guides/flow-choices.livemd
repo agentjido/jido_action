@@ -84,6 +84,22 @@ Conditions compare Flow expressions. They do not call application functions.
 Put complex or effectful decisions in an Action before the Choice, then test
 that Action result.
 
+`not` negates a condition, such as `not (input(:enabled) == true)`. It does
+not accept a bare reference such as `not input(:enabled)`. For a Boolean
+reference, use an explicit comparison in the component declaration:
+
+```text
+condition: input(:enabled) == false
+# In an Iterate component:
+while(state(:done) == false)
+```
+
+Declare the field as a required `Zoi.boolean()` in the Flow input schema,
+the producing Action's output schema, or the Iterate State schema. For example,
+`Zoi.object(%{enabled: Zoi.boolean()})` rejects missing and non-Boolean input.
+The comparison alone does not validate the value's type. A missing reference
+still fails; a present non-Boolean value does not equal `false`.
+
 ## Fallback Is Routing
 
 `otherwise` is mandatory. It is the normal route when no option matches. It is
