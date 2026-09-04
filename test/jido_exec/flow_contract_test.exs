@@ -75,6 +75,21 @@ defmodule JidoActionTest.Exec.FlowContractTest do
     end
   end
 
+  defmodule InlineSchemaFlow do
+    use Jido.Flow,
+      name: "inline_schema_boundary",
+      schema: Zoi.object(%{value: Zoi.integer() |> Zoi.default(1)}),
+      output_schema: Zoi.object(%{value: Zoi.integer() |> Zoi.min(0)})
+
+    flow do
+      step "echo", value <- input(:value) do
+        {:ok, %{value: value}}
+      end
+
+      output result("echo")
+    end
+  end
+
   test "inline binding failures stop before body work at the existing boundaries" do
     token = make_ref()
     payload = %{profile: %{name: "Ada"}, active: true, test_pid: self(), token: token}
@@ -120,6 +135,43 @@ defmodule JidoActionTest.Exec.FlowContractTest do
                 prior: %{value: 4, context: Map.put(context, :local_only, true)},
                 context: context
               }}
+  end
+
+  test "an extracted inline target does not recreate context bindings" do
+    action = InlineContextFlow.step_action("first")
+    context = %{trace_id: "inline-reuse"}
+
+    assert {:error, %ActionExecutionFailureError{details: details}} =
+             Exec.run(action, %{value: 3}, context)
+
+    assert details.exception == FunctionClauseError
+    assert details.action == action
+
+    assert Exec.run(action, %{value: 3, ctx: context}, %{trace_id: "other"}) ==
+             {:ok, %{value: 4, context: Map.put(context, :local_only, true)}}
+  end
+
+  test "an extracted inline target does not inherit Flow input validation or defaults" do
+    action = InlineSchemaFlow.step_action("echo")
+    assert action.schema() == []
+    assert Exec.run(InlineSchemaFlow) == {:ok, %{value: 1}}
+
+    assert {:error, %ActionExecutionFailureError{details: %{exception: FunctionClauseError}}} =
+             Exec.run(action)
+
+    assert {:error, %InvalidExecutionError{details: %{phase: :flow_input}}} =
+             Exec.run(InlineSchemaFlow, %{value: "invalid"})
+
+    assert Exec.run(action, %{value: "invalid"}) == {:ok, %{value: "invalid"}}
+  end
+
+  test "an extracted inline target does not inherit Flow output validation" do
+    action = InlineSchemaFlow.step_action("echo")
+    assert action.output_schema() == []
+    assert Exec.run(action, %{value: -1}) == {:ok, %{value: -1}}
+
+    assert {:error, %InvalidExecutionError{details: %{phase: :flow_output}}} =
+             Exec.run(InlineSchemaFlow, %{value: -1})
   end
 
   test "one inline target has equal results across public execution forms" do

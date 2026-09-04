@@ -68,6 +68,30 @@ These rules apply:
 Dispatch chooses the Flow result or the next executable. It does not change the
 Flow graph.
 
+## Return Extras After A Flow
+
+When the caller needs Action extras after Flow work, a terminal Dispatch can
+continue to a final Action. Its expander returns:
+
+```elixir
+{:continue, final_input, MyApp.Finalize}
+```
+
+`MyApp.Finalize` can then return `{:ok, result, extras}`. The complete Exec call
+returns that tuple to its caller. This works with `run/4` and `run_async/4`.
+The same context, complete-call timeout, and continuation budget apply. No
+nested Exec call is needed.
+
+The final Action owns input and output validation. The original Flow's output
+schema does not validate the continued Action's result. Extras from earlier
+Steps are still discarded. If the expander returns `{:ok, result, extras}`
+instead of a continuation, its extras are also discarded as a Flow node result.
+
+This pattern can return Directives to a higher-level runtime that supports
+them. It does not collect or execute Directives inside Steps. That runtime
+must validate the Directives and control their execution. The existing
+Dispatch limits still apply: no step-wise execution or Subflow use.
+
 ## Example: an LLM Tool Loop
 
 Use continuation when the result of the current work tells you what must run

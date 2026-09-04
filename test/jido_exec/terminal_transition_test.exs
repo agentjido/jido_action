@@ -151,6 +151,25 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
     def run(params, _context), do: {:continue, params, Add}
   end
 
+  defmodule InlineFlowToExtras do
+    use Jido.Flow,
+      name: "inline_flow_to_extras",
+      output_schema: Zoi.object(%{value: Zoi.string()})
+
+    flow do
+      step "prepare", value <- input(:value) do
+        {:ok, %{value: value}, %{step_extra: :discarded}}
+      end
+
+      dispatch "finish",
+        decision: Decision,
+        expander: ContinueToExtras,
+        params: result("prepare")
+
+      output result("finish")
+    end
+  end
+
   describe "root Action transitions" do
     test "runs Action and Flow targets as the next executable" do
       assert Exec.run(ContinueToAdd, %{value: 3}) == {:ok, %{value: 5}}
@@ -258,6 +277,24 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
   end
 
   describe "terminal Dispatch transitions" do
+    test "only the final Action owns extras after an inline Flow continuation" do
+      input = %{value: 3}
+      context = %{trace_id: "final-action"}
+      expected = {:ok, %{value: 3}, %{trace_id: "final-action"}}
+
+      # The continued Action, not the original Flow, owns output validation.
+      assert Exec.run(InlineFlowToExtras, input, context) == expected
+      handle = Exec.run_async(InlineFlowToExtras, input, context)
+      assert Exec.await(handle) == expected
+
+      # An expander's normal result is still a Flow node result: its extras drop.
+      assert Exec.run(
+               dispatch_flow!(expander: ExtrasAction),
+               %{continue?: false, value: 3, target: Add},
+               context
+             ) == {:ok, %{value: 3}}
+    end
+
     test "a terminal expander can close normally or select the next executable" do
       flow = dispatch_flow!()
 

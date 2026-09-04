@@ -91,6 +91,33 @@ after its Flow module has compiled, not from that module's unfinished `flow`
 block. See [Builder reuse](flow-builder.md#reuse-an-inline-step) and
 [JSON storage](flow-storage.md#store-a-compiled-inline-step).
 
+Context bindings are also Step parameters. For example, `ctx <- context()`
+puts the Flow context in the generated Action's `:ctx` parameter. If you call
+that Action directly, supply `:ctx` in its input map. Passing only the Exec
+context does not recreate the binding. Reuse through a new Step also needs an
+explicit context reference in that Step's parameters.
+
+## Convert An Action To An Inline Step
+
+Inline Steps reduce source code for small transformations. They do not infer
+field types or defaults from the bindings. A generated Action has empty input
+and output schemas. It does not inherit the owning Flow's schemas or the
+validation hooks of an Action that it replaces.
+
+Keep a named Action when callers need field validation, defaults, output
+validation, custom hooks, or a separate public API. Keep it when a tool or
+router needs to derive named arguments from its schema. Inline binding names
+do not provide that schema.
+
+The owning Flow still validates its input and final output. Those schemas do
+not validate each intermediate Step result. Calling an extracted target with
+`step_action/1` also bypasses the owning Flow's validation and defaults. A
+missing binding can then fail as a function-clause error during execution.
+
+Moving a direct Action call into a Flow also changes how its return extras
+reach the caller. This rule applies to explicit and inline Steps. See
+[Results And Errors](execution.md#results-and-errors).
+
 ## Source Metadata
 
 The compiler stores file, line, and available column data in a source map

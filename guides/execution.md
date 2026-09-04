@@ -32,7 +32,18 @@ A successful direct Action or Action Instruction returns:
 {:ok, result, extras}
 ```
 
-A successful Flow returns `{:ok, result}`. Flow nodes discard Action extras.
+A Flow that finishes normally returns `{:ok, result}`. Flow nodes discard
+Action extras. This includes explicit Steps, inline Steps, and the final Step,
+in both run-to-completion and step-wise execution.
+
+Extras are values for the caller. Jido Action and Exec do not interpret or
+dispatch Actor Directives. If a higher-level runtime uses Action extras as
+Directives, moving that Action into a Flow does not preserve their delivery.
+
+A terminal Dispatch can continue to a final Action. That Action can return
+extras to the caller of the complete Exec call. This does not collect extras
+from earlier nodes. See
+[Return Extras After A Flow](continuations.md#return-extras-after-a-flow).
 
 Public failures are exception structs. Action boundary errors use:
 

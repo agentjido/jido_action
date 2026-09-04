@@ -73,7 +73,19 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
       assert Exec.run(target, input) == {:ok, %{value: 3}, %{effect: :already_ran}}
     end
 
-    assert Exec.run(InlineResultFlow, input) == {:ok, %{value: 3}}
+    explicit_flow =
+      Flow.new!(
+        name: "explicit_inline_result",
+        components: [Step.new!(name: "result", action: action, params: Ref.input([]))],
+        output: Ref.result("result")
+      )
+
+    for flow <- [InlineResultFlow, explicit_flow] do
+      assert Exec.run(flow, input) == {:ok, %{value: 3}}
+      assert {:ok, execution} = Exec.start(flow, input)
+      assert {:ok, execution} = Exec.continue(execution)
+      assert Exec.result(execution) == {:ok, %{value: 3}}
+    end
   end
 
   test "inline callback failures retain current structured errors in Actions and Steps" do
