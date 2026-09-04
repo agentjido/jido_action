@@ -22,6 +22,31 @@ compatibility bridge:
 - Known key extraction is atom-safe: it only uses existing atoms and never creates new ones from property names.
 - Tool conversion preserves unknown keys and still prefers atom input keys over string keys when both are provided.
 
+### Top-Level Zoi Unions
+
+An action can use a union of object schemas for `schema` or `output_schema`:
+
+```elixir
+Zoi.union([
+  Zoi.object(%{name: Zoi.string(), resource_id: Zoi.string()}),
+  Zoi.object(%{name: Zoi.string(), path: Zoi.string()})
+])
+```
+
+Validation collects the root keys from all branches, including nested unions.
+Zoi selects the matching branch and applies its validation and transformations.
+Keys not declared by any branch pass through unchanged.
+
+For Zoi schemas, `Jido.Exec.run/4` accepts string forms of known root atom keys.
+For example, `"name"` becomes `:name` before validation. If both forms are supplied,
+the atom key takes precedence. Explicit string fields remain string fields.
+If branches declare both `:name` and `"name"`, they remain distinct fields;
+callers must use the key type required by the selected branch.
+This conversion does not create atoms or coerce field values. Nested key
+conversion remains the responsibility of the schema or `Jido.Action.Tool`.
+For a root union, nested values pass to Zoi unchanged. Use schema-level key
+coercion when nested objects must accept JSON string keys.
+
 ## NimbleOptions Schemas
 
 NimbleOptions is the traditional choice for Elixir configuration validation. Use keyword lists to define your schema:

@@ -76,9 +76,9 @@ defmodule Jido.Action.Schema do
     * `schema` - NimbleOptions schema or Zoi schema
 
   ## Returns
-    * List of atom keys defined in the schema
+    * List of keys defined in the schema, including all union branches
   """
-  @spec known_keys(t()) :: [atom()]
+  @spec known_keys(t()) :: [atom() | String.t()]
   def known_keys([]), do: []
   def known_keys(schema) when is_list(schema), do: Keyword.keys(schema)
 
@@ -228,7 +228,7 @@ defmodule Jido.Action.Schema do
   end
 
   defp extract_zoi_keys(%{__struct__: Zoi.Types.Map, fields: fields}) when is_list(fields) do
-    Keyword.keys(fields)
+    Enum.map(fields, &elem(&1, 0))
   end
 
   defp extract_zoi_keys(%{__struct__: Zoi.Types.Struct, fields: fields}) when is_map(fields) do
@@ -236,7 +236,13 @@ defmodule Jido.Action.Schema do
   end
 
   defp extract_zoi_keys(%{__struct__: Zoi.Types.Struct, fields: fields}) when is_list(fields) do
-    Keyword.keys(fields)
+    Enum.map(fields, &elem(&1, 0))
+  end
+
+  defp extract_zoi_keys(%{__struct__: Zoi.Types.Union, schemas: schemas}) do
+    schemas
+    |> Enum.flat_map(&extract_zoi_keys/1)
+    |> Enum.uniq()
   end
 
   defp extract_zoi_keys(_), do: []
