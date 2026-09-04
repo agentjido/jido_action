@@ -1,11 +1,285 @@
 defmodule Jido.Flow.DSL.InlineStepTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Jido.Flow.DSL.{Expression, InlineStep}
   alias Jido.Flow.Ref
 
   @source_file "inline_header.ex"
   @source_line 40
+
+  test "inline bindings compile and run through ordinary Steps with inferred dependencies" do
+    assert [%Jido.Flow.Step{action: action, params: params}, %Jido.Flow.Step{}] =
+             JidoActionTest.Fixtures.InlineGreetingFlow.flow().components
+
+    assert is_atom(action)
+    assert params == %{name: Ref.input(:name)}
+
+    assert Jido.Exec.run(JidoActionTest.Fixtures.InlineGreetingFlow, %{name: " Ada "}) ==
+             {:ok, %{message: "Hello, Ada!"}}
+
+    assert {:ok, dependencies} =
+             Jido.Flow.dependencies(JidoActionTest.Fixtures.InlineGreetingFlow.flow())
+
+    assert dependencies["greet"] == %{
+             after: [],
+             references: ["normalize"],
+             effective: ["normalize"]
+           }
+  end
+
+  test "bodies retain the declaration's aliases, imports, helpers, module, and attributes" do
+    module = JidoActionTest.Fixtures.InlineLexicalFlow
+    assert {:ok, result} = Jido.Exec.run(module, %{name: " Ada "})
+
+    assert result == %{
+             value: "[ADA!?]",
+             module: module,
+             prefix: "before",
+             qualified: %{name: "body", value: " Ada "},
+             local_import: %{name: "local", value: "[ADA!?]"}
+           }
+
+    assert module.current_prefix() == "after"
+    assert Enum.map(module.flow().components, & &1.name) == ["lexical", "local_import"]
+  end
+
+  test "canonical inline Steps contain only ordinary Action author data" do
+    flow = JidoActionTest.Fixtures.InlineGreetingFlow.flow()
+    map = Jido.Flow.to_map(flow)
+
+    for step <- flow.components do
+      assert Map.keys(Map.from_struct(step)) |> Enum.sort() ==
+               [:action, :after, :meta, :name, :params]
+
+      assert is_atom(step.action)
+      assert step.action.name() == step.name
+      assert step.action.schema() == []
+      assert step.action.output_schema() == []
+    end
+
+    assert canonical_data?(map)
+  end
+
+  test "compiler, validation, and inspection do not run inline work" do
+    source = """
+    defmodule Jido.Flow.DSL.InlineStepTest.InertFlow do
+      use Jido.Flow, name: "inline_inert"
+      flow do
+        step "mark", ctx <- context() do
+          send(ctx.owner, {:inline_work, ctx.marker})
+          {:ok, %{worked: true}}
+        end
+        output(result("mark"))
+      end
+    end
+    """
+
+    compile_source(source)
+    module = Module.concat(__MODULE__, InertFlow)
+    flow = module.flow()
+    assert {:ok, ^flow} = Jido.Flow.validate(flow)
+    assert {:ok, ^flow} = Jido.Flow.validate_executable(flow)
+    assert {:ok, _} = Jido.Flow.explain(flow)
+    assert {:ok, _} = Jido.Flow.compile(flow)
+    assert is_map(Jido.Flow.to_map(flow))
+    refute_received {:inline_work, _}
+
+    marker = make_ref()
+    assert {:ok, %{worked: true}} = Jido.Exec.run(module, %{}, %{owner: self(), marker: marker})
+    assert_received {:inline_work, ^marker}
+  end
+
+  test "undefined body calls report the user body file and line" do
+    source = """
+    defmodule Jido.Flow.DSL.InlineStepTest.UndefinedFlow do
+      use Jido.Flow, name: "inline_undefined"
+      flow do
+        step "bad", [] do
+          missing_inline_function()
+        end
+        output(result("bad"))
+      end
+    end
+    """
+
+    {_result, diagnostics} =
+      Code.with_diagnostics(fn ->
+        assert_raise CompileError, fn -> compile_source(source, "inline_undefined.ex") end
+      end)
+
+    assert Enum.any?(diagnostics, fn diagnostic ->
+             diagnostic.severity == :error and
+               diagnostic.message =~ "undefined function missing_inline_function/0" and
+               Path.basename(diagnostic.file) == "inline_undefined.ex" and
+               diagnostic_line(diagnostic) == 5
+           end)
+  end
+
+  test "declaration imports are not available inside the body function" do
+    source = """
+    defmodule Jido.Flow.DSL.InlineStepTest.NoDeclarationFlow do
+      use Jido.Flow, name: "inline_no_declaration"
+      flow do
+        step "bad", [] do
+          output(%{})
+        end
+        output(result("bad"))
+      end
+    end
+    """
+
+    {_result, diagnostics} =
+      Code.with_diagnostics(fn ->
+        assert_raise CompileError, fn -> compile_source(source, "inline_no_declaration.ex") end
+      end)
+
+    assert Enum.any?(diagnostics, fn diagnostic ->
+             diagnostic.severity == :error and diagnostic.message =~ "undefined function output/1" and
+               diagnostic_line(diagnostic) == 5
+           end)
+  end
+
+  test "unused user variables retain warnings at the header line" do
+    source = """
+    defmodule Jido.Flow.DSL.InlineStepTest.UnusedFlow do
+      use Jido.Flow, name: "inline_unused"
+      flow do
+        step "unused", user_value <- input(:value) do
+          body_value = :unused
+          {:ok, %{}}
+        end
+        output(result("unused"))
+      end
+    end
+    """
+
+    {_modules, diagnostics} =
+      Code.with_diagnostics(fn -> compile_source(source, "inline_unused.ex") end)
+
+    assert Enum.any?(diagnostics, fn diagnostic ->
+             diagnostic.severity == :warning and diagnostic.message =~ "user_value" and
+               diagnostic.message =~ "unused" and
+               Path.basename(diagnostic.file) == "inline_unused.ex" and
+               diagnostic_line(diagnostic) == 4
+           end)
+
+    assert Enum.any?(diagnostics, fn diagnostic ->
+             diagnostic.severity == :warning and diagnostic.message =~ "body_value" and
+               Path.basename(diagnostic.file) == "inline_unused.ex" and
+               diagnostic_line(diagnostic) == 5
+           end)
+  end
+
+  test "all inline macro arities lower their params, after, and meta through normal Steps" do
+    source = """
+    defmodule Jido.Flow.DSL.InlineStepTest.BindingFormsFlow do
+      use Jido.Flow, name: "inline_binding_forms"
+      alias URI, as: Address
+
+      flow do
+        step :seed, [] do
+          {:ok, %{ready: true}}
+        end
+
+        step "one", name <- input(:name), after: ["seed"], meta: %{form: "one"} do
+          {:ok, %{name: name}}
+        end
+
+        step "two", name <- result("one", :name), ctx <- context() do
+          {:ok, %{name: name <> ctx.suffix}}
+        end
+
+        step "two_options", name <- result("two", :name), count <- input(:count),
+          after: ["seed"], meta: %{form: "two"} do
+          {:ok, %{name: name, count: count}}
+        end
+
+        step "list", [name <- result("two_options", :name), count <- input(:count), ctx <- context()],
+          meta: %{form: "list"} do
+          repeat = fn value -> String.duplicate(value, count) end
+          {:ok, %{name: repeat.(name), suffix: ctx.suffix}}
+        end
+
+        step "pattern", %{uri: %Address{path: path}, kind: :person} <- input() do
+          {:ok, %{path: path}}
+        end
+
+        output(%{list: result("list"), path: result("pattern", :path)})
+      end
+    end
+    """
+
+    compile_source(source)
+    module = Module.concat(__MODULE__, BindingFormsFlow)
+    assert [seed, one, two, two_options, list, pattern] = module.flow().components
+    assert seed.name == "seed"
+    assert seed.params == %{}
+    assert one.after == ["seed"]
+    assert one.meta == %{form: "one"}
+    assert two.params == %{name: Ref.result("one", :name), ctx: Ref.context()}
+    assert two_options.after == ["seed"]
+    assert two_options.meta == %{form: "two"}
+    assert list.meta == %{form: "list"}
+    assert pattern.params == Ref.input([])
+
+    assert Jido.Exec.run(
+             module,
+             %{name: "Ada", count: 2, uri: URI.parse("/home"), kind: :person},
+             %{suffix: "!"}
+           ) ==
+             {:ok, %{list: %{name: "Ada!Ada!", suffix: "!"}, path: "/home"}}
+  end
+
+  test "a runtime raise keeps the user body file and line" do
+    source = """
+    defmodule Jido.Flow.DSL.InlineStepTest.RaisingFlow do
+      use Jido.Flow, name: "inline_raising"
+      flow do
+        step "raise", [] do
+          raise "inline body failed"
+        end
+        output(result("raise"))
+      end
+    end
+    """
+
+    compile_source(source, "inline_raise.ex")
+    assert {:error, error} = Jido.Exec.run(__MODULE__.RaisingFlow)
+    assert %Splode.Stacktrace{stacktrace: stacktrace} = error.stacktrace
+
+    assert Enum.any?(stacktrace, fn
+             {__MODULE__.RaisingFlow, _function, _arity, location} ->
+               to_string(location[:file]) == "inline_raise.ex" and location[:line] == 5
+
+             _frame ->
+               false
+           end)
+  end
+
+  test "normal invalid nested patterns are rejected by the owner function compiler" do
+    source = """
+    defmodule Jido.Flow.DSL.InlineStepTest.BadPatternFlow do
+      use Jido.Flow, name: "inline_bad_pattern"
+      flow do
+        step "bad", %{name: String.trim(name)} <- input() do
+          {:ok, %{name: name}}
+        end
+        output(result("bad"))
+      end
+    end
+    """
+
+    {_result, diagnostics} =
+      Code.with_diagnostics(fn ->
+        assert_raise CompileError, fn -> compile_source(source, "inline_pattern.ex") end
+      end)
+
+    assert Enum.any?(diagnostics, fn diagnostic ->
+             diagnostic.severity == :error and diagnostic.message =~ "inside a match" and
+               Path.basename(diagnostic.file) == "inline_pattern.ex" and
+               diagnostic_line(diagnostic) == 4
+           end)
+  end
 
   test "one named binding retains the input and body syntax" do
     {:step, _, [_name, binding, options]} =
@@ -276,4 +550,42 @@ defmodule Jido.Flow.DSL.InlineStepTest do
 
   defp ast(source), do: Code.string_to_quoted!(source, line: @source_line, columns: true)
   defp caller, do: %{__ENV__ | file: @source_file, line: @source_line}
+
+  defp canonical_data?(value) when is_map(value) do
+    not is_struct(value, Macro.Env) and
+      Enum.all?(Map.to_list(value), fn {key, item} ->
+        canonical_data?(key) and canonical_data?(item)
+      end)
+  end
+
+  defp canonical_data?(value) when is_list(value), do: Enum.all?(value, &canonical_data?/1)
+  defp canonical_data?(value) when is_tuple(value), do: false
+  defp canonical_data?(value), do: not is_function(value)
+
+  defp diagnostic_line(%{position: {line, _column}}), do: line
+  defp diagnostic_line(%{position: line}), do: line
+
+  defp compile_source(source, file \\ "inline_compile.ex") do
+    loaded = MapSet.new(:code.all_loaded(), &elem(&1, 0))
+
+    try do
+      Code.compile_string(source, file)
+    after
+      owned =
+        for {module, _} <- :code.all_loaded(),
+            not MapSet.member?(loaded, module),
+            String.starts_with?(Atom.to_string(module), [
+              "Elixir.Jido.Flow.DSL.InlineStepTest.",
+              "Elixir.Jido.Flow.Generated.InlineStep."
+            ]),
+            do: module
+
+      on_exit(fn ->
+        Enum.each(owned, fn module ->
+          :code.purge(module)
+          :code.delete(module)
+        end)
+      end)
+    end
+  end
 end

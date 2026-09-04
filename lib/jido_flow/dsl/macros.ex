@@ -52,10 +52,39 @@ end
 defmodule Jido.Flow.DSL.Macros do
   @moduledoc false
 
-  alias Jido.Flow.DSL.MacroSupport
+  alias Jido.Flow.DSL.{InlineStep, InlineStepCompiler, MacroSupport}
 
   defmacro step(name, options) do
     entity(name, options, extension_module(["Flow", "Step"]), :__step__, [:params], __CALLER__)
+  end
+
+  defmacro step(name, bindings, options) do
+    inline_step(name, InlineStep.parse!(bindings, options, __CALLER__), __CALLER__)
+  end
+
+  defmacro step(name, left, right, options) do
+    inline_step(name, InlineStep.parse!(left, right, options, __CALLER__), __CALLER__)
+  end
+
+  defmacro step(name, left, right, options, body_options) do
+    inline_step(
+      name,
+      InlineStep.parse!(left, right, options, body_options, __CALLER__),
+      __CALLER__
+    )
+  end
+
+  defp inline_step(name, parsed, caller) do
+    {name, action, definition} = InlineStepCompiler.compile!(name, parsed, caller)
+    options = [action: action, params: parsed.params_ast] ++ parsed.options
+
+    declaration =
+      entity(name, options, extension_module(["Flow", "Step"]), :__step__, [:params], caller)
+
+    quote do
+      unquote(definition)
+      unquote(declaration)
+    end
   end
 
   defmacro map(name, options) do

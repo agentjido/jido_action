@@ -49,6 +49,33 @@ defmodule Jido.Flow.DSL.FlowTest.MixedFlow do
   end
 end
 
+defmodule Jido.Flow.DSL.FlowTest.InlineAndExistingFlow do
+  @moduledoc false
+
+  use Jido.Flow, name: "inline_and_existing"
+
+  flow do
+    step "inline", name <- input(:name) do
+      {:ok, %{name: name}}
+    end
+
+    step "keyword",
+      action: JidoActionTest.Fixtures.Actions.Add,
+      params: %{value: 1, amount: 2}
+
+    step "field_block" do
+      action(JidoActionTest.Fixtures.Actions.Multiply)
+      params(%{value: result("keyword", :value), amount: 2})
+    end
+
+    step "child",
+      action: JidoActionTest.Fixtures.InlineGreetingFlow,
+      params: result("inline")
+
+    output(%{message: result("child", :message), value: result("field_block", :value)})
+  end
+end
+
 defmodule Jido.Flow.DSL.FlowTest do
   use ExUnit.Case, async: true
 
@@ -58,6 +85,15 @@ defmodule Jido.Flow.DSL.FlowTest do
   alias Jido.Flow.Reduce
   alias Jido.Flow.Ref
   alias Jido.Flow.Step
+
+  test "inline Steps coexist with keyword Steps, field-block Steps, and Subflows" do
+    module = Jido.Flow.DSL.FlowTest.InlineAndExistingFlow
+
+    assert [%Step{}, %Step{}, %Step{}, %Jido.Flow.Subflow{}] = module.flow().components
+
+    assert Jido.Exec.run(module, %{name: " Ada "}) ==
+             {:ok, %{message: "Hello, Ada!", value: 6}}
+  end
 
   test "the unchanged Spark forms lower directly to canonical records" do
     flow = Jido.Flow.DSL.FlowTest.MixedFlow.flow()
