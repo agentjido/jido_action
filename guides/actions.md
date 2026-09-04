@@ -59,9 +59,9 @@ not add inline methods to `use Jido.Action` or function/MFA executable targets.
 The Action has empty field schemas, with the normal map input and output
 boundary. Exec still owns validation, errors, timeouts, and telemetry.
 
-The unreleased [portable inline form](inline-actions.md) also accepts explicit
-schemas, descriptions, and execution context in Flow or a downstream host
-DSL. It is not part of `3.0.0-beta.5`. No schema is inferred from bindings.
+The [portable inline form](inline-actions.md), available in `3.0.0-beta.6`,
+also accepts explicit schemas, descriptions, and execution context in Flow or
+a downstream host DSL. No schema is inferred from bindings.
 Keep a named Action for custom lifecycle hooks or a public module API
 independent of the host. Use
 `ActionGuide.Greeting.step_action("greet")` when you only need to reuse the

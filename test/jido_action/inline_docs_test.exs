@@ -120,7 +120,7 @@ defmodule Jido.Action.InlineDocsTest do
     assert_raise ArgumentError, fn -> apply(InlineFlowGuide.Mapped, :step_action, ["doubled"]) end
   end
 
-  test "the guide uses public host APIs and separates unreleased examples from beta.5" do
+  test "the guide uses public host APIs and states its minimum package version" do
     source = File.read!(@guide)
     [_, host] = String.split(source, "## Build A Non-Flow Host\n", parts: 2)
     host = host |> String.split(~r/^## /m, parts: 2) |> hd()
@@ -130,8 +130,8 @@ defmodule Jido.Action.InlineDocsTest do
     refute source =~ "Jido.Action.Inline.Compiler"
     refute source =~ "Jido.Action.Inline.Owner"
     refute source =~ "Mix.install"
-    assert source =~ "unreleased"
-    assert source =~ "3.0.0-beta.5"
+    refute source =~ "unreleased"
+    assert source =~ "3.0.0-beta.6"
 
     for api <- [
           "parse_bound!",

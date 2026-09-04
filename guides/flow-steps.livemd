@@ -10,7 +10,7 @@ Run the cells from top to bottom.
 Inline Steps require `3.0.0-beta.5` or later.
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-beta.5"}])
+Mix.install([{:jido_action, "~> 3.0.0-beta.6"}])
 ```
 
 ## Write An Inline Body
@@ -87,11 +87,11 @@ parameters and a map success result, unless you use `Jido.Action.Output`.
 A pattern mismatch becomes a structured execution failure. It is not field
 schema validation. A missing reference fails before the body runs.
 
-Use the unreleased nested `action` form for explicit field schemas,
+Use the nested `action` form for explicit field schemas,
 descriptions, or `context: ctx`. It also supports Map, Reduce, Choice options
 and fallback, and Iterate; Dispatch has `decision` and `expander` forms.
-See [Portable Inline Actions](inline-actions.md) for runnable checkout examples.
-These forms are not included in the beta.5 install cell above.
+See [Portable Inline Actions](inline-actions.md) for runnable examples. These
+forms require `3.0.0-beta.6` or later.
 
 Keep a named Action for custom lifecycle hooks or a separate public module
 API. All forms use the same Exec errors, telemetry, timeout, concurrency, and

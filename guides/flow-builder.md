@@ -118,12 +118,13 @@ The target is an ordinary Action, so an existing Map can also reuse it:
   Jido.Exec.run(names_flow, %{people: [" ada ", " grace "]})
 ```
 
-This Builder example reuses a compiled Action target. The unreleased module
-DSL can also author an inline Map body through a nested `action` block.
+This Builder example reuses a compiled Action target. The module DSL can also
+author an inline Map body through a nested `action` block.
 Builder and direct constructors still accept only compiled targets, not body
 code, anonymous functions, or MFAs. Use `Jido.Action.Inline.target!/2` to reuse
 other inline roles with a new parameter mapping. See
-[Portable Inline Actions](inline-actions.md), which is not in `3.0.0-beta.5`.
+[Portable Inline Actions](inline-actions.md). This API requires
+`3.0.0-beta.6` or later.
 
 ## Builder Functions
 

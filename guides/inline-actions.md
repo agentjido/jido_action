@@ -1,9 +1,8 @@
 # Portable Inline Actions
 
-This guide describes the unreleased portable inline Action API. Run its code
-in a checkout that contains this change and `Jido.Expr`.
-`3.0.0-beta.5` contains the legacy inline Step shorthand, but not this API or
-the expression API. No downstream production package is changed by this API.
+This guide describes the portable inline Action API in `3.0.0-beta.6`.
+The release also includes `Jido.Expr`. A downstream package must adopt this
+API before its own DSL can provide portable inline Actions.
 
 An inline body compiles to an ordinary Action. It uses the normal `Jido.Exec`
 input validation, output validation, errors, telemetry, timeout, cancellation,

@@ -11,7 +11,7 @@ Run the cells from top to bottom.
 Inline Steps require `3.0.0-beta.5` or later.
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-beta.5"}])
+Mix.install([{:jido_action, "~> 3.0.0-beta.6"}])
 ```
 
 ## Define Small Actions
@@ -121,9 +121,8 @@ A Flow expression, including each inline binding source, can contain:
 - maps with supported data keys; and
 - Flow references.
 
-The unreleased `Jido.Expr` API adds fixed portable operations to these data
-fields. See [Expressions](flow-expressions.md). It is not in the beta.5 install
-cell above.
+`Jido.Expr` adds fixed portable operations to these data fields. See
+[Expressions](flow-expressions.md). It requires `3.0.0-beta.6` or later.
 
 These forms are not Flow expressions:
 
@@ -154,12 +153,12 @@ removes its declaration imports inside the body. Spark can also remove an
 outer import that conflicts with a DSL name. Use a qualified call such as
 `MyApp.Helpers.output(value)`, or import that helper inside the body.
 
-Only `step` has the shipped top-level shorthand. The unreleased nested
-`action` form also supports Map, Reduce, Choice options and fallback, and
+Only `step` has the top-level shorthand. The nested `action` form also
+supports Map, Reduce, Choice options and fallback, and
 Iterate. Dispatch uses bound `decision` and direct callback `expander` forms.
 All forms lower to ordinary Action fields and host data. See
 [Portable Inline Actions](inline-actions.md) for the syntax and public
-downstream host API. These forms are not in `3.0.0-beta.5`.
+downstream host API. These forms require `3.0.0-beta.6` or later.
 
 ## Use Closed Conditions
 

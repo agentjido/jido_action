@@ -50,14 +50,14 @@ defmodule Jido.Flow do
   sole map pattern for complete params, or `[]` for no input. Only `after:`
   and `meta:` are inline options.
 
-  This Step shorthand has empty field schemas. The unreleased nested `action`
+  This Step shorthand has empty field schemas. The nested `action`
   form accepts explicit metadata, schemas, and `context: ctx`. It supports
   Step, Map, Reduce, Choice options and fallback, and Iterate. Dispatch uses
   bound `decision` and direct callback `expander` blocks. All forms compile
   to ordinary Actions with normal Exec validation and result rules. Keep a
   named Action for custom lifecycle hooks or a separate public module API.
-  See [Portable Inline Actions](inline-actions.md). The shared API is not
-  included in `3.0.0-beta.5`.
+  See [Portable Inline Actions](inline-actions.md). The shared API requires
+  `3.0.0-beta.6` or later.
 
   After the owner compiles, `MyApp.Greeting.step_action("greet")` returns its
   Action target for Builder, direct construction, or trusted Registry reuse.

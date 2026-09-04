@@ -8,7 +8,7 @@ Run the cells from top to bottom.
 ## Install The Package
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-beta.5"}])
+Mix.install([{:jido_action, "~> 3.0.0-beta.6"}])
 ```
 
 ## Define The Body Action
@@ -106,7 +106,7 @@ These references have Iterate-local scope:
 The Iterate target must be an Action. Nested Flow execution is not supported in
 the body target slot.
 
-The unreleased nested `action` form can define the body inside `iterate`.
+The nested `action` form can define the body inside `iterate`.
 Bindings keep the existing params scope, including `state`, `iteration_index`,
 and `body_result`. In params, `body_result()` is `nil` before the first body
 call and holds the previous body result on later calls. In the update
@@ -114,4 +114,4 @@ expression, it holds the current body result. An Action schema validates body
 params; the State schema separately validates each replacement State.
 Serial execution, repeat bounds, and completion rules do not change.
 See the [inline Iterate example](inline-actions.md#use-inline-actions-in-flow).
-It requires a checkout with the portable API, not the beta.5 install above.
+It requires `3.0.0-beta.6` or later.

@@ -97,7 +97,7 @@ that Action directly, supply `:ctx` in its input map. Passing only the Exec
 context does not recreate the binding. Reuse through a new Step also needs an
 explicit context reference in that Step's parameters.
 
-The unreleased shared block also accepts `context: ctx`, which binds actual
+The shared block also accepts `context: ctx`, which binds actual
 execution context without adding a parameter. For other inline roles, use
 `Jido.Action.Inline.target!/2` with the exact typed path. `step_action/1` stays
 Step-only. See [lookup paths](inline-actions.md#stable-lookup-and-deployment).
@@ -105,8 +105,8 @@ Step-only. See [lookup paths](inline-actions.md#stable-lookup-and-deployment).
 ## Convert An Action To An Inline Step
 
 Inline bodies reduce source code for small transformations. They do not infer
-field types or defaults from bindings. The shipped Step shorthand has empty
-input and output schemas. The unreleased nested `action` form can declare
+field types or defaults from bindings. The Step shorthand has empty input and
+output schemas. The nested `action` form can declare
 explicit schemas, defaults, and metadata. Neither form inherits the owning
 Flow's schemas or the validation hooks of an Action that it replaces.
 
@@ -114,7 +114,8 @@ When you use the nested form, copy any required static input and output
 schemas explicitly. Tools and routers can read these declared Action schemas;
 binding names alone do not provide them. Keep a named Action for custom
 lifecycle hooks or a separate public module API. See
-[Portable Inline Actions](inline-actions.md), which is not in `3.0.0-beta.5`.
+[Portable Inline Actions](inline-actions.md). This API requires
+`3.0.0-beta.6` or later.
 
 The owning Flow still validates its input and final output. Those schemas do
 not validate each intermediate Step result. Calling an extracted target with

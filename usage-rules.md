@@ -80,7 +80,7 @@ Use `jido_action` for validated work and data-first composition:
   `ctx <- context()` as an Action parameter. Bodies retain the owner's private
   helpers and lexical scope, not runtime closure captures. Qualify helper
   calls that conflict with DSL imports, or import those helpers inside the body.
-- The shipped Step shorthand has empty field schemas. The unreleased nested
+- The shipped Step shorthand has empty field schemas. The nested
   `action` form accepts `name`, `description`, `schema`, `output_schema`, and
   `context: ctx`. Schemas are static and are not inferred from bindings.
 - Use nested bound `action` blocks in Step, Map, Reduce, Choice options and
@@ -90,7 +90,7 @@ Use `jido_action` for validated work and data-first composition:
 - `context: ctx` binds actual execution context without adding parameters or
   schema fields. Keep custom lifecycle hooks and independent public module
   APIs in named Actions. See [Portable Inline Actions](guides/inline-actions.md).
-  This shared API and `Jido.Expr` are not in `3.0.0-beta.5`.
+  This shared API and `Jido.Expr` require `3.0.0-beta.6` or later.
 - Let result references create data dependencies. Use `after:` only for
   control order without a data dependency.
 - Do not add a `parallel` block. Independent nodes run concurrently when

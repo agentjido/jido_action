@@ -1,8 +1,7 @@
 # Expressions In Flows And Host DSLs
 
-`Jido.Expr` adds small, portable calculations to `jido_action` v3. This guide
-describes the unreleased expression API. Run the examples in a checkout that
-contains this change; `3.0.0-beta.5` does not contain it.
+`Jido.Expr` adds small, portable calculations to `jido_action` v3. The API is
+available in `3.0.0-beta.6` or later.
 
 Use an expression for a short calculation or an obvious condition. Use an
 inline Action or a named Action when the operation needs an explanation,
@@ -45,11 +44,11 @@ The same syntax works in Step and Subflow params, Choice conditions and
 params, Map and Reduce fields, Iterate State and conditions, Dispatch params,
 bound inline Action sources, and Flow output. Each field keeps its existing
 reference scope and result-shape rules. A normal Flow output is still a map.
-The unreleased [portable inline API](inline-actions.md) supplies nested bodies
+The [portable inline API](inline-actions.md) supplies nested bodies
 for Step, Map, Reduce, Choice options and fallback, Iterate, and Dispatch.
 These bodies compile to ordinary Action targets. Sources use Expr; bodies use
 normal Elixir. A Dispatch expander is a direct callback and has no source
-mapping. These additions are not in `3.0.0-beta.5`.
+mapping. These additions require `3.0.0-beta.6` or later.
 
 ## Complete Operation List
 
@@ -208,8 +207,8 @@ path. A returned `Jido.Expr.Error` path is relative to that location. Other
 host errors pass through unchanged. Reference values are treated as data,
 never as new expression instructions. Host callbacks must be bounded and
 must accept only the host's documented reference forms. Parsing and
-validation must not run application work. This PR does not integrate any
-other Jido package or add a custom operator registry.
+validation must not run application work. The API does not add a custom
+operator registry or automatically integrate another Jido package.
 
 For a complete host that also compiles inline Action bodies, see
 [Build A Non-Flow Host](inline-actions.md#build-a-non-flow-host). The host must

@@ -11,6 +11,23 @@ entries return to the normal automated changelog process.
 
 <!-- changelog -->
 
+## [3.0.0-beta.6](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.5...v3.0.0-beta.6) (2026-09-04)
+
+
+
+
+### Features:
+
+* action: share inline Action syntax across DSLs (#226) by mikehostetler
+
+* flow: add reusable Jido.Expr helper DSL (#224) by mikehostetler
+
+### Bug Fixes:
+
+* deps: update mint to resolve security advisories (#227) by mikehostetler
+
+* executable: formalize the shared validation contract (#225) by mikehostetler
+
 ## [3.0.0-beta.5](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.4...v3.0.0-beta.5) (2026-09-04)
 
 

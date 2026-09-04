@@ -8,7 +8,7 @@ Run the cells from top to bottom.
 ## Install The Package
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-beta.5"}])
+Mix.install([{:jido_action, "~> 3.0.0-beta.6"}])
 ```
 
 ## Define A Routing Action
@@ -99,7 +99,7 @@ the producing Action's output schema, or the Iterate State schema. For example,
 The direct condition rejects a non-Boolean value. An explicit comparison
 such as `input(:enabled) == false` keeps its existing equality behavior and
 does not validate the type. A missing reference still fails. The expression
-API is newer than `3.0.0-beta.5`; see [Expressions](flow-expressions.md).
+API requires `3.0.0-beta.6` or later; see [Expressions](flow-expressions.md).
 
 ## Fallback Is Routing
 
@@ -110,13 +110,13 @@ not run the fallback.
 Choice option and fallback targets must be Actions. A Choice does not derive a
 Subflow target.
 
-The unreleased nested `action` form can define a body in an `option` or
+The nested `action` form can define a body in an `option` or
 `otherwise` block. Binding sources keep the same reference scope and static
 dependencies as params. Only the selected body runs. A fallback remains a
 normal route, not an error handler. An option called `"otherwise"` has a
 different lookup path from the fallback.
-See [inline Choice examples and lookup paths](inline-actions.md).
-The portable form is not in the beta.5 install cell above.
+See [inline Choice examples and lookup paths](inline-actions.md). The portable
+form requires `3.0.0-beta.6` or later.
 
 ## Route An Expected Failure As Data
 

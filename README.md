@@ -1,7 +1,7 @@
 # Jido Action
 
-[![Hex.pm](https://img.shields.io/badge/hex-3.0.0--beta.5-714a96.svg)](https://hex.pm/packages/jido_action)
-[![Hex Docs](https://img.shields.io/badge/hex-docs-lightgreen.svg)](https://hexdocs.pm/jido_action/3.0.0-beta.5/)
+[![Hex.pm](https://img.shields.io/badge/hex-3.0.0--beta.6-714a96.svg)](https://hex.pm/packages/jido_action)
+[![Hex Docs](https://img.shields.io/badge/hex-docs-lightgreen.svg)](https://hexdocs.pm/jido_action/3.0.0-beta.6/)
 [![CI](https://github.com/agentjido/jido_action/actions/workflows/ci.yml/badge.svg)](https://github.com/agentjido/jido_action/actions/workflows/ci.yml)
 [![License](https://img.shields.io/hexpm/l/jido_action.svg)](https://github.com/agentjido/jido_action/blob/main/LICENSE)
 [![Website](https://img.shields.io/badge/website-jido.run-0f172a.svg)](https://jido.run)
@@ -34,25 +34,27 @@ This foundation keeps the action boundary small:
 - `Jido.Executable` is the advanced descriptor API for the common Action and
   Flow target contract.
 - `Jido.Action` defines a named action with Zoi input and output schemas.
+- `Jido.Action.Inline` lets host DSLs compile inline bodies to normal Actions.
+- `Jido.Expr` defines fixed, data-only operations for Flow and host DSLs.
 - `Jido.Instruction` captures one requested executable call as data.
 - `Jido.Flow` composes actions as a validated graph with steps and Choices.
 - `Jido.Exec` runs actions, instructions, and Flows, including asynchronous
   run-to-completion calls and step-wise Flows.
 
-Version 3.0.0-beta.5 is a public beta. It introduces the declarative Flow DSL,
+Version 3.0.0-beta.6 is a public beta. It includes the declarative Flow DSL,
 runtime Flow construction, safe stored Flow maps, and one Flow execution
-engine. The v3 API can still change before the stable release, and this beta
-locks Runic 0.1.0-alpha.9. Use it for evaluation and controlled trials before
-you use it for critical production work. See the [version 2 to version 3
-migration guide](guides/v2-to-v3-migration.md) for the confirmed breaking
-changes.
+engine. This beta adds portable inline Actions and `Jido.Expr`. The v3 API can
+still change before the stable release, and this beta locks Runic
+0.1.0-alpha.9. Use it for evaluation and controlled trials before you use it
+for critical production work. See the [version 2 to version 3 migration
+guide](guides/v2-to-v3-migration.md) for the confirmed breaking changes.
 
 ## Install
 
 ```elixir
 def deps do
   [
-    {:jido_action, "~> 3.0.0-beta.5"}
+    {:jido_action, "~> 3.0.0-beta.6"}
   ]
 end
 ```
@@ -281,11 +283,12 @@ Use `MyApp.Flows.SimpleGreeting.step_action("greet")` to reuse its target in
 Builder or a trusted Registry. Neither Builder nor JSON accepts body code,
 closures, or MFAs. See [Build Your First Flow](guides/build-your-first-flow.livemd).
 
-The unreleased [portable inline Action API](guides/inline-actions.md) adds
+Version `3.0.0-beta.6` adds the
+[portable inline Action API](guides/inline-actions.md), with
 nested blocks for Step, Map, Reduce, Choice options and fallback, Iterate,
 and Dispatch. These blocks accept explicit schemas, metadata, and execution
-context. A downstream DSL can use `Jido.Action.Inline` without Flow. This API
-and `Jido.Expr` are not included in `3.0.0-beta.5`. Keep a named Action for
+context. A downstream DSL can use `Jido.Action.Inline` without Flow. The same
+release adds `Jido.Expr` for portable calculations. Keep a named Action for
 custom validation hooks or a separate public module API.
 
 ## Build A Flow At Runtime
@@ -415,6 +418,7 @@ Livebook. ExDoc adds a **Run in Livebook** link to each `.livemd` guide.
 ### Core Contracts
 
 - [Actions](guides/actions.md)
+- [Portable Inline Actions](guides/inline-actions.md)
 - [Instructions](guides/instructions.md)
 - [Flows](guides/flows.md)
 - [Continue to Another Executable](guides/continuations.md)
