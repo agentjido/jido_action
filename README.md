@@ -57,6 +57,19 @@ def deps do
 end
 ```
 
+To keep Flow DSL declarations without parentheses, add `:jido_action` to
+`import_deps` in your project's `.formatter.exs`:
+
+```elixir
+[
+  import_deps: [:jido_action],
+  inputs: ["{mix,.formatter}.exs", "{config,lib,test}/**/*.{ex,exs}"]
+]
+```
+
+Keep your existing formatter options and imported dependencies. No formatter
+plugin is required. See [Flow Modules](guides/flow-modules.md#format-the-dsl).
+
 ## Define An Action
 
 ```elixir

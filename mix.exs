@@ -227,6 +227,7 @@ defmodule JidoAction.MixProject do
       files: [
         "lib",
         "guides",
+        ".formatter.exs",
         "mix.exs",
         "README.md",
         "CHANGELOG.md",

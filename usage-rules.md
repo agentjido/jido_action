@@ -60,6 +60,8 @@ Use `jido_action` for validated work and data-first composition:
 
 - Use the compile-time `Jido.Flow` DSL as the primary developer authoring
   surface.
+- Add `:jido_action` to `.formatter.exs` `import_deps` to keep DSL declarations
+  without parentheses. No formatter plugin is required.
 - Give every component a stable string name.
 - Use `step`, `choice`, `map`, `reduce`, `iterate`, and `dispatch` for graph
   structure.

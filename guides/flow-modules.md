@@ -27,6 +27,26 @@ end
 The DSL validates syntax, Flow structure, reference scope, graph cycles, and
 target contracts during compilation. Compile errors use DSL source locations.
 
+## Format The DSL
+
+Add `:jido_action` to the `import_deps` list in your project's `.formatter.exs`.
+Keep all existing formatter options and imported dependencies.
+
+```elixir
+[
+  import_deps: [:jido_action],
+  inputs: ["{mix,.formatter}.exs", "{config,lib,test}/**/*.{ex,exs}"]
+]
+```
+
+The package exports `locals_without_parens` for Flow declarations and block
+fields. Standard `mix format` then keeps forms such as `step "greet", ...`
+and `output result("greet")`. No formatter plugin is required.
+
+Reference calls such as `input(:name)`, `result("greet")`, and `state(:count)`
+keep their parentheses. The formatter also preserves explicit parentheses on
+declarations. Remove those parentheses once if you want the form shown above.
+
 ## Generated API
 
 A Flow module exposes the Action-compatible and Flow-specific functions that
