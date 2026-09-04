@@ -90,7 +90,8 @@ defmodule Jido.Expr.Limits do
       Enum.all?(options, fn {key, value} ->
         cond do
           Keyword.has_key?(@defaults, key) ->
-            is_integer(value) and value > 0 and value <= 1_048_576_000
+            is_integer(value) and value > 0 and value <= 1_048_576_000 and
+              (key != :max_integer_bits or value <= 1_048_576)
 
           key in callbacks ->
             is_function(value, 1) or (key != :leaf_parser and is_function(value, 2))
@@ -98,6 +99,6 @@ defmodule Jido.Expr.Limits do
           true ->
             false
         end
-      end) and Keyword.get(options, :max_integer_bits, 4096) <= 1_048_576
+      end)
   end
 end

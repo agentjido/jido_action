@@ -138,6 +138,24 @@ defmodule JidoActionTest.Flow.ExprTest do
     assert {:error, _} = Jido.Exec.run(output_flow(Expr.new!(:add, [1, 2])))
   end
 
+  test "resolved private map keys are absent from complete Flow errors" do
+    private_key = "private-token-as-key"
+    private_value = String.duplicate("private-value", 100_000)
+    expression = Expr.new!(:eq, [Ref.context(:secrets), nil])
+
+    assert {:error, error} =
+             Jido.Exec.run(output_flow(%{answer: expression}), %{}, %{
+               secrets: %{private_key => %{private_key => private_value}}
+             })
+
+    assert error.details.reason == :max_binary_bytes
+    assert error.details.expression_path == [:answer, :operands, 0]
+    assert error.details.retry == false
+    refute inspect(error, limit: :infinity) =~ private_key
+    refute inspect(error, limit: :infinity) =~ "private-value"
+    refute inspect(Jido.Flow.Error.to_map(error), limit: :infinity) =~ private_key
+  end
+
   test "operations preserve all local reference scopes" do
     scopes = [
       :flow,

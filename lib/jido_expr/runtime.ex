@@ -29,7 +29,7 @@ defmodule Jido.Expr.Runtime do
   end
 
   defp visit_value(%Expr{} = expression, state, path, depth, mode) when mode != :data do
-    with {:ok, _} <- shape(expression, path) do
+    with :ok <- shape(expression, state, path) do
       expression(expression, state, path, depth, mode)
     end
   end
@@ -37,26 +37,14 @@ defmodule Jido.Expr.Runtime do
   defp visit_value(%_{} = value, state, path, depth, mode) when mode != :data,
     do: host(value, state, path, depth, mode)
 
-  defp visit_value(value, state, path, depth, mode) when is_map(value) do
-    value
-    |> Map.to_list()
-    |> Enum.sort_by(&elem(&1, 0))
-    |> Enum.reduce_while({:ok, %{}, state}, fn {key, child}, {:ok, result, state} ->
-      case map_pair(key, child, state, path, depth, mode) do
-        {:ok, child, state} -> {:cont, {:ok, Map.put(result, key, child), state}}
-        error -> {:halt, error}
-      end
-    end)
-  end
+  defp visit_value(value, state, path, depth, mode) when is_map(value),
+    do: map(:maps.iterator(value), state, path, depth, mode, %{})
 
   defp visit_value(value, state, path, depth, mode) when is_list(value),
     do: list(value, state, path, depth, mode, 0, [])
 
-  defp visit_value(value, state, path, depth, :data) when is_tuple(value) do
-    with {:ok, _values, state} <- list(Tuple.to_list(value), state, path, depth, :data, 0, []) do
-      {:ok, value, state}
-    end
-  end
+  defp visit_value(value, state, path, depth, :data) when is_tuple(value),
+    do: tuple(value, state, path, depth, 0)
 
   defp visit_value(value, state, _path, _depth, mode)
        when mode == :data or is_atom(value) or is_number(value) or is_binary(value),
@@ -65,9 +53,21 @@ defmodule Jido.Expr.Runtime do
   defp visit_value(value, _state, path, _depth, _mode),
     do: Limits.fail(:unsupported_value, path, nil, %{type: Limits.type(value)})
 
+  defp map(iterator, state, path, depth, mode, result) do
+    case :maps.next(iterator) do
+      :none ->
+        {:ok, result, state}
+
+      {key, child, iterator} ->
+        with {:ok, child, state} <- map_pair(key, child, state, path, depth, mode) do
+          map(iterator, state, path, depth, mode, Map.put(result, key, child))
+        end
+    end
+  end
+
   defp map_pair(key, value, state, path, depth, mode) do
     if mode == :data or is_atom(key) or is_binary(key) or is_integer(key) do
-      child_path = path ++ [safe_key(key)]
+      child_path = if mode == :data, do: path, else: path ++ [key]
 
       with {:ok, _key, state} <- visit(key, state, child_path, depth + 1, :data) do
         visit(value, state, child_path, depth + 1, mode)
@@ -77,8 +77,15 @@ defmodule Jido.Expr.Runtime do
     end
   end
 
-  defp safe_key(key) when is_atom(key) or is_binary(key) or is_integer(key), do: key
-  defp safe_key(_key), do: :key
+  defp tuple(value, state, _path, _depth, index) when index == tuple_size(value),
+    do: {:ok, value, state}
+
+  defp tuple(value, state, path, depth, index) do
+    with {:ok, _child, state} <-
+           visit(elem(value, index), state, path ++ [index], depth + 1, :data) do
+      tuple(value, state, path, depth, index + 1)
+    end
+  end
 
   defp list([], state, _path, _depth, _mode, _index, result),
     do: {:ok, Enum.reverse(result), state}
@@ -98,12 +105,27 @@ defmodule Jido.Expr.Runtime do
   defp list(_tail, _state, path, _depth, _mode, index, _result),
     do: Limits.fail(:improper_list, path ++ [index])
 
-  defp shape(%Expr{operator: operator, operands: operands}, path) do
+  defp shape(%Expr{operator: operator, operands: [_ | _] = operands}, state, path)
+       when operator in [:all, :any],
+       do: boolean_shape(operands, state.max_nodes - state.nodes, operator, path, 0)
+
+  defp shape(%Expr{operator: operator, operands: operands}, _state, path) do
     case Expr.new(operator, operands) do
-      {:ok, _} = ok -> ok
+      {:ok, _} -> :ok
       {:error, error} -> {:error, %{error | path: path}}
     end
   end
+
+  defp boolean_shape([], _remaining, _operator, _path, _index), do: :ok
+
+  defp boolean_shape([_ | _], 0, _operator, path, index),
+    do: Limits.fail(:max_nodes, path ++ [:operands, index])
+
+  defp boolean_shape([_ | tail], remaining, operator, path, index),
+    do: boolean_shape(tail, remaining - 1, operator, path, index + 1)
+
+  defp boolean_shape(_tail, _remaining, operator, path, _index),
+    do: Limits.fail(:invalid_arity, path, operator)
 
   defp expression(%Expr{} = value, state, path, depth, :validate) do
     with {:ok, _operands, state} <-

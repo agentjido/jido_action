@@ -92,7 +92,7 @@ defmodule Jido.Expr.Parser do
     do: map(pairs, state, path, depth, %{})
 
   defp node(value, state, path, depth) when is_map(value),
-    do: map(Map.to_list(value), state, path, depth, %{})
+    do: map_iterator(:maps.iterator(value), state, path, depth, %{})
 
   defp node(values, state, path, depth) when is_list(values),
     do: list(values, state, path, depth, 0, [])
@@ -126,19 +126,40 @@ defmodule Jido.Expr.Parser do
 
   defp map([], state, _path, _depth, values), do: {:ok, values, state}
 
-  defp map([{key, value} | tail], state, path, depth, values)
+  defp map([{key, value} | tail], state, path, depth, values) do
+    with {:ok, values, state} <- map_pair(key, value, state, path, depth, values) do
+      map(tail, state, path, depth, values)
+    end
+  end
+
+  defp map(_pairs, _state, path, _depth, _values), do: Limits.fail(:invalid_map_key, path)
+
+  defp map_iterator(iterator, state, path, depth, values) do
+    case :maps.next(iterator) do
+      :none ->
+        {:ok, values, state}
+
+      {key, value, iterator} ->
+        with {:ok, values, state} <- map_pair(key, value, state, path, depth, values) do
+          map_iterator(iterator, state, path, depth, values)
+        end
+    end
+  end
+
+  defp map_pair(key, value, state, path, depth, values)
        when is_atom(key) or is_binary(key) or is_integer(key) do
     if Map.has_key?(values, key) do
       Limits.fail(:duplicate_key, path ++ [key])
     else
       with {:ok, state} <- Limits.enter(state, key, path ++ [key], depth + 1),
            {:ok, value, state} <- walk(value, state, path ++ [key], depth + 1) do
-        map(tail, state, path, depth, Map.put(values, key, value))
+        {:ok, Map.put(values, key, value), state}
       end
     end
   end
 
-  defp map(_pairs, _state, path, _depth, _values), do: Limits.fail(:invalid_map_key, path)
+  defp map_pair(_key, _value, _state, path, _depth, _values),
+    do: Limits.fail(:invalid_map_key, path)
 
   defp leaf(ast, state, path) do
     case Map.get(state, :leaf_parser) do
