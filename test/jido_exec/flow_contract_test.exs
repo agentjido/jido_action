@@ -9,12 +9,14 @@ defmodule JidoActionTest.Exec.FlowContractTest do
   alias Jido.Flow
   alias Jido.Flow.Error.{InvalidDefinitionError, InvalidExecutionError}
   alias Jido.Flow.{Ref, Step}
+  alias Jido.Instruction
   alias JidoActionTest.Fixtures.Execution, as: ExecFixtures
 
   alias JidoActionTest.Fixtures.{
     CountedValidationFlow,
     EnvelopeFlow,
     ImproperListOutputAction,
+    InlineResultFlow,
     ListOutputAction,
     MathFlow,
     ScalarResultFlow,
@@ -37,6 +39,111 @@ defmodule JidoActionTest.Exec.FlowContractTest do
   defmodule StructInput do
     @moduledoc false
     defstruct [:value]
+  end
+
+  defmodule InlinePatternFlow do
+    use Jido.Flow, name: "inline_pattern_boundary"
+
+    flow do
+      step "match",
+           %{profile: %{name: name}, active: true, test_pid: test_pid, token: token} <-
+             input(:payload) do
+        send(test_pid, {:inline_pattern_body, token})
+        {:ok, %{name: name}}
+      end
+
+      output(result("match"))
+    end
+  end
+
+  defmodule InlineContextFlow do
+    use Jido.Flow, name: "inline_context_boundary"
+
+    flow do
+      step "first", [value <- input(:value), ctx <- context()] do
+        value = value + 1
+        ctx = Map.put(ctx, :local_only, true)
+        {:ok, %{value: value, context: ctx}}
+      end
+
+      step "second",
+           [value <- input(:value), prior <- result("first"), ctx <- context()] do
+        {:ok, %{value: value, prior: prior, context: ctx}}
+      end
+
+      output(result("second"))
+    end
+  end
+
+  test "inline binding failures stop before body work at the existing boundaries" do
+    token = make_ref()
+    payload = %{profile: %{name: "Ada"}, active: true, test_pid: self(), token: token}
+
+    assert {:error, %Jido.Flow.Error.ExecutionFailureError{} = missing_ref} =
+             Exec.run(InlinePatternFlow)
+
+    assert missing_ref.message == "flow reference path does not exist"
+    assert missing_ref.details.reason == :missing_key
+    assert missing_ref.details.path == [:payload]
+    refute_received {:inline_pattern_body, ^token}
+
+    for invalid <- [put_in(payload.profile, %{}), %{payload | active: false}] do
+      assert {:error, %ActionExecutionFailureError{} = mismatch} =
+               Exec.run(InlinePatternFlow, %{payload: invalid})
+
+      assert mismatch.details.exception == FunctionClauseError
+      assert mismatch.details.action == InlinePatternFlow.step_action("match")
+      assert mismatch.details.node == "match"
+      refute_received {:inline_pattern_body, ^token}
+    end
+
+    assert {:error, %Jido.Action.Error.InvalidInputError{} = non_map} =
+             Exec.run(InlinePatternFlow, %{payload: :not_a_map})
+
+    assert non_map.details.node == "match"
+    refute_received {:inline_pattern_body, ^token}
+
+    assert Exec.run(InlinePatternFlow, %{payload: Map.put(payload, :extra, :accepted)}) ==
+             {:ok, %{name: "Ada"}}
+
+    assert_received {:inline_pattern_body, ^token}
+    refute_received {:inline_pattern_body, ^token}
+  end
+
+  test "inline Steps preserve caller context and keep header bindings local" do
+    context = %{trace_id: make_ref(), prefix: "Hello"}
+
+    assert Exec.run(InlineContextFlow, %{value: 3}, context) ==
+             {:ok,
+              %{
+                value: 3,
+                prior: %{value: 4, context: Map.put(context, :local_only, true)},
+                context: context
+              }}
+  end
+
+  test "one inline target has equal results across public execution forms" do
+    input = %{mode: :map, value: 3}
+    action = InlineResultFlow.step_action("result")
+    expected = {:ok, %{value: 3}}
+
+    assert Exec.run(action, input) == expected
+    assert Exec.run(Instruction.new!(target: action, params: input)) == expected
+
+    for {path, run} <- ExecFixtures.flow_execution_paths(InlineResultFlow, input) do
+      assert run.() == expected, to_string(path)
+    end
+
+    for target <- [action, InlineResultFlow] do
+      handle = Exec.run_async(target, input)
+      assert Exec.await(handle) == expected
+    end
+
+    assert {:ok, execution} = Exec.start(InlineResultFlow, input)
+    assert [runnable] = Exec.ready(execution)
+    assert {:ok, %{status: :completed}, execution} = Exec.step(execution, runnable)
+    assert Exec.status(execution) == :succeeded
+    assert Exec.result(execution) == expected
   end
 
   def fail_flow_transform(_value, mode, _opts) do

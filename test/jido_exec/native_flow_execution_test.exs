@@ -6,6 +6,7 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
   alias Jido.Flow.{Map, Reduce, Ref, Step, Subflow}
   alias JidoActionTest.Fixtures.{ChoicePublicPaths, MathFlow}
   alias JidoActionTest.Fixtures.ChildIterator
+  alias JidoActionTest.Fixtures.InlineControlledFlow
 
   alias JidoActionTest.Fixtures.Actions.{
     EchoParamsAction,
@@ -72,6 +73,37 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
     refute_received {RecorderAction, _params}
     assert {:ok, completed} = Exec.continue(current)
     assert Exec.result(completed) == {:ok, %{left: :left, right: :right}}
+  end
+
+  test "a stale inline wave cannot repeat body effects" do
+    token = make_ref()
+    context = %{test_pid: self(), token: token, block: false}
+    input = %{first: 1, second: 2, third: 3}
+    assert {:ok, stale} = Exec.start(InlineControlledFlow, input, context, max_concurrency: 2)
+    assert length(Exec.ready(stale)) == 3
+    assert {:ok, executed, current} = Exec.wave(stale)
+    assert Enum.map(executed, & &1.node.name) |> Enum.sort() == ["first", "second", "third"]
+    assert current.revision == 1
+
+    for value <- 1..3 do
+      assert_received {:inline_started, ^token, ^value, worker}
+      monitor = Process.monitor(worker)
+      assert_receive {:DOWN, ^monitor, :process, ^worker, _reason}, 1_000
+      assert_received {:inline_finished, ^token, ^value}
+    end
+
+    for mutate <- [&Exec.step/1, &Exec.wave/1, &Exec.continue/1] do
+      assert {:error,
+              %Jido.Flow.Error.InvalidExecutionError{
+                message: "stale flow execution",
+                details: %{reason: :stale_revision, revision: 0, current_revision: 1}
+              }} = mutate.(stale)
+    end
+
+    refute_received {:inline_started, ^token, _value, _worker}
+    refute_received {:inline_finished, ^token, _value}
+    assert {:ok, completed} = Exec.continue(current)
+    assert Exec.result(completed) == {:ok, %{values: [1, 2, 3]}}
   end
 
   test "ready, step, and wave expose Runic support runnables" do

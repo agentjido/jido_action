@@ -11,6 +11,7 @@ defmodule JidoActionTest.Exec.TelemetryTest do
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Instruction
   alias JidoActionTest.Fixtures.{BlockingFlow, MathFlow, TelemetryParentFlow}
+  alias JidoActionTest.Fixtures.InlineControlledFlow
   alias JidoActionTest.Fixtures.Execution.BlockingAction
   alias JidoActionTest.Fixtures.Actions.{Add, ErrorAction}
 
@@ -286,6 +287,107 @@ defmodule JidoActionTest.Exec.TelemetryTest do
              {@action_start, _, %{name: :tracker_test}},
              {@action_stop, _, %{name: :tracker_test}}
            ] = events()
+  end
+
+  for form <- [:action, :flow], terminal <- [:cancel, :timeout] do
+    @tag timeout: 10_000
+    @tag inline_form: form, inline_terminal: terminal
+    test "inline #{form} #{terminal} cleans up workers and closes each started lifecycle once", %{
+      inline_form: form,
+      inline_terminal: terminal
+    } do
+      attach([@action_start, @action_stop, @action_error] ++ @flow_events)
+      token = make_ref()
+      context = %{test_pid: self(), token: token}
+      action = InlineControlledFlow.step_action("first")
+      supervisor = Exec.task_supervisor_name(__MODULE__)
+      start_supervised!({Task.Supervisor, name: supervisor})
+
+      {target, input, prefixes} =
+        case form do
+          :action ->
+            {action, %{value: 1, ctx: context}, [[:jido, :action]]}
+
+          :flow ->
+            {InlineControlledFlow, %{first: 1, second: 2, third: 3},
+             [[:jido, :flow], [:jido, :flow, :node], [:jido, :flow, :target]]}
+        end
+
+      opts = [max_concurrency: 1, jido: __MODULE__]
+      opts = if terminal == :timeout, do: Keyword.put(opts, :timeout, 2_000), else: opts
+      handle = Exec.run_async(target, input, context, opts)
+      caller_monitor = Process.monitor(handle.pid)
+
+      try do
+        assert_receive {:inline_started, ^token, value, worker}, 1_000
+        worker_monitor = Process.monitor(worker)
+
+        worker_action =
+          InlineControlledFlow.step_action(Enum.at(["first", "second", "third"], value - 1))
+
+        expected_error =
+          case {terminal, form} do
+            {:cancel, _form} ->
+              assert :ok = Exec.cancel(handle)
+              Jido.Exec.Error.CancelledError
+
+            {:timeout, :action} ->
+              assert {:error, %Jido.Action.Error.TimeoutError{timeout: 2_000}} =
+                       Exec.await(handle, 5_000)
+
+              Jido.Action.Error.TimeoutError
+
+            {:timeout, :flow} ->
+              assert {:error, %Jido.Flow.Error.TimeoutError{timeout: 2_000}} =
+                       Exec.await(handle, 5_000)
+
+              Jido.Flow.Error.TimeoutError
+          end
+
+        assert_receive {:DOWN, ^worker_monitor, :process, ^worker, _reason}, 1_000
+        assert_receive {:DOWN, ^caller_monitor, :process, _, _reason}, 1_000
+        assert Task.Supervisor.children(supervisor) == []
+        refute_received {:inline_started, ^token, _value, _worker}
+        refute_received {:inline_finished, ^token, _value}
+
+        recorded = events()
+        assert length(recorded) == length(prefixes) * 2
+
+        assert [_execution_id] =
+                 recorded
+                 |> Enum.map(fn {_event, _measurements, metadata} -> metadata.execution_id end)
+                 |> Enum.uniq()
+
+        for prefix <- prefixes do
+          start_event = prefix ++ [:start]
+          error_event = prefix ++ [:error]
+
+          assert [
+                   {^start_event, _, start_metadata},
+                   {^error_event, measurements, error_metadata}
+                 ] = Enum.filter(recorded, fn {event, _, _} -> Enum.drop(event, -1) == prefix end)
+
+          assert error_metadata.error.__struct__ == expected_error
+
+          expected_error_type =
+            case {terminal, form} do
+              {:cancel, _form} -> :async_cancelled
+              {:timeout, :action} -> :timeout
+              {:timeout, :flow} -> :flow_timeout
+            end
+
+          assert error_metadata.error_type == expected_error_type
+
+          assert Map.drop(error_metadata, [:error, :error_type]) == start_metadata
+          assert measurements.duration >= 0
+
+          if prefix == [:jido, :flow, :target], do: assert(start_metadata.target == worker_action)
+        end
+      after
+        Exec.cancel(handle)
+        Process.demonitor(caller_monitor, [:flush])
+      end
+    end
   end
 
   test "tracker calls are safe after the tracker stops" do

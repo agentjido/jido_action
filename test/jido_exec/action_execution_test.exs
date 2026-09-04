@@ -9,6 +9,7 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
   alias Jido.Flow.{Ref, Step}
   alias Jido.Instruction
   alias JidoActionTest.Fixtures.ActionWithFlowFunction
+  alias JidoActionTest.Fixtures.InlineResultFlow
 
   alias JidoActionTest.Fixtures.Actions.{
     Add,
@@ -49,6 +50,68 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
     def validate_output(output), do: {:ok, output}
     def run(params, _context), do: {:ok, params}
     def name, do: throw(:action_name_failed)
+  end
+
+  test "inline targets keep normal success, Output, and extras rules" do
+    action = InlineResultFlow.step_action("result")
+    assert action.schema() == []
+    assert action.output_schema() == []
+
+    for {mode, value, expected} <- [
+          {:map, 3, %{value: 3}},
+          {:output, "raw success", Jido.Action.Output.raw("raw success")}
+        ] do
+      input = %{mode: mode, value: value}
+      assert Exec.run(action, input) == {:ok, expected}
+      assert Exec.run(InlineResultFlow, input) == {:ok, expected}
+    end
+
+    input = %{mode: :extras, value: 3}
+    instruction = Instruction.new!(target: action, params: input)
+
+    for target <- [action, instruction] do
+      assert Exec.run(target, input) == {:ok, %{value: 3}, %{effect: :already_ran}}
+    end
+
+    assert Exec.run(InlineResultFlow, input) == {:ok, %{value: 3}}
+  end
+
+  test "inline callback failures retain current structured errors in Actions and Steps" do
+    action = InlineResultFlow.step_action("result")
+
+    cases = [
+      {:raise, "inline body failed", %{exception: RuntimeError}},
+      {:throw, "action throw", %{reason: {:inline_throw, 42}}},
+      {:exit, "action exit", %{reason: {:inline_exit, 42}}},
+      {:invalid_callback, "action returned an unsupported result",
+       %{result: :not_a_result_tuple}},
+      {:invalid_output, "action returned a value that requires an output envelope",
+       %{callback: :run, output: 42}}
+    ]
+
+    for {mode, message, expected_details} <- cases, target <- [action, InlineResultFlow] do
+      assert {:error, %ExecutionFailureError{} = error} =
+               Exec.run(target, %{mode: mode, value: 42})
+
+      assert error.message == message
+      assert error.details.action == action
+      assert Map.take(error.details, Map.keys(expected_details)) == expected_details
+      refute Error.retryable?(error)
+      if target == InlineResultFlow, do: assert(error.details.node == "result")
+
+      if mode in [:raise, :throw, :exit] do
+        assert %Splode.Stacktrace{stacktrace: stacktrace} = error.stacktrace
+
+        assert Enum.any?(stacktrace, fn
+                 {InlineResultFlow, _function, _arity, location} ->
+                   to_string(location[:file]) =~ "test/support/fixtures/flow/inline.ex" and
+                     is_integer(location[:line])
+
+                 _frame ->
+                   false
+               end)
+      end
+    end
   end
 
   describe "run/3 with action modules" do

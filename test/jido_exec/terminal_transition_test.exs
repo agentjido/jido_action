@@ -10,6 +10,7 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
   alias Jido.Flow.{Dispatch, Ref, Step}
   alias JidoActionTest.Fixtures.Actions.{Add, ExtrasAction}
   alias JidoActionTest.Fixtures.MathFlow
+  alias JidoActionTest.Fixtures.InlineResultFlow
 
   defmodule ContinueToAdd do
     use Jido.Action,
@@ -315,6 +316,21 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
 
       assert {:error, %ExecutionFailureError{message: message}} = Exec.run(flow)
       assert message == "action continuation is not allowed from this Flow position"
+    end
+
+    test "an inline continuation is valid only when its Action is the root target" do
+      action = InlineResultFlow.step_action("result")
+      input = %{mode: :continue, value: 3}
+
+      assert Exec.run(action, input) == {:ok, %{value: 5}}
+
+      assert {:error, %ExecutionFailureError{message: message, details: details}} =
+               Exec.run(InlineResultFlow, input)
+
+      assert message == "action continuation is not allowed from this Flow position"
+      assert details.action == action
+      assert details.component == "result"
+      assert details.component_kind == :node
     end
 
     test "Dispatch must end every Flow path and be the exact Flow output" do

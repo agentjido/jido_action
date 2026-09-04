@@ -112,6 +112,8 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     ControlledErrorAction
   }
 
+  alias JidoActionTest.Fixtures.InlineControlledFlow
+
   alias JidoActionTest.Fixtures.Execution, as: ExecFixtures
   alias JidoActionTest.Fixtures.FlowAuthoring, as: FlowFixtures
   alias JidoActionTest.Fixtures.Actions.{Add, EchoParamsAction, RecorderAction}
@@ -175,6 +177,58 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     assert Enum.map([first, second], &elem(&1, 0)) |> Enum.sort() == [:left, :right]
     assert Task.await(task) == {:ok, %{left: :left, right: :right}}
     assert Agent.get(probe, & &1.max) == 1
+  end
+
+  test "independent inline Steps obey the concurrency limit and return canonical results" do
+    for limit <- [1, 2] do
+      probe =
+        start_supervised!(
+          Supervisor.child_spec({Agent, fn -> %{max: 0, running: 0} end},
+            id: {:inline_probe, limit}
+          )
+        )
+
+      token = make_ref()
+      context = %{probe: probe, test_pid: self(), token: token}
+
+      handle =
+        Exec.run_async(InlineControlledFlow, %{first: 1, second: 2, third: 3}, context,
+          max_concurrency: limit
+        )
+
+      try do
+        workers =
+          Enum.flat_map(Enum.chunk_every(1..3, limit), fn batch ->
+            started =
+              Enum.map(batch, fn _index ->
+                assert_receive {:inline_started, ^token, value, worker}, 1_000
+                {value, worker, Process.monitor(worker)}
+              end)
+
+            assert Agent.get(probe, & &1.max) == limit
+
+            for {_value, worker, _monitor} <- Enum.reverse(started) do
+              send(worker, {:release, token})
+            end
+
+            started
+          end)
+
+        assert Exec.await(handle) == {:ok, %{values: [1, 2, 3]}}
+        assert Agent.get(probe, & &1) == %{max: limit, running: 0}
+        assert Enum.map(workers, &elem(&1, 0)) |> Enum.sort() == [1, 2, 3]
+
+        for {value, worker, monitor} <- workers do
+          assert_receive {:DOWN, ^monitor, :process, ^worker, _reason}, 1_000
+          assert_received {:inline_finished, ^token, ^value}
+        end
+
+        refute_received {:inline_started, ^token, _value, _worker}
+        refute_received {:inline_finished, ^token, _value}
+      after
+        Exec.cancel(handle)
+      end
+    end
   end
 
   test "supports Flow module options and validates policy values" do
@@ -422,12 +476,8 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
 
   defp assert_process_stops(pid) do
     monitor = Process.monitor(pid)
-
-    if Process.alive?(pid) do
-      assert_receive {:DOWN, ^monitor, :process, ^pid, _reason}, 1_000
-    else
-      assert_receive {:DOWN, ^monitor, :process, ^pid, :noproc}, 1_000
-    end
+    assert_receive {:DOWN, ^monitor, :process, ^pid, _reason}, 1_000
+    refute Process.alive?(pid)
   end
 
   defp self_or_owner do
