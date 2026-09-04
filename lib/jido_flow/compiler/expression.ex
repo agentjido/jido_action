@@ -4,12 +4,39 @@ defmodule Jido.Flow.Compiler.Expression do
   alias Jido.Flow.Error
   alias Jido.Action.Output
   alias Jido.Flow.Ref
+  alias Jido.Expr
 
   @type value_type ::
           nil | :action_output | :list | :map | :binary | :number | :atom | :tuple | :other
 
   @doc false
   @spec resolve(term(), map()) :: {:ok, term()} | {:error, Exception.t()}
+  def resolve(%Expr{} = expression, state) do
+    case Expr.evaluate(expression,
+           resolve: fn ref, path ->
+             case resolve(ref, state) do
+               {:error, error} -> {:error, put_expression_path(error, path)}
+               result -> result
+             end
+           end
+         ) do
+      {:error, %Expr.Error{} = error} ->
+        {:error,
+         Error.execution_error(
+           "invalid Flow expression",
+           Map.merge(error.details, %{
+             operator: error.operator,
+             reason: error.reason,
+             expression_path: error.path,
+             retry: false
+           })
+         )}
+
+      result ->
+        result
+    end
+  end
+
   def resolve(%Ref{source: :input} = ref, state), do: resolve_path(ref, state.input)
 
   def resolve(%Ref{source: :context} = ref, state), do: resolve_path(ref, state.context)
@@ -48,16 +75,18 @@ defmodule Jido.Flow.Compiler.Expression do
     Enum.reduce_while(map, {:ok, %{}}, fn {key, value}, {:ok, acc} ->
       case resolve(value, state) do
         {:ok, resolved} -> {:cont, {:ok, Map.put(acc, key, resolved)}}
-        {:error, error} -> {:halt, {:error, error}}
+        {:error, error} -> {:halt, {:error, prefix_expression_path(error, key)}}
       end
     end)
   end
 
   def resolve(list, state) when is_list(list) do
-    Enum.reduce_while(list, {:ok, []}, fn value, {:ok, acc} ->
+    list
+    |> Enum.with_index()
+    |> Enum.reduce_while({:ok, []}, fn {value, index}, {:ok, acc} ->
       case resolve(value, state) do
         {:ok, resolved} -> {:cont, {:ok, [resolved | acc]}}
-        {:error, error} -> {:halt, {:error, error}}
+        {:error, error} -> {:halt, {:error, prefix_expression_path(error, index)}}
       end
     end)
     |> case do
@@ -67,6 +96,14 @@ defmodule Jido.Flow.Compiler.Expression do
   end
 
   def resolve(value, _state), do: {:ok, value}
+
+  defp put_expression_path(%{details: details} = error, path),
+    do: %{error | details: Map.put(details, :expression_path, path)}
+
+  defp prefix_expression_path(%{details: %{expression_path: path} = details} = error, key),
+    do: %{error | details: %{details | expression_path: [key | path]}}
+
+  defp prefix_expression_path(error, _key), do: error
 
   @doc false
   @spec value_type(term()) :: value_type()

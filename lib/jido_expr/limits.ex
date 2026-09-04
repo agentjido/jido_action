@@ -10,6 +10,8 @@ defmodule Jido.Expr.Limits do
     max_integer_bits: 4096
   ]
 
+  @doc false
+  @spec new(keyword(), [atom()]) :: {:ok, map()} | {:error, Error.t()}
   def new(options, callbacks) do
     if valid_options?(options, callbacks) do
       limits = Map.new(Keyword.merge(@defaults, options))
@@ -25,6 +27,9 @@ defmodule Jido.Expr.Limits do
     end
   end
 
+  @doc false
+  @spec enter(map(), term(), list(), non_neg_integer(), atom() | nil) ::
+          {:ok, map()} | {:error, Error.t()}
   def enter(state, value, path, depth, operator \\ nil) do
     bytes = if is_binary(value), do: byte_size(value), else: 0
     state = %{state | nodes: state.nodes + 1, bytes: state.bytes + bytes}
@@ -47,9 +52,13 @@ defmodule Jido.Expr.Limits do
     end
   end
 
+  @doc false
+  @spec fail(atom(), list(), atom() | nil, map()) :: {:error, Error.t()}
   def fail(reason, path, operator \\ nil, details \\ %{}),
     do: {:error, %Error{reason: reason, path: path, operator: operator, details: details}}
 
+  @doc false
+  @spec type(term()) :: atom()
   def type(value) when is_nil(value), do: nil
   def type(value) when is_boolean(value), do: :boolean
   def type(value) when is_integer(value), do: :integer
@@ -61,6 +70,8 @@ defmodule Jido.Expr.Limits do
   def type(value) when is_map(value), do: :map
   def type(_value), do: :other
 
+  @doc false
+  @spec callback(function(), term(), list()) :: term()
   def callback(callback, value, path) do
     if is_function(callback, 2), do: callback.(value, path), else: callback.(value)
   rescue
@@ -69,6 +80,8 @@ defmodule Jido.Expr.Limits do
     _, _ -> fail(:callback_failure, [])
   end
 
+  @doc false
+  @spec callback_error(term(), list()) :: {:error, term()}
   def callback_error(%Error{} = error, path), do: {:error, %{error | path: path ++ error.path}}
   def callback_error(error, _path), do: {:error, error}
 

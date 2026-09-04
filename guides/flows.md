@@ -43,7 +43,10 @@ These limits keep continuation in one complete Exec call. See
 ## One Expression Grammar
 
 Expressions contain portable scalar values, proper lists, maps, and
-`Jido.Flow.Ref` values. Conditions use `Jido.Flow.Condition` with these
+`Jido.Flow.Ref` values. `Jido.Expr` adds fixed Boolean, comparison, numeric,
+and binary-concatenation operations. Flow fields accept these operations
+directly or inside an optional `expr(...)` wrapper. Conditions retain
+`Jido.Flow.Condition` with these
 operators:
 
 ```text
@@ -53,6 +56,10 @@ eq  neq  lt  lte  gt  gte  in  all  any  not
 References can read Flow input, context, prior component results, and
 component-local Map, Reduce, or Iterate values. A reference is valid only in
 its defined scope.
+
+Boolean references and literals are also valid conditions. Their evaluated
+values must be Boolean. See [Expressions](flow-expressions.md) for the shared
+helper DSL, exact operations, runtime construction, errors, and limits.
 
 The authoring grammar permits any expression at `output`. At execution, a
 normal Flow result must be a map. Use `Jido.Action.Output` when a Flow must

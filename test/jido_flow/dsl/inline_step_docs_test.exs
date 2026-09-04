@@ -8,7 +8,8 @@ defmodule Jido.Flow.DSL.InlineStepDocsTest do
     "Elixir.FlowLanguage.",
     "Elixir.MyApp.Flows.SimpleGreeting",
     "Elixir.MyApp.Flows.Greeting",
-    "Elixir.ActionGuide."
+    "Elixir.ActionGuide.",
+    "Elixir.ExprGuide."
   ]
 
   setup do
@@ -113,6 +114,12 @@ defmodule Jido.Flow.DSL.InlineStepDocsTest do
     for owner <- [MyApp.Flows.SimpleGreeting, ActionGuide.Greeting, MyApp.Flows.Greeting] do
       assert {:ok, %{message: "Hello, Ada!"}} = Jido.Exec.run(owner, %{name: "Ada"})
     end
+  end
+
+  test "the expression guide runs Flow, Builder, JSON, and an independent host DSL" do
+    bindings = eval_cells("guides/flow-expressions.md", [])
+    assert Keyword.fetch!(bindings, :built) == Keyword.fetch!(bindings, :restored)
+    assert Keyword.fetch!(bindings, :document)["version"] == 2
   end
 
   defp eval_cells(relative_path, opts) do

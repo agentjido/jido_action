@@ -96,6 +96,9 @@ defmodule Jido.Flow.Choice do
     end
 
     defp condition(%Condition{} = condition), do: Condition.validate(condition, :flow)
+    defp condition(%Jido.Expr{} = condition), do: Condition.validate(condition, :flow)
+    defp condition(%Jido.Flow.Ref{} = condition), do: Condition.validate(condition, :flow)
+    defp condition(condition) when is_boolean(condition), do: Condition.validate(condition, :flow)
 
     defp condition(_condition),
       do: {:error, Error.validation_error("choice option condition is required")}

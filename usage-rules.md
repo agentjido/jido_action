@@ -65,8 +65,10 @@ Use `jido_action` for validated work and data-first composition:
 - Give every component a stable string name.
 - Use `step`, `choice`, `map`, `reduce`, `iterate`, and `dispatch` for graph
   structure.
-- Use `input`, `context`, and `result` references to map data. Put computation
-  in Actions or inline Step bodies.
+- Use `input`, `context`, and `result` references to map data. Use `Jido.Expr`
+  operations for short calculations and conditions. Put application calls and
+  complex work in Actions or inline Step bodies. See
+  [Expressions](guides/flow-expressions.md) for the complete operation list.
 - Treat DSL expressions as a restricted data grammar, not general Elixir. Do
   not use assignments, pattern matching, pipes, or application function calls
   in binding sources or other data expressions.

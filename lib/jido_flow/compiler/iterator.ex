@@ -282,16 +282,22 @@ defmodule Jido.Flow.Compiler.Iterator do
         details = Map.get(error, :details, %{})
 
         {:error,
-         Error.execution_error("invalid iterator completion condition operands", %{
-           phase: :iterate_completion,
-           node: iterator.name,
-           operator: Map.get(details, :operator),
-           reason: Map.get(details, :reason),
-           left_type: Map.get(details, :left_type),
-           right_type: Map.get(details, :right_type),
-           iterations: runtime.completed,
-           retry: false
-         })}
+         Error.execution_error(
+           "invalid iterator completion condition operands",
+           Map.merge(
+             Map.take(details, [:path, :expression_path, :ref_type, :source, :component, :types]),
+             %{
+               phase: :iterate_completion,
+               node: iterator.name,
+               operator: Map.get(details, :operator),
+               reason: Map.get(details, :reason),
+               left_type: Map.get(details, :left_type),
+               right_type: Map.get(details, :right_type),
+               iterations: runtime.completed,
+               retry: false
+             }
+           )
+         )}
     end
   end
 end

@@ -266,14 +266,14 @@ defmodule Jido.Flow.DSL.Lowerer do
 
   defp normalize_termination(iterate, while_condition) do
     case {while_condition, iterate.repeat, iterate.max_iterations} do
-      {%Condition{} = condition, nil, maximum}
-      when is_integer(maximum) and maximum in 1..@maximum_iterations ->
+      {condition, nil, maximum}
+      when not is_nil(condition) and is_integer(maximum) and maximum in 1..@maximum_iterations ->
         {:ok, Condition.not(condition), maximum}
 
       {nil, count, nil} when is_integer(count) and count in 1..@maximum_iterations ->
         {:ok, Condition.gte(Ref.iteration_index(), count), count}
 
-      {%Condition{}, nil, _maximum} ->
+      {condition, nil, _maximum} when not is_nil(condition) ->
         {:error,
          Error.validation_error("iterate max_iterations must be an integer from 1 to 10000")}
 

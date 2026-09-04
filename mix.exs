@@ -94,6 +94,7 @@ defmodule JidoAction.MixProject do
           "guides/flow-language.livemd",
           "guides/flow-steps.livemd",
           "guides/flow-references.livemd",
+          "guides/flow-expressions.md",
           "guides/flow-dependencies.livemd",
           "guides/flow-choices.livemd",
           "guides/flow-collections.livemd",
@@ -136,6 +137,7 @@ defmodule JidoAction.MixProject do
         {"guides/flow-language.livemd", title: "Flow DSL"},
         {"guides/flow-steps.livemd", title: "Steps And Output"},
         {"guides/flow-references.livemd", title: "References And Data"},
+        {"guides/flow-expressions.md", title: "Expressions And Host DSLs"},
         {"guides/flow-dependencies.livemd", title: "Dependencies And Parallel Work"},
         {"guides/flow-choices.livemd", title: "Choices And Conditions"},
         {"guides/flow-collections.livemd", title: "Map And Reduce"},
@@ -177,6 +179,7 @@ defmodule JidoAction.MixProject do
           Jido.Flow.Codec,
           Jido.Flow.Registry
         ],
+        "Expression API": [Jido.Expr, Jido.Expr.Error],
         "Flow Types": [
           Jido.Flow.Choice,
           Jido.Flow.Choice.Option,

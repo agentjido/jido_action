@@ -14,6 +14,8 @@ defmodule Jido.Flow.Condition do
   """
 
   alias Jido.Action
+  alias Jido.Expr
+  alias Jido.Flow.Ref
   alias Jido.Flow.Error
   alias Jido.Flow.Expression
 
@@ -36,6 +38,12 @@ defmodule Jido.Flow.Condition do
 
   @type t :: unquote(Zoi.type_spec(@schema))
 
+  @typedoc "Accepted condition inputs, including strict Boolean references and expressions."
+  @type input :: t() | Expr.t() | Ref.t() | boolean()
+
+  @typedoc "A validated condition in the canonical Flow model."
+  @type normalized :: t() | Expr.t()
+
   @enforce_keys Zoi.Struct.enforce_keys(@schema)
   defstruct Zoi.Struct.struct_fields(@schema)
 
@@ -50,8 +58,11 @@ defmodule Jido.Flow.Condition do
   end
 
   @doc "Validates and rebuilds one condition."
-  @spec new(t()) :: {:ok, t()} | {:error, Exception.t()}
+  @spec new(input()) :: {:ok, normalized()} | {:error, Exception.t()}
   def new(%__MODULE__{} = condition), do: new(condition.operator, condition.operands)
+  def new(%Expr{} = expression), do: validate(expression, :any)
+  def new(%Ref{} = reference), do: validate(reference, :any)
+  def new(value) when is_boolean(value), do: validate(value, :any)
 
   def new(_condition) do
     {:error,
@@ -59,7 +70,7 @@ defmodule Jido.Flow.Condition do
   end
 
   @doc "Validates one condition for the specified reference scope."
-  @spec validate(t(), Jido.Flow.Ref.scope()) :: {:ok, t()} | {:error, Exception.t()}
+  @spec validate(input(), Jido.Flow.Ref.scope()) :: {:ok, normalized()} | {:error, Exception.t()}
   def validate(%__MODULE__{} = condition, scope) do
     owner = condition_owner(scope)
 
@@ -70,6 +81,16 @@ defmodule Jido.Flow.Condition do
       {:ok, %{condition | operands: operands}}
     end
   end
+
+  def validate(%Expr{} = expression, scope) do
+    with {:ok, expression} <- Expression.normalize(expression),
+         :ok <- Expression.validate(expression, scope) do
+      canonical_condition(expression, scope)
+    end
+  end
+
+  def validate(%Ref{} = reference, scope), do: validate(Expr.new!(:all, [reference]), scope)
+  def validate(value, scope) when is_boolean(value), do: validate(Expr.new!(:all, [value]), scope)
 
   def validate(_condition, scope) do
     {:error,
@@ -116,19 +137,19 @@ defmodule Jido.Flow.Condition do
   def left in right, do: new!(:in, [left, right])
 
   @doc "Builds a condition that requires all child conditions to be true."
-  @spec all([t()]) :: t()
+  @spec all([input()]) :: t()
   def all(conditions), do: new!(:all, conditions)
 
   @doc "Builds a condition that requires one child condition to be true."
-  @spec any([t()]) :: t()
+  @spec any([input()]) :: t()
   def any(conditions), do: new!(:any, conditions)
 
   @doc "Builds a condition that inverts one child condition."
-  @spec not t() :: t()
+  @spec not input() :: t()
   def not condition, do: new!(:not, [condition])
 
   @doc false
-  @spec result_deps(t()) :: [String.t()]
+  @spec result_deps(normalized()) :: [String.t()]
   def result_deps(%__MODULE__{} = condition) do
     condition
     |> collect_result_deps()
@@ -136,8 +157,11 @@ defmodule Jido.Flow.Condition do
     |> Enum.sort()
   end
 
+  def result_deps(expression),
+    do: Expression.result_refs(expression) |> Enum.uniq() |> Enum.sort()
+
   @doc false
-  @spec to_map(t()) :: map()
+  @spec to_map(normalized()) :: map()
   def to_map(%__MODULE__{operator: operator, operands: operands}) do
     %{
       operator: operator,
@@ -148,6 +172,8 @@ defmodule Jido.Flow.Condition do
         end)
     }
   end
+
+  def to_map(%Expr{} = expression), do: Expression.to_map(expression)
 
   defp validate_operator(operator, _owner) when Kernel.in(operator, @operators), do: :ok
 
@@ -290,7 +316,7 @@ defmodule Jido.Flow.Condition do
       :invalid_ref ->
         Error.validation_error("#{owner} contains invalid ref", %{
           path: nested_path,
-          type: details.type
+          type: details.ref_type
         })
 
       :improper_list ->
@@ -321,7 +347,23 @@ defmodule Jido.Flow.Condition do
     Enum.flat_map(operands, &collect_result_deps/1)
   end
 
+  defp collect_result_deps(expression), do: Expression.result_refs(expression)
+
   defp expression_kind(_error), do: Function
+
+  # Keep old condition shapes stable, while a single Boolean reference/literal
+  # uses the shared evaluator for its strict runtime type check.
+  defp canonical_condition(%Expr{operator: :all, operands: [%Ref{}]} = expression, _scope),
+    do: {:ok, expression}
+
+  defp canonical_condition(%Expr{operator: :all, operands: [value]} = expression, _scope)
+       when is_boolean(value), do: {:ok, expression}
+
+  defp canonical_condition(%Expr{operator: operator, operands: operands}, scope)
+       when Kernel.in(operator, @operators),
+       do: validate(%__MODULE__{operator: operator, operands: operands}, scope)
+
+  defp canonical_condition(expression, _scope), do: {:ok, expression}
 
   defp condition_owner(:iterate_completion), do: "iterator completion condition"
   defp condition_owner(_scope), do: "choice condition"

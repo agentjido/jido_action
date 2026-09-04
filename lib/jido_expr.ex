@@ -125,6 +125,7 @@ defmodule Jido.Expr do
   def parse!(ast, options \\ []), do: unwrap!(parse(ast, options))
 
   @doc "Builds expression data from source; `^variable` inserts trusted host data."
+  @spec expr(Macro.t()) :: Macro.t()
   defmacro expr(ast), do: Parser.expand!(ast)
 
   @doc """

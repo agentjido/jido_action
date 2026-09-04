@@ -134,6 +134,14 @@ defmodule Jido.Flow.Registry.Deriver do
     end)
   end
 
+  defp collect_condition(values, expression), do: collect_expression(values, expression)
+
+  defp collect_expression(values, %Jido.Expr{operands: operands}),
+    do: Enum.reduce(operands, values, &collect_expression(&2, &1))
+
+  defp collect_expression(values, %Condition{} = condition),
+    do: collect_condition(values, condition)
+
   defp collect_expression(values, %Ref{} = ref), do: collect_data(values, ref.path)
 
   defp collect_expression(values, value) when is_list(value) do

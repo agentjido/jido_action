@@ -33,8 +33,12 @@ defmodule Jido.Expr.Parser do
   @unary %{:- => :negate, :not => :not, :abs => :abs}
   @reserved Map.keys(@binary) ++ Map.keys(@unary) ++ [:all, :any, :expr]
 
+  @doc false
+  @spec parse(Macro.t(), keyword()) :: {:ok, term()} | {:error, term()}
   def parse(ast, options), do: run(ast, options, false)
 
+  @doc false
+  @spec expand!(Macro.t()) :: Macro.t()
   def expand!(ast) do
     case run(ast, [], true) do
       {:ok, expression} -> Macro.escape(expression, unquote: true)

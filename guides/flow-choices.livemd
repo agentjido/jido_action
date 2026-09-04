@@ -84,21 +84,22 @@ Conditions compare Flow expressions. They do not call application functions.
 Put complex or effectful decisions in an Action before the Choice, then test
 that Action result.
 
-`not` negates a condition, such as `not (input(:enabled) == true)`. It does
-not accept a bare reference such as `not input(:enabled)`. For a Boolean
-reference, use an explicit comparison in the component declaration:
+With the expression API, `not` also accepts a Boolean reference. Direct
+Boolean references and literals are valid conditions:
 
 ```text
-condition: input(:enabled) == false
+condition: not input(:enabled)
 # In an Iterate component:
-while(state(:done) == false)
+while not state(:done)
 ```
 
 Declare the field as a required `Zoi.boolean()` in the Flow input schema,
 the producing Action's output schema, or the Iterate State schema. For example,
 `Zoi.object(%{enabled: Zoi.boolean()})` rejects missing and non-Boolean input.
-The comparison alone does not validate the value's type. A missing reference
-still fails; a present non-Boolean value does not equal `false`.
+The direct condition rejects a non-Boolean value. An explicit comparison
+such as `input(:enabled) == false` keeps its existing equality behavior and
+does not validate the type. A missing reference still fails. The expression
+API is newer than `3.0.0-beta.5`; see [Expressions](flow-expressions.md).
 
 ## Fallback Is Routing
 

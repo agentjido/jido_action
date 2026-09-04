@@ -18,6 +18,7 @@ defmodule Jido.Expr.Error do
         }
 
   @impl true
+  @spec message(t()) :: String.t()
   def message(error) do
     "invalid expression: #{error.reason}" <>
       if(error.operator, do: " (#{error.operator})", else: "") <>

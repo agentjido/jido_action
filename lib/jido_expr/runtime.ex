@@ -4,6 +4,8 @@ defmodule Jido.Expr.Runtime do
   alias Jido.Expr
   alias Jido.Expr.Limits
 
+  @doc false
+  @spec evaluate(term(), keyword()) :: {:ok, term()} | {:error, term()}
   def evaluate(value, options) do
     with {:ok, state} <- Limits.new(options, [:resolve]),
          {:ok, result, _state} <- visit(value, state, [], 0, :evaluate) do
@@ -11,6 +13,8 @@ defmodule Jido.Expr.Runtime do
     end
   end
 
+  @doc false
+  @spec validate(term(), keyword()) :: :ok | {:error, term()}
   def validate(value, options) do
     with {:ok, state} <- Limits.new(options, [:validate_leaf]),
          {:ok, _value, _state} <- visit(value, state, [], 0, :validate) do

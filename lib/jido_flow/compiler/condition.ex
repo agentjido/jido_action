@@ -8,6 +8,32 @@ defmodule Jido.Flow.Compiler.Condition do
   @doc false
   @spec evaluate(Condition.t(), map(), String.t(), term()) ::
           {:ok, boolean()} | {:error, Exception.t()}
+  def evaluate(%Jido.Expr{} = expression, state, node, option) do
+    case Expression.resolve(expression, state) do
+      {:ok, result} when is_boolean(result) ->
+        {:ok, result}
+
+      {:ok, result} ->
+        {:error,
+         Error.execution_error("invalid choice condition operands", %{
+           phase: :choice_condition,
+           node: node,
+           option: option,
+           reason: :invalid_boolean_operand,
+           value_type: Expression.value_type(result),
+           expression_path: [],
+           retry: false
+         })}
+
+      {:error, %{details: details} = error} ->
+        {:error,
+         %{
+           error
+           | details: Map.merge(details, %{phase: :choice_condition, node: node, option: option})
+         }}
+    end
+  end
+
   def evaluate(%Condition{operator: :all, operands: conditions}, state, node, option) do
     Enum.reduce_while(conditions, {:ok, true}, fn condition, {:ok, true} ->
       case evaluate(condition, state, node, option) do

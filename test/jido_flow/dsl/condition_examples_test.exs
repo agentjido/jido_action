@@ -36,10 +36,10 @@ defmodule JidoActionTest.Flow.DSL.ConditionExamplesTest do
     end
   end
 
-  test "not negates conditions, while Boolean references require a comparison" do
+  test "not accepts both conditions and Boolean references" do
     assert {:ok, _} = Expression.parse_condition(quote(do: not (input(:enabled) == true)))
     assert {:ok, _} = Expression.parse_condition(quote(do: state(:done) == false))
-    assert {:error, _} = Expression.parse_condition(quote(do: not input(:enabled)))
-    assert {:error, _} = Expression.parse_condition(quote(do: not state(:done)))
+    assert {:ok, _} = Expression.parse_condition(quote(do: not input(:enabled)))
+    assert {:ok, _} = Expression.parse_condition(quote(do: not state(:done)))
   end
 end
