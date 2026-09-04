@@ -261,6 +261,30 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     assert Enum.map(module.flow().components, & &1.name) == ["lexical", "local_import"]
   end
 
+  for namespace <- [Jido.Flow.DSLHelpers, Spark.DslHelpers] do
+    test "inline bodies retain imports from #{inspect(namespace)}" do
+      helper = Module.concat(unquote(namespace), "Inline#{System.unique_integer([:positive])}")
+      owner = unique_owner("SimilarNamespace")
+
+      on_exit(fn ->
+        :code.purge(helper)
+        :code.delete(helper)
+      end)
+
+      compile_source("""
+      defmodule #{inspect(helper)} do
+        def prefix_marker, do: :retained
+      end
+      """)
+
+      declaration = ~s|step "same", [], do: {:ok, %{marker: prefix_marker()}}|
+      compile_source(flow_source(owner, declaration, "import #{inspect(helper)}"))
+
+      assert owner.step_action("same").run(%{}, %{}) == {:ok, %{marker: :retained}}
+      assert [%Jido.Flow.Step{name: "same"}] = owner.flow().components
+    end
+  end
+
   test "canonical inline Steps contain only ordinary Action author data" do
     flow = JidoActionTest.Fixtures.InlineGreetingFlow.flow()
     map = Jido.Flow.to_map(flow)

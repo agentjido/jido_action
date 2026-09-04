@@ -109,7 +109,9 @@ defmodule Jido.Flow.DSL.InlineStepCompiler do
     |> Enum.uniq()
     |> Enum.filter(fn module ->
       name = Atom.to_string(module)
-      String.starts_with?(name, ["Elixir.Jido.Flow.DSL", "Elixir.Spark.Dsl"])
+
+      module in [Jido.Flow.DSL, Spark.Dsl] or
+        String.starts_with?(name, ["Elixir.Jido.Flow.DSL.", "Elixir.Spark.Dsl."])
     end)
     |> Enum.map(fn module ->
       quote generated: true do
