@@ -8,8 +8,42 @@ defmodule Jido.Flow.RegistryTest do
   alias Jido.Flow.Registry
   alias Jido.Flow.Step
   alias JidoActionTest.Fixtures.FlowAuthoring
+  alias JidoActionTest.Fixtures.InlineParityFlow
   alias JidoActionTest.Fixtures.NestedFlow
   alias JidoActionTest.Fixtures.Actions.{Add, Multiply}
+
+  test "temporary Registries include inline Actions but their IDs depend on the Flow" do
+    flow = InlineParityFlow.flow()
+    assert {:ok, registry} = Registry.from_flow(flow)
+    assert Registry.from_flow(flow) == {:ok, registry}
+
+    for step <- flow.components do
+      assert {:ok, identifier} = Registry.identifier(registry, :action, step.action)
+      assert String.starts_with?(identifier, "actions/generated-")
+      assert Registry.resolve(registry, identifier, :action) == {:ok, step.action}
+    end
+
+    assert {:ok, document, ^registry} = Codec.encode(flow)
+
+    assert {:ok, ^flow} =
+             document |> Jason.encode!() |> Jason.decode!() |> Codec.decode(registry)
+
+    action = flow.components |> Enum.map(& &1.action) |> Enum.max_by(&Atom.to_string/1)
+
+    subset =
+      Flow.new!(
+        name: "inline_registry_subset",
+        components: [Step.new!(name: "only", action: action)],
+        output: Ref.result("only")
+      )
+
+    assert {:ok, subset_registry} = Registry.from_flow(subset)
+    assert {:ok, original_id} = Registry.identifier(registry, :action, action)
+    assert {:ok, subset_id} = Registry.identifier(subset_registry, :action, action)
+    refute original_id == subset_id
+
+    assert {:error, %InvalidDefinitionError{}} = Codec.decode(document, subset_registry)
+  end
 
   test "from_flow builds a deterministic convenience Registry" do
     flow = FlowAuthoring.mixed_flow!()

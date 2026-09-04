@@ -48,6 +48,7 @@ defmodule Jido.Flow.DSL.InlineStepBuildTest do
     assert_compile(fixture)
     changed = probe(fixture, "first", 22, 44)
     assert changed["target"] == initial["target"]
+    assert changed["semantic_identity"] == initial["semantic_identity"]
     assert wrapper_beams(fixture) == initial_targets
 
     # Rename and removal must update both the emitted beams and the static index.
@@ -198,8 +199,10 @@ defmodule Jido.Flow.DSL.InlineStepBuildTest do
         ArgumentError -> :ok
       end
     end
+    {:ok, semantic_identity} = Jido.Flow.semantic_identity(apply(owner, :flow, []))
     IO.puts("INLINE_BUILD_RESULT=" <> JSON.encode!(%{
       "target" => Atom.to_string(target),
+      "semantic_identity" => semantic_identity,
       "names" => Enum.map(apply(owner, :flow, []).components, & &1.name)
     }))
     """

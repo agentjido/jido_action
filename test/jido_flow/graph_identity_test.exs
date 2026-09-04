@@ -3,9 +3,24 @@ defmodule Jido.Flow.GraphIdentityTest do
 
   alias Jido.Flow.Error.InvalidDefinitionError
   alias Jido.Flow
+  alias Jido.Flow.Builder
   alias Jido.Flow.Ref
   alias Jido.Flow.Step
   alias JidoActionTest.Fixtures.Actions.Add
+  alias JidoActionTest.Fixtures.InlineAuthoring
+  alias JidoActionTest.Fixtures.InlineParityFlow
+
+  test "equal inline DSL, Builder, and direct graph data has the same semantic identity" do
+    dsl = InlineParityFlow.flow()
+    direct = InlineAuthoring.direct_flow!()
+    assert {:ok, built} = InlineAuthoring.builder() |> Builder.build()
+    assert {:ok, identity} = Flow.semantic_identity(dsl)
+    assert %{version: 1, algorithm: :sha256, digest: digest, uuid: uuid} = identity
+    assert is_binary(digest)
+    assert is_binary(uuid)
+    assert Flow.semantic_identity(direct) == {:ok, identity}
+    assert Flow.semantic_identity(built) == {:ok, identity}
+  end
 
   test "author order, reference order, and effective order stay separate" do
     first = Step.new!(name: "first", action: Add)
