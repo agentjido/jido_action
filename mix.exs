@@ -34,7 +34,10 @@ defmodule JidoAction.MixProject do
 
           # Spark owns this generated namespace. Handwritten DSL and compiler
           # modules remain part of the coverage result.
-          ~r/^Jido\.Flow\.DSL\.Extension\.Flow\./
+          ~r/^Jido\.Flow\.DSL\.Extension\.Flow\./,
+
+          # Inline wrappers contain generated Action scaffolding only.
+          ~r/^Jido\.Flow\.Generated\.InlineStep\./
         ],
         summary: [threshold: 93]
       ],

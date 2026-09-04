@@ -30,6 +30,39 @@ defmodule Jido.Flow do
         end
       end
 
+  For a small operation, bind data and write an inline Step body:
+
+      defmodule MyApp.Greeting do
+        use Jido.Flow, name: "greeting"
+
+        flow do
+          step "greet", name <- input(:name) do
+            {:ok, %{message: "Hello, " <> name <> "!"}}
+          end
+
+          output result("greet")
+        end
+      end
+
+  The binding source uses the Flow expression grammar. The body is normal
+  Elixir in the owning module's function scope. Use `ctx <- context()` to
+  bind context explicitly. Use a binding list for more than two inputs, a
+  sole map pattern for complete params, or `[]` for no input. Only `after:`
+  and `meta:` are inline options.
+
+  Inline bodies compile to ordinary Actions with empty field schemas and the
+  normal Exec validation and result rules. Extract a named Action for field
+  schemas or validation hooks. Only `step` supports inline bodies.
+
+  After the owner compiles, `MyApp.Greeting.step_action("greet")` returns its
+  Action target for Builder, direct construction, or trusted Registry reuse.
+  It does not copy parameters, dependencies, or metadata. Builder and stored
+  JSON do not accept body code, anonymous functions, or MFA targets.
+
+  Deploy the owning module and generated Action BEAM files together. A body
+  edit can retain the same target and semantic graph identity; graph identity
+  does not identify a deployed code version.
+
   Result references create data dependencies. `after:` keeps only explicit
   author control order. Source order does not create a dependency. The Spark
   compiler keeps source locations outside the canonical Flow value.

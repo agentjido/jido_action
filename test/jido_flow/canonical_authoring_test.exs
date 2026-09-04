@@ -123,8 +123,92 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
   alias Jido.Flow.Subflow
   alias JidoActionTest.Fixtures.CodecRegistry
   alias JidoActionTest.Fixtures.FlowAuthoring
+  alias JidoActionTest.Fixtures.InlineAuthoring
+  alias JidoActionTest.Fixtures.InlineParityFlow
   alias JidoActionTest.Fixtures.NestedFlow
   alias JidoActionTest.Fixtures.Actions.Add
+
+  test "all inline binding forms have equal DSL, Builder, direct, and JSON graphs and results" do
+    direct = InlineAuthoring.direct_flow!()
+    assert {:ok, built} = InlineAuthoring.builder() |> Builder.build()
+    dsl = InlineParityFlow.flow()
+    assert built == direct
+    assert dsl == direct
+
+    registry = InlineAuthoring.registry()
+    assert {:ok, document} = Codec.encode(built, registry)
+
+    assert Enum.map(document["components"], & &1["action"]) == [
+             "actions/demo/empty/v1",
+             "actions/demo/named/v1",
+             "actions/demo/multiple/v1",
+             "actions/demo/sole-map/v1"
+           ]
+
+    assert {:ok, decoded} =
+             document |> Jason.encode!() |> Jason.decode!() |> Codec.decode(registry)
+
+    assert decoded == direct
+
+    input = %{
+      raw_name: " Ada ",
+      payload: %{"profile" => %{"city" => "London"}, "active" => true, "extra" => "preserved"}
+    }
+
+    expected = %{
+      "empty" => %{ready: true},
+      "greeting" => %{message: "Welcome, Ada!"},
+      "profile" => %{city: "London"}
+    }
+
+    for flow <- [dsl, built, direct, decoded] do
+      assert Jido.Exec.run(flow, input, %{prefix: "Welcome"}) == {:ok, expected}
+    end
+  end
+
+  test "looked-up Actions use only the new Builder refs, dependencies, and metadata" do
+    action = InlineParityFlow.step_action(:multiple)
+
+    assert {:ok, flow} =
+             Builder.new(name: "reused_inline")
+             |> Builder.step("gate", InlineParityFlow.step_action(:empty), %{})
+             |> Builder.step(
+               "message",
+               action,
+               %{name: Builder.input(:recipient), prefix: Builder.input(:salutation)},
+               after: ["gate"],
+               meta: %{owner: "builder"}
+             )
+             |> Builder.output(Builder.result("message"))
+             |> Builder.build()
+
+    assert [_, %Step{} = reused] = flow.components
+    assert reused.action == action
+    assert reused.params == %{name: Ref.input(:recipient), prefix: Ref.input(:salutation)}
+    assert reused.after == ["gate"]
+    assert reused.meta == %{owner: "builder"}
+
+    assert {:ok, %{"message" => %{after: ["gate"], references: [], effective: ["gate"]}}} =
+             Flow.dependencies(flow)
+
+    assert Jido.Exec.run(flow, %{recipient: "Grace", salutation: "Hi"}) ==
+             {:ok, %{message: "Hi, Grace!"}}
+  end
+
+  test "a normal Map can reuse a looked-up inline Action with item refs" do
+    action = InlineParityFlow.step_action("named")
+
+    assert {:ok, flow} =
+             Builder.new(name: "mapped_inline")
+             |> Builder.map("names", Builder.input(:people), action, %{name: Builder.item()})
+             |> Builder.output(%{names: Builder.result("names")})
+             |> Builder.build()
+
+    assert [%FlowMap{action: ^action, params: %{name: %Ref{source: :item}}}] = flow.components
+
+    assert Jido.Exec.run(flow, %{people: [" Ada ", " Grace "]}) ==
+             {:ok, %{names: [%{name: "Ada"}, %{name: "Grace"}]}}
+  end
 
   test "direct, Builder, and Spark Step authoring produce the same canonical data" do
     direct =

@@ -245,6 +245,42 @@ Map and Reduce collections, bounded Iterate components with State, independent
 components that can run in parallel, one Dispatch at the end of a Flow, and a
 step-wise execution API.
 
+### Use Inline Steps For Small Operations
+
+The unreleased v3 source also supports inline Step bodies. This form is not
+included in `3.0.0-beta.4`; use a source checkout that contains the feature.
+
+```elixir
+defmodule MyApp.Flows.SimpleGreeting do
+  use Jido.Flow,
+    name: "simple_greeting",
+    schema: Zoi.object(%{name: Zoi.string()}),
+    output_schema: Zoi.object(%{message: Zoi.string()})
+
+  flow do
+    step "normalize", name <- input(:name) do
+      {:ok, %{name: String.trim(name)}}
+    end
+
+    step "greet", name <- result("normalize", :name) do
+      {:ok, %{message: "Hello, " <> name <> "!"}}
+    end
+
+    output result("greet")
+  end
+end
+
+{:ok, %{message: "Hello, Ada!"}} =
+  Jido.Exec.run(MyApp.Flows.SimpleGreeting, %{name: " Ada "})
+```
+
+Binding sources use Flow data expressions. Bodies use normal Elixir and
+compile to ordinary Actions. This version supports inline `step` bodies only.
+Use a named Action when a step needs field schemas or validation hooks.
+Use `MyApp.Flows.SimpleGreeting.step_action("greet")` to reuse its target in
+Builder or a trusted Registry. Neither Builder nor JSON accepts body code,
+closures, or MFAs. See [Build Your First Flow](guides/build-your-first-flow.livemd).
+
 ## Build A Flow At Runtime
 
 Use `Jido.Flow.Builder` when runtime data defines the graph. Each node has an

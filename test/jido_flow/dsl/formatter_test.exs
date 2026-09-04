@@ -87,11 +87,46 @@ defmodule Jido.Flow.DSL.FormatterTest do
   end
   """
 
+  @inline_flow """
+  flow do
+    step "one", name <- input(:name) do
+      {:ok, %{name: String.trim(name)}}
+    end
+
+    step "two", name <- result("one", :name), prefix <- context(:prefix) do
+      {:ok, %{message: prefix <> name}}
+    end
+
+    step "two_options", name <- input(:name), prefix <- context(:prefix), after: ["one"] do
+      {:ok, %{message: prefix <> name}}
+    end
+
+    step "list", [a <- input(:a), b <- input(:b), c <- input(:c)], after: ["two"] do
+      {:ok, %{total: a + b + c}}
+    end
+
+    step "pattern", %{name: name} <- input(), meta: %{owner: "example"} do
+      {:ok, %{name: name}}
+    end
+
+    step "empty", [], after: ["pattern"], meta: %{owner: "example"} do
+      {:ok, %{ready: true}}
+    end
+  end
+  """
+
+  @inline_keyword_flow """
+  step "one", name <- input(:name), do: {:ok, %{name: name}}
+  step "two", a <- input(:a), b <- input(:b), do: {:ok, %{sum: a + b}}
+  step "list", [a <- input(:a), b <- input(:b), c <- input(:c)], do: {:ok, %{sum: a + b + c}}
+  step "empty", [], do: {:ok, %{ready: true}}
+  """
+
   test "the project formatter preserves keyword and block declarations without parentheses" do
     {formatter, _opts} =
       Mix.Tasks.Format.formatter_for_file("flow.ex", dot_formatter: @formatter_path)
 
-    for source <- [@keyword_flow, @block_flow] do
+    for source <- [@keyword_flow, @block_flow, @inline_flow, @inline_keyword_flow] do
       assert formatter.(source) == source
       assert formatter.(formatter.(source)) == source
     end
@@ -108,8 +143,9 @@ defmodule Jido.Flow.DSL.FormatterTest do
         deps_paths: %{jido_action: @package_root}
       )
 
-    for source <- [@keyword_flow, @block_flow] do
+    for source <- [@keyword_flow, @block_flow, @inline_flow, @inline_keyword_flow] do
       assert formatter.(source) == source
+      assert formatter.(formatter.(source)) == source
     end
   end
 
@@ -123,5 +159,20 @@ defmodule Jido.Flow.DSL.FormatterTest do
 
     source = "step(1)\nstate(:count)\noutput(result(\"value\"))\nEnum.map(items, fun)\n"
     assert formatter.(source) == source
+  end
+
+  test "inline declarations with parentheses remain stable" do
+    {formatter, _opts} =
+      Mix.Tasks.Format.formatter_for_file("flow.ex", dot_formatter: @formatter_path)
+
+    source = """
+    step("one", name <- input(:name), do: {:ok, %{name: name}})
+    step("two", a <- input(:a), b <- input(:b), do: {:ok, %{sum: a + b}})
+    step("list", [a <- input(:a), b <- input(:b), c <- input(:c)], do: {:ok, %{sum: a + b + c}})
+    step("empty", [], do: {:ok, %{ready: true}})
+    """
+
+    assert formatter.(source) == source
+    assert formatter.(formatter.(source)) == source
   end
 end

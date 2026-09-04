@@ -45,6 +45,15 @@ defmodule JidoActionTest.ExecutableTest do
     assert {:ok, MathFlow.__jido_executable__()} == Executable.resolve(MathFlow)
   end
 
+  test "inline Step wrappers expose ordinary Action descriptors" do
+    for step <- JidoActionTest.Fixtures.InlineGreetingFlow.flow().components do
+      action = step.action
+      assert {:ok, %Executable{kind: :action, target: ^action}} = Executable.resolve(action)
+      assert :ok = Executable.validate(action)
+      assert action.__jido_executable__() == Executable.action(action)
+    end
+  end
+
   test "Flow artifacts resolve through the same descriptor type" do
     flow = MathFlow.flow()
 

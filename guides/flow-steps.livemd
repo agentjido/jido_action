@@ -7,9 +7,91 @@ Run the cells from top to bottom.
 
 ## Install The Package
 
+Inline Steps are an unreleased v3 feature, not part of `3.0.0-beta.4`. Set
+`JIDO_ACTION_PATH` in the Livebook runtime environment to the absolute path
+of a local source checkout that contains this feature.
+
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-beta.4"}])
+Mix.install([{:jido_action, path: System.fetch_env!("JIDO_ACTION_PATH")}])
 ```
+
+## Write An Inline Body
+
+Bind Flow data in the header. Write normal Elixir in the body and return an
+Action result. This example shows one binding, two bindings, a binding list,
+a sole map pattern, and the explicit no-input form `[]`.
+
+```elixir
+defmodule FlowSteps.Inline do
+  use Jido.Flow, name: "inline_steps"
+
+  flow do
+    step "ready", [] do
+      {:ok, %{ready: true}}
+    end
+
+    step "normalize", name <- input(:name), after: "ready", meta: %{owner: "guide"} do
+      {:ok, %{name: String.trim(name)}}
+    end
+
+    step "greet", name <- result("normalize", :name), prefix <- context(:prefix) do
+      {:ok, %{message: prefix <> ", " <> name <> "!"}}
+    end
+
+    step "label", [name <- result("normalize", :name), city <- input(:city), ctx <- context()] do
+      {:ok, %{label: name <> " / " <> city, language: ctx.language}}
+    end
+
+    step "profile", %{name: name, active: true} <- input(:profile) do
+      {:ok, %{name: name}}
+    end
+
+    output(%{
+      greeting: result("greet", :message),
+      label: result("label"),
+      profile: result("profile")
+    })
+  end
+end
+
+{:ok,
+ %{
+   greeting: "Hello, Ada!",
+   label: %{label: "Ada / London", language: "en"},
+   profile: %{name: "Ada"}
+ }} =
+  Jido.Exec.run(
+    FlowSteps.Inline,
+    %{name: " Ada ", city: "London", profile: %{name: "Ada", active: true}},
+    %{prefix: "Hello", language: "en"}
+  )
+```
+
+Named bindings create an atom-keyed parameter map. For example,
+`name <- input(:name)` supplies `%{name: ...}` to the compiled Action. A sole
+map pattern receives its source as the complete parameter map. `[]` supplies
+`%{}`. This mapping also applies when you reuse the Action in Builder.
+
+Only `after:` and `meta:` are inline header options. Use a list for more than
+two named bindings. Do not mix map patterns with named bindings or use more
+than one map pattern. Duplicate names, bare `_`, pins, header guards, and
+top-level struct patterns are not supported. Bind a value by name and match
+inside the body when you need a more complex pattern.
+
+The right side of `<-` uses the restricted Flow expression grammar. It cannot
+call application functions or read another binding variable. Put those
+operations in the body. Read context with an explicit binding such as
+`ctx <- context()`; there is no implicit context variable.
+
+Inline Actions use empty field schemas. Exec still requires map-shaped
+parameters and a map success result, unless you use `Jido.Action.Output`.
+A pattern mismatch becomes a structured execution failure. It is not field
+schema validation. A missing reference fails before the body runs.
+
+Use a named Action for field schemas or validation hooks. Both forms use the
+same Exec errors, telemetry, timeout, concurrency, and lifecycle rules. A
+normal Step cannot return a continuation. Inline bodies are supported only
+for `step`, not Choice, Map, Reduce, Iterate, or Dispatch.
 
 ## Define An Action
 
@@ -24,7 +106,7 @@ end
 
 ## Use Short Or Block Form
 
-Both forms lower to `Jido.Flow.Step`.
+The inline, short, and field-block forms all lower to `Jido.Flow.Step`.
 
 ```elixir
 defmodule FlowSteps.Example do

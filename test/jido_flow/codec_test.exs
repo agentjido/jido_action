@@ -1,5 +1,5 @@
 defmodule Jido.Flow.CodecTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Jido.Flow.Error.InvalidDefinitionError
   alias Jido.Flow
@@ -14,8 +14,166 @@ defmodule Jido.Flow.CodecTest do
   alias Jido.Flow.Subflow
   alias JidoActionTest.Fixtures.CodecRegistry
   alias JidoActionTest.Fixtures.FlowAuthoring
+  alias JidoActionTest.Fixtures.InlineAuthoring
+  alias JidoActionTest.Fixtures.InlineParityFlow
   alias JidoActionTest.Fixtures.NestedFlow
   alias JidoActionTest.Fixtures.Actions.{Add, Multiply}
+
+  defmodule InlineProbeFlow do
+    @moduledoc false
+
+    use Jido.Flow, name: "inline_codec_probe"
+
+    flow do
+      step "mark", marker <- value("stored") do
+        send(Jido.Flow.CodecTest.InlineProbeObserver, {:inline_codec_body, marker, self()})
+        {:ok, %{marker: marker}}
+      end
+
+      output(result("mark"))
+    end
+  end
+
+  setup context do
+    if context[:inline_probe] do
+      observer_name = __MODULE__.InlineProbeObserver
+      assert Process.register(self(), observer_name)
+
+      # The VM removes this registration on every exit of the test owner.
+      on_exit(fn -> assert Process.whereis(observer_name) == nil end)
+    end
+
+    :ok
+  end
+
+  test "inline Steps use the exact version 1 stored Step fields" do
+    assert {:ok, document} = Codec.encode(InlineParityFlow.flow(), InlineAuthoring.registry())
+    assert document["version"] == 1
+
+    for step <- document["components"] do
+      assert step["kind"] == "step"
+      assert Enum.sort(Map.keys(step)) == ["action", "after", "kind", "meta", "name", "params"]
+    end
+
+    [empty, named, multiple, sole_map] = document["components"]
+    assert empty["params"] == %{"$type" => "map", "entries" => []}
+    assert [%{"key" => %{"$type" => "atom", "id" => "atoms/name"}}] = named["params"]["entries"]
+
+    assert Enum.map(multiple["params"]["entries"], & &1["key"]["id"]) ==
+             ["atoms/name", "atoms/prefix"]
+
+    assert sole_map["params"] == %{
+             "$ref" => %{
+               "source" => "input",
+               "component" => nil,
+               "path" => [%{"$type" => "atom", "id" => "atoms/payload"}]
+             }
+           }
+  end
+
+  @tag :inline_probe
+  test "stored inline Steps reject body, code, callable, and run fields without work" do
+    registry = inline_probe_registry()
+    assert {:ok, document} = Codec.encode(InlineProbeFlow.flow(), registry)
+    [step] = document["components"]
+
+    for field <- ["body", "code", "callable", "run"] do
+      invalid = replace_component(document, 0, Map.put(step, field, "send(self(), :work)"))
+
+      assert {:error,
+              %InvalidDefinitionError{
+                message: "stored Flow contains an unknown field",
+                details: %{field: ^field, path: ["components", 0, ^field]}
+              }} = invalid |> Jason.encode!() |> Jason.decode!() |> Codec.decode(registry)
+    end
+
+    # The synchronous decode calls above are the barrier for this mailbox check.
+    refute_received {:inline_codec_body, _, _}
+  end
+
+  @tag :inline_probe
+  test "inline Action and binding atom identifiers must exist in the trusted Registry" do
+    flow = InlineProbeFlow.flow()
+    registry = inline_probe_registry()
+    assert {:ok, document} = Codec.encode(flow, registry)
+    [step] = document["components"]
+    unknown_action = "untrusted/inline-action/#{System.unique_integer([:positive])}"
+    unknown_atom = "untrusted/inline-binding/#{System.unique_integer([:positive])}"
+
+    refute existing_atom?(unknown_action)
+    refute existing_atom?(unknown_atom)
+
+    for {identifier, message} <- [
+          {unknown_action, "unknown flow registry identifier"},
+          {"flows/not-an-action", "flow registry identifier has the wrong entry kind"}
+        ] do
+      invalid = replace_component(document, 0, %{step | "action" => identifier})
+
+      assert {:error,
+              %InvalidDefinitionError{
+                message: ^message,
+                details: %{identifier: ^identifier, path: ["components", 0, "action"]}
+              }} = Codec.decode(invalid, registry)
+    end
+
+    missing_binding = Registry.new!(Map.delete(registry.entries, "atoms/marker"))
+
+    assert {:error, %InvalidDefinitionError{details: %{kind: :atom}}} =
+             Codec.encode(flow, missing_binding)
+
+    assert {:error,
+            %InvalidDefinitionError{
+              message: "unknown flow registry identifier",
+              details: %{
+                identifier: "atoms/marker",
+                path: ["components", 0, "params", "entries", 0, "key", "id"]
+              }
+            }} = Codec.decode(document, missing_binding)
+
+    [entry] = step["params"]["entries"]
+    untrusted_entry = %{entry | "key" => %{"$type" => "atom", "id" => unknown_atom}}
+    invalid = put_in(step, ["params", "entries"], [untrusted_entry])
+
+    assert {:error,
+            %InvalidDefinitionError{
+              message: "unknown flow registry identifier",
+              details: %{identifier: ^unknown_atom, kind: :atom}
+            }} = Codec.decode(replace_component(document, 0, invalid), registry)
+
+    refute existing_atom?(unknown_action)
+    refute existing_atom?(unknown_atom)
+    refute_received {:inline_codec_body, _, _}
+  end
+
+  @tag :inline_probe
+  test "lookup, validation, inspection, and JSON operations do not run an inline body" do
+    action = InlineProbeFlow.step_action(:mark)
+    marker = make_ref()
+
+    assert Jido.Exec.run(action, %{marker: marker}) == {:ok, %{marker: marker}}
+    assert_received {:inline_codec_body, ^marker, worker}
+    refute worker == self()
+    refute_received {:inline_codec_body, _, _}
+
+    flow = InlineProbeFlow.flow()
+    registry = inline_probe_registry()
+
+    assert InlineProbeFlow.step_action("mark") == action
+    assert [%Step{action: ^action}] = flow.components
+    assert {:ok, ^flow} = Flow.validate(flow)
+    assert {:ok, ^flow} = Flow.validate_executable(flow)
+    assert {:ok, _} = Flow.explain(flow)
+    assert is_map(Flow.to_map(flow))
+    assert {:ok, document} = Codec.encode(flow, registry)
+
+    assert {:ok, ^flow} =
+             document |> Jason.encode!() |> Jason.decode!() |> Codec.decode(registry)
+
+    assert {:ok, ^flow} = Codec.diagnose(document, registry)
+    assert {:ok, temporary_document, temporary_registry} = Codec.encode(flow)
+    assert {:ok, ^flow} = Codec.decode(temporary_document, temporary_registry)
+    refute_received {:inline_codec_body, _, _}
+  end
 
   test "JSON bytes round trip to the equal canonical Flow" do
     flow = FlowAuthoring.mixed_flow!()
@@ -753,6 +911,15 @@ defmodule Jido.Flow.CodecTest do
       assert {:error, %Error.Invalid{errors: [_first | _rest]}} =
                Codec.diagnose(invalid, CodecRegistry.mixed())
     end
+  end
+
+  defp inline_probe_registry do
+    Registry.new!(%{
+      "actions/mark/v1" => {:action, InlineProbeFlow.step_action("mark")},
+      "flows/not-an-action" => {:flow, NestedFlow},
+      "atoms/marker" => {:atom, :marker},
+      "schemas/empty/v1" => {:schema, []}
+    })
   end
 
   defp replace_component(document, index, component) do

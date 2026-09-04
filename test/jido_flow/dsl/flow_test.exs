@@ -49,6 +49,33 @@ defmodule Jido.Flow.DSL.FlowTest.MixedFlow do
   end
 end
 
+defmodule Jido.Flow.DSL.FlowTest.InlineAndExistingFlow do
+  @moduledoc false
+
+  use Jido.Flow, name: "inline_and_existing"
+
+  flow do
+    step "inline", name <- input(:name) do
+      {:ok, %{name: name}}
+    end
+
+    step "keyword",
+      action: JidoActionTest.Fixtures.Actions.Add,
+      params: %{value: 1, amount: 2}
+
+    step "field_block" do
+      action(JidoActionTest.Fixtures.Actions.Multiply)
+      params(%{value: result("keyword", :value), amount: 2})
+    end
+
+    step "child",
+      action: JidoActionTest.Fixtures.InlineGreetingFlow,
+      params: result("inline")
+
+    output(%{message: result("child", :message), value: result("field_block", :value)})
+  end
+end
+
 defmodule Jido.Flow.DSL.FlowTest do
   use ExUnit.Case, async: false
 
@@ -58,6 +85,40 @@ defmodule Jido.Flow.DSL.FlowTest do
   alias Jido.Flow.Reduce
   alias Jido.Flow.Ref
   alias Jido.Flow.Step
+
+  test "inline Steps coexist with keyword Steps, field-block Steps, and Subflows" do
+    module = Jido.Flow.DSL.FlowTest.InlineAndExistingFlow
+
+    assert [%Step{}, %Step{}, %Step{}, %Jido.Flow.Subflow{}] = module.flow().components
+
+    assert Jido.Exec.run(module, %{name: " Ada "}) ==
+             {:ok, %{message: "Hello, Ada!", value: 6}}
+  end
+
+  test "step_action returns only canonical Action-backed Step targets" do
+    module = Jido.Flow.DSL.FlowTest.InlineAndExistingFlow
+    [inline, keyword, field_block, _child] = module.flow().components
+
+    for step <- [inline, keyword, field_block] do
+      assert module.step_action(step.name) == step.action
+    end
+
+    assert module.step_action(:inline) == inline.action
+    assert module.step_action(:keyword) == JidoActionTest.Fixtures.Actions.Add
+    assert module.step_action(:field_block) == JidoActionTest.Fixtures.Actions.Multiply
+
+    for name <- ["child", "unknown", nil, "", 17, %{}, <<255>>, String.duplicate("x", 257)] do
+      assert_raise ArgumentError, ~r/expected an Action-backed Step name/, fn ->
+        module.step_action(name)
+      end
+    end
+
+    for name <- ["route", "mapped", "reduced", "loop"] do
+      assert_raise ArgumentError, ~r/expected an Action-backed Step name/, fn ->
+        Jido.Flow.DSL.FlowTest.MixedFlow.step_action(name)
+      end
+    end
+  end
 
   test "the unchanged Spark forms lower directly to canonical records" do
     flow = Jido.Flow.DSL.FlowTest.MixedFlow.flow()
@@ -79,6 +140,7 @@ defmodule Jido.Flow.DSL.FlowTest do
     for {name, arity} <- [
           __jido_executable__: 0,
           flow: 0,
+          step_action: 1,
           compiled: 0,
           name: 0,
           description: 0,

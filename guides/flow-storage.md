@@ -79,6 +79,66 @@ and `output`.
 The exact component and expression fields are owned by Codec. Do not hand-edit
 a semantic `Jido.Flow.to_map/1` result into a stored document.
 
+## Store A Compiled Inline Step
+
+First define `FirstFlow.Greeting` from [Build Your First Flow](build-your-first-flow.livemd).
+The host registers its compiled Actions under application-owned identifiers.
+Named binding keys, such as `:name`, also need atom identifiers.
+
+```elixir
+registry =
+  Jido.Flow.Registry.new!(%{
+    "actions/greeting/normalize/v1" => {:action, FirstFlow.Greeting.step_action("normalize")},
+    "actions/greeting/greet/v1" => {:action, FirstFlow.Greeting.step_action("greet")},
+    "schemas/greeting/input/v1" => {:schema, FirstFlow.Greeting.schema()},
+    "schemas/greeting/output/v1" => {:schema, FirstFlow.Greeting.output_schema()},
+    "atoms/name" => {:atom, :name}
+  })
+
+flow = FirstFlow.Greeting.flow()
+{:ok, document} = Jido.Flow.Codec.encode(flow, registry)
+json = JSON.encode!(document)
+{:ok, restored} = Jido.Flow.Codec.decode(JSON.decode!(json), registry)
+
+true = restored == flow
+{:ok, %{message: "Hello, Ada!"}} = Jido.Exec.run(restored, %{name: " Ada "})
+```
+
+This example uses Elixir's built-in `JSON` module. No new stored format is
+needed. The encoded Steps still contain only these version 1 fields:
+
+```elixir
+%{"type" => "jido.flow", "version" => 1} = document
+[normalize, greet] = document["components"]
+"actions/greeting/greet/v1" = greet["action"]
+["action", "after", "kind", "meta", "name", "params"] = Enum.sort(Map.keys(greet))
+
+%{
+  "$type" => "map",
+  "entries" => [
+    %{
+      "key" => %{"$type" => "atom", "id" => "atoms/name"},
+      "value" => %{
+        "$ref" => %{
+          "source" => "input",
+          "component" => nil,
+          "path" => [%{"$type" => "atom", "id" => "atoms/name"}]
+        }
+      }
+    }
+  ]
+} = normalize["params"]
+```
+
+Stored JSON selects trusted deployed Actions. It cannot define a body, carry
+a closure or MFA, or evaluate Elixir. Deploy both the owning Flow module and
+its generated Actions. Keep identifiers under host control; do not store the
+internal generated module name as the public Action identifier.
+
+A body change can retain the same target and semantic graph identity. Neither
+the stored document nor its graph identity is a code snapshot. Select the
+application release and Registry version needed to run stored work.
+
 ## Validation And Limits
 
 Decode first checks the stored grammar and resource limits. It rejects:

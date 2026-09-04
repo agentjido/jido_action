@@ -1,14 +1,19 @@
 # Flow DSL
 
-The Flow DSL is compile-time Elixir syntax for canonical Flow data. It is not
-general Elixir code. Put executable work in Actions.
+The Flow DSL is compile-time Elixir syntax for canonical Flow data. Its data
+expressions are restricted. An inline `step` body is normal Elixir code that
+compiles to an Action.
 
 Run the cells from top to bottom.
 
 ## Install The Package
 
+Inline Steps are an unreleased v3 feature, not part of `3.0.0-beta.4`. Set
+`JIDO_ACTION_PATH` in the Livebook runtime environment to the absolute path
+of a local source checkout that contains this feature.
+
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-beta.4"}])
+Mix.install([{:jido_action, path: System.fetch_env!("JIDO_ACTION_PATH")}])
 ```
 
 ## Define Small Actions
@@ -50,9 +55,9 @@ defmodule FlowLanguage.Example do
   use Jido.Flow, name: "flow_language_example"
 
   flow do
-    step "seed",
-      action: FlowLanguage.Echo,
-      params: %{value: input(:value)}
+    step "seed", value <- input(:value) do
+      {:ok, %{value: value}}
+    end
 
     choice "route" do
       option "fast",
@@ -109,9 +114,9 @@ end
 result
 ```
 
-## Use Only Data Expressions
+## Keep Headers And Output As Data
 
-A Flow expression can contain:
+A Flow expression, including each inline binding source, can contain:
 
 - `nil`, Boolean values, numbers, strings, and atoms;
 - proper lists;
@@ -133,6 +138,21 @@ struct construction
 Use `value/1` when you want to mark one supported literal explicitly. Use
 `select/2` to append a path to a reference. The Reduce example uses
 `value([])` to mark its empty-list accumulator as literal data.
+
+These restrictions do not apply inside an inline Step body. It can call
+functions, use pipes, match patterns, and create local anonymous functions.
+Those functions are not Flow targets. Flow reference helpers have no runtime
+meaning in the body; bind their data in the header first. See
+[Steps And Output](flow-steps.livemd#write-an-inline-body) for the binding forms.
+
+An inline body has the owning Flow module's function scope. It can use private
+helpers, aliases, available imports, declaration-time module attributes, and
+`__MODULE__`. It does not capture runtime variables outside the Step. Jido
+removes its declaration imports inside the body. Spark can also remove an
+outer import that conflicts with a DSL name. Use a qualified call such as
+`MyApp.Helpers.output(value)`, or import that helper inside the body.
+
+Only `step` has this body form. Other components keep their Action fields.
 
 ## Use Closed Conditions
 
