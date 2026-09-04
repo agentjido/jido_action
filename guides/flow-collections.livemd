@@ -58,14 +58,16 @@ defmodule FlowCollections.Example do
       })
     end
 
-    output(%{total: result("total")})
+    output(%{items: result("doubled"), total: result("total")})
   end
 end
 ```
 
 ```elixir
-{:ok, %{total: %{total: 12}} = result} =
+{:ok, %{items: items, total: %{total: 12}} = result} =
   Jido.Exec.run(FlowCollections.Example, %{values: [1, 2, 3]})
+
+[%{value: 2, index: 0}, %{value: 4, index: 1}, %{value: 6, index: 2}] = items
 
 result
 ```
@@ -73,14 +75,19 @@ result
 Map returns one ordered list of Action outputs when a scalar expression reads
 its result. Map supports `item()`, `item_index()`, and `item_id()`. Reduce adds
 `accumulator()`. The item ID is a runtime identifier for one collection work
-unit.
+unit. IDs are deterministic for the Flow, component name, and source index.
+Reduce uses its own component name for item IDs, including when it reads a
+Map result. During the v3 beta, this replaces the direct pipeline behavior
+that inherited Map item IDs. Do not treat item IDs as execution IDs.
 
 An empty Map returns an empty list. An empty Reduce returns its initial value.
 
-When a Reduce reads a Map result directly, compilation connects the native
-cardinality-many Map output to Reduce. In this direct pipeline, use the Reduce
-result as final output. A normal scalar read of a Map result uses its ordered
-collector list.
+A Reduce reads the complete ordered Map result without consuming it. Other
+components can read the same Map result, and the Flow can return both results,
+as shown above.
+
+The Map Action runs once per input item, regardless of the number of readers.
+Each Reduce runs its own serial fold over that list.
 
 ## Map Error Modes
 

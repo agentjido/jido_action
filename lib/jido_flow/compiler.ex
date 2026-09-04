@@ -18,7 +18,6 @@ defmodule Jido.Flow.Compiler do
   alias Jido.Flow.Iterate
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.Reduce, as: FlowReduce
-  alias Jido.Flow.Ref
   alias Jido.Flow.Step, as: FlowStep
   alias Jido.Flow.Subflow
   alias Jido.Flow.Validation
@@ -34,7 +33,7 @@ defmodule Jido.Flow.Compiler do
   alias Runic.Workflow.Map, as: RunicMap
   alias Runic.Workflow.Reduce, as: RunicReduce
 
-  @compiler_version 3
+  @compiler_version 4
   @runtime_ref %{
     kind: :context,
     target: :jido,
@@ -585,14 +584,6 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp add_reduce(reduce, state) do
-    if direct_map_reduce?(reduce, state) do
-      add_direct_map_reduce(reduce, state)
-    else
-      add_list_reduce(reduce, state)
-    end
-  end
-
-  defp add_list_reduce(reduce, state) do
     resolver_name = support_name(state, reduce.name, "reduce-input")
 
     resolver =
@@ -608,22 +599,13 @@ defmodule Jido.Flow.Compiler do
       end)
 
     workflow = add_with_dependencies(state, reduce, resolver)
-    {native_reduce, output_step} = reduce_components(state, reduce, nil)
+    {native_reduce, output_step} = reduce_components(state, reduce)
     workflow = Workflow.add(workflow, native_reduce, to: resolver)
     workflow = Workflow.add(workflow, output_step, to: native_reduce.fan_in)
-    put_reduce_output(state, reduce, workflow, native_reduce, output_step, false)
+    put_reduce_output(state, reduce, workflow, native_reduce, output_step)
   end
 
-  defp add_direct_map_reduce(reduce, state) do
-    %Ref{component: map_name} = reduce.collection
-    %{component: %RunicMap{} = native_map} = Map.fetch!(state.component_index, map_name)
-    {native_reduce, output_step} = reduce_components(state, reduce, native_map.name)
-    workflow = Workflow.add(state.workflow, native_reduce, to: native_map)
-    workflow = Workflow.add(workflow, output_step, to: native_reduce.fan_in)
-    put_reduce_output(state, reduce, workflow, native_reduce, output_step, true)
-  end
-
-  defp reduce_components(state, reduce, mapped_name) do
+  defp reduce_components(state, reduce) do
     native_name = support_name(state, reduce.name, "reduce")
 
     native_reduce = %RunicReduce{
@@ -632,9 +614,9 @@ defmodule Jido.Flow.Compiler do
       fan_in: %FanIn{
         name: native_name,
         hash: stable_hash({native_name, :fan_in}),
-        map: mapped_name,
+        map: nil,
         init: fn -> %{initialized: false, accumulator: nil, input: nil, error: nil} end,
-        reducer: reduce_fun(reduce, not is_nil(mapped_name), state.namespace),
+        reducer: reduce_fun(reduce, state.namespace),
         meta_refs: []
       },
       closure: nil,
@@ -654,14 +636,14 @@ defmodule Jido.Flow.Compiler do
     {native_reduce, output_step}
   end
 
-  defp reduce_fun(reduce, direct?, namespace) do
+  defp reduce_fun(reduce, namespace) do
     # Runic finalizes FanIn during runnable application and calls its arity-2
     # reducer there. The token carries the execution context for this call.
     # Store reducer errors in the aggregate. The output Step raises them as a
     # normal runnable failure.
     fn token, aggregate ->
       try do
-        reduce_token(reduce, direct?, token, aggregate, namespace)
+        reduce_token(reduce, token, aggregate, namespace)
       rescue
         error -> {:halt, %{aggregate | input: token.input, error: error}}
       catch
@@ -677,40 +659,25 @@ defmodule Jido.Flow.Compiler do
     end
   end
 
-  defp reduce_token(reduce, direct?, token, aggregate, namespace) do
+  defp reduce_token(reduce, token, aggregate, namespace) do
     runtime = token.runtime
 
     aggregate =
       if aggregate.initialized do
         aggregate
       else
-        local = base_runtime_state(runtime, token.input, Map.get(token, :results, %{}))
-
-        initial =
-          if direct? do
-            Expression.resolve(reduce.initial, local) |> unwrap_ok!()
-          else
-            token.initial
-          end
-
-        validate_reduce_initial!(reduce, initial)
-        %{aggregate | initialized: true, accumulator: initial, input: token.input}
+        %{aggregate | initialized: true, accumulator: token.initial, input: token.input}
       end
 
     case token.kind do
-      :empty ->
-        aggregate
-
       :init ->
         aggregate
 
-      kind when kind in [:item, :result] ->
-        item = if kind == :result, do: token.output, else: token.item
-
+      :item ->
         local =
           base_runtime_state(runtime, token.input, Map.get(token, :results, %{}))
           |> Map.merge(%{
-            item: item,
+            item: token.item,
             item_index: token.index,
             item_id: token.id,
             accumulator: aggregate.accumulator
@@ -796,11 +763,10 @@ defmodule Jido.Flow.Compiler do
   defp reduce_tokens(reduce, collection, _initial, _local, _runtime),
     do: invalid_collection!(:reduce, reduce.name, collection)
 
-  defp put_reduce_output(state, reduce, workflow, native_reduce, output_step, direct?) do
+  defp put_reduce_output(state, reduce, workflow, native_reduce, output_step) do
     index = %{
       kind: :reduce,
       component: native_reduce,
-      direct_map: direct?,
       output: output_step.name,
       output_port: :out
     }
@@ -811,19 +777,6 @@ defmodule Jido.Flow.Compiler do
         outputs: Map.put(state.outputs, reduce.name, output_step),
         component_index: Map.put(state.component_index, reduce.name, index)
     }
-  end
-
-  defp direct_map_reduce?(%FlowReduce{} = reduce, state) do
-    case reduce.collection do
-      %Ref{source: :result, component: map_name, path: []} ->
-        match?(%{component: %RunicMap{}}, Map.get(state.component_index, map_name)) and
-          Enum.all?(reduce.after, &(&1 == map_name)) and
-          Flow.Expression.result_refs(reduce.initial) == [] and
-          Flow.Expression.result_refs(reduce.params) == []
-
-      _other ->
-        false
-    end
   end
 
   defp add_subflow(subflow, state) do
