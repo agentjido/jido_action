@@ -44,9 +44,9 @@ This foundation keeps the action boundary small:
 Version 3.0.0-beta.6 is a public beta. It includes the declarative Flow DSL,
 runtime Flow construction, safe stored Flow maps, and one Flow execution
 engine. This beta adds portable inline Actions and `Jido.Expr`. The v3 API can
-still change before the stable release, and this beta locks Runic
-0.1.0-alpha.9. Use it for evaluation and controlled trials before you use it
-for critical production work. See the [version 2 to version 3 migration
+still change before the stable release. The current development branch locks
+Runic 0.1.0-alpha.10. Use it for evaluation and controlled trials before you
+use it for critical production work. See the [version 2 to version 3 migration
 guide](guides/v2-to-v3-migration.md) for the confirmed breaking changes.
 
 ## Install

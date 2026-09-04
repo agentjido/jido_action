@@ -320,6 +320,11 @@ defmodule JidoActionTest.Flow.Compiler.NativeRunicTest do
     assert with_source.source_map == source_map
     assert plain.compilation_digest == with_source.compilation_digest
 
+    assert %Runic.Identity{domain: :component_definition, digest: digest} =
+             plain.component_index["echo"].component.hash
+
+    assert byte_size(digest) == 32
+
     assert plain.component_index["echo"].component.hash ==
              with_source.component_index["echo"].component.hash
   end
@@ -365,7 +370,7 @@ defmodule JidoActionTest.Flow.Compiler.NativeRunicTest do
   end
 
   test "locks the native contract to the tested Runic release" do
-    assert Application.spec(:runic, :vsn) |> to_string() == "0.1.0-alpha.9"
+    assert Application.spec(:runic, :vsn) |> to_string() == "0.1.0-alpha.10"
   end
 
   defp define_child_module(module, amount) do

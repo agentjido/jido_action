@@ -9,7 +9,9 @@ defmodule Jido.Exec.Flow.Engine do
 
   alias Jido.Flow
   alias Jido.Flow.{Compiled, Compiler, Error}
+  alias Jido.Flow.Compiler.Payload
   alias Runic.Workflow
+  alias Runic.Workflow.IdentityConflictError
   alias Runic.Workflow.Runnable
 
   @doc "Creates a paused Flow execution from prepared Flow and Runic data."
@@ -52,7 +54,7 @@ defmodule Jido.Exec.Flow.Engine do
     workflow =
       compiled.workflow
       |> Workflow.put_run_context(%{_global: %{jido: runtime}})
-      |> Workflow.plan_eagerly(Compiler.input_frame(input))
+      |> Workflow.plan_eagerly(Payload.new(Compiler.input_frame(input)))
 
     execution = %Execution{
       id: execution_id,
@@ -122,12 +124,13 @@ defmodule Jido.Exec.Flow.Engine do
   end
 
   @doc "Executes one selected ready native Runnable."
-  @spec step(Execution.t(), Runnable.t() | integer()) ::
+  @spec step(Execution.t(), Runnable.t() | Runic.Identity.t() | integer()) ::
           {:ok, Runnable.t(), Execution.t()} | {:error, Exception.t()}
   def step(%Execution{status: :running} = execution, %Runnable{id: id}),
     do: step(execution, id)
 
-  def step(%Execution{status: :running} = execution, id) when is_integer(id) do
+  def step(%Execution{status: :running} = execution, id)
+      when is_struct(id, Runic.Identity) or is_integer(id) do
     with {:ok, runnable} <- fetch_ready(execution, id) do
       execution
       |> mutate(fn -> do_step(execution, runnable) end)
@@ -173,6 +176,9 @@ defmodule Jido.Exec.Flow.Engine do
   end
 
   def continue(%Execution{} = execution), do: {:ok, execution}
+
+  defp settle(%Execution{engine_error: error} = execution) when not is_nil(error),
+    do: finalize(execution)
 
   defp settle(%Execution{runnable_errors: [_ | _]} = execution), do: finalize(execution)
 
@@ -227,6 +233,10 @@ defmodule Jido.Exec.Flow.Engine do
 
   defp do_continue(%Execution{} = execution), do: {:ok, :continued, execution}
 
+  defp apply_runnable(%Execution{engine_error: error} = execution, _runnable)
+       when not is_nil(error),
+       do: execution
+
   defp apply_runnable(execution, %Runnable{} = runnable) do
     workflow = apply_runic_runnable(execution.workflow, runnable)
 
@@ -246,6 +256,26 @@ defmodule Jido.Exec.Flow.Engine do
         ready: [],
         runnable_errors: errors
     }
+  rescue
+    error in IdentityConflictError ->
+      failure =
+        Error.ExecutionFailureError.exception(
+          message: "flow graph identity conflict",
+          details: %{
+            flow: execution.flow_name,
+            phase: :flow_identity,
+            cause: IdentityConflictError,
+            identity: error.identity,
+            context: error.context,
+            existing: error.existing,
+            incoming: error.incoming,
+            retry: false
+          },
+          stacktrace: __STACKTRACE__,
+          splode: Error
+        )
+
+      %{execution | engine_error: failure, ready: []}
   end
 
   # Runic's failed-runnable clause emits an unconditional warning. Jido owns
@@ -295,11 +325,17 @@ defmodule Jido.Exec.Flow.Engine do
   defp runnable_name(%Runnable{node: %{name: name}}), do: name
   defp runnable_name(%Runnable{node: node}), do: node.__struct__
 
+  defp finalize(%Execution{engine_error: error} = execution) when not is_nil(error) do
+    complete(execution, {:error, error})
+  end
+
   defp finalize(%Execution{runnable_errors: errors} = execution) when errors != [] do
     failures =
-      Enum.map(errors, fn %{runnable: runnable, error: error} ->
+      errors
+      |> Enum.map(fn %{runnable: runnable, error: error} ->
         %{node: runnable_name(runnable), runnable_id: runnable.id, error: error}
       end)
+      |> Enum.sort_by(& &1.node)
 
     error =
       case failures do
@@ -307,10 +343,6 @@ defmodule Jido.Exec.Flow.Engine do
         failures -> Error.flow_failure(execution.flow_name, failures)
       end
 
-    complete(execution, {:error, error})
-  end
-
-  defp finalize(%Execution{engine_error: error} = execution) when not is_nil(error) do
     complete(execution, {:error, error})
   end
 

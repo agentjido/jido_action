@@ -570,8 +570,8 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
       assert Exec.status(execution) == :failed
 
       assert {:error, %FlowExecutionFailureError{failures: failures}} = Exec.result(execution)
-      assert Enum.map(failures, & &1.node) |> Enum.sort() == ["first", "second"]
-      assert Enum.all?(failures, &is_integer(&1.runnable_id))
+      assert Enum.map(failures, & &1.node) == ["first", "second"]
+      assert Enum.all?(failures, &match?(%Runic.Identity{domain: :activation}, &1.runnable_id))
     after
       Task.shutdown(task, :brutal_kill)
     end

@@ -157,7 +157,7 @@ Use `jido_action` for validated work and data-first composition:
   `Runic.Workflow.Runnable` values. Runic support work is visible.
 - Use `Jido.Exec.workflow/1` and `Jido.Exec.compiled/1` for supported live
   Runic inspection. Other Execution fields are internal.
-- Select `step/2` work with a ready Runnable or its integer ID.
+- Select `step/2` work with a ready Runnable or its Runic identity.
 - Treat each execution as caller-owned, in-memory state. `max_concurrency`
   bounds each concurrent ready wave. Always pass the latest value to the next
   step-wise call.

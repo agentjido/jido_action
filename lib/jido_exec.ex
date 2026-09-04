@@ -413,12 +413,12 @@ defmodule Jido.Exec do
   def step(%Execution{} = execution), do: Engine.step(execution)
 
   @doc """
-  Executes one ready runnable selected by its value or integer ID.
+  Executes one ready runnable selected by its value or Runic identity.
 
   A work failure is returned in the native Runnable with `status: :failed`.
   The operation returns `:ok` because the result was applied to the workflow.
   """
-  @spec step(Execution.t(), Runic.Workflow.Runnable.t() | integer()) ::
+  @spec step(Execution.t(), Runic.Workflow.Runnable.t() | Runic.Identity.t() | integer()) ::
           {:ok, Runic.Workflow.Runnable.t(), Execution.t()} | {:error, Exception.t()}
   def step(%Execution{} = execution, runnable), do: Engine.step(execution, runnable)
 
