@@ -42,7 +42,7 @@ defmodule Jido.Action.InlineHostBuildTest do
     {:ok, directory: directory, paths: paths}
   end
 
-  test "a separate application emits and loads the host, owners, and both Action modes",
+  test "a separate application emits and loads both Action modes and late declarations",
        fixture do
     {output, status} = child(fixture, ~s|Mix.CLI.main(["compile", "--warnings-as-errors"])|)
     assert status == 0, output
@@ -52,7 +52,7 @@ defmodule Jido.Action.InlineHostBuildTest do
     assert "Elixir.InlineConsumer.Host.Field.beam" in beams
     assert "Elixir.InlineConsumer.Bound.beam" in beams
     assert "Elixir.InlineConsumer.Callback.beam" in beams
-    assert Enum.count(beams, &String.starts_with?(&1, @wrapper_prefix)) == 2
+    assert Enum.count(beams, &String.starts_with?(&1, @wrapper_prefix)) == 4
 
     # The fresh VM must run with artifacts only, with no consumer source left.
     File.rm_rf!(Path.join(fixture.directory, "lib"))
@@ -76,8 +76,22 @@ defmodule Jido.Action.InlineHostBuildTest do
       defp private_helper(value), do: decorate(Integer.to_string(value))
     end
 
+    defmodule InlineConsumer.DeclarationHooks do
+      defmacro __before_compile__(_env) do
+        quote do
+          action "late_first", %{value: value}, name: "shared_metadata", context: ctx do
+            {:ok, %{message: ctx.prefix <> private_helper(value + 1)}}
+          end
+          action "late_second", %{value: value}, name: "shared_metadata", context: ctx do
+            {:ok, %{message: ctx.prefix <> private_helper(value + 2)}}
+          end
+        end
+      end
+    end
+
     defmodule InlineConsumer.Callback do
       use InlineConsumer.Host, mode: :callback
+      @before_compile InlineConsumer.DeclarationHooks
       action "callback", %{value: value}, name: "shared_metadata",
         schema: Zoi.object(%{value: Zoi.integer() |> Zoi.default(4)}),
         output_schema: Zoi.object(%{message: Zoi.string()}), context: ctx do
@@ -115,13 +129,13 @@ defmodule Jido.Action.InlineHostBuildTest do
         "shared_metadata" = target.name()
         target
       end
-    2 = length(targets)
+    4 = length(targets)
     for owner <- owners, do: false = :code.is_loaded(owner)
 
     # A wrapper can load its owner and call its private-helper-backed body.
     for target <- targets do
       {:ok, %{message: message}} = Jido.Exec.run(target, %{value: 5}, %{prefix: "artifact:"})
-      true = message in ["artifact:[6]", "artifact:[5]"]
+      true = message in ["artifact:[6]", "artifact:[5]", "artifact:[7]"]
     end
     for owner <- owners do
       {:file, _} = :code.is_loaded(owner)
@@ -130,12 +144,16 @@ defmodule Jido.Action.InlineHostBuildTest do
 
     bound = bound_owner.action_target("bound")
     callback = callback_owner.action_target("callback")
+    late_first = callback_owner.action_target("late_first")
+    late_second = callback_owner.action_target("late_second")
     true = bound != callback
-    true = Enum.sort(targets) == Enum.sort([bound, callback])
+    true = Enum.sort(targets) == Enum.sort([bound, callback, late_first, late_second])
     "Compiled bound action" = bound.description()
     {:ok, %{message: "host:[7]"}} = host.run(bound_owner, "bound", %{value: 3}, %{prefix: "host:"})
     {:ok, %{message: "default:[4]"}} = host.run(callback_owner, "callback", %{}, %{prefix: "default:"})
     {:ok, %{message: "reuse:[10]"}} = Jido.Exec.run(bound, %{value: 9}, %{prefix: "reuse:"})
+    {:ok, %{message: "late:[6]"}} = Jido.Exec.run(late_first, %{value: 5}, %{prefix: "late:"})
+    {:ok, %{message: "late:[7]"}} = Jido.Exec.run(late_second, %{value: 5}, %{prefix: "late:"})
     {:error, %Jido.Action.Error.InvalidInputError{}} = Jido.Exec.run(callback, %{value: "bad"})
 
     # Warm error machinery, then check lookup without an atom allocation.

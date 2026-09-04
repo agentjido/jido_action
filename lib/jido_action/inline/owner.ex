@@ -129,14 +129,25 @@ defmodule Jido.Action.Inline.Owner do
   @spec register!(Jido.Action.Inline.path(), module(), Macro.Env.t()) :: :ok
   def register!(path, target, caller) do
     index = Module.get_attribute(caller.module, :__jido_inline_index__) || %{}
-    Module.put_attribute(caller.module, :__jido_inline_index__, Map.put(index, path, target))
+    index = Map.put(index, path, target)
+    Module.put_attribute(caller.module, :__jido_inline_index__, index)
+
+    # A host's later before_compile hook can emit more declarations.
+    if Module.defines?(caller.module, {:__jido_inline_actions__, 0}) do
+      Module.delete_definition(caller.module, {:__jido_inline_actions__, 0})
+      Code.eval_quoted(index_definition(index), [], caller)
+    end
+
     :ok
   end
 
   @doc false
   defmacro __before_compile__(caller) do
     index = Module.get_attribute(caller.module, :__jido_inline_index__) || %{}
+    index_definition(index)
+  end
 
+  defp index_definition(index) do
     quote generated: true do
       @doc false
       @__jido_inline_generated__ {:__jido_inline_actions__, 0}

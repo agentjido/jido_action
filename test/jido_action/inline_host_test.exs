@@ -4,6 +4,31 @@ defmodule Jido.Action.InlineHostTest do
   alias JidoActionTest.Fixtures.Action.InlineHost
   alias JidoActionTest.Fixtures.Action.InlineHost.Field
 
+  defmodule DeclarationHooks do
+    defmacro __before_compile__(env) do
+      Module.get_attribute(env.module, :first_inline_declarations)
+    end
+
+    defmacro second(env) do
+      Module.get_attribute(env.module, :second_inline_declarations)
+    end
+
+    defmacro callback_only(env) do
+      parsed =
+        Jido.Action.Inline.parse_callback!(quote(do: params), [do: quote(do: {:ok, params})], env)
+
+      compiled =
+        Jido.Action.Inline.compile!(
+          Macro.escape(host: __MODULE__, declaration: "late", role: :action),
+          parsed,
+          env,
+          default_name: "late"
+        )
+
+      compiled.declaration_ast
+    end
+  end
+
   setup do
     loaded = MapSet.new(:code.all_loaded(), &elem(&1, 0))
 
@@ -289,6 +314,115 @@ defmodule Jido.Action.InlineHostTest do
     refute_received :body_ran
   end
 
+  test "host hooks retain early and late targets in either registration order" do
+    for first_position <- [:before, :after], second_position <- [:before, :after] do
+      hooks = [
+        {first_position, "@before_compile #{inspect(DeclarationHooks)}"},
+        {second_position, "@before_compile {#{inspect(DeclarationHooks)}, :second}"}
+      ]
+
+      before_setup = for {:before, hook} <- hooks, into: "", do: hook <> "\n"
+      after_setup = for {:after, hook} <- hooks, into: "", do: hook <> "\n"
+
+      owner =
+        compile_owner(
+          :callback,
+          """
+          #{after_setup}
+          action "early", params, context: ctx do
+            send(ctx.observer, {:body, __MODULE__, "early"})
+            {:ok, Map.put(params, :selected, "early")}
+          end
+          @first_inline_declarations (quote do
+            use Jido.Action.Inline
+            action "late_first", params, context: ctx do
+              send(ctx.observer, {:body, __MODULE__, "late_first"})
+              {:ok, Map.put(params, :selected, "late_first")}
+            end
+            action "late_second", params, context: ctx do
+              send(ctx.observer, {:body, __MODULE__, "late_second"})
+              {:ok, Map.put(params, :selected, "late_second")}
+            end
+          end)
+          @second_inline_declarations (quote do
+            Jido.Action.Inline.setup!(__ENV__)
+            action "late_third", params, context: ctx do
+              send(ctx.observer, {:body, __MODULE__, "late_third"})
+              {:ok, Map.put(params, :selected, "late_third")}
+            end
+          end)
+          """,
+          before_setup
+        )
+
+      targets =
+        for name <- ["early", "late_first", "late_second", "late_third"] do
+          target = Jido.Action.Inline.target!(owner, InlineHost.path(name))
+          assert owner.action_target(name) == target
+          assert target.name() == name
+          assert target.__jido_executable__().kind == :action
+          {name, target}
+        end
+
+      assert targets |> Enum.map(&elem(&1, 1)) |> Enum.uniq() |> length() == 4
+      refute_received {:body, ^owner, _}
+
+      for {name, target} <- targets do
+        assert Jido.Exec.run(target, %{value: 7}, %{observer: self()}) ==
+                 {:ok, %{value: 7, selected: name}}
+
+        assert_received {:body, ^owner, ^name}
+      end
+
+      assert_raise ArgumentError, fn -> owner.action_target("missing") end
+      refute_received {:body, ^owner, _}
+    end
+  end
+
+  test "a host hook can emit the first Action after the owner hook" do
+    owner = Module.concat(__MODULE__, "Owner#{System.unique_integer([:positive])}")
+
+    Code.compile_string("""
+    defmodule #{inspect(owner)} do
+      use Jido.Action.Inline
+      @before_compile {#{inspect(DeclarationHooks)}, :callback_only}
+    end
+    """)
+
+    target =
+      Jido.Action.Inline.target!(owner,
+        host: DeclarationHooks,
+        declaration: "late",
+        role: :action
+      )
+
+    assert target.name() == "late"
+    assert Jido.Exec.run(target, %{value: 7}) == {:ok, %{value: 7}}
+  end
+
+  test "late host declarations do not permit user clauses in the lookup function" do
+    for position <- [:before, :after], defaults <- [0, 1] do
+      args = if defaults == 0, do: "", else: "_ \\\\ []"
+      clause = "def __jido_inline_actions__(#{args}), do: :user"
+      {before, after_declaration} = if position == :before, do: {clause, ""}, else: {"", clause}
+
+      assert_raise CompileError,
+                   ~r/reserved inline Action function __jido_inline_actions__\/0/,
+                   fn ->
+                     compile_owner(:callback, """
+                     @before_compile #{inspect(DeclarationHooks)}
+                     @first_inline_declarations (quote do
+                       #{before}
+                       action "late", params do
+                         {:ok, params}
+                       end
+                       #{after_declaration}
+                     end)
+                     """)
+                   end
+    end
+  end
+
   test "the consumer uses only public inline and expression APIs" do
     source = File.read!(Path.expand("../support/fixtures/action/inline_host.ex", __DIR__))
     refute source =~ "Jido.Flow"
@@ -302,13 +436,13 @@ defmodule Jido.Action.InlineHostTest do
     assert source =~ "Jido.Expr.evaluate"
   end
 
-  defp compile_owner(mode, declarations) do
+  defp compile_owner(mode, declarations, before_setup \\ "") do
     owner = Module.concat(__MODULE__, "Owner#{System.unique_integer([:positive])}")
 
     Code.compile_string(
       """
       defmodule #{inspect(owner)} do
-        use #{inspect(InlineHost)}, mode: #{inspect(mode)}, fields: [:value]
+      #{before_setup}  use #{inspect(InlineHost)}, mode: #{inspect(mode)}, fields: [:value]
       #{declarations}
       end
       """,
