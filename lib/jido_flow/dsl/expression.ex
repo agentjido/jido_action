@@ -5,9 +5,6 @@ defmodule Jido.Flow.DSL.Expression do
   alias Jido.Flow.Error
   alias Jido.Flow.{Condition, Ref}
 
-  @comparisons [:eq, :neq, :lt, :lte, :gt, :gte, :in]
-  @groups [:all, :any, :not]
-
   @doc "Parses one DSL expression into canonical Flow data."
   @spec parse(term()) :: {:ok, term()} | {:error, Exception.t()}
   def parse(expression) do
@@ -25,14 +22,14 @@ defmodule Jido.Flow.DSL.Expression do
   end
 
   @doc "Parses one DSL condition into canonical Flow data."
-  @spec parse_condition(term()) :: {:ok, Condition.t() | Expr.t()} | {:error, Exception.t()}
+  @spec parse_condition(term()) :: {:ok, Condition.normalized()} | {:error, Exception.t()}
   def parse_condition(condition) do
     with {:ok, value} <- parse(condition) do
-      case as_condition(value) do
+      case Condition.new(value) do
         {:ok, value} ->
           {:ok, value}
 
-        :error ->
+        {:error, _error} ->
           {:error,
            Error.validation_error(
              "unsupported Flow condition: #{Macro.to_string(condition)}; " <>
@@ -42,28 +39,6 @@ defmodule Jido.Flow.DSL.Expression do
       end
     end
   end
-
-  defp as_condition(%Condition{} = condition), do: {:ok, condition}
-
-  defp as_condition(%Expr{operator: operator, operands: operands}) when operator in @comparisons,
-    do: {:ok, %Condition{operator: operator, operands: operands}}
-
-  defp as_condition(%Expr{operator: operator, operands: operands}) when operator in @groups do
-    children =
-      Enum.map(operands, fn value ->
-        case as_condition(value) do
-          {:ok, condition} -> condition
-          :error -> value
-        end
-      end)
-
-    {:ok, %Condition{operator: operator, operands: children}}
-  end
-
-  defp as_condition(%Expr{} = expression), do: {:ok, expression}
-  defp as_condition(%Ref{} = ref), do: {:ok, Expr.new!(:all, [ref])}
-  defp as_condition(value) when is_boolean(value), do: {:ok, Expr.new!(:all, [value])}
-  defp as_condition(_value), do: :error
 
   defp parse_leaf(%Ref{} = ref), do: {:ok, ref}
   defp parse_leaf(%Condition{} = condition), do: {:ok, condition}

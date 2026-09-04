@@ -9,6 +9,10 @@ defmodule Jido.Flow.Condition do
   They do not accept arbitrary predicate functions. `:all` and `:any`
   short-circuit during execution.
 
+  A singleton `:all` with a Boolean literal or reference returns `Jido.Expr`
+  for strict Boolean evaluation. Existing Condition-only trees keep their
+  `Jido.Flow.Condition` shape.
+
       condition = Jido.Flow.Condition.eq(Jido.Flow.Ref.input(:status), :ready)
       {:ok, ^condition} = Jido.Flow.Condition.validate(condition, :flow)
   """
@@ -47,13 +51,13 @@ defmodule Jido.Flow.Condition do
   @enforce_keys Zoi.Struct.enforce_keys(@schema)
   defstruct Zoi.Struct.struct_fields(@schema)
 
-  @doc "Builds and validates a condition from an operator and its operands."
-  @spec new(operator(), list()) :: {:ok, t()} | {:error, Exception.t()}
+  @doc "Builds and validates a canonical condition from an operator and its operands."
+  @spec new(operator(), list()) :: {:ok, normalized()} | {:error, Exception.t()}
   def new(operator, operands) do
     with :ok <- validate_operator(operator, "choice condition"),
          :ok <- validate_arity(operator, operands, "choice condition"),
-         {:ok, operands} <- normalize_operands(operator, operands) do
-      {:ok, %__MODULE__{operator: operator, operands: operands}}
+         {:ok, normalized} <- normalize_operands(operator, operands) do
+      {:ok, rebuild_condition(operator, operands, normalized)}
     end
   end
 
@@ -78,7 +82,7 @@ defmodule Jido.Flow.Condition do
          :ok <- validate_arity(condition.operator, condition.operands, owner),
          {:ok, operands} <-
            normalize_operands(condition.operator, condition.operands, scope, owner) do
-      {:ok, %{condition | operands: operands}}
+      {:ok, rebuild_condition(condition.operator, condition.operands, operands)}
     end
   end
 
@@ -100,7 +104,7 @@ defmodule Jido.Flow.Condition do
   end
 
   @doc false
-  @spec new!(operator(), list()) :: t() | no_return()
+  @spec new!(operator(), list()) :: normalized() | no_return()
   def new!(operator, operands) do
     case new(operator, operands) do
       {:ok, condition} -> condition
@@ -137,7 +141,7 @@ defmodule Jido.Flow.Condition do
   def left in right, do: new!(:in, [left, right])
 
   @doc "Builds a condition that requires all child conditions to be true."
-  @spec all([input()]) :: t()
+  @spec all([input()]) :: normalized()
   def all(conditions), do: new!(:all, conditions)
 
   @doc "Builds a condition that requires one child condition to be true."
@@ -351,6 +355,13 @@ defmodule Jido.Flow.Condition do
 
   defp expression_kind(_error), do: Function
 
+  defp rebuild_condition(:all, [operand], [condition])
+       when is_struct(operand, Ref) or is_boolean(operand),
+       do: condition
+
+  defp rebuild_condition(operator, _original, operands),
+    do: %__MODULE__{operator: operator, operands: operands}
+
   # Keep old condition shapes stable, while a single Boolean reference/literal
   # uses the shared evaluator for its strict runtime type check.
   defp canonical_condition(%Expr{operator: :all, operands: [%Ref{}]} = expression, _scope),
@@ -360,8 +371,15 @@ defmodule Jido.Flow.Condition do
        when is_boolean(value), do: {:ok, expression}
 
   defp canonical_condition(%Expr{operator: operator, operands: operands}, scope)
-       when Kernel.in(operator, @operators),
-       do: validate(%__MODULE__{operator: operator, operands: operands}, scope)
+       when Kernel.in(operator, @operators) do
+    # Expression validation already checked all data and reference scopes.
+    # Keep the Expr when a legacy Condition would reject portable operands:
+    # only evaluated Boolean operands require a Boolean value at runtime.
+    case validate(%__MODULE__{operator: operator, operands: operands}, scope) do
+      {:ok, condition} -> {:ok, condition}
+      {:error, _error} -> {:ok, %Expr{operator: operator, operands: operands}}
+    end
+  end
 
   defp canonical_condition(expression, _scope), do: {:ok, expression}
 

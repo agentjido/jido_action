@@ -45,9 +45,12 @@ defmodule Jido.Expr do
   Limits cannot exceed 1,048,576,000. `:max_integer_bits` has a lower maximum
   of 1,048,576 to keep the limit check itself bounded.
 
-  Limits apply to each call. Evaluation checks only selected Boolean
-  operands; validation checks the complete tree. Resolve and validation
-  callbacks belong to trusted host code and must themselves be bounded.
+  Limits apply to each call. Evaluation checks a Boolean group's operand-list
+  shape within the remaining node limit before it short-circuits. A group
+  with too many operands can fail even when its first operand determines the
+  result. Skipped operands are not resolved or evaluated. Validation checks
+  the complete tree. Resolve and validation callbacks belong to trusted host
+  code and must themselves be bounded.
   Resolved values are checked as data and are never evaluated as expressions.
   """
 
@@ -113,14 +116,16 @@ defmodule Jido.Expr do
   Parses quoted source with the shared, inert expression grammar.
 
   `:leaf_parser` can be a function that accepts an unknown AST node and
-  returns `{:ok, host_value}` or `:error`. The fixed operator grammar takes
-  precedence. The callback is trusted authoring code, not stored in the
-  result. Neither this function nor its default grammar evaluates source.
+  returns `{:ok, host_value}`, `:error`, or `{:error, error}`. The fixed
+  operator grammar takes precedence. Host errors pass through unchanged;
+  a returned `Jido.Expr.Error` path is relative to the parsed location.
+  The callback is trusted authoring code, not stored in the result. Neither
+  this function nor its default grammar evaluates source.
   """
-  @spec parse(Macro.t(), options()) :: {:ok, term()} | {:error, Error.t()}
+  @spec parse(Macro.t(), options()) :: {:ok, term()} | {:error, term()}
   def parse(ast, options \\ []), do: Parser.parse(ast, options)
 
-  @doc "Parses quoted source, or raises `Jido.Expr.Error`."
+  @doc "Parses quoted source, or raises on a parse failure."
   @spec parse!(Macro.t(), options()) :: term()
   def parse!(ast, options \\ []), do: unwrap!(parse(ast, options))
 

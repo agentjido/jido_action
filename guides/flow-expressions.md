@@ -213,7 +213,11 @@ Each expression evaluation has defaults of 64 levels, 10,000 visited values,
 1,048,576 cumulative binary bytes, and 4,096 bits per integer magnitude.
 Counts include resolved data, comparison work, and generated values. Thus,
 the binary limit is a work/output budget, not only a final string limit.
-Validation checks the complete expression, including skipped branches.
+Before short-circuit evaluation, the operand-list shape of each Boolean
+group must fit within the remaining node limit. An oversized group can fail
+even when its first operand determines the result. Skipped operands are not
+resolved or evaluated. Validation checks the complete expression, including
+skipped branches.
 Existing plain references and legacy conditions retain their contracts.
 Flow uses the fixed defaults; a separate host can set the documented
 `Jido.Expr` limit options. These limits do not replace an Exec timeout or

@@ -34,7 +34,8 @@ defmodule Jido.Flow.Builder do
   alias Jido.Flow.Subflow
 
   @type expression :: Expression.t()
-  @type condition :: Condition.t()
+  @typedoc "A validated condition in the canonical Flow model."
+  @type condition :: Condition.normalized()
   @type choice_option :: Choice.Option.t() | map()
   @type choice_fallback :: Choice.Fallback.t() | map()
 
@@ -164,19 +165,19 @@ defmodule Jido.Flow.Builder do
   def left in right, do: Condition.in(left, right)
 
   @doc "Builds a condition that requires all child conditions."
-  @spec all([condition()]) :: condition()
+  @spec all([Condition.input()]) :: condition()
   def all(conditions), do: Condition.all(conditions)
 
   @doc "Builds a condition that requires one child condition."
-  @spec any([condition()]) :: condition()
+  @spec any([Condition.input()]) :: condition()
   def any(conditions), do: Condition.any(conditions)
 
   @doc "Builds an inverted condition."
-  @spec not condition() :: condition()
+  @spec not Condition.input() :: condition()
   def not condition, do: Condition.not(condition)
 
   @doc "Builds one named Choice option."
-  @spec option(atom() | String.t(), condition(), module(), expression()) :: map()
+  @spec option(atom() | String.t(), Condition.input(), module(), expression()) :: map()
   def option(name, condition, action, params \\ %{}) do
     %{name: name, condition: condition, action: action, params: params}
   end
