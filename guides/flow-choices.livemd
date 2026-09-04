@@ -109,6 +109,89 @@ not run the fallback.
 Choice option and fallback targets must be Actions. A Choice does not derive a
 Subflow target.
 
+## Route An Expected Failure As Data
+
+Keep expected provider outcomes in the application's result contract. A small
+Action wrapper can convert a specific error to data that Choice can inspect.
+Return other errors unchanged. Do not catch all exceptions or use Choice
+fallback as recovery from a failed target.
+
+This local provider has no external effects:
+
+```elixir
+defmodule FlowChoices.Provider do
+  def fetch(:missing),
+    do: {:error, Jido.Action.Error.validation_error("not found", code: :not_found)}
+
+  def fetch(:offline),
+    do: {:error, Jido.Action.Error.execution_error("offline", retry: true)}
+
+  def fetch(id), do: {:ok, %{id: id}}
+end
+
+defmodule FlowChoices.Fetch do
+  use Jido.Action, name: "flow_choices_fetch"
+
+  @impl true
+  def run(%{id: id}, _context) do
+    case FlowChoices.Provider.fetch(id) do
+      {:ok, value} ->
+        {:ok, %{status: :ok, value: value, error: nil}}
+
+      {:error, %Jido.Action.Error.InvalidInputError{details: %{code: :not_found}} = error} ->
+        {:ok, %{status: :error, value: nil, error: Jido.Flow.Error.to_map(error)}}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+end
+
+defmodule FlowChoices.ExpectedFailure do
+  use Jido.Flow, name: "flow_choices_expected_failure"
+
+  flow do
+    step "fetch", action: FlowChoices.Fetch, params: %{id: input(:id)}
+
+    choice "route" do
+      option "missing",
+        condition: result("fetch", :status) == :error,
+        action: FlowChoices.Route,
+        params: %{route: :missing, error: result("fetch", :error)}
+
+      otherwise(
+        action: FlowChoices.Route,
+        params: %{route: :found, value: result("fetch", :value)}
+      )
+    end
+
+    output(result("route"))
+  end
+end
+```
+
+```elixir
+{:ok, %{route: :found, value: %{id: 1}}} =
+  Jido.Exec.run(FlowChoices.ExpectedFailure, %{id: 1})
+
+{:ok, %{route: :missing, error: %{type: :validation_error, details: %{code: :not_found}}}} =
+  Jido.Exec.run(FlowChoices.ExpectedFailure, %{id: :missing})
+
+{:error, %Jido.Action.Error.ExecutionFailureError{}} =
+  Jido.Exec.run(FlowChoices.ExpectedFailure, %{id: :offline})
+```
+
+The wrapper preserves the expected error's mapped type, message, details, and
+retry flag. This result is successful application data, not a failed Flow
+node. It does not receive automatic error telemetry or added node/execution
+identity. Add application correlation data explicitly when needed. A selected
+route that fails still fails the Flow; it does not run `otherwise`.
+
+The provider above is an ordinary function. If the provider is another Jido
+Action, do not call its `run/2` callback and assume validation occurred. Use
+its validation boundary, or move the shared provider operation to an ordinary
+function. There is no `on_error: :capture` option on Step or Choice.
+
 ## Canonical Form
 
 A `Jido.Flow.Choice` contains ordered `Jido.Flow.Choice.Option` values and one
