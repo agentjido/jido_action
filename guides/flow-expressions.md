@@ -5,14 +5,15 @@ describes the unreleased expression API. Run the examples in a checkout that
 contains this change; `3.0.0-beta.5` does not contain it.
 
 Use an expression for a short calculation or an obvious condition. Use an
-inline Step or a named Action when the operation needs an explanation,
-validation hooks, application calls, or side effects.
+inline Action or a named Action when the operation needs an explanation,
+application calls, or side effects. Keep a named Action for custom validation
+or lifecycle hooks.
 
 ## Calculate At The Point Of Use
 
 Flow captures its data fields before Elixir evaluates them. No import or
 `expr(...)` wrapper is required in those fields. The wrapper is optional.
-Normal Elixir inside an inline Step body is unchanged.
+Normal Elixir inside an inline Action body is unchanged.
 
 ```elixir
 defmodule ExprGuide.Invoice do
@@ -42,9 +43,13 @@ end
 
 The same syntax works in Step and Subflow params, Choice conditions and
 params, Map and Reduce fields, Iterate State and conditions, Dispatch params,
-inline Step binding sources, and Flow output. Each field keeps its existing
+bound inline Action sources, and Flow output. Each field keeps its existing
 reference scope and result-shape rules. A normal Flow output is still a map.
-Map, Reduce, and Iterate still use Action targets, not inline bodies.
+The unreleased [portable inline API](inline-actions.md) supplies nested bodies
+for Step, Map, Reduce, Choice options and fallback, Iterate, and Dispatch.
+These bodies compile to ordinary Action targets. Sources use Expr; bodies use
+normal Elixir. A Dispatch expander is a direct callback and has no source
+mapping. These additions are not in `3.0.0-beta.5`.
 
 ## Complete Operation List
 
@@ -205,6 +210,10 @@ never as new expression instructions. Host callbacks must be bounded and
 must accept only the host's documented reference forms. Parsing and
 validation must not run application work. This PR does not integrate any
 other Jido package or add a custom operator registry.
+
+For a complete host that also compiles inline Action bodies, see
+[Build A Non-Flow Host](inline-actions.md#build-a-non-flow-host). The host must
+parse and validate binding sources before it creates an Action declaration.
 
 ## Errors And Limits
 

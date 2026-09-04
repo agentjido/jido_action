@@ -50,14 +50,24 @@ defmodule Jido.Flow do
   sole map pattern for complete params, or `[]` for no input. Only `after:`
   and `meta:` are inline options.
 
-  Inline bodies compile to ordinary Actions with empty field schemas and the
-  normal Exec validation and result rules. Extract a named Action for field
-  schemas or validation hooks. Only `step` supports inline bodies.
+  This Step shorthand has empty field schemas. The unreleased nested `action`
+  form accepts explicit metadata, schemas, and `context: ctx`. It supports
+  Step, Map, Reduce, Choice options and fallback, and Iterate. Dispatch uses
+  bound `decision` and direct callback `expander` blocks. All forms compile
+  to ordinary Actions with normal Exec validation and result rules. Keep a
+  named Action for custom lifecycle hooks or a separate public module API.
+  See [Portable Inline Actions](inline-actions.md). The shared API is not
+  included in `3.0.0-beta.5`.
 
   After the owner compiles, `MyApp.Greeting.step_action("greet")` returns its
   Action target for Builder, direct construction, or trusted Registry reuse.
   It does not copy parameters, dependencies, or metadata. Builder and stored
   JSON do not accept body code, anonymous functions, or MFA targets.
+
+  `step_action/1` stays Step-only, including explicit Action-backed Steps but
+  excluding Subflows. Use `Jido.Action.Inline.target!/2` with a typed host path
+  for other inline roles. `context: ctx` binds the current callback context;
+  it does not retain the original Flow context in the target's parameters.
 
   Deploy the owning module and generated Action BEAM files together. A body
   edit can retain the same target and semantic graph identity; graph identity

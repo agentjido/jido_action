@@ -177,6 +177,40 @@ defmodule Jido.Action do
   end
 
   @doc false
+  @spec __prepare_config__!(term(), Macro.Env.t()) ::
+          {map(), schema(), schema()} | no_return()
+  def __prepare_config__!(raw_opts, env) do
+    opts_map =
+      if is_list(raw_opts) and Keyword.keyword?(raw_opts),
+        do: Map.new(raw_opts),
+        else: raw_opts
+
+    # Reject dynamic kinds before configuration validation can resolve them.
+    if is_map(opts_map) do
+      ensure_static_schema!(Map.get(opts_map, :schema, []), :schema, env)
+      ensure_static_schema!(Map.get(opts_map, :output_schema, []), :output_schema, env)
+    end
+
+    case Zoi.parse(@action_config_schema, opts_map) do
+      {:ok, validated_opts} ->
+        validated_opts =
+          if is_struct(validated_opts), do: Map.from_struct(validated_opts), else: validated_opts
+
+        schema = ensure_static_schema!(Map.get(validated_opts, :schema, []), :schema, env)
+
+        output_schema =
+          ensure_static_schema!(Map.get(validated_opts, :output_schema, []), :output_schema, env)
+
+        {validated_opts, schema, output_schema}
+
+      {:error, errors} ->
+        message = "Action configuration validation failed:\n" <> Zoi.prettify_errors(errors)
+
+        raise CompileError, description: message, file: env.file, line: env.line
+    end
+  end
+
+  @doc false
   @spec validate_params_for(map(), module()) ::
           {:ok, map()} | {:error, term()}
   def validate_params_for(params, module) do
@@ -259,7 +293,6 @@ defmodule Jido.Action do
 
   """
   defmacro __using__(opts_ast) do
-    escaped_schema = Macro.escape(@action_config_schema)
     validate_params_doc = @validate_params_doc
     validate_output_doc = @validate_output_doc
 
@@ -269,113 +302,62 @@ defmodule Jido.Action do
 
       alias Jido.Action
 
-      # Convert opts to map for Zoi validation (including nested keyword lists)
-      raw_opts = unquote(opts_ast)
+      {validated_opts, stored_schema, stored_output_schema} =
+        Action.__prepare_config__!(unquote(opts_ast), __ENV__)
 
-      opts_map =
-        if is_list(raw_opts) and Keyword.keyword?(raw_opts) do
-          Map.new(raw_opts)
-        else
-          raw_opts
-        end
+      Module.put_attribute(__MODULE__, :__jido_schema__, stored_schema)
+      Module.put_attribute(__MODULE__, :__jido_output_schema__, stored_output_schema)
 
-      # Reject dynamic schema kinds before configuration validation can resolve them.
-      if is_map(opts_map) do
-        Action.ensure_static_schema!(Map.get(opts_map, :schema, []), :schema, __ENV__)
+      @validated_opts Map.drop(validated_opts, [:schema, :output_schema])
 
-        Action.ensure_static_schema!(
-          Map.get(opts_map, :output_schema, []),
-          :output_schema,
-          __ENV__
-        )
+      @doc "Returns the name of the Action."
+      @spec name() :: String.t()
+      def name, do: @validated_opts[:name]
+
+      @doc "Returns the description of the Action."
+      @spec description() :: String.t() | nil
+      def description, do: @validated_opts[:description]
+
+      @doc "Returns the input schema of the Action."
+      @spec schema() :: Jido.Action.schema()
+      def schema, do: @__jido_schema__
+
+      @doc "Returns the output schema of the Action."
+      @spec output_schema() :: Jido.Action.schema()
+      def output_schema, do: @__jido_output_schema__
+
+      @doc false
+      @impl Jido.Executable
+      @spec __jido_executable__() :: Jido.Executable.t()
+      def __jido_executable__, do: Jido.Executable.action(__MODULE__)
+
+      @doc unquote(validate_params_doc)
+      @impl Jido.Executable
+      @spec validate_params(map()) ::
+              {:ok, map()} | {:error, term()}
+      def validate_params(params), do: Action.validate_params_for(params, __MODULE__)
+
+      @doc unquote(validate_output_doc)
+      @impl Jido.Executable
+      @spec validate_output(map() | Jido.Action.Output.t()) ::
+              {:ok, map() | Jido.Action.Output.t()}
+              | {:error, Jido.Action.Error.InvalidInputError.t()}
+      def validate_output(output), do: Action.validate_output_for(output, __MODULE__)
+
+      @doc """
+      Executes the Action with the given parameters and context.
+
+      The `run/2` function must be implemented in the module using Jido.Action.
+      """
+      @impl Jido.Action
+      @spec run(map(), map()) :: Jido.Action.result()
+      def run(params, context) do
+        "run/2 must be implemented in your Action"
+        |> Error.config_error()
+        |> then(&{:error, &1})
       end
 
-      case Zoi.parse(unquote(escaped_schema), opts_map) do
-        {:ok, validated_opts} ->
-          # Convert Zoi struct to map for backward compatibility
-          validated_opts =
-            if is_struct(validated_opts),
-              do: Map.from_struct(validated_opts),
-              else: validated_opts
-
-          stored_schema =
-            Action.ensure_static_schema!(
-              Map.get(validated_opts, :schema, []),
-              :schema,
-              __ENV__
-            )
-
-          stored_output_schema =
-            Action.ensure_static_schema!(
-              Map.get(validated_opts, :output_schema, []),
-              :output_schema,
-              __ENV__
-            )
-
-          Module.put_attribute(__MODULE__, :__jido_schema__, stored_schema)
-          Module.put_attribute(__MODULE__, :__jido_output_schema__, stored_output_schema)
-
-          @validated_opts Map.drop(validated_opts, [:schema, :output_schema])
-
-          @doc "Returns the name of the Action."
-          @spec name() :: String.t()
-          def name, do: @validated_opts[:name]
-
-          @doc "Returns the description of the Action."
-          @spec description() :: String.t() | nil
-          def description, do: @validated_opts[:description]
-
-          @doc "Returns the input schema of the Action."
-          @spec schema() :: Jido.Action.schema()
-          def schema, do: @__jido_schema__
-
-          @doc "Returns the output schema of the Action."
-          @spec output_schema() :: Jido.Action.schema()
-          def output_schema, do: @__jido_output_schema__
-
-          @doc false
-          @impl Jido.Executable
-          @spec __jido_executable__() :: Jido.Executable.t()
-          def __jido_executable__, do: Jido.Executable.action(__MODULE__)
-
-          @doc unquote(validate_params_doc)
-          @impl Jido.Executable
-          @spec validate_params(map()) ::
-                  {:ok, map()} | {:error, term()}
-          def validate_params(params), do: Action.validate_params_for(params, __MODULE__)
-
-          @doc unquote(validate_output_doc)
-          @impl Jido.Executable
-          @spec validate_output(map() | Jido.Action.Output.t()) ::
-                  {:ok, map() | Jido.Action.Output.t()}
-                  | {:error, Jido.Action.Error.InvalidInputError.t()}
-          def validate_output(output), do: Action.validate_output_for(output, __MODULE__)
-
-          @doc """
-          Executes the Action with the given parameters and context.
-
-          The `run/2` function must be implemented in the module using Jido.Action.
-          """
-          @impl Jido.Action
-          @spec run(map(), map()) :: Jido.Action.result()
-          def run(params, context) do
-            "run/2 must be implemented in your Action"
-            |> Error.config_error()
-            |> then(&{:error, &1})
-          end
-
-          defoverridable run: 2
-
-        {:error, errors} ->
-          message =
-            if is_list(errors) do
-              "Action configuration validation failed:\n" <> Zoi.prettify_errors(errors)
-            else
-              "Action configuration validation failed: #{inspect(errors)}"
-            end
-
-          raise CompileError, description: message, file: __ENV__.file, line: __ENV__.line
-      end
+      defoverridable run: 2
     end
   end
 

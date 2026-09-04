@@ -25,6 +25,7 @@ defmodule Jido.Flow.DSL.Extension do
     identifier: :name,
     modules: [:action],
     describe: "Declares one named Action call.",
+    imports: [Jido.Flow.DSL.InlineAction],
     schema:
       [
         name: [type: :string, required: true],
@@ -40,6 +41,7 @@ defmodule Jido.Flow.DSL.Extension do
     identifier: :name,
     modules: [:action],
     describe: "Declares one ordered Choice target.",
+    imports: [Jido.Flow.DSL.InlineAction],
     schema: [
       name: [type: :string, required: true],
       action: [type: :atom, required: true],
@@ -55,6 +57,7 @@ defmodule Jido.Flow.DSL.Extension do
     args: [:__source__],
     modules: [:action],
     describe: "Declares the required Choice fallback target.",
+    imports: [Jido.Flow.DSL.InlineAction],
     schema: [
       action: [type: :atom, required: true],
       params: [type: :quoted, required: true],
@@ -81,6 +84,7 @@ defmodule Jido.Flow.DSL.Extension do
     identifier: :name,
     modules: [:action],
     describe: "Runs one Action for each collection item.",
+    imports: [Jido.Flow.DSL.InlineAction],
     schema:
       [
         name: [type: :string, required: true],
@@ -98,6 +102,7 @@ defmodule Jido.Flow.DSL.Extension do
     identifier: :name,
     modules: [:action],
     describe: "Folds a collection through one Action.",
+    imports: [Jido.Flow.DSL.InlineAction],
     schema:
       [
         name: [type: :string, required: true],
@@ -138,7 +143,7 @@ defmodule Jido.Flow.DSL.Extension do
         repeat: [type: :pos_integer],
         max_iterations: [type: :pos_integer]
       ] ++ @node_fields,
-    imports: [Jido.Flow.DSL.IterateMacros],
+    imports: [Jido.Flow.DSL.IterateMacros, Jido.Flow.DSL.InlineAction],
     entities: [state: [@iterate_state]],
     singleton_entity_keys: [:state]
   }
@@ -173,7 +178,7 @@ defmodule Jido.Flow.DSL.Extension do
   @flow %Spark.Dsl.Section{
     name: :flow,
     describe: "Declares a Jido Flow graph.",
-    imports: [Jido.Flow.DSL.Macros],
+    imports: [Jido.Flow.DSL.Macros, Jido.Flow.DSL.InlineAction],
     entities: [@step, @choice, @map, @reduce, @iterate, @dispatch, @output],
     singleton_entity_keys: [:output]
   }

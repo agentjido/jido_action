@@ -37,7 +37,8 @@ defmodule JidoAction.MixProject do
           ~r/^Jido\.Flow\.DSL\.Extension\.Flow\./,
 
           # Inline wrappers contain generated Action scaffolding only.
-          ~r/^Jido\.Flow\.Generated\.InlineStep\./
+          ~r/^Jido\.Flow\.Generated\.InlineStep\./,
+          ~r/^Jido\.Action\.Generated\.Inline\./
         ],
         summary: [threshold: 93]
       ],
@@ -84,6 +85,7 @@ defmodule JidoAction.MixProject do
         ],
         "Core Contracts": [
           "guides/actions.md",
+          "guides/inline-actions.md",
           "guides/instructions.md",
           "guides/flows.md",
           "guides/continuations.md",
@@ -128,6 +130,7 @@ defmodule JidoAction.MixProject do
         {"guides/build-your-first-flow.livemd", title: "Build Your First Flow"},
         # Core Contracts
         {"guides/actions.md", title: "Actions"},
+        {"guides/inline-actions.md", title: "Portable Inline Actions"},
         {"guides/instructions.md", title: "Instructions"},
         {"guides/flows.md", title: "Flows"},
         {"guides/continuations.md", title: "Terminal Transitions"},
@@ -167,6 +170,7 @@ defmodule JidoAction.MixProject do
       groups_for_modules: [
         "Action API": [
           Jido.Action,
+          Jido.Action.Inline,
           Jido.Action.Output
         ],
         "Executable API": [

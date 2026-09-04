@@ -139,6 +139,14 @@ A body change can retain the same target and semantic graph identity. Neither
 the stored document nor its graph identity is a code snapshot. Select the
 application release and Registry version needed to run stored work.
 
+The same Registry rule applies to the unreleased portable inline roles.
+Resolve each target through `Jido.Action.Inline.target!/2` with its typed host
+path, then register that ordinary Action. Inline metadata and schemas belong
+to the deployed target, not to stored body code. Portable inline Actions add
+no Codec version: only Expr nodes require version 2. See
+[Portable Inline Actions](inline-actions.md) and [Expressions](flow-expressions.md).
+Neither API is included in `3.0.0-beta.5`.
+
 ## Validation And Limits
 
 Decode first checks the stored grammar and resource limits. It rejects:

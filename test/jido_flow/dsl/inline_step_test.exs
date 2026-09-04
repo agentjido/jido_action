@@ -462,7 +462,12 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     assert Enum.map(module.flow().components, & &1.name) == ["lexical", "local_import"]
   end
 
-  for namespace <- [Jido.Flow.DSLHelpers, Spark.DslHelpers] do
+  for namespace <- [
+        Jido.Flow.DSLHelpers,
+        Spark.DslHelpers,
+        Jido.Flow.DSL.Helpers,
+        Spark.Dsl.Helpers
+      ] do
     test "inline bodies retain imports from #{inspect(namespace)}" do
       helper = Module.concat(unquote(namespace), "Inline#{System.unique_integer([:positive])}")
       owner = unique_owner("SimilarNamespace")

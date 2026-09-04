@@ -16,6 +16,8 @@ locals_without_parens = [
   dispatch: 2,
   output: 1,
   action: 1,
+  action: 2,
+  action: 3,
   params: 1,
   meta: 1,
   condition: 1,
@@ -27,7 +29,11 @@ locals_without_parens = [
   repeat: 1,
   max_iterations: 1,
   decision: 1,
-  expander: 1
+  decision: 2,
+  decision: 3,
+  expander: 1,
+  expander: 2,
+  expander: 3
 ]
 
 [

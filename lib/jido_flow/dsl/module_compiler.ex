@@ -13,7 +13,7 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
       @behaviour Jido.Executable
       use Jido.Flow.DSL
       @before_compile Jido.Flow.DSL.ModuleCompiler
-      @on_definition Jido.Flow.DSL.ModuleCompiler
+      Jido.Action.Inline.setup!(__ENV__)
       unquote(module_compiler).reserve_function!(__ENV__, {:step_action, 1})
 
       {validated_opts, stored_schema, stored_output_schema} =
@@ -81,9 +81,9 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
       can remain unchanged after a body edit; it is not a code version.
       """
       @spec step_action(String.t() | atom()) :: module()
-      @__jido_flow_generated_definition__ {:step_action, 1}
+      @__jido_inline_generated__ {:step_action, 1}
       def step_action(name)
-      Module.delete_attribute(__MODULE__, :__jido_flow_generated_definition__)
+      Module.delete_attribute(__MODULE__, :__jido_inline_generated__)
 
       @doc false
       @spec __jido_flow_source_map__() :: Jido.Flow.Compiled.source_map()
@@ -121,36 +121,7 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
   @doc false
   @spec reserve_function!(Macro.Env.t(), {atom(), non_neg_integer()}) :: :ok
   def reserve_function!(env, function) do
-    if Module.defines?(env.module, function), do: reserved_function_error!(env, function)
-    reserved = Module.get_attribute(env.module, :__jido_flow_reserved_functions__) || []
-    Module.put_attribute(env.module, :__jido_flow_reserved_functions__, [function | reserved])
-  end
-
-  @doc false
-  @spec __on_definition__(Macro.Env.t(), atom(), atom(), list(), list(), term()) :: :ok
-  def __on_definition__(env, _kind, name, args, _guards, _body) do
-    arity = length(args)
-    defaults = Enum.count(args, &match?({:\\, _, [_, _]}, &1))
-    reserved = Module.get_attribute(env.module, :__jido_flow_reserved_functions__) || []
-    generated = Module.get_attribute(env.module, :__jido_flow_generated_definition__)
-
-    for defined_arity <- (arity - defaults)..arity do
-      function = {name, defined_arity}
-
-      if function in reserved and generated != function do
-        reserved_function_error!(env, function)
-      end
-    end
-
-    :ok
-  end
-
-  @spec reserved_function_error!(Macro.Env.t(), {atom(), non_neg_integer()}) :: no_return()
-  defp reserved_function_error!(env, {name, arity}) do
-    MacroSupport.compile_error!(
-      env,
-      "reserved Flow function #{name}/#{arity} cannot have user clauses"
-    )
+    Jido.Action.Inline.Owner.reserve_function!(env, function, "Flow")
   end
 
   @doc false
@@ -208,7 +179,7 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
       def flow, do: unquote(escaped_flow)
       def __jido_flow_source_map__, do: unquote(escaped_source_map)
 
-      @__jido_flow_generated_definition__ {:step_action, 1}
+      @__jido_inline_generated__ {:step_action, 1}
       def step_action(name) do
         with {:ok, normalized} <- Jido.Flow.Component.name(name),
              {:ok, action} <- Map.fetch(unquote(Macro.escape(step_actions)), normalized) do
@@ -220,7 +191,7 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
         end
       end
 
-      Module.delete_attribute(__MODULE__, :__jido_flow_generated_definition__)
+      Module.delete_attribute(__MODULE__, :__jido_inline_generated__)
 
       def compiled,
         do: Jido.Flow.compile!(flow(), source_map: __jido_flow_source_map__())
