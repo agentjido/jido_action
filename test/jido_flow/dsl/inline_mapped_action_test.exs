@@ -332,6 +332,80 @@ defmodule Jido.Flow.DSL.InlineMappedActionTest do
     end
   end
 
+  test "invalid bound sources leave each existing wrapper and schema unchanged" do
+    for {slot, source} <- [
+          step: "item()",
+          map: "accumulator()",
+          reduce: "%{nested: [state()]}",
+          option: "false and item()",
+          fallback: "iteration_index()",
+          iterate: "item()",
+          map: "input([-1])",
+          map: "unknown_source()"
+        ] do
+      fields = fn source, name, type ->
+        """
+        action value <- #{source}, name: "#{name}", schema: Zoi.object(%{value: Zoi.#{type}()}) do
+          {:ok, %{value: value}}
+        end
+        """
+      end
+
+      owner = compile_flow(slot_source(slot, fields.("input(:value)", "original", :integer)))
+      action = target(owner, slot_path(slot))
+      original = {action.name(), action.schema(), action.module_info(:md5)}
+      assert {:ok, _} = Jido.Exec.run(owner, %{value: 1})
+
+      ExUnit.CaptureIO.capture_io(:stderr, fn ->
+        error =
+          try do
+            compile_flow(
+              slot_source(slot, fields.(source, "replacement", :string)),
+              owner: owner
+            )
+
+            nil
+          rescue
+            error in CompileError -> error
+          end
+
+        assert action.name() == "original"
+        assert {action.name(), action.schema(), action.module_info(:md5)} == original
+        assert %CompileError{} = error
+        assert error.description =~ ~r/(scope|reference path|unsupported Flow expression)/
+      end)
+    end
+  end
+
+  test "a Choice child source error preserves both deferred wrappers" do
+    declarations = fn name, source ->
+      """
+      choice "node" do
+        option "selected" do
+          condition true
+          action [], name: "#{name}", do: {:ok, %{value: 1}}
+        end
+        otherwise do
+          action value <- #{source}, name: "#{name}", do: {:ok, %{value: value}}
+        end
+      end
+      output result("node")
+      """
+    end
+
+    owner = compile_flow(declarations.("original", "input(:value)"))
+    actions = [target(owner, slot_path(:option)), target(owner, slot_path(:fallback))]
+    original = Enum.map(actions, &{&1.name(), &1.module_info(:md5)})
+
+    ExUnit.CaptureIO.capture_io(:stderr, fn ->
+      assert_raise CompileError, ~r/inline Action binding source:.*valid scope/, fn ->
+        compile_flow(declarations.("replacement", "item()"), owner: owner)
+      end
+    end)
+
+    assert Enum.map(actions, &{&1.name(), &1.module_info(:md5)}) == original
+  end
+
   test "inline fields preserve application aliases" do
     owner =
       compile_flow(
@@ -706,6 +780,14 @@ defmodule Jido.Flow.DSL.InlineMappedActionTest do
   defp slot_label(:option), do: "Choice option"
   defp slot_label(:fallback), do: "Choice fallback"
   defp slot_label(slot), do: slot |> Atom.to_string() |> String.capitalize()
+
+  defp slot_source(:step, fields),
+    do: """
+    step "node" do
+      #{fields}
+    end
+    output result("node")
+    """
 
   defp slot_source(:map, fields),
     do: """

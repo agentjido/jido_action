@@ -68,7 +68,7 @@ defmodule Jido.Flow.DSL.InlineAction do
 
   def bound(bindings, options, caller, setter, label, role) do
     parsed = parse_bound!(bindings, options, caller, label, role)
-    validate_sources!(bindings, caller, "inline Action")
+    validate_sources!(bindings, caller, "inline Action", params_scope(setter))
     path = Macro.unique_var(:inline_action_path, __MODULE__)
     compiled = compile_target(setter, path, parsed, caller)
 
@@ -80,6 +80,11 @@ defmodule Jido.Flow.DSL.InlineAction do
       unquote(setter).params(unquote(parsed.params_ast))
     end
   end
+
+  defp params_scope(Jido.Flow.DSL.Extension.Flow.Map.Options), do: :map_params
+  defp params_scope(Jido.Flow.DSL.Extension.Flow.Reduce.Options), do: :reduce_params
+  defp params_scope(Jido.Flow.DSL.Extension.Flow.Iterate.Options), do: :iterate_params
+  defp params_scope(_setter), do: :flow
 
   defp parse_bound!(bindings, options, caller, "Step", :action),
     do: Inline.parse_bound!(bindings, options, caller)
@@ -194,19 +199,23 @@ defmodule Jido.Flow.DSL.InlineAction do
 
   @doc false
   @spec validate_sources!(Macro.t(), Macro.Env.t(), String.t()) :: :ok
-  def validate_sources!(bindings, caller, label) do
+  @spec validate_sources!(Macro.t(), Macro.Env.t(), String.t(), Jido.Flow.Ref.scope() | nil) ::
+          :ok
+  def validate_sources!(bindings, caller, label, scope \\ nil) do
     for {:<-, _, [_pattern, source]} <- List.wrap(bindings) do
-      validate_source!(source, caller, label)
+      validate_source!(source, caller, label, scope)
     end
 
     :ok
   end
 
-  defp validate_source!(source, caller, label) do
-    case Expression.parse(source) do
-      {:ok, _} ->
-        :ok
-
+  defp validate_source!(source, caller, label, scope) do
+    # Legacy Step shorthand keeps its parse-time diagnostics. Bound fields also
+    # check their slot scope before compiling a replacement wrapper.
+    with {:ok, expression} <- Expression.parse(source),
+         :ok <- if(scope, do: Jido.Flow.Expression.validate(expression, scope), else: :ok) do
+      :ok
+    else
       {:error, error} ->
         line =
           case source do

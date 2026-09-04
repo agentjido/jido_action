@@ -409,6 +409,46 @@ defmodule Jido.Flow.DSL.InlineDispatchActionTest do
     end
   end
 
+  test "invalid decision sources do not replace either existing Dispatch wrapper" do
+    for header <- [
+          "value <- item()",
+          "%{value: value} <- accumulator()",
+          "value <- %{nested: [state()]}",
+          "value <- false and body_result()",
+          "value <- input([-1])",
+          "value <- unknown_source()"
+        ] do
+      fields = fn header, name, type ->
+        """
+        expander params, name: "#{name}", schema: Zoi.object(%{value: Zoi.#{type}()}), do: {:ok, params}
+        decision #{header}, name: "#{name}", schema: Zoi.object(%{value: Zoi.#{type}()}), do: {:ok, %{value: value}}
+        """
+      end
+
+      owner = compile_fields(fields.("value <- input(:value)", "original", :integer))
+      actions = [target(owner, :decision), target(owner, :expander)]
+      original = Enum.map(actions, &{&1.name(), &1.schema(), &1.module_info(:md5)})
+      assert {:ok, %{value: 1}} = Jido.Exec.run(owner, %{value: 1})
+
+      ExUnit.CaptureIO.capture_io(:stderr, fn ->
+        error =
+          try do
+            compile_fields(fields.(header, "replacement", :string), owner: owner)
+            nil
+          rescue
+            error in CompileError -> error
+          end
+
+        assert Enum.all?(actions, &(&1.name() == "original"))
+        assert Enum.map(actions, &{&1.name(), &1.schema(), &1.module_info(:md5)}) == original
+        assert %CompileError{} = error
+        assert error.description =~ ~r/(scope|reference path|unsupported Flow expression)/
+        assert error.file == "dispatch_inline.ex"
+        assert error.line > 0
+      end)
+    end
+  end
+
   test "compilation, target lookup, and Flow validation do not run either body" do
     owner =
       compile_fields(
