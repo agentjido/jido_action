@@ -107,10 +107,10 @@ defmodule JidoActionTest.Flow.DSL.ExpressionTest do
     assert {:error, error} = Expression.parse(status: :ready)
     assert Exception.message(error) =~ "unsupported Flow expression"
 
-    assert {:error, error} = Expression.parse_condition(quote(do: input(:ready)))
+    assert {:error, error} = Expression.parse_condition(quote(do: :ready))
 
     assert Exception.message(error) ==
-             "unsupported Flow condition: input(:ready); use ==, !=, <, <=, >, >=, in, and, or, not, or a Flow condition function"
+             "unsupported Flow condition: :ready; use a Boolean reference, Boolean literal, or Flow condition"
   end
 
   test "rejects assignment, pattern matching, and pipes as declarative data" do

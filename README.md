@@ -419,6 +419,7 @@ Livebook. ExDoc adds a **Run in Livebook** link to each `.livemd` guide.
 - [Flow DSL](guides/flow-language.livemd)
 - [Steps And Output](guides/flow-steps.livemd)
 - [References And Data](guides/flow-references.livemd)
+- [Expressions And Host DSLs](guides/flow-expressions.md)
 - [Dependencies And Parallel Work](guides/flow-dependencies.livemd)
 - [Choices And Conditions](guides/flow-choices.livemd)
 - [Map And Reduce](guides/flow-collections.livemd)

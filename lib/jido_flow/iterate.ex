@@ -191,6 +191,12 @@ defmodule Jido.Flow.Iterate do
   defp state(value), do: State.new(value)
 
   defp completion(%Condition{} = value), do: Condition.validate(value, :iterate_completion)
+  defp completion(%Jido.Expr{} = value), do: Condition.validate(value, :iterate_completion)
+  defp completion(%Jido.Flow.Ref{} = value), do: Condition.validate(value, :iterate_completion)
+
+  defp completion(value) when is_boolean(value),
+    do: Condition.validate(value, :iterate_completion)
+
   defp completion(_value), do: {:error, Error.validation_error("iterate completion is required")}
 
   defp maximum(value) when is_integer(value) and value in 1..@maximum_iterations, do: {:ok, value}

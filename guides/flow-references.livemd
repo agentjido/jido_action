@@ -72,6 +72,10 @@ errors.
 A result reference creates an inferred dependency on the named component.
 Input and context references do not.
 
+References can appear inside `Jido.Expr` operations. Their scopes and graph
+dependencies do not change. See [Expressions](flow-expressions.md) for the
+new calculation syntax and its version requirement.
+
 ## Local References
 
 Local helpers are valid only in their component scope.

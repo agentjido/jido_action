@@ -1,186 +1,161 @@
 defmodule Jido.Flow.DSL.Expression do
   @moduledoc false
 
+  alias Jido.Expr
   alias Jido.Flow.Error
   alias Jido.Flow.{Condition, Ref}
 
   @doc "Parses one DSL expression into canonical Flow data."
   @spec parse(term()) :: {:ok, term()} | {:error, Exception.t()}
   def parse(expression) do
-    {:ok, parse!(expression)}
-  rescue
-    error in [ArgumentError] ->
-      {:error, Error.validation_error(Exception.message(error), source_details(expression))}
-  end
+    case parse_value(expression) do
+      {:ok, value} ->
+        {:ok, value}
 
-  @doc "Parses one DSL condition into a canonical Flow condition."
-  @spec parse_condition(term()) :: {:ok, Condition.t()} | {:error, Exception.t()}
-  def parse_condition(condition) do
-    {:ok, parse_condition!(condition)}
-  rescue
-    error in [ArgumentError] ->
-      {:error, Error.validation_error(Exception.message(error), source_details(condition))}
-  end
+      {:error, %Expr.Error{reason: :duplicate_key}} ->
+        {:error, Error.validation_error("duplicate Flow map key", source_details(expression))}
 
-  defp parse!({:input, _meta, []}), do: Ref.input([])
-  defp parse!({:input, _meta, [path]}), do: Ref.input(parse_path!(path))
-  defp parse!({:context, _meta, []}), do: Ref.context([])
-  defp parse!({:context, _meta, [path]}), do: Ref.context(parse_path!(path))
-  defp parse!({:value, _meta, [value]}), do: parse_literal!(value)
-
-  defp parse!({:result, _meta, [node]}), do: Ref.result(parse_node_name!(node))
-
-  defp parse!({:result, _meta, [node, path]}) do
-    Ref.result(parse_node_name!(node), parse_path!(path))
-  end
-
-  defp parse!({:select, _meta, [source, path]}) do
-    select!(parse!(source), parse_path!(path))
-  end
-
-  defp parse!({:item, _meta, []}), do: Ref.item()
-  defp parse!({:item, _meta, [path]}), do: Ref.item(parse_path!(path))
-  defp parse!({:item_index, _meta, []}), do: Ref.item_index()
-  defp parse!({:item_id, _meta, []}), do: Ref.item_id()
-  defp parse!({:accumulator, _meta, []}), do: Ref.accumulator()
-  defp parse!({:accumulator, _meta, [path]}), do: Ref.accumulator(parse_path!(path))
-  defp parse!({:state, _meta, []}), do: Ref.state()
-  defp parse!({:state, _meta, [path]}), do: Ref.state(parse_path!(path))
-  defp parse!({:iteration_index, _meta, []}), do: Ref.iteration_index()
-  defp parse!({:body_result, _meta, []}), do: Ref.body_result()
-  defp parse!({:body_result, _meta, [path]}), do: Ref.body_result(parse_path!(path))
-
-  defp parse!(%Ref{} = expression), do: expression
-
-  defp parse!(%{} = values) when not is_struct(values) do
-    Map.new(values, fn {key, value} -> {parse_literal!(key), parse!(value)} end)
-  end
-
-  defp parse!({:%{}, _meta, pairs}) do
-    parse_map!(pairs, &parse!/1)
-  end
-
-  defp parse!([]), do: []
-
-  defp parse!(values) when is_list(values) do
-    if Keyword.keyword?(values) do
-      unsupported!(values)
-    else
-      Enum.map(values, &parse!/1)
+      {:error, error} ->
+        {:error,
+         Error.validation_error(expression_message(expression, error), source_details(expression))}
     end
   end
 
-  defp parse!(value)
-       when is_nil(value) or is_boolean(value) or is_atom(value) or is_binary(value) or
-              is_number(value),
-       do: value
+  # Plain Flow data keeps its existing limits. Only operation subtrees use
+  # the shared expression budget; the operator grammar still has one owner.
+  defp parse_value({:expr, _, [value]}), do: parse_value(value)
 
-  defp parse!(expression), do: unsupported!(expression)
-
-  defp parse_condition!(%Condition{} = condition), do: condition
-
-  defp parse_condition!({operator, _meta, [left, right]})
-       when operator in [:==, :!=, :<, :<=, :>, :>=, :in] do
-    syntax_operator =
-      Map.fetch!(
-        %{:== => :eq, :!= => :neq, :< => :lt, :<= => :lte, :> => :gt, :>= => :gte, :in => :in},
-        operator
-      )
-
-    condition(syntax_operator, [parse!(left), parse!(right)])
+  defp parse_value({:%{}, _, pairs}) when is_list(pairs) do
+    if List.improper?(pairs),
+      do: {:error, %Expr.Error{reason: :improper_list}},
+      else: parse_map(pairs, %{})
   end
 
-  defp parse_condition!({operator, _meta, [left, right]}) when operator in [:and, :or] do
-    conditions = [parse_condition!(left), parse_condition!(right)]
-    condition(if(operator == :and, do: :all, else: :any), conditions)
+  defp parse_value(value) when is_map(value) and not is_struct(value),
+    do: parse_map(value, %{})
+
+  defp parse_value(values) when is_list(values), do: parse_list(values, [])
+
+  defp parse_value(value) when is_atom(value) or is_number(value) or is_binary(value),
+    do: {:ok, value}
+
+  defp parse_value(value), do: Expr.parse(value, leaf_parser: &parse_leaf/1)
+
+  defp parse_list([], values), do: {:ok, Enum.reverse(values)}
+
+  defp parse_list([head | tail], values) do
+    with {:ok, value} <- parse_value(head), do: parse_list(tail, [value | values])
   end
 
-  defp parse_condition!({:not, _meta, [condition]}) do
-    condition(:not, [parse_condition!(condition)])
-  end
+  defp parse_list(_tail, _values), do: {:error, %Expr.Error{reason: :improper_list}}
 
-  defp parse_condition!({operator, _meta, [left, right]})
-       when operator in [:eq, :neq, :lt, :lte, :gt, :gte] do
-    condition(operator, [parse!(left), parse!(right)])
-  end
+  defp parse_map(pairs, values) do
+    Enum.reduce_while(pairs, {:ok, values}, fn
+      {key, value}, {:ok, values} when is_atom(key) or is_binary(key) or is_integer(key) ->
+        if Map.has_key?(values, key) do
+          {:halt, {:error, %Expr.Error{reason: :duplicate_key}}}
+        else
+          case parse_value(value) do
+            {:ok, value} -> {:cont, {:ok, Map.put(values, key, value)}}
+            {:error, error} -> {:halt, {:error, error}}
+          end
+        end
 
-  defp parse_condition!({operator, _meta, [conditions]}) when operator in [:all, :any] do
-    condition(operator, Enum.map(conditions, &parse_condition!/1))
-  end
-
-  defp parse_condition!(condition), do: unsupported_condition!(condition)
-
-  defp parse_node_name!(name) when is_binary(name), do: name
-  defp parse_node_name!(name) when is_atom(name) and not is_nil(name), do: name
-  defp parse_node_name!(name), do: unsupported!(name)
-
-  defp parse_path!(path) when is_atom(path) or is_binary(path) or is_integer(path), do: path
-  defp parse_path!(path) when is_list(path), do: Enum.map(path, &parse_literal!/1)
-  defp parse_path!(path), do: unsupported!(path)
-
-  defp parse_literal!(value)
-       when is_nil(value) or is_boolean(value) or is_atom(value) or is_binary(value) or
-              is_number(value),
-       do: value
-
-  defp parse_literal!(values) when is_list(values), do: Enum.map(values, &parse_literal!/1)
-
-  defp parse_literal!({:%{}, _meta, pairs}) do
-    parse_map!(pairs, &parse_literal!/1)
-  end
-
-  defp parse_literal!(value), do: unsupported!(value)
-
-  defp select!(%Ref{} = source, path),
-    do: %{source | path: source.path ++ Ref.normalize_path(path)}
-
-  defp select!(source, _path), do: unsupported!(source)
-
-  defp condition(operator, operands), do: %Condition{operator: operator, operands: operands}
-
-  defp parse_map!(pairs, parse_value) do
-    parsed = Enum.map(pairs, fn {key, value} -> {parse_literal!(key), parse_value.(value)} end)
-
-    case first_duplicate(Enum.map(parsed, &elem(&1, 0))) do
-      {:ok, key} -> raise ArgumentError, "duplicate Flow map key: #{inspect(key)}"
-      :none -> Map.new(parsed)
-    end
-  end
-
-  defp first_duplicate(values) do
-    Enum.reduce_while(values, MapSet.new(), fn value, seen ->
-      if MapSet.member?(seen, value) do
-        {:halt, {:ok, value}}
-      else
-        {:cont, MapSet.put(seen, value)}
-      end
+      _pair, _values ->
+        {:halt, {:error, %Expr.Error{reason: :invalid_map_key}}}
     end)
-    |> case do
-      %MapSet{} -> :none
-      duplicate -> duplicate
+  end
+
+  @doc "Parses one DSL condition into canonical Flow data."
+  @spec parse_condition(term()) :: {:ok, Condition.normalized()} | {:error, Exception.t()}
+  def parse_condition(condition) do
+    with {:ok, value} <- parse(condition) do
+      case Condition.new(value) do
+        {:ok, value} ->
+          {:ok, value}
+
+        {:error, _error} ->
+          {:error,
+           Error.validation_error(
+             "unsupported Flow condition: #{source_text(condition)}; " <>
+               "use a Boolean reference, Boolean literal, or Flow condition",
+             source_details(condition)
+           )}
+      end
     end
   end
 
-  defp unsupported!(expression) do
-    raise ArgumentError,
-          "unsupported Flow expression: #{Macro.to_string(expression)}; " <>
-            "use a Flow reference, literal, map, or list"
+  defp parse_leaf(%Ref{} = ref), do: {:ok, ref}
+  defp parse_leaf(%Condition{} = condition), do: {:ok, condition}
+  defp parse_leaf({:input, _, []}), do: {:ok, Ref.input([])}
+  defp parse_leaf({:input, _, [path]}), do: {:ok, Ref.input(parse_path!(path))}
+  defp parse_leaf({:context, _, []}), do: {:ok, Ref.context([])}
+  defp parse_leaf({:context, _, [path]}), do: {:ok, Ref.context(parse_path!(path))}
+  defp parse_leaf({:value, _, [value]}), do: {:ok, literal!(value)}
+  defp parse_leaf({:result, _, [name]}), do: {:ok, Ref.result(node_name!(name))}
+
+  defp parse_leaf({:result, _, [name, path]}),
+    do: {:ok, Ref.result(node_name!(name), parse_path!(path))}
+
+  defp parse_leaf({:select, _, [source, path]}) do
+    case parse(source) do
+      {:ok, %Ref{} = ref} ->
+        {:ok, %{ref | path: ref.path ++ Ref.normalize_path(parse_path!(path))}}
+
+      _ ->
+        :error
+    end
   end
 
-  defp unsupported_condition!(condition) do
-    raise ArgumentError,
-          "unsupported Flow condition: #{Macro.to_string(condition)}; " <>
-            "use ==, !=, <, <=, >, >=, in, and, or, not, or a Flow condition function"
+  defp parse_leaf({:item, _, []}), do: {:ok, Ref.item()}
+  defp parse_leaf({:item, _, [path]}), do: {:ok, Ref.item(parse_path!(path))}
+  defp parse_leaf({:item_index, _, []}), do: {:ok, Ref.item_index()}
+  defp parse_leaf({:item_id, _, []}), do: {:ok, Ref.item_id()}
+  defp parse_leaf({:accumulator, _, []}), do: {:ok, Ref.accumulator()}
+  defp parse_leaf({:accumulator, _, [path]}), do: {:ok, Ref.accumulator(parse_path!(path))}
+  defp parse_leaf({:state, _, []}), do: {:ok, Ref.state()}
+  defp parse_leaf({:state, _, [path]}), do: {:ok, Ref.state(parse_path!(path))}
+  defp parse_leaf({:iteration_index, _, []}), do: {:ok, Ref.iteration_index()}
+  defp parse_leaf({:body_result, _, []}), do: {:ok, Ref.body_result()}
+  defp parse_leaf({:body_result, _, [path]}), do: {:ok, Ref.body_result(parse_path!(path))}
+  defp parse_leaf(_), do: :error
+
+  defp node_name!(value) when is_binary(value) or (is_atom(value) and not is_nil(value)),
+    do: value
+
+  defp node_name!(_), do: raise(ArgumentError, "invalid result name")
+  defp parse_path!(value) when is_atom(value) or is_binary(value) or is_integer(value), do: value
+  defp parse_path!(value) when is_list(value), do: Enum.map(value, &literal!/1)
+  defp parse_path!(_), do: raise(ArgumentError, "invalid reference path")
+  defp literal!(value) when is_atom(value) or is_binary(value) or is_number(value), do: value
+  defp literal!(values) when is_list(values), do: Enum.map(values, &literal!/1)
+
+  defp literal!({:%{}, _, pairs}) do
+    if length(Enum.uniq_by(pairs, &elem(&1, 0))) != length(pairs),
+      do: raise(ArgumentError, "duplicate Flow map key")
+
+    Map.new(pairs, fn {key, value} -> {literal!(key), literal!(value)} end)
   end
 
-  defp source_details({_form, metadata, _arguments}) when is_list(metadata) do
-    %{}
-    |> maybe_put_source(:line, Keyword.get(metadata, :line))
-    |> maybe_put_source(:column, Keyword.get(metadata, :column))
+  defp literal!(_), do: raise(ArgumentError, "invalid literal")
+
+  defp expression_message(_expression, %Expr.Error{reason: reason})
+       when reason in [:max_depth, :max_nodes, :max_binary_bytes, :max_integer_bits],
+       do: "Flow expression exceeds #{reason}"
+
+  defp expression_message(expression, _error),
+    do:
+      "unsupported Flow expression: #{source_text(expression)}; " <>
+        "use a Flow reference, literal, map, or list"
+
+  defp source_text(expression) do
+    Macro.to_string(expression)
+  rescue
+    _error -> "<invalid syntax>"
   end
 
-  defp source_details(_expression), do: %{}
+  defp source_details({_form, metadata, _arguments}) when is_list(metadata),
+    do: metadata |> Keyword.take([:line, :column]) |> Map.new()
 
-  defp maybe_put_source(details, _key, nil), do: details
-  defp maybe_put_source(details, key, value), do: Map.put(details, key, value)
+  defp source_details(_), do: %{}
 end

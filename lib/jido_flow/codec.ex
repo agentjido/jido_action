@@ -28,6 +28,7 @@ defmodule Jido.Flow.Codec do
   """
 
   alias Jido.Action
+  alias Jido.Expr
   alias Jido.Flow
   alias Jido.Flow.Choice
   alias Jido.Flow.Condition
@@ -48,6 +49,8 @@ defmodule Jido.Flow.Codec do
   @type document :: %{required(String.t()) => term()}
 
   @version 1
+  @expression_version 2
+  @expression_operators Map.new(Expr.operators(), &{Atom.to_string(&1), &1})
   @maximum_depth 100
   @maximum_collection_size 10_000
   @maximum_document_nodes 100_000
@@ -106,7 +109,7 @@ defmodule Jido.Flow.Codec do
     end
   end
 
-  @doc "Encodes one canonical Flow as a JSON-compatible document."
+  @doc "Encodes one canonical Flow as a JSON-compatible document within the reader's limits."
   @spec encode(Flow.t(), Registry.t()) :: {:ok, document()} | {:error, Exception.t()}
   def encode(%Flow{} = flow, %Registry{} = registry) do
     with {:ok, flow} <- Flow.validate(flow),
@@ -114,17 +117,19 @@ defmodule Jido.Flow.Codec do
          {:ok, output_schema} <- Registry.identifier(registry, :schema, flow.output_schema),
          {:ok, components} <- encode_components(flow.components, registry),
          {:ok, output} <- encode_expression(flow.output, registry, 0) do
-      {:ok,
-       %{
-         "type" => "jido.flow",
-         "version" => @version,
-         "name" => flow.name,
-         "description" => flow.description,
-         "schema" => schema,
-         "output_schema" => output_schema,
-         "components" => components,
-         "output" => output
-       }}
+      document = %{
+        "type" => "jido.flow",
+        "version" =>
+          if(expression_document?([components, output]), do: @expression_version, else: @version),
+        "name" => flow.name,
+        "description" => flow.description,
+        "schema" => schema,
+        "output_schema" => output_schema,
+        "components" => components,
+        "output" => output
+      }
+
+      with :ok <- validate_document_limits(document), do: {:ok, document}
     end
   end
 
@@ -189,8 +194,28 @@ defmodule Jido.Flow.Codec do
   defp diagnose_envelope(document) do
     unknown_field_errors(document, root_keys(), []) ++
       result_errors(exact_value(document, "type", "jido.flow", [])) ++
-      result_errors(exact_value(document, "version", @version, []))
+      version_errors(document)
   end
+
+  defp version_errors(%{"version" => @version} = document) do
+    if expression_document?(document) do
+      [
+        Error.validation_error("stored expressions require Flow document version 2", %{
+          path: ["version"]
+        })
+      ]
+    else
+      []
+    end
+  end
+
+  defp version_errors(%{"version" => @expression_version}), do: []
+  defp version_errors(document), do: result_errors(exact_value(document, "version", @version, []))
+
+  defp expression_document?(%{"$expr" => _}), do: true
+  defp expression_document?(%{} = map), do: Enum.any?(Map.values(map), &expression_document?/1)
+  defp expression_document?(list) when is_list(list), do: Enum.any?(list, &expression_document?/1)
+  defp expression_document?(_), do: false
 
   defp diagnose_document(document, registry) do
     fields = [
@@ -665,6 +690,69 @@ defmodule Jido.Flow.Codec do
     diagnose_list(value, registry, depth, path, &diagnose_expression/4)
   end
 
+  defp diagnose_expression(%{"$expr" => record} = value, registry, depth, path) do
+    tag_path = path ++ ["$expr"]
+
+    initial_errors =
+      unknown_field_errors(value, ["$expr"], path) ++ result_errors(ensure_depth(depth, path))
+
+    case plain_map(record, "expression", tag_path) do
+      :ok ->
+        fields = [
+          operator: fn ->
+            with {:ok, name} <- string_field(record, "operator", tag_path) do
+              closed_value(
+                @expression_operators,
+                name,
+                "expression operator",
+                tag_path ++ ["operator"]
+              )
+            end
+          end,
+          operands: fn ->
+            case Map.fetch(record, "operands") do
+              {:ok, values} ->
+                diagnose_list(
+                  values,
+                  registry,
+                  depth + 1,
+                  tag_path ++ ["operands"],
+                  &diagnose_expression/4
+                )
+
+              :error ->
+                required_field(tag_path ++ ["operands"], "operands")
+            end
+          end
+        ]
+
+        errors =
+          initial_errors ++ unknown_field_errors(record, ["operator", "operands"], tag_path)
+
+        case collect_values(fields, errors) do
+          {:ok, attrs} ->
+            case Expr.new(attrs.operator, attrs.operands) do
+              {:ok, expression} ->
+                {:ok, expression}
+
+              {:error, error} ->
+                {:error,
+                 Error.validation_error("invalid stored expression", %{
+                   path: tag_path,
+                   reason: error.reason,
+                   operator: error.operator
+                 })}
+            end
+
+          error ->
+            error
+        end
+
+      {:error, error} ->
+        {:error, initial_errors ++ [error]}
+    end
+  end
+
   defp diagnose_expression(%{"$ref" => record} = value, registry, depth, path) do
     initial_errors =
       unknown_field_errors(value, ["$ref"], path) ++
@@ -730,6 +818,9 @@ defmodule Jido.Flow.Codec do
         required_field(path ++ ["$ref", "path"], "path")
     end
   end
+
+  defp diagnose_condition(%{"$expr" => _} = value, registry, depth, path),
+    do: diagnose_expression(value, registry, depth, path)
 
   defp diagnose_condition(%{"$condition" => record} = value, registry, depth, path) do
     initial_errors =
@@ -1349,6 +1440,15 @@ defmodule Jido.Flow.Codec do
     end
   end
 
+  defp encode_expression(%Expr{} = expression, registry, depth) do
+    with :ok <- depth(depth),
+         {:ok, operands} <-
+           encode_list(expression.operands, registry, depth + 1, &encode_expression/3) do
+      {:ok,
+       %{"$expr" => %{"operator" => Atom.to_string(expression.operator), "operands" => operands}}}
+    end
+  end
+
   defp encode_expression(%Ref{} = ref, registry, depth) do
     with :ok <- depth(depth),
          {:ok, path} <- encode_list(ref.path, registry, depth + 1, &encode_data/3) do
@@ -1372,6 +1472,9 @@ defmodule Jido.Flow.Codec do
   end
 
   defp encode_expression(value, registry, depth), do: encode_data(value, registry, depth)
+
+  defp encode_condition(%Expr{} = expression, registry, depth),
+    do: encode_expression(expression, registry, depth)
 
   defp encode_condition(%Condition{} = condition, registry, depth) do
     with :ok <- depth(depth),

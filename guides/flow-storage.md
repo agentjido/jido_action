@@ -151,6 +151,10 @@ Decode first checks the stored grammar and resource limits. It rejects:
 - unknown Registry identifiers; and
 - invalid canonical Flow data.
 
+Encode checks the completed document against the same storage limits. It
+returns an error if format overhead makes the document too large or too
+deep for the reader.
+
 These limits do not bound HTTP bytes or the JSON parser. Apply transport and
 parser limits before `decode/2`.
 
