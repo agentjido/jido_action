@@ -170,6 +170,50 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
     end
   end
 
+  defmodule InlineDispatch do
+    use Jido.Flow, name: "inline_dispatch"
+
+    flow do
+      dispatch "next" do
+        decision params <- input(), context: ctx do
+          if ctx[:test_pid], do: send(ctx.test_pid, :inline_decision_started)
+
+          if ctx[:continue_decision?],
+            do: {:continue, %{value: params.value}, Add},
+            else: {:ok, params}
+        end
+
+        expander params, context: ctx do
+          if ctx[:test_pid], do: send(ctx.test_pid, :inline_expander_started)
+
+          if params.continue?,
+            do: {:continue, %{value: params.value}, params.target},
+            else: {:ok, %{value: params.value}, :discarded}
+        end
+      end
+
+      output result("next")
+    end
+  end
+
+  defmodule InlineDispatchToExtras do
+    use Jido.Flow,
+      name: "inline_dispatch_to_extras",
+      output_schema: Zoi.object(%{value: Zoi.string()})
+
+    flow do
+      dispatch "next" do
+        decision %{value: value} <- input(), do: {:ok, %{value: value}, :discarded}
+
+        expander params, output_schema: Zoi.object(%{value: Zoi.string()}) do
+          {:continue, params, ExtrasAction}
+        end
+      end
+
+      output result("next")
+    end
+  end
+
   describe "root Action transitions" do
     test "runs Action and Flow targets as the next executable" do
       assert Exec.run(ContinueToAdd, %{value: 3}) == {:ok, %{value: 5}}
@@ -277,6 +321,61 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
   end
 
   describe "terminal Dispatch transitions" do
+    test "inline roles match explicit normal results and Action or Flow continuations" do
+      for {target, next_value} <- [{Add, 4}, {MathFlow, 8}], continue? <- [false, true] do
+        input = %{continue?: continue?, target: target, value: 3}
+        expected = {:ok, %{value: if(continue?, do: next_value, else: 3)}}
+        assert Exec.run(dispatch_flow!(), input) == expected
+        assert Exec.run(InlineDispatch, input) == expected
+        assert Exec.await(Exec.run_async(InlineDispatch, input)) == expected
+      end
+    end
+
+    test "an inline expander continuation uses final target output validation and extras" do
+      context = %{trace_id: "inline-final"}
+      expected = {:ok, %{value: 3}, %{trace_id: "inline-final"}}
+      assert Exec.run(InlineDispatchToExtras, %{value: 3}, context) == expected
+      assert Exec.await(Exec.run_async(InlineDispatchToExtras, %{value: 3}, context)) == expected
+    end
+
+    test "an inline decision continuation fails before the expander starts" do
+      assert {:error, %ExecutionFailureError{message: message, details: details}} =
+               Exec.run(InlineDispatch, %{value: 3}, %{continue_decision?: true, test_pid: self()})
+
+      assert message == "action continuation is not allowed from this Flow position"
+      assert details.component == "next"
+      assert details.component_kind == :dispatch
+
+      assert details.action ==
+               Jido.Action.Inline.target!(InlineDispatch,
+                 host: Jido.Flow,
+                 dispatch: "next",
+                 role: :decision
+               )
+
+      assert_received :inline_decision_started
+      refute_received :inline_expander_started
+    end
+
+    test "step-wise and Subflow checks reject inline Dispatch before either body starts" do
+      context = %{test_pid: self()}
+
+      assert {:error, error} = Exec.start(InlineDispatch, %{value: 3}, context)
+      assert Exception.message(error) == "step-wise execution does not support Dispatch"
+
+      parent =
+        Flow.new!(
+          name: "inline_dispatch_parent",
+          components: [Jido.Flow.Subflow.new!(name: "child", flow: InlineDispatch, params: %{})],
+          output: Ref.result("child")
+        )
+
+      assert {:error, error} = Exec.run(parent, %{value: 3}, context)
+      assert Exception.message(error) == "a Flow with Dispatch cannot be used as a Subflow"
+      refute_received :inline_decision_started
+      refute_received :inline_expander_started
+    end
+
     test "only the final Action owns extras after an inline Flow continuation" do
       input = %{value: 3}
       context = %{trace_id: "final-action"}

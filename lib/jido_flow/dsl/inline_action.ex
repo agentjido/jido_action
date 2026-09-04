@@ -14,7 +14,8 @@ defmodule Jido.Flow.DSL.InlineAction do
     Jido.Flow.DSL.InlineAction.Choice.Option,
     Jido.Flow.DSL.InlineAction.Choice.Otherwise,
     Jido.Flow.DSL.InlineAction.Iterate,
-    Jido.Flow.DSL.InlineAction.Iterate.State
+    Jido.Flow.DSL.InlineAction.Iterate.State,
+    Jido.Flow.DSL.InlineAction.Dispatch
   ]
 
   defmacro action(value), do: field(:action, value, __CALLER__, @step_options, "Step")
@@ -30,7 +31,22 @@ defmodule Jido.Flow.DSL.InlineAction do
   @doc false
   @spec bound_options(Macro.t(), keyword(), keyword(), Macro.Env.t(), module() | nil, String.t()) ::
           Macro.t()
-  def bound_options(bindings, options, body_options, caller, setter, label) do
+  @spec bound_options(
+          Macro.t(),
+          keyword(),
+          keyword(),
+          Macro.Env.t(),
+          module() | nil,
+          String.t(),
+          atom()
+        ) ::
+          Macro.t()
+  def bound_options(bindings, options, body_options, caller, setter, label, role \\ :action) do
+    options = body_options!(options, body_options, caller)
+    bound(bindings, options, caller, setter, label, role)
+  end
+
+  defp body_options!(options, body_options, caller) do
     Inline.Parser.options!(
       options,
       [:name, :description, :schema, :output_schema, :context],
@@ -38,45 +54,78 @@ defmodule Jido.Flow.DSL.InlineAction do
     )
 
     Inline.Parser.options!(body_options, [:do], caller)
-    bound(bindings, options ++ body_options, caller, setter, label)
+    options ++ body_options
   end
 
   @doc false
   @spec bound(Macro.t(), keyword(), Macro.Env.t(), module() | nil, String.t()) :: Macro.t()
-  def bound(_bindings, _options, caller, nil, label),
+  @spec bound(Macro.t(), keyword(), Macro.Env.t(), module() | nil, String.t(), atom()) ::
+          Macro.t()
+  def bound(bindings, options, caller, setter, label, role \\ :action)
+
+  def bound(_bindings, _options, caller, nil, label, _role),
     do: MacroSupport.compile_error!(caller, "#{label} does not accept an inline Action field")
 
-  def bound(bindings, options, caller, setter, label) do
-    parsed = parse_bound!(bindings, options, caller, label)
+  def bound(bindings, options, caller, setter, label, role) do
+    parsed = parse_bound!(bindings, options, caller, label, role)
     validate_sources!(bindings, caller, "inline Action")
     path = Macro.unique_var(:inline_action_path, __MODULE__)
-    compiled = compile_bound(setter, path, parsed, caller)
+    compiled = compile_target(setter, path, parsed, caller)
 
     quote line: caller.line do
-      unquote(path) = unquote(__MODULE__).claim_inline!(__ENV__, :action, :params)
+      unquote(path) = unquote(__MODULE__).claim_inline!(__ENV__, unquote(role), :params)
       unquote(compiled.declaration_ast)
       require unquote(setter)
-      unquote(setter).action(unquote(compiled.target_ast))
+      unquote(setter).unquote(role)(unquote(compiled.target_ast))
       unquote(setter).params(unquote(parsed.params_ast))
     end
   end
 
-  defp parse_bound!(bindings, options, caller, "Step"),
+  defp parse_bound!(bindings, options, caller, "Step", :action),
     do: Inline.parse_bound!(bindings, options, caller)
 
-  defp parse_bound!(bindings, options, caller, label) do
+  defp parse_bound!(bindings, options, caller, label, role) do
     Inline.parse_bound!(bindings, options, caller)
   rescue
     error in CompileError ->
-      reraise %{error | description: "#{label} action: #{error.description}"}, __STACKTRACE__
+      reraise %{error | description: "#{label} #{role}: #{error.description}"}, __STACKTRACE__
   end
 
-  defp compile_bound(@step_options, path, parsed, caller) do
+  @doc false
+  @spec callback_options(Macro.t(), keyword(), keyword(), Macro.Env.t(), module(), String.t()) ::
+          Macro.t()
+  def callback_options(pattern, options, body_options, caller, setter, label) do
+    callback(pattern, body_options!(options, body_options, caller), caller, setter, label)
+  end
+
+  @doc false
+  @spec callback(Macro.t(), keyword(), Macro.Env.t(), module(), String.t()) :: Macro.t()
+  def callback(pattern, options, caller, setter, label) do
+    parsed = parse_callback!(pattern, options, caller, label)
+    path = Macro.unique_var(:inline_action_path, __MODULE__)
+    compiled = compile_target(setter, path, parsed, caller)
+
+    quote line: caller.line do
+      unquote(path) = unquote(__MODULE__).claim_inline!(__ENV__, :expander, nil)
+      unquote(compiled.declaration_ast)
+      require unquote(setter)
+      unquote(setter).expander(unquote(compiled.target_ast))
+    end
+  end
+
+  defp parse_callback!(pattern, options, caller, label) do
+    Inline.parse_callback!(pattern, options, caller)
+  rescue
+    error in CompileError ->
+      reraise %{error | description: "#{label} expander: #{error.description}"}, __STACKTRACE__
+  end
+
+  defp compile_target(@step_options, path, parsed, caller) do
     name = quote do: Keyword.fetch!(unquote(path), :step)
     InlineStepCompiler.compile_action!(name, parsed, caller, emit: {__MODULE__, :defer!})
   end
 
-  defp compile_bound(_setter, path, parsed, caller) do
+  defp compile_target(_setter, path, parsed, caller) do
     Inline.Compiler.compile!(path, parsed, caller,
       default_name: quote(do: unquote(__MODULE__).default_name(unquote(path))),
       remove_imports: declaration_imports(caller),
@@ -125,8 +174,13 @@ defmodule Jido.Flow.DSL.InlineAction do
                Jido.Flow.DSL.Extension.Flow.Choice,
                Jido.Flow.DSL.Extension.Flow.Iterate.State
              ] do
+        fields =
+          if module == Jido.Flow.DSL.Extension.Flow.Dispatch,
+            do: [decision: 1, expander: 1, params: 1],
+            else: [action: 1, params: 1]
+
         quote do
-          import unquote(setter), except: [action: 1, params: 1]
+          import unquote(setter), except: unquote(fields)
         end
       end
 
@@ -220,11 +274,12 @@ defmodule Jido.Flow.DSL.InlineAction do
   end
 
   @doc false
-  @spec claim_inline!(Macro.Env.t(), atom(), atom()) :: Inline.path()
+  @spec claim_inline!(Macro.Env.t(), atom(), atom() | nil) :: Inline.path()
   def claim_inline!(caller, role, params) do
     scope = scope!(caller)
-    for field <- [role, params], do: check_field!(scope, field, caller)
-    fields = scope.fields |> Map.put(role, :inline) |> Map.put(params, :inline)
+    claimed = if params, do: [role, params], else: [role]
+    for field <- claimed, do: check_field!(scope, field, caller)
+    fields = Enum.reduce(claimed, scope.fields, &Map.put(&2, &1, :inline))
     Module.put_attribute(caller.module, @scope, %{scope | fields: fields})
     scope.path ++ [role: role]
   end
@@ -257,7 +312,7 @@ defmodule Jido.Flow.DSL.InlineAction do
   defp scope!(caller) do
     case Module.get_attribute(caller.module, @scope) do
       %{path: [{:host, Jido.Flow}, {kind, _}]} = scope
-      when kind in [:step, :map, :reduce, :choice, :iterate] ->
+      when kind in [:step, :map, :reduce, :choice, :iterate, :dispatch] ->
         scope
 
       %{path: [host: Jido.Flow, choice: _, option: _]} = scope ->
@@ -333,6 +388,47 @@ defmodule Jido.Flow.DSL.InlineAction do
         imports != [],
         do: {module, Enum.uniq(imports)}
   end
+end
+
+defmodule Jido.Flow.DSL.InlineAction.Dispatch do
+  @moduledoc false
+
+  alias Jido.Flow.DSL.InlineAction
+  @setter Jido.Flow.DSL.Extension.Flow.Dispatch.Options
+
+  for field <- [:decision, :expander, :params] do
+    defmacro unquote(field)(value),
+      do: InlineAction.field(unquote(field), value, __CALLER__, @setter, "Dispatch")
+  end
+
+  defmacro decision(bindings, options),
+    do: InlineAction.bound(bindings, options, __CALLER__, @setter, "Dispatch", :decision)
+
+  defmacro decision(bindings, options, body_options),
+    do:
+      InlineAction.bound_options(
+        bindings,
+        options,
+        body_options,
+        __CALLER__,
+        @setter,
+        "Dispatch",
+        :decision
+      )
+
+  defmacro expander(pattern, options),
+    do: InlineAction.callback(pattern, options, __CALLER__, @setter, "Dispatch")
+
+  defmacro expander(pattern, options, body_options),
+    do:
+      InlineAction.callback_options(
+        pattern,
+        options,
+        body_options,
+        __CALLER__,
+        @setter,
+        "Dispatch"
+      )
 end
 
 # These imports select a field setter without adding aliases or changing the

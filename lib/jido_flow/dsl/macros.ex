@@ -158,14 +158,7 @@ defmodule Jido.Flow.DSL.Macros do
   end
 
   defmacro dispatch(name, options) do
-    entity(
-      name,
-      options,
-      extension_module(["Flow", "Dispatch"]),
-      :__dispatch__,
-      [:params],
-      __CALLER__
-    )
+    scoped_entity(name, :dispatch, options, "Dispatch", :__dispatch__, [:params], __CALLER__)
   end
 
   defmacro output(value) do
@@ -228,7 +221,8 @@ defmodule Jido.Flow.DSL.Macros do
               Jido.Flow.DSL.Extension.Flow.Map,
               Jido.Flow.DSL.Extension.Flow.Reduce,
               Jido.Flow.DSL.Extension.Flow.Iterate,
-              Jido.Flow.DSL.Extension.Flow.Choice
+              Jido.Flow.DSL.Extension.Flow.Choice,
+              Jido.Flow.DSL.Extension.Flow.Dispatch
             ],
        do: InlineAction.fields(block, module)
 
