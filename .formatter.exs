@@ -3,6 +3,9 @@
 locals_without_parens = [
   flow: 1,
   step: 2,
+  step: 3,
+  step: 4,
+  step: 5,
   choice: 2,
   option: 2,
   otherwise: 1,
