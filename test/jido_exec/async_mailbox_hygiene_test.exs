@@ -34,47 +34,49 @@ defmodule JidoActionTest.Exec.AsyncMailboxHygieneTest do
   end
 
   test "await accepts a queued result after a matching normal DOWN" do
-    handle = Exec.run_async(Add, %{value: 1})
-    result_message = receive_result_message(handle)
+    with_released_action(2, fn handle ->
+      result_message = receive_result_message(handle)
 
-    assert_receive {:DOWN, monitor_ref, :process, pid, :normal} = down, 1_000
-    assert monitor_ref == handle.monitor_ref
-    assert pid == handle.pid
+      assert_receive {:DOWN, monitor_ref, :process, pid, :normal} = down, 1_000
+      assert monitor_ref == handle.monitor_ref
+      assert pid == handle.pid
 
-    send(self(), down)
-    send(self(), result_message)
+      send(self(), down)
+      send(self(), result_message)
 
-    assert {:ok, %{value: 2}} = Exec.await(handle, 1_000)
-    refute_handle_messages(handle)
+      assert {:ok, %{value: 2}} = Exec.await(handle, 1_000)
+      refute_handle_messages(handle)
+    end)
   end
 
   test "a normal DOWN consumes an already queued result without blocking" do
-    handle = Exec.run_async(Add, %{value: 2})
+    with_released_action(3, fn handle ->
+      assert_receive {:DOWN, monitor_ref, :process, pid, :normal} = down, 1_000
+      assert monitor_ref == handle.monitor_ref
+      assert pid == handle.pid
 
-    assert_receive {:DOWN, monitor_ref, :process, pid, :normal} = down, 1_000
-    assert monitor_ref == handle.monitor_ref
-    assert pid == handle.pid
-
-    assert {:done, {:ok, %{value: 3}}} = Exec.handle_message(handle, down)
-    refute_handle_messages(handle)
+      assert {:done, {:ok, %{value: 3}}} = Exec.handle_message(handle, down)
+      refute_handle_messages(handle)
+    end)
   end
 
   test "an unexpected normal DOWN returns one terminal execution error" do
-    handle = Exec.run_async(Add, %{value: 2})
-    result_message = receive_result_message(handle)
+    with_released_action(3, fn handle ->
+      result_message = receive_result_message(handle)
 
-    assert_receive {:DOWN, monitor_ref, :process, pid, :normal} = down, 1_000
-    assert monitor_ref == handle.monitor_ref
-    assert pid == handle.pid
+      assert_receive {:DOWN, monitor_ref, :process, pid, :normal} = down, 1_000
+      assert monitor_ref == handle.monitor_ref
+      assert pid == handle.pid
 
-    assert {:done,
-            {:error,
-             %Error.AsyncExecutionError{
-               message: "Asynchronous execution finished without a result",
-               details: %{operation: :handle_message}
-             }}} = Exec.handle_message(handle, down)
+      assert {:done,
+              {:error,
+               %Error.AsyncExecutionError{
+                 message: "Asynchronous execution finished without a result",
+                 details: %{operation: :handle_message}
+               }}} = Exec.handle_message(handle, down)
 
-    assert :ignore = Exec.handle_message(handle, result_message)
+      assert :ignore = Exec.handle_message(handle, result_message)
+    end)
   end
 
   test "an abnormal DOWN returns one terminal execution error" do
@@ -120,16 +122,17 @@ defmodule JidoActionTest.Exec.AsyncMailboxHygieneTest do
   end
 
   test "duplicate results and stale DOWN messages are ignored" do
-    handle = Exec.run_async(Add, %{value: 2})
-    result_message = receive_result_message(handle)
+    with_released_action(3, fn handle ->
+      result_message = receive_result_message(handle)
 
-    assert_receive {:DOWN, monitor_ref, :process, pid, :normal} = down, 1_000
-    assert monitor_ref == handle.monitor_ref
-    assert pid == handle.pid
+      assert_receive {:DOWN, monitor_ref, :process, pid, :normal} = down, 1_000
+      assert monitor_ref == handle.monitor_ref
+      assert pid == handle.pid
 
-    assert {:done, {:ok, %{value: 3}}} = Exec.handle_message(handle, result_message)
-    assert :ignore = Exec.handle_message(handle, result_message)
-    assert :ignore = Exec.handle_message(handle, down)
+      assert {:done, {:ok, %{value: 3}}} = Exec.handle_message(handle, result_message)
+      assert :ignore = Exec.handle_message(handle, result_message)
+      assert :ignore = Exec.handle_message(handle, down)
+    end)
   end
 
   test "cancel by PID claims the shared handle and leaves no mailbox residue" do
@@ -170,6 +173,19 @@ defmodule JidoActionTest.Exec.AsyncMailboxHygieneTest do
     assert :ok = Exec.cancel(handle)
     assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :killed}, 1_000
     refute_handle_messages(handle)
+  end
+
+  defp with_released_action(value, fun) do
+    handle = Exec.run_async(BlockingAction, %{value: value}, %{test_pid: self()})
+
+    try do
+      assert_receive {:blocking_flow_node_started, worker}, 1_000
+      # The handle monitor is installed before the worker can finish.
+      send(worker, :finish)
+      fun.(handle)
+    after
+      Exec.cancel(handle)
+    end
   end
 
   defp receive_result_message(handle) do
