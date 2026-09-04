@@ -100,6 +100,49 @@ defmodule JidoActionTest.Flow.ErrorTest do
   end
 
   describe "stable maps and JSON" do
+    test "keeps full Runic IDs in failures and nested error details" do
+      first = Runic.Identity.digest(:activation, :first)
+      second = Runic.Identity.digest(:activation, :second)
+      first_text = Runic.Identity.to_string(first)
+      second_text = Runic.Identity.to_string(second)
+
+      invalid =
+        Error.invalid_execution_error("not ready", %{
+          runnable_id: first,
+          ready: [second],
+          nested: %{ancestry: {first, second}},
+          unrelated: MapSet.new([first]),
+          improper: [first | :tail],
+          malformed: %{first | digest: nil}
+        })
+
+      assert %{
+               details: %{
+                 runnable_id: ^first_text,
+                 ready: [^second_text],
+                 nested: %{ancestry: [^first_text, ^second_text]},
+                 unrelated: "#Struct<MapSet>",
+                 malformed: "#Struct<Runic.Identity>",
+                 improper: improper
+               }
+             } = Error.to_map(invalid)
+
+      assert is_binary(improper)
+
+      error =
+        Error.flow_failure("checkout", [
+          %{node: "charge", runnable_id: first, error: invalid},
+          %{node: "notify", runnable_id: second, error: RuntimeError.exception("offline")}
+        ])
+
+      assert %{details: %{failures: failures}} = Error.to_map(error)
+      assert Enum.map(failures, & &1.runnable_id) == [first_text, second_text]
+      decoded = error |> JSON.encode!() |> JSON.decode!()
+
+      assert Enum.map(decoded["details"]["failures"], & &1["runnable_id"]) ==
+               [first_text, second_text]
+    end
+
     test "serializes each Flow leaf and Splode class" do
       definition = Error.validation_error("bad definition", field: :output)
       invalid_execution = Error.invalid_execution_error("not ready", runnable_id: 12)

@@ -10,6 +10,7 @@ defmodule Jido.Flow.Compiler do
   alias Jido.Flow.Error
   alias Jido.Flow.Compiler.Choice, as: ChoiceRuntime
   alias Jido.Flow.Compiler.Expression
+  alias Jido.Flow.Compiler.Payload
   alias Jido.Flow.Compiler.Iterator, as: IterateRuntime
   alias Jido.Flow.Compiler.Target
   alias Jido.Flow.Component
@@ -33,7 +34,7 @@ defmodule Jido.Flow.Compiler do
   alias Runic.Workflow.Map, as: RunicMap
   alias Runic.Workflow.Reduce, as: RunicReduce
 
-  @compiler_version 4
+  @compiler_version 5
   @runtime_ref %{
     kind: :context,
     target: :jido,
@@ -138,7 +139,7 @@ defmodule Jido.Flow.Compiler do
         {:ok, %{kind: kind, output: output_name}} ->
           case Workflow.results(workflow, [output_name], facts: true, all: true) do
             %{^output_name => facts} when is_list(facts) and facts != [] ->
-              raw_value = facts |> List.last() |> Map.fetch!(:value)
+              raw_value = facts |> List.last() |> Map.fetch!(:value) |> Payload.unwrap()
 
               case {kind, raw_value} do
                 {:dispatch, {:jido_flow_transition, %Transition{} = transition}} ->
@@ -382,7 +383,7 @@ defmodule Jido.Flow.Compiler do
         local = component_state(map, parent, runtime)
 
         case Expression.resolve(map.collection, local) do
-          {:ok, collection} -> map_tokens(map, collection, local, runtime)
+          {:ok, collection} -> map_tokens(map, collection, local)
           {:error, error} -> raise error
         end
       end)
@@ -429,7 +430,7 @@ defmodule Jido.Flow.Compiler do
     workflow = Workflow.add(workflow, collector, to: native_map)
 
     output_step =
-      Step.new(
+      data_step(
         name: output_name(state, map.name),
         hash: stable_hash({state.namespace, map.name, :map_output}),
         work: fn tokens -> collect_map_tokens(map, tokens) end
@@ -524,7 +525,7 @@ defmodule Jido.Flow.Compiler do
     end)
   end
 
-  defp map_tokens(map, collection, local, runtime) when is_list(collection) do
+  defp map_tokens(map, collection, local) when is_list(collection) do
     if List.improper?(collection) do
       invalid_collection!(:map, map.name, collection)
     else
@@ -534,8 +535,7 @@ defmodule Jido.Flow.Compiler do
             %{
               kind: :empty,
               input: local.input_frame,
-              results: local.results,
-              runtime: runtime
+              results: local.results
             }
           ]
 
@@ -549,15 +549,14 @@ defmodule Jido.Flow.Compiler do
               index: index,
               id: Identity.item_uuid(local.flow_digest, map.name, index),
               input: local.input_frame,
-              results: local.results,
-              runtime: runtime
+              results: local.results
             }
           end)
       end
     end
   end
 
-  defp map_tokens(map, collection, _local, _runtime),
+  defp map_tokens(map, collection, _local),
     do: invalid_collection!(:map, map.name, collection)
 
   defp collect_map_tokens(map, tokens) do
@@ -592,7 +591,7 @@ defmodule Jido.Flow.Compiler do
 
         with {:ok, collection} <- Expression.resolve(reduce.collection, local),
              {:ok, initial} <- Expression.resolve(reduce.initial, local) do
-          reduce_tokens(reduce, collection, initial, local, runtime)
+          reduce_tokens(reduce, collection, initial, local)
         else
           {:error, error} -> raise error
         end
@@ -615,9 +614,11 @@ defmodule Jido.Flow.Compiler do
         name: native_name,
         hash: stable_hash({native_name, :fan_in}),
         map: nil,
-        init: fn -> %{initialized: false, accumulator: nil, input: nil, error: nil} end,
+        init: fn ->
+          Payload.new(%{initialized: false, accumulator: nil, input: nil, error: nil})
+        end,
         reducer: reduce_fun(reduce, state.namespace),
-        meta_refs: []
+        meta_refs: [@runtime_ref]
       },
       closure: nil,
       inputs: nil,
@@ -625,7 +626,7 @@ defmodule Jido.Flow.Compiler do
     }
 
     output_step =
-      Step.new(
+      data_step(
         name: output_name(state, reduce.name),
         hash: stable_hash({state.namespace, reduce.name, :reduce_output}),
         work: fn result ->
@@ -637,31 +638,37 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp reduce_fun(reduce, namespace) do
-    # Runic finalizes FanIn during runnable application and calls its arity-2
-    # reducer there. The token carries the execution context for this call.
-    # Store reducer errors in the aggregate. The output Step raises them as a
-    # normal runnable failure.
-    fn token, aggregate ->
-      try do
-        reduce_token(reduce, token, aggregate, namespace)
-      rescue
-        error -> {:halt, %{aggregate | input: token.input, error: error}}
-      catch
-        kind, reason ->
-          error =
-            Error.execution_error("flow Reduce #{kind}", %{
-              node: reduce.name,
-              reason: reason
-            })
+    # Reduce uses Runic's simple FanIn mode. Its context is separate from facts.
+    # Keep target failures in the aggregate for the output Step to report.
+    fn payload, accumulator, effective_context ->
+      token = Payload.unwrap(payload)
+      aggregate = Payload.unwrap(accumulator)
+      runtime = runtime_from_context(effective_context)
 
-          {:halt, %{aggregate | input: token.input, error: error}}
+      result =
+        try do
+          reduce_token(reduce, token, aggregate, namespace, runtime)
+        rescue
+          error -> {:halt, %{aggregate | input: token.input, error: error}}
+        catch
+          kind, reason ->
+            error =
+              Error.execution_error("flow Reduce #{kind}", %{
+                node: reduce.name,
+                reason: reason
+              })
+
+            {:halt, %{aggregate | input: token.input, error: error}}
+        end
+
+      case result do
+        {:halt, aggregate} -> {:halt, Payload.new(aggregate)}
+        aggregate -> Payload.new(aggregate)
       end
     end
   end
 
-  defp reduce_token(reduce, token, aggregate, namespace) do
-    runtime = token.runtime
-
+  defp reduce_token(reduce, token, aggregate, namespace, runtime) do
     aggregate =
       if aggregate.initialized do
         aggregate
@@ -726,7 +733,7 @@ defmodule Jido.Flow.Compiler do
     end
   end
 
-  defp reduce_tokens(reduce, collection, initial, local, runtime) when is_list(collection) do
+  defp reduce_tokens(reduce, collection, initial, local) when is_list(collection) do
     if List.improper?(collection) do
       invalid_collection!(:reduce, reduce.name, collection)
     else
@@ -736,8 +743,7 @@ defmodule Jido.Flow.Compiler do
         kind: :init,
         initial: initial,
         input: local.input_frame,
-        results: local.results,
-        runtime: runtime
+        results: local.results
       }
 
       items =
@@ -751,8 +757,7 @@ defmodule Jido.Flow.Compiler do
             id: Identity.item_uuid(local.flow_digest, reduce.name, index),
             input: local.input_frame,
             results: local.results,
-            initial: initial,
-            runtime: runtime
+            initial: initial
           }
         end)
 
@@ -760,7 +765,7 @@ defmodule Jido.Flow.Compiler do
     end
   end
 
-  defp reduce_tokens(reduce, collection, _initial, _local, _runtime),
+  defp reduce_tokens(reduce, collection, _initial, _local),
     do: invalid_collection!(:reduce, reduce.name, collection)
 
   defp put_reduce_output(state, reduce, workflow, native_reduce, output_step) do
@@ -831,7 +836,7 @@ defmodule Jido.Flow.Compiler do
     workflow = Workflow.add(workflow, child_workflow, to: params_step)
 
     output_step =
-      Step.new(
+      data_step(
         name: output_name(state, subflow.name),
         hash: stable_hash({state.namespace, subflow.name, :subflow_output}),
         work: fn {:jido_subflow_output, output, parent_input} -> value(parent_input, output) end
@@ -860,7 +865,7 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp child_input_validator(subflow, namespace) do
-    Step.new(
+    data_step(
       name: scoped(namespace, "$input"),
       hash: stable_hash({namespace, :input_validator}),
       work: fn {:jido_flow_input, params, parent} ->
@@ -881,7 +886,7 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp child_output_step(subflow, child_state) do
-    Step.new(
+    data_step(
       name: scoped(child_state.namespace, "$output"),
       hash: stable_hash({child_state.namespace, :output_validator}),
       work: fn parent ->
@@ -986,10 +991,20 @@ defmodule Jido.Flow.Compiler do
       name: name,
       hash: stable_hash({state.namespace, name, kind}),
       work: fn input, effective_context ->
-        work.(input, runtime_from_context(effective_context))
+        output = work.(Payload.unwrap(input), runtime_from_context(effective_context))
+
+        if kind in [:map_input, :reduce_input],
+          do: Enum.map(output, &Payload.new/1),
+          else: Payload.new(output)
       end,
       meta_refs: [@runtime_ref]
     )
+  end
+
+  defp data_step(options) do
+    work = Keyword.fetch!(options, :work)
+    wrapped = fn input -> input |> Payload.unwrap() |> work.() |> Payload.new() end
+    Step.new(Keyword.put(options, :work, wrapped))
   end
 
   defp component_state(component, parent, runtime) do

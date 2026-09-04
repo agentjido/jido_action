@@ -11,6 +11,21 @@ entries return to the normal automated changelog process.
 
 <!-- changelog -->
 
+## Unreleased
+
+### Fixed
+
+- Upgrade Runic to `0.1.0-alpha.10` for SHA-256 graph identities and rejection
+  of conflicting facts (#207).
+- Accept Runic identities in step execution and preserve local BEAM values,
+  output envelopes, and continuations under the new fact encoding.
+- Keep Map and Reduce runtime services out of fact data. Report graph identity
+  conflicts as terminal Flow execution errors before downstream activation.
+- Keep concurrent Flow failure results in node-name order.
+- Preserve full Runic IDs in Flow error maps and the original stack trace
+  for graph identity conflicts.
+- Add deterministic collision tests and 1,000-node serial execution checks.
+
 ## [3.0.0-beta.6](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.5...v3.0.0-beta.6) (2026-09-04)
 
 
@@ -57,8 +72,6 @@ entries return to the normal automated changelog process.
 ### Bug Fixes:
 
 * flow: preserve DSL formatting without parentheses (#213) by mikehostetler
-
-## Unreleased
 
 ## [v3.0.0-beta.2](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.1...v3.0.0-beta.2) (2026-08-27)
 

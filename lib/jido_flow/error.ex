@@ -22,7 +22,7 @@ defmodule Jido.Flow.Error do
   @type details_input :: map() | keyword()
   @type runnable_failure :: %{
           node: term(),
-          runnable_id: integer(),
+          runnable_id: Runic.Identity.t() | integer(),
           error: Exception.t()
         }
   @type error_map :: ActionError.error_map()
@@ -255,9 +255,35 @@ defmodule Jido.Flow.Error do
   def owned?(_error), do: false
 
   defp error_map(type, message, details, retryable?) do
-    normalized = ActionError.to_map(ActionError.execution_error(message, details))
+    normalized =
+      ActionError.to_map(ActionError.execution_error(message, normalize_identities(details)))
+
     %{normalized | type: type, retryable?: retryable?}
   end
+
+  # Preserve native IDs before the shared error encoder replaces opaque structs.
+  # Invalid caller-supplied IDs still use the shared encoder's safe fallback.
+  defp normalize_identities(
+         %Runic.Identity{
+           scheme: :sha256,
+           version: 1,
+           domain: domain,
+           digest: digest
+         } = identity
+       )
+       when is_atom(domain) and is_binary(digest) and byte_size(digest) == 32,
+       do: Runic.Identity.to_string(identity)
+
+  defp normalize_identities(value) when is_map(value) and not is_struct(value),
+    do: Map.new(value, fn {key, value} -> {key, normalize_identities(value)} end)
+
+  defp normalize_identities([head | tail]),
+    do: [normalize_identities(head) | normalize_identities(tail)]
+
+  defp normalize_identities(value) when is_tuple(value),
+    do: value |> Tuple.to_list() |> Enum.map(&normalize_identities/1) |> List.to_tuple()
+
+  defp normalize_identities(value), do: value
 
   defp error_list_details(errors), do: %{errors: Enum.map(errors, &to_map/1)}
 

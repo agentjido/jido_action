@@ -125,7 +125,8 @@ runs independent ready work concurrently, up to the selected limit.
 
 A failed runnable stops admission of pending work. Already admitted work can
 finish, so concurrent work can still have side effects after another runnable
-fails. Results from admitted work keep the original ready order. A Map with
+fails. Results from admitted work keep the original ready order. A combined
+Flow error lists failures in node-name order. A Map with
 `on_error: :collect_errors` returns failed items as data and continues admission.
 
 An Action can return `{:continue, input, target}`. This result ends the current
@@ -161,10 +162,27 @@ debugging and native Runic inspection. A workflow changed outside Exec cannot
 be applied back to an Execution through this API.
 
 `step/1` runs the first ready runnable. `step/2` selects a ready runnable by
-value or integer ID. `wave/1` runs work from the set that was ready when the call
-began, and stops new dispatch on failure. Its returned list contains only the
-runnables that were admitted.
+value or the Runic identity returned by `ready/1`. `wave/1` runs work from the
+set that was ready when the call began, and stops new dispatch on failure.
+Its returned list contains only the runnables that were admitted.
 `continue/1` runs to a terminal state.
+
+Runic identities use SHA-256. Treat each ID as an opaque value; do not convert
+it to an integer. Jido retains local BEAM values in internal fact payloads,
+including output envelopes, functions, process IDs, and references. These
+payloads preserve the public values but are not a portable storage format.
+Map and Reduce keep runtime services in the execution context.
+
+Flow error maps and JSON retain IDs as full `runic:sha256:v1:...` strings.
+These strings are for diagnostics. Pass the native ID from `ready/1` to
+`step/2` when you select work.
+
+A graph identity conflict fails the execution before downstream work can use
+incorrect data. `result/1` returns `Jido.Flow.Error.ExecutionFailureError`
+with `details.phase == :flow_identity` and `details.retry == false`. The
+execution revision is consumed and the Flow emits one terminal error event.
+The exception retains the original Runic stack trace.
+Work already admitted in a concurrent wave can have completed its effects.
 
 A failed runnable is an applied state transition. A step can return
 `{:ok, failed_runnable, execution}`. Read the terminal error with `result/1`.
