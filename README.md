@@ -338,9 +338,10 @@ Run-to-completion and step-wise execution use the same engine:
 {:ok, %{greeting: "Hello, Ada."}} = Jido.Exec.result(execution)
 ```
 
-`wave/1` runs the current ready set. `continue/1` runs until the Flow reaches a
-terminal result. Always pass the newest execution value to the next call. The
-caller owns this in-memory lifecycle. Jido does not persist or recover it.
+`wave/1` runs work from the current ready set. A failed runnable stops new
+dispatch; work already admitted can finish. `continue/1` runs until the Flow
+reaches a terminal result. Always pass the newest execution value to the next
+call. The caller owns this in-memory lifecycle. Jido does not persist or recover it.
 Jido rejects reuse of a stale execution revision.
 
 ## Observe Execution

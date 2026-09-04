@@ -144,7 +144,7 @@ The three operations have different stopping points:
 | Function | Work done | Stopping point |
 | --- | --- | --- |
 | `Jido.Exec.step/1` or `step/2` | One ready native runnable | After that runnable is applied |
-| `Jido.Exec.wave/1` | The complete ready set captured at call start | Before newly ready work starts |
+| `Jido.Exec.wave/1` | Work from the ready set captured at call start; failure stops new dispatch | After admitted work finishes, before newly ready work starts |
 | `Jido.Exec.continue/1` | Repeated waves | When the Flow succeeds or fails |
 
 A wave is one execution frontier. It is not "run until exhausted." This

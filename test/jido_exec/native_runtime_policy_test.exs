@@ -5,6 +5,19 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
 
   @moduletag capture_log: true
 
+  defmodule GatedErrorAction do
+    use Jido.Action, name: "gated_error_action"
+
+    @impl true
+    def run(%{message: message}, %{owner: owner, ref: ref}) do
+      send(owner, {ref, :ready, self()})
+
+      receive do
+        {^ref, :fail} -> {:error, Jido.Action.Error.execution_error(message)}
+      end
+    end
+  end
+
   defmodule LoggerMetadataAction do
     use Jido.Action, name: "native_logger_metadata_action"
 
@@ -422,12 +435,7 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
 
   defp assert_process_stops(pid) do
     monitor = Process.monitor(pid)
-
-    if Process.alive?(pid) do
-      assert_receive {:DOWN, ^monitor, :process, ^pid, _reason}, 1_000
-    else
-      assert_receive {:DOWN, ^monitor, :process, ^pid, :noproc}, 1_000
-    end
+    assert_receive {:DOWN, ^monitor, :process, ^pid, _reason}, 1_000
   end
 
   defp self_or_owner do
@@ -469,32 +477,49 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
   end
 
   test "aggregates failures from one concurrent wave" do
+    ref = make_ref()
+
     flow =
       Flow.new!(
         name: "native_multiple_failures",
         components: [
           Step.new!(
             name: "first",
-            action: ControlledErrorAction,
+            action: GatedErrorAction,
             params: %{message: "first failure"}
           ),
           Step.new!(
             name: "second",
-            action: ControlledErrorAction,
+            action: GatedErrorAction,
             params: %{message: "second failure"}
           )
         ],
         output: %{first: Ref.result("first"), second: Ref.result("second")}
       )
 
-    assert {:ok, execution} = Exec.start(flow, %{}, %{}, max_concurrency: 2)
-    assert {:ok, runnables, execution} = Exec.wave(execution)
-    assert Enum.all?(runnables, &(&1.status == :failed))
-    assert Exec.status(execution) == :failed
+    assert {:ok, execution} =
+             Exec.start(flow, %{}, %{owner: self(), ref: ref}, max_concurrency: 2)
 
-    assert {:error, %FlowExecutionFailureError{failures: failures}} = Exec.result(execution)
-    assert Enum.map(failures, & &1.node) |> Enum.sort() == ["first", "second"]
-    assert Enum.all?(failures, &is_integer(&1.runnable_id))
+    task = Task.async(fn -> Exec.wave(execution) end)
+
+    try do
+      workers =
+        for _ <- 1..2 do
+          assert_receive {^ref, :ready, worker}, 1_000
+          worker
+        end
+
+      Enum.each(workers, &send(&1, {ref, :fail}))
+      assert {:ok, runnables, execution} = Task.await(task)
+      assert Enum.all?(runnables, &(&1.status == :failed))
+      assert Exec.status(execution) == :failed
+
+      assert {:error, %FlowExecutionFailureError{failures: failures}} = Exec.result(execution)
+      assert Enum.map(failures, & &1.node) |> Enum.sort() == ["first", "second"]
+      assert Enum.all?(failures, &is_integer(&1.runnable_id))
+    after
+      Task.shutdown(task, :brutal_kill)
+    end
   end
 
   test "does not leak Runic's handled-runnable warning" do
@@ -539,29 +564,6 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     assert {:ok, %Runnable{status: :failed}, execution} = Exec.step(execution, runnable)
     assert Exec.status(execution) == :failed
     refute_received {RecorderAction, %{side: :independent}}
-  end
-
-  test "a wave executes its complete frozen ready set before failure" do
-    flow =
-      Flow.new!(
-        name: "frozen_wave_failure",
-        components: [
-          Step.new!(
-            name: "fail",
-            action: ControlledErrorAction,
-            params: %{message: "failed"}
-          ),
-          Step.new!(name: "record", action: RecorderAction, params: %{side: :record})
-        ],
-        output: Ref.result("record")
-      )
-
-    assert {:ok, execution} = Exec.start(flow, %{}, %{test_pid: self()})
-    assert {:ok, runnables, execution} = Exec.wave(execution)
-    assert Enum.count(runnables, &(&1.status == :failed)) == 1
-    assert Enum.count(runnables, &(&1.status == :completed)) == 1
-    assert_receive {RecorderAction, %{side: :record}}
-    assert Exec.status(execution) == :failed
   end
 
   test "validates step selection and terminal operations" do

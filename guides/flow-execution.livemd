@@ -116,9 +116,10 @@ its integer ID. A work failure can return an applied Runnable with
 Enum.map(applied, & &1.status)
 ```
 
-A wave runs the complete set that is ready when the call begins. Work that
-becomes ready waits for the next operation. The wave consumes one execution
-revision.
+A wave runs work from the set that is ready when the call begins. A failure
+stops new dispatch; work already admitted can finish. The returned list contains
+only admitted runnables. Work that becomes ready waits for the next operation.
+The wave consumes one execution revision.
 
 ## Continue And Read The Result
 
