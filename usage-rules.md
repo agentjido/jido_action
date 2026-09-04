@@ -66,9 +66,21 @@ Use `jido_action` for validated work and data-first composition:
 - Use `step`, `choice`, `map`, `reduce`, `iterate`, and `dispatch` for graph
   structure.
 - Use `input`, `context`, and `result` references to map data. Put computation
-  in Actions.
+  in Actions or inline Step bodies.
 - Treat DSL expressions as a restricted data grammar, not general Elixir. Do
-  not use assignments, pattern matching, pipes, or application function calls.
+  not use assignments, pattern matching, pipes, or application function calls
+  in binding sources or other data expressions.
+- Use `step "name", value <- input(:value) do ... end` for a small inline
+  body. Use a binding list for more than two inputs, a sole map pattern for
+  complete params, or `[]` for no input. Only `after:` and `meta:` are header
+  options. This is an unreleased v3 feature, not part of `3.0.0-beta.4`.
+- Write normal Elixir inside the body. Bind context explicitly with
+  `ctx <- context()`. Bodies retain the owner's private helpers and lexical
+  scope, not runtime closure captures. Qualify helper calls that conflict with
+  DSL imports, or import those helpers inside the body.
+- Inline bodies compile to ordinary Actions with empty field schemas. Extract
+  a named Action for field schemas, validation hooks, or an independent API.
+- Keep inline bodies limited to `step`. Other components retain Action targets.
 - Let result references create data dependencies. Use `after:` only for
   control order without a data dependency.
 - Do not add a `parallel` block. Independent nodes run concurrently when
@@ -96,6 +108,15 @@ Use `jido_action` for validated work and data-first composition:
   indexes. Invalid values return structured validation errors.
 - Do not parse or evaluate stored Elixir DSL source. AI systems can produce
   stored JSON or Map data instead.
+- Reuse compiled inline Actions with `FlowModule.step_action(name)` after the
+  owner compiles. It returns only the target, not params, `after`, or `meta`.
+  Invalid or unknown names and non-Step components raise `ArgumentError`.
+- Register that target with a stable host-owned Action identifier for JSON.
+  Register named binding keys as atoms. Do not add body, function, or MFA data
+  to Builder, Registry, or Codec input.
+- Deploy the owner and its generated Action BEAM files together. A body-only
+  change can keep the same target and semantic graph identity. Track deployed
+  code versions separately from graph identity.
 - Only `Builder.step/5` and a Spark `step` can derive a Subflow from an
   executable of kind `:flow`. Choice, Map, Reduce, and Iterate target fields
   accept Actions only. Dispatch decision and expander targets also accept

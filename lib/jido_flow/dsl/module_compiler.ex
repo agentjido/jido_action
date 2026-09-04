@@ -183,6 +183,16 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
       Accepts a string or atom name. Raises `ArgumentError` for invalid names,
       unknown names, and non-Step components, including Subflows. The result
       does not include the original Step's params, dependencies, or metadata.
+
+      Works for inline and explicit Action-backed Steps. Call it after this
+      Flow module has compiled, not from its unfinished DSL block. Lookup
+      does not run the body or create atoms. Supply new Step fields when
+      reusing the target through Builder or direct constructors. For stored
+      JSON, register the target with an application-owned Action identifier
+      and register the required parameter atom keys.
+
+      Deploy the owning module and generated Actions together. The target
+      can remain unchanged after a body edit; it is not a code version.
       """
       @spec step_action(String.t() | atom()) :: module()
       @__jido_flow_generated_definition__ {:step_action, 1}

@@ -62,6 +62,65 @@ builder =
 Builder keeps the first construction error. Each add function returns the
 Builder. `build/1` returns that error or validates the complete Flow.
 
+## Reuse An Inline Step
+
+First run the module definition in [Build Your First Flow](build-your-first-flow.livemd).
+Then look up its compiled targets. No generated module name is needed.
+
+```elixir
+alias Jido.Flow.Builder
+
+builder =
+  Builder.new(
+    name: FirstFlow.Greeting.name(),
+    description: FirstFlow.Greeting.description(),
+    schema: FirstFlow.Greeting.schema(),
+    output_schema: FirstFlow.Greeting.output_schema()
+  )
+  |> Builder.step(
+    "normalize",
+    FirstFlow.Greeting.step_action("normalize"),
+    %{name: Builder.input(:name)}
+  )
+  |> Builder.step(
+    "greet",
+    FirstFlow.Greeting.step_action(:greet),
+    %{name: Builder.result("normalize", :name)}
+  )
+  |> Builder.output(Builder.result("greet"))
+
+{:ok, built_flow} = Builder.build(builder)
+true = built_flow == FirstFlow.Greeting.flow()
+{:ok, %{message: "Hello, Ada!"}} = Jido.Exec.run(built_flow, %{name: " Ada "})
+```
+
+This rebuilds the same graph. You can instead supply different parameters,
+dependencies, and metadata. `step_action/1` returns only an Action target; it
+does not copy the original Step's fields. Named bindings require a parameter
+map with those atom keys. A sole map-pattern binding receives the complete
+source map. A no-input Step receives `%{}`.
+
+The target is an ordinary Action, so an existing Map can also reuse it:
+
+```elixir
+{:ok, names_flow} =
+  Builder.new(name: "normalize_names")
+  |> Builder.map(
+    "names",
+    Builder.input(:people),
+    FirstFlow.Greeting.step_action("normalize"),
+    %{name: Builder.item()}
+  )
+  |> Builder.output(%{names: Builder.result("names")})
+  |> Builder.build()
+
+{:ok, %{names: [%{name: "Ada"}, %{name: "Grace"}]}} =
+  Jido.Exec.run(names_flow, %{people: [" ada ", " grace "]})
+```
+
+This is Action reuse, not an inline Map body. Builder and direct constructors
+do not accept body code, anonymous functions, or MFAs as targets.
+
 ## Builder Functions
 
 Builder provides component functions:

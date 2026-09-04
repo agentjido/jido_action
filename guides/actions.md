@@ -30,6 +30,35 @@ end
 
 The module must implement `run/2`.
 
+## Use An Inline Step For Small Local Work
+
+A Flow module can define a small Step body without a separate Action module:
+
+```elixir
+defmodule ActionGuide.Greeting do
+  use Jido.Flow, name: "inline_greeting"
+
+  flow do
+    step "greet", name <- input(:name) do
+      {:ok, %{message: "Hello, " <> name <> "!"}}
+    end
+
+    output result("greet")
+  end
+end
+```
+
+This unreleased v3 feature compiles the body to an ordinary Action. It does
+not add inline methods to `use Jido.Action` or function/MFA executable targets.
+The Action has empty field schemas, with the normal map input and output
+boundary. Exec still owns validation, errors, timeouts, and telemetry.
+
+Keep a named Action when work needs field schemas, validation hooks, its own
+description, or a public API independent of the Flow. Use
+`ActionGuide.Greeting.step_action("greet")` when you only need to reuse the
+compiled target. See [Build Your First Flow](build-your-first-flow.livemd) for
+the complete inline example and named-Action extraction.
+
 ## Callback Results
 
 An Action callback returns one of five shapes:

@@ -7,45 +7,20 @@ Run the cells from top to bottom.
 
 ## Install The Package
 
-```elixir
-Mix.install([{:jido_action, "~> 3.0.0-beta.4"}])
-```
-
-## Define The Actions
-
-Keep transformation logic in Actions. Keep the Flow focused on data movement
-and dependencies.
+Inline Steps are an unreleased v3 feature. Use a local source checkout that
+contains this feature; version `3.0.0-beta.4` does not include it. Set
+`JIDO_ACTION_PATH` in the Livebook runtime environment to that checkout's
+absolute path before you run this cell.
 
 ```elixir
-defmodule FirstFlow.NormalizeName do
-  use Jido.Action,
-    name: "normalize_name",
-    schema: Zoi.object(%{name: Zoi.string()}),
-    output_schema: Zoi.object(%{name: Zoi.string()})
-
-  @impl true
-  def run(%{name: name}, _context) do
-    {:ok, %{name: name |> String.trim() |> String.capitalize()}}
-  end
-end
-
-defmodule FirstFlow.Greet do
-  use Jido.Action,
-    name: "greet",
-    schema: Zoi.object(%{name: Zoi.string()}),
-    output_schema: Zoi.object(%{message: Zoi.string()})
-
-  @impl true
-  def run(%{name: name}, _context) do
-    {:ok, %{message: "Hello, " <> name <> "!"}}
-  end
-end
+Mix.install([{:jido_action, path: System.fetch_env!("JIDO_ACTION_PATH")}])
 ```
 
 ## Define The Flow
 
 `input/1` reads Flow input. `result/2` reads a prior component result. The
-result reference creates the dependency between the two Steps.
+result reference creates the dependency between the two Steps. Each `<-`
+binds that data to a variable in the Step body.
 
 ```elixir
 defmodule FirstFlow.Greeting do
@@ -56,13 +31,13 @@ defmodule FirstFlow.Greeting do
     output_schema: Zoi.object(%{message: Zoi.string()})
 
   flow do
-    step "normalize",
-      action: FirstFlow.NormalizeName,
-      params: %{name: input(:name)}
+    step "normalize", name <- input(:name) do
+      {:ok, %{name: name |> String.trim() |> String.capitalize()}}
+    end
 
-    step "greet",
-      action: FirstFlow.Greet,
-      params: %{name: result("normalize", :name)}
+    step "greet", name <- result("normalize", :name) do
+      {:ok, %{message: "Hello, " <> name <> "!"}}
+    end
 
     output result("greet")
   end
@@ -70,7 +45,8 @@ end
 ```
 
 Source order does not create a dependency. References and `after:` create
-dependencies.
+dependencies. The body is normal Elixir code. Jido compiles it to an ordinary
+Action; you do not need a separate Action module for each small operation.
 
 ## Inspect And Run
 
@@ -93,8 +69,42 @@ Run the module or the canonical value.
   Jido.Exec.run(flow, %{name: "grace"})
 ```
 
+## Extract A Named Action When Needed
+
+The Flow schemas above validate its input and output. Inline Actions have no
+field schemas. Extract a named Action when a step needs its own schemas,
+validation hooks, description, or an independent public API.
+
+```elixir
+defmodule FirstFlow.CreateGreeting do
+  use Jido.Action,
+    name: "create_greeting",
+    description: "Creates one greeting",
+    schema: Zoi.object(%{name: Zoi.string()}),
+    output_schema: Zoi.object(%{message: Zoi.string()})
+
+  @impl true
+  def run(%{name: name}, _context) do
+    {:ok, %{message: "Hello, " <> name <> "!"}}
+  end
+end
+
+{:ok, %{message: "Hello, Ada!"}} =
+  Jido.Exec.run(FirstFlow.CreateGreeting, %{name: "Ada"})
+```
+
+In a Flow, replace the inline `greet` declaration with the existing Action
+form:
+
+```text
+step "greet",
+  action: FirstFlow.CreateGreeting,
+  params: %{name: result("normalize", :name)}
+```
+
 ## Next
 
 Use [Flow DSL](flow-language.livemd) for the complete language. Use
 [Executing Flows](flow-execution.livemd) for run-to-completion and step-wise
-execution.
+execution. [Direct Construction And Builder](flow-builder.md#reuse-an-inline-step)
+shows how to reuse the compiled body without extracting an Action.
