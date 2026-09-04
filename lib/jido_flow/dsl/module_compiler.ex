@@ -43,11 +43,13 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
       def output_schema, do: @__jido_output_schema__
 
       @doc "Validates Flow input parameters."
+      @impl Jido.Executable
       @spec validate_params(map()) ::
               {:ok, map()} | {:error, Jido.Action.Error.InvalidInputError.t()}
       def validate_params(params), do: Jido.Action.validate_params_for(params, __MODULE__)
 
       @doc "Validates a Flow output value."
+      @impl Jido.Executable
       @spec validate_output(map() | Jido.Action.Output.t()) ::
               {:ok, map() | Jido.Action.Output.t()}
               | {:error, Jido.Action.Error.InvalidInputError.t()}
@@ -172,6 +174,7 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
           do: {name, action}
 
     quote generated: true do
+      @impl Jido.Executable
       def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
       def flow, do: unquote(escaped_flow)
       def __jido_flow_source_map__, do: unquote(escaped_source_map)
@@ -193,6 +196,8 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
       def compiled,
         do: Jido.Flow.compile!(flow(), source_map: __jido_flow_source_map__())
 
+      # This is a convenience entry point. Exec selects native Flow execution
+      # from the descriptor and does not call this through the Action runner.
       @impl Jido.Action
       def run(params, context), do: Jido.Exec.run(__MODULE__, params, context)
     end

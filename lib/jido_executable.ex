@@ -16,6 +16,11 @@ defmodule Jido.Executable do
   `resolve/1` keeps the exact target and returns one small descriptor.
   A module callback must identify the module that owns the callback.
 
+  This behaviour declares the module descriptor and data validation callbacks.
+  `Jido.Action` owns the `run/2` callback. Both Action and Flow module generators
+  implement these behaviours. `validate/1` also checks the required functions
+  at runtime; a behaviour declaration alone does not make a module executable.
+
   A Flow module must return one stable `%Jido.Flow{}` from `flow/0` for the life
   of the loaded module version. Each validation or execution operation
   materializes the value once.
@@ -31,7 +36,7 @@ defmodule Jido.Executable do
   This module does not define a map or JSON format for executable targets.
   """
 
-  alias Jido.Action.Error
+  alias Jido.Action.{Error, Output}
   alias Jido.Flow
 
   @typedoc "The executable kind."
@@ -57,6 +62,13 @@ defmodule Jido.Executable do
 
   @doc false
   @callback __jido_executable__() :: t()
+
+  @doc "Validates input parameters without running executable work."
+  @callback validate_params(map()) :: {:ok, map()} | {:error, term()}
+
+  @doc "Validates normal output or an explicit output envelope."
+  @callback validate_output(map() | Output.t()) ::
+              {:ok, map() | Output.t()} | {:error, term()}
 
   @doc false
   @spec action(module()) :: t()
@@ -97,14 +109,14 @@ defmodule Jido.Executable do
   @spec validate(t() | target() | term()) :: :ok | {:error, Exception.t()}
   def validate(%__MODULE__{kind: :action, target: target})
       when is_atom(target) and not is_nil(target) do
-    validate_action_compatible_callbacks(target)
+    validate_module_callbacks(target)
   end
 
   def validate(%__MODULE__{kind: :flow, target: %Flow{}}), do: :ok
 
   def validate(%__MODULE__{kind: :flow, target: target})
       when is_atom(target) and not is_nil(target) do
-    with :ok <- validate_action_compatible_callbacks(target) do
+    with :ok <- validate_module_callbacks(target) do
       if function_exported?(target, :flow, 0) do
         :ok
       else
@@ -127,7 +139,7 @@ defmodule Jido.Executable do
     end
   end
 
-  defp validate_action_compatible_callbacks(module) do
+  defp validate_module_callbacks(module) do
     cond do
       not function_exported?(module, :run, 2) ->
         invalid_executable_contract(module, "missing run/2")

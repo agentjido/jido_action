@@ -327,15 +327,18 @@ defmodule Jido.Action do
       def output_schema, do: @__jido_output_schema__
 
       @doc false
+      @impl Jido.Executable
       @spec __jido_executable__() :: Jido.Executable.t()
       def __jido_executable__, do: Jido.Executable.action(__MODULE__)
 
       @doc unquote(validate_params_doc)
+      @impl Jido.Executable
       @spec validate_params(map()) ::
               {:ok, map()} | {:error, term()}
       def validate_params(params), do: Action.validate_params_for(params, __MODULE__)
 
       @doc unquote(validate_output_doc)
+      @impl Jido.Executable
       @spec validate_output(map() | Jido.Action.Output.t()) ::
               {:ok, map() | Jido.Action.Output.t()}
               | {:error, Jido.Action.Error.InvalidInputError.t()}
