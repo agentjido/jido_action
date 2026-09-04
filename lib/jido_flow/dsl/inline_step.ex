@@ -186,6 +186,7 @@ defmodule Jido.Flow.DSL.InlineStep do
   defp normalize_literal({form, metadata, args}) when is_list(metadata), do: {form, [], args}
   defp normalize_literal(value), do: value
 
+  @spec error!(term(), Macro.Env.t(), String.t()) :: no_return()
   defp error!({_form, metadata, _args}, caller, description) when is_list(metadata) do
     caller = %{caller | line: Keyword.get(metadata, :line, caller.line)}
     MacroSupport.compile_error!(caller, description)

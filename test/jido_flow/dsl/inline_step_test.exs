@@ -19,6 +19,27 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     end
   end
 
+  test "the inline compiler's actual exports have BEAM docs and specs" do
+    module = Jido.Flow.DSL.InlineStepCompiler
+    exported = module.__info__(:functions)
+    assert exported != []
+    assert {:docs_v1, _, _, _, :hidden, _, docs} = Code.fetch_docs(module)
+    assert {:ok, specs} = Code.Typespec.fetch_specs(module)
+
+    documented =
+      for {{:function, name, arity}, _, _, doc, _} <- docs,
+          doc != :none,
+          into: MapSet.new(),
+          do: {name, arity}
+
+    specified = MapSet.new(specs, &elem(&1, 0))
+
+    for function <- exported do
+      assert MapSet.member?(documented, function), "missing BEAM doc for #{inspect(function)}"
+      assert MapSet.member?(specified, function), "missing BEAM spec for #{inspect(function)}"
+    end
+  end
+
   test "legacy Step names expand or evaluate once" do
     for {expression, marker, name} <- [
           {"#{inspect(NameSource)}.literal_name()", :inline_name_macro_expanded, "macro_name"},
@@ -134,19 +155,38 @@ defmodule Jido.Flow.DSL.InlineStepTest do
       clause = "#{visibility} #{function}(#{args}), do: :user_clause"
       declaration = ~s(step "same", [], do: {:ok, %{}})
       {before, after_code} = if position == :before, do: {clause, ""}, else: {"", clause}
+      source = flow_source(owner, declaration, before, after_code)
 
-      # Elixir itself rejects a private clause after a public generated body
-      # before it calls the definition callback.
-      message =
-        if position == :after and kind == :body and visibility == :defp,
-          do: ~r/cannot compile file|already defined as def/,
-          else: ~r/reserved Flow function.*#{function}/
+      if kind == :lookup and visibility == :defp do
+        # The forward public head lets Elixir reject a private clause before
+        # the reserved-function callback. Require its source-aware diagnostic.
+        clause_line =
+          source |> String.split("\n") |> Enum.find_index(&(String.trim(&1) == clause))
 
-      ExUnit.CaptureIO.capture_io(:stderr, fn ->
-        assert_raise CompileError, message, fn ->
-          compile_source(flow_source(owner, declaration, before, after_code))
-        end
-      end)
+        {_result, diagnostics} =
+          Code.with_diagnostics(fn ->
+            assert_raise CompileError, fn -> compile_source(source) end
+          end)
+
+        assert Enum.any?(diagnostics, fn diagnostic ->
+                 diagnostic.severity == :error and
+                   diagnostic.message ==
+                     "defp step_action/1 already defined as def in inline_compile.ex:2" and
+                   Path.basename(diagnostic.file) == "inline_compile.ex" and
+                   diagnostic_line(diagnostic) == clause_line + 1
+               end)
+      else
+        # Elixir itself rejects a private clause after a public generated body
+        # before it calls the definition callback.
+        message =
+          if position == :after and kind == :body and visibility == :defp,
+            do: ~r/cannot compile file|already defined as def/,
+            else: ~r/reserved Flow function.*#{function}/
+
+        ExUnit.CaptureIO.capture_io(:stderr, fn ->
+          assert_raise CompileError, message, fn -> compile_source(source) end
+        end)
+      end
     end
   end
 

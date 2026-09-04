@@ -61,6 +61,28 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
       @spec flow() :: Jido.Flow.t()
       def flow()
 
+      @doc """
+      Returns the Action target of a named Step.
+
+      Accepts a string or atom name. Raises `ArgumentError` for invalid names,
+      unknown names, and non-Step components, including Subflows. The result
+      does not include the original Step's params, dependencies, or metadata.
+
+      Works for inline and explicit Action-backed Steps. Call it after this
+      Flow module has compiled, not from its unfinished DSL block. Lookup
+      does not run the body or create atoms. Supply new Step fields when
+      reusing the target through Builder or direct constructors. For stored
+      JSON, register the target with an application-owned Action identifier
+      and register the required parameter atom keys.
+
+      Deploy the owning module and generated Actions together. The target
+      can remain unchanged after a body edit; it is not a code version.
+      """
+      @spec step_action(String.t() | atom()) :: module()
+      @__jido_flow_generated_definition__ {:step_action, 1}
+      def step_action(name)
+      Module.delete_attribute(__MODULE__, :__jido_flow_generated_definition__)
+
       @doc false
       @spec __jido_flow_source_map__() :: Jido.Flow.Compiled.source_map()
       def __jido_flow_source_map__()
@@ -116,6 +138,7 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
     :ok
   end
 
+  @spec reserved_function_error!(Macro.Env.t(), {atom(), non_neg_integer()}) :: no_return()
   defp reserved_function_error!(env, {name, arity}) do
     MacroSupport.compile_error!(
       env,
@@ -177,24 +200,6 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
       def flow, do: unquote(escaped_flow)
       def __jido_flow_source_map__, do: unquote(escaped_source_map)
 
-      @doc """
-      Returns the Action target of a named Step.
-
-      Accepts a string or atom name. Raises `ArgumentError` for invalid names,
-      unknown names, and non-Step components, including Subflows. The result
-      does not include the original Step's params, dependencies, or metadata.
-
-      Works for inline and explicit Action-backed Steps. Call it after this
-      Flow module has compiled, not from its unfinished DSL block. Lookup
-      does not run the body or create atoms. Supply new Step fields when
-      reusing the target through Builder or direct constructors. For stored
-      JSON, register the target with an application-owned Action identifier
-      and register the required parameter atom keys.
-
-      Deploy the owning module and generated Actions together. The target
-      can remain unchanged after a body edit; it is not a code version.
-      """
-      @spec step_action(String.t() | atom()) :: module()
       @__jido_flow_generated_definition__ {:step_action, 1}
       def step_action(name) do
         with {:ok, normalized} <- Jido.Flow.Component.name(name),
