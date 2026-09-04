@@ -69,6 +69,7 @@ defmodule Jido.Flow.Compiler.Iterator do
 
     target_context =
       Target.iterator(iterator, index, iteration_id, runtime.revision)
+      |> Target.at(state.namespace)
 
     result =
       try do

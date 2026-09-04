@@ -22,7 +22,7 @@ defmodule Jido.Flow.Compiler.Choice do
                  target.action,
                  params,
                  state.context,
-                 Target.choice(choice, target),
+                 Target.at(Target.choice(choice, target), state.namespace),
                  state.execution_id,
                  state.target_runner
                ) do

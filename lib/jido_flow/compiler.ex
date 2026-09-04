@@ -34,7 +34,7 @@ defmodule Jido.Flow.Compiler do
   alias Runic.Workflow.Map, as: RunicMap
   alias Runic.Workflow.Reduce, as: RunicReduce
 
-  @compiler_version 2
+  @compiler_version 3
   @runtime_ref %{
     kind: :context,
     target: :jido,
@@ -308,7 +308,11 @@ defmodule Jido.Flow.Compiler do
         local = component_state(component, parent, runtime)
 
         local
-        |> resolve_and_run(component.params, component.action, Target.node(component))
+        |> resolve_and_run(
+          component.params,
+          component.action,
+          Target.at(Target.node(component), state.namespace)
+        )
         |> wrap_result()
       end)
 
@@ -319,7 +323,7 @@ defmodule Jido.Flow.Compiler do
     step =
       runtime_step(state, component.name, :choice, fn parent, runtime ->
         local = component_state(component, parent, runtime)
-        result = ChoiceRuntime.run(component, local)
+        result = ChoiceRuntime.run(component, Map.put(local, :namespace, state.namespace))
         output = unwrap_component_result(result)
         value(local.input_frame, output)
       end)
@@ -331,7 +335,7 @@ defmodule Jido.Flow.Compiler do
     step =
       runtime_step(state, component.name, :iterate, fn parent, runtime ->
         local = component_state(component, parent, runtime)
-        result = IterateRuntime.run(component, local)
+        result = IterateRuntime.run(component, Map.put(local, :namespace, state.namespace))
         output = unwrap_component_result(result)
         value(local.input_frame, output)
       end)
@@ -471,6 +475,7 @@ defmodule Jido.Flow.Compiler do
             item_index: token.index,
             item_id: token.id
           })
+          |> Target.at(state.namespace)
 
         span =
           runtime.observer.({
@@ -629,7 +634,7 @@ defmodule Jido.Flow.Compiler do
         hash: stable_hash({native_name, :fan_in}),
         map: mapped_name,
         init: fn -> %{initialized: false, accumulator: nil, input: nil, error: nil} end,
-        reducer: reduce_fun(reduce, not is_nil(mapped_name)),
+        reducer: reduce_fun(reduce, not is_nil(mapped_name), state.namespace),
         meta_refs: []
       },
       closure: nil,
@@ -649,14 +654,14 @@ defmodule Jido.Flow.Compiler do
     {native_reduce, output_step}
   end
 
-  defp reduce_fun(reduce, direct?) do
+  defp reduce_fun(reduce, direct?, namespace) do
     # Runic finalizes FanIn during runnable application and calls its arity-2
     # reducer there. The token carries the execution context for this call.
     # Store reducer errors in the aggregate. The output Step raises them as a
     # normal runnable failure.
     fn token, aggregate ->
       try do
-        reduce_token(reduce, direct?, token, aggregate)
+        reduce_token(reduce, direct?, token, aggregate, namespace)
       rescue
         error -> {:halt, %{aggregate | input: token.input, error: error}}
       catch
@@ -672,7 +677,7 @@ defmodule Jido.Flow.Compiler do
     end
   end
 
-  defp reduce_token(reduce, direct?, token, aggregate) do
+  defp reduce_token(reduce, direct?, token, aggregate, namespace) do
     runtime = token.runtime
 
     aggregate =
@@ -716,6 +721,7 @@ defmodule Jido.Flow.Compiler do
             item_index: token.index,
             item_id: token.id
           })
+          |> Target.at(namespace)
 
         span =
           runtime.observer.({
@@ -915,7 +921,7 @@ defmodule Jido.Flow.Compiler do
                   })
 
           {:error, error} ->
-            raise flow_boundary_error(error, subflow, :subflow_input)
+            raise flow_boundary_error(error, subflow, :subflow_input, namespace)
         end
       end
     )
@@ -931,8 +937,11 @@ defmodule Jido.Flow.Compiler do
 
         validated =
           case subflow.flow.validate_output(output) do
-            {:ok, value} -> value
-            {:error, error} -> raise flow_boundary_error(error, subflow, :subflow_output)
+            {:ok, value} ->
+              value
+
+            {:error, error} ->
+              raise flow_boundary_error(error, subflow, :subflow_output, child_state.namespace)
           end
 
         {:jido_flow_input, _input, parent_input} = local.input_frame
@@ -1202,12 +1211,13 @@ defmodule Jido.Flow.Compiler do
     end
   end
 
-  defp flow_boundary_error(error, subflow, phase) do
+  defp flow_boundary_error(error, subflow, phase, namespace) do
     details =
       error
       |> Map.get(:details, %{})
       |> Map.merge(%{
         component: subflow.name,
+        node_path: namespace,
         flow: subflow.flow,
         phase: phase,
         cause: error.__struct__

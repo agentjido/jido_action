@@ -214,6 +214,41 @@ iteration, or runnable ID. An Action failure inside a Flow keeps its
 `Jido.Action.Error` type when possible. `Jido.Flow.Error.to_map/1` also
 normalizes an Action error.
 
+Step, selected Choice, Map, Reduce, and Iterate Action failures include
+`details.node_path`. The list contains the authored Subflow names, followed
+by the leaf component name. For example, `["publish", "review", "write"]`
+identifies `write` inside `review` inside `publish`. Repeated uses of the same
+child Flow have different paths. A name that contains `/` remains one list
+element. The leaf `node`, Action or target, phase, and error type remain
+available.
+
+Child Flow input and output validation errors use the path to the Subflow
+boundary, without an Action leaf. The path is not present on every error.
+For example, expression resolution can fail before Action validation, and
+root Flow validation has no component path. Do not derive a path by splitting
+a native Runic node name.
+
+One failed runnable returns its error directly. If several admitted runnables
+fail, the Flow error contains `details.failures` in canonical order. Use the
+same map conversion for both cases:
+
+```elixir
+mapped = Jido.Flow.Error.to_map(error)
+
+failures =
+  case mapped do
+    %{type: :flow_execution_error, details: %{failures: failures}} ->
+      Enum.map(failures, & &1.error)
+
+    single ->
+      [single]
+  end
+
+Enum.map(failures, fn failure ->
+  %{type: failure.type, node_path: Map.get(failure.details, :node_path)}
+end)
+```
+
 A step can apply a failed runnable successfully:
 
 ```elixir
