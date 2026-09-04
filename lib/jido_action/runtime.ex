@@ -5,6 +5,10 @@ defmodule Jido.Action.Runtime do
   This module applies action lifecycle hooks around parameter and output
   validation, preserving unknown keys so composable action chains can pass
   through additional data.
+
+  For Zoi schemas, known root string keys are normalized to schema-declared
+  atom keys. Atom input keys take precedence unless the schema also declares
+  the corresponding string key as a separate field. Unknown keys are unchanged.
   """
 
   alias Jido.Action.Schema
@@ -83,10 +87,44 @@ defmodule Jido.Action.Runtime do
 
         Map.split(data, known_keys)
 
+      :zoi ->
+        known_keys = Schema.known_keys(schema)
+
+        data
+        |> normalize_zoi_keys(known_keys)
+        |> Map.split(known_keys)
+
       _ ->
         known_keys = Schema.known_keys(schema)
         Map.split(data, known_keys)
     end
+  end
+
+  defp normalize_zoi_keys(data, known_keys) do
+    declared_keys = MapSet.new(known_keys)
+
+    Enum.reduce(known_keys, data, fn
+      key, acc when is_atom(key) ->
+        string_key = Atom.to_string(key)
+
+        cond do
+          MapSet.member?(declared_keys, string_key) ->
+            acc
+
+          Map.has_key?(acc, key) ->
+            Map.delete(acc, string_key)
+
+          Map.has_key?(acc, string_key) ->
+            {value, rest} = Map.pop(acc, string_key)
+            Map.put(rest, key, value)
+
+          true ->
+            acc
+        end
+
+      _key, acc ->
+        acc
+    end)
   end
 
   defp struct_to_map(value) when is_struct(value), do: Map.from_struct(value)
