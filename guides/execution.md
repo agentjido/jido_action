@@ -112,6 +112,11 @@ All targets accept:
 Use `max_concurrency: 1` for serial Flow scheduling. A value greater than `1`
 runs independent ready work concurrently, up to the selected limit.
 
+A failed runnable stops admission of pending work. Already admitted work can
+finish, so concurrent work can still have side effects after another runnable
+fails. Results from admitted work keep the original ready order. A Map with
+`on_error: :collect_errors` returns failed items as data and continues admission.
+
 An Action can return `{:continue, input, target}`. This result ends the current
 executable and starts the target in the same complete call. The timeout and
 continuation limit cover the full chain. See
@@ -145,7 +150,9 @@ debugging and native Runic inspection. A workflow changed outside Exec cannot
 be applied back to an Execution through this API.
 
 `step/1` runs the first ready runnable. `step/2` selects a ready runnable by
-value or integer ID. `wave/1` runs the set that was ready when the call began.
+value or integer ID. `wave/1` runs work from the set that was ready when the call
+began, and stops new dispatch on failure. Its returned list contains only the
+runnables that were admitted.
 `continue/1` runs to a terminal state.
 
 A failed runnable is an applied state transition. A step can return

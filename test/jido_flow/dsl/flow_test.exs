@@ -77,7 +77,7 @@ defmodule Jido.Flow.DSL.FlowTest.InlineAndExistingFlow do
 end
 
 defmodule Jido.Flow.DSL.FlowTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Jido.Flow.Choice
   alias Jido.Flow.Iterate
@@ -177,6 +177,61 @@ defmodule Jido.Flow.DSL.FlowTest do
     """
 
     assert_raise CompileError, ~r/Flow output is required/, fn -> Code.compile_string(code) end
+  end
+
+  test "empty lists compile and execute as data across Flow declarations" do
+    code = """
+    defmodule EmptyListLiteralFlow do
+      use Jido.Flow, name: "empty_list_literals"
+
+      flow do
+        step "echo",
+          action: JidoActionTest.Fixtures.Actions.EchoParamsAction,
+          params: %{items: [], nested: [[], %{items: []}]},
+          after: []
+
+        map "mapped",
+          collection: [],
+          action: JidoActionTest.Fixtures.Actions.EchoParamsAction,
+          params: %{item: item()}
+
+        reduce "reduced" do
+          collection([])
+          initial(%{items: []})
+          action(JidoActionTest.Fixtures.Actions.EchoParamsAction)
+          params(accumulator())
+        end
+
+        iterate "loop" do
+          state([], initial: %{items: []})
+          action(JidoActionTest.Fixtures.Actions.EchoParamsAction)
+          params(state())
+          update(body_result())
+          while(state(:items) != [])
+          max_iterations(1)
+        end
+
+        output(%{
+          items: [],
+          echo: result("echo"),
+          mapped: result("mapped"),
+          reduced: result("reduced"),
+          loop: result("loop")
+        })
+      end
+    end
+    """
+
+    [{module, _bytecode}] = Code.compile_string(code)
+
+    assert {:ok,
+            %{
+              items: [],
+              echo: %{items: [], nested: [[], %{items: []}]},
+              mapped: [],
+              reduced: %{items: []},
+              loop: %{state: %{items: []}, iterations: 0, output: nil}
+            }} = Jido.Exec.run(module)
   end
 
   test "an invalid Dispatch output points to the output declaration" do

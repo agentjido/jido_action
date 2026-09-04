@@ -10,6 +10,12 @@ defmodule Jido.Flow.Compiler.Target do
   @enforce_keys [:kind, :details]
   defstruct [:kind, :details]
 
+  @doc false
+  @spec at(t(), [String.t()]) :: t()
+  def at(%__MODULE__{} = owner, namespace) do
+    %{owner | details: Map.put(owner.details, :node_path, namespace ++ [owner.details.node])}
+  end
+
   @phases %{
     node: %{input: :step_input, execution: :step_execution, output: :step_output},
     choice: %{

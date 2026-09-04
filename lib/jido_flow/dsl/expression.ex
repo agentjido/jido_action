@@ -60,6 +60,8 @@ defmodule Jido.Flow.DSL.Expression do
     parse_map!(pairs, &parse!/1)
   end
 
+  defp parse!([]), do: []
+
   defp parse!(values) when is_list(values) do
     if Keyword.keyword?(values) do
       unsupported!(values)

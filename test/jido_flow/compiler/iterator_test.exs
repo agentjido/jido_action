@@ -70,6 +70,7 @@ defmodule JidoActionTest.Flow.Compiler.IteratorTest do
 
   defp runtime_state(target_runner) do
     %{
+      namespace: [],
       input: %{},
       context: %{},
       results: %{},

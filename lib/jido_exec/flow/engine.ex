@@ -144,7 +144,7 @@ defmodule Jido.Exec.Flow.Engine do
 
   def step(%Execution{} = execution, _runnable), do: execution_not_running(execution)
 
-  @doc "Executes the complete set of Runnables that is currently ready."
+  @doc "Executes currently ready Runnables, stopping new dispatch on failure."
   @spec wave(Execution.t()) ::
           {:ok, [Runnable.t()], Execution.t()} | {:error, Exception.t()}
   def wave(%Execution{status: :running} = execution) do

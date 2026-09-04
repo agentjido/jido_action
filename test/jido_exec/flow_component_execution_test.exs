@@ -11,6 +11,141 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
 
   alias JidoActionTest.Fixtures.Actions.{Add, EchoParamsAction, ErrorAction, Multiply}
 
+  defmodule CollectedErrorAction do
+    use Jido.Action, name: "collected_error_action"
+
+    @impl true
+    def run(%{item: item}, %{owner: owner, ref: ref}) do
+      send(owner, {ref, :ready, item, self()})
+
+      receive do
+        {^ref, :release} ->
+          case item do
+            :invalid -> {:error, Jido.Action.Error.validation_error("invalid item", field: :item)}
+            :retry -> {:error, Jido.Action.Error.execution_error("try again", retry: true)}
+            :ok -> {:ok, %{accepted: true}}
+          end
+      end
+    end
+  end
+
+  test "collects structured errors in source order after reversed item completion" do
+    ref = make_ref()
+    owner = self()
+    handler_id = {__MODULE__, ref}
+
+    :ok =
+      :telemetry.attach_many(
+        handler_id,
+        [[:jido, :flow, :map, :item, :stop], [:jido, :flow, :map, :item, :error]],
+        fn _event, _measurements, metadata, _config ->
+          if metadata.target == CollectedErrorAction do
+            send(owner, {ref, :completed, metadata.item_index})
+          end
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    flow =
+      Flow.new!(
+        name: "collected_structured_errors",
+        components: [
+          FlowMap.new!(
+            name: "mapped",
+            collection: [:invalid, :retry, :ok],
+            action: CollectedErrorAction,
+            params: %{item: Ref.item()},
+            on_error: :collect_errors
+          )
+        ],
+        output: %{items: Ref.result("mapped")}
+      )
+
+    task =
+      Task.async(fn -> Exec.run(flow, %{}, %{owner: owner, ref: ref}, max_concurrency: 3) end)
+
+    try do
+      workers =
+        for item <- [:invalid, :retry, :ok], into: %{} do
+          assert_receive {^ref, :ready, ^item, pid}, 1_000
+          {item, pid}
+        end
+
+      for {item, index} <- [{:ok, 2}, {:retry, 1}, {:invalid, 0}] do
+        monitor = Process.monitor(workers[item])
+        send(workers[item], {ref, :release})
+        assert_receive {^ref, :completed, ^index}, 1_000
+        assert_receive {:DOWN, ^monitor, :process, _pid, :normal}, 1_000
+      end
+
+      assert {:ok,
+              %{
+                items: [
+                  %{status: :error, error: invalid},
+                  %{status: :error, error: retry},
+                  %{status: :ok, value: %{accepted: true}}
+                ]
+              }} = Task.await(task)
+
+      assert %{
+               type: :validation_error,
+               message: "invalid item",
+               retryable?: false,
+               details: %{field: :item, item_index: 0, item_id: invalid_id}
+             } = invalid
+
+      assert %{
+               type: :execution_error,
+               message: "try again",
+               retryable?: true,
+               details: %{retry: true, item_index: 1, item_id: retry_id}
+             } = retry
+
+      assert is_binary(invalid_id)
+      assert is_binary(retry_id)
+      assert invalid_id != retry_id
+
+      for error <- [invalid, retry] do
+        assert Map.keys(error) |> Enum.sort() == [:details, :message, :retryable?, :type]
+        assert error.details.node == "mapped"
+        assert error.details.target == CollectedErrorAction
+        assert error.details.phase == :map_target_execution
+      end
+    after
+      Task.shutdown(task, :brutal_kill)
+    end
+  end
+
+  test "collected reference errors preserve details without invented target identity" do
+    flow =
+      Flow.new!(
+        name: "collected_reference_error",
+        components: [
+          FlowMap.new!(
+            name: "mapped",
+            collection: [%{}],
+            action: EchoParamsAction,
+            params: %{item: Ref.item(:missing)},
+            on_error: :collect_errors
+          )
+        ],
+        output: %{items: Ref.result("mapped")}
+      )
+
+    assert {:ok, %{items: [%{status: :error, error: error}]}} = Exec.run(flow)
+
+    assert %{
+             type: :flow_execution_error,
+             retryable?: false,
+             details: %{reason: :missing_key, path: [:missing], ref_type: :item}
+           } = error
+
+    refute Map.has_key?(error.details, :item_id)
+    refute Map.has_key?(error.details, :item_index)
+  end
+
   test "keeps target ownership on public execution errors" do
     cases = [
       {target_error_flow(:step), :step_execution, %{node: "target", action: ErrorAction}},

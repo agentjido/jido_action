@@ -99,7 +99,7 @@ defmodule JidoActionTest.Flow.Compiler.NativeRunicTest do
     assert %Workflow{} = compiled.workflow
   end
 
-  test "compiles Map and Reduce to native Runic components with direct fan-in" do
+  test "compiles Map with one batch collector and Reduce from its retained list" do
     map =
       Map.new!(
         name: "mapped",
@@ -126,19 +126,17 @@ defmodule JidoActionTest.Flow.Compiler.NativeRunicTest do
       Flow.new!(
         name: "map_reduce_compile",
         components: [map, reduce],
-        output: Ref.result("reduced")
+        output: %{items: Ref.result("mapped"), reduced: Ref.result("reduced")}
       )
 
     assert {:ok, compiled} = Flow.compile(flow)
 
-    assert %{component: %RunicMap{} = native_map, collector: %RunicReduce{}} =
+    assert %{component: %RunicMap{} = native_map, collector: %RunicReduce{} = collector} =
              compiled.component_index["mapped"]
 
     native_reduce = compiled.component_index["reduced"].component
-    assert %RunicReduce{fan_in: %FanIn{map: map_name}} = native_reduce
-
-    assert map_name == native_map.name
-    assert compiled.component_index["reduced"].direct_map
+    assert %RunicReduce{fan_in: %FanIn{map: nil}} = native_reduce
+    assert collector.fan_in.map == native_map.name
 
     assert [items: map_input] = Runic.Component.inputs(native_map)
     assert [out: map_output] = Runic.Component.outputs(native_map)
@@ -150,13 +148,15 @@ defmodule JidoActionTest.Flow.Compiler.NativeRunicTest do
     assert reduce_input[:cardinality] == :many
     assert Keyword.get(reduce_output, :cardinality, :one) == :one
 
-    assert %FanIn{name: "$reduced/reduce", map: "$mapped/map", mergeable: false} =
+    assert %FanIn{name: "$reduced/reduce", map: nil, mergeable: false} =
              native_reduce.fan_in
 
     vertices = :maps.values(compiled.workflow.graph.vertices)
     assert Enum.any?(vertices, &match?(%FanOut{name: "$mapped/map"}, &1))
     assert Enum.any?(vertices, &match?(%FanIn{name: "$mapped/map-collector"}, &1))
     assert Enum.any?(vertices, &match?(%FanIn{name: "$reduced/reduce"}, &1))
+    assert Enum.any?(vertices, &match?(%RunicStep{name: "$reduced/reduce-input"}, &1))
+    assert Enum.count(vertices, &match?(%FanIn{map: "$mapped/map"}, &1)) == 1
   end
 
   test "uses one native Workflow boundary for a Subflow" do

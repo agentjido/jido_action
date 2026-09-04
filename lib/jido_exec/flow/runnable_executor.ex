@@ -22,7 +22,14 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
     if Keyword.fetch!(execution.options, :max_concurrency) > 1 and length(runnables) > 1 do
       execute_concurrently(execution, runnables)
     else
-      Enum.map(runnables, &execute(execution, &1))
+      runnables
+      |> Enum.reduce_while([], fn runnable, completed ->
+        executed = execute(execution, runnable)
+        completed = [executed | completed]
+
+        if executed.status == :failed, do: {:halt, completed}, else: {:cont, completed}
+      end)
+      |> Enum.reverse()
     end
   end
 
@@ -30,25 +37,38 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
     logger_metadata = Logger.metadata()
     telemetry_tracker = Telemetry.tracker()
     group_leader = Process.group_leader()
+    stopped = :atomics.new(1, [])
 
-    execute = fn runnable ->
+    execute = fn {runnable, index} ->
       Process.group_leader(self(), group_leader)
       Logger.metadata(logger_metadata)
       Telemetry.put_tracker(telemetry_tracker)
-      execute(execution, runnable)
+      executed = execute(execution, runnable)
+      if executed.status == :failed, do: :atomics.put(stopped, 1, 1)
+      {index, executed}
     end
 
+    # Observe exits without waiting for earlier tasks. Stop the lazy input, but
+    # drain admitted tasks and restore source order before applying their results.
     runnables
+    |> Enum.with_index()
+    |> Stream.take_while(fn _runnable -> :atomics.get(stopped, 1) == 0 end)
     |> Task.async_stream(execute,
       max_concurrency: Keyword.fetch!(execution.options, :max_concurrency),
-      ordered: true,
+      ordered: false,
+      zip_input_on_exit: true,
       timeout: :infinity
     )
-    |> Enum.zip(runnables)
     |> Enum.map(fn
-      {{:ok, executed}, _runnable} -> executed
-      {{:exit, reason}, runnable} -> fail_exited_runnable(runnable, reason)
+      {:ok, indexed_result} ->
+        indexed_result
+
+      {:exit, {{runnable, index}, reason}} ->
+        :atomics.put(stopped, 1, 1)
+        {index, fail_exited_runnable(runnable, reason)}
     end)
+    |> Enum.sort_by(&elem(&1, 0))
+    |> Enum.map(&elem(&1, 1))
   end
 
   defp safely_execute(runnable) do

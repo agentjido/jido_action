@@ -75,6 +75,13 @@ does not hide these native runnables.
 The child inherits the parent context, `max_concurrency`, `jido` routing, and
 execution ID. Its Action calls share the parent execution budget.
 
+An Action failure keeps its typed error and leaf details. Its
+`details.node_path` identifies the authored Subflow path, for example
+`["child", "add"]`. Child input and output validation failures identify the
+Subflow boundary instead, for example `["child"]`. Errors before Action
+validation can lack this path. See [Read Failures](debugging-flows.md#read-failures)
+for single and concurrent failure inspection.
+
 ## Limits
 
 Only `step` derives Subflow. Choice options, Choice fallback, Map, Reduce, and

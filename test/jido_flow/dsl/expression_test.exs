@@ -73,6 +73,31 @@ defmodule JidoActionTest.Flow.DSL.ExpressionTest do
     assert {:ok, %Condition{operator: :all}} = Expression.parse_condition(function)
   end
 
+  test "lowers empty list literals without changing reference paths or keyword rejection" do
+    assert {:ok, []} = Expression.parse(quote(do: []))
+    assert {:ok, []} = Expression.parse(quote(do: value([])))
+
+    assert {:ok, %{items: [[], %{values: []}]}} =
+             Expression.parse(quote(do: %{items: [[], %{values: []}]}))
+
+    assert {:ok, %{items: []}} = Expression.parse(%{items: []})
+    assert {:ok, ref} = Expression.parse(quote(do: input([])))
+    assert ref == Ref.input([])
+    assert {:ok, ref} = Expression.parse(quote(do: result("step", [])))
+    assert ref == Ref.result("step")
+    assert {:error, _error} = Expression.parse(quote(do: [items: []]))
+  end
+
+  test "lowers empty lists in comparison operands" do
+    assert {:ok, %Condition{operator: :eq, operands: [ref, []]}} =
+             Expression.parse_condition(quote(do: input(:items) == []))
+
+    assert ref == Ref.input(:items)
+
+    assert {:ok, %Condition{operator: :in, operands: [1, []]}} =
+             Expression.parse_condition(quote(do: 1 in []))
+  end
+
   test "rejects executable expressions, keyword data, and invalid conditions" do
     assert {:error, error} = Expression.parse(quote(do: Date.utc_today()))
 

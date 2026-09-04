@@ -423,11 +423,13 @@ defmodule Jido.Exec do
   def step(%Execution{} = execution, runnable), do: Engine.step(execution, runnable)
 
   @doc """
-  Executes the complete set of runnables that is currently ready.
+  Executes runnables from the set that is currently ready.
 
   Runnables that become ready during the wave wait for the next operation.
-  The stored `max_concurrency` limit applies to the wave. All runnables in the
-  selected ready set finish before Jido applies the wave results.
+  The stored `max_concurrency` limit applies to the wave. A failed runnable
+  stops admission of pending work. Already admitted runnables finish before
+  Jido applies their results in the original ready order. A failure can thus
+  return fewer runnables than the initial ready set.
   """
   @spec wave(Execution.t()) ::
           {:ok, [Runic.Workflow.Runnable.t()], Execution.t()} | {:error, Exception.t()}

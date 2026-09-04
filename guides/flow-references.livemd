@@ -92,3 +92,10 @@ grammar explicit before execution.
 Flow literals are `nil`, Boolean values, numbers, strings, and registered
 atoms. Lists must be proper lists. Use maps, not keyword lists. Stored JSON
 uses a trusted Registry for atoms and atom map keys.
+
+An empty list is valid data: use `[]` directly, including in nested values
+such as `%{items: []}` or a condition such as `input(:items) == []`.
+`value([])` has the same meaning. This does not make a bare list a valid normal
+Flow output, Reduce accumulator, or Iterate State. Use a map such as
+`%{items: []}` for those values. The existing explicit `Jido.Action.Output`
+forms for Flow output and Reduce accumulators remain available.
