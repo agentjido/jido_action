@@ -204,10 +204,7 @@ defmodule Jido.Action do
         {validated_opts, schema, output_schema}
 
       {:error, errors} ->
-        message =
-          if is_list(errors),
-            do: "Action configuration validation failed:\n" <> Zoi.prettify_errors(errors),
-            else: "Action configuration validation failed: #{inspect(errors)}"
+        message = "Action configuration validation failed:\n" <> Zoi.prettify_errors(errors)
 
         raise CompileError, description: message, file: env.file, line: env.line
     end

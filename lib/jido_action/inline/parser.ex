@@ -8,7 +8,7 @@ defmodule Jido.Action.Inline.Parser do
   def bound!(bindings, options, caller) do
     bindings = if is_list(bindings), do: bindings, else: [bindings]
 
-    unless proper_list?(bindings),
+    if List.improper?(bindings),
       do: error!(nil, caller, "inline Action bindings must be a proper list")
 
     parsed =
@@ -198,10 +198,6 @@ defmodule Jido.Action.Inline.Parser do
   defp normalize_literal({:+, _, [number]}) when is_number(number), do: number
   defp normalize_literal({form, metadata, args}) when is_list(metadata), do: {form, [], args}
   defp normalize_literal(value), do: value
-
-  defp proper_list?([]), do: true
-  defp proper_list?([_ | rest]), do: proper_list?(rest)
-  defp proper_list?(_), do: false
 
   @doc false
   @spec error!(term(), Macro.Env.t(), String.t()) :: no_return()

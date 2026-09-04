@@ -60,6 +60,7 @@ defmodule Jido.Action.Inline.Owner do
     :ok
   end
 
+  @spec reserved_error!(Macro.Env.t(), {atom(), non_neg_integer()}) :: no_return()
   defp reserved_error!(caller, {name, arity}),
     do:
       Parser.error!(
