@@ -534,7 +534,6 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     assert parsed.pattern_ast == {:%{}, [line: @source_line], [name: variable]}
     assert parsed.body_ast == options[:do]
     assert parsed.options == []
-    assert parsed.source == %{file: @source_file, line: @source_line}
     assert Expression.parse(parsed.params_ast) == {:ok, %{name: Ref.input(:name)}}
   end
 

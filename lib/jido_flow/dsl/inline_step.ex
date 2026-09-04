@@ -3,7 +3,7 @@ defmodule Jido.Flow.DSL.InlineStep do
 
   alias Jido.Flow.DSL.{Expression, MacroSupport}
 
-  @enforce_keys [:params_ast, :pattern_ast, :body_ast, :options, :source]
+  @enforce_keys [:params_ast, :pattern_ast, :body_ast, :options]
   defstruct @enforce_keys
 
   @typedoc false
@@ -11,8 +11,7 @@ defmodule Jido.Flow.DSL.InlineStep do
           params_ast: Macro.t(),
           pattern_ast: Macro.t(),
           body_ast: Macro.t(),
-          options: keyword(),
-          source: %{file: String.t(), line: pos_integer()}
+          options: keyword()
         }
 
   @doc false
@@ -54,8 +53,7 @@ defmodule Jido.Flow.DSL.InlineStep do
       params_ast: params,
       pattern_ast: pattern,
       body_ast: body,
-      options: Keyword.delete(options, :do),
-      source: %{file: caller.file, line: caller.line}
+      options: Keyword.delete(options, :do)
     }
   end
 
