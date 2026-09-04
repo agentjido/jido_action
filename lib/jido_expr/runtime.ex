@@ -300,9 +300,7 @@ defmodule Jido.Expr.Runtime do
     end
   end
 
-  defp proper_list?([]), do: true
-  defp proper_list?([_ | tail]), do: proper_list?(tail)
-  defp proper_list?(_), do: false
+  defp proper_list?(value), do: is_list(value) and not List.improper?(value)
 
   defp type_error(reason, operator, values, path),
     do: Limits.fail(reason, path, operator, %{types: Enum.map(values, &Limits.type/1)})

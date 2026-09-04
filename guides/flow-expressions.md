@@ -121,6 +121,11 @@ true = total == Jido.Expr.new!(:multiply, [quantity, price])
 Conditions can also supply Boolean parameter or output values. Equivalent
 condition forms normalize to the same Flow model.
 
+Old Condition-only trees keep their `Jido.Flow.Condition` shape. A condition
+with a calculated operand returns one `Jido.Expr` tree. This includes a
+calculation inside an `all`, `any`, or `not` group. The complete tree shares
+one runtime budget in Choice, Iterate, and data fields.
+
 ## Stored JSON
 
 ```elixir
@@ -218,7 +223,11 @@ group must fit within the remaining node limit. An oversized group can fail
 even when its first operand determines the result. Skipped operands are not
 resolved or evaluated. Validation checks the complete expression, including
 skipped branches.
-Existing plain references and legacy conditions retain their contracts.
+These expression limits apply to operation subtrees, not to surrounding
+plain Flow data. A plain list, map, string, or integer retains its existing
+contract in the module DSL, Builder, and direct constructors. Data used as
+an operation operand is subject to the expression limits. Existing plain
+references and legacy Condition-only trees retain their contracts.
 Flow uses the fixed defaults; a separate host can set the documented
 `Jido.Expr` limit options. These limits do not replace an Exec timeout or
 the host's input-size policy.
@@ -227,3 +236,6 @@ Stored documents also retain Codec limits: 100 levels, 10,000 items per
 collection, and 100,000 data nodes. Format overhead counts toward these
 limits. An expression can therefore reach a stored-document limit before it
 reaches the evaluator's limit.
+`Codec.encode/1` and `Codec.encode/2` check the completed document against
+these storage limits. They return an error if the document is too large or
+too deep for the reader.

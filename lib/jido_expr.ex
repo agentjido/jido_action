@@ -160,16 +160,12 @@ defmodule Jido.Expr do
   defp valid_arity?(operator, [_]) when operator in [:not, :negate, :abs], do: true
 
   defp valid_arity?(operator, [_ | _] = operands) when operator in [:all, :any],
-    do: proper_list?(operands)
+    do: not List.improper?(operands)
 
   defp valid_arity?(operator, [_, _]) when operator not in [:not, :negate, :abs, :all, :any],
     do: true
 
   defp valid_arity?(_, _), do: false
-
-  defp proper_list?([]), do: true
-  defp proper_list?([_ | tail]), do: proper_list?(tail)
-  defp proper_list?(_), do: false
 
   defp safe_operator(operator) when is_atom(operator), do: operator
   defp safe_operator(_), do: nil

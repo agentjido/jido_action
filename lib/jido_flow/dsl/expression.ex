@@ -8,7 +8,7 @@ defmodule Jido.Flow.DSL.Expression do
   @doc "Parses one DSL expression into canonical Flow data."
   @spec parse(term()) :: {:ok, term()} | {:error, Exception.t()}
   def parse(expression) do
-    case Expr.parse(expression, leaf_parser: &parse_leaf/1) do
+    case parse_value(expression) do
       {:ok, value} ->
         {:ok, value}
 
@@ -19,6 +19,51 @@ defmodule Jido.Flow.DSL.Expression do
         {:error,
          Error.validation_error(expression_message(expression, error), source_details(expression))}
     end
+  end
+
+  # Plain Flow data keeps its existing limits. Only operation subtrees use
+  # the shared expression budget; the operator grammar still has one owner.
+  defp parse_value({:expr, _, [value]}), do: parse_value(value)
+
+  defp parse_value({:%{}, _, pairs}) when is_list(pairs) do
+    if List.improper?(pairs),
+      do: {:error, %Expr.Error{reason: :improper_list}},
+      else: parse_map(pairs, %{})
+  end
+
+  defp parse_value(value) when is_map(value) and not is_struct(value),
+    do: parse_map(value, %{})
+
+  defp parse_value(values) when is_list(values), do: parse_list(values, [])
+
+  defp parse_value(value) when is_atom(value) or is_number(value) or is_binary(value),
+    do: {:ok, value}
+
+  defp parse_value(value), do: Expr.parse(value, leaf_parser: &parse_leaf/1)
+
+  defp parse_list([], values), do: {:ok, Enum.reverse(values)}
+
+  defp parse_list([head | tail], values) do
+    with {:ok, value} <- parse_value(head), do: parse_list(tail, [value | values])
+  end
+
+  defp parse_list(_tail, _values), do: {:error, %Expr.Error{reason: :improper_list}}
+
+  defp parse_map(pairs, values) do
+    Enum.reduce_while(pairs, {:ok, values}, fn
+      {key, value}, {:ok, values} when is_atom(key) or is_binary(key) or is_integer(key) ->
+        if Map.has_key?(values, key) do
+          {:halt, {:error, %Expr.Error{reason: :duplicate_key}}}
+        else
+          case parse_value(value) do
+            {:ok, value} -> {:cont, {:ok, Map.put(values, key, value)}}
+            {:error, error} -> {:halt, {:error, error}}
+          end
+        end
+
+      _pair, _values ->
+        {:halt, {:error, %Expr.Error{reason: :invalid_map_key}}}
+    end)
   end
 
   @doc "Parses one DSL condition into canonical Flow data."
@@ -32,7 +77,7 @@ defmodule Jido.Flow.DSL.Expression do
         {:error, _error} ->
           {:error,
            Error.validation_error(
-             "unsupported Flow condition: #{Macro.to_string(condition)}; " <>
+             "unsupported Flow condition: #{source_text(condition)}; " <>
                "use a Boolean reference, Boolean literal, or Flow condition",
              source_details(condition)
            )}
@@ -100,8 +145,14 @@ defmodule Jido.Flow.DSL.Expression do
 
   defp expression_message(expression, _error),
     do:
-      "unsupported Flow expression: #{Macro.to_string(expression)}; " <>
+      "unsupported Flow expression: #{source_text(expression)}; " <>
         "use a Flow reference, literal, map, or list"
+
+  defp source_text(expression) do
+    Macro.to_string(expression)
+  rescue
+    _error -> "<invalid syntax>"
+  end
 
   defp source_details({_form, metadata, _arguments}) when is_list(metadata),
     do: metadata |> Keyword.take([:line, :column]) |> Map.new()

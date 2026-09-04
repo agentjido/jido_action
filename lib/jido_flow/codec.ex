@@ -109,7 +109,7 @@ defmodule Jido.Flow.Codec do
     end
   end
 
-  @doc "Encodes one canonical Flow as a JSON-compatible document."
+  @doc "Encodes one canonical Flow as a JSON-compatible document within the reader's limits."
   @spec encode(Flow.t(), Registry.t()) :: {:ok, document()} | {:error, Exception.t()}
   def encode(%Flow{} = flow, %Registry{} = registry) do
     with {:ok, flow} <- Flow.validate(flow),
@@ -117,18 +117,19 @@ defmodule Jido.Flow.Codec do
          {:ok, output_schema} <- Registry.identifier(registry, :schema, flow.output_schema),
          {:ok, components} <- encode_components(flow.components, registry),
          {:ok, output} <- encode_expression(flow.output, registry, 0) do
-      {:ok,
-       %{
-         "type" => "jido.flow",
-         "version" =>
-           if(expression_document?([components, output]), do: @expression_version, else: @version),
-         "name" => flow.name,
-         "description" => flow.description,
-         "schema" => schema,
-         "output_schema" => output_schema,
-         "components" => components,
-         "output" => output
-       }}
+      document = %{
+        "type" => "jido.flow",
+        "version" =>
+          if(expression_document?([components, output]), do: @expression_version, else: @version),
+        "name" => flow.name,
+        "description" => flow.description,
+        "schema" => schema,
+        "output_schema" => output_schema,
+        "components" => components,
+        "output" => output
+      }
+
+      with :ok <- validate_document_limits(document), do: {:ok, document}
     end
   end
 

@@ -10,8 +10,9 @@ defmodule Jido.Flow.Condition do
   short-circuit during execution.
 
   A singleton `:all` with a Boolean literal or reference returns `Jido.Expr`
-  for strict Boolean evaluation. Existing Condition-only trees keep their
-  `Jido.Flow.Condition` shape.
+  for strict Boolean evaluation. Conditions with calculated operands also
+  return `Jido.Expr`, so the complete condition shares one evaluation budget.
+  Existing Condition-only trees keep their `Jido.Flow.Condition` shape.
 
       condition = Jido.Flow.Condition.eq(Jido.Flow.Ref.input(:status), :ready)
       {:ok, ^condition} = Jido.Flow.Condition.validate(condition, :flow)
@@ -57,7 +58,7 @@ defmodule Jido.Flow.Condition do
     with :ok <- validate_operator(operator, "choice condition"),
          :ok <- validate_arity(operator, operands, "choice condition"),
          {:ok, normalized} <- normalize_operands(operator, operands) do
-      {:ok, rebuild_condition(operator, operands, normalized)}
+      rebuild_condition(operator, operands, normalized)
     end
   end
 
@@ -82,7 +83,7 @@ defmodule Jido.Flow.Condition do
          :ok <- validate_arity(condition.operator, condition.operands, owner),
          {:ok, operands} <-
            normalize_operands(condition.operator, condition.operands, scope, owner) do
-      {:ok, rebuild_condition(condition.operator, condition.operands, operands)}
+      rebuild_condition(condition.operator, condition.operands, operands)
     end
   end
 
@@ -113,31 +114,31 @@ defmodule Jido.Flow.Condition do
   end
 
   @doc "Builds an equality condition."
-  @spec eq(Expression.t(), Expression.t()) :: t()
+  @spec eq(Expression.t(), Expression.t()) :: normalized()
   def eq(left, right), do: new!(:eq, [left, right])
 
   @doc "Builds an inequality condition."
-  @spec neq(Expression.t(), Expression.t()) :: t()
+  @spec neq(Expression.t(), Expression.t()) :: normalized()
   def neq(left, right), do: new!(:neq, [left, right])
 
   @doc "Builds a less-than condition."
-  @spec lt(Expression.t(), Expression.t()) :: t()
+  @spec lt(Expression.t(), Expression.t()) :: normalized()
   def lt(left, right), do: new!(:lt, [left, right])
 
   @doc "Builds a less-than-or-equal condition."
-  @spec lte(Expression.t(), Expression.t()) :: t()
+  @spec lte(Expression.t(), Expression.t()) :: normalized()
   def lte(left, right), do: new!(:lte, [left, right])
 
   @doc "Builds a greater-than condition."
-  @spec gt(Expression.t(), Expression.t()) :: t()
+  @spec gt(Expression.t(), Expression.t()) :: normalized()
   def gt(left, right), do: new!(:gt, [left, right])
 
   @doc "Builds a greater-than-or-equal condition."
-  @spec gte(Expression.t(), Expression.t()) :: t()
+  @spec gte(Expression.t(), Expression.t()) :: normalized()
   def gte(left, right), do: new!(:gte, [left, right])
 
   @doc "Builds a list-membership condition."
-  @spec Expression.t() in Expression.t() :: t()
+  @spec Expression.t() in Expression.t() :: normalized()
   def left in right, do: new!(:in, [left, right])
 
   @doc "Builds a condition that requires all child conditions to be true."
@@ -145,11 +146,11 @@ defmodule Jido.Flow.Condition do
   def all(conditions), do: new!(:all, conditions)
 
   @doc "Builds a condition that requires one child condition to be true."
-  @spec any([input()]) :: t()
+  @spec any([input()]) :: normalized()
   def any(conditions), do: new!(:any, conditions)
 
   @doc "Builds a condition that inverts one child condition."
-  @spec not input() :: t()
+  @spec not input() :: normalized()
   def not condition, do: new!(:not, [condition])
 
   @doc false
@@ -357,10 +358,26 @@ defmodule Jido.Flow.Condition do
 
   defp rebuild_condition(:all, [operand], [condition])
        when is_struct(operand, Ref) or is_boolean(operand),
-       do: condition
+       do: {:ok, condition}
 
-  defp rebuild_condition(operator, _original, operands),
-    do: %__MODULE__{operator: operator, operands: operands}
+  defp rebuild_condition(operator, _original, operands) do
+    if contains_expression?(operands) do
+      Expression.normalize(%Expr{operator: operator, operands: operands})
+    else
+      {:ok, %__MODULE__{operator: operator, operands: operands}}
+    end
+  end
+
+  defp contains_expression?(%Expr{}), do: true
+  defp contains_expression?(%__MODULE__{operands: operands}), do: contains_expression?(operands)
+
+  defp contains_expression?(values) when is_list(values),
+    do: Enum.any?(values, &contains_expression?/1)
+
+  defp contains_expression?(values) when is_map(values) and Kernel.not(is_struct(values)),
+    do: Enum.any?(values, fn {_key, value} -> contains_expression?(value) end)
+
+  defp contains_expression?(_value), do: false
 
   # Keep old condition shapes stable, while a single Boolean reference/literal
   # uses the shared evaluator for its strict runtime type check.

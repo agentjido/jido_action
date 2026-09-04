@@ -26,7 +26,7 @@ defmodule Jido.Flow.Expression do
 
   @doc false
   @spec normalize(term()) :: {:ok, term()} | {:error, Exception.t()}
-  def normalize(expression), do: do_normalize(expression, [])
+  def normalize(expression), do: do_normalize(expression, [], nil)
 
   @doc false
   @spec validate(term(), Ref.scope()) :: :ok | {:error, Exception.t()}
@@ -84,10 +84,10 @@ defmodule Jido.Flow.Expression do
     end
   end
 
-  defp do_validate(%Condition{} = condition, _path, scope) do
+  defp do_validate(%Condition{} = condition, path, scope) do
     case Condition.validate(condition, scope) do
       {:ok, _} -> :ok
-      error -> error
+      {:error, error} -> {:error, prefix_path(error, path)}
     end
   end
 
@@ -117,11 +117,15 @@ defmodule Jido.Flow.Expression do
 
   defp do_validate(%{} = map, path, scope) when not is_struct(map) do
     Enum.reduce_while(map, :ok, fn {key, value}, :ok ->
-      with :ok <- Data.validate_key(key),
-           :ok <- do_validate(value, path ++ [key], scope) do
-        {:cont, :ok}
-      else
-        {:error, error} -> {:halt, {:error, prefix_path(error, path)}}
+      case Data.validate_key(key) do
+        :ok ->
+          case do_validate(value, path ++ [key], scope) do
+            :ok -> {:cont, :ok}
+            {:error, error} -> {:halt, {:error, error}}
+          end
+
+        {:error, error} ->
+          {:halt, {:error, prefix_path(error, path)}}
       end
     end)
   end
@@ -149,22 +153,31 @@ defmodule Jido.Flow.Expression do
     end
   end
 
-  defp do_normalize(_value, path) when length(path) > 128 do
+  defp do_normalize(_value, path, expression_root)
+       when is_integer(expression_root) and length(path) - expression_root > 128 do
     {:error, Error.validation_error("Flow expression exceeds max_depth", %{path: path})}
   end
 
-  defp do_normalize(%Expr{} = expr, path) do
+  defp do_normalize(%Expr{} = expr, path, expression_root) do
+    expression_root = expression_root || length(path)
+
     with :ok <- validate_operation(expr, path),
-         {:ok, operands} <- do_normalize(expr.operands, path ++ [:operands]) do
-      {:ok, %{expr | operands: operands}}
+         {:ok, operands} <- do_normalize(expr.operands, path ++ [:operands], expression_root),
+         normalized = %{expr | operands: operands},
+         :ok <- validate_operation(normalized, path) do
+      {:ok, normalized}
     end
   end
 
-  defp do_normalize(%Condition{} = condition, path) do
-    do_normalize(%Expr{operator: condition.operator, operands: condition.operands}, path)
+  defp do_normalize(%Condition{} = condition, path, expression_root) do
+    do_normalize(
+      %Expr{operator: condition.operator, operands: condition.operands},
+      path,
+      expression_root
+    )
   end
 
-  defp do_normalize(%Ref{source: :result, component: component} = ref, _path)
+  defp do_normalize(%Ref{source: :result, component: component} = ref, _path, _expression_root)
        when (is_atom(component) and not is_nil(component)) or is_binary(component) do
     case normalize_name(component) do
       {:ok, component} -> {:ok, %{ref | component: component}}
@@ -172,26 +185,26 @@ defmodule Jido.Flow.Expression do
     end
   end
 
-  defp do_normalize(%Ref{} = ref, _path), do: {:ok, ref}
+  defp do_normalize(%Ref{} = ref, _path, _expression_root), do: {:ok, ref}
 
-  defp do_normalize(%{} = map, path) when not is_struct(map) do
+  defp do_normalize(%{} = map, path, expression_root) when not is_struct(map) do
     Enum.reduce_while(map, {:ok, %{}}, fn {key, value}, {:ok, acc} ->
-      case do_normalize(value, path ++ [key]) do
+      case do_normalize(value, path ++ [key], expression_root) do
         {:ok, value} -> {:cont, {:ok, Map.put(acc, key, value)}}
         {:error, error} -> {:halt, {:error, error}}
       end
     end)
   end
 
-  defp do_normalize(list, path) when is_list(list) do
+  defp do_normalize(list, path, expression_root) when is_list(list) do
     if List.improper?(list) do
       improper_list_error(path)
     else
-      normalize_proper_list(list, path)
+      normalize_proper_list(list, path, expression_root)
     end
   end
 
-  defp do_normalize(value, _path), do: {:ok, value}
+  defp do_normalize(value, _path, _expression_root), do: {:ok, value}
 
   defp validate_proper_list(list, path, scope) do
     list
@@ -204,11 +217,11 @@ defmodule Jido.Flow.Expression do
     end)
   end
 
-  defp normalize_proper_list(list, path) do
+  defp normalize_proper_list(list, path, expression_root) do
     list
     |> Enum.with_index()
     |> Enum.reduce_while({:ok, []}, fn {value, index}, {:ok, acc} ->
-      case do_normalize(value, path ++ [index]) do
+      case do_normalize(value, path ++ [index], expression_root) do
         {:ok, value} -> {:cont, {:ok, [value | acc]}}
         {:error, error} -> {:halt, {:error, error}}
       end

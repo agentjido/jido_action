@@ -215,7 +215,7 @@ defmodule JidoActionTest.Flow.ExprTest do
     assert {:error, error} = Jido.Exec.run(flow)
     assert error.details.phase == :iterate_completion
     assert error.details.path == [:missing]
-    assert error.details.expression_path == [:operands, 0]
+    assert error.details.expression_path == [:operands, 0, :operands, 0]
     assert error.details.retry == false
   end
 
