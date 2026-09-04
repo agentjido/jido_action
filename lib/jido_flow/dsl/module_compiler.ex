@@ -127,12 +127,17 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
   @doc false
   @spec __on_definition__(Macro.Env.t(), atom(), atom(), list(), list(), term()) :: :ok
   def __on_definition__(env, _kind, name, args, _guards, _body) do
-    function = {name, length(args)}
+    arity = length(args)
+    defaults = Enum.count(args, &match?({:\\, _, [_, _]}, &1))
     reserved = Module.get_attribute(env.module, :__jido_flow_reserved_functions__) || []
     generated = Module.get_attribute(env.module, :__jido_flow_generated_definition__)
 
-    if function in reserved and generated != function do
-      reserved_function_error!(env, function)
+    for defined_arity <- (arity - defaults)..arity do
+      function = {name, defined_arity}
+
+      if function in reserved and generated != function do
+        reserved_function_error!(env, function)
+      end
     end
 
     :ok

@@ -1,26 +1,23 @@
 defmodule Jido.Flow.DSL.InlineStepCompiler do
   @moduledoc false
 
-  alias Jido.Flow.Component
   alias Jido.Flow.DSL.{InlineStep, MacroSupport, ModuleCompiler}
 
   @doc false
-  @spec compile!(Macro.t(), InlineStep.t(), Macro.Env.t()) :: {String.t(), module(), Macro.t()}
+  @spec compile!(Macro.t(), InlineStep.t(), Macro.Env.t()) :: {Macro.t(), Macro.t(), Macro.t()}
   def compile!(name_ast, parsed, caller) do
-    name =
-      case Component.name(Macro.expand(name_ast, caller)) do
-        {:ok, name} -> name
-        {:error, error} -> MacroSupport.compile_error!(caller, Exception.message(error))
-      end
-
-    {action, function} = identity(caller.module, name)
+    name = Macro.unique_var(:step_name, __MODULE__)
+    action = Macro.unique_var(:step_action, __MODULE__)
+    function = Macro.unique_var(:step_function, __MODULE__)
     definition = owner_definition(function, parsed, caller)
 
-    # Run compiler mutations at declaration evaluation, not macro expansion.
-    # This preserves source order and does not register untaken authoring branches.
+    # Resolve names and create targets at declaration evaluation. Attribute reads
+    # then see preceding declarations, and each name expression runs only once.
     quoted =
       quote line: caller.line do
-        unquote(__MODULE__).create!(unquote(name), unquote(action), unquote(function), __ENV__)
+        {unquote(name), unquote(action), unquote(function)} =
+          unquote(__MODULE__).create!(unquote(name_ast), __ENV__)
+
         unquote(definition)
       end
 
@@ -28,12 +25,14 @@ defmodule Jido.Flow.DSL.InlineStepCompiler do
   end
 
   @doc false
-  @spec create!(String.t(), module(), atom(), Macro.Env.t()) :: term()
-  def create!(name, action, function, caller) do
-    ModuleCompiler.register_step!(name, caller)
+  @spec create!(term(), Macro.Env.t()) :: {String.t(), module(), atom()}
+  def create!(value, caller) do
+    name = ModuleCompiler.register_step!(value, caller)
+    {action, function} = identity(caller.module, name)
     ModuleCompiler.reserve_function!(caller, {function, 2})
     ensure_owner!(action, name, caller)
     create_action(action, function, name, caller)
+    {name, action, function}
   end
 
   defp ensure_owner!(action, name, caller) do
@@ -89,13 +88,15 @@ defmodule Jido.Flow.DSL.InlineStepCompiler do
 
   defp owner_definition(function, parsed, caller) do
     unimports = declaration_unimports(caller)
+    # Keep this unquote for def to resolve the declaration-time function name.
+    function_name = {:unquote, [], [function]}
 
     # Do not mark this definition as generated: the pattern and body must keep
     # the caller's diagnostics, lexical expansion, and original source lines.
     quote line: caller.line do
       @doc false
       @__jido_flow_generated_definition__ {unquote(function), 2}
-      def unquote(function)(unquote(parsed.pattern_ast), _context) do
+      def unquote(function_name)(unquote(parsed.pattern_ast), _context) do
         unquote_splicing(unimports)
         unquote(parsed.body_ast)
       end

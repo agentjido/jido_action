@@ -32,7 +32,7 @@ defmodule Jido.Flow.DSL.InlineStepBuildTest do
     {:ok, directory: directory, paths: paths}
   end
 
-  test "Mix emits deployable wrappers and removes old targets through rebuild and repair",
+  test "Mix emits attribute-named targets and removes old targets through rebuild and repair",
        fixture do
     write_source(fixture, "flow.ex", flow_source("first", 1))
     assert_compile(fixture)
@@ -134,9 +134,10 @@ defmodule Jido.Flow.DSL.InlineStepBuildTest do
     """
     defmodule #{inspect(@owner)} do
       use Jido.Flow, name: "inline_build"
+      @step_name #{inspect(name)}
       #{if version == :macro, do: "require InlineBuild.BodyMacro", else: ""}
       flow do
-        step #{inspect(name)}, value <- input(:value) do
+        step @step_name, value <- input(:value) do
           {:ok, %{value: #{body}}}
         end
         #{second}

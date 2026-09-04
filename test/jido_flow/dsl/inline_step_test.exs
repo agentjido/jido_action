@@ -40,21 +40,107 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     end
   end
 
-  test "legacy Step names expand or evaluate once" do
+  test "Step names expand or evaluate once in either form" do
     for {expression, marker, name} <- [
           {"#{inspect(NameSource)}.literal_name()", :inline_name_macro_expanded, "macro_name"},
           {"#{inspect(NameSource)}.expression_name()", :inline_name_expression_evaluated,
            "expression_name"}
-        ] do
-      owner = unique_owner("LegacyName")
+        ],
+        inline? <- [false, true] do
+      owner = unique_owner("EvaluatedName")
 
       declaration =
-        "step #{expression}, action: JidoActionTest.Fixtures.Actions.Add, params: %{value: 1}"
+        if inline?,
+          do: "step #{expression}, value <- 1, do: {:ok, %{value: value + 1}}",
+          else:
+            "step #{expression}, action: JidoActionTest.Fixtures.Actions.Add, params: %{value: 1}"
 
       compile_source(flow_source(owner, declaration, "require #{inspect(NameSource)}"))
       assert_received ^marker
       refute_received ^marker
-      assert owner.step_action(name) == JidoActionTest.Fixtures.Actions.Add
+      assert {:ok, %{value: 2}} = Jido.Exec.run(owner.step_action(name), %{value: 1})
+    end
+  end
+
+  test "string attribute names survive conversion from explicit to inline Steps" do
+    for declaration <- [
+          "step @step_name, action: JidoActionTest.Fixtures.Actions.Add, params: %{value: 1}",
+          "step @step_name, value <- 1, do: {:ok, %{value: value + 1}}"
+        ] do
+      owner = unique_owner("AttributeName")
+
+      compile_source("""
+      defmodule #{inspect(owner)} do
+        use Jido.Flow, name: "attribute_name"
+        @step_name "increment"
+        flow do
+          #{declaration}
+          output result("increment")
+        end
+      end
+      """)
+
+      assert [%Jido.Flow.Step{name: "increment", action: action}] = owner.flow().components
+      assert owner.step_action("increment") == action
+      assert {:ok, %{value: 2}} = Jido.Exec.run(owner, %{})
+    end
+  end
+
+  test "inline names and bodies retain attributes at each declaration" do
+    owner = unique_owner("AttributeOrder")
+
+    declarations = """
+    step @step_name, [], do: {:ok, %{name: @step_name}}
+    @step_name "second"
+    step @step_name, [], do: {:ok, %{name: @step_name}}
+    """
+
+    compile_source(flow_source(owner, declarations, ~s(@step_name "first")))
+
+    assert Enum.map(owner.flow().components, & &1.name) == ["first", "second"]
+
+    for name <- ["first", "second"] do
+      {target, _} = generated_identity(owner, name)
+      assert owner.step_action(name) == target
+      assert target.name() == name
+      assert {:ok, %{name: ^name}} = Jido.Exec.run(target, %{})
+    end
+  end
+
+  test "attribute names detect mixed duplicates at the second declaration" do
+    inline = "step @step_name, [], do: {:ok, %{}}"
+    explicit = "step @step_name, action: JidoActionTest.Fixtures.Actions.Add, params: %{value: 1}"
+
+    for {first, second} <- [{inline, explicit}, {explicit, inline}, {inline, inline}] do
+      owner = unique_owner("AttributeDuplicate")
+      {target, _} = generated_identity(owner, "same")
+      source = flow_source(owner, first <> "\n" <> second, ~s(@step_name "same"))
+
+      error =
+        assert_raise CompileError, ~r/duplicate Step name: "same"/, fn ->
+          compile_source(source)
+        end
+
+      assert error.file == "inline_compile.ex"
+      assert error.line == 6
+
+      if first == inline,
+        do: assert(target.__jido_inline_step__() == {owner, "same"}),
+        else: refute(Code.ensure_loaded?(target))
+    end
+  end
+
+  test "invalid evaluated inline names report the Step location" do
+    for value <- ["", nil, 123] do
+      owner = unique_owner("InvalidAttributeName")
+
+      source =
+        flow_source(owner, "step @step_name, [], do: {:ok, %{}}", "@step_name #{inspect(value)}")
+
+      error = assert_raise CompileError, fn -> compile_source(source) end
+      assert error.file == "inline_compile.ex"
+      assert error.line == 5
+      assert error.description =~ "name"
     end
   end
 
@@ -87,7 +173,8 @@ defmodule Jido.Flow.DSL.InlineStepTest do
   test "a Step in a false authoring branch does not reserve its name" do
     for unused <- [
           ~s(step "same", action: JidoActionTest.Fixtures.Actions.Add, params: %{value: 1}),
-          ~s(step "same", [], do: {:ok, %{value: :unused}})
+          ~s(step "same", [], do: {:ok, %{value: :unused}}),
+          "step #{inspect(NameSource)}.expression_name(), [], do: {:ok, %{}}"
         ] do
       owner = unique_owner("Conditional")
 
@@ -101,6 +188,9 @@ defmodule Jido.Flow.DSL.InlineStepTest do
       compile_source(flow_source(owner, declarations))
       assert [%Jido.Flow.Step{name: "same"}] = owner.flow().components
       assert owner.step_action("same").run(%{}, %{}) == {:ok, %{value: :used}}
+      refute_received :inline_name_expression_evaluated
+      {unused_target, _} = generated_identity(owner, "expression_name")
+      refute Code.ensure_loaded?(unused_target)
     end
   end
 
@@ -205,6 +295,77 @@ defmodule Jido.Flow.DSL.InlineStepTest do
       end
       """)
     end
+  end
+
+  test "default arguments that define reserved arities report the user declaration" do
+    for {kind, position} <- [{:lookup, :before}, {:lookup, :after}, {:body, :after}],
+        visibility <- [:def, :defp],
+        defaults <- [1, 2] do
+      owner = unique_owner("DefaultConflict")
+      {_target, body_function} = generated_identity(owner, "same")
+      {function, arity} = if kind == :lookup, do: {:step_action, 1}, else: {body_function, 2}
+      required = List.duplicate("_", arity)
+      optional = List.duplicate("_ \\\\ []", defaults)
+
+      clause =
+        "#{visibility} #{function}(#{Enum.join(required ++ optional, ", ")}), do: :user_clause"
+
+      {before, after_code} = if position == :before, do: {clause, ""}, else: {"", clause}
+      source = flow_source(owner, ~s(step "same", [], do: {:ok, %{}}), before, after_code)
+      clause_line = source |> String.split("\n") |> Enum.find_index(&(String.trim(&1) == clause))
+
+      {error, diagnostics} =
+        Code.with_diagnostics(fn ->
+          assert_raise CompileError, fn -> compile_source(source) end
+        end)
+
+      if error.description =~ "reserved Flow function" do
+        assert error.description =~ "#{function}/#{arity}"
+        assert error.file == "inline_compile.ex"
+        assert error.line == clause_line + 1
+      else
+        # Elixir can reject a private default-generated clause before our callback.
+        assert visibility == :defp
+        definition_line = if kind == :lookup, do: 2, else: 5
+
+        assert Enum.any?(diagnostics, fn diagnostic ->
+                 diagnostic.severity == :error and
+                   diagnostic.message ==
+                     "defp #{function}/#{arity} already defined as def in inline_compile.ex:#{definition_line}" and
+                   Path.basename(diagnostic.file) == "inline_compile.ex" and
+                   diagnostic_line(diagnostic) == clause_line + 1
+               end)
+      end
+    end
+  end
+
+  test "an earlier body helper with default arguments cannot be replaced by an inline Step" do
+    for visibility <- [:def, :defp] do
+      owner = unique_owner("EarlyDefaultBody")
+      {target, function} = generated_identity(owner, "same")
+      helper = "#{visibility} #{function}(_, _, _ \\\\ []), do: :user_clause"
+      source = flow_source(owner, ~s(step "same", [], do: {:ok, %{}}), helper)
+
+      error =
+        assert_raise CompileError, ~r/reserved Flow function.*#{function}\/2/, fn ->
+          compile_source(source)
+        end
+
+      # The Step is where this computed function name first becomes reserved.
+      assert error.file == "inline_compile.ex"
+      assert error.line == 5
+      refute Code.ensure_loaded?(target)
+    end
+  end
+
+  test "default arguments with no reserved arity remain valid" do
+    owner = unique_owner("AllowedDefaults")
+    helper = "def step_action(name, value, opts \\\\ []), do: {name, value, opts}"
+    compile_source(flow_source(owner, ~s(step "same", [], do: {:ok, %{}}), "", helper))
+
+    assert owner.step_action("same", :value) == {"same", :value, []}
+    assert owner.step_action("same", :value, [:option]) == {"same", :value, [:option]}
+    assert {:ok, %{}} = owner.step_action("same").run(%{}, %{})
   end
 
   test "bounded target names preserve long, punctuation, and Unicode names across owners" do
