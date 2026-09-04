@@ -1,7 +1,7 @@
 # Version 2 To Version 3 Migration Guide
 
 This guide explains how to migrate an application from the published
-`jido_action` version `2.3.2` API to version `3.0.0-beta.3`.
+`jido_action` version `2.3.2` API to version `3.0.0-beta.4`.
 
 This guide covers only version 2 to version 3 changes. Each section starts
 with version 2 code that no longer has the same contract. It then gives the
@@ -17,7 +17,7 @@ Change the package version in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:jido_action, "~> 3.0.0-beta.3"}
+    {:jido_action, "~> 3.0.0-beta.4"}
   ]
 end
 ```
@@ -494,7 +494,7 @@ fall back to the global supervisor.
 
 ## Version 2 To Version 3 Migration Checklist
 
-1. Change the dependency to `jido_action` `3.0.0-beta.3`.
+1. Change the dependency to `jido_action` `3.0.0-beta.4`.
 2. Add direct dependencies that application code used through version 2.
 3. Remove unsupported Action options and convert NimbleOptions schemas to
    static, map-shaped Zoi schemas.

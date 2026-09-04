@@ -11,6 +11,15 @@ entries return to the normal automated changelog process.
 
 <!-- changelog -->
 
+## [3.0.0-beta.4](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.3...v3.0.0-beta.4) (2026-09-04)
+
+
+
+
+### Bug Fixes:
+
+* flow: preserve DSL formatting without parentheses (#213) by mikehostetler
+
 ## Unreleased
 
 ## [v3.0.0-beta.2](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.1...v3.0.0-beta.2) (2026-08-27)
