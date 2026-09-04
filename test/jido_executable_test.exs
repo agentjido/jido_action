@@ -27,6 +27,27 @@ defmodule JidoActionTest.ExecutableTest do
     def __jido_executable__, do: raise("descriptor failed")
   end
 
+  test "the Executable behaviour declares identity and validation callbacks" do
+    assert Enum.sort(Executable.behaviour_info(:callbacks)) ==
+             [__jido_executable__: 0, validate_output: 1, validate_params: 1]
+
+    assert Executable.behaviour_info(:optional_callbacks) == []
+    assert {:run, 2} in Jido.Action.behaviour_info(:callbacks)
+  end
+
+  test "generated Action and Flow modules implement the Executable behaviour" do
+    for module <- [Add, MathFlow] do
+      behaviours =
+        module.__info__(:attributes) |> Keyword.get_values(:behaviour) |> List.flatten()
+
+      assert Executable in behaviours
+
+      for {callback, arity} <- Executable.behaviour_info(:callbacks) do
+        assert function_exported?(module, callback, arity)
+      end
+    end
+  end
+
   test "Action modules expose and resolve one Action descriptor" do
     assert %Executable{
              kind: :action,
@@ -70,7 +91,7 @@ defmodule JidoActionTest.ExecutableTest do
     assert :ok = Executable.validate(MathFlow.flow())
   end
 
-  test "validation checks the common Action-compatible module callbacks" do
+  test "validation checks the common module callbacks" do
     assert {:error, missing_run} = Executable.validate(MissingRun)
     assert missing_run.message == "module is not a valid Jido executable"
     assert missing_run.details.executable == MissingRun
