@@ -735,18 +735,7 @@ defmodule Jido.Flow.Codec do
 
         case collect_values(fields, errors) do
           {:ok, attrs} ->
-            case Expr.new(attrs.operator, attrs.operands) do
-              {:ok, expression} ->
-                {:ok, expression}
-
-              {:error, error} ->
-                {:error,
-                 Error.validation_error("invalid stored expression", %{
-                   path: tag_path,
-                   reason: error.reason,
-                   operator: error.operator
-                 })}
-            end
+            build_operation(attrs, tag_path)
 
           error ->
             error
@@ -847,7 +836,7 @@ defmodule Jido.Flow.Codec do
             unknown_field_errors(record, ["operator", "operands"], path ++ ["$condition"])
 
         case collect_values(fields, errors) do
-          {:ok, attrs} -> {:ok, struct!(Expr, attrs)}
+          {:ok, attrs} -> build_operation(attrs, path ++ ["$condition"])
           {:error, errors} -> {:error, errors}
         end
 
@@ -899,6 +888,21 @@ defmodule Jido.Flow.Codec do
 
   defp diagnose_condition_operands_field(_record, {:error, _error}, _registry, _depth, _path) do
     {:ok, []}
+  end
+
+  defp build_operation(attrs, path) do
+    case Expr.new(attrs.operator, attrs.operands) do
+      {:ok, expression} ->
+        {:ok, expression}
+
+      {:error, error} ->
+        {:error,
+         Error.validation_error("invalid stored expression", %{
+           path: path,
+           reason: error.reason,
+           operator: error.operator
+         })}
+    end
   end
 
   defp diagnose_data(value, _registry, depth, path)

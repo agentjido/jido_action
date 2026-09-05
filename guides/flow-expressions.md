@@ -129,8 +129,9 @@ Every Condition constructor returns `Jido.Expr`, regardless of operand shape.
 Legacy `%Jido.Flow.Condition{}` input is converted once during construction.
 The complete operation tree shares one runtime budget in Choice, Iterate,
 and data fields. Only evaluated Boolean operands must have Boolean values.
-For example, `Condition.all([false, 1])` succeeds with `false`, while
-`Condition.all([true, 1])` returns a runtime type error.
+For example, both `Condition.all([false, 1])` and `Condition.all([true, 1])`
+construct Expr values. Evaluation returns `false` for the first expression
+and a type error for the second expression.
 
 ## Stored JSON
 
@@ -274,6 +275,25 @@ removed. Use `Jido.Flow.to_map/1` and `Jido.Flow.dependencies/1` for Flow inspec
 The `Jido.Expr` name, operators, constructors, macro, parser, validator, and
 resolver entry points remain available.
 
+The accepted inputs and error phase also change. Earlier Condition-only
+constructors rejected raw non-Boolean children such as `1`. Constructors now
+accept portable children, including children that evaluation can skip:
+
+```elixir
+{:ok, false} = Jido.Expr.evaluate(Condition.all([false, 1]))
+{:error, error} = Jido.Expr.evaluate(Condition.all([true, 1]))
+:invalid_boolean_operand = error.reason
+[:operands, 1] = error.path
+```
+
+Both expressions are valid definitions. In a Flow, the evaluated counterpart
+fails during execution with `reason: :invalid_boolean_operand` and
+`expression_path: [:operands, 1]`. The phase is `:choice_condition` for a
+Choice or `:iterate_completion` for Iterate. This is an accepted-input and
+error-phase change, separate from resource limits. Malformed trees,
+nonportable data, and invalid reference scopes still fail construction,
+including in skipped Boolean operands.
+
 The old Condition tree could exceed Expr limits. A 4,000-item list of simple
 comparisons, for example, exceeds the 10,000-node construction budget:
 
@@ -292,6 +312,9 @@ an Action with an application-owned resource policy.
 Operation validation and runtime failures now use the shared Expr error
 contract. Invalid arity reports `invalid Flow expression`, `operator`,
 `reason: :invalid_arity`, and `path`. Operand paths include `:operands`.
+Stored arity failures report `invalid stored expression` and a complete JSON
+path to the invalid `$condition` or `$expr` record. Invalid result names
+retain the complete path through their containing maps, lists, and operands.
 Reference validation uses `ref_type`; it no longer uses Condition's `type`.
 Runtime operation type errors report `invalid Flow expression` with `types`
 in operand order, in place of `left_type` and `right_type`. Numeric types are
@@ -305,3 +328,29 @@ for Flows without operations. Derived item and iteration IDs change with
 the Flow digest. Rebuild compiled Flows and invalidate identity-keyed caches.
 Equivalent DSL, Builder, direct, and decoded Flows share the new identity.
 Document versions and semantic identity versions are separate contracts.
+
+Keep application-owned Registry IDs when their Action, Flow, schema, or atom
+values have not changed. An identity-version change does not require new
+Registry IDs. Decode old documents with their trusted Registry, then encode
+the restored Flow with the current writer. This function accepts both legacy
+and current documents; the call below uses the Stored JSON example above:
+
+```elixir
+migrate_document = fn old_document, registry ->
+  with {:ok, flow} <- Jido.Flow.Codec.decode(old_document, registry),
+       {:ok, current_document} <- Jido.Flow.Codec.encode(flow, registry),
+       {:ok, current_identity} <- Jido.Flow.semantic_identity(flow) do
+    {:ok, current_document, current_identity}
+  end
+end
+
+{:ok, ^document, %{version: 2}} = migrate_document.(document, registry)
+```
+
+A read alias can still map an old identifier to its current typed entry;
+encoding uses that typed entry's write ID. If an old document used a generated
+temporary Registry, keep that exact Registry until decoding is complete.
+For durable storage, encode the restored Flow with application-owned IDs.
+Do not reconstruct an old temporary Registry from new Flow data. Deploy the
+version 2 reader before writing version 2 operation documents, and invalidate
+identity-keyed caches separately from Registry migration.

@@ -203,6 +203,80 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
     end
   end
 
+  test "skipped mixed operations still validate Flow data and reference scopes" do
+    for {outer, inner} <- [{Expr, Condition}, {Condition, Expr}],
+        data <- [Ref.item(), <<255>>, %{nil => 1}, %{-1 => 1}] do
+      expression =
+        struct!(outer,
+          operator: :all,
+          operands: [false, struct!(inner, operator: :eq, operands: [data, 1])]
+        )
+
+      assert {:error, %Jido.Flow.Error.InvalidDefinitionError{} = error} =
+               Condition.validate(expression, :flow)
+
+      assert error.details.path == [:operands, 1, :operands, 0]
+    end
+  end
+
+  test "invalid result names retain their complete normalization path" do
+    reference = Ref.result("")
+
+    for {outer, inner} <- [{Expr, Condition}, {Condition, Expr}] do
+      expression =
+        struct!(outer,
+          operator: :eq,
+          operands: [struct!(inner, operator: :eq, operands: [reference, 1]), true]
+        )
+
+      assert {:error, error} = Condition.new(expression)
+      assert Exception.message(error) == "Action name cannot be blank."
+      assert error.details.path == [:operands, 0, :operands, 0]
+
+      assert {:error, error} =
+               Step.new(name: "seed", action: EchoParamsAction, params: %{outer: [expression]})
+
+      assert error.details.path == [:outer, 0, :operands, 0, :operands, 0]
+    end
+
+    assert {:error, error} = Jido.Flow.Expression.normalize(%{outer: [reference]})
+    assert error.details.path == [:outer, 0]
+  end
+
+  test "legacy and current stored arity errors retain their JSON tag paths" do
+    assert {:ok, document, registry} = Codec.encode(choice_flow(Condition.eq(1, 1)))
+    location = ["components", Access.at(0), "options", Access.at(0), "condition"]
+
+    for {version, tag} <- [{1, "$condition"}, {2, "$condition"}, {2, "$expr"}],
+        {operator, operands} <- [{"eq", [1]}, {"not", []}, {"all", []}] do
+      invalid = %{
+        tag => %{
+          "operator" => "not",
+          "operands" => [%{tag => %{"operator" => operator, "operands" => operands}}]
+        }
+      }
+
+      invalid_document = document |> Map.put("version", version) |> put_in(location, invalid)
+
+      assert {:error, error} =
+               Codec.decode(JSON.decode!(JSON.encode!(invalid_document)), registry)
+
+      assert error.details.reason == :invalid_arity
+
+      assert error.details.path == [
+               "components",
+               0,
+               "options",
+               0,
+               "condition",
+               tag,
+               "operands",
+               0,
+               tag
+             ]
+    end
+  end
+
   defp nested_negate(count),
     do: Enum.reduce(1..count, 1, fn _, value -> Expr.new!(:negate, [value]) end)
 

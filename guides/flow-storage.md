@@ -27,6 +27,12 @@ ambiguous write identifiers.
 The host application owns the Registry. Stored data never creates atoms,
 derives module names, or selects an unregistered schema.
 
+Condition migration keeps these IDs when the registered values are unchanged.
+Semantic identity version 2 requires new Flow digests and cache entries, not
+new Registry IDs. Decode legacy condition documents with their trusted Registry
+before writing the current operation format. See the
+[beta migration notes](flow-expressions.md#migrate-earlier-v3-beta-conditions).
+
 ## Generate A Temporary Registry
 
 Use `Jido.Flow.Codec.encode/1` when stable application identifiers are not

@@ -3,7 +3,7 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
 
   alias Jido.Expr
   alias Jido.Flow
-  alias Jido.Flow.{Builder, Choice, Codec, Condition, Iterate, Ref, Step}
+  alias Jido.Flow.{Builder, Choice, Codec, Condition, Iterate, Ref, Registry, Step}
   alias Jido.Flow.DSL.Expression
   alias Jido.Flow.Error.InvalidDefinitionError
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
@@ -320,6 +320,100 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
              })
 
     assert error.details.path == [:outer, 0, :operands, 0]
+  end
+
+  test "mixed legacy and Expr trees share their complete construction budget" do
+    for count <- [64, 65] do
+      mixed =
+        Enum.reduce(1..count, true, fn index, child ->
+          module = if rem(index, 2) == 0, do: Expr, else: Condition
+          struct!(module, operator: :not, operands: [child])
+        end)
+
+      if count == 64 do
+        assert {:ok, expression} = Condition.new(mixed)
+        assert :ok = Expr.validate(expression)
+        assert {:ok, true} = Expr.evaluate(expression)
+      else
+        assert {:error, error} = Condition.new(mixed)
+        assert error.details.reason == :max_depth
+      end
+    end
+
+    comparisons = List.duplicate(%Condition{operator: :eq, operands: [1, 1]}, 2_000)
+    text = String.duplicate("x", 300_000)
+
+    for {operator, operands, reason} <- [
+          {:all, comparisons, :max_nodes},
+          {:eq, [text, text], :max_binary_bytes}
+        ] do
+      legacy = %Condition{operator: operator, operands: operands}
+      assert {:ok, canonical} = Condition.new(legacy)
+
+      for values <- [[legacy, canonical], [canonical, legacy]] do
+        assert {:error, error} = Condition.new(Expr.new!(:all, values))
+        assert error.details.reason == reason
+      end
+    end
+  end
+
+  test "portable Boolean children are accepted at construction and checked at evaluation" do
+    for value <- [false, true] do
+      expression = Condition.all([value, 1])
+      assert %Expr{operator: :all, operands: [^value, 1]} = expression
+      source = quote(do: all([unquote(value), 1]))
+      direct = choice_flow(expression)
+
+      for flow <- [
+            direct,
+            builder_flow(Builder.all([value, 1])),
+            module_flow(Module.concat(__MODULE__, "BooleanChild#{value}"), source),
+            round_trip(direct, 2)
+          ] do
+        assert flow == direct
+
+        if value do
+          assert {:error, error} = Jido.Exec.run(flow)
+          assert error.details.phase == :choice_condition
+          assert error.details.reason == :invalid_boolean_operand
+          assert error.details.expression_path == [:operands, 1]
+        else
+          assert Jido.Exec.run(flow) == {:ok, %{selected: false}}
+        end
+      end
+    end
+  end
+
+  test "legacy JSON migrates with stable Registry IDs and the same version-two identity" do
+    registry =
+      Registry.new!(%{
+        "actions/echo/v1" => {:action, EchoParamsAction},
+        "actions/echo/old" => {:alias, "actions/echo/v1"},
+        "schemas/none/v1" => {:schema, []},
+        "atoms/score/v1" => {:atom, :score},
+        "atoms/selected/v1" => {:atom, :selected}
+      })
+
+    flow = choice_flow(Condition.eq(Ref.input(:score), 1))
+    assert {:ok, document} = Codec.encode(flow, registry)
+    assert {:ok, %{version: 2} = identity} = Flow.semantic_identity(flow)
+    action_path = ["components", Access.at(0), "options", Access.at(0), "action"]
+
+    for version <- [1, 2] do
+      legacy =
+        document
+        |> legacy_document()
+        |> Map.put("version", version)
+        |> put_in(action_path, "actions/echo/old")
+
+      assert {:ok, restored} = Codec.decode(JSON.decode!(JSON.encode!(legacy)), registry)
+      assert restored == flow
+      assert {:ok, ^identity} = Flow.semantic_identity(restored)
+      assert {:ok, ^document} = Codec.encode(restored, registry)
+      assert document["version"] == 2
+      assert get_in(document, action_path) == "actions/echo/v1"
+      assert Jido.Exec.run(restored, %{score: 1}) == {:ok, %{selected: true}}
+    end
   end
 
   defp legacy_document(%{"$expr" => record}), do: %{"$condition" => legacy_document(record)}

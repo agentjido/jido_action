@@ -150,11 +150,11 @@ defmodule Jido.Flow.Expression do
     |> operation_result(path)
   end
 
-  defp do_normalize(%Ref{source: :result, component: component} = ref, _path)
+  defp do_normalize(%Ref{source: :result, component: component} = ref, path)
        when (is_atom(component) and not is_nil(component)) or is_binary(component) do
     case normalize_name(component) do
       {:ok, component} -> {:ok, %{ref | component: component}}
-      {:error, error} -> {:error, error}
+      {:error, error} -> {:error, prefix_path(error, path)}
     end
   end
 
