@@ -330,11 +330,29 @@ defmodule Jido.Expr.Runtime do
     end
   end
 
-  defp member(_left, [], state, _path, _depth), do: {:ok, false, state}
+  defp member(left, values, state, path, depth),
+    do: member(left, values, state, path, depth, nil)
 
-  defp member(left, [head | tail], state, path, depth) do
-    with {:ok, equal?, state} <- equal(left, head, state, path, depth) do
-      if equal?, do: {:ok, true, state}, else: member(left, tail, state, path, depth)
+  defp member(_left, [], state, _path, _depth, _cost), do: {:ok, false, state}
+
+  defp member(left, [head | tail], state, path, depth, cost) do
+    with {:ok, state, cost} <- membership_left(left, state, path, depth, cost),
+         {:ok, _right, state} <- visit(head, state, path, depth, :data) do
+      if left == head, do: {:ok, true, state}, else: member(left, tail, state, path, depth, cost)
+    end
+  end
+
+  # The left value and its depth do not change during this membership scan.
+  # Keep charging its full cost. Walk again near a limit to keep the first error.
+  defp membership_left(_left, state, _path, _depth, {nodes, bytes} = cost)
+       when state.nodes + nodes <= state.max_nodes and
+              state.bytes + bytes <= state.max_binary_bytes do
+    {:ok, %{state | nodes: state.nodes + nodes, bytes: state.bytes + bytes}, cost}
+  end
+
+  defp membership_left(left, state, path, depth, _cost) do
+    with {:ok, _left, checked} <- visit(left, state, path, depth, :data) do
+      {:ok, checked, {checked.nodes - state.nodes, checked.bytes - state.bytes}}
     end
   end
 

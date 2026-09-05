@@ -472,6 +472,27 @@ defmodule Jido.ExprTest do
              Jido.Expr.parse(quote(do: [[[1 + 2]]]), max_depth: 2)
   end
 
+  test "membership preserves cumulative budgets and the first failing data path" do
+    left = %{items: ["abc", 1]}
+    right = [%{items: ["xyz", 1]}, %{items: ["abc", 1.0]}]
+    expression = Jido.Expr.new!(:in, [left, right])
+
+    for {options, reason, path, operator} <- [
+          {[max_nodes: 28], :max_nodes, [], nil},
+          {[max_nodes: 30], :max_nodes, [0], nil},
+          {[max_nodes: 31], :max_nodes, [1], nil},
+          {[max_nodes: 37], :max_nodes, [], :in},
+          {[max_binary_bytes: 18], :max_binary_bytes, [0], nil},
+          {[max_nodes: 30, max_binary_bytes: 15], :max_nodes, [0], nil},
+          {[max_nodes: 31, max_binary_bytes: 15], :max_binary_bytes, [0], nil}
+        ] do
+      assert {:error, %Jido.Expr.Error{reason: ^reason, path: ^path, operator: ^operator}} =
+               Jido.Expr.evaluate(expression, options)
+    end
+
+    assert {:ok, true} = Jido.Expr.evaluate(expression, max_nodes: 38, max_binary_bytes: 21)
+  end
+
   test "invalid options and invalid host callbacks return structured errors" do
     for options <- [
           [unknown: true],
