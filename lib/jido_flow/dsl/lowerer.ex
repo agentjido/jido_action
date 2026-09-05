@@ -4,6 +4,7 @@ defmodule Jido.Flow.DSL.Lowerer do
   alias Jido.Flow
   alias Jido.Flow.Condition
   alias Jido.Flow.Error
+  alias Jido.Flow.Validation
   alias Jido.Flow.Ref
   alias Jido.Flow.Step, as: FlowStep
   alias Jido.Flow.Subflow
@@ -35,14 +36,19 @@ defmodule Jido.Flow.DSL.Lowerer do
 
     with :ok <- validate_output_position(entities),
          {:ok, components, output} <- lower_entities(entities) do
-      Flow.new(%{
+      attrs = %{
         name: Keyword.fetch!(opts, :name),
         description: Keyword.get(opts, :description),
         schema: Keyword.get(opts, :schema, []),
         output_schema: Keyword.get(opts, :output_schema, []),
         components: components,
         output: output
-      })
+      }
+
+      case Validation.diagnose(attrs) do
+        {:ok, attrs} -> {:ok, struct!(Flow, attrs)}
+        {:error, [issue | _rest]} -> {:error, attach_validation_location(issue, entities)}
+      end
     end
   end
 
@@ -312,6 +318,25 @@ defmodule Jido.Flow.DSL.Lowerer do
         error = Error.validation_error("output must be the final Flow declaration")
         {:error, attach_entity_location(error, Enum.at(entities, index))}
     end
+  end
+
+  defp attach_validation_location(%{error: error, location: location}, entities) do
+    entity =
+      case location do
+        [:output | _rest] ->
+          Enum.find(entities, &match?(%Output{}, &1))
+
+        [:components, index | _rest] when is_integer(index) ->
+          entities |> Enum.reject(&match?(%Output{}, &1)) |> Enum.at(index)
+
+        [:components] ->
+          Enum.find(entities, &(Map.get(&1, :name) in error.details.components))
+
+        _other ->
+          nil
+      end
+
+    if entity, do: attach_entity_location(error, entity), else: error
   end
 
   defp attach_entity_location(%{details: details} = error, entity) when is_map(details) do
