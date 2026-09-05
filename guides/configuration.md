@@ -153,6 +153,9 @@ Remove `jido: nil` to use the default. This also applies to deprecated
 at the call. `Jido.Exec.task_supervisor_name(instance)` has been removed. Declare the
 supervisor name in the host supervision tree, as shown above.
 
+This rejection applies only to execution options. `context.jido` remains
+ordinary host data and is preserved through nested Flows and continuations.
+
 A host with several statically named instances can keep its own naming helper:
 
 ```elixir

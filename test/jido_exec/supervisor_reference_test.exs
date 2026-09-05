@@ -5,7 +5,7 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
   alias Jido.Exec
   alias Jido.Exec.Error.AsyncExecutionError
   alias Jido.Flow
-  alias Jido.Flow.{Condition, Dispatch, Iterate, Reduce, Ref}
+  alias Jido.Flow.{Condition, Dispatch, Iterate, Reduce, Ref, Subflow}
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Instruction
   alias JidoActionTest.Fixtures.BlockingFlow
@@ -32,8 +32,27 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
 
       receive do
         {^ref, :raise} -> raise ArgumentError, "via registry stopped"
+        {^ref, :throw} -> throw(:via_unavailable)
+        {^ref, :exit} -> exit(:via_unavailable)
+        {^ref, :missing} -> :undefined
         {^ref, pid} -> pid
       end
+    end
+  end
+
+  defmodule ContextData do
+    use Jido.Action, name: "supervisor_host_context"
+
+    @impl true
+    def run(_params, context), do: {:ok, context}
+  end
+
+  defmodule ContextFlow do
+    use Jido.Flow, name: "supervisor_host_context_flow"
+
+    flow do
+      step("echo", action: ContextData, params: %{})
+      output(result("echo"))
     end
   end
 
@@ -73,7 +92,7 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
         assert_receive {:blocking_flow_node_started, worker}, 1_000, inspect({form, mode})
         assert worker in Task.Supervisor.children(expected_supervisor)
         refute worker in Task.Supervisor.children(Jido.Exec.TaskSupervisor)
-        monitor = Process.monitor(worker)
+        monitor = monitor_worker(worker)
         send(worker, :finish)
         assert {:ok, %{value: _}} = caller_result(caller)
         assert_receive {:DOWN, ^monitor, :process, ^worker, :normal}
@@ -275,7 +294,7 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
       Exec.run_async(BlockingAction, %{}, %{test_pid: self()}, task_supervisor: first)
 
     assert_receive {:blocking_flow_node_started, first_worker}
-    first_monitor = Process.monitor(first_worker)
+    first_monitor = monitor_worker(first_worker)
 
     second_handle =
       Exec.run_async(BlockingAction, %{}, %{test_pid: self()}, task_supervisor: second)
@@ -292,29 +311,34 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
     assert {:ok, %{}} = Exec.await(second_handle)
   end
 
-  test "named paused work uses a replacement while a PID route stays with its original process" do
-    name = __MODULE__.Replacement
-    original = start_supervised!({Task.Supervisor, name: name})
-    context = %{test_pid: self()}
-    {:ok, named} = Exec.start(BlockingFlow, %{value: :new}, context, task_supervisor: name)
-    {:ok, pinned} = Exec.start(BlockingFlow, %{value: :old}, context, task_supervisor: original)
-    stop_supervised!(name)
-    replacement = start_supervised!({Task.Supervisor, name: name})
-    refute original == replacement
+  for route_kind <- [:name, :registry] do
+    @route_kind route_kind
+    test "paused #{@route_kind} work uses a replacement while a PID keeps its original lifetime" do
+      route = start_route(@route_kind)
+      original = GenServer.whereis(route)
+      context = %{test_pid: self()}
+      {:ok, named} = Exec.start(BlockingFlow, %{value: :new}, context, task_supervisor: route)
+      {:ok, pinned} = Exec.start(BlockingFlow, %{value: :old}, context, task_supervisor: original)
+      stop_supervised!(Task.Supervisor.child_spec(name: route).id)
+      replacement = start_supervised!({Task.Supervisor, name: route})
+      refute original == replacement
 
-    assert {:ok, failed} = Exec.continue(pinned)
+      assert {:ok, failed} = Exec.continue(pinned)
 
-    assert {:error, %ExecutionFailureError{details: %{task_supervisor: ^original}}} =
-             Exec.result(failed)
+      assert {:error, %ExecutionFailureError{details: %{task_supervisor: ^original}}} =
+               Exec.result(failed)
 
-    refute_received {:blocking_flow_node_started, _}
+      refute_received {:blocking_flow_node_started, _}
 
-    caller = start_caller(fn -> finish_execution(named, :continue) end)
-    assert_receive {:blocking_flow_node_started, worker}
-    assert worker in Task.Supervisor.children(replacement)
-    send(worker, :finish)
-    assert {:ok, %{value: :new}} = caller_result(caller)
-    assert Task.Supervisor.children(replacement) == []
+      caller = start_caller(fn -> finish_execution(named, :continue) end)
+      assert_receive {:blocking_flow_node_started, worker}, 1_000
+      monitor = monitor_worker(worker)
+      assert worker in Task.Supervisor.children(replacement)
+      send(worker, :finish)
+      assert {:ok, %{value: :new}} = caller_result(caller)
+      assert_receive {:DOWN, ^monitor, :process, ^worker, :normal}, 1_000
+      assert Task.Supervisor.children(replacement) == []
+    end
   end
 
   test "contains supervisor shutdown during a synchronous Action or Flow call" do
@@ -332,7 +356,7 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
         end)
 
       assert_receive {:blocking_flow_node_started, worker}
-      monitor = Process.monitor(worker)
+      monitor = monitor_worker(worker)
       Supervisor.stop(supervisor)
       assert_receive {:DOWN, ^monitor, :process, ^worker, :shutdown}
 
@@ -344,7 +368,8 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
   test "contains a task-start race after successful via lookup without fallback" do
     owner = self()
 
-    for mode <- [:run, :async], failure <- [:dead_pid, :raise] do
+    for mode <- [:run, :finite, :flow, :async],
+        failure <- [:dead_pid, :raise, :missing, :throw, :exit] do
       supervisor = start_route(:pid)
       token = make_ref()
       route = {:via, BarrierVia, {owner, token}}
@@ -355,6 +380,15 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
             case mode do
               :run ->
                 Exec.run(BlockingAction, %{}, %{test_pid: owner}, task_supervisor: route)
+
+              :finite ->
+                Exec.run(BlockingAction, %{}, %{test_pid: owner},
+                  task_supervisor: route,
+                  timeout: 10_000
+                )
+
+              :flow ->
+                Exec.run(BlockingFlow, %{value: 1}, %{test_pid: owner}, task_supervisor: route)
 
               :async ->
                 Exec.run_async(BlockingAction, %{}, %{test_pid: owner}, task_supervisor: route)
@@ -368,23 +402,121 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
       send(lookup_caller, {ref, supervisor})
       assert_receive {:lookup, ^token, lookup_caller, ref}
       Supervisor.stop(supervisor)
-      send(lookup_caller, {ref, if(failure == :raise, do: :raise, else: supervisor)})
+      send(lookup_caller, {ref, if(failure == :dead_pid, do: supervisor, else: failure)})
       assert {:error, error} = caller_result(caller)
 
       assert error.__struct__ ==
-               if(mode == :run, do: ExecutionFailureError, else: AsyncExecutionError)
+               if(mode == :async, do: AsyncExecutionError, else: ExecutionFailureError)
 
       assert error.details.task_supervisor == route
 
-      if failure == :raise do
-        assert {:error, %ArgumentError{}} = error.details.reason
-      else
-        assert {:exit, _} = error.details.reason
+      case failure do
+        :raise -> assert {:error, %ArgumentError{}} = error.details.reason
+        :dead_pid -> assert {:exit, _} = error.details.reason
+        :missing -> assert error.details.reason == :noproc
+        kind -> assert error.details.reason == {kind, :via_unavailable}
       end
 
       assert error.details.retry == false
       refute_received {:blocking_flow_node_started, _}
     end
+  end
+
+  test "contains via lookup failures at the public validation boundary" do
+    owner = self()
+
+    for mode <- [:run, :finite, :start, :async], failure <- [:raise, :throw, :exit] do
+      token = make_ref()
+      route = {:via, BarrierVia, {owner, token}}
+
+      caller =
+        start_caller(fn ->
+          try do
+            case mode do
+              :run ->
+                Exec.run(BlockingFlow, %{value: 1}, %{test_pid: owner}, task_supervisor: route)
+
+              :finite ->
+                Exec.run(BlockingFlow, %{value: 1}, %{test_pid: owner},
+                  task_supervisor: route,
+                  timeout: 10_000
+                )
+
+              :start ->
+                Exec.start(BlockingFlow, %{value: 1}, %{test_pid: owner}, task_supervisor: route)
+
+              :async ->
+                Exec.run_async(BlockingFlow, %{value: 1}, %{test_pid: owner},
+                  task_supervisor: route
+                )
+            end
+          rescue
+            error -> {:error, error}
+          end
+        end)
+
+      assert_receive {:lookup, ^token, lookup_caller, ref}, 1_000
+      send(lookup_caller, {ref, failure})
+      assert {:error, error} = caller_result(caller)
+
+      assert error.__struct__ ==
+               if(mode == :async,
+                 do: InvalidInputError,
+                 else: Jido.Flow.Error.InvalidExecutionError
+               )
+
+      assert error.message == "Task Supervisor lookup failed"
+      assert error.details.task_supervisor == route
+
+      case failure do
+        :raise -> assert %ArgumentError{} = error.details.reason
+        kind -> assert error.details.reason == {kind, :via_unavailable}
+      end
+
+      refute_received {:blocking_flow_node_started, _}
+    end
+  end
+
+  test "keeps context.jido as host data through Actions, Instructions, and nested Flows" do
+    supervisor = start_route(:pid)
+    context = %{jido: %{host: :example}, marker: make_ref()}
+
+    flow = ContextFlow.flow()
+
+    parent =
+      Flow.new!(
+        name: "nested_host_context",
+        components: [
+          Subflow.new!(name: :child, flow: ContextFlow)
+        ],
+        output: Ref.result(:child)
+      )
+
+    for target <- [ContextData, Instruction.new!(target: ContextData), flow, parent] do
+      for timeout <- [:infinity, 10_000] do
+        assert Exec.run(target, %{}, context, task_supervisor: supervisor, timeout: timeout) ==
+                 {:ok, context}
+      end
+
+      handle = Exec.run_async(target, %{}, context, task_supervisor: supervisor)
+      assert Exec.await(handle) == {:ok, context}
+    end
+
+    for target <- [flow, parent] do
+      {:ok, execution} = Exec.start(target, %{}, context, task_supervisor: supervisor)
+      assert finish_execution(execution, :continue) == {:ok, context}
+    end
+
+    handle =
+      Exec.run_async(Continue, %{}, Map.merge(context, %{test_pid: self(), next: ContextData}),
+        task_supervisor: supervisor
+      )
+
+    assert_receive {:blocking_flow_node_started, worker}, 1_000
+    send(worker, :finish)
+    assert {:ok, %{jido: jido, marker: marker}} = Exec.await(handle)
+    assert jido == context.jido
+    assert marker == context.marker
   end
 
   test "returns capacity refusal for Action, Flow, and async control or target work" do
@@ -483,6 +615,14 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
     )
 
     {:via, PartitionSupervisor, {name, self()}}
+  end
+
+  defp monitor_worker(worker) do
+    monitor = Process.monitor(worker)
+    # Confirm the monitor before a different process can stop this worker.
+    assert {:monitored_by, monitors} = Process.info(worker, :monitored_by)
+    assert self() in monitors
+    monitor
   end
 
   defp start_caller(fun) do

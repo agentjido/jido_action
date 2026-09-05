@@ -84,7 +84,6 @@ defmodule Jido.Exec.Options do
           {:ok, keyword()} | {:error, Exception.t()}
   def validate_action(opts, executable_type) do
     with :ok <- validate_action_keyword(opts),
-         :ok <- reject_jido(opts, ActionError),
          {:ok, task_supervisor} <- validate_task_supervisor(opts, ActionError),
          :ok <- validate_known_action_options(opts, executable_type),
          max_concurrency = Keyword.get(opts, :max_concurrency, @default_max_concurrency),
