@@ -102,10 +102,13 @@ defmodule Jido.Flow.Builder do
   @spec result(atom() | String.t(), term()) :: Ref.t()
   def result(component, path \\ []), do: Ref.result(component, path)
 
-  @doc "Appends a path to a reference."
-  @spec select(Ref.t(), term()) :: Ref.t()
+  @doc "Appends a path to a reference or raises a validation error for an invalid source."
+  @spec select(Ref.t(), term()) :: Ref.t() | no_return()
   def select(%Ref{} = source, path) do
-    %{source | path: source.path ++ Ref.normalize_path(path)}
+    case Ref.validate(source, :any) do
+      :ok -> %{source | path: source.path ++ Ref.normalize_path(path)}
+      {:error, error} -> raise error
+    end
   end
 
   @doc "Builds a scoped Map or Reduce item reference."

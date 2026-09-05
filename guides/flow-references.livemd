@@ -74,6 +74,10 @@ empty path; it is different from `[nil]`, which is invalid.
 A valid path can select a present `nil` value. Missing keys and invalid list
 indexes return structured execution errors.
 
+`Builder.select/2` validates its source reference before it appends a path.
+An invalid source raises `Jido.Flow.Error.InvalidDefinitionError`. The next
+component or Flow constructor validates the complete selected path.
+
 A result reference creates an inferred dependency on the named component.
 Input and context references do not.
 
