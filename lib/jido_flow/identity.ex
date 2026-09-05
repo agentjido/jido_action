@@ -16,8 +16,9 @@ defmodule Jido.Flow.Identity do
   @spec semantic_digest(Flow.t()) :: String.t()
   def semantic_digest(%Flow{} = flow) do
     flow
-    |> for_flow()
-    |> Map.fetch!(:digest)
+    |> identity_data()
+    |> identity_hash()
+    |> Base.encode16(case: :lower)
   end
 
   @doc false
@@ -51,9 +52,7 @@ defmodule Jido.Flow.Identity do
           uuid: String.t()
         }
   def identity(canonical_identity_map) when is_map(canonical_identity_map) do
-    raw_digest =
-      {:jido_flow_identity, @identity_version, canonical_identity_map}
-      |> hash_term()
+    raw_digest = identity_hash(canonical_identity_map)
 
     %{
       version: @identity_version,
@@ -62,6 +61,8 @@ defmodule Jido.Flow.Identity do
       uuid: uuid_v8(raw_digest)
     }
   end
+
+  defp identity_hash(data), do: hash_term({:jido_flow_identity, @identity_version, data})
 
   @doc false
   @spec item_uuid(String.t(), String.t(), non_neg_integer()) :: String.t()

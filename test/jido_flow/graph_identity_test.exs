@@ -18,6 +18,7 @@ defmodule Jido.Flow.GraphIdentityTest do
     assert %{version: 2, algorithm: :sha256, digest: digest, uuid: uuid} = identity
     assert is_binary(digest)
     assert is_binary(uuid)
+    assert Flow.Identity.semantic_digest(dsl) == digest
     assert Flow.semantic_identity(direct) == {:ok, identity}
     assert Flow.semantic_identity(built) == {:ok, identity}
   end
