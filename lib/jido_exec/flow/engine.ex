@@ -44,7 +44,6 @@ defmodule Jido.Exec.Flow.Engine do
       execution_id: execution_id,
       flow: flow.name,
       flow_digest: Flow.Identity.semantic_digest(flow),
-      input: input,
       context: context,
       options: options,
       target_runner: target_runner,

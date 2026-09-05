@@ -5,6 +5,26 @@ defmodule JidoActionTest.Exec.RunnableCaptureTest do
   alias Jido.Flow.{Ref, Step}
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
 
+  test "run context does not duplicate input carried by native facts" do
+    sizes =
+      for input <- [%{}, %{unused: Enum.to_list(1..10_000)}] do
+        flow =
+          Flow.new!(
+            name: "input_context_capture",
+            components: [Step.new!(name: "echo", action: EchoParamsAction)],
+            output: Ref.result("echo")
+          )
+
+        assert {:ok, execution} = Exec.start(flow, input)
+        size = :erts_debug.flat_size(execution.workflow.run_context)
+        assert {:ok, finished} = Exec.continue(execution)
+        assert Exec.result(finished) == {:ok, %{}}
+        size
+      end
+
+    assert Enum.uniq(sizes) |> length() == 1
+  end
+
   test "concurrent workers do not copy unrelated Flow data or execution indexes" do
     retained = Enum.to_list(1..100_000)
 
