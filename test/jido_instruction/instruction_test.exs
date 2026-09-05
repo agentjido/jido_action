@@ -1,5 +1,6 @@
 defmodule JidoActionTest.InstructionTest do
-  use ExUnit.Case, async: true
+  # Negative log assertions must not capture warnings from concurrent Exec tests.
+  use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
 
