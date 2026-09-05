@@ -266,13 +266,9 @@ Apply these field changes:
 | `context` | `context` |
 | `opts` | Options passed to `Jido.Exec.run/4` |
 
-Version 3 temporarily accepts `action:` and `opts` as migration shims. These
-paths emit warnings. Replace them before the upgrade is complete. The shim
-for `opts` forwards `timeout` and `task_supervisor`; it does not restore removed version
-2 execution policy.
-
-See [Migration Shims](migration-shims.md) for the exact warning and error
-behavior.
+Constructors reject removed fields. Pass supported execution options directly
+to Exec, as shown above. Keep retry, backoff, and other runtime policy in the
+caller. See [Runtime Configuration](configuration.md) for supported options.
 
 ## Replace Instruction Shorthand And Allowlists
 
@@ -509,7 +505,7 @@ The host must start it before execution. See
 12. Replace catalog, bundled-tool, and generator integrations.
 13. Migrate stored version 2 data with an explicit versioned data migration.
 14. Replace direct references to `Jido.Action.TaskSupervisor`.
-15. Compile with warnings as errors and remove all migration-shim warnings.
+15. Compile with warnings as errors and remove all old Instruction fields.
 16. Test Action input, output, error, timeout, and process-exit boundaries.
 17. Test each replacement Flow for data dependencies, order, and final output.
 

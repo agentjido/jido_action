@@ -194,14 +194,7 @@ instruction =
 An Instruction holds one Action module, Flow module, or runtime Flow target. It
 does not define a workflow, program, or runtime policy.
 
-For version 2 migration, `action:` constructor data and struct literals remain
-accepted. They emit a runtime warning and normalize to `target`. Use `target:`
-in new code. A typed `flow:` construction input also normalizes to `target`.
-
-Deprecated Instruction `opts` also compile during version 3 migration. Exec
-warns and forwards the options that version 3 still supports. See
-[Migration Shims](guides/migration-shims.md) for the package compatibility
-policy and option rules.
+Pass execution options to `Jido.Exec`.
 
 ## Compose A Flow
 
@@ -452,7 +445,6 @@ Livebook. ExDoc adds a **Run in Livebook** link to each `.livemd` guide.
 ### Upgrade
 
 - [Version 2 To Version 3 Migration Guide](guides/v2-to-v3-migration.md)
-- [Migration Shims](guides/migration-shims.md)
 - [Upgrade From v2 To v3 Skill](guides/v2-to-v3-upgrade-skill.md)
 
 ## Jido Ecosystem

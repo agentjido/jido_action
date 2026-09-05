@@ -1,8 +1,5 @@
 defmodule JidoActionTest.InstructionTest do
-  # Negative log assertions must not capture warnings from concurrent Exec tests.
-  use ExUnit.Case, async: false
-
-  import ExUnit.CaptureLog
+  use ExUnit.Case, async: true
 
   alias Jido.Instruction
   alias JidoActionTest.Fixtures.MathFlow
@@ -10,6 +7,58 @@ defmodule JidoActionTest.InstructionTest do
   alias JidoActionTest.Fixtures.Actions.{Add, BasicAction}
 
   describe "new/1" do
+    test "exposes only the four call-data fields" do
+      assert Instruction.new!(target: BasicAction)
+             |> Map.from_struct()
+             |> Map.keys()
+             |> Enum.sort() ==
+               [:context, :metadata, :params, :target]
+    end
+
+    test "rejects removed fields in map and keyword constructors even when empty" do
+      for {field, value} <- [
+            action: BasicAction,
+            flow: MathFlow,
+            opts: [timeout: 10],
+            action: nil,
+            flow: nil,
+            opts: [],
+            opts: nil,
+            id: "old"
+          ],
+          base <- [%{}, %{target: BasicAction}],
+          attrs <- [Map.put(base, field, value), Map.to_list(Map.put(base, field, value))] do
+        assert {:error, %Jido.Action.Error.InvalidInputError{details: details} = error} =
+                 Instruction.new(attrs)
+
+        assert details == %{fields: [field], reason: :removed_instruction_fields}
+        refute Jido.Action.Error.retryable?(error)
+
+        assert_raise Jido.Action.Error.InvalidInputError, error.message, fn ->
+          Instruction.new!(attrs)
+        end
+      end
+    end
+
+    test "reports all removed fields in stable order" do
+      attrs = %{target: BasicAction, opts: [], flow: nil, action: nil, id: "old"}
+
+      assert {:error, %Jido.Action.Error.InvalidInputError{details: details}} =
+               Instruction.new(attrs)
+
+      assert details == %{
+               fields: [:id, :action, :flow, :opts],
+               reason: :removed_instruction_fields
+             }
+    end
+
+    test "removed fields cannot appear in struct literals" do
+      for field <- [:action, :flow, :opts] do
+        literal = {:%, [], [Instruction, {:%{}, [], [{field, nil}]}]}
+        assert_raise KeyError, fn -> Code.eval_quoted(literal) end
+      end
+    end
+
     test "creates an instruction with defaults" do
       assert {:ok, instruction} = Instruction.new(target: BasicAction)
       assert instruction.target == BasicAction
@@ -90,83 +139,6 @@ defmodule JidoActionTest.InstructionTest do
       end
     end
 
-    test "normalizes typed target aliases" do
-      {{:ok, action_instruction}, log} =
-        with_log(fn -> Instruction.new(action: BasicAction, params: %{value: 1}) end)
-
-      assert action_instruction.target == BasicAction
-      assert action_instruction.action == nil
-      assert action_instruction.flow == nil
-      assert action_instruction.params == %{value: 1}
-      assert log =~ "Jido.Instruction received the deprecated :action field"
-      assert log =~ "Use :target instead"
-
-      assert {:ok, flow_instruction} = Instruction.new(flow: MathFlow)
-      assert flow_instruction.target == MathFlow
-      assert flow_instruction.action == nil
-      assert flow_instruction.flow == nil
-
-      flow = MathFlow.flow()
-      assert {:ok, runtime_flow_instruction} = Instruction.new(flow: flow)
-      assert runtime_flow_instruction.target === flow
-    end
-
-    test "rejects target alias kind mismatches" do
-      assert {:error, %Jido.Action.Error.InvalidInputError{details: action_details}} =
-               Instruction.new(action: MathFlow)
-
-      assert action_details == %{
-               actual_kind: :flow,
-               expected_kind: :action,
-               field: :action,
-               target: MathFlow
-             }
-
-      assert {:error, %Jido.Action.Error.InvalidInputError{details: flow_details}} =
-               Instruction.new(flow: BasicAction)
-
-      assert flow_details == %{
-               actual_kind: :action,
-               expected_kind: :flow,
-               field: :flow,
-               target: BasicAction
-             }
-    end
-
-    test "rejects conflicting target fields" do
-      for attrs <- [
-            %{target: BasicAction, action: BasicAction},
-            %{target: MathFlow, flow: MathFlow},
-            %{action: BasicAction, flow: MathFlow}
-          ] do
-        assert {:error, %Jido.Action.Error.InvalidInputError{details: details}} =
-                 Instruction.new(attrs)
-
-        assert details.reason == :conflicting_target_fields
-        assert Enum.sort(details.fields) == attrs |> Map.keys() |> Enum.sort()
-      end
-    end
-
-    test "accepts deprecated opts but still rejects the removed id field" do
-      assert {:error, %Jido.Action.Error.InvalidInputError{details: details}} =
-               Instruction.new(action: BasicAction, id: "send-1", opts: [timeout: 5_000])
-
-      assert details == %{fields: [:id], reason: :removed_instruction_fields}
-
-      assert {:ok, instruction} =
-               Instruction.new(action: BasicAction, opts: [timeout: 5_000])
-
-      assert instruction.target == BasicAction
-      assert instruction.opts == [timeout: 5_000]
-    end
-
-    test "rejects malformed deprecated opts" do
-      assert {:error, %Jido.Action.Error.InvalidInputError{details: details}} =
-               Instruction.new(target: BasicAction, opts: [:not_an_option])
-
-      assert details == %{field: :opts, reason: :not_keyword_list}
-    end
-
     test "rejects invalid invocation maps" do
       assert {:error, %Jido.Action.Error.InvalidInputError{} = params_error} =
                Instruction.new(target: BasicAction, params: ["not", "keyword"])
@@ -208,6 +180,51 @@ defmodule JidoActionTest.InstructionTest do
   end
 
   describe "normalize!/3" do
+    for field <- [:params, :context, :metadata] do
+      @field field
+      test "rejects false #{@field} in a raw Instruction" do
+        attrs = %{@field => false, target: Add}
+        assert {:error, %Jido.Action.Error.InvalidInputError{} = error} = Instruction.new(attrs)
+        assert error.details[@field] == false
+
+        assert_raise Jido.Action.Error.InvalidInputError, error.message, fn ->
+          Instruction.new!(attrs)
+        end
+
+        instruction = struct!(Instruction, attrs)
+
+        assert_raise ArgumentError,
+                     "expected #{@field} to be a map or keyword list, got: false",
+                     fn -> Instruction.normalize!(instruction, %{override: 1}, %{override: 2}) end
+      end
+    end
+
+    test "normalizes nil raw fields and preserves false values inside maps" do
+      instruction = %Instruction{target: Add, params: nil, context: nil, metadata: nil}
+      normalized = Instruction.normalize!(instruction, %{enabled: false}, %{enabled: false})
+      assert normalized.params == %{enabled: false}
+      assert normalized.context == %{enabled: false}
+      assert normalized.metadata == %{}
+    end
+
+    test "uses shallow call-site overrides and preserves caller metadata" do
+      metadata = %{timeout: 0, task_supervisor: :description_only, nested: %{id: "one"}}
+
+      base =
+        Instruction.new!(
+          target: Add,
+          params: %{nested: %{old: true}, keep: 1},
+          context: %{nested: %{old: true}, keep: 2},
+          metadata: metadata
+        )
+
+      normalized = Instruction.normalize!(base, [nested: %{new: true}], nested: nil)
+
+      assert normalized.params == %{nested: %{new: true}, keep: 1}
+      assert normalized.context == %{nested: nil, keep: 2}
+      assert normalized.metadata === metadata
+    end
+
     test "builds an instruction from an action module" do
       instruction = Instruction.normalize!(Add, [amount: 2], trace_id: "trace")
 
@@ -234,39 +251,6 @@ defmodule JidoActionTest.InstructionTest do
       assert instruction.params == %{amount: 3, value: 5}
       assert instruction.context == %{trace_id: "base", tenant_id: "tenant"}
       assert instruction.metadata == %{}
-    end
-
-    test "normalizes a legacy action struct literal and warns" do
-      legacy = %Instruction{
-        action: Add,
-        params: %{amount: 1, value: 5},
-        context: %{trace_id: "base"}
-      }
-
-      {instruction, log} =
-        with_log(fn ->
-          Instruction.normalize!(legacy, %{amount: 3}, %{tenant_id: "tenant"})
-        end)
-
-      assert instruction.target == Add
-      assert instruction.action == nil
-      assert instruction.flow == nil
-      assert instruction.params == %{amount: 3, value: 5}
-      assert instruction.context == %{trace_id: "base", tenant_id: "tenant"}
-      assert log =~ "Jido.Instruction received the deprecated :action field"
-    end
-
-    test "keeps deprecated opts until Exec consumes them" do
-      legacy = %Instruction{action: Add, opts: [timeout: 5_000]}
-
-      {instruction, log} =
-        with_log(fn -> Instruction.normalize!(legacy, %{value: 2}, %{}) end)
-
-      assert instruction.target == Add
-      assert instruction.action == nil
-      assert instruction.opts == [timeout: 5_000]
-      assert log =~ "Jido.Instruction received the deprecated :action field"
-      refute log =~ "deprecated :opts field"
     end
 
     test "keeps nested metadata when it normalizes an instruction" do
