@@ -1216,7 +1216,7 @@ defmodule Jido.Flow.Compiler do
   defp stable_hash(value), do: Components.fact_hash({:jido_flow, @compiler_version, value})
 
   defp digest(value) do
-    :crypto.hash(:sha256, :erlang.term_to_binary(value, [:deterministic]))
+    Identity.hash_term(value)
     |> Base.encode16(case: :lower)
   end
 

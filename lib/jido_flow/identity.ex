@@ -88,9 +88,15 @@ defmodule Jido.Flow.Identity do
   @doc false
   @spec hash_term(term()) :: binary()
   def hash_term(term) do
-    term
-    |> :erlang.term_to_binary([:deterministic])
-    |> then(&:crypto.hash(:sha256, &1))
+    case :erlang.term_to_iovec(term, [:deterministic]) do
+      [bytes] ->
+        :crypto.hash(:sha256, bytes)
+
+      segments ->
+        segments
+        |> Enum.reduce(:crypto.hash_init(:sha256), &:crypto.hash_update(&2, &1))
+        |> :crypto.hash_final()
+    end
   end
 
   @doc false

@@ -24,17 +24,6 @@ end
 
 defimpl Runic.Identity.Projectable, for: Jido.Flow.Compiler.Payload do
   def identity_document(%{value: value}) do
-    digest =
-      case :erlang.term_to_iovec(value, [:deterministic]) do
-        [bytes] ->
-          :crypto.hash(:sha256, bytes)
-
-        segments ->
-          segments
-          |> Enum.reduce(:crypto.hash_init(:sha256), &:crypto.hash_update(&2, &1))
-          |> :crypto.hash_final()
-      end
-
-    {:jido_local_beam_value, 1, digest}
+    {:jido_local_beam_value, 1, Jido.Flow.Identity.hash_term(value)}
   end
 end
