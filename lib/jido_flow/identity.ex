@@ -107,10 +107,16 @@ defmodule Jido.Flow.Identity do
     version_bits = bor(band(version_bits, 0x0FFF), 0x8000)
     variant_bits = bor(band(variant_bits, 0x3FFF), 0x8000)
 
-    :io_lib.format(
-      ~c"~8.16.0b-~4.16.0b-~4.16.0b-~4.16.0b-~12.16.0b",
-      [time_low, time_mid, version_bits, variant_bits, node]
-    )
-    |> IO.iodata_to_binary()
+    <<first::binary-size(8), second::binary-size(4), third::binary-size(4),
+      fourth::binary-size(4), fifth::binary-size(12)>> =
+      Base.encode16(
+        <<time_low::32, time_mid::16, version_bits::16, variant_bits::16, node::48>>,
+        case: :lower
+      )
+
+    # Keep the 36-byte ID on the heap instead of retaining the append buffer.
+    <<first::binary, "-", second::binary, "-", third::binary, "-", fourth::binary, "-",
+      fifth::binary>>
+    |> :binary.copy()
   end
 end
