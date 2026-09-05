@@ -69,9 +69,10 @@ the same map. All three error families use the bounded conversion rules in
 
 The conversion keeps scalar values, converts tuples to lists, and represents
 PIDs, references, and other runtime values as diagnostic strings. Exceptions
-in details become struct labels. Large or deeply nested values use truncation
-markers. These external values are for diagnostics. Use the original error
-for complete details and cause inspection.
+in ordinary details become struct labels. Declared Flow causes keep their
+error maps and share the containing details' limits. Large or deeply nested
+values use truncation markers. These external values are for diagnostics.
+Use the original error for complete details and cause inspection.
 
 A runtime error can keep a `Splode.Stacktrace` in memory. Conversion does not
 change it. The stable map omits the exception's top-level stacktrace.

@@ -98,12 +98,7 @@ defmodule Jido.Exec.Error do
     do: error_map(:async_invalid_handle, error.message, error.details)
 
   def to_map(%AsyncTimeoutError{} = error) do
-    details =
-      if is_nil(error.timeout),
-        do: error.details,
-        else: Map.put(error.details, :timeout, error.timeout)
-
-    error_map(:async_timeout, error.message, details)
+    error_map(:async_timeout, error.message, error.details, timeout: error.timeout)
   end
 
   def to_map(%AsyncExecutionError{} = error),
@@ -112,13 +107,10 @@ defmodule Jido.Exec.Error do
   def to_map(%CancelledError{} = error),
     do: error_map(:async_cancelled, error.message, error.details)
 
-  defp error_map(type, message, details) do
-    %{
-      type: type,
-      message: ExternalData.message(message),
-      details: ExternalData.details(details),
-      retryable?: false
-    }
+  defp error_map(type, message, details, fields \\ []) do
+    type
+    |> ExternalData.error_data(message, details, false, fields)
+    |> ExternalData.to_map()
   end
 
   defp normalize_details(details) when is_map(details) and not is_struct(details), do: details

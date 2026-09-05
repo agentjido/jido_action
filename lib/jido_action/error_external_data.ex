@@ -9,15 +9,73 @@ defmodule Jido.Action.Error.ExternalData do
   @truncated "#Truncated"
   @inspect_opts [charlists: :as_lists, structs: false, limit: 50, printable_limit: 1_024]
 
-  @doc false
-  @spec details(term()) :: map()
-  def details(value) when is_map(value) and not is_struct(value), do: value(value)
+  # Only declared Flow causes use this marker. Other nested exceptions remain
+  # opaque. Expand causes inside the shared traversal so they cannot reset its
+  # depth or term budget, or convert already-encoded binaries a second time.
+  defmodule NestedError do
+    @moduledoc false
+    defstruct [:error]
 
-  def details(value) when is_list(value) do
-    if bounded_keyword?(value, @max_items), do: value |> Map.new() |> details(), else: %{}
+    @type t :: %__MODULE__{error: term()}
   end
 
-  def details(_value), do: %{}
+  @doc false
+  @spec error_data(atom(), term(), term(), boolean(), keyword()) :: map()
+  def error_data(type, message, details, retryable?, fields \\ []) do
+    %{
+      type: type,
+      message: if(is_binary(message), do: message, else: message(message)),
+      details: detail_fields(details, fields),
+      retryable?: retryable?
+    }
+  end
+
+  @doc false
+  @spec to_map(map()) :: map()
+  def to_map(data) do
+    %{data | message: message(data.message), details: details(data.details)}
+  end
+
+  @doc false
+  @spec map_items(term(), (term() -> term())) :: term()
+  def map_items(items, mapper) do
+    case map_items(items, mapper, @max_items + 1) do
+      {:ok, mapped} -> mapped
+      :improper -> items
+    end
+  end
+
+  defp map_items(_items, _mapper, 0), do: {:ok, []}
+  defp map_items([], _mapper, _remaining), do: {:ok, []}
+
+  defp map_items([head | tail], mapper, remaining) do
+    case map_items(tail, mapper, remaining - 1) do
+      {:ok, mapped} -> {:ok, [mapper.(head) | mapped]}
+      :improper -> :improper
+    end
+  end
+
+  defp map_items(_tail, _mapper, _remaining), do: :improper
+
+  @doc false
+  @spec details(term()) :: map()
+  def details(value), do: value |> detail_map() |> value()
+
+  defp detail_fields(value, fields) do
+    fields
+    |> Enum.reduce(detail_map(value), fn
+      {_key, nil}, acc -> acc
+      {key, value}, acc -> Map.put(acc, key, value)
+    end)
+  end
+
+  defp detail_map(value) when is_map(value) and not is_struct(value), do: value
+
+  defp detail_map(value) when is_list(value) do
+    if bounded_keyword?(value, @max_items), do: Map.new(value), else: %{}
+  end
+
+  defp detail_map(_value), do: %{}
 
   @doc false
   @spec message(term()) :: String.t()
@@ -43,6 +101,12 @@ defmodule Jido.Action.Error.ExternalData do
     do: {value, budget}
 
   defp convert(value, _depth, budget) when is_binary(value), do: {binary(value), budget}
+
+  defp convert(%NestedError{error: error}, depth, budget) do
+    error
+    |> Jido.Flow.Error.external_data()
+    |> convert(depth, budget)
+  end
 
   defp convert(
          %Runic.Identity{scheme: :sha256, version: 1, domain: domain, digest: digest} = identity,
@@ -72,11 +136,9 @@ defmodule Jido.Action.Error.ExternalData do
   end
 
   defp convert(value, depth, budget) when is_tuple(value) do
-    size = min(tuple_size(value), @max_items)
+    size = min(tuple_size(value), @max_items + 1)
     items = for index <- 0..(size - 1)//1, do: elem(value, index)
-    {items, budget} = list_items(items, depth + 1, budget, @max_items, [])
-    items = if tuple_size(value) > @max_items, do: items ++ [@truncated], else: items
-    {items, budget}
+    list_items(items, depth + 1, budget, @max_items, [])
   end
 
   defp convert(value, _depth, budget), do: {safe_inspect(value), budget}

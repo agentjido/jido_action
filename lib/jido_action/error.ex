@@ -200,6 +200,9 @@ defmodule Jido.Action.Error do
   - Conversion stops at depth 16 or after 1,024 terms per converted value.
     Map keys count toward this budget. Lists and tuples keep at most 64 items,
     with a final `"#Truncated"` marker when more items remain.
+    Declared Flow causes keep their error maps and share the containing
+    details' depth and term budget. They are converted once. Malformed cause
+    lists use the same fallback as other unsupported diagnostic values.
   - A map above 64 entries becomes
     `%{"__truncated__" => "map exceeds 64 entries"}`. A map that exhausts the
     term budget uses the reserved `"__truncated__"` key. A depth or term limit
@@ -214,77 +217,45 @@ defmodule Jido.Action.Error do
   strings describe the current runtime; they are not persistent identifiers.
   """
   @spec to_map(term()) :: error_map()
-  def to_map({:error, reason, _effects}), do: to_map(reason)
-  def to_map({:error, reason}), do: to_map(reason)
+  def to_map(error), do: error |> external_data() |> ExternalData.to_map()
 
-  def to_map(%InvalidInputError{} = error) do
-    %{
-      type: :validation_error,
-      message: ExternalData.message(error.message),
-      details:
-        error.details
-        |> ExternalData.details()
-        |> maybe_put(:field, ExternalData.value(error.field))
-        |> maybe_put(:value, ExternalData.value(error.value)),
-      retryable?: false
-    }
+  @doc false
+  @spec external_data(term()) :: map()
+  def external_data({:error, reason, _effects}), do: external_data(reason)
+  def external_data({:error, reason}), do: external_data(reason)
+
+  def external_data(%InvalidInputError{} = error) do
+    ExternalData.error_data(:validation_error, error.message, error.details, false,
+      field: error.field,
+      value: error.value
+    )
   end
 
-  def to_map(%ExecutionFailureError{} = error) do
-    %{
-      type: :execution_error,
-      message: ExternalData.message(error.message),
-      details: ExternalData.details(error.details),
-      retryable?: retryable?(error)
-    }
+  def external_data(%ExecutionFailureError{} = error) do
+    ExternalData.error_data(:execution_error, error.message, error.details, retryable?(error))
   end
 
-  def to_map(%TimeoutError{} = error) do
-    %{
-      type: :timeout,
-      message: ExternalData.message(error.message),
-      details:
-        error.details
-        |> ExternalData.details()
-        |> maybe_put(:timeout, ExternalData.value(error.timeout)),
-      retryable?: retryable?(error)
-    }
+  def external_data(%TimeoutError{} = error) do
+    ExternalData.error_data(:timeout, error.message, error.details, retryable?(error),
+      timeout: error.timeout
+    )
   end
 
-  def to_map(%ConfigurationError{} = error) do
-    %{
-      type: :configuration_error,
-      message: ExternalData.message(error.message),
-      details: ExternalData.details(error.details),
-      retryable?: false
-    }
+  def external_data(%ConfigurationError{} = error) do
+    ExternalData.error_data(:configuration_error, error.message, error.details, false)
   end
 
-  def to_map(%InternalError{} = error) do
-    %{
-      type: :internal_error,
-      message: ExternalData.message(error.message),
-      details: ExternalData.details(error.details),
-      retryable?: false
-    }
+  def external_data(%InternalError{} = error) do
+    ExternalData.error_data(:internal_error, error.message, error.details, false)
   end
 
-  def to_map(%Internal.UnknownError{} = error) do
-    %{
-      type: :internal_error,
-      message: error |> Exception.message() |> ExternalData.message(),
-      details: ExternalData.details(error.details),
-      retryable?: false
-    }
+  def external_data(%Internal.UnknownError{} = error) do
+    message = if is_nil(error.error), do: error.message, else: error.error
+    ExternalData.error_data(:internal_error, message, error.details, false)
   end
 
-  def to_map(reason) do
-    %{
-      type: :execution_error,
-      message: ExternalData.message(reason),
-      details: %{},
-      retryable?: false
-    }
+  def external_data(reason) do
+    ExternalData.error_data(:execution_error, reason, %{}, false)
   end
 
   @doc """
@@ -320,9 +291,6 @@ defmodule Jido.Action.Error do
   end
 
   defp normalize_constructor_details(_details), do: %{}
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end
 
 defimpl JSON.Encoder,
