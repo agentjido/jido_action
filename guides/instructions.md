@@ -43,17 +43,6 @@ The constructor accepts maps with atom keys or keyword lists. Params, context,
 and metadata can be maps, keyword lists, or nil. Nil becomes an empty map.
 The target is required; explicit nil is an invalid executable target.
 
-A field value of `false` is invalid, including in a raw Instruction struct.
-Constructors reject it. Exec returns a structured error before Action work
-starts. A `false` value inside a valid map remains valid call data.
-
-The `action`, `flow`, and `opts` fields have been removed from the beta API.
-The constructor rejects these keys even when a valid `target` is also present
-or the removed value is nil or empty. The earlier `id` field stays removed.
-`new/1` returns a structured error; `new!/1` raises it. Old struct literals
-with removed fields no longer compile. See
-[Instruction migration](v2-to-v3-migration.md#replace-instruction-fields).
-
 ## Execute An Instruction
 
 ```elixir
@@ -72,10 +61,7 @@ Jido.Exec.run(
 )
 ```
 
-An Instruction uses the rules of its resolved target. All run-to-completion
-targets accept direct Exec options `timeout:`, `task_supervisor:`, `max_continuations:`, and
-`max_concurrency:`. An Action does not use `max_concurrency` itself, but it can
-continue to a Flow. An Instruction can be a target for `Jido.Exec.run_async/4`.
+An Instruction accepts the [Exec options](configuration.md) of its target.
 
 Only a Flow Instruction supports step-wise execution.
 

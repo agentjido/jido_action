@@ -116,7 +116,6 @@ defmodule JidoAction.MixProject do
         ],
         Upgrade: [
           "guides/v2-to-v3-migration.md",
-          "guides/migration-shims.md",
           "guides/v2-to-v3-upgrade-skill.md"
         ]
       ],
@@ -158,7 +157,6 @@ defmodule JidoAction.MixProject do
         {"guides/testing.md", title: "Testing"},
         # Upgrade
         {"guides/v2-to-v3-migration.md", title: "Version 2 To Version 3 Migration"},
-        {"guides/migration-shims.md", title: "Migration Shims"},
         {"guides/v2-to-v3-upgrade-skill.md", title: "Upgrade From v2 To v3 Skill"}
       ],
       extra_section: "Guides",

@@ -194,11 +194,7 @@ instruction =
 An Instruction holds one Action module, Flow module, or runtime Flow target. It
 does not define a workflow, program, or runtime policy.
 
-Use `target:` for every executable kind. The `action`, `flow`, and `opts`
-Instruction fields have been removed from the v3 beta API. Constructors reject
-them, and old struct literals no longer compile. Pass execution options to
-`Jido.Exec`. See [Instruction migration](guides/v2-to-v3-migration.md#replace-instruction-fields)
-for the field changes and downstream migration steps.
+Pass execution options to `Jido.Exec`.
 
 ## Compose A Flow
 
@@ -449,7 +445,6 @@ Livebook. ExDoc adds a **Run in Livebook** link to each `.livemd` guide.
 ### Upgrade
 
 - [Version 2 To Version 3 Migration Guide](guides/v2-to-v3-migration.md)
-- [Migration Shims](guides/migration-shims.md)
 - [Upgrade From v2 To v3 Skill](guides/v2-to-v3-upgrade-skill.md)
 
 ## Jido Ecosystem

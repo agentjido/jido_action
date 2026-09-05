@@ -7,8 +7,6 @@ v2 baseline.
 Read the [Version 2 To Version 3 Migration Guide](v2-to-v3-migration.md) before
 you use the prompt. The guide explains the API decisions and the required
 replacements.
-Read [Migration Shims](migration-shims.md) for the package-wide compatibility
-policy. Instruction aliases and stored execution options have been removed.
 
 ## Before You Start
 
@@ -115,9 +113,7 @@ change application behavior.
 
 5. Migrate Instructions
 
-- Replace action and the earlier beta flow field with target. Both fields
-  have been removed; constructors reject them and old struct literals no
-  longer compile. The flow field had no deprecation warning before removal.
+- Replace the action field with target.
 - Move descriptive id data to metadata or to caller-owned data.
 - Remove opts from the Instruction, including empty or nil values. Pass
   supported execution options directly to Jido.Exec. Use task_supervisor for
