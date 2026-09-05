@@ -38,7 +38,7 @@ defmodule JidoActionTest.Exec.RunnableCaptureTest do
 
     on_exit(fn -> :telemetry.detach(handler) end)
     assert {:ok, runnables, finished} = Exec.wave(execution)
-    assert Enum.map(runnables, & &1.node.name) == ["a", "b"]
+    assert Enum.map(runnables, &hd(&1.component_path)) == ["a", "b"]
     assert {:ok, finished} = Exec.continue(finished)
     assert Exec.result(finished) == {:ok, %{a: %{value: "a"}, b: %{value: "b"}}}
 

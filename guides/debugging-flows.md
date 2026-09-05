@@ -116,26 +116,24 @@ Start a caller-owned in-memory execution:
 :running = Jido.Exec.status(execution)
 ready = Jido.Exec.ready(execution)
 
-workflow = Jido.Exec.workflow(execution)
-compiled = Jido.Exec.compiled(execution)
+%{workflow: workflow, compiled: compiled} = Jido.Exec.native(execution)
 ```
 
-`ready` contains native `Runic.Workflow.Runnable` values. Inspect the runnable
-ID, node, input fact, and status:
+`ready` contains small `Jido.Exec.Work` descriptions. Inspect the authored path,
+kind, role, item index, and status:
 
 ```elixir
-Enum.map(ready, fn runnable ->
-  %{
-    id: runnable.id,
-    node: Map.get(runnable.node, :name),
-    input_fact: runnable.input_fact,
-    status: runnable.status
-  }
+Enum.map(ready, fn work ->
+  Map.take(work, [:component_path, :kind, :role, :item_index, :status])
 end)
 ```
 
-Input facts can contain application data. Do not copy them to logs without a
-data review.
+A description has no input, result, exception, callback, or graph. Its opaque
+token selects one ready unit in one execution revision. Each mutation
+invalidates all prior tokens, including tokens for work that remains ready.
+
+The advanced `native/1` map also contains `:ready` native runnables. Native
+values can retain application data and depend on the Runic version.
 
 ## Step, Wave, Or Continue
 
@@ -155,16 +153,12 @@ dependency level starts.
 Run one selected runnable:
 
 ```elixir
-[runnable | _] = ready
+[work | _] = ready
 
 {:ok, applied, execution} =
-  Jido.Exec.step(execution, runnable.id)
+  Jido.Exec.step(execution, work.token)
 
-%{
-  status: applied.status,
-  result: applied.result,
-  error: applied.error
-}
+%{status: applied.status, component_path: applied.component_path, role: applied.role}
 ```
 
 Or run the current frontier:
@@ -311,9 +305,9 @@ required.
 ## Runic Ownership Boundary
 
 `Jido.Flow.Compiled.workflow` is the supported native compilation value.
-`Jido.Exec.workflow/1` returns the live prepared native workflow.
-`Jido.Exec.compiled/1` returns the related component index and source map.
-`Jido.Exec.ready/1` returns the supported native runnable view. Jido still owns
+`Jido.Exec.native/1` returns the live workflow, compilation data, and native
+ready values for advanced, read-only inspection. `Jido.Exec.ready/1` returns
+small Work descriptions. Jido still owns
 validation, Action dispatch, execution revisions, telemetry, and final Flow
 output validation.
 
@@ -329,3 +323,51 @@ caller owns the new workflow state and the missing Jido execution contracts.
 
 See [Inspect Flows](flow-inspection.md), [Execution Contract](execution.md),
 and [Security](security.md) for the related public boundaries.
+
+## Migrate Native Step-wise Calls
+
+This is a breaking change to the v3 beta inspection API. Remove native
+Runnable matching from ordinary `ready/1`, `step/1`, `step/2`, and `wave/1`
+callers. These functions now return `Jido.Exec.Work`. `step/2` accepts only a
+Work token. Native Runnable values, native IDs, integer IDs, and Work structs
+are not selectors. No compatibility forwarding functions remain.
+
+Old beta code:
+
+```elixir
+[runnable | _] = Jido.Exec.ready(execution)
+{:ok, applied, execution} = Jido.Exec.step(execution, runnable.id)
+workflow = Jido.Exec.workflow(execution)
+compiled = Jido.Exec.compiled(execution)
+```
+
+Replacement:
+
+```elixir
+[work | _] = Jido.Exec.ready(execution)
+{:ok, %Jido.Exec.Work{status: status}, execution} =
+  Jido.Exec.step(execution, work.token)
+%{workflow: workflow, compiled: compiled} = Jido.Exec.native(execution)
+```
+
+Use `work.component_path` instead of parsing `runnable.node.name`. Use `kind`,
+`role`, and `item_index` to distinguish support work and Map items. Paths are
+not selectors: repeated activations can have the same path and role. A shared
+Join can have `component_path: nil` and `kind: :support`.
+
+Step and wave results retain the input tokens. Get new tokens from the latest
+Execution before selecting more work. Tokens can move with that Execution to
+another local process. They do not require the creator process to stay alive.
+They are not stable across executions, revisions, or compiler versions.
+
+Work status describes one native unit. For example, a Map item in
+`:collect_errors` mode can complete with error data. Read the Flow result or
+terminal exception through `Jido.Exec.result/1`. For native per-node facts, use
+`Runic.Workflow.results(workflow, names, facts: true, all: true)` on the
+advanced workflow. Do not read `applied.result` or `applied.error` from Work.
+Native identities in existing error data remain diagnostic values.
+
+`native/1` is the only paused-Exec native inspection function. It consumes no
+revision and does not accept native updates. Copying or retaining its result
+can retain graphs, callbacks, and application data. `Jido.Flow.compile/2` and
+`FlowModule.compiled/0` remain the separate compilation API.

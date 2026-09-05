@@ -163,39 +163,49 @@ complete call.
 ```elixir
 {:ok, execution} = Jido.Exec.start(flow, input, context)
 
-runnables = Jido.Exec.ready(execution)
+work = Jido.Exec.ready(execution)
 status = Jido.Exec.status(execution)
 
-{:ok, runnable, execution} = Jido.Exec.step(execution)
-{:ok, runnables, execution} = Jido.Exec.wave(execution)
+{:ok, completed, execution} = Jido.Exec.step(execution)
+{:ok, completed, execution} = Jido.Exec.wave(execution)
 {:ok, execution} = Jido.Exec.continue(execution)
 {:ok, result} = Jido.Exec.result(execution)
 ```
 
-`ready/1` returns native `Runic.Workflow.Runnable` values. The ready set can
-include authored work and native support work. Jido does not hide or drain
-support runnables.
+`ready/1` returns small `Jido.Exec.Work` descriptions. Each description has an
+opaque token, authored `component_path` when available, component `kind`, work
+`role`, optional Map `item_index`, and `status`. Paths keep complete component
+names, including names that contain `/`. Shared support work can have no
+single component path. The ready set includes native support work; Jido does
+not hide or drain it.
 
-`workflow/1` returns the live prepared native Runic workflow. `compiled/1`
-returns its component index and source map. These are read escape hatches for
-debugging and native Runic inspection. A workflow changed outside Exec cannot
-be applied back to an Execution through this API.
+`step/1` runs the first ready unit. Select one unit with
+`step(execution, work.token)`. A token is valid only for the execution revision
+that issued it. Invalid, stale, and foreign selections return
+`Jido.Flow.Error.InvalidExecutionError` with message `invalid flow work token`
+and `details.reason == :invalid_work_token`, before Action work. They do not
+consume a revision. A token that belongs to an old Execution still goes through
+the existing guard, which rejects stale, concurrent, or indeterminate mutations.
 
-`step/1` runs the first ready runnable. `step/2` selects a ready runnable by
-value or the Runic identity returned by `ready/1`. `wave/1` runs work from the
-set that was ready when the call began, and stops new dispatch on failure.
-Its returned list contains only the runnables that were admitted.
-`continue/1` runs to a terminal state.
+`wave/1` admits work from the set ready at call start and stops new admission
+on failure. Its returned descriptions keep the original ready order and input
+tokens, and contain only admitted units. `continue/1` runs to a terminal state.
+After any mutation, get fresh tokens for all remaining ready work. Completed
+work tokens cannot select work in the new revision. A current Execution and
+its tokens can move to another local process; creator survival is not required.
 
-Runic identities use SHA-256. Treat each ID as an opaque value; do not convert
-it to an integer. Jido retains local BEAM values in internal fact payloads,
-including output envelopes, functions, process IDs, and references. These
-payloads preserve the public values but are not a portable storage format.
-Map and Reduce keep runtime services in the execution context.
+Descriptors have no input, result, exception, callback, or native graph.
+`native/1` returns `%{workflow: workflow, compiled: compiled, ready: runnables}`
+for advanced, read-only inspection. These values can retain application data
+and depend on the Runic version. A changed native workflow cannot be applied
+back to an Execution through this API. See
+[beta migration examples](debugging-flows.md#migrate-native-step-wise-calls).
 
-Flow error maps and JSON retain IDs as full `runic:sha256:v1:...` strings.
-These strings are for diagnostics. Pass the native ID from `ready/1` to
-`step/2` when you select work.
+Native Runic identities in error maps remain diagnostic values. They are not
+work tokens. Internal facts preserve local BEAM values, including output
+envelopes, functions, process IDs, and references. These values and executions
+are not a portable storage format. Map and Reduce keep runtime services in
+the execution context.
 
 A graph identity conflict fails the execution before downstream work can use
 incorrect data. `result/1` returns `Jido.Flow.Error.ExecutionFailureError`
@@ -204,8 +214,8 @@ execution revision is consumed and the Flow emits one terminal error event.
 The exception retains the original Runic stack trace.
 Work already admitted in a concurrent wave can have completed its effects.
 
-A failed runnable is an applied state transition. A step can return
-`{:ok, failed_runnable, execution}`. Read the terminal error with `result/1`.
+A failed work unit is an applied state transition. A step can return
+`{:ok, %Jido.Exec.Work{status: :failed}, execution}`. Read the terminal error with `result/1`.
 
 Always use the newest execution value. Each mutation consumes one revision.
 Jido rejects concurrent reuse or later reuse of an old revision before it

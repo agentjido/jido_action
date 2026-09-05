@@ -88,9 +88,10 @@ A Flow stores author intent. `Jido.Flow.compile/2` derives a
 `Jido.Flow.Compiled` value with a native `Runic.Workflow`, component indexes,
 source locations, and a compilation digest. Do not store the compiled value.
 
-`Jido.Exec` compiles and runs a Flow. Step-wise execution exposes native
-`Runic.Workflow.Runnable` values, including support work such as Join,
-InputBinding, FanOut, and FanIn.
+`Jido.Exec` compiles and runs a Flow. Step-wise execution exposes small
+`Jido.Exec.Work` descriptions, including Join, input binding, fan-out, and
+fan-in support work. Select a unit with its revision-scoped token. Use
+`Jido.Exec.native/1` for advanced, read-only native inspection.
 
 ## Validation And Inspection
 

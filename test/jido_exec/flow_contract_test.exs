@@ -193,7 +193,7 @@ defmodule JidoActionTest.Exec.FlowContractTest do
 
     assert {:ok, execution} = Exec.start(InlineResultFlow, input)
     assert [runnable] = Exec.ready(execution)
-    assert {:ok, %{status: :completed}, execution} = Exec.step(execution, runnable)
+    assert {:ok, %{status: :completed}, execution} = Exec.step(execution, runnable.token)
     assert Exec.status(execution) == :succeeded
     assert Exec.result(execution) == expected
   end

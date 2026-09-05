@@ -367,13 +367,10 @@ Run-to-completion and step-wise execution use the same engine:
 
 ```elixir
 {:ok, execution} = Jido.Exec.start(runtime_flow, %{name: "Ada"})
-[runnable] = Jido.Exec.ready(execution)
+[work] = Jido.Exec.ready(execution)
 
-%Runic.Workflow{} = Jido.Exec.workflow(execution)
-%Jido.Flow.Compiled{} = Jido.Exec.compiled(execution)
-
-{:ok, %Runic.Workflow.Runnable{status: :completed}, execution} =
-  Jido.Exec.step(execution, runnable)
+{:ok, %Jido.Exec.Work{status: :completed}, execution} =
+  Jido.Exec.step(execution, work.token)
 
 :succeeded = Jido.Exec.status(execution)
 {:ok, %{greeting: "Hello, Ada."}} = Jido.Exec.result(execution)
@@ -383,7 +380,10 @@ Run-to-completion and step-wise execution use the same engine:
 dispatch; work already admitted can finish. `continue/1` runs until the Flow
 reaches a terminal result. Always pass the newest execution value to the next
 call. The caller owns this in-memory lifecycle. Jido does not persist or recover it.
-Jido rejects reuse of a stale execution revision.
+Jido rejects reuse of a stale execution revision. Each revision has its own
+work tokens. Descriptors expose component paths and support roles without
+application payloads. Use `Jido.Exec.native/1` for advanced native inspection.
+See [beta API migration](guides/debugging-flows.md#migrate-native-step-wise-calls).
 
 ## Observe Execution
 

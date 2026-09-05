@@ -232,12 +232,12 @@ defmodule JidoActionTest.Exec.MapRetentionTest do
 
       runnable =
         if mode == :collector_first do
-          Enum.find(ready, &(&1.node.name == "$mapped/map-collector")) || hd(ready)
+          Enum.find(ready, &(&1.component_path == ["mapped"] and &1.role == :fan_in)) || hd(ready)
         else
           hd(ready)
         end
 
-      {:ok, _, next} = Exec.step(execution, runnable)
+      {:ok, _, next} = Exec.step(execution, runnable.token)
       finish(next, mode)
     else
       execution

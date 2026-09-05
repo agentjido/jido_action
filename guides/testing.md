@@ -111,7 +111,7 @@ assert {:ok, execution} =
 
 assert Enum.all?(
          Jido.Exec.ready(execution),
-         &match?(%Runic.Workflow.Runnable{}, &1)
+         &match?(%Jido.Exec.Work{}, &1)
        )
 
 assert {:ok, _runnables, execution} = Jido.Exec.wave(execution)
@@ -123,7 +123,7 @@ Always bind the newest Execution value. Add a focused test that an old revision
 fails before work starts.
 
 A failed runnable is an applied transition. `step/2` can return `:ok` with a
-Runnable whose status is `:failed`. Read the terminal error with `result/1`.
+Work whose status is `:failed`. Read the terminal error with `result/1`.
 
 ## Test Components At Their Semantic Boundary
 
@@ -139,8 +139,8 @@ completion, State schema rejection, and exhaustion without one extra body
 call.
 
 For Subflow, test the child directly, then test the parent input and output
-mapping. Add a native Runnable test only when the application depends on the
-exposed child boundary.
+mapping. Use Work paths and roles to test child stopping points. Keep native shape
+assertions in compiler tests or explicit `Jido.Exec.native/1` inspection tests.
 
 ## Keep Concurrent Tests Deterministic
 

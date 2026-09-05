@@ -19,17 +19,19 @@ defmodule Jido.Exec do
 
   ## Step-wise Flow execution
 
-  `ready/1` returns native `Runic.Workflow.Runnable` values. These values can
-  represent authored Steps or Runic support nodes such as Join, InputBinding,
-  FanOut, and FanIn. `step/1`, `step/2`, and `wave/1` execute and apply these
-  native work units. Jido does not hide or drain support runnables.
+  `ready/1` returns small `Jido.Exec.Work` descriptions. Each value identifies
+  one native work unit, including support work such as Join, input binding,
+  fan-out, and fan-in. `step/1`, `step/2`, and `wave/1` keep these stopping
+  points. Jido does not hide or drain support work.
 
+  Pass a ready Work's opaque `token` to `step/2`. Tokens select one unit in
+  one execution revision. Get new tokens after each mutation, including for
+  work that remains ready. Step and wave results keep the input tokens and
+  report each admitted unit's status without retaining application payloads.
   Use `continue/1` and `result/1` to get the same final result as `run/4`.
-  A failed runnable stops the Flow after Jido applies the failure.
 
-  `workflow/1` returns the live prepared `Runic.Workflow`. `compiled/1`
-  returns its `Jido.Flow.Compiled` index and source map. These functions are
-  the supported escape hatch for native inspection during a paused execution.
+  `native/1` is the advanced, read-only view of native workflow, compilation,
+  and ready data. Its native shapes depend on the Runic version.
 
   The caller owns the execution lifecycle. Each successful `step/2` or
   `wave/1` call atomically consumes one execution revision. Concurrent use or
@@ -370,9 +372,9 @@ defmodule Jido.Exec do
   end
 
   @doc """
-  Returns the native Runic runnables that are ready.
+  Returns small `Jido.Exec.Work` descriptions of the ready units.
   """
-  @spec ready(Execution.t()) :: [Runic.Workflow.Runnable.t()]
+  @spec ready(Execution.t()) :: [Jido.Exec.Work.t()]
   def ready(%Execution{} = execution), do: Engine.ready(execution)
 
   @doc """
@@ -384,41 +386,42 @@ defmodule Jido.Exec do
   def status(%Execution{} = execution), do: Engine.status(execution)
 
   @doc """
-  Returns the live native Runic workflow for a paused execution.
+  Returns native data for advanced, read-only inspection.
 
-  This is the execution-state escape hatch to Runic. The returned workflow is
-  prepared with the Flow input and Jido runtime context. A caller that executes
-  or changes it outside `Jido.Exec` owns the resulting state and cannot apply
-  that state back to the Execution value through this API.
+  The map contains the live prepared `:workflow`, derived `:compiled` data,
+  and native `:ready` runnables. Their shapes depend on the Runic version.
+  These values can retain application data and callbacks. They are not small
+  descriptors or a storage format. This function does not consume a revision.
+  A native workflow changed outside Exec cannot be applied back to Execution.
   """
-  @spec workflow(Execution.t()) :: Runic.Workflow.t()
-  def workflow(%Execution{workflow: workflow}), do: workflow
+  @spec native(Execution.t()) :: %{
+          workflow: Runic.Workflow.t(),
+          compiled: Jido.Flow.Compiled.t(),
+          ready: [Runic.Workflow.Runnable.t()]
+        }
+  def native(%Execution{} = execution) do
+    Map.take(execution, [:workflow, :compiled, :ready])
+  end
 
   @doc """
-  Returns the derived Flow compilation data for a paused execution.
-
-  Use its component index and source map to connect native Runic nodes to
-  authored Flow components.
-  """
-  @spec compiled(Execution.t()) :: Jido.Flow.Compiled.t()
-  def compiled(%Execution{compiled: compiled}), do: compiled
-
-  @doc """
-  Executes the first ready native Runic runnable.
+  Executes the first ready work unit, including support work.
   """
   @spec step(Execution.t()) ::
-          {:ok, Runic.Workflow.Runnable.t(), Execution.t()} | {:error, Exception.t()}
+          {:ok, Jido.Exec.Work.t(), Execution.t()} | {:error, Exception.t()}
   def step(%Execution{} = execution), do: Engine.step(execution)
 
   @doc """
-  Executes one ready runnable selected by its value or Runic identity.
+  Executes one ready unit selected by its opaque `t:Jido.Exec.Work.token/0`.
 
-  A work failure is returned in the native Runnable with `status: :failed`.
+  Get the token from `ready/1`. A token is valid only in that execution
+  revision. Invalid, stale, and foreign tokens fail before Action work starts.
+
+  A work failure is returned in the Work with `status: :failed`.
   The operation returns `:ok` because the result was applied to the workflow.
   """
-  @spec step(Execution.t(), Runic.Workflow.Runnable.t() | Runic.Identity.t() | integer()) ::
-          {:ok, Runic.Workflow.Runnable.t(), Execution.t()} | {:error, Exception.t()}
-  def step(%Execution{} = execution, runnable), do: Engine.step(execution, runnable)
+  @spec step(Execution.t(), Jido.Exec.Work.token()) ::
+          {:ok, Jido.Exec.Work.t(), Execution.t()} | {:error, Exception.t()}
+  def step(%Execution{} = execution, token), do: Engine.step(execution, token)
 
   @doc """
   Executes runnables from the set that is currently ready.
@@ -430,7 +433,7 @@ defmodule Jido.Exec do
   return fewer runnables than the initial ready set.
   """
   @spec wave(Execution.t()) ::
-          {:ok, [Runic.Workflow.Runnable.t()], Execution.t()} | {:error, Exception.t()}
+          {:ok, [Jido.Exec.Work.t()], Execution.t()} | {:error, Exception.t()}
   def wave(%Execution{} = execution), do: Engine.wave(execution)
 
   @doc """

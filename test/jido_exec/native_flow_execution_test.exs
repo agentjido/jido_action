@@ -17,26 +17,26 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
 
   alias JidoActionTest.Fixtures.Execution, as: ExecFixtures
 
-  alias Runic.Workflow.{FanIn, FanOut, InputBinding, Runnable}
+  alias Jido.Exec.Work
 
-  test "full execution and native-runnable step execution return the same value" do
+  test "full execution and step-wise execution return the same value" do
     assert {:ok, expected} = Exec.run(MathFlow, %{value: 3})
     assert {:ok, execution} = Exec.start(MathFlow, %{value: 3})
-    assert [%Runnable{node: %{name: "add_one"}} = first] = Exec.ready(execution)
+    assert [%Work{component_path: ["add_one"]} = first] = Exec.ready(execution)
 
-    assert {:ok, %Runnable{id: id, status: :completed}, execution} =
-             Exec.step(execution, first.id)
+    assert {:ok, %Work{token: token, status: :completed}, execution} =
+             Exec.step(execution, first.token)
 
-    assert id == first.id
-    assert [%Runnable{node: %{name: "double"}} = second] = Exec.ready(execution)
-    assert {:ok, %Runnable{status: :completed}, execution} = Exec.step(execution, second)
+    assert token == first.token
+    assert [%Work{component_path: ["double"]} = second] = Exec.ready(execution)
+    assert {:ok, %Work{status: :completed}, execution} = Exec.step(execution, second.token)
     assert Exec.status(execution) == :succeeded
     assert Exec.result(execution) == {:ok, expected}
   end
 
-  test "an older execution revision cannot dispatch the same Runnable again" do
+  test "an older execution revision cannot dispatch the same work again" do
     assert {:ok, stale} = Exec.start(MathFlow, %{value: 3})
-    assert {:ok, %Runnable{status: :completed}, current} = Exec.step(stale)
+    assert {:ok, %Work{status: :completed}, current} = Exec.step(stale)
     assert current.revision == 1
 
     assert {:error,
@@ -82,7 +82,13 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
     assert {:ok, stale} = Exec.start(InlineControlledFlow, input, context, max_concurrency: 2)
     assert length(Exec.ready(stale)) == 3
     assert {:ok, executed, current} = Exec.wave(stale)
-    assert Enum.map(executed, & &1.node.name) |> Enum.sort() == ["first", "second", "third"]
+
+    assert Enum.map(executed, &hd(&1.component_path)) |> Enum.sort() == [
+             "first",
+             "second",
+             "third"
+           ]
+
     assert current.revision == 1
 
     for value <- 1..3 do
@@ -106,7 +112,7 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
     assert Exec.result(completed) == {:ok, %{values: [1, 2, 3]}}
   end
 
-  test "ready, step, and wave expose Runic support runnables" do
+  test "ready, step, and wave expose support work" do
     flow = map_reduce_flow()
     assert {:ok, execution} = Exec.start(flow, %{items: [1, 2, 3]})
     {seen, execution} = run_waves(execution, [])
@@ -114,12 +120,12 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
     assert Exec.result(execution) ==
              {:ok, %{values: [%{value: 1}, %{value: 2}, %{value: 3}], indexes: [0, 1, 2]}}
 
-    assert FanOut in seen
-    assert FanIn in seen
-    assert Runic.Workflow.Step in seen
+    assert :fan_out in seen
+    assert :fan_in in seen
+    assert :map_item in seen
   end
 
-  test "a Subflow exposes its child and native InputBinding runnables" do
+  test "a Subflow exposes its child and input binding work" do
     flow =
       Flow.new!(
         name: "native_subflow_execution",
@@ -137,14 +143,14 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
     {runnables, execution} = collect_runnables(execution, [])
 
     names =
-      for %Runnable{node: %{name: name}} <- runnables,
-          do: name
+      for %Work{component_path: path} <- runnables,
+          do: path
 
-    assert "child/$input" in names
-    assert "child/add_one" in names
-    assert "child/double" in names
-    assert "child/$output" in names
-    assert Enum.any?(runnables, &match?(%Runnable{node: %InputBinding{}}, &1))
+    assert Enum.any?(runnables, &(&1.component_path == ["child"] and &1.role == :input))
+    assert ["child", "add_one"] in names
+    assert ["child", "double"] in names
+    assert Enum.any?(runnables, &(&1.component_path == ["child"] and &1.role == :output))
+    assert Enum.any?(runnables, &match?(%Work{role: :input_binding}, &1))
     assert Exec.result(execution) == {:ok, %{value: 8}}
   end
 
@@ -169,7 +175,7 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
 
     assert {:ok, execution} = Exec.start(flow)
     {runnables, execution} = collect_runnables(execution, [])
-    assert Enum.any?(runnables, &match?(%Runnable{node: %Runic.Workflow.Join{}}, &1))
+    assert Enum.any?(runnables, &match?(%Work{role: :join}, &1))
     assert Exec.result(execution) == {:ok, %{value: :only_authored_data}}
   end
 
@@ -180,7 +186,9 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
 
   test "Iterate stays one bounded native Step" do
     assert {:ok, execution} = Exec.start(ChildIterator, %{start: 0, limit: 3})
-    assert [%Runnable{node: %Runic.Workflow.Step{name: "child"}}] = Exec.ready(execution)
+
+    assert [%Work{component_path: ["child"], kind: :iterate, role: :execute}] =
+             Exec.ready(execution)
 
     assert {:ok,
             %{
@@ -327,7 +335,7 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
   defp run_waves(execution, seen) do
     if Exec.status(execution) == :running do
       ready = Exec.ready(execution)
-      seen = seen ++ Enum.map(ready, & &1.node.__struct__)
+      seen = seen ++ Enum.map(ready, & &1.role)
       assert {:ok, _executed, execution} = Exec.wave(execution)
       run_waves(execution, seen)
     else

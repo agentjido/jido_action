@@ -1,11 +1,11 @@
 defmodule Jido.Exec.Flow.Engine do
   @moduledoc false
 
-  alias Jido.Exec.{Execution, ExecutionGuard}
+  alias Jido.Exec.{Execution, ExecutionGuard, Work}
   alias Jido.Exec.Telemetry
   alias Jido.Exec.Transition
 
-  alias Jido.Exec.Flow.RunnableExecutor
+  alias Jido.Exec.Flow.{Inspection, RunnableExecutor}
 
   alias Jido.Flow
   alias Jido.Flow.{Compiled, Compiler, Error}
@@ -69,6 +69,7 @@ defmodule Jido.Exec.Flow.Engine do
       options: options,
       workflow: workflow,
       ready: [],
+      ready_work: [],
       runnable_errors: [],
       engine_error: nil,
       finalizer: finalizer,
@@ -79,9 +80,9 @@ defmodule Jido.Exec.Flow.Engine do
     settle(execution)
   end
 
-  @doc "Returns the native Runic runnables that are ready."
-  @spec ready(Execution.t()) :: [Runnable.t()]
-  def ready(%Execution{ready: ready}), do: ready
+  @doc "Returns small descriptions of the ready work."
+  @spec ready(Execution.t()) :: [Work.t()]
+  def ready(%Execution{ready_work: work}), do: work
 
   @doc "Returns the current Flow execution status."
   @spec status(Execution.t()) :: :running | :succeeded | :failed
@@ -94,7 +95,7 @@ defmodule Jido.Exec.Flow.Engine do
      Error.invalid_execution_error("flow execution is not complete", %{
        flow: execution.flow_name,
        status: :running,
-       ready: Enum.map(ready(execution), & &1.id)
+       ready: Enum.map(execution.ready, & &1.id)
      })}
   end
 
@@ -113,52 +114,44 @@ defmodule Jido.Exec.Flow.Engine do
 
   def run_to_completion(%Execution{} = execution), do: {:ok, execution}
 
-  @doc "Executes the first ready native Runnable."
-  @spec step(Execution.t()) ::
-          {:ok, Runnable.t(), Execution.t()} | {:error, Exception.t()}
+  @doc "Executes the first ready work unit."
+  @spec step(Execution.t()) :: {:ok, Work.t(), Execution.t()} | {:error, Exception.t()}
   def step(%Execution{} = execution) do
     case ready(execution) do
-      [runnable | _rest] -> step(execution, runnable)
+      [work | _rest] -> step(execution, work.token)
       [] -> execution_not_running(execution)
     end
   end
 
-  @doc "Executes one selected ready native Runnable."
-  @spec step(Execution.t(), Runnable.t() | Runic.Identity.t() | integer()) ::
-          {:ok, Runnable.t(), Execution.t()} | {:error, Exception.t()}
-  def step(%Execution{status: :running} = execution, %Runnable{id: id}),
-    do: step(execution, id)
-
-  def step(%Execution{status: :running} = execution, id)
-      when is_struct(id, Runic.Identity) or is_integer(id) do
-    with {:ok, runnable} <- fetch_ready(execution, id) do
-      execution
-      |> mutate(fn -> do_step(execution, runnable) end)
-      |> reject_stepwise_transition(execution)
+  @doc "Executes one ready unit selected by its revision-scoped token."
+  @spec step(Execution.t(), Work.token()) ::
+          {:ok, Work.t(), Execution.t()} | {:error, Exception.t()}
+  def step(%Execution{status: :running} = execution, token) do
+    with {:ok, runnable, work} <- fetch_ready(execution, token),
+         {:ok, executed, next} <-
+           execution
+           |> mutate(fn -> do_step(execution, runnable) end)
+           |> reject_stepwise_transition(execution) do
+      {:ok, %{work | status: executed.status}, next}
     end
   end
 
-  def step(%Execution{status: :running}, runnable) do
-    {:error,
-     Error.invalid_execution_error("flow runnable must be a ready Runnable or runnable ID", %{
-       runnable: runnable
-     })}
-  end
+  def step(%Execution{} = execution, _token), do: execution_not_running(execution)
 
-  def step(%Execution{} = execution, _runnable), do: execution_not_running(execution)
+  @doc "Executes currently ready units, stopping new dispatch on failure."
+  @spec wave(Execution.t()) :: {:ok, [Work.t()], Execution.t()} | {:error, Exception.t()}
+  def wave(%Execution{status: :running, ready: [_ | _]} = execution) do
+    with {:ok, executed, next} <-
+           execution
+           |> mutate(fn -> do_wave(execution) end)
+           |> reject_stepwise_transition(execution) do
+      work_by_id =
+        execution.ready
+        |> Enum.zip(execution.ready_work)
+        |> Map.new(fn {runnable, work} -> {runnable.id, work} end)
 
-  @doc "Executes currently ready Runnables, stopping new dispatch on failure."
-  @spec wave(Execution.t()) ::
-          {:ok, [Runnable.t()], Execution.t()} | {:error, Exception.t()}
-  def wave(%Execution{status: :running} = execution) do
-    case ready(execution) do
-      [] ->
-        execution_not_running(execution)
-
-      _ready ->
-        execution
-        |> mutate(fn -> do_wave(execution) end)
-        |> reject_stepwise_transition(execution)
+      work = Enum.map(executed, &%{Map.fetch!(work_by_id, &1.id) | status: &1.status})
+      {:ok, work, next}
     end
   end
 
@@ -184,7 +177,8 @@ defmodule Jido.Exec.Flow.Engine do
 
   defp settle(%Execution{} = execution) do
     {workflow, runnables} = Workflow.prepare_for_dispatch(execution.workflow)
-    execution = %{execution | workflow: workflow, ready: runnables}
+    work = Inspection.ready(runnables, workflow, execution.compiled.work_index)
+    execution = %{execution | workflow: workflow, ready: runnables, ready_work: work}
 
     cond do
       runnables != [] ->
@@ -215,7 +209,7 @@ defmodule Jido.Exec.Flow.Engine do
   end
 
   defp do_wave(execution) do
-    executed = RunnableExecutor.execute_many(execution, ready(execution))
+    executed = RunnableExecutor.execute_many(execution, execution.ready)
     execution = executed |> Enum.reduce(execution, &apply_runnable(&2, &1)) |> advance_revision()
 
     case settle(execution) do
@@ -297,18 +291,19 @@ defmodule Jido.Exec.Flow.Engine do
 
   defp advance_revision(execution), do: %{execution | revision: execution.revision + 1}
 
-  defp fetch_ready(execution, id) do
-    case Enum.find(execution.ready, &(&1.id == id)) do
-      %Runnable{} = runnable ->
-        {:ok, runnable}
-
+  defp fetch_ready(execution, token) do
+    case Enum.find_index(execution.ready_work, &(&1.token == token)) do
       nil ->
         {:error,
-         Error.invalid_execution_error("flow runnable is not ready", %{
+         Error.invalid_execution_error("invalid flow work token", %{
            flow: execution.flow_name,
-           runnable_id: id,
-           ready: Enum.map(execution.ready, & &1.id)
+           execution_id: execution.id,
+           revision: execution.revision,
+           reason: :invalid_work_token
          })}
+
+      index ->
+        {:ok, Enum.at(execution.ready, index), Enum.at(execution.ready_work, index)}
     end
   end
 
@@ -369,6 +364,7 @@ defmodule Jido.Exec.Flow.Engine do
        execution
        | status: status,
          ready: [],
+         ready_work: [],
          final_result: final_result
      }}
   end
@@ -381,6 +377,7 @@ defmodule Jido.Exec.Flow.Engine do
        execution
        | status: :succeeded,
          ready: [],
+         ready_work: [],
          final_result: nil
      }}
   end

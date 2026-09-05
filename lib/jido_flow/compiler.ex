@@ -109,6 +109,7 @@ defmodule Jido.Flow.Compiler do
        %Compiled{
          workflow: state.workflow,
          component_index: state.component_index,
+         work_index: state.work_index,
          output: flow.output,
          source_map: state.source_map,
          compilation_digest: digest(digest_data)
@@ -296,6 +297,7 @@ defmodule Jido.Flow.Compiler do
       root_parent: root_parent,
       outputs: %{},
       component_index: %{},
+      work_index: %{},
       source_map: source_map,
       child_digests: [],
       subflows: subflows
@@ -370,6 +372,7 @@ defmodule Jido.Flow.Compiler do
   defp add_authored_output(state, component, native_component, output_node) do
     workflow = add_with_dependencies(state, component, native_component)
     output_name = output_node.name
+    state = index_work(state, component, [{output_node, :execute}])
 
     %{
       state
@@ -447,6 +450,16 @@ defmodule Jido.Flow.Compiler do
       )
 
     workflow = Workflow.add(workflow, output_step, to: collector.fan_in)
+
+    state =
+      index_work(state, map, [
+        {resolver, :input},
+        {native_map, :fan_out},
+        {fan_out, :fan_out},
+        {item_step, :map_item},
+        {collector.fan_in, :fan_in},
+        {output_step, :output}
+      ])
 
     index = %{
       kind: :map,
@@ -612,6 +625,14 @@ defmodule Jido.Flow.Compiler do
     {native_reduce, output_step} = reduce_components(state, reduce)
     workflow = Workflow.add(workflow, native_reduce, to: resolver)
     workflow = Workflow.add(workflow, output_step, to: native_reduce.fan_in)
+
+    state =
+      index_work(state, reduce, [
+        {resolver, :input},
+        {native_reduce.fan_in, :fan_in},
+        {output_step, :output}
+      ])
+
     put_reduce_output(state, reduce, workflow, native_reduce, output_step)
   end
 
@@ -856,6 +877,17 @@ defmodule Jido.Flow.Compiler do
     workflow =
       Workflow.add(workflow, output_step, connections: [[from: {boundary_name, :out}, to: :in]])
 
+    state = %{state | work_index: Map.merge(state.work_index, child_state.work_index)}
+
+    state =
+      index_work(state, subflow, [
+        {params_step, :input},
+        {input_validator, :input},
+        {child_workflow, :input},
+        {child_output, :output},
+        {output_step, :output}
+      ])
+
     child_digest = {subflow.name, Identity.semantic_digest(child_flow)}
 
     %{
@@ -986,6 +1018,18 @@ defmodule Jido.Flow.Compiler do
       parent ->
         Workflow.add(state.workflow, native_component, to: parent, validate: :off)
     end
+  end
+
+  defp index_work(state, component, nodes) do
+    path = state.namespace ++ [component.name]
+    kind = Component.kind(component)
+
+    index =
+      Enum.reduce(nodes, state.work_index, fn {node, role}, index ->
+        Map.put(index, node.hash, %{component_path: path, kind: kind, role: role})
+      end)
+
+    %{state | work_index: index}
   end
 
   defp runtime_step(state, authored_name, kind, work) do
