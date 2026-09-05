@@ -27,8 +27,36 @@ defmodule JidoActionBench.Measure do
     end)
   end
 
-  def resources(workload) do
-    isolated(fn -> trace_resources(workload) end)
+  def resources(workload, count \\ 1) when is_integer(count) and count > 0 do
+    samples = for _ <- 1..count, do: isolated(fn -> trace_resources(workload) end)
+    %{samples: samples, median: median_fields(samples)}
+  end
+
+  def retained(workload) do
+    isolated(fn ->
+      prepared = workload.setup.(%{})
+      result = workload.run.(prepared)
+      :ok = workload.check.(result)
+
+      Map.new(workload.retained.(prepared, result), fn {name, term} ->
+        {name, term_size(term)}
+      end)
+    end)
+  end
+
+  defp median_fields([first | _] = samples) do
+    Map.new(first, fn {key, value} ->
+      values = Enum.map(samples, &Map.fetch!(&1, key))
+
+      median =
+        cond do
+          is_map(value) -> median_fields(values)
+          is_number(value) -> distribution(values).median
+          is_nil(value) -> nil
+        end
+
+      {key, median}
+    end)
   end
 
   def term_size(term) do
@@ -95,6 +123,7 @@ defmodule JidoActionBench.Measure do
           :bench_go ->
             try do
               result = workload.run.(workload.setup.(%{bench_observer: observer}))
+              JidoActionBench.Fixtures.barrier(%{bench_observer: observer})
               :ok = workload.check.(result)
               send(observer, {:bench_result, :ok})
             rescue

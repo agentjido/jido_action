@@ -1,10 +1,11 @@
 Code.require_file("fixtures.exs", __DIR__)
 Code.require_file("measure.exs", __DIR__)
 Code.require_file("report.exs", __DIR__)
+Code.require_file("memory_cases.exs", __DIR__)
 
 defmodule JidoActionBench.Suite do
   @moduledoc false
-  alias JidoActionBench.{Fixtures, Measure, Report}
+  alias JidoActionBench.{Fixtures, Measure, MemoryCases, Report}
 
   def run(profile) do
     settings = settings(profile)
@@ -13,16 +14,8 @@ defmodule JidoActionBench.Suite do
     try do
       :ok = check_growth!()
 
-      workloads =
-        for count <- settings.sizes,
-            payload <- settings.payloads,
-            workload <- Fixtures.workloads(count, payload) do
-          Map.merge(workload, %{
-            id: "#{workload.name}/#{payload}/#{count}",
-            count: count,
-            payload: payload
-          })
-        end
+      workloads = Fixtures.workloads(settings.sizes, settings.payloads)
+      workloads = if profile == "smoke", do: workloads, else: workloads ++ MemoryCases.workloads()
 
       # The untimed growth preflight is complete. Time every workload before
       # its traced resource run and retained-term transfer probe.
@@ -40,19 +33,19 @@ defmodule JidoActionBench.Suite do
           %{
             id: workload.id,
             timing: Map.fetch!(timings, workload.id),
-            resources: Measure.resources(workload),
-            retained_term: Measure.term_size(workload.retained)
+            resources: Measure.resources(workload, settings.resource_samples),
+            retained_terms: Measure.retained(workload)
           }
         end)
 
       %{
-        schema_version: 1,
+        schema_version: 2,
         source: source(),
         environment: environment(),
         settings: settings,
         recorded_at: DateTime.utc_now() |> DateTime.to_iso8601(),
         method:
-          "untraced monotonic clock; caller reductions; separate traced barrier samples; monitored term transfer",
+          "untraced monotonic clock; caller reductions; repeated traced barrier samples; monitored execution-term transfer",
         limitations: Report.limitations(),
         growth_check: "passed: compiled serial, parallel, and Subflow graphs at sizes 2 and 6",
         cases: cases
@@ -95,7 +88,7 @@ defmodule JidoActionBench.Suite do
       payloads: [:small, :large_map, :large_binary],
       warmup: 3,
       samples: 15,
-      resource_samples: 1
+      resource_samples: 3
     }
 
   defp settings("scale"),
@@ -105,7 +98,7 @@ defmodule JidoActionBench.Suite do
       payloads: [:small, :large_map, :large_binary],
       warmup: 5,
       samples: 30,
-      resource_samples: 1
+      resource_samples: 3
     }
 
   defp settings("smoke"),

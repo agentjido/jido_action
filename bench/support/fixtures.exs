@@ -38,12 +38,23 @@ defmodule JidoActionBench.Fixtures do
     end
   end
 
-  def workloads(count, payload) when count in 1..32 do
-    input = %{value: payload(payload)}
-    action_workloads(input) ++ flow_workloads(count, input)
-  end
+  def workloads(sizes, payloads) do
+    unless Enum.all?(sizes, &(&1 in 1..32)),
+      do: raise(ArgumentError, "graph size must be in 1..32")
 
-  def workloads(_count, _payload), do: raise(ArgumentError, "graph size must be in 1..32")
+    actions =
+      for payload <- payloads,
+          workload <- action_workloads(%{value: payload(payload)}),
+          do: Map.put(workload, :id, "#{workload.name}/#{payload}")
+
+    flows =
+      for count <- sizes,
+          payload <- payloads,
+          workload <- flow_workloads(count, %{value: payload(payload)}),
+          do: Map.put(workload, :id, "#{workload.name}/#{payload}/#{count}")
+
+    actions ++ flows
+  end
 
   def graph(shape, count) when count in 1..32 do
     components =
@@ -77,7 +88,7 @@ defmodule JidoActionBench.Fixtures do
         setup: fn context -> context end,
         run: fn context -> action(mode, input, context) end,
         check: &expect!(&1, {:ok, input}),
-        retained: input
+        retained: fn _prepared, result -> %{result: result} end
       }
     end
   end
@@ -115,30 +126,34 @@ defmodule JidoActionBench.Fixtures do
       max_concurrency: if(shape == :serial, do: 1, else: 4)
     ]
 
-    common = %{setup: fn context -> context end, retained: {flow, compiled, input}}
+    common = %{setup: fn context -> context end}
 
     [
       Map.merge(common, %{
         name: "#{shape}/validate",
         run: fn _ -> Flow.validate_executable(flow) end,
-        check: &expect!(&1, {:ok, flow})
+        check: &expect!(&1, {:ok, flow}),
+        retained: fn _, {:ok, value} -> %{flow: value} end
       }),
       Map.merge(common, %{
         name: "#{shape}/compile",
         run: fn _ -> Flow.compile(flow) end,
         check: fn {:ok, result} ->
           expect!(result.compilation_digest, compiled.compilation_digest)
-        end
+        end,
+        retained: fn _, {:ok, value} -> %{compiled: value} end
       }),
       Map.merge(common, %{
         name: "#{shape}/run",
         run: fn context -> Exec.run(flow, input, context, opts) end,
-        check: &expect!(&1, expected)
+        check: &expect!(&1, expected),
+        retained: fn _, result -> %{result: result} end
       }),
       Map.merge(common, %{
         name: "#{shape}/prepared_reuse",
         run: fn context -> run_prepared(flow, compiled, input, context, opts) end,
-        check: &expect!(&1, expected)
+        check: &expect!(&1, expected),
+        retained: fn _, result -> %{result: result} end
       }),
       %{
         name: "#{shape}/paused_continue",
@@ -150,10 +165,12 @@ defmodule JidoActionBench.Fixtures do
         end,
         run: fn execution ->
           {:ok, finished} = Exec.continue(execution)
-          Exec.result(finished)
+          finished
         end,
-        check: &expect!(&1, expected),
-        retained: {flow, compiled, input}
+        check: fn finished -> expect!(Exec.result(finished), expected) end,
+        retained: fn paused, finished ->
+          %{paused_execution: paused, finished_execution: finished}
+        end
       }
     ]
   end
