@@ -818,6 +818,8 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp add_subflow(subflow, state) do
+    subflow = %{subflow | meta: %{}}
+
     if subflow.flow in state.module_stack do
       raise Error.validation_error("recursive Subflow reference", %{
               component: subflow.name,

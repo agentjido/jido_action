@@ -36,6 +36,23 @@ defmodule JidoActionTest.Flow.Compiler.CaptureTest do
     assert retained == []
   end
 
+  test "compiled Subflows do not copy author metadata into callbacks" do
+    sizes =
+      for meta <- [%{}, %{notes: Enum.to_list(1..5_000)}] do
+        flow =
+          Flow.new!(
+            name: "subflow_metadata",
+            components: [Subflow.new!(name: "child", flow: TelemetryParentFlow, meta: meta)],
+            output: Ref.result("child")
+          )
+
+        assert {:ok, compiled} = Flow.compile(flow)
+        :erts_debug.flat_size(compiled)
+      end
+
+    assert Enum.uniq(sizes) |> length() == 1
+  end
+
   for shape <- [:independent, :chained, :nested, :map, :reduce] do
     test "#{shape} graphs have bounded size after transfer to another process" do
       measurements =
