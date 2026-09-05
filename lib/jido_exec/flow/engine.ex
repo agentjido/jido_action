@@ -61,7 +61,6 @@ defmodule Jido.Exec.Flow.Engine do
       status: :running,
       revision: 0,
       guard: ExecutionGuard.new(),
-      flow: flow,
       compiled: compiled,
       input: input,
       context: context,

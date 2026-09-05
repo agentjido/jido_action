@@ -11,7 +11,6 @@ defmodule Jido.Exec.Execution do
   lifecycle.
   """
 
-  alias Jido.Flow
   alias Jido.Flow.Compiled
   alias Runic.Workflow
   alias Runic.Workflow.Runnable
@@ -23,7 +22,6 @@ defmodule Jido.Exec.Execution do
           status: :running | :succeeded | :failed,
           revision: non_neg_integer(),
           guard: :atomics.atomics_ref(),
-          flow: Flow.t(),
           compiled: Compiled.t(),
           input: map(),
           context: map(),
@@ -48,7 +46,6 @@ defmodule Jido.Exec.Execution do
     :status,
     :revision,
     :guard,
-    :flow,
     :compiled,
     :input,
     :context,

@@ -6,6 +6,28 @@ defmodule JidoActionTest.Exec.WorkRetentionTest do
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
   alias JidoActionTest.Fixtures.Actions.ErrorAction
 
+  test "paused executions keep at most one copy of author metadata for errors" do
+    metadata = %{notes: Enum.to_list(1..5_000)}
+
+    [small, large] =
+      for meta <- [%{}, metadata] do
+        flow =
+          Flow.new!(
+            name: "execution_metadata",
+            components: [Step.new!(name: "echo", action: EchoParamsAction, meta: meta)],
+            output: Ref.result("echo")
+          )
+
+        assert {:ok, execution} = Exec.start(flow)
+        size = :erts_debug.flat_size(execution)
+        assert {:ok, finished} = Exec.continue(execution)
+        assert Exec.result(finished) == {:ok, %{}}
+        size
+      end
+
+    assert large - small < :erts_debug.flat_size(metadata) + 100
+  end
+
   test "failure records do not duplicate native runnable inputs" do
     flow =
       Flow.new!(
