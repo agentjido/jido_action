@@ -3,7 +3,7 @@ defmodule JidoActionTest.Exec.WorkAllocationTest do
   use ExUnit.Case, async: false
 
   alias Jido.{Exec, Flow}
-  alias Jido.Exec.Flow.Inspection
+  alias Jido.Exec.Work
   alias Jido.Flow.{Ref, Step}
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
 
@@ -77,7 +77,7 @@ defmodule JidoActionTest.Exec.WorkAllocationTest do
   end
 
   defp construction_count(fun) do
-    Code.ensure_loaded!(Inspection)
+    Code.ensure_loaded!(Work)
     owner = self()
     ref = make_ref()
     supervisor = start_supervised!(Task.Supervisor)
@@ -92,7 +92,7 @@ defmodule JidoActionTest.Exec.WorkAllocationTest do
       end)
 
     try do
-      :erlang.trace_pattern({Inspection, :work, 3}, true, [:local])
+      :erlang.trace_pattern({Work, :new, :_}, true, [:local])
       flags = [:call, :arity, :set_on_spawn, {:tracer, self()}]
       :erlang.trace(caller, true, flags)
       :erlang.trace(supervisor, true, flags)
@@ -106,7 +106,7 @@ defmodule JidoActionTest.Exec.WorkAllocationTest do
       {result, count}
     after
       :erlang.trace(supervisor, false, [:all])
-      :erlang.trace_pattern({Inspection, :work, 3}, false, [:local])
+      :erlang.trace_pattern({Work, :new, :_}, false, [:local])
       Process.exit(caller, :kill)
       Process.demonitor(monitor, [:flush])
     end
@@ -114,7 +114,7 @@ defmodule JidoActionTest.Exec.WorkAllocationTest do
 
   defp drain_calls(count) do
     receive do
-      {:trace, _pid, :call, {Inspection, :work, 3}} -> drain_calls(count + 1)
+      {:trace, _pid, :call, {Work, :new, _arity}} -> drain_calls(count + 1)
     after
       0 -> count
     end
