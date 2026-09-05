@@ -14,7 +14,7 @@ defmodule Jido.Exec.Flow.Inspection do
     status = if runnable.status == :pending, do: :ready, else: runnable.status
 
     %Work{
-      token: {execution.work_ref, execution.revision, position},
+      token: Work.token(execution.work_ref, execution.revision, position),
       component_path: metadata.component_path,
       kind: metadata.kind,
       role: role,

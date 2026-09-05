@@ -56,6 +56,10 @@ defmodule Jido.Exec.Work do
   defstruct @enforce_keys
 
   @doc false
+  @spec token(reference(), non_neg_integer(), non_neg_integer()) :: token()
+  def token(execution_ref, revision, position), do: {execution_ref, revision, position}
+
+  @doc false
   @spec position(term(), reference(), non_neg_integer()) :: {:ok, non_neg_integer()} | :error
   def position({execution_ref, revision, position}, execution_ref, revision)
       when is_integer(position) and position >= 0,
