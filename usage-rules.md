@@ -69,6 +69,9 @@ Use `jido_action` for validated work and data-first composition:
   operations for short calculations and conditions. Put application calls and
   complex work in Actions or inline bodies. See
   [Expressions](guides/flow-expressions.md) for the complete operation list.
+- Condition helpers return `Jido.Expr`. Legacy Condition input is converted
+  during construction and uses the same fixed Expr limits. See the
+  [beta migration notes](guides/flow-expressions.md#migrate-earlier-v3-beta-conditions).
 - Treat DSL expressions as a restricted data grammar, not general Elixir. Do
   not use assignments, pattern matching, pipes, or application function calls
   in binding sources or other data expressions.

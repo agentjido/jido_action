@@ -52,7 +52,10 @@ identity.uuid
 ```
 
 Identity uses the canonical semantic form. Runtime compilation data and DSL
-source locations do not change it.
+source locations do not change it. The identity version is 2. Canonical
+operations use Expr, including conditions. Recompute earlier beta digests
+and UUIDs and rebuild compiled Flows. See the
+[condition migration notes](flow-expressions.md#migrate-earlier-v3-beta-conditions).
 
 ## Get A Semantic Map
 

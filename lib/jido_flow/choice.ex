@@ -18,7 +18,6 @@ defmodule Jido.Flow.Choice do
 
   alias Jido.Flow.Error
   alias Jido.Flow.Component
-  alias Jido.Flow.Condition
   alias Jido.Flow.Expression
 
   @keys [:name, :options, :fallback, :after, :meta]
@@ -227,7 +226,7 @@ defmodule Jido.Flow.Choice do
   def result_deps(%__MODULE__{} = choice) do
     choice.options
     |> Enum.flat_map(fn option ->
-      Condition.result_deps(option.condition) ++ Expression.result_refs(option.params)
+      Expression.result_refs(option.condition) ++ Expression.result_refs(option.params)
     end)
     |> Kernel.++(Expression.result_refs(choice.fallback.params))
     |> Enum.uniq()
@@ -244,7 +243,7 @@ defmodule Jido.Flow.Choice do
         Enum.map(choice.options, fn option ->
           %{
             name: option.name,
-            condition: Condition.to_map(option.condition),
+            condition: Expression.to_map(option.condition),
             action: option.action,
             params: Expression.to_map(option.params)
           }

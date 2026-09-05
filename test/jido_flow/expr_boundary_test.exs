@@ -117,7 +117,8 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
   test "normalization counts Condition nodes after conversion to expressions" do
     conditions = List.duplicate(Condition.eq(1, 1), 4_000)
     expression = Expr.new!(:all, conditions)
-    assert {:ok, %Condition{}} = Condition.new(:all, conditions)
+    assert {:error, error} = Condition.new(:all, conditions)
+    assert error.details.reason == :max_nodes
     assert {:error, error} = Jido.Flow.Expression.normalize(expression)
     assert error.details.reason == :max_nodes
   end
@@ -149,7 +150,7 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
 
     condition = Condition.eq(Ref.item(), 1)
     assert {:error, error} = Jido.Flow.Expression.validate(%{outer: [condition]}, :flow)
-    assert error.details.path == [:outer, 0, 0]
+    assert error.details.path == [:outer, 0, :operands, 0]
 
     assert {:error, error} = Jido.Flow.Expression.validate(%{outer: %{1.5 => :invalid}}, :flow)
     assert error.details.path == [:outer]
@@ -183,6 +184,22 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
                  do: ["components", 0, "options", 0, "condition", "$expr", "operator"],
                  else: ["components", 0, "completion", "$expr", "operator"]
                )
+    end
+  end
+
+  test "canonical operations preserve Flow string and map-key rules" do
+    for data <- [<<255>>, %{nil => 1}, %{-1 => 1}, %{<<255>> => 1}] do
+      expression = Expr.new!(:eq, [data, data])
+      assert :ok = Expr.validate(expression)
+
+      assert {:error, %Jido.Flow.Error.InvalidDefinitionError{}} =
+               Jido.Flow.Expression.validate(expression)
+
+      assert {:error, %Jido.Flow.Error.InvalidDefinitionError{}} =
+               Step.new(name: "seed", action: EchoParamsAction, params: %{nested: expression})
+
+      assert {:error, %Jido.Flow.Error.InvalidDefinitionError{}} =
+               Condition.new(:eq, [data, data])
     end
   end
 

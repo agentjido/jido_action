@@ -3,7 +3,6 @@ defmodule Jido.Flow.Compiler.Iterator do
 
   alias Jido.Flow.Error
   alias Jido.Action.Validation
-  alias Jido.Flow.Compiler.Condition
   alias Jido.Flow.Compiler.Expression
   alias Jido.Flow.Compiler.Target
   alias Jido.Flow.Identity
@@ -274,7 +273,7 @@ defmodule Jido.Flow.Compiler.Iterator do
       |> Map.put(:iteration_index, runtime.completed)
       |> Map.put(:body_result, runtime.body_result)
 
-    case Condition.evaluate(iterator.completion, local_state, iterator.name, :iterate) do
+    case Expression.condition(iterator.completion, local_state, iterator.name, :iterate) do
       {:ok, result} ->
         {:ok, result}
 

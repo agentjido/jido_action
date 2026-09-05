@@ -10,6 +10,35 @@ defmodule Jido.Flow.Compiler.Expression do
           nil | :action_output | :list | :map | :binary | :number | :atom | :tuple | :other
 
   @doc false
+  @spec condition(Expr.t(), map(), String.t(), term()) ::
+          {:ok, boolean()} | {:error, Exception.t()}
+  def condition(%Expr{} = expression, state, node, option) do
+    case resolve(expression, state) do
+      {:ok, result} when is_boolean(result) ->
+        {:ok, result}
+
+      {:ok, result} ->
+        {:error,
+         Error.execution_error("invalid choice condition operands", %{
+           phase: :choice_condition,
+           node: node,
+           option: option,
+           reason: :invalid_boolean_operand,
+           value_type: value_type(result),
+           expression_path: [],
+           retry: false
+         })}
+
+      {:error, %{details: details} = error} ->
+        {:error,
+         %{
+           error
+           | details: Map.merge(details, %{phase: :choice_condition, node: node, option: option})
+         }}
+    end
+  end
+
+  @doc false
   @spec resolve(term(), map()) :: {:ok, term()} | {:error, Exception.t()}
   def resolve(%Expr{} = expression, state) do
     case Expr.evaluate(expression,

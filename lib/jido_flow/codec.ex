@@ -5,6 +5,11 @@ defmodule Jido.Flow.Codec do
   The document contains JSON-compatible data. A trusted `Jido.Flow.Registry`
   resolves all Action, Flow, schema, and user-data atom identifiers.
 
+  The writer uses `$expr` for all operations and version 2 when any operation
+  is present. Plain documents use version 1. The reader accepts legacy
+  `$condition` records in versions 1 and 2 and converts them to `Jido.Expr`.
+  All operations use the fixed Expr limits.
+
   The decoder rejects invalid UTF-8, data deeper than 100 levels, one
   collection with more than 10,000 items, and one document with more than
   100,000 data nodes. These limits apply before module or schema resolution.
@@ -31,7 +36,6 @@ defmodule Jido.Flow.Codec do
   alias Jido.Expr
   alias Jido.Flow
   alias Jido.Flow.Choice
-  alias Jido.Flow.Condition
   alias Jido.Flow.Data
   alias Jido.Flow.Dispatch
   alias Jido.Flow.Error
@@ -843,7 +847,7 @@ defmodule Jido.Flow.Codec do
             unknown_field_errors(record, ["operator", "operands"], path ++ ["$condition"])
 
         case collect_values(fields, errors) do
-          {:ok, attrs} -> {:ok, struct!(Condition, attrs)}
+          {:ok, attrs} -> {:ok, struct!(Expr, attrs)}
           {:error, errors} -> {:error, errors}
         end
 
@@ -1359,7 +1363,7 @@ defmodule Jido.Flow.Codec do
          {:ok, schema} <- Registry.identifier(registry, :schema, iterate.state.schema),
          {:ok, initial} <- encode_expression(iterate.state.initial, registry, 0),
          {:ok, update} <- encode_expression(iterate.state.update, registry, 0),
-         {:ok, completion} <- encode_condition(iterate.completion, registry, 0),
+         {:ok, completion} <- encode_expression(iterate.completion, registry, 0),
          {:ok, meta} <- encode_data(iterate.meta, registry, 0) do
       {:ok,
        %{
@@ -1413,7 +1417,7 @@ defmodule Jido.Flow.Codec do
     |> Enum.with_index()
     |> Enum.reduce_while({:ok, []}, fn {option, index}, {:ok, encoded} ->
       result =
-        with {:ok, condition} <- encode_condition(option.condition, registry, 0),
+        with {:ok, condition} <- encode_expression(option.condition, registry, 0),
              {:ok, action} <- Registry.identifier(registry, :action, option.action),
              {:ok, params} <- encode_expression(option.params, registry, 0) do
           {:ok,
@@ -1472,29 +1476,6 @@ defmodule Jido.Flow.Codec do
   end
 
   defp encode_expression(value, registry, depth), do: encode_data(value, registry, depth)
-
-  defp encode_condition(%Expr{} = expression, registry, depth),
-    do: encode_expression(expression, registry, depth)
-
-  defp encode_condition(%Condition{} = condition, registry, depth) do
-    with :ok <- depth(depth),
-         {:ok, operands} <- encode_condition_operands(condition.operands, registry, depth + 1) do
-      {:ok,
-       %{
-         "$condition" => %{
-           "operator" => Atom.to_string(condition.operator),
-           "operands" => operands
-         }
-       }}
-    end
-  end
-
-  defp encode_condition_operands(operands, registry, depth) do
-    encode_list(operands, registry, depth, fn
-      %Condition{} = condition, registry, depth -> encode_condition(condition, registry, depth)
-      expression, registry, depth -> encode_expression(expression, registry, depth)
-    end)
-  end
 
   defp encode_data(value, _registry, depth)
        when is_nil(value) or is_boolean(value) or is_number(value) or is_binary(value) do

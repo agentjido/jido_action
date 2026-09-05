@@ -9,16 +9,15 @@ defmodule Jido.Flow.Condition do
   They do not accept arbitrary predicate functions. `:all` and `:any`
   short-circuit during execution.
 
-  A singleton `:all` with a Boolean literal or reference returns `Jido.Expr`
-  for strict Boolean evaluation. Conditions with calculated operands also
-  return `Jido.Expr`, so the complete condition shares one evaluation budget.
-  Existing Condition-only trees keep their `Jido.Flow.Condition` shape.
+  Every constructor returns `Jido.Expr`. The legacy Condition struct is an
+  input form only; constructors convert it before it enters a Flow.
+  All operation trees use the fixed Expr limits, including legacy input.
+  Boolean operand types are checked only when the operand is evaluated.
 
       condition = Jido.Flow.Condition.eq(Jido.Flow.Ref.input(:status), :ready)
       {:ok, ^condition} = Jido.Flow.Condition.validate(condition, :flow)
   """
 
-  alias Jido.Action
   alias Jido.Expr
   alias Jido.Flow.Ref
   alias Jido.Flow.Error
@@ -30,6 +29,7 @@ defmodule Jido.Flow.Condition do
   @group_operators [:all, :any]
   @operators @comparison_operators ++ @group_operators ++ [:not]
 
+  @typedoc "One supported Condition helper operator."
   @type operator :: :eq | :neq | :lt | :lte | :gt | :gte | :in | :all | :any | :not
 
   @schema Zoi.struct(
@@ -41,13 +41,14 @@ defmodule Jido.Flow.Condition do
             coerce: true
           )
 
+  @typedoc "Legacy construction input. Canonical conditions use `Jido.Expr`."
   @type t :: unquote(Zoi.type_spec(@schema))
 
   @typedoc "Accepted condition inputs, including strict Boolean references and expressions."
   @type input :: t() | Expr.t() | Ref.t() | boolean()
 
   @typedoc "A validated condition in the canonical Flow model."
-  @type normalized :: t() | Expr.t()
+  @type normalized :: Expr.t()
 
   @enforce_keys Zoi.Struct.enforce_keys(@schema)
   defstruct Zoi.Struct.struct_fields(@schema)
@@ -55,16 +56,14 @@ defmodule Jido.Flow.Condition do
   @doc "Builds and validates a canonical condition from an operator and its operands."
   @spec new(operator(), list()) :: {:ok, normalized()} | {:error, Exception.t()}
   def new(operator, operands) do
-    with :ok <- validate_operator(operator, "choice condition"),
-         :ok <- validate_arity(operator, operands, "choice condition"),
-         {:ok, normalized} <- normalize_operands(operator, operands) do
-      rebuild_condition(operator, operands, normalized)
+    with :ok <- validate_operator(operator, "choice condition") do
+      validate(%Expr{operator: operator, operands: operands}, :any)
     end
   end
 
   @doc "Validates and rebuilds one condition."
   @spec new(input()) :: {:ok, normalized()} | {:error, Exception.t()}
-  def new(%__MODULE__{} = condition), do: new(condition.operator, condition.operands)
+  def new(%__MODULE__{} = condition), do: validate(condition, :any)
   def new(%Expr{} = expression), do: validate(expression, :any)
   def new(%Ref{} = reference), do: validate(reference, :any)
   def new(value) when is_boolean(value), do: validate(value, :any)
@@ -76,21 +75,11 @@ defmodule Jido.Flow.Condition do
 
   @doc "Validates one condition for the specified reference scope."
   @spec validate(input(), Jido.Flow.Ref.scope()) :: {:ok, normalized()} | {:error, Exception.t()}
-  def validate(%__MODULE__{} = condition, scope) do
-    owner = condition_owner(scope)
-
-    with :ok <- validate_operator(condition.operator, owner),
-         :ok <- validate_arity(condition.operator, condition.operands, owner),
-         {:ok, operands} <-
-           normalize_operands(condition.operator, condition.operands, scope, owner) do
-      rebuild_condition(condition.operator, condition.operands, operands)
-    end
-  end
-
-  def validate(%Expr{} = expression, scope) do
-    with {:ok, expression} <- Expression.normalize(expression),
+  def validate(condition, scope)
+      when is_struct(condition, __MODULE__) or is_struct(condition, Expr) do
+    with {:ok, expression} <- Expression.normalize(condition),
          :ok <- Expression.validate(expression, scope) do
-      canonical_condition(expression, scope)
+      {:ok, expression}
     end
   end
 
@@ -142,43 +131,24 @@ defmodule Jido.Flow.Condition do
   def left in right, do: new!(:in, [left, right])
 
   @doc "Builds a condition that requires all child conditions to be true."
-  @spec all([input()]) :: normalized()
+  @spec all([Expression.t() | t()]) :: normalized()
   def all(conditions), do: new!(:all, conditions)
 
   @doc "Builds a condition that requires one child condition to be true."
-  @spec any([input()]) :: normalized()
+  @spec any([Expression.t() | t()]) :: normalized()
   def any(conditions), do: new!(:any, conditions)
 
   @doc "Builds a condition that inverts one child condition."
-  @spec not input() :: normalized()
+  @spec not (Expression.t() | t()) :: normalized()
   def not condition, do: new!(:not, [condition])
 
   @doc false
-  @spec result_deps(normalized()) :: [String.t()]
-  def result_deps(%__MODULE__{} = condition) do
-    condition
-    |> collect_result_deps()
-    |> Enum.uniq()
-    |> Enum.sort()
+  @spec to_expr(t()) :: {:ok, Expr.t()} | {:error, Exception.t()}
+  def to_expr(%__MODULE__{operator: operator, operands: operands}) do
+    with :ok <- validate_operator(operator, "choice condition") do
+      {:ok, %Expr{operator: operator, operands: operands}}
+    end
   end
-
-  def result_deps(expression),
-    do: Expression.result_refs(expression) |> Enum.uniq() |> Enum.sort()
-
-  @doc false
-  @spec to_map(normalized()) :: map()
-  def to_map(%__MODULE__{operator: operator, operands: operands}) do
-    %{
-      operator: operator,
-      operands:
-        Enum.map(operands, fn
-          %__MODULE__{} = condition -> to_map(condition)
-          expression -> Expression.to_map(expression)
-        end)
-    }
-  end
-
-  def to_map(%Expr{} = expression), do: Expression.to_map(expression)
 
   defp validate_operator(operator, _owner) when Kernel.in(operator, @operators), do: :ok
 
@@ -186,223 +156,6 @@ defmodule Jido.Flow.Condition do
     {:error, Error.validation_error("unsupported #{owner} operator", %{path: []})}
   end
 
-  defp validate_arity(operator, operands, owner) when is_list(operands) do
-    if List.improper?(operands) do
-      {:error, Error.validation_error("#{owner} operands must be a proper list", %{path: []})}
-    else
-      validate_proper_arity(operator, operands, owner)
-    end
-  end
-
-  defp validate_arity(_operator, _operands, owner) do
-    {:error, Error.validation_error("#{owner} operands must be a list", %{path: []})}
-  end
-
-  defp validate_proper_arity(operator, operands, owner)
-       when Kernel.in(operator, @comparison_operators) do
-    if length(operands) == 2 do
-      :ok
-    else
-      {:error,
-       Error.validation_error(
-         "#{owner} #{inspect(operator)} must have exactly 2 operands",
-         %{
-           path: []
-         }
-       )}
-    end
-  end
-
-  defp validate_proper_arity(operator, operands, owner)
-       when Kernel.in(operator, @group_operators) do
-    if operands == [] do
-      {:error,
-       Error.validation_error(
-         "#{owner} #{inspect(operator)} must have at least 1 condition",
-         %{
-           path: []
-         }
-       )}
-    else
-      :ok
-    end
-  end
-
-  defp validate_proper_arity(:not, operands, owner) do
-    if length(operands) == 1 do
-      :ok
-    else
-      {:error, Error.validation_error("#{owner} :not must have exactly 1 condition", %{path: []})}
-    end
-  end
-
-  defp normalize_operands(operator, operands) when Kernel.in(operator, @comparison_operators) do
-    normalize_operands(operator, operands, :any, "flow condition")
-  end
-
-  defp normalize_operands(operator, operands)
-       when Kernel.in(operator, @group_operators) or operator == :not do
-    normalize_operands(operator, operands, :any, "flow condition")
-  end
-
-  defp normalize_operands(operator, operands, scope, owner)
-       when Kernel.in(operator, @comparison_operators) do
-    operands
-    |> Enum.with_index()
-    |> Enum.reduce_while({:ok, []}, fn {operand, index}, {:ok, acc} ->
-      case normalize_expression(operand, [index], scope, owner) do
-        {:ok, operand} -> {:cont, {:ok, [operand | acc]}}
-        {:error, error} -> {:halt, {:error, error}}
-      end
-    end)
-    |> reverse_ok_list()
-  end
-
-  defp normalize_operands(operator, operands, scope, owner)
-       when Kernel.in(operator, @group_operators) or operator == :not do
-    operands
-    |> Enum.with_index()
-    |> Enum.reduce_while({:ok, []}, fn {operand, index}, {:ok, acc} ->
-      case validate(operand, scope) do
-        {:ok, condition} ->
-          {:cont, {:ok, [condition | acc]}}
-
-        {:error, _error} ->
-          {:halt,
-           {:error,
-            Error.validation_error(
-              "#{owner} #{inspect(operator)} contains an invalid child condition",
-              %{
-                path: [index]
-              }
-            )}}
-      end
-    end)
-    |> reverse_ok_list()
-  end
-
-  defp normalize_expression(expression, path, scope, owner) do
-    with {:ok, expression} <- Expression.normalize(expression),
-         :ok <- Expression.validate(expression, scope),
-         :ok <- validate_static_expression(expression, owner) do
-      {:ok, expression}
-    else
-      {:error, error} -> {:error, translate_expression_error(error, path, owner)}
-    end
-  end
-
-  defp validate_static_expression(expression, owner) do
-    case Action.validate_static_data(expression) do
-      :ok ->
-        :ok
-
-      {:error, _reason} ->
-        {:error, Error.validation_error("unsupported #{owner} expression")}
-    end
-  end
-
-  defp translate_expression_error(error, path, owner) do
-    details = Map.get(error, :details, %{})
-    nested_path = path ++ Map.get(details, :path, [])
-
-    case Expression.error_kind(error) do
-      :invalid_scope ->
-        Error.validation_error(
-          "flow expression contains a scoped ref outside its valid scope",
-          %{path: nested_path, ref_type: details.ref_type, scope: details.scope}
-        )
-
-      :invalid_ref_path ->
-        Error.validation_error("#{owner} contains invalid ref path", %{
-          path: nested_path,
-          segment: details.segment
-        })
-
-      :invalid_ref ->
-        Error.validation_error("#{owner} contains invalid ref", %{
-          path: nested_path,
-          type: details.ref_type
-        })
-
-      :improper_list ->
-        Error.validation_error("#{owner} expression must be a proper list", %{
-          path: nested_path
-        })
-
-      :unsupported_expression ->
-        Error.validation_error("#{owner} contains unsupported expression", %{
-          path: nested_path,
-          expression: details.expression
-        })
-
-      :other ->
-        Error.validation_error("#{owner} contains unsupported expression", %{
-          path: path,
-          expression: expression_kind(error)
-        })
-    end
-  end
-
-  defp collect_result_deps(%__MODULE__{operator: operator, operands: operands})
-       when Kernel.in(operator, @comparison_operators) do
-    Enum.flat_map(operands, &Expression.result_refs/1)
-  end
-
-  defp collect_result_deps(%__MODULE__{operands: operands}) do
-    Enum.flat_map(operands, &collect_result_deps/1)
-  end
-
-  defp collect_result_deps(expression), do: Expression.result_refs(expression)
-
-  defp expression_kind(_error), do: Function
-
-  defp rebuild_condition(:all, [operand], [condition])
-       when is_struct(operand, Ref) or is_boolean(operand),
-       do: {:ok, condition}
-
-  defp rebuild_condition(operator, _original, operands) do
-    if contains_expression?(operands) do
-      Expression.normalize(%Expr{operator: operator, operands: operands})
-    else
-      {:ok, %__MODULE__{operator: operator, operands: operands}}
-    end
-  end
-
-  defp contains_expression?(%Expr{}), do: true
-  defp contains_expression?(%__MODULE__{operands: operands}), do: contains_expression?(operands)
-
-  defp contains_expression?(values) when is_list(values),
-    do: Enum.any?(values, &contains_expression?/1)
-
-  defp contains_expression?(values) when is_map(values) and Kernel.not(is_struct(values)),
-    do: Enum.any?(values, fn {_key, value} -> contains_expression?(value) end)
-
-  defp contains_expression?(_value), do: false
-
-  # Keep old condition shapes stable, while a single Boolean reference/literal
-  # uses the shared evaluator for its strict runtime type check.
-  defp canonical_condition(%Expr{operator: :all, operands: [%Ref{}]} = expression, _scope),
-    do: {:ok, expression}
-
-  defp canonical_condition(%Expr{operator: :all, operands: [value]} = expression, _scope)
-       when is_boolean(value), do: {:ok, expression}
-
-  defp canonical_condition(%Expr{operator: operator, operands: operands}, scope)
-       when Kernel.in(operator, @operators) do
-    # Expression validation already checked all data and reference scopes.
-    # Keep the Expr when a legacy Condition would reject portable operands:
-    # only evaluated Boolean operands require a Boolean value at runtime.
-    case validate(%__MODULE__{operator: operator, operands: operands}, scope) do
-      {:ok, condition} -> {:ok, condition}
-      {:error, _error} -> {:ok, %Expr{operator: operator, operands: operands}}
-    end
-  end
-
-  defp canonical_condition(expression, _scope), do: {:ok, expression}
-
   defp condition_owner(:iterate_completion), do: "iterator completion condition"
   defp condition_owner(_scope), do: "choice condition"
-
-  defp reverse_ok_list({:ok, values}), do: {:ok, Enum.reverse(values)}
-  defp reverse_ok_list({:error, error}), do: {:error, error}
 end

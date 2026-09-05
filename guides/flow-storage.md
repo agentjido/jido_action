@@ -143,7 +143,9 @@ The same Registry rule applies to portable inline roles.
 Resolve each target through `Jido.Action.Inline.target!/2` with its typed host
 path, then register that ordinary Action. Inline metadata and schemas belong
 to the deployed target, not to stored body code. Portable inline Actions add
-no Codec version: only Expr nodes require version 2. See
+no Codec version. All operations, including conditions, use `$expr` and
+require document version 2. The reader accepts legacy `$condition` records
+in versions 1 and 2; the writer emits only `$expr` operations. See
 [Portable Inline Actions](inline-actions.md) and [Expressions](flow-expressions.md).
 Both APIs require `3.0.0-beta.6` or later.
 

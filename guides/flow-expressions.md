@@ -125,10 +125,12 @@ true = total == Jido.Expr.new!(:multiply, [quantity, price])
 Conditions can also supply Boolean parameter or output values. Equivalent
 condition forms normalize to the same Flow model.
 
-Old Condition-only trees keep their `Jido.Flow.Condition` shape. A condition
-with a calculated operand returns one `Jido.Expr` tree. This includes a
-calculation inside an `all`, `any`, or `not` group. The complete tree shares
-one runtime budget in Choice, Iterate, and data fields.
+Every Condition constructor returns `Jido.Expr`, regardless of operand shape.
+Legacy `%Jido.Flow.Condition{}` input is converted once during construction.
+The complete operation tree shares one runtime budget in Choice, Iterate,
+and data fields. Only evaluated Boolean operands must have Boolean values.
+For example, `Condition.all([false, 1])` succeeds with `false`, while
+`Condition.all([true, 1])` returns a runtime type error.
 
 ## Stored JSON
 
@@ -148,10 +150,13 @@ expression encoding, including Registry-backed reference path atoms:
 {"$expr": {"operator": "multiply", "operands": [2, 3]}}
 ```
 
-The Codec emits version 2 only when a document contains expression nodes.
-Existing documents keep version 1 and their existing meaning. This reader
-accepts versions 1 and 2, but rejects expression tags in version 1. Older
-readers reject version 2. Deploy the new reader before sending new documents.
+The writer emits `$expr` for every operation and uses document version 2
+when any operation is present. Documents without operations use version 1.
+The reader accepts versions 1 and 2. Legacy `$condition` records in either
+version become Expr. Reading and writing a version 1 condition document
+therefore produces version 2, with the same mathematical operations.
+Version 1 rejects `$expr` tags. Older readers reject version 2. Deploy a
+version 2 reader before sending the new documents.
 Literal maps remain tagged maps; a literal key named `$expr` is not code.
 Use an application-owned Registry with stable IDs for durable storage.
 No operator name or input document can create an atom.
@@ -235,7 +240,8 @@ These expression limits apply to operation subtrees, not to surrounding
 plain Flow data. A plain list, map, string, or integer retains its existing
 contract in the module DSL, Builder, and direct constructors. Data used as
 an operation operand is subject to the expression limits. Existing plain
-references and legacy Condition-only trees retain their contracts.
+references retain their contracts. Legacy Condition input uses the same
+operation limits as Expr; it no longer has a separate, unbounded evaluator.
 Flow uses the fixed defaults; a separate host can set the documented
 `Jido.Expr` limit options. These limits do not replace an Exec timeout or
 the host's input-size policy.
@@ -247,3 +253,55 @@ reaches the evaluator's limit.
 `Codec.encode/1` and `Codec.encode/2` check the completed document against
 these storage limits. They return an error if the document is too large or
 too deep for the reader.
+
+## Migrate Earlier v3 Beta Conditions
+
+Condition helpers remain available. Replace struct patterns on their results:
+
+```elixir
+alias Jido.Flow.{Condition, Ref}
+
+# The constructor now returns Expr for every operand shape.
+%Jido.Expr{operator: :eq, operands: operands} =
+  Condition.eq(Ref.input(:score), 1)
+```
+
+Legacy Condition structs are accepted only as construction input. Pass them
+to `Condition.new/1` or a Flow/component constructor. Canonical traversal,
+inspection, compilation, and execution use Expr. The former internal
+`Condition.to_map/1`, `Condition.result_deps/1`, and Condition evaluator are
+removed. Use `Jido.Flow.to_map/1` and `Jido.Flow.dependencies/1` for Flow inspection.
+The `Jido.Expr` name, operators, constructors, macro, parser, validator, and
+resolver entry points remain available.
+
+The old Condition tree could exceed Expr limits. A 4,000-item list of simple
+comparisons, for example, exceeds the 10,000-node construction budget:
+
+```elixir
+conditions = List.duplicate(Condition.eq(1, 1), 4_000)
+{:error, error} = Condition.new(:all, conditions)
+:max_nodes = error.details.reason
+```
+
+The same limit applies to legacy stored conditions after decoding. A small
+valid definition can also exceed the runtime budget through resolved data.
+Short-circuit evaluation still skips unneeded operands; validation still
+checks every operand and discovers every reference. Move larger work into
+an Action with an application-owned resource policy.
+
+Operation validation and runtime failures now use the shared Expr error
+contract. Invalid arity reports `invalid Flow expression`, `operator`,
+`reason: :invalid_arity`, and `path`. Operand paths include `:operands`.
+Reference validation uses `ref_type`; it no longer uses Condition's `type`.
+Runtime operation type errors report `invalid Flow expression` with `types`
+in operand order, in place of `left_type` and `right_type`. Numeric types are
+`:integer` or `:float`. Choice and Iterate keep their phase and component
+metadata. A non-Boolean final condition still reports
+`invalid choice condition operands`. No error includes operand values.
+
+Flow semantic identity is now version 2 because canonical operation data
+changed. Recompute all stored Flow digests and UUIDs, including identities
+for Flows without operations. Derived item and iteration IDs change with
+the Flow digest. Rebuild compiled Flows and invalidate identity-keyed caches.
+Equivalent DSL, Builder, direct, and decoded Flows share the new identity.
+Document versions and semantic identity versions are separate contracts.

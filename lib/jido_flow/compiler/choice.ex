@@ -2,7 +2,6 @@ defmodule Jido.Flow.Compiler.Choice do
   @moduledoc false
 
   alias Jido.Flow.Choice
-  alias Jido.Flow.Compiler.Condition
   alias Jido.Flow.Compiler.Expression
   alias Jido.Flow.Compiler.Target
 
@@ -42,7 +41,7 @@ defmodule Jido.Flow.Compiler.Choice do
   defp select_target(%Choice{} = choice, state) do
     choice.options
     |> Enum.reduce_while({:ok, choice.fallback}, fn option, {:ok, _fallback} ->
-      case Condition.evaluate(option.condition, state, choice.name, option.name) do
+      case Expression.condition(option.condition, state, choice.name, option.name) do
         {:ok, true} -> {:halt, {:ok, option}}
         {:ok, false} -> {:cont, {:ok, choice.fallback}}
         {:error, error} -> {:halt, {:error, error}}

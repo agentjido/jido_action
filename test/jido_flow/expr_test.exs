@@ -198,7 +198,7 @@ defmodule JidoActionTest.Flow.ExprTest do
     reference = %Ref{source: :unknown, path: []}
     expression = Expr.new!(:add, [reference, 1])
     assert {:error, error} = Condition.new(:eq, [expression, 2])
-    assert error.details.type == :unknown
+    assert error.details.ref_type == :unknown
   end
 
   test "iterator completion failures retain the expression and reference locations" do

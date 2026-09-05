@@ -3,7 +3,6 @@ defmodule Jido.Flow.Registry.Deriver do
 
   alias Jido.Flow
   alias Jido.Flow.Choice
-  alias Jido.Flow.Condition
   alias Jido.Flow.Dispatch
   alias Jido.Flow.Iterate
   alias Jido.Flow.Map, as: FlowMap
@@ -81,7 +80,7 @@ defmodule Jido.Flow.Registry.Deriver do
       Enum.reduce(choice.options, values, fn option, values ->
         values
         |> add(:action, option.action)
-        |> collect_condition(option.condition)
+        |> collect_expression(option.condition)
         |> collect_expression(option.params)
       end)
 
@@ -115,7 +114,7 @@ defmodule Jido.Flow.Registry.Deriver do
     |> collect_expression(iterate.params)
     |> collect_expression(iterate.state.initial)
     |> collect_expression(iterate.state.update)
-    |> collect_condition(iterate.completion)
+    |> collect_expression(iterate.completion)
     |> collect_data(iterate.meta)
   end
 
@@ -127,20 +126,8 @@ defmodule Jido.Flow.Registry.Deriver do
     |> collect_data(dispatch.meta)
   end
 
-  defp collect_condition(values, %Condition{} = condition) do
-    Enum.reduce(condition.operands, values, fn
-      %Condition{} = condition, values -> collect_condition(values, condition)
-      expression, values -> collect_expression(values, expression)
-    end)
-  end
-
-  defp collect_condition(values, expression), do: collect_expression(values, expression)
-
   defp collect_expression(values, %Jido.Expr{operands: operands}),
     do: Enum.reduce(operands, values, &collect_expression(&2, &1))
-
-  defp collect_expression(values, %Condition{} = condition),
-    do: collect_condition(values, condition)
 
   defp collect_expression(values, %Ref{} = ref), do: collect_data(values, ref.path)
 

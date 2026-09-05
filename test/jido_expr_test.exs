@@ -490,6 +490,52 @@ defmodule Jido.ExprTest do
     end
   end
 
+  test "ingress normalization visits each host value once and never executes operations" do
+    tag = make_ref()
+    legacy = %Reference{key: :legacy}
+    leaf = %Reference{key: :leaf}
+    replacement = Jido.Expr.new!(:all, [false, Jido.Expr.new!(:divide, [1, 0]), leaf])
+
+    assert {:ok, ^replacement} =
+             Jido.Expr.Runtime.normalize(legacy,
+               normalize_leaf: fn value, path ->
+                 send(self(), {tag, :normalize, value.key, path})
+                 {:ok, if(value == legacy, do: replacement, else: value)}
+               end,
+               validate_leaf: fn value, path ->
+                 send(self(), {tag, :validate, value.key, path})
+                 :ok
+               end
+             )
+
+    assert_received {^tag, :normalize, :legacy, []}
+    assert_received {^tag, :normalize, :leaf, [:operands, 2]}
+    assert_received {^tag, :validate, :leaf, [:operands, 2]}
+    refute_received {^tag, _, _, _}
+  end
+
+  test "ingress normalization checks callback contracts and the shared node budget" do
+    reference = %Reference{}
+    expression = Jido.Expr.new!(:not, [reference])
+
+    assert {:error, %Jido.Expr.Error{reason: :invalid_options}} =
+             Jido.Expr.Runtime.normalize(expression, normalize_leaf: :invalid)
+
+    assert {:error, %Jido.Expr.Error{reason: :invalid_callback_return, path: [:operands, 0]}} =
+             Jido.Expr.Runtime.normalize(expression, normalize_leaf: fn _ -> :invalid end)
+
+    assert {:error, %Jido.Expr.Error{reason: :callback_failure, path: [:operands, 0]}} =
+             Jido.Expr.Runtime.normalize(expression, normalize_leaf: fn _ -> raise "private" end)
+
+    assert {:error, %Jido.Expr.Error{reason: :max_nodes}} =
+             Jido.Expr.Runtime.normalize(expression, max_nodes: 1)
+
+    assert {:ok, 1} = Jido.Expr.Runtime.normalize(1, [])
+
+    assert {:error, %Jido.Expr.Error{reason: :invalid_options}} =
+             Jido.Expr.validate(expression, normalize_leaf: fn value -> {:ok, value} end)
+  end
+
   defp with_reductions(function) do
     # Module loading is not part of the traversal work measured below.
     Jido.Expr.evaluate(nil)

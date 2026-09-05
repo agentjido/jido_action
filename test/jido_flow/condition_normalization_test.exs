@@ -165,49 +165,170 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
     assert error.details.component == "missing"
   end
 
-  test "legacy Condition trees keep their exact shape and version-one document" do
+  test "legacy trees and helpers use the same Expr model and version-two writer" do
     first = %Condition{operator: :eq, operands: [Ref.input(:score), 1]}
     second = %Condition{operator: :neq, operands: [Ref.input(:score), 2]}
-    negated = %Condition{operator: :not, operands: [second]}
-    group = %Condition{operator: :any, operands: [negated]}
-    condition = %Condition{operator: :all, operands: [first, group]}
 
-    assert {:ok, ^condition} = Condition.new(condition)
-    assert {:ok, ^condition} = Condition.validate(condition, :flow)
+    condition = %Condition{
+      operator: :all,
+      operands: [first, %Condition{operator: :not, operands: [second]}]
+    }
 
-    assert Condition.all([
-             Condition.eq(Ref.input(:score), 1),
-             Condition.any([Condition.not(second)])
-           ]) == condition
+    canonical =
+      Expr.new!(:all, [
+        Expr.new!(:eq, first.operands),
+        Expr.new!(:not, [Expr.new!(:neq, second.operands)])
+      ])
 
-    assert {:ok, ^condition} =
+    assert {:ok, ^canonical} = Condition.new(condition)
+    assert {:ok, ^canonical} = Condition.validate(condition, :flow)
+    assert Condition.all([Condition.eq(Ref.input(:score), 1), Condition.not(second)]) == canonical
+
+    assert {:ok, ^canonical} =
              Expression.parse_condition(
-               quote(do: all([eq(input(:score), 1), any([not neq(input(:score), 2)])]))
+               quote(do: all([eq(input(:score), 1), not neq(input(:score), 2)]))
              )
 
     flow = choice_flow(condition)
-    assert round_trip(flow, 1) == flow
+    assert choice_flow(canonical) == flow
+    assert builder_flow(condition) == flow
+    assert round_trip(flow, 2) == flow
     assert Jido.Exec.run(flow, %{score: 1}) == {:ok, %{selected: false}}
   end
 
-  test "legacy Condition constructors still reject raw non-Boolean children" do
-    for {operator, operands, path} <- [
-          {:all, [false, 1], [1]},
-          {:any, [true, nil], [1]},
-          {:not, [1], [0]},
-          {:all, [Condition.eq(1, 1), :not_a_condition], [1]}
-        ] do
-      assert {:error, %InvalidDefinitionError{} = error} = Condition.new(operator, operands)
+  test "version one and two legacy documents read into one current operation format" do
+    flow =
+      choice_flow(
+        Expr.new!(:all, [
+          Expr.new!(:eq, [Ref.input(:score), 1.0]),
+          Expr.new!(:not, [Expr.new!(:eq, [Ref.input(:score), 2])])
+        ])
+      )
 
-      assert error.message ==
-               "flow condition #{inspect(operator)} contains an invalid child condition"
+    assert {:ok, document, registry} = Codec.encode(flow)
 
-      assert error.details.path == path
-
-      assert {:error, %InvalidDefinitionError{}} =
-               Condition.validate(%Condition{operator: operator, operands: operands}, :flow)
+    for version <- [1, 2] do
+      legacy = document |> legacy_document() |> Map.put("version", version)
+      assert {:ok, ^flow} = Codec.decode(JSON.decode!(JSON.encode!(legacy)), registry)
+      assert {:ok, ^document} = Codec.encode(flow, registry)
+      assert Jido.Exec.run(flow, %{score: 1}) == {:ok, %{selected: true}}
+      assert {:ok, %{version: 2}} = Flow.semantic_identity(flow)
     end
   end
+
+  test "Condition helpers share Expr short-circuit and strict Boolean rules" do
+    for {operator, operands, expected} <- [
+          {:all, [false, 1], {:ok, false}},
+          {:any, [true, nil], {:ok, true}},
+          {:not, [1], :error},
+          {:all, [true, :not_a_condition], :error}
+        ] do
+      expression = Expr.new!(operator, operands)
+      assert {:ok, ^expression} = Condition.new(operator, operands)
+
+      assert {:ok, ^expression} =
+               Condition.validate(%Condition{operator: operator, operands: operands}, :flow)
+
+      case expected do
+        :error ->
+          assert {:error, error} = Jido.Exec.run(choice_flow(expression))
+          assert error.details.reason == :invalid_boolean_operand
+
+        {:ok, value} ->
+          assert Jido.Exec.run(choice_flow(expression)) == {:ok, %{selected: value}}
+      end
+    end
+  end
+
+  test "legacy and canonical operation trees share all construction limits" do
+    cases = [
+      {Enum.reduce(1..65, true, fn _, child -> %Condition{operator: :not, operands: [child]} end),
+       :max_depth},
+      {%Condition{
+         operator: :all,
+         operands: List.duplicate(%Condition{operator: :eq, operands: [1, 1]}, 4_000)
+       }, :max_nodes},
+      {%Condition{operator: :eq, operands: [String.duplicate("x", 1_048_577), ""]},
+       :max_binary_bytes},
+      {%Condition{operator: :eq, operands: [Bitwise.bsl(1, 4096), 0]}, :max_integer_bits}
+    ]
+
+    for {legacy, reason} <- cases do
+      assert {:error, error} = Condition.new(legacy)
+      assert error.details.reason == reason
+      assert {:error, error} = Jido.Flow.Expression.normalize(%{nested: legacy})
+      assert error.details.reason == reason
+    end
+  end
+
+  test "legacy stored conditions use Expr limits before any Action executes" do
+    flow = choice_flow(Condition.eq(1, 1))
+    assert {:ok, document, registry} = Codec.encode(flow)
+    condition_path = ["components", Access.at(0), "options", Access.at(0), "condition"]
+
+    for version <- [1, 2],
+        {tag, reason} <- [
+          {%{"operator" => "eq", "operands" => [String.duplicate("x", 1_048_577), ""]},
+           :max_binary_bytes},
+          {%{"operator" => "eq", "operands" => [Bitwise.bsl(1, 4096), 0]}, :max_integer_bits},
+          {%{
+             "operator" => "all",
+             "operands" =>
+               List.duplicate(
+                 %{"$condition" => %{"operator" => "eq", "operands" => [1, 1]}},
+                 4_000
+               )
+           }, :max_nodes}
+        ] do
+      legacy =
+        document |> Map.put("version", version) |> put_in(condition_path, %{"$condition" => tag})
+
+      assert {:error, %InvalidDefinitionError{} = error} = Codec.decode(legacy, registry)
+      assert error.details.reason == reason
+    end
+  end
+
+  test "legacy input and helpers keep one runtime budget for resolved data" do
+    legacy = %Condition{operator: :eq, operands: [Ref.input(:data), Ref.input(:data)]}
+    canonical = Expr.new!(:eq, legacy.operands)
+
+    for expression <- [legacy, canonical, Condition.eq(Ref.input(:data), Ref.input(:data))] do
+      for flow <- [choice_flow(expression), iterator_flow(expression), output_flow(expression)] do
+        assert {:error, error} = Jido.Exec.run(flow, %{data: String.duplicate("x", 300_000)})
+        assert error.details.reason == :max_binary_bytes
+        assert error.details.retry == false
+      end
+    end
+  end
+
+  test "legacy reference names normalize through nested operation operands once" do
+    legacy = %Condition{
+      operator: :eq,
+      operands: [%Ref{source: :result, component: :seed, path: []}, %{value: 1}]
+    }
+
+    assert {:ok, %Expr{operands: [%Ref{component: "seed"}, _]}} = Condition.new(legacy)
+
+    assert {:error, error} =
+             Jido.Flow.Expression.normalize(%{
+               outer: [
+                 %Condition{
+                   operator: :not,
+                   operands: [%Condition{operator: :add, operands: [1, 1]}]
+                 }
+               ]
+             })
+
+    assert error.details.path == [:outer, 0, :operands, 0]
+  end
+
+  defp legacy_document(%{"$expr" => record}), do: %{"$condition" => legacy_document(record)}
+
+  defp legacy_document(value) when is_map(value),
+    do: Map.new(value, fn {key, child} -> {key, legacy_document(child)} end)
+
+  defp legacy_document(value) when is_list(value), do: Enum.map(value, &legacy_document/1)
+  defp legacy_document(value), do: value
 
   defp choice(condition) do
     Choice.new!(

@@ -1,7 +1,7 @@
 defmodule JidoActionTest.Flow.DSL.ExpressionTest do
   use ExUnit.Case, async: true
 
-  alias Jido.Flow.{Condition, Ref}
+  alias Jido.Flow.Ref
   alias Jido.Flow.DSL.Expression
 
   test "lowers the closed Flow expression vocabulary" do
@@ -69,8 +69,8 @@ defmodule JidoActionTest.Flow.DSL.ExpressionTest do
         ])
       end
 
-    assert {:ok, %Condition{operator: :all}} = Expression.parse_condition(native)
-    assert {:ok, %Condition{operator: :all}} = Expression.parse_condition(function)
+    assert {:ok, %Jido.Expr{operator: :all}} = Expression.parse_condition(native)
+    assert {:ok, %Jido.Expr{operator: :all}} = Expression.parse_condition(function)
   end
 
   test "lowers empty list literals without changing reference paths or keyword rejection" do
@@ -89,12 +89,12 @@ defmodule JidoActionTest.Flow.DSL.ExpressionTest do
   end
 
   test "lowers empty lists in comparison operands" do
-    assert {:ok, %Condition{operator: :eq, operands: [ref, []]}} =
+    assert {:ok, %Jido.Expr{operator: :eq, operands: [ref, []]}} =
              Expression.parse_condition(quote(do: input(:items) == []))
 
     assert ref == Ref.input(:items)
 
-    assert {:ok, %Condition{operator: :in, operands: [1, []]}} =
+    assert {:ok, %Jido.Expr{operator: :in, operands: [1, []]}} =
              Expression.parse_condition(quote(do: 1 in []))
   end
 
@@ -143,7 +143,7 @@ defmodule JidoActionTest.Flow.DSL.ExpressionTest do
           {quote(do: lte(input(:left), input(:right))), :lte},
           {quote(do: gt(input(:left), input(:right))), :gt}
         ] do
-      assert {:ok, %Condition{operator: ^operator}} = Expression.parse_condition(expression)
+      assert {:ok, %Jido.Expr{operator: ^operator}} = Expression.parse_condition(expression)
     end
   end
 

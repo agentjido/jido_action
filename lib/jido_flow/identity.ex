@@ -8,7 +8,7 @@ defmodule Jido.Flow.Identity do
   alias Jido.Flow.Expression
   alias Jido.Flow.Graph
 
-  @identity_version 1
+  @identity_version 2
   @item_identity_version 1
   @iteration_identity_version 1
 
@@ -30,7 +30,7 @@ defmodule Jido.Flow.Identity do
 
   defp identity_data(flow) do
     %{
-      version: 1,
+      version: @identity_version,
       name: flow.name,
       description: flow.description,
       schema: flow.schema,
@@ -45,7 +45,7 @@ defmodule Jido.Flow.Identity do
 
   @doc false
   @spec identity(map()) :: %{
-          version: 1,
+          version: 2,
           algorithm: :sha256,
           digest: String.t(),
           uuid: String.t()

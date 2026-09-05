@@ -163,7 +163,7 @@ defmodule Jido.Flow.BoundaryValidationTest do
                Builder.any([Builder.eq(1, 1)]),
                Builder.not(Builder.eq(1, 2))
              ],
-             &match?(%Jido.Flow.Condition{}, &1)
+             &match?(%Jido.Expr{}, &1)
            )
 
     option = Builder.option("yes", Builder.eq(1, 1), Add)
@@ -327,16 +327,16 @@ defmodule Jido.Flow.BoundaryValidationTest do
     assert %{kind: :choice, options: [_], fallback: %{action: Add}} = Choice.to_map(choice)
   end
 
-  test "Expression classifies invalid refs, scope, lists, and names" do
+  test "Expression rejects invalid refs, scope, lists, and names" do
     assert {:error, invalid_scope} = Expression.validate(Ref.item(), :flow)
-    assert Expression.error_kind(invalid_scope) == :invalid_scope
+    assert invalid_scope.details == %{path: [], ref_type: :item, scope: :flow}
 
     invalid_ref = %Ref{source: :unsupported, component: nil, path: []}
     assert {:error, invalid_ref_error} = Expression.validate(invalid_ref)
-    assert Expression.error_kind(invalid_ref_error) == :invalid_ref
+    assert invalid_ref_error.details == %{path: [], ref_type: :unsupported}
 
     assert {:error, improper} = Expression.validate([1 | :tail])
-    assert Expression.error_kind(improper) == :improper_list
+    assert improper.details.reason == :improper_list
     assert {:error, _error} = Expression.normalize([Ref.result("ok") | :tail])
 
     atom_result_ref = %Ref{source: :result, component: :component, path: []}
@@ -345,10 +345,7 @@ defmodule Jido.Flow.BoundaryValidationTest do
              {:ok, Ref.result("component")}
 
     assert {:error, name_error} = Expression.normalize(Ref.result(""))
-    assert Expression.error_kind(name_error) == :other
-
-    assert Expression.error_kind(%{details: %{segment: :bad}}) == :invalid_ref_path
-    assert Expression.error_kind(%{details: %{expression: URI}}) == :unsupported_expression
+    assert Exception.message(name_error) == "Action name cannot be blank."
   end
 
   test "Expression preserves nested validation and normalization errors" do
