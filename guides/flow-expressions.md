@@ -83,6 +83,11 @@ Use a Boolean schema when the input contract requires a Boolean field.
 also succeeds. This does not make producer Steps lazy: every result reference
 remains a static dependency, including references in skipped operands.
 
+Boolean groups accept portable operands at construction. Each evaluated
+operand must be Boolean: `false and 1` returns `false`, but `true and 1`
+fails during execution. Construction checks data, tree shape, and reference
+scope even in skipped operands.
+
 A missing reference is an error. A present `nil` is a value: `input(:value)
 == nil` tests that value, but does not catch a missing key. Exact map keys
 take priority; an atom path can fall back to its string spelling. A string
@@ -121,17 +126,12 @@ true = total == Jido.Expr.new!(:multiply, [quantity, price])
 {:ok, %{total: 6}} = Jido.Exec.run(built, %{name: "Ada", quantity: 2, price: 3})
 ```
 
-`Jido.Flow.Ref` and `Jido.Flow.Condition` constructors remain supported.
-Conditions can also supply Boolean parameter or output values. Equivalent
-condition forms normalize to the same Flow model.
+`Jido.Flow.Condition` helpers return `Jido.Expr` values. Use them for conditions
+or Boolean parameter and output values, for example:
 
-Every Condition constructor returns `Jido.Expr`, regardless of operand shape.
-Legacy `%Jido.Flow.Condition{}` input is converted once during construction.
-The complete operation tree shares one runtime budget in Choice, Iterate,
-and data fields. Only evaluated Boolean operands must have Boolean values.
-For example, both `Condition.all([false, 1])` and `Condition.all([true, 1])`
-construct Expr values. Evaluation returns `false` for the first expression
-and a type error for the second expression.
+```elixir
+eligible = Jido.Flow.Condition.gte(Ref.input(:score), 10)
+```
 
 ## Stored JSON
 
@@ -144,23 +144,8 @@ true = restored == built
 {:ok, %{total: 6}} = Jido.Exec.run(restored, %{name: "Ada", quantity: 2, price: 3})
 ```
 
-An operation has this tagged shape. Its operands use the normal Codec
-expression encoding, including Registry-backed reference path atoms:
-
-```json
-{"$expr": {"operator": "multiply", "operands": [2, 3]}}
-```
-
-The writer emits `$expr` for every operation and uses document version 2
-when any operation is present. Documents without operations use version 1.
-The reader accepts versions 1 and 2. Legacy `$condition` records in either
-version become Expr. Reading and writing a version 1 condition document
-therefore produces version 2, with the same mathematical operations.
-Version 1 rejects `$expr` tags. Older readers reject version 2. Deploy a
-version 2 reader before sending the new documents.
-Literal maps remain tagged maps; a literal key named `$expr` is not code.
-Use an application-owned Registry with stable IDs for durable storage.
-No operator name or input document can create an atom.
+See [Store Flows As JSON](flow-storage.md) for document versions, operation
+tags, Registry IDs, and storage limits.
 
 ## Reuse The Syntax In A Host DSL
 
@@ -228,129 +213,13 @@ its normal structured errors. Runtime errors include `operator`, `reason`,
 `path` and add the expression location. Error metadata does not include
 operand values or unrelated context.
 
-Each expression evaluation has defaults of 64 levels, 10,000 visited values,
-1,048,576 cumulative binary bytes, and 4,096 bits per integer magnitude.
-Counts include resolved data, comparison work, and generated values. Thus,
-the binary limit is a work/output budget, not only a final string limit.
-Before short-circuit evaluation, the operand-list shape of each Boolean
-group must fit within the remaining node limit. An oversized group can fail
-even when its first operand determines the result. Skipped operands are not
-resolved or evaluated. Validation checks the complete expression, including
-skipped branches.
-These expression limits apply to operation subtrees, not to surrounding
-plain Flow data. A plain list, map, string, or integer retains its existing
-contract in the module DSL, Builder, and direct constructors. Data used as
-an operation operand is subject to the expression limits. Existing plain
-references retain their contracts. Legacy Condition input uses the same
-operation limits as Expr; it no longer has a separate, unbounded evaluator.
-Flow uses the fixed defaults; a separate host can set the documented
-`Jido.Expr` limit options. These limits do not replace an Exec timeout or
-the host's input-size policy.
+Each complete operation tree, including conditions, has limits of 64 levels,
+10,000 visited values, 1,048,576 cumulative binary bytes, and 4,096 bits per
+integer magnitude. These limits apply at construction and evaluation.
+Evaluation also counts resolved data, comparison work, and generated values.
+A Boolean group's operand list must fit within the remaining node limit
+even when evaluation skips operands.
 
-Stored documents also retain Codec limits: 100 levels, 10,000 items per
-collection, and 100,000 data nodes. Format overhead counts toward these
-limits. An expression can therefore reach a stored-document limit before it
-reaches the evaluator's limit.
-`Codec.encode/1` and `Codec.encode/2` check the completed document against
-these storage limits. They return an error if the document is too large or
-too deep for the reader.
-
-## Migrate Earlier v3 Beta Conditions
-
-Condition helpers remain available. Replace struct patterns on their results:
-
-```elixir
-alias Jido.Flow.{Condition, Ref}
-
-# The constructor now returns Expr for every operand shape.
-%Jido.Expr{operator: :eq, operands: operands} =
-  Condition.eq(Ref.input(:score), 1)
-```
-
-Legacy Condition structs are accepted only as construction input. Pass them
-to `Condition.new/1` or a Flow/component constructor. Canonical traversal,
-inspection, compilation, and execution use Expr. The former internal
-`Condition.to_map/1`, `Condition.result_deps/1`, and Condition evaluator are
-removed. Use `Jido.Flow.to_map/1` and `Jido.Flow.dependencies/1` for Flow inspection.
-The `Jido.Expr` name, operators, constructors, macro, parser, validator, and
-resolver entry points remain available.
-
-The accepted inputs and error phase also change. Earlier Condition-only
-constructors rejected raw non-Boolean children such as `1`. Constructors now
-accept portable children, including children that evaluation can skip:
-
-```elixir
-{:ok, false} = Jido.Expr.evaluate(Condition.all([false, 1]))
-{:error, error} = Jido.Expr.evaluate(Condition.all([true, 1]))
-:invalid_boolean_operand = error.reason
-[:operands, 1] = error.path
-```
-
-Both expressions are valid definitions. In a Flow, the evaluated counterpart
-fails during execution with `reason: :invalid_boolean_operand` and
-`expression_path: [:operands, 1]`. The phase is `:choice_condition` for a
-Choice or `:iterate_completion` for Iterate. This is an accepted-input and
-error-phase change, separate from resource limits. Malformed trees,
-nonportable data, and invalid reference scopes still fail construction,
-including in skipped Boolean operands.
-
-The old Condition tree could exceed Expr limits. A 4,000-item list of simple
-comparisons, for example, exceeds the 10,000-node construction budget:
-
-```elixir
-conditions = List.duplicate(Condition.eq(1, 1), 4_000)
-{:error, error} = Condition.new(:all, conditions)
-:max_nodes = error.details.reason
-```
-
-The same limit applies to legacy stored conditions after decoding. A small
-valid definition can also exceed the runtime budget through resolved data.
-Short-circuit evaluation still skips unneeded operands; validation still
-checks every operand and discovers every reference. Move larger work into
-an Action with an application-owned resource policy.
-
-Operation validation and runtime failures now use the shared Expr error
-contract. Invalid arity reports `invalid Flow expression`, `operator`,
-`reason: :invalid_arity`, and `path`. Operand paths include `:operands`.
-Stored arity failures report `invalid stored expression` and a complete JSON
-path to the invalid `$condition` or `$expr` record. Invalid result names
-retain the complete path through their containing maps, lists, and operands.
-Reference validation uses `ref_type`; it no longer uses Condition's `type`.
-Runtime operation type errors report `invalid Flow expression` with `types`
-in operand order, in place of `left_type` and `right_type`. Numeric types are
-`:integer` or `:float`. Choice and Iterate keep their phase and component
-metadata. A non-Boolean final condition still reports
-`invalid choice condition operands`. No error includes operand values.
-
-Flow semantic identity is now version 2 because canonical operation data
-changed. Recompute all stored Flow digests and UUIDs, including identities
-for Flows without operations. Derived item and iteration IDs change with
-the Flow digest. Rebuild compiled Flows and invalidate identity-keyed caches.
-Equivalent DSL, Builder, direct, and decoded Flows share the new identity.
-Document versions and semantic identity versions are separate contracts.
-
-Keep application-owned Registry IDs when their Action, Flow, schema, or atom
-values have not changed. An identity-version change does not require new
-Registry IDs. Decode old documents with their trusted Registry, then encode
-the restored Flow with the current writer. This function accepts both legacy
-and current documents; the call below uses the Stored JSON example above:
-
-```elixir
-migrate_document = fn old_document, registry ->
-  with {:ok, flow} <- Jido.Flow.Codec.decode(old_document, registry),
-       {:ok, current_document} <- Jido.Flow.Codec.encode(flow, registry),
-       {:ok, current_identity} <- Jido.Flow.semantic_identity(flow) do
-    {:ok, current_document, current_identity}
-  end
-end
-
-{:ok, ^document, %{version: 2}} = migrate_document.(document, registry)
-```
-
-A read alias can still map an old identifier to its current typed entry;
-encoding uses that typed entry's write ID. If an old document used a generated
-temporary Registry, keep that exact Registry until decoding is complete.
-For durable storage, encode the restored Flow with application-owned IDs.
-Do not reconstruct an old temporary Registry from new Flow data. Deploy the
-version 2 reader before writing version 2 operation documents, and invalidate
-identity-keyed caches separately from Registry migration.
+Surrounding plain Flow data is outside the operation budget. Flow uses the
+fixed limits; a separate host can set the `Jido.Expr` limit options. Stored
+documents also have [Codec limits](flow-storage.md#validation-and-limits).

@@ -3,9 +3,7 @@ defmodule Jido.Flow.Expression do
   Defines the canonical Flow expression data union.
 
   An expression is portable literal data, a nested list or map of expressions,
-  a `Jido.Flow.Ref`, or a `Jido.Expr` operation. Legacy
-  `Jido.Flow.Condition` input is converted to Expr at construction.
-  This module is not an expression wrapper struct.
+  a `Jido.Flow.Ref`, or a `Jido.Expr` operation.
   """
 
   alias Jido.Action

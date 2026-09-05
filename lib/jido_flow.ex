@@ -243,9 +243,6 @@ defmodule Jido.Flow do
 
   @doc """
   Returns the deterministic SHA-256 and UUIDv8 identity for a Flow.
-
-  Identity version 2 uses canonical Expr operations for all conditions.
-  Recompute identities and rebuild compiled Flows from earlier v3 betas.
   """
   @spec semantic_identity(t()) ::
           {:ok, map()} | {:error, Error.InvalidDefinitionError.t()}

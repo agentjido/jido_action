@@ -11,8 +11,7 @@ defmodule Jido.Flow.Condition do
 
   Every constructor returns `Jido.Expr`. The legacy Condition struct is an
   input form only; constructors convert it before it enters a Flow.
-  All operation trees use the fixed Expr limits, including legacy input.
-  Boolean operand types are checked only when the operand is evaluated.
+  See the [expression guide](flow-expressions.md) for Boolean rules and limits.
 
       condition = Jido.Flow.Condition.eq(Jido.Flow.Ref.input(:status), :ready)
       {:ok, ^condition} = Jido.Flow.Condition.validate(condition, :flow)

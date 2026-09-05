@@ -45,15 +45,7 @@ These limits keep continuation in one complete Exec call. See
 Expressions contain portable scalar values, proper lists, maps, and
 `Jido.Flow.Ref` values. `Jido.Expr` adds fixed Boolean, comparison, numeric,
 and binary-concatenation operations. Flow fields accept these operations
-directly or inside an optional `expr(...)` wrapper. `Jido.Flow.Condition`
-provides constructor helpers for these operators:
-
-```text
-eq  neq  lt  lte  gt  gte  in  all  any  not
-```
-
-Every condition uses one `Jido.Expr` tree, including the surrounding Boolean
-groups. Legacy Condition structs are converted at construction.
+directly or inside an optional `expr(...)` wrapper.
 
 References can read Flow input, context, prior component results, and
 component-local Map, Reduce, or Iterate values. A reference is valid only in

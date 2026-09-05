@@ -5,14 +5,8 @@ defmodule Jido.Flow.Codec do
   The document contains JSON-compatible data. A trusted `Jido.Flow.Registry`
   resolves all Action, Flow, schema, and user-data atom identifiers.
 
-  The writer uses `$expr` for all operations and version 2 when any operation
-  is present. Plain documents use version 1. The reader accepts legacy
-  `$condition` records in versions 1 and 2 and converts them to `Jido.Expr`.
-  All operations use the fixed Expr limits.
-
-  The decoder rejects invalid UTF-8, data deeper than 100 levels, one
-  collection with more than 10,000 items, and one document with more than
-  100,000 data nodes. These limits apply before module or schema resolution.
+  See the [storage guide](flow-storage.md) for document versions, operation
+  tags, and validation limits.
 
       registry =
         Jido.Flow.Registry.new!(%{

@@ -27,12 +27,6 @@ ambiguous write identifiers.
 The host application owns the Registry. Stored data never creates atoms,
 derives module names, or selects an unregistered schema.
 
-Condition migration keeps these IDs when the registered values are unchanged.
-Semantic identity version 2 requires new Flow digests and cache entries, not
-new Registry IDs. Decode legacy condition documents with their trusted Registry
-before writing the current operation format. See the
-[beta migration notes](flow-expressions.md#migrate-earlier-v3-beta-conditions).
-
 ## Generate A Temporary Registry
 
 Use `Jido.Flow.Codec.encode/1` when stable application identifiers are not
@@ -84,6 +78,22 @@ and `output`.
 
 The exact component and expression fields are owned by Codec. Do not hand-edit
 a semantic `Jido.Flow.to_map/1` result into a stored document.
+
+## Document Versions And Operations
+
+The writer uses version 2 for documents with operations and version 1 for
+documents without operations. Every operation, including a condition, uses
+`$expr`:
+
+```json
+{"$expr": {"operator": "multiply", "operands": [2, 3]}}
+```
+
+The reader accepts versions 1 and 2. It converts `$condition` records in
+either version to `Jido.Expr`; version 1 rejects `$expr`. Literal maps use
+their own tag, so a literal `$expr` key is not an operation. Operand reference
+atoms use Registry IDs. Document versions and semantic identity versions
+are separate contracts.
 
 ## Store A Compiled Inline Step
 
@@ -149,11 +159,7 @@ The same Registry rule applies to portable inline roles.
 Resolve each target through `Jido.Action.Inline.target!/2` with its typed host
 path, then register that ordinary Action. Inline metadata and schemas belong
 to the deployed target, not to stored body code. Portable inline Actions add
-no Codec version. All operations, including conditions, use `$expr` and
-require document version 2. The reader accepts legacy `$condition` records
-in versions 1 and 2; the writer emits only `$expr` operations. See
-[Portable Inline Actions](inline-actions.md) and [Expressions](flow-expressions.md).
-Both APIs require `3.0.0-beta.6` or later.
+no Codec version. See [Portable Inline Actions](inline-actions.md).
 
 ## Validation And Limits
 
