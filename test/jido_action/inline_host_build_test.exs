@@ -18,7 +18,10 @@ defmodule Jido.Action.InlineHostBuildTest do
     File.write!(Path.join(directory, "mix.exs"), """
     defmodule InlineHostBuild.MixProject do
       use Mix.Project
-      def project, do: [app: :inline_host_build, version: "0.1.0", deps: []]
+      def project do
+        [app: :inline_host_build, version: "0.1.0", deps: [],
+         releases: [inline_host_build: [include_erts: false]]]
+      end
       def application, do: [extra_applications: [:jido_action]]
     end
     """)
@@ -72,6 +75,75 @@ defmodule Jido.Action.InlineHostBuildTest do
     assert status != 0
     assert output =~ "run/2"
     assert output =~ "implementation not provided"
+  end
+
+  test "a release includes shared host and Flow targets without consumer source", fixture do
+    File.write!(Path.join(fixture.directory, "lib/flow.ex"), """
+    defmodule InlineConsumer.Flow do
+      use Jido.Flow, name: "release_flow"
+      flow do
+        step "first", value <- input(:value) do
+          {:ok, %{value: value + 1}}
+        end
+        step "second" do
+          action value <- result("first", :value) do
+            {:ok, %{value: value * 2}}
+          end
+        end
+        output result("second")
+      end
+    end
+    """)
+
+    {output, status} = child(fixture, ~s|Mix.CLI.main(["release"])|)
+    assert status == 0, output
+
+    release = Path.join(fixture.directory, "_build/test/rel/inline_host_build")
+    release_ebin = Path.join(release, "lib/inline_host_build-0.1.0/ebin")
+    beams = File.ls!(release_ebin)
+    assert Enum.count(beams, &String.starts_with?(&1, @wrapper_prefix)) == 6
+    refute Enum.any?(beams, &String.starts_with?(&1, "Elixir.Jido.Flow.Generated.InlineStep."))
+    File.rm_rf!(Path.join(fixture.directory, "lib"))
+
+    script = """
+    spawn(fn -> receive do after 30_000 -> System.halt(124) end end)
+    false = File.dir?("lib")
+    {:ok, _} = Application.ensure_all_started(:inline_host_build)
+    {:ok, modules} = :application.get_key(:inline_host_build, :modules)
+    targets = Enum.filter(modules, &String.starts_with?(Atom.to_string(&1), #{inspect(@wrapper_prefix)}))
+    6 = length(targets)
+    false = :code.is_loaded(InlineConsumer.Flow)
+    for target <- targets do
+      {:module, ^target} = Code.ensure_loaded(target)
+      {owner, path} = target.__jido_inline_action__()
+      ^target = Jido.Action.Inline.target!(owner, path)
+    end
+    flow = InlineConsumer.Flow
+    first = flow.step_action("first")
+    second = flow.step_action("second")
+    true = first != second
+    ^first = Jido.Action.Inline.target!(flow, host: Jido.Flow, step: "first", role: :action)
+    ^second = Jido.Action.Inline.target!(flow, host: Jido.Flow, step: "second", role: :action)
+    registry = Jido.Flow.Registry.new!(%{"actions/first/v1" => {:action, first}})
+    {:ok, ^first} = Jido.Flow.Registry.resolve(registry, "actions/first/v1", :action)
+    {:ok, %{value: 4}} = Jido.Exec.run(first, %{value: 3})
+    {:ok, %{value: 8}} = Jido.Exec.run(flow, %{value: 3})
+    {:ok, %{message: "release:[7]"}} =
+      InlineConsumer.Host.run(InlineConsumer.Bound, "bound", %{value: 3}, %{prefix: "release:"})
+    {:ok, %{message: "release:[4]"}} =
+      InlineConsumer.Host.run(InlineConsumer.Callback, "callback", %{}, %{prefix: "release:"})
+    IO.puts("INLINE_RELEASE_OK")
+    """
+
+    {output, status} =
+      System.cmd(Path.join(release, "bin/inline_host_build"), ["eval", script],
+        cd: fixture.directory,
+        stderr_to_stdout: true,
+        env: [{"ERL_FLAGS", "+S 2:2 +SDcpu 1 +SDio 1"}, {"ELIXIR_ERL_OPTIONS", nil}]
+      )
+
+    assert status == 0, output
+    assert output =~ "INLINE_RELEASE_OK"
   end
 
   defp owner_source do

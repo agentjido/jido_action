@@ -188,10 +188,6 @@ defmodule Jido.Action.InlineDocsTest do
         {owner, _path} = module.__jido_inline_action__()
         String.starts_with?(Atom.to_string(owner), @prefixes)
 
-      function_exported?(module, :__jido_inline_step__, 0) ->
-        {owner, _step} = module.__jido_inline_step__()
-        String.starts_with?(Atom.to_string(owner), @prefixes)
-
       true ->
         false
     end

@@ -144,7 +144,8 @@ Normal source compilation writes the owner and generated Action BEAM files.
 Deploy them together in the same application build. Lookup, Flow inspection,
 Codec operations, and execution do not compile stored code.
 
-The target identity depends on the owner module and Step name, not the body.
+The target identity depends on the owner module and the typed path
+`[host: Jido.Flow, step: name, role: :action]`, not the body.
 A body-only edit can keep the same semantic Flow identity. That identity
 describes graph data, not a code version or a durable code snapshot. Use an
 application release version when you need to identify deployed behavior.

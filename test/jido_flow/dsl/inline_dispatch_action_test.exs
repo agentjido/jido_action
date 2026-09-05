@@ -582,8 +582,7 @@ defmodule Jido.Flow.DSL.InlineDispatchActionTest do
             not MapSet.member?(loaded, module),
             String.starts_with?(Atom.to_string(module), [
               "Elixir.Jido.Flow.DSL.InlineDispatchActionTest.",
-              "Elixir.Jido.Action.Generated.Inline.",
-              "Elixir.Jido.Flow.Generated.InlineStep."
+              "Elixir.Jido.Action.Generated.Inline."
             ]),
             do: module
 

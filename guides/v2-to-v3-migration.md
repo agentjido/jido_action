@@ -487,6 +487,60 @@ Pass a custom supervisor directly with `task_supervisor: reference`.
 The host must start it before execution. See
 [Task Supervisor References](configuration.md#task-supervisor-references).
 
+## Migrate Inline Step Targets
+
+This change also affects applications that use an earlier v3 beta. Both inline
+Step forms now use the shared inline Action identity rule. The old rule hashed
+`{owner, step_name}`. The new rule hashes
+`{owner, [host: Jido.Flow, step: step_name, role: :action]}`. Other inline Action
+hosts already use the shared rule and keep their generated names.
+
+For owner `MyApp.Flow` and Step `"increment"`, the generated module changes
+from:
+
+```elixir
+Jido.Flow.Generated.InlineStep.Aae2cca26ce87b6af4ce4bef0550ad22bdfac621dc53be86e1f29b4b540d896e0
+```
+
+to:
+
+```elixir
+Jido.Action.Generated.Inline.A26036f84d7fdc0f60bf3c29bd4dd2fc54404c6f66a955e08f8e9b94cb4ee389c
+```
+
+Use `MyApp.Flow.step_action("increment")` to get the current target. The shared
+lookup returns the same module:
+
+```elixir
+Jido.Action.Inline.target!(MyApp.Flow,
+  host: Jido.Flow,
+  step: "increment",
+  role: :action
+)
+```
+
+The internal Step compiler, Step body function names, and
+`__jido_inline_step__/0` marker are removed. Host integrations must use the
+public `Jido.Action.Inline` API. Bound Step syntax and direct callback syntax
+remain supported.
+
+Clean and rebuild applications that define inline Steps after updating the
+dependency. Create a new release with the owner and its generated Action BEAM
+files. Do not copy old generated Step BEAM files into the new release.
+
+Rebuild Registry entries with the current lookup result. Keep an
+application-owned identifier such as `"actions/increment/v1"` when it still
+denotes the same behavior. Stored Flow documents that use this identifier
+can resolve through the updated Registry. If stored data or source code uses
+an old generated module name as its target identifier, migrate it to an
+application-owned identifier and update the Registry together. A temporary,
+generated Registry is not a durable identifier contract.
+
+The target change also changes the semantic identity of a Flow that contains
+an inline Step. Refresh cached Flow definitions and compiled graphs. A later
+body-only edit can still keep the same target and semantic identity; use the
+application release and Registry version to select deployed behavior.
+
 ## Version 2 To Version 3 Migration Checklist
 
 1. Change the dependency to `jido_action` `3.0.0-beta.6`.

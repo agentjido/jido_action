@@ -37,7 +37,6 @@ defmodule JidoAction.MixProject do
           ~r/^Jido\.Flow\.DSL\.Extension\.Flow\./,
 
           # Inline wrappers contain generated Action scaffolding only.
-          ~r/^Jido\.Flow\.Generated\.InlineStep\./,
           ~r/^Jido\.Action\.Generated\.Inline\./
         ],
         summary: [threshold: 93]

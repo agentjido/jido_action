@@ -2,7 +2,7 @@ defmodule Jido.Flow.DSL.InlineActionBuildTest do
   use ExUnit.Case, async: false
 
   @moduletag timeout: 180_000
-  @prefixes ["Elixir.Jido.Action.Generated.Inline.", "Elixir.Jido.Flow.Generated.InlineStep."]
+  @prefixes ["Elixir.Jido.Action.Generated.Inline."]
 
   setup do
     directory =

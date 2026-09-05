@@ -1,6 +1,28 @@
 defmodule Jido.Flow.DSL.InlineActionTest do
   use ExUnit.Case, async: false
 
+  test "both Step forms use the shared owner and typed host path identity" do
+    for declaration <- [
+          ~s(step "increment", [], do: {:ok, %{value: 1}}),
+          ~s(step "increment" do\n action [], do: {:ok, %{value: 1}}\nend)
+        ] do
+      owner = unique_owner()
+      compile_source(owner, declaration)
+      path = [host: Jido.Flow, step: "increment", role: :action]
+
+      digest =
+        :crypto.hash(:sha256, :erlang.term_to_binary({owner, path}))
+        |> Base.encode16(case: :lower)
+
+      target = owner.step_action("increment")
+      assert target == Module.concat(Jido.Action.Generated.Inline, "A" <> digest)
+      assert target == Jido.Action.Inline.target!(owner, path)
+      assert target.__jido_inline_action__() == {owner, path}
+      refute function_exported?(target, :__jido_inline_step__, 0)
+      assert {:ok, %{value: 1}} = target.run(%{}, %{})
+    end
+  end
+
   test "a nested Step action uses the ordinary Action and Flow boundaries" do
     owner = unique_owner()
 
@@ -17,7 +39,9 @@ defmodule Jido.Flow.DSL.InlineActionTest do
 
     assert params == %{value: Jido.Flow.Ref.input(:value)}
     assert owner.step_action("increment") == target
-    assert target.__jido_inline_step__() == {owner, "increment"}
+
+    assert target.__jido_inline_action__() ==
+             {owner, [host: Jido.Flow, step: "increment", role: :action]}
 
     assert Jido.Action.Inline.target!(owner, host: Jido.Flow, step: "increment", role: :action) ==
              target
@@ -26,7 +50,7 @@ defmodule Jido.Flow.DSL.InlineActionTest do
     assert {:ok, %{value: 7}} = Jido.Exec.run(target, %{value: 3}, %{increment: 4})
   end
 
-  test "legacy and nested Steps retain exact target, metadata, data, and graph identity" do
+  test "shorthand and nested Steps share the same target, metadata, data, and graph identity" do
     owner = unique_owner()
 
     compile_source(owner, """
@@ -246,7 +270,9 @@ defmodule Jido.Flow.DSL.InlineActionTest do
 
       assert target.name() == "increment"
       assert target.module_info(:md5) == original_beam
-      assert target.__jido_inline_step__() == {owner, "increment"}
+
+      assert target.__jido_inline_action__() ==
+               {owner, [host: Jido.Flow, step: "increment", role: :action]}
     end
   end
 
@@ -446,7 +472,7 @@ defmodule Jido.Flow.DSL.InlineActionTest do
             not MapSet.member?(loaded, module),
             String.starts_with?(Atom.to_string(module), [
               "Elixir.Jido.Flow.DSL.InlineActionTest.",
-              "Elixir.Jido.Flow.Generated.InlineStep."
+              "Elixir.Jido.Action.Generated.Inline."
             ]),
             do: module
 
@@ -461,9 +487,13 @@ defmodule Jido.Flow.DSL.InlineActionTest do
 
   defp generated_target(owner, name) do
     digest =
-      :crypto.hash(:sha256, :erlang.term_to_binary({owner, name})) |> Base.encode16(case: :lower)
+      :crypto.hash(
+        :sha256,
+        :erlang.term_to_binary({owner, [host: Jido.Flow, step: name, role: :action]})
+      )
+      |> Base.encode16(case: :lower)
 
-    Module.concat(Jido.Flow.Generated.InlineStep, "A" <> digest)
+    Module.concat(Jido.Action.Generated.Inline, "A" <> digest)
   end
 
   defp quietly(fun), do: ExUnit.CaptureIO.capture_io(:stderr, fun)

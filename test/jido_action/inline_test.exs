@@ -412,7 +412,12 @@ defmodule Jido.Action.InlineTest do
       [host: :test, choice: "first", fallback: "otherwise", role: :action],
       [host: :test, choice: "second", option: "otherwise", role: :action],
       [host: :test, declaration: "dispatch", role: :decision],
-      [host: :test, declaration: "dispatch", role: :expander]
+      [host: :test, declaration: "dispatch", role: :expander],
+      [host: Jido.Flow, step: "same", role: :action],
+      [host: Jido.Actor, route: "same", role: :action],
+      [host: :test, declaration: "1", role: :action],
+      [host: :test, declaration: 1, role: :action],
+      [host: :test, declaration: :"1", role: :action]
     ]
 
     owners = for _ <- 1..2, do: unique_owner("Identity")
@@ -424,7 +429,7 @@ defmodule Jido.Action.InlineTest do
 
     for owner <- owners, do: compile_source(owner, declarations)
     targets = for owner <- owners, path <- paths, do: Inline.target!(owner, path)
-    assert length(Enum.uniq(targets)) == 10
+    assert length(Enum.uniq(targets)) == length(owners) * length(paths)
     assert Enum.all?(targets, &(byte_size(Atom.to_string(&1)) < 128))
     assert Enum.all?(targets, &(&1.name() == "shared_name"))
   end

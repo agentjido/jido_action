@@ -2,7 +2,7 @@ defmodule Jido.Flow.DSL.InlineStepBuildTest do
   use ExUnit.Case, async: false
 
   @moduletag timeout: 180_000
-  @wrapper_prefix "Elixir.Jido.Flow.Generated.InlineStep."
+  @wrapper_prefix "Elixir.Jido.Action.Generated.Inline."
   @owner InlineBuild.Flow
 
   setup do

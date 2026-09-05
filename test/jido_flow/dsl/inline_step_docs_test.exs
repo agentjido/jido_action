@@ -32,7 +32,8 @@ defmodule Jido.Flow.DSL.InlineStepDocsTest do
     assert Enum.all?(flow.components, &match?(%Jido.Flow.Step{}, &1))
 
     for step <- flow.components do
-      assert step.action.__jido_inline_step__() == {FirstFlow.Greeting, step.name}
+      assert step.action.__jido_inline_action__() ==
+               {FirstFlow.Greeting, [host: Jido.Flow, step: step.name, role: :action]}
     end
 
     assert flow.schema != []
@@ -83,7 +84,8 @@ defmodule Jido.Flow.DSL.InlineStepDocsTest do
            ]
 
     for step <- flow.components do
-      assert step.action.__jido_inline_step__() == {FlowSteps.Inline, step.name}
+      assert step.action.__jido_inline_action__() ==
+               {FlowSteps.Inline, [host: Jido.Flow, step: step.name, role: :action]}
     end
 
     [ready, normalize, greet, label, profile] = flow.components
@@ -208,10 +210,6 @@ defmodule Jido.Flow.DSL.InlineStepDocsTest do
     cond do
       String.starts_with?(name, @owners) ->
         true
-
-      function_exported?(module, :__jido_inline_step__, 0) ->
-        {owner, _step} = module.__jido_inline_step__()
-        String.starts_with?(Atom.to_string(owner), @owners)
 
       function_exported?(module, :__jido_inline_action__, 0) ->
         {owner, _path} = module.__jido_inline_action__()
