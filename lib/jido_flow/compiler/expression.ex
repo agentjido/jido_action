@@ -217,15 +217,12 @@ defmodule Jido.Flow.Compiler.Expression do
   defp list_at(_tail, _index), do: :error
 
   defp fetch_key(map, key) do
-    cond do
-      Map.has_key?(map, key) ->
-        Map.fetch(map, key)
-
-      is_atom(key) and Map.has_key?(map, Atom.to_string(key)) ->
+    case Map.fetch(map, key) do
+      :error when is_atom(key) ->
         Map.fetch(map, Atom.to_string(key))
 
-      true ->
-        :error
+      result ->
+        result
     end
   end
 
