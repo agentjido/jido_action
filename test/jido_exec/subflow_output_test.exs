@@ -1,6 +1,7 @@
 defmodule JidoActionTest.Exec.SubflowOutputTest do
   use ExUnit.Case, async: true
 
+  alias Jido.Action.Output
   alias Jido.Exec
   alias Jido.Flow
   alias Jido.Flow.{Builder, Codec, Ref, Step, Subflow}
@@ -76,6 +77,15 @@ defmodule JidoActionTest.Exec.SubflowOutputTest do
         tenant: context([:account, :tenant]),
         nil?: context([:account, :tenant]) == nil
       }
+    end
+  end
+
+  defmodule ContextOutput do
+    use Jido.Flow, name: "complete_context_output"
+
+    flow do
+      step "work", action: EchoParamsAction, params: %{}
+      output context(:output)
     end
   end
 
@@ -214,6 +224,32 @@ defmodule JidoActionTest.Exec.SubflowOutputTest do
 
     assert Exec.run(Parent, %{value: 7}, %{tenant: nil}) ==
              {:ok, %{work: %{value: 7}, tenant: nil}}
+  end
+
+  test "context can select a complete map or list output envelope" do
+    values = [%{value: 7}, nil]
+
+    for output <- [
+          %{items: values},
+          Output.batch(values, meta: %{source: "context"}),
+          Output.batch([])
+        ],
+        flow <- [ContextOutput, parent_flow(ContextOutput)],
+        mode <- [:run, :step, :wave, :continue] do
+      assert execute(flow, %{value: 7}, %{output: output}, mode) == {:ok, output}
+    end
+  end
+
+  test "a bare list from context still requires an output envelope" do
+    for {flow, message} <- [
+          {ContextOutput, "Flow returned a value that requires an output envelope"},
+          {parent_flow(ContextOutput), "Action output validation must return a map"}
+        ],
+        output <- [[], [%{value: 7}]],
+        mode <- [:run, :step, :wave, :continue] do
+      assert {:error, error} = execute(flow, %{value: 7}, %{output: output}, mode)
+      assert Exception.message(error) == message
+    end
   end
 
   test "missing context keys remain structured errors in root and child outputs" do
