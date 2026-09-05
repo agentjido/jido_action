@@ -186,7 +186,7 @@ defmodule Jido.Flow.Component do
       |> Enum.reduce_while({:ok, []}, fn value, {:ok, names} ->
         case name(value) do
           {:ok, name} ->
-            {:cont, {:ok, names ++ [name]}}
+            {:cont, {:ok, [name | names]}}
 
           {:error, _error} ->
             {:halt,
@@ -210,7 +210,9 @@ defmodule Jido.Flow.Component do
     end
   end
 
-  defp reject_duplicate_after({:ok, names}) do
+  defp reject_duplicate_after({:ok, reversed_names}) do
+    names = Enum.reverse(reversed_names)
+
     case names -- Enum.uniq(names) do
       [] ->
         {:ok, names}

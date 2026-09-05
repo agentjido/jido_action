@@ -1057,13 +1057,13 @@ defmodule Jido.Flow.Codec do
               path: path ++ ["entries", index, "key"]
             })
 
-          {map, errors ++ [error]}
+          {map, [error | errors]}
         else
           {Map.put(map, key, value), errors}
         end
       end)
 
-    if errors == [], do: {:ok, map}, else: {:error, errors}
+    if errors == [], do: {:ok, map}, else: {:error, Enum.reverse(errors)}
   end
 
   defp exact_value_as_value(record, field, expected, path) do
@@ -1140,12 +1140,13 @@ defmodule Jido.Flow.Codec do
             path: ["components", index, "name"]
           })
 
-        {seen, errors ++ [error]}
+        {seen, [error | errors]}
       else
         {MapSet.put(seen, name), errors}
       end
     end)
     |> elem(1)
+    |> Enum.reverse()
   end
 
   defp unknown_reference_errors(components, output) do
@@ -1203,13 +1204,13 @@ defmodule Jido.Flow.Codec do
     {decoded, errors} =
       Enum.reduce(values, {[], []}, fn value, {decoded, errors} ->
         case validator.(value) do
-          {:ok, item} -> {decoded ++ [item], errors}
-          {:error, nested} when is_list(nested) -> {decoded, errors ++ nested}
-          {:error, error} -> {decoded, errors ++ [error]}
+          {:ok, item} -> {[item | decoded], errors}
+          {:error, nested} when is_list(nested) -> {decoded, Enum.reverse(nested, errors)}
+          {:error, error} -> {decoded, [error | errors]}
         end
       end)
 
-    if errors == [], do: {:ok, decoded}, else: {:error, errors}
+    if errors == [], do: {:ok, Enum.reverse(decoded)}, else: {:error, Enum.reverse(errors)}
   end
 
   defp unknown_field_errors(record, allowed, path) do
