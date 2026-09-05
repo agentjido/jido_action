@@ -305,22 +305,24 @@ defmodule Jido.Flow.Compiler do
 
     flow.components
     |> Graph.canonical_components()
-    |> Enum.reduce(initial, &add_component/2)
+    |> Enum.reduce(initial, fn component, state ->
+      # Identity uses the authored Flow. Runtime callbacks do not need metadata.
+      add_component(%{component | meta: %{}}, state)
+    end)
   end
 
   defp add_component(%FlowStep{} = component, state) do
     namespace = state.namespace
-    runtime_component = %{component | meta: %{}}
 
     step =
       runtime_step(state, component.name, :step, fn parent, runtime ->
-        local = component_state(runtime_component, parent, runtime)
+        local = component_state(component, parent, runtime)
 
         local
         |> resolve_and_run(
-          runtime_component.params,
-          runtime_component.action,
-          Target.at(Target.node(runtime_component), namespace)
+          component.params,
+          component.action,
+          Target.at(Target.node(component), namespace)
         )
         |> wrap_result()
       end)
@@ -818,8 +820,6 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp add_subflow(subflow, state) do
-    subflow = %{subflow | meta: %{}}
-
     if subflow.flow in state.module_stack do
       raise Error.validation_error("recursive Subflow reference", %{
               component: subflow.name,
