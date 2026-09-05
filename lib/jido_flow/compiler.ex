@@ -1075,10 +1075,12 @@ defmodule Jido.Flow.Compiler do
         [{_name, output} | _rest] -> input_of(output)
       end
 
-    results =
-      values
-      |> Enum.filter(fn {name, _value} -> name in references end)
-      |> Map.new(fn {name, result} -> {name, unwrap_value(result)} end)
+    referenced =
+      if dependencies == references,
+        do: values,
+        else: Enum.filter(values, fn {name, _value} -> name in references end)
+
+    results = Map.new(referenced, fn {name, result} -> {name, unwrap_value(result)} end)
 
     base_runtime_state(runtime, frame, results)
   end
