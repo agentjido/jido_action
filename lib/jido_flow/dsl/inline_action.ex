@@ -2,7 +2,7 @@ defmodule Jido.Flow.DSL.InlineAction do
   @moduledoc false
 
   alias Jido.Action.Inline
-  alias Jido.Flow.DSL.{Expression, InlineStepCompiler, MacroSupport}
+  alias Jido.Flow.DSL.{Expression, MacroSupport}
 
   @scope :__jido_flow_inline_scope__
   @step_options Jido.Flow.DSL.Extension.Flow.Step.Options
@@ -125,16 +125,21 @@ defmodule Jido.Flow.DSL.InlineAction do
       reraise %{error | description: "#{label} expander: #{error.description}"}, __STACKTRACE__
   end
 
-  defp compile_target(@step_options, path, parsed, caller) do
-    name = quote do: Keyword.fetch!(unquote(path), :step)
-    InlineStepCompiler.compile_action!(name, parsed, caller, emit: {__MODULE__, :defer!})
-  end
+  defp compile_target(setter, path, parsed, caller) do
+    labels =
+      if setter == @step_options,
+        do: [reserved_label: "Flow", module_label: "inline Step"],
+        else: []
 
-  defp compile_target(_setter, path, parsed, caller) do
-    Inline.Compiler.compile!(path, parsed, caller,
-      default_name: quote(do: unquote(__MODULE__).default_name(unquote(path))),
-      remove_imports: declaration_imports(caller),
-      emit: {__MODULE__, :defer!}
+    Inline.Compiler.compile!(
+      path,
+      parsed,
+      caller,
+      [
+        default_name: quote(do: unquote(__MODULE__).default_name(unquote(path))),
+        remove_imports: declaration_imports(caller),
+        emit: {__MODULE__, :defer!}
+      ] ++ labels
     )
   end
 

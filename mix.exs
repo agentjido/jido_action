@@ -18,6 +18,8 @@ defmodule JidoAction.MixProject do
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
+      # This consumer compiles only in the isolated build tests.
+      test_ignore_filters: [&String.starts_with?(&1, "test/fixtures/inline_consumer/")],
 
       # Docs
       name: "Jido Action",
@@ -37,7 +39,6 @@ defmodule JidoAction.MixProject do
           ~r/^Jido\.Flow\.DSL\.Extension\.Flow\./,
 
           # Inline wrappers contain generated Action scaffolding only.
-          ~r/^Jido\.Flow\.Generated\.InlineStep\./,
           ~r/^Jido\.Action\.Generated\.Inline\./
         ],
         summary: [threshold: 93]

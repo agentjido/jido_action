@@ -12,7 +12,7 @@ defmodule Jido.Action.Inline.Compiler do
     function = Macro.unique_var(:inline_function, __MODULE__)
     config = Keyword.put_new(parsed.options, :name, Keyword.get(options, :default_name))
     definition = owner_definition(function, parsed, caller, options)
-    internal = Keyword.take(options, [:identity, :reserved_label, :module_label, :emit])
+    internal = Keyword.take(options, [:reserved_label, :module_label, :emit])
 
     declaration =
       quote line: caller.line do
@@ -39,8 +39,7 @@ defmodule Jido.Action.Inline.Compiler do
     # Validate before either immediate or deferred emission can replace a target.
     {config, _schema, _output_schema} = Jido.Action.__prepare_config__!(config, caller)
 
-    {target, function, marker, value} =
-      identity(caller.module, path, Keyword.get(options, :identity))
+    {target, function} = identity(caller.module, path)
 
     Owner.reserve_function!(
       caller,
@@ -50,13 +49,12 @@ defmodule Jido.Action.Inline.Compiler do
 
     ensure_owner!(
       target,
-      marker,
-      value,
+      {caller.module, path},
       caller,
       Keyword.get(options, :module_label, "inline Action")
     )
 
-    args = [target, function, marker, value, config, caller]
+    args = [target, function, path, config, caller]
 
     # Internal hosts may defer emission until their enclosing fields validate.
     # The shared compiler still owns the wrapper and its original compiler env.
@@ -69,20 +67,18 @@ defmodule Jido.Action.Inline.Compiler do
     {target, function}
   end
 
-  defp identity(owner, path, nil) do
+  defp identity(owner, path) do
     digest =
       :crypto.hash(:sha256, :erlang.term_to_binary({owner, path})) |> Base.encode16(case: :lower)
 
     {Module.concat(Jido.Action.Generated.Inline, "A" <> digest),
-     String.to_atom("__jido_inline_action_" <> digest), :__jido_inline_action__, {owner, path}}
+     String.to_atom("__jido_inline_action_" <> digest)}
   end
 
-  # Only internal adapters may retain an existing target recipe and marker.
-  defp identity(owner, path, {module, function}), do: apply(module, function, [owner, path])
-
-  defp ensure_owner!(target, marker, value, caller, label) do
+  defp ensure_owner!(target, identity, caller, label) do
     if Code.ensure_loaded?(target) and
-         not (function_exported?(target, marker, 0) and apply(target, marker, []) == value) do
+         not (function_exported?(target, :__jido_inline_action__, 0) and
+                target.__jido_inline_action__() == identity) do
       Parser.error!(
         nil,
         caller,
@@ -92,8 +88,9 @@ defmodule Jido.Action.Inline.Compiler do
   end
 
   @doc false
-  @spec create_action!(module(), atom(), atom(), term(), map(), Macro.Env.t()) :: tuple()
-  def create_action!(target, function, marker, value, config, caller) do
+  @spec create_action!(module(), atom(), Jido.Action.Inline.path(), map(), Macro.Env.t()) ::
+          tuple()
+  def create_action!(target, function, path, config, caller) do
     owner = caller.module
 
     definition =
@@ -103,7 +100,7 @@ defmodule Jido.Action.Inline.Compiler do
         use Jido.Action, unquote(Macro.escape(config))
 
         @doc false
-        def unquote(marker)(), do: unquote(Macro.escape(value))
+        def __jido_inline_action__(), do: unquote(Macro.escape({owner, path}))
 
         @impl Jido.Action
         def run(params, context), do: unquote(owner).unquote(function)(params, context)

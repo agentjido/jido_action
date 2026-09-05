@@ -52,7 +52,8 @@ end
 defmodule Jido.Flow.DSL.Macros do
   @moduledoc false
 
-  alias Jido.Flow.DSL.{InlineAction, InlineStep, InlineStepCompiler, MacroSupport, ModuleCompiler}
+  alias Jido.Action.Inline
+  alias Jido.Flow.DSL.{InlineAction, InlineStep, MacroSupport, ModuleCompiler}
 
   defmacro step(name, options) do
     caller = __CALLER__
@@ -86,15 +87,26 @@ defmodule Jido.Flow.DSL.Macros do
     )
   end
 
-  defp inline_step(name, parsed, caller) do
-    {name, action, definition} = InlineStepCompiler.compile!(name, parsed, caller)
-    options = [action: action, params: parsed.params_ast] ++ parsed.options
+  defp inline_step(name_ast, parsed, caller) do
+    name = Macro.unique_var(:step_name, __MODULE__)
+    path = quote do: [host: Jido.Flow, step: unquote(name), role: :action]
+
+    compiled =
+      Inline.Compiler.compile!(path, %{parsed | options: []}, caller,
+        default_name: name,
+        reserved_label: "Flow",
+        module_label: "inline Step",
+        remove_imports: InlineAction.declaration_imports(caller)
+      )
+
+    options = [action: compiled.target_ast, params: parsed.params_ast] ++ parsed.options
 
     declaration =
       entity(name, options, extension_module(["Flow", "Step"]), :__step__, [:params], caller)
 
-    quote do
-      unquote(definition)
+    quote line: caller.line do
+      unquote(name) = unquote(ModuleCompiler).register_step!(unquote(name_ast), __ENV__)
+      unquote(compiled.declaration_ast)
       unquote(declaration)
     end
   end

@@ -19,27 +19,6 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     end
   end
 
-  test "the inline compiler's actual exports have BEAM docs and specs" do
-    module = Jido.Flow.DSL.InlineStepCompiler
-    exported = module.__info__(:functions)
-    assert exported != []
-    assert {:docs_v1, _, _, _, :hidden, _, docs} = Code.fetch_docs(module)
-    assert {:ok, specs} = Code.Typespec.fetch_specs(module)
-
-    documented =
-      for {{:function, name, arity}, _, _, doc, _} <- docs,
-          doc != :none,
-          into: MapSet.new(),
-          do: {name, arity}
-
-    specified = MapSet.new(specs, &elem(&1, 0))
-
-    for function <- exported do
-      assert MapSet.member?(documented, function), "missing BEAM doc for #{inspect(function)}"
-      assert MapSet.member?(specified, function), "missing BEAM spec for #{inspect(function)}"
-    end
-  end
-
   test "Step names expand or evaluate once in either form" do
     for {expression, marker, name} <- [
           {"#{inspect(NameSource)}.literal_name()", :inline_name_macro_expanded, "macro_name"},
@@ -125,7 +104,11 @@ defmodule Jido.Flow.DSL.InlineStepTest do
       assert error.line == 6
 
       if first == inline,
-        do: assert(target.__jido_inline_step__() == {owner, "same"}),
+        do:
+          assert(
+            target.__jido_inline_action__() ==
+              {owner, [host: Jido.Flow, step: "same", role: :action]}
+          ),
         else: refute(Code.ensure_loaded?(target))
     end
   end
@@ -217,7 +200,8 @@ defmodule Jido.Flow.DSL.InlineStepTest do
       end
 
       if first == inline do
-        assert target.__jido_inline_step__() == {owner, "same"}
+        assert target.__jido_inline_action__() ==
+                 {owner, [host: Jido.Flow, step: "same", role: :action]}
       else
         refute Code.ensure_loaded?(target)
       end
@@ -381,7 +365,9 @@ defmodule Jido.Flow.DSL.InlineStepTest do
       assert target != other.step_action(name)
       assert byte_size(Atom.to_string(target)) < 128
       assert target.name() == name
-      assert target.__jido_inline_step__() == {owner, name}
+
+      assert target.__jido_inline_action__() ==
+               {owner, [host: Jido.Flow, step: name, role: :action]}
     end
   end
 
@@ -1030,15 +1016,19 @@ defmodule Jido.Flow.DSL.InlineStepTest do
 
   defp generated_identity(owner, name) do
     digest =
-      :crypto.hash(:sha256, :erlang.term_to_binary({owner, name})) |> Base.encode16(case: :lower)
+      :crypto.hash(
+        :sha256,
+        :erlang.term_to_binary({owner, [host: Jido.Flow, step: name, role: :action]})
+      )
+      |> Base.encode16(case: :lower)
 
-    {Module.concat(Jido.Flow.Generated.InlineStep, "A" <> digest),
-     String.to_atom("__jido_inline_step_" <> digest)}
+    {Module.concat(Jido.Action.Generated.Inline, "A" <> digest),
+     String.to_atom("__jido_inline_action_" <> digest)}
   end
 
   defp generated_modules do
     for {module, _} <- :code.all_loaded(),
-        String.starts_with?(Atom.to_string(module), "Elixir.Jido.Flow.Generated.InlineStep."),
+        String.starts_with?(Atom.to_string(module), "Elixir.Jido.Action.Generated.Inline."),
         into: MapSet.new(),
         do: module
   end
@@ -1071,7 +1061,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
             not MapSet.member?(loaded, module),
             String.starts_with?(Atom.to_string(module), [
               "Elixir.Jido.Flow.DSL.InlineStepTest.",
-              "Elixir.Jido.Flow.Generated.InlineStep."
+              "Elixir.Jido.Action.Generated.Inline."
             ]),
             do: module
 

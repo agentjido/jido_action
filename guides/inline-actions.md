@@ -444,7 +444,8 @@ Explicit `name:` changes public metadata, not lookup identity.
 
 `FlowModule.step_action/1` remains Step-only. It returns inline and explicit
 Action-backed Step targets, but not Subflows or other component targets. Both
-Step syntax forms retain the legacy Step target identity.
+Step syntax forms use the same owner and typed host path identity as all other
+inline Actions.
 
 An extracted target works with direct constructors, Builder, and a trusted
 Registry. Supply a new parameter mapping for each host position. Register

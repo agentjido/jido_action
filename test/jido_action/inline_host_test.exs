@@ -423,19 +423,6 @@ defmodule Jido.Action.InlineHostTest do
     end
   end
 
-  test "the consumer uses only public inline and expression APIs" do
-    source = File.read!(Path.expand("../support/fixtures/action/inline_host.ex", __DIR__))
-    refute source =~ "Jido.Flow"
-    refute source =~ "Spark"
-    refute source =~ ~r/(?:Jido\.Action\.Inline|Inline)\.[A-Z]/
-    assert source =~ "Inline.parse_bound!"
-    assert source =~ "Inline.parse_callback!"
-    assert source =~ "Inline.compile!"
-    assert source =~ "Jido.Expr.parse"
-    assert source =~ "Jido.Expr.validate"
-    assert source =~ "Jido.Expr.evaluate"
-  end
-
   defp compile_owner(mode, declarations, before_setup \\ "") do
     owner = Module.concat(__MODULE__, "Owner#{System.unique_integer([:positive])}")
 
