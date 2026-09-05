@@ -104,7 +104,8 @@ returns a handle with `ref`, `pid`, `owner`, `monitor_ref`, and shared `state`
 fields. Treat these fields as one handle. The process that calls `run_async/4`
 owns the handle. Only that process can await, handle, or cancel it.
 
-Call `handle_message/2` from `handle_info/2` or an equivalent OTP callback. It
+Start the call in the process that handles its completion. Use
+`handle_message/2` in `handle_info/2` to keep a GenServer responsive. It
 returns `{:done, result}` for the exact completion message and `:ignore` for an
 unrelated message. A matching process exit returns the execution error inside
 `{:done, {:error, error}}`. An invalid handle or owner returns the outer
@@ -127,65 +128,6 @@ side effects that already completed.
 Invalid handles and owner violations return
 `Jido.Exec.Error.InvalidHandleError`. An unexpected failure of the managed
 process returns `Jido.Exec.Error.AsyncExecutionError`.
-
-### Responsive GenServer Completion
-
-Start the async call in the GenServer that will consume its completion. Keep
-the handle in state and use `handle_message/2` in `handle_info/2`. Do not call
-`await/2` inside a callback that must remain responsive.
-
-```elixir
-defmodule MyApp.ReportServer do
-  use GenServer
-
-  def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
-
-  @impl true
-  def init(opts) do
-    {:ok, %{target: Keyword.fetch!(opts, :target),
-            supervisor: Keyword.fetch!(opts, :task_supervisor),
-            handle: nil, result: nil}}
-  end
-
-  @impl true
-  def handle_call({:run, input, context}, _from, %{handle: nil} = state) do
-    handle = Jido.Exec.run_async(state.target, input, context,
-      task_supervisor: state.supervisor)
-    {:reply, :ok, %{state | handle: handle, result: nil}}
-  rescue
-    error in [Jido.Action.Error.InvalidInputError, Jido.Exec.Error.AsyncExecutionError] ->
-      {:reply, {:error, error}, state}
-  end
-
-  def handle_call({:run, _input, _context}, _from, state),
-    do: {:reply, {:error, :busy}, state}
-
-  def handle_call(:status, _from, state),
-    do: {:reply, %{running?: state.handle != nil, result: state.result}, state}
-
-  @impl true
-  def handle_info(_message, %{handle: nil} = state), do: {:noreply, state}
-
-  def handle_info(message, state) do
-    case Jido.Exec.handle_message(state.handle, message) do
-      {:done, result} -> {:noreply, %{state | handle: nil, result: result}}
-      :ignore -> {:noreply, state}
-      {:error, error} -> {:noreply, %{state | handle: nil, result: {:error, error}}}
-    end
-  end
-end
-
-# The host starts MyApp.ReportTasks before this server.
-{:ok, server} = MyApp.ReportServer.start_link(
-  target: MyApp.Flows.BuildReport, task_supervisor: MyApp.ReportTasks)
-:ok = GenServer.call(server, {:run, input, context})
-status = GenServer.call(server, :status)
-```
-
-The server can process status calls while Action work is blocked. Completion
-stores the normal Exec result. Startup errors leave the server ready for a
-later request. See [Runtime Configuration](configuration.md) for capacity,
-shutdown, replacement, and route examples.
 
 ## Runtime Options
 

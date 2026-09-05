@@ -104,18 +104,10 @@ defmodule Jido.Exec do
   @doc """
   Runs an executable Jido artifact.
 
-  All targets accept `task_supervisor: reference`. Use a local Task.Supervisor
-  PID, registered name, or `{:via, module, name}` reference, including
-  PartitionSupervisor routes. The default is `Jido.Exec.TaskSupervisor`.
-  The same reference is kept through nested work and continuations. Exec does
-  not derive names or partition keys from its workers and does not fall back
-  when the selected supervisor is absent or refuses work.
-
-  Names and via references are resolved at each task start. A later task can
-  use a replacement registered under the same name. A PID always selects the
-  original process. Tasks are temporary; shutdown stops active tasks and does
-  not restart completed or interrupted work. See the configuration guide for
-  supervision and migration examples. The former `jido:` option is an error.
+  The `task_supervisor:` option accepts a local Task.Supervisor PID, name, or
+  via route. It defaults to `Jido.Exec.TaskSupervisor`. Exec preserves the route
+  through nested work and continuations. Names resolve at each task start;
+  a PID selects one process. An unavailable supervisor is an error.
 
   All targets accept `timeout: milliseconds | :infinity`. The default is
   `:infinity`. A finite timeout covers the complete call and terminates its

@@ -23,10 +23,6 @@ representation, compilation, and Flow semantics. Jido Exec owns one in-memory
 execution session: step-wise execution, bounded concurrency, Action invocation,
 errors, telemetry, and final results.
 
-Use `task_supervisor: reference` to select a local Task.Supervisor PID, name,
-or via route. The default is `Jido.Exec.TaskSupervisor`. See the
-[supervision examples and beta migration](guides/configuration.md#task-supervisor-references).
-
 Durable orchestration is not provided. An outer system must own persistence,
 queues, scheduling, recovery, retries, durable cancellation policy,
 distributed coordination, supervision, and deployment-safe continuation.

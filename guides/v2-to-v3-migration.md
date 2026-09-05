@@ -487,17 +487,9 @@ Version 3 uses `Jido.Exec.TaskSupervisor`.
 
 Replace direct references to the old global supervisor name.
 
-Replace `jido: MyApp.Jido` with
-`task_supervisor: MyApp.Jido.TaskSupervisor`. Remove `jido: nil` to use the
-default. The old option now returns a migration error, including in deprecated
-`Instruction.opts`. Do not supply both options.
-
-`Jido.Exec.task_supervisor_name(instance)` has been removed. The host must name and
-start its Task.Supervisor. Exec accepts the resulting local PID, registered
-name, or via reference. A missing supervisor is an error; Exec does not fall
-back to the default. Names resolve at each task start, so later work can use
-a replacement under the same name. A PID remains tied to the original process.
-See [supervision and partition examples](configuration.md#task-supervisor-references).
+Pass a custom supervisor directly with `task_supervisor: reference`.
+The host must start it before execution. See
+[Task Supervisor References](configuration.md#task-supervisor-references).
 
 ## Version 2 To Version 3 Migration Checklist
 
