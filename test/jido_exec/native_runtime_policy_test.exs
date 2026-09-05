@@ -132,24 +132,31 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
   alias JidoActionTest.Fixtures.Actions.{Add, EchoParamsAction, RecorderAction}
   alias Runic.Workflow.Runnable
 
-  test "preserves caller Logger metadata in a concurrent runnable" do
+  test "preserves caller Logger metadata in serial and concurrent runnables" do
     flow =
       Flow.new!(
         name: "async_logger_metadata",
         components: [
-          Step.new!(name: "metadata", action: LoggerMetadataAction, params: %{id: :metadata})
+          Step.new!(name: "first", action: LoggerMetadataAction, params: %{id: :first}),
+          Step.new!(name: "second", action: LoggerMetadataAction, params: %{id: :second})
         ],
-        output: Ref.result("metadata")
+        output: %{first: Ref.result("first"), second: Ref.result("second")}
       )
 
     metadata_key = :jido_test_request_id
     Logger.metadata([{metadata_key, "request-123"}])
 
-    assert Exec.run(flow, %{}, %{test_pid: self()}, max_concurrency: 1) ==
-             {:ok, %{id: :metadata}}
+    for concurrency <- [1, 2] do
+      assert Exec.run(flow, %{}, %{test_pid: self()}, max_concurrency: concurrency) ==
+               {:ok, %{first: %{id: :first}, second: %{id: :second}}}
 
-    assert_receive {:action_logger_metadata, :metadata, metadata}
-    assert metadata[metadata_key] == "request-123"
+      for id <- [:first, :second] do
+        assert_receive {:action_logger_metadata, ^id, metadata}
+        assert metadata[metadata_key] == "request-123"
+      end
+    end
+
+    refute_received {:action_logger_metadata, _, _}
   end
 
   @tag timeout: 5_000

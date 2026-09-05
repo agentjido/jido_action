@@ -2,8 +2,8 @@ defmodule JidoActionTest.Flow.Compiler.CaptureTest do
   use ExUnit.Case, async: true
 
   alias Jido.Flow
-  alias Jido.Flow.{Ref, Step}
-  alias JidoActionTest.Fixtures.FlowAuthoring
+  alias Jido.Flow.{Ref, Step, Subflow}
+  alias JidoActionTest.Fixtures.{FlowAuthoring, TelemetryParentFlow}
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
 
   test "compiler callbacks do not retain the compiler state" do
@@ -19,29 +19,65 @@ defmodule JidoActionTest.Flow.Compiler.CaptureTest do
     assert retained == []
   end
 
-  test "independent Steps have bounded size after transfer to another process" do
-    measurements =
-      for count <- [1, 2, 4, 6] do
-        steps =
-          for index <- 1..count do
-            Step.new!(name: "s#{index}", action: EchoParamsAction, params: %{value: index})
-          end
+  for shape <- [:independent, :chained, :nested, :map, :reduce] do
+    test "#{shape} graphs have bounded size after transfer to another process" do
+      measurements =
+        for count <- [1, 2, 4, 6] do
+          assert {:ok, compiled} = Flow.compile(flow(unquote(shape), count))
 
-        flow = Flow.new!(name: "capture_size", components: steps, output: Ref.result("s#{count}"))
-        assert {:ok, compiled} = Flow.compile(flow)
-        local_words = :erts_debug.flat_size(compiled)
-        {copied_words, memory} = transfer_size(compiled)
-        assert copied_words == local_words
-        {count, local_words, memory}
-      end
+          # Stop before copying if a nested capture returns. Collection graphs
+          # can otherwise expand much faster than the small Step reproduction.
+          refute retains_compiler_state?(compiled)
+          local_words = :erts_debug.flat_size(compiled)
+          {copied_words, memory} = transfer_size(compiled)
+          assert copied_words == local_words
+          assert copied_words >= :erts_debug.size(compiled)
+          {count, local_words, memory}
+        end
 
-    {2, small_words, small_memory} = Enum.find(measurements, &(elem(&1, 0) == 2))
-    {6, large_words, large_memory} = List.last(measurements)
+      {2, small_words, small_memory} = Enum.find(measurements, &(elem(&1, 0) == 2))
+      {6, large_words, large_memory} = List.last(measurements)
 
-    # Allow graph overhead and different heap sizes across supported runtimes.
-    # Tripling this graph must not multiply its copied size exponentially.
-    assert large_words < small_words * 4
-    assert large_memory < small_memory * 6
+      # Allow graph overhead and different heap sizes across supported runtimes.
+      # Tripling this graph must not multiply its copied size exponentially.
+      assert large_words < small_words * 4
+      assert large_memory < small_memory * 6
+    end
+  end
+
+  defp flow(shape, count) do
+    components = Enum.map(1..count, &component(shape, "s#{&1}", &1))
+    Flow.new!(name: "capture_size", components: components, output: Ref.result("s#{count}"))
+  end
+
+  defp component(:independent, name, index),
+    do: Step.new!(name: name, action: EchoParamsAction, params: %{value: index})
+
+  defp component(:chained, name, index) do
+    value = if index == 1, do: 7, else: Ref.result("s#{index - 1}", :value)
+    Step.new!(name: name, action: EchoParamsAction, params: %{value: value})
+  end
+
+  defp component(:nested, name, index),
+    do: Subflow.new!(name: name, flow: TelemetryParentFlow, params: %{value: index})
+
+  defp component(:map, name, _index) do
+    Jido.Flow.Map.new!(
+      name: name,
+      collection: [1, 2],
+      action: EchoParamsAction,
+      params: %{value: Ref.item()}
+    )
+  end
+
+  defp component(:reduce, name, _index) do
+    Jido.Flow.Reduce.new!(
+      name: name,
+      collection: [1, 2],
+      initial: %{},
+      action: EchoParamsAction,
+      params: %{value: Ref.item()}
+    )
   end
 
   defp transfer_size(value) do
