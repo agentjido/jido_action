@@ -310,3 +310,15 @@ end
 defimpl Inspect, for: JidoActionTest.Support.RaisingInspectStruct do
   def inspect(_term, _opts), do: raise("boom")
 end
+
+defmodule JidoActionTest.Support.InspectProbe do
+  @moduledoc false
+  defstruct [:owner]
+end
+
+defimpl Inspect, for: JidoActionTest.Support.InspectProbe do
+  def inspect(%{owner: owner}, _opts) do
+    send(owner, :unsafe_inspect_called)
+    "unsafe inspection"
+  end
+end
