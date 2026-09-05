@@ -201,6 +201,17 @@ defmodule Jido.Flow.CodecTest do
     assert {:ok, ^flow} = Codec.decode(document, registry)
     assert {:ok, ^document, ^registry} = Codec.encode(flow)
 
+    raw_flow = %Flow{
+      name: "raw_codec",
+      schema: nil,
+      output_schema: nil,
+      components: [%Step{name: "add", action: Add, params: %{a: 1, b: 2}}],
+      output: Ref.result("add")
+    }
+
+    assert {:ok, canonical} = Flow.validate_executable(raw_flow)
+    assert Codec.encode(raw_flow) == Codec.encode(canonical)
+
     assert {:error, %InvalidDefinitionError{}} = Codec.encode(:invalid)
   end
 
