@@ -445,7 +445,7 @@ Explicit `name:` changes public metadata, not lookup identity.
 `FlowModule.step_action/1` remains Step-only. It returns inline and explicit
 Action-backed Step targets, but not Subflows or other component targets. Both
 Step syntax forms use the same owner and typed host path identity as all other
-inline Actions. See [Migrate Inline Step Targets](v2-to-v3-migration.md#migrate-inline-step-targets)
+inline Actions. See [Migrate Inline Step Targets](#migrate-inline-step-targets)
 when upgrading from an earlier v3 beta.
 
 An extracted target works with direct constructors, Builder, and a trusted
@@ -464,3 +464,57 @@ Keep a named `Jido.Action` when callers need custom lifecycle hooks, a separate
 public module API, or an independent ownership and deployment boundary.
 Explicit inline schemas and descriptions can serve typed callers, but they
 must be static Action configuration. Bindings never supply schema inference.
+
+## Migrate Inline Step Targets
+
+This change affects applications that use an earlier v3 beta. Both inline
+Step forms now use the shared inline Action identity rule. The old rule hashed
+`{owner, step_name}`. The new rule hashes
+`{owner, [host: Jido.Flow, step: step_name, role: :action]}`. Other inline Action
+hosts already use the shared rule and keep their generated names.
+
+For owner `MyApp.Flow` and Step `"increment"`, the generated module changes
+from:
+
+```elixir
+Jido.Flow.Generated.InlineStep.Aae2cca26ce87b6af4ce4bef0550ad22bdfac621dc53be86e1f29b4b540d896e0
+```
+
+to:
+
+```elixir
+Jido.Action.Generated.Inline.A26036f84d7fdc0f60bf3c29bd4dd2fc54404c6f66a955e08f8e9b94cb4ee389c
+```
+
+Use `MyApp.Flow.step_action("increment")` to get the current target. The shared
+lookup returns the same module:
+
+```elixir
+Jido.Action.Inline.target!(MyApp.Flow,
+  host: Jido.Flow,
+  step: "increment",
+  role: :action
+)
+```
+
+The internal Step compiler, Step body function names, and
+`__jido_inline_step__/0` marker are removed. Host integrations must use the
+public `Jido.Action.Inline` API. Bound Step syntax and direct callback syntax
+remain supported.
+
+Clean and rebuild applications that define inline Steps after updating the
+dependency. Create a new release with the owner and its generated Action BEAM
+files. Do not copy old generated Step BEAM files into the new release.
+
+Rebuild Registry entries with the current lookup result. Keep an
+application-owned identifier such as `"actions/increment/v1"` when it still
+denotes the same behavior. Stored Flow documents that use this identifier
+can resolve through the updated Registry. If stored data or source code uses
+an old generated module name as its target identifier, migrate it to an
+application-owned identifier and update the Registry together. A temporary,
+generated Registry is not a durable identifier contract.
+
+The target change also changes the semantic identity of a Flow that contains
+an inline Step. Refresh cached Flow definitions and compiled graphs. A later
+body-only edit can still keep the same target and semantic identity; use the
+application release and Registry version to select deployed behavior.
