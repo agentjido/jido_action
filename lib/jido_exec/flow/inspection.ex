@@ -13,12 +13,14 @@ defmodule Jido.Exec.Flow.Inspection do
     {role, item_index} = item(metadata.role, runnable.input_fact.value)
     status = if runnable.status == :pending, do: :ready, else: runnable.status
 
-    Work.new(
-      Map.merge(metadata, %{role: role, item_index: item_index, status: status}),
-      execution.work_ref,
-      execution.revision,
-      position
-    )
+    %Work{
+      token: {execution.work_ref, execution.revision, position},
+      component_path: metadata.component_path,
+      kind: metadata.kind,
+      role: role,
+      item_index: item_index,
+      status: status
+    }
   end
 
   defp metadata(%InputBinding{target_component_hash: target}, _workflow, index) do
