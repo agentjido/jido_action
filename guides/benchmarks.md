@@ -73,12 +73,16 @@ only the measured operation. Setup and result assertions are outside the timer.
 Raw samples, minimum, upper median, mean, p95, and maximum are in the JSON file.
 Caller reduction counts exclude work in other processes.
 
-Resource runs use a separate caller and a dedicated Task.Supervisor. Spawn
+Resource runs use a separate caller and a dedicated Task.Supervisor. Fixtures
+pass `task_supervisor: JidoActionBench.TaskSupervisor` to Exec. Spawn
 tracing follows both roots and their descendants. The roots and observer do not
 count as helper starts. Workers stop at explicit callback barriers. The observer
 uses a trace-delivery barrier, samples memory, then releases each worker. A paused
 case also has a barrier after `start/4`. Completion uses process monitors and
-another trace barrier, including helpers that start during cleanup. No sleep or
+another trace barrier, including helpers that start during cleanup. If a probe
+fails, it stops the caller and observed descendants, confirms their termination,
+and then returns the failure. It does not first wait for normal helper completion.
+No sleep or
 global process-count difference establishes cleanup.
 
 Resource runs include setup. Their memory data does not have the same boundary
@@ -115,6 +119,12 @@ same benchmark scripts by absolute path from that checkout. The scripts report
 the current working checkout as the measured source and hash their own source.
 Do not change the runtime and benchmark tools in the same comparison.
 
+The historical baseline uses the scripts at
+`2f42eef1fd547bcddfc33a0a3068e4150c6a1331`, which pass the former `jido:` option.
+Current scripts require the explicit supervisor API from #237. Keep the original
+baseline reports and scripts. Their tool hash differs from the current tools,
+so the comparison command rejects ratios between those report sets.
+
 After the candidate change, repeat the same profile and output to another path:
 
 ```bash
@@ -124,8 +134,8 @@ ERL_FLAGS='+S 2:2' mix run bench/compare.exs \
   bench/results/comparison.md
 ```
 
-The comparison joins case IDs and rejects different environments, settings, or
-case sets. Inspect the source state and tool hashes too. A ratio is candidate
+The comparison joins case IDs and rejects different environments, settings,
+methods, tool hashes, or case sets. Inspect the runtime source state too. A ratio is candidate
 median divided by baseline median. A smaller number alone does not prove a
 speedup. Shared-host load, CPU frequency, scheduling, and garbage collection
 can change timing. Repeat reports on an idle host before making a performance

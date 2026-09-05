@@ -24,7 +24,8 @@ defmodule JidoActionBench.Suite do
           })
         end
 
-      # Warm and time every case before any process tracing or term transfer.
+      # The untimed growth preflight is complete. Time every workload before
+      # its traced resource run and retained-term transfer probe.
       IO.puts("Timing #{length(workloads)} cases without tracing...")
 
       timings =

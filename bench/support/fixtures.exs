@@ -83,14 +83,20 @@ defmodule JidoActionBench.Fixtures do
   end
 
   defp action(:direct, input, context), do: Echo.run(input, context)
-  defp action(:run, input, context), do: Exec.run(Echo, input, context, jido: JidoActionBench)
+
+  defp action(:run, input, context),
+    do: Exec.run(Echo, input, context, task_supervisor: JidoActionBench.TaskSupervisor)
 
   defp action(:finite_timeout, input, context),
-    do: Exec.run(Echo, input, context, jido: JidoActionBench, timeout: 30_000)
+    do:
+      Exec.run(Echo, input, context,
+        task_supervisor: JidoActionBench.TaskSupervisor,
+        timeout: 30_000
+      )
 
   defp action(:async_await, input, context) do
     Echo
-    |> Exec.run_async(input, context, jido: JidoActionBench)
+    |> Exec.run_async(input, context, task_supervisor: JidoActionBench.TaskSupervisor)
     |> Exec.await(30_000)
   end
 
@@ -103,7 +109,12 @@ defmodule JidoActionBench.Fixtures do
   defp flow_cases(flow, input, count, shape) do
     {:ok, compiled} = Flow.compile(flow)
     expected = {:ok, Map.new(1..count, &{"s#{&1}", input})}
-    opts = [jido: JidoActionBench, max_concurrency: if(shape == :serial, do: 1, else: 4)]
+
+    opts = [
+      task_supervisor: JidoActionBench.TaskSupervisor,
+      max_concurrency: if(shape == :serial, do: 1, else: 4)
+    ]
+
     common = %{setup: fn context -> context end, retained: {flow, compiled, input}}
 
     [

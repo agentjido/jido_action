@@ -9,7 +9,7 @@ defmodule JidoActionBench.Report do
       "Process heap and process memory include the measured caller and traced descendants. Shared binary bytes deduplicate observed off-heap binary references.",
       "VM memory includes the observer, supervisor, loaded code, and unrelated activity. It does not establish ownership or leaks.",
       "Owned starts follow spawn traces from the caller and dedicated Task.Supervisor. Both roots and the observer are excluded from helper counts.",
-      "Cleanup uses trace-delivery barriers and process monitors. Global process-count differences are not used.",
+      "Cleanup uses trace-delivery barriers and process monitors. Failed probes stop and confirm observed descendants before returning the failure. Global process-count differences are not used.",
       "Flat and copied heap sizes exclude off-heap binary payloads; external bytes include the external term representation. Receiver memory includes its process overhead.",
       "Prepared reuse uses a benchmark-only internal adapter with empty schemas. It omits public target/input validation and graph compilation. It is not a public compiled-graph API.",
       "Paused-continue timing excludes a fresh Exec.start per sample; its resource run includes start and the paused barrier.",
@@ -43,11 +43,16 @@ defmodule JidoActionBench.Report do
   end
 
   def compare!(before, after_report) do
-    for field <- ["schema_version", "environment", "settings"] do
+    for field <- ["schema_version", "environment", "settings", "method"] do
       if Map.fetch!(before, field) != Map.fetch!(after_report, field) do
         raise ArgumentError, "reports have different #{field} values"
       end
     end
+
+    tool_hash = get_in(before, ["source", "tool_sha256"])
+
+    if not is_binary(tool_hash) or tool_hash != get_in(after_report, ["source", "tool_sha256"]),
+      do: raise(ArgumentError, "reports have missing or different tool hashes")
 
     old = index!(before)
     new = index!(after_report)
@@ -75,8 +80,8 @@ defmodule JidoActionBench.Report do
 
     Before: `#{get_in(before, ["source", "commit"])}`.
     After: `#{get_in(after_report, ["source", "commit"])}`.
-    Ratio is after / before. No speedup claim is made. Environment and settings match.
-    Check tool hashes and runtime source state in both JSON files before using these ratios.
+    Ratio is after / before. No speedup claim is made. Environment, settings, method, and tool hash match.
+    Check runtime source state in both JSON files before using these ratios.
 
     | Case | Before median ns | After median ns | Ratio | Helper starts | After remaining |
     | --- | ---: | ---: | ---: | ---: | ---: |
