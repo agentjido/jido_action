@@ -4,6 +4,74 @@ defmodule JidoActionTest.Exec.WorkRetentionTest do
   alias Jido.{Exec, Flow}
   alias Jido.Flow.{Ref, Step}
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
+  alias JidoActionTest.Fixtures.Actions.ErrorAction
+
+  test "paused executions keep at most one copy of author metadata for errors" do
+    metadata = %{notes: Enum.to_list(1..5_000)}
+
+    [small, large] =
+      for meta <- [%{}, metadata] do
+        flow =
+          Flow.new!(
+            name: "execution_metadata",
+            components: [Step.new!(name: "echo", action: EchoParamsAction, meta: meta)],
+            output: Ref.result("echo")
+          )
+
+        assert {:ok, execution} = Exec.start(flow)
+        size = :erts_debug.flat_size(execution)
+        assert {:ok, finished} = Exec.continue(execution)
+        assert Exec.result(finished) == {:ok, %{}}
+        size
+      end
+
+    assert large - small < :erts_debug.flat_size(metadata) + 100
+  end
+
+  test "finished executions release author metadata after success and failure" do
+    for action <- [EchoParamsAction, ErrorAction] do
+      [small, large] =
+        for meta <- [%{}, %{notes: Enum.to_list(1..5_000)}] do
+          flow =
+            Flow.new!(
+              name: "finished_metadata",
+              components: [Step.new!(name: "work", action: action, meta: meta)],
+              output: Ref.result("work")
+            )
+
+          assert {:ok, execution} = Exec.start(flow)
+          assert {:ok, finished} = Exec.continue(execution)
+
+          if action == EchoParamsAction do
+            assert Exec.result(finished) == {:ok, %{}}
+          else
+            assert {:error, error} = Exec.result(finished)
+            assert error.message == "Action failed"
+          end
+
+          :erts_debug.flat_size(finished)
+        end
+
+      assert abs(large - small) < 100
+    end
+  end
+
+  test "failure records do not duplicate native runnable inputs" do
+    flow =
+      Flow.new!(
+        name: "failure_retention",
+        components: [
+          Step.new!(name: "fail", action: ErrorAction, params: %{value: Ref.input(:value)})
+        ],
+        output: Ref.result("fail")
+      )
+
+    assert {:ok, execution} = Exec.start(flow, %{value: Enum.to_list(1..10_000)})
+    assert {:ok, finished} = Exec.continue(execution)
+    assert {:error, error} = Exec.result(finished)
+    assert error.message == "Action failed"
+    assert :erts_debug.flat_size(finished.runnable_errors) < 1_000
+  end
 
   test "ready and completed descriptors do not copy or retain unrelated execution data" do
     measurements =

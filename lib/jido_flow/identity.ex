@@ -16,8 +16,9 @@ defmodule Jido.Flow.Identity do
   @spec semantic_digest(Flow.t()) :: String.t()
   def semantic_digest(%Flow{} = flow) do
     flow
-    |> for_flow()
-    |> Map.fetch!(:digest)
+    |> identity_data()
+    |> identity_hash()
+    |> Base.encode16(case: :lower)
   end
 
   @doc false
@@ -51,9 +52,7 @@ defmodule Jido.Flow.Identity do
           uuid: String.t()
         }
   def identity(canonical_identity_map) when is_map(canonical_identity_map) do
-    raw_digest =
-      {:jido_flow_identity, @identity_version, canonical_identity_map}
-      |> hash_term()
+    raw_digest = identity_hash(canonical_identity_map)
 
     %{
       version: @identity_version,
@@ -62,6 +61,8 @@ defmodule Jido.Flow.Identity do
       uuid: uuid_v8(raw_digest)
     }
   end
+
+  defp identity_hash(data), do: hash_term({:jido_flow_identity, @identity_version, data})
 
   @doc false
   @spec item_uuid(String.t(), String.t(), non_neg_integer()) :: String.t()
@@ -87,9 +88,15 @@ defmodule Jido.Flow.Identity do
   @doc false
   @spec hash_term(term()) :: binary()
   def hash_term(term) do
-    term
-    |> :erlang.term_to_binary([:deterministic])
-    |> then(&:crypto.hash(:sha256, &1))
+    case :erlang.term_to_iovec(term, [:deterministic]) do
+      [bytes] ->
+        :crypto.hash(:sha256, bytes)
+
+      segments ->
+        segments
+        |> Enum.reduce(:crypto.hash_init(:sha256), &:crypto.hash_update(&2, &1))
+        |> :crypto.hash_final()
+    end
   end
 
   @doc false
@@ -100,10 +107,16 @@ defmodule Jido.Flow.Identity do
     version_bits = bor(band(version_bits, 0x0FFF), 0x8000)
     variant_bits = bor(band(variant_bits, 0x3FFF), 0x8000)
 
-    :io_lib.format(
-      ~c"~8.16.0b-~4.16.0b-~4.16.0b-~4.16.0b-~12.16.0b",
-      [time_low, time_mid, version_bits, variant_bits, node]
-    )
-    |> IO.iodata_to_binary()
+    <<first::binary-size(8), second::binary-size(4), third::binary-size(4),
+      fourth::binary-size(4), fifth::binary-size(12)>> =
+      Base.encode16(
+        <<time_low::32, time_mid::16, version_bits::16, variant_bits::16, node::48>>,
+        case: :lower
+      )
+
+    # Keep the 36-byte ID on the heap instead of retaining the append buffer.
+    <<first::binary, "-", second::binary, "-", third::binary, "-", fourth::binary, "-",
+      fifth::binary>>
+    |> :binary.copy()
   end
 end

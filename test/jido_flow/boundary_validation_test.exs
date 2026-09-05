@@ -59,6 +59,23 @@ defmodule Jido.Flow.BoundaryValidationTest do
     end
   end
 
+  test "portable data keeps nested error paths and rejects improper lists first" do
+    for {value, message, path} <- [
+          {%{outer: [0, %{inner: self()}]}, "flow data contains an unsupported value",
+           [:outer, 1, :inner]},
+          {%{outer: [0, %{nil => :value}]}, "flow data contains an unsupported map key",
+           [:outer, 1]},
+          {%{outer: [0, <<255>>]}, "flow data strings must be valid UTF-8", [:outer, 1]},
+          {%{outer: [0, %{<<255>> => :value}]}, "flow data strings must be valid UTF-8",
+           [:outer, 1]},
+          {%{outer: [[self() | :tail]]}, "flow data must contain proper lists", [:outer, 0]}
+        ] do
+      assert {:error, error} = Data.validate(value)
+      assert error.message == message
+      assert error.details.path == path
+    end
+  end
+
   test "Component helpers reject invalid common fields" do
     step = Step.new!(name: "step", action: Add)
     subflow = Jido.Flow.Subflow.new!(name: "child", flow: NestedFlow)

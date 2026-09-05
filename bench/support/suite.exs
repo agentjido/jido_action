@@ -1,28 +1,36 @@
 Code.require_file("fixtures.exs", __DIR__)
 Code.require_file("measure.exs", __DIR__)
 Code.require_file("report.exs", __DIR__)
+Code.require_file("memory_cases.exs", __DIR__)
+Code.require_file("component_cases.exs", __DIR__)
+Code.require_file("boundary_cases.exs", __DIR__)
+Code.require_file("lifecycle_cases.exs", __DIR__)
 
 defmodule JidoActionBench.Suite do
   @moduledoc false
-  alias JidoActionBench.{Fixtures, Measure, Report}
+  alias JidoActionBench.{
+    BoundaryCases,
+    ComponentCases,
+    Fixtures,
+    LifecycleCases,
+    Measure,
+    MemoryCases,
+    Report
+  }
 
-  def run(profile) do
-    settings = settings(profile)
+  def run(profile, filter \\ nil) do
+    settings = Map.put(settings(profile), :filter, filter)
     {:ok, supervisor} = Task.Supervisor.start_link(name: JidoActionBench.TaskSupervisor)
 
     try do
       :ok = check_growth!()
 
+      workloads = workloads(profile)
+
       workloads =
-        for count <- settings.sizes,
-            payload <- settings.payloads,
-            workload <- Fixtures.workloads(count, payload) do
-          Map.merge(workload, %{
-            id: "#{workload.name}/#{payload}/#{count}",
-            count: count,
-            payload: payload
-          })
-        end
+        if filter, do: Enum.filter(workloads, &String.contains?(&1.id, filter)), else: workloads
+
+      if workloads == [], do: raise(ArgumentError, "no benchmark cases match the filter")
 
       # The untimed growth preflight is complete. Time every workload before
       # its traced resource run and retained-term transfer probe.
@@ -40,25 +48,51 @@ defmodule JidoActionBench.Suite do
           %{
             id: workload.id,
             timing: Map.fetch!(timings, workload.id),
-            resources: Measure.resources(workload),
-            retained_term: Measure.term_size(workload.retained)
+            resources: Measure.resources(workload, settings.resource_samples),
+            retained_terms: Measure.retained(workload)
           }
         end)
 
       %{
-        schema_version: 1,
+        schema_version: 3,
         source: source(),
         environment: environment(),
         settings: settings,
         recorded_at: DateTime.utc_now() |> DateTime.to_iso8601(),
         method:
-          "untraced monotonic clock; caller reductions; separate traced barrier samples; monitored term transfer",
+          "untraced monotonic clock; caller reductions; traced ownership and GC events; barrier reduction and memory samples; monitored execution-term transfer",
         limitations: Report.limitations(),
         growth_check: "passed: compiled serial, parallel, and Subflow graphs at sizes 2 and 6",
         cases: cases
       }
     after
       Supervisor.stop(supervisor)
+    end
+  end
+
+  def workloads(profile) do
+    settings = settings(profile)
+    standard = Fixtures.workloads(settings.sizes, settings.payloads)
+
+    expanded =
+      ComponentCases.workloads() ++ BoundaryCases.workloads() ++ LifecycleCases.workloads()
+
+    if profile == "smoke" do
+      smoke = [
+        "component/map/1/continue",
+        "component/reduce/1/continue",
+        "component/iterate/1/continue",
+        "component/choice/0/continue",
+        "component/dispatch/run",
+        "expr/validate/nested",
+        "schema/struct/true/200",
+        "codec/encode_explicit/16",
+        "lifecycle/cancel"
+      ]
+
+      standard ++ Enum.filter(expanded, &(&1.id in smoke))
+    else
+      standard ++ MemoryCases.workloads() ++ expanded
     end
   end
 
@@ -95,7 +129,7 @@ defmodule JidoActionBench.Suite do
       payloads: [:small, :large_map, :large_binary],
       warmup: 3,
       samples: 15,
-      resource_samples: 1
+      resource_samples: 3
     }
 
   defp settings("scale"),
@@ -105,7 +139,7 @@ defmodule JidoActionBench.Suite do
       payloads: [:small, :large_map, :large_binary],
       warmup: 5,
       samples: 30,
-      resource_samples: 1
+      resource_samples: 3
     }
 
   defp settings("smoke"),
@@ -118,7 +152,17 @@ defmodule JidoActionBench.Suite do
       resource_samples: 1
     }
 
-  defp settings(_), do: raise(ArgumentError, "profile must be short, scale, or smoke")
+  defp settings("backlog"),
+    do: %{
+      profile: "backlog",
+      sizes: [4],
+      payloads: [:small],
+      warmup: 3,
+      samples: 15,
+      resource_samples: 3
+    }
+
+  defp settings(_), do: raise(ArgumentError, "profile must be short, scale, smoke, or backlog")
 
   defp source do
     files = Path.wildcard(Path.expand("../**/*.exs", __DIR__)) |> Enum.sort()

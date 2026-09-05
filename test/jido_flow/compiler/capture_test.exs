@@ -6,6 +6,23 @@ defmodule JidoActionTest.Flow.Compiler.CaptureTest do
   alias JidoActionTest.Fixtures.{FlowAuthoring, TelemetryParentFlow}
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
 
+  test "compiled Steps do not copy author metadata into callbacks" do
+    sizes =
+      for meta <- [%{}, %{notes: Enum.to_list(1..5_000)}] do
+        flow =
+          Flow.new!(
+            name: "step_metadata",
+            components: [Step.new!(name: "echo", action: EchoParamsAction, meta: meta)],
+            output: Ref.result("echo")
+          )
+
+        assert {:ok, compiled} = Flow.compile(flow)
+        :erts_debug.flat_size(compiled)
+      end
+
+    assert Enum.uniq(sizes) |> length() == 1
+  end
+
   test "compiler callbacks do not retain the compiler state" do
     assert {:ok, compiled} = Flow.compile(FlowAuthoring.mixed_flow!())
 
@@ -17,6 +34,53 @@ defmodule JidoActionTest.Flow.Compiler.CaptureTest do
 
     # Includes Step, Choice, Iterate, Subflow output, Map item, and Reduce.
     assert retained == []
+  end
+
+  test "compiled Subflows do not copy author metadata into callbacks" do
+    sizes =
+      for meta <- [%{}, %{notes: Enum.to_list(1..5_000)}] do
+        flow =
+          Flow.new!(
+            name: "subflow_metadata",
+            components: [Subflow.new!(name: "child", flow: TelemetryParentFlow, meta: meta)],
+            output: Ref.result("child")
+          )
+
+        assert {:ok, compiled} = Flow.compile(flow)
+        :erts_debug.flat_size(compiled)
+      end
+
+    assert Enum.uniq(sizes) |> length() == 1
+  end
+
+  test "all compiled component callbacks omit author metadata" do
+    source = FlowAuthoring.mixed_flow!()
+
+    dispatch =
+      Jido.Flow.Dispatch.new!(
+        name: "dispatch",
+        decision: EchoParamsAction,
+        expander: EchoParamsAction,
+        after: Enum.map(source.components, & &1.name),
+        params: %{value: Ref.result("loop")}
+      )
+
+    source = %{
+      source
+      | components: source.components ++ [dispatch],
+        output: Ref.result("dispatch")
+    }
+
+    [small, large] =
+      for meta <- [%{}, %{notes: Enum.to_list(1..5_000)}] do
+        flow = %{source | components: Enum.map(source.components, &%{&1 | meta: meta})}
+        assert {:ok, compiled} = Flow.compile(flow)
+        {compiled, Flow.semantic_identity(flow)}
+      end
+
+    assert :erts_debug.flat_size(elem(small, 0)) == :erts_debug.flat_size(elem(large, 0))
+    refute elem(small, 1) == elem(large, 1)
+    refute elem(small, 0).compilation_digest == elem(large, 0).compilation_digest
   end
 
   for shape <- [:independent, :chained, :nested, :map, :reduce] do

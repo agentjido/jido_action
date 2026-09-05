@@ -23,15 +23,24 @@ defmodule Jido.Flow.Compiled do
           work_index: map(),
           output: Jido.Flow.Expression.t(),
           source_map: source_map(),
+          semantic_digest: binary(),
           compilation_digest: binary()
         }
 
-  @enforce_keys [:workflow, :component_index, :output, :source_map, :compilation_digest]
+  @enforce_keys [
+    :workflow,
+    :component_index,
+    :output,
+    :source_map,
+    :semantic_digest,
+    :compilation_digest
+  ]
   defstruct [
     :workflow,
     :component_index,
     :output,
     :source_map,
+    :semantic_digest,
     :compilation_digest,
     work_index: %{}
   ]

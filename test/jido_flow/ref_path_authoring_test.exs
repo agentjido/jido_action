@@ -77,6 +77,24 @@ defmodule Jido.Flow.RefPathAuthoringTest do
     end
   end
 
+  test "atom paths prefer present atom keys, including nil and false, before string keys" do
+    flow =
+      Flow.new!(
+        name: "key_precedence",
+        components: [
+          Step.new!(name: "echo", action: EchoParamsAction, params: %{value: Ref.input(:value)})
+        ],
+        output: Ref.result("echo")
+      )
+
+    for value <- [nil, false, 7] do
+      assert Jido.Exec.run(flow, %{:value => value, "value" => 42}) == {:ok, %{value: value}}
+    end
+
+    assert Jido.Exec.run(flow, %{"value" => 42}) == {:ok, %{value: 42}}
+    assert {:error, %{details: %{reason: :missing_key}}} = Jido.Exec.run(flow, %{})
+  end
+
   test "Flow, Builder, and Codec reject malformed reference paths" do
     step = Step.new!(name: "echo", action: EchoParamsAction)
     valid = Flow.new!(name: "invalid_paths", components: [step], output: Ref.input([]))

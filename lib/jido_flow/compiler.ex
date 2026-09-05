@@ -112,6 +112,7 @@ defmodule Jido.Flow.Compiler do
          work_index: state.work_index,
          output: flow.output,
          source_map: state.source_map,
+         semantic_digest: digest_data.flow,
          compilation_digest: digest(digest_data)
        }}
     rescue
@@ -305,7 +306,10 @@ defmodule Jido.Flow.Compiler do
 
     flow.components
     |> Graph.canonical_components()
-    |> Enum.reduce(initial, &add_component/2)
+    |> Enum.reduce(initial, fn component, state ->
+      # Identity uses the authored Flow. Runtime callbacks do not need metadata.
+      add_component(%{component | meta: %{}}, state)
+    end)
   end
 
   defp add_component(%FlowStep{} = component, state) do
@@ -529,7 +533,10 @@ defmodule Jido.Flow.Compiler do
                 do: %{status: :ok, value: output},
                 else: output
 
-            token |> Map.put(:kind, :result) |> Map.put(:output, output) |> Map.delete(:item)
+            token
+            |> Map.put(:kind, :result)
+            |> Map.put(:output, output)
+            |> Map.drop([:item, :results])
 
           {:collect_errors, {:error, error}} ->
             runtime.observer.({:error, span, error})
@@ -540,7 +547,7 @@ defmodule Jido.Flow.Compiler do
               status: :error,
               error: Error.to_map(error)
             })
-            |> Map.delete(:item)
+            |> Map.drop([:item, :results])
 
           {:fail_fast, {:error, error}} ->
             runtime.observer.({:error, span, error})
@@ -1072,10 +1079,12 @@ defmodule Jido.Flow.Compiler do
         [{_name, output} | _rest] -> input_of(output)
       end
 
-    results =
-      values
-      |> Enum.filter(fn {name, _value} -> name in references end)
-      |> Map.new(fn {name, result} -> {name, unwrap_value(result)} end)
+    referenced =
+      if dependencies == references,
+        do: values,
+        else: Enum.filter(values, fn {name, _value} -> name in references end)
+
+    results = Map.new(referenced, fn {name, result} -> {name, unwrap_value(result)} end)
 
     base_runtime_state(runtime, frame, results)
   end
@@ -1096,8 +1105,7 @@ defmodule Jido.Flow.Compiler do
       results: results,
       options: runtime.options,
       target_runner: runtime.target_runner,
-      observer: runtime.observer,
-      map_nodes: MapSet.new()
+      observer: runtime.observer
     }
   end
 
@@ -1213,7 +1221,7 @@ defmodule Jido.Flow.Compiler do
   defp stable_hash(value), do: Components.fact_hash({:jido_flow, @compiler_version, value})
 
   defp digest(value) do
-    :crypto.hash(:sha256, :erlang.term_to_binary(value, [:deterministic]))
+    Identity.hash_term(value)
     |> Base.encode16(case: :lower)
   end
 

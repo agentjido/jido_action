@@ -135,18 +135,14 @@ defmodule Jido.Action.Validation do
 
   defp open_root_object(schema), do: schema
 
-  defp split_known_fields(data, fields, coerce?) do
-    normalize_key = if coerce?, do: &to_string/1, else: &Function.identity/1
+  defp split_known_fields(data, fields, false) do
+    Map.split(data, Enum.map(fields, &elem(&1, 0)))
+  end
 
-    known_keys =
-      fields
-      |> Enum.map(fn {key, _schema} -> normalize_key.(key) end)
-      |> MapSet.new()
-
-    data
-    |> Map.to_list()
-    |> Enum.split_with(fn {key, _value} -> MapSet.member?(known_keys, normalize_key.(key)) end)
-    |> then(fn {known, unknown} -> {Map.new(known), Map.new(unknown)} end)
+  defp split_known_fields(data, fields, true) do
+    known_keys = MapSet.new(fields, fn {key, _schema} -> to_string(key) end)
+    keys = Enum.filter(Map.keys(data), &MapSet.member?(known_keys, to_string(&1)))
+    Map.split(data, keys)
   end
 
   defp handle_validation_result({{:ok, validated}, unknown}, schema, _details) do

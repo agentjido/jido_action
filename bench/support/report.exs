@@ -4,15 +4,19 @@ defmodule JidoActionBench.Report do
   def limitations do
     [
       "Timing has no tracing or memory sampling. Setup and result checks are outside each timed interval.",
-      "Caller reductions exclude helpers. Helper reductions and exact memory peaks are unavailable (null).",
-      "Memory peaks are observed maxima at start, callback/pause barriers, and completion. Short-lived allocations can be missed.",
+      "Caller timing reductions exclude helpers. Resource runs report observed caller and helper reduction totals from barriers, plus traced owned GC counts. Observed reductions are lower bounds; full helper reductions and exact memory peaks remain unavailable (null).",
+      "Memory peaks are observed maxima at start, callback/pause/result barriers, and completion. Short-lived allocations can be missed.",
+      "Resource reports keep every separate run and field medians. Medians of observed peaks are not exact lifetime peaks.",
       "Process heap and process memory include the measured caller and traced descendants. Shared binary bytes deduplicate observed off-heap binary references.",
       "VM memory includes the observer, supervisor, loaded code, and unrelated activity. It does not establish ownership or leaks.",
       "Owned starts follow spawn traces from the caller and dedicated Task.Supervisor. Both roots and the observer are excluded from helper counts.",
       "Cleanup uses trace-delivery barriers and process monitors. Failed probes stop and confirm observed descendants before returning the failure. Global process-count differences are not used.",
-      "Flat and copied heap sizes exclude off-heap binary payloads; external bytes include the external term representation. Receiver memory includes its process overhead.",
+      "Flat and copied heap sizes exclude off-heap binary payloads; external bytes include the external term representation. Receiver memory includes its process overhead. Observed receiver binary bytes deduplicate its off-heap references and can include a larger binary behind a small slice.",
+      "Retained terms come from a separate checked call: the authored Flow, compiled graph, returned result, or actual paused and finished execution. Paused values are copied after the execution is finished.",
       "Prepared reuse uses a benchmark-only internal adapter with empty schemas. It omits public target/input validation and graph compilation. It is not a public compiled-graph API.",
       "Paused-continue timing excludes a fresh Exec.start per sample; its resource run includes start and the paused barrier.",
+      "Focused cases run once per profile, outside the size/payload matrix. Ready timing covers 100 reads and retains the last descriptor list; resource runs include setup and completion. Collector timing excludes its 32-producer setup wave.",
+      "Public start cases time Exec.start and finish the execution during the result check. They are not directly comparable to internal prepared reuse. Collection, boundary, and lifecycle cases use their own bounded sizes.",
       "Comparisons show raw ratios. No speedup claim is valid from these shared-host measurements. Repeat on an idle host with the same environment."
     ]
   end
@@ -20,8 +24,15 @@ defmodule JidoActionBench.Report do
   def markdown(report) do
     rows =
       Enum.map(report.cases, fn row ->
-        "| #{row.id} | #{row.timing.wall_ns.median} | #{row.timing.wall_ns.p95} | #{row.resources.owned_process_starts} | #{row.resources.owned_remaining} |"
+        resources = row.resources.median
+
+        "| #{row.id} | #{row.timing.wall_ns.median} | #{row.timing.wall_ns.p95} | #{resources.observed_peak.process_memory_bytes} | #{resources.observed_peak.shared_binary_bytes} | #{resources.owned_process_starts} | #{resources.owned_remaining} |"
       end)
+
+    retained_rows =
+      for row <- report.cases, {name, term} <- Enum.sort(row.retained_terms) do
+        "| #{row.id} | #{name} | #{term.local_heap_bytes} | #{term.copied_flat_heap_bytes} | #{term.external_bytes} |"
+      end
 
     """
     # Execution benchmark
@@ -30,11 +41,18 @@ defmodule JidoActionBench.Report do
     Tool SHA-256: `#{report.source.tool_sha256}`.
     Profile: `#{report.settings.profile}`. Elixir: `#{report.environment.elixir}`. OTP: `#{report.environment.otp}`.
     Warm-up: #{report.settings.warmup}. Timing samples per case: #{report.settings.samples}.
+    Resource samples per case: #{report.settings.resource_samples}. Memory and helper columns show field medians.
     See the JSON report for raw samples, reductions, term sizes, memory, and full machine data.
 
-    | Case | Median ns | p95 ns | Helper starts | Remaining |
-    | --- | ---: | ---: | ---: | ---: |
+    | Case | Median ns | p95 ns | Process bytes | Binary bytes | Helper starts | Remaining |
+    | --- | ---: | ---: | ---: | ---: | ---: | ---: |
     #{Enum.join(rows, "\n")}
+
+    ## Retained terms
+
+    | Case | Term | Local heap bytes | Copied heap bytes | External bytes |
+    | --- | --- | ---: | ---: | ---: |
+    #{Enum.join(retained_rows, "\n")}
 
     ## Measurement limits
 
@@ -67,12 +85,22 @@ defmodule JidoActionBench.Report do
         median_a = a["timing"]["wall_ns"]["median"]
         median_b = b["timing"]["wall_ns"]["median"]
 
-        ratio =
-          if median_a == 0,
-            do: "unavailable",
-            else: :erlang.float_to_binary(median_b / median_a, decimals: 3)
+        resources_a = a["resources"]["median"]
+        resources_b = b["resources"]["median"]
 
-        "| #{id} | #{median_a} | #{median_b} | #{ratio} | #{a["resources"]["owned_process_starts"]} → #{b["resources"]["owned_process_starts"]} | #{b["resources"]["owned_remaining"]} |"
+        process_ratio =
+          ratio(
+            resources_a["observed_peak"]["process_memory_bytes"],
+            resources_b["observed_peak"]["process_memory_bytes"]
+          )
+
+        binary_ratio =
+          ratio(
+            resources_a["observed_peak"]["shared_binary_bytes"],
+            resources_b["observed_peak"]["shared_binary_bytes"]
+          )
+
+        "| #{id} | #{median_a} | #{median_b} | #{ratio(median_a, median_b)} | #{process_ratio} | #{binary_ratio} | #{resources_a["owned_process_starts"]} → #{resources_b["owned_process_starts"]} | #{resources_b["owned_remaining"]} |"
       end
 
     """
@@ -83,8 +111,8 @@ defmodule JidoActionBench.Report do
     Ratio is after / before. No speedup claim is made. Environment, settings, method, and tool hash match.
     Check runtime source state in both JSON files before using these ratios.
 
-    | Case | Before median ns | After median ns | Ratio | Helper starts | After remaining |
-    | --- | ---: | ---: | ---: | ---: | ---: |
+    | Case | Before median ns | After median ns | Time ratio | Process bytes ratio | Binary bytes ratio | Helper starts | After remaining |
+    | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
     #{Enum.join(rows, "\n")}
 
     ## Measurement limits
@@ -92,6 +120,9 @@ defmodule JidoActionBench.Report do
     #{Enum.map_join(limitations(), "\n", &("- " <> &1))}
     """
   end
+
+  defp ratio(0, _after), do: "unavailable"
+  defp ratio(before, after_value), do: :erlang.float_to_binary(after_value / before, decimals: 3)
 
   defp index!(report) do
     rows = Map.fetch!(report, "cases")

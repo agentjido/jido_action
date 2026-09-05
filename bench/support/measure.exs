@@ -27,8 +27,36 @@ defmodule JidoActionBench.Measure do
     end)
   end
 
-  def resources(workload) do
-    isolated(fn -> trace_resources(workload) end)
+  def resources(workload, count \\ 1) when is_integer(count) and count > 0 do
+    samples = for _ <- 1..count, do: isolated(fn -> trace_resources(workload) end)
+    %{samples: samples, median: median_fields(samples)}
+  end
+
+  def retained(workload) do
+    isolated(fn ->
+      prepared = workload.setup.(%{})
+      result = workload.run.(prepared)
+      :ok = workload.check.(result)
+
+      Map.new(workload.retained.(prepared, result), fn {name, term} ->
+        {name, term_size(term)}
+      end)
+    end)
+  end
+
+  defp median_fields([first | _] = samples) do
+    Map.new(first, fn {key, value} ->
+      values = Enum.map(samples, &Map.fetch!(&1, key))
+
+      median =
+        cond do
+          is_map(value) -> median_fields(values)
+          is_number(value) -> distribution(values).median
+          is_nil(value) -> nil
+        end
+
+      {key, median}
+    end)
   end
 
   def term_size(term) do
@@ -46,10 +74,16 @@ defmodule JidoActionBench.Measure do
           receive do
             {:term, copied} ->
               {:memory, memory} = Process.info(self(), :memory)
+              {:binary, binaries} = Process.info(self(), :binary)
 
               %{
                 copied_flat_heap_bytes: :erts_debug.flat_size(copied) * word,
-                receiver_memory_bytes: memory
+                receiver_memory_bytes: memory,
+                observed_receiver_binary_bytes:
+                  binaries
+                  |> Map.new(fn {id, bytes, _} -> {id, bytes} end)
+                  |> Map.values()
+                  |> Enum.sum()
               }
           end
         end,
@@ -95,6 +129,7 @@ defmodule JidoActionBench.Measure do
           :bench_go ->
             try do
               result = workload.run.(workload.setup.(%{bench_observer: observer}))
+              JidoActionBench.Fixtures.barrier(%{bench_observer: observer})
               :ok = workload.check.(result)
               send(observer, {:bench_result, :ok})
             rescue
@@ -113,6 +148,8 @@ defmodule JidoActionBench.Measure do
       result: nil,
       caller_down: false,
       observations: 0,
+      reductions: %{},
+      collections: %{},
       observed_peak: %{
         process_memory_bytes: 0,
         process_heap_bytes: 0,
@@ -120,12 +157,13 @@ defmodule JidoActionBench.Measure do
         vm_total_bytes: 0,
         vm_processes_bytes: 0,
         vm_binary_bytes: 0,
-        live_owned: 0
+        live_owned: 0,
+        mailbox_messages: 0
       }
     }
 
     try do
-      flags = [:procs, :set_on_spawn, {:tracer, self()}]
+      flags = [:procs, :garbage_collection, :set_on_spawn, {:tracer, self()}]
       :erlang.trace(supervisor, true, flags)
       :erlang.trace(caller, true, flags)
       state = observe(state)
@@ -144,6 +182,14 @@ defmodule JidoActionBench.Measure do
         owned_remaining: 0,
         observations: state.observations,
         observed_peak: state.observed_peak,
+        observed_helper_reductions:
+          Enum.sum(for {pid} <- :ets.tab2list(table), do: Map.get(state.reductions, pid, 0)),
+        observed_caller_reductions: Map.get(state.reductions, caller, 0),
+        owned_gc_count:
+          Enum.sum(
+            for pid <- [caller | Enum.map(:ets.tab2list(table), &elem(&1, 0))],
+                do: Map.get(state.collections, pid, 0)
+          ),
         helper_reductions: nil,
         exact_peak_bytes: nil
       }
@@ -228,6 +274,11 @@ defmodule JidoActionBench.Measure do
 
   defp handle({:bench_result, result}, state), do: %{state | result: result}
 
+  defp handle({:trace, pid, event, _info}, state)
+       when event in [:gc_minor_end, :gc_major_end] do
+    %{state | collections: Map.update(state.collections, pid, 1, &(&1 + 1))}
+  end
+
   defp handle({:DOWN, ref, :process, _pid, reason}, %{caller_ref: ref} = state) do
     result = if reason == :normal, do: state.result, else: {:error, inspect(reason)}
     %{state | caller_down: true, result: result}
@@ -252,12 +303,24 @@ defmodule JidoActionBench.Measure do
 
     infos =
       Enum.flat_map(processes, fn pid ->
-        case Process.info(pid, [:memory, :total_heap_size, :binary]) do
+        case Process.info(pid, [
+               :memory,
+               :total_heap_size,
+               :binary,
+               :reductions,
+               :message_queue_len
+             ]) do
           nil -> []
-          info -> [info]
+          info -> [{pid, info}]
         end
       end)
 
+    reductions =
+      Enum.reduce(infos, state.reductions, fn {pid, info}, acc ->
+        Map.update(acc, pid, info[:reductions], &max(&1, info[:reductions]))
+      end)
+
+    infos = Enum.map(infos, &elem(&1, 1))
     binaries = infos |> Enum.flat_map(&Keyword.fetch!(&1, :binary))
     binary_sizes = Map.new(binaries, fn {id, bytes, _refs} -> {id, bytes} end)
     vm = :erlang.memory()
@@ -271,11 +334,12 @@ defmodule JidoActionBench.Measure do
       vm_total_bytes: vm[:total],
       vm_processes_bytes: vm[:processes],
       vm_binary_bytes: vm[:binary],
-      live_owned: Enum.count(owned, &Process.alive?/1)
+      live_owned: Enum.count(owned, &Process.alive?/1),
+      mailbox_messages: Enum.sum(Enum.map(infos, &Keyword.fetch!(&1, :message_queue_len)))
     }
 
     peaks = Map.merge(state.observed_peak, values, fn _key, old, new -> max(old, new) end)
-    %{state | observations: state.observations + 1, observed_peak: peaks}
+    %{state | observations: state.observations + 1, observed_peak: peaks, reductions: reductions}
   end
 
   defp isolated(fun, start \\ fn _pid -> :ok end) do

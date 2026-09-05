@@ -24,7 +24,6 @@ end
 
 defimpl Runic.Identity.Projectable, for: Jido.Flow.Compiler.Payload do
   def identity_document(%{value: value}) do
-    bytes = :erlang.term_to_binary(value, [:deterministic])
-    {:jido_local_beam_value, 1, :crypto.hash(:sha256, bytes)}
+    {:jido_local_beam_value, 1, Jido.Flow.Identity.hash_term(value)}
   end
 end

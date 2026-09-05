@@ -43,8 +43,7 @@ defmodule Jido.Exec.Flow.Engine do
     runtime = %{
       execution_id: execution_id,
       flow: flow.name,
-      flow_digest: Flow.Identity.semantic_digest(flow),
-      input: input,
+      flow_digest: compiled.semantic_digest,
       context: context,
       options: options,
       target_runner: target_runner,
@@ -62,7 +61,6 @@ defmodule Jido.Exec.Flow.Engine do
       status: :running,
       revision: 0,
       guard: ExecutionGuard.new(),
-      flow: flow,
       compiled: compiled,
       input: input,
       context: context,
@@ -239,7 +237,13 @@ defmodule Jido.Exec.Flow.Engine do
       case runnable do
         %Runnable{status: :failed, error: error} ->
           execution.runnable_errors ++
-            [%{runnable: runnable, error: normalize_error(runnable, error)}]
+            [
+              %{
+                node: runnable_name(runnable),
+                runnable_id: runnable.id,
+                error: normalize_error(runnable, error)
+              }
+            ]
 
         %Runnable{} ->
           execution.runnable_errors
@@ -326,12 +330,7 @@ defmodule Jido.Exec.Flow.Engine do
   end
 
   defp finalize(%Execution{runnable_errors: errors} = execution) when errors != [] do
-    failures =
-      errors
-      |> Enum.map(fn %{runnable: runnable, error: error} ->
-        %{node: runnable_name(runnable), runnable_id: runnable.id, error: error}
-      end)
-      |> Enum.sort_by(& &1.node)
+    failures = Enum.sort_by(errors, & &1.node)
 
     error =
       case failures do
@@ -365,6 +364,7 @@ defmodule Jido.Exec.Flow.Engine do
        execution
        | status: status,
          ready: [],
+         finalizer: nil,
          final_result: final_result
      }}
   end
@@ -377,6 +377,7 @@ defmodule Jido.Exec.Flow.Engine do
        execution
        | status: :succeeded,
          ready: [],
+         finalizer: nil,
          final_result: nil
      }}
   end

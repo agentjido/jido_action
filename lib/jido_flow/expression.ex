@@ -186,29 +186,24 @@ defmodule Jido.Flow.Expression do
 
   defp normalize_leaf(value, path), do: do_normalize(value, path)
 
-  defp validate_proper_list(list, path, scope, operation_checked?) do
-    list
-    |> Enum.with_index()
-    |> Enum.reduce_while(:ok, fn {value, index}, :ok ->
-      case do_validate(value, path ++ [index], scope, operation_checked?) do
-        :ok -> {:cont, :ok}
-        {:error, error} -> {:halt, {:error, error}}
-      end
-    end)
+  defp validate_proper_list(list, path, scope, operation_checked?),
+    do: validate_list(list, path, scope, operation_checked?, 0)
+
+  defp validate_list([], _path, _scope, _operation_checked?, _index), do: :ok
+
+  defp validate_list([value | rest], path, scope, operation_checked?, index) do
+    with :ok <- do_validate(value, path ++ [index], scope, operation_checked?) do
+      validate_list(rest, path, scope, operation_checked?, index + 1)
+    end
   end
 
-  defp normalize_proper_list(list, path) do
-    list
-    |> Enum.with_index()
-    |> Enum.reduce_while({:ok, []}, fn {value, index}, {:ok, acc} ->
-      case do_normalize(value, path ++ [index]) do
-        {:ok, value} -> {:cont, {:ok, [value | acc]}}
-        {:error, error} -> {:halt, {:error, error}}
-      end
-    end)
-    |> case do
-      {:ok, values} -> {:ok, Enum.reverse(values)}
-      {:error, error} -> {:error, error}
+  defp normalize_proper_list(list, path), do: normalize_list(list, path, 0, [])
+
+  defp normalize_list([], _path, _index, values), do: {:ok, Enum.reverse(values)}
+
+  defp normalize_list([value | rest], path, index, values) do
+    with {:ok, value} <- do_normalize(value, path ++ [index]) do
+      normalize_list(rest, path, index + 1, [value | values])
     end
   end
 

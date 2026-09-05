@@ -41,6 +41,73 @@ defmodule JidoActionTest.Exec.MapRetentionTest do
     end
   end
 
+  defmodule DiscardDependency do
+    use Jido.Action, name: "map_discard_dependency"
+
+    def run(%{item: :fail, dependency: %{large: [1 | _]}}, _context),
+      do: {:error, Jido.Action.Error.execution_error("item failed")}
+
+    def run(%{item: item, dependency: %{large: [1 | _]}}, _context),
+      do: {:ok, %{value: item}}
+  end
+
+  test "completed Map tokens release dependency results after success and collected failure" do
+    for {mode, items} <- [
+          {:fail_fast, [:a, :b]},
+          {:collect_errors, [:a, :b]},
+          {:collect_errors, [:a, :fail]}
+        ] do
+      current =
+        Flow.new!(
+          name: "map_dependencies",
+          components: [
+            Step.new!(
+              name: "producer",
+              action: EchoParamsAction,
+              params: %{large: Ref.input(:large)}
+            ),
+            Map.new!(
+              name: "mapped",
+              collection: Ref.input(:items),
+              action: DiscardDependency,
+              on_error: mode,
+              params: %{item: Ref.item(), dependency: Ref.result("producer")}
+            )
+          ],
+          output: %{items: Ref.result("mapped")}
+        )
+
+      assert {:ok, execution} = Exec.start(current, %{items: items, large: Enum.to_list(1..500)})
+      assert {:ok, finished} = Exec.continue(execution)
+      assert {:ok, %{items: outputs}} = Exec.result(finished)
+      assert length(outputs) == 2
+      if mode == :fail_fast, do: assert(outputs == [%{value: :a}, %{value: :b}])
+
+      if mode == :collect_errors do
+        assert hd(outputs) == %{status: :ok, value: %{value: :a}}
+
+        if :fail in items do
+          assert %{status: :error, error: %{message: "item failed"}} = List.last(outputs)
+        else
+          assert List.last(outputs) == %{status: :ok, value: %{value: :b}}
+        end
+      end
+
+      tokens =
+        Exec.native(finished).workflow
+        |> Runic.Workflow.productions()
+        |> Enum.map(&Jido.Flow.Compiler.Payload.unwrap(&1.value))
+        |> Enum.filter(&match?(%{kind: :result, index: _}, &1))
+
+      assert Enum.sort(Enum.uniq(Enum.map(tokens, & &1.index))) == [0, 1]
+
+      for token <- tokens do
+        refute Elixir.Map.has_key?(token, :results)
+        refute Elixir.Map.has_key?(token, :item)
+      end
+    end
+  end
+
   for mode <- [:run, :async, :step, :wave], items <- [[], [3, 1, 3]] do
     test "retains Map and Reduce with #{mode} and #{inspect(items)}" do
       items = unquote(items)

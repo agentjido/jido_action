@@ -100,8 +100,9 @@ defmodule Jido.Flow.Codec do
   @spec encode(Flow.t()) ::
           {:ok, document(), Registry.t()} | {:error, Exception.t()}
   def encode(flow) do
-    with {:ok, registry} <- Registry.from_flow(flow),
-         {:ok, document} <- encode(flow, registry) do
+    with {:ok, flow} <- Flow.validate_executable(flow),
+         {:ok, registry} <- flow |> Registry.Deriver.entries() |> Registry.new(),
+         {:ok, document} <- encode_validated(flow, registry) do
       {:ok, document, registry}
     end
   end
@@ -109,8 +110,20 @@ defmodule Jido.Flow.Codec do
   @doc "Encodes one canonical Flow as a JSON-compatible document within the reader's limits."
   @spec encode(Flow.t(), Registry.t()) :: {:ok, document()} | {:error, Exception.t()}
   def encode(%Flow{} = flow, %Registry{} = registry) do
-    with {:ok, flow} <- Flow.validate(flow),
-         {:ok, schema} <- Registry.identifier(registry, :schema, flow.schema),
+    with {:ok, flow} <- Flow.validate(flow), do: encode_validated(flow, registry)
+  end
+
+  def encode(value, %Registry{}) do
+    {:error, Error.validation_error("expected a Jido.Flow artifact", %{value: value})}
+  end
+
+  def encode(%Flow{}, registry) do
+    {:error,
+     Error.validation_error("flow codec registry must be a Jido.Flow.Registry", %{value: registry})}
+  end
+
+  defp encode_validated(flow, registry) do
+    with {:ok, schema} <- Registry.identifier(registry, :schema, flow.schema),
          {:ok, output_schema} <- Registry.identifier(registry, :schema, flow.output_schema),
          {:ok, components} <- encode_components(flow.components, registry),
          {:ok, output} <- encode_expression(flow.output, registry, 0) do
@@ -128,15 +141,6 @@ defmodule Jido.Flow.Codec do
 
       with :ok <- validate_document_limits(document), do: {:ok, document}
     end
-  end
-
-  def encode(value, %Registry{}) do
-    {:error, Error.validation_error("expected a Jido.Flow artifact", %{value: value})}
-  end
-
-  def encode(%Flow{}, registry) do
-    {:error,
-     Error.validation_error("flow codec registry must be a Jido.Flow.Registry", %{value: registry})}
   end
 
   @doc "Decodes one stored Flow document through a trusted Registry."
@@ -1443,7 +1447,7 @@ defmodule Jido.Flow.Codec do
 
   defp encode_map(map, registry, depth, value_encoder) do
     with :ok <- depth(depth),
-         :ok <- collection_size(Map.to_list(map)),
+         :ok <- collection_size(map),
          {:ok, entries} <- encode_entries(map, registry, depth, value_encoder) do
       entries = Enum.sort_by(entries, fn %{"key" => key} -> :erlang.term_to_binary(key) end)
       {:ok, %{"$type" => "map", "entries" => entries}}
@@ -1610,6 +1614,10 @@ defmodule Jido.Flow.Codec do
        })}
 
   defp collection_size(values) when length(values) <= @maximum_collection_size, do: :ok
+
+  defp collection_size(values)
+       when is_map(values) and map_size(values) <= @maximum_collection_size,
+       do: :ok
 
   defp collection_size(_values),
     do:

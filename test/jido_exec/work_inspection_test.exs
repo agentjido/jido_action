@@ -134,8 +134,9 @@ defmodule JidoActionTest.Exec.WorkInspectionTest do
         send(owner, {ref, execution, work.token})
       end)
 
-    assert_receive {^ref, execution, token}
-    assert_receive {:DOWN, ^monitor, :process, ^creator, :normal}
+    on_exit(fn -> Process.exit(creator, :kill) end)
+    assert_receive {^ref, execution, token}, 1_000
+    assert_receive {:DOWN, ^monitor, :process, ^creator, :normal}, 1_000
     assert {:ok, _, current} = Exec.step(execution, token)
     assert {:ok, finished} = Exec.continue(current)
     assert Exec.result(finished) == {:ok, %{value: 8}}
