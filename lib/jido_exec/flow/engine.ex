@@ -238,7 +238,13 @@ defmodule Jido.Exec.Flow.Engine do
       case runnable do
         %Runnable{status: :failed, error: error} ->
           execution.runnable_errors ++
-            [%{runnable: runnable, error: normalize_error(runnable, error)}]
+            [
+              %{
+                node: runnable_name(runnable),
+                runnable_id: runnable.id,
+                error: normalize_error(runnable, error)
+              }
+            ]
 
         %Runnable{} ->
           execution.runnable_errors
@@ -325,12 +331,7 @@ defmodule Jido.Exec.Flow.Engine do
   end
 
   defp finalize(%Execution{runnable_errors: errors} = execution) when errors != [] do
-    failures =
-      errors
-      |> Enum.map(fn %{runnable: runnable, error: error} ->
-        %{node: runnable_name(runnable), runnable_id: runnable.id, error: error}
-      end)
-      |> Enum.sort_by(& &1.node)
+    failures = Enum.sort_by(errors, & &1.node)
 
     error =
       case failures do

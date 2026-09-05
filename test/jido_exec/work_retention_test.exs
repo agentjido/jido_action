@@ -4,6 +4,24 @@ defmodule JidoActionTest.Exec.WorkRetentionTest do
   alias Jido.{Exec, Flow}
   alias Jido.Flow.{Ref, Step}
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
+  alias JidoActionTest.Fixtures.Actions.ErrorAction
+
+  test "failure records do not duplicate native runnable inputs" do
+    flow =
+      Flow.new!(
+        name: "failure_retention",
+        components: [
+          Step.new!(name: "fail", action: ErrorAction, params: %{value: Ref.input(:value)})
+        ],
+        output: Ref.result("fail")
+      )
+
+    assert {:ok, execution} = Exec.start(flow, %{value: Enum.to_list(1..10_000)})
+    assert {:ok, finished} = Exec.continue(execution)
+    assert {:error, error} = Exec.result(finished)
+    assert error.message == "Action failed"
+    assert :erts_debug.flat_size(finished.runnable_errors) < 1_000
+  end
 
   test "ready and completed descriptors do not copy or retain unrelated execution data" do
     measurements =

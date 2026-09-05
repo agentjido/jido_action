@@ -31,7 +31,7 @@ defmodule Jido.Exec.Execution do
           workflow: Workflow.t(),
           ready: [Runnable.t()],
           work_ref: reference(),
-          runnable_errors: [%{runnable: Runnable.t(), error: Exception.t()}],
+          runnable_errors: [%{node: String.t() | atom(), runnable_id: term(), error: Exception.t()}],
           engine_error: Exception.t() | nil,
           finalizer: (term() -> {:ok, term()} | {:error, Exception.t()}),
           final_result:
