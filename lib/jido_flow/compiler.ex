@@ -533,7 +533,10 @@ defmodule Jido.Flow.Compiler do
                 do: %{status: :ok, value: output},
                 else: output
 
-            token |> Map.put(:kind, :result) |> Map.put(:output, output) |> Map.drop([:item, :results])
+            token
+            |> Map.put(:kind, :result)
+            |> Map.put(:output, output)
+            |> Map.drop([:item, :results])
 
           {:collect_errors, {:error, error}} ->
             runtime.observer.({:error, span, error})
