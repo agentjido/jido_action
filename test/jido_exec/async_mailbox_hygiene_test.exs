@@ -26,13 +26,6 @@ defmodule JidoActionTest.Exec.AsyncMailboxHygieneTest do
     refute_handle_messages(handle)
   end
 
-  test "cancel removes result and monitor messages" do
-    handle = Exec.run_async(BlockingAction, %{value: 1}, %{test_pid: self()})
-    assert_receive {:blocking_flow_node_started, _worker}, 1_000
-    assert :ok = Exec.cancel(handle)
-    refute_handle_messages(handle)
-  end
-
   test "await accepts a queued result after a matching normal DOWN" do
     with_released_action(2, fn handle ->
       result_message = receive_result_message(handle)
@@ -135,12 +128,12 @@ defmodule JidoActionTest.Exec.AsyncMailboxHygieneTest do
     end)
   end
 
-  test "cancel by PID claims the shared handle and leaves no mailbox residue" do
+  test "cancel consumes the handle and repeated cancellation leaves no mailbox residue" do
     handle = Exec.run_async(BlockingAction, %{value: 1}, %{test_pid: self()})
     assert_receive {:blocking_flow_node_started, worker}, 1_000
     worker_monitor = monitor_worker(worker)
 
-    assert :ok = Exec.cancel(handle.pid)
+    assert :ok = Exec.cancel(handle)
     assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :killed}, 1_000
 
     assert {:error, %Error.InvalidHandleError{details: %{operation: :await}}} =

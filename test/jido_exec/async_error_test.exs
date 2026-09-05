@@ -5,15 +5,15 @@ defmodule JidoActionTest.Exec.AsyncErrorTest do
   alias JidoActionTest.Fixtures.Actions.Add
   alias JidoActionTest.Fixtures.Execution.BlockingAction
 
-  test "encodes the PID error returned by cancel" do
+  test "encodes a PID rejected as an invalid cancellation handle" do
     assert {:error, %Error.InvalidHandleError{} = error} = Jido.Exec.cancel(self())
 
     decoded = error |> JSON.encode!() |> JSON.decode!()
 
     assert decoded["type"] == "async_invalid_handle"
     assert decoded["message"] == error.message
-    assert decoded["details"]["pid"] == inspect(self())
-    assert error.details.pid == self()
+    assert decoded["details"]["value"] == inspect(self())
+    assert error.details == %{operation: :cancel, value: self()}
   end
 
   test "encodes nested invalid values from each public handle operation" do

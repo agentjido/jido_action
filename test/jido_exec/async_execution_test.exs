@@ -163,12 +163,10 @@ defmodule JidoActionTest.Exec.AsyncExecutionTest do
       spawn(fn ->
         send(test_pid, {:non_owner_await, Exec.await(handle, 10)})
         send(test_pid, {:non_owner_cancel, Exec.cancel(handle)})
-        send(test_pid, {:non_owner_pid_cancel, Exec.cancel(handle.pid)})
       end)
 
     assert_receive {:non_owner_await, {:error, %Error.InvalidHandleError{}}}, 1_000
     assert_receive {:non_owner_cancel, {:error, %Error.InvalidHandleError{}}}, 1_000
-    assert_receive {:non_owner_pid_cancel, {:error, %Error.InvalidHandleError{}}}, 1_000
     refute non_owner == handle.owner
     assert Process.alive?(worker)
     assert :ok = Exec.cancel(handle)
@@ -219,7 +217,7 @@ defmodule JidoActionTest.Exec.AsyncExecutionTest do
     assert :ok = Exec.cancel(handle)
   end
 
-  test "validates handles, timeouts, and direct PID cancellation" do
+  test "validates handles and timeouts" do
     assert {:error, %Error.InvalidHandleError{}} = Exec.await(%{}, 10)
     assert {:error, %Error.InvalidHandleError{}} = Exec.cancel(:invalid)
 
@@ -227,8 +225,38 @@ defmodule JidoActionTest.Exec.AsyncExecutionTest do
     assert_receive {:blocking_flow_node_started, worker}, 1_000
     assert {:error, %Error.InvalidHandleError{}} = Exec.await(handle, :soon)
     worker_monitor = Process.monitor(worker)
-    assert :ok = Exec.cancel(handle.pid)
+    assert :ok = Exec.cancel(handle)
     assert_receive {:DOWN, ^worker_monitor, :process, ^worker, _reason}, 1_000
+  end
+
+  test "rejects a live PID without stopping the execution" do
+    handle = Exec.run_async(BlockingAction, %{value: 1}, %{test_pid: self()})
+
+    try do
+      assert_receive {:blocking_flow_node_started, worker}, 1_000
+      assert {:error, %Error.InvalidHandleError{} = error} = Exec.cancel(handle.pid)
+      assert error.message == "Invalid asynchronous execution handle"
+      assert error.details == %{operation: :cancel, value: handle.pid}
+
+      send(worker, :finish)
+      assert {:ok, %{value: 1}} = Exec.await(handle, 1_000)
+    after
+      Exec.cancel(handle)
+    end
+  end
+
+  test "rejects a dead PID without consuming its handle" do
+    %{pid: pid, monitor_ref: monitor_ref} = handle = Exec.run_async(Add, %{value: 1})
+
+    try do
+      assert_receive {:DOWN, ^monitor_ref, :process, ^pid, _reason}, 1_000
+      assert {:error, %Error.InvalidHandleError{} = error} = Exec.cancel(pid)
+      assert error.message == "Invalid asynchronous execution handle"
+      assert error.details == %{operation: :cancel, value: pid}
+      assert {:ok, %{value: 2}} = Exec.await(handle, 1_000)
+    after
+      Exec.cancel(handle)
+    end
   end
 
   test "reports a handle whose process is no longer running" do

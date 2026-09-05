@@ -338,12 +338,14 @@ defmodule Jido.Exec do
   @doc """
   Cancels a caller-owned asynchronous execution.
 
+  Pass the complete handle returned by `run_async/4`.
+
   Cancellation stops active Action and Flow work. It does not undo side
   effects that already completed and it does not return a partial Flow
   execution value.
   """
-  @spec cancel(async_ref() | pid()) :: :ok | {:error, Exception.t()}
-  def cancel(async_ref_or_pid), do: Async.cancel(async_ref_or_pid)
+  @spec cancel(async_ref()) :: :ok | {:error, Exception.t()}
+  def cancel(async_ref), do: Async.cancel(async_ref)
 
   @doc """
   Starts a paused Flow execution.

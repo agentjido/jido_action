@@ -80,7 +80,7 @@ change it. The stable map omits the exception's top-level stacktrace.
 For example, an error from a public cancellation call can be encoded directly:
 
 ```elixir
-{:error, error} = Jido.Exec.cancel(self())
+{:error, error} = Jido.Exec.cancel(:invalid)
 json = JSON.encode!(error)
 %{"type" => "async_invalid_handle"} = JSON.decode!(json)
 ```
@@ -122,8 +122,8 @@ active execution and returns `Jido.Exec.Error.AsyncTimeoutError`.
 
 The `timeout:` option on `run_async/4` is different. It limits the complete
 target execution and returns the normal Action or Flow timeout error.
-`cancel/1` stops active work and closes its telemetry spans. It cannot undo
-side effects that already completed.
+`cancel/1` requires the complete handle. It stops active work and closes its
+telemetry spans. It cannot undo side effects that already completed.
 
 Invalid handles and owner violations return
 `Jido.Exec.Error.InvalidHandleError`. An unexpected failure of the managed
