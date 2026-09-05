@@ -62,11 +62,15 @@ defmodule Jido.Expr.Runtime do
   defp visit_value(%_{} = value, state, path, depth, mode) when mode != :data,
     do: host(value, state, path, depth, mode)
 
-  defp visit_value(value, state, path, depth, mode) when is_map(value),
-    do: map(:maps.iterator(value), state, path, depth, mode, %{})
+  defp visit_value(value, state, path, depth, mode) when is_map(value) do
+    result = if mode in [:data, :validate], do: value, else: %{}
+    map(:maps.iterator(value), state, path, depth, mode, result)
+  end
 
-  defp visit_value(value, state, path, depth, mode) when is_list(value),
-    do: list(value, state, path, depth, mode, 0, [])
+  defp visit_value(value, state, path, depth, mode) when is_list(value) do
+    result = if mode in [:data, :validate], do: value, else: []
+    list(value, state, path, depth, mode, 0, result)
+  end
 
   defp visit_value(value, state, path, depth, :data) when is_tuple(value),
     do: tuple(value, state, path, depth, 0)
@@ -85,7 +89,8 @@ defmodule Jido.Expr.Runtime do
 
       {key, child, iterator} ->
         with {:ok, child, state} <- map_pair(key, child, state, path, depth, mode) do
-          map(iterator, state, path, depth, mode, Map.put(result, key, child))
+          result = if mode in [:data, :validate], do: result, else: Map.put(result, key, child)
+          map(iterator, state, path, depth, mode, result)
         end
     end
   end
@@ -112,18 +117,22 @@ defmodule Jido.Expr.Runtime do
     end
   end
 
+  defp list([], state, _path, _depth, mode, _index, result) when mode in [:data, :validate],
+    do: {:ok, result, state}
+
   defp list([], state, _path, _depth, _mode, _index, result),
     do: {:ok, Enum.reverse(result), state}
 
   defp list([head | tail], state, path, depth, mode, index, result) do
     with {:ok, value, state} <- visit(head, state, path ++ [index], depth + 1, mode) do
-      list(tail, state, path, depth, mode, index + 1, [value | result])
+      result = if mode in [:data, :validate], do: result, else: [value | result]
+      list(tail, state, path, depth, mode, index + 1, result)
     end
   end
 
   defp list(tail, state, path, depth, :data, index, result) do
-    with {:ok, tail, state} <- visit(tail, state, path ++ [index], depth + 1, :data) do
-      {:ok, Enum.reduce(result, tail, &[&1 | &2]), state}
+    with {:ok, _tail, state} <- visit(tail, state, path ++ [index], depth + 1, :data) do
+      {:ok, result, state}
     end
   end
 
@@ -154,9 +163,12 @@ defmodule Jido.Expr.Runtime do
 
   defp expression(%Expr{} = value, state, path, depth, mode)
        when mode in [:validate, :normalize] do
+    result = if mode == :validate, do: value.operands, else: []
+
     with {:ok, operands, state} <-
-           list(value.operands, state, path ++ [:operands], depth, mode, 0, []) do
-      {:ok, %{value | operands: operands}, state}
+           list(value.operands, state, path ++ [:operands], depth, mode, 0, result) do
+      value = if mode == :validate, do: value, else: %{value | operands: operands}
+      {:ok, value, state}
     end
   end
 

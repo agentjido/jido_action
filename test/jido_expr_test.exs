@@ -376,6 +376,21 @@ defmodule Jido.ExprTest do
     assert reductions < 10_000
   end
 
+  test "resolved data retains its containers after the bounded read-only walk" do
+    shared = Enum.to_list(1..128)
+
+    for value <- [
+          %{left: shared, right: shared},
+          [shared, shared],
+          [shared | :tail],
+          %Reference{key: shared}
+        ] do
+      assert {:ok, result} = Jido.Expr.evaluate(%Reference{}, resolve: fn _ -> {:ok, value} end)
+      assert result == value
+      assert :erts_debug.same(result, value)
+    end
+  end
+
   test "resolved large tuples stop within the node work limit" do
     value = :erlang.make_tuple(1_000_000, nil)
 
