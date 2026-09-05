@@ -11,6 +11,51 @@ entries return to the normal automated changelog process.
 
 <!-- changelog -->
 
+## [3.0.0-beta.7](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.6...v3.0.0-beta.7) (2026-09-05)
+### Breaking Changes:
+
+* exec: require handles for async cancellation (#260) by mikehostetler
+
+* flow: use Expr as the canonical operation model (#252) by mikehostetler
+
+* exec: expose revision-scoped Flow work descriptors (#255) by mikehostetler
+
+* exec: unify Action invocation and Flow contracts (#256) by mikehostetler
+
+* instruction: remove aliases and stored execution options (#254) by mikehostetler
+
+* exec: accept explicit Task.Supervisor references (#253) by mikehostetler
+
+
+
+### Features:
+
+* bench: add staged execution benchmark suite (#251) by mikehostetler
+
+### Bug Fixes:
+
+* flow: reject nil and malformed reference paths (#244) by mikehostetler
+
+* exec: safely encode runtime error details (#246) by mikehostetler
+
+* exec: bound telemetry cleanup for timeout and cancellation (#248) by mikehostetler
+
+* flow: preserve runtime context in Subflow output (#245) by mikehostetler
+
+* flow: avoid copying compiler and execution state (#247) by mikehostetler
+
+* flow: support Runic alpha.10 identities (#229) by mikehostetler
+
+### Performance:
+
+* reduce execution and validation allocations (#261) by mikehostetler
+
+### Refactoring:
+
+* flow: share graph diagnostics and bound list accumulation (#257) by mikehostetler
+
+* flow: use shared inline Action identity (#250) by mikehostetler
+
 ## [3.0.0-beta.6](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.5...v3.0.0-beta.6) (2026-09-04)
 
 

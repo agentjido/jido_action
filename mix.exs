@@ -1,7 +1,7 @@
 defmodule JidoAction.MixProject do
   use Mix.Project
 
-  @version "3.0.0-beta.6"
+  @version "3.0.0-beta.7"
   @source_url "https://github.com/agentjido/jido_action"
   @description "Validated actions, call frames, and data-first Flow composition for Elixir"
 

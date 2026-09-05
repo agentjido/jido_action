@@ -54,7 +54,7 @@ guide](guides/v2-to-v3-migration.md) for the confirmed breaking changes.
 ```elixir
 def deps do
   [
-    {:jido_action, "~> 3.0.0-beta.6"}
+    {:jido_action, "~> 3.0.0-beta.7"}
   ]
 end
 ```
