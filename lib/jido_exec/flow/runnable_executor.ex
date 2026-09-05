@@ -10,7 +10,11 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
   @doc "Executes one native Runnable and records its node telemetry."
   @spec execute(Execution.t(), Runnable.t()) :: Runnable.t()
   def execute(%Execution{} = execution, %Runnable{} = runnable) do
-    span = start_span(execution, runnable)
+    execute_with_metadata(runnable, node_metadata(execution, runnable))
+  end
+
+  defp execute_with_metadata(runnable, metadata) do
+    span = start_span(metadata)
     executed = safely_execute(runnable)
     finish_span(span, executed)
     executed
@@ -39,11 +43,11 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
     group_leader = Process.group_leader()
     stopped = :atomics.new(1, [])
 
-    execute = fn {runnable, index} ->
+    execute = fn {runnable, index, metadata} ->
       Process.group_leader(self(), group_leader)
       Logger.metadata(logger_metadata)
       Telemetry.put_tracker(telemetry_tracker)
-      executed = execute(execution, runnable)
+      executed = execute_with_metadata(runnable, metadata)
       if executed.status == :failed, do: :atomics.put(stopped, 1, 1)
       {index, executed}
     end
@@ -53,6 +57,10 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
     runnables
     |> Enum.with_index()
     |> Stream.take_while(fn _runnable -> :atomics.get(stopped, 1) == 0 end)
+    # Resolve telemetry in the caller. Workers must not capture the execution.
+    |> Stream.map(fn {runnable, index} ->
+      {runnable, index, node_metadata(execution, runnable)}
+    end)
     |> Task.async_stream(execute,
       max_concurrency: Keyword.fetch!(execution.options, :max_concurrency),
       ordered: false,
@@ -63,7 +71,7 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
       {:ok, indexed_result} ->
         indexed_result
 
-      {:exit, {{runnable, index}, reason}} ->
+      {:exit, {{runnable, index, _metadata}, reason}} ->
         :atomics.put(stopped, 1, 1)
         {index, fail_exited_runnable(runnable, reason)}
     end)
@@ -87,15 +95,18 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
       )
   end
 
-  defp start_span(execution, runnable) do
+  defp start_span(nil), do: nil
+  defp start_span(metadata), do: Telemetry.start([:jido, :flow, :node], metadata)
+
+  defp node_metadata(execution, runnable) do
     case authored_component(execution, runnable) do
       {name, kind} ->
-        Telemetry.start([:jido, :flow, :node], %{
+        %{
           execution_id: execution.id,
           flow: execution.flow_name,
           node: name,
           kind: kind
-        })
+        }
 
       nil ->
         nil

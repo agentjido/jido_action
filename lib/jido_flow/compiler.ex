@@ -303,6 +303,8 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp add_component(%FlowStep{} = component, state) do
+    namespace = state.namespace
+
     step =
       runtime_step(state, component.name, :step, fn parent, runtime ->
         local = component_state(component, parent, runtime)
@@ -311,7 +313,7 @@ defmodule Jido.Flow.Compiler do
         |> resolve_and_run(
           component.params,
           component.action,
-          Target.at(Target.node(component), state.namespace)
+          Target.at(Target.node(component), namespace)
         )
         |> wrap_result()
       end)
@@ -320,10 +322,12 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp add_component(%Choice{} = component, state) do
+    namespace = state.namespace
+
     step =
       runtime_step(state, component.name, :choice, fn parent, runtime ->
         local = component_state(component, parent, runtime)
-        result = ChoiceRuntime.run(component, Map.put(local, :namespace, state.namespace))
+        result = ChoiceRuntime.run(component, Map.put(local, :namespace, namespace))
         output = unwrap_component_result(result)
         value(local.input_frame, output)
       end)
@@ -332,10 +336,12 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp add_component(%Iterate{} = component, state) do
+    namespace = state.namespace
+
     step =
       runtime_step(state, component.name, :iterate, fn parent, runtime ->
         local = component_state(component, parent, runtime)
-        result = IterateRuntime.run(component, Map.put(local, :namespace, state.namespace))
+        result = IterateRuntime.run(component, Map.put(local, :namespace, namespace))
         output = unwrap_component_result(result)
         value(local.input_frame, output)
       end)
@@ -456,6 +462,7 @@ defmodule Jido.Flow.Compiler do
 
   defp map_item_step(state, map, native_name) do
     name = "#{native_name}/item"
+    namespace = state.namespace
 
     runtime_step_named(name, state, :map_item, fn
       %{kind: :empty} = token, _runtime ->
@@ -475,7 +482,7 @@ defmodule Jido.Flow.Compiler do
             item_index: token.index,
             item_id: token.id
           })
-          |> Target.at(state.namespace)
+          |> Target.at(namespace)
 
         span =
           runtime.observer.({
@@ -886,12 +893,15 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp child_output_step(subflow, child_state) do
+    namespace = child_state.namespace
+    output = child_state.flow.output
+
     data_step(
-      name: scoped(child_state.namespace, "$output"),
-      hash: stable_hash({child_state.namespace, :output_validator}),
+      name: scoped(namespace, "$output"),
+      hash: stable_hash({namespace, :output_validator}),
       work: fn parent ->
-        local = component_state_from(child_state.flow.output, parent)
-        output = Expression.resolve(child_state.flow.output, local) |> unwrap_ok!()
+        local = component_state_from(output, parent)
+        output = Expression.resolve(output, local) |> unwrap_ok!()
 
         validated =
           case subflow.flow.validate_output(output) do
@@ -899,7 +909,7 @@ defmodule Jido.Flow.Compiler do
               value
 
             {:error, error} ->
-              raise flow_boundary_error(error, subflow, :subflow_output, child_state.namespace)
+              raise flow_boundary_error(error, subflow, :subflow_output, namespace)
           end
 
         {:jido_flow_input, _input, parent_input} = local.input_frame
