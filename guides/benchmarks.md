@@ -12,9 +12,10 @@ are ignored by Git.
 
 | Profile | Cases | Graph sizes | Warm-up calls | Timing samples |
 | --- | ---: | --- | ---: | ---: |
-| `short` (default) | 75 | 4 | 3 | 15 |
-| `scale` | 165 | 2, 8, 16 | 5 | 30 |
-| `smoke` | 34 | 2, 6 | 1 | 2 |
+| `short` (default) | 222 | 4 | 3 | 15 |
+| `scale` | 312 | 2, 8, 16 | 5 | 30 |
+| `smoke` | 43 | 2, 6 | 1 | 2 |
+| `backlog` | 184 | 4 | 3 | 15 |
 
 Select a profile with `--profile scale` or `--profile smoke`. Short and scale
 use small data, a 1,000-entry map, and a 1 MiB binary. Smoke uses small data.
@@ -22,6 +23,9 @@ Short and scale take three separate resource samples per case; smoke takes
 one. Reports keep the raw samples and field medians. Action cases run once per
 payload, since graph size does not affect them. Standard graph fixtures allow
 1–32 nodes; a transfer probe rejects a flat heap above 64 MiB.
+
+`backlog` keeps small standard payloads and all focused cases. Use
+`--filter SUBSTRING` to select case IDs. Comparisons require the same filter.
 
 ## What Is Measured
 
@@ -40,6 +44,14 @@ Short and scale also run 18 fixed memory cases, outside the graph-size matrix:
 - Read `Exec.ready/1` 100 times on 16 nodes, retaining the last descriptor list.
 - Run one collector after a wave of 32 producers. Collector timing excludes
   the producer wave; resource measurements include it.
+
+The focused cases also cover Map, Reduce, Iterate, Choice, Dispatch,
+component metadata, terminal-only output, large context, shared terms, binary
+slices, expression walks, schemas, Codec, IDs, and step/wave scheduling.
+Lifecycle cases cover cancellation, expired deadlines, caller exit, repeated
+async calls with unrelated mailbox messages, and telemetry handlers. The smoke
+profile includes nine small cases from these groups. Larger collection cases
+use up to 16 items; they do not establish behavior at unbounded fan-out.
 
 Compilation includes validation. The internal compiled-graph adapter omits
 public target/input validation and creates a fresh execution each time. It is
@@ -77,6 +89,9 @@ the JSON also keeps every resource sample.
 Exact memory peaks and total helper reductions are unavailable. Reports mark
 these fields as null and record runtime, machine, commit, tool hash, lockfile
 hash, sample settings, and measurement limits.
+Resource reports also record owned garbage collections, observed mailbox size,
+and reductions sampled at barriers. Observed worker reductions are a lower
+bound. They are separate from caller reductions in untraced timing runs.
 
 ## Compare Runs
 
@@ -93,12 +108,22 @@ ERL_FLAGS='+S 2:2' mix run bench/compare.exs \
 
 Comparison requires matching environments, settings, methods, tool hashes,
 and case IDs. A ratio is the candidate median divided by the baseline median.
-Schema version 2 uses named retained terms and resource-sample medians. It
-cannot be compared with version 1 reports; rerun both revisions with the same
-benchmark scripts when making a new comparison.
+Schema version 3 adds garbage-collection tracing and observed worker reductions.
+Rerun both revisions with the same benchmark scripts when changing the schema.
 Host load and garbage collection can change results; repeat measurements
 before making a performance claim. CI has no fixed timing threshold.
 
 The smoke profile runs in CI and checks results, cleanup, graph transfer, and
-bounded copy growth. The suite does not yet cover Map, Reduce, Iterate,
-continuations, concurrent callers, or a complete failure matrix.
+bounded copy growth. The suite does not cover distributed callers or a complete
+failure matrix.
+
+For release measurements, use the existing isolated consumer fixture:
+
+```bash
+ERL_FLAGS='+S 2:2' MIX_ENV=test mix run bench/release.exs bench/results/release
+```
+
+This writes `release.json` with release size, generated module size, memory
+after startup, first-call time, and warm timings. It compares two-step inline
+and explicit Flows in fresh VMs, after removing consumer source. ERTS size and
+VM boot time are excluded.

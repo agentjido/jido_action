@@ -4,18 +4,19 @@ defmodule JidoActionBench.Report do
   def limitations do
     [
       "Timing has no tracing or memory sampling. Setup and result checks are outside each timed interval.",
-      "Caller reductions exclude helpers. Helper reductions and exact memory peaks are unavailable (null).",
+      "Caller timing reductions exclude helpers. Resource runs report observed caller and helper reduction totals from barriers, plus traced owned GC counts. Observed reductions are lower bounds; full helper reductions and exact memory peaks remain unavailable (null).",
       "Memory peaks are observed maxima at start, callback/pause/result barriers, and completion. Short-lived allocations can be missed.",
       "Resource reports keep every separate run and field medians. Medians of observed peaks are not exact lifetime peaks.",
       "Process heap and process memory include the measured caller and traced descendants. Shared binary bytes deduplicate observed off-heap binary references.",
       "VM memory includes the observer, supervisor, loaded code, and unrelated activity. It does not establish ownership or leaks.",
       "Owned starts follow spawn traces from the caller and dedicated Task.Supervisor. Both roots and the observer are excluded from helper counts.",
       "Cleanup uses trace-delivery barriers and process monitors. Failed probes stop and confirm observed descendants before returning the failure. Global process-count differences are not used.",
-      "Flat and copied heap sizes exclude off-heap binary payloads; external bytes include the external term representation. Receiver memory includes its process overhead.",
+      "Flat and copied heap sizes exclude off-heap binary payloads; external bytes include the external term representation. Receiver memory includes its process overhead. Observed receiver binary bytes deduplicate its off-heap references and can include a larger binary behind a small slice.",
       "Retained terms come from a separate checked call: the authored Flow, compiled graph, returned result, or actual paused and finished execution. Paused values are copied after the execution is finished.",
       "Prepared reuse uses a benchmark-only internal adapter with empty schemas. It omits public target/input validation and graph compilation. It is not a public compiled-graph API.",
       "Paused-continue timing excludes a fresh Exec.start per sample; its resource run includes start and the paused barrier.",
       "Focused cases run once per profile, outside the size/payload matrix. Ready timing covers 100 reads and retains the last descriptor list; resource runs include setup and completion. Collector timing excludes its 32-producer setup wave.",
+      "Public start cases time Exec.start and finish the execution during the result check. They are not directly comparable to internal prepared reuse. Collection, boundary, and lifecycle cases use their own bounded sizes.",
       "Comparisons show raw ratios. No speedup claim is valid from these shared-host measurements. Repeat on an idle host with the same environment."
     ]
   end

@@ -3,7 +3,16 @@ Code.require_file("../../bench/support/suite.exs", __DIR__)
 defmodule JidoActionTest.ExecutionBenchTest do
   use ExUnit.Case, async: false
 
-  alias JidoActionBench.{Fixtures, Measure, MemoryCases, Report, Suite}
+  alias JidoActionBench.{
+    BoundaryCases,
+    ComponentCases,
+    Fixtures,
+    LifecycleCases,
+    Measure,
+    MemoryCases,
+    Report,
+    Suite
+  }
 
   setup do
     start_supervised!({Task.Supervisor, name: JidoActionBench.TaskSupervisor})
@@ -103,6 +112,27 @@ defmodule JidoActionTest.ExecutionBenchTest do
     workload = %{setup: fn _ -> nil end, run: fn _ -> :wrong end, check: fn :right -> :ok end}
     assert_raise FunctionClauseError, fn -> Measure.timing(workload, 1, 1) end
     assert_raise RuntimeError, ~r/resource caller failed/, fn -> Measure.resources(workload) end
+  end
+
+  test "expanded cases preserve results and release their owned processes" do
+    workloads =
+      ComponentCases.workloads() ++ BoundaryCases.workloads() ++ LifecycleCases.workloads()
+
+    assert length(Enum.uniq_by(workloads, & &1.id)) == length(workloads)
+
+    for workload <- workloads do
+      assert length(Measure.timing(workload, 1, 1).wall_ns.samples) == 1
+      resources = Measure.resources(workload).median
+      assert resources.owned_remaining == 0
+      assert resources.observed_helper_reductions >= 0
+      assert resources.owned_gc_count >= 0
+
+      for {_name, measured} <- Measure.retained(workload) do
+        assert measured.copied_flat_heap_bytes == measured.flat_heap_bytes
+      end
+
+      assert Task.Supervisor.children(JidoActionBench.TaskSupervisor) == []
+    end
   end
 
   test "a failed probe stops and confirms its waiting child and grandchild" do
