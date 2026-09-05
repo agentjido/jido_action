@@ -14,6 +14,12 @@ defmodule Jido.Exec.Action.Runner do
           | {:continue, Transition.t()}
           | {:error, target_phase(), Exception.t()}
 
+  @typep extras :: :no_extras | {:extras, term()}
+  @typep invocation_result ::
+           {:ok, term(), extras()}
+           | {:continue, Transition.t()}
+           | {:error, target_phase(), Exception.t(), extras()}
+
   @doc "Runs one Action Instruction through the isolated Action boundary."
   @spec run(Instruction.t(), keyword()) ::
           {:ok, term()}
@@ -22,70 +28,52 @@ defmodule Jido.Exec.Action.Runner do
           | {:error, Exception.t()}
           | {:error, Exception.t(), term()}
   def run(%Instruction{target: action} = instruction, run_opts \\ []) do
-    task_supervisor = Keyword.fetch!(run_opts, :task_supervisor)
-
-    case run_isolated(task_supervisor, fn -> do_run(instruction) end) do
-      {:ok, result} -> result
-      {:exit, reason} -> {:error, process_exit_error(action, reason)}
-      {:start_error, reason} -> {:error, process_start_error(action, task_supervisor, reason)}
-    end
-  end
-
-  defp do_run(%Instruction{target: action} = instruction) do
-    with {:ok, params} <- validate_params(action, instruction.params) do
-      case invoke_result(action, params, instruction.context) do
-        {:ok, output, extras} ->
-          case validate_output(action, output) do
-            {:ok, output} -> success_result(output, extras)
-            {:error, error} -> error_result(error, extras)
-          end
-
-        {:error, error, extras} ->
-          error_result(error, extras)
-
-        {:continue, %Transition{} = transition} ->
-          {:continue, transition}
-      end
-    end
+    action
+    |> invoke_isolated(instruction.params, instruction.context, run_opts)
+    |> direct_result()
   end
 
   @doc false
   @spec run_target(module(), term(), map(), keyword()) :: target_result()
   def run_target(action, params, context, run_opts) do
+    action
+    |> invoke_isolated(params, context, run_opts)
+    |> target_result()
+  end
+
+  @spec invoke_isolated(module(), term(), map(), keyword()) :: invocation_result()
+  defp invoke_isolated(action, params, context, run_opts) do
     task_supervisor = Keyword.fetch!(run_opts, :task_supervisor)
 
-    case run_isolated(task_supervisor, fn -> do_run_target(action, params, context) end) do
+    case run_isolated(task_supervisor, fn -> invoke(action, params, context) end) do
       {:ok, result} ->
         result
 
       {:exit, reason} ->
-        {:error, :execution, process_exit_error(action, reason)}
+        {:error, :execution, process_exit_error(action, reason), :no_extras}
 
       {:start_error, reason} ->
-        {:error, :execution, process_start_error(action, task_supervisor, reason)}
+        {:error, :execution, process_start_error(action, task_supervisor, reason), :no_extras}
     end
   end
 
-  defp do_run_target(action, params, context) do
-    case validate_params(action, params) do
-      {:ok, params} -> run_validated_target(action, params, context)
-      {:error, error} -> {:error, :input, error}
-    end
-  end
+  defp invoke(action, params, context) do
+    with {:ok, params} <- validate_params(action, params) do
+      case invoke_result(action, params, context) do
+        {:ok, output, extras} ->
+          case validate_output(action, output) do
+            {:ok, output} -> {:ok, output, extras}
+            {:error, error} -> {:error, :output, error, extras}
+          end
 
-  defp run_validated_target(action, params, context) do
-    case invoke_result(action, params, context) do
-      {:ok, output, _extras} ->
-        case validate_output(action, output) do
-          {:ok, output} -> {:ok, output}
-          {:error, error} -> {:error, :output, error}
-        end
+        {:error, error, extras} ->
+          {:error, :execution, error, extras}
 
-      {:error, error, _extras} ->
-        {:error, :execution, error}
-
-      {:continue, %Transition{} = transition} ->
-        {:continue, transition}
+        {:continue, %Transition{} = transition} ->
+          {:continue, transition}
+      end
+    else
+      {:error, error} -> {:error, :input, error, :no_extras}
     end
   end
 
@@ -143,11 +131,15 @@ defmodule Jido.Exec.Action.Runner do
        ), :no_extras}
   end
 
-  defp success_result(output, :no_extras), do: {:ok, output}
-  defp success_result(output, {:extras, extras}), do: {:ok, output, extras}
+  defp direct_result({:ok, output, :no_extras}), do: {:ok, output}
+  defp direct_result({:ok, output, {:extras, extras}}), do: {:ok, output, extras}
+  defp direct_result({:error, _phase, error, :no_extras}), do: {:error, error}
+  defp direct_result({:error, _phase, error, {:extras, extras}}), do: {:error, error, extras}
+  defp direct_result({:continue, transition}), do: {:continue, transition}
 
-  defp error_result(error, :no_extras), do: {:error, error}
-  defp error_result(error, {:extras, extras}), do: {:error, error, extras}
+  defp target_result({:ok, output, _extras}), do: {:ok, output}
+  defp target_result({:error, phase, error, _extras}), do: {:error, phase, error}
+  defp target_result({:continue, transition}), do: {:continue, transition}
 
   defp invalid_continuation_input(action, input) do
     {:error,
