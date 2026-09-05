@@ -180,6 +180,33 @@ defmodule JidoActionTest.InstructionTest do
   end
 
   describe "normalize!/3" do
+    for field <- [:params, :context, :metadata] do
+      @field field
+      test "rejects false #{@field} in a raw Instruction" do
+        attrs = %{@field => false, target: Add}
+        assert {:error, %Jido.Action.Error.InvalidInputError{} = error} = Instruction.new(attrs)
+        assert error.details[@field] == false
+
+        assert_raise Jido.Action.Error.InvalidInputError, error.message, fn ->
+          Instruction.new!(attrs)
+        end
+
+        instruction = struct!(Instruction, attrs)
+
+        assert_raise ArgumentError,
+                     "expected #{@field} to be a map or keyword list, got: false",
+                     fn -> Instruction.normalize!(instruction, %{override: 1}, %{override: 2}) end
+      end
+    end
+
+    test "normalizes nil raw fields and preserves false values inside maps" do
+      instruction = %Instruction{target: Add, params: nil, context: nil, metadata: nil}
+      normalized = Instruction.normalize!(instruction, %{enabled: false}, %{enabled: false})
+      assert normalized.params == %{enabled: false}
+      assert normalized.context == %{enabled: false}
+      assert normalized.metadata == %{}
+    end
+
     test "uses shallow call-site overrides and preserves caller metadata" do
       metadata = %{timeout: 0, task_supervisor: :description_only, nested: %{id: "one"}}
 

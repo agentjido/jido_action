@@ -101,9 +101,9 @@ defmodule Jido.Instruction do
   defp merge_instruction!(instruction, params, context) do
     %__MODULE__{
       target: instruction.target,
-      params: Map.merge(normalize_map!(instruction.params || %{}, :params), params),
-      context: Map.merge(normalize_map!(instruction.context || %{}, :context), context),
-      metadata: normalize_map!(instruction.metadata || %{}, :metadata)
+      params: Map.merge(normalize_map!(instruction.params, :params), params),
+      context: Map.merge(normalize_map!(instruction.context, :context), context),
+      metadata: normalize_map!(instruction.metadata, :metadata)
     }
   end
 

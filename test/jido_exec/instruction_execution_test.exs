@@ -57,6 +57,72 @@ defmodule JidoActionTest.Exec.InstructionExecutionTest do
     def run(params, context), do: {:ok, %{params: params, context: context}}
   end
 
+  defmodule CallDataProbeAction do
+    use Jido.Action, name: "instruction_call_data_probe"
+
+    @impl true
+    def run(params, _context) do
+      send(
+        JidoActionTest.Exec.InstructionExecutionTest.CallbackObserver,
+        :instruction_action_dispatched
+      )
+
+      {:ok, params}
+    end
+  end
+
+  defmodule CallDataProbeFlow do
+    use Jido.Flow, name: "instruction_call_data_probe_flow"
+
+    flow do
+      step("probe", action: CallDataProbeAction, params: %{})
+      output(result("probe"))
+    end
+  end
+
+  for field <- [:params, :context, :metadata] do
+    @field field
+    test "rejects false #{@field} before Action work at every Exec boundary" do
+      Process.register(self(), __MODULE__.CallbackObserver)
+      message = "expected #{@field} to be a map or keyword list, got: false"
+
+      for target <- [CallDataProbeAction, CallDataProbeFlow, CallDataProbeFlow.flow()] do
+        instruction = struct!(Instruction, [{:target, target}, {@field, false}])
+        assert {:error, %InvalidInputError{message: ^message}} = Exec.run(instruction)
+
+        assert {:error, %InvalidInputError{message: ^message}} =
+                 Exec.run(instruction, %{}, %{}, timeout: 5_000)
+
+        assert {:error, %InvalidInputError{message: ^message}} = Exec.start(instruction)
+        handle = Exec.run_async(instruction)
+        assert {:error, %InvalidInputError{message: ^message}} = Exec.await(handle)
+
+        # Completed Exec calls are the barrier before the absence assertion.
+        refute_received :instruction_action_dispatched
+      end
+    end
+  end
+
+  test "nil raw fields stay valid through run, async, and step-wise Flow execution" do
+    Process.register(self(), __MODULE__.CallbackObserver)
+
+    for target <- [CallDataProbeAction, CallDataProbeFlow, CallDataProbeFlow.flow()] do
+      instruction = %Instruction{target: target, params: nil, context: nil, metadata: nil}
+      assert Exec.run(instruction) == {:ok, %{}}
+      assert_received :instruction_action_dispatched
+      assert instruction |> Exec.run_async() |> Exec.await() == {:ok, %{}}
+      assert_received :instruction_action_dispatched
+
+      unless target == CallDataProbeAction do
+        assert {:ok, execution} = Exec.start(instruction)
+        refute_received :instruction_action_dispatched
+        assert {:ok, execution} = Exec.continue(execution)
+        assert Exec.result(execution) == {:ok, %{}}
+        assert_received :instruction_action_dispatched
+      end
+    end
+  end
+
   test "resolves each execution target once in synchronous, timed, and async calls" do
     counter = start_supervised!({Agent, fn -> %{} end})
     Process.register(counter, __MODULE__.Counts)

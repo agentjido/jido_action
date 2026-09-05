@@ -43,6 +43,10 @@ The constructor accepts maps with atom keys or keyword lists. Params, context,
 and metadata can be maps, keyword lists, or nil. Nil becomes an empty map.
 The target is required; explicit nil is an invalid executable target.
 
+A field value of `false` is invalid, including in a raw Instruction struct.
+Constructors reject it. Exec returns a structured error before Action work
+starts. A `false` value inside a valid map remains valid call data.
+
 The `action`, `flow`, and `opts` fields have been removed from the beta API.
 The constructor rejects these keys even when a valid `target` is also present
 or the removed value is nil or empty. The earlier `id` field stays removed.

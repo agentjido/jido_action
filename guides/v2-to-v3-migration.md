@@ -302,6 +302,12 @@ Params and context retain their shallow merge order: call-site values replace
 equal keys. Metadata remains descriptive caller data with no execution effect.
 An Instruction is not a portable JSON representation.
 
+The beta also corrects validation of raw Instruction structs. A `false` value
+for `params`, `context`, or `metadata` now fails instead of becoming an empty
+map. Constructors reject it, and Exec returns a structured error before
+Action work starts. Use `nil` or `%{}` for empty call data. Nil still becomes
+an empty map, and `false` values inside valid maps stay unchanged.
+
 ### Checked Downstream Callers
 
 The local source scan on 2026-09-05 found these migration paths. Dependency
