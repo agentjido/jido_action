@@ -208,18 +208,6 @@ records, expressions, conditions, lists, maps, and graph references. They do
 not return a partial Flow. Unknown-reference errors suppress a derived cycle
 error because that cycle result would be misleading.
 
-Graph diagnostics report duplicate occurrences first, then missing output
-references, then missing dependencies in component order. Within each
-component, missing dependency names are sorted. This preserves the stored
-diagnostic order; canonical construction checks explicit `after` names in
-author order. Both use the same graph rules. Duplicate or missing-reference
-errors suppress cycle analysis. Terminal Dispatch checks run only after
-those graph checks pass.
-
-Sharing these rules does not change the stored version, Registry contract,
-resource limits, or JSON error paths. Use `diagnose/2` for the complete error
-group; `decode/2` continues to return its first error.
-
 Document size, collection size, nesting, root type, and document version
 errors are terminal. Diagnostics do not traverse a document after one of
 these failures.

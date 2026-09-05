@@ -96,20 +96,8 @@ InputBinding, FanOut, and FanIn.
 `validate_executable/1` also checks Action and child Flow contracts. Neither
 function runs Action work.
 
-All authoring forms share the graph rules for duplicate component names,
-missing dependencies, cycles, and terminal Dispatch. `new/1` and `validate/1`
-keep the first error. For a component's missing dependencies, explicit
-`after` names are checked in author order before inferred references.
-
-### Beta Diagnostic Migration
-
-The public validation calls, exception types, messages, and detail keys do
-not change. DSL graph errors now point to the source declaration for a
-missing reference, duplicate component, or cycle. Update tests that expected
-the module's first line for these errors to expect the declaration line.
-For duplicate names across component kinds, the error points to the second
-occurrence. Source locations remain outside the canonical Flow value and
-do not change its semantic identity.
+All authoring forms use the same graph rules. DSL errors identify the source
+declaration; `new/1` and `validate/1` return the first error.
 
 Continue with [Flow DSL](flow-language.livemd),
 [Direct Construction And Builder](flow-builder.md), and
