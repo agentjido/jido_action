@@ -82,7 +82,7 @@ defmodule JidoActionTest.Exec.AsyncMailboxHygieneTest do
   test "an abnormal DOWN returns one terminal execution error" do
     handle = Exec.run_async(BlockingAction, %{value: 1}, %{test_pid: self()})
     assert_receive {:blocking_flow_node_started, worker}, 1_000
-    worker_monitor = Process.monitor(worker)
+    worker_monitor = monitor_worker(worker)
 
     Process.exit(handle.pid, :kill)
 
@@ -138,7 +138,7 @@ defmodule JidoActionTest.Exec.AsyncMailboxHygieneTest do
   test "cancel by PID claims the shared handle and leaves no mailbox residue" do
     handle = Exec.run_async(BlockingAction, %{value: 1}, %{test_pid: self()})
     assert_receive {:blocking_flow_node_started, worker}, 1_000
-    worker_monitor = Process.monitor(worker)
+    worker_monitor = monitor_worker(worker)
 
     assert :ok = Exec.cancel(handle.pid)
     assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :killed}, 1_000
@@ -168,11 +168,20 @@ defmodule JidoActionTest.Exec.AsyncMailboxHygieneTest do
       Exec.run_async(ContinueToBlocking, %{value: 1}, %{test_pid: self()}, max_continuations: 1)
 
     assert_receive {:blocking_flow_node_started, worker}, 1_000
-    worker_monitor = Process.monitor(worker)
+    worker_monitor = monitor_worker(worker)
 
     assert :ok = Exec.cancel(handle)
     assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :killed}, 1_000
     refute_handle_messages(handle)
+  end
+
+  defp monitor_worker(worker) do
+    monitor = Process.monitor(worker)
+    # Monitor requests are asynchronous. Confirm installation before another
+    # process kills the worker so the DOWN reason must be :killed, not :noproc.
+    assert {:monitored_by, monitors} = Process.info(worker, :monitored_by)
+    assert self() in monitors
+    monitor
   end
 
   defp with_released_action(value, fun) do

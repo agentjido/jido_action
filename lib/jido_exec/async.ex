@@ -4,6 +4,7 @@ defmodule Jido.Exec.Async do
   alias Jido.Exec
   alias Jido.Exec.Error
   alias Jido.Exec.Runtime
+  alias Jido.Instruction
 
   @default_await_timeout 5_000
   @stop_wait_ms 1_000
@@ -33,6 +34,7 @@ defmodule Jido.Exec.Async do
     owner = self()
     ref = make_ref()
     state = new_state()
+    {executable, opts} = prepare_options!(executable, opts)
     task_supervisor = task_supervisor!(opts)
     group_leader = Process.group_leader()
     logger_metadata = Logger.metadata()
@@ -49,7 +51,7 @@ defmodule Jido.Exec.Async do
       result
     end
 
-    case start_child(task_supervisor, work) do
+    case Runtime.start_child(task_supervisor, work) do
       {:ok, pid} ->
         handle = %{
           ref: ref,
@@ -517,6 +519,15 @@ defmodule Jido.Exec.Async do
     end
   end
 
+  defp prepare_options!(%Instruction{} = instruction, opts) do
+    case Instruction.prepare_run_options(instruction, opts) do
+      {:ok, opts} -> {%{instruction | opts: []}, opts}
+      {:error, error} -> raise error
+    end
+  end
+
+  defp prepare_options!(executable, opts), do: {executable, opts}
+
   defp task_supervisor!(opts) when is_list(opts) do
     case Runtime.task_supervisor(opts) do
       {:ok, supervisor} -> supervisor
@@ -529,11 +540,5 @@ defmodule Jido.Exec.Async do
             options: opts,
             retry: false
           })
-  end
-
-  defp start_child(task_supervisor, work) do
-    Task.Supervisor.start_child(task_supervisor, work)
-  catch
-    :exit, reason -> {:error, {:exit, reason}}
   end
 end

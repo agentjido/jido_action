@@ -160,6 +160,7 @@ defmodule JidoActionTest.Exec.TelemetryTest do
       end)
 
     assert_receive {:blocking_flow_node_started, worker}, 1_000
+    worker_monitor = Process.monitor(worker)
     assert {:error, timeout_error} = Task.await(task, 1_000)
     assert %Jido.Action.Error.TimeoutError{} = timeout_error
 
@@ -173,6 +174,7 @@ defmodule JidoActionTest.Exec.TelemetryTest do
     assert error_metadata.error_type == :timeout
     assert measurements.duration >= 0
     refute_received {@action_stop, _, _}
+    assert_receive {:DOWN, ^worker_monitor, :process, ^worker, _reason}, 1_000
     refute Process.alive?(worker)
   end
 
@@ -188,6 +190,7 @@ defmodule JidoActionTest.Exec.TelemetryTest do
       end)
 
     assert_receive {:blocking_flow_node_started, worker}, 1_000
+    worker_monitor = Process.monitor(worker)
     assert {:error, timeout_error} = Task.await(task, 1_000)
     assert %Jido.Flow.Error.TimeoutError{} = timeout_error
 
@@ -206,6 +209,7 @@ defmodule JidoActionTest.Exec.TelemetryTest do
     assert Map.drop(target_error, [:error, :error_type]) == target_start
     assert Map.drop(node_error, [:error, :error_type]) == node_start
     assert Map.drop(flow_error, [:error, :error_type]) == flow_start
+    assert_receive {:DOWN, ^worker_monitor, :process, ^worker, _reason}, 1_000
     refute Process.alive?(worker)
   end
 
@@ -214,6 +218,7 @@ defmodule JidoActionTest.Exec.TelemetryTest do
     handle = Exec.run_async(BlockingAction, %{value: 1}, %{test_pid: self()})
 
     assert_receive {:blocking_flow_node_started, worker}, 1_000
+    worker_monitor = Process.monitor(worker)
     assert :ok = Exec.cancel(handle)
 
     assert [
@@ -224,6 +229,7 @@ defmodule JidoActionTest.Exec.TelemetryTest do
     assert Map.drop(error_metadata, [:error, :error_type]) == start_metadata
     assert %Jido.Exec.Error.CancelledError{} = error_metadata.error
     assert error_metadata.error_type == :async_cancelled
+    assert_receive {:DOWN, ^worker_monitor, :process, ^worker, _reason}, 1_000
     refute Process.alive?(worker)
   end
 
@@ -232,6 +238,7 @@ defmodule JidoActionTest.Exec.TelemetryTest do
     handle = Exec.run_async(BlockingFlow, %{value: 1}, %{test_pid: self()})
 
     assert_receive {:blocking_flow_node_started, worker}, 1_000
+    worker_monitor = Process.monitor(worker)
     assert :ok = Exec.cancel(handle)
 
     assert [
@@ -249,6 +256,7 @@ defmodule JidoActionTest.Exec.TelemetryTest do
     assert Map.drop(target_error, [:error, :error_type]) == target_start
     assert Map.drop(node_error, [:error, :error_type]) == node_start
     assert Map.drop(flow_error, [:error, :error_type]) == flow_start
+    assert_receive {:DOWN, ^worker_monitor, :process, ^worker, _reason}, 1_000
     refute Process.alive?(worker)
   end
 
@@ -300,7 +308,7 @@ defmodule JidoActionTest.Exec.TelemetryTest do
       token = make_ref()
       context = %{test_pid: self(), token: token}
       action = InlineControlledFlow.step_action("first")
-      supervisor = Exec.task_supervisor_name(__MODULE__)
+      supervisor = __MODULE__.TaskSupervisor
       start_supervised!({Task.Supervisor, name: supervisor})
 
       {target, input, prefixes} =
@@ -313,7 +321,7 @@ defmodule JidoActionTest.Exec.TelemetryTest do
              [[:jido, :flow], [:jido, :flow, :node], [:jido, :flow, :target]]}
         end
 
-      opts = [max_concurrency: 1, jido: __MODULE__]
+      opts = [max_concurrency: 1, task_supervisor: __MODULE__.TaskSupervisor]
       opts = if terminal == :timeout, do: Keyword.put(opts, :timeout, 2_000), else: opts
       handle = Exec.run_async(target, input, context, opts)
       caller_monitor = Process.monitor(handle.pid)

@@ -5,7 +5,7 @@ defmodule Jido.Exec.Options do
   alias Jido.Exec.Runtime
   alias Jido.Flow.Error, as: FlowError
 
-  @routing_option_keys [:jido]
+  @routing_option_keys [:task_supervisor]
   @common_run_option_keys [:max_concurrency, :max_continuations | @routing_option_keys]
   @flow_run_option_keys @common_run_option_keys
   @flow_start_option_keys [:max_concurrency | @routing_option_keys]
@@ -68,14 +68,13 @@ defmodule Jido.Exec.Options do
   def validate_flow(opts, mode \\ :run) when mode in [:run, :start] do
     with :ok <- validate_keyword(opts),
          :ok <- validate_known_flow_options(opts, mode),
-         :ok <- validate_jido(opts, FlowError),
          {:ok, task_supervisor} <- validate_task_supervisor(opts, FlowError),
          max_concurrency = Keyword.get(opts, :max_concurrency, @default_max_concurrency),
          :ok <- validate_max_concurrency(max_concurrency, FlowError),
          {:ok, continuation_options} <- continuation_options(opts, mode) do
       {:ok,
        [max_concurrency: max_concurrency, task_supervisor: task_supervisor] ++
-         continuation_options ++ routing_options(opts)}
+         continuation_options}
     end
   end
 
@@ -84,9 +83,8 @@ defmodule Jido.Exec.Options do
           {:ok, keyword()} | {:error, Exception.t()}
   def validate_action(opts, executable_type) do
     with :ok <- validate_action_keyword(opts),
-         :ok <- validate_known_action_options(opts, executable_type),
-         :ok <- validate_jido(opts, ActionError),
          {:ok, task_supervisor} <- validate_task_supervisor(opts, ActionError),
+         :ok <- validate_known_action_options(opts, executable_type),
          max_concurrency = Keyword.get(opts, :max_concurrency, @default_max_concurrency),
          :ok <- validate_max_concurrency(max_concurrency, ActionError),
          {:ok, max_continuations} <- continuation_limit(opts, ActionError) do
@@ -95,14 +93,7 @@ defmodule Jido.Exec.Options do
          max_concurrency: max_concurrency,
          max_continuations: max_continuations,
          task_supervisor: task_supervisor
-       ] ++ routing_options(opts)}
-    end
-  end
-
-  defp routing_options(opts) do
-    case Keyword.fetch(opts, :jido) do
-      {:ok, jido} -> [jido: jido]
-      :error -> []
+       ]}
     end
   end
 
@@ -120,38 +111,13 @@ defmodule Jido.Exec.Options do
     end
   end
 
-  defp validate_jido(opts, error_module) do
-    case Keyword.fetch(opts, :jido) do
-      :error ->
-        :ok
-
-      {:ok, nil} ->
-        :ok
-
-      {:ok, jido} when is_atom(jido) ->
-        :ok
-
-      {:ok, jido} ->
-        {:error,
-         execution_option_error(error_module, "jido option must be an atom or nil", %{
-           option: :jido,
-           value: jido
-         })}
-    end
-  end
-
   defp validate_task_supervisor(opts, error_module) do
     case Runtime.task_supervisor(opts) do
       {:ok, supervisor} ->
         {:ok, supervisor}
 
       {:error, error} ->
-        {:error,
-         execution_option_error(error_module, Exception.message(error), %{
-           option: :jido,
-           jido: Keyword.get(opts, :jido),
-           task_supervisor: Runtime.task_supervisor_name(opts)
-         })}
+        {:error, execution_option_error(error_module, Exception.message(error), error.details)}
     end
   end
 

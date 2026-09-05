@@ -10,7 +10,7 @@ All resolved targets accept these options in `run/4`:
 | Option | Default | Rule |
 | --- | --- | --- |
 | `timeout` | `:infinity` | `:infinity` or a non-negative millisecond integer. |
-| `jido` | `nil` | A Jido instance module or `nil`. |
+| `task_supervisor` | `Jido.Exec.TaskSupervisor` | A local Task.Supervisor PID, registered name, or via reference. |
 | `max_continuations` | `256` | An integer from `0` through `10_000`. |
 | `max_concurrency` | `8` | A positive integer used if the chain runs a Flow. |
 
@@ -21,7 +21,7 @@ and active child work. It does not retry the target.
 rejects the first continuation. The fixed upper bound prevents a caller from
 removing this safety limit. The complete-call timeout is a second guard.
 
-`start/4` accepts `jido` and `max_concurrency`, but not `timeout` or
+`start/4` accepts `task_supervisor` and `max_concurrency`, but not `timeout` or
 `max_continuations`. A paused step-wise execution does not have one
 complete-call clock and cannot run a continuation. Use `continue/1` to run it
 to completion.
@@ -49,48 +49,49 @@ Unknown options are errors. An Action does not use `max_concurrency` itself,
 but its continuation can select a Flow. An Instruction follows the option
 rules of its target. The removed Flow `async:` option is an unknown option.
 
-## Jido Instance Routing
+## Task Supervisor References
 
-`jido: MyApp.Jido` routes Action workers through
-`MyApp.Jido.TaskSupervisor`.
+The host owns the Task.Supervisor, its capacity, and its shutdown policy.
+Pass a local PID, registered name, or `{:via, module, name}` reference. Omit
+`task_supervisor` to use `Jido.Exec.TaskSupervisor`.
 
 ```elixir
-Jido.Exec.run(
-  MyApp.Flows.BuildReport,
-  input,
-  context,
-  jido: MyApp.Jido,
-  max_concurrency: 4
+# Add this child to the application supervision tree.
+{Task.Supervisor, name: MyApp.ReportTasks, max_children: 1_000}
+
+Jido.Exec.run(MyApp.Flows.BuildReport, input, context,
+  task_supervisor: MyApp.ReportTasks
 )
 ```
 
-The Jido instance must be running. Exec returns a structured error if the
-named Task Supervisor does not exist. It does not fall back to the global
-supervisor.
-
-When `jido` is absent or `nil`, Exec uses `Jido.Exec.TaskSupervisor`.
-
-### Instance Runtime Setup
-
-A higher-level runtime that owns a Jido instance must start one Task Supervisor
-under that instance. Use `Jido.Exec.task_supervisor_name/1` instead of copying
-the registered-name rule.
+For partitioned supervision, start a PartitionSupervisor with Task.Supervisor
+children and pass a route selected by the caller:
 
 ```elixir
-children = [
-  {Task.Supervisor,
-   name: Jido.Exec.task_supervisor_name(MyApp.Jido),
-   max_children: 1_000}
-]
+{PartitionSupervisor, child_spec: Task.Supervisor, name: MyApp.ReportPartitions}
+
+route = {:via, PartitionSupervisor, {MyApp.ReportPartitions, self()}}
+Jido.Exec.run(MyApp.Flows.BuildReport, input, context, task_supervisor: route)
 ```
 
-The supervisor name in this child specification is the same name selected by
-`jido: MyApp.Jido`. The runtime owns its capacity and shutdown policy. A runtime
-that includes this child should start it automatically when the instance
-starts. Its users must not start a second supervisor with the same name.
+Exec keeps the same reference and partition key through nested work and
+continuations. Names and via routes resolve at each task start, so later work
+can use a replacement supervisor. A PID selects only that process.
 
-Nested Flows inherit the routing and scheduling options. Options do not change
-Flow dependencies.
+The supervisor must be local; `nil`, remote references, and `:global` routes
+are invalid. Missing supervisors and task-start failures produce structured
+errors. Exec does not fall back to another supervisor or restart interrupted
+work. Failure details include the supplied `task_supervisor` and `reason`.
+
+The supervisor owns Action workers and async control tasks. An async call
+needs a control slot in addition to its Action worker slots. `run_async/4`
+raises `InvalidInputError` for invalid routing or `AsyncExecutionError` if its
+control task cannot start. After it returns a handle, failures use the normal
+async result contract.
+
+`max_concurrency` limits Flow work, not every helper process or all callers
+that share a supervisor. Context values, including `context.jido`, remain
+caller data and do not select the supervisor.
 
 ## Policy Boundary
 

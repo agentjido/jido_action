@@ -104,7 +104,8 @@ returns a handle with `ref`, `pid`, `owner`, `monitor_ref`, and shared `state`
 fields. Treat these fields as one handle. The process that calls `run_async/4`
 owns the handle. Only that process can await, handle, or cancel it.
 
-Call `handle_message/2` from `handle_info/2` or an equivalent OTP callback. It
+Start the call in the process that handles its completion. Use
+`handle_message/2` in `handle_info/2` to keep a GenServer responsive. It
 returns `{:done, result}` for the exact completion message and `:ignore` for an
 unrelated message. A matching process exit returns the execution error inside
 `{:done, {:error, error}}`. An invalid handle or owner returns the outer
@@ -135,7 +136,7 @@ All targets accept:
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `timeout` | `:infinity` | Complete-call limit for `run/4`. |
-| `jido` | `nil` | Jido instance used for Action worker routing. |
+| `task_supervisor` | `Jido.Exec.TaskSupervisor` | Local Task.Supervisor reference for Action workers and async control. |
 | `max_continuations` | `256` | Maximum continuations in one complete call. |
 | `max_concurrency` | `8` | Bounds ready Flow work if the chain runs a Flow. |
 
@@ -153,7 +154,7 @@ executable and starts the target in the same complete call. The timeout and
 continuation limit cover the full chain. See
 [Continue to Another Executable](continuations.md).
 
-`start/4` accepts `jido` and `max_concurrency`. It does not accept a timeout or
+`start/4` accepts `task_supervisor` and `max_concurrency`. It does not accept a timeout or
 Dispatch because a paused execution cannot run a continuation as part of one
 complete call.
 
@@ -261,6 +262,6 @@ telemetry delivery. They do not have a finite complete-call deadline.
 
 Exec provides one in-memory execution session. It provides validation, process
 ownership, whole-call timeout, owner-bound async handles, optional
-concurrency, and Jido instance routing. It does not provide automatic retry,
+concurrency, and explicit supervisor routing. It does not provide automatic retry,
 per-node deadlines, durable cancellation, persistence, rewind, queues,
 recovery, or distributed coordination.

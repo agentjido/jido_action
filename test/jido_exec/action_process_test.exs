@@ -51,9 +51,13 @@ defmodule JidoActionTest.Exec.ActionProcessTest do
           Exec.run(target, input, context)
         end)
 
+      on_exit(fn -> Process.exit(caller, :kill) end)
       assert_receive {:blocking_flow_node_started, worker}, 2_000, to_string(form)
       refute worker == caller
       worker_monitor = Process.monitor(worker)
+      # Confirm the monitor before caller cleanup can terminate this worker.
+      assert {:monitored_by, monitors} = Process.info(worker, :monitored_by)
+      assert self() in monitors
 
       Process.exit(caller, :kill)
 
@@ -70,9 +74,12 @@ defmodule JidoActionTest.Exec.ActionProcessTest do
         Exec.run(BlockingAction, %{value: 1}, %{test_pid: owner}, timeout: 10_000)
       end)
 
+    on_exit(fn -> Process.exit(caller, :kill) end)
     assert_receive {:blocking_flow_node_started, worker}, 1_000
     refute worker == caller
     worker_monitor = Process.monitor(worker)
+    assert {:monitored_by, monitors} = Process.info(worker, :monitored_by)
+    assert self() in monitors
 
     Process.exit(caller, :kill)
 
@@ -115,7 +122,7 @@ defmodule JidoActionTest.Exec.ActionProcessTest do
     assert_receive {:action_result, :second, {:ok, %{value: 2}}}, 1_000
   end
 
-  test "routes every executable form through one Jido instance" do
+  test "routes every executable form through one named supervisor" do
     instance = unique_module("JidoInstance")
     task_supervisor = Module.concat(instance, TaskSupervisor)
     start_supervised!({Task.Supervisor, name: task_supervisor})
@@ -129,7 +136,9 @@ defmodule JidoActionTest.Exec.ActionProcessTest do
                                                                          } ->
       caller =
         Task.async(fn ->
-          result = Exec.run(target, input, context, jido: instance, timeout: 10_000)
+          result =
+            Exec.run(target, input, context, task_supervisor: task_supervisor, timeout: 10_000)
+
           send(owner, {:instance_routed_result, form, result})
         end)
 

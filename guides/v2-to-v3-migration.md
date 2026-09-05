@@ -268,7 +268,7 @@ Apply these field changes:
 
 Version 3 temporarily accepts `action:` and `opts` as migration shims. These
 paths emit warnings. Replace them before the upgrade is complete. The shim
-for `opts` forwards `timeout` and `jido`; it does not restore removed version
+for `opts` forwards `timeout` and `task_supervisor`; it does not restore removed version
 2 execution policy.
 
 See [Migration Shims](migration-shims.md) for the exact warning and error
@@ -377,7 +377,7 @@ timeout = Application.fetch_env!(:my_app, :action_timeout)
 
 Jido.Exec.run(action, params, context,
   timeout: timeout,
-  jido: MyApp.Jido
+  task_supervisor: MyApp.Jido.TaskSupervisor
 )
 ```
 
@@ -487,10 +487,9 @@ Version 3 uses `Jido.Exec.TaskSupervisor`.
 
 Replace direct references to the old global supervisor name.
 
-Instance routing keeps `MyApp.Jido.TaskSupervisor` for
-`jido: MyApp.Jido`. The selected instance must start that supervisor. Version
-3 returns an error when the instance supervisor is not running; it does not
-fall back to the global supervisor.
+Pass a custom supervisor directly with `task_supervisor: reference`.
+The host must start it before execution. See
+[Task Supervisor References](configuration.md#task-supervisor-references).
 
 ## Version 2 To Version 3 Migration Checklist
 

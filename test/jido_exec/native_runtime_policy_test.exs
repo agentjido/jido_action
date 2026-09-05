@@ -397,7 +397,10 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
       )
     )
 
-    for opts <- [[jido: instance], [jido: instance, timeout: 1_000]] do
+    for opts <- [
+          [task_supervisor: task_supervisor],
+          [task_supervisor: task_supervisor, timeout: 1_000]
+        ] do
       assert {:error,
               %Jido.Action.Error.ExecutionFailureError{
                 message: "action execution process could not start",
@@ -458,25 +461,25 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     Enum.each(workers, &assert_process_stops/1)
   end
 
-  test "validates the Jido instance routing option for Actions and Flows" do
+  test "validates the supervisor reference for Actions and Flows" do
     flow = FlowFixtures.math_flow!()
 
-    assert {:error, %InvalidInputError{details: %{option: :jido, value: "bad"}}} =
-             Exec.run(Add, %{value: 1}, %{}, jido: "bad")
+    assert {:error, %InvalidInputError{details: %{option: :task_supervisor, value: "bad"}}} =
+             Exec.run(Add, %{value: 1}, %{}, task_supervisor: "bad")
 
-    assert {:error, %InvalidExecutionError{details: %{option: :jido, value: "bad"}}} =
-             Exec.run(flow, %{value: 1}, %{}, jido: "bad")
+    assert {:error, %InvalidExecutionError{details: %{option: :task_supervisor, value: "bad"}}} =
+             Exec.run(flow, %{value: 1}, %{}, task_supervisor: "bad")
 
     missing_instance = Module.concat(__MODULE__, MissingJidoInstance)
     missing_supervisor = Module.concat(missing_instance, TaskSupervisor)
 
     for {form, {target, input, context}} <-
           ExecFixtures.blocking_execution_forms(BlockingFlow, self()) do
-      case Exec.run(target, input, context, jido: missing_instance) do
+      case Exec.run(target, input, context, task_supervisor: missing_supervisor) do
         {:error,
          %InvalidInputError{
            message: "Task Supervisor is not running",
-           details: %{jido: ^missing_instance, task_supervisor: ^missing_supervisor}
+           details: %{task_supervisor: ^missing_supervisor}
          }}
         when form in [:action, :action_instruction] ->
           :ok
@@ -484,7 +487,7 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
         {:error,
          %InvalidExecutionError{
            message: "Task Supervisor is not running",
-           details: %{jido: ^missing_instance, task_supervisor: ^missing_supervisor}
+           details: %{task_supervisor: ^missing_supervisor}
          }}
         when form in [:flow_value, :flow_module, :flow_instruction, :subflow] ->
           :ok

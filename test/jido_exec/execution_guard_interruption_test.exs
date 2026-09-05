@@ -9,6 +9,7 @@ defmodule JidoActionTest.Exec.ExecutionGuardInterruptionTest do
   alias JidoActionTest.Fixtures.Execution, as: ExecFixtures
   alias JidoActionTest.Fixtures.Actions.RecorderAction
 
+  @node_start [:jido, :flow, :node, :start]
   @node_stop [:jido, :flow, :node, :stop]
 
   test "marks a mutation indeterminate when its owner exits during Action work" do
@@ -20,15 +21,16 @@ defmodule JidoActionTest.Exec.ExecutionGuardInterruptionTest do
       )
 
     assert {:ok, execution} = Exec.start(flow, %{}, %{test_pid: self()})
-    {caller, caller_monitor} = spawn_monitor(fn -> Exec.step(execution) end)
+    {caller, caller_monitor, helper, helper_monitor} = start_step(execution)
 
     assert_receive {:blocking_flow_node_started, worker}, 1_000
-    worker_monitor = Process.monitor(worker)
+    worker_monitor = monitor_process(worker)
     Process.exit(caller, :kill)
 
     assert_receive {:DOWN, ^caller_monitor, :process, ^caller, :killed}, 1_000
     assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :killed}, 1_000
-    assert_guard_indeterminate(execution)
+    assert_receive {:DOWN, ^helper_monitor, :process, ^helper, :normal}, 1_000
+    assert :atomics.get(execution.guard, 2) == 1
 
     assert {:error, %InvalidExecutionError{details: %{reason: :indeterminate}}} =
              Exec.step(execution)
@@ -43,12 +45,13 @@ defmodule JidoActionTest.Exec.ExecutionGuardInterruptionTest do
       :telemetry.attach(handler, @node_stop, &__MODULE__.kill_owner_after_node_stop/4, self())
 
     on_exit(fn -> :telemetry.detach(handler) end)
-    {caller, caller_monitor} = spawn_monitor(fn -> Exec.step(execution) end)
+    {caller, caller_monitor, helper, helper_monitor} = start_step(execution)
 
     assert_receive {RecorderAction, %{value: :once}}, 1_000
     assert_receive {:node_stopped_before_guard_advance, ^caller}, 1_000
     assert_receive {:DOWN, ^caller_monitor, :process, ^caller, :killed}, 1_000
-    assert_guard_indeterminate(execution)
+    assert_receive {:DOWN, ^helper_monitor, :process, ^helper, :normal}, 1_000
+    assert :atomics.get(execution.guard, 2) == 1
 
     assert {:error, %InvalidExecutionError{details: %{reason: :indeterminate}}} =
              Exec.step(execution)
@@ -88,7 +91,7 @@ defmodule JidoActionTest.Exec.ExecutionGuardInterruptionTest do
       end)
 
     assert_receive {:guard_claimed, ^owner, helper}, 1_000
-    helper_monitor = Process.monitor(helper)
+    helper_monitor = monitor_process(helper)
 
     {claimant, claimant_monitor} =
       spawn_monitor(fn -> send(test_pid, {:failed_claim, ExecutionGuard.claim(execution)}) end)
@@ -147,17 +150,50 @@ defmodule JidoActionTest.Exec.ExecutionGuardInterruptionTest do
     Process.exit(self(), :kill)
   end
 
-  defp assert_guard_indeterminate(%{guard: guard}) do
-    assert await_guard_state(guard, 10_000) == :indeterminate
+  def capture_guard_before_node_start(
+        @node_start,
+        _measurements,
+        %{execution_id: execution_id},
+        {test_pid, execution_id, token}
+      ) do
+    send(test_pid, {token, :guard_ready, self()})
+    receive do: ({^token, :resume} -> :ok)
   end
 
-  defp await_guard_state(_guard, 0), do: :not_indeterminate
+  def capture_guard_before_node_start(_event, _measurements, _metadata, _config), do: :ok
 
-  defp await_guard_state(guard, attempts) do
-    case :atomics.get(guard, 2) do
-      1 -> :indeterminate
-      _state -> await_guard_state(guard, attempts - 1)
-    end
+  defp start_step(execution) do
+    token = make_ref()
+    handler = {__MODULE__, token}
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        @node_start,
+        &__MODULE__.capture_guard_before_node_start/4,
+        {self(), execution.id, token}
+      )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+    {caller, caller_monitor} = spawn_monitor(fn -> Exec.step(execution) end)
+    on_exit(fn -> Process.exit(caller, :kill) end)
+    assert_receive {^token, :guard_ready, ^caller}, 1_000
+
+    # At node start the mutation is claimed, but no Action worker exists yet.
+    # Caller death alone does not confirm that this helper handled its DOWN.
+    assert {:monitors, [{:process, helper}]} = Process.info(caller, :monitors)
+    helper_monitor = monitor_process(helper)
+    :ok = :telemetry.detach(handler)
+    send(caller, {token, :resume})
+    {caller, caller_monitor, helper, helper_monitor}
+  end
+
+  defp monitor_process(pid) do
+    monitor = Process.monitor(pid)
+    # Confirm registration before another process can stop the monitored PID.
+    assert {:monitored_by, monitors} = Process.info(pid, :monitored_by)
+    assert self() in monitors
+    monitor
   end
 
   defp recorder_flow(name) do

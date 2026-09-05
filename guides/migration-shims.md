@@ -128,10 +128,11 @@ Jido.Exec.run(legacy_instruction, %{}, %{}, timeout: 10_000)
 
 ### Option Results
 
-| Version 2 option | Version 3 result | Migration |
+| Instruction option | Version 3 result | Migration |
 | --- | --- | --- |
 | `timeout` | Forwarded by `run/4` | Pass it directly to `Jido.Exec.run/4`. |
-| `jido` | Forwarded | Pass it directly to `Jido.Exec.run/4` or `start/4`. |
+| `task_supervisor` | Forwarded | Pass it directly to `Jido.Exec.run/4` or `start/4`. |
+| `jido` | Rejected | Use an explicit `task_supervisor:` reference. |
 | `max_retries` | Warned and not applied | Put retry count in the caller or Jido runtime. |
 | `backoff` | Warned and not applied | Put retry delay in the caller or Jido runtime. |
 | `log_level` | Warned and not applied | Configure logging at the application boundary. |
@@ -162,7 +163,7 @@ migration warnings:
 - `Jido.Exec.run/4` as the complete-call execution boundary;
 - `Jido.Exec.run_async/4`, `await/1`, `await/2`, and `cancel/1` as the
   owner-bound asynchronous execution boundary; and
-- `jido:` instance routing.
+- `task_supervisor:` local supervisor routing.
 
 `timeout` also remains an Exec option. Its location and default changed. Pass
 it to `Jido.Exec.run/4`; the version 3 default is `:infinity`.

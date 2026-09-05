@@ -31,7 +31,7 @@ defmodule JidoActionTest.Exec.BlockedTelemetryTest do
   end
 
   setup do
-    supervisor = Exec.task_supervisor_name(__MODULE__)
+    supervisor = __MODULE__.TaskSupervisor
     start_supervised!({Task.Supervisor, name: supervisor})
     %{supervisor: supervisor}
   end
@@ -47,7 +47,7 @@ defmodule JidoActionTest.Exec.BlockedTelemetryTest do
         result =
           Exec.run(BlockingAction, %{value: 1}, %{test_pid: owner},
             timeout: 1_000,
-            jido: __MODULE__
+            task_supervisor: __MODULE__.TaskSupervisor
           )
 
         send(owner, {token, :result, result})
@@ -81,7 +81,9 @@ defmodule JidoActionTest.Exec.BlockedTelemetryTest do
       monitors_before = Process.info(self(), :monitors)
 
       handle =
-        Exec.run_async(ControlledAction, %{}, %{test_pid: self(), token: token}, jido: __MODULE__)
+        Exec.run_async(ControlledAction, %{}, %{test_pid: self(), token: token},
+          task_supervisor: __MODULE__.TaskSupervisor
+        )
 
       on_exit(fn -> Process.exit(handle.pid, :kill) end)
       assert_receive {^token, :handler_blocked, handler}, 1_000
@@ -124,10 +126,17 @@ defmodule JidoActionTest.Exec.BlockedTelemetryTest do
 
           case mode do
             :sync ->
-              Exec.run(ControlledAction, %{}, context, timeout: 10_000, jido: __MODULE__)
+              Exec.run(ControlledAction, %{}, context,
+                timeout: 10_000,
+                task_supervisor: __MODULE__.TaskSupervisor
+              )
 
             :async ->
-              handle = Exec.run_async(ControlledAction, %{}, context, jido: __MODULE__)
+              handle =
+                Exec.run_async(ControlledAction, %{}, context,
+                  task_supervisor: __MODULE__.TaskSupervisor
+                )
+
               send(owner, {token, :handle, handle.pid})
 
               receive do
@@ -179,7 +188,7 @@ defmodule JidoActionTest.Exec.BlockedTelemetryTest do
         result =
           Exec.run(flow, %{}, %{test_pid: owner, token: token},
             timeout: 1_000,
-            jido: __MODULE__
+            task_supervisor: __MODULE__.TaskSupervisor
           )
 
         send(owner, {token, :result, result})
@@ -212,7 +221,7 @@ defmodule JidoActionTest.Exec.BlockedTelemetryTest do
           result =
             Exec.run(ControlledAction, %{}, %{test_pid: owner, token: token},
               timeout: 10_000,
-              jido: __MODULE__
+              task_supervisor: __MODULE__.TaskSupervisor
             )
 
           send(owner, {token, :result, result})
@@ -257,7 +266,9 @@ defmodule JidoActionTest.Exec.BlockedTelemetryTest do
       on_exit(fn -> :telemetry.detach(handler_id) end)
 
       handle =
-        Exec.run_async(ControlledAction, %{}, %{test_pid: self(), token: token}, jido: __MODULE__)
+        Exec.run_async(ControlledAction, %{}, %{test_pid: self(), token: token},
+          task_supervisor: __MODULE__.TaskSupervisor
+        )
 
       on_exit(fn -> Process.exit(handle.pid, :kill) end)
       assert_receive {^token, :handler_failed, handler}, 1_000
@@ -287,7 +298,9 @@ defmodule JidoActionTest.Exec.BlockedTelemetryTest do
         )
 
       handle =
-        Exec.run_async(flow, %{}, %{test_pid: self(), token: token}, jido: __MODULE__)
+        Exec.run_async(flow, %{}, %{test_pid: self(), token: token},
+          task_supervisor: __MODULE__.TaskSupervisor
+        )
 
       on_exit(fn -> Process.exit(handle.pid, :kill) end)
       assert_receive {^token, :action_started, action, _tracker}, 1_000
@@ -335,7 +348,9 @@ defmodule JidoActionTest.Exec.BlockedTelemetryTest do
     token = attach_blocking([:jido, :action, :start], true)
 
     handle =
-      Exec.run_async(ControlledAction, %{}, %{test_pid: self(), token: token}, jido: __MODULE__)
+      Exec.run_async(ControlledAction, %{}, %{test_pid: self(), token: token},
+        task_supervisor: __MODULE__.TaskSupervisor
+      )
 
     on_exit(fn -> Process.exit(handle.pid, :kill) end)
     assert_receive {^token, :handler_blocked, handler}, 1_000
@@ -367,7 +382,11 @@ defmodule JidoActionTest.Exec.BlockedTelemetryTest do
           output: Ref.result("child")
         )
 
-      handle = Exec.run_async(flow, %{}, %{test_pid: self(), token: token}, jido: __MODULE__)
+      handle =
+        Exec.run_async(flow, %{}, %{test_pid: self(), token: token},
+          task_supervisor: __MODULE__.TaskSupervisor
+        )
+
       on_exit(fn -> Process.exit(handle.pid, :kill) end)
       assert_receive {^token, :handler_blocked, handler}, 1_000
       on_exit(fn -> Process.exit(handler, :kill) end)
@@ -405,7 +424,7 @@ defmodule JidoActionTest.Exec.BlockedTelemetryTest do
 
     for mode <- [:sync, :async] do
       target = JidoActionTest.Fixtures.Actions.Add
-      opts = [timeout: 1_000, jido: __MODULE__]
+      opts = [timeout: 1_000, task_supervisor: __MODULE__.TaskSupervisor]
 
       result =
         case mode do

@@ -39,8 +39,8 @@ defmodule Jido.Instruction do
 
   @target_fields [:target, :action, :flow]
   @removed_legacy_fields [:id]
-  @forwarded_legacy_run_option_keys [:timeout, :jido]
-  @forwarded_legacy_start_option_keys [:jido]
+  @forwarded_legacy_run_option_keys [:timeout, :task_supervisor]
+  @forwarded_legacy_start_option_keys [:task_supervisor]
   @start_rejected_legacy_option_keys [:timeout]
   @removed_legacy_option_keys [
     :max_retries,

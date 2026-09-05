@@ -87,38 +87,27 @@ defmodule Jido.Exec do
 
   @type async_control :: %{required(:ref) => reference(), required(:owner) => pid()}
 
-  @doc """
-  Returns the registered Task Supervisor name for an Exec route.
+  @typedoc "A local Task.Supervisor PID, registered name, or via reference."
+  @type task_supervisor :: pid() | atom() | {:via, module(), term()}
 
-  Pass `nil` for the global Exec supervisor. Pass a Jido instance name for an
-  instance-owned supervisor. This function only returns the required name. It
-  does not start the supervisor.
+  @typedoc "Options for run-to-completion execution."
+  @type run_option ::
+          {:task_supervisor, task_supervisor()}
+          | {:timeout, timeout()}
+          | {:max_concurrency, pos_integer()}
+          | {:max_continuations, non_neg_integer()}
 
-      Jido.Exec.task_supervisor_name(nil)
-      #=> Jido.Exec.TaskSupervisor
-
-      Jido.Exec.task_supervisor_name(MyApp.Jido)
-      #=> MyApp.Jido.TaskSupervisor
-
-  A higher-level runtime can use this function when it builds its supervision
-  tree. Calls that use `jido: MyApp.Jido` route Action work through the same
-  name.
-  """
-  @spec task_supervisor_name(atom() | nil) :: atom()
-  def task_supervisor_name(nil), do: Jido.Exec.TaskSupervisor
-  def task_supervisor_name(jido) when is_atom(jido), do: Module.concat(jido, TaskSupervisor)
-
-  def task_supervisor_name(jido) do
-    raise ArgumentError, "Jido instance must be an atom or nil, got: #{inspect(jido)}"
-  end
+  @typedoc "Options for a paused Flow execution."
+  @type start_option ::
+          {:task_supervisor, task_supervisor()} | {:max_concurrency, pos_integer()}
 
   @doc """
   Runs an executable Jido artifact.
 
-  All targets accept `jido: MyApp.Jido` for Jido instance routing. This option
-  runs Action work under `MyApp.Jido.TaskSupervisor`. The instance must be
-  running. Exec does not fall back to its global Task Supervisor when a caller
-  requests an instance.
+  The `task_supervisor:` option accepts a local Task.Supervisor PID, name, or
+  via route. It defaults to `Jido.Exec.TaskSupervisor`. Exec preserves the route
+  through nested work and continuations. Names resolve at each task start;
+  a PID selects one process. An unavailable supervisor is an error.
 
   All targets accept `timeout: milliseconds | :infinity`. The default is
   `:infinity`. A finite timeout covers the complete call and terminates its
@@ -137,7 +126,8 @@ defmodule Jido.Exec do
   through 10,000. This limit and the complete-call timeout stop infinite
   continuation chains.
   """
-  @spec run(term(), map() | keyword() | nil, map() | keyword() | nil, keyword()) :: exec_result()
+  @spec run(term(), map() | keyword() | nil, map() | keyword() | nil, [run_option()]) ::
+          exec_result()
   def run(executable, input \\ %{}, context \\ %{}, opts \\ []) do
     do_run(executable, input, context, opts, nil)
   end
@@ -304,8 +294,13 @@ defmodule Jido.Exec do
   The handle is tied to the mailbox of the process that starts the execution.
   Only that process can wait for, handle, or cancel it. These operations are
   alternative one-shot terminal consumers.
+
+  Invalid routing raises `Jido.Action.Error.InvalidInputError` before a handle
+  exists. Failure to start the async control task raises
+  `Jido.Exec.Error.AsyncExecutionError`. Once a handle exists, failures use its
+  normal result and message contract.
   """
-  @spec run_async(term(), map() | keyword() | nil, map() | keyword() | nil, keyword()) ::
+  @spec run_async(term(), map() | keyword() | nil, map() | keyword() | nil, [run_option()]) ::
           async_ref()
   def run_async(executable, input \\ %{}, context \\ %{}, opts \\ []) do
     Async.start(executable, input, context, opts)
@@ -358,7 +353,7 @@ defmodule Jido.Exec do
   and run options before it returns. The returned execution is paused before
   the first native Runic runnable.
 
-  `:max_concurrency` and common `:jido` routing are stored on the execution.
+  `:max_concurrency` and the `:task_supervisor` reference are stored on the execution.
   `wave/1` and `continue/1` use the scheduling options. `step/1` and `step/2`
   always execute one runnable.
 
@@ -366,7 +361,7 @@ defmodule Jido.Exec do
   `:timeout` option. The step-wise API also does not accept retry, deadline,
   asynchronous execution, cancellation, persistence, or rewind options.
   """
-  @spec start(term(), map() | keyword() | nil, map() | keyword() | nil, keyword()) ::
+  @spec start(term(), map() | keyword() | nil, map() | keyword() | nil, [start_option()]) ::
           {:ok, Execution.t()} | {:error, Exception.t()}
   def start(executable, input \\ %{}, context \\ %{}, opts \\ []) do
     execution_id = Telemetry.execution_id()
