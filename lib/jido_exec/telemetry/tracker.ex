@@ -27,7 +27,7 @@ defmodule Jido.Exec.Telemetry.Tracker do
   def close(tracker, span, suffix, extra_metadata)
       when is_pid(tracker) and suffix in [:stop, :error] and is_map(extra_metadata) do
     stopped_at = System.monotonic_time()
-    GenServer.call(tracker, {:close, span, suffix, extra_metadata, stopped_at}, @call_timeout)
+    GenServer.call(tracker, {:close, span.id, suffix, extra_metadata, stopped_at}, @call_timeout)
   catch
     :exit, _reason -> :ok
   end
@@ -99,8 +99,8 @@ defmodule Jido.Exec.Telemetry.Tracker do
      }}
   end
 
-  def handle_call({:close, span, suffix, extra_metadata, stopped_at}, _from, state) do
-    case Map.pop(state.spans, span.id) do
+  def handle_call({:close, span_id, suffix, extra_metadata, stopped_at}, _from, state) do
+    case Map.pop(state.spans, span_id) do
       {nil, _spans} ->
         {:reply, :ok, state}
 
