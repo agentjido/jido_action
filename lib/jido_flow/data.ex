@@ -31,29 +31,29 @@ defmodule Jido.Flow.Data do
   @spec validate_key(term()) :: :ok | {:error, Error.InvalidDefinitionError.t()}
   def validate_key(key), do: validate_key(key, [])
 
-  defp validate(value, _path)
+  defp validate(value, _path_rev)
        when is_nil(value) or is_boolean(value) or is_integer(value) or is_float(value) or
               is_atom(value),
        do: :ok
 
-  defp validate(value, path) when is_binary(value) do
+  defp validate(value, path_rev) when is_binary(value) do
     if String.valid?(value),
       do: :ok,
-      else: error("flow data strings must be valid UTF-8", path)
+      else: error("flow data strings must be valid UTF-8", path_rev)
   end
 
-  defp validate(value, path) when is_list(value) do
+  defp validate(value, path_rev) when is_list(value) do
     if List.improper?(value) do
-      error("flow data must contain proper lists", path)
+      error("flow data must contain proper lists", path_rev)
     else
-      validate_list(value, path, 0)
+      validate_list(value, path_rev, 0)
     end
   end
 
-  defp validate(value, path) when is_map(value) and not is_struct(value) do
+  defp validate(value, path_rev) when is_map(value) and not is_struct(value) do
     Enum.reduce_while(value, :ok, fn {key, item}, :ok ->
-      with :ok <- validate_key(key, path),
-           :ok <- validate(item, path ++ [key]) do
+      with :ok <- validate_key(key, path_rev),
+           :ok <- validate(item, [key | path_rev]) do
         {:cont, :ok}
       else
         {:error, error} -> {:halt, {:error, error}}
@@ -61,37 +61,38 @@ defmodule Jido.Flow.Data do
     end)
   end
 
-  defp validate(value, path) do
+  defp validate(value, path_rev) do
     {:error,
      Error.validation_error("flow data contains an unsupported value", %{
-       path: path,
+       path: Enum.reverse(path_rev),
        value_type: value_type(value)
      })}
   end
 
-  defp validate_list([], _path, _index), do: :ok
+  defp validate_list([], _path_rev, _index), do: :ok
 
-  defp validate_list([item | rest], path, index) do
-    with :ok <- validate(item, path ++ [index]) do
-      validate_list(rest, path, index + 1)
+  defp validate_list([item | rest], path_rev, index) do
+    with :ok <- validate(item, [index | path_rev]) do
+      validate_list(rest, path_rev, index + 1)
     end
   end
 
-  defp validate_key(key, path) when is_binary(key), do: validate(key, path)
+  defp validate_key(key, path_rev) when is_binary(key), do: validate(key, path_rev)
 
-  defp validate_key(key, _path)
+  defp validate_key(key, _path_rev)
        when (is_integer(key) and key >= 0) or (is_atom(key) and not is_nil(key)),
        do: :ok
 
-  defp validate_key(key, path) do
+  defp validate_key(key, path_rev) do
     {:error,
      Error.validation_error("flow data contains an unsupported map key", %{
-       path: path,
+       path: Enum.reverse(path_rev),
        key: key
      })}
   end
 
-  defp error(message, path), do: {:error, Error.validation_error(message, %{path: path})}
+  defp error(message, path_rev),
+    do: {:error, Error.validation_error(message, %{path: Enum.reverse(path_rev)})}
 
   defp value_type(value) when is_tuple(value), do: :tuple
   defp value_type(value) when is_function(value), do: :function
