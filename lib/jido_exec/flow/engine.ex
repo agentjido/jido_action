@@ -364,6 +364,7 @@ defmodule Jido.Exec.Flow.Engine do
        execution
        | status: status,
          ready: [],
+         finalizer: nil,
          final_result: final_result
      }}
   end
@@ -376,6 +377,7 @@ defmodule Jido.Exec.Flow.Engine do
        execution
        | status: :succeeded,
          ready: [],
+         finalizer: nil,
          final_result: nil
      }}
   end

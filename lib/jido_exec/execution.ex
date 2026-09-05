@@ -33,7 +33,7 @@ defmodule Jido.Exec.Execution do
             %{node: String.t() | atom(), runnable_id: term(), error: Exception.t()}
           ],
           engine_error: Exception.t() | nil,
-          finalizer: (term() -> {:ok, term()} | {:error, Exception.t()}),
+          finalizer: (term() -> {:ok, term()} | {:error, Exception.t()}) | nil,
           final_result:
             {:ok, term()}
             | {:error, Exception.t()}

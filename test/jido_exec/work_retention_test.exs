@@ -28,6 +28,34 @@ defmodule JidoActionTest.Exec.WorkRetentionTest do
     assert large - small < :erts_debug.flat_size(metadata) + 100
   end
 
+  test "finished executions release author metadata after success and failure" do
+    for action <- [EchoParamsAction, ErrorAction] do
+      [small, large] =
+        for meta <- [%{}, %{notes: Enum.to_list(1..5_000)}] do
+          flow =
+            Flow.new!(
+              name: "finished_metadata",
+              components: [Step.new!(name: "work", action: action, meta: meta)],
+              output: Ref.result("work")
+            )
+
+          assert {:ok, execution} = Exec.start(flow)
+          assert {:ok, finished} = Exec.continue(execution)
+
+          if action == EchoParamsAction do
+            assert Exec.result(finished) == {:ok, %{}}
+          else
+            assert {:error, error} = Exec.result(finished)
+            assert error.message == "Action failed"
+          end
+
+          :erts_debug.flat_size(finished)
+        end
+
+      assert abs(large - small) < 100
+    end
+  end
+
   test "failure records do not duplicate native runnable inputs" do
     flow =
       Flow.new!(
