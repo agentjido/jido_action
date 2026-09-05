@@ -66,8 +66,13 @@ output
 | `select(ref, path)` | same as source | A deeper path on a reference. |
 
 A path can be one atom, string, non-negative integer, or a list of these
-segments. Missing keys and invalid list indexes return structured execution
-errors.
+segments. A path list must be proper and must not contain `nil`. Constructors,
+Builder, the DSL, and Codec reject invalid paths before execution. An empty
+path selects the complete source value. The `nil` path argument is also an
+empty path; it is different from `[nil]`, which is invalid.
+
+A valid path can select a present `nil` value. Missing keys and invalid list
+indexes return structured execution errors.
 
 A result reference creates an inferred dependency on the named component.
 Input and context references do not.

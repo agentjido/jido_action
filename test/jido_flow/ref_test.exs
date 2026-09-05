@@ -39,4 +39,69 @@ defmodule Jido.Flow.RefTest do
     assert {:error, %InvalidDefinitionError{}} = Ref.validate(Ref.input([-1]))
     assert {:error, %InvalidDefinitionError{}} = Ref.validate(Ref.input([%{}]))
   end
+
+  test "nil is rejected at each path position for every source with a path" do
+    for path <- [[nil], [nil, :value], [:payload, nil, :value], [:payload, nil]],
+        ref <- path_refs(path) do
+      assert {:error,
+              %InvalidDefinitionError{
+                details: %{reason: :path, segment: nil, ref: ^ref}
+              }} = Ref.validate(ref, :any)
+    end
+  end
+
+  test "improper paths return a structured error for every source with a path" do
+    for path <- [[:payload | :tail], [:payload, :value | nil]],
+        ref <- path_refs(path) do
+      assert {:error,
+              %InvalidDefinitionError{
+                details: %{reason: :path, segment: ^path, ref: ^ref}
+              }} = Ref.validate(ref, :any)
+    end
+  end
+
+  test "supported segments and empty paths remain valid for every source with a path" do
+    for path <- [nil, [], :value, "value", 0, [:payload, "items", 0, true, false]],
+        ref <- path_refs(path) do
+      assert :ok = Ref.validate(ref, :any)
+    end
+
+    assert Ref.input(nil) == Ref.input([])
+  end
+
+  test "unsupported segments and non-list canonical paths return structured errors" do
+    for segment <- [-1, 1.5, %{}, [], {:value}, self(), make_ref(), fn -> :value end],
+        ref <- path_refs([:payload, segment]) do
+      assert {:error, %InvalidDefinitionError{details: %{reason: :path, segment: ^segment}}} =
+               Ref.validate(ref, :any)
+    end
+
+    for path <- [nil, :value, "value", 0, %{}], ref <- path_refs([]) do
+      assert {:error, %InvalidDefinitionError{details: %{reason: :path, segment: ^path}}} =
+               Ref.validate(%{ref | path: path}, :any)
+    end
+  end
+
+  test "index and identifier sources require an empty path" do
+    for ref <- [Ref.item_index(), Ref.item_id(), Ref.iteration_index()] do
+      assert :ok = Ref.validate(ref, :any)
+
+      for path <- [[nil], [:value], [:value | :tail], :value] do
+        assert {:error, %InvalidDefinitionError{details: %{reason: :shape}}} =
+                 Ref.validate(%{ref | path: path}, :any)
+      end
+    end
+  end
+
+  defp path_refs(path) do
+    [
+      Ref.input(path),
+      Ref.context(path),
+      Ref.result("load", path),
+      Ref.item(path),
+      Ref.accumulator(path),
+      Ref.state(path),
+      Ref.body_result(path)
+    ]
+  end
 end

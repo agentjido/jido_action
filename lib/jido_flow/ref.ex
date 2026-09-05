@@ -173,9 +173,14 @@ defmodule Jido.Flow.Ref do
   defp validate_scope(source, scope), do: {:error, :scope, %{source: source, scope: scope}}
 
   defp validate_path(path) when is_list(path) do
-    case Enum.find(path, &(not valid_path_segment?(&1))) do
-      nil -> :ok
-      segment -> {:error, :path, %{segment: segment}}
+    if List.improper?(path) do
+      {:error, :path, %{segment: path}}
+    else
+      Enum.reduce_while(path, :ok, fn segment, :ok ->
+        if valid_path_segment?(segment),
+          do: {:cont, :ok},
+          else: {:halt, {:error, :path, %{segment: segment}}}
+      end)
     end
   end
 
