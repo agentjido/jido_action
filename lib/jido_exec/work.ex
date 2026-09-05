@@ -58,7 +58,14 @@ defmodule Jido.Exec.Work do
   @doc false
   @spec new(map(), reference(), non_neg_integer(), non_neg_integer()) :: t()
   def new(attributes, execution_ref, revision, position) do
-    struct!(__MODULE__, Map.put(attributes, :token, {execution_ref, revision, position}))
+    %__MODULE__{
+      token: {execution_ref, revision, position},
+      component_path: attributes.component_path,
+      kind: attributes.kind,
+      role: attributes.role,
+      item_index: attributes.item_index,
+      status: attributes.status
+    }
   end
 
   @doc false
