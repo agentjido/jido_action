@@ -383,7 +383,7 @@ call. The caller owns this in-memory lifecycle. Jido does not persist or recover
 Jido rejects reuse of a stale execution revision. Each revision has its own
 work tokens. Descriptors expose component paths and support roles without
 application payloads. Use `Jido.Exec.native/1` for advanced native inspection.
-See [beta API migration](guides/debugging-flows.md#migrate-native-step-wise-calls).
+See [Debug Flows](guides/debugging-flows.md).
 
 ## Observe Execution
 

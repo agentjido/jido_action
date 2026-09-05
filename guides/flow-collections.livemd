@@ -77,8 +77,7 @@ its result. Map supports `item()`, `item_index()`, and `item_id()`. Reduce adds
 `accumulator()`. The item ID is a runtime identifier for one collection work
 unit. IDs are deterministic for the Flow, component name, and source index.
 Reduce uses its own component name for item IDs, including when it reads a
-Map result. During the v3 beta, this replaces the direct pipeline behavior
-that inherited Map item IDs. Do not treat item IDs as execution IDs.
+Map result. Do not treat item IDs as execution IDs.
 
 An empty Map returns an empty list. An empty Reduce returns its initial value.
 

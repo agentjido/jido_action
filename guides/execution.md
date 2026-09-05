@@ -172,44 +172,24 @@ status = Jido.Exec.status(execution)
 {:ok, result} = Jido.Exec.result(execution)
 ```
 
-`ready/1` returns small `Jido.Exec.Work` descriptions. Each description has an
-opaque token, authored `component_path` when available, component `kind`, work
-`role`, optional Map `item_index`, and `status`. Paths keep complete component
-names, including names that contain `/`. Shared support work can have no
-single component path. The ready set includes native support work; Jido does
-not hide or drain it.
+`ready/1` returns `Jido.Exec.Work` descriptions with a token, component path,
+kind, role, optional Map item index, and status. The ready set includes native
+support work. Descriptions contain no application payloads or native graph.
 
-Descriptions are created only for `ready/1` and step or wave results. Normal
-execution does not build or store a parallel description list. Repeated
-`ready/1` calls on the same revision return equal descriptions and tokens.
+`step/1` runs the first ready unit. Use `step(execution, work.token)` to select
+another unit. Tokens are valid only in their execution revision. An invalid
+or foreign token returns `InvalidExecutionError` before work starts and does
+not consume a revision. Repeated `ready/1` calls return equal tokens.
 
-`step/1` runs the first ready unit. Select one unit with
-`step(execution, work.token)`. A token is valid only for the execution revision
-that issued it. Invalid, stale, and foreign selections return
-`Jido.Flow.Error.InvalidExecutionError` with message `invalid flow work token`
-and `details.reason == :invalid_work_token`, before Action work. They do not
-consume a revision. A token that belongs to an old Execution still goes through
-the existing guard, which rejects stale, concurrent, or indeterminate mutations.
+`wave/1` runs work from the initial ready set and stops admission on failure.
+Its results contain only admitted units, in ready order, with their input
+tokens. After a mutation, use the new Execution and fresh tokens. Both can
+move to another local process.
 
-`wave/1` admits work from the set ready at call start and stops new admission
-on failure. Its returned descriptions keep the original ready order and input
-tokens, and contain only admitted units. `continue/1` runs to a terminal state.
-After any mutation, get fresh tokens for all remaining ready work. Completed
-work tokens cannot select work in the new revision. A current Execution and
-its tokens can move to another local process; creator survival is not required.
-
-Descriptors have no input, result, exception, callback, or native graph.
-`native/1` returns `%{workflow: workflow, compiled: compiled, ready: runnables}`
-for advanced, read-only inspection. These values can retain application data
-and depend on the Runic version. A changed native workflow cannot be applied
-back to an Execution through this API. See
-[beta migration examples](debugging-flows.md#migrate-native-step-wise-calls).
-
-Native Runic identities in error maps remain diagnostic values. They are not
-work tokens. Internal facts preserve local BEAM values, including output
-envelopes, functions, process IDs, and references. These values and executions
-are not a portable storage format. Map and Reduce keep runtime services in
-the execution context.
+For advanced inspection, `native/1` returns the live workflow, compiled data,
+and native ready values. Those values can retain application data and depend
+on the Runic version. The API does not accept native workflow updates.
+See [Debug Flows](debugging-flows.md) for examples.
 
 A graph identity conflict fails the execution before downstream work can use
 incorrect data. `result/1` returns `Jido.Flow.Error.ExecutionFailureError`
