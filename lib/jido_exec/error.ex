@@ -7,6 +7,8 @@ defmodule Jido.Exec.Error do
   failures of the managed asynchronous execution process.
   """
 
+  alias Jido.Action.Error.ExternalData
+
   @type details_input :: map() | keyword()
   @type error_map :: %{
           type: atom(),
@@ -85,7 +87,12 @@ defmodule Jido.Exec.Error do
   def owned?(%CancelledError{}), do: true
   def owned?(_error), do: false
 
-  @doc "Converts an async execution error into stable external data."
+  @doc """
+  Converts an async execution error into stable external data.
+
+  Uses the bounded conversion rules in `Jido.Action.Error.to_map/1`.
+  The original error retains its complete details in memory.
+  """
   @spec to_map(Exception.t()) :: error_map()
   def to_map(%InvalidHandleError{} = error),
     do: error_map(:async_invalid_handle, error.message, error.details)
@@ -106,7 +113,12 @@ defmodule Jido.Exec.Error do
     do: error_map(:async_cancelled, error.message, error.details)
 
   defp error_map(type, message, details) do
-    %{type: type, message: message, details: details, retryable?: false}
+    %{
+      type: type,
+      message: ExternalData.message(message),
+      details: ExternalData.details(details),
+      retryable?: false
+    }
   end
 
   defp normalize_details(details) when is_map(details) and not is_struct(details), do: details

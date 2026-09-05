@@ -62,9 +62,27 @@ Flow boundary errors use:
 - `Jido.Flow.Error.InternalError`.
 
 An Action failure inside a Flow keeps its Action error when possible. Use
-`Jido.Action.Error.to_map/1` or `Jido.Flow.Error.to_map/1` for deterministic
-external data. A runtime error can keep a `Splode.Stacktrace` in memory. The
-stable map does not include it.
+`Jido.Action.Error.to_map/1`, `Jido.Flow.Error.to_map/1`, or
+`Jido.Exec.Error.to_map/1` for deterministic external data. JSON encoding uses
+the same map. All three error families use the bounded conversion rules in
+`Jido.Action.Error.to_map/1`.
+
+The conversion keeps scalar values, converts tuples to lists, and represents
+PIDs, references, and other runtime values as diagnostic strings. Exceptions
+in details become struct labels. Large or deeply nested values use truncation
+markers. These external values are for diagnostics. Use the original error
+for complete details and cause inspection.
+
+A runtime error can keep a `Splode.Stacktrace` in memory. Conversion does not
+change it. The stable map omits the exception's top-level stacktrace.
+
+For example, an error from a public cancellation call can be encoded directly:
+
+```elixir
+{:error, error} = Jido.Exec.cancel(self())
+json = JSON.encode!(error)
+%{"type" => "async_invalid_handle"} = JSON.decode!(json)
+```
 
 Exec does not retry work. Retryability in an error is information for a
 higher-level caller.
