@@ -95,4 +95,97 @@ defmodule Jido.Flow.ComponentValidationTest do
     step = Step.new!(name: "step", action: Add, after: ["second", "first"])
     assert step.after == ["second", "first"]
   end
+
+  test "constructors reject invalid paths inside nested params" do
+    constructors = [
+      {Step, [name: "step", action: Add]},
+      {Subflow, [name: "child", flow: NestedFlow]},
+      {Choice.Option, [name: "option", condition: Condition.eq(1, 1), action: Add]},
+      {Choice.Fallback, [action: Add]},
+      {FlowMap, [name: "map", collection: [], action: Add]},
+      {Reduce, [name: "reduce", collection: [], initial: %{}, action: Add]},
+      {Iterate,
+       [
+         name: "iterate",
+         action: Add,
+         state: [schema: [], initial: %{}, update: %{}],
+         completion: Condition.eq(true, true),
+         max_iterations: 1
+       ]},
+      {Dispatch, [name: "dispatch", decision: Add, expander: Add]}
+    ]
+
+    for {module, attrs} <- constructors do
+      for ref <- [Ref.input(:value), Ref.context(:value), Ref.result("load", :value)] do
+        assert {:ok, _component} = module.new(Keyword.put(attrs, :params, %{nested: [ref]}))
+
+        for path <- [[nil], [:value, nil, "key"], [:value, nil], [:value | :tail], [%{}]] do
+          params = %{nested: [%{value: %{ref | path: path}}]}
+
+          assert {:error,
+                  %InvalidDefinitionError{
+                    message: "flow expression contains an invalid reference path",
+                    details: %{path: [:nested, 0, :value]}
+                  }} = module.new(Keyword.put(attrs, :params, params))
+        end
+      end
+    end
+  end
+
+  test "constructors reject invalid local paths in their valid scopes" do
+    for path <- [[nil], [:value, nil], [:value | :tail], [-1]] do
+      for ref <- [Ref.item(path), Ref.accumulator(path)] do
+        assert {:error, %InvalidDefinitionError{details: %{segment: _}}} =
+                 Reduce.new(
+                   name: "reduce",
+                   collection: [],
+                   initial: %{},
+                   action: Add,
+                   params: %{nested: [ref]}
+                 )
+      end
+
+      assert {:error, %InvalidDefinitionError{details: %{segment: _}}} =
+               FlowMap.new(
+                 name: "map",
+                 collection: [],
+                 action: Add,
+                 params: %{nested: [Ref.item(path)]}
+               )
+
+      for ref <- [Ref.state(path), Ref.body_result(path)] do
+        assert {:error, %InvalidDefinitionError{details: %{segment: _}}} =
+                 Iterate.State.new(schema: [], initial: %{}, update: %{nested: [ref]})
+      end
+    end
+  end
+
+  test "constructors reject invalid paths inside conditions and expression operands" do
+    for path <- [[nil], [:value | :tail]] do
+      ref = Ref.input(path)
+
+      assert {:error, %InvalidDefinitionError{details: %{segment: _}}} =
+               Step.new(
+                 name: "step",
+                 action: Add,
+                 params: %{value: Jido.Expr.new!(:add, [ref, 1])}
+               )
+
+      assert {:error, %InvalidDefinitionError{details: %{segment: _}}} =
+               Condition.new(:eq, [ref, 1])
+
+      assert {:error, %InvalidDefinitionError{details: %{segment: _}}} =
+               Choice.new(
+                 name: "choice",
+                 options: [
+                   [
+                     name: "option",
+                     condition: %Condition{operator: :eq, operands: [ref, 1]},
+                     action: Add
+                   ]
+                 ],
+                 fallback: [action: Add]
+               )
+    end
+  end
 end
