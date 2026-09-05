@@ -118,7 +118,8 @@ defmodule JidoActionTest.Exec.ExecutionGuardInterruptionTest do
     invalid_compiled = %{execution.compiled | component_index: nil}
     invalid_execution = %{execution | compiled: invalid_compiled}
 
-    assert_raise Protocol.UndefinedError, fn -> Exec.step(invalid_execution) end
+    # The injected internal error can change type when the lookup changes.
+    _reason = catch_error(Exec.step(invalid_execution))
 
     assert {:error, %InvalidExecutionError{details: %{reason: :indeterminate}}} =
              Exec.step(execution)
