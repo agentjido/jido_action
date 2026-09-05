@@ -4,6 +4,17 @@ defmodule JidoActionTest.Flow.Compiler.PayloadTest do
   alias Jido.Flow.Compiler.Payload
   alias Runic.Workflow.Fact
 
+  test "payload projection keeps the deterministic external-term digest" do
+    binary = :binary.copy(<<42>>, 1_048_576)
+
+    for value <- [42, %{data: binary}, {binary, binary}, [self(), make_ref(), <<5::3>>]] do
+      expected = :crypto.hash(:sha256, :erlang.term_to_binary(value, [:deterministic]))
+
+      assert Runic.Identity.Projectable.identity_document(Payload.new(value)) ==
+               {:jido_local_beam_value, 1, expected}
+    end
+  end
+
   test "local payload identities preserve map order independence and term distinctions" do
     left = Enum.into([{:a, 1}, {:b, 2}], %{})
     right = Enum.into([{:b, 2}, {:a, 1}], %{})
