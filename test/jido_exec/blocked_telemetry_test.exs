@@ -77,7 +77,7 @@ defmodule JidoActionTest.Exec.BlockedTelemetryTest do
       operation: operation,
       supervisor: supervisor
     } do
-      token = attach_blocking([:jido, :action, :start])
+      token = attach_blocking([:jido, :action, :start], true)
       monitors_before = Process.info(self(), :monitors)
 
       handle =
@@ -86,7 +86,8 @@ defmodule JidoActionTest.Exec.BlockedTelemetryTest do
       on_exit(fn -> Process.exit(handle.pid, :kill) end)
       assert_receive {^token, :handler_blocked, handler}, 1_000
       assert_receive {^token, :action_started, action, tracker}, 1_000
-      owned = monitor_processes([handler, action, tracker])
+      guard = :sys.get_state(tracker).delivery_guard
+      owned = monitor_processes([handler, action, tracker, guard])
       caller_monitor = Process.monitor(handle.pid)
 
       case operation do
@@ -330,7 +331,99 @@ defmodule JidoActionTest.Exec.BlockedTelemetryTest do
     end
   end
 
-  def handle_blocked(_event, _measurements, _metadata, {owner, token}) do
+  test "tracker death stops a blocked handler that traps exits", %{supervisor: supervisor} do
+    token = attach_blocking([:jido, :action, :start], true)
+
+    handle =
+      Exec.run_async(ControlledAction, %{}, %{test_pid: self(), token: token}, jido: __MODULE__)
+
+    on_exit(fn -> Process.exit(handle.pid, :kill) end)
+    assert_receive {^token, :handler_blocked, handler}, 1_000
+    on_exit(fn -> Process.exit(handler, :kill) end)
+    assert_receive {^token, :action_started, action, tracker}, 1_000
+    guard = :sys.get_state(tracker).delivery_guard
+    owned = monitor_processes([handler, action, tracker, guard])
+
+    Process.exit(tracker, :kill)
+
+    assert {:error, %Jido.Exec.Error.AsyncExecutionError{}} = Exec.await(handle, 1_000)
+    assert_stopped(owned)
+    assert Task.Supervisor.children(supervisor) == []
+    refute_received {^token, :handler_released}
+  end
+
+  for terminal <- [:cancel, :supervisor_shutdown] do
+    @tag terminal: terminal
+    test "nested #{terminal} stops delivery and its owner guard without handler release", %{
+      terminal: terminal,
+      supervisor: supervisor
+    } do
+      token = attach_blocking([:jido, :flow, :target, :start], true)
+
+      flow =
+        Flow.new!(
+          name: "blocked_telemetry_parent",
+          components: [Subflow.new!(name: "child", flow: ChildFlow)],
+          output: Ref.result("child")
+        )
+
+      handle = Exec.run_async(flow, %{}, %{test_pid: self(), token: token}, jido: __MODULE__)
+      on_exit(fn -> Process.exit(handle.pid, :kill) end)
+      assert_receive {^token, :handler_blocked, handler}, 1_000
+      on_exit(fn -> Process.exit(handler, :kill) end)
+      assert_receive {^token, :action_started, action, tracker}, 1_000
+      guard = :sys.get_state(tracker).delivery_guard
+      owned = monitor_processes([handler, action, tracker, guard, handle.pid])
+
+      case terminal do
+        :cancel ->
+          assert :ok = Exec.cancel(handle)
+          assert Task.Supervisor.children(supervisor) == []
+
+        :supervisor_shutdown ->
+          stop_supervised!(supervisor)
+          assert {:error, %Jido.Exec.Error.AsyncExecutionError{}} = Exec.await(handle, 1_000)
+          assert Process.whereis(supervisor) == nil
+      end
+
+      assert_stopped(owned)
+      refute_received {^token, :handler_released}
+    end
+  end
+
+  test "event delivery keeps caller Logger metadata and group leader" do
+    token = make_ref()
+    handler_id = {__MODULE__, token}
+    events = [[:jido, :action, :start], [:jido, :action, :stop]]
+    group_leader = Process.group_leader()
+    Logger.metadata(ansi_color: :magenta)
+
+    :ok =
+      :telemetry.attach_many(handler_id, events, &__MODULE__.handle_context/4, {self(), token})
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    for mode <- [:sync, :async] do
+      target = JidoActionTest.Fixtures.Actions.Add
+      opts = [timeout: 1_000, jido: __MODULE__]
+
+      result =
+        case mode do
+          :sync -> Exec.run(target, %{value: 1}, %{}, opts)
+          :async -> target |> Exec.run_async(%{value: 1}, %{}, opts) |> Exec.await(1_000)
+        end
+
+      assert {:ok, %{value: 2}} = result
+
+      for event <- events do
+        assert_receive {^token, :context, ^event, metadata, ^group_leader}, 1_000
+        assert metadata[:ansi_color] == :magenta
+      end
+    end
+  end
+
+  def handle_blocked(_event, _measurements, _metadata, {owner, token, trap_exits?}) do
+    if trap_exits?, do: Process.flag(:trap_exit, true)
     send(owner, {token, :handler_blocked, self()})
 
     receive do
@@ -351,6 +444,10 @@ defmodule JidoActionTest.Exec.BlockedTelemetryTest do
     send(owner, {token, :event, event, measurements, metadata})
   end
 
+  def handle_context(event, _measurements, _metadata, {owner, token}) do
+    send(owner, {token, :context, event, Logger.metadata(), Process.group_leader()})
+  end
+
   defp monitor_processes(pids), do: Enum.map(pids, &{&1, Process.monitor(&1)})
 
   defp assert_stopped(processes) do
@@ -361,11 +458,18 @@ defmodule JidoActionTest.Exec.BlockedTelemetryTest do
     assert_receive {:DOWN, ^monitor, :process, ^pid, _reason}, 1_000
   end
 
-  defp attach_blocking(event) do
+  defp attach_blocking(event, trap_exits? \\ false) do
     token = make_ref()
     handler_id = {__MODULE__, token}
 
-    :ok = :telemetry.attach(handler_id, event, &__MODULE__.handle_blocked/4, {self(), token})
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        event,
+        &__MODULE__.handle_blocked/4,
+        {self(), token, trap_exits?}
+      )
+
     on_exit(fn -> :telemetry.detach(handler_id) end)
     token
   end

@@ -221,13 +221,17 @@ in order. The tracker keeps span records separately from handler execution.
 Timeout and cancellation stop execution work before telemetry cleanup. Nested
 work continues to use the same complete-call deadline.
 
-Terminal cleanup allows up to 100 milliseconds for pending event delivery,
+The delivery process uses the caller's Logger metadata and group leader.
+Tracker exit also stops delivery, including handlers that trap exit signals.
+
+Terminal cleanup allows up to 100 milliseconds for the full pending event queue,
 then stops the delivery process. Normal handlers retain start/terminal pairing.
 If a handler blocks, runs too slowly, or kills the delivery process, some
-handlers can miss events, including terminal events. Exec cannot guarantee
-completed delivery to a callback that does not return. Execution results and
-cleanup do not wait indefinitely for that callback. Keep handlers short and
-send slow work to a process owned by the consumer.
+handlers can miss events, including terminal events. An abrupt tracker exit
+can also discard pending events. Jido does not repeat interrupted handler calls.
+Exec cannot guarantee completed delivery to a callback that does not return.
+Execution results and cleanup do not wait indefinitely for that callback.
+Keep handlers short and send slow work to a process owned by the consumer.
 
 Synchronous calls with `timeout: :infinity` and step-wise calls keep synchronous
 telemetry delivery. They do not have a finite complete-call deadline.

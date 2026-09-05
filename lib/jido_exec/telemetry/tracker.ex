@@ -11,7 +11,7 @@ defmodule Jido.Exec.Telemetry.Tracker do
   @doc false
   @spec start_link() :: GenServer.on_start()
   def start_link do
-    GenServer.start_link(__MODULE__, self())
+    GenServer.start_link(__MODULE__, {self(), Logger.metadata()})
   end
 
   @doc false
@@ -55,10 +55,19 @@ defmodule Jido.Exec.Telemetry.Tracker do
   end
 
   @impl true
-  def init(owner) do
+  def init({owner, logger_metadata}) do
     Process.flag(:trap_exit, true)
+    Logger.metadata(logger_metadata)
     owner_monitor = Process.monitor(owner)
-    delivery = spawn_link(fn -> deliver() end)
+    tracker = self()
+
+    delivery =
+      spawn_link(fn ->
+        Logger.metadata(logger_metadata)
+        deliver()
+      end)
+
+    delivery_guard = spawn(fn -> guard_delivery(tracker, delivery) end)
 
     {:ok,
      %{
@@ -66,6 +75,7 @@ defmodule Jido.Exec.Telemetry.Tracker do
        next_order: 0,
        spans: %{},
        delivery: delivery,
+       delivery_guard: delivery_guard,
        owner_monitor: owner_monitor
      }}
   end
@@ -123,9 +133,14 @@ defmodule Jido.Exec.Telemetry.Tracker do
   end
 
   @impl true
-  def terminate(_reason, %{delivery: nil}), do: :ok
+  def terminate(_reason, %{delivery: delivery, delivery_guard: guard}) do
+    stop_delivery(delivery)
+    await_down(guard, Process.monitor(guard))
+  end
 
-  def terminate(_reason, %{delivery: delivery}) do
+  defp stop_delivery(nil), do: :ok
+
+  defp stop_delivery(delivery) do
     monitor = Process.monitor(delivery)
     send(delivery, :stop)
 
@@ -135,6 +150,21 @@ defmodule Jido.Exec.Telemetry.Tracker do
       @delivery_timeout ->
         Process.exit(delivery, :kill)
         await_down(delivery, monitor)
+    end
+  end
+
+  # A handler can trap exits. Keep its owner monitor outside handler code so
+  # an abrupt tracker exit still stops delivery, even without terminate/2.
+  defp guard_delivery(tracker, delivery) do
+    tracker_monitor = Process.monitor(tracker)
+    delivery_monitor = Process.monitor(delivery)
+
+    receive do
+      {:DOWN, ^tracker_monitor, :process, ^tracker, _reason} ->
+        Process.exit(delivery, :kill)
+
+      {:DOWN, ^delivery_monitor, :process, ^delivery, _reason} ->
+        :ok
     end
   end
 
