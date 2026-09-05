@@ -130,7 +130,7 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
   alias JidoActionTest.Fixtures.Execution, as: ExecFixtures
   alias JidoActionTest.Fixtures.FlowAuthoring, as: FlowFixtures
   alias JidoActionTest.Fixtures.Actions.{Add, EchoParamsAction, RecorderAction}
-  alias Runic.Workflow.Runnable
+  alias Jido.Exec.Work
 
   test "preserves caller Logger metadata in serial and concurrent runnables" do
     flow =
@@ -624,8 +624,8 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
       )
 
     assert {:ok, execution} = Exec.start(flow, %{}, %{test_pid: self()})
-    runnable = Enum.find(Exec.ready(execution), &(&1.node.name == "fail"))
-    assert {:ok, %Runnable{status: :failed}, execution} = Exec.step(execution, runnable)
+    runnable = Enum.find(Exec.ready(execution), &(&1.component_path == ["fail"]))
+    assert {:ok, %Work{status: :failed}, execution} = Exec.step(execution, runnable.token)
     assert Exec.status(execution) == :failed
     refute_received {RecorderAction, %{side: :independent}}
   end
@@ -643,16 +643,16 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     assert {:error, %InvalidExecutionError{message: "flow execution is not complete"}} =
              Exec.result(execution)
 
-    assert {:error, %InvalidExecutionError{message: "flow runnable is not ready"}} =
+    assert {:error, %InvalidExecutionError{message: "invalid flow work token"}} =
              Exec.step(execution, -1)
 
     assert {:error,
             %InvalidExecutionError{
-              message: "flow runnable must be a ready Runnable or runnable ID"
+              message: "invalid flow work token"
             }} =
              Exec.step(execution, :bad)
 
-    assert {:ok, %Runnable{}, execution} = Exec.step(execution)
+    assert {:ok, %Work{}, execution} = Exec.step(execution)
     assert Exec.status(execution) == :succeeded
 
     assert {:error, %InvalidExecutionError{message: "flow execution is not running"}} =

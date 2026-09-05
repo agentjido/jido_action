@@ -23,7 +23,7 @@ defmodule JidoActionTest.Exec.IteratorExecutionTest do
   }
 
   alias JidoActionTest.Fixtures.Actions.CountedMapAction
-  alias Runic.Workflow.Runnable
+  alias Jido.Exec.Work
 
   test "runs the State schema transform exactly once per candidate" do
     IteratorFixtures.register_state_schema_recorder(self())
@@ -338,7 +338,7 @@ defmodule JidoActionTest.Exec.IteratorExecutionTest do
       )
 
     assert {:ok, execution} = Exec.start(committed_failure)
-    assert {:ok, %Runnable{status: :failed}, execution} = Exec.step(execution)
+    assert {:ok, %Work{status: :failed}, execution} = Exec.step(execution)
     assert execution.revision == 1
     assert Exec.status(execution) == :failed
   end

@@ -149,11 +149,12 @@ Use `jido_action` for validated work and data-first composition:
   call.
 - Use `start/4`, `ready/1`, `step/1`, `step/2`, `wave/1`, `continue/1`, and
   `result/1` for a Flow or an Instruction with a Flow target.
-- Treat values from `ready/1`, `step/1`, `step/2`, and `wave/1` as native
-  `Runic.Workflow.Runnable` values. Runic support work is visible.
-- Use `Jido.Exec.workflow/1` and `Jido.Exec.compiled/1` for supported live
-  Runic inspection. Other Execution fields are internal.
-- Select `step/2` work with a ready Runnable or its Runic identity.
+- Treat values from `ready/1`, `step/1`, `step/2`, and `wave/1` as small
+  `Jido.Exec.Work` descriptions. Support work remains visible.
+- Use `Jido.Exec.native/1` for advanced, read-only native inspection. Native
+  shapes depend on the Runic version. Other Execution fields are internal.
+- Select `step/2` work with a ready Work token. Refresh all tokens after each
+  mutation, including tokens for work that remains ready.
 - Treat each execution as caller-owned, in-memory state. `max_concurrency`
   bounds each concurrent ready wave. Always pass the latest value to the next
   step-wise call.

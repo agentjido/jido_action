@@ -2,6 +2,7 @@ defmodule JidoActionTest.Exec.FlowIdentityTest do
   use ExUnit.Case, async: true
 
   alias Jido.{Exec, Flow}
+  alias Jido.Exec.Work
   alias Jido.Flow.{Ref, Step}
   alias Jido.Flow.Compiler.Payload
   alias Jido.Flow.Error.{ExecutionFailureError, InvalidExecutionError}
@@ -67,7 +68,7 @@ defmodule JidoActionTest.Exec.FlowIdentityTest do
           execution
         end
 
-      [runnable] = Exec.ready(execution)
+      [runnable] = Exec.native(execution).ready
       # Add is pure. Calculate its Fact identity, then insert different data there.
       %Runnable{status: :completed, result: result} = Workflow.execute_runnable(runnable)
       %Payload{value: {:jido_flow_value, frame, _}} = result.value
@@ -132,7 +133,7 @@ defmodule JidoActionTest.Exec.FlowIdentityTest do
       )
 
     assert {:ok, execution} = Exec.start(flow)
-    [first, second] = Exec.ready(execution)
+    [first, second] = Exec.native(execution).ready
     first_result = Workflow.execute_runnable(first).result
     second_result = Workflow.execute_runnable(second).result
     stale = %{first_result | value: Payload.new(:conflicting_value)}
@@ -150,7 +151,7 @@ defmodule JidoActionTest.Exec.FlowIdentityTest do
     assert {:error, %ExecutionFailureError{details: %{phase: :flow_identity}}} =
              Exec.result(completed)
 
-    refute Map.has_key?(Exec.workflow(completed).graph.vertices, second_result.hash)
+    refute Map.has_key?(Exec.native(completed).workflow.graph.vertices, second_result.hash)
   end
 
   test "a Map collector conflict becomes a terminal Jido error" do
@@ -170,7 +171,7 @@ defmodule JidoActionTest.Exec.FlowIdentityTest do
 
     assert {:ok, execution} = Exec.start(flow, %{items: [1]})
     execution = advance_to_collector(execution)
-    [runnable] = Exec.ready(execution)
+    [runnable] = Exec.native(execution).ready
     preview = Workflow.apply_runnable(execution.workflow, Workflow.execute_runnable(runnable))
 
     [%Fact{} = produced] =
@@ -199,23 +200,14 @@ defmodule JidoActionTest.Exec.FlowIdentityTest do
     assert identity == produced.hash
   end
 
-  test "all step selection forms accept the new runnable identity" do
-    for mode <- [:first, :runnable, :id] do
-      assert {:ok, execution} = Exec.start(serial_flow(1), %{value: 0})
-      [runnable] = Exec.ready(execution)
-      assert %Runic.Identity{domain: :activation, digest: digest} = runnable.id
-      assert byte_size(digest) == 32
-
-      result =
-        case mode do
-          :first -> Exec.step(execution)
-          :runnable -> Exec.step(execution, runnable)
-          :id -> Exec.step(execution, runnable.id)
-        end
-
-      assert {:ok, %Runnable{status: :completed}, completed} = result
-      assert Exec.result(completed) == {:ok, %{value: 1}}
-    end
+  test "native identities remain available through explicit inspection" do
+    assert {:ok, execution} = Exec.start(serial_flow(1), %{value: 0})
+    [runnable] = Exec.native(execution).ready
+    assert %Runic.Identity{domain: :activation, digest: digest} = runnable.id
+    assert byte_size(digest) == 32
+    [work] = Exec.ready(execution)
+    assert {:ok, %Work{status: :completed}, completed} = Exec.step(execution, work.token)
+    assert Exec.result(completed) == {:ok, %{value: 1}}
   end
 
   test "Flow input and dependent results preserve local BEAM terms" do
@@ -244,29 +236,30 @@ defmodule JidoActionTest.Exec.FlowIdentityTest do
     assert Exec.result(execution) == {:ok, input}
   end
 
-  test "invalid IDs leave the ready runnable and revision available" do
+  test "native IDs and changed native work are rejected without consuming the revision" do
     assert {:ok, execution} = Exec.start(serial_flow(1), %{value: 0})
-    [runnable] = Exec.ready(execution)
+    [runnable] = Exec.native(execution).ready
+    [work] = Exec.ready(execution)
 
-    for id <- [
-          Runic.Identity.digest(:activation, :not_ready),
-          runnable.input_fact.hash,
-          %{runnable.id | digest: nil},
-          123,
-          "invalid"
-        ] do
-      assert {:error, %InvalidExecutionError{} = error} = Exec.step(execution, id)
-      assert is_binary(JSON.encode!(error))
-      assert Exec.ready(execution) == [runnable]
-    end
-
-    # Selection uses the stored runnable. Caller changes cannot replace its work.
-    selected = %{
+    changed = %{
       runnable
       | node: %{runnable.node | work: fn _, _ -> flunk("changed work ran") end}
     }
 
-    assert {:ok, _, completed} = Exec.step(execution, selected)
+    for selection <- [
+          Runic.Identity.digest(:activation, :not_ready),
+          runnable.input_fact.hash,
+          %{runnable.id | digest: nil},
+          runnable.id,
+          changed
+        ] do
+      assert {:error, %InvalidExecutionError{} = error} = Exec.step(execution, selection)
+      assert is_binary(JSON.encode!(error))
+      assert Exec.ready(execution) == [work]
+    end
+
+    assert {:ok, completed_work, completed} = Exec.step(execution, work.token)
+    assert completed_work == %{work | status: :completed}
     assert Exec.result(completed) == {:ok, %{value: 1}}
     assert completed.revision == execution.revision + 1
   end
@@ -336,7 +329,7 @@ defmodule JidoActionTest.Exec.FlowIdentityTest do
                {:ok, %{items: Enum.map(items, &%{value: &1}), sum: %{value: Enum.sum(items)}}}
 
       tokens =
-        for %Fact{value: value} <- Map.values(Exec.workflow(execution).graph.vertices),
+        for %Fact{value: value} <- Map.values(Exec.native(execution).workflow.graph.vertices),
             %Payload{value: %{kind: kind} = token} <- List.wrap(value),
             kind in [:empty, :item, :result, :init],
             do: token
@@ -352,9 +345,13 @@ defmodule JidoActionTest.Exec.FlowIdentityTest do
     execution =
       Enum.reduce(1..1_000, execution, fn index, current ->
         name = "step_#{index}"
-        assert [%Runnable{node: %{name: ^name}}] = Exec.ready(current)
-        assert {:ok, %Runnable{status: :completed, result: result}, next} = Exec.step(current)
-        assert {:jido_flow_value, _, %{value: ^index}} = Payload.unwrap(result.value)
+        assert [%Work{component_path: [^name]}] = Exec.ready(current)
+        assert {:ok, %Work{status: :completed}, next} = Exec.step(current)
+
+        assert %{^name => [%Fact{value: value}]} =
+                 Workflow.results(Exec.native(next).workflow, [name], facts: true, all: true)
+
+        assert {:jido_flow_value, _, %{value: ^index}} = Payload.unwrap(value)
         next
       end)
 
@@ -371,7 +368,7 @@ defmodule JidoActionTest.Exec.FlowIdentityTest do
 
   defp advance_to_collector(execution) do
     case Exec.ready(execution) do
-      [%Runnable{node: %Runic.Workflow.FanIn{}}] ->
+      [%Work{role: :fan_in}] ->
         execution
 
       [_] ->

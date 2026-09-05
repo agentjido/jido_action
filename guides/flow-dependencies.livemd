@@ -91,7 +91,7 @@ Jido keeps the three forms separate:
 Jido.Exec.ready(execution)
 ```
 
-The ready values are native `Runic.Workflow.Runnable` values. Independent
+The ready values are small `Jido.Exec.Work` descriptions. Independent
 authored nodes can be in the same ready set. Run one current set with
 `wave/1`.
 

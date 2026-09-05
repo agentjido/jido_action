@@ -116,26 +116,24 @@ Start a caller-owned in-memory execution:
 :running = Jido.Exec.status(execution)
 ready = Jido.Exec.ready(execution)
 
-workflow = Jido.Exec.workflow(execution)
-compiled = Jido.Exec.compiled(execution)
+%{workflow: workflow, compiled: compiled} = Jido.Exec.native(execution)
 ```
 
-`ready` contains native `Runic.Workflow.Runnable` values. Inspect the runnable
-ID, node, input fact, and status:
+`ready` contains small `Jido.Exec.Work` descriptions. Inspect the authored path,
+kind, role, item index, and status:
 
 ```elixir
-Enum.map(ready, fn runnable ->
-  %{
-    id: runnable.id,
-    node: Map.get(runnable.node, :name),
-    input_fact: runnable.input_fact,
-    status: runnable.status
-  }
+Enum.map(ready, fn work ->
+  Map.take(work, [:component_path, :kind, :role, :item_index, :status])
 end)
 ```
 
-Input facts can contain application data. Do not copy them to logs without a
-data review.
+A description has no input, result, exception, callback, or graph. Its opaque
+token selects one ready unit in one execution revision. Each mutation
+invalidates all prior tokens, including tokens for work that remains ready.
+
+The advanced `native/1` map also contains `:ready` native runnables. Native
+values can retain application data and depend on the Runic version.
 
 ## Step, Wave, Or Continue
 
@@ -155,16 +153,12 @@ dependency level starts.
 Run one selected runnable:
 
 ```elixir
-[runnable | _] = ready
+[work | _] = ready
 
 {:ok, applied, execution} =
-  Jido.Exec.step(execution, runnable.id)
+  Jido.Exec.step(execution, work.token)
 
-%{
-  status: applied.status,
-  result: applied.result,
-  error: applied.error
-}
+%{status: applied.status, component_path: applied.component_path, role: applied.role}
 ```
 
 Or run the current frontier:
@@ -311,9 +305,9 @@ required.
 ## Runic Ownership Boundary
 
 `Jido.Flow.Compiled.workflow` is the supported native compilation value.
-`Jido.Exec.workflow/1` returns the live prepared native workflow.
-`Jido.Exec.compiled/1` returns the related component index and source map.
-`Jido.Exec.ready/1` returns the supported native runnable view. Jido still owns
+`Jido.Exec.native/1` returns the live workflow, compilation data, and native
+ready values for advanced, read-only inspection. `Jido.Exec.ready/1` returns
+small Work descriptions. Jido still owns
 validation, Action dispatch, execution revisions, telemetry, and final Flow
 output validation.
 

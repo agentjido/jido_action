@@ -177,8 +177,8 @@ defmodule JidoActionTest.Exec.FlowAdapterTest do
   test "Exec exposes the live native workflow and its compilation index" do
     assert {:ok, execution} = Exec.start(SourceMappedFlow, %{value: 1})
 
-    assert %Runic.Workflow{} = workflow = Exec.workflow(execution)
-    assert %Jido.Flow.Compiled{} = compiled = Exec.compiled(execution)
+    assert %Runic.Workflow{} = workflow = Exec.native(execution).workflow
+    assert %Jido.Flow.Compiled{} = compiled = Exec.native(execution).compiled
     assert workflow == execution.workflow
     assert compiled == execution.compiled
     assert compiled.source_map == SourceMappedFlow.__jido_flow_source_map__()

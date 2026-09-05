@@ -205,7 +205,8 @@ defmodule JidoAction.MixProject do
         ],
         Execution: [
           Jido.Exec,
-          Jido.Exec.Execution
+          Jido.Exec.Execution,
+          Jido.Exec.Work
         ],
         Errors: [
           Jido.Action.Error,

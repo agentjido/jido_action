@@ -273,7 +273,7 @@ defmodule JidoActionTest.Exec.InstructionExecutionTest do
       instruction = Instruction.new!(target: target, params: %{value: 3})
 
       assert {:ok, execution} = Exec.start(instruction)
-      assert [%Runic.Workflow.Runnable{}] = Exec.ready(execution)
+      assert [%Jido.Exec.Work{}] = Exec.ready(execution)
       assert {:ok, execution} = Exec.continue(execution)
       assert Exec.result(execution) == {:ok, %{value: 8}}
     end

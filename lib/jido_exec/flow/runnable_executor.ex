@@ -20,7 +20,7 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
     executed
   end
 
-  @doc "Executes native Runnables in order with the configured concurrency policy."
+  @doc "Executes native Runnables and returns the admitted input prefix in source order."
   @spec execute_many(Execution.t(), [Runnable.t()]) :: [Runnable.t()]
   def execute_many(%Execution{} = execution, runnables) when is_list(runnables) do
     if Keyword.fetch!(execution.options, :max_concurrency) > 1 and length(runnables) > 1 do

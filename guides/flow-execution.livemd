@@ -90,23 +90,24 @@ Enable concurrent independent work at the call boundary.
 ready = Jido.Exec.ready(execution)
 ```
 
-`ready` contains native `Runic.Workflow.Runnable` values. It can include
-authored components and Runic support work.
+`ready` contains small `Jido.Exec.Work` descriptions. Each has a component
+path, kind, role, status, optional Map item index, and an opaque token. It
+includes authored components and native support work.
 
-## Step One Runnable
+## Step One Work Unit
 
 ```elixir
-[runnable | _] = ready
+[work | _] = ready
 
-{:ok, %Runic.Workflow.Runnable{} = applied, execution} =
-  Jido.Exec.step(execution, runnable.id)
+{:ok, %Jido.Exec.Work{} = applied, execution} =
+  Jido.Exec.step(execution, work.token)
 
 {applied.status, Jido.Exec.status(execution)}
 ```
 
-`step/1` selects the first ready runnable. `step/2` accepts a ready Runnable or
-its integer ID. A work failure can return an applied Runnable with
-`status: :failed`.
+`step/1` selects the first ready unit. `step/2` accepts its opaque token.
+A failed unit returns a Work with `status: :failed`. Get new tokens after
+each mutation, including for work that remains ready.
 
 ## Run A Wave
 
@@ -162,14 +163,15 @@ A failed runnable stops new dispatch after Jido applies the failure. Work that
 already started in the same wave can finish. When multiple wave runnables
 fail, the Flow error keeps a canonical failure list.
 
-## Native Work Is Public
+## Support Work Is Visible
 
 Map exposes FanOut, item work, FanIn, and output work. Reduce uses native
 Reduce and FanIn work. Subflow exposes its nested Workflow and InputBinding
 work. A Join can enforce explicit or inferred dependencies.
 
-This native surface keeps one scheduler and one graph state. Do not assume
-that every ready Runnable is one authored component.
+This boundary keeps one native scheduler and one graph state. Do not assume
+that every Work is one authored component. Use `Jido.Exec.native/1` when
+you need advanced, read-only inspection of native graphs and facts.
 
 ## Execution Lifetime
 
