@@ -26,7 +26,8 @@ defmodule Jido.Exec.Telemetry.Tracker do
   @spec close(pid(), Telemetry.span(), :stop | :error, map()) :: :ok
   def close(tracker, span, suffix, extra_metadata)
       when is_pid(tracker) and suffix in [:stop, :error] and is_map(extra_metadata) do
-    GenServer.call(tracker, {:close, span, suffix, extra_metadata}, @call_timeout)
+    stopped_at = System.monotonic_time()
+    GenServer.call(tracker, {:close, span, suffix, extra_metadata, stopped_at}, @call_timeout)
   catch
     :exit, _reason -> :ok
   end
@@ -34,7 +35,8 @@ defmodule Jido.Exec.Telemetry.Tracker do
   @doc false
   @spec fail_all(pid(), term()) :: :ok
   def fail_all(tracker, error) when is_pid(tracker) do
-    GenServer.call(tracker, {:fail_all, error}, @call_timeout)
+    stopped_at = System.monotonic_time()
+    GenServer.call(tracker, {:fail_all, error, stopped_at}, @call_timeout)
   catch
     :exit, _reason -> :ok
   end
@@ -97,25 +99,25 @@ defmodule Jido.Exec.Telemetry.Tracker do
      }}
   end
 
-  def handle_call({:close, span, suffix, extra_metadata}, _from, state) do
+  def handle_call({:close, span, suffix, extra_metadata, stopped_at}, _from, state) do
     case Map.pop(state.spans, span.id) do
       {nil, _spans} ->
         {:reply, :ok, state}
 
       {{_order, open_span}, spans} ->
-        enqueue(state.delivery, {:terminal, open_span, suffix, extra_metadata})
+        enqueue(state.delivery, {:terminal, open_span, suffix, extra_metadata, stopped_at})
         {:reply, :ok, %{state | spans: spans}}
     end
   end
 
-  def handle_call({:fail_all, error}, _from, state) do
+  def handle_call({:fail_all, error, stopped_at}, _from, state) do
     extra_metadata = Telemetry.error_metadata(error)
 
     state.spans
     |> Map.values()
     |> Enum.sort_by(&elem(&1, 0), :desc)
     |> Enum.each(fn {_order, span} ->
-      enqueue(state.delivery, {:terminal, span, :error, extra_metadata})
+      enqueue(state.delivery, {:terminal, span, :error, extra_metadata, stopped_at})
     end)
 
     {:reply, :ok, %{state | closed?: true, spans: %{}}}
@@ -179,8 +181,8 @@ defmodule Jido.Exec.Telemetry.Tracker do
         Telemetry.emit_start(span)
         deliver()
 
-      {:terminal, span, suffix, extra_metadata} ->
-        Telemetry.emit_terminal(span, suffix, extra_metadata)
+      {:terminal, span, suffix, extra_metadata, stopped_at} ->
+        Telemetry.emit_terminal(span, suffix, extra_metadata, stopped_at)
         deliver()
 
       :stop ->

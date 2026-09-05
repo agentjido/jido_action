@@ -223,6 +223,8 @@ work continues to use the same complete-call deadline.
 
 The delivery process uses the caller's Logger metadata and group leader.
 Tracker exit also stops delivery, including handlers that trap exit signals.
+Start and terminal measurements are captured at the lifecycle call, before
+queueing. Delivery delay does not change timestamps or span duration.
 
 Terminal cleanup allows up to 100 milliseconds for the full pending event queue,
 then stops the delivery process. Normal handlers retain start/terminal pairing.

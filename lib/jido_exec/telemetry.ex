@@ -9,6 +9,7 @@ defmodule Jido.Exec.Telemetry do
           id: reference(),
           metadata: map(),
           started_at: integer(),
+          system_time: integer(),
           tracker: pid() | nil,
           tracked?: boolean()
         }
@@ -34,6 +35,7 @@ defmodule Jido.Exec.Telemetry do
       id: make_ref(),
       metadata: metadata,
       started_at: started_at,
+      system_time: System.system_time(),
       tracker: tracker,
       tracked?: false
     }
@@ -102,16 +104,15 @@ defmodule Jido.Exec.Telemetry do
   def emit_start(span) do
     :telemetry.execute(
       span.event ++ [:start],
-      %{system_time: System.system_time(), monotonic_time: span.started_at},
+      %{system_time: span.system_time, monotonic_time: span.started_at},
       span.metadata
     )
   end
 
   @doc false
   @spec emit_terminal(span(), :stop | :error, map()) :: :ok
-  def emit_terminal(span, suffix, extra_metadata) do
-    stopped_at = System.monotonic_time()
-
+  @spec emit_terminal(span(), :stop | :error, map(), integer()) :: :ok
+  def emit_terminal(span, suffix, extra_metadata, stopped_at \\ System.monotonic_time()) do
     :telemetry.execute(
       span.event ++ [suffix],
       %{duration: stopped_at - span.started_at, monotonic_time: stopped_at},
