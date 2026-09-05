@@ -8,7 +8,7 @@ Read the [Version 2 To Version 3 Migration Guide](v2-to-v3-migration.md) before
 you use the prompt. The guide explains the API decisions and the required
 replacements.
 Read [Migration Shims](migration-shims.md) for the package-wide compatibility
-policy. Do not treat a supported shim as the preferred version 3 API.
+policy. Instruction aliases and stored execution options have been removed.
 
 ## Before You Start
 
@@ -115,14 +115,13 @@ change application behavior.
 
 5. Migrate Instructions
 
-- Replace the action field with target. Version 3 accepts an action constructor
-  key or struct field as a temporary migration input, emits a runtime warning,
-  and normalizes it to target.
+- Replace action and the earlier beta flow field with target. Both fields
+  have been removed; constructors reject them and old struct literals no
+  longer compile. The flow field had no deprecation warning before removal.
 - Move descriptive id data to metadata or to caller-owned data.
-- Remove opts from the Instruction. Version 3 accepts this field as a temporary
-  migration shim and emits a runtime warning. It forwards timeout and jido,
-  but it does not apply removed version 2 settings. Pass execution policy to
-  Jido.Exec.run/4.
+- Remove opts from the Instruction, including empty or nil values. Pass
+  supported execution options directly to Jido.Exec. Use task_supervisor for
+  routing. Keep removed v2 policy, such as retry and backoff, in the caller.
 - Keep params and context as maps.
 - Replace normalize/3, normalize_single/3, tuple shorthand, list shorthand,
   and validate_allowed_actions/2 with explicit new/1 or new!/1 calls and an

@@ -261,18 +261,63 @@ Apply these field changes:
 | Version 2 field | Version 3 field or location |
 | --- | --- |
 | `action` | `target` |
+| Earlier v3 `flow` | `target` |
 | `id` | Caller-owned data, or `metadata` when it is descriptive |
 | `params` | `params` |
 | `context` | `context` |
 | `opts` | Options passed to `Jido.Exec.run/4` |
 
-Version 3 temporarily accepts `action:` and `opts` as migration shims. These
-paths emit warnings. Replace them before the upgrade is complete. The shim
-for `opts` forwards `timeout` and `task_supervisor`; it does not restore removed version
-2 execution policy.
+The v3 beta now removes `action`, `flow`, and `opts` from the struct and
+constructors. `flow:` was a typed v3 input with no deprecation warning; its
+removal is also a beta API change. Use `target: flow_module` or
+`target: flow_value` without converting the target.
 
-See [Migration Shims](migration-shims.md) for the exact warning and error
-behavior.
+`new/1` returns `Jido.Action.Error.InvalidInputError` with
+`details.reason == :removed_instruction_fields` and the rejected field names.
+`new!/1` raises that error. Presence of a removed key is an error even for
+`nil`, `opts: []`, or a call that also supplies `target`. Old struct literals
+with removed fields no longer compile. Remove those fields before compiling
+the application against this API. No warning or automatic migration remains.
+
+Move supported options to the execution call:
+
+```elixir
+instruction = Jido.Instruction.new!(target: MyApp.Flows.DeliverOrder)
+
+Jido.Exec.run(instruction, %{}, %{},
+  timeout: 5_000,
+  max_concurrency: 2,
+  max_continuations: 10,
+  task_supervisor: MyApp.TaskSupervisor
+)
+```
+
+The same call data can be passed to `run_async/4`. A Flow Instruction also
+supports `start/4`, which accepts `max_concurrency` and `task_supervisor` but
+has no complete-call timeout or continuation policy. Keep retry, backoff,
+logging, telemetry setup, and durable policy in the caller. Do not move
+unsupported v2 options into Exec unchanged.
+
+Params and context retain their shallow merge order: call-site values replace
+equal keys. Metadata remains descriptive caller data with no execution effect.
+An Instruction is not a portable JSON representation.
+
+### Checked Downstream Callers
+
+The local source scan on 2026-09-05 found these migration paths. Dependency
+versions are the checked declarations; downstream branches can change.
+
+| Consumer | Checked call sites | Migration |
+| --- | --- | --- |
+| Core Jido and jido_v3, Action `3.0.0-beta.6` | `lib/jido/agent/command/runner.ex`, `run/3` | Already pass executable, input, context, and explicit options to Exec. No Instruction field change is needed in the checked source. |
+| Jido AI, Action `~> 2.3` | `lib/jido_ai/reasoning/helpers.ex`, `execute_action_instruction/3` and `run_instruction/1` | Stop reading and writing `instruction.opts`. Keep policy in caller data and pass supported options as the fourth Exec argument. |
+| Jido AI strategies | Adaptive `map_instructions/2` and `normalize_instruction/1`; chain-of-draft `map_instruction/1`; Action patterns in React, tree-of-thoughts, TRM, chain-of-thought, algorithm-of-thoughts, and worker strategies | Change module-valued `action` fields to `target`. Symbolic strategy commands need a caller-owned command type or explicit resolution to an executable module. |
+| Jido Run, Action `~> 2.1` | `lib/agent_jido/content_ops/runic_strategy.ex`, `rewrite_instructions/1`, `to_feed_instruction/2`, and `reset_workflow_instruction/1` | Move symbolic commands out of Instruction call data. A field rename alone does not make a symbol executable. Also update the module-valued Instruction example in `lib/agent_jido/code_examples.ex`. |
+
+These AI and Run callers use v2 contracts. Include the changes in their v3
+migration; they do not require a compatibility layer in this package. The
+checked Jido Browser and Jido Signal production sources had no Instruction
+field users. Re-scan downstream callers when adopting the beta changes.
 
 ## Replace Instruction Shorthand And Allowlists
 
@@ -509,7 +554,7 @@ The host must start it before execution. See
 12. Replace catalog, bundled-tool, and generator integrations.
 13. Migrate stored version 2 data with an explicit versioned data migration.
 14. Replace direct references to `Jido.Action.TaskSupervisor`.
-15. Compile with warnings as errors and remove all migration-shim warnings.
+15. Compile with warnings as errors and remove all old Instruction fields.
 16. Test Action input, output, error, timeout, and process-exit boundaries.
 17. Test each replacement Flow for data dependencies, order, and final output.
 

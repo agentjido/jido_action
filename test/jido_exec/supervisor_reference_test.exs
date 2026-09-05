@@ -226,19 +226,16 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
     assert {:ok, %{iterations: 1, output: %{value: :iteration}}} = caller_result(caller)
   end
 
-  test "uses effective Instruction options for both async control and Action workers" do
-    stored = start_route(:pid)
-    override = start_route(:registry)
+  test "uses direct options for both async control and Instruction workers" do
+    routes = [start_route(:pid), start_route(:registry)]
 
     instruction = %Instruction{
       target: BlockingAction,
-      opts: [task_supervisor: stored],
       context: %{test_pid: self()}
     }
 
-    for opts <- [[], [task_supervisor: override]] do
-      route = Keyword.get(opts, :task_supervisor, stored)
-      handle = Exec.run_async(instruction, %{}, %{}, opts)
+    for route <- routes do
+      handle = Exec.run_async(instruction, %{}, %{}, task_supervisor: route)
       assert_receive {:blocking_flow_node_started, worker}, 1_000
       children = Task.Supervisor.children(route)
       assert worker in children

@@ -194,14 +194,11 @@ instruction =
 An Instruction holds one Action module, Flow module, or runtime Flow target. It
 does not define a workflow, program, or runtime policy.
 
-For version 2 migration, `action:` constructor data and struct literals remain
-accepted. They emit a runtime warning and normalize to `target`. Use `target:`
-in new code. A typed `flow:` construction input also normalizes to `target`.
-
-Deprecated Instruction `opts` also compile during version 3 migration. Exec
-warns and forwards the options that version 3 still supports. See
-[Migration Shims](guides/migration-shims.md) for the package compatibility
-policy and option rules.
+Use `target:` for every executable kind. The `action`, `flow`, and `opts`
+Instruction fields have been removed from the v3 beta API. Constructors reject
+them, and old struct literals no longer compile. Pass execution options to
+`Jido.Exec`. See [Instruction migration](guides/v2-to-v3-migration.md#replace-instruction-fields)
+for the field changes and downstream migration steps.
 
 ## Compose A Flow
 

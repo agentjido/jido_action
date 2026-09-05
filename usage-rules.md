@@ -28,13 +28,11 @@ Use `jido_action` for validated work and data-first composition:
 - Store only the executable target, params, context, and caller metadata in an
   Instruction.
 - Use an Action module, Flow module, or runtime Flow value as the target.
-- Use `target:` in new code. Deprecated `action:` construction data emits a
-  runtime warning and normalizes to `target`; typed `flow:` data also
-  normalizes to `target`.
-- Do not put execution policy in `Instruction.opts`. Version 3 accepts that
-  field only as a warning-based migration shim. Pass options to `Jido.Exec`.
-- Use [Migration Shims](guides/migration-shims.md) to distinguish supported
-  compatibility paths from removed package APIs.
+- Use `target:` for all executable kinds. The removed `action`, `flow`, and
+  `opts` fields return constructor errors, including nil or empty values.
+- Pass execution options directly to `Jido.Exec`.
+- See [Instruction migration](guides/v2-to-v3-migration.md#replace-instruction-fields)
+  before upgrading code that used the old beta fields.
 - Validate the executable contract explicitly when a caller needs that guarantee.
 
 ## Validation

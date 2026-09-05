@@ -33,32 +33,22 @@ case Jido.Instruction.new(target: MyApp.Actions.SendEmail) do
 end
 ```
 
-The constructor also accepts typed target inputs. `action:` must resolve to an
-Action, and `flow:` must resolve to a Flow. Both inputs become the canonical
-`target` field.
+Use `target:` for Action modules, Flow modules, and runtime Flow values:
 
 ```elixir
-action_instruction = Jido.Instruction.new!(action: MyApp.Actions.SendEmail)
-flow_instruction = Jido.Instruction.new!(flow: MyApp.Flows.DeliverOrder)
+flow_instruction = Jido.Instruction.new!(target: MyApp.Flows.DeliverOrder)
 ```
 
-The `action:` form exists for version 2 migration and emits a runtime warning.
-An old struct literal also compiles and is normalized when it enters
-`Jido.Instruction` or `Jido.Exec`:
+The constructor accepts maps with atom keys or keyword lists. Params, context,
+and metadata can be maps, keyword lists, or nil. Nil becomes an empty map.
+The target is required; explicit nil is an invalid executable target.
 
-```elixir
-%Jido.Instruction{action: MyApp.Actions.SendEmail, params: %{to: address}}
-```
-
-Use `target:` in new code. The compatibility path does not restore the removed
-`id` field.
-
-Version 3 also accepts the deprecated `opts` field so old struct literals
-compile. Exec warns when it consumes a non-empty value. It forwards `timeout`
-and `task_supervisor`, leaves out known settings that version 3 removed, and rejects
-unknown settings. Move all execution options to `Jido.Exec.run/4`. See
-[Migration Shims](migration-shims.md) for the package policy and exact option
-rules.
+The `action`, `flow`, and `opts` fields have been removed from the beta API.
+The constructor rejects these keys even when a valid `target` is also present
+or the removed value is nil or empty. The earlier `id` field stays removed.
+`new/1` returns a structured error; `new!/1` raises it. Old struct literals
+with removed fields no longer compile. See
+[Instruction migration](v2-to-v3-migration.md#replace-instruction-fields).
 
 ## Execute An Instruction
 
@@ -67,6 +57,8 @@ Jido.Exec.run(instruction)
 ```
 
 Call-site parameter and context maps override equal keys in the Instruction.
+The merge is shallow: an incoming nested map replaces the stored nested map.
+Metadata stays unchanged and is not passed to the target as execution policy.
 
 ```elixir
 Jido.Exec.run(
@@ -77,7 +69,7 @@ Jido.Exec.run(
 ```
 
 An Instruction uses the rules of its resolved target. All run-to-completion
-targets accept `timeout:`, `task_supervisor:`, `max_continuations:`, and
+targets accept direct Exec options `timeout:`, `task_supervisor:`, `max_continuations:`, and
 `max_concurrency:`. An Action does not use `max_concurrency` itself, but it can
 continue to a Flow. An Instruction can be a target for `Jido.Exec.run_async/4`.
 

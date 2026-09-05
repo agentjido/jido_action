@@ -150,8 +150,7 @@ defmodule Jido.Exec do
     execution_id = Telemetry.execution_id()
     timeout_owner = initial_timeout_owner(executable)
 
-    with {:ok, opts} <- prepare_run_options(executable, opts),
-         {:ok, timeout, run_opts} <- Options.take_timeout(opts, timeout_owner),
+    with {:ok, timeout, run_opts} <- Options.take_timeout(opts, timeout_owner),
          {:ok, continuation_limit} <- Options.continuation_limit(run_opts, timeout_owner) do
       execute_with_timeout(
         fn notify ->
@@ -185,14 +184,13 @@ defmodule Jido.Exec do
          count,
          continuation_limit
        ) do
-    with {:ok, executable, resolved, run_opts} <-
-           resolve_run_target(executable, opts, :run) do
+    with {:ok, resolved} <- resolve_run_target(executable) do
       run_resolved_chain(
         executable,
         resolved,
         input,
         context,
-        run_opts,
+        opts,
         execution_id,
         notify,
         count,
@@ -366,7 +364,7 @@ defmodule Jido.Exec do
   def start(executable, input \\ %{}, context \\ %{}, opts \\ []) do
     execution_id = Telemetry.execution_id()
 
-    with {:ok, executable, resolved, opts} <- resolve_run_target(executable, opts, :start) do
+    with {:ok, resolved} <- resolve_run_target(executable) do
       do_start(executable, resolved, input, context, opts, execution_id)
     end
   end
@@ -679,8 +677,6 @@ defmodule Jido.Exec do
   defp timeout_owner(%Executable{kind: :flow}), do: FlowError
   defp timeout_owner(%Executable{kind: :action}), do: Error
 
-  defp initial_timeout_owner(%Instruction{flow: flow}) when not is_nil(flow), do: FlowError
-  defp initial_timeout_owner(%Instruction{action: action}) when not is_nil(action), do: Error
   defp initial_timeout_owner(%Instruction{target: target}), do: initial_timeout_owner(target)
   defp initial_timeout_owner(%Flow{}), do: FlowError
   defp initial_timeout_owner(_executable), do: Error
@@ -713,36 +709,15 @@ defmodule Jido.Exec do
 
   defp execution_name(%Executable{target: target}), do: execution_name(target)
 
-  defp execution_name(%Instruction{target: target}) when not is_nil(target),
+  defp execution_name(%Instruction{target: target}),
     do: execution_name(target)
 
-  defp execution_name(%Instruction{action: action}) when not is_nil(action),
-    do: execution_name(action)
-
-  defp execution_name(%Instruction{flow: flow}) when not is_nil(flow), do: execution_name(flow)
   defp execution_name(%Flow{name: name}), do: name
   defp execution_name(module) when is_atom(module), do: module
   defp execution_name(executable), do: executable
 
-  defp resolve_run_target(%Instruction{} = instruction, opts, :run) do
-    Instruction.prepare_execution_target(instruction, opts)
-  end
-
-  defp resolve_run_target(%Instruction{} = instruction, opts, mode) do
-    Instruction.prepare_execution(instruction, opts, mode)
-  end
-
-  defp resolve_run_target(executable, opts, _mode) do
-    with {:ok, %Executable{} = resolved} <- Executable.resolve(executable) do
-      {:ok, executable, resolved, opts}
-    end
-  end
-
-  defp prepare_run_options(%Instruction{} = instruction, opts) do
-    Instruction.prepare_run_options(instruction, opts)
-  end
-
-  defp prepare_run_options(_executable, opts), do: {:ok, opts}
+  defp resolve_run_target(%Instruction{target: target}), do: Executable.resolve(target)
+  defp resolve_run_target(executable), do: Executable.resolve(executable)
 
   defp run_with_lifecycle(
          %Instruction{} = instruction,

@@ -334,19 +334,22 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     :persistent_term.put(key, self())
     on_exit(fn -> :persistent_term.erase(key) end)
 
-    caller =
-      spawn(fn ->
-        result = Exec.run(BlockingDescriptorAction, %{}, %{}, timeout: 100)
-        send(self_or_owner(), {:descriptor_result, result})
-      end)
+    for target <- [BlockingDescriptorAction, %Instruction{target: BlockingDescriptorAction}] do
+      owner = self()
 
-    on_exit(fn -> Process.exit(caller, :kill) end)
+      caller =
+        spawn(fn ->
+          result = Exec.run(target, %{}, %{}, timeout: 100)
+          send(owner, {:descriptor_result, result})
+        end)
 
-    assert_receive {:descriptor_started, descriptor_process}, 1_000
-    refute descriptor_process == caller
+      on_exit(fn -> Process.exit(caller, :kill) end)
+      assert_receive {:descriptor_started, descriptor_process}, 1_000
+      refute descriptor_process == caller
 
-    assert_receive {:descriptor_result, {:error, %ActionTimeoutError{timeout: 100}}}, 1_000
-    assert_process_stops(descriptor_process)
+      assert_receive {:descriptor_result, {:error, %ActionTimeoutError{timeout: 100}}}, 1_000
+      assert_process_stops(descriptor_process)
+    end
   end
 
   test "keeps continuation resolution under the current Action timeout owner" do
@@ -501,10 +504,6 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     monitor = Process.monitor(pid)
     assert_receive {:DOWN, ^monitor, :process, ^pid, _reason}, 1_000
     refute Process.alive?(pid)
-  end
-
-  defp self_or_owner do
-    :persistent_term.get({BlockingDescriptorAction, :owner})
   end
 
   test "continue runs dependent waves in order" do

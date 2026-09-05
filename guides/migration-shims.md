@@ -1,160 +1,50 @@
 # Migration Shims
 
-Jido Action 3 makes the package smaller and gives each public type one clear
-role. Some version 2 source forms cannot compile against the new structs. A
-small set of migration shims accepts these forms so an application can run its
-tests and replace them in normal source edits.
+The v3 beta has removed the Instruction migration shims. Instructions now
+contain only `target`, `params`, `context`, and `metadata`. Exec receives all
+execution options from its caller.
 
-This guide defines the shim policy for the full package. It lists the active
-shims, the APIs that remain supported without a shim, and the removed APIs that
-do not have a shim.
+## Removed Instruction Inputs
 
-## Deprecation Policy
-
-Migration shims are deprecated public compatibility paths. New code must not
-use them. This guide does not assign a removal release. A removal decision
-requires a separate compatibility review and clear release notes.
-
-Treat each warning as migration work. Do not filter these warnings as a
-permanent application setting.
-
-## Shim Design Rules
-
-Jido uses a shim only when it can recover the old intent without making the new
-contract unclear.
-
-A package shim must follow these rules:
-
-1. Accept only the smallest old source form needed for migration.
-2. Validate the old value against the current type or execution contract.
-3. Convert it to the current canonical form before normal work starts.
-4. Emit a direct Logger warning when Jido uses deprecated input.
-5. Do not put option values or Logger metadata in the warning.
-6. Give an explicit current API replacement.
-7. Do not restore a removed package responsibility.
-8. Return an error when Jido cannot determine a safe current meaning.
-
-Explicit current API input has precedence over shim input. This lets a caller
-move policy one setting at a time.
-
-## Compatibility Results
-
-A version 2 surface has one of these results:
-
-| Result | Meaning |
+| Removed field | Required replacement |
 | --- | --- |
-| Normalize and continue | Jido can convert the old input to the current data model. |
-| Forward and continue | The current runtime still supports the setting at a different boundary. |
-| Warn and leave out | Jido recognizes the setting, but version 3 no longer performs that policy. |
-| Warn and return an error | The field compiles, but Jido cannot safely map the value. |
-| No shim | The old API or responsibility was removed and requires an application change. |
+| `action` | `target: action_module` |
+| `flow` | `target: flow_module` or `target: flow_value` |
+| `opts` | Direct options on `Jido.Exec.run/4`, `run_async/4`, or `start/4` |
+| `id` | Descriptive `metadata` or caller-owned data |
 
-## Active Package Shims
+This is an explicit beta API change. The earlier `flow` input was supported
+without a warning; it is now removed with the other fields. The constructor
+rejects every removed key, including nil or empty values. It returns a
+structured error with the rejected fields. `new!/1` raises the error, and
+old struct literals no longer compile.
 
-The current package has two intentional version 2 migration shims:
-
-| Surface | Result | Current form |
-| --- | --- | --- |
-| `Jido.Instruction.action` | Validate as an Action, warn, and normalize | `Jido.Instruction.target` |
-| `Jido.Instruction.opts` | Classify, warn, forward supported keys, and leave out removed keys | Options on `Jido.Exec.run/4` or caller policy |
-
-The `flow:` Instruction constructor input is not a version 2 shim. It is a
-typed version 3 input. It validates a Flow target and stores it in `target`
-without a deprecation warning. Use `target:` as the normal form.
-
-## Instruction Target Shim
-
-Version 2 Instructions use `action`:
+Use the canonical form:
 
 ```elixir
-instruction = %Jido.Instruction{
-  action: MyApp.Actions.SendEmail,
-  params: %{to: "user@example.com"}
-}
-```
-
-Version 3 accepts this constructor key and struct field. Jido confirms that
-the value is an Action, warns, and normalizes it:
-
-```elixir
-instruction = %Jido.Instruction{
+instruction = Jido.Instruction.new!(
   target: MyApp.Actions.SendEmail,
-  params: %{to: "user@example.com"}
-}
-```
-
-The neutral `target` field is required because an Instruction can now target
-an Action module, a Flow module, or a runtime `%Jido.Flow{}` value.
-
-Conflicting target fields return an error. An `action:` value that resolves to
-a Flow also returns an error. The shim does not weaken target-kind validation.
-
-## Instruction Options Shim
-
-Version 2 can store execution policy in the Instruction:
-
-```elixir
-instruction = %Jido.Instruction{
-  action: MyApp.Actions.SendEmail,
   params: %{to: "user@example.com"},
-  opts: [timeout: 5_000]
-}
+  metadata: %{id: "send-1"}
+)
+
+Jido.Exec.run(instruction, %{}, %{},
+  timeout: 5_000,
+  task_supervisor: MyApp.TaskSupervisor
+)
 ```
 
-Version 3 accepts `opts` so this literal compiles. `Jido.Exec.run/4` consumes a
-non-empty field and emits one grouped warning. Move the option to the execution
-call:
+There is no option forwarding, stored-option precedence, or migration warning.
+Do not put execution policy in metadata. Move only supported options to Exec;
+keep retry, backoff, context propagation policy, logging setup, and telemetry
+setup in the caller. `start/4` does not accept a complete-call timeout.
 
-```elixir
-instruction = %Jido.Instruction{
-  target: MyApp.Actions.SendEmail,
-  params: %{to: "user@example.com"}
-}
-
-Jido.Exec.run(instruction, %{}, %{}, timeout: 5_000)
-```
-
-Direct Exec options have precedence during migration:
-
-```elixir
-legacy_instruction = %Jido.Instruction{
-  target: MyApp.Actions.SendEmail,
-  opts: [timeout: 5_000]
-}
-
-# Uses 10 seconds and warns about the legacy Instruction opts.
-Jido.Exec.run(legacy_instruction, %{}, %{}, timeout: 10_000)
-```
-
-### Option Results
-
-| Instruction option | Version 3 result | Migration |
-| --- | --- | --- |
-| `timeout` | Forwarded by `run/4` | Pass it directly to `Jido.Exec.run/4`. |
-| `task_supervisor` | Forwarded | Pass it directly to `Jido.Exec.run/4` or `start/4`. |
-| `jido` | Rejected | Use an explicit `task_supervisor:` reference. |
-| `max_retries` | Warned and not applied | Put retry count in the caller or Jido runtime. |
-| `backoff` | Warned and not applied | Put retry delay in the caller or Jido runtime. |
-| `log_level` | Warned and not applied | Configure logging at the application boundary. |
-| `telemetry` | Warned and not applied | Configure telemetry handlers outside the Instruction. |
-| `context_propagators` | Warned and not applied | Propagate context at the caller-owned Task or runtime boundary. |
-| `context_propagator_failure_mode` | Warned and not applied | Own propagation failure policy at the same boundary. |
-| `error_normalization` | Warned and not applied | Remove it. Version 3 always uses its canonical errors. |
-| Any other key | Warning and execution error | Inspect the old use and move or remove it explicitly. |
-
-When retry settings are present, the warning states that the call runs once.
-Jido Action 3 does not retry an Action or Flow.
-
-The shim does not log option values. It logs option keys, the resolved target,
-and the required migration. An empty `opts: []` field does not warn.
-
-`Jido.Exec.start/4` does not accept `timeout`. A paused Flow has no active
-whole-call timeout. A legacy timeout on an Instruction passed to `start/4`
-warns and returns the normal invalid-option error.
+See [Instruction field migration](v2-to-v3-migration.md#replace-instruction-fields)
+for the exact construction errors and checked downstream migration paths.
 
 ## Supported APIs That Are Not Shims
 
-Some version 2 surfaces remain part of the version 3 contract. They do not emit
+The following surfaces are part of the version 3 contract. They do not emit
 migration warnings:
 
 - the Action `run/2` callback;
@@ -186,7 +76,7 @@ to schemas, `run/2`, the caller, or the package that owns the integration.
 
 ### Instructions
 
-There is no shim for `id`, symbolic Action names, `normalize/3`,
+There is no shim for `id`, `action`, `flow`, `opts`, symbolic Action names, `normalize/3`,
 `normalize_single/3`, tuple or list shorthand, or
 `validate_allowed_actions/2`. Put descriptive identity in `metadata` or
 caller-owned data, and build each Instruction explicitly.
@@ -210,48 +100,3 @@ integration policy in the package that owns it.
 
 There is no v2 Plan-to-Flow or Instruction-to-Flow decoder. Build a canonical
 Flow and store it through `Jido.Flow.Codec` with a trusted Registry.
-
-## Why The Package Uses Narrow Shims
-
-Struct field changes can stop compilation before tests or migration tools can
-inspect the application. The `action` and `opts` fields let the compiler pass
-these old literals to a runtime boundary that can give a precise warning.
-
-The shims stop at that boundary. They do not make removed retry, compensation,
-catalog, tool, or storage behavior part of the new core package.
-
-This keeps migration observable while it protects the version 3 design:
-
-- Instructions hold stable call data;
-- Exec owns one call boundary;
-- callers own runtime and orchestration policy; and
-- Flows define explicit graph structure and data paths.
-
-## Warning Policy
-
-Migration warnings use `Logger.warning/1` without added Logger metadata.
-
-- The `action` warning identifies the target and says to use `target`.
-- The `opts` warning groups all keys for one execution.
-- Warning text lists keys, not values.
-- Known removed option keys state that they are not applied.
-- Unknown keys state that Jido cannot continue.
-- Empty compatibility fields do not warn.
-- Repeated use can warn again; Jido does not keep global suppression state.
-
-## Package Migration Check
-
-1. Replace Instruction `action:` with `target:`.
-2. Move Instruction `opts` to each `Jido.Exec` call or caller policy.
-3. Move descriptive Instruction identity to metadata or caller-owned data.
-4. Convert Action schemas and remove old Action options and hooks.
-5. Move retry, compensation, durable cancellation policy, and context
-   propagation to the caller or Jido runtime.
-6. Replace Plans, catalogs, tools, and generators only where the application
-   still needs those concerns.
-7. Treat stored Flows as a new version 3 format.
-8. Run tests without hiding Logger warnings.
-9. Search again for removed modules, fields, callbacks, and options.
-
-When the application runs without migration warnings and no removed APIs
-remain, it no longer depends on package migration shims.
