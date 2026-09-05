@@ -125,10 +125,14 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
     Telemetry.error(span, Error.execution_error("unsupported runnable status", %{status: status}))
   end
 
-  defp authored_component(execution, %Runnable{node: %{name: runnable_name}}) do
-    Enum.find_value(execution.compiled.component_index, fn {name, index} ->
-      if index.output == runnable_name, do: {name, index.kind}
-    end)
+  defp authored_component(execution, %Runnable{node: %{name: runnable_name, hash: hash}}) do
+    with %{component_path: [name]} <- Map.get(execution.compiled.work_index, hash),
+         %{output: ^runnable_name, kind: kind} <-
+           Map.get(execution.compiled.component_index, name) do
+      {name, kind}
+    else
+      _ -> nil
+    end
   end
 
   defp authored_component(_execution, _runnable), do: nil
