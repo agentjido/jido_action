@@ -117,7 +117,8 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
   test "normalization counts Condition nodes after conversion to expressions" do
     conditions = List.duplicate(Condition.eq(1, 1), 4_000)
     expression = Expr.new!(:all, conditions)
-    assert {:ok, %Condition{}} = Condition.new(:all, conditions)
+    assert {:error, error} = Condition.new(:all, conditions)
+    assert error.details.reason == :max_nodes
     assert {:error, error} = Jido.Flow.Expression.normalize(expression)
     assert error.details.reason == :max_nodes
   end
@@ -149,7 +150,7 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
 
     condition = Condition.eq(Ref.item(), 1)
     assert {:error, error} = Jido.Flow.Expression.validate(%{outer: [condition]}, :flow)
-    assert error.details.path == [:outer, 0, 0]
+    assert error.details.path == [:outer, 0, :operands, 0]
 
     assert {:error, error} = Jido.Flow.Expression.validate(%{outer: %{1.5 => :invalid}}, :flow)
     assert error.details.path == [:outer]
@@ -183,6 +184,96 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
                  do: ["components", 0, "options", 0, "condition", "$expr", "operator"],
                  else: ["components", 0, "completion", "$expr", "operator"]
                )
+    end
+  end
+
+  test "canonical operations preserve Flow string and map-key rules" do
+    for data <- [<<255>>, %{nil => 1}, %{-1 => 1}, %{<<255>> => 1}] do
+      expression = Expr.new!(:eq, [data, data])
+      assert :ok = Expr.validate(expression)
+
+      assert {:error, %Jido.Flow.Error.InvalidDefinitionError{}} =
+               Jido.Flow.Expression.validate(expression)
+
+      assert {:error, %Jido.Flow.Error.InvalidDefinitionError{}} =
+               Step.new(name: "seed", action: EchoParamsAction, params: %{nested: expression})
+
+      assert {:error, %Jido.Flow.Error.InvalidDefinitionError{}} =
+               Condition.new(:eq, [data, data])
+    end
+  end
+
+  test "skipped mixed operations still validate Flow data and reference scopes" do
+    for {outer, inner} <- [{Expr, Condition}, {Condition, Expr}],
+        data <- [Ref.item(), <<255>>, %{nil => 1}, %{-1 => 1}] do
+      expression =
+        struct!(outer,
+          operator: :all,
+          operands: [false, struct!(inner, operator: :eq, operands: [data, 1])]
+        )
+
+      assert {:error, %Jido.Flow.Error.InvalidDefinitionError{} = error} =
+               Condition.validate(expression, :flow)
+
+      assert error.details.path == [:operands, 1, :operands, 0]
+    end
+  end
+
+  test "invalid result names retain their complete normalization path" do
+    reference = Ref.result("")
+
+    for {outer, inner} <- [{Expr, Condition}, {Condition, Expr}] do
+      expression =
+        struct!(outer,
+          operator: :eq,
+          operands: [struct!(inner, operator: :eq, operands: [reference, 1]), true]
+        )
+
+      assert {:error, error} = Condition.new(expression)
+      assert Exception.message(error) == "Action name cannot be blank."
+      assert error.details.path == [:operands, 0, :operands, 0]
+
+      assert {:error, error} =
+               Step.new(name: "seed", action: EchoParamsAction, params: %{outer: [expression]})
+
+      assert error.details.path == [:outer, 0, :operands, 0, :operands, 0]
+    end
+
+    assert {:error, error} = Jido.Flow.Expression.normalize(%{outer: [reference]})
+    assert error.details.path == [:outer, 0]
+  end
+
+  test "legacy and current stored arity errors retain their JSON tag paths" do
+    assert {:ok, document, registry} = Codec.encode(choice_flow(Condition.eq(1, 1)))
+    location = ["components", Access.at(0), "options", Access.at(0), "condition"]
+
+    for {version, tag} <- [{1, "$condition"}, {2, "$condition"}, {2, "$expr"}],
+        {operator, operands} <- [{"eq", [1]}, {"not", []}, {"all", []}] do
+      invalid = %{
+        tag => %{
+          "operator" => "not",
+          "operands" => [%{tag => %{"operator" => operator, "operands" => operands}}]
+        }
+      }
+
+      invalid_document = document |> Map.put("version", version) |> put_in(location, invalid)
+
+      assert {:error, error} =
+               Codec.decode(JSON.decode!(JSON.encode!(invalid_document)), registry)
+
+      assert error.details.reason == :invalid_arity
+
+      assert error.details.path == [
+               "components",
+               0,
+               "options",
+               0,
+               "condition",
+               tag,
+               "operands",
+               0,
+               tag
+             ]
     end
   end
 

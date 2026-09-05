@@ -127,7 +127,7 @@ defmodule Jido.Flow.Component do
         initial: Jido.Flow.Expression.to_map(iterate.state.initial),
         update: Jido.Flow.Expression.to_map(iterate.state.update)
       },
-      completion: Jido.Flow.Condition.to_map(iterate.completion),
+      completion: Jido.Flow.Expression.to_map(iterate.completion),
       max_iterations: iterate.max_iterations,
       after: iterate.after,
       meta: iterate.meta

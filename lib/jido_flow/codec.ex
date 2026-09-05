@@ -5,9 +5,8 @@ defmodule Jido.Flow.Codec do
   The document contains JSON-compatible data. A trusted `Jido.Flow.Registry`
   resolves all Action, Flow, schema, and user-data atom identifiers.
 
-  The decoder rejects invalid UTF-8, data deeper than 100 levels, one
-  collection with more than 10,000 items, and one document with more than
-  100,000 data nodes. These limits apply before module or schema resolution.
+  See the [storage guide](flow-storage.md) for document versions, operation
+  tags, and validation limits.
 
       registry =
         Jido.Flow.Registry.new!(%{
@@ -31,7 +30,6 @@ defmodule Jido.Flow.Codec do
   alias Jido.Expr
   alias Jido.Flow
   alias Jido.Flow.Choice
-  alias Jido.Flow.Condition
   alias Jido.Flow.Data
   alias Jido.Flow.Dispatch
   alias Jido.Flow.Error
@@ -731,18 +729,7 @@ defmodule Jido.Flow.Codec do
 
         case collect_values(fields, errors) do
           {:ok, attrs} ->
-            case Expr.new(attrs.operator, attrs.operands) do
-              {:ok, expression} ->
-                {:ok, expression}
-
-              {:error, error} ->
-                {:error,
-                 Error.validation_error("invalid stored expression", %{
-                   path: tag_path,
-                   reason: error.reason,
-                   operator: error.operator
-                 })}
-            end
+            build_operation(attrs, tag_path)
 
           error ->
             error
@@ -843,7 +830,7 @@ defmodule Jido.Flow.Codec do
             unknown_field_errors(record, ["operator", "operands"], path ++ ["$condition"])
 
         case collect_values(fields, errors) do
-          {:ok, attrs} -> {:ok, struct!(Condition, attrs)}
+          {:ok, attrs} -> build_operation(attrs, path ++ ["$condition"])
           {:error, errors} -> {:error, errors}
         end
 
@@ -895,6 +882,21 @@ defmodule Jido.Flow.Codec do
 
   defp diagnose_condition_operands_field(_record, {:error, _error}, _registry, _depth, _path) do
     {:ok, []}
+  end
+
+  defp build_operation(attrs, path) do
+    case Expr.new(attrs.operator, attrs.operands) do
+      {:ok, expression} ->
+        {:ok, expression}
+
+      {:error, error} ->
+        {:error,
+         Error.validation_error("invalid stored expression", %{
+           path: path,
+           reason: error.reason,
+           operator: error.operator
+         })}
+    end
   end
 
   defp diagnose_data(value, _registry, depth, path)
@@ -1359,7 +1361,7 @@ defmodule Jido.Flow.Codec do
          {:ok, schema} <- Registry.identifier(registry, :schema, iterate.state.schema),
          {:ok, initial} <- encode_expression(iterate.state.initial, registry, 0),
          {:ok, update} <- encode_expression(iterate.state.update, registry, 0),
-         {:ok, completion} <- encode_condition(iterate.completion, registry, 0),
+         {:ok, completion} <- encode_expression(iterate.completion, registry, 0),
          {:ok, meta} <- encode_data(iterate.meta, registry, 0) do
       {:ok,
        %{
@@ -1413,7 +1415,7 @@ defmodule Jido.Flow.Codec do
     |> Enum.with_index()
     |> Enum.reduce_while({:ok, []}, fn {option, index}, {:ok, encoded} ->
       result =
-        with {:ok, condition} <- encode_condition(option.condition, registry, 0),
+        with {:ok, condition} <- encode_expression(option.condition, registry, 0),
              {:ok, action} <- Registry.identifier(registry, :action, option.action),
              {:ok, params} <- encode_expression(option.params, registry, 0) do
           {:ok,
@@ -1472,29 +1474,6 @@ defmodule Jido.Flow.Codec do
   end
 
   defp encode_expression(value, registry, depth), do: encode_data(value, registry, depth)
-
-  defp encode_condition(%Expr{} = expression, registry, depth),
-    do: encode_expression(expression, registry, depth)
-
-  defp encode_condition(%Condition{} = condition, registry, depth) do
-    with :ok <- depth(depth),
-         {:ok, operands} <- encode_condition_operands(condition.operands, registry, depth + 1) do
-      {:ok,
-       %{
-         "$condition" => %{
-           "operator" => Atom.to_string(condition.operator),
-           "operands" => operands
-         }
-       }}
-    end
-  end
-
-  defp encode_condition_operands(operands, registry, depth) do
-    encode_list(operands, registry, depth, fn
-      %Condition{} = condition, registry, depth -> encode_condition(condition, registry, depth)
-      expression, registry, depth -> encode_expression(expression, registry, depth)
-    end)
-  end
 
   defp encode_data(value, _registry, depth)
        when is_nil(value) or is_boolean(value) or is_number(value) or is_binary(value) do

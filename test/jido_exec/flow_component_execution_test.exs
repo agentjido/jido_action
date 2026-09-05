@@ -272,7 +272,7 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
         ] do
       assert {:error,
               %ExecutionFailureError{
-                message: "invalid choice condition operands",
+                message: "invalid Flow expression",
                 details: %{reason: :invalid_ordering_operands}
               }} = Exec.run(choice_flow(condition))
     end
@@ -280,10 +280,10 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
 
   test "classifies invalid ordering and membership operands" do
     invalid_ordering_values = [
-      {1, "one", :number, :binary},
+      {1, "one", :integer, :binary},
       {[], %{}, :list, :map},
       {:one, {}, :atom, :tuple},
-      {self(), 1, :other, :number}
+      {self(), 1, :other, :integer}
     ]
 
     for {left, right, left_type, right_type} <- invalid_ordering_values do
@@ -293,8 +293,7 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
               %ExecutionFailureError{
                 details: %{
                   reason: :invalid_ordering_operands,
-                  left_type: ^left_type,
-                  right_type: ^right_type
+                  types: [^left_type, ^right_type]
                 }
               }} = Exec.run(choice_flow(condition), %{left: left, right: right})
     end

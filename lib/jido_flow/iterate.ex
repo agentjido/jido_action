@@ -170,7 +170,7 @@ defmodule Jido.Flow.Iterate do
   def result_refs(%__MODULE__{} = iterate) do
     Expression.result_refs(iterate.params) ++
       State.result_refs(iterate.state) ++
-      Condition.result_deps(iterate.completion)
+      Expression.result_refs(iterate.completion)
   end
 
   defp known_keys(attrs) do

@@ -79,6 +79,22 @@ and `output`.
 The exact component and expression fields are owned by Codec. Do not hand-edit
 a semantic `Jido.Flow.to_map/1` result into a stored document.
 
+## Document Versions And Operations
+
+The writer uses version 2 for documents with operations and version 1 for
+documents without operations. Every operation, including a condition, uses
+`$expr`:
+
+```json
+{"$expr": {"operator": "multiply", "operands": [2, 3]}}
+```
+
+The reader accepts versions 1 and 2. It converts `$condition` records in
+either version to `Jido.Expr`; version 1 rejects `$expr`. Literal maps use
+their own tag, so a literal `$expr` key is not an operation. Operand reference
+atoms use Registry IDs. Document versions and semantic identity versions
+are separate contracts.
+
 ## Store A Compiled Inline Step
 
 First define `FirstFlow.Greeting` from [Build Your First Flow](build-your-first-flow.livemd).
@@ -143,9 +159,7 @@ The same Registry rule applies to portable inline roles.
 Resolve each target through `Jido.Action.Inline.target!/2` with its typed host
 path, then register that ordinary Action. Inline metadata and schemas belong
 to the deployed target, not to stored body code. Portable inline Actions add
-no Codec version: only Expr nodes require version 2. See
-[Portable Inline Actions](inline-actions.md) and [Expressions](flow-expressions.md).
-Both APIs require `3.0.0-beta.6` or later.
+no Codec version. See [Portable Inline Actions](inline-actions.md).
 
 ## Validation And Limits
 

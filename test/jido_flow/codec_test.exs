@@ -180,7 +180,7 @@ defmodule Jido.Flow.CodecTest do
     registry = CodecRegistry.mixed()
 
     assert {:ok, document} = Codec.encode(flow, registry)
-    assert document["version"] == 1
+    assert document["version"] == 2
 
     assert Enum.map(document["components"], & &1["kind"]) ==
              ["step", "subflow", "choice", "map", "reduce", "iterate"]

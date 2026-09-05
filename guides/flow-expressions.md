@@ -83,6 +83,11 @@ Use a Boolean schema when the input contract requires a Boolean field.
 also succeeds. This does not make producer Steps lazy: every result reference
 remains a static dependency, including references in skipped operands.
 
+Boolean groups accept portable operands at construction. Each evaluated
+operand must be Boolean: `false and 1` returns `false`, but `true and 1`
+fails during execution. Construction checks data, tree shape, and reference
+scope even in skipped operands.
+
 A missing reference is an error. A present `nil` is a value: `input(:value)
 == nil` tests that value, but does not catch a missing key. Exact map keys
 take priority; an atom path can fall back to its string spelling. A string
@@ -121,14 +126,12 @@ true = total == Jido.Expr.new!(:multiply, [quantity, price])
 {:ok, %{total: 6}} = Jido.Exec.run(built, %{name: "Ada", quantity: 2, price: 3})
 ```
 
-`Jido.Flow.Ref` and `Jido.Flow.Condition` constructors remain supported.
-Conditions can also supply Boolean parameter or output values. Equivalent
-condition forms normalize to the same Flow model.
+`Jido.Flow.Condition` helpers return `Jido.Expr` values. Use them for conditions
+or Boolean parameter and output values, for example:
 
-Old Condition-only trees keep their `Jido.Flow.Condition` shape. A condition
-with a calculated operand returns one `Jido.Expr` tree. This includes a
-calculation inside an `all`, `any`, or `not` group. The complete tree shares
-one runtime budget in Choice, Iterate, and data fields.
+```elixir
+eligible = Jido.Flow.Condition.gte(Ref.input(:score), 10)
+```
 
 ## Stored JSON
 
@@ -141,20 +144,8 @@ true = restored == built
 {:ok, %{total: 6}} = Jido.Exec.run(restored, %{name: "Ada", quantity: 2, price: 3})
 ```
 
-An operation has this tagged shape. Its operands use the normal Codec
-expression encoding, including Registry-backed reference path atoms:
-
-```json
-{"$expr": {"operator": "multiply", "operands": [2, 3]}}
-```
-
-The Codec emits version 2 only when a document contains expression nodes.
-Existing documents keep version 1 and their existing meaning. This reader
-accepts versions 1 and 2, but rejects expression tags in version 1. Older
-readers reject version 2. Deploy the new reader before sending new documents.
-Literal maps remain tagged maps; a literal key named `$expr` is not code.
-Use an application-owned Registry with stable IDs for durable storage.
-No operator name or input document can create an atom.
+See [Store Flows As JSON](flow-storage.md) for document versions, operation
+tags, Registry IDs, and storage limits.
 
 ## Reuse The Syntax In A Host DSL
 
@@ -222,28 +213,13 @@ its normal structured errors. Runtime errors include `operator`, `reason`,
 `path` and add the expression location. Error metadata does not include
 operand values or unrelated context.
 
-Each expression evaluation has defaults of 64 levels, 10,000 visited values,
-1,048,576 cumulative binary bytes, and 4,096 bits per integer magnitude.
-Counts include resolved data, comparison work, and generated values. Thus,
-the binary limit is a work/output budget, not only a final string limit.
-Before short-circuit evaluation, the operand-list shape of each Boolean
-group must fit within the remaining node limit. An oversized group can fail
-even when its first operand determines the result. Skipped operands are not
-resolved or evaluated. Validation checks the complete expression, including
-skipped branches.
-These expression limits apply to operation subtrees, not to surrounding
-plain Flow data. A plain list, map, string, or integer retains its existing
-contract in the module DSL, Builder, and direct constructors. Data used as
-an operation operand is subject to the expression limits. Existing plain
-references and legacy Condition-only trees retain their contracts.
-Flow uses the fixed defaults; a separate host can set the documented
-`Jido.Expr` limit options. These limits do not replace an Exec timeout or
-the host's input-size policy.
+Each complete operation tree, including conditions, has limits of 64 levels,
+10,000 visited values, 1,048,576 cumulative binary bytes, and 4,096 bits per
+integer magnitude. These limits apply at construction and evaluation.
+Evaluation also counts resolved data, comparison work, and generated values.
+A Boolean group's operand list must fit within the remaining node limit
+even when evaluation skips operands.
 
-Stored documents also retain Codec limits: 100 levels, 10,000 items per
-collection, and 100,000 data nodes. Format overhead counts toward these
-limits. An expression can therefore reach a stored-document limit before it
-reaches the evaluator's limit.
-`Codec.encode/1` and `Codec.encode/2` check the completed document against
-these storage limits. They return an error if the document is too large or
-too deep for the reader.
+Surrounding plain Flow data is outside the operation budget. Flow uses the
+fixed limits; a separate host can set the `Jido.Expr` limit options. Stored
+documents also have [Codec limits](flow-storage.md#validation-and-limits).

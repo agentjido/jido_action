@@ -52,7 +52,7 @@ identity.uuid
 ```
 
 Identity uses the canonical semantic form. Runtime compilation data and DSL
-source locations do not change it.
+source locations do not change it. The identity version is 2.
 
 ## Get A Semantic Map
 

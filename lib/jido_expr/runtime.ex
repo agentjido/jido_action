@@ -22,11 +22,36 @@ defmodule Jido.Expr.Runtime do
     end
   end
 
+  # Ingress normalization uses the same bounded walk as validation. The host
+  # can replace a legacy struct with Expr or normalize a reference. It cannot
+  # install operators or run an operation during this walk.
+  @doc false
+  @spec normalize(term(), keyword()) :: {:ok, term()} | {:error, term()}
+  def normalize(value, options) do
+    with {:ok, state} <- Limits.new(options, [:normalize_leaf, :validate_leaf]),
+         {:ok, value, _state} <- visit(value, state, [], 0, :normalize) do
+      {:ok, value}
+    end
+  end
+
   defp visit(value, state, path, depth, mode) do
-    with {:ok, state} <- Limits.enter(state, value, path, depth) do
+    with {:ok, state} <- Limits.enter(state, value, path, depth),
+         {:ok, value} <- normalize_value(value, state, path, mode) do
       visit_value(value, state, path, depth, mode)
     end
   end
+
+  defp normalize_value(%Expr{} = value, _state, _path, _mode), do: {:ok, value}
+
+  defp normalize_value(%_{} = value, %{normalize_leaf: callback}, path, :normalize) do
+    case Limits.callback(callback, value, path) do
+      {:ok, value} -> {:ok, value}
+      {:error, error} -> Limits.callback_error(error, path)
+      _ -> Limits.fail(:invalid_callback_return, path)
+    end
+  end
+
+  defp normalize_value(value, _state, _path, _mode), do: {:ok, value}
 
   defp visit_value(%Expr{} = expression, state, path, depth, mode) when mode != :data do
     with :ok <- shape(expression, state, path) do
@@ -127,10 +152,11 @@ defmodule Jido.Expr.Runtime do
   defp boolean_shape(_tail, _remaining, operator, path, _index),
     do: Limits.fail(:invalid_arity, path, operator)
 
-  defp expression(%Expr{} = value, state, path, depth, :validate) do
-    with {:ok, _operands, state} <-
-           list(value.operands, state, path ++ [:operands], depth, :validate, 0, []) do
-      {:ok, value, state}
+  defp expression(%Expr{} = value, state, path, depth, mode)
+       when mode in [:validate, :normalize] do
+    with {:ok, operands, state} <-
+           list(value.operands, state, path ++ [:operands], depth, mode, 0, []) do
+      {:ok, %{value | operands: operands}, state}
     end
   end
 
@@ -184,7 +210,7 @@ defmodule Jido.Expr.Runtime do
     end
   end
 
-  defp host(value, state, path, _depth, :validate) do
+  defp host(value, state, path, _depth, mode) when mode in [:validate, :normalize] do
     case Map.get(state, :validate_leaf) do
       nil ->
         Limits.fail(:unsupported_value, path, nil, %{type: :struct})
