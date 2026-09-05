@@ -37,6 +37,9 @@ defmodule Jido.Action do
   It validates input, calls the Action, validates normal output, and normalizes
   failures.
 
+  Every Action must implement `run/2`. The generator declares the function
+  without a default body, so a missing implementation stops compilation.
+
   ## Effects and policy
 
   `run/2` can be pure or can perform I/O. Keep one Action focused on one unit
@@ -344,20 +347,10 @@ defmodule Jido.Action do
               | {:error, Jido.Action.Error.InvalidInputError.t()}
       def validate_output(output), do: Action.validate_output_for(output, __MODULE__)
 
-      @doc """
-      Executes the Action with the given parameters and context.
-
-      The `run/2` function must be implemented in the module using Jido.Action.
-      """
+      @doc "Executes the Action with the given parameters and context."
       @impl Jido.Action
       @spec run(map(), map()) :: Jido.Action.result()
-      def run(params, context) do
-        "run/2 must be implemented in your Action"
-        |> Error.config_error()
-        |> then(&{:error, &1})
-      end
-
-      defoverridable run: 2
+      def run(params, context)
     end
   end
 

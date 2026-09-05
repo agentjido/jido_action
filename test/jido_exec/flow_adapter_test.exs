@@ -157,9 +157,8 @@ defmodule JidoActionTest.Exec.FlowAdapterTest do
     def run(_params, _context), do: {:ok, %{}}
   end
 
-  defmodule MissingRunFlow do
+  defmodule MissingDefinitionCallback do
     def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
-    def flow, do: JidoActionTest.Fixtures.FlowAuthoring.math_flow!()
     def validate_params(params), do: {:ok, params}
     def validate_output(output), do: {:ok, output}
   end
@@ -212,7 +211,8 @@ defmodule JidoActionTest.Exec.FlowAdapterTest do
       assert Error.owned?(error)
     end
 
-    assert {:error, %InvalidDefinitionError{}} = Exec.start(MissingRunFlow)
+    assert {:error, %InvalidDefinitionError{details: %{reason: "missing flow/0"}}} =
+             Exec.start(MissingDefinitionCallback)
 
     assert {:error,
             %InvalidDefinitionError{

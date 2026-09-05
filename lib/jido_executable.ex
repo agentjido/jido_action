@@ -17,9 +17,11 @@ defmodule Jido.Executable do
   A module callback must identify the module that owns the callback.
 
   This behaviour declares the module descriptor and data validation callbacks.
-  `Jido.Action` owns the `run/2` callback. Both Action and Flow module generators
-  implement these behaviours. `validate/1` also checks the required functions
-  at runtime; a behaviour declaration alone does not make a module executable.
+  Both Action and Flow module generators implement this behaviour. An Action
+  also implements `Jido.Action`, which requires `run/2`. A Flow requires
+  `flow/0` instead. Its generated `run/2` is a convenience call to `Jido.Exec`.
+  `validate/1` checks the required functions for each target kind at runtime;
+  a behaviour declaration alone does not make a module executable.
 
   A Flow module must return one stable `%Jido.Flow{}` from `flow/0` for the life
   of the loaded module version. Each validation or execution operation
@@ -109,20 +111,14 @@ defmodule Jido.Executable do
   @spec validate(t() | target() | term()) :: :ok | {:error, Exception.t()}
   def validate(%__MODULE__{kind: :action, target: target})
       when is_atom(target) and not is_nil(target) do
-    validate_module_callbacks(target)
+    validate_module_callbacks(target, {:run, 2})
   end
 
   def validate(%__MODULE__{kind: :flow, target: %Flow{}}), do: :ok
 
   def validate(%__MODULE__{kind: :flow, target: target})
       when is_atom(target) and not is_nil(target) do
-    with :ok <- validate_module_callbacks(target) do
-      if function_exported?(target, :flow, 0) do
-        :ok
-      else
-        invalid_executable_contract(target, "missing flow/0")
-      end
-    end
+    validate_module_callbacks(target, {:flow, 0})
   end
 
   def validate(%__MODULE__{} = executable) do
@@ -139,20 +135,16 @@ defmodule Jido.Executable do
     end
   end
 
-  defp validate_module_callbacks(module) do
-    cond do
-      not function_exported?(module, :run, 2) ->
-        invalid_executable_contract(module, "missing run/2")
+  defp validate_module_callbacks(module, kind_callback) do
+    callbacks = [kind_callback, {:validate_params, 1}, {:validate_output, 1}]
 
-      not function_exported?(module, :validate_params, 1) ->
-        invalid_executable_contract(module, "missing validate_params/1")
-
-      not function_exported?(module, :validate_output, 1) ->
-        invalid_executable_contract(module, "missing validate_output/1")
-
-      true ->
-        :ok
-    end
+    Enum.reduce_while(callbacks, :ok, fn {callback, arity}, :ok ->
+      if function_exported?(module, callback, arity) do
+        {:cont, :ok}
+      else
+        {:halt, invalid_executable_contract(module, "missing #{callback}/#{arity}")}
+      end
+    end)
   end
 
   defp resolve_loaded_module(module) do

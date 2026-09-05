@@ -22,27 +22,26 @@ defmodule JidoActionTest.ActionTest do
       assert NoSchema.schema() == []
     end
 
-    test "runtime compiled action exposes metadata and default run error" do
+    test "a missing run callback is reported during compilation" do
       module = unique_module("RuntimeDefaultAction")
 
-      create_module(
-        module,
-        quote do
-          use Jido.Action,
-            name: "runtime_default_action",
-            description: "Runtime default action"
-        end
-      )
+      {_error, diagnostics} =
+        Code.with_diagnostics(fn ->
+          assert_raise CompileError, fn ->
+            create_module(
+              module,
+              quote do
+                use Jido.Action,
+                  name: "runtime_default_action",
+                  description: "Runtime default action"
+              end
+            )
+          end
+        end)
 
-      assert module.name() == "runtime_default_action"
-      assert module.description() == "Runtime default action"
-      assert module.schema() == []
-      assert module.output_schema() == []
-
-      assert {:error, %Jido.Action.Error.ConfigurationError{message: message}} =
-               module.run(%{}, %{})
-
-      assert message =~ "run/2 must be implemented"
+      assert Enum.any?(diagnostics, fn diagnostic ->
+               diagnostic.message =~ "implementation not provided for predefined def run/2"
+             end)
     end
 
     test "runtime compiled action supports non-literal options" do
@@ -90,6 +89,9 @@ defmodule JidoActionTest.ActionTest do
             name: "runtime_schema_variable_action",
             schema: Zoi.object(%{value: input_type}),
             output_schema: Zoi.object(%{result: output_type})
+
+          @impl true
+          def run(params, _context), do: {:ok, params}
         end
       )
 
@@ -117,6 +119,9 @@ defmodule JidoActionTest.ActionTest do
                   Zoi.integer()
                   |> Zoi.refine({JidoActionTest.ActionTest, :at_least, [4]})
               })
+
+          @impl true
+          def run(params, _context), do: {:ok, params}
         end
       )
 
@@ -197,6 +202,9 @@ defmodule JidoActionTest.ActionTest do
           use Jido.Action,
             name: "counted_static_schema_action",
             schema: JidoActionTest.ActionTest.counted_static_schema(unquote(counter))
+
+          @impl true
+          def run(params, _context), do: {:ok, params}
         end
       )
 
@@ -214,6 +222,9 @@ defmodule JidoActionTest.ActionTest do
         module,
         quote do
           use Jido.Action, JidoActionTest.ActionTest.counted_options(unquote(counter))
+
+          @impl true
+          def run(params, _context), do: {:ok, params}
         end
       )
 
@@ -328,6 +339,9 @@ defmodule JidoActionTest.ActionTest do
             output_schema:
               Zoi.object(%{})
               |> Zoi.transform({JidoActionTest.ActionTest, :invalid_transform, []})
+
+          @impl true
+          def run(params, _context), do: {:ok, params}
         end
       )
 
@@ -397,6 +411,9 @@ defmodule JidoActionTest.ActionTest do
 
           @impl true
           def on_before_validate_params(_params), do: {:error, :unsafe_input}
+
+          @impl true
+          def run(params, _context), do: {:ok, params}
         end
       )
 
@@ -432,6 +449,9 @@ defmodule JidoActionTest.ActionTest do
           use Jido.Action,
             name: "strict_params_action",
             schema: Zoi.object(%{value: Zoi.integer()}, unrecognized_keys: :error)
+
+          @impl true
+          def run(params, _context), do: {:ok, params}
         end
       )
 

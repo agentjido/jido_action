@@ -134,7 +134,7 @@ defmodule Jido.Flow.DSL.FlowTest do
     assert flow.output == Ref.result("loop")
   end
 
-  test "a Flow module exposes only the required Flow and Action-compatible helpers" do
+  test "a Flow module exposes its definition, validation, and convenience helpers" do
     module = Jido.Flow.DSL.FlowTest.MixedFlow
 
     for {name, arity} <- [

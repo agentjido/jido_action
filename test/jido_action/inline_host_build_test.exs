@@ -61,6 +61,19 @@ defmodule Jido.Action.InlineHostBuildTest do
     assert output =~ "INLINE_HOST_BUILD_OK"
   end
 
+  test "a missing Action callback fails ordinary compilation", fixture do
+    File.write!(Path.join(fixture.directory, "lib/missing_action.ex"), """
+    defmodule InlineConsumer.MissingAction do
+      use Jido.Action, name: "missing_action"
+    end
+    """)
+
+    {output, status} = child(fixture, ~s|Mix.CLI.main(["compile"])|)
+    assert status != 0
+    assert output =~ "run/2"
+    assert output =~ "implementation not provided"
+  end
+
   defp owner_source do
     """
     defmodule InlineConsumer.Bound do
