@@ -69,7 +69,7 @@ defmodule Jido.Exec.Flow.Engine do
       options: options,
       workflow: workflow,
       ready: [],
-      ready_work: [],
+      work_ref: make_ref(),
       runnable_errors: [],
       engine_error: nil,
       finalizer: finalizer,
@@ -82,7 +82,9 @@ defmodule Jido.Exec.Flow.Engine do
 
   @doc "Returns small descriptions of the ready work."
   @spec ready(Execution.t()) :: [Work.t()]
-  def ready(%Execution{ready_work: work}), do: work
+  def ready(%Execution{} = execution) do
+    Enum.with_index(execution.ready, &Inspection.work(execution, &1, &2))
+  end
 
   @doc "Returns the current Flow execution status."
   @spec status(Execution.t()) :: :running | :succeeded | :failed
@@ -116,23 +118,17 @@ defmodule Jido.Exec.Flow.Engine do
 
   @doc "Executes the first ready work unit."
   @spec step(Execution.t()) :: {:ok, Work.t(), Execution.t()} | {:error, Exception.t()}
-  def step(%Execution{} = execution) do
-    case ready(execution) do
-      [work | _rest] -> step(execution, work.token)
-      [] -> execution_not_running(execution)
-    end
-  end
+  def step(%Execution{status: :running, ready: [runnable | _rest]} = execution),
+    do: step_at(execution, runnable, 0)
+
+  def step(%Execution{} = execution), do: execution_not_running(execution)
 
   @doc "Executes one ready unit selected by its revision-scoped token."
   @spec step(Execution.t(), Work.token()) ::
           {:ok, Work.t(), Execution.t()} | {:error, Exception.t()}
   def step(%Execution{status: :running} = execution, token) do
-    with {:ok, runnable, work} <- fetch_ready(execution, token),
-         {:ok, executed, next} <-
-           execution
-           |> mutate(fn -> do_step(execution, runnable) end)
-           |> reject_stepwise_transition(execution) do
-      {:ok, %{work | status: executed.status}, next}
+    with {:ok, runnable, position} <- fetch_ready(execution, token) do
+      step_at(execution, runnable, position)
     end
   end
 
@@ -145,12 +141,9 @@ defmodule Jido.Exec.Flow.Engine do
            execution
            |> mutate(fn -> do_wave(execution) end)
            |> reject_stepwise_transition(execution) do
-      work_by_id =
-        execution.ready
-        |> Enum.zip(execution.ready_work)
-        |> Map.new(fn {runnable, work} -> {runnable.id, work} end)
-
-      work = Enum.map(executed, &%{Map.fetch!(work_by_id, &1.id) | status: &1.status})
+      # The executor returns the admitted input prefix in source order.
+      # Positions remain distinct even when native IDs are equal.
+      work = Enum.with_index(executed, &Inspection.work(execution, &1, &2))
       {:ok, work, next}
     end
   end
@@ -177,8 +170,7 @@ defmodule Jido.Exec.Flow.Engine do
 
   defp settle(%Execution{} = execution) do
     {workflow, runnables} = Workflow.prepare_for_dispatch(execution.workflow)
-    work = Inspection.ready(runnables, workflow, execution.compiled.work_index)
-    execution = %{execution | workflow: workflow, ready: runnables, ready_work: work}
+    execution = %{execution | workflow: workflow, ready: runnables}
 
     cond do
       runnables != [] ->
@@ -195,6 +187,15 @@ defmodule Jido.Exec.Flow.Engine do
 
       true ->
         finalize(execution)
+    end
+  end
+
+  defp step_at(execution, runnable, position) do
+    with {:ok, executed, next} <-
+           execution
+           |> mutate(fn -> do_step(execution, runnable) end)
+           |> reject_stepwise_transition(execution) do
+      {:ok, Inspection.work(execution, executed, position), next}
     end
   end
 
@@ -292,8 +293,11 @@ defmodule Jido.Exec.Flow.Engine do
   defp advance_revision(execution), do: %{execution | revision: execution.revision + 1}
 
   defp fetch_ready(execution, token) do
-    case Enum.find_index(execution.ready_work, &(&1.token == token)) do
-      nil ->
+    with {:ok, position} <- Work.position(token, execution.work_ref, execution.revision),
+         {:ok, runnable} <- Enum.fetch(execution.ready, position) do
+      {:ok, runnable, position}
+    else
+      :error ->
         {:error,
          Error.invalid_execution_error("invalid flow work token", %{
            flow: execution.flow_name,
@@ -301,9 +305,6 @@ defmodule Jido.Exec.Flow.Engine do
            revision: execution.revision,
            reason: :invalid_work_token
          })}
-
-      index ->
-        {:ok, Enum.at(execution.ready, index), Enum.at(execution.ready_work, index)}
     end
   end
 
@@ -364,7 +365,6 @@ defmodule Jido.Exec.Flow.Engine do
        execution
        | status: status,
          ready: [],
-         ready_work: [],
          final_result: final_result
      }}
   end
@@ -377,7 +377,6 @@ defmodule Jido.Exec.Flow.Engine do
        execution
        | status: :succeeded,
          ready: [],
-         ready_work: [],
          final_result: nil
      }}
   end

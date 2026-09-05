@@ -1,19 +1,24 @@
 defmodule Jido.Exec.Flow.Inspection do
   @moduledoc false
 
-  alias Jido.Exec.Work
+  alias Jido.Exec.{Execution, Work}
   alias Jido.Flow.Compiler.Payload
   alias Runic.Workflow
   alias Runic.Workflow.{InputBinding, Join, Runnable}
 
   @doc false
-  @spec ready([Runnable.t()], Workflow.t(), map()) :: [Work.t()]
-  def ready(runnables, workflow, index) do
-    Enum.map(runnables, fn runnable ->
-      metadata = metadata(runnable.node, workflow, index)
-      {role, item_index} = item(metadata.role, runnable.input_fact.value)
-      Work.new(Map.merge(metadata, %{role: role, item_index: item_index}))
-    end)
+  @spec work(Execution.t(), Runnable.t(), non_neg_integer()) :: Work.t()
+  def work(execution, runnable, position) do
+    metadata = metadata(runnable.node, execution.workflow, execution.compiled.work_index)
+    {role, item_index} = item(metadata.role, runnable.input_fact.value)
+    status = if runnable.status == :pending, do: :ready, else: runnable.status
+
+    Work.new(
+      Map.merge(metadata, %{role: role, item_index: item_index, status: status}),
+      execution.work_ref,
+      execution.revision,
+      position
+    )
   end
 
   defp metadata(%InputBinding{target_component_hash: target}, _workflow, index) do

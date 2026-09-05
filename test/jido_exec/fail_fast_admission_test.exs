@@ -29,6 +29,7 @@ defmodule JidoActionTest.Exec.FailFastAdmissionTest do
     for operation <- [:wave, :continue] do
       {context, ref} = context(1)
       assert {:ok, execution} = Exec.start(flow(), %{}, context, max_concurrency: 1)
+      [first | _] = Exec.ready(execution)
       task = Task.async(fn -> apply(Exec, operation, [execution]) end)
 
       try do
@@ -39,7 +40,7 @@ defmodule JidoActionTest.Exec.FailFastAdmissionTest do
         completed =
           case result do
             {:ok, [runnable], completed} ->
-              assert runnable.status == :failed
+              assert runnable == %{first | status: :failed}
               completed
 
             {:ok, completed} ->
@@ -69,7 +70,8 @@ defmodule JidoActionTest.Exec.FailFastAdmissionTest do
 
     on_exit(fn -> :telemetry.detach(handler) end)
     assert {:ok, execution} = Exec.start(flow(), %{}, context, max_concurrency: 2)
-    ready_names = Enum.map(Exec.ready(execution), &hd(&1.component_path))
+    ready = Exec.ready(execution)
+    ready_names = Enum.map(ready, &hd(&1.component_path))
     task = Task.async(fn -> Exec.wave(execution) end)
 
     try do
@@ -88,6 +90,7 @@ defmodule JidoActionTest.Exec.FailFastAdmissionTest do
       assert {:ok, applied, completed} = Task.await(task)
       assert Enum.map(applied, &hd(&1.component_path)) == [first_name, second_name]
       assert Enum.map(applied, & &1.status) == [:completed, :failed]
+      assert Enum.map(applied, & &1.token) == Enum.map(Enum.take(ready, 2), & &1.token)
       assert {:error, %{message: "selected failure"}} = Exec.result(completed)
       refute_received {^ref, :started, _, _, _}
     after
@@ -98,7 +101,8 @@ defmodule JidoActionTest.Exec.FailFastAdmissionTest do
   test "a killed native worker stops admission for a caller that traps exits" do
     {context, ref} = context(0)
     assert {:ok, execution} = Exec.start(flow(), %{}, context, max_concurrency: 2)
-    [first, second | _] = Enum.map(Exec.ready(execution), &hd(&1.component_path))
+    ready = Exec.ready(execution)
+    [first, second | _] = Enum.map(ready, &hd(&1.component_path))
     handler = {__MODULE__, ref}
 
     :ok =
@@ -128,6 +132,7 @@ defmodule JidoActionTest.Exec.FailFastAdmissionTest do
       assert {:ok, applied, completed} = Task.await(task)
       assert Enum.map(applied, &hd(&1.component_path)) == [first, second]
       assert Enum.map(applied, & &1.status) == [:completed, :failed]
+      assert Enum.map(applied, & &1.token) == Enum.map(Enum.take(ready, 2), & &1.token)
       assert {:error, %{message: "flow runnable task exited"}} = Exec.result(completed)
       refute_received {^ref, :native, _, _}
     after

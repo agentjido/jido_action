@@ -43,7 +43,13 @@ defmodule JidoActionTest.Exec.WorkInspectionTest do
     [foreign | _] = Exec.ready(other)
     [native | _] = Exec.native(execution).ready
 
-    for token <- [foreign.token, make_ref(), nil, -1, :bad, %{}, work, native, native.id] do
+    # Test the internal position boundary as well as public opaque selections.
+    malformed =
+      for position <- [-1, length(ready), 0.5, :bad],
+          do: {execution.work_ref, execution.revision, position}
+
+    for token <-
+          [foreign.token, make_ref(), nil, -1, :bad, %{}, work, native, native.id] ++ malformed do
       assert {:error, %InvalidExecutionError{details: %{reason: :invalid_work_token}} = error} =
                Exec.step(execution, token)
 
@@ -92,6 +98,19 @@ defmodule JidoActionTest.Exec.WorkInspectionTest do
     assert completed == Enum.map(ready, &%{&1 | status: :completed})
     assert finished.revision == 1
     assert Exec.ready(finished) == []
+  end
+
+  test "wave descriptions use ready positions even if native IDs are equal" do
+    assert {:ok, execution} = Exec.start(recorder_flow())
+    [first, second] = Exec.native(execution).ready
+    # Exercise the internal association independently of Runic's ID encoding.
+    # Keep distinct nodes and activation data; only the diagnostic ID is shared.
+    execution = %{execution | ready: [first, %{second | id: first.id}]}
+    ready = Exec.ready(execution)
+    assert {:ok, completed, finished} = Exec.wave(execution)
+    assert completed == Enum.map(ready, &%{&1 | status: :completed})
+    assert length(Enum.uniq_by(completed, & &1.token)) == 2
+    assert Exec.result(finished) == {:ok, %{a: %{value: "a"}, b: %{value: "b"}}}
   end
 
   test "current work tokens can move to another process" do

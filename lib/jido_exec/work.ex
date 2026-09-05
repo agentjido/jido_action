@@ -22,7 +22,7 @@ defmodule Jido.Exec.Work do
   """
 
   @typedoc "Opaque selection of one ready unit in one execution revision."
-  @opaque token :: reference()
+  @opaque token :: {reference(), non_neg_integer(), non_neg_integer()}
 
   @typedoc "Authored component kind, or support without one authored owner."
   @type kind :: :step | :subflow | :choice | :map | :reduce | :iterate | :dispatch | :support
@@ -56,8 +56,16 @@ defmodule Jido.Exec.Work do
   defstruct @enforce_keys
 
   @doc false
-  @spec new(map()) :: t()
-  def new(attributes) do
-    struct!(__MODULE__, Map.merge(attributes, %{token: make_ref(), status: :ready}))
+  @spec new(map(), reference(), non_neg_integer(), non_neg_integer()) :: t()
+  def new(attributes, execution_ref, revision, position) do
+    struct!(__MODULE__, Map.put(attributes, :token, {execution_ref, revision, position}))
   end
+
+  @doc false
+  @spec position(term(), reference(), non_neg_integer()) :: {:ok, non_neg_integer()} | :error
+  def position({execution_ref, revision, position}, execution_ref, revision)
+      when is_integer(position) and position >= 0,
+      do: {:ok, position}
+
+  def position(_token, _execution_ref, _revision), do: :error
 end

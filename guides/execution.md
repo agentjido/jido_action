@@ -179,6 +179,10 @@ names, including names that contain `/`. Shared support work can have no
 single component path. The ready set includes native support work; Jido does
 not hide or drain it.
 
+Descriptions are created only for `ready/1` and step or wave results. Normal
+execution does not build or store a parallel description list. Repeated
+`ready/1` calls on the same revision return equal descriptions and tokens.
+
 `step/1` runs the first ready unit. Select one unit with
 `step(execution, work.token)`. A token is valid only for the execution revision
 that issued it. Invalid, stale, and foreign selections return
