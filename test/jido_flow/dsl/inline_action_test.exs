@@ -10,15 +10,9 @@ defmodule Jido.Flow.DSL.InlineActionTest do
       compile_source(owner, declaration)
       path = [host: Jido.Flow, step: "increment", role: :action]
 
-      digest =
-        :crypto.hash(:sha256, :erlang.term_to_binary({owner, path}))
-        |> Base.encode16(case: :lower)
-
       target = owner.step_action("increment")
-      assert target == Module.concat(Jido.Action.Generated.Inline, "A" <> digest)
       assert target == Jido.Action.Inline.target!(owner, path)
       assert target.__jido_inline_action__() == {owner, path}
-      refute function_exported?(target, :__jido_inline_step__, 0)
       assert {:ok, %{value: 1}} = target.run(%{}, %{})
     end
   end

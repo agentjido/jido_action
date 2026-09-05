@@ -18,6 +18,8 @@ defmodule JidoAction.MixProject do
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
+      # This consumer compiles only in the isolated build tests.
+      test_ignore_filters: [&String.starts_with?(&1, "test/fixtures/inline_consumer/")],
 
       # Docs
       name: "Jido Action",

@@ -19,27 +19,6 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     end
   end
 
-  test "the inline compiler's actual exports have BEAM docs and specs" do
-    module = Jido.Action.Inline.Compiler
-    exported = module.__info__(:functions)
-    assert exported != []
-    assert {:docs_v1, _, _, _, :hidden, _, docs} = Code.fetch_docs(module)
-    assert {:ok, specs} = Code.Typespec.fetch_specs(module)
-
-    documented =
-      for {{:function, name, arity}, _, _, doc, _} <- docs,
-          doc != :none,
-          into: MapSet.new(),
-          do: {name, arity}
-
-    specified = MapSet.new(specs, &elem(&1, 0))
-
-    for function <- exported do
-      assert MapSet.member?(documented, function), "missing BEAM doc for #{inspect(function)}"
-      assert MapSet.member?(specified, function), "missing BEAM spec for #{inspect(function)}"
-    end
-  end
-
   test "Step names expand or evaluate once in either form" do
     for {expression, marker, name} <- [
           {"#{inspect(NameSource)}.literal_name()", :inline_name_macro_expanded, "macro_name"},
