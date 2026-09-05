@@ -757,6 +757,22 @@ defmodule Jido.Flow.CodecTest do
             %InvalidDefinitionError{message: "stored Flow collection exceeds its size limit"}} =
              Codec.encode(wide_flow, registry)
 
+    for count <- [10_000, 10_001] do
+      output = Map.new(1..count, &{&1, 0})
+      map_flow = Flow.new!(name: "map_limit", components: flow.components, output: output)
+
+      if count == 10_000 do
+        assert {:ok, _document} = Codec.encode(map_flow, registry)
+      else
+        assert {:error,
+                %InvalidDefinitionError{
+                  message: "stored Flow collection exceeds its size limit",
+                  details: %{maximum_size: 10_000}
+                }} =
+                 Codec.encode(map_flow, registry)
+      end
+    end
+
     assert {:error,
             %InvalidDefinitionError{message: "stored Flow collection exceeds its size limit"}} =
              Codec.decode(

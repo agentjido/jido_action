@@ -1443,7 +1443,7 @@ defmodule Jido.Flow.Codec do
 
   defp encode_map(map, registry, depth, value_encoder) do
     with :ok <- depth(depth),
-         :ok <- collection_size(Map.to_list(map)),
+         :ok <- collection_size(map),
          {:ok, entries} <- encode_entries(map, registry, depth, value_encoder) do
       entries = Enum.sort_by(entries, fn %{"key" => key} -> :erlang.term_to_binary(key) end)
       {:ok, %{"$type" => "map", "entries" => entries}}
@@ -1610,6 +1610,9 @@ defmodule Jido.Flow.Codec do
        })}
 
   defp collection_size(values) when length(values) <= @maximum_collection_size, do: :ok
+
+  defp collection_size(values) when is_map(values) and map_size(values) <= @maximum_collection_size,
+    do: :ok
 
   defp collection_size(_values),
     do:
