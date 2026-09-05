@@ -19,13 +19,40 @@ defmodule Jido.Flow.Validation do
   @module_config_keys [:name, :description, :schema, :output_schema]
   @artifact_config_keys @module_config_keys ++ [:components, :output]
 
-  @doc false
-  @spec new(map() | keyword()) :: {:ok, map()} | {:error, Exception.t()}
-  def new(attrs), do: validate_attrs(attrs)
+  @typedoc false
+  @type issue :: %{
+          kind:
+            :definition
+            | :output_required
+            | :duplicate_name
+            | :unknown_dependency
+            | :cycle
+            | :dispatch,
+          error: Exception.t(),
+          location: [atom() | String.t() | non_neg_integer()]
+        }
 
   @doc false
   @spec validate(map() | keyword()) :: {:ok, map()} | {:error, Exception.t()}
-  def validate(attrs), do: validate_attrs(attrs)
+  def validate(attrs) do
+    case diagnose(attrs) do
+      {:ok, attrs} -> {:ok, attrs}
+      {:error, [issue | _rest]} -> {:error, issue.error}
+    end
+  end
+
+  @doc false
+  @spec diagnose(map() | keyword()) :: {:ok, map()} | {:error, [issue()]}
+  def diagnose(attrs) do
+    case normalize_attrs(attrs) do
+      {:ok, attrs} ->
+        issues = output_issues(attrs.output) ++ graph_issues(attrs.components, attrs.output)
+        if issues == [], do: {:ok, attrs}, else: {:error, issues}
+
+      {:error, error} ->
+        {:error, [issue(:definition, error, Map.get(error.details, :path, []))]}
+    end
+  end
 
   @doc false
   @spec validate_executable(map() | keyword()) :: {:ok, map()} | {:error, Exception.t()}
@@ -36,36 +63,10 @@ defmodule Jido.Flow.Validation do
   end
 
   @doc false
-  @spec dispatch_diagnostics([Component.t()], term()) :: [Exception.t()]
-  def dispatch_diagnostics(components, output) do
-    dispatches =
-      components
-      |> Enum.with_index()
-      |> Enum.filter(fn {component, _index} -> match?(%Dispatch{}, component) end)
-
-    case dispatches do
-      [] ->
-        []
-
-      [{%Dispatch{name: name}, index}] ->
-        dispatch_sink_errors(components, name, index) ++ dispatch_output_errors(output, name)
-
-      [_first, {%Dispatch{} = second, index} | _rest] ->
-        [
-          Error.validation_error("Flow can contain only one Dispatch component", %{
-            component: second.name,
-            components: Enum.map(dispatches, fn {%Dispatch{name: name}, _index} -> name end),
-            path: [:components, index]
-          })
-        ]
-    end
-  end
-
-  @doc false
   @spec prepare_executable(map() | keyword(), [module()]) ::
           {:ok, map(), %{optional(module()) => Jido.Flow.t()}} | {:error, Exception.t()}
   def prepare_executable(attrs, module_stack \\ []) do
-    with {:ok, flow} <- validate_attrs(attrs),
+    with {:ok, flow} <- validate(attrs),
          {:ok, subflows} <- validate_component_targets(flow.components, module_stack, %{}) do
       {:ok, flow, subflows}
     end
@@ -91,24 +92,20 @@ defmodule Jido.Flow.Validation do
   def invalid_subject(value),
     do: {:error, Error.validation_error("expected a Jido.Flow artifact", %{value: value})}
 
-  defp validate_attrs(attrs) when is_list(attrs) do
+  defp normalize_attrs(attrs) when is_list(attrs) do
     if Keyword.keyword?(attrs),
-      do: attrs |> Map.new() |> validate_attrs(),
+      do: attrs |> Map.new() |> normalize_attrs(),
       else: {:error, Error.validation_error("flow configuration must be a map")}
   end
 
-  defp validate_attrs(%{} = attrs) do
+  defp normalize_attrs(%{} = attrs) do
     with :ok <- known_keys(attrs, @artifact_config_keys),
          {:ok, name} <- name(Map.get(attrs, :name)),
          {:ok, description} <- description(Map.get(attrs, :description)),
          {:ok, schema} <- schema(Map.get(attrs, :schema, []), "schema"),
          {:ok, output_schema} <- schema(Map.get(attrs, :output_schema, []), "output_schema"),
          {:ok, components} <- components(Map.get(attrs, :components, [])),
-         {:ok, output} <- output(Map.get(attrs, :output)),
-         :ok <- unique_names(components),
-         :ok <- known_dependencies(components, output),
-         :ok <- acyclic(components),
-         :ok <- validate_terminal_dispatch(components, output) do
+         {:ok, output} <- output(Map.get(attrs, :output)) do
       {:ok,
        %{
          name: name,
@@ -121,7 +118,7 @@ defmodule Jido.Flow.Validation do
     end
   end
 
-  defp validate_attrs(_attrs),
+  defp normalize_attrs(_attrs),
     do: {:error, Error.validation_error("flow configuration must be a map")}
 
   defp known_keys(attrs, allowed) do
@@ -195,8 +192,7 @@ defmodule Jido.Flow.Validation do
 
   defp components(_values), do: {:error, Error.validation_error("flow components must be a list")}
 
-  defp output(nil),
-    do: {:error, Error.validation_error("Flow output is required", %{path: [:output]})}
+  defp output(nil), do: {:ok, nil}
 
   defp output(value) do
     with {:ok, value} <- Expression.normalize(value),
@@ -205,60 +201,123 @@ defmodule Jido.Flow.Validation do
     end
   end
 
-  defp unique_names(components) do
-    names = Enum.map(components, &Component.name_of/1)
+  defp output_issues(nil) do
+    [
+      issue(
+        :output_required,
+        Error.validation_error("Flow output is required", %{path: [:output]}),
+        [:output]
+      )
+    ]
+  end
 
-    case names -- Enum.uniq(names) do
-      [] -> :ok
-      [name | _] -> {:error, Error.validation_error("duplicate component name", %{name: name})}
+  defp output_issues(_output), do: []
+
+  defp graph_issues(components, output) do
+    {known, duplicates} = duplicate_name_issues(components)
+    references = unknown_dependency_issues(components, output, known)
+
+    case duplicates ++ references do
+      [] ->
+        case Graph.analyze(components) do
+          %{remaining: []} ->
+            dispatch_issues(components, output)
+
+          %{remaining: names} ->
+            [
+              issue(
+                :cycle,
+                Error.validation_error("flow dependency graph contains a cycle", %{
+                  components: names
+                }),
+                [:components]
+              )
+            ]
+        end
+
+      issues ->
+        issues
     end
   end
 
-  defp known_dependencies(components, output) do
-    known = components |> Enum.map(&Component.name_of/1) |> MapSet.new()
+  defp duplicate_name_issues(components) do
+    {known, issues} =
+      components
+      |> Enum.with_index()
+      |> Enum.reduce({MapSet.new(), []}, fn {component, index}, {known, issues} ->
+        name = Component.name_of(component)
 
-    with :ok <- known_refs(Expression.result_refs(output), known, :output) do
-      Enum.reduce_while(components, :ok, fn component, :ok ->
-        dependencies =
-          Component.after_of(component) ++ Component.reference_dependencies(component)
-
-        case known_refs(dependencies, known, Component.name_of(component)) do
-          :ok -> {:cont, :ok}
-          {:error, error} -> {:halt, {:error, error}}
+        if MapSet.member?(known, name) do
+          error = Error.validation_error("duplicate component name", %{name: name})
+          {known, [issue(:duplicate_name, error, [:components, index, :name]) | issues]}
+        else
+          {MapSet.put(known, name), issues}
         end
       end)
-    end
+
+    {known, Enum.reverse(issues)}
   end
 
-  defp known_refs(names, known, owner) do
-    case Enum.find(names, &(not MapSet.member?(known, &1))) do
-      nil ->
-        :ok
+  defp unknown_dependency_issues(components, output, known) do
+    output_issues = unknown_refs(Expression.result_refs(output), known, :output, [:output])
 
-      name ->
-        {:error,
-         Error.validation_error("Flow reference points to an unknown component", %{
-           owner: owner,
-           component: name
-         })}
-    end
+    component_issues =
+      components
+      |> Enum.with_index()
+      |> Enum.flat_map(fn {component, index} ->
+        # Preserve the canonical first-error order. Codec sorts each component's
+        # missing dependencies when it presents the same issues as JSON errors.
+        names = Component.after_of(component) ++ Component.reference_dependencies(component)
+        unknown_refs(names, known, Component.name_of(component), [:components, index])
+      end)
+
+    output_issues ++ component_issues
   end
 
-  defp acyclic(components) do
-    case Graph.analyze(components) do
-      %{remaining: []} ->
-        :ok
+  defp unknown_refs(names, known, owner, location) do
+    names
+    |> Enum.uniq()
+    |> Enum.reject(&MapSet.member?(known, &1))
+    |> Enum.map(fn name ->
+      error =
+        Error.validation_error("Flow reference points to an unknown component", %{
+          owner: owner,
+          component: name
+        })
 
-      %{remaining: names} ->
-        {:error,
-         Error.validation_error("flow dependency graph contains a cycle", %{components: names})}
-    end
+      issue(:unknown_dependency, error, location)
+    end)
   end
 
-  defp validate_terminal_dispatch(components, output) do
-    case dispatch_diagnostics(components, output) do
-      [] -> :ok
-      [error | _rest] -> {:error, error}
+  defp issue(kind, error, location), do: %{kind: kind, error: error, location: location}
+
+  defp dispatch_issues(components, output) do
+    components
+    |> dispatch_errors(output)
+    |> Enum.map(&issue(:dispatch, &1, &1.details.path))
+  end
+
+  defp dispatch_errors(components, output) do
+    dispatches =
+      components
+      |> Enum.with_index()
+      |> Enum.filter(fn {component, _index} -> match?(%Dispatch{}, component) end)
+
+    case dispatches do
+      [] ->
+        []
+
+      [{%Dispatch{name: name}, index}] ->
+        dispatch_sink_errors(components, name, index) ++ dispatch_output_errors(output, name)
+
+      [_first, {%Dispatch{} = second, index} | _rest] ->
+        [
+          Error.validation_error("Flow can contain only one Dispatch component", %{
+            component: second.name,
+            components: Enum.map(dispatches, fn {%Dispatch{name: name}, _index} -> name end),
+            path: [:components, index]
+          })
+        ]
     end
   end
 
@@ -378,7 +437,7 @@ defmodule Jido.Flow.Validation do
 
       :error ->
         with {:ok, child} <- load_child_flow(module),
-             {:ok, child} <- validate_attrs(Map.from_struct(child)),
+             {:ok, child} <- validate(Map.from_struct(child)),
              :ok <- reject_dispatch_subflow(child, module),
              {:ok, subflows} <-
                validate_component_targets(child.components, [module | module_stack], subflows) do

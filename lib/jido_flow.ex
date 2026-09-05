@@ -144,7 +144,7 @@ defmodule Jido.Flow do
   def new(%__MODULE__{} = flow), do: flow |> Map.from_struct() |> new()
 
   def new(attrs) do
-    with {:ok, attrs} <- Validation.new(attrs) do
+    with {:ok, attrs} <- Validation.validate(attrs) do
       {:ok, struct!(__MODULE__, attrs)}
     end
   end

@@ -34,7 +34,6 @@ defmodule Jido.Flow.Codec do
   alias Jido.Flow.Dispatch
   alias Jido.Flow.Error
   alias Jido.Flow.Expression
-  alias Jido.Flow.Graph
   alias Jido.Flow.Iterate
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.Reduce
@@ -300,18 +299,37 @@ defmodule Jido.Flow.Codec do
   end
 
   defp diagnose_canonical_document(attrs) do
-    graph_errors = graph_diagnostics(attrs.components, attrs.output)
-
-    cond do
-      graph_errors != [] ->
-        diagnostic_failure(graph_errors)
-
-      true ->
-        case Flow.new(attrs) do
-          {:ok, flow} -> {:ok, flow}
-          {:error, error} -> diagnostic_failure([ensure_json_path(error, [])])
-        end
+    case Validation.diagnose(attrs) do
+      {:ok, attrs} -> {:ok, struct!(Flow, attrs)}
+      {:error, issues} -> issues |> canonical_errors() |> diagnostic_failure()
     end
+  end
+
+  defp canonical_errors(issues) do
+    # Stored documents have always reported graph errors before a nil output's
+    # required-field error. Canonical construction keeps the opposite priority.
+    issues =
+      case issues do
+        [%{kind: :output_required}, _graph_issue | _rest] -> tl(issues)
+        _other -> issues
+      end
+
+    issues
+    |> Enum.chunk_by(fn
+      %{kind: :unknown_dependency, location: [:components, index]} -> {:component, index}
+      _issue -> :other
+    end)
+    |> Enum.flat_map(fn
+      [%{kind: :unknown_dependency, location: [:components, _index]} | _rest] = group ->
+        Enum.sort_by(group, & &1.error.details.component)
+
+      group ->
+        group
+    end)
+    |> Enum.map(fn %{error: error, location: location} ->
+      error = %{error | details: Map.put(error.details, :path, location)}
+      ensure_json_path(error, [])
+    end)
   end
 
   defp diagnose_components(values, registry) when is_list(values) do
@@ -1057,13 +1075,13 @@ defmodule Jido.Flow.Codec do
               path: path ++ ["entries", index, "key"]
             })
 
-          {map, errors ++ [error]}
+          {map, [error | errors]}
         else
           {Map.put(map, key, value), errors}
         end
       end)
 
-    if errors == [], do: {:ok, map}, else: {:error, errors}
+    if errors == [], do: {:ok, map}, else: {:error, Enum.reverse(errors)}
   end
 
   defp exact_value_as_value(record, field, expected, path) do
@@ -1093,99 +1111,6 @@ defmodule Jido.Flow.Codec do
     {:error, ensure_json_path(error, path)}
   end
 
-  defp graph_diagnostics(components, output) do
-    duplicate_errors = duplicate_component_errors(components)
-    reference_errors = unknown_reference_errors(components, output)
-
-    cycle_errors =
-      if duplicate_errors == [] and reference_errors == [] do
-        case Graph.analyze(components) do
-          %{remaining: []} ->
-            []
-
-          %{remaining: names} ->
-            [
-              Error.validation_error("flow dependency graph contains a cycle", %{
-                components: names,
-                path: ["components"]
-              })
-            ]
-        end
-      else
-        []
-      end
-
-    dispatch_errors =
-      if duplicate_errors == [] and reference_errors == [] and cycle_errors == [] do
-        components
-        |> Validation.dispatch_diagnostics(output)
-        |> Enum.map(&ensure_json_path(&1, []))
-      else
-        []
-      end
-
-    duplicate_errors ++ reference_errors ++ cycle_errors ++ dispatch_errors
-  end
-
-  defp duplicate_component_errors(components) do
-    components
-    |> Enum.with_index()
-    |> Enum.reduce({MapSet.new(), []}, fn {component, index}, {seen, errors} ->
-      name = Jido.Flow.Component.name_of(component)
-
-      if MapSet.member?(seen, name) do
-        error =
-          Error.validation_error("duplicate component name", %{
-            name: name,
-            path: ["components", index, "name"]
-          })
-
-        {seen, errors ++ [error]}
-      else
-        {MapSet.put(seen, name), errors}
-      end
-    end)
-    |> elem(1)
-  end
-
-  defp unknown_reference_errors(components, output) do
-    known = components |> Enum.map(&Jido.Flow.Component.name_of/1) |> MapSet.new()
-
-    output_errors =
-      output
-      |> Expression.result_refs()
-      |> Enum.uniq()
-      |> unknown_reference_errors_for(known, :output, ["output"])
-
-    component_errors =
-      components
-      |> Enum.with_index()
-      |> Enum.flat_map(fn {component, index} ->
-        component
-        |> Jido.Flow.Component.effective_dependencies()
-        |> unknown_reference_errors_for(
-          known,
-          Jido.Flow.Component.name_of(component),
-          ["components", index]
-        )
-      end)
-
-    output_errors ++ component_errors
-  end
-
-  defp unknown_reference_errors_for(names, known, owner, path) do
-    names
-    |> Enum.reject(&MapSet.member?(known, &1))
-    |> Enum.uniq()
-    |> Enum.map(fn name ->
-      Error.validation_error("Flow reference points to an unknown component", %{
-        owner: owner,
-        component: name,
-        path: path
-      })
-    end)
-  end
-
   defp collect_values(fields, initial_errors \\ []) do
     {values, errors} =
       Enum.reduce(fields, {%{}, initial_errors}, fn {key, validator}, {values, errors} ->
@@ -1203,13 +1128,15 @@ defmodule Jido.Flow.Codec do
     {decoded, errors} =
       Enum.reduce(values, {[], []}, fn value, {decoded, errors} ->
         case validator.(value) do
-          {:ok, item} -> {decoded ++ [item], errors}
-          {:error, nested} when is_list(nested) -> {decoded, errors ++ nested}
-          {:error, error} -> {decoded, errors ++ [error]}
+          {:ok, item} when errors == [] -> {[item | decoded], []}
+          {:ok, _item} -> {[], errors}
+          {:error, []} -> {decoded, errors}
+          {:error, nested} when is_list(nested) -> {[], Enum.reverse(nested, errors)}
+          {:error, error} -> {[], [error | errors]}
         end
       end)
 
-    if errors == [], do: {:ok, decoded}, else: {:error, errors}
+    if errors == [], do: {:ok, Enum.reverse(decoded)}, else: {:error, Enum.reverse(errors)}
   end
 
   defp unknown_field_errors(record, allowed, path) do

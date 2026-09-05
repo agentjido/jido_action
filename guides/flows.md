@@ -99,6 +99,9 @@ fan-in support work. Select a unit with its revision-scoped token. Use
 `validate_executable/1` also checks Action and child Flow contracts. Neither
 function runs Action work.
 
+All authoring forms use the same graph rules. DSL errors identify the source
+declaration; `new/1` and `validate/1` return the first error.
+
 Continue with [Flow DSL](flow-language.livemd),
 [Direct Construction And Builder](flow-builder.md), and
 [Store Flows As JSON](flow-storage.md).
