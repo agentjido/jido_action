@@ -310,16 +310,17 @@ defmodule Jido.Flow.Compiler do
 
   defp add_component(%FlowStep{} = component, state) do
     namespace = state.namespace
+    runtime_component = %{component | meta: %{}}
 
     step =
       runtime_step(state, component.name, :step, fn parent, runtime ->
-        local = component_state(component, parent, runtime)
+        local = component_state(runtime_component, parent, runtime)
 
         local
         |> resolve_and_run(
-          component.params,
-          component.action,
-          Target.at(Target.node(component), namespace)
+          runtime_component.params,
+          runtime_component.action,
+          Target.at(Target.node(runtime_component), namespace)
         )
         |> wrap_result()
       end)

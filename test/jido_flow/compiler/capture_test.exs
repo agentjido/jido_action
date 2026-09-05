@@ -6,6 +6,23 @@ defmodule JidoActionTest.Flow.Compiler.CaptureTest do
   alias JidoActionTest.Fixtures.{FlowAuthoring, TelemetryParentFlow}
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
 
+  test "compiled Steps do not copy author metadata into callbacks" do
+    sizes =
+      for meta <- [%{}, %{notes: Enum.to_list(1..5_000)}] do
+        flow =
+          Flow.new!(
+            name: "step_metadata",
+            components: [Step.new!(name: "echo", action: EchoParamsAction, meta: meta)],
+            output: Ref.result("echo")
+          )
+
+        assert {:ok, compiled} = Flow.compile(flow)
+        :erts_debug.flat_size(compiled)
+      end
+
+    assert Enum.uniq(sizes) |> length() == 1
+  end
+
   test "compiler callbacks do not retain the compiler state" do
     assert {:ok, compiled} = Flow.compile(FlowAuthoring.mixed_flow!())
 
