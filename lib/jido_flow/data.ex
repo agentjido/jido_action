@@ -46,14 +46,7 @@ defmodule Jido.Flow.Data do
     if List.improper?(value) do
       error("flow data must contain proper lists", path)
     else
-      value
-      |> Enum.with_index()
-      |> Enum.reduce_while(:ok, fn {item, index}, :ok ->
-        case validate(item, path ++ [index]) do
-          :ok -> {:cont, :ok}
-          {:error, error} -> {:halt, {:error, error}}
-        end
-      end)
+      validate_list(value, path, 0)
     end
   end
 
@@ -74,6 +67,14 @@ defmodule Jido.Flow.Data do
        path: path,
        value_type: value_type(value)
      })}
+  end
+
+  defp validate_list([], _path, _index), do: :ok
+
+  defp validate_list([item | rest], path, index) do
+    with :ok <- validate(item, path ++ [index]) do
+      validate_list(rest, path, index + 1)
+    end
   end
 
   defp validate_key(key, path) when is_binary(key), do: validate(key, path)
