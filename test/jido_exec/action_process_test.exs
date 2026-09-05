@@ -115,7 +115,7 @@ defmodule JidoActionTest.Exec.ActionProcessTest do
     assert_receive {:action_result, :second, {:ok, %{value: 2}}}, 1_000
   end
 
-  test "routes every executable form through one Jido instance" do
+  test "routes every executable form through one named supervisor" do
     instance = unique_module("JidoInstance")
     task_supervisor = Module.concat(instance, TaskSupervisor)
     start_supervised!({Task.Supervisor, name: task_supervisor})
@@ -129,7 +129,9 @@ defmodule JidoActionTest.Exec.ActionProcessTest do
                                                                          } ->
       caller =
         Task.async(fn ->
-          result = Exec.run(target, input, context, jido: instance, timeout: 10_000)
+          result =
+            Exec.run(target, input, context, task_supervisor: task_supervisor, timeout: 10_000)
+
           send(owner, {:instance_routed_result, form, result})
         end)
 

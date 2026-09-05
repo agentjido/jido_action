@@ -270,7 +270,7 @@ defmodule JidoActionTest.Exec.InlineActionContractTest do
 
   test "cancelling inline Map work stops all workers and releases the routed supervisor" do
     instance = JidoActionTest.InlineMapCancellation
-    supervisor = Exec.task_supervisor_name(instance)
+    supervisor = Module.concat(instance, TaskSupervisor)
     start_supervised!({Task.Supervisor, name: supervisor})
     probe = start_supervised!({Agent, fn -> %{running: 0, max: 0, started: []} end})
     ref = make_ref()
@@ -279,7 +279,7 @@ defmodule JidoActionTest.Exec.InlineActionContractTest do
     handle =
       Exec.run_async(ControlledMap, %{items: [1, 2, 3, 4]}, context,
         max_concurrency: 2,
-        jido: instance
+        task_supervisor: supervisor
       )
 
     try do

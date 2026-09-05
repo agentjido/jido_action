@@ -138,10 +138,13 @@ Use `jido_action` for validated work and data-first composition:
 ## Execution
 
 - Use `Jido.Exec.run/4` for the public validation and error boundary.
-- Use `jido: MyApp.Jido` with an Action, Instruction, or Flow when work must run
-  under the Task Supervisor for that running Jido core instance.
-- When a higher-level runtime builds a Jido instance supervision tree, use
-  `Jido.Exec.task_supervisor_name/1` for its Task Supervisor name.
+- Pass `task_supervisor: reference` for a local Task.Supervisor PID, registered
+  name, or via reference. The default is `Jido.Exec.TaskSupervisor`. The host
+  owns supervisor names. The `jido:` option and Exec name helper were removed.
+- Keep one explicit partition key in a via route. Exec carries the same route
+  through nested and continuation work. Names follow registration changes at
+  each task start; a PID remains bound to its original process. No route falls
+  back when its supervisor is absent or refuses work.
 - All run-to-completion targets accept `max_continuations` and
   `max_concurrency`. An Action does not use the concurrency limit itself, but
   it can continue to a Flow. `max_concurrency` defaults to `8`. Use `1` for

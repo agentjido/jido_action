@@ -128,6 +128,65 @@ Invalid handles and owner violations return
 `Jido.Exec.Error.InvalidHandleError`. An unexpected failure of the managed
 process returns `Jido.Exec.Error.AsyncExecutionError`.
 
+### Responsive GenServer Completion
+
+Start the async call in the GenServer that will consume its completion. Keep
+the handle in state and use `handle_message/2` in `handle_info/2`. Do not call
+`await/2` inside a callback that must remain responsive.
+
+```elixir
+defmodule MyApp.ReportServer do
+  use GenServer
+
+  def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
+
+  @impl true
+  def init(opts) do
+    {:ok, %{target: Keyword.fetch!(opts, :target),
+            supervisor: Keyword.fetch!(opts, :task_supervisor),
+            handle: nil, result: nil}}
+  end
+
+  @impl true
+  def handle_call({:run, input, context}, _from, %{handle: nil} = state) do
+    handle = Jido.Exec.run_async(state.target, input, context,
+      task_supervisor: state.supervisor)
+    {:reply, :ok, %{state | handle: handle, result: nil}}
+  rescue
+    error in [Jido.Action.Error.InvalidInputError, Jido.Exec.Error.AsyncExecutionError] ->
+      {:reply, {:error, error}, state}
+  end
+
+  def handle_call({:run, _input, _context}, _from, state),
+    do: {:reply, {:error, :busy}, state}
+
+  def handle_call(:status, _from, state),
+    do: {:reply, %{running?: state.handle != nil, result: state.result}, state}
+
+  @impl true
+  def handle_info(_message, %{handle: nil} = state), do: {:noreply, state}
+
+  def handle_info(message, state) do
+    case Jido.Exec.handle_message(state.handle, message) do
+      {:done, result} -> {:noreply, %{state | handle: nil, result: result}}
+      :ignore -> {:noreply, state}
+      {:error, error} -> {:noreply, %{state | handle: nil, result: {:error, error}}}
+    end
+  end
+end
+
+# The host starts MyApp.ReportTasks before this server.
+{:ok, server} = MyApp.ReportServer.start_link(
+  target: MyApp.Flows.BuildReport, task_supervisor: MyApp.ReportTasks)
+:ok = GenServer.call(server, {:run, input, context})
+status = GenServer.call(server, :status)
+```
+
+The server can process status calls while Action work is blocked. Completion
+stores the normal Exec result. Startup errors leave the server ready for a
+later request. See [Runtime Configuration](configuration.md) for capacity,
+shutdown, replacement, and route examples.
+
 ## Runtime Options
 
 All targets accept:
@@ -135,7 +194,7 @@ All targets accept:
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `timeout` | `:infinity` | Complete-call limit for `run/4`. |
-| `jido` | `nil` | Jido instance used for Action worker routing. |
+| `task_supervisor` | `Jido.Exec.TaskSupervisor` | Local Task.Supervisor reference for Action workers and async control. |
 | `max_continuations` | `256` | Maximum continuations in one complete call. |
 | `max_concurrency` | `8` | Bounds ready Flow work if the chain runs a Flow. |
 
@@ -153,7 +212,7 @@ executable and starts the target in the same complete call. The timeout and
 continuation limit cover the full chain. See
 [Continue to Another Executable](continuations.md).
 
-`start/4` accepts `jido` and `max_concurrency`. It does not accept a timeout or
+`start/4` accepts `task_supervisor` and `max_concurrency`. It does not accept a timeout or
 Dispatch because a paused execution cannot run a continuation as part of one
 complete call.
 
@@ -261,6 +320,6 @@ telemetry delivery. They do not have a finite complete-call deadline.
 
 Exec provides one in-memory execution session. It provides validation, process
 ownership, whole-call timeout, owner-bound async handles, optional
-concurrency, and Jido instance routing. It does not provide automatic retry,
+concurrency, and explicit supervisor routing. It does not provide automatic retry,
 per-node deadlines, durable cancellation, persistence, rewind, queues,
 recovery, or distributed coordination.

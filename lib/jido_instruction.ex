@@ -39,8 +39,8 @@ defmodule Jido.Instruction do
 
   @target_fields [:target, :action, :flow]
   @removed_legacy_fields [:id]
-  @forwarded_legacy_run_option_keys [:timeout, :jido]
-  @forwarded_legacy_start_option_keys [:jido]
+  @forwarded_legacy_run_option_keys [:timeout, :task_supervisor]
+  @forwarded_legacy_start_option_keys [:task_supervisor]
   @start_rejected_legacy_option_keys [:timeout]
   @removed_legacy_option_keys [
     :max_retries,
@@ -381,7 +381,9 @@ defmodule Jido.Instruction do
         {:ok, call_opts}
 
       {:ok, legacy_opts} ->
-        migrate_normalized_legacy_opts(legacy_opts, call_opts, target, mode)
+        with :ok <- Jido.Exec.Runtime.reject_jido(legacy_opts) do
+          migrate_normalized_legacy_opts(legacy_opts, call_opts, target, mode)
+        end
 
       {:error, error} ->
         warn_invalid_legacy_opts(target, mode)

@@ -300,7 +300,7 @@ defmodule JidoActionTest.Exec.TelemetryTest do
       token = make_ref()
       context = %{test_pid: self(), token: token}
       action = InlineControlledFlow.step_action("first")
-      supervisor = Exec.task_supervisor_name(__MODULE__)
+      supervisor = __MODULE__.TaskSupervisor
       start_supervised!({Task.Supervisor, name: supervisor})
 
       {target, input, prefixes} =
@@ -313,7 +313,7 @@ defmodule JidoActionTest.Exec.TelemetryTest do
              [[:jido, :flow], [:jido, :flow, :node], [:jido, :flow, :target]]}
         end
 
-      opts = [max_concurrency: 1, jido: __MODULE__]
+      opts = [max_concurrency: 1, task_supervisor: __MODULE__.TaskSupervisor]
       opts = if terminal == :timeout, do: Keyword.put(opts, :timeout, 2_000), else: opts
       handle = Exec.run_async(target, input, context, opts)
       caller_monitor = Process.monitor(handle.pid)

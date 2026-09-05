@@ -3,31 +3,126 @@ defmodule Jido.Exec.Runtime do
 
   alias Jido.Action.Error
 
-  @type routing_option :: {:jido, atom() | nil}
+  @type supervisor_reference :: pid() | atom() | {:via, module(), term()}
 
   @doc false
-  @spec task_supervisor_name([routing_option()]) :: atom()
-  def task_supervisor_name(opts) when is_list(opts) do
-    Jido.Exec.task_supervisor_name(Keyword.get(opts, :jido))
-  rescue
-    ArgumentError ->
-      jido = Keyword.get(opts, :jido)
-      raise ArgumentError, ":jido must be an atom or nil, got: #{inspect(jido)}"
+  @spec task_supervisor(keyword()) :: {:ok, supervisor_reference()} | {:error, Exception.t()}
+  def task_supervisor(opts) do
+    with :ok <- validate_options(opts),
+         :ok <- reject_jido(opts),
+         :ok <- reject_duplicate_route(opts) do
+      supervisor = Keyword.get(opts, :task_supervisor, Jido.Exec.TaskSupervisor)
+
+      if local_reference?(supervisor) do
+        lookup(supervisor)
+      else
+        invalid_reference(supervisor)
+      end
+    end
   end
 
   @doc false
-  @spec task_supervisor([routing_option()]) :: {:ok, atom()} | {:error, Exception.t()}
-  def task_supervisor(opts) when is_list(opts) do
-    supervisor = task_supervisor_name(opts)
+  @spec start_child(supervisor_reference(), (-> term())) :: {:ok, pid()} | {:error, term()}
+  def start_child(supervisor, work) do
+    case GenServer.whereis(supervisor) do
+      pid when is_pid(pid) and node(pid) == node() ->
+        Task.Supervisor.start_child(pid, work, restart: :temporary)
 
-    if Process.whereis(supervisor) do
-      {:ok, supervisor}
-    else
-      {:error,
-       Error.validation_error("Task Supervisor is not running", %{
-         jido: Keyword.get(opts, :jido),
-         task_supervisor: supervisor
-       })}
+      nil ->
+        {:error, :noproc}
+
+      _other ->
+        {:error, :non_local_supervisor}
     end
+  rescue
+    error -> {:error, {:error, error}}
+  catch
+    kind, reason -> {:error, {kind, reason}}
+  end
+
+  @doc false
+  @spec reject_jido(keyword()) :: :ok | {:error, Exception.t()}
+  def reject_jido(opts) do
+    if Keyword.has_key?(opts, :jido) do
+      {:error,
+       Error.validation_error(
+         "jido option was removed; pass task_supervisor: MyApp.TaskSupervisor instead",
+         %{option: :jido, replacement: :task_supervisor}
+       )}
+    else
+      :ok
+    end
+  end
+
+  defp validate_options(opts) when is_list(opts) do
+    if Keyword.keyword?(opts), do: :ok, else: invalid_options()
+  end
+
+  defp validate_options(_opts), do: invalid_options()
+
+  defp invalid_options do
+    {:error, Error.validation_error("run options must be a keyword list")}
+  end
+
+  defp reject_duplicate_route(opts) do
+    if length(Keyword.get_values(opts, :task_supervisor)) > 1 do
+      {:error,
+       Error.validation_error("pass only one task_supervisor: reference", %{
+         option: :task_supervisor,
+         reason: :duplicate_option
+       })}
+    else
+      :ok
+    end
+  end
+
+  defp local_reference?(pid) when is_pid(pid), do: node(pid) == node()
+  defp local_reference?(name) when is_atom(name), do: name not in [nil, true, false]
+
+  defp local_reference?({:via, module, _name}) when is_atom(module),
+    do: module not in [nil, true, false]
+
+  defp local_reference?(_reference), do: false
+
+  defp lookup(supervisor) do
+    case GenServer.whereis(supervisor) do
+      nil ->
+        not_running(supervisor)
+
+      pid when is_pid(pid) and node(pid) == node() ->
+        if Process.alive?(pid), do: {:ok, supervisor}, else: not_running(supervisor)
+
+      _other ->
+        invalid_reference(supervisor)
+    end
+  rescue
+    error -> lookup_error(supervisor, error)
+  catch
+    kind, reason -> lookup_error(supervisor, {kind, reason})
+  end
+
+  defp not_running(supervisor) do
+    {:error,
+     Error.validation_error("Task Supervisor is not running", %{
+       option: :task_supervisor,
+       task_supervisor: supervisor
+     })}
+  end
+
+  defp lookup_error(supervisor, reason) do
+    {:error,
+     Error.validation_error("Task Supervisor lookup failed", %{
+       option: :task_supervisor,
+       task_supervisor: supervisor,
+       reason: reason
+     })}
+  end
+
+  defp invalid_reference(supervisor) do
+    {:error,
+     Error.validation_error(
+       "task_supervisor must be a local PID, registered name, or {:via, module, name} reference",
+       %{option: :task_supervisor, value: supervisor}
+     )}
   end
 end

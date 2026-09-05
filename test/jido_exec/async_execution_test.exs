@@ -199,7 +199,7 @@ defmodule JidoActionTest.Exec.AsyncExecutionTest do
     assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :killed}, 1_000
   end
 
-  test "routes the handle and target work through a requested Jido instance" do
+  test "routes the handle and target work through a named supervisor" do
     instance = unique_module("AsyncJido")
     task_supervisor = Module.concat(instance, TaskSupervisor)
     start_supervised!({Task.Supervisor, name: task_supervisor})
@@ -209,7 +209,7 @@ defmodule JidoActionTest.Exec.AsyncExecutionTest do
         BlockingAction,
         %{value: 1},
         %{test_pid: self()},
-        jido: instance
+        task_supervisor: task_supervisor
       )
 
     assert_receive {:blocking_flow_node_started, worker}, 1_000
@@ -247,10 +247,10 @@ defmodule JidoActionTest.Exec.AsyncExecutionTest do
   end
 
   test "reports routing and option failures before an async process starts" do
-    missing_instance = unique_module("MissingAsyncJido")
+    missing_supervisor = unique_module("MissingAsyncSupervisor")
 
     assert_raise Jido.Action.Error.InvalidInputError, fn ->
-      Exec.run_async(Add, %{value: 1}, %{}, jido: missing_instance)
+      Exec.run_async(Add, %{value: 1}, %{}, task_supervisor: missing_supervisor)
     end
 
     assert_raise Error.AsyncExecutionError, fn ->

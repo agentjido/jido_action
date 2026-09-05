@@ -147,7 +147,7 @@ change application behavior.
   continuation loop.
 - Move retry count, backoff, durable cancellation policy, deadline, and
   compensation to the caller. Preserve idempotency rules.
-- Keep jido: instance routing. Confirm that the selected instance Task
+- Replace jido: with task_supervisor:. Confirm that the selected Task
   Supervisor is running.
 - Remove the Flow async option. Use max_concurrency alone for Flow scheduling.
   Its default is 8. Use 1 for serial scheduling.
@@ -192,9 +192,8 @@ change application behavior.
   global execution supervisor.
 - Do not depend on the package root supervisor name. Use
   Jido.Exec.TaskSupervisor when direct Task Supervisor access is required.
-- Use Jido.Exec.task_supervisor_name/1 when a higher-level runtime builds an
-  instance supervision tree.
-- Keep MyApp.Jido.TaskSupervisor for jido: MyApp.Jido instance routing.
+- Remove calls to Jido.Exec.task_supervisor_name/1. The host names its Task.Supervisor.
+- Pass task_supervisor: MyApp.Jido.TaskSupervisor when the host keeps that name.
 - Treat the v3 stored Flow document as a new format. Do not decode v2 Plan,
   Instruction, Action JSON, or development-spike data with Jido.Flow.Codec.
 - Use Jido.Flow.Codec with a trusted Jido.Flow.Registry for stored Flows.

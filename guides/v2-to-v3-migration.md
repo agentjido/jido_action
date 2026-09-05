@@ -268,7 +268,7 @@ Apply these field changes:
 
 Version 3 temporarily accepts `action:` and `opts` as migration shims. These
 paths emit warnings. Replace them before the upgrade is complete. The shim
-for `opts` forwards `timeout` and `jido`; it does not restore removed version
+for `opts` forwards `timeout` and `task_supervisor`; it does not restore removed version
 2 execution policy.
 
 See [Migration Shims](migration-shims.md) for the exact warning and error
@@ -377,7 +377,7 @@ timeout = Application.fetch_env!(:my_app, :action_timeout)
 
 Jido.Exec.run(action, params, context,
   timeout: timeout,
-  jido: MyApp.Jido
+  task_supervisor: MyApp.Jido.TaskSupervisor
 )
 ```
 
@@ -487,10 +487,17 @@ Version 3 uses `Jido.Exec.TaskSupervisor`.
 
 Replace direct references to the old global supervisor name.
 
-Instance routing keeps `MyApp.Jido.TaskSupervisor` for
-`jido: MyApp.Jido`. The selected instance must start that supervisor. Version
-3 returns an error when the instance supervisor is not running; it does not
-fall back to the global supervisor.
+Replace `jido: MyApp.Jido` with
+`task_supervisor: MyApp.Jido.TaskSupervisor`. Remove `jido: nil` to use the
+default. The old option now returns a migration error, including in deprecated
+`Instruction.opts`. Do not supply both options.
+
+`Jido.Exec.task_supervisor_name(instance)` has been removed. The host must name and
+start its Task.Supervisor. Exec accepts the resulting local PID, registered
+name, or via reference. A missing supervisor is an error; Exec does not fall
+back to the default. Names resolve at each task start, so later work can use
+a replacement under the same name. A PID remains tied to the original process.
+See [supervision and partition examples](configuration.md#task-supervisor-references).
 
 ## Version 2 To Version 3 Migration Checklist
 

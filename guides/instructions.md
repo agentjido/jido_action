@@ -55,7 +55,7 @@ Use `target:` in new code. The compatibility path does not restore the removed
 
 Version 3 also accepts the deprecated `opts` field so old struct literals
 compile. Exec warns when it consumes a non-empty value. It forwards `timeout`
-and `jido`, leaves out known settings that version 3 removed, and rejects
+and `task_supervisor`, leaves out known settings that version 3 removed, and rejects
 unknown settings. Move all execution options to `Jido.Exec.run/4`. See
 [Migration Shims](migration-shims.md) for the package policy and exact option
 rules.
@@ -77,7 +77,7 @@ Jido.Exec.run(
 ```
 
 An Instruction uses the rules of its resolved target. All run-to-completion
-targets accept `timeout:`, `jido:`, `max_continuations:`, and
+targets accept `timeout:`, `task_supervisor:`, `max_continuations:`, and
 `max_concurrency:`. An Action does not use `max_concurrency` itself, but it can
 continue to a Flow. An Instruction can be a target for `Jido.Exec.run_async/4`.
 

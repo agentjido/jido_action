@@ -3,6 +3,7 @@ defmodule Jido.Exec.Action.Runner do
 
   alias Jido.Action.Error
   alias Jido.Action.Output
+  alias Jido.Exec.Runtime
   alias Jido.Exec.Transition
   alias Jido.Instruction
   alias Jido.Exec.Telemetry
@@ -288,7 +289,7 @@ defmodule Jido.Exec.Action.Runner do
     telemetry_tracker = Telemetry.tracker()
     ref = make_ref()
 
-    case start_worker(task_supervisor, fn ->
+    case Runtime.start_child(task_supervisor, fn ->
            worker = self()
            spawn(fn -> terminate_with_caller(caller, worker) end)
            Telemetry.put_tracker(telemetry_tracker)
@@ -303,12 +304,6 @@ defmodule Jido.Exec.Action.Runner do
       {:ok, worker} -> await_worker(worker, ref)
       {:error, reason} -> {:start_error, reason}
     end
-  end
-
-  defp start_worker(task_supervisor, work) do
-    Task.Supervisor.start_child(task_supervisor, work)
-  catch
-    :exit, reason -> {:error, {:exit, reason}}
   end
 
   defp await_worker(worker, ref) do

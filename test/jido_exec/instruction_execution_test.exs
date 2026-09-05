@@ -64,24 +64,24 @@ defmodule JidoActionTest.Exec.InstructionExecutionTest do
     assert log =~ "Use :target instead"
   end
 
-  test "forwards legacy timeout and jido options with one grouped warning" do
+  test "forwards legacy timeout and supervisor options with one grouped warning" do
     instruction = %Instruction{
       target: Add,
       params: %{value: 5},
-      opts: [timeout: 0, jido: nil]
+      opts: [timeout: 0, task_supervisor: Jido.Exec.TaskSupervisor]
     }
 
     {result, log} = with_log(fn -> Exec.run(instruction) end)
 
     assert {:error, %TimeoutError{timeout: 0}} = result
     assert log =~ "Jido.Instruction received the deprecated :opts field"
-    assert log =~ "Forwarded to Jido.Exec.run/4: [:timeout, :jido]"
+    assert log =~ "Forwarded to Jido.Exec.run/4: [:timeout, :task_supervisor]"
     assert log =~ "Move execution options to Jido.Exec.run/4"
     assert length(Regex.scan(~r/received the deprecated :opts field/, log)) == 1
     refute log =~ "Not applied because"
   end
 
-  test "forwards legacy jido routing to normal Exec validation" do
+  test "rejects legacy jido routing with migration guidance" do
     instruction = %Instruction{
       target: Add,
       params: %{value: 5},
@@ -90,8 +90,10 @@ defmodule JidoActionTest.Exec.InstructionExecutionTest do
 
     {result, log} = with_log(fn -> Exec.run(instruction) end)
 
-    assert {:error, %InvalidInputError{details: %{option: :jido, value: "do-not-log"}}} = result
-    assert log =~ "Forwarded to Jido.Exec.run/4: [:jido]"
+    assert {:error, %InvalidInputError{message: message, details: %{option: :jido}}} = result
+    assert message =~ "jido option was removed"
+    assert message =~ "task_supervisor:"
+    refute log =~ "Forwarded"
     refute log =~ "do-not-log"
   end
 
