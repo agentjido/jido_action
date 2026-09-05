@@ -51,9 +51,13 @@ defmodule JidoActionTest.Exec.ActionProcessTest do
           Exec.run(target, input, context)
         end)
 
+      on_exit(fn -> Process.exit(caller, :kill) end)
       assert_receive {:blocking_flow_node_started, worker}, 2_000, to_string(form)
       refute worker == caller
       worker_monitor = Process.monitor(worker)
+      # Confirm the monitor before caller cleanup can terminate this worker.
+      assert {:monitored_by, monitors} = Process.info(worker, :monitored_by)
+      assert self() in monitors
 
       Process.exit(caller, :kill)
 
@@ -70,9 +74,12 @@ defmodule JidoActionTest.Exec.ActionProcessTest do
         Exec.run(BlockingAction, %{value: 1}, %{test_pid: owner}, timeout: 10_000)
       end)
 
+    on_exit(fn -> Process.exit(caller, :kill) end)
     assert_receive {:blocking_flow_node_started, worker}, 1_000
     refute worker == caller
     worker_monitor = Process.monitor(worker)
+    assert {:monitored_by, monitors} = Process.info(worker, :monitored_by)
+    assert self() in monitors
 
     Process.exit(caller, :kill)
 
