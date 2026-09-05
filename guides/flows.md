@@ -1,7 +1,9 @@
 # Flows
 
-A `Jido.Flow` is the canonical authoring value for a local workflow. It is
-Action-compatible and lowers to native Runic workflow data for execution.
+A `Jido.Flow` is the canonical authoring value for a local workflow. It lowers
+to native Runic workflow data for execution through `Jido.Exec`.
+
+See [Flow Modules](flow-modules.md#generated-api) for the module API.
 
 ## Canonical Value
 

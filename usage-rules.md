@@ -12,6 +12,7 @@ Use `jido_action` for validated work and data-first composition:
 ## Action Definitions
 
 - Use `use Jido.Action` for public actions.
+- Implement `run/2` in every Action. A missing body is a compile error.
 - Provide stable `name` and useful `description` values.
 - Use Zoi schemas for `schema` and `output_schema`; omit them or use `[]` only when validation is intentionally empty.
 - Keep `run/2` strict: return `{:ok, result}`, `{:ok, result, extra}`,
@@ -54,6 +55,8 @@ Use `jido_action` for validated work and data-first composition:
 
 - Use the compile-time `Jido.Flow` DSL as the primary developer authoring
   surface.
+- Resolve target kinds with `Jido.Executable`. A Flow requires `flow/0` and
+  validation callbacks; its generated `run/2` is a convenience function.
 - Add `:jido_action` to `.formatter.exs` `import_deps` to keep DSL declarations
   without parentheses. No formatter plugin is required.
 - Give every component a stable string name.

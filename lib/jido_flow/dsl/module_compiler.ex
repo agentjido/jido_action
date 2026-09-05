@@ -9,7 +9,6 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
     module_compiler = __MODULE__
 
     quote location: :keep do
-      @behaviour Jido.Action
       @behaviour Jido.Executable
       use Jido.Flow.DSL
       @before_compile Jido.Flow.DSL.ModuleCompiler
@@ -93,8 +92,8 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
       @spec compiled() :: Jido.Flow.Compiled.t()
       def compiled()
 
-      @doc "Runs this Flow with the given parameters and context."
-      @spec run(map(), map()) :: Jido.Action.result()
+      @doc "Runs this Flow through Jido.Exec with default execution options."
+      @spec run(map(), map()) :: Jido.Exec.exec_result()
       def run(params, context)
     end
   end
@@ -198,7 +197,6 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
 
       # This is a convenience entry point. Exec selects native Flow execution
       # from the descriptor and does not call this through the Action runner.
-      @impl Jido.Action
       def run(params, context), do: Jido.Exec.run(__MODULE__, params, context)
     end
   end

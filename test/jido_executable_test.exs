@@ -2,6 +2,8 @@ defmodule JidoActionTest.ExecutableTest do
   use ExUnit.Case, async: true
 
   alias Jido.Executable
+  alias Jido.{Exec, Flow, Instruction}
+  alias Jido.Flow.{Ref, Subflow}
   alias JidoActionTest.Fixtures.MathFlow
 
   alias JidoActionTest.Fixtures.Actions.{
@@ -27,6 +29,43 @@ defmodule JidoActionTest.ExecutableTest do
     def __jido_executable__, do: raise("descriptor failed")
   end
 
+  defmodule FlowWithoutRun do
+    @behaviour Jido.Executable
+
+    @impl true
+    def __jido_executable__, do: Executable.flow(__MODULE__)
+    def flow, do: MathFlow.flow()
+    @impl true
+    defdelegate validate_params(params), to: MathFlow
+    @impl true
+    defdelegate validate_output(output), to: MathFlow
+  end
+
+  defmodule ContinueToFlow do
+    use Jido.Action, name: "continue_to_flow_without_run"
+
+    @impl true
+    def run(params, _context), do: {:continue, params, FlowWithoutRun}
+  end
+
+  defmodule MissingFlowDefinition do
+    def __jido_executable__, do: Executable.flow(__MODULE__)
+    def validate_params(params), do: {:ok, params}
+    def validate_output(output), do: {:ok, output}
+  end
+
+  defmodule MissingFlowParams do
+    def __jido_executable__, do: Executable.flow(__MODULE__)
+    def flow, do: MathFlow.flow()
+    def validate_output(output), do: {:ok, output}
+  end
+
+  defmodule MissingFlowOutput do
+    def __jido_executable__, do: Executable.flow(__MODULE__)
+    def flow, do: MathFlow.flow()
+    def validate_params(params), do: {:ok, params}
+  end
+
   test "the Executable behaviour declares identity and validation callbacks" do
     assert Enum.sort(Executable.behaviour_info(:callbacks)) ==
              [__jido_executable__: 0, validate_output: 1, validate_params: 1]
@@ -41,6 +80,7 @@ defmodule JidoActionTest.ExecutableTest do
         module.__info__(:attributes) |> Keyword.get_values(:behaviour) |> List.flatten()
 
       assert Executable in behaviours
+      assert Jido.Action in behaviours == (module == Add)
 
       for {callback, arity} <- Executable.behaviour_info(:callbacks) do
         assert function_exported?(module, callback, arity)
@@ -104,6 +144,51 @@ defmodule JidoActionTest.ExecutableTest do
     assert {:error, missing_output} = Executable.validate(MissingValidateOutput)
     assert missing_output.details.executable == MissingValidateOutput
     assert missing_output.details.reason == "missing validate_output/1"
+  end
+
+  test "Flow validation requires definition and validation callbacks, without run/2" do
+    refute function_exported?(FlowWithoutRun, :run, 2)
+    assert :ok = Executable.validate(FlowWithoutRun)
+
+    for {module, reason} <- [
+          {MissingFlowDefinition, "missing flow/0"},
+          {MissingFlowParams, "missing validate_params/1"},
+          {MissingFlowOutput, "missing validate_output/1"}
+        ] do
+      assert {:error, error} = Executable.validate(module)
+      assert error.message == "module is not a valid Jido executable"
+      assert error.details == %{executable: module, reason: reason}
+    end
+  end
+
+  test "a Flow without run/2 executes through every public entry" do
+    input = %{value: 3}
+    expected = {:ok, %{value: 8}}
+    instruction = Instruction.new!(target: FlowWithoutRun, params: input)
+
+    parent =
+      Flow.new!(
+        name: "flow_without_run_parent",
+        components: [Subflow.new!(name: "child", flow: FlowWithoutRun, params: Ref.input([]))],
+        output: Ref.result("child")
+      )
+
+    assert Exec.run(FlowWithoutRun, input) == expected
+    assert Exec.run(instruction) == expected
+    assert Exec.run(parent, input) == expected
+    assert Exec.run(ContinueToFlow, input) == expected
+    assert FlowWithoutRun |> Exec.run_async(input) |> Exec.await() == expected
+
+    for target <- [FlowWithoutRun, instruction, parent] do
+      assert {:ok, execution} = Exec.start(target, input)
+      assert {:ok, execution} = Exec.continue(execution)
+      assert Exec.result(execution) == expected
+    end
+  end
+
+  test "generated Flow run/2 is a convenience call through Exec" do
+    assert MathFlow.run(%{value: 3}, %{}) == Exec.run(MathFlow, %{value: 3})
+    assert MathFlow.run(%{value: "bad"}, %{}) == Exec.run(MathFlow, %{value: "bad"})
   end
 
   test "callback-only modules are not executable targets" do

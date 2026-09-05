@@ -107,6 +107,8 @@ Public action functions:
 - `validate_output/1`
 - `run/2`
 
+Every Action must implement `run/2`. A missing implementation stops compilation.
+
 An Action can also implement `on_before_validate_params/1` when raw input must
 be prepared before Zoi validation. Prefer Zoi coercion and other schema rules
 when they can express the required change.

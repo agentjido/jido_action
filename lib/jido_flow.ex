@@ -85,6 +85,9 @@ defmodule Jido.Flow do
   operation materializes it once. Put changing runtime data in Flow input or
   context.
 
+  Flow modules implement `Jido.Executable` and provide their definition through
+  `flow/0`. The generated `run/2` delegates to `Jido.Exec` with default options.
+
   A Choice is one Flow component. It evaluates data-only conditions in authored
   order, runs the first matching target, and uses a required routing fallback
   when no option matches.

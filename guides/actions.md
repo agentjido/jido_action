@@ -28,12 +28,13 @@ end
 - `validate_params/1` and `validate_output/1`; and
 - the `Jido.Executable` descriptor used by `Jido.Exec`.
 
-The module must implement `run/2`.
+The module must implement `run/2`. A missing implementation stops compilation.
 
 `Jido.Action` declares the `run/2` callback and the optional input-preparation
 hook. `Jido.Executable` declares the descriptor, `validate_params/1`, and
-`validate_output/1` callbacks shared by Action and Flow modules. The generators
-implement both behaviours. Runtime contract checks remain in place for all
+`validate_output/1` callbacks shared by Action and Flow modules. An Action
+implements both behaviours. A Flow implements `Jido.Executable` and supplies
+`flow/0` as its definition. Runtime contract checks remain in place for all
 module targets, including modules that do not declare the behaviours.
 
 ## Use An Inline Step For Small Local Work
