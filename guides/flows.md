@@ -3,10 +3,7 @@
 A `Jido.Flow` is the canonical authoring value for a local workflow. It lowers
 to native Runic workflow data for execution through `Jido.Exec`.
 
-Action and Flow modules share the `Jido.Executable` descriptor and validation
-callbacks. A Flow module provides `flow/0` as its definition. It does not
-implement the Action behaviour. Its generated `run/2` is a convenience call to
-Exec. See [Flow Modules](flow-modules.md#generated-api).
+See [Flow Modules](flow-modules.md#generated-api) for the module API.
 
 ## Canonical Value
 

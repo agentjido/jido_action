@@ -201,8 +201,6 @@ Pass execution options to `Jido.Exec`.
 ## Compose A Flow
 
 Use `Jido.Flow` when several actions must execute as one validated graph.
-Flow modules provide a definition through `flow/0` and share the Executable
-validation callbacks. Their generated `run/2` delegates to Exec as a convenience.
 
 ```elixir
 defmodule MyApp.Actions.Notify do

@@ -79,23 +79,6 @@ Runic workflow and the source map. It is not a storage format.
 directly when you need runtime options. Exec uses the descriptor to select
 native Flow execution; it does not call this convenience function.
 
-## Migrate Earlier v3 Beta Flow Modules
-
-Earlier v3 beta Flow modules declared the `Jido.Action` behaviour, and target
-validation required `run/2`. Flow modules now implement `Jido.Executable`.
-They require `__jido_executable__/0`, `flow/0`, `validate_params/1`, and
-`validate_output/1`. A Flow module without `run/2` is a valid Exec target.
-
-Code that uses `use Jido.Flow` keeps its generated `run/2` convenience function.
-Recompile these modules to update their behaviour metadata. For a handwritten
-Flow module, remove `@behaviour Jido.Action` and any `@impl` annotation on its
-optional `run/2` helper. Keep the descriptor and all three required functions.
-
-Use `Jido.Executable.resolve/1` to identify target kind and
-`Jido.Executable.validate/1` to check its callbacks. Do not use Action behaviour
-metadata or the presence of `run/2` to identify every executable. Action-only
-Flow positions still require an Action target.
-
 ## Reuse A Step Target
 
 `step_action/1` returns the Action module for an inline or explicit

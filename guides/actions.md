@@ -37,20 +37,6 @@ implements both behaviours. A Flow implements `Jido.Executable` and supplies
 `flow/0` as its definition. Runtime contract checks remain in place for all
 module targets, including modules that do not declare the behaviours.
 
-## Migrate Earlier v3 Beta Actions
-
-Earlier v3 beta versions supplied a default `run/2` that returned a runtime
-configuration error. That implementation and its `defoverridable` entry are
-removed. The generator now declares `run/2` without a body. The Elixir compiler
-rejects an Action that does not implement it, including during runtime module
-compilation and ordinary Mix builds.
-
-Add an explicit `run/2` body to every Action, including schema-only fixtures.
-Use the callback example above. Replace calls to the removed default through
-`super/2` with application code. Generated inline Actions already supply their
-own callback. Existing Action result, validation, and extra-value rules stay
-the same.
-
 ## Use An Inline Step For Small Local Work
 
 A Flow module can define a small Step body without a separate Action module:

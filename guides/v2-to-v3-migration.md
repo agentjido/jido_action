@@ -10,10 +10,6 @@ version 2 code are outside the scope of this guide.
 
 Upgrade one area at a time. Compile and test the application after each area.
 
-For code that already uses an earlier v3 beta, see the
-[Action callback migration](actions.md#migrate-earlier-v3-beta-actions) and
-[Flow module migration](flow-modules.md#migrate-earlier-v3-beta-flow-modules).
-
 ## Update The Dependency
 
 Change the package version in `mix.exs`:

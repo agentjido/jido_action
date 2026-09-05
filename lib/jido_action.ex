@@ -37,8 +37,7 @@ defmodule Jido.Action do
   It validates input, calls the Action, validates normal output, and normalizes
   failures.
 
-  Every Action must implement `run/2`. The generator declares the function
-  without a default body, so a missing implementation stops compilation.
+  Every Action must implement `run/2`. A missing implementation stops compilation.
 
   ## Effects and policy
 
