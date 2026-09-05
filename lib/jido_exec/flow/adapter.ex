@@ -124,6 +124,8 @@ defmodule Jido.Exec.Flow.Adapter do
            {:ok, context} <- normalize_map(context, :context),
            {:ok, input} <- validate_data(flow.schema, input, "Flow", flow, :flow_input),
            {:ok, input} <- validate_flow_input_shape(flow, input) do
+        flow_name = flow.name
+
         target_runner = fn target, params, target_context, target_execution_id, owner ->
           TargetRunner.run(
             target,
@@ -131,7 +133,7 @@ defmodule Jido.Exec.Flow.Adapter do
             target_context,
             target_execution_id,
             run_opts,
-            flow.name,
+            flow_name,
             owner
           )
         end
