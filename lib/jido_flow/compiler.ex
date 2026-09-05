@@ -1099,8 +1099,7 @@ defmodule Jido.Flow.Compiler do
       results: results,
       options: runtime.options,
       target_runner: runtime.target_runner,
-      observer: runtime.observer,
-      map_nodes: MapSet.new()
+      observer: runtime.observer
     }
   end
 
