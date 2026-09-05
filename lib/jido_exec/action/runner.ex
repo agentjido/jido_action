@@ -28,32 +28,33 @@ defmodule Jido.Exec.Action.Runner do
           | {:error, Exception.t()}
           | {:error, Exception.t(), term()}
   def run(%Instruction{target: action} = instruction, run_opts \\ []) do
-    action
-    |> invoke_isolated(instruction.params, instruction.context, run_opts)
-    |> direct_result()
+    invoke_isolated(action, instruction.params, instruction.context, run_opts, &direct_result/1)
   end
 
   @doc false
   @spec run_target(module(), term(), map(), keyword()) :: target_result()
   def run_target(action, params, context, run_opts) do
-    action
-    |> invoke_isolated(params, context, run_opts)
-    |> target_result()
+    invoke_isolated(action, params, context, run_opts, &target_result/1)
   end
 
-  @spec invoke_isolated(module(), term(), map(), keyword()) :: invocation_result()
-  defp invoke_isolated(action, params, context, run_opts) do
+  @spec invoke_isolated(module(), term(), map(), keyword(), (invocation_result() -> result)) ::
+          result
+        when result: var
+  defp invoke_isolated(action, params, context, run_opts, to_result) do
     task_supervisor = Keyword.fetch!(run_opts, :task_supervisor)
 
-    case run_isolated(task_supervisor, fn -> invoke(action, params, context) end) do
+    # Discard Flow extras before the worker copies its reply to the caller.
+    case run_isolated(task_supervisor, fn -> to_result.(invoke(action, params, context)) end) do
       {:ok, result} ->
         result
 
       {:exit, reason} ->
-        {:error, :execution, process_exit_error(action, reason), :no_extras}
+        to_result.({:error, :execution, process_exit_error(action, reason), :no_extras})
 
       {:start_error, reason} ->
-        {:error, :execution, process_start_error(action, task_supervisor, reason), :no_extras}
+        to_result.(
+          {:error, :execution, process_start_error(action, task_supervisor, reason), :no_extras}
+        )
     end
   end
 
