@@ -75,6 +75,12 @@ does not hide these native runnables.
 The child inherits the parent context, `max_concurrency`, `jido` routing, and
 execution ID. Its Action calls share the parent execution budget.
 
+Child output uses the same caller context as root Flow output. This includes
+context references inside expressions, maps, and lists. Input references read
+the validated child input. Result references read components in that child.
+A missing context key returns a reference error. A key with a `nil` value is
+present and resolves to `nil`. These rules also apply to step-wise execution.
+
 An Action failure keeps its typed error and leaf details. Its
 `details.node_path` identifies the authored Subflow path, for example
 `["child", "add"]`. Child input and output validation failures identify the

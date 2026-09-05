@@ -34,7 +34,7 @@ defmodule Jido.Flow.Compiler do
   alias Runic.Workflow.Map, as: RunicMap
   alias Runic.Workflow.Reduce, as: RunicReduce
 
-  @compiler_version 5
+  @compiler_version 6
   @runtime_ref %{
     kind: :context,
     target: :jido,
@@ -166,7 +166,7 @@ defmodule Jido.Flow.Compiler do
     end)
     |> case do
       {:ok, results} ->
-        Expression.resolve(compiled.output, %{input: input, context: context, results: results})
+        resolve_output(compiled.output, input, context, results)
 
       {:continue, %Transition{} = transition} ->
         {:continue, transition}
@@ -174,6 +174,10 @@ defmodule Jido.Flow.Compiler do
       {:error, error} ->
         {:error, error}
     end
+  end
+
+  defp resolve_output(output, input, context, results) do
+    Expression.resolve(output, %{input: input, context: context, results: results})
   end
 
   @doc false
@@ -896,12 +900,16 @@ defmodule Jido.Flow.Compiler do
     namespace = child_state.namespace
     output = child_state.flow.output
 
-    data_step(
-      name: scoped(namespace, "$output"),
-      hash: stable_hash({namespace, :output_validator}),
-      work: fn parent ->
-        local = component_state_from(output, parent)
-        output = Expression.resolve(output, local) |> unwrap_ok!()
+    runtime_step_named(
+      scoped(namespace, "$output"),
+      child_state,
+      :output_validator,
+      fn parent, runtime ->
+        local = output_state(output, parent, runtime)
+
+        output =
+          resolve_output(output, local.input, local.context, local.results)
+          |> unwrap_ok!()
 
         validated =
           case subflow.flow.validate_output(output) do
@@ -928,20 +936,8 @@ defmodule Jido.Flow.Compiler do
     end
   end
 
-  defp component_state_from(output, parent) do
+  defp output_state(output, parent, runtime) do
     deps = output |> Flow.Expression.result_refs() |> Enum.uniq() |> Enum.sort()
-
-    runtime = %{
-      input: nil,
-      context: %{},
-      options: [],
-      execution_id: "",
-      target_runner: nil,
-      observer: nil,
-      flow_digest: "",
-      flow: ""
-    }
-
     dependency_state(deps, deps, parent, runtime)
   end
 
