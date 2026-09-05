@@ -1128,9 +1128,11 @@ defmodule Jido.Flow.Codec do
     {decoded, errors} =
       Enum.reduce(values, {[], []}, fn value, {decoded, errors} ->
         case validator.(value) do
-          {:ok, item} -> {[item | decoded], errors}
-          {:error, nested} when is_list(nested) -> {decoded, Enum.reverse(nested, errors)}
-          {:error, error} -> {decoded, [error | errors]}
+          {:ok, item} when errors == [] -> {[item | decoded], []}
+          {:ok, _item} -> {[], errors}
+          {:error, []} -> {decoded, errors}
+          {:error, nested} when is_list(nested) -> {[], Enum.reverse(nested, errors)}
+          {:error, error} -> {[], [error | errors]}
         end
       end)
 

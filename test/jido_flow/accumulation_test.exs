@@ -92,6 +92,36 @@ defmodule Jido.Flow.AccumulationTest do
              end)
   end
 
+  test "Codec checks values after errors and preserves mixed nested error order" do
+    {document, registry} = document()
+    missing_atom = %{"$type" => "atom"}
+    bad_ref = %{"$ref" => %{"source" => "unsupported", "component" => 42, "path" => 42}}
+
+    output = [
+      [1, [], 2],
+      missing_atom,
+      [[], bad_ref, [3, 4], missing_atom],
+      %{"$type" => "map", "entries" => [%{"key" => "ok", "value" => []}]},
+      bad_ref
+    ]
+
+    assert {:error, %Error.Invalid{errors: [first | _] = errors}} =
+             Codec.diagnose(%{document | "output" => output}, registry)
+
+    assert Enum.map(errors, & &1.details.path) ==
+             [["output", 1, "id"]] ++
+               Enum.map(["source", "component", "path"], &["output", 2, 1, "$ref", &1]) ++
+               [["output", 2, 3, "id"]] ++
+               Enum.map(["source", "component", "path"], &["output", 4, "$ref", &1])
+
+    assert {:error, decoded_error} = Codec.decode(%{document | "output" => output}, registry)
+    assert decoded_error.message == first.message
+    assert decoded_error.details == first.details
+
+    valid = [[], [1, [], 2], []]
+    assert {:ok, %{output: ^valid}} = Codec.diagnose(%{document | "output" => valid}, registry)
+  end
+
   test "Codec preserves duplicate map key order and its first error" do
     {document, registry} = document()
 

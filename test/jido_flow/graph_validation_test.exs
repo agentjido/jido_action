@@ -407,6 +407,46 @@ defmodule Jido.Flow.GraphValidationTest do
     assert error.line == 5
   end
 
+  test "cycle errors retain blocked nodes and point to the first authored blocked component" do
+    edges = [{"blocked", ["one"]}, {"one", ["two"]}, {"two", ["one"]}]
+    components = Enum.map(edges, fn {name, dependencies} -> step(name, dependencies) end)
+
+    assert {:error, canonical} =
+             Flow.new(
+               name: "blocked_cycle",
+               components: components,
+               output: Ref.result("blocked")
+             )
+
+    assert canonical.message == "flow dependency graph contains a cycle"
+    assert Enum.sort(canonical.details.components) == ["blocked", "one", "two"]
+
+    document =
+      stored(
+        Enum.map(edges, fn {name, dependencies} -> stored_step(name, dependencies) end),
+        stored_ref("blocked")
+      )
+
+    assert {:error, %Error.Invalid{errors: [stored_error]}} = Codec.diagnose(document, registry())
+    assert stored_error.details == Map.put(canonical.details, :path, ["components"])
+
+    source = """
+    defmodule Jido.Flow.GraphValidationTest.BlockedCycle do
+      use Jido.Flow, name: "blocked_cycle"
+      flow do
+        step "blocked", action: #{inspect(ProbeAction)}, params: %{}, after: ["one"]
+        step "one", action: #{inspect(ProbeAction)}, params: %{}, after: ["two"]
+        step "two", action: #{inspect(ProbeAction)}, params: %{}, after: ["one"]
+        output(result("blocked"))
+      end
+    end
+    """
+
+    error = assert_raise CompileError, fn -> Code.compile_string(source, "blocked_cycle.ex") end
+    assert error.file == "blocked_cycle.ex"
+    assert error.line == 4
+  end
+
   test "unloaded targets remain valid for inert construction and decoding" do
     component = Step.new!(name: "one", action: NotLoadedAction, params: Expr.new!(:add, [1, 2]))
 
