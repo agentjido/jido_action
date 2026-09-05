@@ -135,6 +135,7 @@ defmodule JidoActionTest.Exec.AsyncMailboxHygieneTest do
 
     assert :ok = Exec.cancel(handle)
     assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :killed}, 1_000
+    refute_handle_messages(handle)
 
     assert {:error, %Error.InvalidHandleError{details: %{operation: :await}}} =
              Exec.await(handle, 0)

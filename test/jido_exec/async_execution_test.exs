@@ -254,6 +254,7 @@ defmodule JidoActionTest.Exec.AsyncExecutionTest do
       assert error.message == "Invalid asynchronous execution handle"
       assert error.details == %{operation: :cancel, value: pid}
       assert {:ok, %{value: 2}} = Exec.await(handle, 1_000)
+      assert :ok = Exec.cancel(handle)
     after
       Exec.cancel(handle)
     end

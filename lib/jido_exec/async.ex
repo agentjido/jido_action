@@ -358,24 +358,17 @@ defmodule Jido.Exec.Async do
 
   defp validate_handle(value), do: invalid_handle(value)
 
-  defp validate_state(state) do
-    case state_from_term(state) do
-      {:ok, _state} -> :ok
-      :error -> invalid_handle(state)
-    end
-  end
-
-  defp state_from_term({:jido_exec_async_state, token} = state) do
+  defp validate_state({:jido_exec_async_state, token} = state) do
     if :atomics.get(token, 1) in [@active, @claimed, @terminal] do
-      {:ok, state}
+      :ok
     else
-      :error
+      invalid_handle(state)
     end
   rescue
-    ArgumentError -> :error
+    ArgumentError -> invalid_handle(state)
   end
 
-  defp state_from_term(_state), do: :error
+  defp validate_state(state), do: invalid_handle(state)
 
   defp invalid_handle(value) do
     {:error,
