@@ -67,7 +67,6 @@ defmodule Jido.Exec.Options do
           {:ok, keyword()} | {:error, Exception.t()}
   def validate_flow(opts, mode \\ :run) when mode in [:run, :start] do
     with :ok <- validate_keyword(opts),
-         :ok <- reject_jido(opts, FlowError),
          :ok <- validate_known_flow_options(opts, mode),
          {:ok, task_supervisor} <- validate_task_supervisor(opts, FlowError),
          max_concurrency = Keyword.get(opts, :max_concurrency, @default_max_concurrency),
@@ -111,24 +110,6 @@ defmodule Jido.Exec.Options do
        })}
     end
   end
-
-  @doc false
-  @spec reject_jido(term(), ActionError | FlowError) :: :ok | {:error, Exception.t()}
-  def reject_jido(opts, error_module) when is_list(opts) do
-    if Keyword.keyword?(opts) do
-      case Runtime.reject_jido(opts) do
-        :ok ->
-          :ok
-
-        {:error, error} ->
-          {:error, execution_option_error(error_module, error.message, error.details)}
-      end
-    else
-      :ok
-    end
-  end
-
-  def reject_jido(_opts, _error_module), do: :ok
 
   defp validate_task_supervisor(opts, error_module) do
     case Runtime.task_supervisor(opts) do

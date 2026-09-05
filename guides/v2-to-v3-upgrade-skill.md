@@ -147,8 +147,7 @@ change application behavior.
   continuation loop.
 - Move retry count, backoff, durable cancellation policy, deadline, and
   compensation to the caller. Preserve idempotency rules.
-- Replace jido: with task_supervisor:. Confirm that the selected Task
-  Supervisor is running.
+- Pass task_supervisor: to select a running Task.Supervisor.
 - Remove the Flow async option. Use max_concurrency alone for Flow scheduling.
   Its default is 8. Use 1 for serial scheduling.
 

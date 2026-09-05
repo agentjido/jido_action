@@ -81,22 +81,6 @@ defmodule JidoActionTest.Exec.InstructionExecutionTest do
     refute log =~ "Not applied because"
   end
 
-  test "rejects legacy jido routing with migration guidance" do
-    instruction = %Instruction{
-      target: Add,
-      params: %{value: 5},
-      opts: [jido: "do-not-log"]
-    }
-
-    {result, log} = with_log(fn -> Exec.run(instruction) end)
-
-    assert {:error, %InvalidInputError{message: message, details: %{option: :jido}}} = result
-    assert message =~ "jido option was removed"
-    assert message =~ "task_supervisor:"
-    refute log =~ "Forwarded"
-    refute log =~ "do-not-log"
-  end
-
   test "gives direct Exec options precedence over legacy Instruction options" do
     instruction = %Instruction{
       target: Add,

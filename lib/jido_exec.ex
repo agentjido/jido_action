@@ -151,7 +151,6 @@ defmodule Jido.Exec do
     timeout_owner = initial_timeout_owner(executable)
 
     with {:ok, opts} <- prepare_run_options(executable, opts),
-         :ok <- Options.reject_jido(opts, timeout_owner),
          {:ok, timeout, run_opts} <- Options.take_timeout(opts, timeout_owner),
          {:ok, continuation_limit} <- Options.continuation_limit(run_opts, timeout_owner) do
       execute_with_timeout(

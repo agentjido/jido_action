@@ -381,9 +381,7 @@ defmodule Jido.Instruction do
         {:ok, call_opts}
 
       {:ok, legacy_opts} ->
-        with :ok <- Jido.Exec.Runtime.reject_jido(legacy_opts) do
-          migrate_normalized_legacy_opts(legacy_opts, call_opts, target, mode)
-        end
+        migrate_normalized_legacy_opts(legacy_opts, call_opts, target, mode)
 
       {:error, error} ->
         warn_invalid_legacy_opts(target, mode)

@@ -544,13 +544,30 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
     refute_received {:blocking_flow_node_started, _}
   end
 
-  test "rejects removed, duplicate, invalid, and absent routes before Action work" do
+  test "unknown options fail before Action work" do
+    for {_, {target, input, context}} <-
+          Fixtures.blocking_execution_forms(BlockingFlow, self()) do
+      assert {:error, error} = Exec.run(target, input, context, unknown: true)
+      assert error.message =~ "unknown"
+
+      handle = Exec.run_async(target, input, context, unknown: true)
+      assert {:error, error} = Exec.await(handle)
+      assert error.message =~ "unknown"
+      refute_received {:blocking_flow_node_started, _}
+    end
+
+    assert {:error, error} =
+             Exec.start(BlockingFlow, %{value: 1}, %{test_pid: self()}, unknown: true)
+
+    assert error.message =~ "unknown"
+    refute_received {:blocking_flow_node_started, _}
+  end
+
+  test "rejects duplicate, invalid, and absent routes before Action work" do
     supervisor = start_route(:pid)
 
     for target <- [BlockingAction, BlockingFlow],
         opts <- [
-          [jido: nil],
-          [jido: __MODULE__, task_supervisor: supervisor],
           [task_supervisor: supervisor, task_supervisor: supervisor],
           [task_supervisor: nil],
           [task_supervisor: "bad"],
@@ -562,32 +579,16 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
         ] do
       assert {:error, error} = Exec.run(target, %{value: 1}, %{test_pid: self()}, opts)
       assert is_exception(error)
-      assert error.details.option in [:jido, :task_supervisor]
-
-      if Keyword.has_key?(opts, :jido) do
-        assert error.message =~ "jido option was removed"
-        assert error.message =~ "task_supervisor:"
-      end
+      assert error.details.option == :task_supervisor
 
       refute_received {:blocking_flow_node_started, _}
     end
 
     for opts <- [
-          [jido: nil],
           [task_supervisor: "bad"],
           [task_supervisor: supervisor, task_supervisor: supervisor]
         ] do
       assert_raise InvalidInputError, fn -> Exec.run_async(BlockingAction, %{}, %{}, opts) end
-    end
-  end
-
-  test "rejects legacy Instruction jido routing even with an explicit new route" do
-    instruction = %Instruction{target: BlockingAction, opts: [jido: nil]}
-    assert {:error, %InvalidInputError{message: message}} = Exec.run(instruction)
-    assert message =~ "jido option was removed"
-
-    assert_raise InvalidInputError, ~r/jido option was removed/, fn ->
-      Exec.run_async(instruction, %{}, %{}, task_supervisor: start_route(:pid))
     end
   end
 

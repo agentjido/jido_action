@@ -9,7 +9,6 @@ defmodule Jido.Exec.Runtime do
   @spec task_supervisor(keyword()) :: {:ok, supervisor_reference()} | {:error, Exception.t()}
   def task_supervisor(opts) do
     with :ok <- validate_options(opts),
-         :ok <- reject_jido(opts),
          :ok <- reject_duplicate_route(opts) do
       supervisor = Keyword.get(opts, :task_supervisor, Jido.Exec.TaskSupervisor)
 
@@ -38,20 +37,6 @@ defmodule Jido.Exec.Runtime do
     error -> {:error, {:error, error}}
   catch
     kind, reason -> {:error, {kind, reason}}
-  end
-
-  @doc false
-  @spec reject_jido(keyword()) :: :ok | {:error, Exception.t()}
-  def reject_jido(opts) do
-    if Keyword.has_key?(opts, :jido) do
-      {:error,
-       Error.validation_error(
-         "jido option was removed; pass task_supervisor: MyApp.TaskSupervisor instead",
-         %{option: :jido, replacement: :task_supervisor}
-       )}
-    else
-      :ok
-    end
   end
 
   defp validate_options(opts) when is_list(opts) do
