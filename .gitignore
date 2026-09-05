@@ -40,3 +40,6 @@ jido_action-*.tar
 
 # Local planning and review artifacts.
 /docs/
+
+# Machine-specific benchmark output.
+/bench/results/

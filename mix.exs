@@ -113,7 +113,8 @@ defmodule JidoAction.MixProject do
           "guides/debugging-flows.md",
           "guides/configuration.md",
           "guides/security.md",
-          "guides/testing.md"
+          "guides/testing.md",
+          "guides/benchmarks.md"
         ],
         Upgrade: [
           "guides/v2-to-v3-migration.md",
@@ -156,6 +157,7 @@ defmodule JidoAction.MixProject do
         {"guides/configuration.md", title: "Runtime Configuration"},
         {"guides/security.md", title: "Security"},
         {"guides/testing.md", title: "Testing"},
+        {"guides/benchmarks.md", title: "Execution Benchmarks"},
         # Upgrade
         {"guides/v2-to-v3-migration.md", title: "Version 2 To Version 3 Migration"},
         {"guides/v2-to-v3-upgrade-skill.md", title: "Upgrade From v2 To v3 Skill"}

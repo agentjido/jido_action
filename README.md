@@ -443,6 +443,7 @@ Livebook. ExDoc adds a **Run in Livebook** link to each `.livemd` guide.
 - [Runtime Configuration](guides/configuration.md)
 - [Security](guides/security.md)
 - [Testing](guides/testing.md)
+- [Execution Benchmarks](guides/benchmarks.md)
 
 ### Upgrade
 
