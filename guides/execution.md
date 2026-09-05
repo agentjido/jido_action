@@ -216,6 +216,22 @@ All nested events use one `execution_id`. Error events add `error` and
 Runic support nodes do not get artificial Jido node events. A complete-call
 timeout closes each active Jido span once with the timeout error.
 
+For a finite-timeout call or an async call, one owned process delivers events
+in order. The tracker keeps span records separately from handler execution.
+Timeout and cancellation stop execution work before telemetry cleanup. Nested
+work continues to use the same complete-call deadline.
+
+Terminal cleanup allows up to 100 milliseconds for pending event delivery,
+then stops the delivery process. Normal handlers retain start/terminal pairing.
+If a handler blocks, runs too slowly, or kills the delivery process, some
+handlers can miss events, including terminal events. Exec cannot guarantee
+completed delivery to a callback that does not return. Execution results and
+cleanup do not wait indefinitely for that callback. Keep handlers short and
+send slow work to a process owned by the consumer.
+
+Synchronous calls with `timeout: :infinity` and step-wise calls keep synchronous
+telemetry delivery. They do not have a finite complete-call deadline.
+
 ## Scope
 
 Exec provides one in-memory execution session. It provides validation, process

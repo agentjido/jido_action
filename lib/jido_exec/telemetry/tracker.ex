@@ -5,16 +5,19 @@ defmodule Jido.Exec.Telemetry.Tracker do
 
   alias Jido.Exec.Telemetry
 
+  @call_timeout 1_000
+  @delivery_timeout 100
+
   @doc false
   @spec start_link() :: GenServer.on_start()
   def start_link do
-    GenServer.start_link(__MODULE__, :ok)
+    GenServer.start_link(__MODULE__, self())
   end
 
   @doc false
   @spec open(pid(), Telemetry.span()) :: :ok | :suppressed
   def open(tracker, span) when is_pid(tracker) do
-    GenServer.call(tracker, {:open, span}, :infinity)
+    GenServer.call(tracker, {:open, span}, @call_timeout)
   catch
     :exit, _reason -> :suppressed
   end
@@ -23,7 +26,7 @@ defmodule Jido.Exec.Telemetry.Tracker do
   @spec close(pid(), Telemetry.span(), :stop | :error, map()) :: :ok
   def close(tracker, span, suffix, extra_metadata)
       when is_pid(tracker) and suffix in [:stop, :error] and is_map(extra_metadata) do
-    GenServer.call(tracker, {:close, span, suffix, extra_metadata}, :infinity)
+    GenServer.call(tracker, {:close, span, suffix, extra_metadata}, @call_timeout)
   catch
     :exit, _reason -> :ok
   end
@@ -31,7 +34,7 @@ defmodule Jido.Exec.Telemetry.Tracker do
   @doc false
   @spec fail_all(pid(), term()) :: :ok
   def fail_all(tracker, error) when is_pid(tracker) do
-    GenServer.call(tracker, {:fail_all, error}, :infinity)
+    GenServer.call(tracker, {:fail_all, error}, @call_timeout)
   catch
     :exit, _reason -> :ok
   end
@@ -39,13 +42,33 @@ defmodule Jido.Exec.Telemetry.Tracker do
   @doc false
   @spec stop(pid()) :: :ok
   def stop(tracker) when is_pid(tracker) do
-    GenServer.stop(tracker, :normal, :infinity)
-  catch
-    :exit, _reason -> :ok
+    monitor = Process.monitor(tracker)
+    Process.unlink(tracker)
+
+    try do
+      GenServer.stop(tracker, :normal, @call_timeout)
+    catch
+      :exit, _reason -> Process.exit(tracker, :kill)
+    end
+
+    await_down(tracker, monitor)
   end
 
   @impl true
-  def init(:ok), do: {:ok, %{closed?: false, next_order: 0, spans: %{}}}
+  def init(owner) do
+    Process.flag(:trap_exit, true)
+    owner_monitor = Process.monitor(owner)
+    delivery = spawn_link(fn -> deliver() end)
+
+    {:ok,
+     %{
+       closed?: false,
+       next_order: 0,
+       spans: %{},
+       delivery: delivery,
+       owner_monitor: owner_monitor
+     }}
+  end
 
   @impl true
   def handle_call({:open, _span}, _from, %{closed?: true} = state) do
@@ -53,7 +76,7 @@ defmodule Jido.Exec.Telemetry.Tracker do
   end
 
   def handle_call({:open, span}, _from, state) do
-    Telemetry.emit_start(span)
+    enqueue(state.delivery, {:start, span})
     order = state.next_order + 1
 
     {:reply, :ok,
@@ -70,7 +93,7 @@ defmodule Jido.Exec.Telemetry.Tracker do
         {:reply, :ok, state}
 
       {{_order, open_span}, spans} ->
-        Telemetry.emit_terminal(open_span, suffix, extra_metadata)
+        enqueue(state.delivery, {:terminal, open_span, suffix, extra_metadata})
         {:reply, :ok, %{state | spans: spans}}
     end
   end
@@ -82,9 +105,66 @@ defmodule Jido.Exec.Telemetry.Tracker do
     |> Map.values()
     |> Enum.sort_by(&elem(&1, 0), :desc)
     |> Enum.each(fn {_order, span} ->
-      Telemetry.emit_terminal(span, :error, extra_metadata)
+      enqueue(state.delivery, {:terminal, span, :error, extra_metadata})
     end)
 
     {:reply, :ok, %{state | closed?: true, spans: %{}}}
+  end
+
+  @impl true
+  def handle_info({:EXIT, delivery, _reason}, %{delivery: delivery} = state) do
+    {:noreply, %{state | delivery: nil}}
+  end
+
+  # stop/1 unlinks before forced shutdown. The monitor keeps ownership intact
+  # if the caller exits during that operation.
+  def handle_info({:DOWN, monitor, :process, _owner, _reason}, %{owner_monitor: monitor} = state) do
+    {:stop, :normal, state}
+  end
+
+  @impl true
+  def terminate(_reason, %{delivery: nil}), do: :ok
+
+  def terminate(_reason, %{delivery: delivery}) do
+    monitor = Process.monitor(delivery)
+    send(delivery, :stop)
+
+    receive do
+      {:DOWN, ^monitor, :process, ^delivery, _reason} -> :ok
+    after
+      @delivery_timeout ->
+        Process.exit(delivery, :kill)
+        await_down(delivery, monitor)
+    end
+  end
+
+  defp enqueue(nil, _event), do: :ok
+  defp enqueue(delivery, event), do: send(delivery, event)
+
+  # One sender and one delivery process keep event order. Handler code never
+  # runs in the process that owns span records or cancellation.
+  defp deliver do
+    receive do
+      {:start, span} ->
+        Telemetry.emit_start(span)
+        deliver()
+
+      {:terminal, span, suffix, extra_metadata} ->
+        Telemetry.emit_terminal(span, suffix, extra_metadata)
+        deliver()
+
+      :stop ->
+        :ok
+    end
+  end
+
+  defp await_down(pid, monitor) do
+    receive do
+      {:DOWN, ^monitor, :process, ^pid, _reason} -> :ok
+    after
+      @call_timeout ->
+        Process.demonitor(monitor, [:flush])
+        :ok
+    end
   end
 end

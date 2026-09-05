@@ -41,6 +41,11 @@ defmodule Jido.Exec do
   Execution keeps Jido Action and Flow telemetry. Map, Reduce, and Iterate can
   also emit item or iteration telemetry. Native Runic support nodes do not get
   an artificial Jido component lifecycle.
+
+  Finite-timeout and async calls deliver telemetry in an owned process.
+  Terminal cleanup allows 100 milliseconds for pending delivery. A blocked
+  or slow handler can lose events, but cannot prevent timeout or cancellation.
+  Keep handlers short. See the execution guide for the delivery contract.
   """
 
   alias Jido.Action.Error
@@ -615,10 +620,10 @@ defmodule Jido.Exec do
   end
 
   defp terminate_managed_execution(worker, monitor, result_ref, telemetry_tracker, error) do
-    Tracker.fail_all(telemetry_tracker, error)
     Process.exit(worker, :kill)
     await_worker_down(monitor, worker)
     flush_execution_results(result_ref, worker)
+    Tracker.fail_all(telemetry_tracker, error)
     Tracker.stop(telemetry_tracker)
   end
 
