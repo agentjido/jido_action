@@ -43,7 +43,7 @@ defmodule Jido.Exec.Flow.Engine do
     runtime = %{
       execution_id: execution_id,
       flow: flow.name,
-      flow_digest: Flow.Identity.semantic_digest(flow),
+      flow_digest: compiled.semantic_digest,
       context: context,
       options: options,
       target_runner: target_runner,

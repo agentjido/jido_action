@@ -112,6 +112,7 @@ defmodule Jido.Flow.Compiler do
          work_index: state.work_index,
          output: flow.output,
          source_map: state.source_map,
+         semantic_digest: digest_data.flow,
          compilation_digest: digest(digest_data)
        }}
     rescue
