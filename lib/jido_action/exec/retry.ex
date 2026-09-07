@@ -54,7 +54,9 @@ defmodule Jido.Exec.Retry do
   - `error`: The error that occurred during execution
   - `retry_count`: The current retry attempt number
   - `max_retries`: The maximum number of retries allowed
-  - `opts`: Additional options (currently unused but reserved for future use)
+  - `opts`: Additional options. When `:retryable?` holds a 1-arity function, that
+    function decides the outcome for the extracted error term instead of
+    `Jido.Action.Error.retryable?/1`.
 
   ## Returns
 
@@ -64,8 +66,11 @@ defmodule Jido.Exec.Retry do
 
       iex> Jido.Exec.Retry.should_retry?({:error, "network error"}, 0, 3, [])
       true
-      
+
       iex> Jido.Exec.Retry.should_retry?({:error, "network error"}, 3, 3, [])
+      false
+
+      iex> Jido.Exec.Retry.should_retry?({:error, :access_denied}, 0, 3, retryable?: fn _ -> false end)
       false
   """
   @spec should_retry?(any(), non_neg_integer(), non_neg_integer(), keyword()) :: boolean()
@@ -73,10 +78,13 @@ defmodule Jido.Exec.Retry do
     false
   end
 
-  def should_retry?(error, _retry_count, _max_retries, _opts) do
-    error
-    |> extract_retry_target()
-    |> Error.retryable?()
+  def should_retry?(error, _retry_count, _max_retries, opts) do
+    target = extract_retry_target(error)
+
+    case Keyword.get(opts, :retryable?) do
+      fun when is_function(fun, 1) -> fun.(target)
+      _ -> Error.retryable?(target)
+    end
   end
 
   @doc """
@@ -149,7 +157,9 @@ defmodule Jido.Exec.Retry do
 
   ## Returns
 
-  A keyword list with validated retry configuration values.
+  A keyword list with validated retry configuration values. `:retryable?` is
+  included as given (or `nil` when absent) so callers can inspect the
+  configured predicate alongside `:max_retries` and `:backoff`.
   """
   @spec extract_retry_opts(keyword()) :: keyword()
   def extract_retry_opts(opts) do
@@ -157,7 +167,8 @@ defmodule Jido.Exec.Retry do
 
     [
       max_retries: Keyword.get(opts, :max_retries, defaults[:max_retries]),
-      backoff: Keyword.get(opts, :backoff, defaults[:backoff])
+      backoff: Keyword.get(opts, :backoff, defaults[:backoff]),
+      retryable?: Keyword.get(opts, :retryable?)
     ]
   end
 
