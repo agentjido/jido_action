@@ -1,7 +1,7 @@
 # Jido Action
 
-[![Hex.pm](https://img.shields.io/badge/hex-3.0.0--beta.6-714a96.svg)](https://hex.pm/packages/jido_action)
-[![Hex Docs](https://img.shields.io/badge/hex-docs-lightgreen.svg)](https://hexdocs.pm/jido_action/3.0.0-beta.6/)
+[![Hex.pm](https://img.shields.io/badge/hex-3.0.0--beta.8-714a96.svg)](https://hex.pm/packages/jido_action)
+[![Hex Docs](https://img.shields.io/badge/hex-docs-lightgreen.svg)](https://hexdocs.pm/jido_action/3.0.0-beta.8/)
 [![CI](https://github.com/agentjido/jido_action/actions/workflows/ci.yml/badge.svg)](https://github.com/agentjido/jido_action/actions/workflows/ci.yml)
 [![License](https://img.shields.io/hexpm/l/jido_action.svg)](https://github.com/agentjido/jido_action/blob/main/LICENSE)
 [![Website](https://img.shields.io/badge/website-jido.run-0f172a.svg)](https://jido.run)
@@ -42,20 +42,21 @@ This foundation keeps the action boundary small:
 - `Jido.Exec` runs actions, instructions, and Flows, including asynchronous
   run-to-completion calls and step-wise Flows.
 
-Version 3.0.0-beta.6 is a public beta. It includes the declarative Flow DSL,
+Version 3.0.0-beta.8 is a public beta. It includes the declarative Flow DSL,
 runtime Flow construction, safe stored Flow maps, and one Flow execution
-engine. This beta adds portable inline Actions and `Jido.Expr`. The v3 API can
-still change before the stable release. The current development branch locks
-Runic 0.1.0-alpha.10. Use it for evaluation and controlled trials before you
-use it for critical production work. See the [version 2 to version 3 migration
-guide](guides/v2-to-v3-migration.md) for the confirmed breaking changes.
+engine. Recent beta releases add portable inline Actions, `Jido.Expr`, and
+compile-time Flow DSL extensions. The v3 API can still change before the
+stable release. The current development branch locks Runic 0.1.0-alpha.10.
+Use it for evaluation and controlled trials before you use it for critical
+production work. See the [version 2 to version 3 migration guide](guides/v2-to-v3-migration.md)
+for the confirmed breaking changes.
 
 ## Install
 
 ```elixir
 def deps do
   [
-    {:jido_action, "~> 3.0.0-beta.7"}
+    {:jido_action, "~> 3.0.0-beta.8"}
   ]
 end
 ```

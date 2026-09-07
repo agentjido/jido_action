@@ -11,6 +11,15 @@ entries return to the normal automated changelog process.
 
 <!-- changelog -->
 
+## [3.0.0-beta.8](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.7...v3.0.0-beta.8) (2026-09-07)
+
+
+
+
+### Features:
+
+* flow: add compile-time DSL macro extensions (#262) by mikehostetler
+
 ## [3.0.0-beta.7](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.6...v3.0.0-beta.7) (2026-09-05)
 ### Breaking Changes:
 
