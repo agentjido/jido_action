@@ -96,6 +96,9 @@ defmodule Jido.Action.Tool do
 
   Converts string keys to atom keys and handles type conversion based on schema.
   Supports both atom and string input keys, and preserves unknown keys (open validation).
+  A present `nil` value for a key that is not required is dropped so the action's
+  default still applies; a `nil` for a required key is kept and left for validation
+  to reject.
   """
   def convert_params_using_schema(params, schema) when is_map(params) do
     case Schema.schema_type(schema) do
@@ -154,6 +157,14 @@ defmodule Jido.Action.Tool do
           :__missing__ ->
             {known_acc, rest}
 
+          nil ->
+            if required_key?(schema, key) do
+              converted_value = convert_value.(schema, key, value)
+              {Map.put(known_acc, key, converted_value), rest}
+            else
+              {known_acc, rest}
+            end
+
           _ ->
             converted_value = convert_value.(schema, key, value)
             {Map.put(known_acc, key, converted_value), rest}
@@ -161,6 +172,27 @@ defmodule Jido.Action.Tool do
       end)
 
     Map.merge(unknown_params, known_converted)
+  end
+
+  # Reports whether `key` is required in `schema`. Supports NimbleOptions keyword
+  # schemas and JSON Schema object maps (atom or string `"required"` key); a map
+  # without a recognizable "required" list is treated as not required, so a
+  # present `nil` is dropped rather than kept.
+  defp required_key?(schema, key) when is_list(schema) do
+    schema
+    |> Keyword.get(key, [])
+    |> Keyword.get(:required, false)
+  end
+
+  defp required_key?(schema, key) when is_map(schema) do
+    required = Map.get(schema, "required") || Map.get(schema, :required) || []
+    string_key = to_string(key)
+
+    Enum.any?(required, fn
+      ^string_key -> true
+      other when is_atom(other) -> other == key
+      _ -> false
+    end)
   end
 
   defp convert_params_using_zoi_schema(params, schema) do
@@ -171,18 +203,19 @@ defmodule Jido.Action.Tool do
   defp convert_params_using_json_object_schema(params, schema) when is_map(params) do
     case json_schema_properties(schema) do
       properties when is_map(properties) ->
-        convert_params_using_json_object_properties(params, properties)
+        convert_params_using_json_object_properties(params, schema, properties)
 
       _ ->
         params
     end
   end
 
-  defp convert_params_using_json_object_properties(params, properties) do
+  defp convert_params_using_json_object_properties(params, schema, properties) do
     key_pairs = Map.keys(properties) |> Enum.map(&{&1, to_string(&1)})
 
-    convert_params_using_key_pairs(params, properties, key_pairs, fn properties, key, value ->
-      properties
+    convert_params_using_key_pairs(params, schema, key_pairs, fn schema, key, value ->
+      schema
+      |> json_schema_properties()
       |> Map.fetch!(key)
       |> convert_json_schema_value(value)
     end)
