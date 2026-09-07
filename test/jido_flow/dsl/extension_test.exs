@@ -41,6 +41,12 @@ defmodule Jido.Flow.DSL.ExtensionTest.ResultOutput do
   end
 end
 
+defmodule Jido.Flow.DSL.ExtensionTest.MarkerOnly do
+  @moduledoc false
+
+  def __jido_flow_extension__, do: true
+end
+
 defmodule Jido.Flow.DSL.ExtensionTest.ExtendedFlow do
   @moduledoc false
 
@@ -91,6 +97,7 @@ end
 defmodule Jido.Flow.DSL.ExtensionTest do
   use ExUnit.Case, async: true
 
+  alias Jido.Flow.Builder
   alias Jido.Flow.DSL.ExtensionTest.{ExtendedFlow, InlineFlow, PlainFlow}
 
   test "a Flow extension lowers its macros to canonical Flow declarations" do
@@ -100,6 +107,20 @@ defmodule Jido.Flow.DSL.ExtensionTest do
 
   test "extension declarations produce the same canonical Flow as core declarations" do
     assert ExtendedFlow.flow() == PlainFlow.flow()
+  end
+
+  test "extension declarations produce the same canonical Flow as Builder" do
+    builder =
+      Builder.new(name: "extended_flow")
+      |> Builder.step(
+        "add",
+        JidoActionTest.Fixtures.Actions.Add,
+        %{value: Builder.input(:value), amount: Builder.value(2)}
+      )
+      |> Builder.output(Builder.result("add"))
+
+    assert {:ok, flow} = Builder.build(builder)
+    assert ExtendedFlow.flow() == flow
   end
 
   test "an extension can expand to an inline Step that keeps the Flow owner scope" do
@@ -144,11 +165,36 @@ defmodule Jido.Flow.DSL.ExtensionTest do
     end
   end
 
+  test "Flow rejects a marker function without the extension behaviours" do
+    module = unique_module("MarkerOnly")
+
+    source = """
+    defmodule #{inspect(module)} do
+      use Jido.Flow,
+        name: "marker_only_extension",
+        extensions: [Jido.Flow.DSL.ExtensionTest.MarkerOnly]
+
+      flow do
+        step "add",
+          action: JidoActionTest.Fixtures.Actions.Add,
+          params: %{value: value(1), amount: value(1)}
+
+        output result("add")
+      end
+    end
+    """
+
+    assert_raise CompileError, ~r/Flow extension must use Jido.Flow.Extension/, fn ->
+      Code.compile_string(source, "marker_only_flow_extension.ex")
+    end
+  end
+
   test "Flow rejects malformed and duplicate extension lists" do
     extension = Jido.Flow.DSL.ExtensionTest.AddStep
 
     cases = [
       {":invalid", ~r/Flow extensions must be a list/},
+      {"[#{inspect(extension)} | :invalid]", ~r/Flow extensions must be a proper list/},
       {"[#{inspect(extension)}, #{inspect(extension)}]", ~r/duplicate Flow extension/}
     ]
 
@@ -167,6 +213,28 @@ defmodule Jido.Flow.DSL.ExtensionTest do
       assert_raise CompileError, message, fn ->
         Code.compile_string(source, "invalid_flow_extensions.ex")
       end
+    end
+  end
+
+  test "Flow rejects more than one extensions option" do
+    module = unique_module("RepeatedOptions")
+
+    source = """
+    defmodule #{inspect(module)} do
+      use Jido.Flow,
+        name: "repeated_extension_options",
+        extensions: [Jido.Flow.DSL.ExtensionTest.AddStep],
+        extensions: [Jido.Flow.DSL.ExtensionTest.ResultOutput]
+
+      flow do
+        add_step "add", value(1), value(1)
+        output result("add")
+      end
+    end
+    """
+
+    assert_raise CompileError, ~r/Flow extensions can be configured only once/, fn ->
+      Code.compile_string(source, "repeated_flow_extension_options.ex")
     end
   end
 

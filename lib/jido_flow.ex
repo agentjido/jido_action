@@ -38,7 +38,8 @@ defmodule Jido.Flow do
         extensions: [MyApp.Flows.Helpers]
 
   Define each extension with `Jido.Flow.Extension`. Extensions change only
-  source authoring. The compiled result remains one canonical Flow value.
+  module DSL source authoring. Builder, direct construction, and Codec do not
+  load extensions. The compiled result remains one canonical Flow value.
 
   For a small operation, bind data and write an inline Step body:
 

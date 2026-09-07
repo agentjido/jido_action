@@ -101,8 +101,16 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
 
   defp split_options!(opts_ast, caller) when is_list(opts_ast) do
     if Keyword.keyword?(opts_ast) do
-      {extensions_ast, flow_opts_ast} = Keyword.pop(opts_ast, :extensions, [])
-      {flow_opts_ast, extensions!(extensions_ast, caller)}
+      case Keyword.get_values(opts_ast, :extensions) do
+        [] ->
+          {opts_ast, []}
+
+        [extensions_ast] ->
+          {Keyword.delete(opts_ast, :extensions), extensions!(extensions_ast, caller)}
+
+        [_first | _rest] ->
+          extension_error!(caller, "Flow extensions can be configured only once")
+      end
     else
       {opts_ast, []}
     end
@@ -111,7 +119,7 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
   defp split_options!(opts_ast, _caller), do: {opts_ast, []}
 
   defp extensions!(extensions, caller) when is_list(extensions) do
-    if List.improper?(extensions) do
+    if List.improper?(extensions) or Enum.any?(extensions, &improper_list_ast?/1) do
       extension_error!(caller, "Flow extensions must be a proper list")
     end
 
@@ -127,13 +135,17 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
   defp extensions!(_extensions, caller),
     do: extension_error!(caller, "Flow extensions must be a list")
 
+  defp improper_list_ast?({:|, _meta, [_head, _tail]}), do: true
+  defp improper_list_ast?(_extension), do: false
+
   defp extension!(extension_ast, caller) do
     extension = Macro.expand(extension_ast, caller)
 
     with true <- is_atom(extension) and extension not in [nil, true, false],
          {:module, ^extension} <- Code.ensure_compiled(extension),
-         true <- function_exported?(extension, :__jido_flow_extension__, 0),
-         true <- extension.__jido_flow_extension__() == true do
+         true <- Spark.implements_behaviour?(extension, Jido.Flow.Extension),
+         true <- Spark.implements_behaviour?(extension, Spark.Dsl.Extension),
+         true <- function_exported?(extension, :__jido_flow_extension__, 0) do
       extension
     else
       _ -> extension_error!(caller, "Flow extension must use Jido.Flow.Extension")

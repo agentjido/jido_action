@@ -32,6 +32,11 @@ defmodule Jido.Flow.Extension do
   Extension macros run during normal Flow compilation. The expanded core
   declarations keep the usual validation, source mapping, inline Action, and
   execution rules. Extension modules must be available at compile time.
+
+  Only the module DSL loads extensions. Builder and direct construction use
+  normal Elixir functions that create canonical Flow data. Codec documents
+  contain data only and never load or run an extension. Keep the public API of
+  an extension module limited to macros. Put Builder helpers in another module.
   """
 
   @doc false
