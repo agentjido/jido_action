@@ -182,6 +182,7 @@ defmodule JidoAction.MixProject do
           Jido.Flow,
           Jido.Flow.Builder,
           Jido.Flow.Codec,
+          Jido.Flow.Extension,
           Jido.Flow.Registry
         ],
         "Expression API": [Jido.Expr, Jido.Expr.Error],

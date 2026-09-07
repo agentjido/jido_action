@@ -31,6 +31,87 @@ An inline body becomes an ordinary Action. The Flow owns the body, so it can
 call the module's private helpers. Headers use data expressions; the body is
 normal Elixir. See [Steps And Output](flow-steps.livemd) for the full syntax.
 
+## Add Authoring Macros
+
+Use a Flow extension when several Flow modules need the same declarative
+shorthand. An extension macro must expand to normal Flow declarations.
+
+```elixir
+defmodule MyApp.Flows.Helpers do
+  use Jido.Flow.Extension
+
+  defmacro notify(name, address) do
+    quote do
+      step unquote(name),
+        action: MyApp.Actions.Notify,
+        params: %{address: unquote(address)}
+    end
+  end
+end
+```
+
+Add the extension through a static module list:
+
+```elixir
+defmodule MyApp.Flows.Welcome do
+  use Jido.Flow,
+    name: "welcome",
+    extensions: [MyApp.Flows.Helpers]
+
+  flow do
+    notify "welcome", input(:address)
+    output result("welcome")
+  end
+end
+```
+
+The extension runs only during compilation. Its macros can expand to core
+declarations, including inline Action forms. Core lowering then applies the
+same validation, source mapping, canonical data, and execution rules.
+
+An extension does not add a new component type or runtime. Put domain work in
+Actions or Flows. Keep runtime input in Flow input or context. The extension
+module must compile before each Flow that configures it.
+
+### Use Helpers With Other Authoring Forms
+
+Extensions apply only to the compile-time module DSL. The extension module and
+macro calls are not part of the canonical `%Jido.Flow{}` value.
+
+For Builder authoring, use a normal function that takes and returns a Builder:
+
+```elixir
+defmodule MyApp.Flows.BuilderHelpers do
+  def notify(builder, name, address) do
+    Jido.Flow.Builder.step(
+      builder,
+      name,
+      MyApp.Actions.Notify,
+      %{address: address}
+    )
+  end
+end
+
+builder =
+  Jido.Flow.Builder.new(name: "welcome")
+  |> MyApp.Flows.BuilderHelpers.notify(
+    "welcome",
+    Jido.Flow.Builder.input(:address)
+  )
+  |> Jido.Flow.Builder.output(Jido.Flow.Builder.result("welcome"))
+```
+
+For direct construction, use normal functions that return canonical components
+or a canonical Flow. Builder and direct helpers run as application code. They
+do not use the extension list. Put them in a separate module. Spark imports the
+public functions and macros of a configured extension into the Flow module, so
+the extension module must have a small public namespace.
+
+Codec maps are data only. They cannot name or run an extension. If an
+application owns a higher-level stored format, translate that format to Builder
+or direct constructor calls in trusted application code. Then encode the
+canonical Flow through `Jido.Flow.Codec` and a trusted Registry.
+
 ## Format The DSL
 
 Add `:jido_action` to the `import_deps` list in your project's `.formatter.exs`.
