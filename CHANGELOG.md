@@ -105,6 +105,10 @@ entries return to the normal automated changelog process.
 
 ## Unreleased
 
+### Features:
+
+* flow: add compile-time DSL macro extensions
+
 ## [v3.0.0-beta.2](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.1...v3.0.0-beta.2) (2026-08-27)
 
 ### Features:

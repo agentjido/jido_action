@@ -55,6 +55,9 @@ Use `jido_action` for validated work and data-first composition:
 
 - Use the compile-time `Jido.Flow` DSL as the primary developer authoring
   surface.
+- Use `Jido.Flow.Extension` for shared authoring macros that expand to normal
+  Flow declarations. Configure extensions with the static `extensions:` list.
+  Do not add component types or runtime behavior through an extension.
 - Resolve target kinds with `Jido.Executable`. A Flow requires `flow/0` and
   validation callbacks; its generated `run/2` is a convenience function.
 - Add `:jido_action` to `.formatter.exs` `import_deps` to keep DSL declarations

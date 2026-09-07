@@ -7,16 +7,17 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
   @doc false
   defmacro __using__(opts_ast) do
     module_compiler = __MODULE__
+    {flow_opts_ast, extensions} = split_options!(opts_ast, __CALLER__)
 
     quote location: :keep do
       @behaviour Jido.Executable
-      use Jido.Flow.DSL
+      use Jido.Flow.DSL, extensions: unquote(Macro.escape(extensions))
       @before_compile Jido.Flow.DSL.ModuleCompiler
       Jido.Action.Inline.setup!(__ENV__)
       unquote(module_compiler).reserve_function!(__ENV__, {:step_action, 1})
 
       {validated_opts, stored_schema, stored_output_schema} =
-        unquote(module_compiler).prepare_config!(unquote(opts_ast), __ENV__)
+        unquote(module_compiler).prepare_config!(unquote(flow_opts_ast), __ENV__)
 
       Module.put_attribute(__MODULE__, :__jido_flow_schema__, stored_schema)
       Module.put_attribute(__MODULE__, :__jido_flow_output_schema__, stored_output_schema)
@@ -96,6 +97,51 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
       @spec run(map(), map()) :: Jido.Exec.exec_result()
       def run(params, context)
     end
+  end
+
+  defp split_options!(opts_ast, caller) when is_list(opts_ast) do
+    if Keyword.keyword?(opts_ast) do
+      {extensions_ast, flow_opts_ast} = Keyword.pop(opts_ast, :extensions, [])
+      {flow_opts_ast, extensions!(extensions_ast, caller)}
+    else
+      {opts_ast, []}
+    end
+  end
+
+  defp split_options!(opts_ast, _caller), do: {opts_ast, []}
+
+  defp extensions!(extensions, caller) when is_list(extensions) do
+    if List.improper?(extensions) do
+      extension_error!(caller, "Flow extensions must be a proper list")
+    end
+
+    modules = Enum.map(extensions, &extension!(&1, caller))
+
+    if length(modules) != length(Enum.uniq(modules)) do
+      extension_error!(caller, "duplicate Flow extension")
+    end
+
+    modules
+  end
+
+  defp extensions!(_extensions, caller),
+    do: extension_error!(caller, "Flow extensions must be a list")
+
+  defp extension!(extension_ast, caller) do
+    extension = Macro.expand(extension_ast, caller)
+
+    with true <- is_atom(extension) and extension not in [nil, true, false],
+         {:module, ^extension} <- Code.ensure_compiled(extension),
+         true <- function_exported?(extension, :__jido_flow_extension__, 0),
+         true <- extension.__jido_flow_extension__() == true do
+      extension
+    else
+      _ -> extension_error!(caller, "Flow extension must use Jido.Flow.Extension")
+    end
+  end
+
+  defp extension_error!(caller, description) do
+    raise CompileError, file: caller.file, line: caller.line, description: description
   end
 
   @doc false

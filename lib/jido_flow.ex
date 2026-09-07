@@ -30,6 +30,16 @@ defmodule Jido.Flow do
         end
       end
 
+  A compile-time extension can add macros that expand to normal Flow
+  declarations. Configure extensions as a static module list:
+
+      use Jido.Flow,
+        name: "process_order",
+        extensions: [MyApp.Flows.Helpers]
+
+  Define each extension with `Jido.Flow.Extension`. Extensions change only
+  source authoring. The compiled result remains one canonical Flow value.
+
   For a small operation, bind data and write an inline Step body:
 
       defmodule MyApp.Greeting do

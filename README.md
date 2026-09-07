@@ -38,6 +38,7 @@ This foundation keeps the action boundary small:
 - `Jido.Expr` defines fixed, data-only operations for Flow and host DSLs.
 - `Jido.Instruction` captures one requested executable call as data.
 - `Jido.Flow` composes actions as a validated graph with steps and Choices.
+- `Jido.Flow.Extension` adds compile-time macros that lower to the normal Flow DSL.
 - `Jido.Exec` runs actions, instructions, and Flows, including asynchronous
   run-to-completion calls and step-wise Flows.
 
