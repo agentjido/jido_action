@@ -109,6 +109,7 @@ defmodule Jido.Exec do
     - `:timeout` - Maximum time (in ms) allowed for the Action to complete (configurable via `:jido_action, :default_timeout`).
     - `:max_retries` - Maximum number of retry attempts (configurable via `:jido_action, :default_max_retries`).
     - `:backoff` - Initial backoff time in milliseconds, doubles with each retry (configurable via `:jido_action, :default_backoff`).
+    - `:retryable?` - Optional `(term() -> boolean())` predicate that decides whether a given error is retried, overriding the default `Jido.Action.Error.retryable?/1` heuristic. Receives the extracted error reason (the term inside `{:error, reason}` or `{:error, reason, other}`).
     - `:log_level` - Override the Jido execution log threshold for this specific action. Accepts #{inspect(Logger.levels())}. Global Logger config still applies.
     - `:telemetry` - `:full` (default) or `:silent` for action span emission.
     - `:context_propagators` - Runtime context propagator modules captured before supervised execution and reattached inside supervised tasks.
