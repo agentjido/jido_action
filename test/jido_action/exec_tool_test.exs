@@ -326,6 +326,171 @@ defmodule Jido.Action.ToolTest do
     end
   end
 
+  describe "convert_params_using_schema/2 with nil values (NimbleOptions schema)" do
+    defmodule OptionalNoteAction do
+      use Jido.Action,
+        name: "optional_note_action",
+        schema: [
+          name: [type: :string, required: true],
+          note: [type: :string]
+        ]
+    end
+
+    test "drops a nil value for an optional key so the action default applies and validation succeeds" do
+      params = %{"name" => "x", "note" => nil}
+
+      result = Tool.convert_params_using_schema(params, OptionalNoteAction.schema())
+
+      assert result == %{name: "x"}
+      assert {:ok, %{name: "x"}} = OptionalNoteAction.validate_params(result)
+    end
+
+    test "keeps a nil value for a required key so validation still rejects it" do
+      params = %{"name" => nil, "note" => "hello"}
+
+      result = Tool.convert_params_using_schema(params, OptionalNoteAction.schema())
+
+      assert result == %{name: nil, note: "hello"}
+      assert {:error, _} = OptionalNoteAction.validate_params(result)
+    end
+
+    test "preserves an explicit non-nil value for an optional key, coerced as before" do
+      schema = [
+        name: [type: :string, required: true],
+        count: [type: :integer]
+      ]
+
+      params = %{"name" => "x", "count" => "3"}
+
+      result = Tool.convert_params_using_schema(params, schema)
+
+      assert result == %{name: "x", count: 3}
+    end
+
+    test "keeps nil for an optional key whose type accepts nil" do
+      schema = [note: [type: :any]]
+
+      result = Tool.convert_params_using_schema(%{"note" => nil}, schema)
+
+      assert result == %{note: nil}
+      assert {:ok, [note: nil]} = NimbleOptions.validate(Map.to_list(result), schema)
+    end
+
+    test "keeps nil for an optional nullable key" do
+      schema = [note: [type: {:or, [:string, nil]}]]
+
+      result = Tool.convert_params_using_schema(%{"note" => nil}, schema)
+
+      assert result == %{note: nil}
+      assert {:ok, [note: nil]} = NimbleOptions.validate(Map.to_list(result), schema)
+    end
+
+    test "preserves a nil value for an unknown key (open validation semantics)" do
+      params = %{"name" => "x", "extra" => nil}
+
+      result = Tool.convert_params_using_schema(params, OptionalNoteAction.schema())
+
+      assert result == %{"extra" => nil, name: "x"}
+    end
+  end
+
+  describe "convert_params_using_schema/2 with nil values (JSON Schema map)" do
+    test "drops a nil value for an optional key" do
+      schema = %{
+        "type" => "object",
+        "properties" => %{
+          "name" => %{"type" => "string"},
+          "note" => %{"type" => "string"}
+        },
+        "required" => ["name"]
+      }
+
+      params = %{"name" => "x", "note" => nil}
+
+      result = Tool.convert_params_using_schema(params, schema)
+
+      assert result == %{name: "x"}
+    end
+
+    test "keeps a nil value for a required key" do
+      schema = %{
+        "type" => "object",
+        "properties" => %{
+          "name" => %{"type" => "string"},
+          "note" => %{"type" => "string"}
+        },
+        "required" => ["name"]
+      }
+
+      params = %{"name" => nil, "note" => "hello"}
+
+      result = Tool.convert_params_using_schema(params, schema)
+
+      assert result == %{name: nil, note: "hello"}
+    end
+
+    test "keeps nil for an optional nullable key" do
+      schema = %{
+        "type" => "object",
+        "properties" => %{
+          "note" => %{"type" => ["string", "null"]}
+        },
+        "required" => []
+      }
+
+      result = Tool.convert_params_using_schema(%{"note" => nil}, schema)
+
+      assert result == %{note: nil}
+    end
+  end
+
+  describe "convert_params_using_schema/2 with nil values (Zoi schema)" do
+    test "drops a nil value for an optional key" do
+      schema =
+        Zoi.map(%{
+          name: Zoi.string(),
+          note: Zoi.string() |> Zoi.optional()
+        })
+
+      params = %{"name" => "x", "note" => nil}
+
+      result = Tool.convert_params_using_schema(params, schema)
+
+      assert result == %{name: "x"}
+      assert {:ok, _parsed} = Zoi.parse(schema, result)
+    end
+
+    test "keeps a nil value for a required key" do
+      schema =
+        Zoi.map(%{
+          name: Zoi.string(),
+          note: Zoi.string() |> Zoi.optional()
+        })
+
+      params = %{"name" => nil, "note" => "hello"}
+
+      result = Tool.convert_params_using_schema(params, schema)
+
+      assert result == %{name: nil, note: "hello"}
+      assert {:error, _} = Zoi.parse(schema, result)
+    end
+
+    test "keeps nil for an optional nullable key" do
+      schema =
+        Zoi.map(%{
+          name: Zoi.string(),
+          note: Zoi.string() |> Zoi.nullish()
+        })
+
+      params = %{"name" => "x", "note" => nil}
+
+      result = Tool.convert_params_using_schema(params, schema)
+
+      assert result == %{name: "x", note: nil}
+      assert {:ok, %{name: "x", note: nil}} = Zoi.parse(schema, result)
+    end
+  end
+
   describe "build_parameters_schema/1" do
     test "builds correct schema from action schema" do
       schema = TestActions.SchemaAction.schema()
