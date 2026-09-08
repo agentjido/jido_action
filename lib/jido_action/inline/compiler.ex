@@ -123,17 +123,60 @@ defmodule Jido.Action.Inline.Compiler do
     function_name = {:unquote, [], [function]}
     context = parsed.context_ast || Macro.var(:_context, __MODULE__)
 
+    defs =
+      case parsed.clauses do
+        [_ | _] = clauses ->
+          Enum.map(
+            clauses,
+            &clause_def(function_name, &1, context, unimports, caller.line)
+          )
+
+        _ ->
+          [
+            clause_def(
+              function_name,
+              {parsed.pattern_ast, nil, parsed.body_ast},
+              context,
+              unimports,
+              caller.line
+            )
+          ]
+      end
+
     quote line: caller.line do
       @doc false
       @__jido_inline_generated__ {unquote(function), 2}
-      def unquote(function_name)(unquote(parsed.pattern_ast), unquote(context)) do
-        unquote_splicing(unimports)
-        unquote(parsed.body_ast)
-      end
-
+      unquote_splicing(defs)
       Module.delete_attribute(__MODULE__, :__jido_inline_generated__)
     end
   end
+
+  defp clause_def(function_name, {pattern, nil, body}, context, unimports, default_line) do
+    quote line: ast_line(pattern, default_line) do
+      def unquote(function_name)(unquote(pattern), unquote(context)) do
+        unquote_splicing(unimports)
+        unquote(body)
+      end
+    end
+  end
+
+  defp clause_def(function_name, {pattern, guard, body}, context, unimports, default_line) do
+    quote line: ast_line(pattern, default_line) do
+      def unquote(function_name)(unquote(pattern), unquote(context)) when unquote(guard) do
+        unquote_splicing(unimports)
+        unquote(body)
+      end
+    end
+  end
+
+  defp ast_line({_form, metadata, _args}, default) when is_list(metadata) do
+    case Keyword.get(metadata, :line) do
+      line when is_integer(line) and line > 0 -> line
+      _ -> default
+    end
+  end
+
+  defp ast_line(_ast, default), do: default
 
   defp declaration_unimports(removals, caller) do
     unless valid_removals?(removals) do

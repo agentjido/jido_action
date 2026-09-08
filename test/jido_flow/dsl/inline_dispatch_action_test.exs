@@ -16,6 +16,46 @@ defmodule Jido.Flow.DSL.InlineDispatchActionTest do
     def decorate(value), do: value + 3
   end
 
+  test "expander clause bodies match the complete decision result" do
+    owner =
+      compile_fields("""
+      decision value <- input(:value) do
+        {:ok, %{value: value}}
+      end
+      expander schema: Zoi.object(%{value: Zoi.integer()}), context: ctx do
+        %{value: 0} ->
+          send(ctx.observer, :zero)
+          {:ok, %{label: :zero}}
+
+        %{value: value} ->
+          send(ctx.observer, :ok)
+          {:ok, %{label: :ok, value: value}}
+      end
+      """)
+
+    context = %{observer: self()}
+    assert {:ok, %{label: :ok, value: 3}} = Jido.Exec.run(owner, %{value: 3}, context)
+    assert_received :ok
+    assert {:ok, %{label: :zero}} = Jido.Exec.run(owner, %{value: 0}, context)
+    assert_received :zero
+  end
+
+  test "headerless expander clause bodies also work without options" do
+    owner =
+      compile_fields("""
+      decision value <- input(:value) do
+        {:ok, %{value: value}}
+      end
+      expander do
+        %{value: 0} -> {:ok, %{label: :zero}}
+        %{value: value} -> {:ok, %{label: :ok, value: value}}
+      end
+      """)
+
+    assert {:ok, %{label: :ok, value: 3}} = Jido.Exec.run(owner, %{value: 3})
+    assert {:ok, %{label: :zero}} = Jido.Exec.run(owner, %{value: 0})
+  end
+
   test "decision bindings resolve once and the callback expander receives the complete result" do
     owner =
       compile_flow("""

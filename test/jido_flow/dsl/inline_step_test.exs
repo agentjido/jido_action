@@ -847,6 +847,25 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     end
   end
 
+  test "inline Step clause bodies select among validated parameter heads" do
+    owner = unique_owner("ClauseStep")
+
+    compile_source(
+      flow_source(owner, """
+      step "divide", operand <- input(:operand) do
+        %{operand: 0} -> {:error, :zero}
+        %{operand: operand} -> {:ok, %{value: 10 / operand}}
+      end
+      """)
+    )
+
+    target = owner.step_action("divide")
+    assert {:ok, %{value: 5.0}} = Jido.Exec.run(target, %{operand: 2})
+
+    assert {:error, %Jido.Action.Error.ExecutionFailureError{message: "zero"}} =
+             Jido.Exec.run(target, %{operand: 0})
+  end
+
   test "invalid bindings fail at the source declaration" do
     cases = [
       {"[name <- input(), name <- context()]", ~r/duplicate inline Step binding: :name/},

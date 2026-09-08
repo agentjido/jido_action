@@ -631,11 +631,137 @@ defmodule Jido.Action.InlineTest do
            end)
   end
 
+  test "callback clause bodies compile to several owner-function heads" do
+    owner = unique_owner("CallbackClauses")
+
+    compile_source(owner, """
+    action [host: :test, declaration: "divide", role: :action], :callback, nil,
+      [schema: Zoi.object(%{operand: Zoi.number()}), context: ctx] do
+      %{operand: operand} when operand == 0 ->
+        send(ctx.observer, :zero)
+        {:error, :zero}
+
+      %{operand: operand} when operand < ctx.minimum ->
+        send(ctx.observer, :negative)
+        {:error, :negative}
+
+      %{operand: operand} ->
+        send(ctx.observer, :ok)
+        {:ok, %{value: 10 / operand}}
+    end
+    """)
+
+    target = Inline.target!(owner, path("divide"))
+    context = %{observer: self(), minimum: 0}
+    assert target.run(%{operand: 0}, context) == {:error, :zero}
+    assert_received :zero
+    assert target.run(%{operand: 0.0}, context) == {:error, :zero}
+    assert_received :zero
+    assert target.run(%{operand: -2}, context) == {:error, :negative}
+    assert_received :negative
+    assert {:ok, %{value: 5.0}} = target.run(%{operand: 2}, context)
+    assert_received :ok
+    assert {:ok, %{value: 5.0}} = Jido.Exec.run(target, %{operand: 2}, context)
+    assert_received :ok
+
+    assert {:error, %Jido.Action.Error.InvalidInputError{}} =
+             Jido.Exec.run(target, %{operand: "2"}, context)
+
+    refute_received :ok
+  end
+
+  test "bound clause bodies match the resolved parameter map" do
+    owner = unique_owner("BoundClauses")
+
+    compile_source(owner, """
+    action [host: :test, declaration: "divide", role: :action], :bound, operand <- 10 do
+      %{operand: 0} -> {:error, :zero}
+      %{operand: operand} -> {:ok, %{value: 100 / operand}}
+    end
+    """)
+
+    target = Inline.target!(owner, path("divide"))
+    assert target.run(%{operand: 0}, %{}) == {:error, :zero}
+    assert {:ok, %{value: 25.0}} = target.run(%{operand: 4}, %{})
+  end
+
+  test "clause definitions retain their source line" do
+    owner = unique_owner("ClauseLine")
+
+    compile_source(owner, """
+    action [host: :test, declaration: "line", role: :action], :callback, nil do
+      %{value: value} when is_integer(value) -> {:ok, %{value: value}}
+    end
+    """)
+
+    target = Inline.target!(owner, path("line"))
+
+    stacktrace =
+      try do
+        target.run(%{}, %{})
+      rescue
+        FunctionClauseError -> __STACKTRACE__
+      end
+
+    assert Enum.any?(stacktrace, fn
+             {^owner, _function, arguments, location} when length(arguments) == 2 ->
+               location[:line] == 6
+
+             _ ->
+               false
+           end)
+  end
+
+  test "clause-body parse errors preserve the source location" do
+    clauses = case_clauses("%{operand: 0} -> :zero\n%{operand: operand} -> :ok")
+
+    parsed = Inline.parse_callback!(nil, [do: clauses], env())
+    assert parsed.mode == :callback
+    assert parsed.pattern_ast == nil
+    assert length(parsed.clauses) == 2
+
+    bound = Inline.parse_bound!(quoted("operand <- 1"), [do: clauses], env())
+    assert bound.mode == :bound
+    assert is_list(bound.clauses)
+
+    [arrow] = case_clauses("%{operand: 0} -> :zero")
+    mixed = {:__block__, [line: 40], [arrow, :ok]}
+
+    for {mode, header, options, message} <- [
+          {:callback, quoted("%{operand: operand}"), [do: clauses],
+           "clause body cannot include a header pattern"},
+          {:callback, nil, [do: mixed], "cannot mix clause heads with an expression body"},
+          {:callback, nil, [do: case_clauses("{1, 2} -> :ok")],
+           "named variable, `_`, or a map pattern"},
+          {:bound, quoted("operand <- 1"), [do: case_clauses("%URI{} -> :ok")],
+           "struct patterns"},
+          {:callback, nil,
+           [do: case_clauses("%{ctx: ctx} -> :ok\n_ -> :other"), context: quoted("ctx")],
+           "context variable collides"},
+          {:callback, nil, [do: case_clauses("%{value: ^expected} -> :ok")], "pinned variables"}
+        ] do
+      error =
+        assert_raise CompileError, fn ->
+          parse(mode, header, options)
+        end
+
+      assert error.description =~ message
+      assert error.file == "inline_header.ex"
+    end
+  end
+
   defp path(name), do: [host: :test, declaration: name, role: :action]
 
   defp env, do: %{__ENV__ | file: "inline_header.ex", line: 40}
 
   defp quoted(source), do: Code.string_to_quoted!(source, line: 40)
+
+  defp case_clauses(source) do
+    {:case, _, [_, [do: body]]} =
+      Code.string_to_quoted!("case x do\n#{source}\nend", line: 40)
+
+    body
+  end
 
   defp parse(:bound, header, options), do: Inline.parse_bound!(header, options, env())
   defp parse(:callback, header, options), do: Inline.parse_callback!(header, options, env())

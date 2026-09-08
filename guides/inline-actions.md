@@ -24,8 +24,27 @@ The host slot selects the mode. A malformed header does not switch modes.
 
 Do not mix a map binding with named bindings. A map binding must be the only
 binding. Duplicate names, bare `_`, pins, header guards, and top-level struct
-patterns are not supported. Bind a named value and match inside the body when
-you need a more complex pattern. Callback headers do not accept `<-`.
+patterns are not supported. Callback headers do not accept `<-`.
+
+A `do` body of only `->` clauses compiles to several owner-function heads over
+the validated parameter map. One Action identity and one schema still apply.
+Clause heads may use `when`, `_`, a named variable, or a map pattern. Pins and
+top-level structs stay illegal. A callback clause body omits the header
+pattern. A bound clause body keeps its source bindings and matches the
+resolved map produced by those bindings. Do not mix `->` heads with an
+expression body.
+
+```elixir
+# A callback host passes nil when clause heads provide the input patterns.
+action "divide", nil,
+  schema: Zoi.object(%{operand: Zoi.number()}), context: ctx do
+  %{operand: operand} when operand == 0 ->
+    {:error, Jido.Action.Error.validation_error("Cannot divide by zero")}
+
+  %{operand: operand} ->
+    {:ok, %{value: ctx.total / operand}}
+end
+```
 
 Shared Action options are `name`, `description`, `schema`, `output_schema`,
 `context`, and the required `do` body. Omitted schemas are `[]`. No field,

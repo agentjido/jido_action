@@ -22,14 +22,8 @@ defmodule Jido.Action.Inline.Parser do
   end
 
   @doc false
-  @spec callback!(Macro.t(), keyword(), Macro.Env.t()) :: Inline.t()
+  @spec callback!(Macro.t() | nil, keyword(), Macro.Env.t()) :: Inline.t()
   def callback!(pattern, options, caller) do
-    binding_kind!(
-      pattern,
-      caller,
-      "inline Action callback requires a named variable or a map pattern"
-    )
-
     build!(:callback, nil, pattern, options, caller)
   end
 
@@ -42,17 +36,36 @@ defmodule Jido.Action.Inline.Parser do
         :error -> error!(nil, caller, "inline Action requires a do block")
       end
 
-    context =
-      case Keyword.fetch(options, :context) do
-        :error -> nil
-        {:ok, context} -> context!(context, pattern, caller)
-      end
+    clauses = classify_body!(body, caller)
+
+    cond do
+      clauses && mode == :callback && not is_nil(pattern) ->
+        error!(
+          pattern,
+          caller,
+          "inline Action clause body cannot include a header pattern"
+        )
+
+      is_nil(clauses) && mode == :callback ->
+        binding_kind!(
+          pattern,
+          caller,
+          "inline Action callback requires a named variable or a map pattern"
+        )
+
+      true ->
+        :ok
+    end
+
+    patterns = if clauses, do: Enum.map(clauses, &elem(&1, 0)), else: List.wrap(pattern)
+    context = context_from_options!(options, patterns, caller)
 
     %Inline{
       mode: mode,
       params_ast: params,
-      pattern_ast: pattern,
+      pattern_ast: if(clauses && mode == :callback, do: nil, else: pattern),
       body_ast: body,
+      clauses: clauses,
       options: Keyword.drop(options, [:do, :context]),
       context_ast: context
     }
@@ -81,15 +94,27 @@ defmodule Jido.Action.Inline.Parser do
     :ok
   end
 
-  defp context!({name, _, context} = variable, pattern, caller)
-       when is_atom(name) and name != :_ and is_atom(context) do
-    {_pattern, names} =
-      Macro.prewalk(pattern, MapSet.new(), fn
-        {name, _, context} = node, names when is_atom(name) and is_atom(context) ->
-          {node, MapSet.put(names, name)}
+  defp context_from_options!(options, patterns, caller) do
+    case Keyword.fetch(options, :context) do
+      :error -> nil
+      {:ok, context} -> context!(context, patterns, caller)
+    end
+  end
 
-        node, names ->
-          {node, names}
+  defp context!({name, _, context} = variable, patterns, caller)
+       when is_atom(name) and name != :_ and is_atom(context) do
+    names =
+      Enum.reduce(patterns, MapSet.new(), fn pattern, acc ->
+        {_ast, names} =
+          Macro.prewalk(pattern || {:__block__, [], []}, acc, fn
+            {var, _, ctx} = node, names when is_atom(var) and is_atom(ctx) ->
+              {node, MapSet.put(names, var)}
+
+            node, names ->
+              {node, names}
+          end)
+
+        names
       end)
 
     if MapSet.member?(names, name) do
@@ -103,7 +128,7 @@ defmodule Jido.Action.Inline.Parser do
     variable
   end
 
-  defp context!(other, _pattern, caller),
+  defp context!(other, _patterns, caller),
     do: error!(other, caller, "inline Action context must be a named variable")
 
   defp binding_kind!(
@@ -158,6 +183,93 @@ defmodule Jido.Action.Inline.Parser do
      {:%{}, [line: caller.line], Enum.reverse(patterns)}}
   end
 
+  defp classify_body!(body, caller) do
+    case clause_asts(body) do
+      {:ok, asts} ->
+        Enum.map(asts, &parse_clause!(&1, caller))
+
+      :mixed ->
+        error!(body, caller, "inline Action cannot mix clause heads with an expression body")
+
+      :expression ->
+        nil
+    end
+  end
+
+  defp clause_asts({:->, _, _} = clause), do: {:ok, [clause]}
+
+  defp clause_asts([{:->, _, _} | _] = expressions) do
+    if Enum.all?(expressions, &match?({:->, _, _}, &1)),
+      do: {:ok, expressions},
+      else: :mixed
+  end
+
+  defp clause_asts({:__block__, _, expressions}) when expressions != [] do
+    clauses? = Enum.map(expressions, &match?({:->, _, _}, &1))
+
+    cond do
+      Enum.all?(clauses?) -> {:ok, expressions}
+      Enum.any?(clauses?) -> :mixed
+      true -> :expression
+    end
+  end
+
+  defp clause_asts(_), do: :expression
+
+  defp parse_clause!({:->, meta, [left, body]}, caller) do
+    caller = with_line(caller, meta)
+    {pattern, guard} = clause_head!(left, caller)
+    validate_clause_pattern!(pattern, caller)
+    {pattern, guard, body}
+  end
+
+  defp clause_head!([{:when, _meta, [pattern | guards]}], _caller) when guards != [] do
+    {pattern, join_guards(guards)}
+  end
+
+  defp clause_head!([pattern], _caller), do: {pattern, nil}
+
+  defp clause_head!(other, caller) do
+    error!(
+      clause_head_node(other),
+      caller,
+      "inline Action clause requires one parameter pattern"
+    )
+  end
+
+  defp clause_head_node([node | _]), do: node
+  defp clause_head_node(other), do: other
+
+  defp join_guards([guard]), do: guard
+  defp join_guards([guard | rest]), do: {:and, [], [guard, join_guards(rest)]}
+
+  defp validate_clause_pattern!({:_, _, context}, _caller) when is_atom(context), do: :ok
+
+  defp validate_clause_pattern!({name, _, context}, _caller)
+       when is_atom(name) and is_atom(context),
+       do: :ok
+
+  defp validate_clause_pattern!({:%{}, _, _} = pattern, caller) do
+    validate_pattern!(pattern, caller)
+    :ok
+  end
+
+  defp validate_clause_pattern!({:%, _, _} = pattern, caller),
+    do:
+      error!(
+        pattern,
+        caller,
+        "top-level struct patterns are not supported in inline Action clauses"
+      )
+
+  defp validate_clause_pattern!(pattern, caller),
+    do:
+      error!(
+        pattern,
+        caller,
+        "inline Action clause requires a named variable, `_`, or a map pattern"
+      )
+
   # Normal Elixir compilation checks the remaining pattern syntax in the owner.
   defp validate_pattern!(pattern, caller) do
     Macro.prewalk(pattern, fn
@@ -198,6 +310,11 @@ defmodule Jido.Action.Inline.Parser do
   defp normalize_literal({:+, _, [number]}) when is_number(number), do: number
   defp normalize_literal({form, metadata, args}) when is_list(metadata), do: {form, [], args}
   defp normalize_literal(value), do: value
+
+  defp with_line(caller, meta) when is_list(meta),
+    do: %{caller | line: Keyword.get(meta, :line, caller.line)}
+
+  defp with_line(caller, _meta), do: caller
 
   @doc false
   @spec error!(term(), Macro.Env.t(), String.t()) :: no_return()

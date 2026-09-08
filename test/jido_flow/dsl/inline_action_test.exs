@@ -44,6 +44,25 @@ defmodule Jido.Flow.DSL.InlineActionTest do
     assert {:ok, %{value: 7}} = Jido.Exec.run(target, %{value: 3}, %{increment: 4})
   end
 
+  test "a nested Step action compiles clause heads over the bound parameter map" do
+    owner = unique_owner()
+
+    compile_source(owner, """
+    step "increment" do
+      action operand <- input(:operand),
+        schema: Zoi.object(%{operand: Zoi.number()}) do
+        %{operand: 0} -> {:error, :zero}
+        %{operand: operand} -> {:ok, %{value: 10 / operand}}
+      end
+    end
+    """)
+
+    assert {:ok, %{value: 5.0}} = Jido.Exec.run(owner, %{operand: 2})
+
+    assert {:error, %Jido.Action.Error.ExecutionFailureError{message: "zero"}} =
+             Jido.Exec.run(owner, %{operand: 0})
+  end
+
   test "shorthand and nested Steps share the same target, metadata, data, and graph identity" do
     owner = unique_owner()
 

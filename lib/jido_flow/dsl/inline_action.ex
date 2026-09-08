@@ -97,14 +97,21 @@ defmodule Jido.Flow.DSL.InlineAction do
   end
 
   @doc false
-  @spec callback_options(Macro.t(), keyword(), keyword(), Macro.Env.t(), module(), String.t()) ::
+  @spec callback_options(
+          Macro.t() | nil,
+          keyword(),
+          keyword(),
+          Macro.Env.t(),
+          module(),
+          String.t()
+        ) ::
           Macro.t()
   def callback_options(pattern, options, body_options, caller, setter, label) do
     callback(pattern, body_options!(options, body_options, caller), caller, setter, label)
   end
 
   @doc false
-  @spec callback(Macro.t(), keyword(), Macro.Env.t(), module(), String.t()) :: Macro.t()
+  @spec callback(Macro.t() | nil, keyword(), Macro.Env.t(), module(), String.t()) :: Macro.t()
   def callback(pattern, options, caller, setter, label) do
     parsed = parse_callback!(pattern, options, caller, label)
     path = Macro.unique_var(:inline_action_path, __MODULE__)
@@ -410,9 +417,17 @@ defmodule Jido.Flow.DSL.InlineAction.Dispatch do
   alias Jido.Flow.DSL.InlineAction
   @setter Jido.Flow.DSL.Extension.Flow.Dispatch.Options
 
-  for field <- [:decision, :expander, :params] do
+  for field <- [:decision, :params] do
     defmacro unquote(field)(value),
       do: InlineAction.field(unquote(field), value, __CALLER__, @setter, "Dispatch")
+  end
+
+  defmacro expander(value) do
+    if is_list(value) and Keyword.keyword?(value) and Keyword.has_key?(value, :do) do
+      InlineAction.callback(nil, value, __CALLER__, @setter, "Dispatch")
+    else
+      InlineAction.field(:expander, value, __CALLER__, @setter, "Dispatch")
+    end
   end
 
   defmacro decision(bindings, options),
@@ -430,8 +445,28 @@ defmodule Jido.Flow.DSL.InlineAction.Dispatch do
         :decision
       )
 
-  defmacro expander(pattern, options),
-    do: InlineAction.callback(pattern, options, __CALLER__, @setter, "Dispatch")
+  defmacro expander(pattern_or_options, options_or_body) do
+    if is_list(pattern_or_options) and Keyword.keyword?(pattern_or_options) and
+         is_list(options_or_body) and Keyword.keyword?(options_or_body) and
+         Keyword.has_key?(options_or_body, :do) do
+      InlineAction.callback_options(
+        nil,
+        pattern_or_options,
+        options_or_body,
+        __CALLER__,
+        @setter,
+        "Dispatch"
+      )
+    else
+      InlineAction.callback(
+        pattern_or_options,
+        options_or_body,
+        __CALLER__,
+        @setter,
+        "Dispatch"
+      )
+    end
+  end
 
   defmacro expander(pattern, options, body_options),
     do:

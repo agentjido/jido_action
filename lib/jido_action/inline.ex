@@ -32,7 +32,7 @@ defmodule Jido.Action.Inline do
   alias Jido.Action.Inline.{Compiler, Owner, Parser}
 
   @enforce_keys [:mode, :params_ast, :pattern_ast, :body_ast, :options, :context_ast]
-  defstruct @enforce_keys
+  defstruct @enforce_keys ++ [clauses: nil]
 
   @typedoc "The input contract selected by the host slot."
   @type mode :: :bound | :callback
@@ -40,22 +40,29 @@ defmodule Jido.Action.Inline do
   @typedoc "A typed host identity. It starts with `:host` and ends with `:role`."
   @type path :: [{atom(), atom() | String.t() | integer()}]
 
+  @typedoc "One owner-function head: parameter pattern, optional guard, and body."
+  @type clause :: {Macro.t(), Macro.t() | nil, Macro.t()}
+
   @typedoc """
   Parsed compile-time code, not a runtime model.
 
   `params_ast` contains the source AST in bound mode and is `nil` only in
-  callback mode. `pattern_ast` matches validated Action input. `body_ast`
-  contains the owner body. `options` contains metadata and schema AST; the
-  parser extracts `do` and `context` into `body_ast` and `context_ast`.
-  Hosts must parse and validate source AST before they compile a declaration.
+  callback mode. `pattern_ast` matches validated Action input for a single
+  expression body. `body_ast` is the original `do` AST. `clauses` is set when
+  the body is a list of `->` heads; the compiler then emits one owner `def`
+  per clause and ignores `pattern_ast` as the function head. `options`
+  contains metadata and schema AST; the parser extracts `do` and `context`
+  into `body_ast` and `context_ast`. Hosts must parse and validate source AST
+  before they compile a declaration.
   """
   @type t :: %__MODULE__{
           mode: mode(),
           params_ast: Macro.t() | nil,
-          pattern_ast: Macro.t(),
+          pattern_ast: Macro.t() | nil,
           body_ast: Macro.t(),
           options: keyword(Macro.t()),
-          context_ast: Macro.t() | nil
+          context_ast: Macro.t() | nil,
+          clauses: [clause()] | nil
         }
 
   @typedoc "AST returned to a host. Emit the declaration before using the target."
@@ -99,12 +106,16 @@ defmodule Jido.Action.Inline do
   A named binding is `value <- source`. A list groups named bindings. A sole
   map binding, such as `%{name: name} <- source`, uses the complete source as
   Action params. `[]` produces an empty parameter map. Duplicate names, mixed
-  map and named bindings, bare `_`, pins, guards, and top-level struct patterns
-  are not supported.
+  map and named bindings, bare `_`, pins, header guards, and top-level struct
+  patterns are not supported.
+
+  A `do` body of only `->` clauses compiles to several owner-function heads
+  over the validated parameter map. Binding-header guards stay illegal.
+  Clause heads may use `when`.
 
   Options:
 
-  - `do:` is the required Action body.
+  - `do:` is the required Action body, either expressions or `->` clauses.
   - `name:` overrides the host's default public Action name, not its identity.
   - `description:` sets public Action metadata; it defaults to `nil`.
   - `schema:` and `output_schema:` use static Action schemas and default to
@@ -129,9 +140,11 @@ defmodule Jido.Action.Inline do
   Accepts the same options as `parse_bound!/3`, but rejects source bindings.
   There is no host parameter mapping and `params_ast` is `nil`. Normal Action
   input validation still runs, including schema defaults before the callback
-  pattern matches. Raises `CompileError` for invalid headers or options.
+  pattern matches. Pass `nil` as the pattern when the body is a `->` clause
+  list. A clause body cannot combine with a header pattern. Raises
+  `CompileError` for invalid headers or options.
   """
-  @spec parse_callback!(Macro.t(), [action_option()], Macro.Env.t()) :: t()
+  @spec parse_callback!(Macro.t() | nil, [action_option()], Macro.Env.t()) :: t()
   def parse_callback!(pattern, options, caller), do: Parser.callback!(pattern, options, caller)
 
   @doc """

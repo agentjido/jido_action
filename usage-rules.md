@@ -80,13 +80,19 @@ Use `jido_action` for validated work and data-first composition:
   `ctx <- context()` as an Action parameter. Bodies retain the owner's private
   helpers and lexical scope, not runtime closure captures. Qualify helper
   calls that conflict with DSL imports, or import those helpers inside the body.
+- A `do` body of only `->` clauses compiles to several owner-function heads
+  over the validated parameter map. Use this for guarded cases such as
+  divide-by-zero. Callback clause bodies omit the header pattern. Bound clause
+  bodies match the resolved source map. Do not mix clause heads with an
+  expression body.
 - The shipped Step shorthand has empty field schemas. The nested
   `action` form accepts `name`, `description`, `schema`, `output_schema`, and
   `context: ctx`. Schemas are static and are not inferred from bindings.
 - Use nested bound `action` blocks in Step, Map, Reduce, Choice options and
   fallback, and Iterate. Dispatch uses bound `decision` and callback
-  `expander` blocks. Callback input is a named variable or map pattern without
-  `<-`. These forms compile to ordinary Action targets.
+  `expander` blocks. Expression callback bodies use a named variable or map
+  pattern without `<-`; clause callback bodies omit that header. These forms
+  compile to ordinary Action targets.
 - `context: ctx` binds actual execution context without adding parameters or
   schema fields. Keep custom lifecycle hooks and independent public module
   APIs in named Actions. See [Portable Inline Actions](guides/inline-actions.md).
