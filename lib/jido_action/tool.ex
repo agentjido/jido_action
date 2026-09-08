@@ -96,9 +96,9 @@ defmodule Jido.Action.Tool do
 
   Converts string keys to atom keys and handles type conversion based on schema.
   Supports both atom and string input keys, and preserves unknown keys (open validation).
-  A present `nil` value for a key that is not required is dropped so the action's
-  default still applies; a `nil` for a required key is kept and left for validation
-  to reject.
+  A present `nil` value is dropped only when the key is optional and its schema
+  does not allow `nil`, so an action default can still apply. Required keys and
+  keys whose schemas allow `nil` keep the value for validation.
   """
   def convert_params_using_schema(params, schema) when is_map(params) do
     case Schema.schema_type(schema) do
@@ -158,7 +158,7 @@ defmodule Jido.Action.Tool do
             {known_acc, rest}
 
           nil ->
-            if required_key?(schema, key) do
+            if preserve_nil?(schema, key) do
               converted_value = convert_value.(schema, key, value)
               {Map.put(known_acc, key, converted_value), rest}
             else
@@ -174,10 +174,11 @@ defmodule Jido.Action.Tool do
     Map.merge(unknown_params, known_converted)
   end
 
+  defp preserve_nil?(schema, key),
+    do: required_key?(schema, key) or nil_allowed?(schema, key)
+
   # Reports whether `key` is required in `schema`. Supports NimbleOptions keyword
-  # schemas and JSON Schema object maps (atom or string `"required"` key); a map
-  # without a recognizable "required" list is treated as not required, so a
-  # present `nil` is dropped rather than kept.
+  # schemas and JSON Schema object maps with atom or string keys.
   defp required_key?(schema, key) when is_list(schema) do
     schema
     |> Keyword.get(key, [])
@@ -194,6 +195,30 @@ defmodule Jido.Action.Tool do
       _ -> false
     end)
   end
+
+  defp nil_allowed?(schema, key) when is_list(schema) do
+    schema
+    |> Keyword.get(key, [])
+    |> Keyword.get(:type, :any)
+    |> nimble_type_allows_nil?()
+  end
+
+  defp nil_allowed?(schema, key) when is_map(schema) do
+    with properties when is_map(properties) <- json_schema_properties(schema),
+         {:ok, property_schema} <- fetch_json_schema_property(properties, key) do
+      json_schema_allows_nil?(property_schema)
+    else
+      _ -> false
+    end
+  end
+
+  defp nimble_type_allows_nil?(type) when type in [:any, :atom, nil], do: true
+  defp nimble_type_allows_nil?({:in, choices}), do: Enum.member?(choices, nil)
+
+  defp nimble_type_allows_nil?({:or, subtypes}),
+    do: Enum.any?(subtypes, &nimble_type_allows_nil?/1)
+
+  defp nimble_type_allows_nil?(_type), do: false
 
   defp convert_params_using_zoi_schema(params, schema) do
     params
@@ -252,6 +277,91 @@ defmodule Jido.Action.Tool do
     do: Map.get(schema, :properties) || Map.get(schema, "properties")
 
   defp json_schema_items(schema), do: Map.get(schema, :items) || Map.get(schema, "items")
+
+  defp fetch_json_schema_property(properties, key) do
+    case Map.fetch(properties, key) do
+      {:ok, property_schema} -> {:ok, property_schema}
+      :error -> Map.fetch(properties, to_string(key))
+    end
+  end
+
+  defp json_schema_allows_nil?(true), do: true
+  defp json_schema_allows_nil?(false), do: false
+
+  defp json_schema_allows_nil?(schema) when is_map(schema) do
+    json_schema_type_allows_nil?(schema) and
+      json_schema_enum_allows_nil?(schema) and
+      json_schema_const_allows_nil?(schema) and
+      json_schema_composite_allows_nil?(schema, :allOf, &Enum.all?/1) and
+      json_schema_composite_allows_nil?(schema, :anyOf, &Enum.any?/1) and
+      json_schema_one_of_allows_nil?(schema) and
+      json_schema_not_allows_nil?(schema)
+  end
+
+  defp json_schema_allows_nil?(_schema), do: false
+
+  defp json_schema_type_allows_nil?(schema) do
+    if json_schema_keyword(schema, :nullable, false) do
+      true
+    else
+      case json_schema_keyword(schema, :type, :__missing__) do
+        :__missing__ -> true
+        types when is_list(types) -> Enum.any?(types, &(&1 in [:null, "null"]))
+        type -> type in [:null, "null"]
+      end
+    end
+  end
+
+  defp json_schema_enum_allows_nil?(schema) do
+    case json_schema_keyword(schema, :enum, :__missing__) do
+      :__missing__ -> true
+      values when is_list(values) -> Enum.member?(values, nil)
+      _ -> false
+    end
+  end
+
+  defp json_schema_const_allows_nil?(schema) do
+    case json_schema_keyword(schema, :const, :__missing__) do
+      :__missing__ -> true
+      nil -> true
+      _ -> false
+    end
+  end
+
+  defp json_schema_composite_allows_nil?(schema, keyword, predicate) do
+    case json_schema_keyword(schema, keyword, :__missing__) do
+      :__missing__ ->
+        true
+
+      schemas when is_list(schemas) ->
+        schemas |> Enum.map(&json_schema_allows_nil?/1) |> predicate.()
+
+      _ ->
+        false
+    end
+  end
+
+  defp json_schema_one_of_allows_nil?(schema) do
+    case json_schema_keyword(schema, :oneOf, :__missing__) do
+      :__missing__ -> true
+      schemas when is_list(schemas) -> Enum.count(schemas, &json_schema_allows_nil?/1) == 1
+      _ -> false
+    end
+  end
+
+  defp json_schema_not_allows_nil?(schema) do
+    case json_schema_keyword(schema, :not, :__missing__) do
+      :__missing__ -> true
+      nested_schema -> not json_schema_allows_nil?(nested_schema)
+    end
+  end
+
+  defp json_schema_keyword(schema, key, default) do
+    case Map.fetch(schema, key) do
+      {:ok, value} -> value
+      :error -> Map.get(schema, Atom.to_string(key), default)
+    end
+  end
 
   defp json_schema_composite_schemas(schema) do
     Enum.find_value([:allOf, "allOf", :anyOf, "anyOf", :oneOf, "oneOf"], fn key ->

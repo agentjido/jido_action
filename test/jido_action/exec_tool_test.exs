@@ -367,6 +367,24 @@ defmodule Jido.Action.ToolTest do
       assert result == %{name: "x", count: 3}
     end
 
+    test "keeps nil for an optional key whose type accepts nil" do
+      schema = [note: [type: :any]]
+
+      result = Tool.convert_params_using_schema(%{"note" => nil}, schema)
+
+      assert result == %{note: nil}
+      assert {:ok, [note: nil]} = NimbleOptions.validate(Map.to_list(result), schema)
+    end
+
+    test "keeps nil for an optional nullable key" do
+      schema = [note: [type: {:or, [:string, nil]}]]
+
+      result = Tool.convert_params_using_schema(%{"note" => nil}, schema)
+
+      assert result == %{note: nil}
+      assert {:ok, [note: nil]} = NimbleOptions.validate(Map.to_list(result), schema)
+    end
+
     test "preserves a nil value for an unknown key (open validation semantics)" do
       params = %{"name" => "x", "extra" => nil}
 
@@ -410,6 +428,20 @@ defmodule Jido.Action.ToolTest do
 
       assert result == %{name: nil, note: "hello"}
     end
+
+    test "keeps nil for an optional nullable key" do
+      schema = %{
+        "type" => "object",
+        "properties" => %{
+          "note" => %{"type" => ["string", "null"]}
+        },
+        "required" => []
+      }
+
+      result = Tool.convert_params_using_schema(%{"note" => nil}, schema)
+
+      assert result == %{note: nil}
+    end
   end
 
   describe "convert_params_using_schema/2 with nil values (Zoi schema)" do
@@ -441,6 +473,21 @@ defmodule Jido.Action.ToolTest do
 
       assert result == %{name: nil, note: "hello"}
       assert {:error, _} = Zoi.parse(schema, result)
+    end
+
+    test "keeps nil for an optional nullable key" do
+      schema =
+        Zoi.map(%{
+          name: Zoi.string(),
+          note: Zoi.string() |> Zoi.nullish()
+        })
+
+      params = %{"name" => "x", "note" => nil}
+
+      result = Tool.convert_params_using_schema(params, schema)
+
+      assert result == %{name: "x", note: nil}
+      assert {:ok, %{name: "x", note: nil}} = Zoi.parse(schema, result)
     end
   end
 
