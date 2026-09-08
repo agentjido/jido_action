@@ -156,8 +156,10 @@ for validation, return normalization, and error behavior.
   completion, or scheduler order.
 - Source order does not create a dependency. Result references and `after:`
   create dependencies.
-- Every Flow must declare its `output`. Do not infer an output from terminal
-  nodes and do not add a `return` alias.
+- Canonical Flow data, Builder, Codec, and direct constructors require an
+  explicit `output`. The module DSL may omit `output`; lowering uses the
+  complete result of the last declared block. Do not infer from graph
+  terminal nodes and do not add a `return` alias.
 - A Flow discards the extra value from a three-item Action return.
 - Stored-map encoding must be deterministic and versioned. Decoding must use
   `Jido.Flow.Registry` and must return structured validation errors.

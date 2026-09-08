@@ -101,7 +101,10 @@ Use `jido_action` for validated work and data-first composition:
   control order without a data dependency.
 - Do not add a `parallel` block. Independent nodes run concurrently when
   `max_concurrency` is greater than `1`.
-- Add one required `output` declaration to every Flow.
+- Canonical Flow data, Builder, and Codec require an explicit `output`.
+- In the module DSL, omit `output` to use the complete result of the last
+  declared block. Write an explicit `output` when the result is not that last
+  block.
 - The DSL, Builder, and canonical data all use the name `output`.
 - Use `repeat` or a bounded `while` condition in the Spark `iterate` form. The
   lowerer converts it to canonical `completion` and `max_iterations` data.

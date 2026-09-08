@@ -163,7 +163,8 @@ targets a Flow module becomes `Jido.Flow.Subflow` instead.
 ## Declare Output
 
 `output` is a Flow expression, not an Action call. Shape the final result with
-a map.
+a map. If the module DSL omits `output`, lowering uses the complete result of
+the last declared block.
 
 ```text
 output(%{

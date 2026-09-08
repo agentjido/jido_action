@@ -177,11 +177,13 @@ not (input(:status) == :closed)
 The canonical operators are `eq`, `neq`, `lt`, `lte`, `gt`, `gte`, `in`,
 `all`, `any`, and `not`.
 
-## Keep Output Explicit
+## Declare Output
 
-Every Flow has exactly one `output` declaration, and it must be the final
-declaration. Normal Flow output must be a map. An explicit
-`Jido.Action.Output` envelope can carry a non-map result.
+The module DSL may omit `output`. Lowering then uses the complete result of
+the last declared block. Write an explicit `output` when the result is a
+different expression, and keep it as the final declaration. Normal Flow output
+must be a map. An explicit `Jido.Action.Output` envelope can carry a non-map
+result.
 
 Continue with [Steps And Output](flow-steps.livemd) and
 [References And Data](flow-references.livemd).

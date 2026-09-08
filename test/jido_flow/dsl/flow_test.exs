@@ -165,13 +165,108 @@ defmodule Jido.Flow.DSL.FlowTest do
     end
   end
 
-  test "Flow output is required" do
+  test "an omitted output uses the last block result" do
+    code = """
+    defmodule ImplicitLastBlockOutputFlow do
+      use Jido.Flow, name: "implicit_last_block_output"
+
+      flow do
+        step "first",
+          action: JidoActionTest.Fixtures.Actions.Add,
+          params: %{value: 1, amount: 1}
+
+        step "second",
+          action: JidoActionTest.Fixtures.Actions.Multiply,
+          params: %{value: result("first", :value), amount: 2}
+      end
+    end
+    """
+
+    [{module, _bytecode}] = Code.compile_string(code)
+
+    assert module.flow().output == Ref.result("second")
+    assert Jido.Exec.run(module) == {:ok, %{value: 4}}
+  end
+
+  test "an omitted output uses the last block, not graph terminals" do
+    code = """
+    defmodule ImplicitOutputSourceOrderFlow do
+      use Jido.Flow, name: "implicit_output_source_order"
+
+      flow do
+        step "left",
+          action: JidoActionTest.Fixtures.Actions.Add,
+          params: %{value: 1, amount: 1}
+
+        step "right",
+          action: JidoActionTest.Fixtures.Actions.Add,
+          params: %{value: 10, amount: 1}
+      end
+    end
+    """
+
+    [{module, _bytecode}] = Code.compile_string(code)
+
+    assert module.flow().output == Ref.result("right")
+    assert Jido.Exec.run(module) == {:ok, %{value: 11}}
+  end
+
+  test "an explicit output is not replaced by the last block" do
+    code = """
+    defmodule ExplicitOutputStillWinsFlow do
+      use Jido.Flow, name: "explicit_output_still_wins"
+
+      flow do
+        step "first",
+          action: JidoActionTest.Fixtures.Actions.Add,
+          params: %{value: 1, amount: 1}
+
+        step "second",
+          action: JidoActionTest.Fixtures.Actions.Multiply,
+          params: %{value: result("first", :value), amount: 2}
+
+        output result("first")
+      end
+    end
+    """
+
+    [{module, _bytecode}] = Code.compile_string(code)
+
+    assert module.flow().output == Ref.result("first")
+    assert Jido.Exec.run(module) == {:ok, %{value: 2}}
+  end
+
+  test "an explicit nil output is not treated as an omitted output" do
+    for {module, output} <- [
+          {ExplicitNilOutputFlow, "output nil"},
+          {ExplicitValueNilOutputFlow, "output value(nil)"}
+        ] do
+      code = """
+      defmodule #{inspect(module)} do
+        use Jido.Flow, name: "explicit_nil_output"
+
+        flow do
+          step "work",
+            action: JidoActionTest.Fixtures.Actions.Add,
+            params: %{value: 1, amount: 1}
+
+          #{output}
+        end
+      end
+      """
+
+      assert_raise CompileError, ~r/Flow output is required/, fn ->
+        Code.compile_string(code)
+      end
+    end
+  end
+
+  test "Flow output is required when no block is declared" do
     code = """
     defmodule MissingOutputFlow do
       use Jido.Flow, name: "missing_output"
 
       flow do
-        step "add", action: JidoActionTest.Fixtures.Actions.Add, params: %{value: 1}
       end
     end
     """

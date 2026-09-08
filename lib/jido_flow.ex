@@ -50,10 +50,12 @@ defmodule Jido.Flow do
           step "greet", name <- input(:name) do
             {:ok, %{message: "Hello, " <> name <> "!"}}
           end
-
-          output result("greet")
         end
       end
+
+  If `output` is omitted, the Flow result is the complete result of the last
+  declared block. Write an explicit `output` when the result is a different
+  expression. Builder, Codec, and direct constructors still require `output`.
 
   The binding source uses the Flow expression grammar. The body is normal
   Elixir in the owning module's function scope. Use `ctx <- context()` to

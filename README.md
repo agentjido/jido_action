@@ -239,10 +239,11 @@ end
   Jido.Exec.run(MyApp.Flows.GreetAndNotify, %{name: "Ada"}, %{})
 ```
 
-Every Flow declares one output expression. Flows also support ordered Choices,
-Map and Reduce collections, bounded Iterate components with State, independent
-components that can run in parallel, one Dispatch at the end of a Flow, and a
-step-wise execution API.
+Every canonical Flow has one output expression. The module DSL may omit
+`output` and then uses the last block's complete result. Flows also support
+ordered Choices, Map and Reduce collections, bounded Iterate components with
+State, independent components that can run in parallel, one Dispatch at the
+end of a Flow, and a step-wise execution API.
 
 ### Use Inline Steps For Small Operations
 

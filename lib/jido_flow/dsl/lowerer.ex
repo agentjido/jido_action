@@ -2,6 +2,7 @@ defmodule Jido.Flow.DSL.Lowerer do
   @moduledoc false
 
   alias Jido.Flow
+  alias Jido.Flow.Component
   alias Jido.Flow.Condition
   alias Jido.Flow.Error
   alias Jido.Flow.Validation
@@ -68,10 +69,10 @@ defmodule Jido.Flow.DSL.Lowerer do
 
   defp lower_entities(entities) do
     entities
-    |> Enum.reduce_while({:ok, [], nil}, fn entity, {:ok, specs, return} ->
+    |> Enum.reduce_while({:ok, [], :missing}, fn entity, {:ok, specs, output} ->
       case lower_entity(entity) do
-        {:ok, {:component, component}} -> {:cont, {:ok, [component | specs], return}}
-        {:ok, {:output, expression}} -> {:cont, {:ok, specs, expression}}
+        {:ok, {:component, component}} -> {:cont, {:ok, [component | specs], output}}
+        {:ok, {:output, expression}} -> {:cont, {:ok, specs, {:present, expression}}}
         {:error, error} -> {:halt, {:error, attach_entity_location(error, entity)}}
       end
     end)
@@ -309,7 +310,7 @@ defmodule Jido.Flow.DSL.Lowerer do
   defp validate_output_position(entities) do
     case Enum.find_index(entities, &match?(%Output{}, &1)) do
       nil ->
-        {:error, Error.validation_error("Flow output is required")}
+        :ok
 
       index when index == length(entities) - 1 ->
         :ok
@@ -324,7 +325,7 @@ defmodule Jido.Flow.DSL.Lowerer do
     entity =
       case location do
         [:output | _rest] ->
-          Enum.find(entities, &match?(%Output{}, &1))
+          Enum.find(entities, &match?(%Output{}, &1)) || last_component_entity(entities)
 
         [:components, index | _rest] when is_integer(index) ->
           entities |> Enum.reject(&match?(%Output{}, &1)) |> Enum.at(index)
@@ -418,6 +419,26 @@ defmodule Jido.Flow.DSL.Lowerer do
   defp reverse_ok({:ok, values}), do: {:ok, Enum.reverse(values)}
   defp reverse_ok({:error, error}), do: {:error, error}
 
-  defp reverse_lowered_entities({:ok, specs, return}), do: {:ok, Enum.reverse(specs), return}
+  defp reverse_lowered_entities({:ok, specs, :missing}) do
+    components = Enum.reverse(specs)
+
+    case List.last(components) do
+      nil ->
+        {:error, Error.validation_error("Flow output is required")}
+
+      component ->
+        {:ok, components, Ref.result(Component.name_of(component))}
+    end
+  end
+
+  defp reverse_lowered_entities({:ok, specs, {:present, output}}),
+    do: {:ok, Enum.reverse(specs), output}
+
   defp reverse_lowered_entities({:error, error}), do: {:error, error}
+
+  defp last_component_entity(entities) do
+    entities
+    |> Enum.reject(&match?(%Output{}, &1))
+    |> List.last()
+  end
 end
