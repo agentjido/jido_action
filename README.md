@@ -141,7 +141,7 @@ The Action `run/2` callback must return one of:
 The `{:continue, input, target}` result ends the current executable and runs
 the selected Action or Flow in the same bounded Exec call. Normal success and
 error three-tuples let callers receive an extra value. See
-[Continue to Another Executable](guides/continuations.md).
+[Dynamic Flows](guides/dynamic-flows.md).
 
 ## Run Asynchronously
 
@@ -282,7 +282,7 @@ Builder or a trusted Registry. Neither Builder nor JSON accepts body code,
 closures, or MFAs. See [Build Your First Flow](guides/build-your-first-flow.livemd).
 
 Version `3.0.0-beta.6` adds the
-[portable inline Action API](guides/inline-actions.md), with
+[inline Action API](guides/inline-actions.md), with
 nested blocks for Step, Map, Reduce, Choice options and fallback, Iterate,
 and Dispatch. These blocks accept explicit schemas, metadata, and execution
 context. A downstream DSL can use `Jido.Action.Inline` without Flow. The same
@@ -416,10 +416,11 @@ Livebook. ExDoc adds a **Run in Livebook** link to each `.livemd` guide.
 ### Core Contracts
 
 - [Actions](guides/actions.md)
-- [Portable Inline Actions](guides/inline-actions.md)
+- [Inline Actions](guides/inline-actions.md)
+- [Building DSLs With Inline Actions](guides/building-dsls-with-inline-actions.md)
 - [Instructions](guides/instructions.md)
 - [Flows](guides/flows.md)
-- [Continue to Another Executable](guides/continuations.md)
+- [Dynamic Flows](guides/dynamic-flows.md)
 - [Schemas & Validation](guides/schemas-validation.md)
 - [Execution Contract](guides/execution.md)
 

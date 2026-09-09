@@ -69,7 +69,7 @@ defmodule Jido.Flow do
   bound `decision` and direct callback `expander` blocks. All forms compile
   to ordinary Actions with normal Exec validation and result rules. Keep a
   named Action for custom lifecycle hooks or a separate public module API.
-  See [Portable Inline Actions](inline-actions.md). The shared API requires
+  See [Inline Actions](inline-actions.md). The shared API requires
   `3.0.0-beta.6` or later.
 
   After the owner compiles, `MyApp.Greeting.step_action("greet")` returns its

@@ -202,7 +202,7 @@ validation must not run application work. The API does not add a custom
 operator registry or automatically integrate another Jido package.
 
 For a complete host that also compiles inline Action bodies, see
-[Build A Non-Flow Host](inline-actions.md#build-a-non-flow-host). The host must
+[Build A Non-Flow Host](building-dsls-with-inline-actions.md#build-a-non-flow-host). The host must
 parse and validate binding sources before it creates an Action declaration.
 
 ## Errors And Limits

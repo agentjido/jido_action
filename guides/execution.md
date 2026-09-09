@@ -43,7 +43,7 @@ Directives, moving that Action into a Flow does not preserve their delivery.
 A terminal Dispatch can continue to a final Action. That Action can return
 extras to the caller of the complete Exec call. This does not collect extras
 from earlier nodes. See
-[Return Extras After A Flow](continuations.md#return-extras-after-a-flow).
+[Output Validation And Extras](dynamic-flows.md#output-validation-and-extras).
 
 Public failures are exception structs. Action boundary errors use:
 
@@ -152,7 +152,7 @@ Flow error lists failures in node-name order. A Map with
 An Action can return `{:continue, input, target}`. This result ends the current
 executable and starts the target in the same complete call. The timeout and
 continuation limit cover the full chain. See
-[Continue to Another Executable](continuations.md).
+[Dynamic Flows](dynamic-flows.md).
 
 `start/4` accepts `task_supervisor` and `max_concurrency`. It does not accept a timeout or
 Dispatch because a paused execution cannot run a continuation as part of one

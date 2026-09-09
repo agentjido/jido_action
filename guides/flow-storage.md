@@ -159,7 +159,7 @@ The same Registry rule applies to portable inline roles.
 Resolve each target through `Jido.Action.Inline.target!/2` with its typed host
 path, then register that ordinary Action. Inline metadata and schemas belong
 to the deployed target, not to stored body code. Portable inline Actions add
-no Codec version. See [Portable Inline Actions](inline-actions.md).
+no Codec version. See [Inline Actions](inline-actions.md).
 
 ## Validation And Limits
 

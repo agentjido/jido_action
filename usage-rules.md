@@ -95,7 +95,7 @@ Use `jido_action` for validated work and data-first composition:
   compile to ordinary Action targets.
 - `context: ctx` binds actual execution context without adding parameters or
   schema fields. Keep custom lifecycle hooks and independent public module
-  APIs in named Actions. See [Portable Inline Actions](guides/inline-actions.md).
+  APIs in named Actions. See [Inline Actions](guides/inline-actions.md).
   This shared API and `Jido.Expr` require `3.0.0-beta.6` or later.
 - Let result references create data dependencies. Use `after:` only for
   control order without a data dependency.

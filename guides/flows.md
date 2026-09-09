@@ -40,7 +40,7 @@ next executable for the same `Jido.Exec.run/4` call.
 
 Dispatch is not available through step-wise execution or as part of a Subflow.
 These limits keep continuation in one complete Exec call. See
-[Continue to Another Executable](continuations.md).
+[Dynamic Flows](dynamic-flows.md).
 
 ## One Expression Grammar
 

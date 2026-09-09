@@ -25,7 +25,7 @@ defmodule Jido.Action.Inline do
   or stored code to the compile-time APIs.
 
   This API requires `3.0.0-beta.6` or later. See
-  [Portable Inline Actions](inline-actions.md) for a complete public-only host
+  [Building DSLs With Inline Actions](building-dsls-with-inline-actions.md) for a complete public-only host
   with bound input, callback input, schemas, execution context, and lookup.
   """
 

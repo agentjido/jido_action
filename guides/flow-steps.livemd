@@ -90,7 +90,7 @@ schema validation. A missing reference fails before the body runs.
 Use the nested `action` form for explicit field schemas,
 descriptions, or `context: ctx`. It also supports Map, Reduce, Choice options
 and fallback, and Iterate; Dispatch has `decision` and `expander` forms.
-See [Portable Inline Actions](inline-actions.md) for runnable examples. These
+See [Inline Actions](inline-actions.md) for runnable examples. These
 forms require `3.0.0-beta.6` or later.
 
 Keep a named Action for custom lifecycle hooks or a separate public module
