@@ -11,6 +11,17 @@ entries return to the normal automated changelog process.
 
 <!-- changelog -->
 
+## [3.0.0-beta.9](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.8...v3.0.0-beta.9) (2026-09-09)
+
+
+
+
+### Features:
+
+* flow: allow omitted DSL output to use the last block result by mikehostetler
+
+* action: support multiple inline action clauses by mikehostetler
+
 ## [3.0.0-beta.8](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.7...v3.0.0-beta.8) (2026-09-07)
 
 

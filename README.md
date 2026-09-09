@@ -42,7 +42,7 @@ This foundation keeps the action boundary small:
 - `Jido.Exec` runs actions, instructions, and Flows, including asynchronous
   run-to-completion calls and step-wise Flows.
 
-Version 3.0.0-beta.8 is a public beta. It includes the declarative Flow DSL,
+Version 3.0.0-beta.9 is a public beta. It includes the declarative Flow DSL,
 runtime Flow construction, safe stored Flow maps, and one Flow execution
 engine. Recent beta releases add portable inline Actions, `Jido.Expr`, and
 compile-time Flow DSL extensions. The v3 API can still change before the
@@ -56,7 +56,7 @@ for the confirmed breaking changes.
 ```elixir
 def deps do
   [
-    {:jido_action, "~> 3.0.0-beta.8"}
+    {:jido_action, "~> 3.0.0-beta.9"}
   ]
 end
 ```
