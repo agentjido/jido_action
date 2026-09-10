@@ -1,5 +1,7 @@
 # Dependencies And Parallel Work
 
+## Overview
+
 A Flow graph gets dependencies from result references and explicit `after`
 entries. Source order does not create a dependency.
 

@@ -1,5 +1,7 @@
 # Choices And Conditions
 
+## Overview
+
 A Choice evaluates conditions in author order. It runs the first matching
 Action. A required fallback handles the no-match case.
 
@@ -99,7 +101,8 @@ the producing Action's output schema, or the Iterate State schema. For example,
 The direct condition rejects a non-Boolean value. An explicit comparison
 such as `input(:enabled) == false` keeps its existing equality behavior and
 does not validate the type. A missing reference still fails. The expression
-API requires `3.0.0-beta.6` or later; see [Expressions](flow-expressions.md).
+API requires `3.0.0-beta.6` or later; see
+[Expressions](https://github.com/agentjido/jido_action/blob/release/v3/guides/flow-expressions.md).
 
 ## Fallback Is Routing
 
@@ -115,7 +118,9 @@ The nested `action` form can define a body in an `option` or
 static dependencies as params. They do not accept Flow operations. Only the
 selected body runs. A fallback remains a normal route, not an error handler.
 An option called `"otherwise"` has a different lookup path from the fallback.
-See [inline Choice examples and lookup paths](inline-actions.md). The portable
+See
+[inline Choice examples and lookup paths](https://github.com/agentjido/jido_action/blob/release/v3/guides/inline-actions.md).
+The portable
 form requires `3.0.0-beta.6` or later.
 
 ## Route An Expected Failure As Data

@@ -1,5 +1,7 @@
 # Getting Started
 
+## Overview
+
 This Livebook introduces the three basic Jido values:
 
 1. an Action defines one validated unit of work;

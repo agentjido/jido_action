@@ -1,5 +1,7 @@
 # Iterate And State
 
+## Overview
+
 Iterate runs one Action as a bounded local state transition. It is one Flow
 component and one native Runic Step.
 
@@ -113,5 +115,5 @@ call and holds the previous body result on later calls. In the update
 expression, it holds the current body result. An Action schema validates body
 params; the State schema separately validates each replacement State.
 Serial execution, repeat bounds, and completion rules do not change.
-See the [inline Iterate example](inline-actions.md#use-inline-actions-in-components).
+See the [inline Iterate example](https://github.com/agentjido/jido_action/blob/release/v3/guides/inline-actions.md#use-inline-actions-in-components).
 It requires `3.0.0-beta.6` or later.

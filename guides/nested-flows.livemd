@@ -1,5 +1,7 @@
 # Nested Flows
 
+## Overview
+
 A Flow module used in a `step` becomes a canonical `Jido.Flow.Subflow`. This is
 the only implicit Subflow derivation.
 
@@ -85,7 +87,8 @@ An Action failure keeps its typed error and leaf details. Its
 `details.node_path` identifies the authored Subflow path, for example
 `["child", "add"]`. Child input and output validation failures identify the
 Subflow boundary instead, for example `["child"]`. Errors before Action
-validation can lack this path. See [Read Failures](debugging-flows.md#read-failures)
+validation can lack this path. See
+[Read Failures](https://github.com/agentjido/jido_action/blob/release/v3/guides/debugging-flows.md#read-failures)
 for single and concurrent failure inspection.
 
 ## Limits

@@ -1,5 +1,7 @@
 # Map And Reduce
 
+## Overview
+
 Map and Reduce operate on ordered lists. Map preserves source order. Reduce is
 a serial left fold.
 
@@ -133,5 +135,6 @@ scope as Map params. Reduce also permits `accumulator`. An inline block
 supplies both the Action target and params; do not add a separate params field.
 Order, empty-list behavior, errors, and concurrency rules stay the same.
 
-See the complete [inline Map and Reduce example](inline-actions.md#use-inline-actions-in-components).
+See the complete
+[inline Map and Reduce example](https://github.com/agentjido/jido_action/blob/release/v3/guides/inline-actions.md#use-inline-actions-in-components).
 It requires `3.0.0-beta.6` or later.

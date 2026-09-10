@@ -1,5 +1,7 @@
 # Steps And Output
 
+## Overview
+
 A Step calls one Action. Its parameter expression maps Flow data to Action
 input.
 
@@ -90,7 +92,8 @@ schema validation. A missing reference fails before the body runs.
 Use the nested `action` form for explicit field schemas,
 descriptions, or `context: ctx`. It also supports Map, Reduce, Choice options
 and fallback, and Iterate; Dispatch has `decision` and `expander` forms.
-See [Inline Actions](inline-actions.md) for runnable examples. These
+See [Inline Actions](https://github.com/agentjido/jido_action/blob/release/v3/guides/inline-actions.md)
+for runnable examples. These
 forms require `3.0.0-beta.6` or later.
 
 Keep a named Action for custom lifecycle hooks or a separate public module

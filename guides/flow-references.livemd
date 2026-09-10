@@ -1,5 +1,7 @@
 # References And Data
 
+## Overview
+
 A `Jido.Flow.Ref` reads data when a Flow executes. References are also the
 source of inferred graph dependencies.
 
@@ -82,7 +84,9 @@ A result reference creates an inferred dependency on the named component.
 Input and context references do not.
 
 References can appear inside `Jido.Expr` operations. Their scopes and graph
-dependencies do not change. See [Expressions](flow-expressions.md) for the
+dependencies do not change. See
+[Expressions](https://github.com/agentjido/jido_action/blob/release/v3/guides/flow-expressions.md)
+for the
 new calculation syntax and its version requirement.
 
 ## Local References
