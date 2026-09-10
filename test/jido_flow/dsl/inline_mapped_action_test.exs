@@ -14,8 +14,8 @@ defmodule Jido.Flow.DSL.InlineMappedActionTest do
       compile_flow("""
       map "doubled" do
         collection input(:items)
-        action [value <- item() * 2, index <- item_index(), id <- item_id()] do
-          {:ok, %{value: value, index: index, id: id}}
+        action [value <- item(), index <- item_index(), id <- item_id()] do
+          {:ok, %{value: value * 2, index: index, id: id}}
         end
       end
       reduce "total" do
@@ -288,32 +288,15 @@ defmodule Jido.Flow.DSL.InlineMappedActionTest do
     assert {:ok, %{}} = Jido.Exec.run(owner)
   end
 
-  test "mapped bindings keep skipped Expr operands in graph dependencies" do
+  test "mapped bindings reject Flow operations" do
     for slot <- slots() do
-      declarations = """
-      step "seed", [], do: {:ok, %{value: true}}
-      #{slot_source(slot, ~s|action value <- false and result("seed", :value), do: {:ok, %{value: value}}|)}
-      """
-
-      owner = compile_flow(declarations)
-      assert {:ok, dependencies} = Jido.Flow.dependencies(owner.flow())
-      assert dependencies["node"].references == ["seed"]
-      assert {:ok, _} = Jido.Exec.run(owner)
-
-      assert_raise CompileError, ~r/unknown|missing/, fn ->
+      assert_raise CompileError, ~r/Flow operations are not allowed/, fn ->
         compile_flow(
           slot_source(
             slot,
-            ~s|action value <- false and result("missing", :value), do: {:ok, %{value: value}}|
+            ~s|action value <- input(:value) + 1, do: {:ok, %{value: value}}|
           )
         )
-      end
-
-      assert_raise CompileError, ~r/cycle|itself/, fn ->
-        compile_flow("""
-        step "seed", value <- result("node"), do: {:ok, %{value: value}}
-        #{slot_source(slot, ~s|action value <- false and result("seed", :value), do: {:ok, %{value: value}}|)}
-        """)
       end
     end
   end
@@ -372,7 +355,9 @@ defmodule Jido.Flow.DSL.InlineMappedActionTest do
         assert action.name() == "original"
         assert {action.name(), action.schema(), action.module_info(:md5)} == original
         assert %CompileError{} = error
-        assert error.description =~ ~r/(scope|reference path|unsupported Flow expression)/
+
+        assert error.description =~
+                 ~r/(scope|reference path|unsupported Flow expression|Flow operations)/
       end)
     end
   end

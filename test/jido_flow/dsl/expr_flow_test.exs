@@ -52,8 +52,8 @@ defmodule JidoActionTest.Flow.DSL.ExprFlowTest do
         max_iterations 5
       end
 
-      step "inline", total <- result("reduced", :value) + 1 do
-        {:ok, %{value: total}}
+      step "inline", total <- result("reduced", :value) do
+        {:ok, %{value: total + 1}}
       end
 
       step "child", action: Child, params: %{value: result("inline", :value) + 1}
@@ -118,7 +118,7 @@ defmodule JidoActionTest.Flow.DSL.ExprFlowTest do
     assert restored == built
   end
 
-  test "expressions work through every local scope, inline binding, child, and Choice" do
+  test "expressions work through local scopes, inline bodies, child Flows, and Choice" do
     assert {:ok, document, registry} = Codec.encode(Mixed.flow())
     assert {:ok, restored} = Codec.decode(JSON.decode!(JSON.encode!(document)), registry)
 

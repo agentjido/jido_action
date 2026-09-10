@@ -225,6 +225,7 @@ defmodule Jido.Flow.DSL.InlineAction do
     # Legacy Step shorthand keeps its parse-time diagnostics. Bound fields also
     # check their slot scope before compiling a replacement wrapper.
     with {:ok, expression} <- Expression.parse(source),
+         :ok <- reject_source_operations(expression),
          :ok <- if(scope, do: Jido.Flow.Expression.validate(expression, scope), else: :ok) do
       :ok
     else
@@ -241,6 +242,33 @@ defmodule Jido.Flow.DSL.InlineAction do
         )
     end
   end
+
+  defp reject_source_operations(%Jido.Expr{}) do
+    {:error,
+     Jido.Flow.Error.validation_error(
+       "Flow operations are not allowed; move the calculation into the inline body"
+     )}
+  end
+
+  defp reject_source_operations(map) when is_map(map) and not is_struct(map) do
+    Enum.reduce_while(map, :ok, fn {_key, value}, :ok ->
+      case reject_source_operations(value) do
+        :ok -> {:cont, :ok}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+  end
+
+  defp reject_source_operations(list) when is_list(list) do
+    Enum.reduce_while(list, :ok, fn value, :ok ->
+      case reject_source_operations(value) do
+        :ok -> {:cont, :ok}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+  end
+
+  defp reject_source_operations(_value), do: :ok
 
   @doc false
   @spec scoped(Macro.t(), atom(), Macro.t(), Macro.Env.t()) :: Macro.t()

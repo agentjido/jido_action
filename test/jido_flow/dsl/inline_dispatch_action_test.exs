@@ -60,8 +60,8 @@ defmodule Jido.Flow.DSL.InlineDispatchActionTest do
     owner =
       compile_flow("""
       dispatch "next" do
-        decision value <- input(:value) + 1 do
-          {:ok, %{value: value, raw: Jido.Flow.Ref.input(:other)}}
+        decision value <- input(:value) do
+          {:ok, %{value: value + 1, raw: Jido.Flow.Ref.input(:other)}}
         end
         expander params do
           {:ok, params}
@@ -84,7 +84,7 @@ defmodule Jido.Flow.DSL.InlineDispatchActionTest do
                name: "next",
                decision: target(owner, :decision),
                expander: target(owner, :expander),
-               params: %{value: Jido.Expr.new!(:add, [Jido.Flow.Ref.input(:value), 1])}
+               params: %{value: Jido.Flow.Ref.input(:value)}
              )
 
     refute Map.has_key?(dispatch, :expander_params)
@@ -419,23 +419,16 @@ defmodule Jido.Flow.DSL.InlineDispatchActionTest do
     end
   end
 
-  test "decision expressions keep dependencies and the existing Flow reference scope" do
-    owner =
-      compile_flow("""
-      step "seed", [], do: {:ok, %{value: true}}
-      dispatch "next" do
-        decision value <- false and result("seed", :value), do: {:ok, %{value: value}}
-        expander params, do: {:ok, params}
+  test "decision bindings reject operations and keep the existing Flow reference scope" do
+    for source <- ["input(:value) + 1", "false and result(\"seed\", :value)"] do
+      assert_raise CompileError, ~r/Flow operations are not allowed/, fn ->
+        compile_fields(
+          "decision value <- #{source}, do: {:ok, %{value: value}}\nexpander params, do: {:ok, params}"
+        )
       end
-      output result("next")
-      """)
-
-    assert {:ok, dependencies} = Jido.Flow.dependencies(owner.flow())
-    assert dependencies["next"].references == ["seed"]
-    assert {:ok, %{value: false}} = Jido.Exec.run(owner)
+    end
 
     for {source, message} <- [
-          {"false and result(\"missing\", :value)", ~r/unknown|missing/},
           {"item()", ~r/scope|not allowed|not valid|not available/},
           {"accumulator()", ~r/scope|not allowed|not valid|not available/},
           {"state()", ~r/scope|not allowed|not valid|not available/},
@@ -482,7 +475,10 @@ defmodule Jido.Flow.DSL.InlineDispatchActionTest do
         assert Enum.all?(actions, &(&1.name() == "original"))
         assert Enum.map(actions, &{&1.name(), &1.schema(), &1.module_info(:md5)}) == original
         assert %CompileError{} = error
-        assert error.description =~ ~r/(scope|reference path|unsupported Flow expression)/
+
+        assert error.description =~
+                 ~r/(scope|reference path|unsupported Flow expression|Flow operations)/
+
         assert error.file == "dispatch_inline.ex"
         assert error.line > 0
       end)

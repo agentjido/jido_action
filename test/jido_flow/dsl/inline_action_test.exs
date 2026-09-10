@@ -118,23 +118,28 @@ defmodule Jido.Flow.DSL.InlineActionTest do
     end
   end
 
-  test "binding sources use Expr operations and retain dependency discovery" do
-    owner = unique_owner()
+  test "binding sources reject computed Flow expressions" do
+    for header <- [
+          "value <- input(:value) * 2",
+          "value <- %{nested: input(:value) + 1}",
+          "[value <- input(:value), allowed <- input(:enabled) and true]"
+        ] do
+      owner = unique_owner()
 
-    compile_source(owner, """
-    step "seed", [], do: {:ok, %{value: 2}}
-    step "increment" do
-      action [value <- input(:value) * 2 + result("seed", :value),
-              allowed <- input(:enabled) and input(:value) > 0] do
-        {:ok, %{value: value, allowed: allowed}}
-      end
+      error =
+        assert_raise CompileError,
+                     ~r/inline Action binding source: Flow operations are not allowed/,
+                     fn ->
+                       compile_source(
+                         owner,
+                         "step \"increment\" do\n action #{header}, do: {:ok, %{}}\nend"
+                       )
+                     end
+
+      assert error.file == "nested_inline.ex"
+      assert error.line == 6
+      refute Code.ensure_loaded?(generated_target(owner, "increment"))
     end
-    """)
-
-    assert [_, %{params: %{value: %Jido.Expr{}, allowed: %Jido.Expr{}}}] = owner.flow().components
-    assert {:ok, dependencies} = Jido.Flow.dependencies(owner.flow())
-    assert dependencies["increment"].references == ["seed"]
-    assert {:ok, %{value: 8, allowed: true}} = Jido.Exec.run(owner, %{value: 3, enabled: true})
   end
 
   test "invalid source expressions create no target and repair cleanly" do

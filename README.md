@@ -274,7 +274,7 @@ end
   Jido.Exec.run(MyApp.Flows.SimpleGreeting, %{name: " Ada "})
 ```
 
-Binding sources use Flow data expressions. Bodies use normal Elixir and
+Binding sources use direct Flow references or data. Bodies use normal Elixir and
 compile to ordinary Actions. This shipped shorthand has empty field schemas
 and accepts only Step `after:` and `meta:` options.
 Use `MyApp.Flows.SimpleGreeting.step_action("greet")` to reuse its target in

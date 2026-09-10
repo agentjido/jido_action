@@ -57,8 +57,9 @@ defmodule Jido.Flow do
   declared block. Write an explicit `output` when the result is a different
   expression. Builder, Codec, and direct constructors still require `output`.
 
-  The binding source uses the Flow expression grammar. The body is normal
-  Elixir in the owning module's function scope. Use `ctx <- context()` to
+  A binding source accepts direct Flow references or data, but not Flow
+  operations. The body is normal Elixir in the owning module's function scope.
+  Put calculations in that body. Use `ctx <- context()` to
   bind context explicitly. Use a binding list for more than two inputs, a
   sole map pattern for complete params, or `[]` for no input. Only `after:`
   and `meta:` are inline options.

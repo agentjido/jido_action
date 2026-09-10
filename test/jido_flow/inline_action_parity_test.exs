@@ -29,8 +29,8 @@ defmodule Jido.Flow.InlineActionParityTest do
       map "mapped" do
         collection input(:items)
 
-        action [value <- item() * 2, gate <- false and result("seed", :missing)] do
-          {:ok, %{value: value, gate: gate}}
+        action [value <- item(), gate <- result("seed", :value)] do
+          {:ok, %{value: value * 2, gate: gate}}
         end
       end
 
@@ -99,9 +99,8 @@ defmodule Jido.Flow.InlineActionParityTest do
       assert {:error, error} =
                Exec.run(flow, %{value: 1, items: ["private-operand"], enabled: true})
 
-      assert error.details.operator == :multiply
-      assert error.details.reason == :invalid_numeric_operands
-      assert error.details.expression_path == [:value]
+      assert %Jido.Action.Error.ExecutionFailureError{} = error
+      assert error.details.node == "mapped"
       refute inspect(error, limit: :infinity) =~ "private-operand"
       assert Flow.Error.to_map(error) == expected_failure
     end
@@ -143,7 +142,7 @@ defmodule Jido.Flow.InlineActionParityTest do
 
       expected =
         case id do
-          "map" -> %{value: 9, gate: true}
+          "map" -> %{value: 18, gate: true}
           "reduce" -> %{value: 109}
           "option" -> %{value: 19}
           "fallback" -> %{value: -1}
@@ -264,8 +263,8 @@ defmodule Jido.Flow.InlineActionParityTest do
 
   defp mapped_params,
     do: %{
-      value: Expr.new!(:multiply, [Ref.item(), 2]),
-      gate: Expr.new!(:all, [false, Ref.result("seed", :missing)])
+      value: Ref.item(),
+      gate: Ref.result("seed", :value)
     }
 
   defp state, do: Iterate.State.new!(initial: Ref.result("route"), update: Ref.body_result())

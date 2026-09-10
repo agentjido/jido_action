@@ -2,7 +2,7 @@ defmodule JidoActionTest.Exec.InlineActionContractTest do
   use ExUnit.Case, async: false
   @moduletag capture_log: true
 
-  alias Jido.{Exec, Flow}
+  alias Jido.Exec
   alias Jido.Action.{Error, Output}
 
   defmodule Results do
@@ -44,43 +44,6 @@ defmodule JidoActionTest.Exec.InlineActionContractTest do
       dispatch "next" do
         decision params <- input(), do: {:ok, params}
         expander params, do: Results.run(params)
-      end
-
-      output result("next")
-    end
-  end
-
-  defmodule MappedExpression do
-    use Jido.Flow, name: "mapped_expression"
-
-    flow do
-      map "mapped" do
-        collection input(:items)
-
-        action value <- item() / input(:divisor), context: ctx do
-          send(ctx.test_pid, {ctx.ref, :body})
-          {:ok, %{value: value}}
-        end
-      end
-
-      output %{items: result("mapped")}
-    end
-  end
-
-  defmodule DecisionExpression do
-    use Jido.Flow, name: "decision_expression"
-
-    flow do
-      dispatch "next" do
-        decision value <- input(:value) <> context(:suffix), context: ctx do
-          send(ctx.test_pid, {ctx.ref, :decision})
-          {:ok, %{value: value}}
-        end
-
-        expander params, context: ctx do
-          send(ctx.test_pid, {ctx.ref, :expander})
-          {:ok, params}
-        end
       end
 
       output result("next")
@@ -166,40 +129,6 @@ defmodule JidoActionTest.Exec.InlineActionContractTest do
         if mode in [:raise, :throw, :exit], do: assert(%Splode.Stacktrace{} = error.stacktrace)
       end
     end
-  end
-
-  test "inline binding errors retain Expr locations and stop before body work" do
-    ref = make_ref()
-    context = %{test_pid: self(), ref: ref, secret: "private-context"}
-
-    for {item, divisor, reason} <- [
-          {4, 0, :division_by_zero},
-          {"private-operand", 2, :invalid_numeric_operands}
-        ] do
-      assert {:error, error} =
-               Exec.run(MappedExpression, %{items: [item], divisor: divisor}, context)
-
-      assert error.details.operator == :divide
-      assert error.details.reason == reason
-      assert error.details.expression_path == [:value]
-      assert error.details.retry == false
-      refute inspect(error, limit: :infinity) =~ "private-operand"
-      refute inspect(Flow.Error.to_map(error), limit: :infinity) =~ "private-context"
-      refute_received {^ref, :body}
-    end
-
-    private = String.duplicate("private-data", 40_000)
-
-    assert {:error, error} =
-             Exec.run(DecisionExpression, %{value: private}, Map.put(context, :suffix, private))
-
-    assert error.details.operator == :concat
-    assert error.details.reason == :max_binary_bytes
-    assert error.details.expression_path == [:value]
-    refute inspect(error, limit: :infinity) =~ "private-data"
-    refute inspect(Flow.Error.to_map(error), limit: :infinity) =~ "private-context"
-    refute_received {^ref, :decision}
-    refute_received {^ref, :expander}
   end
 
   test "inline Map work is bounded, ordered, and runs once in full and step-wise execution" do

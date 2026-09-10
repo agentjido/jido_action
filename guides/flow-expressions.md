@@ -42,13 +42,14 @@ end
 
 The same syntax works in Step and Subflow params, Choice conditions and
 params, Map and Reduce fields, Iterate State and conditions, Dispatch params,
-bound inline Action sources, and Flow output. Each field keeps its existing
-reference scope and result-shape rules. A normal Flow output is still a map.
+and Flow output. Each field keeps its existing reference scope and result-shape
+rules. A normal Flow output is still a map.
 The [portable inline API](inline-actions.md) supplies nested bodies
 for Step, Map, Reduce, Choice options and fallback, Iterate, and Dispatch.
-These bodies compile to ordinary Action targets. Sources use Expr; bodies use
-normal Elixir. A Dispatch expander is a direct callback and has no source
-mapping. These additions require `3.0.0-beta.6` or later.
+These bodies compile to ordinary Action targets. Binding sources use direct
+references or data. Bodies use normal Elixir and own calculations. A Dispatch
+expander is a direct callback and has no source mapping. These additions require
+`3.0.0-beta.6` or later.
 
 ## Complete Operation List
 

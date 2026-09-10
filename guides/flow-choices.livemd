@@ -111,10 +111,10 @@ Choice option and fallback targets must be Actions. A Choice does not derive a
 Subflow target.
 
 The nested `action` form can define a body in an `option` or
-`otherwise` block. Binding sources keep the same reference scope and static
-dependencies as params. Only the selected body runs. A fallback remains a
-normal route, not an error handler. An option called `"otherwise"` has a
-different lookup path from the fallback.
+`otherwise` block. Direct binding sources keep the same reference scope and
+static dependencies as params. They do not accept Flow operations. Only the
+selected body runs. A fallback remains a normal route, not an error handler.
+An option called `"otherwise"` has a different lookup path from the fallback.
 See [inline Choice examples and lookup paths](inline-actions.md). The portable
 form requires `3.0.0-beta.6` or later.
 

@@ -74,7 +74,8 @@ Action parameter map.
 
 ## Bind Inputs
 
-Bound inline Actions resolve Flow expressions into an atom-keyed parameter map:
+Bound inline Actions resolve direct Flow references or data into an atom-keyed
+parameter map:
 
 | Header | Parameters passed to the Action |
 | --- | --- |
@@ -101,7 +102,8 @@ end
 
 Do not mix a map binding with named bindings. A map binding must be the only
 binding. Pins, header guards, top-level struct patterns, duplicate names, and
-bare `_` bindings are not supported.
+bare `_` bindings are not supported. Flow operations are also not supported in
+binding sources. Bind the required data and put calculations in the body.
 
 ## Match Several Clauses
 

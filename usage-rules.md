@@ -66,12 +66,13 @@ Use `jido_action` for validated work and data-first composition:
 - Use `step`, `choice`, `map`, `reduce`, `iterate`, and `dispatch` for graph
   structure.
 - Use `input`, `context`, and `result` references to map data. Use `Jido.Expr`
-  operations for short calculations and conditions. Put application calls and
-  complex work in Actions or inline bodies. See
+  operations for short calculations in explicit Flow fields and for conditions.
+  Do not use operations in inline binding sources. Put those calculations,
+  application calls, and complex work in Actions or inline bodies. See
   [Expressions](guides/flow-expressions.md) for the complete operation list.
 - Treat DSL expressions as a restricted data grammar, not general Elixir. Do
   not use assignments, pattern matching, pipes, or application function calls
-  in binding sources or other data expressions.
+  in data expressions.
 - Use `step "name", value <- input(:value) do ... end` for a small inline
   body. Use a binding list for more than two inputs, a sole map pattern for
   complete params, or `[]` for no input. Only `after:` and `meta:` are header

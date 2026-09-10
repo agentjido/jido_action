@@ -894,13 +894,15 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     end
   end
 
-  test "binding sources use only the existing Flow expression grammar" do
+  test "binding sources use direct Flow data without operations" do
     for header <- [
           "name <- String.trim(input(:name))",
           "[name <- input(), other <- name]",
           "name <- (input(:name) |> String.trim())",
           "name <- fn -> :ok end",
-          "name <- %{duplicate: 1, duplicate: 2}"
+          "name <- %{duplicate: 1, duplicate: 2}",
+          "name <- input(:name) <> \"!\"",
+          "name <- %{nested: input(:name) <> \"!\"}"
         ] do
       error =
         assert_raise CompileError, ~r/inline Step binding source:.*Flow/s, fn ->

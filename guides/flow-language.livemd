@@ -114,15 +114,17 @@ result
 
 ## Keep Headers And Output As Data
 
-A Flow expression, including each inline binding source, can contain:
+An inline binding source can contain:
 
 - `nil`, Boolean values, numbers, strings, and atoms;
 - proper lists;
 - maps with supported data keys; and
 - Flow references.
 
-`Jido.Expr` adds fixed portable operations to these data fields. See
-[Expressions](flow-expressions.md). It requires `3.0.0-beta.6` or later.
+Inline binding sources do not accept `Jido.Expr` operations. Bind the required
+data and put calculations in the inline body. Other Flow data fields accept
+fixed portable operations. See [Expressions](flow-expressions.md). It requires
+`3.0.0-beta.6` or later.
 
 These forms are not Flow expressions:
 

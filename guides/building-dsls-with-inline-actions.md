@@ -68,9 +68,10 @@ Dispatch expander, not from an ordinary Step or Dispatch decision.
 
 ## Use Inline Actions In Flow
 
-Mapped slots use a nested `action` block. The binding sources have the same
-reference scope and static dependencies as that slot's `params` field.
-Map preserves source order. Reduce and Iterate remain serial.
+Mapped slots use a nested `action` block. The direct binding sources have the
+same reference scope and static dependencies as that slot's `params` field.
+They do not accept Flow operations. Put calculations in the body. Map
+preserves source order. Reduce and Iterate remain serial.
 
 ```elixir
 defmodule InlineFlowGuide.Mapped do
@@ -403,8 +404,10 @@ expressions only when its own `run` function is used. A missing runtime field
 returns `{:error, {:missing_field, key}}`. Unknown fields and unsupported calls
 fail at compile time, before target creation. The host can also use Expr
 operations in sources, such as `value <- field(:count) * 2`, when `:count` is
-an allowed field. Validation checks all references, including skipped Boolean
-branches. The host chooses its runtime error and input-size policy.
+an allowed field. Flow does not permit operations in inline binding sources,
+but a downstream host can choose a different policy. Validation checks all
+references, including skipped Boolean branches. The host chooses its runtime
+error and input-size policy.
 
 ## Host Integration Contract
 
