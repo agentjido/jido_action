@@ -53,7 +53,7 @@ defmodule JidoActionTest.Exec.WorkInspectionTest do
       assert {:error, %InvalidExecutionError{details: %{reason: :invalid_work_token}} = error} =
                Exec.step(execution, token)
 
-      assert is_binary(JSON.encode!(error))
+      assert Jido.Flow.Error.to_map(error).details.reason == :invalid_work_token
       assert Exec.ready(execution) == ready
       assert execution.revision == 0
       refute_received {RecorderAction, _}

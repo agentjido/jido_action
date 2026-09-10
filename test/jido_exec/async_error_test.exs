@@ -5,18 +5,14 @@ defmodule JidoActionTest.Exec.AsyncErrorTest do
   alias JidoActionTest.Fixtures.Actions.Add
   alias JidoActionTest.Fixtures.Execution.BlockingAction
 
-  test "encodes a PID rejected as an invalid cancellation handle" do
+  test "keeps a PID rejected as an invalid cancellation handle" do
     assert {:error, %Error.InvalidHandleError{} = error} = Jido.Exec.cancel(self())
 
-    decoded = error |> JSON.encode!() |> JSON.decode!()
-
-    assert decoded["type"] == "async_invalid_handle"
-    assert decoded["message"] == error.message
-    assert decoded["details"]["value"] == inspect(self())
     assert error.details == %{operation: :cancel, value: self()}
+    assert Error.to_map(error).details === error.details
   end
 
-  test "encodes nested invalid values from each public handle operation" do
+  test "keeps nested invalid values from each public handle operation" do
     ref = make_ref()
     invalid = %{nested: [self(), {ref, %{exception: RuntimeError.exception("failed")}}]}
 
@@ -28,27 +24,25 @@ defmodule JidoActionTest.Exec.AsyncErrorTest do
       assert {:error, %Error.InvalidHandleError{} = error} = result
       assert error.details.value === invalid
 
-      assert Error.to_map(error).details.value == %{
-               nested: [inspect(self()), [inspect(ref), %{exception: "#Struct<RuntimeError>"}]]
-             }
+      assert Error.to_map(error).details.value === invalid
 
-      assert_external_map(error)
+      assert_error_map(error)
     end
   end
 
-  test "encodes PID and reference details from a consumed await handle" do
+  test "keeps PID and reference details from a consumed await handle" do
     handle = Jido.Exec.run_async(Add, %{value: 2})
     assert {:ok, %{value: 3}} = Jido.Exec.await(handle, 1_000)
     assert {:error, %Error.InvalidHandleError{} = error} = Jido.Exec.await(handle)
 
     assert error.details.pid == handle.pid
     assert error.details.ref == handle.ref
-    assert Error.to_map(error).details.pid == inspect(handle.pid)
-    assert Error.to_map(error).details.ref == inspect(handle.ref)
-    assert_external_map(error)
+    assert Error.to_map(error).details.pid === handle.pid
+    assert Error.to_map(error).details.ref === handle.ref
+    assert_error_map(error)
   end
 
-  test "encodes an actual await timeout and a stopped execution error" do
+  test "maps an actual await timeout and a stopped execution error" do
     for mode <- [:timeout, :exit] do
       handle = Jido.Exec.run_async(BlockingAction, %{value: 1}, %{test_pid: self()})
       assert_receive {:blocking_flow_node_started, worker}, 1_000
@@ -66,11 +60,11 @@ defmodule JidoActionTest.Exec.AsyncErrorTest do
             assert_receive {:DOWN, ^handle_monitor, :process, _, :killed}, 1_000
             assert {:error, %Error.AsyncExecutionError{} = error} = Jido.Exec.await(handle)
             assert error.details.pid == handle.pid
-            assert Error.to_map(error).details.pid == inspect(handle.pid)
+            assert Error.to_map(error).details.pid === handle.pid
             error
         end
 
-      assert_external_map(error)
+      assert_error_map(error)
       assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :killed}, 1_000
       Process.demonitor(handle_monitor, [:flush])
       refute Process.alive?(handle.pid)
@@ -105,15 +99,7 @@ defmodule JidoActionTest.Exec.AsyncErrorTest do
     refute Error.owned?(RuntimeError.exception("other"))
   end
 
-  test "encodes async errors through the stable map" do
-    error = Error.timeout_error("late", timeout: 25)
-    encoded = JSON.encode!(error)
-
-    assert encoded =~ ~s("type":"async_timeout")
-    assert encoded =~ ~s("timeout":25)
-  end
-
-  test "supports default constructors and each JSON encoder" do
+  test "supports default constructors and maps each error" do
     errors = [
       Error.invalid_handle_error("invalid"),
       Error.timeout_error("late"),
@@ -124,19 +110,24 @@ defmodule JidoActionTest.Exec.AsyncErrorTest do
     assert Enum.all?(errors, &Error.owned?/1)
 
     for error <- errors do
-      assert is_binary(JSON.encode!(error))
       assert Error.to_map(error).details == %{}
     end
 
     assert Error.execution_error("failed", :invalid).details == %{}
   end
 
-  defp assert_external_map(error) do
-    mapped = Error.to_map(error)
-    decoded = error |> JSON.encode!() |> JSON.decode!()
+  test "does not provide transport encoding for async error structs" do
+    assert_raise Protocol.UndefinedError, fn ->
+      Error.timeout_error("late", timeout: 25) |> JSON.encode!()
+    end
+  end
 
-    assert decoded == mapped |> JSON.encode!() |> JSON.decode!()
-    assert decoded["type"] == Atom.to_string(mapped.type)
-    assert decoded["message"] == error.message
+  defp assert_error_map(error) do
+    mapped = Error.to_map(error)
+
+    assert is_atom(mapped.type)
+    assert mapped.message == error.message
+    assert mapped.details === error.details
+    assert mapped.retryable? == false
   end
 end

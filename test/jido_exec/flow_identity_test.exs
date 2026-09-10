@@ -98,16 +98,12 @@ defmodule JidoActionTest.Exec.FlowIdentityTest do
                _ -> false
              end)
 
-      identity_text = Runic.Identity.to_string(result.hash)
-
-      assert %{
-               type: :flow_execution_error,
-               details: %{
-                 identity: ^identity_text,
-                 existing: %{hash: ^identity_text},
-                 incoming: %{hash: ^identity_text}
-               }
-             } = Flow.Error.to_map(error)
+      mapped = Flow.Error.to_map(error)
+      assert mapped.type == :flow_execution_error
+      assert mapped.details === error.details
+      assert mapped.details.identity == result.hash
+      assert mapped.details.existing.hash == result.hash
+      assert mapped.details.incoming.hash == result.hash
 
       assert {:ok, ^completed} = Exec.continue(completed)
 
@@ -253,8 +249,7 @@ defmodule JidoActionTest.Exec.FlowIdentityTest do
           runnable.id,
           changed
         ] do
-      assert {:error, %InvalidExecutionError{} = error} = Exec.step(execution, selection)
-      assert is_binary(JSON.encode!(error))
+      assert {:error, %InvalidExecutionError{}} = Exec.step(execution, selection)
       assert Exec.ready(execution) == [work]
     end
 

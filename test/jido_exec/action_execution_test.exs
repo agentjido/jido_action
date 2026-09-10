@@ -263,7 +263,7 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
       end
     end
 
-    test "keeps caught stacktraces out of the stable error map and JSON output" do
+    test "keeps caught stacktraces out of the public error map" do
       assert {:error, %ExecutionFailureError{} = error} =
                Exec.run(StacktraceAction, %{mode: :raise}, %{})
 
@@ -271,7 +271,6 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
                [:details, :message, :retryable?, :type]
 
       refute Map.has_key?(Jido.Action.Error.to_map(error), :stacktrace)
-      assert is_binary(JSON.encode!(error))
     end
 
     test "converts unsupported action result shapes to execution errors" do

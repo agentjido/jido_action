@@ -19,8 +19,6 @@ defmodule Jido.Action.Error do
     ],
     unknown_error: __MODULE__.Internal.UnknownError
 
-  alias Jido.Action.Error.ExternalData
-
   @type details_input :: map() | keyword()
   @type error_map :: %{
           type: atom(),
@@ -177,85 +175,58 @@ defmodule Jido.Action.Error do
   end
 
   @doc """
-  Converts an Action error into its stable public map.
+  Converts an Action error into its public map.
 
   Unsupported values become conservative execution errors. They cannot select
   a canonical type, add structured details, or request a retry.
 
-  Action, Flow, and Exec error maps and JSON use the same external conversion:
-
-  - Atoms, numbers, Boolean values, and `nil` stay unchanged. JSON converts
-    atoms to strings, except for Boolean values and `nil`.
-  - Valid UTF-8 binaries stay unchanged. Other binaries become `base64:`
-    strings. Binaries above 4,096 bytes become `"#Truncated<binary>"`.
-  - Lists keep their order. Tuples become lists. Maps keep scalar keys;
-    other keys become diagnostic strings. Map entries use Erlang term order.
-    If converted keys collide, the last entry wins.
-  - Structs, including exceptions, become `"#Struct<Module>"`. Valid Runic
-    identities become full `runic:sha256:v1:...` strings.
-  - PIDs, references, ports, functions, bitstrings, and short improper lists
-    use inspected text. Inspection does not call custom struct protocols. It
-    uses a limit of 50 entries and 1,024 printable characters. The binary limit
-    also applies to the resulting text.
-  - Conversion stops at depth 16 or after 1,024 terms per converted value.
-    Map keys count toward this budget. Lists and tuples keep at most 64 items,
-    with a final `"#Truncated"` marker when more items remain.
-    Declared Flow causes keep their error maps and share the containing
-    details' depth and term budget. They are converted once. Malformed cause
-    lists use the same fallback as other unsupported diagnostic values.
-  - A map above 64 entries becomes
-    `%{"__truncated__" => "map exceeds 64 entries"}`. A map that exhausts the
-    term budget uses the reserved `"__truncated__"` key. A depth or term limit
-    replaces the affected value with `"#Truncated"`.
-  - Integers with more than 100 decimal digits become `"#Truncated<integer>"`.
-    Unsupported detail containers become an empty map. Direct keyword detail
-    containers must have at most 64 entries.
-
-  This conversion is lossy. It does not change the original exception, its
-  details, or its stacktrace. The map omits the exception's top-level
-  stacktrace. Use the in-memory error for full cause inspection. Diagnostic
-  strings describe the current runtime; they are not persistent identifiers.
+  Detail values stay unchanged. A caller that sends the map through JSON or
+  another transport must convert its own detail values for that transport.
+  The map omits the exception's top-level stacktrace.
   """
   @spec to_map(term()) :: error_map()
-  def to_map(error), do: error |> external_data() |> ExternalData.to_map()
+  def to_map({:error, reason, _effects}), do: to_map(reason)
+  def to_map({:error, reason}), do: to_map(reason)
 
-  @doc false
-  @spec external_data(term()) :: map()
-  def external_data({:error, reason, _effects}), do: external_data(reason)
-  def external_data({:error, reason}), do: external_data(reason)
+  def to_map(%InvalidInputError{} = error) do
+    %{
+      type: :validation_error,
+      message: error.message,
+      details:
+        error.details
+        |> maybe_put(:field, error.field)
+        |> maybe_put(:value, error.value),
+      retryable?: false
+    }
+  end
 
-  def external_data(%InvalidInputError{} = error) do
-    ExternalData.error_data(:validation_error, error.message, error.details, false,
-      field: error.field,
-      value: error.value
+  def to_map(%ExecutionFailureError{} = error) do
+    error_map(:execution_error, error.message, error.details, retryable?(error))
+  end
+
+  def to_map(%TimeoutError{} = error) do
+    error_map(
+      :timeout,
+      error.message,
+      maybe_put(error.details, :timeout, error.timeout),
+      retryable?(error)
     )
   end
 
-  def external_data(%ExecutionFailureError{} = error) do
-    ExternalData.error_data(:execution_error, error.message, error.details, retryable?(error))
+  def to_map(%ConfigurationError{} = error) do
+    error_map(:configuration_error, error.message, error.details, false)
   end
 
-  def external_data(%TimeoutError{} = error) do
-    ExternalData.error_data(:timeout, error.message, error.details, retryable?(error),
-      timeout: error.timeout
-    )
+  def to_map(%InternalError{} = error) do
+    error_map(:internal_error, error.message, error.details, false)
   end
 
-  def external_data(%ConfigurationError{} = error) do
-    ExternalData.error_data(:configuration_error, error.message, error.details, false)
+  def to_map(%Internal.UnknownError{} = error) do
+    error_map(:internal_error, Exception.message(error), error.details, false)
   end
 
-  def external_data(%InternalError{} = error) do
-    ExternalData.error_data(:internal_error, error.message, error.details, false)
-  end
-
-  def external_data(%Internal.UnknownError{} = error) do
-    message = if is_nil(error.error), do: error.message, else: error.error
-    ExternalData.error_data(:internal_error, message, error.details, false)
-  end
-
-  def external_data(reason) do
-    ExternalData.error_data(:execution_error, reason, %{}, false)
+  def to_map(reason) do
+    error_map(:execution_error, error_message(reason), %{}, false)
   end
 
   @doc """
@@ -291,20 +262,15 @@ defmodule Jido.Action.Error do
   end
 
   defp normalize_constructor_details(_details), do: %{}
-end
 
-defimpl JSON.Encoder,
-  for: [
-    Jido.Action.Error.InvalidInputError,
-    Jido.Action.Error.ExecutionFailureError,
-    Jido.Action.Error.TimeoutError,
-    Jido.Action.Error.ConfigurationError,
-    Jido.Action.Error.InternalError,
-    Jido.Action.Error.Internal.UnknownError
-  ] do
-  def encode(error, opts) do
-    error
-    |> Jido.Action.Error.to_map()
-    |> JSON.Encoder.encode(opts)
+  defp error_map(type, message, details, retryable?) do
+    %{type: type, message: message, details: details, retryable?: retryable?}
   end
+
+  defp error_message(message) when is_binary(message), do: message
+  defp error_message(message) when is_atom(message), do: Atom.to_string(message)
+  defp error_message(message), do: inspect(message)
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

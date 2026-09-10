@@ -3,7 +3,6 @@ defmodule JidoActionTest.Action.ErrorTest do
 
   alias Jido.Action.Error
   alias Jido.Action.Error.Internal.UnknownError
-  alias JidoActionTest.Support.RaisingInspectStruct
 
   describe "error construction" do
     test "constructors create the concrete Action errors" do
@@ -132,51 +131,25 @@ defmodule JidoActionTest.Action.ErrorTest do
       assert mapped.details == %{}
     end
 
-    test "makes concrete error details JSON-safe with a small lossy fallback" do
+    test "preserves concrete error details without transport conversion" do
+      owner = self()
+      exception = RuntimeError.exception("broken")
+
       error =
         Error.execution_error("failed", %{
           tuple: {:error, :closed},
-          owner: self(),
-          exception: %RuntimeError{message: "broken"},
-          hostile: %RaisingInspectStruct{value: 1},
+          owner: owner,
+          exception: exception,
           payload: <<255>>
         })
 
       mapped = Error.to_map(error)
 
-      assert mapped.details.tuple == [:error, :closed]
-      assert is_binary(mapped.details.owner)
-      assert is_binary(mapped.details.exception)
-      assert is_binary(mapped.details.hostile)
-      assert mapped.details.payload == "base64:/w=="
-      assert is_binary(JSON.encode!(mapped))
-    end
-
-    test "uses lossy fallbacks for unsupported detail containers and keys" do
-      owner = self()
-
-      error =
-        Error.execution_error("failed", %{
-          <<255>> => :invalid_binary_key,
-          owner => :runtime_key,
-          improper: [1 | 2]
-        })
-
-      mapped = Error.to_map(error)
-
-      assert mapped.details["base64:/w=="] == :invalid_binary_key
-      assert mapped.details[inspect(owner)] == :runtime_key
-      assert mapped.details.improper == "[1 | 2]"
-
-      keyword_details =
-        Error.ExecutionFailureError.exception(message: "failed", details: [code: 503])
-
-      assert Error.to_map(keyword_details).details == %{code: 503}
-
-      scalar_details =
-        Error.ExecutionFailureError.exception(message: "failed", details: "unsupported")
-
-      assert Error.to_map(scalar_details).details == %{}
+      assert mapped.details === error.details
+      assert mapped.details.owner === owner
+      assert mapped.details.exception === exception
+      assert mapped.details.tuple === {:error, :closed}
+      assert mapped.details.payload === <<255>>
     end
 
     test "uses the underlying message from a Splode unknown error" do
@@ -212,32 +185,10 @@ defmodule JidoActionTest.Action.ErrorTest do
   end
 
   describe "JSON encoding" do
-    test "encodes every concrete Action error through the stable map" do
-      errors = [
-        Error.validation_error("invalid"),
-        Error.execution_error("failed"),
-        Error.timeout_error("slow"),
-        Error.config_error("bad config"),
-        Error.internal_error("broken"),
-        UnknownError.exception(message: "unknown")
-      ]
+    test "does not provide transport encoding for error structs" do
+      error = Error.execution_error("failed")
 
-      for error <- errors do
-        decoded = error |> JSON.encode!() |> JSON.decode!()
-
-        assert is_binary(decoded["type"])
-        assert is_binary(decoded["message"])
-        assert is_map(decoded["details"])
-        assert is_boolean(decoded["retryable?"])
-      end
-    end
-
-    test "encodes invalid UTF-8 without raising" do
-      error = Error.execution_error(<<255>>, %{payload: <<254>>})
-      decoded = error |> JSON.encode!() |> JSON.decode!()
-
-      assert decoded["message"] == "base64:/w=="
-      assert decoded["details"]["payload"] == "base64:/g=="
+      assert_raise Protocol.UndefinedError, fn -> JSON.encode!(error) end
     end
   end
 end

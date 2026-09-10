@@ -104,8 +104,8 @@ state(
 )
 ```
 
-A rejected state stops the Iterate node. Jido does not expose the rejected
-state value in a stable external error form.
+A rejected state stops the Iterate node. Jido does not add the rejected state
+value to the error details.
 
 ## Test Both Boundaries
 

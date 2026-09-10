@@ -266,9 +266,8 @@ defmodule Jido.Flow.CodecTest do
              ["output", "entries", 1, "value", "id"]
            ]
 
-    assert %{details: %{errors: stable_errors}} = Error.to_map(aggregate)
-    assert length(stable_errors) == 7
-    assert is_binary(JSON.encode!(aggregate))
+    assert %{details: %{errors: mapped_errors}} = Error.to_map(aggregate)
+    assert length(mapped_errors) == 7
   end
 
   test "diagnose reports all unknown graph references without cycle cascades" do

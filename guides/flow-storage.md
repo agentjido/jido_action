@@ -200,7 +200,7 @@ end
 ```
 
 The error is one `%Jido.Flow.Error.Invalid{}` Splode group. Its ordered leaf
-errors have JSON paths when a path applies. The stable error map contains the
+errors have JSON paths when a path applies. The public error map contains the
 leaf errors under `details.errors`.
 
 Diagnostics collect errors across root fields, components, nested Choice

@@ -55,7 +55,7 @@ defmodule JidoActionTest.Flow.ErrorTest do
   end
 
   describe "Flow execution failures" do
-    test "keeps native runnable failure details in a stable map" do
+    test "keeps native runnable failure details in the public map" do
       action_error = ActionError.execution_error("action failed", retry: false)
 
       error =
@@ -90,7 +90,6 @@ defmodule JidoActionTest.Flow.ErrorTest do
              ] = failures
 
       refute Error.retryable?(error)
-      assert is_binary(JSON.encode!(error))
     end
 
     test "uses an explicit retry value only when one is present" do
@@ -99,12 +98,10 @@ defmodule JidoActionTest.Flow.ErrorTest do
     end
   end
 
-  describe "stable maps and JSON" do
-    test "keeps full Runic IDs in failures and nested error details" do
+  describe "error maps" do
+    test "keeps native Runic IDs in failures and nested error details" do
       first = Runic.Identity.digest(:activation, :first)
       second = Runic.Identity.digest(:activation, :second)
-      first_text = Runic.Identity.to_string(first)
-      second_text = Runic.Identity.to_string(second)
 
       invalid =
         Error.invalid_execution_error("not ready", %{
@@ -116,18 +113,7 @@ defmodule JidoActionTest.Flow.ErrorTest do
           malformed: %{first | digest: nil}
         })
 
-      assert %{
-               details: %{
-                 runnable_id: ^first_text,
-                 ready: [^second_text],
-                 nested: %{ancestry: [^first_text, ^second_text]},
-                 unrelated: "#Struct<MapSet>",
-                 malformed: "#Struct<Runic.Identity>",
-                 improper: improper
-               }
-             } = Error.to_map(invalid)
-
-      assert is_binary(improper)
+      assert Error.to_map(invalid).details === invalid.details
 
       error =
         Error.flow_failure("checkout", [
@@ -136,14 +122,11 @@ defmodule JidoActionTest.Flow.ErrorTest do
         ])
 
       assert %{details: %{failures: failures}} = Error.to_map(error)
-      assert Enum.map(failures, & &1.runnable_id) == [first_text, second_text]
-      decoded = error |> JSON.encode!() |> JSON.decode!()
-
-      assert Enum.map(decoded["details"]["failures"], & &1["runnable_id"]) ==
-               [first_text, second_text]
+      assert Enum.map(failures, & &1.runnable_id) == [first, second]
+      assert hd(failures).error.details === invalid.details
     end
 
-    test "serializes each Flow leaf and Splode class" do
+    test "maps each Flow leaf and Splode class" do
       definition = Error.validation_error("bad definition", field: :output)
       invalid_execution = Error.invalid_execution_error("not ready", runnable_id: 12)
       execution = Error.execution_error("failed", phase: :runic_execution)
@@ -201,9 +184,14 @@ defmodule JidoActionTest.Flow.ErrorTest do
         assert is_binary(message)
         assert is_map(details)
         assert is_boolean(retryable?)
-        assert is_binary(JSON.encode!(error))
         assert Error.owned?(error)
         refute Error.retryable?(error)
+      end
+    end
+
+    test "does not provide transport encoding for Flow error structs" do
+      assert_raise Protocol.UndefinedError, fn ->
+        Error.validation_error("bad definition") |> JSON.encode!()
       end
     end
 

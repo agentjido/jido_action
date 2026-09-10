@@ -18,7 +18,6 @@ defmodule Jido.Flow.Error do
     merge_with: [Jido.Action.Error]
 
   alias Jido.Action.Error, as: ActionError
-  alias Jido.Action.Error.ExternalData
 
   @type details_input :: map() | keyword()
   @type runnable_failure :: %{
@@ -169,60 +168,62 @@ defmodule Jido.Flow.Error do
   end
 
   @doc """
-  Converts a Flow or Action error into its stable public map.
+  Converts a Flow or Action error into its public map.
 
-  Uses the bounded conversion rules in `Jido.Action.Error.to_map/1`.
-  The original error retains its complete details and stacktrace in memory.
+  Detail values stay unchanged. A caller that sends the map through JSON or
+  another transport must convert its own detail values for that transport.
+  Nested Flow and Action errors become their public maps.
   """
   @spec to_map(term()) :: error_map()
-  def to_map(error), do: error |> external_data() |> ExternalData.to_map()
+  def to_map({:error, reason, _effects}), do: to_map(reason)
+  def to_map({:error, reason}), do: to_map(reason)
 
-  @doc false
-  @spec external_data(term()) :: map()
-  def external_data({:error, reason, _effects}), do: external_data(reason)
-  def external_data({:error, reason}), do: external_data(reason)
-
-  def external_data(%InvalidDefinitionError{} = error) do
-    ExternalData.error_data(:flow_definition_error, error.message, error.details, false)
+  def to_map(%InvalidDefinitionError{} = error) do
+    error_map(:flow_definition_error, error.message, error.details, false)
   end
 
-  def external_data(%InvalidExecutionError{} = error) do
-    ExternalData.error_data(:flow_invalid_execution, error.message, error.details, false)
+  def to_map(%InvalidExecutionError{} = error) do
+    error_map(:flow_invalid_execution, error.message, error.details, false)
   end
 
-  def external_data(%ExecutionFailureError{} = error) do
-    fields =
-      %{}
+  def to_map(%ExecutionFailureError{} = error) do
+    details =
+      error.details
       |> maybe_put(:flow, error.flow)
       |> maybe_put_failures(error.failures)
 
-    ExternalData.error_data(
+    error_map(
       :flow_execution_error,
       error.message,
-      error.details,
-      retryable?(error),
-      Map.to_list(fields)
+      details,
+      retryable?(error)
     )
   end
 
-  def external_data(%TimeoutError{} = error) do
-    ExternalData.error_data(:flow_timeout, error.message, error.details, retryable?(error),
-      flow: error.flow,
-      timeout: error.timeout
+  def to_map(%TimeoutError{} = error) do
+    details =
+      error.details
+      |> maybe_put(:flow, error.flow)
+      |> maybe_put(:timeout, error.timeout)
+
+    error_map(
+      :flow_timeout,
+      error.message,
+      details,
+      retryable?(error)
     )
   end
 
-  def external_data(%InternalError{} = error) do
-    ExternalData.error_data(:flow_internal_error, error.message, error.details, false)
+  def to_map(%InternalError{} = error) do
+    error_map(:flow_internal_error, error.message, error.details, false)
   end
 
-  def external_data(%Internal.UnknownError{} = error) do
-    message = if is_nil(error.error), do: error.message, else: error.error
-    ExternalData.error_data(:flow_internal_error, message, error.details, false)
+  def to_map(%Internal.UnknownError{} = error) do
+    error_map(:flow_internal_error, Exception.message(error), error.details, false)
   end
 
-  def external_data(%Invalid{errors: errors}) do
-    ExternalData.error_data(
+  def to_map(%Invalid{errors: errors}) do
+    error_map(
       :flow_definition_error,
       "Invalid Flow",
       error_list_details(errors),
@@ -230,8 +231,8 @@ defmodule Jido.Flow.Error do
     )
   end
 
-  def external_data(%Execution{errors: errors}) do
-    ExternalData.error_data(
+  def to_map(%Execution{errors: errors}) do
+    error_map(
       :flow_execution_error,
       "Flow execution failed",
       error_list_details(errors),
@@ -239,8 +240,8 @@ defmodule Jido.Flow.Error do
     )
   end
 
-  def external_data(%Internal{errors: errors}) do
-    ExternalData.error_data(
+  def to_map(%Internal{errors: errors}) do
+    error_map(
       :flow_internal_error,
       "Internal Flow error",
       error_list_details(errors),
@@ -248,7 +249,7 @@ defmodule Jido.Flow.Error do
     )
   end
 
-  def external_data(error), do: ActionError.external_data(error)
+  def to_map(error), do: ActionError.to_map(error)
 
   @doc "Returns whether a Flow or Action error is retryable."
   @spec retryable?(term()) :: boolean()
@@ -284,8 +285,11 @@ defmodule Jido.Flow.Error do
   def owned?(%Internal{}), do: true
   def owned?(_error), do: false
 
-  defp error_list_details(errors),
-    do: %{errors: ExternalData.map_items(errors, &nested_error/1)}
+  defp error_map(type, message, details, retryable?) do
+    %{type: type, message: message, details: details, retryable?: retryable?}
+  end
+
+  defp error_list_details(errors), do: %{errors: Enum.map(errors, &to_map/1)}
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
@@ -293,16 +297,14 @@ defmodule Jido.Flow.Error do
   defp maybe_put_failures(details, []), do: details
 
   defp maybe_put_failures(details, failures) do
-    Map.put(details, :failures, ExternalData.map_items(failures, &failure_to_map/1))
+    Map.put(details, :failures, Enum.map(failures, &failure_to_map/1))
   end
 
   defp failure_to_map(%{node: node, runnable_id: runnable_id, error: error}) do
-    %{node: node, runnable_id: runnable_id, error: nested_error(error)}
+    %{node: node, runnable_id: runnable_id, error: to_map(error)}
   end
 
   defp failure_to_map(value), do: value
-
-  defp nested_error(error), do: %ExternalData.NestedError{error: error}
 
   defp normalize_input(details) when is_map(details) and not is_struct(details), do: details
 
@@ -310,23 +312,4 @@ defmodule Jido.Flow.Error do
     do: if(Keyword.keyword?(details), do: Map.new(details), else: %{})
 
   defp normalize_input(_details), do: %{}
-end
-
-defimpl JSON.Encoder,
-  for: [
-    Jido.Flow.Error.InvalidDefinitionError,
-    Jido.Flow.Error.InvalidExecutionError,
-    Jido.Flow.Error.ExecutionFailureError,
-    Jido.Flow.Error.TimeoutError,
-    Jido.Flow.Error.InternalError,
-    Jido.Flow.Error.Internal.UnknownError,
-    Jido.Flow.Error.Invalid,
-    Jido.Flow.Error.Execution,
-    Jido.Flow.Error.Internal
-  ] do
-  def encode(error, opts) do
-    error
-    |> Jido.Flow.Error.to_map()
-    |> JSON.Encoder.encode(opts)
-  end
 end

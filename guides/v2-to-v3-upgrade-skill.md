@@ -180,8 +180,9 @@ change application behavior.
 - Do not expect Jido.Exec to retry an error. Treat details.retry as
   information for the caller.
 - Use Jido.Flow.Error for Flow definition and Flow execution failures.
-- Use Jido.Action.Error.to_map/1 or Jido.Flow.Error.to_map/1 at JSON, HTTP,
-  log, and UI boundaries.
+- Use Jido.Action.Error.to_map/1 or Jido.Flow.Error.to_map/1 for the common
+  error-map shape. Select and convert details in the host application before
+  JSON, HTTP, log, or UI transport.
 - Replace Jido.Action.TaskSupervisor with Jido.Exec.TaskSupervisor for the
   global execution supervisor.
 - Do not depend on the package root supervisor name. Use
