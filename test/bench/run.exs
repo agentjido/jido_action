@@ -7,11 +7,11 @@ if args != [] or invalid != [],
   do:
     raise(
       ArgumentError,
-      "usage: mix run bench/run.exs --profile short|scale|smoke|backlog --filter CASE_SUBSTRING --output DIRECTORY"
+      "usage: mix run test/bench/run.exs --profile short|scale|smoke|backlog --filter CASE_SUBSTRING --output DIRECTORY"
     )
 
 profile = Keyword.get(opts, :profile, "short")
-output = Keyword.get(opts, :output, "bench/results/#{profile}")
+output = Keyword.get(opts, :output, "test/bench/results/#{profile}")
 report = JidoActionBench.Suite.run(profile, Keyword.get(opts, :filter))
 JidoActionBench.Suite.write!(report, output)
 IO.puts("Wrote #{output}/report.json and report.md")

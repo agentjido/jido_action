@@ -18,8 +18,14 @@ defmodule JidoAction.MixProject do
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
-      # This consumer compiles only in the isolated build tests.
-      test_ignore_filters: [&String.starts_with?(&1, "test/fixtures/inline_consumer/")],
+      test_ignore_filters: [
+        # This consumer compiles only in the isolated build tests.
+        &String.starts_with?(&1, "test/fixtures/inline_consumer/"),
+        fn path ->
+          String.starts_with?(path, "test/bench/") and
+            not String.ends_with?(path, "_test.exs")
+        end
+      ],
 
       # Docs
       name: "Jido Action",
@@ -64,7 +70,7 @@ defmodule JidoAction.MixProject do
 
   # Specifies which paths to compile per environment.
   defp elixirc_paths(:test), do: ["lib", "test/support"]
-  defp elixirc_paths(:dev), do: ["lib", "bench"]
+  defp elixirc_paths(:dev), do: ["lib"]
   defp elixirc_paths(_), do: ["lib"]
 
   defp docs do

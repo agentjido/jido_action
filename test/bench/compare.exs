@@ -8,5 +8,6 @@ case System.argv() do
     IO.puts("Wrote #{output_path}")
 
   _ ->
-    raise ArgumentError, "usage: mix run bench/compare.exs BEFORE.json AFTER.json COMPARISON.md"
+    raise ArgumentError,
+          "usage: mix run test/bench/compare.exs BEFORE.json AFTER.json COMPARISON.md"
 end

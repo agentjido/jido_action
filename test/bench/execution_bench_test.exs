@@ -1,4 +1,4 @@
-Code.require_file("../../bench/support/suite.exs", __DIR__)
+Code.require_file("support/suite.exs", __DIR__)
 
 defmodule JidoActionTest.ExecutionBenchTest do
   use ExUnit.Case, async: false

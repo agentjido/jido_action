@@ -4,10 +4,10 @@ Run from the package root with Elixir 1.18 or later and the development
 dependencies from `mix.lock`:
 
 ```bash
-ERL_FLAGS='+S 2:2' mix run bench/run.exs --output bench/results/before
+ERL_FLAGS='+S 2:2' mix run test/bench/run.exs --output test/bench/results/before
 ```
 
-Each run writes `report.json` and `report.md`. Reports under `bench/results/`
+Each run writes `report.json` and `report.md`. Reports under `test/bench/results/`
 are ignored by Git.
 
 | Profile | Cases | Graph sizes | Warm-up calls | Timing samples |
@@ -100,10 +100,10 @@ checkouts with separate builds when comparing revisions. Keep the benchmark
 scripts unchanged; they can be run by absolute path from another checkout.
 
 ```bash
-ERL_FLAGS='+S 2:2' mix run bench/run.exs --output bench/results/after
-ERL_FLAGS='+S 2:2' mix run bench/compare.exs \
-  bench/results/before/report.json bench/results/after/report.json \
-  bench/results/comparison.md
+ERL_FLAGS='+S 2:2' mix run test/bench/run.exs --output test/bench/results/after
+ERL_FLAGS='+S 2:2' mix run test/bench/compare.exs \
+  test/bench/results/before/report.json test/bench/results/after/report.json \
+  test/bench/results/comparison.md
 ```
 
 Comparison requires matching environments, settings, methods, tool hashes,
@@ -120,7 +120,7 @@ failure matrix.
 For release measurements, use the existing isolated consumer fixture:
 
 ```bash
-ERL_FLAGS='+S 2:2' MIX_ENV=test mix run bench/release.exs bench/results/release
+ERL_FLAGS='+S 2:2' MIX_ENV=test mix run test/bench/release.exs test/bench/results/release
 ```
 
 This writes `release.json` with release size, generated module size, memory

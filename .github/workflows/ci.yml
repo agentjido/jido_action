@@ -26,4 +26,4 @@ jobs:
       docs_command: mix docs --warnings-as-errors
       test_command: |
         mix test --cover --warnings-as-errors
-        ERL_FLAGS='+S 2:2' mix run bench/run.exs --profile smoke
+        ERL_FLAGS='+S 2:2' mix run test/bench/run.exs --profile smoke
