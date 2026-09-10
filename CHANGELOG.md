@@ -11,6 +11,19 @@ entries return to the normal automated changelog process.
 
 <!-- changelog -->
 
+## [3.0.0-beta.10](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.9...v3.0.0-beta.10) (2026-09-10)
+
+
+
+
+### Bug Fixes:
+
+* flow: reject operations in inline bindings by mikehostetler
+
+### Refactoring:
+
+* errors: remove transport encoding by mikehostetler
+
 ## [3.0.0-beta.9](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.8...v3.0.0-beta.9) (2026-09-09)
 
 
