@@ -127,7 +127,7 @@ needed. The encoded Steps still contain only these version 1 fields:
 %{"type" => "jido.flow", "version" => 1} = document
 [normalize, greet] = document["components"]
 "actions/greeting/greet/v1" = greet["action"]
-["action", "after", "kind", "meta", "name", "params"] = Enum.sort(Map.keys(greet))
+["action", "kind", "meta", "name", "needs", "params"] = Enum.sort(Map.keys(greet))
 
 %{
   "$type" => "map",

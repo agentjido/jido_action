@@ -36,7 +36,7 @@ The binding expression is Flow data. The body is normal Elixir. The body can
 call functions, use pipes, match values, and call private functions in the
 owner module.
 
-The short Step form accepts only Step options such as `after:` and `meta:`.
+The short Step form accepts only Step options such as `needs:` and `meta:`.
 Use a nested `action` block for Action schemas, descriptions, or context.
 
 ## Configure An Inline Action
@@ -44,7 +44,7 @@ Use a nested `action` block for Action schemas, descriptions, or context.
 The nested form separates component fields from Action fields:
 
 ```elixir
-step "greet", after: ["normalize"], meta: %{kind: "message"} do
+step "greet", needs: ["normalize"], meta: %{kind: "message"} do
   action name <- result("normalize", :name),
     name: "build_greeting",
     description: "Build a greeting",

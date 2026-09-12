@@ -45,7 +45,7 @@ defmodule JidoActionTest.Fixtures.FlowAuthoring do
           name: "child",
           flow: NestedFlow,
           params: %{value: Ref.result("load", :value)},
-          after: ["load"]
+          needs: ["load"]
         ),
         Choice.new!(
           name: "route",
@@ -110,7 +110,7 @@ defmodule JidoActionTest.Fixtures.FlowAuthoring do
       "child",
       NestedFlow,
       %{value: Builder.result("load", :value)},
-      after: ["load"]
+      needs: ["load"]
     )
     |> Builder.choice(
       "route",

@@ -20,7 +20,7 @@ defmodule Jido.Flow.Choice do
   alias Jido.Flow.Component
   alias Jido.Flow.Expression
 
-  @keys [:name, :options, :fallback, :after, :meta]
+  @keys [:name, :options, :fallback, :needs, :meta]
 
   @schema Zoi.struct(
             __MODULE__,
@@ -28,8 +28,9 @@ defmodule Jido.Flow.Choice do
               name: Zoi.string(description: "Component name"),
               options: Zoi.list(Zoi.any(), description: "Ordered Choice options"),
               fallback: Zoi.any(description: "Required Choice fallback"),
-              after:
-                Zoi.list(Zoi.string(), description: "Explicit control order") |> Zoi.default([]),
+              needs:
+                Zoi.list(Zoi.string(), description: "Explicit control dependencies")
+                |> Zoi.default([]),
               meta: Zoi.map(description: "Portable author metadata") |> Zoi.default(%{})
             },
             coerce: true
@@ -197,14 +198,14 @@ defmodule Jido.Flow.Choice do
          {:ok, name} <- Component.name(Map.get(attrs, :name)),
          {:ok, options} <- options(Map.get(attrs, :options)),
          {:ok, fallback} <- fallback(Map.get(attrs, :fallback)),
-         {:ok, after_names} <- Component.after_names(Map.get(attrs, :after, [])),
+         {:ok, needs_names} <- Component.needs_names(Map.get(attrs, :needs, [])),
          {:ok, meta} <- Component.meta(Map.get(attrs, :meta, %{})) do
       {:ok,
        %__MODULE__{
          name: name,
          options: options,
          fallback: fallback,
-         after: after_names,
+         needs: needs_names,
          meta: meta
        }}
     end
@@ -252,7 +253,7 @@ defmodule Jido.Flow.Choice do
         action: choice.fallback.action,
         params: Expression.to_map(choice.fallback.params)
       },
-      after: choice.after,
+      needs: choice.needs,
       meta: choice.meta
     }
   end

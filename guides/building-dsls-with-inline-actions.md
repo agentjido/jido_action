@@ -193,9 +193,9 @@ for that slot. Do not combine inline and explicit `decision` fields, or inline
 and explicit `expander` fields. A callback expander can coexist with explicit
 decision `params`; those parameters belong to the decision.
 
-The existing Step shorthand still works. Its `after:` and `meta:` options
+The existing Step shorthand still works. Its `needs:` and `meta:` options
 belong to the Step. Use the nested `action` form for Action metadata, schemas,
-or `context:`; keep `after` and `meta` on the surrounding component.
+or `context:`; keep `needs` and `meta` on the surrounding component.
 
 ## Build A Non-Flow Host
 

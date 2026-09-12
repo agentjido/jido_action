@@ -2,7 +2,7 @@
 
 ## Overview
 
-A Flow graph gets dependencies from result references and explicit `after`
+A Flow graph gets dependencies from result references and explicit `needs`
 entries. Source order does not create a dependency.
 
 Run the cells from top to bottom.
@@ -58,9 +58,9 @@ parameter expression reads both results.
 dependencies
 ```
 
-## Use After For Control Only
+## Use Needs For Control Only
 
-`after:` orders work without copying predecessor output into the next Action.
+`needs:` orders work without copying predecessor output into the next Action.
 
 <!-- livebook:{"force_markdown":true} -->
 
@@ -68,17 +68,17 @@ dependencies
 step "publish",
   action: FlowDependencies.Echo,
   params: %{status: :published},
-  after: ["audit", "approve"]
+  needs: ["audit", "approve"]
 ```
 
-Use a result reference when the Action needs data. Use `after` only when the
+Use a result reference when the Action needs data. Use `needs` only when the
 dependency is an author control decision.
 
 Jido keeps the three forms separate:
 
 ```elixir
 %{
-  after: ["audit"],
+  needs: ["audit"],
   references: ["render"],
   effective: ["audit", "render"]
 }

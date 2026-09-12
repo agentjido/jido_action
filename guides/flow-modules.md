@@ -169,7 +169,7 @@ names and non-Step components, including Subflows, raise `ArgumentError`.
 Lookup does not execute the body or create atoms.
 
 The helper returns only the target. It does not copy the Step's parameters,
-`after`, or `meta`. Supply those fields for the new graph. Call the helper
+`needs`, or `meta`. Supply those fields for the new graph. Call the helper
 after its Flow module has compiled, not from that module's unfinished `flow`
 block. See [Builder reuse](flow-builder.md#reuse-an-inline-step) and
 [JSON storage](flow-storage.md#store-a-compiled-inline-step).

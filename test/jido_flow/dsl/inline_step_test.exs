@@ -426,7 +426,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
              Jido.Flow.dependencies(JidoActionTest.Fixtures.InlineGreetingFlow.flow())
 
     assert dependencies["greet"] == %{
-             after: [],
+             needs: [],
              references: ["normalize"],
              effective: ["normalize"]
            }
@@ -483,7 +483,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
 
     for step <- flow.components do
       assert Map.keys(Map.from_struct(step)) |> Enum.sort() ==
-               [:action, :after, :meta, :name, :params]
+               [:action, :meta, :name, :needs, :params]
 
       assert is_atom(step.action)
       assert step.action.name() == step.name
@@ -604,7 +604,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
            end)
   end
 
-  test "all inline macro arities lower their params, after, and meta through normal Steps" do
+  test "all inline macro arities lower their params, needs, and meta through normal Steps" do
     source = """
     defmodule Jido.Flow.DSL.InlineStepTest.BindingFormsFlow do
       use Jido.Flow, name: "inline_binding_forms"
@@ -615,7 +615,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
           {:ok, %{ready: true}}
         end
 
-        step "one", name <- input(:name), after: ["seed"], meta: %{form: "one"} do
+        step "one", name <- input(:name), needs: ["seed"], meta: %{form: "one"} do
           {:ok, %{name: name}}
         end
 
@@ -624,7 +624,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
         end
 
         step "two_options", name <- result("two", :name), count <- input(:count),
-          after: ["seed"], meta: %{form: "two"} do
+          needs: ["seed"], meta: %{form: "two"} do
           {:ok, %{name: name, count: count}}
         end
 
@@ -648,10 +648,10 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     assert [seed, one, two, two_options, list, pattern] = module.flow().components
     assert seed.name == "seed"
     assert seed.params == %{}
-    assert one.after == ["seed"]
+    assert one.needs == ["seed"]
     assert one.meta == %{form: "one"}
     assert two.params == %{name: Ref.result("one", :name), ctx: Ref.context()}
-    assert two_options.after == ["seed"]
+    assert two_options.needs == ["seed"]
     assert two_options.meta == %{form: "two"}
     assert list.meta == %{form: "list"}
     assert pattern.params == Ref.input([])
@@ -771,15 +771,15 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     assert parsed.pattern_ast == {:%{}, [line: @source_line], []}
   end
 
-  test "all header forms retain after and meta options without body evaluation" do
+  test "all header forms retain needs and meta options without body evaluation" do
     marker = :inline_body_ran
     body = quote do: send(self(), unquote(marker))
 
     option_sets = [
       [],
-      [after: [:first]],
+      [needs: [:first]],
       [meta: %{owner: :test}],
-      [after: [:first], meta: %{owner: :test}]
+      [needs: [:first], meta: %{owner: :test}]
     ]
 
     for header <- [
@@ -800,9 +800,9 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     refute_received ^marker
   end
 
-  test "body functions and nested after clauses remain normal Elixir syntax" do
+  test "needs headers keep nested after clauses as normal Elixir syntax" do
     source = """
-    step :read, names <- input(:names), after: [:load] do
+    step :read, names <- input(:names), needs: [:load] do
       try do
         cleaner = fn name -> String.trim(name) end
         {:ok, %{names: Enum.map(names, cleaner)}}
@@ -815,7 +815,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     {:step, _, [_name, _binding, _header_options, options]} = ast(source)
     parsed = parse(source)
 
-    assert parsed.options == [after: [:load]]
+    assert parsed.options == [needs: [:load]]
     assert parsed.body_ast == options[:do]
     assert Macro.to_string(parsed.body_ast) =~ "after"
   end
@@ -828,9 +828,9 @@ defmodule Jido.Flow.DSL.InlineStepTest do
           "[]"
         ],
         options <- [
-          "after: [:load]",
+          "needs: [:load]",
           "meta: %{owner: :test}",
-          "after: [:load], meta: %{owner: :test}"
+          "needs: [:load], meta: %{owner: :test}"
         ] do
       source = "step :read, #{header}, #{options} do\n  {:ok, %{}}\nend"
       {:step, _, arguments} = ast(source)
@@ -842,8 +842,8 @@ defmodule Jido.Flow.DSL.InlineStepTest do
   end
 
   test "split header and body options reject duplicate fields" do
-    assert_raise CompileError, ~r/duplicate inline Step field: :after/, fn ->
-      InlineStep.parse!([], [after: [:one]], [after: [:two], do: :ok], caller())
+    assert_raise CompileError, ~r/duplicate inline Step field: :needs/, fn ->
+      InlineStep.parse!([], [needs: [:one]], [needs: [:two], do: :ok], caller())
     end
   end
 
@@ -925,10 +925,10 @@ defmodule Jido.Flow.DSL.InlineStepTest do
   end
 
   test "inline options reject explicit target fields, schema fields, and unknown fields" do
-    for field <- [:action, :params, :run, :schema, :output_schema, :unknown] do
+    for field <- [:action, :after, :params, :run, :schema, :output_schema, :unknown] do
       error =
         assert_raise CompileError,
-                     "#{@source_file}:#{@source_line}: unsupported inline Step field: #{inspect(field)}; use only after:, meta:, and do:",
+                     "#{@source_file}:#{@source_line}: unsupported inline Step field: #{inspect(field)}; use only needs:, meta:, and do:",
                      fn ->
                        InlineStep.parse!(
                          ast("name <- input()"),
@@ -943,14 +943,14 @@ defmodule Jido.Flow.DSL.InlineStepTest do
   end
 
   test "duplicate fields, missing bodies, and malformed options fail before parsing bindings" do
-    for field <- [:after, :meta, :do] do
+    for field <- [:needs, :meta, :do] do
       assert_raise CompileError, ~r/duplicate inline Step field/, fn ->
         InlineStep.parse!([], [{field, :first}, {field, :second}, {:do, :ok}], caller())
       end
     end
 
     assert_raise CompileError, ~r/inline Step requires a do block/, fn ->
-      InlineStep.parse!([], [after: [:first]], caller())
+      InlineStep.parse!([], [needs: [:first]], caller())
     end
 
     assert_raise CompileError, ~r/inline Step options must be a keyword list/, fn ->

@@ -239,8 +239,8 @@ end
   Jido.Exec.run(MyApp.Flows.GreetAndNotify, %{name: "Ada"}, %{})
 ```
 
-Every canonical Flow has one output expression. The module DSL may omit
-`output` and then uses the last block's complete result. Flows also support
+Each Flow module and canonical Flow has one explicit output expression. In a
+module Flow, `output` must be the final declaration. Flows also support
 ordered Choices, Map and Reduce collections, bounded Iterate components with
 State, independent components that can run in parallel, one Dispatch at the
 end of a Flow, and a step-wise execution API.
@@ -276,7 +276,7 @@ end
 
 Binding sources use direct Flow references or data. Bodies use normal Elixir and
 compile to ordinary Actions. This shipped shorthand has empty field schemas
-and accepts only Step `after:` and `meta:` options.
+and accepts only Step `needs:` and `meta:` options.
 Use `MyApp.Flows.SimpleGreeting.step_action("greet")` to reuse its target in
 Builder or a trusted Registry. Neither Builder nor JSON accepts body code,
 closures, or MFAs. See [Build Your First Flow](guides/build-your-first-flow.livemd).

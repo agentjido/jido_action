@@ -148,12 +148,13 @@ change application behavior.
 
 7. Replace Plans and Chains only where needed
 
-- Treat Jido.Flow as a new v3 API. Do not rename unpublished Flow-spike fields.
+- Treat Jido.Flow as a new v3 API. Use current v3 field names. Do not add
+  compatibility for unpublished beta field names.
 - Replace a reusable or executable Jido.Plan DAG with a Flow module, runtime
   Builder Flow, or direct canonical Flow.
 - Give every Flow one explicit output.
 - Use result references for data dependencies.
-- Use after only for required order that has no data reference.
+- Use `needs` only for required order that has no data reference.
 - Pass runtime context to Jido.Exec or an Instruction. Do not store runtime
   context in the Flow definition.
 - Do not reproduce the implicit parameter merge from Jido.Exec.Chain. Define

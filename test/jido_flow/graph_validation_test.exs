@@ -49,12 +49,12 @@ defmodule Jido.Flow.GraphValidationTest do
     }
   end
 
-  defp stored_step(name, after_names) do
+  defp stored_step(name, needs) do
     %{
       "kind" => "step",
       "name" => name,
       "action" => "action",
-      "after" => after_names,
+      "needs" => needs,
       "params" => %{"$type" => "map", "entries" => []},
       "meta" => %{"$type" => "map", "entries" => []}
     }
@@ -63,7 +63,7 @@ defmodule Jido.Flow.GraphValidationTest do
   defp stored_ref(name),
     do: %{"$ref" => %{"source" => "result", "component" => name, "path" => []}}
 
-  defp step(name, after_names), do: Step.new!(name: name, action: ProbeAction, after: after_names)
+  defp step(name, needs), do: Step.new!(name: name, action: ProbeAction, needs: needs)
 
   test "direct, Builder, DSL, and stored graphs agree on valid and invalid dependencies" do
     cases = [
@@ -78,19 +78,19 @@ defmodule Jido.Flow.GraphValidationTest do
     ]
 
     for {{edges, output, expected}, index} <- Enum.with_index(cases) do
-      components = Enum.map(edges, fn {name, after_names} -> step(name, after_names) end)
+      components = Enum.map(edges, fn {name, needs} -> step(name, needs) end)
       direct = Flow.new(name: "graph", components: components, output: Ref.result(output))
 
       built =
-        Enum.reduce(edges, Builder.new(name: "graph"), fn {name, after_names}, builder ->
-          Builder.step(builder, name, ProbeAction, %{}, after: after_names)
+        Enum.reduce(edges, Builder.new(name: "graph"), fn {name, needs}, builder ->
+          Builder.step(builder, name, ProbeAction, %{}, needs: needs)
         end)
         |> Builder.output(Ref.result(output))
         |> Builder.build()
 
       document =
         stored(
-          Enum.map(edges, fn {name, after_names} -> stored_step(name, after_names) end),
+          Enum.map(edges, fn {name, needs} -> stored_step(name, needs) end),
           stored_ref(output)
         )
 
@@ -98,8 +98,8 @@ defmodule Jido.Flow.GraphValidationTest do
       module = Module.concat(__MODULE__, "DependencyCase#{index}")
 
       declarations =
-        Enum.map_join(edges, "\n", fn {name, after_names} ->
-          "step #{inspect(name)}, action: #{inspect(ProbeAction)}, params: %{}, after: #{inspect(after_names)}"
+        Enum.map_join(edges, "\n", fn {name, needs} ->
+          "step #{inspect(name)}, action: #{inspect(ProbeAction)}, params: %{}, needs: #{inspect(needs)}"
         end)
 
       source = """
@@ -138,7 +138,7 @@ defmodule Jido.Flow.GraphValidationTest do
 
     assert error.details == %{owner: "one", component: "z_missing"}
 
-    document = stored([stored_step("one", component.after)], stored_ref("one"))
+    document = stored([stored_step("one", component.needs)], stored_ref("one"))
     assert {:error, %Error.Invalid{errors: errors}} = Codec.diagnose(document, registry())
 
     assert Enum.map(errors, & &1.details) == [
@@ -364,11 +364,11 @@ defmodule Jido.Flow.GraphValidationTest do
   test "missing references and cycles identify their source declaration" do
     cases = [
       {"missing_component",
-       ~s|step "one", action: #{inspect(ProbeAction)}, params: %{}, after: ["absent"]|,
+       ~s|step "one", action: #{inspect(ProbeAction)}, params: %{}, needs: ["absent"]|,
        ~s|output(result("one"))|, 4},
       {"missing_output", ~s|step "one", action: #{inspect(ProbeAction)}, params: %{}|,
        ~s|output(result("absent"))|, 5},
-      {"self_cycle", ~s|step "one", action: #{inspect(ProbeAction)}, params: %{}, after: ["one"]|,
+      {"self_cycle", ~s|step "one", action: #{inspect(ProbeAction)}, params: %{}, needs: ["one"]|,
        ~s|output(result("one"))|, 4}
     ]
 
@@ -434,9 +434,9 @@ defmodule Jido.Flow.GraphValidationTest do
     defmodule Jido.Flow.GraphValidationTest.BlockedCycle do
       use Jido.Flow, name: "blocked_cycle"
       flow do
-        step "blocked", action: #{inspect(ProbeAction)}, params: %{}, after: ["one"]
-        step "one", action: #{inspect(ProbeAction)}, params: %{}, after: ["two"]
-        step "two", action: #{inspect(ProbeAction)}, params: %{}, after: ["one"]
+        step "blocked", action: #{inspect(ProbeAction)}, params: %{}, needs: ["one"]
+        step "one", action: #{inspect(ProbeAction)}, params: %{}, needs: ["two"]
+        step "two", action: #{inspect(ProbeAction)}, params: %{}, needs: ["one"]
         output(result("blocked"))
       end
     end

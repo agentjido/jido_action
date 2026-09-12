@@ -67,7 +67,7 @@ defmodule JidoActionTest.Exec.WorkAllocationTest do
   defp parallel_flow do
     names = Enum.map(1..16, &"work_#{&1}")
     components = Enum.map(names, &Step.new!(name: &1, action: EchoParamsAction))
-    last = Step.new!(name: "last", action: EchoParamsAction, after: names)
+    last = Step.new!(name: "last", action: EchoParamsAction, needs: names)
 
     Flow.new!(
       name: "uninspected_work",

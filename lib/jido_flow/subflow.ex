@@ -11,8 +11,9 @@ defmodule Jido.Flow.Subflow do
               name: Zoi.string(description: "Component name"),
               flow: Zoi.atom(description: "Jido Flow module"),
               params: Zoi.any(description: "Subflow parameter expression") |> Zoi.default(%{}),
-              after:
-                Zoi.list(Zoi.string(), description: "Explicit control order") |> Zoi.default([]),
+              needs:
+                Zoi.list(Zoi.string(), description: "Explicit control dependencies")
+                |> Zoi.default([]),
               meta: Zoi.map(description: "Portable author metadata") |> Zoi.default(%{})
             },
             coerce: true
@@ -23,7 +24,7 @@ defmodule Jido.Flow.Subflow do
   @enforce_keys Zoi.Struct.enforce_keys(@schema)
   defstruct Zoi.Struct.struct_fields(@schema)
 
-  @keys [:name, :flow, :params, :after, :meta]
+  @keys [:name, :flow, :params, :needs, :meta]
 
   @doc "Builds and validates one canonical Subflow component."
   @spec new(map() | keyword() | t()) :: {:ok, t()} | {:error, Exception.t()}
@@ -37,9 +38,9 @@ defmodule Jido.Flow.Subflow do
          {:ok, name} <- Component.name(Map.get(attrs, :name)),
          {:ok, flow} <- Component.module(Map.get(attrs, :flow), "subflow module"),
          {:ok, params} <- expression(Map.get(attrs, :params, %{})),
-         {:ok, after_names} <- Component.after_names(Map.get(attrs, :after, [])),
+         {:ok, needs_names} <- Component.needs_names(Map.get(attrs, :needs, [])),
          {:ok, meta} <- Component.meta(Map.get(attrs, :meta, %{})) do
-      {:ok, %__MODULE__{name: name, flow: flow, params: params, after: after_names, meta: meta}}
+      {:ok, %__MODULE__{name: name, flow: flow, params: params, needs: needs_names, meta: meta}}
     end
   end
 

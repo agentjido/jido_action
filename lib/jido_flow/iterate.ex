@@ -14,7 +14,7 @@ defmodule Jido.Flow.Iterate do
   alias Jido.Flow.Expression
 
   @maximum_iterations 10_000
-  @keys [:name, :action, :params, :state, :completion, :max_iterations, :after, :meta]
+  @keys [:name, :action, :params, :state, :completion, :max_iterations, :needs, :meta]
 
   @schema Zoi.struct(
             __MODULE__,
@@ -25,8 +25,9 @@ defmodule Jido.Flow.Iterate do
               state: Zoi.any(description: "Local Iterate state data"),
               completion: Zoi.any(description: "Completion condition"),
               max_iterations: Zoi.integer(description: "Maximum iterations"),
-              after:
-                Zoi.list(Zoi.string(), description: "Explicit control order") |> Zoi.default([]),
+              needs:
+                Zoi.list(Zoi.string(), description: "Explicit control dependencies")
+                |> Zoi.default([]),
               meta: Zoi.map(description: "Portable author metadata") |> Zoi.default(%{})
             },
             coerce: true
@@ -138,7 +139,7 @@ defmodule Jido.Flow.Iterate do
          {:ok, state} <- state(Map.get(attrs, :state)),
          {:ok, completion} <- completion(Map.get(attrs, :completion)),
          {:ok, maximum} <- maximum(Map.get(attrs, :max_iterations)),
-         {:ok, after_names} <- Component.after_names(Map.get(attrs, :after, [])),
+         {:ok, needs_names} <- Component.needs_names(Map.get(attrs, :needs, [])),
          {:ok, meta} <- Component.meta(Map.get(attrs, :meta, %{})) do
       {:ok,
        %__MODULE__{
@@ -148,7 +149,7 @@ defmodule Jido.Flow.Iterate do
          state: state,
          completion: completion,
          max_iterations: maximum,
-         after: after_names,
+         needs: needs_names,
          meta: meta
        }}
     end

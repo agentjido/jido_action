@@ -26,19 +26,19 @@ defmodule JidoActionTest.Fixtures.InlineParityFlow do
       {:ok, %{ready: true}}
     end
 
-    step "named", name <- input(:raw_name), after: ["empty"], meta: %{owner: "inline"} do
+    step "named", name <- input(:raw_name), needs: ["empty"], meta: %{owner: "inline"} do
       {:ok, %{name: String.trim(name)}}
     end
 
     step "multiple", [name <- result("named", :name), prefix <- context(:prefix)],
-      after: ["empty"],
+      needs: ["empty"],
       meta: %{purpose: "greeting"} do
       {:ok, %{message: prefix <> ", " <> name <> "!"}}
     end
 
     step "sole_map",
          %{"profile" => %{"city" => city}, "active" => true} <- input(:payload),
-         after: ["multiple"] do
+         needs: ["multiple"] do
       {:ok, %{city: city}}
     end
 
@@ -67,21 +67,21 @@ defmodule JidoActionTest.Fixtures.InlineAuthoring do
           name: "named",
           action: InlineParityFlow.step_action("named"),
           params: %{name: Ref.input(:raw_name)},
-          after: ["empty"],
+          needs: ["empty"],
           meta: %{owner: "inline"}
         ),
         Step.new!(
           name: "multiple",
           action: InlineParityFlow.step_action("multiple"),
           params: %{name: Ref.result("named", :name), prefix: Ref.context(:prefix)},
-          after: ["empty"],
+          needs: ["empty"],
           meta: %{purpose: "greeting"}
         ),
         Step.new!(
           name: "sole_map",
           action: InlineParityFlow.step_action("sole_map"),
           params: Ref.input(:payload),
-          after: ["multiple"]
+          needs: ["multiple"]
         )
       ],
       output: %{
@@ -99,21 +99,21 @@ defmodule JidoActionTest.Fixtures.InlineAuthoring do
       "named",
       InlineParityFlow.step_action("named"),
       %{name: Builder.input(:raw_name)},
-      after: ["empty"],
+      needs: ["empty"],
       meta: %{owner: "inline"}
     )
     |> Builder.step(
       "multiple",
       InlineParityFlow.step_action("multiple"),
       %{name: Builder.result("named", :name), prefix: Builder.context(:prefix)},
-      after: ["empty"],
+      needs: ["empty"],
       meta: %{purpose: "greeting"}
     )
     |> Builder.step(
       "sole_map",
       InlineParityFlow.step_action("sole_map"),
       Builder.input(:payload),
-      after: ["multiple"]
+      needs: ["multiple"]
     )
     |> Builder.output(%{
       "empty" => Builder.result("empty"),

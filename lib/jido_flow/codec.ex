@@ -377,7 +377,7 @@ defmodule Jido.Flow.Codec do
   end
 
   defp diagnose_component_kind(:step, record, registry, path) do
-    allowed = ["kind", "name", "action", "params", "after", "meta"]
+    allowed = ["kind", "name", "action", "params", "needs", "meta"]
 
     diagnose_component_fields(
       record,
@@ -393,7 +393,7 @@ defmodule Jido.Flow.Codec do
   end
 
   defp diagnose_component_kind(:subflow, record, registry, path) do
-    allowed = ["kind", "name", "flow", "params", "after", "meta"]
+    allowed = ["kind", "name", "flow", "params", "needs", "meta"]
 
     diagnose_component_fields(
       record,
@@ -409,7 +409,7 @@ defmodule Jido.Flow.Codec do
   end
 
   defp diagnose_component_kind(:choice, record, registry, path) do
-    allowed = ["kind", "name", "options", "fallback", "after", "meta"]
+    allowed = ["kind", "name", "options", "fallback", "needs", "meta"]
 
     diagnose_component_fields(
       record,
@@ -425,7 +425,7 @@ defmodule Jido.Flow.Codec do
   end
 
   defp diagnose_component_kind(:map, record, registry, path) do
-    allowed = ["kind", "name", "collection", "action", "params", "on_error", "after", "meta"]
+    allowed = ["kind", "name", "collection", "action", "params", "on_error", "needs", "meta"]
 
     diagnose_component_fields(
       record,
@@ -443,7 +443,7 @@ defmodule Jido.Flow.Codec do
   end
 
   defp diagnose_component_kind(:reduce, record, registry, path) do
-    allowed = ["kind", "name", "collection", "initial", "action", "params", "after", "meta"]
+    allowed = ["kind", "name", "collection", "initial", "action", "params", "needs", "meta"]
 
     diagnose_component_fields(
       record,
@@ -469,7 +469,7 @@ defmodule Jido.Flow.Codec do
       "state",
       "completion",
       "max_iterations",
-      "after",
+      "needs",
       "meta"
     ]
 
@@ -496,7 +496,7 @@ defmodule Jido.Flow.Codec do
       "decision",
       "expander",
       "params",
-      "after",
+      "needs",
       "meta"
     ]
 
@@ -538,7 +538,7 @@ defmodule Jido.Flow.Codec do
   defp diagnose_common(record, registry, path) do
     fields = [
       name: fn -> string_field(record, "name", path) end,
-      after: fn -> string_list_field(record, "after", path) end,
+      needs: fn -> string_list_field(record, "needs", path) end,
       meta: fn -> diagnose_meta_field(record, registry, path) end
     ]
 
@@ -1241,7 +1241,7 @@ defmodule Jido.Flow.Codec do
          "name" => choice.name,
          "options" => options,
          "fallback" => fallback,
-         "after" => choice.after,
+         "needs" => choice.needs,
          "meta" => meta
        }}
     end
@@ -1260,7 +1260,7 @@ defmodule Jido.Flow.Codec do
          "action" => action,
          "params" => params,
          "on_error" => Atom.to_string(map.on_error),
-         "after" => map.after,
+         "needs" => map.needs,
          "meta" => meta
        }}
     end
@@ -1280,7 +1280,7 @@ defmodule Jido.Flow.Codec do
          "initial" => initial,
          "action" => action,
          "params" => params,
-         "after" => reduce.after,
+         "needs" => reduce.needs,
          "meta" => meta
        }}
     end
@@ -1307,7 +1307,7 @@ defmodule Jido.Flow.Codec do
          },
          "completion" => completion,
          "max_iterations" => iterate.max_iterations,
-         "after" => iterate.after,
+         "needs" => iterate.needs,
          "meta" => meta
        }}
     end
@@ -1325,7 +1325,7 @@ defmodule Jido.Flow.Codec do
          "decision" => decision,
          "expander" => expander,
          "params" => params,
-         "after" => dispatch.after,
+         "needs" => dispatch.needs,
          "meta" => meta
        }}
     end
@@ -1336,7 +1336,7 @@ defmodule Jido.Flow.Codec do
       "kind" => kind,
       "name" => component.name,
       "params" => params,
-      "after" => component.after,
+      "needs" => component.needs,
       "meta" => meta
     }
   end

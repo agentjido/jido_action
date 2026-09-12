@@ -90,6 +90,8 @@ defmodule Jido.Flow.InlineActionParityTest do
     for flow <- [dsl, built, direct, decoded] do
       assert Flow.dependencies(flow) == {:ok, dependencies}
       assert Flow.semantic_identity(flow) == {:ok, identity}
+      assert {:ok, ^flow} = Flow.validate_executable(flow)
+      assert {:ok, %Jido.Flow.Compiled{}} = Flow.compile(flow)
 
       for {enabled, expected} <- [{true, 26}, {false, 6}] do
         assert Exec.run(flow, %{value: 1, items: [1, 2, 3], enabled: enabled}) ==
@@ -138,7 +140,7 @@ defmodule Jido.Flow.InlineActionParityTest do
       assert decoded == direct
 
       assert Flow.dependencies(decoded) ==
-               {:ok, %{"new" => %{after: [], references: [], effective: []}}}
+               {:ok, %{"new" => %{needs: [], references: [], effective: []}}}
 
       expected =
         case id do

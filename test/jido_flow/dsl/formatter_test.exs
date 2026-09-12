@@ -12,7 +12,7 @@ defmodule Jido.Flow.DSL.FormatterTest do
       step "validate",
         action: Jido.Examples.FeedbackSummarizer.ValidateBatch,
         params: %{comments: input(:comments), summarizer: input(:summarizer)},
-        after: ["start"]
+        needs: ["start"]
 
       map "clean",
         collection: result("validate", :comments),
@@ -40,6 +40,8 @@ defmodule Jido.Flow.DSL.FormatterTest do
     end
 
     choice "route" do
+      needs ["prepare"]
+
       option "match", condition: input(:kind) == :match, action: Match, params: %{}
 
       option "other" do
@@ -97,11 +99,11 @@ defmodule Jido.Flow.DSL.FormatterTest do
       {:ok, %{message: prefix <> name}}
     end
 
-    step "two_options", name <- input(:name), prefix <- context(:prefix), after: ["one"] do
+    step "two_options", name <- input(:name), prefix <- context(:prefix), needs: ["one"] do
       {:ok, %{message: prefix <> name}}
     end
 
-    step "list", [a <- input(:a), b <- input(:b), c <- input(:c)], after: ["two"] do
+    step "list", [a <- input(:a), b <- input(:b), c <- input(:c)], needs: ["two"] do
       {:ok, %{total: a + b + c}}
     end
 
@@ -109,7 +111,7 @@ defmodule Jido.Flow.DSL.FormatterTest do
       {:ok, %{name: name}}
     end
 
-    step "empty", [], after: ["pattern"], meta: %{owner: "example"} do
+    step "empty", [], needs: ["pattern"], meta: %{owner: "example"} do
       {:ok, %{ready: true}}
     end
   end

@@ -125,7 +125,7 @@ defmodule Jido.Flow.DSL.FlowTest do
 
     assert [
              %Step{name: "load", params: %{amount: 1}, meta: %{owner: "dsl"}},
-             %Choice{name: "route", after: []},
+             %Choice{name: "route", needs: []},
              %FlowMap{name: "mapped", on_error: :collect_errors},
              %Reduce{name: "reduced"},
              %Iterate{name: "loop", max_iterations: 1}
@@ -165,10 +165,10 @@ defmodule Jido.Flow.DSL.FlowTest do
     end
   end
 
-  test "an omitted output uses the last block result" do
+  test "a multi-component Flow requires an explicit output" do
     code = """
-    defmodule ImplicitLastBlockOutputFlow do
-      use Jido.Flow, name: "implicit_last_block_output"
+    defmodule MissingMultiOutputFlow do
+      use Jido.Flow, name: "missing_multi_output"
 
       flow do
         step "first",
@@ -182,39 +182,33 @@ defmodule Jido.Flow.DSL.FlowTest do
     end
     """
 
-    [{module, _bytecode}] = Code.compile_string(code)
-
-    assert module.flow().output == Ref.result("second")
-    assert Jido.Exec.run(module) == {:ok, %{value: 4}}
+    assert_raise CompileError, ~r/Flow output is required/, fn ->
+      Code.compile_string(code)
+    end
   end
 
-  test "an omitted output uses the last block, not graph terminals" do
+  test "a one-component Flow requires an explicit output" do
     code = """
-    defmodule ImplicitOutputSourceOrderFlow do
-      use Jido.Flow, name: "implicit_output_source_order"
+    defmodule MissingSingleOutputFlow do
+      use Jido.Flow, name: "missing_single_output"
 
       flow do
-        step "left",
-          action: JidoActionTest.Fixtures.Actions.Add,
-          params: %{value: 1, amount: 1}
-
-        step "right",
+        step "only",
           action: JidoActionTest.Fixtures.Actions.Add,
           params: %{value: 10, amount: 1}
       end
     end
     """
 
-    [{module, _bytecode}] = Code.compile_string(code)
-
-    assert module.flow().output == Ref.result("right")
-    assert Jido.Exec.run(module) == {:ok, %{value: 11}}
+    assert_raise CompileError, ~r/Flow output is required/, fn ->
+      Code.compile_string(code)
+    end
   end
 
-  test "an explicit output is not replaced by the last block" do
+  test "an explicit output selects a result before the last component" do
     code = """
-    defmodule ExplicitOutputStillWinsFlow do
-      use Jido.Flow, name: "explicit_output_still_wins"
+    defmodule ExplicitOutputSelectsFirstFlow do
+      use Jido.Flow, name: "explicit_output_selects_first"
 
       flow do
         step "first",
@@ -283,7 +277,7 @@ defmodule Jido.Flow.DSL.FlowTest do
         step "echo",
           action: JidoActionTest.Fixtures.Actions.EchoParamsAction,
           params: %{items: [], nested: [[], %{items: []}]},
-          after: []
+          needs: []
 
         map "mapped",
           collection: [],
@@ -643,10 +637,10 @@ defmodule Jido.Flow.DSL.FlowTest do
     end
   end
 
-  test "a valid while Iterate and scalar Step after lower without DSL shape changes" do
+  test "scalar and ordered list needs lower through keyword and block fields" do
     code = """
-    defmodule ValidWhileAndAfterFlow do
-      use Jido.Flow, name: "valid_while_and_after"
+    defmodule ValidWhileAndNeedsFlow do
+      use Jido.Flow, name: "valid_while_and_needs"
 
       flow do
         step "first", action: JidoActionTest.Fixtures.Actions.Add, params: %{value: 1}
@@ -654,12 +648,13 @@ defmodule Jido.Flow.DSL.FlowTest do
         step "second",
           action: JidoActionTest.Fixtures.Actions.Add,
           params: %{value: 1},
-          after: "first"
+          needs: "first"
 
         iterate "loop" do
           state([], initial: %{value: 0})
           action(JidoActionTest.Fixtures.Actions.Add)
           params(%{value: state(:value)})
+          needs(["second", "first"])
           update(body_result())
           while(state(:value) < 1)
           max_iterations(2)
@@ -674,14 +669,35 @@ defmodule Jido.Flow.DSL.FlowTest do
 
     assert [
              %Jido.Flow.Step{},
-             %Jido.Flow.Step{after: ["first"]},
-             %Jido.Flow.Iterate{}
+             %Jido.Flow.Step{needs: ["first"]},
+             %Jido.Flow.Iterate{needs: ["second", "first"]}
            ] = module.flow().components
 
     assert %{[:components, "loop", :state] => %{line: line}} =
              module.__jido_flow_source_map__()
 
     assert is_integer(line)
+  end
+
+  test "the module DSL rejects after instead of converting it" do
+    code = """
+    defmodule LegacyAfterFlow do
+      use Jido.Flow, name: "legacy_after"
+
+      flow do
+        step "first", action: JidoActionTest.Fixtures.Actions.Add, params: %{value: 1}
+
+        step "second",
+          action: JidoActionTest.Fixtures.Actions.Add,
+          params: %{value: 1},
+          after: "first"
+
+        output(result("second"))
+      end
+    end
+    """
+
+    assert_raise Spark.Error.DslError, ~r/after/, fn -> Code.compile_string(code) end
   end
 
   test "invalid module configuration is a compile error" do

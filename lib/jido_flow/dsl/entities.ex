@@ -8,7 +8,7 @@ defmodule Jido.Flow.DSL.Step do
           __identifier__: term(),
           __source__: map(),
           __spark_metadata__: term(),
-          after: list(),
+          needs: list(),
           meta: map()
         }
 
@@ -19,7 +19,7 @@ defmodule Jido.Flow.DSL.Step do
     :__identifier__,
     __source__: %{},
     __spark_metadata__: nil,
-    after: [],
+    needs: [],
     meta: %{}
   ]
 end
@@ -47,7 +47,7 @@ defmodule Jido.Flow.DSL.Choice do
           __source__: map(),
           __spark_metadata__: term(),
           options: list(),
-          after: list(),
+          needs: list(),
           meta: map()
         }
 
@@ -58,7 +58,7 @@ defmodule Jido.Flow.DSL.Choice do
     __source__: %{},
     __spark_metadata__: nil,
     options: [],
-    after: [],
+    needs: [],
     meta: %{}
   ]
 end
@@ -113,7 +113,7 @@ defmodule Jido.Flow.DSL.MapNode do
           __source__: map(),
           __spark_metadata__: term(),
           on_error: term(),
-          after: list(),
+          needs: list(),
           meta: map()
         }
 
@@ -126,7 +126,7 @@ defmodule Jido.Flow.DSL.MapNode do
     __source__: %{},
     __spark_metadata__: nil,
     on_error: :fail_fast,
-    after: [],
+    needs: [],
     meta: %{}
   ]
 end
@@ -143,7 +143,7 @@ defmodule Jido.Flow.DSL.Reduce do
           __identifier__: term(),
           __source__: map(),
           __spark_metadata__: term(),
-          after: list(),
+          needs: list(),
           meta: map()
         }
 
@@ -156,7 +156,7 @@ defmodule Jido.Flow.DSL.Reduce do
     :__identifier__,
     __source__: %{},
     __spark_metadata__: nil,
-    after: [],
+    needs: [],
     meta: %{}
   ]
 end
@@ -176,7 +176,7 @@ defmodule Jido.Flow.DSL.Iterate do
           __identifier__: term(),
           __source__: map(),
           __spark_metadata__: term(),
-          after: list(),
+          needs: list(),
           meta: map()
         }
 
@@ -192,7 +192,7 @@ defmodule Jido.Flow.DSL.Iterate do
     :__identifier__,
     __source__: %{},
     __spark_metadata__: nil,
-    after: [],
+    needs: [],
     meta: %{}
   ]
 end
@@ -222,7 +222,7 @@ defmodule Jido.Flow.DSL.Dispatch do
           __identifier__: term(),
           __source__: map(),
           __spark_metadata__: term(),
-          after: list(),
+          needs: list(),
           meta: map()
         }
 
@@ -234,7 +234,7 @@ defmodule Jido.Flow.DSL.Dispatch do
     :__identifier__,
     __source__: %{},
     __spark_metadata__: nil,
-    after: [],
+    needs: [],
     meta: %{}
   ]
 end

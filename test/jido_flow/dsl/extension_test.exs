@@ -24,6 +24,15 @@ defmodule Jido.Flow.DSL.ExtensionTest.AddStep do
       step unquote(name),
         action: JidoActionTest.Fixtures.Actions.Add,
         params: %{value: 1, amount: 1},
+        needs: [unquote(dependency)]
+    end
+  end
+
+  defmacro legacy_after_step(name, dependency) do
+    quote do
+      step unquote(name),
+        action: JidoActionTest.Fixtures.Actions.Add,
+        params: %{value: 1, amount: 1},
         after: [unquote(dependency)]
     end
   end
@@ -94,11 +103,28 @@ defmodule Jido.Flow.DSL.ExtensionTest.InlineFlow do
   defp double(value), do: value * 2
 end
 
+defmodule Jido.Flow.DSL.ExtensionTest.ExtendedNeedsFlow do
+  @moduledoc false
+
+  use Jido.Flow,
+    name: "extended_needs_flow",
+    extensions: [
+      Jido.Flow.DSL.ExtensionTest.AddStep,
+      Jido.Flow.DSL.ExtensionTest.ResultOutput
+    ]
+
+  flow do
+    add_step("first", value(1), value(1))
+    dependent_step("second", "first")
+    result_output("second")
+  end
+end
+
 defmodule Jido.Flow.DSL.ExtensionTest do
   use ExUnit.Case, async: true
 
   alias Jido.Flow.Builder
-  alias Jido.Flow.DSL.ExtensionTest.{ExtendedFlow, InlineFlow, PlainFlow}
+  alias Jido.Flow.DSL.ExtensionTest.{ExtendedFlow, ExtendedNeedsFlow, InlineFlow, PlainFlow}
 
   test "a Flow extension lowers its macros to canonical Flow declarations" do
     assert [%Jido.Flow.Step{name: "add"}] = ExtendedFlow.flow().components
@@ -127,6 +153,33 @@ defmodule Jido.Flow.DSL.ExtensionTest do
     assert [%Jido.Flow.Step{action: action}] = InlineFlow.flow().components
     assert action == InlineFlow.step_action("double")
     assert Jido.Exec.run(InlineFlow, %{value: 3}) == {:ok, %{value: 6}}
+  end
+
+  test "extension-expanded needs lower to canonical dependencies" do
+    assert [_first, %Jido.Flow.Step{needs: ["first"]}] = ExtendedNeedsFlow.flow().components
+    assert Jido.Exec.run(ExtendedNeedsFlow) == {:ok, %{value: 2}}
+  end
+
+  test "extension-expanded after is rejected instead of converted" do
+    module = unique_module("LegacyAfter")
+
+    source = """
+    defmodule #{inspect(module)} do
+      use Jido.Flow,
+        name: "legacy_extension_after",
+        extensions: [Jido.Flow.DSL.ExtensionTest.AddStep]
+
+      flow do
+        add_step("first", value(1), value(1))
+        legacy_after_step("second", "first")
+        output(result("second"))
+      end
+    end
+    """
+
+    assert_raise Spark.Error.DslError, ~r/after/, fn ->
+      Code.compile_string(source, "legacy_extension_after.ex")
+    end
   end
 
   test "validation errors from extension declarations keep the call site" do

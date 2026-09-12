@@ -154,10 +154,10 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
     assert Exec.result(execution) == {:ok, %{value: 8}}
   end
 
-  test "after controls readiness but does not add predecessor values to params" do
+  test "needs controls readiness but does not add predecessor values to params" do
     flow =
       Flow.new!(
-        name: "after_is_control",
+        name: "needs_is_control",
         components: [
           Step.new!(name: "left", action: EchoParamsAction, params: %{side: :left}),
           Step.new!(name: "right", action: EchoParamsAction, params: %{side: :right}),
@@ -165,7 +165,7 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
             name: "final",
             action: EchoParamsAction,
             params: %{value: :only_authored_data},
-            after: ["left", "right"]
+            needs: ["left", "right"]
           )
         ],
         output: Ref.result("final")

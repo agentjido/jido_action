@@ -86,7 +86,7 @@ defmodule JidoActionTest.Exec.WorkRetentionTest do
             name: "inspection_retention",
             components: [
               Step.new!(name: "first", action: EchoParamsAction, params: %{value: 1}),
-              Step.new!(name: "last", action: EchoParamsAction, after: ["first"], meta: data)
+              Step.new!(name: "last", action: EchoParamsAction, needs: ["first"], meta: data)
             ],
             output: Ref.result("last")
           )

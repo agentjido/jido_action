@@ -192,7 +192,7 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
           ),
           Iterate.new!(
             name: :loop,
-            after: [:reduced],
+            needs: [:reduced],
             action: BlockingAction,
             params: %{value: :iteration},
             state: Iterate.State.new!(initial: %{}, update: Ref.body_result()),

@@ -3,6 +3,7 @@ defmodule Jido.Flow.ComponentValidationTest do
 
   alias Jido.Flow.Error.InvalidDefinitionError
   alias Jido.Flow.Choice
+  alias Jido.Flow.Component
   alias Jido.Flow.Condition
   alias Jido.Flow.Data
   alias Jido.Flow.Dispatch
@@ -91,9 +92,144 @@ defmodule Jido.Flow.ComponentValidationTest do
              Step.new(name: "step", action: Add, meta: %{pid: self()})
   end
 
-  test "explicit after order is preserved" do
-    step = Step.new!(name: "step", action: Add, after: ["second", "first"])
-    assert step.after == ["second", "first"]
+  test "all canonical components use only needs for control dependencies" do
+    option = Choice.Option.new!(name: "add", condition: Condition.eq(1, 1), action: Add)
+    fallback = Choice.Fallback.new!(action: Add)
+    state = Iterate.State.new!(schema: [], initial: %{}, update: %{})
+
+    cases = [
+      {Step, [name: "step", action: Add]},
+      {Subflow, [name: "subflow", flow: NestedFlow]},
+      {Choice, [name: "choice", options: [option], fallback: fallback]},
+      {FlowMap, [name: "map", collection: [], action: Add]},
+      {Reduce, [name: "reduce", collection: [], initial: %{}, action: Add]},
+      {Iterate,
+       [
+         name: "iterate",
+         action: Add,
+         state: state,
+         completion: Condition.eq(Ref.iteration_index(), 0),
+         max_iterations: 1
+       ]},
+      {Dispatch, [name: "dispatch", decision: Add, expander: Add]}
+    ]
+
+    for {module, attrs} <- cases do
+      assert {:ok, default} = apply(module, :new, [attrs])
+      assert default.needs == []
+
+      assert {:ok, component} =
+               apply(module, :new, [Keyword.put(attrs, :needs, [:second, "first"])])
+
+      assert component.needs == ["second", "first"]
+
+      semantic_map = Component.to_map(component)
+      assert semantic_map.needs == ["second", "first"]
+      refute Map.has_key?(semantic_map, :after)
+
+      assert {:error, %InvalidDefinitionError{message: message}} =
+               apply(module, :new, [Keyword.put(attrs, :after, [])])
+
+      assert message =~ "unknown"
+      assert message =~ "after"
+
+      for {value, expected_message} <- [
+            {"first", "component needs must be a list"},
+            {["first" | :tail], "component needs must be a proper list"},
+            {[nil], "component needs must contain component names"},
+            {["first", "first"], "component needs contains a duplicate"}
+          ] do
+        assert {:error, %InvalidDefinitionError{message: ^expected_message}} =
+                 apply(module, :new, [Keyword.put(attrs, :needs, value)])
+      end
+    end
+  end
+
+  test "effective dependencies combine and de-duplicate needs and result references" do
+    step =
+      Step.new!(
+        name: "step",
+        action: Add,
+        params: %{value: Ref.result("source")},
+        needs: ["gate", "source"]
+      )
+
+    assert Component.needs_of(step) == ["gate", "source"]
+    assert Component.reference_dependencies(step) == ["source"]
+    assert Component.effective_dependencies(step) == ["gate", "source"]
+  end
+
+  test "Choice option and fallback names are not dependency targets" do
+    choice =
+      Choice.new!(
+        name: "route",
+        options: [[name: "yes", condition: Condition.eq(true, true), action: Add]],
+        fallback: [action: Add]
+      )
+
+    dependent = Step.new!(name: "dependent", action: Add, needs: ["route"])
+
+    assert {:ok, _flow} =
+             Jido.Flow.new(
+               name: "valid_choice_dependency",
+               components: [choice, dependent],
+               output: Ref.result("dependent")
+             )
+
+    for invalid_target <- ["yes", "fallback"] do
+      invalid_choice = %{choice | needs: [invalid_target]}
+
+      assert {:error,
+              %InvalidDefinitionError{
+                message: "Flow reference points to an unknown component",
+                details: %{owner: "route", component: ^invalid_target}
+              }} =
+               Jido.Flow.new(
+                 name: "invalid_choice_dependency",
+                 components: [invalid_choice],
+                 output: Ref.result("route")
+               )
+    end
+  end
+
+  test "needs keep unknown, self, and cycle graph validation" do
+    unknown = Step.new!(name: "one", action: Add, needs: ["missing"])
+
+    assert {:error,
+            %InvalidDefinitionError{
+              message: "Flow reference points to an unknown component",
+              details: %{owner: "one", component: "missing"}
+            }} =
+             Jido.Flow.new(
+               name: "unknown_dependency",
+               components: [unknown],
+               output: Ref.result("one")
+             )
+
+    self_dependent = Step.new!(name: "one", action: Add, needs: ["one"])
+
+    assert {:error, %InvalidDefinitionError{message: "flow dependency graph contains a cycle"}} =
+             Jido.Flow.new(
+               name: "self_dependency",
+               components: [self_dependent],
+               output: Ref.result("one")
+             )
+
+    one = Step.new!(name: "one", action: Add, needs: ["two"])
+    two = Step.new!(name: "two", action: Add, needs: ["one"])
+
+    assert {:error,
+            %InvalidDefinitionError{
+              message: "flow dependency graph contains a cycle",
+              details: %{components: components}
+            }} =
+             Jido.Flow.new(
+               name: "dependency_cycle",
+               components: [one, two],
+               output: Ref.result("one")
+             )
+
+    assert Enum.sort(components) == ["one", "two"]
   end
 
   test "constructors reject invalid paths inside nested params" do

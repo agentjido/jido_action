@@ -50,18 +50,19 @@ defmodule Jido.Flow do
           step "greet", name <- input(:name) do
             {:ok, %{message: "Hello, " <> name <> "!"}}
           end
+
+          output result("greet")
         end
       end
 
-  If `output` is omitted, the Flow result is the complete result of the last
-  declared block. Write an explicit `output` when the result is a different
-  expression. Builder, Codec, and direct constructors still require `output`.
+  Every Flow authoring form requires an explicit, non-nil `output`. In the
+  module DSL, it must be the final declaration.
 
   A binding source accepts direct Flow references or data, but not Flow
   operations. The body is normal Elixir in the owning module's function scope.
   Put calculations in that body. Use `ctx <- context()` to
   bind context explicitly. Use a binding list for more than two inputs, a
-  sole map pattern for complete params, or `[]` for no input. Only `after:`
+  sole map pattern for complete params, or `[]` for no input. Only `needs:`
   and `meta:` are inline options.
 
   This Step shorthand has empty field schemas. The nested `action`
@@ -87,7 +88,7 @@ defmodule Jido.Flow do
   edit can retain the same target and semantic graph identity; graph identity
   does not identify a deployed code version.
 
-  Result references create data dependencies. `after:` keeps only explicit
+  Result references create data dependencies. `needs:` keeps only explicit
   author control order. Source order does not create a dependency. The Spark
   compiler keeps source locations outside the canonical Flow value.
 
@@ -136,7 +137,7 @@ defmodule Jido.Flow do
 
   @type t :: unquote(Zoi.type_spec(@schema))
   @type dependency_info :: %{
-          after: [String.t()],
+          needs: [String.t()],
           references: [String.t()],
           effective: [String.t()]
         }
@@ -308,14 +309,14 @@ defmodule Jido.Flow do
 
   defp dependency_map(flow) do
     Map.new(flow.components, fn component ->
-      after_names = Component.after_of(component)
+      needs = Component.needs_of(component)
       references = Component.reference_dependencies(component)
 
       {Component.name_of(component),
        %{
-         after: after_names,
+         needs: needs,
          references: references,
-         effective: Enum.sort(Enum.uniq(after_names ++ references))
+         effective: Enum.sort(Enum.uniq(needs ++ references))
        }}
     end)
   end

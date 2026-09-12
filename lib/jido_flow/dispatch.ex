@@ -14,7 +14,7 @@ defmodule Jido.Flow.Dispatch do
   alias Jido.Flow.Error
   alias Jido.Flow.Expression
 
-  @config_keys [:name, :decision, :expander, :params, :after, :meta]
+  @config_keys [:name, :decision, :expander, :params, :needs, :meta]
 
   @schema Zoi.struct(
             __MODULE__,
@@ -23,8 +23,9 @@ defmodule Jido.Flow.Dispatch do
               decision: Zoi.atom(description: "Decision Action module"),
               expander: Zoi.atom(description: "Expander Action module"),
               params: Zoi.any(description: "Decision input expression") |> Zoi.default(%{}),
-              after:
-                Zoi.list(Zoi.string(), description: "Explicit control order") |> Zoi.default([]),
+              needs:
+                Zoi.list(Zoi.string(), description: "Explicit control dependencies")
+                |> Zoi.default([]),
               meta: Zoi.map(description: "Portable author metadata") |> Zoi.default(%{})
             },
             coerce: true
@@ -49,7 +50,7 @@ defmodule Jido.Flow.Dispatch do
          {:ok, decision} <- Component.module(Map.get(attrs, :decision), "dispatch decision"),
          {:ok, expander} <- Component.module(Map.get(attrs, :expander), "dispatch expander"),
          {:ok, params} <- expression(Map.get(attrs, :params, %{})),
-         {:ok, after_names} <- Component.after_names(Map.get(attrs, :after, [])),
+         {:ok, needs_names} <- Component.needs_names(Map.get(attrs, :needs, [])),
          {:ok, meta} <- Component.meta(Map.get(attrs, :meta, %{})) do
       {:ok,
        %__MODULE__{
@@ -57,7 +58,7 @@ defmodule Jido.Flow.Dispatch do
          decision: decision,
          expander: expander,
          params: params,
-         after: after_names,
+         needs: needs_names,
          meta: meta
        }}
     end
@@ -89,7 +90,7 @@ defmodule Jido.Flow.Dispatch do
       decision: dispatch.decision,
       expander: dispatch.expander,
       params: Expression.to_map(dispatch.params),
-      after: dispatch.after,
+      needs: dispatch.needs,
       meta: dispatch.meta
     }
   end

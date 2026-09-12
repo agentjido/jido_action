@@ -56,14 +56,14 @@ defmodule Jido.Flow.Component do
   def kind(%Dispatch{}), do: :dispatch
 
   @doc false
-  @spec after_of(t()) :: [String.t()]
-  def after_of(%Step{after: after_names}), do: after_names
-  def after_of(%Subflow{after: after_names}), do: after_names
-  def after_of(%Choice{after: after_names}), do: after_names
-  def after_of(%FlowMap{after: after_names}), do: after_names
-  def after_of(%Reduce{after: after_names}), do: after_names
-  def after_of(%Iterate{after: after_names}), do: after_names
-  def after_of(%Dispatch{after: after_names}), do: after_names
+  @spec needs_of(t()) :: [String.t()]
+  def needs_of(%Step{needs: needs}), do: needs
+  def needs_of(%Subflow{needs: needs}), do: needs
+  def needs_of(%Choice{needs: needs}), do: needs
+  def needs_of(%FlowMap{needs: needs}), do: needs
+  def needs_of(%Reduce{needs: needs}), do: needs
+  def needs_of(%Iterate{needs: needs}), do: needs
+  def needs_of(%Dispatch{needs: needs}), do: needs
 
   @doc false
   @spec reference_dependencies(t()) :: [String.t()]
@@ -85,7 +85,7 @@ defmodule Jido.Flow.Component do
   @doc false
   @spec effective_dependencies(t()) :: [String.t()]
   def effective_dependencies(component) do
-    (after_of(component) ++ reference_dependencies(component)) |> Enum.uniq() |> Enum.sort()
+    (needs_of(component) ++ reference_dependencies(component)) |> Enum.uniq() |> Enum.sort()
   end
 
   @doc false
@@ -96,7 +96,7 @@ defmodule Jido.Flow.Component do
       name: step.name,
       action: step.action,
       params: Jido.Flow.Expression.to_map(step.params),
-      after: step.after,
+      needs: step.needs,
       meta: step.meta
     }
   end
@@ -107,7 +107,7 @@ defmodule Jido.Flow.Component do
       name: subflow.name,
       flow: subflow.flow,
       params: Jido.Flow.Expression.to_map(subflow.params),
-      after: subflow.after,
+      needs: subflow.needs,
       meta: subflow.meta
     }
   end
@@ -129,7 +129,7 @@ defmodule Jido.Flow.Component do
       },
       completion: Jido.Flow.Expression.to_map(iterate.completion),
       max_iterations: iterate.max_iterations,
-      after: iterate.after,
+      needs: iterate.needs,
       meta: iterate.meta
     }
   end
@@ -175,12 +175,12 @@ defmodule Jido.Flow.Component do
   end
 
   @doc false
-  @spec after_names(term()) :: {:ok, [String.t()]} | {:error, Exception.t()}
-  def after_names(nil), do: {:ok, []}
+  @spec needs_names(term()) :: {:ok, [String.t()]} | {:error, Exception.t()}
+  def needs_names(nil), do: {:ok, []}
 
-  def after_names(values) when is_list(values) do
+  def needs_names(values) when is_list(values) do
     if List.improper?(values) do
-      {:error, Error.validation_error("component after must be a proper list")}
+      {:error, Error.validation_error("component needs must be a proper list")}
     else
       values
       |> Enum.reduce_while({:ok, []}, fn value, {:ok, names} ->
@@ -190,14 +190,14 @@ defmodule Jido.Flow.Component do
 
           {:error, _error} ->
             {:halt,
-             {:error, Error.validation_error("component after must contain component names")}}
+             {:error, Error.validation_error("component needs must contain component names")}}
         end
       end)
-      |> reject_duplicate_after()
+      |> reject_duplicate_needs()
     end
   end
 
-  def after_names(_values), do: {:error, Error.validation_error("component after must be a list")}
+  def needs_names(_values), do: {:error, Error.validation_error("component needs must be a list")}
 
   @doc false
   @spec meta(term()) :: {:ok, Data.object()} | {:error, Exception.t()}
@@ -210,7 +210,7 @@ defmodule Jido.Flow.Component do
     end
   end
 
-  defp reject_duplicate_after({:ok, reversed_names}) do
+  defp reject_duplicate_needs({:ok, reversed_names}) do
     names = Enum.reverse(reversed_names)
 
     case names -- Enum.uniq(names) do
@@ -218,9 +218,9 @@ defmodule Jido.Flow.Component do
         {:ok, names}
 
       [name | _] ->
-        {:error, Error.validation_error("component after contains a duplicate", %{name: name})}
+        {:error, Error.validation_error("component needs contains a duplicate", %{name: name})}
     end
   end
 
-  defp reject_duplicate_after(error), do: error
+  defp reject_duplicate_needs(error), do: error
 end

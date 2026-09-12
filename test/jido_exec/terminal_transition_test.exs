@@ -477,7 +477,7 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
                  name: "dispatch_with_downstream",
                  components: [
                    dispatch,
-                   Step.new!(name: "later", action: Add, params: %{value: 1}, after: ["next"])
+                   Step.new!(name: "later", action: Add, params: %{value: 1}, needs: ["next"])
                  ],
                  output: Ref.result("later")
                )

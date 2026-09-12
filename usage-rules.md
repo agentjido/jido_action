@@ -75,7 +75,7 @@ Use `jido_action` for validated work and data-first composition:
   in data expressions.
 - Use `step "name", value <- input(:value) do ... end` for a small inline
   body. Use a binding list for more than two inputs, a sole map pattern for
-  complete params, or `[]` for no input. Only `after:` and `meta:` are header
+  complete params, or `[]` for no input. Only `needs:` and `meta:` are header
   options. This form requires `3.0.0-beta.5` or later.
 - Write normal Elixir inside the body. The shorthand binds context with
   `ctx <- context()` as an Action parameter. Bodies retain the owner's private
@@ -98,14 +98,12 @@ Use `jido_action` for validated work and data-first composition:
   schema fields. Keep custom lifecycle hooks and independent public module
   APIs in named Actions. See [Inline Actions](guides/inline-actions.md).
   This shared API and `Jido.Expr` require `3.0.0-beta.6` or later.
-- Let result references create data dependencies. Use `after:` only for
+- Let result references create data dependencies. Use `needs:` only for
   control order without a data dependency.
 - Do not add a `parallel` block. Independent nodes run concurrently when
   `max_concurrency` is greater than `1`.
-- Canonical Flow data, Builder, and Codec require an explicit `output`.
-- In the module DSL, omit `output` to use the complete result of the last
-  declared block. Write an explicit `output` when the result is not that last
-  block.
+- Canonical Flow data, the module DSL, Builder, and Codec require an explicit
+  `output`. In the module DSL, `output` must be the final declaration.
 - The DSL, Builder, and canonical data all use the name `output`.
 - Use `repeat` or a bounded `while` condition in the Spark `iterate` form. The
   lowerer converts it to canonical `completion` and `max_iterations` data.
@@ -129,7 +127,7 @@ Use `jido_action` for validated work and data-first composition:
 - Do not parse or evaluate stored Elixir DSL source. AI systems can produce
   stored JSON or Map data instead.
 - Reuse compiled inline Actions with `FlowModule.step_action(name)` after the
-  owner compiles. It returns only the target, not params, `after`, or `meta`.
+  owner compiles. It returns only the target, not params, `needs`, or `meta`.
   Invalid or unknown names and non-Step components raise `ArgumentError`.
 - For other inline roles, use `Jido.Action.Inline.target!/2` with the exact
   owner and typed host path. It returns only the target. Supply a new source

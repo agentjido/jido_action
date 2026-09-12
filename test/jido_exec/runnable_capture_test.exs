@@ -37,7 +37,7 @@ defmodule JidoActionTest.Exec.RunnableCaptureTest do
           Step.new!(
             name: "later",
             action: EchoParamsAction,
-            after: ["a", "b"],
+            needs: ["a", "b"],
             meta: %{retained: retained}
           )
         ],

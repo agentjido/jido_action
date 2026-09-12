@@ -31,7 +31,7 @@ defmodule Jido.Flow.GraphIdentityTest do
         name: "final",
         action: Add,
         params: %{value: Ref.result("first", :value)},
-        after: ["gate"]
+        needs: ["gate"]
       )
 
     gate = Step.new!(name: "gate", action: Add)
@@ -48,20 +48,20 @@ defmodule Jido.Flow.GraphIdentityTest do
     assert {:ok,
             %{
               "final" => %{
-                after: ["gate"],
+                needs: ["gate"],
                 references: ["first"],
                 effective: ["first", "gate"]
               }
             }} = Flow.dependencies(flow)
 
-    assert final.after == ["gate"]
+    assert final.needs == ["gate"]
   end
 
   test "unknown references and cycles fail without changing author data" do
     assert {:error, %InvalidDefinitionError{}} =
              Flow.new(
                name: "unknown",
-               components: [Step.new!(name: "one", action: Add, after: ["missing"])],
+               components: [Step.new!(name: "one", action: Add, needs: ["missing"])],
                output: Ref.result("one")
              )
 
@@ -69,8 +69,8 @@ defmodule Jido.Flow.GraphIdentityTest do
              Flow.new(
                name: "cycle",
                components: [
-                 Step.new!(name: "one", action: Add, after: ["two"]),
-                 Step.new!(name: "two", action: Add, after: ["one"])
+                 Step.new!(name: "one", action: Add, needs: ["two"]),
+                 Step.new!(name: "two", action: Add, needs: ["one"])
                ],
                output: Ref.result("one")
              )

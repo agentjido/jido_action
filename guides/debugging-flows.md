@@ -43,13 +43,13 @@ Use `dependencies/1` when only graph order is relevant:
 
 dependencies["publish"]
 #=> %{
-#=>   after: ["approve"],
+#=>   needs: ["approve"],
 #=>   references: ["render"],
 #=>   effective: ["approve", "render"]
 #=> }
 ```
 
-`after` is explicit author order. `references` is derived data order.
+`needs` is explicit author order. `references` is derived data order.
 `effective` is the sorted union. This separation helps identify an unexpected
 dependency without changing author intent.
 

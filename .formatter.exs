@@ -19,6 +19,7 @@ locals_without_parens = [
   action: 2,
   action: 3,
   params: 1,
+  needs: 1,
   meta: 1,
   condition: 1,
   collection: 1,

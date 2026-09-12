@@ -11,8 +11,9 @@ defmodule Jido.Flow.Step do
               name: Zoi.string(description: "Component name"),
               action: Zoi.atom(description: "Jido Action module"),
               params: Zoi.any(description: "Action parameter expression") |> Zoi.default(%{}),
-              after:
-                Zoi.list(Zoi.string(), description: "Explicit control order") |> Zoi.default([]),
+              needs:
+                Zoi.list(Zoi.string(), description: "Explicit control dependencies")
+                |> Zoi.default([]),
               meta: Zoi.map(description: "Portable author metadata") |> Zoi.default(%{})
             },
             coerce: true
@@ -38,10 +39,10 @@ defmodule Jido.Flow.Step do
          {:ok, name} <- Component.name(Map.get(attrs, :name)),
          {:ok, action} <- Component.module(Map.get(attrs, :action), "step action"),
          {:ok, params} <- expression(Map.get(attrs, :params, %{})),
-         {:ok, after_names} <- Component.after_names(Map.get(attrs, :after, [])),
+         {:ok, needs_names} <- Component.needs_names(Map.get(attrs, :needs, [])),
          {:ok, meta} <- Component.meta(Map.get(attrs, :meta, %{})) do
       {:ok,
-       %__MODULE__{name: name, action: action, params: params, after: after_names, meta: meta}}
+       %__MODULE__{name: name, action: action, params: params, needs: needs_names, meta: meta}}
     end
   end
 
@@ -68,7 +69,7 @@ defmodule Jido.Flow.Step do
   end
 
   defp known_keys(attrs) do
-    case Enum.find(Map.keys(attrs), &(&1 not in [:name, :action, :params, :after, :meta])) do
+    case Enum.find(Map.keys(attrs), &(&1 not in [:name, :action, :params, :needs, :meta])) do
       nil -> :ok
       key -> {:error, Error.validation_error("unknown step configuration key: #{inspect(key)}")}
     end

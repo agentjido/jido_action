@@ -12,7 +12,7 @@ defmodule JidoActionTest.Flow.CanonicalDataTest do
         name: "load",
         action: Add,
         params: %{value: Ref.input(:value), amount: 1},
-        after: [],
+        needs: [],
         meta: %{label: "Load"}
       )
 
@@ -21,7 +21,7 @@ defmodule JidoActionTest.Flow.CanonicalDataTest do
         name: "save",
         action: Add,
         params: %{value: Ref.result("load", :value), amount: 1},
-        after: ["audit"],
+        needs: ["audit"],
         meta: %{}
       )
 
@@ -30,7 +30,7 @@ defmodule JidoActionTest.Flow.CanonicalDataTest do
         name: "audit",
         action: Add,
         params: %{value: Ref.input(:value), amount: 0},
-        after: [],
+        needs: [],
         meta: %{}
       )
 
@@ -46,17 +46,17 @@ defmodule JidoActionTest.Flow.CanonicalDataTest do
                output: Ref.result("save")
              )
 
-    assert save.after == ["audit"]
+    assert save.needs == ["audit"]
 
     assert {:ok,
             %{
-              "load" => %{after: [], references: [], effective: []},
+              "load" => %{needs: [], references: [], effective: []},
               "save" => %{
-                after: ["audit"],
+                needs: ["audit"],
                 references: ["load"],
                 effective: ["audit", "load"]
               },
-              "audit" => %{after: [], references: [], effective: []}
+              "audit" => %{needs: [], references: [], effective: []}
             }} = Flow.dependencies(flow)
   end
 end

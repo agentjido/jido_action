@@ -280,7 +280,7 @@ defmodule JidoActionTest.Exec.WorkInspectionTest do
         components: [
           Step.new!(name: "a", action: EchoParamsAction),
           Step.new!(name: "b", action: EchoParamsAction),
-          Step.new!(name: "joined", action: EchoParamsAction, after: ["a", "b"])
+          Step.new!(name: "joined", action: EchoParamsAction, needs: ["a", "b"])
         ],
         output: Ref.result("joined")
       )
@@ -301,8 +301,8 @@ defmodule JidoActionTest.Exec.WorkInspectionTest do
         components: [
           Step.new!(name: "a", action: EchoParamsAction),
           Step.new!(name: "b", action: EchoParamsAction),
-          Step.new!(name: "left", action: EchoParamsAction, after: ["a", "b"]),
-          Step.new!(name: "right", action: EchoParamsAction, after: ["a", "b"])
+          Step.new!(name: "left", action: EchoParamsAction, needs: ["a", "b"]),
+          Step.new!(name: "right", action: EchoParamsAction, needs: ["a", "b"])
         ],
         output: %{left: Ref.result("left"), right: Ref.result("right")}
       )

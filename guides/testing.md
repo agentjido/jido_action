@@ -21,7 +21,7 @@ test "declares a result dependency" do
   assert {:ok, dependencies} = Jido.Flow.dependencies(flow)
 
   assert dependencies["summary"] == %{
-           after: [],
+           needs: [],
            references: ["load"],
            effective: ["load"]
          }

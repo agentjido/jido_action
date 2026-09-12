@@ -7,7 +7,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest.SparkFlow do
     step("add",
       action: JidoActionTest.Fixtures.Actions.Add,
       params: %{value: input(:value), amount: value(1)},
-      after: [],
+      needs: [],
       meta: %{owner: "spark"}
     )
 
@@ -65,7 +65,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest.SparkMixedFlow do
     step("child",
       action: JidoActionTest.Fixtures.NestedFlow,
       params: %{value: result("load", :value)},
-      after: ["load"]
+      needs: ["load"]
     )
 
     choice "route" do
@@ -176,7 +176,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
                "message",
                action,
                %{name: Builder.input(:recipient), prefix: Builder.input(:salutation)},
-               after: ["gate"],
+               needs: ["gate"],
                meta: %{owner: "builder"}
              )
              |> Builder.output(Builder.result("message"))
@@ -185,10 +185,10 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
     assert [_, %Step{} = reused] = flow.components
     assert reused.action == action
     assert reused.params == %{name: Ref.input(:recipient), prefix: Ref.input(:salutation)}
-    assert reused.after == ["gate"]
+    assert reused.needs == ["gate"]
     assert reused.meta == %{owner: "builder"}
 
-    assert {:ok, %{"message" => %{after: ["gate"], references: [], effective: ["gate"]}}} =
+    assert {:ok, %{"message" => %{needs: ["gate"], references: [], effective: ["gate"]}}} =
              Flow.dependencies(flow)
 
     assert Jido.Exec.run(flow, %{recipient: "Grace", salutation: "Hi"}) ==
@@ -219,7 +219,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
             name: "add",
             action: Add,
             params: %{value: Ref.input(:value), amount: 1},
-            after: [],
+            needs: [],
             meta: %{owner: "spark"}
           )
         ],
@@ -232,7 +232,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
         "add",
         Add,
         %{value: Builder.input(:value), amount: Builder.value(1)},
-        after: [],
+        needs: [],
         meta: %{owner: "spark"}
       )
       |> Builder.output(Builder.result("add"))
@@ -251,7 +251,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
             name: "child",
             flow: NestedFlow,
             params: %{value: Ref.input(:value)},
-            after: [],
+            needs: [],
             meta: %{owner: "spark"}
           )
         ],
@@ -348,6 +348,118 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
              |> Builder.build()
 
     assert Exception.message(error) =~ "unsupported fields"
+  end
+
+  test "Builder accepts needs for every component kind" do
+    option = Builder.option("yes", true, Add)
+    fallback = Builder.fallback(Add)
+
+    assert {:ok, flow} =
+             Builder.new(name: "all_builder_needs")
+             |> Builder.step("root", Add, %{})
+             |> Builder.step("action", Add, %{}, needs: ["root"])
+             |> Builder.step("subflow", NestedFlow, %{}, needs: ["root"])
+             |> Builder.choice("choice", [option], fallback, needs: ["root"])
+             |> Builder.map("map", [], Add, %{}, needs: ["root"])
+             |> Builder.reduce("reduce", [], %{}, Add, %{}, needs: ["root"])
+             |> Builder.iterate(
+               "iterate",
+               Add,
+               %{},
+               [schema: [], initial: %{}, update: %{}],
+               needs: ["root"],
+               completion: true,
+               max_iterations: 1
+             )
+             |> Builder.dispatch(
+               "dispatch",
+               Add,
+               Add,
+               %{},
+               needs: ["action", "subflow", "choice", "map", "reduce", "iterate"]
+             )
+             |> Builder.output(Builder.result("dispatch"))
+             |> Builder.build()
+
+    assert Enum.map(flow.components, &{&1.__struct__, &1.needs}) == [
+             {Step, []},
+             {Step, ["root"]},
+             {Subflow, ["root"]},
+             {Choice, ["root"]},
+             {FlowMap, ["root"]},
+             {Reduce, ["root"]},
+             {Iterate, ["root"]},
+             {Dispatch, ["action", "subflow", "choice", "map", "reduce", "iterate"]}
+           ]
+  end
+
+  test "Builder rejects after for every component kind" do
+    option = Builder.option("yes", true, Add)
+    fallback = Builder.fallback(Add)
+    state = [schema: [], initial: %{}, update: %{}]
+
+    builders = [
+      Builder.new(name: "step_after") |> Builder.step("step", Add, %{}, after: []),
+      Builder.new(name: "subflow_after")
+      |> Builder.step("subflow", NestedFlow, %{}, after: []),
+      Builder.new(name: "choice_after")
+      |> Builder.choice("choice", [option], fallback, after: []),
+      Builder.new(name: "map_after") |> Builder.map("map", [], Add, %{}, after: []),
+      Builder.new(name: "reduce_after")
+      |> Builder.reduce("reduce", [], %{}, Add, %{}, after: []),
+      Builder.new(name: "iterate_after")
+      |> Builder.iterate("iterate", Add, %{}, state, after: []),
+      Builder.new(name: "dispatch_after")
+      |> Builder.dispatch("dispatch", Add, Add, %{}, after: [])
+    ]
+
+    for builder <- builders do
+      assert {:error, error} = builder |> Builder.output(%{}) |> Builder.build()
+      assert error.message == "Builder options contain unsupported fields"
+      assert error.details.fields == [:after]
+    end
+  end
+
+  test "Builder still requires an explicit output" do
+    assert {:error, error} =
+             Builder.new(name: "missing_output")
+             |> Builder.step("step", Add, %{})
+             |> Builder.build()
+
+    assert error.message == "Flow output is required"
+    assert error.details.path == [:output]
+  end
+
+  test "public inspection exposes needs and sorted effective dependencies" do
+    flow =
+      Flow.new!(
+        name: "dependency_inspection",
+        components: [
+          Step.new!(name: "beta", action: Add),
+          Step.new!(name: "alpha", action: Add),
+          Step.new!(
+            name: "work",
+            action: Add,
+            params: [Ref.result("beta"), Ref.result("alpha"), Ref.result("beta")],
+            needs: ["beta", "alpha"]
+          )
+        ],
+        output: Ref.result("work")
+      )
+
+    assert %{components: [_beta, _alpha, work]} = Flow.to_map(flow)
+    assert work.needs == ["beta", "alpha"]
+    refute Map.has_key?(work, :after)
+
+    assert {:ok, dependencies} = Flow.dependencies(flow)
+
+    assert dependencies["work"] == %{
+             needs: ["beta", "alpha"],
+             references: ["alpha", "beta"],
+             effective: ["alpha", "beta"]
+           }
+
+    assert {:ok, %{version: 1, dependencies: ^dependencies}} = Flow.explain(flow)
   end
 
   test "canonical public operations accept one Flow and reject other subjects" do

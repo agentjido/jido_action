@@ -6,7 +6,7 @@ defmodule Jido.Flow.DSL.Extension do
       type: :map,
       default: %{}
     ],
-    after: [
+    needs: [
       type: {:wrap_list, :string},
       default: [],
       doc: "Explicit control dependencies."

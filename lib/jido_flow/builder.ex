@@ -204,7 +204,7 @@ defmodule Jido.Flow.Builder do
   @doc "Adds one named Map component."
   @spec map(t(), atom() | String.t(), expression(), module(), expression(), keyword()) :: t()
   def map(%__MODULE__{} = builder, name, collection, action, params, opts \\ []) do
-    with {:ok, options} <- options(opts, [:after, :meta, :on_error]),
+    with {:ok, options} <- options(opts, [:needs, :meta, :on_error]),
          {:ok, component} <-
            FlowMap.new(
              options
@@ -254,7 +254,7 @@ defmodule Jido.Flow.Builder do
           keyword()
         ) :: t()
   def iterate(%__MODULE__{} = builder, name, action, params, state, opts \\ []) do
-    with {:ok, options} <- options(opts, [:after, :meta, :completion, :max_iterations]),
+    with {:ok, options} <- options(opts, [:needs, :meta, :completion, :max_iterations]),
          {:ok, component} <-
            Iterate.new(
              options
@@ -315,7 +315,7 @@ defmodule Jido.Flow.Builder do
     Subflow.new(Map.merge(common, %{name: name, flow: target, params: params}))
   end
 
-  defp common_options(opts), do: options(opts, [:after, :meta])
+  defp common_options(opts), do: options(opts, [:needs, :meta])
 
   defp options(opts, allowed) when is_list(opts) do
     if Keyword.keyword?(opts) and Enum.uniq(Keyword.keys(opts)) == Keyword.keys(opts) do

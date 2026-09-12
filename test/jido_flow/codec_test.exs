@@ -8,6 +8,9 @@ defmodule Jido.Flow.CodecTest do
   alias Jido.Flow.Condition
   alias Jido.Flow.Error
   alias Jido.Flow.Dispatch
+  alias Jido.Flow.Iterate
+  alias Jido.Flow.Map, as: FlowMap
+  alias Jido.Flow.Reduce
   alias Jido.Flow.Ref
   alias Jido.Flow.Registry
   alias Jido.Flow.Step
@@ -52,7 +55,7 @@ defmodule Jido.Flow.CodecTest do
 
     for step <- document["components"] do
       assert step["kind"] == "step"
-      assert Enum.sort(Map.keys(step)) == ["action", "after", "kind", "meta", "name", "params"]
+      assert Enum.sort(Map.keys(step)) == ["action", "kind", "meta", "name", "needs", "params"]
     end
 
     [empty, named, multiple, sole_map] = document["components"]
@@ -194,6 +197,74 @@ defmodule Jido.Flow.CodecTest do
     assert {:ok, ^flow} = Codec.diagnose(decoded_document, registry)
   end
 
+  test "all component kinds round trip needs in both current document versions" do
+    registry = CodecRegistry.mixed()
+    flow = all_component_flow!()
+    assert {:ok, expression_document} = Codec.encode(flow, registry)
+    assert expression_document["version"] == 2
+    version_one_document = version_one_conditions(expression_document)
+    assert version_one_document["version"] == 1
+
+    for document <- [expression_document, version_one_document] do
+      assert Enum.map(document["components"], & &1["kind"]) ==
+               ["step", "subflow", "choice", "map", "reduce", "iterate", "dispatch"]
+
+      for component <- document["components"] do
+        assert Map.has_key?(component, "needs")
+        refute Map.has_key?(component, "after")
+      end
+
+      assert {:ok, ^flow} = Codec.decode(document, registry)
+
+      assert {:ok, ^flow} =
+               document |> Jason.encode!() |> Jason.decode!() |> Codec.decode(registry)
+    end
+  end
+
+  test "stored components reject after without conversion" do
+    registry = CodecRegistry.mixed()
+    assert {:ok, document} = Codec.encode(all_component_flow!(), registry)
+
+    for {component, index} <- Enum.with_index(document["components"]) do
+      legacy = component |> Map.delete("needs") |> Map.put("after", [])
+      invalid = replace_component(document, index, legacy)
+
+      assert {:error, %Error.Invalid{errors: errors}} = Codec.diagnose(invalid, registry)
+
+      assert Enum.sort(Enum.map(errors, & &1.details.path)) == [
+               ["components", index, "after"],
+               ["components", index, "needs"]
+             ]
+
+      assert {:error,
+              %InvalidDefinitionError{
+                message: "stored Flow contains an unknown field",
+                details: %{field: "after", path: ["components", ^index, "after"]}
+              }} = Codec.decode(invalid, registry)
+    end
+  end
+
+  test "stored needs field errors retain the JSON boundary path" do
+    registry = CodecRegistry.mixed()
+    assert {:ok, document} = Codec.encode(all_component_flow!(), registry)
+    [step | _rest] = document["components"]
+
+    invalid_steps = [
+      Map.delete(step, "needs"),
+      %{step | "needs" => 42},
+      %{step | "needs" => [42]}
+    ]
+
+    for invalid_step <- invalid_steps do
+      invalid = replace_component(document, 0, invalid_step)
+
+      assert {:error, %InvalidDefinitionError{details: %{path: path}}} =
+               Codec.decode(invalid, registry)
+
+      assert path == ["components", 0, "needs"]
+    end
+  end
+
   test "encode/1 returns a generated convenience Registry" do
     flow = FlowAuthoring.mixed_flow!()
 
@@ -223,7 +294,7 @@ defmodule Jido.Flow.CodecTest do
     [step, subflow, choice | rest] = document["components"]
     [option] = choice["options"]
 
-    step = step |> Map.put("after", 42) |> Map.put("action", 42)
+    step = step |> Map.put("needs", 42) |> Map.put("action", 42)
 
     option =
       option
@@ -257,7 +328,7 @@ defmodule Jido.Flow.CodecTest do
              Codec.diagnose(invalid, registry)
 
     assert Enum.map(errors, & &1.details.path) == [
-             ["components", 0, "after"],
+             ["components", 0, "needs"],
              ["components", 0, "action"],
              ["components", 2, "options", 0, "condition"],
              ["components", 2, "options", 0, "action"],
@@ -276,8 +347,8 @@ defmodule Jido.Flow.CodecTest do
     assert {:ok, document} = Codec.encode(flow, registry)
 
     [first, second] = document["components"]
-    first = %{first | "after" => ["missing-first"]}
-    second = %{second | "after" => ["missing-second"]}
+    first = %{first | "needs" => ["missing-first"]}
+    second = %{second | "needs" => ["missing-second"]}
 
     output = %{
       "$ref" => %{
@@ -445,7 +516,7 @@ defmodule Jido.Flow.CodecTest do
       |> Map.delete("meta")
       |> Map.put("extra", true)
 
-    subflow = %{subflow | "flow" => 42, "after" => [42]}
+    subflow = %{subflow | "flow" => 42, "needs" => [42]}
     choice = choice |> Map.delete("options") |> Map.delete("fallback")
 
     map =
@@ -571,8 +642,8 @@ defmodule Jido.Flow.CodecTest do
     cycle = %{
       document
       | "components" => [
-          %{first | "after" => [second["name"]]},
-          %{second | "after" => [first["name"]]}
+          %{first | "needs" => [second["name"]]},
+          %{second | "needs" => [first["name"]]}
         ]
     }
 
@@ -678,7 +749,7 @@ defmodule Jido.Flow.CodecTest do
           "name" => "child",
           "flow" => "targets/child",
           "params" => %{"$type" => "map", "entries" => []},
-          "after" => [],
+          "needs" => [],
           "meta" => %{"$type" => "map", "entries" => []}
         }
       ],
@@ -925,7 +996,7 @@ defmodule Jido.Flow.CodecTest do
       },
       replace_component(document, 0, %{step | "action" => 42}),
       %{document | "description" => 42},
-      replace_component(document, 0, %{step | "after" => 42}),
+      replace_component(document, 0, %{step | "needs" => 42}),
       replace_component(document, 5, %{iterate | "max_iterations" => 0}),
       replace_component(document, 5, %{iterate | "state" => 42}),
       replace_component(document, 2, %{choice | "fallback" => 42})
@@ -947,6 +1018,60 @@ defmodule Jido.Flow.CodecTest do
       "schemas/empty/v1" => {:schema, []}
     })
   end
+
+  defp all_component_flow! do
+    option = Choice.Option.new!(name: "yes", condition: Jido.Flow.Condition.eq(1, 1), action: Add)
+    fallback = Choice.Fallback.new!(action: Multiply)
+
+    Flow.new!(
+      name: "all_stored_components",
+      components: [
+        Step.new!(name: "step", action: Add),
+        Subflow.new!(name: "subflow", flow: NestedFlow, needs: ["step"]),
+        Choice.new!(
+          name: "choice",
+          options: [option],
+          fallback: fallback,
+          needs: ["step"]
+        ),
+        FlowMap.new!(name: "map", collection: [], action: Add, needs: ["step"]),
+        Reduce.new!(
+          name: "reduce",
+          collection: [],
+          initial: %{},
+          action: Add,
+          needs: ["step"]
+        ),
+        Iterate.new!(
+          name: "iterate",
+          action: Add,
+          state: Iterate.State.new!(initial: %{}, update: %{}),
+          completion: Jido.Flow.Condition.eq(1, 1),
+          max_iterations: 1,
+          needs: ["step"]
+        ),
+        Dispatch.new!(
+          name: "dispatch",
+          decision: Add,
+          expander: Add,
+          needs: ["step", "subflow", "choice", "map", "reduce", "iterate"]
+        )
+      ],
+      output: Ref.result("dispatch")
+    )
+  end
+
+  defp version_one_conditions(document) do
+    document
+    |> Map.put("version", 1)
+    |> update_in(
+      ["components", Access.at(2), "options", Access.at(0), "condition"],
+      &legacy_condition/1
+    )
+    |> update_in(["components", Access.at(5), "completion"], &legacy_condition/1)
+  end
+
+  defp legacy_condition(%{"$expr" => expression}), do: %{"$condition" => expression}
 
   defp replace_component(document, index, component) do
     %{document | "components" => List.replace_at(document["components"], index, component)}

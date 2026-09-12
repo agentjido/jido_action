@@ -61,7 +61,7 @@ defmodule JidoActionTest.Flow.Compiler.CaptureTest do
         name: "dispatch",
         decision: EchoParamsAction,
         expander: EchoParamsAction,
-        after: Enum.map(source.components, & &1.name),
+        needs: Enum.map(source.components, & &1.name),
         params: %{value: Ref.result("loop")}
       )
 

@@ -28,7 +28,7 @@ The component types are:
 - `Jido.Flow.Iterate` for a bounded local loop; and
 - `Jido.Flow.Dispatch` for one choice at the end of a Flow.
 
-Each component has a name, explicit `after` dependencies, and portable `meta`
+Each component has a name, explicit `needs` dependencies, and portable `meta`
 data. Data references create inferred dependencies. Jido keeps explicit and
 inferred dependencies separate.
 

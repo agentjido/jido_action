@@ -23,13 +23,13 @@ still does not execute work.
 
 dependencies["publish"]
 #=> %{
-#=>   after: ["approve"],
+#=>   needs: ["approve"],
 #=>   references: ["render"],
 #=>   effective: ["approve", "render"]
 #=> }
 ```
 
-`after` is explicit author order. `references` is derived from result
+`needs` is explicit author order. `references` is derived from result
 references. `effective` is their sorted union.
 
 ## Explain A Flow

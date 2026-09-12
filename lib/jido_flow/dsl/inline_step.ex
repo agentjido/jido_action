@@ -53,10 +53,10 @@ defmodule Jido.Flow.DSL.InlineStep do
     )
 
     Enum.each(options, fn {field, _value} ->
-      unless field in [:after, :meta, :do] do
+      unless field in [:needs, :meta, :do] do
         MacroSupport.compile_error!(
           caller,
-          "unsupported inline Step field: #{inspect(field)}; use only after:, meta:, and do:"
+          "unsupported inline Step field: #{inspect(field)}; use only needs:, meta:, and do:"
         )
       end
     end)

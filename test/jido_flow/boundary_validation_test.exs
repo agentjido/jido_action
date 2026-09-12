@@ -110,9 +110,9 @@ defmodule Jido.Flow.BoundaryValidationTest do
     assert {:error, _error} = Component.new(:bad)
     assert {:error, _error} = Component.name(1)
     assert {:error, _error} = Component.module(nil, "target")
-    assert Component.after_names(nil) == {:ok, []}
-    assert {:error, _error} = Component.after_names("step")
-    assert {:error, _error} = Component.after_names(["one", "one"])
+    assert Component.needs_names(nil) == {:ok, []}
+    assert {:error, _error} = Component.needs_names("step")
+    assert {:error, _error} = Component.needs_names(["one", "one"])
     assert Component.meta(nil) == {:ok, %{}}
     assert {:error, _error} = Component.meta(%{self() => :bad})
   end

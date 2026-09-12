@@ -267,7 +267,7 @@ defmodule Jido.Flow.Validation do
       |> Enum.flat_map(fn {component, index} ->
         # Preserve the canonical first-error order. Codec sorts each component's
         # missing dependencies when it presents the same issues as JSON errors.
-        names = Component.after_of(component) ++ Component.reference_dependencies(component)
+        names = Component.needs_of(component) ++ Component.reference_dependencies(component)
         unknown_refs(names, known, Component.name_of(component), [:components, index])
       end)
 

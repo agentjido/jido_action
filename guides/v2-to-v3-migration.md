@@ -416,7 +416,7 @@ defmodule MyApp.Flows.FetchAndSaveOrder do
 end
 ```
 
-A result reference creates a dependency. Use `after:` only for order that has
+A result reference creates a dependency. Use `needs:` only for order that has
 no data dependency. Pass runtime context to `Jido.Exec.run/4`; a Flow does not
 store invocation context.
 

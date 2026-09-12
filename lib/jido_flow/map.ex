@@ -11,7 +11,7 @@ defmodule Jido.Flow.Map do
   alias Jido.Flow.Component
   alias Jido.Flow.Expression
 
-  @config_keys [:name, :collection, :action, :params, :on_error, :after, :meta]
+  @config_keys [:name, :collection, :action, :params, :on_error, :needs, :meta]
 
   @schema Zoi.struct(
             __MODULE__,
@@ -23,8 +23,9 @@ defmodule Jido.Flow.Map do
               on_error:
                 Zoi.enum([:fail_fast, :collect_errors], description: "Map error mode")
                 |> Zoi.default(:fail_fast),
-              after:
-                Zoi.list(Zoi.string(), description: "Explicit control order") |> Zoi.default([]),
+              needs:
+                Zoi.list(Zoi.string(), description: "Explicit control dependencies")
+                |> Zoi.default([]),
               meta: Zoi.map(description: "Portable author metadata") |> Zoi.default(%{})
             },
             coerce: true
@@ -51,7 +52,7 @@ defmodule Jido.Flow.Map do
          {:ok, action} <- Component.module(Map.get(attrs, :action), "map action"),
          {:ok, params} <- validate_params(Map.get(attrs, :params, %{})),
          {:ok, on_error} <- validate_on_error(Map.get(attrs, :on_error, :fail_fast)),
-         {:ok, after_names} <- Component.after_names(Map.get(attrs, :after, [])),
+         {:ok, needs_names} <- Component.needs_names(Map.get(attrs, :needs, [])),
          {:ok, meta} <- Component.meta(Map.get(attrs, :meta, %{})) do
       {:ok,
        %__MODULE__{
@@ -60,7 +61,7 @@ defmodule Jido.Flow.Map do
          action: action,
          params: params,
          on_error: on_error,
-         after: after_names,
+         needs: needs_names,
          meta: meta
        }}
     end
@@ -97,7 +98,7 @@ defmodule Jido.Flow.Map do
       action: map.action,
       params: Expression.to_map(map.params),
       on_error: map.on_error,
-      after: map.after,
+      needs: map.needs,
       meta: map.meta
     }
   end

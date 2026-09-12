@@ -30,7 +30,7 @@ defmodule FlowSteps.Inline do
       {:ok, %{ready: true}}
     end
 
-    step "normalize", name <- input(:name), after: "ready", meta: %{owner: "guide"} do
+    step "normalize", name <- input(:name), needs: "ready", meta: %{owner: "guide"} do
       {:ok, %{name: String.trim(name)}}
     end
 
@@ -73,7 +73,7 @@ map pattern receives its source as the complete parameter map. `[]` supplies
 `%{}`. When you reuse the target in Builder, supply a new mapping with the
 same parameter shape. The target does not retain the original source mapping.
 
-Only `after:` and `meta:` are shorthand header options. Use a list for more than
+Only `needs:` and `meta:` are shorthand header options. Use a list for more than
 two named bindings. Do not mix map patterns with named bindings or use more
 than one map pattern. Duplicate names, bare `_`, pins, header guards, and
 top-level struct patterns are not supported. Bind a value by name and match
@@ -146,7 +146,7 @@ output
 ```
 
 The result reference creates the dependency on `first`. Use the short form
-`after: "first"` option only for control order that does not move data.
+`needs: "first"` option only for control order that does not move data.
 
 ## Step Fields
 
@@ -157,7 +157,7 @@ A canonical Step has these fields:
 | `name` | Unique string component name. |
 | `action` | Action module. |
 | `params` | Canonical expression for Action input. |
-| `after` | Explicit control dependencies. |
+| `needs` | Explicit control dependencies. |
 | `meta` | Portable author metadata with no execution meaning. |
 
 The Action must satisfy the `Jido.Executable` Action contract. A `step` that
@@ -166,8 +166,7 @@ targets a Flow module becomes `Jido.Flow.Subflow` instead.
 ## Declare Output
 
 `output` is a Flow expression, not an Action call. Shape the final result with
-a map. If the module DSL omits `output`, lowering uses the complete result of
-the last declared block.
+a map. A module Flow must declare `output` as its final declaration.
 
 ```text
 output(%{

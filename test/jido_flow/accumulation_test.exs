@@ -18,22 +18,25 @@ defmodule Jido.Flow.AccumulationTest do
     {document, registry}
   end
 
-  test "after names preserve normalized order and error precedence" do
+  test "needs names preserve normalized order and error precedence" do
     names = ["last", :first] ++ Enum.map(1..128, &"name_#{&1}")
-    assert {:ok, normalized} = Component.after_names(names)
+    assert {:ok, normalized} = Component.needs_names(names)
     assert normalized == Enum.map(names, &to_string/1)
 
-    assert {:error, %{message: "component after contains a duplicate", details: %{name: "first"}}} =
-             Component.after_names([:first, "last", "first", "last"])
+    assert {:error, %{message: "component needs contains a duplicate", details: %{name: "first"}}} =
+             Component.needs_names([:first, "last", "first", "last"])
 
-    assert {:error, %{message: "component after must contain component names"}} =
-             Component.after_names([:first, "first", nil])
+    assert {:error, %{message: "component needs must contain component names"}} =
+             Component.needs_names([:first, "first", nil])
 
-    assert {:error, %{message: "component after must be a proper list"}} =
-             Component.after_names(["first" | :tail])
+    assert {:error, %{message: "component needs must be a proper list"}} =
+             Component.needs_names(["first" | :tail])
+
+    assert {:error, %{message: "component needs must be a list"}} =
+             Component.needs_names("first")
   end
 
-  test "after validation has bounded reduction growth" do
+  test "needs validation has bounded reduction growth" do
     # Eight times the input permits twice the linear growth. This checks BEAM
     # work, not wall time, and catches repeated copies of the accumulated list.
     counts =
@@ -43,7 +46,7 @@ defmodule Jido.Flow.AccumulationTest do
         Task.async(fn ->
           :erlang.garbage_collect()
           {:reductions, before} = Process.info(self(), :reductions)
-          assert {:ok, ^names} = Component.after_names(names)
+          assert {:ok, ^names} = Component.needs_names(names)
           {:reductions, after_count} = Process.info(self(), :reductions)
           after_count - before
         end)

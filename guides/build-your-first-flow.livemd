@@ -43,7 +43,7 @@ defmodule FirstFlow.Greeting do
 end
 ```
 
-Source order does not create a dependency. References and `after:` create
+Source order does not create a dependency. References and `needs:` create
 dependencies. The body is normal Elixir code. Jido compiles it to an ordinary
 Action; you do not need a separate Action module for each small operation.
 

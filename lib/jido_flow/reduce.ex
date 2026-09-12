@@ -13,7 +13,7 @@ defmodule Jido.Flow.Reduce do
   alias Jido.Flow.Component
   alias Jido.Flow.Expression
 
-  @config_keys [:name, :collection, :initial, :action, :params, :after, :meta]
+  @config_keys [:name, :collection, :initial, :action, :params, :needs, :meta]
 
   @schema Zoi.struct(
             __MODULE__,
@@ -23,8 +23,9 @@ defmodule Jido.Flow.Reduce do
               initial: Zoi.any(description: "Initial accumulator expression"),
               action: Zoi.atom(description: "Reducer Action module"),
               params: Zoi.any(description: "Reducer parameter expression") |> Zoi.default(%{}),
-              after:
-                Zoi.list(Zoi.string(), description: "Explicit control order") |> Zoi.default([]),
+              needs:
+                Zoi.list(Zoi.string(), description: "Explicit control dependencies")
+                |> Zoi.default([]),
               meta: Zoi.map(description: "Portable author metadata") |> Zoi.default(%{})
             },
             coerce: true
@@ -51,7 +52,7 @@ defmodule Jido.Flow.Reduce do
          {:ok, initial} <- validate_required_expression(attrs, :initial, :reduce_initial),
          {:ok, action} <- Component.module(Map.get(attrs, :action), "reduce action"),
          {:ok, params} <- validate_params(Map.get(attrs, :params, %{})),
-         {:ok, after_names} <- Component.after_names(Map.get(attrs, :after, [])),
+         {:ok, needs_names} <- Component.needs_names(Map.get(attrs, :needs, [])),
          {:ok, meta} <- Component.meta(Map.get(attrs, :meta, %{})) do
       {:ok,
        %__MODULE__{
@@ -60,7 +61,7 @@ defmodule Jido.Flow.Reduce do
          initial: initial,
          action: action,
          params: params,
-         after: after_names,
+         needs: needs_names,
          meta: meta
        }}
     end
@@ -98,7 +99,7 @@ defmodule Jido.Flow.Reduce do
       initial: Expression.to_map(reduce.initial),
       action: reduce.action,
       params: Expression.to_map(reduce.params),
-      after: reduce.after,
+      needs: reduce.needs,
       meta: reduce.meta
     }
   end

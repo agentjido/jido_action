@@ -134,7 +134,7 @@ defmodule JidoActionTest.Exec.MapRetentionTest do
     assert Exec.result(execution) == {:ok, %{values: [%{value: 1}], indexes: [0]}}
   end
 
-  test "two reducers, a reader, and an after-only dependent each execute once" do
+  test "two reducers, a reader, and a needs-only dependent each execute once" do
     counter = start_supervised!({Agent, fn -> %{map: 0, reduce: 0, reader: 0, after: 0} end})
 
     for items <- [[], [3, 1, 3]] do
@@ -158,7 +158,7 @@ defmodule JidoActionTest.Exec.MapRetentionTest do
               action: Counted,
               params: %{kind: :reader, items: Ref.result("mapped")}
             ),
-            Step.new!(name: "after", action: Counted, after: ["mapped"], params: %{kind: :after})
+            Step.new!(name: "after", action: Counted, needs: ["mapped"], params: %{kind: :after})
           ],
           output: %{
             items: Ref.result("mapped"),
