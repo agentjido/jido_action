@@ -26,6 +26,53 @@ defmodule Jido.Flow.DSL.MacroSupport do
   end
 
   @doc false
+  @spec entity(
+          [Macro.t()],
+          term(),
+          module(),
+          atom(),
+          [atom()],
+          Macro.Env.t(),
+          {String.t(), String.t()}
+        ) :: Macro.t()
+  def entity(arguments, options, module, function, fields, caller, {label, mixed_label}) do
+    validate_options!(
+      options,
+      caller,
+      "#{label} options must be a keyword list",
+      "#{label} field"
+    )
+
+    arguments = arguments ++ [source(caller)]
+
+    case Keyword.pop(options, :do) do
+      {nil, short_options} ->
+        short_options = quote_fields(short_options, fields)
+
+        quote generated: true, line: caller.line, file: caller.file do
+          require unquote(module)
+
+          unquote(module).unquote(function)(
+            unquote_splicing(arguments),
+            unquote(short_options)
+          )
+        end
+
+      {block, []} ->
+        quote generated: true, line: caller.line, file: caller.file do
+          require unquote(module)
+
+          unquote(module).unquote(function)(unquote_splicing(arguments)) do
+            unquote(block)
+          end
+        end
+
+      {_block, _mixed_options} ->
+        compile_error!(caller, "do not mix keyword and block fields in #{mixed_label}")
+    end
+  end
+
+  @doc false
   @spec source(Macro.Env.t()) :: Macro.t()
   def source(caller), do: Macro.escape(%{line: caller.line})
 
@@ -179,44 +226,15 @@ defmodule Jido.Flow.DSL.Macros do
   end
 
   defp entity(name, options, module, function, quoted_fields, caller) do
-    MacroSupport.validate_options!(
+    MacroSupport.entity(
+      [name],
       options,
+      module,
+      function,
+      quoted_fields,
       caller,
-      "Flow declaration options must be a keyword list",
-      "Flow declaration field"
+      {"Flow declaration", "one declaration"}
     )
-
-    source = MacroSupport.source(caller)
-
-    case Keyword.pop(options, :do) do
-      {nil, short_options} ->
-        short_options = MacroSupport.quote_fields(short_options, quoted_fields)
-
-        quote generated: true, line: caller.line, file: caller.file do
-          require unquote(module)
-
-          unquote(module).unquote(function)(
-            unquote(name),
-            unquote(source),
-            unquote(short_options)
-          )
-        end
-
-      {block, []} ->
-        quote generated: true, line: caller.line, file: caller.file do
-          require unquote(module)
-
-          unquote(module).unquote(function)(unquote(name), unquote(source)) do
-            unquote(block)
-          end
-        end
-
-      {_block, _mixed_options} ->
-        MacroSupport.compile_error!(
-          caller,
-          "do not mix keyword and block fields in one declaration"
-        )
-    end
   end
 
   defp block_entity(name, options, module, function, caller) do
@@ -259,7 +277,7 @@ defmodule Jido.Flow.DSL.ChoiceMacros do
 
     declaration =
       nested_entity(
-        evaluated_name,
+        [evaluated_name],
         options,
         extension_module(["Flow", "Choice", "Option"]),
         :__option__,
@@ -274,83 +292,26 @@ defmodule Jido.Flow.DSL.ChoiceMacros do
   end
 
   defmacro otherwise(options) do
-    declaration =
-      nested_entity(
-        nil,
-        options,
-        extension_module(["Flow", "Choice", "Otherwise"]),
-        :__otherwise__,
-        [:params],
-        __CALLER__
-      )
-
-    declaration
-  end
-
-  defp nested_entity(name, options, module, function, quoted_fields, caller) do
-    MacroSupport.validate_options!(
+    nested_entity(
+      [],
       options,
-      caller,
-      "Choice declaration options must be a keyword list",
-      "Choice declaration field"
+      extension_module(["Flow", "Choice", "Otherwise"]),
+      :__otherwise__,
+      [:params],
+      __CALLER__
     )
-
-    source = MacroSupport.source(caller)
-
-    case Keyword.pop(options, :do) do
-      {nil, short_options} ->
-        short_options = MacroSupport.quote_fields(short_options, quoted_fields)
-
-        call_nested(module, function, name, source, short_options, caller)
-
-      {block, []} ->
-        call_nested_block(module, function, name, block, source, caller)
-
-      {_block, _mixed_options} ->
-        MacroSupport.compile_error!(
-          caller,
-          "do not mix keyword and block fields in one Choice target"
-        )
-    end
   end
 
-  defp call_nested(module, function, nil, source, options, caller) do
-    quote generated: true, line: caller.line, file: caller.file do
-      require unquote(module)
-      unquote(module).unquote(function)(unquote(source), unquote(options))
-    end
-  end
-
-  defp call_nested(module, function, name, source, options, caller) do
-    quote generated: true, line: caller.line, file: caller.file do
-      require unquote(module)
-
-      unquote(module).unquote(function)(
-        unquote(name),
-        unquote(source),
-        unquote(options)
-      )
-    end
-  end
-
-  defp call_nested_block(module, _function, nil, block, source, caller) do
-    quote generated: true, line: caller.line, file: caller.file do
-      require unquote(module)
-
-      unquote(module).__otherwise__ unquote(source) do
-        unquote(block)
-      end
-    end
-  end
-
-  defp call_nested_block(module, function, name, block, source, caller) do
-    quote generated: true, line: caller.line, file: caller.file do
-      require unquote(module)
-
-      unquote(module).unquote(function)(unquote(name), unquote(source)) do
-        unquote(block)
-      end
-    end
+  defp nested_entity(arguments, options, module, function, quoted_fields, caller) do
+    MacroSupport.entity(
+      arguments,
+      options,
+      module,
+      function,
+      quoted_fields,
+      caller,
+      {"Choice declaration", "one Choice target"}
+    )
   end
 
   defp extension_module(segments) do
@@ -364,47 +325,15 @@ defmodule Jido.Flow.DSL.IterateMacros do
   alias Jido.Flow.DSL.MacroSupport
 
   defmacro state(schema, options) do
-    caller = __CALLER__
-
-    MacroSupport.validate_options!(
+    MacroSupport.entity(
+      [schema],
       options,
-      caller,
-      "Iterate state options must be a keyword list",
-      "Iterate state field"
+      extension_module(["Flow", "Iterate", "State"]),
+      :__state__,
+      [:initial],
+      __CALLER__,
+      {"Iterate state", "Iterate state"}
     )
-
-    module = extension_module(["Flow", "Iterate", "State"])
-    source = MacroSupport.source(caller)
-
-    case Keyword.pop(options, :do) do
-      {nil, short_options} ->
-        short_options = MacroSupport.quote_fields(short_options, [:initial])
-
-        quote generated: true, line: caller.line, file: caller.file do
-          require unquote(module)
-
-          unquote(module).__state__(
-            unquote(schema),
-            unquote(source),
-            unquote(short_options)
-          )
-        end
-
-      {block, []} ->
-        quote generated: true, line: caller.line, file: caller.file do
-          require unquote(module)
-
-          unquote(module).__state__ unquote(schema), unquote(source) do
-            unquote(block)
-          end
-        end
-
-      {_block, _mixed_options} ->
-        MacroSupport.compile_error!(
-          caller,
-          "do not mix keyword and block fields in Iterate state"
-        )
-    end
   end
 
   defp extension_module(segments) do
