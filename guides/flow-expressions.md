@@ -125,12 +125,18 @@ true = total == Jido.Expr.new!(:multiply, [quantity, price])
 {:ok, %{total: 6}} = Jido.Exec.run(built, %{name: "Ada", quantity: 2, price: 3})
 ```
 
-`Jido.Flow.Condition` helpers return `Jido.Expr` values. Use them for conditions
-or Boolean parameter and output values, for example:
+Use `Jido.Expr` for conditions and Boolean parameter or output values:
 
 ```elixir
-eligible = Jido.Flow.Condition.gte(Ref.input(:score), 10)
+eligible = Jido.Expr.new!(:gte, [Ref.input(:score), 10])
 ```
+
+The V3 beta no longer provides `Jido.Flow.Condition` or accepts its records.
+Replace its constructors with `Jido.Expr.new/2` or `Jido.Expr.new!/2`.
+The `Jido.Flow.Builder` comparison and Boolean helpers remain available.
+Expr construction checks the operator and arity; Flow constructors validate
+the full expression, portable values, and reference scope. Do not use
+`Jido.Expr.validate/2` as a replacement for Flow-specific validation.
 
 ## Stored JSON
 

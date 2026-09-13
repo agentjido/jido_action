@@ -8,7 +8,6 @@ defmodule Jido.Flow.GraphValidationTest do
     Builder,
     Choice,
     Codec,
-    Condition,
     Dispatch,
     Error,
     Iterate,
@@ -208,7 +207,7 @@ defmodule Jido.Flow.GraphValidationTest do
           Choice.Option.new!(
             name: "yes",
             action: ProbeAction,
-            condition: Condition.any([true, Condition.eq(ref.("dep_condition"), 1)]),
+            condition: Expr.new!(:any, [true, Expr.new!(:eq, [ref.("dep_condition"), 1])]),
             params: ref.("dep_option")
           )
         ],
@@ -236,7 +235,7 @@ defmodule Jido.Flow.GraphValidationTest do
           initial: ref.("dep_initial"),
           update: [Ref.body_result(), ref.("dep_update")]
         ],
-        completion: Condition.eq(Ref.iteration_index(), ref.("dep_completion")),
+        completion: Expr.new!(:eq, [Ref.iteration_index(), ref.("dep_completion")]),
         max_iterations: 1
       )
     ]

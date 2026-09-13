@@ -2,8 +2,6 @@ defmodule JidoActionTest.Flow.Compiler.IteratorTest do
   use ExUnit.Case, async: false
 
   @moduletag capture_log: true
-
-  alias Jido.Flow.Condition
   alias Jido.Flow.Compiler.Iterator, as: IteratorCompiler
   alias Jido.Flow.Iterate
   alias JidoActionTest.Fixtures.Actions.Add
@@ -63,7 +61,7 @@ defmodule JidoActionTest.Flow.Compiler.IteratorTest do
       action: Add,
       params: %{},
       state: Iterate.State.new!(schema: [], initial: %{}, update: %{}),
-      completion: Condition.eq(false, true),
+      completion: Jido.Expr.new!(:eq, [false, true]),
       max_iterations: 1
     )
   end

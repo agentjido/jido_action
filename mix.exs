@@ -200,7 +200,6 @@ defmodule JidoAction.MixProject do
           Jido.Flow.Choice.Option,
           Jido.Flow.Choice.Fallback,
           Jido.Flow.Component,
-          Jido.Flow.Condition,
           Jido.Flow.Data,
           Jido.Flow.Dispatch,
           Jido.Flow.Expression,

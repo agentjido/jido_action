@@ -10,7 +10,6 @@ defmodule Jido.Flow.Iterate do
   alias Jido.Action
   alias Jido.Flow.Error
   alias Jido.Flow.Component
-  alias Jido.Flow.Condition
   alias Jido.Flow.Expression
 
   @maximum_iterations 10_000
@@ -191,12 +190,9 @@ defmodule Jido.Flow.Iterate do
   defp state(nil), do: {:error, Error.validation_error("iterate state is required")}
   defp state(value), do: State.new(value)
 
-  defp completion(%Condition{} = value), do: Condition.validate(value, :iterate_completion)
-  defp completion(%Jido.Expr{} = value), do: Condition.validate(value, :iterate_completion)
-  defp completion(%Jido.Flow.Ref{} = value), do: Condition.validate(value, :iterate_completion)
-
-  defp completion(value) when is_boolean(value),
-    do: Condition.validate(value, :iterate_completion)
+  defp completion(value)
+       when is_struct(value, Jido.Expr) or is_struct(value, Jido.Flow.Ref) or is_boolean(value),
+       do: Expression.condition(value, :iterate_completion)
 
   defp completion(_value), do: {:error, Error.validation_error("iterate completion is required")}
 

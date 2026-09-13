@@ -2,7 +2,7 @@ defmodule JidoActionTest.Fixtures.FlowAuthoring do
   @moduledoc false
 
   alias Jido.Flow
-  alias Jido.Flow.{Builder, Choice, Condition, Iterate, Reduce, Ref, Step, Subflow}
+  alias Jido.Flow.{Builder, Choice, Iterate, Reduce, Ref, Step, Subflow}
   alias Jido.Flow.Map, as: FlowMap
   alias JidoActionTest.Fixtures.NestedFlow
   alias JidoActionTest.Fixtures.Actions.{Add, Multiply}
@@ -52,7 +52,7 @@ defmodule JidoActionTest.Fixtures.FlowAuthoring do
           options: [
             Choice.Option.new!(
               name: "add",
-              condition: Condition.eq(Ref.input(:kind), :add),
+              condition: Jido.Expr.new!(:eq, [Ref.input(:kind), :add]),
               action: Add,
               params: %{value: Ref.result("child", :value), amount: 1}
             )
@@ -87,7 +87,7 @@ defmodule JidoActionTest.Fixtures.FlowAuthoring do
               initial: %{count: 0},
               update: %{count: Ref.body_result(:value)}
             ),
-          completion: Condition.gte(Ref.iteration_index(), 2),
+          completion: Jido.Expr.new!(:gte, [Ref.iteration_index(), 2]),
           max_iterations: 2
         )
       ],

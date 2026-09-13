@@ -8,7 +8,6 @@ defmodule Jido.Flow.Expression do
 
   alias Jido.Action
   alias Jido.Expr
-  alias Jido.Flow.Condition
   alias Jido.Flow.Error
   alias Jido.Flow.Data
   alias Jido.Flow.Ref
@@ -28,6 +27,25 @@ defmodule Jido.Flow.Expression do
   @doc false
   @spec validate(term(), Ref.scope()) :: :ok | {:error, Exception.t()}
   def validate(expression, scope \\ :flow), do: do_validate(expression, [], scope)
+
+  @doc false
+  @spec condition(term(), Ref.scope()) :: {:ok, Expr.t()} | {:error, Exception.t()}
+  def condition(%Expr{} = expression, scope) do
+    with {:ok, expression} <- normalize(expression),
+         :ok <- validate(expression, scope) do
+      {:ok, expression}
+    end
+  end
+
+  def condition(value, scope) when is_struct(value, Ref) or is_boolean(value),
+    do: condition(Expr.new!(:all, [value]), scope)
+
+  def condition(_value, _scope),
+    do:
+      {:error,
+       Error.validation_error("condition must be a Boolean, Flow reference, or Jido.Expr", %{
+         path: []
+       })}
 
   @doc false
   @spec to_map(term()) :: term()
@@ -138,11 +156,10 @@ defmodule Jido.Flow.Expression do
     |> operation_result(path)
   end
 
-  defp do_normalize(expression, path)
-       when is_struct(expression, Expr) or is_struct(expression, Condition) do
+  defp do_normalize(%Expr{} = expression, path) do
     expression
     |> Jido.Expr.Runtime.normalize(
-      normalize_leaf: &normalize_leaf/2,
+      normalize_leaf: &do_normalize/2,
       validate_leaf: &do_validate(&1, &2, :any)
     )
     |> operation_result(path)
@@ -176,15 +193,6 @@ defmodule Jido.Flow.Expression do
   end
 
   defp do_normalize(value, _path), do: {:ok, value}
-
-  defp normalize_leaf(%Condition{} = condition, path) do
-    case Condition.to_expr(condition) do
-      {:ok, expression} -> {:ok, expression}
-      {:error, error} -> {:error, prefix_path(error, path)}
-    end
-  end
-
-  defp normalize_leaf(value, path), do: do_normalize(value, path)
 
   defp validate_proper_list(list, path, scope, operation_checked?),
     do: validate_list(list, path, scope, operation_checked?, 0)

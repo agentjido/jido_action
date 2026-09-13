@@ -4,7 +4,6 @@ defmodule Jido.Flow.ExecutableKindTest do
   alias Jido.Flow
   alias Jido.Flow.Error.InvalidDefinitionError
   alias Jido.Flow.Choice
-  alias Jido.Flow.Condition
   alias Jido.Flow.Iterate
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.Reduce
@@ -18,7 +17,7 @@ defmodule Jido.Flow.ExecutableKindTest do
         options: [
           Choice.Option.new!(
             name: "nested",
-            condition: Condition.eq(1, 1),
+            condition: Jido.Expr.new!(:eq, [1, 1]),
             action: NestedFlow
           )
         ],
@@ -30,7 +29,7 @@ defmodule Jido.Flow.ExecutableKindTest do
         name: "iterate",
         action: NestedFlow,
         state: Iterate.State.new!(schema: [], initial: %{}, update: %{}),
-        completion: Condition.eq(Ref.iteration_index(), 0),
+        completion: Jido.Expr.new!(:eq, [Ref.iteration_index(), 0]),
         max_iterations: 1
       )
     ]

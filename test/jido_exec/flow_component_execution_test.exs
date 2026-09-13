@@ -6,7 +6,7 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
   alias Jido.Exec
   alias Jido.Flow
   alias Jido.Flow.Error.ExecutionFailureError
-  alias Jido.Flow.{Choice, Condition, Reduce, Ref, Step}
+  alias Jido.Flow.{Choice, Reduce, Ref, Step}
   alias Jido.Flow.Map, as: FlowMap
 
   alias JidoActionTest.Fixtures.Actions.{Add, EchoParamsAction, ErrorAction, Multiply}
@@ -170,13 +170,13 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
 
   test "executes every comparison operator with runtime operands" do
     cases = [
-      {Condition.eq(Ref.input(:left), Ref.input(:right)), 1, 1},
-      {Condition.neq(Ref.input(:left), Ref.input(:right)), 1, 2},
-      {Condition.lt(Ref.input(:left), Ref.input(:right)), 1, 2},
-      {Condition.lte(Ref.input(:left), Ref.input(:right)), 2, 2},
-      {Condition.gt(Ref.input(:left), Ref.input(:right)), 2, 1},
-      {Condition.gte(Ref.input(:left), Ref.input(:right)), "b", "a"},
-      {Condition.in(Ref.input(:left), Ref.input(:right)), :two, [:one, :two, :three]}
+      {Jido.Expr.new!(:eq, [Ref.input(:left), Ref.input(:right)]), 1, 1},
+      {Jido.Expr.new!(:neq, [Ref.input(:left), Ref.input(:right)]), 1, 2},
+      {Jido.Expr.new!(:lt, [Ref.input(:left), Ref.input(:right)]), 1, 2},
+      {Jido.Expr.new!(:lte, [Ref.input(:left), Ref.input(:right)]), 2, 2},
+      {Jido.Expr.new!(:gt, [Ref.input(:left), Ref.input(:right)]), 2, 1},
+      {Jido.Expr.new!(:gte, [Ref.input(:left), Ref.input(:right)]), "b", "a"},
+      {Jido.Expr.new!(:in, [Ref.input(:left), Ref.input(:right)]), :two, [:one, :two, :three]}
     ]
 
     for {condition, left, right} <- cases do
@@ -186,7 +186,7 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
   end
 
   test "selects the first matching Choice option" do
-    always = Condition.eq(1, 1)
+    always = Jido.Expr.new!(:eq, [1, 1])
 
     flow =
       Flow.new!(
@@ -247,16 +247,16 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
   end
 
   test "short-circuits all, any, and not conditions" do
-    true_condition = Condition.eq(1, 1)
-    false_condition = Condition.eq(1, 2)
+    true_condition = Jido.Expr.new!(:eq, [1, 1])
+    false_condition = Jido.Expr.new!(:eq, [1, 2])
 
     cases = [
-      {Condition.all([true_condition, true_condition]), 2},
-      {Condition.all([false_condition, invalid_ordering()]), 20},
-      {Condition.any([true_condition, invalid_ordering()]), 2},
-      {Condition.any([false_condition, false_condition]), 20},
-      {Condition.not(false_condition), 2},
-      {Condition.not(true_condition), 20}
+      {Jido.Expr.new!(:all, [true_condition, true_condition]), 2},
+      {Jido.Expr.new!(:all, [false_condition, invalid_ordering()]), 20},
+      {Jido.Expr.new!(:any, [true_condition, invalid_ordering()]), 2},
+      {Jido.Expr.new!(:any, [false_condition, false_condition]), 20},
+      {Jido.Expr.new!(:not, [false_condition]), 2},
+      {Jido.Expr.new!(:not, [true_condition]), 20}
     ]
 
     for {condition, value} <- cases do
@@ -266,9 +266,9 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
 
   test "returns condition errors from each boolean group" do
     for condition <- [
-          Condition.all([invalid_ordering()]),
-          Condition.any([invalid_ordering()]),
-          Condition.not(invalid_ordering())
+          Jido.Expr.new!(:all, [invalid_ordering()]),
+          Jido.Expr.new!(:any, [invalid_ordering()]),
+          Jido.Expr.new!(:not, [invalid_ordering()])
         ] do
       assert {:error,
               %ExecutionFailureError{
@@ -287,7 +287,7 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
     ]
 
     for {left, right, left_type, right_type} <- invalid_ordering_values do
-      condition = Condition.lt(Ref.input(:left), Ref.input(:right))
+      condition = Jido.Expr.new!(:lt, [Ref.input(:left), Ref.input(:right)])
 
       assert {:error,
               %ExecutionFailureError{
@@ -298,7 +298,7 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
               }} = Exec.run(choice_flow(condition), %{left: left, right: right})
     end
 
-    condition = Condition.in(Ref.input(:left), Ref.input(:right))
+    condition = Jido.Expr.new!(:in, [Ref.input(:left), Ref.input(:right)])
 
     for right <- [%{}, [1 | :tail]] do
       assert {:error,
@@ -469,7 +469,7 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
     )
   end
 
-  defp invalid_ordering, do: Condition.lt(%{}, 1)
+  defp invalid_ordering, do: Jido.Expr.new!(:lt, [%{}, 1])
 
   defp target_error_flow(:step) do
     Flow.new!(
@@ -490,7 +490,7 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
           options: [
             [
               name: "selected",
-              condition: Condition.eq(1, 1),
+              condition: Jido.Expr.new!(:eq, [1, 1]),
               action: ErrorAction,
               params: %{error_type: :validation}
             ]

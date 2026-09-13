@@ -288,7 +288,7 @@ defmodule JidoActionTest.Fixtures.Iterator do
   @moduledoc false
 
   alias Jido.Flow
-  alias Jido.Flow.{Condition, Iterate, Ref}
+  alias Jido.Flow.{Iterate, Ref}
 
   @state_schema_recorder :jido_flow_iterator_runtime_state_schema_recorder
 
@@ -331,6 +331,6 @@ defmodule JidoActionTest.Fixtures.Iterator do
     Flow.new!(name: "iterator_runtime", components: [iterator], output: Ref.result(:count))
   end
 
-  def eq(left, right), do: %Condition{operator: :eq, operands: [left, right]}
-  def gte(left, right), do: %Condition{operator: :gte, operands: [left, right]}
+  def eq(left, right), do: %Jido.Expr{operator: :eq, operands: [left, right]}
+  def gte(left, right), do: %Jido.Expr{operator: :gte, operands: [left, right]}
 end

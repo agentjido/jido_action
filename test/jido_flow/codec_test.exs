@@ -5,7 +5,6 @@ defmodule Jido.Flow.CodecTest do
   alias Jido.Flow
   alias Jido.Flow.Choice
   alias Jido.Flow.Codec
-  alias Jido.Flow.Condition
   alias Jido.Flow.Error
   alias Jido.Flow.Dispatch
   alias Jido.Flow.Iterate
@@ -895,9 +894,9 @@ defmodule Jido.Flow.CodecTest do
               Choice.Option.new!(
                 name: "nested",
                 condition:
-                  Condition.all([
-                    Condition.eq(Ref.input(:kind), :go),
-                    Condition.not(Condition.eq(Ref.input(:value), 0))
+                  Jido.Expr.new!(:all, [
+                    Jido.Expr.new!(:eq, [Ref.input(:kind), :go]),
+                    Jido.Expr.new!(:not, [Jido.Expr.new!(:eq, [Ref.input(:value), 0])])
                   ]),
                 action: Add
               )
@@ -922,7 +921,7 @@ defmodule Jido.Flow.CodecTest do
             options: [
               Choice.Option.new!(
                 name: "multiply",
-                condition: Condition.eq(1, 1),
+                condition: Jido.Expr.new!(:eq, [1, 1]),
                 action: Multiply
               )
             ],
@@ -1020,7 +1019,7 @@ defmodule Jido.Flow.CodecTest do
   end
 
   defp all_component_flow! do
-    option = Choice.Option.new!(name: "yes", condition: Jido.Flow.Condition.eq(1, 1), action: Add)
+    option = Choice.Option.new!(name: "yes", condition: Jido.Expr.new!(:eq, [1, 1]), action: Add)
     fallback = Choice.Fallback.new!(action: Multiply)
 
     Flow.new!(
@@ -1046,7 +1045,7 @@ defmodule Jido.Flow.CodecTest do
           name: "iterate",
           action: Add,
           state: Iterate.State.new!(initial: %{}, update: %{}),
-          completion: Jido.Flow.Condition.eq(1, 1),
+          completion: Jido.Expr.new!(:eq, [1, 1]),
           max_iterations: 1,
           needs: ["step"]
         ),

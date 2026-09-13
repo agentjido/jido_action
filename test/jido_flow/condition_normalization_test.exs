@@ -3,7 +3,7 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
 
   alias Jido.Expr
   alias Jido.Flow
-  alias Jido.Flow.{Builder, Choice, Codec, Condition, Iterate, Ref, Registry, Step}
+  alias Jido.Flow.{Builder, Choice, Codec, Iterate, Ref, Registry, Step}
   alias Jido.Flow.DSL.Expression
   alias Jido.Flow.Error.InvalidDefinitionError
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
@@ -19,21 +19,15 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
     for {{source, value, input, expected}, index} <- Enum.with_index(cases) do
       expression = Expr.new!(:all, [value])
       assert {:ok, ^expression} = Expression.parse_condition(source)
-      assert {:ok, ^expression} = Condition.new(:all, [value])
-      assert {:ok, ^expression} = Condition.new(expression)
-      assert {:ok, ^expression} = Condition.new(value)
-      assert {:ok, ^expression} = Condition.validate(expression, :flow)
-      assert {:ok, ^expression} = Condition.validate(Condition.all([value]), :flow)
 
-      assert {:ok, ^expression} =
-               Condition.validate(%Condition{operator: :all, operands: [value]}, :flow)
+      assert {:ok, ^expression} = Jido.Flow.Expression.condition(value, :flow)
 
       direct = choice_flow(expression)
       from_dsl = module_flow(Module.concat(__MODULE__, "Singleton#{index}"), source)
       built = builder_flow(Builder.all([value]))
       restored = round_trip(direct, 2)
 
-      for flow <- [from_dsl, built, restored, choice_flow(Condition.all([value]))] do
+      for flow <- [from_dsl, built, restored, choice_flow(value)] do
         assert flow == direct
         assert Flow.semantic_identity(flow) == Flow.semantic_identity(direct)
         assert Jido.Exec.run(flow, input) == {:ok, %{selected: expected}}
@@ -55,19 +49,16 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
       ])
 
     condition =
-      Condition.all([
-        Condition.all([true]),
-        Condition.any([
-          Condition.not(Condition.all([false])),
-          Condition.all([Ref.input(:enabled)])
-        ])
+      Builder.all([
+        Builder.all([true]),
+        Builder.any([Builder.not(Builder.all([false])), Builder.all([Ref.input(:enabled)])])
       ])
 
     assert {:ok, parsed} = Expression.parse_condition(source)
-    assert {:ok, canonical} = Condition.new(expression)
+    assert {:ok, canonical} = Jido.Flow.Expression.condition(expression, :any)
     assert parsed == canonical
     assert condition == canonical
-    assert {:ok, ^canonical} = Condition.validate(canonical, :flow)
+    assert {:ok, ^canonical} = Jido.Flow.Expression.condition(canonical, :flow)
     direct = choice_flow(expression)
 
     for flow <- [
@@ -91,7 +82,7 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
 
     for {{source, expression, expected}, index} <- Enum.with_index(cases) do
       assert Jido.Exec.run(output_flow(expression)) == {:ok, %{selected: expected}}
-      assert {:ok, condition} = Condition.new(expression)
+      assert {:ok, condition} = Jido.Flow.Expression.condition(expression, :any)
       assert {:ok, ^condition} = Expression.parse_condition(source)
       direct = choice_flow(expression)
 
@@ -120,7 +111,7 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
           {quote(do: true and 1), Expr.new!(:all, [true, 1]), :all},
           {quote(do: false or nil), Expr.new!(:any, [false, nil]), :any}
         ] do
-      assert {:ok, ^expression} = Condition.new(expression)
+      assert {:ok, ^expression} = Jido.Flow.Expression.condition(expression, :any)
       assert {:ok, ^expression} = Expression.parse_condition(source)
 
       for {flow, phase, path} <- [
@@ -145,13 +136,14 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
           Expr.new!(:any, [true, Ref.body_result()]),
           Expr.new!(:all, [false, fn -> true end])
         ] do
-      assert {:error, %InvalidDefinitionError{}} = Condition.validate(expression, :flow)
+      assert {:error, %InvalidDefinitionError{}} =
+               Jido.Flow.Expression.condition(expression, :flow)
     end
 
     expression = Expr.new!(:any, [true, Ref.item()])
 
     assert {:error, %InvalidDefinitionError{}} =
-             Condition.validate(expression, :iterate_completion)
+             Jido.Flow.Expression.condition(expression, :iterate_completion)
 
     expression = Expr.new!(:all, [false, Ref.result("missing")])
 
@@ -165,24 +157,19 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
     assert error.details.component == "missing"
   end
 
-  test "legacy trees and helpers use the same Expr model and version-two writer" do
-    first = %Condition{operator: :eq, operands: [Ref.input(:score), 1]}
-    second = %Condition{operator: :neq, operands: [Ref.input(:score), 2]}
+  test "raw Expr records and Builder helpers use the same model and version-two writer" do
+    first = %Expr{operator: :eq, operands: [Ref.input(:score), 1]}
+    second = %Expr{operator: :neq, operands: [Ref.input(:score), 2]}
 
-    condition = %Condition{
+    condition = %Expr{
       operator: :all,
-      operands: [first, %Condition{operator: :not, operands: [second]}]
+      operands: [first, %Expr{operator: :not, operands: [second]}]
     }
 
-    canonical =
-      Expr.new!(:all, [
-        Expr.new!(:eq, first.operands),
-        Expr.new!(:not, [Expr.new!(:neq, second.operands)])
-      ])
+    canonical = Builder.all([Builder.eq(Ref.input(:score), 1), Builder.not(second)])
 
-    assert {:ok, ^canonical} = Condition.new(condition)
-    assert {:ok, ^canonical} = Condition.validate(condition, :flow)
-    assert Condition.all([Condition.eq(Ref.input(:score), 1), Condition.not(second)]) == canonical
+    assert {:ok, ^canonical} = Jido.Flow.Expression.condition(condition, :any)
+    assert {:ok, ^canonical} = Jido.Flow.Expression.condition(condition, :flow)
 
     assert {:ok, ^canonical} =
              Expression.parse_condition(
@@ -216,7 +203,7 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
     end
   end
 
-  test "Condition helpers share Expr short-circuit and strict Boolean rules" do
+  test "conditions use Expr short-circuit and strict Boolean rules" do
     for {operator, operands, expected} <- [
           {:all, [false, 1], {:ok, false}},
           {:any, [true, nil], {:ok, true}},
@@ -224,10 +211,8 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
           {:all, [true, :not_a_condition], :error}
         ] do
       expression = Expr.new!(operator, operands)
-      assert {:ok, ^expression} = Condition.new(operator, operands)
 
-      assert {:ok, ^expression} =
-               Condition.validate(%Condition{operator: operator, operands: operands}, :flow)
+      assert {:ok, ^expression} = Jido.Flow.Expression.condition(expression, :flow)
 
       case expected do
         :error ->
@@ -240,29 +225,28 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
     end
   end
 
-  test "legacy and canonical operation trees share all construction limits" do
+  test "operation trees retain all construction limits in conditions and data fields" do
     cases = [
-      {Enum.reduce(1..65, true, fn _, child -> %Condition{operator: :not, operands: [child]} end),
+      {Enum.reduce(1..65, true, fn _, child -> %Expr{operator: :not, operands: [child]} end),
        :max_depth},
-      {%Condition{
+      {%Expr{
          operator: :all,
-         operands: List.duplicate(%Condition{operator: :eq, operands: [1, 1]}, 4_000)
+         operands: List.duplicate(%Expr{operator: :eq, operands: [1, 1]}, 4_000)
        }, :max_nodes},
-      {%Condition{operator: :eq, operands: [String.duplicate("x", 1_048_577), ""]},
-       :max_binary_bytes},
-      {%Condition{operator: :eq, operands: [Bitwise.bsl(1, 4096), 0]}, :max_integer_bits}
+      {%Expr{operator: :eq, operands: [String.duplicate("x", 1_048_577), ""]}, :max_binary_bytes},
+      {%Expr{operator: :eq, operands: [Bitwise.bsl(1, 4096), 0]}, :max_integer_bits}
     ]
 
-    for {legacy, reason} <- cases do
-      assert {:error, error} = Condition.new(legacy)
+    for {expression, reason} <- cases do
+      assert {:error, error} = Jido.Flow.Expression.condition(expression, :any)
       assert error.details.reason == reason
-      assert {:error, error} = Jido.Flow.Expression.normalize(%{nested: legacy})
+      assert {:error, error} = Jido.Flow.Expression.normalize(%{nested: expression})
       assert error.details.reason == reason
     end
   end
 
   test "legacy stored conditions use Expr limits before any Action executes" do
-    flow = choice_flow(Condition.eq(1, 1))
+    flow = choice_flow(Expr.new!(:eq, [1, 1]))
     assert {:ok, document, registry} = Codec.encode(flow)
     condition_path = ["components", Access.at(0), "options", Access.at(0), "condition"]
 
@@ -288,33 +272,31 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
     end
   end
 
-  test "legacy input and helpers keep one runtime budget for resolved data" do
-    legacy = %Condition{operator: :eq, operands: [Ref.input(:data), Ref.input(:data)]}
-    canonical = Expr.new!(:eq, legacy.operands)
+  test "conditions and output values keep one runtime budget for resolved data" do
+    expression = Expr.new!(:eq, [Ref.input(:data), Ref.input(:data)])
 
-    for expression <- [legacy, canonical, Condition.eq(Ref.input(:data), Ref.input(:data))] do
-      for flow <- [choice_flow(expression), iterator_flow(expression), output_flow(expression)] do
-        assert {:error, error} = Jido.Exec.run(flow, %{data: String.duplicate("x", 300_000)})
-        assert error.details.reason == :max_binary_bytes
-        assert error.details.retry == false
-      end
+    for flow <- [choice_flow(expression), iterator_flow(expression), output_flow(expression)] do
+      assert {:error, error} = Jido.Exec.run(flow, %{data: String.duplicate("x", 300_000)})
+      assert error.details.reason == :max_binary_bytes
+      assert error.details.retry == false
     end
   end
 
-  test "legacy reference names normalize through nested operation operands once" do
-    legacy = %Condition{
+  test "reference names normalize through nested operation operands once" do
+    expression = %Expr{
       operator: :eq,
       operands: [%Ref{source: :result, component: :seed, path: []}, %{value: 1}]
     }
 
-    assert {:ok, %Expr{operands: [%Ref{component: "seed"}, _]}} = Condition.new(legacy)
+    assert {:ok, %Expr{operands: [%Ref{component: "seed"}, _]}} =
+             Jido.Flow.Expression.condition(expression, :any)
 
     assert {:error, error} =
              Jido.Flow.Expression.normalize(%{
                outer: [
-                 %Condition{
+                 %Expr{
                    operator: :not,
-                   operands: [%Condition{operator: :add, operands: [1, 1]}]
+                   operands: [%Expr{operator: :unknown, operands: [1, 1]}]
                  }
                ]
              })
@@ -322,44 +304,41 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
     assert error.details.path == [:outer, 0, :operands, 0]
   end
 
-  test "mixed legacy and Expr trees share their complete construction budget" do
+  test "nested Expr trees share their complete construction budget" do
     for count <- [64, 65] do
-      mixed =
-        Enum.reduce(1..count, true, fn index, child ->
-          module = if rem(index, 2) == 0, do: Expr, else: Condition
-          struct!(module, operator: :not, operands: [child])
-        end)
+      nested =
+        Enum.reduce(1..count, true, fn _, child -> Expr.new!(:not, [child]) end)
 
       if count == 64 do
-        assert {:ok, expression} = Condition.new(mixed)
+        assert {:ok, expression} = Jido.Flow.Expression.condition(nested, :any)
         assert :ok = Expr.validate(expression)
         assert {:ok, true} = Expr.evaluate(expression)
       else
-        assert {:error, error} = Condition.new(mixed)
+        assert {:error, error} = Jido.Flow.Expression.condition(nested, :any)
         assert error.details.reason == :max_depth
       end
     end
 
-    comparisons = List.duplicate(%Condition{operator: :eq, operands: [1, 1]}, 2_000)
+    comparisons = List.duplicate(%Expr{operator: :eq, operands: [1, 1]}, 2_000)
     text = String.duplicate("x", 300_000)
 
     for {operator, operands, reason} <- [
           {:all, comparisons, :max_nodes},
           {:eq, [text, text], :max_binary_bytes}
         ] do
-      legacy = %Condition{operator: operator, operands: operands}
-      assert {:ok, canonical} = Condition.new(legacy)
+      subtree = Expr.new!(operator, operands)
+      assert {:ok, ^subtree} = Jido.Flow.Expression.condition(subtree, :any)
 
-      for values <- [[legacy, canonical], [canonical, legacy]] do
-        assert {:error, error} = Condition.new(Expr.new!(:all, values))
-        assert error.details.reason == reason
-      end
+      assert {:error, error} =
+               Jido.Flow.Expression.condition(Expr.new!(:all, [subtree, subtree]), :any)
+
+      assert error.details.reason == reason
     end
   end
 
   test "portable Boolean children are accepted at construction and checked at evaluation" do
     for value <- [false, true] do
-      expression = Condition.all([value, 1])
+      expression = Expr.new!(:all, [value, 1])
       assert %Expr{operator: :all, operands: [^value, 1]} = expression
       source = quote(do: all([unquote(value), 1]))
       direct = choice_flow(expression)
@@ -394,7 +373,7 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
         "atoms/selected/v1" => {:atom, :selected}
       })
 
-    flow = choice_flow(Condition.eq(Ref.input(:score), 1))
+    flow = choice_flow(Expr.new!(:eq, [Ref.input(:score), 1]))
     assert {:ok, document} = Codec.encode(flow, registry)
     assert {:ok, %{version: 2} = identity} = Flow.semantic_identity(flow)
     action_path = ["components", Access.at(0), "options", Access.at(0), "action"]

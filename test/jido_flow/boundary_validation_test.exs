@@ -89,14 +89,14 @@ defmodule Jido.Flow.BoundaryValidationTest do
         name: "iterate",
         action: Add,
         state: [schema: [], initial: %{}, update: %{}],
-        completion: Jido.Flow.Condition.eq(true, true),
+        completion: Jido.Expr.new!(:eq, [true, true]),
         max_iterations: 1
       )
 
     choice =
       Choice.new!(
         name: "choice",
-        options: [[name: "yes", condition: Jido.Flow.Condition.eq(true, true), action: Add]],
+        options: [[name: "yes", condition: Jido.Expr.new!(:eq, [true, true]), action: Add]],
         fallback: [action: Add]
       )
 
@@ -130,7 +130,7 @@ defmodule Jido.Flow.BoundaryValidationTest do
             name: "iterate",
             action: Add,
             state: [schema: [], initial: %{}, update: %{}],
-            completion: Jido.Flow.Condition.eq(true, true),
+            completion: Jido.Expr.new!(:eq, [true, true]),
             max_iterations: 0
           })
         ] do
@@ -294,7 +294,7 @@ defmodule Jido.Flow.BoundaryValidationTest do
   end
 
   test "Choice constructors reject incomplete and duplicate routing data" do
-    condition = Jido.Flow.Condition.eq(true, true)
+    condition = Jido.Expr.new!(:eq, [true, true])
     valid_option = Choice.Option.new!(name: "yes", condition: condition, action: Add)
     valid_fallback = Choice.Fallback.new!(action: Add)
 

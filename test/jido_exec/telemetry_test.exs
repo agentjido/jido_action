@@ -7,7 +7,7 @@ defmodule JidoActionTest.Exec.TelemetryTest do
   alias Jido.Exec.Telemetry
   alias Jido.Exec.Telemetry.Tracker
   alias Jido.Flow
-  alias Jido.Flow.{Condition, Iterate, Reduce, Ref, Step}
+  alias Jido.Flow.{Iterate, Reduce, Ref, Step}
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Instruction
   alias JidoActionTest.Fixtures.{BlockingFlow, MathFlow, TelemetryParentFlow}
@@ -518,7 +518,7 @@ defmodule JidoActionTest.Exec.TelemetryTest do
               initial: %{value: Ref.result("total", :value)},
               update: Ref.body_result()
             ],
-            completion: Condition.gte(Ref.state(:value), 7),
+            completion: Jido.Expr.new!(:gte, [Ref.state(:value), 7]),
             max_iterations: 2
           )
         ],

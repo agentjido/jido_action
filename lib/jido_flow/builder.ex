@@ -23,7 +23,7 @@ defmodule Jido.Flow.Builder do
   alias Jido.Flow
   alias Jido.Flow.Error
   alias Jido.Flow.Choice
-  alias Jido.Flow.Condition
+  alias Jido.Expr
   alias Jido.Flow.Dispatch
   alias Jido.Flow.Expression
   alias Jido.Flow.Iterate
@@ -35,7 +35,7 @@ defmodule Jido.Flow.Builder do
 
   @type expression :: Expression.t()
   @typedoc "A validated condition in the canonical Flow model."
-  @type condition :: Condition.normalized()
+  @type condition :: Expr.t()
   @type choice_option :: Choice.Option.t() | map()
   @type choice_fallback :: Choice.Fallback.t() | map()
 
@@ -141,46 +141,46 @@ defmodule Jido.Flow.Builder do
 
   @doc "Builds an equality condition."
   @spec eq(expression(), expression()) :: condition()
-  def eq(left, right), do: Condition.eq(left, right)
+  def eq(left, right), do: condition!(:eq, [left, right])
 
   @doc "Builds an inequality condition."
   @spec neq(expression(), expression()) :: condition()
-  def neq(left, right), do: Condition.neq(left, right)
+  def neq(left, right), do: condition!(:neq, [left, right])
 
   @doc "Builds a less-than condition."
   @spec lt(expression(), expression()) :: condition()
-  def lt(left, right), do: Condition.lt(left, right)
+  def lt(left, right), do: condition!(:lt, [left, right])
 
   @doc "Builds a less-than-or-equal condition."
   @spec lte(expression(), expression()) :: condition()
-  def lte(left, right), do: Condition.lte(left, right)
+  def lte(left, right), do: condition!(:lte, [left, right])
 
   @doc "Builds a greater-than condition."
   @spec gt(expression(), expression()) :: condition()
-  def gt(left, right), do: Condition.gt(left, right)
+  def gt(left, right), do: condition!(:gt, [left, right])
 
   @doc "Builds a greater-than-or-equal condition."
   @spec gte(expression(), expression()) :: condition()
-  def gte(left, right), do: Condition.gte(left, right)
+  def gte(left, right), do: condition!(:gte, [left, right])
 
   @doc "Builds a membership condition."
   @spec expression() in expression() :: condition()
-  def left in right, do: Condition.in(left, right)
+  def left in right, do: condition!(:in, [left, right])
 
   @doc "Builds a condition that requires all child conditions."
-  @spec all([Condition.input()]) :: condition()
-  def all(conditions), do: Condition.all(conditions)
+  @spec all([expression()]) :: condition()
+  def all(conditions), do: condition!(:all, conditions)
 
   @doc "Builds a condition that requires one child condition."
-  @spec any([Condition.input()]) :: condition()
-  def any(conditions), do: Condition.any(conditions)
+  @spec any([expression()]) :: condition()
+  def any(conditions), do: condition!(:any, conditions)
 
   @doc "Builds an inverted condition."
-  @spec not Condition.input() :: condition()
-  def not condition, do: Condition.not(condition)
+  @spec not expression() :: condition()
+  def not condition, do: condition!(:not, [condition])
 
   @doc "Builds one named Choice option."
-  @spec option(atom() | String.t(), Condition.input(), module(), expression()) :: map()
+  @spec option(atom() | String.t(), expression(), module(), expression()) :: map()
   def option(name, condition, action, params \\ %{}) do
     %{name: name, condition: condition, action: action, params: params}
   end
@@ -355,6 +355,13 @@ defmodule Jido.Flow.Builder do
 
   defp normalize_error(reason),
     do: invalid("Builder could not resolve its target", %{reason: reason})
+
+  defp condition!(operator, operands) do
+    case Expression.condition(%Expr{operator: operator, operands: operands}, :any) do
+      {:ok, expression} -> expression
+      {:error, error} -> raise error
+    end
+  end
 
   defp invalid(message, details \\ %{}), do: Error.validation_error(message, details)
 end

@@ -2,7 +2,7 @@ defmodule Jido.Flow.DSL.Lowerer do
   @moduledoc false
 
   alias Jido.Flow
-  alias Jido.Flow.Condition
+  alias Jido.Expr
   alias Jido.Flow.Error
   alias Jido.Flow.Validation
   alias Jido.Flow.Ref
@@ -274,10 +274,10 @@ defmodule Jido.Flow.DSL.Lowerer do
     case {while_condition, iterate.repeat, iterate.max_iterations} do
       {condition, nil, maximum}
       when not is_nil(condition) and is_integer(maximum) and maximum in 1..@maximum_iterations ->
-        {:ok, Condition.not(condition), maximum}
+        {:ok, Expr.new!(:not, [condition]), maximum}
 
       {nil, count, nil} when is_integer(count) and count in 1..@maximum_iterations ->
-        {:ok, Condition.gte(Ref.iteration_index(), count), count}
+        {:ok, Expr.new!(:gte, [Ref.iteration_index(), count]), count}
 
       {condition, nil, _maximum} when not is_nil(condition) ->
         {:error,

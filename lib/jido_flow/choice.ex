@@ -5,7 +5,7 @@ defmodule Jido.Flow.Choice do
       option =
         Jido.Flow.Choice.Option.new!(
           name: "ready",
-          condition: Jido.Flow.Condition.eq(Jido.Flow.Ref.input(:status), :ready),
+          condition: Jido.Expr.new!(:eq, [Jido.Flow.Ref.input(:status), :ready]),
           action: MyApp.HandleReady
         )
 
@@ -46,7 +46,6 @@ defmodule Jido.Flow.Choice do
 
     alias Jido.Flow.Error
     alias Jido.Flow.Component
-    alias Jido.Flow.Condition
     alias Jido.Flow.Expression
 
     @keys [:name, :condition, :action, :params]
@@ -95,10 +94,9 @@ defmodule Jido.Flow.Choice do
       end
     end
 
-    defp condition(%Condition{} = condition), do: Condition.validate(condition, :flow)
-    defp condition(%Jido.Expr{} = condition), do: Condition.validate(condition, :flow)
-    defp condition(%Jido.Flow.Ref{} = condition), do: Condition.validate(condition, :flow)
-    defp condition(condition) when is_boolean(condition), do: Condition.validate(condition, :flow)
+    defp condition(value)
+         when is_struct(value, Jido.Expr) or is_struct(value, Jido.Flow.Ref) or is_boolean(value),
+         do: Expression.condition(value, :flow)
 
     defp condition(_condition),
       do: {:error, Error.validation_error("choice option condition is required")}

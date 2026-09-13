@@ -3,7 +3,7 @@ defmodule Jido.Flow.DSL.Expression do
 
   alias Jido.Expr
   alias Jido.Flow.Error
-  alias Jido.Flow.{Condition, Ref}
+  alias Jido.Flow.Ref
 
   @doc "Parses one DSL expression into canonical Flow data."
   @spec parse(term()) :: {:ok, term()} | {:error, Exception.t()}
@@ -67,10 +67,10 @@ defmodule Jido.Flow.DSL.Expression do
   end
 
   @doc "Parses one DSL condition into canonical Flow data."
-  @spec parse_condition(term()) :: {:ok, Condition.normalized()} | {:error, Exception.t()}
+  @spec parse_condition(term()) :: {:ok, Expr.t()} | {:error, Exception.t()}
   def parse_condition(condition) do
     with {:ok, value} <- parse(condition) do
-      case Condition.new(value) do
+      case Jido.Flow.Expression.condition(value, :any) do
         {:ok, value} ->
           {:ok, value}
 
@@ -86,7 +86,6 @@ defmodule Jido.Flow.DSL.Expression do
   end
 
   defp parse_leaf(%Ref{} = ref), do: {:ok, ref}
-  defp parse_leaf(%Condition{} = condition), do: {:ok, condition}
   defp parse_leaf({:input, _, []}), do: {:ok, Ref.input([])}
   defp parse_leaf({:input, _, [path]}), do: {:ok, Ref.input(parse_path!(path))}
   defp parse_leaf({:context, _, []}), do: {:ok, Ref.context([])}

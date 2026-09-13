@@ -2,39 +2,61 @@ defmodule JidoActionTest.Flow.ConditionTest do
   use ExUnit.Case, async: true
 
   alias Jido.Flow.Error.InvalidDefinitionError
-  alias Jido.Flow.Condition
+  alias Jido.Expr
+  alias Jido.Flow.Builder
+  alias Jido.Flow.Expression
   alias Jido.Flow.Ref
 
-  describe "new/2" do
+  describe "condition/2" do
     test "accepts every closed condition operator" do
       comparisons = [:eq, :neq, :lt, :lte, :gt, :gte, :in]
 
       for operator <- comparisons do
-        assert {:ok, %Jido.Expr{operator: ^operator, operands: [left, right]}} =
-                 Condition.new(operator, [Ref.input(:kind), :priority])
+        assert {:ok, %Expr{operator: ^operator, operands: [left, right]}} =
+                 Expression.condition(
+                   %Expr{operator: operator, operands: [Ref.input(:kind), :priority]},
+                   :any
+                 )
 
         assert left == Ref.input(:kind)
         assert right == :priority
       end
 
-      assert {:ok, %Jido.Expr{operator: :all, operands: [first, second]}} =
-               Condition.new(:all, [
-                 Condition.eq(Ref.input(:kind), :priority),
-                 Condition.not(Condition.neq(Ref.context(:role), :admin))
-               ])
+      assert {:ok, %Expr{operator: :all, operands: [first, second]}} =
+               Expression.condition(
+                 %Expr{
+                   operator: :all,
+                   operands: [
+                     Expr.new!(:eq, [Ref.input(:kind), :priority]),
+                     Expr.new!(:not, [Expr.new!(:neq, [Ref.context(:role), :admin])])
+                   ]
+                 },
+                 :any
+               )
 
       assert first.operator == :eq
       assert second.operator == :not
-      assert {:ok, %Jido.Expr{operator: :any}} = Condition.new(:any, [Condition.eq(1, 1)])
-      assert {:ok, %Jido.Expr{operator: :not}} = Condition.new(:not, [Condition.eq(1, 1)])
+
+      assert {:ok, %Expr{operator: :any}} =
+               Expression.condition(
+                 %Expr{operator: :any, operands: [Expr.new!(:eq, [1, 1])]},
+                 :any
+               )
+
+      assert {:ok, %Expr{operator: :not}} =
+               Expression.condition(
+                 %Expr{operator: :not, operands: [Expr.new!(:eq, [1, 1])]},
+                 :any
+               )
     end
 
     test "rejects unknown operators and invalid operator arity with paths" do
       assert {:error,
               %InvalidDefinitionError{
-                message: "unsupported choice condition operator",
-                details: %{path: []}
-              }} = Condition.new(:unknown, [1])
+                message: "invalid Flow expression",
+                details: %{path: [], reason: :unknown_operator}
+              }} =
+               Expression.condition(%Expr{operator: :unknown, operands: [1]}, :any)
 
       for {operator, operands} <- [
             {:eq, [1]},
@@ -46,7 +68,10 @@ defmodule JidoActionTest.Flow.ConditionTest do
           ] do
         assert {:error,
                 %InvalidDefinitionError{message: "invalid Flow expression", details: details}} =
-                 Condition.new(operator, operands)
+                 Expression.condition(
+                   %Expr{operator: operator, operands: operands},
+                   :any
+                 )
 
         assert details.reason == :invalid_arity
         assert details.operator == operator
@@ -56,42 +81,56 @@ defmodule JidoActionTest.Flow.ConditionTest do
 
     test "rejects malformed refs, structs, and predicate functions with Expr paths" do
       assert {:error, %InvalidDefinitionError{message: message, details: details}} =
-               Condition.new(:eq, [Ref.input([%{bad: :segment}]), 1])
+               Expression.condition(
+                 %Expr{operator: :eq, operands: [Ref.input([%{bad: :segment}]), 1]},
+                 :any
+               )
 
       assert message == "flow expression contains an invalid reference path"
       assert details.path == [:operands, 0]
 
       assert {:error, %InvalidDefinitionError{message: message, details: details}} =
-               Condition.new(:eq, [~D[2026-01-01], 1])
+               Expression.condition(
+                 %Expr{operator: :eq, operands: [~D[2026-01-01], 1]},
+                 :any
+               )
 
       assert message == "flow expression contains an unsupported value"
       assert details.path == [:operands, 0]
       assert details.expression == Date
 
       assert {:error, %InvalidDefinitionError{message: message, details: details}} =
-               Condition.new(:eq, [fn -> :predicate end, 1])
+               Expression.condition(
+                 %Expr{operator: :eq, operands: [fn -> :predicate end, 1]},
+                 :any
+               )
 
       assert message == "invalid Flow expression"
       assert details.path == [:operands, 0]
       assert details.reason == :unsupported_value
     end
 
-    test "exposes every ordering helper and the raising constructor" do
-      assert %Jido.Expr{operator: :lte} = Condition.lte(1, 2)
-      assert %Jido.Expr{operator: :gt} = Condition.gt(2, 1)
-      assert %Jido.Expr{operator: :gte} = Condition.gte(2, 2)
-      assert_raise InvalidDefinitionError, fn -> Condition.new!(:eq, [1]) end
-      assert {:error, %InvalidDefinitionError{}} = Condition.new(:bad)
+    test "Builder helpers validate Flow operands before returning an Expr" do
+      for operator <- [:eq, :neq, :lt, :lte, :gt, :gte, :in] do
+        assert %Expr{operator: ^operator} = apply(Builder, operator, [1, 2])
+      end
+
+      assert %Expr{operator: :all} = Builder.all([true])
+      assert %Expr{operator: :any} = Builder.any([false])
+      assert %Expr{operator: :not} = Builder.not(true)
+      assert_raise InvalidDefinitionError, fn -> Builder.all([]) end
+      assert_raise InvalidDefinitionError, fn -> Builder.eq(~D[2026-01-01], 1) end
+      assert {:error, %InvalidDefinitionError{}} = Expression.condition(:bad, :any)
     end
   end
 
   test "collects result dependencies from nested condition operands" do
     condition =
-      Condition.all([
-        Condition.eq(Ref.result(:classify, :kind), :priority),
-        Condition.any([
-          Condition.in(Ref.result(:load_tags), ["bulk", "archive"]),
-          Condition.not(Condition.neq(Ref.result(:classify, :source), "api"))
+      Expr.new!(:all, [
+        Expr.new!(:eq, [Ref.result(:classify, :kind), :priority]),
+        Expr.new!(:any, [
+          Expr.new!(:in, [Ref.result(:load_tags), ["bulk", "archive"]]),
+          Expr.new!(:not, [Expr.new!(:neq, [Ref.result(:classify, :source), "api"])])
         ])
       ])
 

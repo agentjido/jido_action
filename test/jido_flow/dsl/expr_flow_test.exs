@@ -3,7 +3,7 @@ defmodule JidoActionTest.Flow.DSL.ExprFlowTest do
 
   alias Jido.Expr
   alias Jido.Flow
-  alias Jido.Flow.{Builder, Codec, Condition, Ref, Step}
+  alias Jido.Flow.{Builder, Codec, Ref, Step}
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
 
   defmodule Parity do
@@ -138,12 +138,12 @@ defmodule JidoActionTest.Flow.DSL.ExprFlowTest do
     assert Jido.Exec.run(Dispatched, %{value: 20}) == {:ok, %{value: 10}}
   end
 
-  test "old Condition constructors can supply calculated parameter values" do
+  test "Boolean expressions can supply calculated parameter values" do
     step =
       Step.new!(
         name: "echo",
         action: EchoParamsAction,
-        params: %{eligible: Condition.gte(Expr.new!(:multiply, [Ref.input(:score), 2]), 80)}
+        params: %{eligible: Expr.new!(:gte, [Expr.new!(:multiply, [Ref.input(:score), 2]), 80])}
       )
 
     flow = Flow.new!(name: "condition_value", components: [step], output: Ref.result("echo"))

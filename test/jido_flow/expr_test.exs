@@ -3,7 +3,7 @@ defmodule JidoActionTest.Flow.ExprTest do
 
   alias Jido.Expr
   alias Jido.Flow
-  alias Jido.Flow.{Builder, Choice, Codec, Condition, Ref, Step}
+  alias Jido.Flow.{Builder, Choice, Codec, Ref, Step}
   alias Jido.Flow.DSL.Expression
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
 
@@ -80,7 +80,7 @@ defmodule JidoActionTest.Flow.ExprTest do
     assert Jido.Exec.run(choice_flow(true)) == {:ok, %{selected: true}}
     assert Jido.Exec.run(choice_flow(false)) == {:ok, %{selected: false}}
 
-    assert Jido.Exec.run(choice_flow(Condition.not(Ref.input(:enabled))), %{enabled: false}) ==
+    assert Jido.Exec.run(choice_flow(Expr.new!(:not, [Ref.input(:enabled)])), %{enabled: false}) ==
              {:ok, %{selected: true}}
   end
 
@@ -197,7 +197,10 @@ defmodule JidoActionTest.Flow.ExprTest do
   test "malformed references inside calculated conditions return validation errors" do
     reference = %Ref{source: :unknown, path: []}
     expression = Expr.new!(:add, [reference, 1])
-    assert {:error, error} = Condition.new(:eq, [expression, 2])
+
+    assert {:error, error} =
+             Jido.Flow.Expression.condition(%Expr{operator: :eq, operands: [expression, 2]}, :any)
+
     assert error.details.ref_type == :unknown
   end
 

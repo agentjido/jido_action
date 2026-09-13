@@ -5,7 +5,7 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
   alias Jido.Exec
   alias Jido.Exec.Error.AsyncExecutionError
   alias Jido.Flow
-  alias Jido.Flow.{Condition, Dispatch, Iterate, Reduce, Ref, Subflow}
+  alias Jido.Flow.{Dispatch, Iterate, Reduce, Ref, Subflow}
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Instruction
   alias JidoActionTest.Fixtures.BlockingFlow
@@ -196,7 +196,7 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
             action: BlockingAction,
             params: %{value: :iteration},
             state: Iterate.State.new!(initial: %{}, update: Ref.body_result()),
-            completion: Condition.gte(Ref.iteration_index(), 1),
+            completion: Jido.Expr.new!(:gte, [Ref.iteration_index(), 1]),
             max_iterations: 1
           )
         ],
