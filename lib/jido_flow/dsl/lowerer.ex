@@ -340,13 +340,7 @@ defmodule Jido.Flow.DSL.Lowerer do
   end
 
   defp attach_entity_location(%{details: details} = error, entity) when is_map(details) do
-    source =
-      entity
-      |> Spark.Dsl.Entity.anno()
-      |> annotation_map()
-      |> Map.merge(Map.get(entity, :__source__, %{}))
-
-    %{error | details: Map.merge(source, details)}
+    %{error | details: Map.merge(entity_source(entity), details)}
   end
 
   defp attach_entity_location(error, _entity), do: error
@@ -406,13 +400,10 @@ defmodule Jido.Flow.DSL.Lowerer do
     do: Map.put(source_map, path, entity_source(entity))
 
   defp entity_source(entity) do
-    annotation =
-      case Map.get(entity, :__spark_metadata__) do
-        %Spark.Dsl.Entity.Meta{anno: anno} -> annotation_map(anno)
-        _other -> %{}
-      end
-
-    annotation |> Map.merge(Map.get(entity, :__source__, %{}))
+    entity
+    |> Spark.Dsl.Entity.anno()
+    |> annotation_map()
+    |> Map.merge(Map.get(entity, :__source__, %{}))
   end
 
   defp reverse_ok({:ok, values}), do: {:ok, Enum.reverse(values)}
