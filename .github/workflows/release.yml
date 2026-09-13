@@ -3,10 +3,24 @@ name: Release
 on:
   workflow_dispatch:
     inputs:
-      tag_name:
-        description: "Existing v-prefixed SemVer tag to publish"
+      operation:
+        description: "Prepare a release or publish an existing tag"
         required: true
+        type: choice
+        default: publish
+        options:
+          - prepare
+          - publish
+      tag_name:
+        description: "Existing v-prefixed SemVer tag for publish"
+        required: false
         type: string
+        default: ""
+      version_override:
+        description: "v-prefixed SemVer version for prepare (for example v3.0.0-beta.11)"
+        required: false
+        type: string
+        default: ""
       dry_run:
         description: "Validate the release without Hex or GitHub publication"
         required: false
@@ -27,8 +41,9 @@ jobs:
     name: Release
     uses: agentjido/github-actions/.github/workflows/jido-release.yml@v5
     with:
-      operation: publish
+      operation: ${{ inputs.operation || 'publish' }}
       tag_name: ${{ inputs.tag_name }}
+      version_override: ${{ inputs.version_override || '' }}
       otp_version: "29"
       elixir_version: "1.20"
       preflight_command: >-
