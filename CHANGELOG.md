@@ -11,6 +11,27 @@ entries return to the normal automated changelog process.
 
 <!-- changelog -->
 
+## [v3.0.0-beta.11](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.10...v3.0.0-beta.11) (2026-09-13)
+
+
+
+
+### Features:
+
+* flow: adopt needs and explicit outputs by mikehostetler
+
+### Refactoring:
+
+* flow: share ordinary Spark wrapper emission by mikehostetler
+
+* flow: use Spark-normalized dependencies by mikehostetler
+
+* flow: share source location resolution by mikehostetler
+
+* flow: replace legacy Condition with Expr by mikehostetler
+
+* flow: limit inline actions to direct steps by mikehostetler
+
 ## [3.0.0-beta.10](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.9...v3.0.0-beta.10) (2026-09-10)
 
 

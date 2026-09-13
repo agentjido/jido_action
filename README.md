@@ -57,7 +57,7 @@ for the confirmed breaking changes.
 ```elixir
 def deps do
   [
-    {:jido_action, "~> 3.0.0-beta.10"}
+    {:jido_action, "~> 3.0.0-beta.11"}
   ]
 end
 ```
