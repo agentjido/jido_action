@@ -149,4 +149,83 @@ defmodule JidoActionTest.Flow.DSL.ExprFlowTest do
     flow = Flow.new!(name: "condition_value", components: [step], output: Ref.result("echo"))
     assert Jido.Exec.run(flow, %{score: 40}) == {:ok, %{eligible: true}}
   end
+
+  test "Map keyword and block fields preserve nested expressions and literal data" do
+    declarations = [
+      {MapKeywordFields,
+       """
+       map "mapped",
+         collection: [input(:start) + 1, 2],
+         action: JidoActionTest.Fixtures.Actions.EchoParamsAction,
+         params: %{nested: [item() * 2, %{empty: [], absent: nil}]},
+         on_error: :collect_errors
+       """},
+      {MapBlockFields,
+       """
+       map "mapped" do
+         collection [input(:start) + 1, 2]
+         action JidoActionTest.Fixtures.Actions.EchoParamsAction
+         params %{nested: [item() * 2, %{empty: [], absent: nil}]}
+         on_error :collect_errors
+       end
+       """}
+    ]
+
+    flows =
+      for {module, declaration} <- declarations do
+        Code.compile_string("""
+        defmodule #{inspect(module)} do
+          use Jido.Flow, name: "map_fields"
+          flow do
+            #{declaration}
+            output %{items: result("mapped")}
+          end
+        end
+        """)
+
+        module.flow()
+      end
+
+    assert [flow, flow] = flows
+    assert [%Jido.Flow.Map{action: EchoParamsAction, on_error: :collect_errors}] = flow.components
+
+    assert Jido.Exec.run(flow, %{start: 2}) ==
+             {:ok,
+              %{
+                items: [
+                  %{status: :ok, value: %{nested: [6, %{empty: [], absent: nil}]}},
+                  %{status: :ok, value: %{nested: [4, %{empty: [], absent: nil}]}}
+                ]
+              }}
+  end
+
+  test "Map fields reject literal tuples instead of treating them as reference AST" do
+    for {module, declaration} <- [
+          {MapKeywordTuple,
+           """
+           map "mapped", action: JidoActionTest.Fixtures.Actions.EchoParamsAction,
+             collection: [], params: %{value: {:input, [], []}}
+           """},
+          {MapBlockTuple,
+           """
+           map "mapped" do
+             action JidoActionTest.Fixtures.Actions.EchoParamsAction
+             collection []
+             params %{value: {:input, [], []}}
+           end
+           """}
+        ] do
+      assert_raise CompileError, ~r/unsupported Flow expression/, fn ->
+        Code.compile_string("""
+        defmodule #{inspect(module)} do
+          use Jido.Flow, name: "map_tuple"
+          flow do
+            #{declaration}
+            output %{items: result("mapped")}
+          end
+        end
+        """)
+      end
+    end
+  end
 end
