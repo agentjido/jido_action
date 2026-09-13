@@ -80,8 +80,7 @@ defmodule Jido.Flow.DSL.Lowerer do
 
   defp lower_entity(%Step{} = step) do
     with {:ok, params} <- Expression.parse(step.params),
-         {:ok, needs_names} <- normalize_needs(step.needs),
-         {:ok, component} <- step_component(step, params, needs_names) do
+         {:ok, component} <- step_component(step, params) do
       {:ok, {:component, component}}
     end
   end
@@ -89,13 +88,12 @@ defmodule Jido.Flow.DSL.Lowerer do
   defp lower_entity(%Choice{} = choice) do
     with {:ok, options} <- lower_choice_options(choice.options),
          {:ok, fallback} <- lower_fallback(choice.fallback),
-         {:ok, needs_names} <- normalize_needs(choice.needs),
          {:ok, component} <-
            FlowChoice.new(
              name: choice.name,
              options: options,
              fallback: fallback,
-             needs: needs_names,
+             needs: choice.needs,
              meta: choice.meta
            ) do
       {:ok, {:component, component}}
@@ -105,7 +103,6 @@ defmodule Jido.Flow.DSL.Lowerer do
   defp lower_entity(%MapNode{} = map) do
     with {:ok, collection} <- Expression.parse(map.collection),
          {:ok, params} <- Expression.parse(map.params),
-         {:ok, needs_names} <- normalize_needs(map.needs),
          {:ok, component} <-
            FlowMap.new(
              name: map.name,
@@ -113,7 +110,7 @@ defmodule Jido.Flow.DSL.Lowerer do
              action: map.action,
              params: params,
              on_error: map.on_error,
-             needs: needs_names,
+             needs: map.needs,
              meta: map.meta
            ) do
       {:ok, {:component, component}}
@@ -124,7 +121,6 @@ defmodule Jido.Flow.DSL.Lowerer do
     with {:ok, collection} <- Expression.parse(reduce.collection),
          {:ok, initial} <- Expression.parse(reduce.initial),
          {:ok, params} <- Expression.parse(reduce.params),
-         {:ok, needs_names} <- normalize_needs(reduce.needs),
          {:ok, component} <-
            FlowReduce.new(
              name: reduce.name,
@@ -132,7 +128,7 @@ defmodule Jido.Flow.DSL.Lowerer do
              initial: initial,
              action: reduce.action,
              params: params,
-             needs: needs_names,
+             needs: reduce.needs,
              meta: reduce.meta
            ) do
       {:ok, {:component, component}}
@@ -144,7 +140,6 @@ defmodule Jido.Flow.DSL.Lowerer do
          {:ok, params} <- Expression.parse(iterate.params),
          {:ok, update} <- optional_expression(iterate.update, Ref.body_result()),
          {:ok, while_condition} <- optional_condition(iterate.while),
-         {:ok, needs_names} <- normalize_needs(iterate.needs),
          {:ok, completion, max_iterations} <-
            normalize_termination(iterate, while_condition) do
       with {:ok, state} <- FlowIterate.State.new(Map.put(state, :update, update)),
@@ -156,7 +151,7 @@ defmodule Jido.Flow.DSL.Lowerer do
                state: state,
                completion: completion,
                max_iterations: max_iterations,
-               needs: needs_names,
+               needs: iterate.needs,
                meta: iterate.meta
              ) do
         {:ok, {:component, component}}
@@ -166,14 +161,13 @@ defmodule Jido.Flow.DSL.Lowerer do
 
   defp lower_entity(%Dispatch{} = dispatch) do
     with {:ok, params} <- Expression.parse(dispatch.params),
-         {:ok, needs_names} <- normalize_needs(dispatch.needs),
          {:ok, component} <-
            FlowDispatch.new(
              name: dispatch.name,
              decision: dispatch.decision,
              expander: dispatch.expander,
              params: params,
-             needs: needs_names,
+             needs: dispatch.needs,
              meta: dispatch.meta
            ) do
       {:ok, {:component, component}}
@@ -186,7 +180,7 @@ defmodule Jido.Flow.DSL.Lowerer do
     end
   end
 
-  defp step_component(step, params, needs_names) do
+  defp step_component(step, params) do
     with {:module, _module} <- Code.ensure_compiled(step.action),
          {:ok, executable} <- Jido.Executable.resolve(step.action) do
       case executable.kind do
@@ -195,7 +189,7 @@ defmodule Jido.Flow.DSL.Lowerer do
             name: step.name,
             action: step.action,
             params: params,
-            needs: needs_names,
+            needs: step.needs,
             meta: step.meta
           )
 
@@ -204,7 +198,7 @@ defmodule Jido.Flow.DSL.Lowerer do
             name: step.name,
             flow: step.action,
             params: params,
-            needs: needs_names,
+            needs: step.needs,
             meta: step.meta
           )
       end
@@ -293,18 +287,6 @@ defmodule Jido.Flow.DSL.Lowerer do
         {:error, Error.validation_error("iterate requires exactly one of while or repeat")}
     end
   end
-
-  defp normalize_needs(nil), do: {:ok, []}
-
-  defp normalize_needs(needs_targets) when is_list(needs_targets) do
-    if List.improper?(needs_targets) do
-      {:error, Error.validation_error("flow node dependencies must be a proper list")}
-    else
-      {:ok, needs_targets}
-    end
-  end
-
-  defp normalize_needs(needs_target), do: {:ok, [needs_target]}
 
   defp validate_output_position(entities) do
     case Enum.find_index(entities, &match?(%Output{}, &1)) do
