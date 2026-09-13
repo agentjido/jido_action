@@ -3,6 +3,9 @@
 A Flow module is the primary source-code authoring API. Spark parses the DSL at
 compile time and lowers it once to a canonical `%Jido.Flow{}`.
 
+The [DSL field reference](Jido.Flow.html#module-dsl-field-reference) is generated
+from the Spark schemas. It includes nested Choice targets and Iterate state.
+
 ## Define A Module
 
 ```elixir

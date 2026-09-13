@@ -1,4 +1,18 @@
 defmodule Jido.Flow do
+  field_docs =
+    for entity <- hd(Jido.Flow.DSL.Extension.sections()).entities do
+      children = for {_, children} <- entity.entities, child <- children, do: {child, "####"}
+
+      for {entry, heading} <- [{entity, "###"} | children] do
+        name = entry.name |> to_string() |> String.trim("_") |> String.capitalize()
+
+        [
+          "#{heading} #{name}\n\n#{entry.describe}\n\n",
+          Spark.Options.docs(Keyword.delete(entry.schema, :__source__))
+        ]
+      end
+    end
+
   @moduledoc """
   Defines the canonical Jido Flow data artifact and compile-time module DSL.
 
@@ -107,6 +121,16 @@ defmodule Jido.Flow do
   Flow components consume only an Action output or error reason. Extra values from
   an Action callback are returned only to direct Action or Instruction callers.
   Flow execution discards them.
+
+  ## DSL field reference
+
+  These fields describe the module DSL, not the direct constructor or stored JSON.
+  Positional arguments are identified below. Choice and Iterate require field
+  blocks; their nested declarations have their own references. Only Step supports
+  inline Action bodies. The field types, required flags, and defaults come from
+  the Spark schemas; Jido also validates graph and cross-field rules.
+
+  #{IO.iodata_to_binary(field_docs)}
   """
 
   alias Jido.Flow.Error
