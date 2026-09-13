@@ -95,11 +95,11 @@ defmodule Jido.Flow.DSL.FormatterTest do
       {:ok, %{name: String.trim(name)}}
     end
 
-    step "two", name <- result("one", :name), prefix <- context(:prefix) do
+    step "two", [name <- result("one", :name), prefix <- context(:prefix)] do
       {:ok, %{message: prefix <> name}}
     end
 
-    step "two_options", name <- input(:name), prefix <- context(:prefix), needs: ["one"] do
+    step "two_options", [name <- input(:name), prefix <- context(:prefix)], needs: ["one"] do
       {:ok, %{message: prefix <> name}}
     end
 
@@ -119,64 +119,30 @@ defmodule Jido.Flow.DSL.FormatterTest do
 
   @inline_keyword_flow """
   step "one", name <- input(:name), do: {:ok, %{name: name}}
-  step "two", a <- input(:a), b <- input(:b), do: {:ok, %{sum: a + b}}
+  step "two", [a <- input(:a), b <- input(:b)], do: {:ok, %{sum: a + b}}
   step "list", [a <- input(:a), b <- input(:b), c <- input(:c)], do: {:ok, %{sum: a + b + c}}
   step "empty", [], do: {:ok, %{ready: true}}
   """
 
-  @nested_inline_flow """
+  @configured_inline_steps """
   flow do
-    step "named" do
-      action name <- input(:name) do
-        {:ok, %{name: String.trim(name)}}
-      end
+    step "named", name <- input(:name) do
+      {:ok, %{name: String.trim(name)}}
     end
 
-    step "configured" do
-      action [value <- input(:value), offset <- context(:offset)],
+    step "configured", [value <- input(:value), offset <- context(:offset)],
+      inline: [
         name: "configured",
         schema: Zoi.object(%{value: Zoi.integer(), offset: Zoi.integer()}),
         output_schema: Zoi.object(%{value: Zoi.integer()}),
-        context: ctx do
-        {:ok, %{value: value + offset + ctx.extra}}
-      end
+        context: ctx
+      ] do
+      {:ok, %{value: value + offset + ctx.extra}}
     end
 
-    step "empty" do
-      action [], do: {:ok, %{}}
-    end
+    step "empty", [], do: {:ok, %{}}
 
     output result("configured")
-  end
-  """
-
-  @inline_dispatch """
-  dispatch "next" do
-    decision [value <- input(:value), bound <- context()],
-      name: "choose",
-      schema: Zoi.object(%{value: Zoi.integer()}),
-      context: ctx do
-      {:ok, %{value: value + ctx.increment, bound: bound}}
-    end
-
-    expander %{value: value}, name: "expand", context: ctx do
-      {:ok, %{value: value + ctx.increment}}
-    end
-  end
-
-  dispatch "simple" do
-    decision [], do: {:ok, %{}}
-    expander params, do: {:ok, params}
-  end
-
-  dispatch "blocks" do
-    decision value <- input(:value) do
-      {:ok, %{value: value}}
-    end
-
-    expander params do
-      {:ok, params}
-    end
   end
   """
 
@@ -189,8 +155,7 @@ defmodule Jido.Flow.DSL.FormatterTest do
           @block_flow,
           @inline_flow,
           @inline_keyword_flow,
-          @nested_inline_flow,
-          @inline_dispatch
+          @configured_inline_steps
         ] do
       assert formatter.(source) == source
       assert formatter.(formatter.(source)) == source
@@ -213,8 +178,7 @@ defmodule Jido.Flow.DSL.FormatterTest do
           @block_flow,
           @inline_flow,
           @inline_keyword_flow,
-          @nested_inline_flow,
-          @inline_dispatch
+          @configured_inline_steps
         ] do
       assert formatter.(source) == source
       assert formatter.(formatter.(source)) == source
@@ -239,12 +203,16 @@ defmodule Jido.Flow.DSL.FormatterTest do
 
     source = """
     step("one", name <- input(:name), do: {:ok, %{name: name}})
-    step("two", a <- input(:a), b <- input(:b), do: {:ok, %{sum: a + b}})
+    step("two", [a <- input(:a), b <- input(:b)], do: {:ok, %{sum: a + b}})
     step("list", [a <- input(:a), b <- input(:b), c <- input(:c)], do: {:ok, %{sum: a + b + c}})
     step("empty", [], do: {:ok, %{ready: true}})
-    action([], context: ctx, do: {:ok, ctx})
-    decision([], context: ctx, do: {:ok, ctx})
-    expander(params, context: ctx, do: {:ok, Map.merge(params, ctx)})
+
+    step(
+      "configured",
+      value <- input(:value),
+      inline: [context: ctx],
+      do: {:ok, %{value: value, context: ctx}}
+    )
     """
 
     assert formatter.(source) == source

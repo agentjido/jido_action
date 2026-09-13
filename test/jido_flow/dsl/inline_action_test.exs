@@ -1,214 +1,50 @@
 defmodule Jido.Flow.DSL.InlineActionTest do
   use ExUnit.Case, async: false
 
-  test "both Step forms use the shared owner and typed host path identity" do
-    for declaration <- [
-          ~s(step "increment", [], do: {:ok, %{value: 1}}),
-          ~s(step "increment" do\n action [], do: {:ok, %{value: 1}}\nend)
-        ] do
-      owner = unique_owner()
-      compile_source(owner, declaration)
-      path = [host: Jido.Flow, step: "increment", role: :action]
+  alias Jido.Action.Inline
 
-      target = owner.step_action("increment")
-      assert target == Jido.Action.Inline.target!(owner, path)
-      assert target.__jido_inline_action__() == {owner, path}
-      assert {:ok, %{value: 1}} = target.run(%{}, %{})
+  defmodule Downstream do
+    use JidoActionTest.Fixtures.Action.InlineHost, mode: :callback
+
+    action "add", nil do
+      %{value: value, amount: amount} -> {:ok, %{value: value + amount}}
+      %{value: value} -> {:ok, %{value: value + 1}}
     end
   end
 
-  test "a nested Step action uses the ordinary Action and Flow boundaries" do
+  test "a direct inline Step uses the shared compiler and typed host path" do
     owner = unique_owner()
 
     compile_source(owner, """
-    step "increment" do
-      action value <- input(:value), context: ctx do
-        {:ok, %{value: value + ctx.increment}}
-      end
-    end
-    """)
-
-    assert [%Jido.Flow.Step{name: "increment", action: target, params: params}] =
-             owner.flow().components
-
-    assert params == %{value: Jido.Flow.Ref.input(:value)}
-    assert owner.step_action("increment") == target
-
-    assert target.__jido_inline_action__() ==
-             {owner, [host: Jido.Flow, step: "increment", role: :action]}
-
-    assert Jido.Action.Inline.target!(owner, host: Jido.Flow, step: "increment", role: :action) ==
-             target
-
-    assert {:ok, %{value: 3}} = Jido.Exec.run(owner, %{value: 1}, %{increment: 2})
-    assert {:ok, %{value: 7}} = Jido.Exec.run(target, %{value: 3}, %{increment: 4})
-  end
-
-  test "a nested Step action compiles clause heads over the bound parameter map" do
-    owner = unique_owner()
-
-    compile_source(owner, """
-    step "increment" do
-      action operand <- input(:operand),
-        schema: Zoi.object(%{operand: Zoi.number()}) do
-        %{operand: 0} -> {:error, :zero}
-        %{operand: operand} -> {:ok, %{value: 10 / operand}}
-      end
-    end
-    """)
-
-    assert {:ok, %{value: 5.0}} = Jido.Exec.run(owner, %{operand: 2})
-
-    assert {:error, %Jido.Action.Error.ExecutionFailureError{message: "zero"}} =
-             Jido.Exec.run(owner, %{operand: 0})
-  end
-
-  test "shorthand and nested Steps share the same target, metadata, data, and graph identity" do
-    owner = unique_owner()
-
-    compile_source(owner, """
-    step "seed", [], do: {:ok, %{value: 2}}
-    step "increment", value <- result("seed", :value), meta: %{tag: "same"} do
-      {:ok, %{value: value + 1}}
+    step "increment", value <- input(:value), inline: [context: ctx] do
+      {:ok, %{value: value + ctx.increment}}
     end
     """)
 
     target = owner.step_action("increment")
-    canonical = owner.flow()
-    identity = Jido.Flow.semantic_identity(canonical)
-    dependencies = Jido.Flow.dependencies(canonical)
+    path = [host: Jido.Flow, step: "increment", role: :action]
 
-    quietly(fn ->
-      compile_source(owner, """
-      step "seed", [], do: {:ok, %{value: 2}}
-      step "increment" do
-        action value <- result("seed", :value) do
-          {:ok, %{value: value + 1}}
-        end
-        meta %{tag: "same"}
-      end
-      """)
-    end)
-
-    assert owner.flow() == canonical
-    assert Jido.Flow.semantic_identity(owner.flow()) == identity
-    assert Jido.Flow.dependencies(owner.flow()) == dependencies
-    assert target == owner.step_action("increment")
-    assert target.name() == "increment"
-    assert target.description() == nil
-    assert target.schema() == []
-    assert target.output_schema() == []
-    assert target == generated_target(owner, "increment")
-    assert {:ok, %{value: 3}} = Jido.Exec.run(owner)
+    assert target == Inline.target!(owner, path)
+    assert target.__jido_inline_action__() == {owner, path}
+    assert {:ok, %{value: 3}} = Jido.Exec.run(owner, %{value: 1}, %{increment: 2})
+    assert {:ok, %{value: 7}} = Jido.Exec.run(target, %{value: 3}, %{increment: 4})
   end
 
-  test "bound headers support lists, sole maps, and no inputs" do
-    for {header, body, params, result} <- [
-          {"[left <- input(:value), right <- 2]", "{:ok, %{value: left + right}}",
-           %{left: Jido.Flow.Ref.input(:value), right: 2}, %{value: 5}},
-          {"%{value: value} <- input()", "{:ok, %{value: value}}", Jido.Flow.Ref.input([]),
-           %{value: 3}},
-          {"[]", "{:ok, %{value: 9}}", %{}, %{value: 9}}
-        ] do
-      owner = unique_owner()
-      compile_source(owner, "step \"increment\" do\n action #{header}, do: #{body}\nend")
-      assert [step] = owner.flow().components
-      assert step.params == params
-      assert {:ok, ^result} = Jido.Exec.run(owner, %{value: 3})
-    end
-  end
-
-  test "binding sources reject computed Flow expressions" do
-    for header <- [
-          "value <- input(:value) * 2",
-          "value <- %{nested: input(:value) + 1}",
-          "[value <- input(:value), allowed <- input(:enabled) and true]"
-        ] do
-      owner = unique_owner()
-
-      error =
-        assert_raise CompileError,
-                     ~r/inline Action binding source: Flow operations are not allowed/,
-                     fn ->
-                       compile_source(
-                         owner,
-                         "step \"increment\" do\n action #{header}, do: {:ok, %{}}\nend"
-                       )
-                     end
-
-      assert error.file == "nested_inline.ex"
-      assert error.line == 6
-      refute Code.ensure_loaded?(generated_target(owner, "increment"))
-    end
-  end
-
-  test "invalid source expressions create no target and repair cleanly" do
-    for header <- [
-          "value <- String.length(input(:value))",
-          "value <- ^external",
-          "[value <- input(:value), other <- value + 1]"
-        ] do
-      owner = unique_owner()
-      target = generated_target(owner, "increment")
-
-      error =
-        assert_raise CompileError,
-                     ~r/inline Action binding source.*unsupported Flow expression/,
-                     fn ->
-                       compile_source(
-                         owner,
-                         "step \"increment\" do\n action #{header}, do: {:ok, %{}}\nend"
-                       )
-                     end
-
-      assert error.file == "nested_inline.ex"
-      assert error.line == 6
-      refute Code.ensure_loaded?(target)
-
-      compile_source(owner, "step \"increment\" do\n action [], do: {:ok, %{value: 1}}\nend")
-      assert owner.step_action("increment") == target
-      assert {:ok, %{value: 1}} = Jido.Exec.run(owner)
-    end
-  end
-
-  test "legacy context bindings remain params while context options use the current callback" do
-    owner = unique_owner()
-
-    compile_source(owner, """
-    step "legacy", ctx <- context(), do: {:ok, ctx}
-    step "increment" do
-      action ctx <- context(), context: current do
-        {:ok, %{bound: ctx.token, current: current.token}}
-      end
-    end
-    """)
-
-    assert [legacy, nested] = owner.flow().components
-    assert legacy.params == %{ctx: Jido.Flow.Ref.context()}
-    assert nested.params == legacy.params
-    assert nested.action.schema() == []
-
-    assert {:ok, %{bound: :original, current: :original}} =
-             Jido.Exec.run(owner, %{}, %{token: :original})
-
-    assert {:ok, %{bound: :bound, current: :new}} =
-             Jido.Exec.run(nested.action, %{ctx: %{token: :bound}}, %{token: :new})
-
-    assert {:ok, %{token: :bound}} =
-             Jido.Exec.run(legacy.action, %{ctx: %{token: :bound}}, %{token: :new})
-  end
-
-  test "Action metadata and schemas validate resolved params and output through Exec" do
+  test "inline settings configure Action metadata and schemas" do
     owner = unique_owner()
 
     compile_source(
       owner,
       """
-      step "increment" do
-        action value <- input(:value), name: @action_name, description: "Adds one",
-          schema: Z.object(%{value: Z.integer()}), output_schema: Z.object(%{value: Z.integer()}), context: ctx do
-          {:ok, %{value: if(ctx[:invalid_output], do: "bad", else: add_one(value))}}
-        end
+      step "increment", value <- input(:value),
+        inline: [
+          name: @action_name,
+          description: "Adds one",
+          schema: Z.object(%{value: Z.integer()}),
+          output_schema: Z.object(%{value: Z.integer()}),
+          context: ctx
+        ] do
+        {:ok, %{value: if(ctx[:invalid_output], do: "bad", else: add_one(value))}}
       end
       """,
       "alias Zoi, as: Z\n@action_name \"configured_action\"",
@@ -225,16 +61,145 @@ defmodule Jido.Flow.DSL.InlineActionTest do
 
     assert {:error, %Jido.Action.Error.InvalidInputError{}} =
              Jido.Exec.run(target, %{value: 2}, %{invalid_output: true})
-
-    assert {:error, _} = Jido.Exec.run(owner, %{value: "bad"})
   end
 
-  test "context and Action option errors retain shared validation" do
-    for {options, message} <- [
+  test "invalid Step fields do not create an inline Action" do
+    for field <- [:meta, :needs] do
+      owner = unique_owner()
+
+      assert_raise Spark.Error.DslError, ~r/invalid (?:value for|list in) :#{field} option/, fn ->
+        compile_source(owner, """
+        step "increment", value <- input(:value), #{field}: :invalid do
+          {:ok, %{value: value + 1}}
+        end
+        """)
+      end
+
+      refute Code.ensure_loaded?(generated_target(owner, "increment"))
+    end
+  end
+
+  test "rejected Step edits preserve the loaded Action and allow a valid retry" do
+    for field <- [:meta, :needs] do
+      owner = unique_owner()
+
+      compile_source(owner, """
+      step "increment", value <- input(:value),
+        inline: [name: "original", description: "Adds one",
+          schema: Zoi.object(%{value: Zoi.integer()}),
+          output_schema: Zoi.object(%{value: Zoi.integer()})] do
+        {:ok, %{value: value + 1}}
+      end
+      """)
+
+      target = owner.step_action("increment")
+      checksum = target.module_info(:md5)
+      schema = target.schema()
+      output_schema = target.output_schema()
+      assert {:ok, %{value: 2}} = Jido.Exec.run(owner, %{value: 1})
+
+      changed = """
+      step "increment", value <- input(:value), #{field}: :invalid,
+        inline: [name: "changed", description: "Keeps a string",
+          schema: Zoi.object(%{value: Zoi.string()}),
+          output_schema: Zoi.object(%{value: Zoi.string()})] do
+        {:ok, %{value: value}}
+      end
+      """
+
+      Code.with_diagnostics(fn ->
+        assert_raise Spark.Error.DslError,
+                     ~r/invalid (?:value for|list in) :#{field} option/,
+                     fn ->
+                       compile_source(owner, changed)
+                     end
+      end)
+
+      assert target.module_info(:md5) == checksum
+      assert target.name() == "original"
+      assert target.description() == "Adds one"
+      assert target.schema() == schema
+      assert target.output_schema() == output_schema
+      assert {:ok, %{value: 1}} = target.validate_params(%{value: 1})
+
+      Code.with_diagnostics(fn ->
+        compile_source(owner, String.replace(changed, "#{field}: :invalid,", ""))
+      end)
+
+      assert owner.step_action("increment") == target
+      refute target.module_info(:md5) == checksum
+      assert target.name() == "changed"
+      assert {:ok, %{value: "value"}} = Jido.Exec.run(owner, %{value: "value"})
+    end
+  end
+
+  test "a direct inline Step uses case inside its expression body" do
+    owner = unique_owner()
+
+    compile_source(owner, """
+    step "increment", operand <- input(:operand),
+      inline: [schema: Zoi.object(%{operand: Zoi.number()})] do
+      case operand do
+        0 -> {:error, :zero}
+        operand -> {:ok, %{value: 10 / operand}}
+      end
+    end
+    """)
+
+    assert {:ok, %{value: 5.0}} = Jido.Exec.run(owner, %{operand: 2})
+
+    assert {:error, %Jido.Action.Error.ExecutionFailureError{message: "zero"}} =
+             Jido.Exec.run(owner, %{operand: 0})
+  end
+
+  test "Flow rejects clause bodies before generating an Action" do
+    for settings <- ["", ", inline: [context: ctx]"] do
+      owner = unique_owner()
+
+      error =
+        assert_raise CompileError, ~r/use case inside the inline Step body/, fn ->
+          compile_source(owner, """
+          step "increment", value <- input(:value)#{settings} do
+            %{value: 0} -> {:ok, %{value: 0}}
+            %{value: value} -> {:ok, %{value: value + 1}}
+          end
+          """)
+        end
+
+      assert error.file == "inline_step.ex"
+      assert error.line == 6
+      refute Code.ensure_loaded?(generated_target(owner, "increment"))
+    end
+  end
+
+  test "Flow rejects two separate binding arguments" do
+    for tail <- [
+          ", do: {:ok, %{value: left + right}}",
+          ", inline: [name: \"sum\"] do\n {:ok, %{value: left + right}}\nend"
+        ] do
+      owner = unique_owner()
+
+      {error, _diagnostics} =
+        Code.with_diagnostics(fn ->
+          assert_raise CompileError, fn ->
+            compile_source(
+              owner,
+              "step \"increment\", left <- input(:left), right <- input(:right)" <> tail
+            )
+          end
+        end)
+
+      assert error.file == "inline_step.ex"
+      refute Code.ensure_loaded?(generated_target(owner, "increment"))
+    end
+  end
+
+  test "inline settings use shared option and context validation" do
+    for {inline, message} <- [
           {"context: value", ~r/context variable collides/},
           {"context: _", ~r/context must be a named variable/},
-          {"name: \"one\", name: \"two\"", ~r/duplicate inline Action option/},
-          {"after: []", ~r/unsupported inline Action option/},
+          {"name: \"one\", name: \"two\"", ~r/duplicate inline Step setting/},
+          {"unknown: true", ~r/unsupported inline Step setting/},
           {"schema: Zoi.integer()", ~r/schema|configuration/}
         ] do
       owner = unique_owner()
@@ -242,7 +207,7 @@ defmodule Jido.Flow.DSL.InlineActionTest do
       assert_raise CompileError, message, fn ->
         compile_source(
           owner,
-          "step \"increment\" do\n action value <- 1, #{options}, do: {:ok, %{value: value}}\nend"
+          "step \"increment\", value <- 1, inline: [#{inline}], do: {:ok, %{value: value}}"
         )
       end
 
@@ -250,211 +215,179 @@ defmodule Jido.Flow.DSL.InlineActionTest do
     end
   end
 
-  test "all inline field conflicts leave an existing target unchanged in both orders" do
-    inline = "action [], name: \"replacement\", do: {:ok, %{value: :replacement}}"
-    explicit = "action JidoActionTest.Fixtures.Actions.Add"
-    params = "params %{value: 1}"
-
-    for fields <- [
-          [inline, inline],
-          [inline, explicit],
-          [explicit, inline],
-          [inline, params],
-          [params, inline]
+  test "inline Step fields reject named Action fields" do
+    for field <- [
+          "action: JidoActionTest.Fixtures.Actions.Add",
+          "params: %{value: 1}"
         ] do
       owner = unique_owner()
 
-      compile_source(
-        owner,
-        "step \"increment\" do\n action [], do: {:ok, %{value: :original}}\nend"
-      )
-
-      target = owner.step_action("increment")
-      original_beam = target.module_info(:md5)
-
-      quietly(fn ->
-        assert_raise CompileError,
-                     ~r/inline Action conflicts with an existing (action|params) field/,
-                     fn ->
-                       compile_source(
-                         owner,
-                         "step \"increment\" do\n#{Enum.join(fields, "\n")}\nend",
-                         "",
-                         "",
-                         true
-                       )
-                     end
-      end)
-
-      assert target.name() == "increment"
-      assert target.module_info(:md5) == original_beam
-
-      assert target.__jido_inline_action__() ==
-               {owner, [host: Jido.Flow, step: "increment", role: :action]}
-    end
-  end
-
-  test "invalid Action config does not replace an existing wrapper" do
-    owner = unique_owner()
-
-    compile_source(
-      owner,
-      "step \"increment\" do\n action [], do: {:ok, %{value: :original}}\nend"
-    )
-
-    target = owner.step_action("increment")
-    original_beam = target.module_info(:md5)
-
-    quietly(fn ->
-      assert_raise CompileError, fn ->
+      assert_raise CompileError, ~r/unsupported inline Step field/, fn ->
         compile_source(
           owner,
-          "step \"increment\" do\n action [], name: 123, do: {:ok, %{value: :replacement}}\nend",
-          "",
-          "",
-          true
+          "step \"increment\", [], #{field}, do: {:ok, %{value: 1}}"
         )
       end
-    end)
-
-    assert target.name() == "increment"
-    assert target.module_info(:md5) == original_beam
+    end
   end
 
-  test "false declarations and false conflicting fields have no effect" do
-    owner = unique_owner()
-
-    compile_source(owner, """
-    if false do
-      step "increment" do
-        action [], do: {:ok, %{value: :unused}}
-      end
-    end
-    step "increment" do
-      if false do
-        params %{}
-        action [], do: {:ok, %{value: :unused}}
-      end
-      action [], do: {:ok, %{value: :used}}
-      if false, do: action(JidoActionTest.Fixtures.Actions.Add)
-    end
-    """)
-
-    assert [step] = owner.flow().components
-    assert step.name == "increment"
-    assert map_size(owner.__jido_inline_actions__()) == 1
-    assert {:ok, %{value: :used}} = Jido.Exec.run(owner)
-  end
-
-  test "sibling declarations keep names, lexical values, and scopes separate" do
-    owner = unique_owner()
-
-    compile_source(
-      owner,
+  test "Flow does not expose a generic nested inline Action" do
+    declarations = [
       """
-      step @step_name do
-        action [], do: {:ok, %{value: prefix(@step_name)}}
-      end
-      @step_name "increment"
-      step @step_name do
-        action [], do: {:ok, %{value: prefix(@step_name)}}
+      step "increment" do
+        action value <- input(:value), do: {:ok, %{value: value}}
       end
       """,
-      "@step_name \"first\"\nimport String, only: [upcase: 1]",
       """
-      defp prefix(value), do: "name:" <> upcase(value)
-      def scope_cleared?, do: unquote(is_nil(Module.get_attribute(__MODULE__, :__jido_flow_inline_scope__)))
+      map "increment" do
+        collection input(:values)
+        action value <- item(), do: {:ok, %{value: value}}
+      end
+      """,
       """
-    )
+      reduce "increment" do
+        collection input(:values)
+        initial %{value: 0}
+        action [value <- item(), total <- accumulator(:value)], do: {:ok, %{value: total + value}}
+      end
+      """,
+      """
+      choice "increment" do
+        option "selected" do
+          condition true
+          action [], do: {:ok, %{value: 1}}
+        end
+        otherwise action: JidoActionTest.Fixtures.Actions.Add, params: %{value: 0}
+      end
+      """,
+      """
+      choice "increment" do
+        option "selected", condition: false, action: JidoActionTest.Fixtures.Actions.Add, params: %{value: 0}
+        otherwise do
+          action [], do: {:ok, %{value: 1}}
+        end
+      end
+      """,
+      """
+      iterate "increment" do
+        state [], initial: %{value: 0}
+        action value <- state(:value), do: {:ok, %{value: value + 1}}
+        repeat 1
+      end
+      """,
+      """
+      dispatch "increment" do
+        decision value <- input(:value), do: {:ok, %{value: value}}
+        expander JidoActionTest.Fixtures.Actions.Add
+      end
+      """,
+      """
+      dispatch "increment" do
+        decision JidoActionTest.Fixtures.Actions.Add
+        params %{value: input(:value)}
+        expander value, do: {:ok, value}
+      end
+      """,
+      """
+      dispatch "increment" do
+        decision JidoActionTest.Fixtures.Actions.Add
+        params %{value: input(:value)}
+        expander do
+          {:ok, %{value: 1}}
+        end
+      end
+      """,
+      """
+      dispatch "increment" do
+        decision JidoActionTest.Fixtures.Actions.Add
+        params %{value: input(:value)}
+        expander do
+          %{value: value} -> {:ok, %{value: value}}
+        end
+      end
+      """
+    ]
 
-    assert owner.scope_cleared?()
-    assert owner.step_action("first") != owner.step_action("increment")
-    assert {:ok, %{value: "name:FIRST"}} = owner.step_action("first").run(%{}, %{})
-    assert {:ok, %{value: "name:INCREMENT"}} = Jido.Exec.run(owner)
-  end
+    for declaration <- declarations do
+      owner = unique_owner()
 
-  test "Step names evaluate once at their declaration" do
-    owner = unique_owner()
+      Code.with_diagnostics(fn ->
+        try do
+          compile_source(owner, declaration)
+          flunk("removed Flow inline syntax compiled")
+        rescue
+          error in CompileError ->
+            assert error.file == "inline_step.ex"
 
-    compile_source(owner, """
-    step (send(self(), :nested_name_evaluated); "increment") do
-      action [], do: {:ok, %{value: 1}}
+          error in Spark.Error.DslError ->
+            assert Exception.message(error) =~ "invalid value for :expander option"
+        end
+      end)
+
+      refute function_exported?(owner, :__jido_inline_actions__, 0)
     end
-    """)
-
-    assert_received :nested_name_evaluated
-    refute_received :nested_name_evaluated
-    assert {:ok, %{value: 1}} = Jido.Exec.run(owner)
   end
 
-  test "failed declaration evaluation restores the outer scope before repair" do
-    owner = unique_owner()
+  for target <- [JidoActionTest.Fixtures.Actions.Add, Downstream.action_target("add")] do
+    @tag target: target
+    test "advanced components accept Action module #{inspect(target)}", %{target: target} do
+      owner = unique_owner()
 
-    assert_raise CompileError, ~r/inline Action conflicts/, fn ->
       compile_source(
         owner,
         """
-        try do
-          step "increment" do
-            action [], do: {:ok, %{}}
-            params %{}
+        map "mapped" do
+          collection input(:values)
+          action Target
+          params %{value: item()}
+        end
+
+        reduce "total" do
+          collection result("mapped")
+          initial %{value: 0}
+          action Target
+          params %{value: accumulator(:value), amount: item(:value)}
+        end
+
+        choice "increment" do
+          option "selected" do
+            condition input(:selected)
+            action Target
+            params %{value: result("total", :value)}
           end
-        after
-          send(@test_pid, {:scope_after_failure, Module.get_attribute(__MODULE__, :__jido_flow_inline_scope__)})
+
+          otherwise action: Target, params: %{value: 0}
+        end
+
+        iterate "loop" do
+          state [], initial: result("increment")
+          action Target
+          params %{value: state(:value)}
+          repeat 1
+        end
+
+        dispatch "finish" do
+          decision Target
+          expander Target
+          params %{value: result("loop", [:state, :value])}
         end
         """,
-        ~s|@test_pid :erlang.list_to_pid(~c"#{:erlang.pid_to_list(self())}")|,
+        "alias #{inspect(target)}, as: Target",
         "",
-        true
+        "result(\"finish\")"
       )
+
+      assert Enum.map(owner.flow().components, & &1.__struct__) == [
+               Jido.Flow.Map,
+               Jido.Flow.Reduce,
+               Jido.Flow.Choice,
+               Jido.Flow.Iterate,
+               Jido.Flow.Dispatch
+             ]
+
+      assert {:ok, %{value: 9}} = Jido.Exec.run(owner, %{values: [1, 2], selected: true})
+      assert {:ok, %{value: 4}} = Jido.Exec.run(owner, %{values: [1, 2], selected: false})
     end
-
-    assert_received {:scope_after_failure, nil}
-    refute Code.ensure_loaded?(generated_target(owner, "increment"))
-
-    compile_source(
-      owner,
-      "step \"increment\" do\n action [], do: {:ok, %{value: :repaired}}\nend"
-    )
-
-    assert {:ok, %{value: :repaired}} = Jido.Exec.run(owner)
-  end
-
-  test "inline fields outside a supported scope fail clearly" do
-    for declarations <- [
-          "action [], do: {:ok, %{}}",
-          "step \"increment\" do\n action [], do: {:ok, %{}}\nend\naction [], do: {:ok, %{}}"
-        ] do
-      owner = unique_owner()
-
-      assert_raise CompileError,
-                   ~r/inline Action field requires a supported Flow declaration scope/,
-                   fn ->
-                     compile_source(owner, declarations)
-                   end
-    end
-  end
-
-  test "explicit Action and Flow module Steps keep their existing behavior" do
-    child = unique_owner()
-    compile_source(child, "step \"increment\" do\n action [], do: {:ok, %{value: 1}}\nend")
-    owner = unique_owner()
-
-    compile_source(owner, """
-    step "child" do
-      action #{inspect(child)}
-      params %{}
-    end
-    step "increment" do
-      action JidoActionTest.Fixtures.Actions.Add
-      params %{value: result("child", :value)}
-    end
-    """)
-
-    assert [%Jido.Flow.Subflow{}, %Jido.Flow.Step{}] = owner.flow().components
-    assert owner.step_action("increment") == JidoActionTest.Fixtures.Actions.Add
-    assert_raise ArgumentError, fn -> owner.step_action("child") end
-    assert {:ok, %{value: 2}} = Jido.Exec.run(owner)
   end
 
   defp unique_owner,
@@ -465,25 +398,24 @@ defmodule Jido.Flow.DSL.InlineActionTest do
          declarations,
          before_code \\ "",
          after_code \\ "",
-         isolated? \\ false
+         output \\ "result(\"increment\")"
        ) do
     loaded = MapSet.new(:code.all_loaded(), &elem(&1, 0))
 
     try do
       source = """
       defmodule #{inspect(owner)} do
-        use Jido.Flow, name: "nested_inline_test"
+        use Jido.Flow, name: "inline_step_test"
         #{before_code}
         flow do
           #{declarations}
-          output result("increment")
+          output #{output}
         end
         #{after_code}
       end
       """
 
-      compile = fn -> Code.compile_string(source, "nested_inline.ex") end
-      if isolated?, do: isolated_compile(compile), else: compile.()
+      Code.compile_string(source, "inline_step.ex")
     after
       owned =
         for {module, _} <- :code.all_loaded(),
@@ -512,25 +444,5 @@ defmodule Jido.Flow.DSL.InlineActionTest do
       |> Base.encode16(case: :lower)
 
     Module.concat(Jido.Action.Generated.Inline, "A" <> digest)
-  end
-
-  defp quietly(fun), do: ExUnit.CaptureIO.capture_io(:stderr, fun)
-
-  defp isolated_compile(compile) do
-    # Spark does not clean its authoring process after a field raises. Normal
-    # Mix rebuilds use a new compiler process. Do not alter Spark's private state.
-    task =
-      Task.async(fn ->
-        try do
-          {:ok, compile.()}
-        rescue
-          error -> {:error, error, __STACKTRACE__}
-        end
-      end)
-
-    case Task.await(task, 30_000) do
-      {:ok, result} -> result
-      {:error, error, stacktrace} -> reraise error, stacktrace
-    end
   end
 end

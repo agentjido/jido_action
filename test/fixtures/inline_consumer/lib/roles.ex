@@ -1,77 +1,17 @@
 defmodule InlineConsumer.Roles do
-  use Jido.Flow, name: "inline_roles"
+  use Jido.Flow, name: "inline_flow_steps"
   require InlineConsumer.BodyMacro
 
   flow do
-    step "seed" do
-      action value <- input(:value), name: "step" do
-        {:ok, %{value: adjust(value)}}
-      end
+    step "seed", value <- input(:value), inline: [name: "step"] do
+      {:ok, %{value: adjust(value)}}
     end
 
-    map "mapped" do
-      collection input(:items)
-
-      action [value <- item(), seed <- result("seed", :value)], name: "map" do
-        {:ok, %{value: adjust(value) + seed}}
-      end
+    step "finish", value <- result("seed", :value), inline: [name: "finish"] do
+      {:ok, %{value: adjust(value)}}
     end
 
-    reduce "total" do
-      collection result("mapped")
-      initial %{value: 0}
-
-      action [value <- item(:value), total <- accumulator(:value)], name: "reduce" do
-        {:ok, %{value: total + adjust(value)}}
-      end
-    end
-
-    choice "route" do
-      option "selected" do
-        condition input(:enabled)
-
-        action value <- result("total", :value), name: "option" do
-          {:ok, %{value: adjust(value)}}
-        end
-      end
-
-      option "other" do
-        condition false
-
-        action value <- result("total", :value), name: "other" do
-          {:ok, %{value: adjust(value)}}
-        end
-      end
-
-      otherwise do
-        action value <- result("total", :value), name: "fallback" do
-          {:ok, %{value: adjust(value)}}
-        end
-      end
-    end
-
-    iterate "loop" do
-      state [], initial: result("route")
-
-      action value <- state(:value), name: "iterate" do
-        {:ok, %{value: adjust(value)}}
-      end
-
-      update body_result()
-      repeat 1
-    end
-
-    dispatch "next" do
-      decision value <- result("loop", [:state, :value]), name: "decision" do
-        {:ok, %{value: adjust(value)}}
-      end
-
-      expander %{value: value}, name: "expander" do
-        {:ok, %{value: adjust(value)}}
-      end
-    end
-
-    output result("next")
+    output result("finish")
   end
 
   defp adjust(value), do: InlineConsumer.BodyMacro.increment(value)

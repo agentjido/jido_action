@@ -44,7 +44,8 @@ This foundation keeps the action boundary small:
 
 Version 3.0.0-beta.10 is a public beta. It includes the declarative Flow DSL,
 runtime Flow construction, safe stored Flow maps, and one Flow execution
-engine. Recent beta releases add portable inline Actions, `Jido.Expr`, and
+engine. Recent beta releases add inline Steps, the public
+`Jido.Action.Inline` host API, `Jido.Expr`, and
 compile-time Flow DSL extensions. The v3 API can still change before the
 stable release. The current development branch locks Runic 0.1.0-alpha.10.
 Use it for evaluation and controlled trials before you use it for critical
@@ -275,19 +276,19 @@ end
 ```
 
 Binding sources use direct Flow references or data. Bodies use normal Elixir and
-compile to ordinary Actions. This shipped shorthand has empty field schemas
-and accepts only Step `needs:` and `meta:` options.
+compile to ordinary Actions. Use `inline:` to set the Action name, description,
+schemas, or context binding. Keep Step `needs:` and `meta:` options at the Step
+level.
 Use `MyApp.Flows.SimpleGreeting.step_action("greet")` to reuse its target in
 Builder or a trusted Registry. Neither Builder nor JSON accepts body code,
 closures, or MFAs. See [Build Your First Flow](guides/build-your-first-flow.livemd).
 
-Version `3.0.0-beta.6` adds the
-[inline Action API](guides/inline-actions.md), with
-nested blocks for Step, Map, Reduce, Choice options and fallback, Iterate,
-and Dispatch. These blocks accept explicit schemas, metadata, and execution
-context. A downstream DSL can use `Jido.Action.Inline` without Flow. The same
-release adds `Jido.Expr` for portable calculations. Keep a named Action for
-custom validation hooks or a separate public module API.
+Flow inline Actions are limited to direct Step bodies. Map, Reduce, Choice,
+Iterate, and Dispatch use Action modules. The separate
+[`Jido.Action.Inline` host API](guides/building-dsls-with-inline-actions.md)
+lets downstream compile-time DSLs define their own inline Action forms without
+Flow. Keep a named Action for custom validation hooks or a separate public
+module API.
 
 ## Build A Flow At Runtime
 

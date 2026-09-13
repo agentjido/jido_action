@@ -113,15 +113,9 @@ not run the fallback.
 Choice option and fallback targets must be Actions. A Choice does not derive a
 Subflow target.
 
-The nested `action` form can define a body in an `option` or
-`otherwise` block. Direct binding sources keep the same reference scope and
-static dependencies as params. They do not accept Flow operations. Only the
-selected body runs. A fallback remains a normal route, not an error handler.
-An option called `"otherwise"` has a different lookup path from the fallback.
-See
-[inline Choice examples and lookup paths](https://github.com/agentjido/jido_action/blob/release/v3/guides/inline-actions.md).
-The portable
-form requires `3.0.0-beta.6` or later.
+Choice options and fallback use Action modules. Put their Flow inputs in
+`params`. Only the selected Action runs. A fallback remains a normal route,
+not an error handler.
 
 ## Route An Expected Failure As Data
 

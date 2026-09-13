@@ -55,14 +55,14 @@ defmodule ActionGuide.Greeting do
 end
 ```
 
-This form, added in `3.0.0-beta.5`, compiles the body to an ordinary Action. It does
-not add inline methods to `use Jido.Action` or function/MFA executable targets.
-The Action has empty field schemas, with the normal map input and output
-boundary. Exec still owns validation, errors, timeouts, and telemetry.
+This form compiles the body to an ordinary Action. It does not add inline
+methods to `use Jido.Action` or function/MFA executable targets. Its field
+schemas default to empty. Use Step `inline:` settings for explicit schemas,
+descriptions, or execution context. No schema is inferred from bindings.
+Exec still owns validation, errors, timeouts, and telemetry.
 
-The [portable inline form](inline-actions.md), available in `3.0.0-beta.6`,
-also accepts explicit schemas, descriptions, and execution context in Flow or
-a downstream host DSL. No schema is inferred from bindings.
+The separate public `Jido.Action.Inline` API lets a downstream package provide
+inline Actions in its own compile-time DSL.
 Keep a named Action for custom lifecycle hooks or a public module API
 independent of the host. Use
 `ActionGuide.Greeting.step_action("greet")` when you only need to reuse the

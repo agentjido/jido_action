@@ -70,9 +70,9 @@ Run the module or the canonical value.
 
 ## Extract A Named Action When Needed
 
-The Flow schemas above validate its input and output. Inline Actions have no
-field schemas. Extract a named Action when a step needs its own schemas,
-validation hooks, description, or an independent public API.
+The Flow schemas above validate its input and output. An inline Step can
+declare its own schemas and description through `inline:`. Extract a named
+Action when a Step needs custom validation hooks or an independent public API.
 
 ```elixir
 defmodule FirstFlow.CreateGreeting do

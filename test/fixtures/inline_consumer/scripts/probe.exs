@@ -53,14 +53,13 @@ role_targets =
   Map.new(roles.__jido_inline_actions__(), fn {_path, target} -> {target.name(), target} end)
 
 for {role, target} <- role_targets do
-  expected = 6 + offset + if(role == "reduce", do: 10, else: 0)
-  {:ok, %{value: ^expected}} = Jido.Exec.run(target, %{value: 6, total: 10, seed: 0})
+  true = role in ["step", "finish"]
+  expected = 6 + offset
+  {:ok, %{value: ^expected}} = Jido.Exec.run(target, %{value: 6})
 end
 
-for enabled <- [true, false] do
-  expected = 25 + 10 * offset
-  {:ok, %{value: ^expected}} = Jido.Exec.run(Roles, %{value: 6, items: [6, 7], enabled: enabled})
-end
+expected_roles = 6 + 2 * offset
+{:ok, %{value: ^expected_roles}} = Jido.Exec.run(Roles, %{value: 6})
 
 steps = steps_owner.flow().components
 expected = (2 + offset) * length(steps)
@@ -78,23 +77,6 @@ end
 
 for name <- ["first", "second", "renamed"], name not in Enum.map(steps, & &1.name) do
   missing.(fn -> steps_owner.step_action(name) end)
-end
-
-parent = if map_size(role_targets) == 9, do: "route", else: "renamed"
-missing_parent = if parent == "route", do: "renamed", else: "route"
-
-for path <- [
-      [choice: missing_parent, option: "selected", role: :action],
-      [choice: missing_parent, option: "other", role: :action],
-      [choice: missing_parent, fallback: :otherwise, role: :action]
-    ] do
-  missing.(fn -> Inline.target!(Roles, [host: Jido.Flow] ++ path) end)
-end
-
-if parent == "renamed" do
-  missing.(fn ->
-    Inline.target!(Roles, host: Jido.Flow, choice: parent, option: "other", role: :action)
-  end)
 end
 
 snapshot = fn owner, targets ->

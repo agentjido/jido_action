@@ -56,8 +56,8 @@ configuration and static-schema rules as `use Jido.Action`.
 
 `context: ctx` binds the actual second callback argument. It does not add a
 parameter or a schema field. Use one named variable that does not occur in
-the input pattern. In contrast, the legacy Flow binding `ctx <- context()`
-adds a `:ctx` parameter. Reusing that target requires a new `:ctx` input value.
+the input pattern. In contrast, a Flow binding such as `ctx <- context()` adds
+a `:ctx` parameter. Reusing that target requires a new `:ctx` input value.
 
 The body keeps the owner's private helpers, aliases, available imports,
 declaration-time attributes, and `__MODULE__`. It does not capture runtime
@@ -66,136 +66,23 @@ variables outside the declaration. A normal success result is a map. Use
 return extras. A continuation is valid only from a root Action or a terminal
 Dispatch expander, not from an ordinary Step or Dispatch decision.
 
-## Use Inline Actions In Flow
+## Flow Boundary
 
-Mapped slots use a nested `action` block. The direct binding sources have the
-same reference scope and static dependencies as that slot's `params` field.
-They do not accept Flow operations. Put calculations in the body. Map
-preserves source order. Reduce and Iterate remain serial.
+Jido Flow uses this API for direct inline Step bodies only. A Flow Step can
+set Action options through `inline:`. Map, Reduce, Choice targets, Iterate,
+and Dispatch use Action modules. See [Inline Actions](inline-actions.md).
 
-```elixir
-defmodule InlineFlowGuide.Mapped do
-  use Jido.Flow, name: "inline_mapped"
+This Flow boundary does not restrict downstream packages. A downstream DSL
+can define bound or callback slots, its own macro names, and its own typed
+host paths through the public API described below.
 
-  flow do
-    step "seed" do
-      action values <- input(:values) do
-        {:ok, %{values: values}}
-      end
-    end
+Flow Steps use one binding argument and an ordinary expression body. The
+shared host API still supports clause bodies in bound and callback modes.
 
-    map "doubled" do
-      collection result("seed", :values)
-
-      action value <- item() do
-        {:ok, %{value: value * 2}}
-      end
-    end
-
-    reduce "total" do
-      collection result("doubled")
-      initial %{total: 0}
-
-      action [total <- accumulator(:total), value <- item(:value)],
-        schema: Zoi.object(%{total: Zoi.integer(), value: Zoi.integer()}),
-        output_schema: Zoi.object(%{total: Zoi.integer()}) do
-        {:ok, %{total: total + value}}
-      end
-    end
-
-    choice "route" do
-      option "positive" do
-        condition result("total", :total) > 0
-
-        action [], name: "positive_total" do
-          {:ok, %{label: :positive}}
-        end
-      end
-
-      otherwise do
-        action [] do
-          {:ok, %{label: :empty}}
-        end
-      end
-    end
-
-    iterate "counter" do
-      state Zoi.object(%{count: Zoi.integer()}), initial: %{count: 0}
-
-      action count <- state(:count) do
-        {:ok, %{count: count + 1}}
-      end
-
-      repeat 2
-    end
-
-    output %{
-      total: result("total", :total),
-      route: result("route"),
-      count: result("counter", [:state, :count])
-    }
-  end
-end
-
-mapped_result = Jido.Exec.run(InlineFlowGuide.Mapped, %{values: [1, 2, 3]})
-{:ok, %{total: 12, route: %{label: :positive}, count: 2}} = mapped_result
-
-double =
-  Jido.Action.Inline.target!(InlineFlowGuide.Mapped,
-    host: Jido.Flow,
-    map: "doubled",
-    role: :action
-  )
-
-{:ok, %{value: 10}} = Jido.Exec.run(double, %{value: 5})
-```
-
-Dispatch decision uses bound mode. Its expander uses callback mode because
-the decision result is already the expander's complete parameter map. There
-is no `expander_params` field. This terminal expander selects another Action:
-
-```elixir
-defmodule InlineFlowGuide.Finish do
-  use Jido.Action, name: "finish"
-
-  @impl true
-  def run(params, _context), do: {:ok, Map.put(params, :complete, true)}
-end
-
-defmodule InlineFlowGuide.Dispatch do
-  use Jido.Flow, name: "inline_dispatch"
-
-  flow do
-    dispatch "next" do
-      decision value <- input(:value) do
-        {:ok, %{value: value + 1}}
-      end
-
-      expander %{value: value}, context: ctx do
-        {:continue, %{value: value, prefix: ctx.prefix}, InlineFlowGuide.Finish}
-      end
-    end
-
-    output result("next")
-  end
-end
-
-dispatch_result = Jido.Exec.run(InlineFlowGuide.Dispatch, %{value: 3}, %{prefix: "next"})
-{:ok, %{value: 4, prefix: "next", complete: true}} = dispatch_result
-```
-
-An expander can instead use `expander params do ... end` and return a normal
-Action result. Dispatch must remain the last component and the complete Flow
-output. It is not available to step-wise execution or Subflows.
-
-Do not combine a mapped inline block with explicit `action` or `params` fields
-for that slot. Do not combine inline and explicit `decision` fields, or inline
-and explicit `expander` fields. A callback expander can coexist with explicit
-decision `params`; those parameters belong to the decision.
-
-The existing Step shorthand still works. Its `needs:` and `meta:` options
-belong to the Step. Use the nested `action` form for Action metadata, schemas,
-or `context:`; keep `needs` and `meta` on the surrounding component.
+A downstream package owns its formatter rules. Add its macro names and arities
+to `locals_without_parens`, and export those entries for consumers. For the
+host below, use `[action: 3, action: 4]`. Importing the Jido formatter rules
+alone does not configure a downstream DSL.
 
 ## Build A Non-Flow Host
 
@@ -447,28 +334,14 @@ Each segment has an atom key and a non-nil atom, string, or integer value.
 Lookup requires the exact path. It is inert: it creates no atoms, compiles no
 code, executes no body, and returns no parameter mapping.
 
-Flow uses these paths, all preceded by `host: Jido.Flow`:
+Flow uses `[host: Jido.Flow, step: name, role: :action]` for an inline Step.
+Use the Flow's canonical string Step name. `FlowModule.step_action/1` returns
+inline and explicit Action-backed Step targets, but not Subflows or other
+component targets.
 
-| Inline position | Remaining path |
-| --- | --- |
-| Step | `[step: name, role: :action]` |
-| Map | `[map: name, role: :action]` |
-| Reduce | `[reduce: name, role: :action]` |
-| Iterate | `[iterate: name, role: :action]` |
-| Choice option | `[choice: name, option: option_name, role: :action]` |
-| Choice fallback | `[choice: name, fallback: :otherwise, role: :action]` |
-| Dispatch decision | `[dispatch: name, role: :decision]` |
-| Dispatch expander | `[dispatch: name, role: :expander]` |
-
-Use Flow's canonical string declaration names in these paths. An option
-called `"otherwise"` and a fallback have distinct paths. Default Action
-metadata uses the nearest declaration name, or `"otherwise"` for a fallback.
-Explicit `name:` changes public metadata, not lookup identity.
-
-`FlowModule.step_action/1` remains Step-only. It returns inline and explicit
-Action-backed Step targets, but not Subflows or other component targets. Both
-Step syntax forms use the same owner and typed host path identity as all other
-inline Actions.
+A downstream host defines its own path. It can use several declaration
+segments when its DSL has nested roles. Explicit Action `name:` changes public
+Action metadata, not host lookup identity.
 
 An extracted target works with direct constructors, Builder, and a trusted
 Registry. Supply a new parameter mapping for each host position. Register

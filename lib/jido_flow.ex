@@ -60,19 +60,17 @@ defmodule Jido.Flow do
 
   A binding source accepts direct Flow references or data, but not Flow
   operations. The body is normal Elixir in the owning module's function scope.
-  Put calculations in that body. Use `ctx <- context()` to
-  bind context explicitly. Use a binding list for more than two inputs, a
-  sole map pattern for complete params, or `[]` for no input. Only `needs:`
-  and `meta:` are inline options.
+  Put calculations in that body. Use `ctx <- context()` to bind context as a
+  parameter. Use a binding list for two or more inputs, a sole map pattern
+  for complete params, or `[]` for no input. Use one binding argument. Put
+  pattern selection in a `case` expression inside the body; top-level clause
+  bodies are not supported.
 
-  This Step shorthand has empty field schemas. The nested `action`
-  form accepts explicit metadata, schemas, and `context: ctx`. It supports
-  Step, Map, Reduce, Choice options and fallback, and Iterate. Dispatch uses
-  bound `decision` and direct callback `expander` blocks. All forms compile
-  to ordinary Actions with normal Exec validation and result rules. Keep a
-  named Action for custom lifecycle hooks or a separate public module API.
-  See [Inline Actions](inline-actions.md). The shared API requires
-  `3.0.0-beta.6` or later.
+  Use `inline:` to set the Action name, description, schemas, or
+  `context: ctx`. Keep `needs:` and `meta:` at the Step level. Flow supports
+  inline Actions only for Step. Map, Reduce, Choice targets, Iterate, and
+  Dispatch use Action modules. All targets use normal Exec validation
+  and result rules. See [Inline Actions](inline-actions.md).
 
   After the owner compiles, `MyApp.Greeting.step_action("greet")` returns its
   Action target for Builder, direct construction, or trusted Registry reuse.
@@ -80,9 +78,8 @@ defmodule Jido.Flow do
   JSON do not accept body code, anonymous functions, or MFA targets.
 
   `step_action/1` stays Step-only, including explicit Action-backed Steps but
-  excluding Subflows. Use `Jido.Action.Inline.target!/2` with a typed host path
-  for other inline roles. `context: ctx` binds the current callback context;
-  it does not retain the original Flow context in the target's parameters.
+  excluding Subflows. `context: ctx` binds the current callback context; it
+  does not retain the original Flow context in the target's parameters.
 
   Deploy the owning module and generated Action BEAM files together. A body
   edit can retain the same target and semantic graph identity; graph identity

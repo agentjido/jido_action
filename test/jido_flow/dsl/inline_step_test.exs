@@ -619,11 +619,11 @@ defmodule Jido.Flow.DSL.InlineStepTest do
           {:ok, %{name: name}}
         end
 
-        step "two", name <- result("one", :name), ctx <- context() do
+        step "two", [name <- result("one", :name), ctx <- context()] do
           {:ok, %{name: name <> ctx.suffix}}
         end
 
-        step "two_options", name <- result("two", :name), count <- input(:count),
+        step "two_options", [name <- result("two", :name), count <- input(:count)],
           needs: ["seed"], meta: %{form: "two"} do
           {:ok, %{name: name, count: count}}
         end
@@ -719,7 +719,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     {:step, _, [_name, binding, options]} =
       ast("step :greet, name <- input(:name), do: {:ok, %{name: name}}")
 
-    parsed = InlineStep.parse!(binding, options, caller())
+    parsed = InlineStep.parse!(binding, options, caller()).action
     {:<-, _, [variable, source]} = binding
 
     assert parsed.params_ast == {:%{}, [line: @source_line], [name: source]}
@@ -729,8 +729,8 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     assert Expression.parse(parsed.params_ast) == {:ok, %{name: Ref.input(:name)}}
   end
 
-  test "two bare bindings and larger binding lists use named atom keys" do
-    two = parse("step :sum, left <- input(:left), right <- result(:load), do: :ok")
+  test "binding lists use named atom keys" do
+    two = parse("step :sum, [left <- input(:left), right <- result(:load)], do: :ok")
     list = parse("step :sum, [a <- input(), b <- context(), _c <- value(3)], do: :ok")
 
     assert Expression.parse(two.params_ast) ==
@@ -784,7 +784,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
 
     for header <- [
           "name <- input()",
-          "left <- input(), right <- context()",
+          "[left <- input(), right <- context()]",
           "[a <- input(), b <- context(), c <- 3]",
           "[]"
         ],
@@ -793,8 +793,8 @@ defmodule Jido.Flow.DSL.InlineStepTest do
       arguments = List.replace_at(arguments, -1, options ++ [do: body])
       parsed = apply(InlineStep, :parse!, arguments ++ [caller()])
 
-      assert parsed.options == options
-      assert parsed.body_ast == body
+      assert parsed.component_options == options
+      assert parsed.action.body_ast == body
     end
 
     refute_received ^marker
@@ -813,17 +813,17 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     """
 
     {:step, _, [_name, _binding, _header_options, options]} = ast(source)
-    parsed = parse(source)
+    parsed = parse_declaration(source)
 
-    assert parsed.options == [needs: [:load]]
-    assert parsed.body_ast == options[:do]
-    assert Macro.to_string(parsed.body_ast) =~ "after"
+    assert parsed.component_options == [needs: [:load]]
+    assert parsed.action.body_ast == options[:do]
+    assert Macro.to_string(parsed.action.body_ast) =~ "after"
   end
 
   test "native do blocks keep separate header options for all binding forms" do
     for header <- [
           "name <- input()",
-          "left <- input(), right <- context()",
+          "[left <- input(), right <- context()]",
           "[a <- input(), b <- context(), c <- 3]",
           "[]"
         ],
@@ -834,10 +834,10 @@ defmodule Jido.Flow.DSL.InlineStepTest do
         ] do
       source = "step :read, #{header}, #{options} do\n  {:ok, %{}}\nend"
       {:step, _, arguments} = ast(source)
-      parsed = parse(source)
+      parsed = parse_declaration(source)
 
-      assert parsed.options == Enum.at(arguments, -2)
-      assert Macro.to_string(parsed.body_ast) == "{:ok, %{}}"
+      assert parsed.component_options == Enum.at(arguments, -2)
+      assert Macro.to_string(parsed.action.body_ast) == "{:ok, %{}}"
     end
   end
 
@@ -847,14 +847,16 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     end
   end
 
-  test "inline Step clause bodies select among validated parameter heads" do
+  test "inline Step expressions can match validated parameters with case" do
     owner = unique_owner("ClauseStep")
 
     compile_source(
       flow_source(owner, """
       step "divide", operand <- input(:operand) do
-        %{operand: 0} -> {:error, :zero}
-        %{operand: operand} -> {:ok, %{value: 10 / operand}}
+        case operand do
+          0 -> {:error, :zero}
+          operand -> {:ok, %{value: 10 / operand}}
+        end
       end
       """)
     )
@@ -928,7 +930,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     for field <- [:action, :after, :params, :run, :schema, :output_schema, :unknown] do
       error =
         assert_raise CompileError,
-                     "#{@source_file}:#{@source_line}: unsupported inline Step field: #{inspect(field)}; use only needs:, meta:, and do:",
+                     "#{@source_file}:#{@source_line}: unsupported inline Step field: #{inspect(field)}; use only needs:, meta:, inline:, and do:",
                      fn ->
                        InlineStep.parse!(
                          ast("name <- input()"),
@@ -960,8 +962,8 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     assert parse("step :read, [], do: nil").body_ast == nil
   end
 
-  test "the two bare binding form does not accept a list argument" do
-    assert_raise CompileError, ~r/expected a binding/, fn ->
+  test "a second binding is not a Step options list" do
+    assert_raise CompileError, ~r/inline Step options must be a keyword list/, fn ->
       InlineStep.parse!([ast("name <- input()")], ast("other <- context()"), [do: :ok], caller())
     end
   end
@@ -1014,6 +1016,10 @@ defmodule Jido.Flow.DSL.InlineStepTest do
   end
 
   defp parse(source) do
+    parse_declaration(source).action
+  end
+
+  defp parse_declaration(source) do
     {:step, _, [_name | arguments]} = ast(source)
     apply(InlineStep, :parse!, arguments ++ [caller()])
   end

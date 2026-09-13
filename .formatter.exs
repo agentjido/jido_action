@@ -5,7 +5,6 @@ locals_without_parens = [
   step: 2,
   step: 3,
   step: 4,
-  step: 5,
   choice: 2,
   option: 2,
   otherwise: 1,
@@ -16,8 +15,6 @@ locals_without_parens = [
   dispatch: 2,
   output: 1,
   action: 1,
-  action: 2,
-  action: 3,
   params: 1,
   needs: 1,
   meta: 1,
@@ -30,11 +27,7 @@ locals_without_parens = [
   repeat: 1,
   max_iterations: 1,
   decision: 1,
-  decision: 2,
-  decision: 3,
-  expander: 1,
-  expander: 2,
-  expander: 3
+  expander: 1
 ]
 
 [

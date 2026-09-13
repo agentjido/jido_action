@@ -12,8 +12,8 @@ defmodule Jido.Action.Inline do
   For example, a host can use the path
   `[host: MyApp.DSL, declaration: "greet", role: :action]`. It can later call
   `target!(Owner, path)` to retrieve only the target, without the source mapping.
-  Nested declarations add typed segments, such as `choice: "route"` and
-  `option: "otherwise"`. An option and a fallback must have different paths.
+  A host with nested declarations can add its own typed segments, such as
+  `group: "billing"` and `operation: "charge"`.
 
   Paths and Action metadata are separate. The host supplies a default metadata
   name; a declaration can override it with `name:`. Generated module names are

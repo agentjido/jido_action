@@ -98,40 +98,12 @@ Target selection is application code. Only select trusted executable values.
 A stored name or external value must first pass through an application-owned
 registry.
 
-## Use Inline Decision And Expander Actions
+## Use Action Modules For Dispatch
 
-Dispatch supports inline Actions when the logic belongs only to one Flow:
-
-```elixir
-defmodule MyApp.Flows.InlineDynamicRoute do
-  use Jido.Flow, name: "inline_dynamic_route"
-
-  flow do
-    dispatch "route" do
-      decision params <- input() do
-        {:ok, params}
-      end
-
-      expander do
-        %{done?: true, value: value} ->
-          {:ok, %{value: value}}
-
-        %{done?: false, value: value, target: target} ->
-          {:continue, %{value: value}, target}
-      end
-    end
-
-    output result("route")
-  end
-end
-```
-
-The decision uses bound mode because the Flow resolves its input expression.
-The expander uses callback mode because it receives the complete decision
-result. A headerless expander can use several clauses, as in this example.
-
-See [Inline Actions](inline-actions.md) for schemas, context bindings, lookup,
-and the complete inline syntax.
+Dispatch uses Action modules for its decision and expander. The decision gets
+the resolved Dispatch `params`. The expander gets the complete decision
+result. Both targets can be handwritten or generated Action modules.
+Flow does not accept inline bodies for either role.
 
 ## Dispatch Rules
 

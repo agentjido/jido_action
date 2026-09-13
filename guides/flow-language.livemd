@@ -159,15 +159,13 @@ removes its declaration imports inside the body. Spark can also remove an
 outer import that conflicts with a DSL name. Use a qualified call such as
 `MyApp.Helpers.output(value)`, or import that helper inside the body.
 
-Only `step` has the top-level shorthand. The nested `action` form also
-supports Map, Reduce, Choice options and fallback, and
-Iterate. Dispatch uses bound `decision` and direct callback `expander` forms.
-All forms lower to ordinary Action fields and host data. See
+Only `step` accepts an inline Action body. Use `inline:` on that Step for
+Action settings. Map, Reduce, Choice targets, Iterate, and Dispatch use named
+Action modules. See
 [Inline Actions](https://github.com/agentjido/jido_action/blob/release/v3/guides/inline-actions.md)
-for the syntax. See
+for the Flow syntax. See
 [Building DSLs With Inline Actions](https://github.com/agentjido/jido_action/blob/release/v3/guides/building-dsls-with-inline-actions.md)
-for
-the public downstream host API. These forms require `3.0.0-beta.6` or later.
+for the separate public downstream host API.
 
 ## Use Closed Conditions
 

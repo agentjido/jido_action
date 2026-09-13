@@ -8,10 +8,8 @@ defmodule InlineConsumer.Steps do
       {:ok, %{value: InlineConsumer.BodyMacro.increment(value)}}
     end
 
-    step "second" do
-      action value <- result("first", :value) do
-        {:ok, %{value: value * 2}}
-      end
+    step "second", value <- result("first", :value) do
+      {:ok, %{value: value * 2}}
     end
 
     output result("second")

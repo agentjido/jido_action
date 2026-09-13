@@ -1,4 +1,4 @@
-defmodule JidoActionTest.Exec.InlineActionContractTest do
+defmodule JidoActionTest.Exec.FlowActionContractTest do
   use ExUnit.Case, async: false
   @moduletag capture_log: true
 
@@ -21,16 +21,35 @@ defmodule JidoActionTest.Exec.InlineActionContractTest do
     end
   end
 
+  defmodule MappedResultAction do
+    use Jido.Action, name: "mapped_result_action"
+
+    @impl true
+    def run(params, _context), do: Results.run(params)
+  end
+
+  defmodule IdentityDecision do
+    use Jido.Action, name: "identity_decision"
+
+    @impl true
+    def run(params, _context), do: {:ok, params}
+  end
+
+  defmodule CallbackResultAction do
+    use Jido.Action, name: "callback_result_action"
+
+    @impl true
+    def run(params, _context), do: Results.run(params)
+  end
+
   defmodule MappedResults do
     use Jido.Flow, name: "mapped_results"
 
     flow do
       map "mapped" do
         collection [input()]
-
-        action %{mode: mode, value: value} <- item() do
-          Results.run(%{mode: mode, value: value})
-        end
+        action MappedResultAction
+        params item()
       end
 
       output result("mapped", 0)
@@ -42,56 +61,62 @@ defmodule JidoActionTest.Exec.InlineActionContractTest do
 
     flow do
       dispatch "next" do
-        decision params <- input(), do: {:ok, params}
-        expander params, do: Results.run(params)
+        decision IdentityDecision
+        params input()
+        expander CallbackResultAction
       end
 
       output result("next")
     end
   end
 
+  defmodule ControlledMapAction do
+    use Jido.Action, name: "controlled_map_action"
+
+    @impl true
+    def run(%{value: value}, ctx) do
+      Agent.update(ctx.probe, fn state ->
+        running = state.running + 1
+
+        %{
+          state
+          | running: running,
+            max: max(state.max, running),
+            started: [value | state.started]
+        }
+      end)
+
+      send(ctx.test_pid, {ctx.ref, :ready, value, self()})
+
+      receive do
+        {:release, ref} when ref == ctx.ref -> :ok
+      end
+
+      Agent.update(ctx.probe, &%{&1 | running: &1.running - 1})
+      send(ctx.test_pid, {ctx.ref, :finished, value})
+      {:ok, %{value: value}}
+    end
+  end
+
   defmodule ControlledMap do
-    use Jido.Flow, name: "controlled_inline_map"
+    use Jido.Flow, name: "controlled_map"
 
     flow do
       map "mapped" do
         collection input(:items)
-
-        action value <- item(), context: ctx do
-          Agent.update(ctx.probe, fn state ->
-            running = state.running + 1
-
-            %{
-              state
-              | running: running,
-                max: max(state.max, running),
-                started: [value | state.started]
-            }
-          end)
-
-          send(ctx.test_pid, {ctx.ref, :ready, value, self()})
-
-          receive do
-            {:release, ref} when ref == ctx.ref -> :ok
-          end
-
-          Agent.update(ctx.probe, &%{&1 | running: &1.running - 1})
-          send(ctx.test_pid, {ctx.ref, :finished, value})
-          {:ok, %{value: value}}
-        end
+        action ControlledMapAction
+        params %{value: item()}
       end
 
       output %{items: result("mapped")}
     end
   end
 
-  test "mapped and callback targets keep Action failures, Output envelopes, and extras" do
-    for {owner, path, node} <- [
-          {MappedResults, [map: "mapped", role: :action], "mapped"},
-          {CallbackResults, [dispatch: "next", role: :expander], "next"}
+  test "mapped and callback Actions keep failures, Output envelopes, and extras" do
+    for {owner, target, node} <- [
+          {MappedResults, MappedResultAction, "mapped"},
+          {CallbackResults, CallbackResultAction, "next"}
         ] do
-      target = Jido.Action.Inline.target!(owner, [host: Jido.Flow] ++ path)
-
       for {mode, expected} <- [map: %{value: 42}, output: Output.raw(42)] do
         assert Exec.run(target, %{mode: mode, value: 42}) == {:ok, expected}
         assert Exec.run(owner, %{mode: mode, value: 42}) == {:ok, expected}
@@ -131,7 +156,7 @@ defmodule JidoActionTest.Exec.InlineActionContractTest do
     end
   end
 
-  test "inline Map work is bounded, ordered, and runs once in full and step-wise execution" do
+  test "Map work is bounded, ordered, and runs once in full and step-wise execution" do
     for limit <- [1, 2], mode <- [:run, :stepwise] do
       probe =
         start_supervised!(
@@ -197,8 +222,8 @@ defmodule JidoActionTest.Exec.InlineActionContractTest do
     end
   end
 
-  test "cancelling inline Map work stops all workers and releases the routed supervisor" do
-    instance = JidoActionTest.InlineMapCancellation
+  test "cancelling Map work stops all workers and releases the routed supervisor" do
+    instance = JidoActionTest.FlowMapCancellation
     supervisor = Module.concat(instance, TaskSupervisor)
     start_supervised!({Task.Supervisor, name: supervisor})
     probe = start_supervised!({Agent, fn -> %{running: 0, max: 0, started: []} end})

@@ -12,18 +12,20 @@ defmodule Jido.Action.InlineHostBuildTest do
     {:ok, fixture: fixture}
   end
 
-  test "a clean release loads every inline role with consumer source removed", %{fixture: fixture} do
+  test "a clean release loads Flow Steps and downstream host Actions with source removed", %{
+    fixture: fixture
+  } do
     {output, status} = Build.mix(fixture, ["release"])
     assert status == 0, output
-    assert length(Build.beams(fixture)) == 15
+    assert length(Build.beams(fixture)) == 8
 
     # The package remains in the isolated build directory. Remove the full
     # consumer project, including its source variants and Mix file.
     File.rm_rf!(fixture.app)
     File.mkdir!(fixture.app)
     result = Build.release_probe(fixture)
-    assert result["count"] == 15
-    assert map_size(result["roles"]["targets"]) == 9
+    assert result["count"] == 8
+    assert Map.keys(result["roles"]["targets"]) == ["finish", "step"]
     assert Map.keys(result["steps"]["targets"]) == ["first", "second"]
   end
 
@@ -73,31 +75,6 @@ defmodule Jido.Action.InlineHostBuildTest do
     Build.compile!(fixture)
     assert Build.probe(fixture, 100) == initial
     assert Build.beams(fixture) == beams
-  end
-
-  test "renaming a Choice and removing an option removes only its old targets", %{
-    fixture: fixture
-  } do
-    Build.compile!(fixture)
-    initial = Build.probe(fixture)
-    initial_beams = Build.beams(fixture)
-
-    Build.replace(fixture, "roles_changed.ex", "roles.ex")
-    Build.compile!(fixture)
-    changed = Build.probe(fixture)
-    before = initial["roles"]["targets"]
-    after_change = changed["roles"]["targets"]
-    nested = ["option", "other", "fallback"]
-
-    assert Map.drop(after_change, nested) == Map.drop(before, nested)
-    assert changed["steps"] == initial["steps"]
-    refute Map.has_key?(after_change, "other")
-    for name <- ["option", "fallback"], do: refute(after_change[name] == before[name])
-
-    assert Build.beams(fixture) -- initial_beams ==
-             target_beams(after_change, ["option", "fallback"])
-
-    assert initial_beams -- Build.beams(fixture) == target_beams(before, nested)
   end
 
   test "Step syntax changes preserve identity and renamed Steps remove stale artifacts", %{

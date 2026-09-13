@@ -18,7 +18,7 @@ Mix.install([{:jido_action, "~> 3.0.0-beta.6"}])
 ## Write An Inline Body
 
 Bind Flow data in the header. Write normal Elixir in the body and return an
-Action result. This example shows one binding, two bindings, a binding list,
+Action result. This example shows a single binding, binding lists,
 a sole map pattern, and the explicit no-input form `[]`.
 
 ```elixir
@@ -34,7 +34,7 @@ defmodule FlowSteps.Inline do
       {:ok, %{name: String.trim(name)}}
     end
 
-    step "greet", name <- result("normalize", :name), prefix <- context(:prefix) do
+    step "greet", [name <- result("normalize", :name), prefix <- context(:prefix)] do
       {:ok, %{message: prefix <> ", " <> name <> "!"}}
     end
 
@@ -73,8 +73,8 @@ map pattern receives its source as the complete parameter map. `[]` supplies
 `%{}`. When you reuse the target in Builder, supply a new mapping with the
 same parameter shape. The target does not retain the original source mapping.
 
-Only `needs:` and `meta:` are shorthand header options. Use a list for more than
-two named bindings. Do not mix map patterns with named bindings or use more
+Step header options are `needs:`, `meta:`, and `inline:`. Use one binding
+argument: a single binding or a list. Two or more named bindings require a list. Do not mix map patterns with named bindings or use more
 than one map pattern. Duplicate names, bare `_`, pins, header guards, and
 top-level struct patterns are not supported. Bind a value by name and match
 inside the body when you need a more complex pattern.
@@ -84,17 +84,16 @@ call application functions or read another binding variable. Put those
 operations in the body. Read context with an explicit binding such as
 `ctx <- context()`; there is no implicit context variable.
 
-This Step shorthand uses empty field schemas. Exec still requires map-shaped
-parameters and a map success result, unless you use `Jido.Action.Output`.
+Exec requires map-shaped parameters and a map success result, unless you use
+`Jido.Action.Output`.
 A pattern mismatch becomes a structured execution failure. It is not field
 schema validation. A missing reference fails before the body runs.
 
-Use the nested `action` form for explicit field schemas,
-descriptions, or `context: ctx`. It also supports Map, Reduce, Choice options
-and fallback, and Iterate; Dispatch has `decision` and `expander` forms.
+Use `inline:` for an explicit Action name, description, field schemas, or
+`context: ctx`. Keep `needs:` and `meta:` at the Step level. Map, Reduce,
+Choice targets, Iterate, and Dispatch use Action modules.
 See [Inline Actions](https://github.com/agentjido/jido_action/blob/release/v3/guides/inline-actions.md)
-for runnable examples. These
-forms require `3.0.0-beta.6` or later.
+for runnable examples.
 
 Keep a named Action for custom lifecycle hooks or a separate public module
 API. All forms use the same Exec errors, telemetry, timeout, concurrency, and

@@ -155,11 +155,10 @@ A body change can retain the same target and semantic graph identity. Neither
 the stored document nor its graph identity is a code snapshot. Select the
 application release and Registry version needed to run stored work.
 
-The same Registry rule applies to portable inline roles.
-Resolve each target through `Jido.Action.Inline.target!/2` with its typed host
-path, then register that ordinary Action. Inline metadata and schemas belong
-to the deployed target, not to stored body code. Portable inline Actions add
-no Codec version. See [Inline Actions](inline-actions.md).
+The same Registry rule applies to an inline Step target. Resolve it through
+the owner Flow's `step_action/1`, then register that ordinary Action. Inline
+metadata and schemas belong to the deployed target, not to stored body code.
+Inline Steps add no Codec version. See [Inline Actions](inline-actions.md).
 
 ## Validation And Limits
 

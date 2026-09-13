@@ -170,45 +170,71 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
     end
   end
 
-  defmodule InlineDispatch do
-    use Jido.Flow, name: "inline_dispatch"
+  defmodule DispatchDecision do
+    use Jido.Action, name: "terminal_named_dispatch_decision"
+
+    @impl true
+    def run(params, ctx) do
+      if ctx[:test_pid], do: send(ctx.test_pid, :dispatch_decision_started)
+
+      if ctx[:continue_decision?],
+        do: {:continue, %{value: params.value}, Add},
+        else: {:ok, params}
+    end
+  end
+
+  defmodule DispatchExpander do
+    use Jido.Action, name: "terminal_named_dispatch_expander"
+
+    @impl true
+    def run(params, ctx) do
+      if ctx[:test_pid], do: send(ctx.test_pid, :dispatch_expander_started)
+
+      if params.continue?,
+        do: {:continue, %{value: params.value}, params.target},
+        else: {:ok, %{value: params.value}, :discarded}
+    end
+  end
+
+  defmodule NamedDispatch do
+    use Jido.Flow, name: "named_dispatch"
 
     flow do
-      dispatch "next" do
-        decision params <- input(), context: ctx do
-          if ctx[:test_pid], do: send(ctx.test_pid, :inline_decision_started)
-
-          if ctx[:continue_decision?],
-            do: {:continue, %{value: params.value}, Add},
-            else: {:ok, params}
-        end
-
-        expander params, context: ctx do
-          if ctx[:test_pid], do: send(ctx.test_pid, :inline_expander_started)
-
-          if params.continue?,
-            do: {:continue, %{value: params.value}, params.target},
-            else: {:ok, %{value: params.value}, :discarded}
-        end
-      end
+      dispatch "next",
+        decision: DispatchDecision,
+        expander: DispatchExpander,
+        params: input()
 
       output result("next")
     end
   end
 
-  defmodule InlineDispatchToExtras do
+  defmodule ExtrasDecision do
+    use Jido.Action, name: "terminal_extras_decision"
+
+    @impl true
+    def run(%{value: value}, _context), do: {:ok, %{value: value}, :discarded}
+  end
+
+  defmodule ExtrasExpander do
+    use Jido.Action,
+      name: "terminal_extras_expander",
+      output_schema: Zoi.object(%{value: Zoi.string()})
+
+    @impl true
+    def run(params, _context), do: {:continue, params, ExtrasAction}
+  end
+
+  defmodule NamedDispatchToExtras do
     use Jido.Flow,
-      name: "inline_dispatch_to_extras",
+      name: "named_dispatch_to_extras",
       output_schema: Zoi.object(%{value: Zoi.string()})
 
     flow do
-      dispatch "next" do
-        decision %{value: value} <- input(), do: {:ok, %{value: value}, :discarded}
-
-        expander params, output_schema: Zoi.object(%{value: Zoi.string()}) do
-          {:continue, params, ExtrasAction}
-        end
-      end
+      dispatch "next",
+        decision: ExtrasDecision,
+        expander: ExtrasExpander,
+        params: input()
 
       output result("next")
     end
@@ -321,59 +347,54 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
   end
 
   describe "terminal Dispatch transitions" do
-    test "inline roles match explicit normal results and Action or Flow continuations" do
+    test "named roles match canonical normal results and Action or Flow continuations" do
       for {target, next_value} <- [{Add, 4}, {MathFlow, 8}], continue? <- [false, true] do
         input = %{continue?: continue?, target: target, value: 3}
         expected = {:ok, %{value: if(continue?, do: next_value, else: 3)}}
         assert Exec.run(dispatch_flow!(), input) == expected
-        assert Exec.run(InlineDispatch, input) == expected
-        assert Exec.await(Exec.run_async(InlineDispatch, input)) == expected
+        assert Exec.run(NamedDispatch, input) == expected
+        assert Exec.await(Exec.run_async(NamedDispatch, input)) == expected
       end
     end
 
-    test "an inline expander continuation uses final target output validation and extras" do
-      context = %{trace_id: "inline-final"}
-      expected = {:ok, %{value: 3}, %{trace_id: "inline-final"}}
-      assert Exec.run(InlineDispatchToExtras, %{value: 3}, context) == expected
-      assert Exec.await(Exec.run_async(InlineDispatchToExtras, %{value: 3}, context)) == expected
+    test "a named expander continuation uses final target output validation and extras" do
+      context = %{trace_id: "named-final"}
+      expected = {:ok, %{value: 3}, %{trace_id: "named-final"}}
+      assert Exec.run(NamedDispatchToExtras, %{value: 3}, context) == expected
+      assert Exec.await(Exec.run_async(NamedDispatchToExtras, %{value: 3}, context)) == expected
     end
 
-    test "an inline decision continuation fails before the expander starts" do
+    test "a named decision continuation fails before the expander starts" do
       assert {:error, %ExecutionFailureError{message: message, details: details}} =
-               Exec.run(InlineDispatch, %{value: 3}, %{continue_decision?: true, test_pid: self()})
+               Exec.run(NamedDispatch, %{value: 3}, %{continue_decision?: true, test_pid: self()})
 
       assert message == "action continuation is not allowed from this Flow position"
       assert details.component == "next"
       assert details.component_kind == :dispatch
 
-      assert details.action ==
-               Jido.Action.Inline.target!(InlineDispatch,
-                 host: Jido.Flow,
-                 dispatch: "next",
-                 role: :decision
-               )
+      assert details.action == DispatchDecision
 
-      assert_received :inline_decision_started
-      refute_received :inline_expander_started
+      assert_received :dispatch_decision_started
+      refute_received :dispatch_expander_started
     end
 
-    test "step-wise and Subflow checks reject inline Dispatch before either body starts" do
+    test "step-wise and Subflow checks reject Dispatch before either Action starts" do
       context = %{test_pid: self()}
 
-      assert {:error, error} = Exec.start(InlineDispatch, %{value: 3}, context)
+      assert {:error, error} = Exec.start(NamedDispatch, %{value: 3}, context)
       assert Exception.message(error) == "step-wise execution does not support Dispatch"
 
       parent =
         Flow.new!(
-          name: "inline_dispatch_parent",
-          components: [Jido.Flow.Subflow.new!(name: "child", flow: InlineDispatch, params: %{})],
+          name: "named_dispatch_parent",
+          components: [Jido.Flow.Subflow.new!(name: "child", flow: NamedDispatch, params: %{})],
           output: Ref.result("child")
         )
 
       assert {:error, error} = Exec.run(parent, %{value: 3}, context)
       assert Exception.message(error) == "a Flow with Dispatch cannot be used as a Subflow"
-      refute_received :inline_decision_started
-      refute_received :inline_expander_started
+      refute_received :dispatch_decision_started
+      refute_received :dispatch_expander_started
     end
 
     test "only the final Action owns extras after an inline Flow continuation" do

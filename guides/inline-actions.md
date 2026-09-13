@@ -1,18 +1,19 @@
 # Inline Actions
 
-An inline Action keeps small, local work inside the Flow that owns it. Its body
-is normal Elixir code, but it compiles to an ordinary `Jido.Action`.
+An inline Action keeps a small operation in the Flow Step that owns it. Its
+body is normal Elixir code, but it compiles to an ordinary `Jido.Action`.
 
-Inline Actions use normal input validation, output validation, errors,
-telemetry, timeout, cancellation, and concurrency behavior. They do not store
-code in a Flow and they do not create runtime function targets.
+Flow supports inline Actions only for Step. Map, Reduce, Choice targets,
+Iterate, and Dispatch use Action modules. This keeps advanced Flow blocks
+declarative.
 
-Use a named Action module when the work needs independent reuse, lifecycle
-hooks, a public module API, or a separate deployment boundary.
+The separate `Jido.Action.Inline` API remains available to downstream packages
+that want inline Actions in their own compile-time DSLs. See
+[Building DSLs With Inline Actions](building-dsls-with-inline-actions.md).
 
 ## Write An Inline Step
 
-The short Step form binds Flow data before it runs the body:
+Bind Flow data in the Step header and write the Action body directly:
 
 ```elixir
 defmodule MyApp.Flows.Greeting do
@@ -36,45 +37,55 @@ The binding expression is Flow data. The body is normal Elixir. The body can
 call functions, use pipes, match values, and call private functions in the
 owner module.
 
-The short Step form accepts only Step options such as `needs:` and `meta:`.
-Use a nested `action` block for Action schemas, descriptions, or context.
+## Configure An Inline Step
 
-## Configure An Inline Action
-
-The nested form separates component fields from Action fields:
+Use `inline:` for Action settings. Keep Step fields such as `needs:` and
+`meta:` at the Step level:
 
 ```elixir
-step "greet", needs: ["normalize"], meta: %{kind: "message"} do
-  action name <- result("normalize", :name),
+step "greet", name <- result("normalize", :name),
+  needs: ["normalize"],
+  meta: %{kind: "message"},
+  inline: [
     name: "build_greeting",
     description: "Build a greeting",
     schema: Zoi.object(%{name: Zoi.string()}),
     output_schema: Zoi.object(%{message: Zoi.string()}),
-    context: ctx do
-    {:ok, %{message: ctx.prefix <> ", " <> name}}
-  end
+    context: ctx
+  ] do
+  {:ok, %{message: ctx.prefix <> ", " <> name}}
 end
 ```
 
-Inline Action options are:
+The valid `inline:` settings are:
 
 - `name`
 - `description`
 - `schema`
 - `output_schema`
 - `context`
-- the required `do` body
 
-Omitted schemas are `[]`. Bindings do not infer fields, types, or defaults.
-Schemas validate the resolved parameter map before the body runs.
+All settings are optional. Omitted schemas are `[]`. Bindings do not infer
+fields, types, or defaults.
 
 `context: ctx` binds the second Action callback argument. It does not add a
 parameter. Bind `ctx <- context()` only when context must become part of the
 Action parameter map.
 
+Do not add `action:` or `params:` to an inline Step. A named Action Step uses
+those fields and has no inline body:
+
+```elixir
+step "greet",
+  action: MyApp.Actions.Greet,
+  params: %{name: result("normalize", :name)},
+  needs: ["normalize"],
+  meta: %{kind: "message"}
+```
+
 ## Bind Inputs
 
-Bound inline Actions resolve direct Flow references or data into an atom-keyed
+Bound inline Steps resolve direct Flow references or data into an atom-keyed
 parameter map:
 
 | Header | Parameters passed to the Action |
@@ -87,136 +98,94 @@ parameter map:
 Examples:
 
 ```elixir
-action value <- input(:value) do
+step "double", value <- input(:value) do
   {:ok, %{value: value * 2}}
 end
 
-action [left <- input(:left), right <- input(:right)] do
+step "add", [left <- input(:left), right <- input(:right)] do
   {:ok, %{total: left + right}}
 end
 
-action %{name: name} <- input(:person) do
+step "normalize", %{name: name} <- input(:person) do
   {:ok, %{name: String.trim(name)}}
 end
+
+step "ready", [] do
+  {:ok, %{ready: true}}
+end
 ```
 
-Do not mix a map binding with named bindings. A map binding must be the only
+Use one binding argument. Two or more named bindings require a list. Do not
+mix a map binding with named bindings. A map binding must be the only
 binding. Pins, header guards, top-level struct patterns, duplicate names, and
-bare `_` bindings are not supported. Flow operations are also not supported in
+bare `_` bindings are not supported. Flow operations are not supported in
 binding sources. Bind the required data and put calculations in the body.
 
-## Match Several Clauses
+## Match Values Inside The Body
 
-Use clause heads when one inline Action must match several input shapes:
+Use an ordinary `case` expression when a Step must select between input values:
 
 ```elixir
-step "divide" do
-  action operand <- input(:operand),
-    schema: Zoi.object(%{operand: Zoi.number()}), context: ctx do
-    %{operand: 0} ->
-      {:error, Jido.Action.Error.validation_error("Cannot divide by zero")}
-
-    %{operand: operand} ->
-      {:ok, %{value: ctx.total / operand}}
+step "divide", operand <- input(:operand),
+  inline: [schema: Zoi.object(%{operand: Zoi.number()})] do
+  case operand do
+    0 -> {:error, Jido.Action.Error.validation_error("Cannot divide by zero")}
+    operand -> {:ok, %{value: 100 / operand}}
   end
 end
 ```
 
-All clauses belong to one Action identity and use one schema. Clause heads can
-use guards, `_`, a named variable, or a map pattern. Do not mix clause heads
-with a separate expression body.
+Flow does not accept top-level clause bodies. Nested `case`, `fn`, and other
+normal Elixir expressions remain available. Downstream DSLs can still use
+clause bodies through the separate `Jido.Action.Inline` host API.
 
-## Use Inline Actions In Components
+## Use Action Modules In Advanced Components
 
-The nested `action` form works in Step, Map, Reduce, Iterate, Choice options,
-and Choice fallback blocks.
+Advanced components use Action modules and canonical parameter
+expressions:
 
 ```elixir
-flow do
-  map "doubled" do
-    collection input(:values)
+map "doubled" do
+  collection input(:values)
+  action MyApp.Actions.DoubleValue
+  params %{value: item()}
+end
 
-    action value <- item() do
-      {:ok, %{value: value * 2}}
-    end
-  end
-
-  reduce "total" do
-    collection result("doubled")
-    initial %{total: 0}
-
-    action [total <- accumulator(:total), value <- item(:value)] do
-      {:ok, %{total: total + value}}
-    end
-  end
-
-  choice "label" do
-    option "positive" do
-      condition result("total", :total) > 0
-
-      action [] do
-        {:ok, %{label: :positive}}
-      end
-    end
-
-    otherwise do
-      action [] do
-        {:ok, %{label: :empty}}
-      end
-    end
-  end
-
-  iterate "counter" do
-    state Zoi.object(%{count: Zoi.integer()}), initial: %{count: 0}
-
-    action count <- state(:count) do
-      {:ok, %{count: count + 1}}
-    end
-
-    repeat 2
-  end
-
-  output %{
-    total: result("total", :total),
-    label: result("label", :label),
-    count: result("counter", [:state, :count])
-  }
+reduce "total" do
+  collection result("doubled")
+  initial %{total: 0}
+  action MyApp.Actions.AddValue
+  params %{total: accumulator(:total), value: item(:value)}
 end
 ```
 
-Map preserves source order. Reduce and Iterate run serially. Each binding
-source uses the reference scope of the component that owns it.
+Choice options, Choice fallback, Iterate, and Dispatch follow the same rule.
+Their target fields accept Action modules only.
 
-Do not combine an inline block with an explicit `action` or `params` field for
-the same component slot.
+An Action module can be handwritten or generated by another compile-time DSL.
+The restriction applies to inline body declarations inside Flow components,
+not to how a valid Action module was created.
 
-## Use Inline Actions In Dispatch
-
-Dispatch has two inline roles. The decision uses bound mode. The expander uses
-callback mode and receives the complete decision result:
+An advanced component can reuse an Action that was compiled from an inline
+Step after the owner Flow has compiled:
 
 ```elixir
-dispatch "next" do
-  decision value <- input(:value) do
-    {:ok, %{value: value + 1}}
-  end
+action = MyApp.Flows.Greeting.step_action("normalize")
 
-  expander %{value: value}, context: ctx do
-    {:continue, %{value: value, prefix: ctx.prefix}, MyApp.Actions.Finish}
-  end
-end
+Jido.Flow.Builder.new(name: "normalize_names")
+|> Jido.Flow.Builder.map(
+  "names",
+  Jido.Flow.Builder.input(:people),
+  action,
+  %{name: Jido.Flow.Builder.item()}
+)
 ```
 
-The expander can instead return `{:ok, result}` to complete the Flow. It does
-not have an `expander_params` field because its input is always the decision
-result.
-
-See [Dynamic Flows](dynamic-flows.md) for terminal placement,
-continuations, output ownership, and execution limits.
+This is normal Action reuse. It is not an inline Map body.
 
 ## Return Values
 
-An inline Action uses the same return forms as a named Action:
+An inline Step uses the same return forms as a named Action:
 
 ```elixir
 {:ok, result}
@@ -228,13 +197,13 @@ An inline Action uses the same return forms as a named Action:
 A normal success result is a map. Use `Jido.Action.Output` for an intentional
 raw, stream, batch, or opaque value.
 
-Flow components discard Action extras. A root Action or a Dispatch expander
-can return `{:continue, input, target}`. Other Flow positions cannot continue.
+Flow components discard Action extras. A root Action can return
+`{:continue, input, target}`. A Step cannot continue to another target.
 
-## Reuse A Compiled Inline Action
+## Reuse A Compiled Inline Step
 
-An inline body compiles with its owner module. You can reuse the compiled
-Action target without using its generated module name:
+An inline body compiles with its owner module. Reuse its Action target without
+using the generated module name:
 
 ```elixir
 target = MyApp.Flows.Greeting.step_action("normalize")
@@ -243,17 +212,8 @@ target = MyApp.Flows.Greeting.step_action("normalize")
   Jido.Exec.run(target, %{name: " Ada "})
 ```
 
-`step_action/1` works only for Action-backed Steps. Use typed lookup for other
-roles:
-
-```elixir
-target =
-  Jido.Action.Inline.target!(MyApp.Flows.Example,
-    host: Jido.Flow,
-    map: "doubled",
-    role: :action
-  )
-```
+`step_action/1` works for inline and explicit Action-backed Steps. It does not
+work for Subflows or other component types.
 
 The target does not retain the original Flow binding expressions. Supply a new
 parameter map when you run it or place it in a Builder Flow.
@@ -272,6 +232,5 @@ Inline Actions are compile-time code. Direct constructors, Builder, and stored
 JSON cannot accept body code, anonymous functions, or MFAs. Deploy the owner
 module and its generated Action modules together.
 
-Packages that want to add this syntax to another compile-time DSL can use the
-public host API. See
-[Building DSLs With Inline Actions](building-dsls-with-inline-actions.md).
+Use a named Action module when the work needs independent reuse, lifecycle
+hooks, a public module API, or a separate deployment boundary.
