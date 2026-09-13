@@ -117,6 +117,31 @@ The smoke profile runs in CI and checks results, cleanup, graph transfer, and
 bounded copy growth. The suite does not cover distributed callers or a complete
 failure matrix.
 
+## DSL Compilation Probe
+
+The execution suite measures canonical Flow-to-Runic compilation. To measure
+Elixir DSL compilation, first build the package and its test dependencies:
+
+```bash
+ERL_FLAGS='+S 2:2' MIX_ENV=test mix compile --warnings-as-errors
+ERL_FLAGS='+S 2:2' MIX_ENV=test mix run --no-compile \
+  test/bench/dsl_compile_probe.exs test/bench/results/dsl-compile
+```
+
+The probe reuses the isolated inline consumer. It measures cold, changed-file,
+and no-change compilation in fresh VMs. Ordinary Map declarations and the
+inline consumer are separate workloads. Timing excludes VM startup and result
+checks; cold compilation does not clear the OS file cache. Dependencies are
+prebuilt, but consumer compiler startup is included.
+
+Each report contains five samples per case, source and tool hashes, BEAM counts
+and sizes, and checks of canonical data and execution. An optional final number
+sets the sample count. Use `1` only to check the probe itself. Repeat reports on
+an idle host to establish noise before comparing separate baseline and
+candidate builds. This probe does not measure runtime performance.
+
+## Release Probe
+
 For release measurements, use the existing isolated consumer fixture:
 
 ```bash
