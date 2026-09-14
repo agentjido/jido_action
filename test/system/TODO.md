@@ -20,24 +20,24 @@ durable recovery. Keep correctness checks separate from benchmark timing.
 
 ## Open work
 
-- [ ] Compose Subflow, Choice, Map, Reduce, and Iterate in one local scenario.
+- [x] Compose Subflow, Choice, Map, Reduce, and Iterate in one local scenario.
   Check exact leaf work, nested node paths, and deterministic final order.
-- [ ] Hold a parent and child Flow at different barriers. Cancel or time out
+- [x] Hold a parent and child Flow at different barriers. Cancel or time out
   between them. Confirm no child or later parent work starts.
-- [ ] Race cancellation with a released last worker and with `Exec.await/2`.
+- [x] Race cancellation with a released last worker and with `Exec.await/2`.
   Confirm one terminal result and no duplicate telemetry terminal event.
-- [ ] Race the complete-call timeout with a returned Action error. Preserve
+- [x] Race the complete-call timeout with a returned Action error. Preserve
   the winning public error and close each started span once.
-- [ ] Kill one admitted worker while a sibling is held and pending work exists.
+- [x] Kill one admitted worker while a sibling is held and pending work exists.
   Confirm fail-fast admission, exact failure list order, and worker cleanup.
-- [ ] Stop the owner and Task.Supervisor at each composed-Flow phase: initial
+- [x] Stop the owner and Task.Supervisor at each composed-Flow phase: initial
   Step wave, Map fan-out, Map fan-in, and final output. Check exact work and
   no fallback to the global Task.Supervisor.
-- [ ] Check mailbox cleanup after await timeout, cancellation, owner death,
+- [x] Check mailbox cleanup after await timeout, cancellation, owner death,
   and supervisor loss. Use monitor and protocol barriers, not sleep timers.
-- [ ] Check Flow and Action telemetry metadata values and error types at each
+- [x] Check Flow and Action telemetry metadata values and error types at each
   nested boundary, not only span balance and execution ID.
-- [ ] Check peak live workers against `max_concurrency` across nested Flow and
+- [x] Check peak live workers against `max_concurrency` across nested Flow and
   collection work with a controlled shared ledger.
 
 ## Expected rejections
