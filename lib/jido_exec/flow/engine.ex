@@ -168,6 +168,7 @@ defmodule Jido.Exec.Flow.Engine do
 
   defp settle(%Execution{} = execution) do
     {workflow, runnables} = Workflow.prepare_for_dispatch(execution.workflow)
+    runnables = order_map_item_runnables(runnables, execution.compiled)
     execution = %{execution | workflow: workflow, ready: runnables}
 
     cond do
@@ -187,6 +188,56 @@ defmodule Jido.Exec.Flow.Engine do
         finalize(execution)
     end
   end
+
+  # Runic may return Map items in fact-identity order. Keep all other ready
+  # positions, but use input order within each Map so serial fail-fast does not
+  # execute a later item before the failing item.
+  defp order_map_item_runnables(runnables, compiled) do
+    ordered_by_node =
+      runnables
+      |> Enum.reduce(%{}, fn runnable, grouped ->
+        case map_item_key(runnable, compiled) do
+          {:ok, hash, index} ->
+            Map.update(grouped, hash, [{index, runnable}], &[{index, runnable} | &1])
+
+          :other ->
+            grouped
+        end
+      end)
+      |> Map.new(fn {hash, indexed} ->
+        {hash, indexed |> Enum.sort_by(&elem(&1, 0)) |> Enum.map(&elem(&1, 1))}
+      end)
+
+    {ordered, _remaining} =
+      Enum.map_reduce(runnables, ordered_by_node, fn runnable, grouped ->
+        case map_item_key(runnable, compiled) do
+          {:ok, hash, _index} ->
+            [next | rest] = Map.fetch!(grouped, hash)
+            {next, Map.put(grouped, hash, rest)}
+
+          :other ->
+            {runnable, grouped}
+        end
+      end)
+
+    ordered
+  end
+
+  defp map_item_key(
+         %Runnable{
+           node: %{hash: hash},
+           input_fact: %{value: %Payload{value: %{kind: :item, index: index}}}
+         },
+         %Compiled{work_index: work_index}
+       )
+       when is_integer(index) and index >= 0 do
+    case Map.get(work_index, hash) do
+      %{kind: :map, role: :map_item} -> {:ok, hash, index}
+      _other -> :other
+    end
+  end
+
+  defp map_item_key(_runnable, _compiled), do: :other
 
   defp step_at(execution, runnable, position) do
     with {:ok, executed, next} <-

@@ -279,6 +279,7 @@ defmodule JidoActionTest.ActionTest do
     test "rejects invalid action names" do
       assert {:error, "Action name cannot be blank."} = Action.validate_name("")
       assert {:error, "Action name cannot be blank."} = Action.validate_name(" \t\n")
+      assert {:error, "Action name must be valid UTF-8."} = Action.validate_name(<<255>>)
 
       assert {:error, "Action name cannot exceed 256 bytes."} =
                Action.validate_name(String.duplicate("a", 257))

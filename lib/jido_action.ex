@@ -96,6 +96,9 @@ defmodule Jido.Action do
 
   def validate_name(name, _opts) when is_binary(name) do
     cond do
+      not String.valid?(name) ->
+        {:error, "Action name must be valid UTF-8."}
+
       String.trim(name) == "" ->
         {:error, "Action name cannot be blank."}
 

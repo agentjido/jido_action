@@ -21,6 +21,8 @@ defmodule JidoAction.MixProject do
       test_ignore_filters: [
         # This consumer compiles only in the isolated build tests.
         &String.starts_with?(&1, "test/fixtures/inline_consumer/"),
+        # Authoring source is compiled only by the selected authoring suite.
+        &String.starts_with?(&1, "test/authoring/support/"),
         fn path ->
           String.starts_with?(path, "test/bench/") and
             not String.ends_with?(path, "_test.exs")
@@ -66,6 +68,10 @@ defmodule JidoAction.MixProject do
       registered: [Jido.Exec.TaskSupervisor],
       mod: {Jido.Action.Application, []}
     ]
+  end
+
+  def cli do
+    [preferred_envs: ["test.authoring": :test, "test.system": :test, "test.load": :test]]
   end
 
   # Specifies which paths to compile per environment.
@@ -293,6 +299,9 @@ defmodule JidoAction.MixProject do
       # Helper to run tests with trace when needed
       # test: "test --trace --exclude flaky",
       test: "test --exclude flaky",
+      "test.authoring": "test test/authoring --only authoring --seed 0",
+      "test.system": "test test/system --only system --seed 0",
+      "test.load": "test test/load --only load --seed 0",
 
       # Run to check the quality of your code
       q: ["quality"],
