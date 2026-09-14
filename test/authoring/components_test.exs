@@ -111,8 +111,14 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
   end
 
   test "Map fail-fast does not admit an item after a serial item failure" do
-    assert {:error, _error} =
+    assert {:error, error} =
              Exec.run(MapKeyword, %{items: [1, :bad, 3]}, %{observer: self()}, max_concurrency: 1)
+
+    assert %{
+             type: :execution_error,
+             message: "bad map item",
+             details: %{node_path: ["items"], item_index: 1}
+           } = Jido.Flow.Error.to_map(error)
 
     assert_receive {:map_item, 1}
     assert_receive {:map_item, :bad}

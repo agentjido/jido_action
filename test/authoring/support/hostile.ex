@@ -21,6 +21,8 @@ end
 defmodule JidoActionTest.Authoring.Hostile.ChoiceNonBoolean do
   use Jido.Flow, name: "authoring_non_boolean_choice"
 
+  alias JidoActionTest.Authoring.Hostile.Watch
+
   flow do
     choice "route" do
       option "selected",
@@ -28,10 +30,7 @@ defmodule JidoActionTest.Authoring.Hostile.ChoiceNonBoolean do
         action: JidoActionTest.Authoring.Hostile.Watch,
         params: %{branch: :selected}
 
-      otherwise(
-        action: JidoActionTest.Authoring.Hostile.Watch,
-        params: %{branch: :fallback}
-      )
+      otherwise action: Watch, params: %{branch: :fallback}
     end
 
     output result("route")
@@ -67,5 +66,153 @@ defmodule JidoActionTest.Authoring.Hostile.IterateReplacement do
     end
 
     output %{counter: result("counter")}
+  end
+end
+
+defmodule JidoActionTest.Authoring.Hostile.IterateCondition do
+  use Jido.Flow, name: "authoring_bad_iterate_condition"
+
+  flow do
+    iterate "counter" do
+      state Zoi.object(%{count: Zoi.integer()}), initial: %{count: 0}
+      action JidoActionTest.Authoring.Hostile.Watch
+      params %{count: state(:count)}
+      update %{count: body_result(:count)}
+      while input(:condition)
+      max_iterations 2
+    end
+
+    output %{counter: result("counter")}
+  end
+end
+
+defmodule JidoActionTest.Authoring.Hostile.ReduceInitial do
+  use Jido.Flow, name: "authoring_reduce_initial"
+
+  flow do
+    reduce "fold" do
+      collection input(:items)
+      initial input(:initial)
+      action JidoActionTest.Authoring.Components.Fold
+      params %{acc: accumulator(:value), item: item()}
+    end
+
+    output result("fold")
+  end
+end
+
+defmodule JidoActionTest.Authoring.Hostile.Diamond do
+  use Jido.Flow, name: "authoring_diamond"
+
+  flow do
+    step "sink",
+      action: JidoActionTest.Authoring.Hostile.Watch,
+      needs: ["left"],
+      params: %{id: "sink", value: result("right", :value)}
+
+    step "left",
+      action: JidoActionTest.Authoring.Hostile.Watch,
+      needs: ["root"],
+      params: %{id: "left", value: input(:value)}
+
+    step "right",
+      action: JidoActionTest.Authoring.Hostile.Watch,
+      params: %{id: "right", value: result("root", :value)}
+
+    step "root",
+      action: JidoActionTest.Authoring.Hostile.Watch,
+      params: %{id: "root", value: input(:value)}
+
+    output %{value: result("sink", :value)}
+  end
+end
+
+defmodule JidoActionTest.Authoring.Hostile.Continues do
+  use Jido.Action, name: "authoring_illegal_continuation"
+
+  @impl true
+  def run(params, context) do
+    if observer = context[:observer], do: send(observer, :attempted_continuation)
+    {:continue, params, JidoActionTest.Authoring.Hostile.Watch}
+  end
+end
+
+defmodule JidoActionTest.Authoring.Hostile.Loop do
+  use Jido.Action, name: "authoring_continuation_loop"
+
+  @impl true
+  def run(params, context) do
+    if observer = context[:observer], do: send(observer, {:loop_started, params.value})
+    {:continue, params, __MODULE__}
+  end
+end
+
+defmodule JidoActionTest.Authoring.Hostile.ValidatedFinal do
+  use Jido.Action,
+    name: "authoring_validated_final",
+    output_schema: Zoi.object(%{value: Zoi.integer(), label: Zoi.string()})
+
+  @impl true
+  def run(%{value: value}, context), do: {:ok, %{value: value, label: context.label}}
+end
+
+defmodule JidoActionTest.Authoring.Hostile.ValidatedFinalFlow do
+  use Jido.Flow,
+    name: "authoring_validated_final_flow",
+    output_schema: Zoi.object(%{value: Zoi.integer(), label: Zoi.string()})
+
+  flow do
+    step "final",
+      action: JidoActionTest.Authoring.Hostile.Watch,
+      params: %{value: input(:value), label: context(:label)}
+
+    output result("final")
+  end
+end
+
+defmodule JidoActionTest.Authoring.Hostile.SchemaProbe do
+  use Jido.Action,
+    name: "authoring_schema_probe",
+    schema: Zoi.object(%{value: Zoi.integer()}),
+    output_schema: Zoi.object(%{value: Zoi.integer()})
+
+  @impl true
+  def run(%{value: value}, context) do
+    if observer = context[:observer], do: send(observer, :schema_first_called)
+
+    if context[:bad_action_output],
+      do: {:ok, %{value: "bad"}},
+      else: {:ok, %{value: value}}
+  end
+end
+
+defmodule JidoActionTest.Authoring.Hostile.SchemaPipeline do
+  use Jido.Flow,
+    name: "authoring_schema_pipeline",
+    schema:
+      Zoi.object(%{
+        flag: Zoi.boolean() |> Zoi.default(true),
+        value: Zoi.any() |> Zoi.default(1),
+        child: Zoi.any() |> Zoi.default(2),
+        root_output: Zoi.any() |> Zoi.default(3)
+      }),
+    output_schema: Zoi.object(%{value: Zoi.integer()})
+
+  flow do
+    step "first",
+      action: JidoActionTest.Authoring.Hostile.SchemaProbe,
+      params: %{value: input(:value)}
+
+    step "child",
+      action: JidoActionTest.Authoring.Components.Child,
+      params: %{value: input(:child)},
+      needs: ["first"]
+
+    step "after",
+      action: JidoActionTest.Authoring.Hostile.Watch,
+      params: %{phase: "after", value: input(:root_output)},
+      needs: ["child"]
+
+    output %{value: result("after", :value)}
   end
 end

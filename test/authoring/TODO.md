@@ -66,7 +66,7 @@ test per component. Then add the named edge cases as source-level examples.
 - [x] Empty input returns an empty, map-shaped output and calls no item Action.
 - [x] Repeated values and concurrent item completion retain input order. Check
   `item()`, `item_index()`, and `item_id()` with exact item identities.
-- [ ] Compare `:fail_fast` with `:collect_errors` on one bad item. Check which
+- [x] Compare `:fail_fast` with `:collect_errors` on one bad item. Check which
   work starts, tagged result order, and the public error map.
 - [x] Reject a Flow module or an out-of-scope reference in the Map Action slot
   or parameter map before work starts.
@@ -79,7 +79,7 @@ test per component. Then add the named edge cases as source-level examples.
   repeated items. Check `item()` and `accumulator()` values at each call.
 - [x] A body failure stops the fold with the authored Reduce path. No later
   item runs.
-- [ ] Reject invalid initial data, an invalid accumulator reference, and a
+- [x] Reject invalid initial data, an invalid accumulator reference, and a
   Flow module in the Action slot at the correct boundary.
 
 ### Iterate
@@ -94,7 +94,7 @@ test per component. Then add the named edge cases as source-level examples.
   correct phase and component path.
 - [x] At the limit, fail without one extra body call. Also test a body error
   before the limit.
-- [ ] Reject a missing bound for `while`, an invalid completion expression,
+- [x] Reject a missing bound for `while`, an invalid completion expression,
   and a Flow module in the body Action slot.
 
 ### Subflow and Choice
@@ -108,19 +108,19 @@ test per component. Then add the named edge cases as source-level examples.
   conditions, and fallback with one data-driven case table.
 - [x] Show that a result reference in an unselected Choice branch is still a
   static dependency. A selected Action failure must not run fallback.
-- [ ] Reject a missing fallback, a Flow target in an Action-only slot, and a
+- [x] Reject a missing fallback, a Flow target in an Action-only slot, and a
   non-Boolean direct condition before target work.
 
 ### Dispatch and continuation
 
 - [x] Compare terminal Dispatch data through DSL, direct, Builder, and JSON.
   Its decision and expander targets are Actions.
-- [ ] Test a normal expander result and continuation to an Action and to a
+- [x] Test a normal expander result and continuation to an Action and to a
   Flow. Check shared context and which target owns final output validation.
-- [ ] Confirm that the decision and ordinary Steps cannot continue. Reject a
+- [x] Confirm that the decision and ordinary Steps cannot continue. Reject a
   second Dispatch, a non-terminal Dispatch, and an output other than its
   complete result.
-- [ ] Reject step-wise execution and use as a Subflow before Action work. Test
+- [x] Reject step-wise execution and use as a Subflow before Action work. Test
   a bounded continuation chain and its limit.
 
 ## P1: authoring boundaries that combine features
@@ -129,14 +129,14 @@ test per component. Then add the named edge cases as source-level examples.
 
 - [x] Cover no-input, one named binding, many named bindings, a sole map
   pattern, and a context binding in complete source Flows.
-- [ ] Compare a compiled inline Step with its `step_action/1` target reused by
+- [x] Compare a compiled inline Step with its `step_action/1` target reused by
   Builder and direct construction. The new Step must supply its own params,
   needs, and metadata.
-- [ ] Store and restore an inline Step with a host-owned Action identifier.
+- [x] Store and restore an inline Step with a host-owned Action identifier.
   Unknown step names must not create modules or atoms.
-- [ ] Exercise one `Jido.Flow.Extension` macro that expands to ordinary Flow
+- [x] Exercise one `Jido.Flow.Extension` macro that expands to ordinary Flow
   declarations. Check source errors and canonical data after expansion.
-- [ ] Reject invalid inline bindings, duplicate generated names, and a body
+- [x] Reject invalid inline bindings, duplicate generated names, and a body
   with an unavailable helper at the source line. Check that recompiling an
   inline body does not turn stored graph data into a code snapshot.
 
@@ -147,20 +147,20 @@ test per component. Then add the named edge cases as source-level examples.
   bytes for one representative expression Flow.
 - [x] Check missing key versus present `nil` or `false`, atom versus string
   keys, list index zero, and a missing list index in one authored program.
-- [ ] Reject a reference outside its component scope, a malformed path, an
+- [x] Reject a reference outside its component scope, a malformed path, an
   unknown operation, and unsafe expression syntax before Action work.
-- [ ] Check that only references and `needs` create dependencies. Source order
+- [x] Check that only references and `needs` create dependencies. Source order
   and map enumeration must not. Include a diamond graph and one needs-only
   edge that does not pass data.
-- [ ] Reject duplicate names across different component kinds, self-cycles,
+- [x] Reject duplicate names across different component kinds, self-cycles,
   longer cycles, missing output references, and duplicate DSL fields. Check
   the first public error and the DSL source line.
-- [ ] Check explicit output as the final DSL declaration. Reject absent and
+- [x] Check explicit output as the final DSL declaration. Reject absent and
   `nil` output. Do not infer output from a terminal node or source order.
 
 ### Schemas, output, and inspection
 
-- [ ] Check Flow input defaults, Action input validation, child input schema,
+- [x] Check Flow input defaults, Action input validation, child input schema,
   Action output schema, and root Flow output schema in one composed example.
   Each failure must stop before later work.
 - [x] Check map-shaped normal output and intentional `Jido.Action.Output`

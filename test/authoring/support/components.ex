@@ -234,6 +234,8 @@ end
 defmodule JidoActionTest.Authoring.Components.ChoiceFlow do
   use Jido.Flow, name: "authoring_choice"
 
+  alias JidoActionTest.Authoring.Components.Echo
+
   flow do
     choice "route" do
       option "urgent",
@@ -246,10 +248,7 @@ defmodule JidoActionTest.Authoring.Components.ChoiceFlow do
         action: JidoActionTest.Authoring.Components.Echo,
         params: %{route: :priority}
 
-      otherwise(
-        action: JidoActionTest.Authoring.Components.Echo,
-        params: %{route: :standard}
-      )
+      otherwise action: Echo, params: %{route: :standard}
     end
 
     output result("route")

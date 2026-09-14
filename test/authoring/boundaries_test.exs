@@ -21,14 +21,25 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
       Flow.new!(
         name: "reused_inline",
         components: [
-          Step.new!(name: "reused", action: action, params: %{value: Ref.input(:value)})
+          Step.new!(
+            name: "reused",
+            action: action,
+            params: %{value: Ref.input(:value)},
+            needs: ["gate"],
+            meta: %{"purpose" => "reused inline action"}
+          ),
+          Step.new!(name: "gate", action: Echo, params: %{})
         ],
         output: output
       )
 
     builder =
       Builder.new(name: "reused_inline")
-      |> Builder.step("reused", action, %{value: Builder.input(:value)})
+      |> Builder.step("reused", action, %{value: Builder.input(:value)},
+        needs: ["gate"],
+        meta: %{"purpose" => "reused inline action"}
+      )
+      |> Builder.step("gate", Echo, %{})
       |> Builder.output(output)
 
     assert {:ok, built} = Builder.build(builder)
@@ -42,6 +53,7 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
     registry =
       Registry.new!(%{
         "actions/inline-ctx/v1" => {:action, action},
+        "actions/echo/v1" => {:action, Echo},
         "schemas/none/v1" => {:schema, []},
         "atoms/value" => {:atom, :value}
       })
@@ -49,7 +61,10 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
     assert {:ok, document} = Codec.encode(direct, registry)
     assert {:ok, ^direct} = Codec.decode(JSON.decode!(JSON.encode!(document)), registry)
     assert get_in(document, ["components", Access.at(0), "action"]) == "actions/inline-ctx/v1"
-    assert_raise ArgumentError, fn -> Boundaries.Inline.step_action("missing") end
+    unknown = "missing_#{System.unique_integer([:positive])}"
+    assert_raise ArgumentError, fn -> String.to_existing_atom(unknown) end
+    assert_raise ArgumentError, fn -> Boundaries.Inline.step_action(unknown) end
+    assert_raise ArgumentError, fn -> String.to_existing_atom(unknown) end
   end
 
   test "nested operations agree across source, direct, Builder, and version 2 JSON" do

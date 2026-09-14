@@ -69,6 +69,8 @@ end
 defmodule JidoActionTest.Authoring.FlowEdges.Routing do
   use Jido.Flow, name: "authoring_routing"
 
+  alias JidoActionTest.Authoring.FlowEdges.Route, as: R
+
   flow do
     step "unused_route_data",
       action: JidoActionTest.Authoring.FlowEdges.Record,
@@ -90,10 +92,7 @@ defmodule JidoActionTest.Authoring.FlowEdges.Routing do
         action: JidoActionTest.Authoring.FlowEdges.FailRoute,
         params: %{}
 
-      otherwise(
-        action: JidoActionTest.Authoring.FlowEdges.Route,
-        params: %{route: :standard, value: result("unused_route_data", :value)}
-      )
+      otherwise action: R, params: %{route: :standard, value: result("unused_route_data", :value)}
     end
 
     output result("route")

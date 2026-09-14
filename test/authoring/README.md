@@ -17,7 +17,7 @@ cycles, source error locations, and an untrusted stored Action identifier.
 
 `mix test.authoring` includes enabled regression tests for `AUTHOR-MAP-01`
 (serial Map fail-fast) and `AUTHOR-CODEC-02` (invalid UTF-8 Flow names). Both
-tests pass. `TODO.md` records the remaining authoring cases.
+tests pass. `TODO.md` records the authoring case list.
 
-Use `TODO.md` for the remaining authoring cases. Keep each example small and
+The cases in `TODO.md` are complete. Keep each example small and
 observable through public APIs. Do not repeat the full unit-test matrix here.
