@@ -11,6 +11,7 @@ defmodule Jido.Exec.Flow.Engine do
   alias Jido.Flow.{Compiled, Compiler, Error}
   alias Jido.Flow.Compiler.Payload
   alias Runic.Workflow
+  alias Runic.Workflow.FanIn
   alias Runic.Workflow.IdentityConflictError
   alias Runic.Workflow.Runnable
 
@@ -281,7 +282,30 @@ defmodule Jido.Exec.Flow.Engine do
        when not is_nil(error),
        do: execution
 
+  defp apply_runnable(
+         %Execution{workflow: workflow} = execution,
+         %Runnable{
+           status: :completed,
+           node: %FanIn{hash: fan_in_hash},
+           context: %{
+             fan_in_context: %{mode: :fan_out_reduce, source_fact_hash: source_fact_hash}
+           }
+         } = runnable
+       ) do
+    if Map.get(workflow.mapped, {:fan_in_completed, source_fact_hash, fan_in_hash}, false) do
+      # The first FanIn result consumed every sister activation. Later results
+      # from this prepared wave no longer have graph work to apply.
+      %{execution | ready: []}
+    else
+      apply_active_runnable(execution, runnable)
+    end
+  end
+
   defp apply_runnable(execution, %Runnable{} = runnable) do
+    apply_active_runnable(execution, runnable)
+  end
+
+  defp apply_active_runnable(execution, %Runnable{} = runnable) do
     workflow = apply_runic_runnable(execution.workflow, runnable)
 
     errors =

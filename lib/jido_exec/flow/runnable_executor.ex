@@ -5,6 +5,7 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
   alias Jido.Exec.Telemetry
   alias Jido.Flow.Error
   alias Runic.Workflow
+  alias Runic.Workflow.FanIn
   alias Runic.Workflow.Runnable
 
   @doc "Executes one native Runnable and records its node telemetry."
@@ -17,24 +18,61 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
     span = start_span(metadata)
     executed = safely_execute(runnable)
     finish_span(span, executed)
-    executed
+    compact_coordination_context(executed)
   end
+
+  # Runic prepares every FanIn item with a copy of the whole sibling set.
+  # The apply phase reads only these keys, so do not send the sibling set back
+  # from every worker in a large Map wave.
+  defp compact_coordination_context(
+         %Runnable{
+           node: %FanIn{},
+           context: %{fan_in_context: %{mode: :fan_out_reduce} = fan_in_context} = context
+         } = runnable
+       ) do
+    needed = Map.take(fan_in_context, [:mode, :source_fact_hash, :expected_key, :seen_key])
+    %{runnable | context: %{context | fan_in_context: needed}}
+  end
+
+  defp compact_coordination_context(runnable), do: runnable
 
   @doc "Executes native Runnables and returns the admitted input prefix in source order."
   @spec execute_many(Execution.t(), [Runnable.t()]) :: [Runnable.t()]
   def execute_many(%Execution{} = execution, runnables) when is_list(runnables) do
-    if Keyword.fetch!(execution.options, :max_concurrency) > 1 and length(runnables) > 1 do
-      execute_concurrently(execution, runnables)
+    if coordination_only?(runnables) do
+      execute_serially(execution, runnables)
     else
-      runnables
-      |> Enum.reduce_while([], fn runnable, completed ->
-        executed = execute(execution, runnable)
-        completed = [executed | completed]
-
-        if executed.status == :failed, do: {:halt, completed}, else: {:cont, completed}
-      end)
-      |> Enum.reverse()
+      if Keyword.fetch!(execution.options, :max_concurrency) > 1 and length(runnables) > 1 do
+        execute_concurrently(execution, runnables)
+      else
+        execute_serially(execution, runnables)
+      end
     end
+  end
+
+  # FanIn coordination does not run an Action. Its prepared context can carry
+  # the full sibling set. Keep it in one process instead of copying it to a
+  # separate Task for every item in a large Map.
+  defp coordination_only?(runnables) do
+    runnables != [] and
+      Enum.all?(runnables, fn
+        %Runnable{node: %FanIn{}, context: %{fan_in_context: %{mode: :fan_out_reduce}}} ->
+          true
+
+        _ ->
+          false
+      end)
+  end
+
+  defp execute_serially(execution, runnables) do
+    runnables
+    |> Enum.reduce_while([], fn runnable, completed ->
+      executed = execute(execution, runnable)
+      completed = [executed | completed]
+
+      if executed.status == :failed, do: {:halt, completed}, else: {:cont, completed}
+    end)
+    |> Enum.reverse()
   end
 
   defp execute_concurrently(execution, runnables) do
