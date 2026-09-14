@@ -3,8 +3,9 @@
 Run `mix test.load` from `jido_action`. Use
 `JIDO_ACTION_LOAD_SEED=<positive integer> mix test.load` to replay a seed.
 Run `sh test/load/burn_in.sh <runs>` for fresh BEAM runs. These are bounded
-correctness and resource tests, not throughput benchmarks. Keep timing
-comparisons in `test/bench`.
+correctness and resource tests, not throughput benchmarks. Keep routine
+benchmarks in `test/bench`; the separate opt-in throughput stress runner is
+under `test/load`.
 
 ## Current coverage
 
@@ -20,24 +21,24 @@ comparisons in `test/bench`.
 
 ## Open work
 
-- [ ] Add a deeper serial Flow that exceeds one scheduler wave. Check final
+- [x] Add a deeper serial Flow that exceeds one scheduler wave. Check final
   value, each node's one-time execution, and bounded retained resources.
-- [ ] Add a wider diamond graph with many shared prerequisites and readers.
+- [x] Add a wider diamond graph with many shared prerequisites and readers.
   Check that each producer runs once, independent of map enumeration.
-- [ ] Grow Map inputs through bounded sizes such as 40, 200, and 1,000. Check
+- [x] Grow Map inputs through bounded sizes such as 40, 200, and 1,000. Check
   exact item IDs, output order, and max-concurrency adherence.
-- [ ] Mix sync, async, step-wise, timeout, cancellation, and faulted calls in
+- [x] Mix sync, async, step-wise, timeout, cancellation, and faulted calls in
   one seeded sequence. Confirm exact starts, completions, and terminal errors.
-- [ ] Add bounded concurrent callers with separate execution IDs and one
+- [x] Add bounded concurrent callers with separate execution IDs and one
   shared Task.Supervisor. Check cross-call isolation and global child cleanup.
-- [ ] After each load phase reaches quiescence, compare owned process count,
+- [x] After each load phase reaches quiescence, compare owned process count,
   Task.Supervisor children, mailbox length, and telemetry handler count with
   the baseline. Use a bounded, non-timing-based growth limit.
-- [ ] Add a seeded reduction case for any failure: print the smallest case
+- [x] Add a seeded reduction case for any failure: print the smallest case
   index, input size, execution mode, and seed. Replay it in one fresh BEAM.
-- [ ] Run a documented longer fresh-BEAM burn-in matrix across the supported
-  Elixir/OTP versions in CI or release validation; do not rely on one VM's
-  accumulated state.
+- [x] Provide a documented longer fresh-BEAM burn-in matrix for release
+  validation across compatible Elixir/OTP versions; do not rely on one VM's
+  accumulated state. Run the script on each listed runtime pair before release.
 
 ## Expected rejections
 
@@ -51,4 +52,8 @@ No persistent resource leak is confirmed. An immediate supervisor-child check
 after a completed call saw a child that was still exiting. The test now waits
 for monitored worker and handle exits before it claims quiescence; three
 fresh-BEAM seed runs passed after that barrier. The separate authoring
-`AUTHOR-MAP-01` fail-fast regression now passes.
+`AUTHOR-MAP-01` fail-fast regression now passes. The 1,000-item Map test found
+that every Runic FanIn result carried the full sibling set. Jido now keeps
+FanIn coordination in the caller, removes unused sibling data from results,
+and skips graph updates after the first result consumes all sisters. The test
+checks the same output and worker bound after this change.

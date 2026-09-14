@@ -26,6 +26,10 @@ defmodule JidoAction.MixProject do
         fn path ->
           String.starts_with?(path, "test/bench/") and
             not String.ends_with?(path, "_test.exs")
+        end,
+        fn path ->
+          String.starts_with?(path, "test/load/") and
+            not String.ends_with?(path, "_test.exs")
         end
       ],
 

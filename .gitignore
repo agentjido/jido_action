@@ -43,3 +43,4 @@ jido_action-*.tar
 
 # Machine-specific benchmark output.
 /test/bench/results/
+/test/load/results/
