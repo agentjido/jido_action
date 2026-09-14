@@ -294,7 +294,8 @@ defmodule JidoAction.MixProject do
       {:mix_audit, "~> 2.0", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       {:doctor, "~> 0.23.0", only: :dev, runtime: false},
-      {:mix_test_watch, "~> 1.0", only: [:dev, :test], runtime: false}
+      {:mix_test_watch, "~> 1.0", only: [:dev, :test], runtime: false},
+      {:stream_data, "~> 1.4", only: :test, runtime: false}
     ]
   end
 

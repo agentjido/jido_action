@@ -15,6 +15,12 @@ through the module DSL, direct constructors, Builder, stored JSON, and full and
 step-wise execution. It also checks duplicate names, unknown dependencies,
 cycles, source error locations, and an untrusted stored Action identifier.
 
+The generated-graph properties build small DAGs with two value inputs per
+Step and independent `needs` edges. They compare direct, Builder, and stored
+JSON forms with a simple arithmetic model, exact Action calls, and dependency
+order. They also mutate graphs to test duplicate names, unknown dependencies,
+and cycles. StreamData reports a reduced graph and ExUnit seed on failure.
+
 `mix test.authoring` includes enabled regression tests for `AUTHOR-MAP-01`
 (serial Map fail-fast) and `AUTHOR-CODEC-02` (invalid UTF-8 Flow names). Both
 tests pass. `TODO.md` records the authoring case list.
