@@ -33,22 +33,33 @@ defmodule Jido.Exec.Async do
     group_leader = Process.group_leader()
     logger_metadata = Logger.metadata()
 
+    # A supervised child can finish before start_child/2 returns. Do not run
+    # user work until the owner has installed its monitor.
     work = fn ->
-      Process.group_leader(self(), group_leader)
-      Logger.metadata(logger_metadata)
+      case await_monitor(owner, ref) do
+        :ready ->
+          Process.group_leader(self(), group_leader)
+          Logger.metadata(logger_metadata)
 
-      result = Exec.run_controlled(executable, input, context, opts, ref, owner)
-      send(owner, {:jido_exec_async_result, ref, self(), result})
-      result
+          result = Exec.run_controlled(executable, input, context, opts, ref, owner)
+          send(owner, {:jido_exec_async_result, ref, self(), result})
+          result
+
+        :owner_down ->
+          :ok
+      end
     end
 
     case Runtime.start_child(task_supervisor, work) do
       {:ok, pid} ->
+        monitor_ref = Process.monitor(pid)
+        send(pid, {__MODULE__, ref, :ready})
+
         %{
           ref: ref,
           pid: pid,
           owner: owner,
-          monitor_ref: Process.monitor(pid),
+          monitor_ref: monitor_ref,
           state: state
         }
 
@@ -58,6 +69,19 @@ defmodule Jido.Exec.Async do
                 task_supervisor: task_supervisor,
                 retry: false
               })
+    end
+  end
+
+  defp await_monitor(owner, ref) do
+    owner_monitor = Process.monitor(owner)
+
+    receive do
+      {__MODULE__, ^ref, :ready} ->
+        Process.demonitor(owner_monitor, [:flush])
+        :ready
+
+      {:DOWN, ^owner_monitor, :process, ^owner, _reason} ->
+        :owner_down
     end
   end
 

@@ -22,6 +22,13 @@ defmodule JidoActionTest.Exec.AsyncExecutionTest do
     end
   end
 
+  defmodule InvalidOutputAction do
+    use Jido.Action, name: "async_invalid_output_action"
+
+    @impl Jido.Action
+    def run(_params, _context), do: {:ok, 42, nil}
+  end
+
   test "returns an owner-bound handle and preserves Action results" do
     handle = Exec.run_async(Add, %{value: 2})
 
@@ -53,6 +60,32 @@ defmodule JidoActionTest.Exec.AsyncExecutionTest do
 
     infinite_handle = Exec.run_async(Add, %{value: 4})
     assert {:ok, %{value: 5}} = Exec.await(infinite_handle, :infinity)
+  end
+
+  test "fast async results keep their exit reason and result after the worker exits" do
+    for value <- 1..100 do
+      handle = Exec.run_async(Add, %{value: value})
+      %{pid: pid, monitor_ref: monitor_ref} = handle
+
+      assert_receive {:DOWN, ^monitor_ref, :process, ^pid, :normal}, 1_000
+      assert {:ok, %{value: result}} = Exec.await(handle, 1_000)
+      assert result == value + 1
+    end
+
+    for _ <- 1..100 do
+      handle = Exec.run_async(ErrorAction, %{error_type: :validation})
+      %{pid: pid, monitor_ref: monitor_ref} = handle
+
+      assert_receive {:DOWN, ^monitor_ref, :process, ^pid, :normal}, 1_000
+      assert {:error, %Jido.Action.Error.ExecutionFailureError{}} = Exec.await(handle, 1_000)
+    end
+
+    for _ <- 1..100 do
+      handle = Exec.run_async(InvalidOutputAction)
+
+      assert {:error, %Jido.Action.Error.ExecutionFailureError{}, nil} =
+               Exec.await(handle, 1_000)
+    end
   end
 
   test "routes asynchronous Action IO through the owner group leader" do
