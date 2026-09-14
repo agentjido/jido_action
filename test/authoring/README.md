@@ -23,7 +23,7 @@ and cycles. StreamData reports a reduced graph and ExUnit seed on failure.
 
 `mix test.authoring` includes enabled regression tests for `AUTHOR-MAP-01`
 (serial Map fail-fast) and `AUTHOR-CODEC-02` (invalid UTF-8 Flow names). Both
-tests pass. `TODO.md` records the authoring case list.
+tests pass.
 
-The cases in `TODO.md` are complete. Keep each example small and
-observable through public APIs. Do not repeat the full unit-test matrix here.
+Keep each example small and observable through public APIs. Do not repeat the
+full unit-test matrix here.
