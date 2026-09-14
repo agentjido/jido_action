@@ -8,6 +8,8 @@ defmodule JidoActionTest.Flow.DSL.ConditionExamplesTest do
       name: "required_boolean_route",
       schema: Zoi.object(%{enabled: Zoi.boolean()})
 
+    alias JidoActionTest.Fixtures.Actions.EchoParamsAction
+
     flow do
       choice "route" do
         option "disabled",
@@ -15,10 +17,7 @@ defmodule JidoActionTest.Flow.DSL.ConditionExamplesTest do
           action: JidoActionTest.Fixtures.Actions.EchoParamsAction,
           params: %{enabled: false}
 
-        otherwise(
-          action: JidoActionTest.Fixtures.Actions.EchoParamsAction,
-          params: %{enabled: true}
-        )
+        otherwise action: EchoParamsAction, params: %{enabled: true}
       end
 
       output(result("route"))

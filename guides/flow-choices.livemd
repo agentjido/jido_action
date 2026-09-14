@@ -42,10 +42,7 @@ defmodule FlowChoices.Example do
         action: FlowChoices.Route,
         params: %{queue: :priority, id: input(:id)}
 
-      otherwise(
-        action: FlowChoices.Route,
-        params: %{queue: :standard, id: input(:id)}
-      )
+      otherwise action: FlowChoices.Route, params: %{queue: :standard, id: input(:id)}
     end
 
     output(%{route: result("route")})
@@ -167,10 +164,7 @@ defmodule FlowChoices.ExpectedFailure do
         action: FlowChoices.Route,
         params: %{route: :missing, error: result("fetch", :error)}
 
-      otherwise(
-        action: FlowChoices.Route,
-        params: %{route: :found, value: result("fetch", :value)}
-      )
+      otherwise action: FlowChoices.Route, params: %{route: :found, value: result("fetch", :value)}
     end
 
     output(result("route"))

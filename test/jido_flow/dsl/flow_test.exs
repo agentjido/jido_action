@@ -3,6 +3,8 @@ defmodule Jido.Flow.DSL.FlowTest.MixedFlow do
 
   use Jido.Flow, name: "mixed_dsl"
 
+  alias JidoActionTest.Fixtures.Actions.Multiply
+
   flow do
     step("load",
       action: JidoActionTest.Fixtures.Actions.Add,
@@ -17,10 +19,7 @@ defmodule Jido.Flow.DSL.FlowTest.MixedFlow do
         params(%{value: result("load", :value), amount: 1})
       end
 
-      otherwise(
-        action: JidoActionTest.Fixtures.Actions.Multiply,
-        params: %{value: result("load", :value), amount: 1}
-      )
+      otherwise action: Multiply, params: %{value: result("load", :value), amount: 1}
     end
 
     map("mapped",

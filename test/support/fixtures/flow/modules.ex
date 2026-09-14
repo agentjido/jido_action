@@ -168,6 +168,8 @@ defmodule JidoActionTest.Fixtures.ChoicePublicPaths do
   @moduledoc false
   use Jido.Flow, name: "choice_public_paths"
 
+  alias JidoActionTest.Fixtures.Actions.Add
+
   flow do
     choice "route" do
       option "priority" do
@@ -176,10 +178,7 @@ defmodule JidoActionTest.Fixtures.ChoicePublicPaths do
         params(%{value: input(:value), amount: 1})
       end
 
-      otherwise(
-        action: JidoActionTest.Fixtures.Actions.Add,
-        params: %{value: input(:value), amount: 2}
-      )
+      otherwise action: Add, params: %{value: input(:value), amount: 2}
     end
 
     output(result("route"))

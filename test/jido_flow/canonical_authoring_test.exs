@@ -55,6 +55,8 @@ defmodule Jido.Flow.CanonicalAuthoringTest.SparkMixedFlow do
     name: "canonical_mixed_flow",
     description: "All canonical authoring forms"
 
+  alias JidoActionTest.Fixtures.Actions.Multiply
+
   flow do
     step("load",
       action: JidoActionTest.Fixtures.Actions.Add,
@@ -75,10 +77,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest.SparkMixedFlow do
         params: %{value: result("child", :value), amount: 1}
       )
 
-      otherwise(
-        action: JidoActionTest.Fixtures.Actions.Multiply,
-        params: %{value: result("child", :value), amount: 2}
-      )
+      otherwise action: Multiply, params: %{value: result("child", :value), amount: 2}
     end
 
     map("mapped",

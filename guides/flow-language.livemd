@@ -65,10 +65,7 @@ defmodule FlowLanguage.Example do
         action: FlowLanguage.Echo,
         params: %{route: :fast, value: result("seed", :value)}
 
-      otherwise(
-        action: FlowLanguage.Echo,
-        params: %{route: :standard, value: result("seed", :value)}
-      )
+      otherwise action: FlowLanguage.Echo, params: %{route: :standard, value: result("seed", :value)}
     end
 
     map "mapped",
