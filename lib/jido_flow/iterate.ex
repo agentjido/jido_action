@@ -92,9 +92,12 @@ defmodule Jido.Flow.Iterate do
       do: Expression.result_refs(state.initial) ++ Expression.result_refs(state.update)
 
     defp known_keys(attrs) do
-      case Enum.find(Map.keys(attrs), &(&1 not in [:schema, :initial, :update])) do
-        nil -> :ok
-        key -> {:error, Error.validation_error("unknown iterate state key: #{inspect(key)}")}
+      case Enum.reject(Map.keys(attrs), &(&1 in [:schema, :initial, :update])) do
+        [] ->
+          :ok
+
+        [key | _rest] ->
+          {:error, Error.validation_error("unknown iterate state key: #{inspect(key)}")}
       end
     end
 
@@ -174,9 +177,9 @@ defmodule Jido.Flow.Iterate do
   end
 
   defp known_keys(attrs) do
-    case Enum.find(Map.keys(attrs), &(&1 not in @keys)) do
-      nil -> :ok
-      key -> {:error, Error.validation_error("unknown iterate key: #{inspect(key)}")}
+    case Enum.reject(Map.keys(attrs), &(&1 in @keys)) do
+      [] -> :ok
+      [key | _rest] -> {:error, Error.validation_error("unknown iterate key: #{inspect(key)}")}
     end
   end
 

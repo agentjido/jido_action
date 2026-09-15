@@ -69,9 +69,12 @@ defmodule Jido.Flow.Step do
   end
 
   defp known_keys(attrs) do
-    case Enum.find(Map.keys(attrs), &(&1 not in [:name, :action, :params, :needs, :meta])) do
-      nil -> :ok
-      key -> {:error, Error.validation_error("unknown step configuration key: #{inspect(key)}")}
+    case Enum.reject(Map.keys(attrs), &(&1 in [:name, :action, :params, :needs, :meta])) do
+      [] ->
+        :ok
+
+      [key | _rest] ->
+        {:error, Error.validation_error("unknown step configuration key: #{inspect(key)}")}
     end
   end
 end

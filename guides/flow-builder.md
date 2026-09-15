@@ -34,7 +34,9 @@ Use `new/1` for untrusted or fallible construction. Do not use raw struct
 literals as a substitute for constructor validation.
 
 Each canonical component has `new/1` and `new!/1`. Choice options, Choice
-fallbacks, and Iterate State have constructors too.
+fallbacks, and Iterate State have constructors too. Configuration maps reject
+unknown keys, including `nil`. Builder applies the same rule to Flow metadata
+and nested component records.
 
 ## Runtime Builder
 

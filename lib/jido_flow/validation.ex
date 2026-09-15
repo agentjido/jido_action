@@ -122,11 +122,11 @@ defmodule Jido.Flow.Validation do
     do: {:error, Error.validation_error("flow configuration must be a map")}
 
   defp known_keys(attrs, allowed) do
-    case Enum.find(Map.keys(attrs), &(&1 not in allowed)) do
-      nil ->
+    case Enum.reject(Map.keys(attrs), &(&1 in allowed)) do
+      [] ->
         :ok
 
-      key ->
+      [key | _rest] ->
         {:error,
          Error.validation_error("unknown Flow configuration key: #{inspect(key)}", %{key: key})}
     end
