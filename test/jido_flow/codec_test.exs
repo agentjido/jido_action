@@ -196,6 +196,22 @@ defmodule Jido.Flow.CodecTest do
     assert {:ok, ^flow} = Codec.diagnose(decoded_document, registry)
   end
 
+  test "version detection preserves diagnostics for nested structs" do
+    registry = CodecRegistry.mixed()
+    assert {:ok, document} = Codec.encode(FlowAuthoring.mixed_flow!(), registry)
+
+    document = %{
+      document
+      | "version" => 1,
+        "components" => [hd(document["components"])],
+        "output" => %URI{path: "/flow"}
+    }
+
+    assert {:error, %Error.Invalid{errors: [error]}} = Codec.diagnose(document, registry)
+    assert error.message == "stored Flow data has an invalid tagged value"
+    assert error.details == %{path: ["output"]}
+  end
+
   test "all component kinds round trip needs in both current document versions" do
     registry = CodecRegistry.mixed()
     flow = all_component_flow!()

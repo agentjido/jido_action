@@ -16,7 +16,7 @@ defmodule Jido.Action.InlineHostBuildTest do
     fixture: fixture
   } do
     {output, status} = Build.mix(fixture, ["release"])
-    assert status == 0, output
+    assert status == 0, "inline release exited with status #{status}:\n#{output}"
     assert length(Build.beams(fixture)) == 8
 
     # The package remains in the isolated build directory. Remove the full

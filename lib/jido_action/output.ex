@@ -96,13 +96,7 @@ defmodule Jido.Action.Output do
   defp meta_opts!(_opts), do: raise(ArgumentError, "invalid action output envelope")
 
   defp parse(attrs) do
-    case Zoi.parse(@schema, attrs) do
-      {:ok, output} ->
-        {:ok, output}
-
-      {:error, errors} ->
-        {:error, errors}
-    end
+    Zoi.parse(@schema, attrs)
   end
 
   defp validate_kind_value({:ok, %__MODULE__{kind: :stream, value: value} = output}, original) do

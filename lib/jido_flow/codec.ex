@@ -214,9 +214,19 @@ defmodule Jido.Flow.Codec do
   defp version_errors(document), do: result_errors(exact_value(document, "version", @version, []))
 
   defp expression_document?(%{"$expr" => _}), do: true
-  defp expression_document?(%{} = map), do: Enum.any?(Map.values(map), &expression_document?/1)
+
+  defp expression_document?(%{} = map),
+    do: expression_entry?(:maps.iterator(map))
+
   defp expression_document?(list) when is_list(list), do: Enum.any?(list, &expression_document?/1)
   defp expression_document?(_), do: false
+
+  defp expression_entry?(iterator) do
+    case :maps.next(iterator) do
+      :none -> false
+      {_key, value, next} -> expression_document?(value) or expression_entry?(next)
+    end
+  end
 
   defp diagnose_document(document, registry) do
     fields = [
@@ -482,7 +492,7 @@ defmodule Jido.Flow.Codec do
         action: fn -> resolve_field(record, "action", :action, registry, path) end,
         params: fn -> diagnose_expression_field(record, "params", registry, path) end,
         state: fn -> diagnose_iterate_state_field(record, registry, path) end,
-        completion: fn -> diagnose_completion_field(record, registry, path) end,
+        completion: fn -> diagnose_condition_field(record, "completion", registry, path) end,
         max_iterations: fn -> positive_integer_field(record, "max_iterations", path) end
       ],
       &Iterate.new/1
@@ -699,13 +709,6 @@ defmodule Jido.Flow.Codec do
     end
   end
 
-  defp diagnose_completion_field(record, registry, path) do
-    case Map.fetch(record, "completion") do
-      {:ok, value} -> diagnose_condition(value, registry, 0, path ++ ["completion"])
-      :error -> required_field(path ++ ["completion"], "completion")
-    end
-  end
-
   defp diagnose_expression(value, registry, depth, path) when is_list(value) do
     diagnose_list(value, registry, depth, path, &diagnose_expression/4)
   end
@@ -791,10 +794,6 @@ defmodule Jido.Flow.Codec do
 
   defp diagnose_expression(%{"$type" => "map"} = value, registry, depth, path) do
     diagnose_map(value, registry, depth, path, &diagnose_expression/4)
-  end
-
-  defp diagnose_expression(value, registry, depth, path) when is_map(value) do
-    diagnose_data(value, registry, depth, path)
   end
 
   defp diagnose_expression(value, registry, depth, path) do
@@ -1225,9 +1224,7 @@ defmodule Jido.Flow.Codec do
          {:ok, meta} <- encode_data(subflow.meta, registry, 0) do
       {:ok,
        common_component("subflow", subflow, params, meta)
-       |> Map.delete("params")
-       |> Map.put("flow", flow)
-       |> Map.put("params", params)}
+       |> Map.put("flow", flow)}
     end
   end
 
