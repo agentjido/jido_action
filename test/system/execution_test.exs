@@ -725,6 +725,10 @@ defmodule JidoActionTest.System.ExecutionTest do
       Map.take(metadata, [:node, :kind, id_key, index_key, :state_revision])
     end
 
+    # Parallel Map items can finish in a different order from their starts.
+    # Reduce and Iterate still require their serial completion order.
+    stops = if kind == :map_item, do: Enum.sort_by(stops, &Map.fetch!(&1, index_key)), else: stops
+
     assert Enum.map(starts, signature) == Enum.map(stops, signature)
   end
 

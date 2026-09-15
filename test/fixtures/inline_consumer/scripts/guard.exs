@@ -8,6 +8,8 @@ end)
 spawn(fn ->
   receive do
   after
-    30_000 -> System.halt(124)
+    # The parent reports and kills a timed-out child after 40 seconds. This
+    # fallback must run later, so it cannot hide the parent's diagnostic.
+    45_000 -> System.halt(124)
   end
 end)

@@ -73,12 +73,10 @@ defmodule Jido.Flow.Compiler do
   def prepare(%Flow{} = flow, opts, module_stack) when is_list(module_stack) do
     with {:ok, source_map} <- SourceMap.prepare(opts, module_stack),
          {:ok, attrs, subflows} <-
-           Validation.prepare_executable(Map.from_struct(flow), module_stack) do
-      flow = struct!(Flow, attrs)
-
-      with {:ok, compiled} <- compile_prepared(flow, source_map, subflows, module_stack) do
-        {:ok, flow, compiled}
-      end
+           Validation.prepare_executable(Map.from_struct(flow), module_stack),
+         flow = struct!(Flow, attrs),
+         {:ok, compiled} <- compile_prepared(flow, source_map, subflows, module_stack) do
+      {:ok, flow, compiled}
     end
   end
 

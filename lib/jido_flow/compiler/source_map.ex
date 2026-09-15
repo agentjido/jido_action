@@ -26,19 +26,19 @@ defmodule Jido.Flow.Compiler.SourceMap do
     do: validate_source_map(opts)
 
   defp source_map(opts) when is_list(opts) do
-    cond do
-      not Keyword.keyword?(opts) ->
+    with true <- Keyword.keyword?(opts),
+         [] <- Keyword.keys(opts) -- [:source_map] do
+      if Keyword.get_values(opts, :source_map) |> length() > 1 do
+        source_map_error("Flow compile option is duplicated", %{option: :source_map})
+      else
+        opts |> Keyword.get(:source_map, %{}) |> validate_source_map()
+      end
+    else
+      false ->
         source_map_error("Flow compile options must be a keyword list or source map")
 
-      Keyword.keys(opts) -- [:source_map] != [] ->
-        [option | _rest] = Keyword.keys(opts) -- [:source_map]
+      [option | _rest] ->
         source_map_error("unknown Flow compile option: #{inspect(option)}", %{option: option})
-
-      Keyword.get_values(opts, :source_map) |> length() > 1 ->
-        source_map_error("Flow compile option is duplicated", %{option: :source_map})
-
-      true ->
-        opts |> Keyword.get(:source_map, %{}) |> validate_source_map()
     end
   end
 
