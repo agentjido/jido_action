@@ -329,6 +329,27 @@ defmodule JidoActionTest.Flow.Compiler.NativeRunicTest do
              with_source.component_index["echo"].component.hash
   end
 
+  test "compile option errors keep precedence over Flow validation" do
+    flow = %Flow{name: "invalid", output: nil}
+
+    for {opts, message, details} <- [
+          {[{:unknown, true}, :invalid],
+           "Flow compile options must be a keyword list or source map", %{}},
+          {[unknown: true, source_map: :invalid], "unknown Flow compile option: :unknown",
+           %{option: :unknown}},
+          {[source_map: %{}, source_map: %{}], "unknown Flow compile option: :source_map",
+           %{option: :source_map}},
+          {[second: true, first: true], "unknown Flow compile option: :second",
+           %{option: :second}}
+        ] do
+      assert {:error, %Jido.Flow.Error.InvalidDefinitionError{} = error} =
+               Flow.compile(flow, opts)
+
+      assert error.message == message
+      assert error.details == details
+    end
+  end
+
   test "rejects malformed compile options and source maps" do
     flow =
       Flow.new!(
