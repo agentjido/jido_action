@@ -1,5 +1,6 @@
 defmodule JidoActionTest.Exec.CallerMonitorTest do
   use ExUnit.Case, async: false
+  import JidoActionTest.ProcessCleanup
 
   alias Jido.Action.Error.ExecutionFailureError
   alias Jido.Exec
@@ -102,7 +103,7 @@ defmodule JidoActionTest.Exec.CallerMonitorTest do
         assert_receive {:DOWN, ^caller_monitor, :process, ^caller, :normal}, 1_000
       end
 
-      assert Task.Supervisor.children(supervisor) == []
+      assert_supervisor_quiescent(supervisor)
       refute_received {^token, :result, _result}
     end
   end
@@ -142,7 +143,7 @@ defmodule JidoActionTest.Exec.CallerMonitorTest do
       await_guards(guards)
       assert :ok = Exec.cancel(handle)
       assert {:error, %Jido.Exec.Error.InvalidHandleError{}} = Exec.await(handle, 0)
-      assert Task.Supervisor.children(supervisor) == []
+      assert_supervisor_quiescent(supervisor)
       assert {:monitors, ^initial_monitors} = Process.info(self(), :monitors)
       refute_received {:jido_exec_async_result, _, _, _}
       refute_received {:DOWN, _, :process, _, _}
