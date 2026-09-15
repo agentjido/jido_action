@@ -1,5 +1,6 @@
 defmodule JidoActionTest.Load.ExecutionLoadTest do
   use ExUnit.Case, async: false
+  import JidoActionTest.ProcessCleanup
   @moduletag :load
   @moduletag timeout: 120_000
 
@@ -273,14 +274,5 @@ defmodule JidoActionTest.Load.ExecutionLoadTest do
     assert_supervisor_quiescent(context.supervisor)
     refute_received {^ref, :ready, _, _}
     mapped
-  end
-
-  defp assert_supervisor_quiescent(supervisor) do
-    for pid <- Task.Supervisor.children(supervisor) do
-      monitor = Process.monitor(pid)
-      assert_receive {:DOWN, ^monitor, :process, ^pid, _}, 5_000
-    end
-
-    assert Task.Supervisor.children(supervisor) == []
   end
 end
