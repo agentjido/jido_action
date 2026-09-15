@@ -15,28 +15,29 @@ defmodule Jido.Exec.Flow.Engine do
   alias Runic.Workflow.IdentityConflictError
   alias Runic.Workflow.Runnable
 
+  @typep start_control :: %{
+           options: keyword(),
+           finalizer: (term() -> {:ok, term()} | {:error, Exception.t()}),
+           target_runner: function(),
+           execution_id: String.t(),
+           lifecycle: map()
+         }
+
   @doc "Creates a paused Flow execution from prepared Flow and Runic data."
-  @spec start(
-          Flow.t(),
-          Compiled.t(),
-          map(),
-          map(),
-          keyword(),
-          function(),
-          function(),
-          String.t(),
-          map()
-        ) :: {:ok, Execution.t()} | {:error, Exception.t()}
+  @spec start(Flow.t(), Compiled.t(), map(), map(), start_control()) ::
+          {:ok, Execution.t()} | {:error, Exception.t()}
   def start(
         %Flow{} = flow,
         %Compiled{} = compiled,
         input,
         context,
-        options,
-        finalizer,
-        target_runner,
-        execution_id,
-        lifecycle
+        %{
+          options: options,
+          finalizer: finalizer,
+          target_runner: target_runner,
+          execution_id: execution_id,
+          lifecycle: lifecycle
+        }
       )
       when is_map(input) and is_map(context) and is_list(options) and
              is_function(finalizer, 1) and is_function(target_runner, 5) and
