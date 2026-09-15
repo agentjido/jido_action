@@ -9,3 +9,10 @@ result order, terminal telemetry, worker exits, and owned Task cleanup.
 This suite tests only `Jido.Exec` in memory. It does not test durable recovery,
 storage, Signals, Agents, or Topology. Focused unit tests remain under
 `test/jido_exec`.
+
+`resource_ownership_test.exs` exercises a small host-supervised session-owner
+example. A separate simulated service retains sessions after client death.
+Tests verify release after success, cancellation, complete-call timeout, and
+interrupted or timed-out acquisition. Failed and blocked release retain the
+session and report cleanup failure without replacing the Action error. This
+is adapter guidance, not a new Jido API or a remote-cleanup guarantee.

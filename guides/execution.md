@@ -299,6 +299,75 @@ Keep handlers short and send slow work to a process owned by the consumer.
 Synchronous calls with `timeout: :infinity` and step-wise calls keep synchronous
 telemetry delivery. They do not have a finite complete-call deadline.
 
+## External Resource Ownership
+
+Stopping an Action worker does not prove that an external session, job, or
+lease was released. A forced kill does not run the Action's `after` block.
+Keep resource ownership in the adapter or host application, not in Flow
+metadata or Action requirements.
+
+A small pattern is one host-supervised process per session:
+
+1. The owner monitors the Action worker before acquisition.
+2. The owner acquires and records the session before returning it to the Action.
+3. The Action uses the session and returns its normal result.
+4. On worker `DOWN`, the owner makes a bounded release request, reports its
+   outcome to the host, and stops. Use a temporary child: restarting an empty
+   owner cannot recover an external session.
+
+The owner is supervised separately from Exec workers. It must survive their
+termination. This also covers normal callback completion because the Action
+worker exits after sending its result. The session belongs to one Action
+invocation, not to a complete Flow. A session shared between Steps needs a
+different, host-owned lifetime.
+
+For example, an application adapter can use this shape (these are application
+modules, not new Jido APIs):
+
+```elixir
+def run(params, context) do
+  with {:ok, _owner, session} <-
+         MyApp.SessionOwner.open(
+           context.session_supervisor,
+           context.session_service,
+           context.resource_observer
+         ) do
+    MyApp.SessionClient.read(session, params)
+  end
+end
+```
+
+The executable example is
+[SessionOwner](https://github.com/agentjido/jido_action/blob/release/v3/test/support/fixtures/execution/session_owner.ex).
+Its [system tests](https://github.com/agentjido/jido_action/blob/release/v3/test/system/resource_ownership_test.exs)
+use a separate simulated service that does not release resources when clients
+die. They verify the service's active-session state and release count, not
+just worker termination. Run them locally with:
+
+```text
+mix test test/system/resource_ownership_test.exs --include system
+```
+
+### Limits Of This Pattern
+
+Acquisition and release must have finite bounds. The example uses a
+client-generated session ID and idempotent release. It can therefore attempt
+release even when acquisition times out without a reply. A real service must
+provide equivalent semantics; an unknown remote session ID or a late remote
+allocation requires leases or reconciliation. The example is not a general
+remote-resource manager.
+
+Cleanup has its own time allowance because the Action's budget can already be
+zero. Exec completion does not wait for this cleanup. A failed release is
+reported separately and does not replace the Action result. It also does not
+mean the resource was released: the tests explicitly retain the service
+session when release fails or blocks.
+
+The example does not recover from owner crashes, host shutdown, VM failure,
+or network partitions. Use service-side expiry and host recovery where those
+guarantees are required. A monitor cannot undo an external write or guarantee
+remote cleanup.
+
 ## Scope
 
 Exec provides one in-memory execution session. It provides validation, process
