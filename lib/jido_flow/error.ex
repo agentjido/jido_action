@@ -126,6 +126,14 @@ defmodule Jido.Flow.Error do
     InvalidDefinitionError.exception(message: message, details: normalize_input(details))
   end
 
+  @doc false
+  @spec prefix_path(term(), list()) :: term()
+  def prefix_path(%{details: details} = error, path) when is_map(details) do
+    %{error | details: Map.put(details, :path, path ++ Map.get(details, :path, []))}
+  end
+
+  def prefix_path(error, _path), do: error
+
   @doc "Creates an invalid Flow execution input or state error."
   @spec invalid_execution_error(String.t(), details_input()) :: InvalidExecutionError.t()
   def invalid_execution_error(message, details \\ %{}) do

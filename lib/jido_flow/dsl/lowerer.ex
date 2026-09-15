@@ -141,21 +141,20 @@ defmodule Jido.Flow.DSL.Lowerer do
          {:ok, update} <- optional_expression(iterate.update, Ref.body_result()),
          {:ok, while_condition} <- optional_condition(iterate.while),
          {:ok, completion, max_iterations} <-
-           normalize_termination(iterate, while_condition) do
-      with {:ok, state} <- FlowIterate.State.new(Map.put(state, :update, update)),
-           {:ok, component} <-
-             FlowIterate.new(
-               name: iterate.name,
-               action: iterate.action,
-               params: params,
-               state: state,
-               completion: completion,
-               max_iterations: max_iterations,
-               needs: iterate.needs,
-               meta: iterate.meta
-             ) do
-        {:ok, {:component, component}}
-      end
+           normalize_termination(iterate, while_condition),
+         {:ok, state} <- FlowIterate.State.new(Map.put(state, :update, update)),
+         {:ok, component} <-
+           FlowIterate.new(
+             name: iterate.name,
+             action: iterate.action,
+             params: params,
+             state: state,
+             completion: completion,
+             max_iterations: max_iterations,
+             needs: iterate.needs,
+             meta: iterate.meta
+           ) do
+      {:ok, {:component, component}}
     end
   end
 

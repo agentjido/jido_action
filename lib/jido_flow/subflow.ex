@@ -37,7 +37,7 @@ defmodule Jido.Flow.Subflow do
     with :ok <- known_keys(attrs),
          {:ok, name} <- Component.name(Map.get(attrs, :name)),
          {:ok, flow} <- Component.module(Map.get(attrs, :flow), "subflow module"),
-         {:ok, params} <- expression(Map.get(attrs, :params, %{})),
+         {:ok, params} <- Expression.prepare(Map.get(attrs, :params, %{})),
          {:ok, needs_names} <- Component.needs_names(Map.get(attrs, :needs, [])),
          {:ok, meta} <- Component.meta(Map.get(attrs, :meta, %{})) do
       {:ok, %__MODULE__{name: name, flow: flow, params: params, needs: needs_names, meta: meta}}
@@ -59,17 +59,10 @@ defmodule Jido.Flow.Subflow do
   @spec result_refs(t()) :: [String.t()]
   def result_refs(%__MODULE__{params: params}), do: Expression.result_refs(params)
 
-  defp expression(value) do
-    with {:ok, value} <- Expression.normalize(value),
-         :ok <- Expression.validate(value) do
-      {:ok, value}
-    end
-  end
-
   defp known_keys(attrs) do
-    case Enum.find(Map.keys(attrs), &(&1 not in @keys)) do
-      nil -> :ok
-      key -> {:error, Error.validation_error("unknown subflow key: #{inspect(key)}")}
+    case Enum.reject(Map.keys(attrs), &(&1 in @keys)) do
+      [] -> :ok
+      [key | _rest] -> {:error, Error.validation_error("unknown subflow key: #{inspect(key)}")}
     end
   end
 

@@ -42,7 +42,7 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
     if coordination_only?(runnables) do
       execute_serially(execution, runnables)
     else
-      if Keyword.fetch!(execution.options, :max_concurrency) > 1 and length(runnables) > 1 do
+      if Keyword.fetch!(execution.options, :max_concurrency) > 1 and match?([_, _ | _], runnables) do
         execute_concurrently(execution, runnables)
       else
         execute_serially(execution, runnables)

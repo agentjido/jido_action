@@ -151,11 +151,8 @@ defmodule Jido.Exec.ExecutionGuard do
   end
 
   defp mark_indeterminate(guard, token) do
-    case :atomics.compare_exchange(guard, @state_index, token, @indeterminate) do
-      :ok -> :ok
-      @indeterminate -> :ok
-      _other_state -> :ok
-    end
+    :atomics.compare_exchange(guard, @state_index, token, @indeterminate)
+    :ok
   end
 
   defp stale_error(execution, current_revision, state) do

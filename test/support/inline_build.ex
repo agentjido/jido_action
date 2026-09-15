@@ -41,7 +41,7 @@ defmodule JidoActionTest.InlineBuild do
 
   def compile!(fixture) do
     {output, status} = mix(fixture, ["compile", "--warnings-as-errors"])
-    assert status == 0, output
+    assert status == 0, "inline compile exited with status #{status}:\n#{output}"
     output
   end
 
@@ -145,7 +145,7 @@ defmodule JidoActionTest.InlineBuild do
   end
 
   defp result!({output, status}) do
-    assert status == 0, output
+    assert status == 0, "inline probe exited with status #{status}:\n#{output}"
     [_, result] = Regex.run(~r/^INLINE_RESULT=(.*)$/m, output)
     JSON.decode!(result)
   end

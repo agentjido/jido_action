@@ -56,6 +56,7 @@ defmodule Jido.Exec do
   alias Jido.Exec.Execution
   alias Jido.Exec.Flow.Engine
   alias Jido.Exec.Options
+  alias Jido.Exec.Runtime
   alias Jido.Exec.Telemetry
   alias Jido.Exec.Telemetry.Tracker
   alias Jido.Exec.Transition
@@ -224,16 +225,15 @@ defmodule Jido.Exec do
   end
 
   defp continue_chain(%Transition{} = transition, chain) do
-    with :ok <- check_continuation_limit(transition, chain.count, chain.continuation_limit) do
-      with {:ok, resolved} <- resolve_transition_target(transition) do
-        run_resolved_chain(
-          transition.target,
-          resolved,
-          transition.input,
-          transition.context,
-          chain
-        )
-      end
+    with :ok <- check_continuation_limit(transition, chain.count, chain.continuation_limit),
+         {:ok, resolved} <- resolve_transition_target(transition) do
+      run_resolved_chain(
+        transition.target,
+        resolved,
+        transition.input,
+        transition.context,
+        chain
+      )
     end
   end
 
@@ -466,7 +466,7 @@ defmodule Jido.Exec do
     {worker, monitor} =
       spawn_monitor(fn ->
         worker = self()
-        spawn(fn -> terminate_with_caller(caller, worker) end)
+        spawn(fn -> Runtime.terminate_with_caller(caller, worker) end)
         Process.group_leader(worker, caller_group_leader)
         Logger.metadata(caller_logger_metadata)
         notify = fn update -> send(caller, {result_ref, worker, :update, update}) end
@@ -611,16 +611,6 @@ defmodule Jido.Exec do
   defp close_telemetry_tracker(tracker, error) do
     Tracker.fail_all(tracker, error)
     Tracker.stop(tracker)
-  end
-
-  defp terminate_with_caller(caller, worker) do
-    caller_monitor = Process.monitor(caller)
-    worker_monitor = Process.monitor(worker)
-
-    receive do
-      {:DOWN, ^caller_monitor, :process, ^caller, _reason} -> Process.exit(worker, :kill)
-      {:DOWN, ^worker_monitor, :process, ^worker, _reason} -> :ok
-    end
   end
 
   defp timeout_owner(%Executable{kind: :flow}), do: FlowError

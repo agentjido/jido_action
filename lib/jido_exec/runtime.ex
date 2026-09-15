@@ -39,6 +39,19 @@ defmodule Jido.Exec.Runtime do
     kind, reason -> {:error, {kind, reason}}
   end
 
+  # Run in a separate guard process because user callbacks can trap exits.
+  @doc false
+  @spec terminate_with_caller(pid(), pid()) :: :ok | true
+  def terminate_with_caller(caller, worker) do
+    caller_monitor = Process.monitor(caller)
+    worker_monitor = Process.monitor(worker)
+
+    receive do
+      {:DOWN, ^caller_monitor, :process, ^caller, _reason} -> Process.exit(worker, :kill)
+      {:DOWN, ^worker_monitor, :process, ^worker, _reason} -> :ok
+    end
+  end
+
   defp validate_options(opts) when is_list(opts) do
     if Keyword.keyword?(opts), do: :ok, else: invalid_options()
   end

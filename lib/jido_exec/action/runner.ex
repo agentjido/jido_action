@@ -284,7 +284,7 @@ defmodule Jido.Exec.Action.Runner do
 
     case Runtime.start_child(task_supervisor, fn ->
            worker = self()
-           spawn(fn -> terminate_with_caller(caller, worker) end)
+           spawn(fn -> Runtime.terminate_with_caller(caller, worker) end)
            Telemetry.put_tracker(telemetry_tracker)
 
            receive do
@@ -310,16 +310,6 @@ defmodule Jido.Exec.Action.Runner do
 
       {:DOWN, ^monitor, :process, ^worker, reason} ->
         {:exit, reason}
-    end
-  end
-
-  defp terminate_with_caller(caller, worker) do
-    caller_monitor = Process.monitor(caller)
-    worker_monitor = Process.monitor(worker)
-
-    receive do
-      {:DOWN, ^caller_monitor, :process, ^caller, _reason} -> Process.exit(worker, :kill)
-      {:DOWN, ^worker_monitor, :process, ^worker, _reason} -> :ok
     end
   end
 

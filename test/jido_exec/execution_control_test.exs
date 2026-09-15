@@ -1,5 +1,6 @@
 defmodule JidoActionTest.Exec.ExecutionControlTest do
   use ExUnit.Case, async: false
+  import JidoActionTest.ProcessCleanup
 
   alias Jido.Exec
   alias Jido.Exec.Telemetry
@@ -270,7 +271,7 @@ defmodule JidoActionTest.Exec.ExecutionControlTest do
       assert_receive {:DOWN, ^monitor, :process, ^pid, _reason}, 1_000
     end
 
-    assert Task.Supervisor.children(context.supervisor) == []
+    assert_supervisor_quiescent(context.supervisor)
     assert Process.info(self(), :monitors) == context.monitors_before
     ref = handle.ref
     pid = handle.pid

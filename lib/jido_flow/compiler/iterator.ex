@@ -34,12 +34,11 @@ defmodule Jido.Flow.Compiler.Iterator do
       case evaluate_iterator_completion(iterator, state, runtime) do
         {:ok, true} -> iterator_complete(iterator, state, runtime)
         {:ok, false} -> run_iterator_iteration(iterator, state, runtime)
-        {:error, error} -> iterator_fail(iterator, state, runtime, error)
+        {:error, error} -> iterator_fail(state, error)
       end
     else
       {:error, error} ->
-        runtime = %{state: nil, revision: 0, completed: 0, body_result: nil}
-        iterator_fail(iterator, state, runtime, error)
+        iterator_fail(state, error)
     end
   end
 
@@ -115,10 +114,10 @@ defmodule Jido.Flow.Compiler.Iterator do
 
           case evaluate_iterator_completion(iterator, state, next_runtime) do
             {:ok, completed?} -> {:ok, completed?, next_runtime}
-            {:error, error} -> {:error, error, next_runtime}
+            {:error, error} -> {:error, error}
           end
         else
-          {:error, error} -> {:error, error, runtime}
+          {:error, error} -> {:error, error}
         end
       rescue
         exception -> {:internal_error, exception.__struct__}
@@ -131,14 +130,14 @@ defmodule Jido.Flow.Compiler.Iterator do
         state.observer.({:stop, span})
         continue_iterator_after_iteration(iterator, state, next_runtime, completed?)
 
-      {:error, error, failure_runtime} ->
+      {:error, error} ->
         state.observer.({:error, span, error})
-        iterator_fail(iterator, state, failure_runtime, error)
+        iterator_fail(state, error)
 
       {:internal_error, error_type} ->
         error = iterator_internal_error(iterator, index, runtime.revision, error_type)
         state.observer.({:error, span, error})
-        iterator_fail(iterator, state, runtime, error)
+        iterator_fail(state, error)
     end
   end
 
@@ -177,17 +176,12 @@ defmodule Jido.Flow.Compiler.Iterator do
     {:error, error, state}
   end
 
-  defp iterator_fail(_iterator, state, _runtime, error), do: {:error, error, state}
+  defp iterator_fail(state, error), do: {:error, error, state}
 
   defp iterator_internal_failure(iterator, state, error_type) do
     error = iterator_internal_error(iterator, nil, 0, error_type)
 
-    iterator_fail(
-      iterator,
-      state,
-      %{state: nil, revision: 0, completed: 0, body_result: nil},
-      error
-    )
+    iterator_fail(state, error)
   end
 
   defp iterator_internal_error(iterator, iteration_index, state_revision, error_type) do
