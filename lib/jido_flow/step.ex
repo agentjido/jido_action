@@ -2,7 +2,7 @@ defmodule Jido.Flow.Step do
   @moduledoc "A named Jido Action call in a canonical Flow."
 
   alias Jido.Flow.Error
-  alias Jido.Flow.Component
+  alias Jido.Flow.Component.Fields
   alias Jido.Flow.Expression
 
   @schema Zoi.struct(
@@ -36,11 +36,11 @@ defmodule Jido.Flow.Step do
 
   def new(%{} = attrs) do
     with :ok <- known_keys(attrs),
-         {:ok, name} <- Component.name(Map.get(attrs, :name)),
-         {:ok, action} <- Component.module(Map.get(attrs, :action), "step action"),
+         {:ok, name} <- Fields.name(Map.get(attrs, :name)),
+         {:ok, action} <- Fields.module(Map.get(attrs, :action), "step action"),
          {:ok, params} <- expression(Map.get(attrs, :params, %{})),
-         {:ok, needs_names} <- Component.needs_names(Map.get(attrs, :needs, [])),
-         {:ok, meta} <- Component.meta(Map.get(attrs, :meta, %{})) do
+         {:ok, needs_names} <- Fields.needs_names(Map.get(attrs, :needs, [])),
+         {:ok, meta} <- Fields.meta(Map.get(attrs, :meta, %{})) do
       {:ok,
        %__MODULE__{name: name, action: action, params: params, needs: needs_names, meta: meta}}
     end

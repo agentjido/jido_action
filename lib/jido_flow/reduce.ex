@@ -10,7 +10,7 @@ defmodule Jido.Flow.Reduce do
   """
 
   alias Jido.Flow.Error
-  alias Jido.Flow.Component
+  alias Jido.Flow.Component.Fields
   alias Jido.Flow.Expression
 
   @config_keys [:name, :collection, :initial, :action, :params, :needs, :meta]
@@ -46,14 +46,14 @@ defmodule Jido.Flow.Reduce do
 
   def new(%{} = attrs) do
     with :ok <- known_keys(attrs),
-         {:ok, name} <- Component.name(Map.get(attrs, :name)),
+         {:ok, name} <- Fields.name(Map.get(attrs, :name)),
          {:ok, collection} <-
            validate_required_expression(attrs, :collection, :reduce_collection),
          {:ok, initial} <- validate_required_expression(attrs, :initial, :reduce_initial),
-         {:ok, action} <- Component.module(Map.get(attrs, :action), "reduce action"),
+         {:ok, action} <- Fields.module(Map.get(attrs, :action), "reduce action"),
          {:ok, params} <- validate_params(Map.get(attrs, :params, %{})),
-         {:ok, needs_names} <- Component.needs_names(Map.get(attrs, :needs, [])),
-         {:ok, meta} <- Component.meta(Map.get(attrs, :meta, %{})) do
+         {:ok, needs_names} <- Fields.needs_names(Map.get(attrs, :needs, [])),
+         {:ok, meta} <- Fields.meta(Map.get(attrs, :meta, %{})) do
       {:ok,
        %__MODULE__{
          name: name,

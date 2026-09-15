@@ -2,7 +2,7 @@ defmodule Jido.Flow.Subflow do
   @moduledoc "A named child Flow module in a canonical Flow."
 
   alias Jido.Flow.Error
-  alias Jido.Flow.Component
+  alias Jido.Flow.Component.Fields
   alias Jido.Flow.Expression
 
   @schema Zoi.struct(
@@ -35,11 +35,11 @@ defmodule Jido.Flow.Subflow do
 
   def new(%{} = attrs) do
     with :ok <- known_keys(attrs),
-         {:ok, name} <- Component.name(Map.get(attrs, :name)),
-         {:ok, flow} <- Component.module(Map.get(attrs, :flow), "subflow module"),
+         {:ok, name} <- Fields.name(Map.get(attrs, :name)),
+         {:ok, flow} <- Fields.module(Map.get(attrs, :flow), "subflow module"),
          {:ok, params} <- expression(Map.get(attrs, :params, %{})),
-         {:ok, needs_names} <- Component.needs_names(Map.get(attrs, :needs, [])),
-         {:ok, meta} <- Component.meta(Map.get(attrs, :meta, %{})) do
+         {:ok, needs_names} <- Fields.needs_names(Map.get(attrs, :needs, [])),
+         {:ok, meta} <- Fields.meta(Map.get(attrs, :meta, %{})) do
       {:ok, %__MODULE__{name: name, flow: flow, params: params, needs: needs_names, meta: meta}}
     end
   end

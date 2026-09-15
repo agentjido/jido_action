@@ -17,7 +17,7 @@ defmodule Jido.Flow.Choice do
   """
 
   alias Jido.Flow.Error
-  alias Jido.Flow.Component
+  alias Jido.Flow.Component.Fields
   alias Jido.Flow.Expression
 
   @keys [:name, :options, :fallback, :needs, :meta]
@@ -45,7 +45,7 @@ defmodule Jido.Flow.Choice do
     @moduledoc "One ordered Choice condition and Action."
 
     alias Jido.Flow.Error
-    alias Jido.Flow.Component
+    alias Jido.Flow.Component.Fields
     alias Jido.Flow.Expression
 
     @keys [:name, :condition, :action, :params]
@@ -75,9 +75,9 @@ defmodule Jido.Flow.Choice do
 
     def new(%{} = attrs) do
       with :ok <- known_keys(attrs),
-           {:ok, name} <- Component.name(Map.get(attrs, :name)),
+           {:ok, name} <- Fields.name(Map.get(attrs, :name)),
            {:ok, condition} <- condition(Map.get(attrs, :condition)),
-           {:ok, action} <- Component.module(Map.get(attrs, :action), "choice option action"),
+           {:ok, action} <- Fields.module(Map.get(attrs, :action), "choice option action"),
            {:ok, params} <- expression(Map.get(attrs, :params, %{})) do
         {:ok, %__MODULE__{name: name, condition: condition, action: action, params: params}}
       end
@@ -122,7 +122,7 @@ defmodule Jido.Flow.Choice do
     @moduledoc "The Action used when no Choice option matches."
 
     alias Jido.Flow.Error
-    alias Jido.Flow.Component
+    alias Jido.Flow.Component.Fields
     alias Jido.Flow.Expression
 
     @keys [:action, :params]
@@ -150,7 +150,7 @@ defmodule Jido.Flow.Choice do
 
     def new(%{} = attrs) do
       with :ok <- known_keys(attrs),
-           {:ok, action} <- Component.module(Map.get(attrs, :action), "choice fallback action"),
+           {:ok, action} <- Fields.module(Map.get(attrs, :action), "choice fallback action"),
            {:ok, params} <- expression(Map.get(attrs, :params, %{})) do
         {:ok, %__MODULE__{action: action, params: params}}
       end
@@ -193,11 +193,11 @@ defmodule Jido.Flow.Choice do
 
   def new(%{} = attrs) do
     with :ok <- known_keys(attrs),
-         {:ok, name} <- Component.name(Map.get(attrs, :name)),
+         {:ok, name} <- Fields.name(Map.get(attrs, :name)),
          {:ok, options} <- options(Map.get(attrs, :options)),
          {:ok, fallback} <- fallback(Map.get(attrs, :fallback)),
-         {:ok, needs_names} <- Component.needs_names(Map.get(attrs, :needs, [])),
-         {:ok, meta} <- Component.meta(Map.get(attrs, :meta, %{})) do
+         {:ok, needs_names} <- Fields.needs_names(Map.get(attrs, :needs, [])),
+         {:ok, meta} <- Fields.meta(Map.get(attrs, :meta, %{})) do
       {:ok,
        %__MODULE__{
          name: name,

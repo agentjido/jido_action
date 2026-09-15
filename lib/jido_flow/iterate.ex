@@ -9,7 +9,7 @@ defmodule Jido.Flow.Iterate do
 
   alias Jido.Action
   alias Jido.Flow.Error
-  alias Jido.Flow.Component
+  alias Jido.Flow.Component.Fields
   alias Jido.Flow.Expression
 
   @maximum_iterations 10_000
@@ -132,14 +132,14 @@ defmodule Jido.Flow.Iterate do
 
   def new(%{} = attrs) do
     with :ok <- known_keys(attrs),
-         {:ok, name} <- Component.name(Map.get(attrs, :name)),
-         {:ok, action} <- Component.module(Map.get(attrs, :action), "iterate action"),
+         {:ok, name} <- Fields.name(Map.get(attrs, :name)),
+         {:ok, action} <- Fields.module(Map.get(attrs, :action), "iterate action"),
          {:ok, params} <- expression(Map.get(attrs, :params, %{}), :iterate_params),
          {:ok, state} <- state(Map.get(attrs, :state)),
          {:ok, completion} <- completion(Map.get(attrs, :completion)),
          {:ok, maximum} <- maximum(Map.get(attrs, :max_iterations)),
-         {:ok, needs_names} <- Component.needs_names(Map.get(attrs, :needs, [])),
-         {:ok, meta} <- Component.meta(Map.get(attrs, :meta, %{})) do
+         {:ok, needs_names} <- Fields.needs_names(Map.get(attrs, :needs, [])),
+         {:ok, meta} <- Fields.meta(Map.get(attrs, :meta, %{})) do
       {:ok,
        %__MODULE__{
          name: name,

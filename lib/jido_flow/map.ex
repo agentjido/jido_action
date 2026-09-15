@@ -8,7 +8,7 @@ defmodule Jido.Flow.Map do
   """
 
   alias Jido.Flow.Error
-  alias Jido.Flow.Component
+  alias Jido.Flow.Component.Fields
   alias Jido.Flow.Expression
 
   @config_keys [:name, :collection, :action, :params, :on_error, :needs, :meta]
@@ -47,13 +47,13 @@ defmodule Jido.Flow.Map do
 
   def new(%{} = attrs) do
     with :ok <- known_keys(attrs),
-         {:ok, name} <- Component.name(Map.get(attrs, :name)),
+         {:ok, name} <- Fields.name(Map.get(attrs, :name)),
          {:ok, collection} <- validate_required_expression(attrs, :collection, :map_collection),
-         {:ok, action} <- Component.module(Map.get(attrs, :action), "map action"),
+         {:ok, action} <- Fields.module(Map.get(attrs, :action), "map action"),
          {:ok, params} <- validate_params(Map.get(attrs, :params, %{})),
          {:ok, on_error} <- validate_on_error(Map.get(attrs, :on_error, :fail_fast)),
-         {:ok, needs_names} <- Component.needs_names(Map.get(attrs, :needs, [])),
-         {:ok, meta} <- Component.meta(Map.get(attrs, :meta, %{})) do
+         {:ok, needs_names} <- Fields.needs_names(Map.get(attrs, :needs, [])),
+         {:ok, meta} <- Fields.meta(Map.get(attrs, :meta, %{})) do
       {:ok,
        %__MODULE__{
          name: name,
