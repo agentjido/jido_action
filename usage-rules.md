@@ -139,6 +139,12 @@ Use `jido_action` for validated work and data-first composition:
 ## Execution
 
 - Use `Jido.Exec.run/4` for the public validation and error boundary.
+- Use `Jido.Exec.remaining_time(context)` inside Actions or adapters to cap external
+  request timeouts. It returns remaining milliseconds, `:infinity` for untimed
+  work, or `nil` without budget metadata. Do not start a request when it returns
+  `0`. Exec reserves `context.__jido_exec__` for runtime metadata. Pass context
+  to nested calls to preserve or shorten the budget. This does not transfer
+  cancellation ownership. Do not persist the reserved metadata.
 - Pass `task_supervisor: reference` for a local Task.Supervisor PID, name, or
   via route. The host owns supervisor names and capacity. See
   [Runtime Configuration](guides/configuration.md#task-supervisor-references).

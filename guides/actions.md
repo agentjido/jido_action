@@ -159,6 +159,9 @@ and compensation out of this callback.
 - Keep one Action focused on one unit of work.
 - Put external effects in the Action, not in a Flow expression.
 - Treat context as caller-owned execution data.
+- Exec reserves `context.__jido_exec__` for runtime metadata. Use
+  `Jido.Exec.remaining_time(context)` to read its budget. Do not persist this
+  reserved field. Other context fields remain caller-owned.
 - Return structured domain errors when the caller can act on them.
 - Make effects idempotent when a higher-level runtime can repeat work.
 

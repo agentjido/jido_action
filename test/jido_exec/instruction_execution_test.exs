@@ -177,11 +177,20 @@ defmodule JidoActionTest.Exec.InstructionExecutionTest do
       )
 
     expected =
-      {:ok, %{params: %{nested: %{new: true}, keep: 1}, context: %{nested: nil, keep: 2}}}
+      {:ok,
+       %{
+         params: %{nested: %{new: true}, keep: 1},
+         context: %{nested: nil, keep: 2, __jido_exec__: %{deadline: :infinity}}
+       }}
 
     assert Exec.run(instruction, [nested: %{new: true}], nested: nil) == expected
     handle = Exec.run_async(instruction, [nested: %{new: true}], [nested: nil], timeout: 5_000)
-    assert Exec.await(handle) == expected
+
+    assert {:ok, %{params: %{nested: %{new: true}, keep: 1}, context: actual}} =
+             Exec.await(handle)
+
+    assert Map.delete(actual, :__jido_exec__) == %{nested: nil, keep: 2}
+    assert is_integer(actual.__jido_exec__.deadline)
   end
 
   test "rejects malformed raw invocation maps through every Instruction execution boundary" do

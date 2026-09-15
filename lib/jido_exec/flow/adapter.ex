@@ -122,6 +122,7 @@ defmodule Jido.Exec.Flow.Adapter do
       with {:ok, run_opts} <- Options.validate_flow(opts, mode),
            {:ok, input} <- normalize_map(input, :input),
            {:ok, context} <- normalize_map(context, :context),
+           {:ok, context} <- Jido.Exec.Budget.attach(context, :infinity),
            {:ok, input} <- validate_data(flow.schema, input, "Flow", flow, :flow_input),
            {:ok, input} <- validate_flow_input_shape(flow, input) do
         flow_name = flow.name

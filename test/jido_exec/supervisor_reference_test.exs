@@ -491,17 +491,25 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
 
     for target <- [ContextData, Instruction.new!(target: ContextData), flow, parent] do
       for timeout <- [:infinity, 10_000] do
-        assert Exec.run(target, %{}, context, task_supervisor: supervisor, timeout: timeout) ==
-                 {:ok, context}
+        assert {:ok, actual} =
+                 Exec.run(target, %{}, context, task_supervisor: supervisor, timeout: timeout)
+
+        assert Map.delete(actual, :__jido_exec__) == context
+
+        if timeout == :infinity,
+          do: assert(actual.__jido_exec__.deadline == :infinity),
+          else: assert(is_integer(actual.__jido_exec__.deadline))
       end
 
       handle = Exec.run_async(target, %{}, context, task_supervisor: supervisor)
-      assert Exec.await(handle) == {:ok, context}
+      assert Exec.await(handle) == {:ok, Map.put(context, :__jido_exec__, %{deadline: :infinity})}
     end
 
     for target <- [flow, parent] do
       {:ok, execution} = Exec.start(target, %{}, context, task_supervisor: supervisor)
-      assert finish_execution(execution, :continue) == {:ok, context}
+
+      assert finish_execution(execution, :continue) ==
+               {:ok, Map.put(context, :__jido_exec__, %{deadline: :infinity})}
     end
 
     handle =

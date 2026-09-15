@@ -309,7 +309,7 @@ defmodule JidoActionTest.Exec.SubflowOutputTest do
     %{
       input: value,
       work: %{value: value + 1},
-      context: context,
+      context: Map.put(context, :__jido_exec__, %{deadline: :infinity}),
       nested: %{values: ["acme", "<#{label}>"], total: value * 3 + 11}
     }
   end

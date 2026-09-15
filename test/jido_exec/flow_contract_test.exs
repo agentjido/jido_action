@@ -127,13 +127,14 @@ defmodule JidoActionTest.Exec.FlowContractTest do
 
   test "inline Steps preserve caller context and keep header bindings local" do
     context = %{trace_id: make_ref(), prefix: "Hello"}
+    execution_context = Map.put(context, :__jido_exec__, %{deadline: :infinity})
 
     assert Exec.run(InlineContextFlow, %{value: 3}, context) ==
              {:ok,
               %{
                 value: 3,
-                prior: %{value: 4, context: Map.put(context, :local_only, true)},
-                context: context
+                prior: %{value: 4, context: Map.put(execution_context, :local_only, true)},
+                context: execution_context
               }}
   end
 

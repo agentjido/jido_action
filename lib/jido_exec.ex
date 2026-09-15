@@ -70,6 +70,7 @@ defmodule Jido.Exec do
            options: keyword(),
            execution_id: String.t(),
            notify: (term() -> term()),
+           deadline: integer() | :infinity,
            count: non_neg_integer(),
            continuation_limit: non_neg_integer()
          }
@@ -157,6 +158,32 @@ defmodule Jido.Exec do
     do_run(executable, input, context, opts, nil)
   end
 
+  @doc """
+  Returns the remaining time recorded in an execution context.
+
+  Returns non-negative milliseconds for a finite execution budget, `:infinity`
+  for untimed work, or `nil` when no valid budget is present. An expired budget
+  returns `0`. This is a read-only observation, not a cancellation check or a
+  guarantee that an external operation has time to finish.
+
+  Exec reserves `context.__jido_exec__` for runtime metadata and adds a
+  `:deadline` with an absolute monotonic time in milliseconds or `:infinity`.
+  All other context fields stay unchanged. Malformed reserved metadata is
+  rejected by execution before Action work starts.
+
+  Pass the context to nested `run/4` or `run_async/4` calls to preserve or
+  shorten the budget. Subflows and continuations pass it automatically. Tasks
+  can read the budget when given the context; no process-local state is used.
+  Passing context does not transfer cancellation ownership or add a timer.
+
+  Step-wise execution retains its supplied context, including any deadline.
+  Pause time therefore reduces a supplied finite budget, but does not cause
+  automatic cancellation. Without a supplied budget, step-wise work reads
+  `:infinity`. Do not persist this runtime metadata or send it to another VM.
+  """
+  @spec remaining_time(map()) :: non_neg_integer() | :infinity | nil
+  def remaining_time(context), do: Jido.Exec.Budget.remaining(context)
+
   @doc false
   @spec run_controlled(
           term(),
@@ -178,11 +205,12 @@ defmodule Jido.Exec do
     with {:ok, timeout, run_opts} <- Options.take_timeout(opts, timeout_owner),
          {:ok, continuation_limit} <- Options.continuation_limit(run_opts, timeout_owner) do
       execute_with_timeout(
-        fn notify ->
+        fn notify, deadline ->
           chain = %{
             options: run_opts,
             execution_id: execution_id,
             notify: notify,
+            deadline: deadline,
             count: 0,
             continuation_limit: continuation_limit
           }
@@ -214,7 +242,8 @@ defmodule Jido.Exec do
            input,
            context,
            chain.options,
-           chain.execution_id
+           chain.execution_id,
+           chain.deadline
          ) do
       {:continue, %Transition{} = transition} ->
         continue_chain(transition, %{chain | count: chain.count + 1})
@@ -446,7 +475,7 @@ defmodule Jido.Exec do
          _execution_id,
          nil
        ) do
-    work.(fn _update -> :ok end)
+    work.(fn _update -> :ok end, :infinity)
   end
 
   defp execute_with_timeout(_work, 0, owner, executable, execution_id, _control) do
@@ -471,7 +500,8 @@ defmodule Jido.Exec do
         Logger.metadata(caller_logger_metadata)
         notify = fn update -> send(caller, {result_ref, worker, :update, update}) end
 
-        result = Telemetry.with_tracker(telemetry_tracker, fn -> work.(notify) end)
+        result = Telemetry.with_tracker(telemetry_tracker, fn -> work.(notify, deadline) end)
+
         send(caller, {result_ref, worker, :result, result})
       end)
 
@@ -664,7 +694,8 @@ defmodule Jido.Exec do
          input,
          context,
          opts,
-         execution_id
+         execution_id,
+         deadline
        ) do
     metadata = %{
       execution_id: execution_id,
@@ -673,7 +704,10 @@ defmodule Jido.Exec do
     }
 
     action_span = Telemetry.start([:jido, :action], metadata)
-    result = run_instruction(instruction, executable, input, context, opts, execution_id)
+
+    result =
+      run_instruction(instruction, executable, input, context, opts, execution_id, deadline)
+
     Telemetry.finish(action_span, result)
     result
   end
@@ -684,9 +718,12 @@ defmodule Jido.Exec do
          input,
          context,
          opts,
-         execution_id
+         execution_id,
+         deadline
        ) do
-    run_resolved_with_lifecycle(executable, input, context, opts, execution_id)
+    with {:ok, context} <- Jido.Exec.Budget.attach(context, deadline) do
+      run_resolved_with_lifecycle(executable, input, context, opts, execution_id)
+    end
   end
 
   defp run_resolved_with_lifecycle(
@@ -716,11 +753,13 @@ defmodule Jido.Exec do
          input,
          context,
          opts,
-         execution_id
+         execution_id,
+         deadline
        ) do
-    with {:ok, instruction} <- normalize_instruction(instruction, input, context) do
+    with {:ok, instruction} <- normalize_instruction(instruction, input, context),
+         {:ok, context} <- Jido.Exec.Budget.attach(instruction.context, deadline) do
       adapter = adapter_for(executable)
-      adapter.run_instruction(executable, instruction, opts, execution_id)
+      adapter.run_instruction(executable, %{instruction | context: context}, opts, execution_id)
     end
   end
 

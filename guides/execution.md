@@ -144,6 +144,67 @@ continuation limit cover the full chain. See
 Dispatch because a paused execution cannot run a continuation as part of one
 complete call.
 
+## Read The Remaining Time
+
+`Jido.Exec.remaining_time(context)` lets an Action or adapter read its budget:
+
+- A non-negative integer is the remaining time in milliseconds.
+- `0` means that the deadline has expired.
+- `:infinity` means that the current work has no finite budget.
+- `nil` means that context has no valid budget metadata.
+
+For example, an Action can cap an external client's timeout:
+
+```elixir
+case Jido.Exec.remaining_time(context) do
+  0 ->
+    {:error,
+     Jido.Action.Error.timeout_error("No time remains for the request", %{
+       timeout: 0,
+       retry: false
+     })}
+
+  remaining ->
+    timeout = if is_integer(remaining), do: min(remaining, 5_000), else: 5_000
+    MyApp.HTTP.get(url, timeout: timeout)
+end
+```
+
+Here, `MyApp.HTTP` is an application adapter that returns a supported Action
+result. Check the client's timeout semantics. Do not start a request with an
+expired budget. This check cannot guarantee that time remains when the request
+starts, or that an external write did not occur after a timeout.
+
+Exec adds one reserved field to the context passed to Actions:
+
+```elixir
+%{tenant_id: "tenant-1", __jido_exec__: %{deadline: deadline}}
+```
+
+The deadline is an absolute monotonic time in milliseconds or `:infinity`.
+Other context fields stay unchanged. Use the accessor instead of reading the
+field directly. Exec rejects malformed reserved metadata before Action work.
+The accessor itself returns `nil` for absent or malformed budget metadata.
+
+The existing context paths pass this value through parallel Flow work,
+Subflows, and continuations without restarting it. Pass the context explicitly
+to nested `run/4` and `run_async/4` calls to use the earlier of the supplied and
+local deadlines. A nested call with fresh context does not inherit a budget.
+Existing controllers still own their
+timeout enforcement and errors. Budget access does not add a timer, stop work,
+or report cancellation. The outer timeout still applies if an adapter ignores
+the budget.
+
+There is no process-dictionary lookup. A Task can read the budget when given
+the context. Passing context does not transfer cancellation ownership. Treat
+this field as runtime-only: do not persist it or send it to another VM. It is
+not an authorization credential or proof that an execution is still active.
+
+Step-wise execution keeps the context supplied to `start/4`. Without budget
+metadata it reads `:infinity`. A supplied finite deadline stays in that
+context, so pause time reduces the remaining budget. This does not add a
+step-wise timeout or cause automatic cancellation when that budget expires.
+
 ## Step-wise Flow Execution
 
 ```elixir
