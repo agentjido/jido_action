@@ -10,7 +10,7 @@ defmodule Jido.Flow.Dispatch do
   component and the complete Flow output.
   """
 
-  alias Jido.Flow.Component
+  alias Jido.Flow.Component.Fields
   alias Jido.Flow.Error
   alias Jido.Flow.Expression
 
@@ -46,12 +46,12 @@ defmodule Jido.Flow.Dispatch do
 
   def new(%{} = attrs) do
     with :ok <- known_keys(attrs),
-         {:ok, name} <- Component.name(Map.get(attrs, :name)),
-         {:ok, decision} <- Component.module(Map.get(attrs, :decision), "dispatch decision"),
-         {:ok, expander} <- Component.module(Map.get(attrs, :expander), "dispatch expander"),
+         {:ok, name} <- Fields.name(Map.get(attrs, :name)),
+         {:ok, decision} <- Fields.module(Map.get(attrs, :decision), "dispatch decision"),
+         {:ok, expander} <- Fields.module(Map.get(attrs, :expander), "dispatch expander"),
          {:ok, params} <- Expression.prepare(Map.get(attrs, :params, %{})),
-         {:ok, needs_names} <- Component.needs_names(Map.get(attrs, :needs, [])),
-         {:ok, meta} <- Component.meta(Map.get(attrs, :meta, %{})) do
+         {:ok, needs_names} <- Fields.needs_names(Map.get(attrs, :needs, [])),
+         {:ok, meta} <- Fields.meta(Map.get(attrs, :meta, %{})) do
       {:ok,
        %__MODULE__{
          name: name,

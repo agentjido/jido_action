@@ -1,6 +1,6 @@
 defmodule Jido.Flow do
   field_docs =
-    for entity <- hd(Jido.Flow.DSL.Extension.sections()).entities do
+    for entity <- hd(Jido.Flow.DSL.Schema.sections()).entities do
       children = for {_, children} <- entity.entities, child <- children, do: {child, "####"}
 
       for {entry, heading} <- [{entity, "###"} | children] do

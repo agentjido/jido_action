@@ -325,6 +325,16 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
 
     assert Enum.map(direct.components, & &1.__struct__) ==
              [Step, Subflow, Choice, FlowMap, Reduce, Iterate]
+
+    compiled_forms =
+      for flow <- [direct, built, decoded, Jido.Flow.CanonicalAuthoringTest.SparkMixedFlow.flow()] do
+        assert {:ok, compiled} = Flow.compile(flow)
+
+        {compiled.workflow.graph, compiled.work_index, compiled.component_index,
+         compiled.semantic_digest, compiled.compilation_digest}
+      end
+
+    assert length(Enum.uniq(compiled_forms)) == 1
   end
 
   test "Spark source data stays outside the canonical Flow" do
