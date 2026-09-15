@@ -31,6 +31,42 @@ defmodule JidoActionTest.Flow.Compiler.IteratorTest do
       end
     end
 
+    test "completion failure sees updated state and returns the original execution state" do
+      test_pid = self()
+
+      state =
+        runtime_state(fn _action, _params, _context, _execution_id, _owner -> {:ok, %{}} end)
+
+      state = %{
+        state
+        | observer: fn
+            {:start, :iterate_iteration, metadata} ->
+              send(test_pid, {:iteration_started, metadata})
+              :span
+
+            {:error, :span, error} ->
+              send(test_pid, {:iteration_failed, error})
+          end
+      }
+
+      iterator = %{
+        iterator()
+        | state: Iterate.State.new!(schema: [], initial: %{guard: -1}, update: %{guard: %{}}),
+          completion: Jido.Expr.new!(:gte, [Jido.Flow.Ref.state(:guard), 0])
+      }
+
+      assert {:error, %Jido.Flow.Error.ExecutionFailureError{} = error, ^state} =
+               IteratorCompiler.run(iterator, state)
+
+      assert error.message == "invalid iterator completion condition operands"
+      assert error.details.iterations == 1
+      assert error.details.phase == :iterate_completion
+      assert error.details.reason == :invalid_ordering_operands
+      assert_received {:iteration_started, %{iteration_index: 0, state_revision: 0}}
+      assert_received {:iteration_failed, ^error}
+      refute_received {:iteration_started, _}
+    end
+
     test "contains raised and thrown target runner failures inside an iteration" do
       failures = [
         {fn _action, _params, _context, _execution_id, _owner ->

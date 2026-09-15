@@ -239,20 +239,19 @@ defmodule Jido.Exec do
          count,
          continuation_limit
        ) do
-    with :ok <- check_continuation_limit(transition, count, continuation_limit) do
-      with {:ok, resolved} <- resolve_transition_target(transition) do
-        run_resolved_chain(
-          transition.target,
-          resolved,
-          transition.input,
-          transition.context,
-          opts,
-          execution_id,
-          notify,
-          count,
-          continuation_limit
-        )
-      end
+    with :ok <- check_continuation_limit(transition, count, continuation_limit),
+         {:ok, resolved} <- resolve_transition_target(transition) do
+      run_resolved_chain(
+        transition.target,
+        resolved,
+        transition.input,
+        transition.context,
+        opts,
+        execution_id,
+        notify,
+        count,
+        continuation_limit
+      )
     end
   end
 

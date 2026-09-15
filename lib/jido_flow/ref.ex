@@ -187,7 +187,8 @@ defmodule Jido.Flow.Ref do
   defp validate_path(path), do: {:error, :path, %{segment: path}}
 
   defp valid_path_segment?(segment) do
-    (is_atom(segment) and not is_nil(segment)) or is_binary(segment) or
+    (is_atom(segment) and not is_nil(segment)) or
+      (is_binary(segment) and String.valid?(segment)) or
       (is_integer(segment) and segment >= 0)
   end
 end

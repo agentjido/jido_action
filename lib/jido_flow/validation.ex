@@ -122,11 +122,11 @@ defmodule Jido.Flow.Validation do
     do: {:error, Error.validation_error("flow configuration must be a map")}
 
   defp known_keys(attrs, allowed) do
-    case Enum.find(Map.keys(attrs), &(&1 not in allowed)) do
-      nil ->
+    case Enum.reject(Map.keys(attrs), &(&1 in allowed)) do
+      [] ->
         :ok
 
-      key ->
+      [key | _rest] ->
         {:error,
          Error.validation_error("unknown Flow configuration key: #{inspect(key)}", %{key: key})}
     end
@@ -183,7 +183,7 @@ defmodule Jido.Flow.Validation do
       |> Enum.reduce_while({:ok, []}, fn {value, index}, {:ok, acc} ->
         case Component.new(value) do
           {:ok, component} -> {:cont, {:ok, [component | acc]}}
-          {:error, error} -> {:halt, {:error, prefix(error, [:components, index])}}
+          {:error, error} -> {:halt, {:error, Error.prefix_path(error, [:components, index])}}
         end
       end)
       |> reverse_ok()
@@ -194,12 +194,7 @@ defmodule Jido.Flow.Validation do
 
   defp output(nil), do: {:ok, nil}
 
-  defp output(value) do
-    with {:ok, value} <- Expression.normalize(value),
-         :ok <- Expression.validate(value) do
-      {:ok, value}
-    end
-  end
+  defp output(value), do: Expression.prepare(value)
 
   defp output_issues(nil) do
     [
@@ -502,11 +497,6 @@ defmodule Jido.Flow.Validation do
        actual: actual
      })}
   end
-
-  defp prefix(%{details: details} = error, path) when is_map(details),
-    do: %{error | details: Map.put(details, :path, path ++ Map.get(details, :path, []))}
-
-  defp prefix(error, _path), do: error
 
   defp reverse_ok({:ok, values}), do: {:ok, Enum.reverse(values)}
   defp reverse_ok(error), do: error
