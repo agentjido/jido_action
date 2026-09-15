@@ -67,9 +67,9 @@ defmodule Jido.Flow.Subflow do
   end
 
   defp known_keys(attrs) do
-    case Enum.find(Map.keys(attrs), &(&1 not in @keys)) do
-      nil -> :ok
-      key -> {:error, Error.validation_error("unknown subflow key: #{inspect(key)}")}
+    case Enum.reject(Map.keys(attrs), &(&1 in @keys)) do
+      [] -> :ok
+      [key | _rest] -> {:error, Error.validation_error("unknown subflow key: #{inspect(key)}")}
     end
   end
 

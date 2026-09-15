@@ -109,9 +109,12 @@ defmodule Jido.Flow.Choice do
     end
 
     defp known_keys(attrs) do
-      case Enum.find(Map.keys(attrs), &(&1 not in @keys)) do
-        nil -> :ok
-        key -> {:error, Error.validation_error("unknown choice option key: #{inspect(key)}")}
+      case Enum.reject(Map.keys(attrs), &(&1 in @keys)) do
+        [] ->
+          :ok
+
+        [key | _rest] ->
+          {:error, Error.validation_error("unknown choice option key: #{inspect(key)}")}
       end
     end
 
@@ -175,9 +178,12 @@ defmodule Jido.Flow.Choice do
     end
 
     defp known_keys(attrs) do
-      case Enum.find(Map.keys(attrs), &(&1 not in @keys)) do
-        nil -> :ok
-        key -> {:error, Error.validation_error("unknown choice fallback key: #{inspect(key)}")}
+      case Enum.reject(Map.keys(attrs), &(&1 in @keys)) do
+        [] ->
+          :ok
+
+        [key | _rest] ->
+          {:error, Error.validation_error("unknown choice fallback key: #{inspect(key)}")}
       end
     end
 
@@ -306,9 +312,9 @@ defmodule Jido.Flow.Choice do
   end
 
   defp known_keys(attrs) do
-    case Enum.find(Map.keys(attrs), &(&1 not in @keys)) do
-      nil -> :ok
-      key -> {:error, Error.validation_error("unknown choice key: #{inspect(key)}")}
+    case Enum.reject(Map.keys(attrs), &(&1 in @keys)) do
+      [] -> :ok
+      [key | _rest] -> {:error, Error.validation_error("unknown choice key: #{inspect(key)}")}
     end
   end
 

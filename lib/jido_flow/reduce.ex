@@ -124,9 +124,9 @@ defmodule Jido.Flow.Reduce do
   end
 
   defp known_keys(attrs) do
-    case Enum.find(Map.keys(attrs), &(&1 not in @config_keys)) do
-      nil -> :ok
-      key -> {:error, Error.validation_error("unknown reduce key: #{inspect(key)}")}
+    case Enum.reject(Map.keys(attrs), &(&1 in @config_keys)) do
+      [] -> :ok
+      [key | _rest] -> {:error, Error.validation_error("unknown reduce key: #{inspect(key)}")}
     end
   end
 
