@@ -453,11 +453,13 @@ defmodule JidoActionLoad.Throughput do
         compiled,
         input,
         %{},
-        options,
-        &{:ok, &1},
-        runner,
-        id,
-        %{flow: span}
+        %{
+          options: options,
+          finalizer: &{:ok, &1},
+          target_runner: runner,
+          execution_id: id,
+          lifecycle: %{flow: span}
+        }
       )
 
     {:ok, finished} = Exec.continue(execution)

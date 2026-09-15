@@ -65,6 +65,28 @@ defmodule Jido.Exec do
 
   @max_receive_timeout 2_147_483_647
 
+  @typep chain_control :: %{
+           options: keyword(),
+           execution_id: String.t(),
+           notify: (term() -> term()),
+           count: non_neg_integer(),
+           continuation_limit: non_neg_integer()
+         }
+
+  @typep managed_control :: %{
+           worker: pid(),
+           monitor: reference(),
+           result_ref: reference(),
+           deadline: integer() | :infinity,
+           timeout_owner: module(),
+           executable: term(),
+           timeout: timeout(),
+           execution_id: String.t(),
+           telemetry_tracker: pid(),
+           async: async_control() | nil,
+           owner_monitor: reference() | nil
+         }
+
   @typedoc "The result of an Action, Instruction, or Flow execution."
   @type exec_result ::
           {:ok, term()}
@@ -156,16 +178,15 @@ defmodule Jido.Exec do
          {:ok, continuation_limit} <- Options.continuation_limit(run_opts, timeout_owner) do
       execute_with_timeout(
         fn notify ->
-          run_chain(
-            executable,
-            input,
-            context,
-            run_opts,
-            execution_id,
-            notify,
-            0,
-            continuation_limit
-          )
+          chain = %{
+            options: run_opts,
+            execution_id: execution_id,
+            notify: notify,
+            count: 0,
+            continuation_limit: continuation_limit
+          }
+
+          run_chain(executable, input, context, chain)
         end,
         timeout,
         timeout_owner,
@@ -176,80 +197,41 @@ defmodule Jido.Exec do
     end
   end
 
-  defp run_chain(
-         executable,
-         input,
-         context,
-         opts,
-         execution_id,
-         notify,
-         count,
-         continuation_limit
-       ) do
+  @spec run_chain(term(), term(), term(), chain_control()) :: exec_result()
+  defp run_chain(executable, input, context, chain) do
     with {:ok, resolved} <- resolve_run_target(executable) do
-      run_resolved_chain(
-        executable,
-        resolved,
-        input,
-        context,
-        opts,
-        execution_id,
-        notify,
-        count,
-        continuation_limit
-      )
+      run_resolved_chain(executable, resolved, input, context, chain)
     end
   end
 
-  defp run_resolved_chain(
-         executable,
-         %Executable{} = resolved,
-         input,
-         context,
-         opts,
-         execution_id,
-         notify,
-         count,
-         continuation_limit
-       ) do
-    notify.({:resolved, timeout_owner(resolved), resolved})
+  defp run_resolved_chain(executable, %Executable{} = resolved, input, context, chain) do
+    chain.notify.({:resolved, timeout_owner(resolved), resolved})
 
-    case run_with_lifecycle(executable, resolved, input, context, opts, execution_id) do
+    case run_with_lifecycle(
+           executable,
+           resolved,
+           input,
+           context,
+           chain.options,
+           chain.execution_id
+         ) do
       {:continue, %Transition{} = transition} ->
-        continue_chain(
-          transition,
-          opts,
-          execution_id,
-          notify,
-          count + 1,
-          continuation_limit
-        )
+        continue_chain(transition, %{chain | count: chain.count + 1})
 
       result ->
         result
     end
   end
 
-  defp continue_chain(
-         %Transition{} = transition,
-         opts,
-         execution_id,
-         notify,
-         count,
-         continuation_limit
-       ) do
-    with :ok <- check_continuation_limit(transition, count, continuation_limit) do
+  defp continue_chain(%Transition{} = transition, chain) do
+    with :ok <- check_continuation_limit(transition, chain.count, chain.continuation_limit) do
       with {:ok, resolved} <- resolve_transition_target(transition) do
         run_resolved_chain(
           transition.target,
           resolved,
           transition.input,
           transition.context,
-          opts,
-          execution_id,
-          notify,
-          count,
-          continuation_limit
+          chain
         )
       end
     end
@@ -493,80 +475,62 @@ defmodule Jido.Exec do
         send(caller, {result_ref, worker, :result, result})
       end)
 
-    receive_execution_result(
-      worker,
-      monitor,
-      result_ref,
-      deadline,
-      owner,
-      executable,
-      timeout,
-      execution_id,
-      telemetry_tracker,
-      control,
-      owner_monitor
-    )
+    receive_execution_result(%{
+      worker: worker,
+      monitor: monitor,
+      result_ref: result_ref,
+      deadline: deadline,
+      timeout_owner: owner,
+      executable: executable,
+      timeout: timeout,
+      execution_id: execution_id,
+      telemetry_tracker: telemetry_tracker,
+      async: control,
+      owner_monitor: owner_monitor
+    })
   end
 
+  @spec receive_execution_result(managed_control()) :: exec_result()
   defp receive_execution_result(
-         worker,
-         monitor,
-         result_ref,
-         deadline,
-         owner,
-         executable,
-         timeout,
-         execution_id,
-         telemetry_tracker,
-         control,
-         owner_monitor
+         %{
+           worker: worker,
+           monitor: monitor,
+           result_ref: result_ref,
+           async: async,
+           owner_monitor: owner_monitor
+         } = control
        ) do
-    receive_timeout = execution_receive_timeout(deadline)
+    receive_timeout = execution_receive_timeout(control.deadline)
 
     receive do
       {^result_ref, ^worker, :result, result} ->
         Process.demonitor(monitor, [:flush])
         demonitor_control_owner(owner_monitor)
-        Tracker.stop(telemetry_tracker)
+        Tracker.stop(control.telemetry_tracker)
         result
 
       {^result_ref, ^worker, :update, {:resolved, next_owner, next_executable}} ->
-        receive_execution_result(
-          worker,
-          monitor,
-          result_ref,
-          deadline,
-          next_owner,
-          next_executable,
-          timeout,
-          execution_id,
-          telemetry_tracker,
-          control,
-          owner_monitor
-        )
+        # A continuation changes the error owner and target, never the deadline.
+        receive_execution_result(%{
+          control
+          | timeout_owner: next_owner,
+            executable: next_executable
+        })
 
       {:DOWN, ^monitor, :process, ^worker, reason} ->
-        error = execution_process_error(owner, reason)
+        error = execution_process_error(control.timeout_owner, reason)
         demonitor_control_owner(owner_monitor)
-        close_telemetry_tracker(telemetry_tracker, error)
+        close_telemetry_tracker(control.telemetry_tracker, error)
         {:error, error}
 
       {Async, control_ref, {:stop, error}}
-      when not is_nil(control) and control.ref == control_ref and is_exception(error) ->
+      when not is_nil(async) and async.ref == control_ref and is_exception(error) ->
         demonitor_control_owner(owner_monitor)
-
-        terminate_managed_execution(
-          worker,
-          monitor,
-          result_ref,
-          telemetry_tracker,
-          error
-        )
-
+        terminate_managed_execution(control, error)
         {:error, error}
 
       {:DOWN, ^owner_monitor, :process, control_owner, reason}
-      when not is_nil(control) and control.owner == control_owner ->
+      when not is_nil(async) and async.owner == control_owner ->
         error =
           Jido.Exec.Error.cancelled_error("Asynchronous execution owner exited", %{
             operation: :owner_exit,
@@ -575,54 +539,34 @@ defmodule Jido.Exec do
             retry: false
           })
 
-        terminate_managed_execution(
-          worker,
-          monitor,
-          result_ref,
-          telemetry_tracker,
-          error
-        )
-
+        terminate_managed_execution(control, error)
         {:error, error}
     after
       receive_timeout ->
-        if execution_deadline_reached?(deadline) do
-          error = timeout_error(owner, executable, timeout, execution_id)
+        if execution_deadline_reached?(control.deadline) do
+          error =
+            timeout_error(
+              control.timeout_owner,
+              control.executable,
+              control.timeout,
+              control.execution_id
+            )
+
           demonitor_control_owner(owner_monitor)
-
-          terminate_managed_execution(
-            worker,
-            monitor,
-            result_ref,
-            telemetry_tracker,
-            error
-          )
-
+          terminate_managed_execution(control, error)
           {:error, error}
         else
-          receive_execution_result(
-            worker,
-            monitor,
-            result_ref,
-            deadline,
-            owner,
-            executable,
-            timeout,
-            execution_id,
-            telemetry_tracker,
-            control,
-            owner_monitor
-          )
+          receive_execution_result(control)
         end
     end
   end
 
-  defp terminate_managed_execution(worker, monitor, result_ref, telemetry_tracker, error) do
-    Process.exit(worker, :kill)
-    await_worker_down(monitor, worker)
-    flush_execution_results(result_ref, worker)
-    Tracker.fail_all(telemetry_tracker, error)
-    Tracker.stop(telemetry_tracker)
+  defp terminate_managed_execution(control, error) do
+    Process.exit(control.worker, :kill)
+    await_worker_down(control.monitor, control.worker)
+    flush_execution_results(control.result_ref, control.worker)
+    Tracker.fail_all(control.telemetry_tracker, error)
+    Tracker.stop(control.telemetry_tracker)
   end
 
   defp execution_deadline(:infinity), do: :infinity
