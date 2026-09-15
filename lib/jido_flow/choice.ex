@@ -78,7 +78,7 @@ defmodule Jido.Flow.Choice do
            {:ok, name} <- Component.name(Map.get(attrs, :name)),
            {:ok, condition} <- condition(Map.get(attrs, :condition)),
            {:ok, action} <- Component.module(Map.get(attrs, :action), "choice option action"),
-           {:ok, params} <- expression(Map.get(attrs, :params, %{})) do
+           {:ok, params} <- Expression.prepare(Map.get(attrs, :params, %{})) do
         {:ok, %__MODULE__{name: name, condition: condition, action: action, params: params}}
       end
     end
@@ -100,13 +100,6 @@ defmodule Jido.Flow.Choice do
 
     defp condition(_condition),
       do: {:error, Error.validation_error("choice option condition is required")}
-
-    defp expression(value) do
-      with {:ok, value} <- Expression.normalize(value),
-           :ok <- Expression.validate(value, :flow) do
-        {:ok, value}
-      end
-    end
 
     defp known_keys(attrs) do
       case Enum.find(Map.keys(attrs), &(&1 not in @keys)) do
@@ -151,7 +144,7 @@ defmodule Jido.Flow.Choice do
     def new(%{} = attrs) do
       with :ok <- known_keys(attrs),
            {:ok, action} <- Component.module(Map.get(attrs, :action), "choice fallback action"),
-           {:ok, params} <- expression(Map.get(attrs, :params, %{})) do
+           {:ok, params} <- Expression.prepare(Map.get(attrs, :params, %{})) do
         {:ok, %__MODULE__{action: action, params: params}}
       end
     end
@@ -164,13 +157,6 @@ defmodule Jido.Flow.Choice do
       case new(attrs) do
         {:ok, fallback} -> fallback
         {:error, error} -> raise error
-      end
-    end
-
-    defp expression(value) do
-      with {:ok, value} <- Expression.normalize(value),
-           :ok <- Expression.validate(value, :flow) do
-        {:ok, value}
       end
     end
 
@@ -270,7 +256,7 @@ defmodule Jido.Flow.Choice do
         |> Enum.reduce_while({:ok, []}, fn {value, index}, {:ok, options} ->
           case Option.new(value) do
             {:ok, option} -> {:cont, {:ok, [option | options]}}
-            {:error, error} -> {:halt, {:error, prefix(error, [:options, index])}}
+            {:error, error} -> {:halt, {:error, Error.prefix_path(error, [:options, index])}}
           end
         end)
         |> reverse_options()
@@ -312,10 +298,5 @@ defmodule Jido.Flow.Choice do
     end
   end
 
-  defp prefix(%{details: details} = error, path) when is_map(details) do
-    %{error | details: Map.put(details, :path, path ++ Map.get(details, :path, []))}
-  end
-
-  defp prefix(error, _path), do: error
   defp invalid, do: {:error, Error.validation_error("choice configuration must be a map")}
 end

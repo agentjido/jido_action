@@ -49,7 +49,7 @@ defmodule Jido.Flow.Dispatch do
          {:ok, name} <- Component.name(Map.get(attrs, :name)),
          {:ok, decision} <- Component.module(Map.get(attrs, :decision), "dispatch decision"),
          {:ok, expander} <- Component.module(Map.get(attrs, :expander), "dispatch expander"),
-         {:ok, params} <- expression(Map.get(attrs, :params, %{})),
+         {:ok, params} <- Expression.prepare(Map.get(attrs, :params, %{})),
          {:ok, needs_names} <- Component.needs_names(Map.get(attrs, :needs, [])),
          {:ok, meta} <- Component.meta(Map.get(attrs, :meta, %{})) do
       {:ok,
@@ -99,13 +99,6 @@ defmodule Jido.Flow.Dispatch do
     case Enum.find(Map.keys(attrs), &(&1 not in @config_keys)) do
       nil -> :ok
       key -> {:error, Error.validation_error("unknown dispatch key: #{inspect(key)}")}
-    end
-  end
-
-  defp expression(value) do
-    with {:ok, value} <- Expression.normalize(value),
-         :ok <- Expression.validate(value, :flow) do
-      {:ok, value}
     end
   end
 

@@ -109,12 +109,7 @@ defmodule Jido.Flow.Iterate do
 
     defp expression(attrs, field, scope) do
       if Map.has_key?(attrs, field) do
-        value = Map.fetch!(attrs, field)
-
-        with {:ok, value} <- Expression.normalize(value),
-             :ok <- Expression.validate(value, scope) do
-          {:ok, value}
-        end
+        Expression.prepare(Map.fetch!(attrs, field), scope)
       else
         {:error, Error.validation_error("iterate state #{field} is required", %{path: [field]})}
       end
@@ -134,7 +129,7 @@ defmodule Jido.Flow.Iterate do
     with :ok <- known_keys(attrs),
          {:ok, name} <- Component.name(Map.get(attrs, :name)),
          {:ok, action} <- Component.module(Map.get(attrs, :action), "iterate action"),
-         {:ok, params} <- expression(Map.get(attrs, :params, %{}), :iterate_params),
+         {:ok, params} <- Expression.prepare(Map.get(attrs, :params, %{}), :iterate_params),
          {:ok, state} <- state(Map.get(attrs, :state)),
          {:ok, completion} <- completion(Map.get(attrs, :completion)),
          {:ok, maximum} <- maximum(Map.get(attrs, :max_iterations)),
@@ -177,13 +172,6 @@ defmodule Jido.Flow.Iterate do
     case Enum.find(Map.keys(attrs), &(&1 not in @keys)) do
       nil -> :ok
       key -> {:error, Error.validation_error("unknown iterate key: #{inspect(key)}")}
-    end
-  end
-
-  defp expression(value, scope) do
-    with {:ok, value} <- Expression.normalize(value),
-         :ok <- Expression.validate(value, scope) do
-      {:ok, value}
     end
   end
 

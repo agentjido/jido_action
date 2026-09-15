@@ -105,7 +105,7 @@ defmodule Jido.Flow.Map do
 
   defp validate_required_expression(attrs, field, scope) do
     if Map.has_key?(attrs, field) do
-      expression(Map.fetch!(attrs, field), scope)
+      Expression.prepare(Map.fetch!(attrs, field), scope)
     else
       {:error, Error.validation_error("map #{field} is required", %{path: [field]})}
     end
@@ -113,14 +113,7 @@ defmodule Jido.Flow.Map do
 
   defp validate_params(nil), do: {:ok, %{}}
 
-  defp validate_params(params), do: expression(params, :map_params)
-
-  defp expression(value, scope) do
-    with {:ok, value} <- Expression.normalize(value),
-         :ok <- Expression.validate(value, scope) do
-      {:ok, value}
-    end
-  end
+  defp validate_params(params), do: Expression.prepare(params, :map_params)
 
   defp known_keys(attrs) do
     case Enum.find(Map.keys(attrs), &(&1 not in @config_keys)) do
