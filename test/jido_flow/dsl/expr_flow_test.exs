@@ -150,6 +150,40 @@ defmodule JidoActionTest.Flow.DSL.ExprFlowTest do
     assert Jido.Exec.run(flow, %{score: 40}) == {:ok, %{eligible: true}}
   end
 
+  test "Step keyword and block fields preserve the same expression AST" do
+    flows =
+      for {module, declaration} <- [
+            {StepKeywordQuotedFields,
+             """
+             step "echo",
+               action: JidoActionTest.Fixtures.Actions.EchoParamsAction,
+               params: %{value: input(:value) + 1, nested: [nil, %{}]}
+             """},
+            {StepBlockQuotedFields,
+             """
+             step "echo" do
+               action JidoActionTest.Fixtures.Actions.EchoParamsAction
+               params %{value: input(:value) + 1, nested: [nil, %{}]}
+             end
+             """}
+          ] do
+        Code.compile_string("""
+        defmodule #{inspect(module)} do
+          use Jido.Flow, name: "step_quoted_fields"
+          flow do
+            #{declaration}
+            output result("echo")
+          end
+        end
+        """)
+
+        module.flow()
+      end
+
+    assert [flow, flow] = flows
+    assert Jido.Exec.run(flow, %{value: 2}) == {:ok, %{value: 3, nested: [nil, %{}]}}
+  end
+
   test "Map keyword and block fields preserve nested expressions and literal data" do
     declarations = [
       {MapKeywordFields,

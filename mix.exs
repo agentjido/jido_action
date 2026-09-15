@@ -284,7 +284,7 @@ defmodule JidoAction.MixProject do
       {:zoi, "~> 0.17"},
       {:runic, "== 0.1.0-alpha.10"},
       {:splode, "~> 0.3.0"},
-      {:spark, "~> 2.7"},
+      {:spark, "~> 2.7.3"},
 
       # Development & Test Dependencies
       {:git_ops, "~> 2.9", only: :dev, runtime: false},
