@@ -50,6 +50,25 @@ defmodule Jido.Flow.RefTest do
     end
   end
 
+  test "invalid UTF-8 is rejected at every path position for every source with a path" do
+    for segment <- [<<255>>, <<0xC3>>, <<0xC0, 0xAF>>, <<0xED, 0xA0, 0x80>>],
+        path <- [[segment], [segment, :value], [:payload, segment, 0], [:payload, segment]],
+        ref <- path_refs(path) do
+      assert {:error,
+              %InvalidDefinitionError{
+                message: "invalid flow ref",
+                details: %{reason: :path, segment: ^segment, ref: ^ref}
+              }} = Ref.validate(ref, :any)
+    end
+  end
+
+  test "valid Unicode and empty strings remain valid path segments" do
+    for segment <- ["", "café", "項目🌿", "e\u0301", <<0>>],
+        ref <- path_refs([:payload, segment, 0, true, false]) do
+      assert :ok = Ref.validate(ref, :any)
+    end
+  end
+
   test "improper paths return a structured error for every source with a path" do
     for path <- [[:payload | :tail], [:payload, :value | nil]],
         ref <- path_refs(path) do

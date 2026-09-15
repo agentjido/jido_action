@@ -8,7 +8,7 @@ defmodule Jido.Flow.RefPathAuthoringTest.ValidFlow do
       action: JidoActionTest.Fixtures.Actions.EchoParamsAction,
       params: %{
         input: input([]),
-        selected: input([:payload, "items", 0]),
+        selected: input([:payload, "項目🌿", 0]),
         context: context(:optional),
         literal: nil
       }
@@ -38,7 +38,7 @@ defmodule Jido.Flow.RefPathAuthoringTest do
   test "all authoring forms preserve supported paths and present nil values" do
     params = %{
       input: Ref.input([]),
-      selected: Ref.input([:payload, "items", 0]),
+      selected: Ref.input([:payload, "項目🌿", 0]),
       context: Ref.context(:optional),
       literal: nil
     }
@@ -63,7 +63,7 @@ defmodule Jido.Flow.RefPathAuthoringTest do
     assert {:ok, decoded} =
              document |> Jason.encode!() |> Jason.decode!() |> Codec.decode(registry)
 
-    input = %{payload: %{"items" => [nil]}}
+    input = %{payload: %{"項目🌿" => [nil]}}
     expected = %{echo: %{input: input, selected: nil, context: nil, literal: nil}, selected: nil}
 
     for flow <- [direct, built, decoded, __MODULE__.ValidFlow.flow()] do
@@ -72,8 +72,8 @@ defmodule Jido.Flow.RefPathAuthoringTest do
 
       assert {:error,
               %Jido.Flow.Error.ExecutionFailureError{
-                details: %{reason: :missing_index, path: [:payload, "items", 0]}
-              }} = Jido.Exec.run(flow, %{payload: %{"items" => []}}, %{optional: nil})
+                details: %{reason: :missing_index, path: [:payload, "項目🌿", 0]}
+              }} = Jido.Exec.run(flow, %{payload: %{"項目🌿" => []}}, %{optional: nil})
     end
   end
 
@@ -100,7 +100,15 @@ defmodule Jido.Flow.RefPathAuthoringTest do
     valid = Flow.new!(name: "invalid_paths", components: [step], output: Ref.input([]))
     assert {:ok, document, registry} = Codec.encode(valid)
 
-    for path <- [[nil], ["value", nil, 0], ["value", nil], ["value" | :tail], [-1], [1.5]] do
+    for path <- [
+          [nil],
+          ["value", nil, 0],
+          ["value", nil],
+          ["value" | :tail],
+          [-1],
+          [1.5],
+          [<<255>>]
+        ] do
       ref = Ref.input(path)
 
       assert {:error, %InvalidDefinitionError{}} =
@@ -128,6 +136,61 @@ defmodule Jido.Flow.RefPathAuthoringTest do
     end
   end
 
+  test "direct construction and Builder reject invalid UTF-8 with expression paths" do
+    segment = <<255>>
+    ref = Ref.input([segment])
+    params = %{nested: [ref]}
+
+    assert {:error,
+            %InvalidDefinitionError{
+              message: "flow expression contains an invalid reference path",
+              details: %{path: [:nested, 0], segment: ^segment}
+            }} = Jido.Flow.Expression.validate(params)
+
+    assert {:error, %InvalidDefinitionError{details: %{path: [:nested, 0], segment: ^segment}}} =
+             Step.new(name: "echo", action: EchoParamsAction, params: params)
+
+    assert {:error, %InvalidDefinitionError{details: %{path: [:nested, 0], segment: ^segment}}} =
+             Flow.new(
+               name: "utf8_paths",
+               components: [Step.new!(name: "echo", action: EchoParamsAction)],
+               output: params
+             )
+
+    assert {:error, %InvalidDefinitionError{details: %{path: [:nested, 0], segment: ^segment}}} =
+             Builder.new(name: "utf8_paths")
+             |> Builder.step("echo", EchoParamsAction, params)
+             |> Builder.output(Builder.result("echo"))
+             |> Builder.build()
+  end
+
+  test "Codec rejects invalid UTF-8 reference paths before returning a stored document" do
+    segment = <<255>>
+    step = Step.new!(name: "echo", action: EchoParamsAction, params: Ref.input([]))
+    valid = Flow.new!(name: "utf8_paths", components: [step], output: %{})
+    assert {:ok, document, registry} = Codec.encode(valid)
+
+    invalid = %{valid | components: [%{step | params: Ref.input([segment])}]}
+
+    for result <- [Codec.encode(invalid, registry), Codec.encode(invalid)] do
+      assert {:error,
+              %InvalidDefinitionError{
+                message: "flow expression contains an invalid reference path",
+                details: %{path: [:components, 0], segment: ^segment}
+              }} = result
+    end
+
+    [stored_step] = document["components"]
+    stored_step = put_in(stored_step, ["params", "$ref", "path"], [segment])
+    invalid_document = %{document | "components" => [stored_step]}
+
+    assert {:error,
+            %InvalidDefinitionError{
+              message: "flow expression contains an invalid reference path",
+              details: %{path: ["components", 0], segment: ^segment}
+            }} = Codec.decode(invalid_document, registry)
+  end
+
   test "Builder.select rejects an invalid source with a structured error" do
     for path <- [[:payload | :tail], [:payload, :value | nil], [nil], nil, :payload, 0, %{}] do
       source = %Ref{source: :input, path: path}
@@ -152,8 +215,8 @@ defmodule Jido.Flow.RefPathAuthoringTest do
           Ref.state(),
           Ref.body_result()
         ] do
-      assert Builder.select(source, [:payload, "items", 0]) ==
-               %{source | path: [:payload, "items", 0]}
+      assert Builder.select(source, [:payload, "項目🌿", 0]) ==
+               %{source | path: [:payload, "項目🌿", 0]}
 
       assert Builder.select(source, nil) == source
     end
@@ -248,7 +311,8 @@ defmodule Jido.Flow.RefPathAuthoringTest do
             "[:value, nil]",
             "[:value | :tail]",
             "[-1]",
-            "[%{}]"
+            "[%{}]",
+            "[<<255>>]"
           ]) do
       code = """
       defmodule #{__MODULE__}.Invalid#{index} do

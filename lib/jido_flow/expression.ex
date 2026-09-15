@@ -29,13 +29,17 @@ defmodule Jido.Flow.Expression do
   def validate(expression, scope \\ :flow), do: do_validate(expression, [], scope)
 
   @doc false
-  @spec condition(term(), Ref.scope()) :: {:ok, Expr.t()} | {:error, Exception.t()}
-  def condition(%Expr{} = expression, scope) do
+  @spec prepare(term(), Ref.scope()) :: {:ok, term()} | {:error, Exception.t()}
+  def prepare(expression, scope \\ :flow) do
     with {:ok, expression} <- normalize(expression),
          :ok <- validate(expression, scope) do
       {:ok, expression}
     end
   end
+
+  @doc false
+  @spec condition(term(), Ref.scope()) :: {:ok, Expr.t()} | {:error, Exception.t()}
+  def condition(%Expr{} = expression, scope), do: prepare(expression, scope)
 
   def condition(value, scope) when is_struct(value, Ref) or is_boolean(value),
     do: condition(Expr.new!(:all, [value]), scope)
@@ -120,7 +124,7 @@ defmodule Jido.Flow.Expression do
           end
 
         {:error, error} ->
-          {:halt, {:error, prefix_path(error, path)}}
+          {:halt, {:error, Error.prefix_path(error, path)}}
       end
     end)
   end
@@ -144,7 +148,7 @@ defmodule Jido.Flow.Expression do
   defp do_validate(value, path, _scope, _operation_checked?) do
     case Data.validate(value) do
       :ok -> :ok
-      {:error, error} -> {:error, prefix_path(error, path)}
+      {:error, error} -> {:error, Error.prefix_path(error, path)}
     end
   end
 
@@ -169,7 +173,7 @@ defmodule Jido.Flow.Expression do
        when (is_atom(component) and not is_nil(component)) or is_binary(component) do
     case normalize_name(component) do
       {:ok, component} -> {:ok, %{ref | component: component}}
-      {:error, error} -> {:error, prefix_path(error, path)}
+      {:error, error} -> {:error, Error.prefix_path(error, path)}
     end
   end
 
@@ -246,12 +250,6 @@ defmodule Jido.Flow.Expression do
      })}
   end
 
-  defp prefix_path(%{details: details} = error, path) when is_map(details) do
-    %{error | details: Map.put(details, :path, path ++ Map.get(details, :path, []))}
-  end
-
-  defp prefix_path(error, _path), do: error
-
   defp operation_result({:error, %Expr.Error{} = error}, path) do
     {:error,
      Error.validation_error("invalid Flow expression", %{
@@ -261,6 +259,6 @@ defmodule Jido.Flow.Expression do
      })}
   end
 
-  defp operation_result({:error, error}, path), do: {:error, prefix_path(error, path)}
+  defp operation_result({:error, error}, path), do: {:error, Error.prefix_path(error, path)}
   defp operation_result(result, _path), do: result
 end
