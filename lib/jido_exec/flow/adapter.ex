@@ -138,17 +138,15 @@ defmodule Jido.Exec.Flow.Adapter do
           )
         end
 
-        Engine.start(
-          flow,
-          compiled,
-          input,
-          context,
-          run_opts,
-          fn output -> validate_flow_output(flow, output) end,
-          target_runner,
-          execution_id,
-          %{flow: flow_span}
-        )
+        control = %{
+          options: run_opts,
+          finalizer: fn output -> validate_flow_output(flow, output) end,
+          target_runner: target_runner,
+          execution_id: execution_id,
+          lifecycle: %{flow: flow_span}
+        }
+
+        Engine.start(flow, compiled, input, context, control)
       end
 
     case result do
