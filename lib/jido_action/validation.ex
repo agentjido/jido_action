@@ -8,29 +8,24 @@ defmodule Jido.Action.Validation do
           {:ok, term()} | {:error, Error.InvalidInputError.t()}
   def open_validate([], data, _details), do: {:ok, data}
 
-  def open_validate(schema, data, details) when is_map(details) do
-    if zoi_schema?(schema) do
-      safely_validate(details, fn ->
-        schema
-        |> parse_schema(data)
-        |> handle_validation_result(schema, details)
-      end)
-    else
-      {:error, Error.validation_error("Unsupported schema type", details)}
-    end
-  end
+  def open_validate(schema, data, details) when is_map(details),
+    do: validate_open(schema, data, details, &normalize_open_result/3)
 
   @doc false
   @spec open_validate_preserving_shape(term(), term(), map()) ::
           {:ok, term()} | {:error, Error.InvalidInputError.t()}
   def open_validate_preserving_shape([], data, _details), do: {:ok, data}
 
-  def open_validate_preserving_shape(schema, data, details) when is_map(details) do
+  def open_validate_preserving_shape(schema, data, details) when is_map(details),
+    do: validate_open(schema, data, details, &preserve_open_result/3)
+
+  defp validate_open(schema, data, details, on_success) do
     if zoi_schema?(schema) do
       safely_validate(details, fn ->
-        schema
-        |> parse_schema(data)
-        |> handle_shape_preserving_result(schema, details)
+        case parse_schema(schema, data) do
+          {{:ok, validated}, unknown} -> on_success.(validated, unknown, schema)
+          {{:error, errors}, _unknown} -> validation_error(errors, details)
+        end
       end)
     else
       {:error, Error.validation_error("Unsupported schema type", details)}
@@ -145,7 +140,7 @@ defmodule Jido.Action.Validation do
     Map.split(data, keys)
   end
 
-  defp handle_validation_result({{:ok, validated}, unknown}, schema, _details) do
+  defp normalize_open_result(validated, unknown, schema) do
     validated = normalize_validated(schema, validated)
 
     if is_map(validated) and object_schema?(schema) do
@@ -155,15 +150,7 @@ defmodule Jido.Action.Validation do
     end
   end
 
-  defp handle_validation_result({{:error, errors}, _unknown}, _schema, details) do
-    {:error,
-     Error.validation_error(
-       Zoi.prettify_errors(errors),
-       Map.put(details, :errors, Enum.map(errors, &format_zoi_error/1))
-     )}
-  end
-
-  defp handle_shape_preserving_result({{:ok, validated}, unknown}, schema, _details) do
+  defp preserve_open_result(validated, unknown, schema) do
     if is_map(validated) and not is_struct(validated) and object_schema?(schema) do
       {:ok, Map.merge(unknown, validated)}
     else
@@ -171,7 +158,7 @@ defmodule Jido.Action.Validation do
     end
   end
 
-  defp handle_shape_preserving_result({{:error, errors}, _unknown}, _schema, details) do
+  defp validation_error(errors, details) do
     {:error,
      Error.validation_error(
        Zoi.prettify_errors(errors),

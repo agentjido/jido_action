@@ -1203,7 +1203,7 @@ defmodule Jido.Flow.Codec do
     |> Enum.reduce_while({:ok, []}, fn {component, index}, {:ok, encoded} ->
       case encode_component(component, registry) do
         {:ok, value} -> {:cont, {:ok, [value | encoded]}}
-        {:error, error} -> {:halt, {:error, prefix(error, ["components", index])}}
+        {:error, error} -> {:halt, {:error, Error.prefix_path(error, ["components", index])}}
       end
     end)
     |> reverse_ok()
@@ -1360,7 +1360,7 @@ defmodule Jido.Flow.Codec do
 
       case result do
         {:ok, value} -> {:cont, {:ok, [value | encoded]}}
-        {:error, error} -> {:halt, {:error, prefix(error, ["options", index])}}
+        {:error, error} -> {:halt, {:error, Error.prefix_path(error, ["options", index])}}
       end
     end)
     |> reverse_ok()
@@ -1438,7 +1438,7 @@ defmodule Jido.Flow.Codec do
       |> Enum.reduce_while({:ok, []}, fn {value, index}, {:ok, encoded} ->
         case encoder.(value, registry, depth + 1) do
           {:ok, value} -> {:cont, {:ok, [value | encoded]}}
-          {:error, error} -> {:halt, {:error, prefix(error, [index])}}
+          {:error, error} -> {:halt, {:error, Error.prefix_path(error, [index])}}
         end
       end)
       |> reverse_ok()
@@ -1475,7 +1475,7 @@ defmodule Jido.Flow.Codec do
       {:ok, identifier} when is_binary(identifier) ->
         case Registry.resolve(registry, identifier, kind) do
           {:ok, value} -> {:ok, value}
-          {:error, error} -> {:error, prefix(error, path ++ [field])}
+          {:error, error} -> {:error, Error.prefix_path(error, path ++ [field])}
         end
 
       {:ok, _value} ->
@@ -1559,7 +1559,7 @@ defmodule Jido.Flow.Codec do
             end
 
           {:error, error} ->
-            {:error, prefix(error, path ++ [field])}
+            {:error, Error.prefix_path(error, path ++ [field])}
         end
 
       {:ok, _value} ->
@@ -1686,12 +1686,6 @@ defmodule Jido.Flow.Codec do
        maximum_size: @maximum_collection_size
      })}
   end
-
-  defp prefix(%{details: details} = error, path) when is_map(details) do
-    %{error | details: Map.put(details, :path, path ++ Map.get(details, :path, []))}
-  end
-
-  defp prefix(error, _path), do: error
 
   defp reverse_ok({:ok, values}), do: {:ok, Enum.reverse(values)}
   defp reverse_ok(error), do: error
