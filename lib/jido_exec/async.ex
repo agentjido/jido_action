@@ -6,7 +6,7 @@ defmodule Jido.Exec.Async do
   alias Jido.Exec.Runtime
 
   @default_await_timeout 5_000
-  @stop_wait_ms 1_000
+  @stop_wait_ms 500
   @max_receive_timeout 2_147_483_647
   @active 0
   @claimed 1

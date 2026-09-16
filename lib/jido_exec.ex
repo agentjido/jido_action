@@ -353,7 +353,8 @@ defmodule Jido.Exec do
 
   Cancellation stops active Action and Flow work. It does not undo side
   effects that already completed and it does not return a partial Flow
-  execution value.
+  execution value. The owner waits up to 500 milliseconds for a normal stop,
+  then forces a stop and waits up to 500 milliseconds for its exit.
   """
   @spec cancel(async_ref()) :: :ok | {:error, Exception.t()}
   def cancel(async_ref), do: Async.cancel(async_ref)
