@@ -3,6 +3,9 @@
 This guide explains how to migrate an application from the published
 `jido_action` version `2.3.2` API to version `3.0.0-beta.6`.
 
+The current install example targets `3.0.0-beta.11`. The `beta.6` references
+below identify the first V3 API used by this guide.
+
 This guide covers only version 2 to version 3 changes. Each section starts
 with version 2 code that no longer has the same contract. It then gives the
 version 3 replacement. New version 3 features that do not require a change to
@@ -17,7 +20,7 @@ Change the package version in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:jido_action, "~> 3.0.0-beta.6"}
+    {:jido_action, "~> 3.0.0-beta.11"}
   ]
 end
 ```
