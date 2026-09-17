@@ -47,7 +47,7 @@ runtime Flow construction, safe stored Flow maps, and one Flow execution
 engine. Recent beta releases add inline Steps, the public
 `Jido.Action.Inline` host API, `Jido.Expr`, and
 compile-time Flow DSL extensions. The v3 API can still change before the
-stable release. The current development branch locks Runic 0.1.0-alpha.10.
+stable release. The current development branch locks Runic 0.1.0-alpha.11.
 Use it for evaluation and controlled trials before you use it for critical
 production work. See the [version 2 to version 3 migration guide](guides/v2-to-v3-migration.md)
 for the confirmed breaking changes.

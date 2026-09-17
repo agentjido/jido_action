@@ -391,7 +391,7 @@ defmodule JidoActionTest.Flow.Compiler.NativeRunicTest do
   end
 
   test "locks the native contract to the tested Runic release" do
-    assert Application.spec(:runic, :vsn) |> to_string() == "0.1.0-alpha.10"
+    assert Application.spec(:runic, :vsn) |> to_string() == "0.1.0-alpha.11"
   end
 
   defp define_child_module(module, amount) do

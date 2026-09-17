@@ -282,7 +282,7 @@ defmodule JidoAction.MixProject do
     [
       {:telemetry, "~> 1.3"},
       {:zoi, "~> 0.17"},
-      {:runic, "== 0.1.0-alpha.10"},
+      {:runic, "== 0.1.0-alpha.11"},
       {:splode, "~> 0.3.0"},
       {:spark, "~> 2.7.3"},
 
