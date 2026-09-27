@@ -100,11 +100,7 @@ defmodule JidoActionTest.Load.ExecutionLoadTest do
           expected = if mode == 0, do: %{id: :direct, value: value}, else: %{value: value}
           assert result == {:ok, expected}, "seed=#{context.seed} call=#{index} mode=#{mode}"
 
-          for id <- ids do
-            assert_receive {^ref, :worker_done, ^id, pid}, 5_000
-            monitor = Process.monitor(pid)
-            assert_receive {:DOWN, ^monitor, :process, ^pid, _}, 5_000
-          end
+          assert_completed_calls(ref, ids, context)
 
           if handle_pid do
             monitor = Process.monitor(handle_pid)
@@ -132,7 +128,7 @@ defmodule JidoActionTest.Load.ExecutionLoadTest do
              max_concurrency: 4
            ) == {:ok, %{value: 17}}
 
-    assert_exact_workers(deep_ref, Enum.to_list(1..deep_count), context)
+    assert_exact_calls(deep_ref, Enum.to_list(1..deep_count), context)
 
     Agent.update(context.ledger, fn _ -> SystemLoad.initial_ledger() end)
     width = 16
@@ -147,7 +143,7 @@ defmodule JidoActionTest.Load.ExecutionLoadTest do
              max_concurrency: 4
            ) == {:ok, %{readers: List.duplicate(shared_values, width)}}
 
-    assert_exact_workers(diamond_ref, ["root" | producers ++ readers], context)
+    assert_exact_calls(diamond_ref, ["root" | producers ++ readers], context)
   end
 
   test "Map keeps identity, order, and a four-worker bound through 1,000 items", context do
@@ -187,8 +183,8 @@ defmodule JidoActionTest.Load.ExecutionLoadTest do
     Enum.sort_by(1..count, fn item -> rem(item * 37 + seed, count + 1) end)
   end
 
-  defp assert_exact_workers(ref, expected_ids, context) do
-    workers =
+  defp assert_completed_calls(ref, expected_ids, context) do
+    callbacks =
       for _ <- expected_ids do
         assert_receive {^ref, :worker_done, id, pid},
                        10_000,
@@ -197,13 +193,19 @@ defmodule JidoActionTest.Load.ExecutionLoadTest do
         {id, pid}
       end
 
-    assert Enum.sort(Enum.map(workers, &elem(&1, 0))) == Enum.sort(expected_ids)
+    assert Enum.sort(Enum.map(callbacks, &elem(&1, 0))) == Enum.sort(expected_ids)
 
-    for {_id, pid} <- workers do
+    # Direct and serial callbacks can use the caller. Only separate workers exit.
+    for pid <- Enum.uniq(Enum.map(callbacks, &elem(&1, 1))), pid != self() do
       monitor = Process.monitor(pid)
       assert_receive {:DOWN, ^monitor, :process, ^pid, _}, 10_000
     end
 
+    refute_received {^ref, :worker_done, _, _}
+  end
+
+  defp assert_exact_calls(ref, expected_ids, context) do
+    assert_completed_calls(ref, expected_ids, context)
     ledger = SystemLoad.snapshot(context.ledger)
     assert ledger.active == 0
 
@@ -212,7 +214,6 @@ defmodule JidoActionTest.Load.ExecutionLoadTest do
 
     assert Enum.frequencies(ledger.completed) == Enum.frequencies(ledger.started)
     assert_supervisor_quiescent(context.supervisor)
-    refute_received {^ref, :worker_done, _, _}
   end
 
   defp run_gated_map(flow, items, context) do
