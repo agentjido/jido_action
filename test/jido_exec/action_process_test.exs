@@ -4,7 +4,6 @@ defmodule JidoActionTest.Exec.ActionProcessTest do
   @moduletag capture_log: true
 
   alias Jido.Action.Error
-  alias Jido.Action.Error.ExecutionFailureError
   alias Jido.Exec
   alias Jido.Instruction
   alias JidoActionTest.Fixtures.Execution, as: Fixtures
@@ -13,31 +12,25 @@ defmodule JidoActionTest.Exec.ActionProcessTest do
   alias JidoActionTest.Fixtures.BlockingFlow
   alias JidoActionTest.Fixtures.Actions.KillingAction
 
-  test "contains a killed Action worker outside the caller process" do
-    instruction = Instruction.new!(target: KillingAction)
+  test "direct Action and serial Flow hard kills terminate their caller" do
+    paths =
+      [
+        action: fn -> Exec.run(KillingAction) end,
+        instruction: fn -> Exec.run(Instruction.new!(target: KillingAction)) end
+      ] ++
+        Fixtures.flow_execution_paths(KillingFlow, %{})
 
-    for executable <- [KillingAction, instruction] do
-      assert {:error,
-              %ExecutionFailureError{
-                message: "action execution process exited",
-                details: %{action: KillingAction, reason: :killed}
-              } = error} =
-               run_in_monitored_caller(fn -> Exec.run(executable) end,
-                 assert_mailbox_empty: true
-               )
-
-      refute Error.retryable?(error)
+    for {_form, run} <- paths do
+      {caller, monitor} = spawn_monitor(run)
+      assert_receive {:DOWN, ^monitor, :process, ^caller, :killed}, 1_000
     end
   end
 
-  test "contains a killed Action in every Flow execution form" do
-    for {form, run} <- Fixtures.flow_execution_paths(KillingFlow, %{}) do
-      assert {:error,
-              %ExecutionFailureError{
-                message: "action execution process exited",
-                details: %{action: KillingAction, reason: :killed}
-              }} = run.(),
-             to_string(form)
+  test "timed Action and Flow worker kills become execution boundary errors" do
+    for target <- [KillingAction, Instruction.new!(target: KillingAction), KillingFlow] do
+      assert {:error, error} = Exec.run(target, %{}, %{}, timeout: 5_000)
+      assert error.details.reason == :killed
+      refute Error.retryable?(error)
     end
   end
 
@@ -53,7 +46,7 @@ defmodule JidoActionTest.Exec.ActionProcessTest do
 
       on_exit(fn -> Process.exit(caller, :kill) end)
       assert_receive {:blocking_flow_node_started, worker}, 2_000, to_string(form)
-      refute worker == caller
+      assert worker == caller
       worker_monitor = Process.monitor(worker)
       # Confirm the monitor before caller cleanup can terminate this worker.
       assert {:monitored_by, monitors} = Process.info(worker, :monitored_by)
@@ -66,7 +59,7 @@ defmodule JidoActionTest.Exec.ActionProcessTest do
     end
   end
 
-  test "terminates finite-timeout work when the Exec caller exits" do
+  test "finite-timeout work can finish after the Exec caller exits" do
     owner = self()
 
     {caller, caller_monitor} =
@@ -77,6 +70,7 @@ defmodule JidoActionTest.Exec.ActionProcessTest do
     on_exit(fn -> Process.exit(caller, :kill) end)
     assert_receive {:blocking_flow_node_started, worker}, 1_000
     refute worker == caller
+    on_exit(fn -> Process.exit(worker, :kill) end)
     worker_monitor = Process.monitor(worker)
     assert {:monitored_by, monitors} = Process.info(worker, :monitored_by)
     assert self() in monitors
@@ -84,7 +78,8 @@ defmodule JidoActionTest.Exec.ActionProcessTest do
     Process.exit(caller, :kill)
 
     assert_receive {:DOWN, ^caller_monitor, :process, ^caller, :killed}, 1_000
-    assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :killed}, 1_000
+    send(worker, :finish)
+    assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :normal}, 1_000
   end
 
   test "runs concurrent Action workers under the shared Task Supervisor" do
@@ -92,13 +87,13 @@ defmodule JidoActionTest.Exec.ActionProcessTest do
 
     first_caller =
       spawn(fn ->
-        result = Exec.run(BlockingAction, %{value: 1}, %{test_pid: owner})
+        result = Exec.run(BlockingAction, %{value: 1}, %{test_pid: owner}, timeout: 10_000)
         send(owner, {:action_result, :first, result})
       end)
 
     second_caller =
       spawn(fn ->
-        result = Exec.run(BlockingAction, %{value: 2}, %{test_pid: owner})
+        result = Exec.run(BlockingAction, %{value: 2}, %{test_pid: owner}, timeout: 10_000)
         send(owner, {:action_result, :second, result})
       end)
 

@@ -162,7 +162,10 @@ defmodule JidoActionTest.Exec.FailFastAdmissionTest do
         Task.async(fn ->
           result =
             if mode == :run do
-              Exec.run(map_flow(:fail_fast), %{}, context, max_concurrency: concurrency)
+              Exec.run(map_flow(:fail_fast), %{}, context,
+                max_concurrency: concurrency,
+                timeout: 10_000
+              )
             else
               handle =
                 Exec.run_async(map_flow(:fail_fast), %{}, context, max_concurrency: concurrency)

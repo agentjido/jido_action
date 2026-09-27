@@ -20,6 +20,49 @@ defmodule JidoActionTest.Exec.ExecutionControlTest do
     end
   end
 
+  defmodule DeadlineProbe do
+    use Jido.Action, name: "execution_deadline_probe"
+
+    def run(_, %{test_pid: owner, token: token} = context) do
+      send(owner, {token, :ready, self()})
+      receive do: ({^token, :wait_for_deadline} -> :ok)
+
+      receive do
+      after
+        Exec.remaining_time(context) + 1 -> :ok
+      end
+
+      # Queue real telemetry and a result after the execution budget expires.
+      span = Telemetry.start([:jido, :action], %{execution_id: "deadline-probe", name: :late})
+      Telemetry.stop(span)
+      {:ok, %{remaining: Exec.remaining_time(context)}}
+    end
+  end
+
+  test "queued telemetry cannot extend the execution deadline", context do
+    %{token: token, supervisor: supervisor} = context
+
+    handle =
+      Exec.run_async(DeadlineProbe, %{}, %{test_pid: self(), token: token},
+        task_supervisor: supervisor,
+        timeout: 250
+      )
+
+    assert_receive {^token, :ready, worker}, 1_000
+    monitor = Process.monitor(worker)
+    :erlang.suspend_process(handle.pid)
+
+    try do
+      send(worker, {token, :wait_for_deadline})
+      assert_receive {:DOWN, ^monitor, :process, ^worker, :normal}, 1_000
+    after
+      :erlang.resume_process(handle.pid)
+    end
+
+    assert {:error, %Jido.Action.Error.TimeoutError{}} = Exec.await(handle)
+    assert Task.Supervisor.children(supervisor) == []
+  end
+
   defmodule Decision do
     use Jido.Action, name: "execution_control_decision"
 
@@ -45,7 +88,7 @@ defmodule JidoActionTest.Exec.ExecutionControlTest do
       %{token: token, order: order} = context
       handle = start_held(HeldAction, context)
       assert_receive {^token, :ready, :first, action, tracker}, 1_000
-      worker = managed_worker(handle)
+      worker = action
       owned = monitor_owned(handle, action, tracker, worker)
       worker_monitor = Process.monitor(worker)
       error = Jido.Exec.Error.cancelled_error("ordered cancellation", %{retry: false})
@@ -62,7 +105,7 @@ defmodule JidoActionTest.Exec.ExecutionControlTest do
         assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :normal}, 1_000
 
         assert {:messages, messages} = Process.info(handle.pid, :messages)
-        assert Enum.any?(messages, &match?({_, ^worker, :result, {:ok, %{value: 7}}}, &1))
+        assert Enum.any?(messages, &match?({_, ^worker, {:ok, %{value: 7}}}, &1))
 
         if order == :result_first,
           do: send(handle.pid, {Jido.Exec.Async, handle.ref, {:stop, error}})
@@ -84,14 +127,14 @@ defmodule JidoActionTest.Exec.ExecutionControlTest do
     %{token: token} = context
     handle = start_held(HeldAction, context)
     assert_receive {^token, :ready, :first, action, tracker}, 1_000
-    worker = managed_worker(handle)
+    worker = action
     owned = monitor_owned(handle, action, tracker, worker)
 
     # Suspend the controller so unrelated messages precede the real result.
     :erlang.suspend_process(handle.pid)
 
     try do
-      send(handle.pid, {make_ref(), worker, :result, {:ok, %{wrong: :reference}}})
+      send(handle.pid, {make_ref(), worker, {:ok, %{wrong: :reference}}})
 
       send(
         handle.pid,
@@ -119,11 +162,10 @@ defmodule JidoActionTest.Exec.ExecutionControlTest do
       timeout = if terminal == :timeout, do: 1_000, else: :infinity
       handle = start_held(initial, context, timeout: timeout, max_continuations: 1)
       assert_receive {^token, :ready, :first, first_action, tracker}, 1_000
-      first_monitor = Process.monitor(first_action)
       send(first_action, {token, :finish, {:continue, %{phase: :next}, target}})
       assert_receive {^token, :ready, :next, action, ^tracker}, 1_000
-      assert_receive {:DOWN, ^first_monitor, :process, ^first_action, :normal}, 1_000
-      worker = managed_worker(handle)
+      assert action == first_action
+      worker = action
       owned = monitor_owned(handle, action, tracker, worker)
 
       case terminal do
@@ -187,11 +229,10 @@ defmodule JidoActionTest.Exec.ExecutionControlTest do
     assert_receive {^token, :handle, handle}, 1_000
     on_exit(fn -> Process.exit(handle.pid, :kill) end)
     assert_receive {^token, :ready, :first, first_action, tracker}, 1_000
-    first_monitor = Process.monitor(first_action)
     send(first_action, {token, :finish, {:continue, %{phase: :next}, held_flow()}})
     assert_receive {^token, :ready, :next, action, ^tracker}, 1_000
-    assert_receive {:DOWN, ^first_monitor, :process, ^first_action, :normal}, 1_000
-    owned = monitor_owned(handle, action, tracker, managed_worker(handle))
+    assert action == first_action
+    owned = monitor_owned(handle, action, tracker, action)
     send(owner, {token, :exit})
     assert_receive {:DOWN, ^owner_monitor, :process, ^owner, :normal}, 1_000
     assert_cleanup(context, handle, owned)
@@ -249,16 +290,10 @@ defmodule JidoActionTest.Exec.ExecutionControlTest do
     )
   end
 
-  defp managed_worker(handle) do
-    {:monitors, monitors} = Process.info(handle.pid, :monitors)
-    [{:process, worker}] = Enum.reject(monitors, &(&1 == {:process, handle.owner}))
-    worker
-  end
-
   defp monitor_owned(handle, action, tracker, worker) do
-    %{delivery: delivery, delivery_guard: delivery_guard} = :sys.get_state(tracker)
+    assert is_reference(tracker)
 
-    for pid <- [handle.pid, action, tracker, worker, delivery, delivery_guard] do
+    for pid <- Enum.uniq([handle.pid, action, worker]) do
       monitor = Process.monitor(pid)
       assert {:monitored_by, owners} = Process.info(pid, :monitored_by)
       assert self() in owners

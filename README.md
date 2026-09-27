@@ -28,6 +28,12 @@ queues, scheduling, recovery, retries, durable cancellation policy,
 distributed coordination, supervision, and deployment-safe continuation.
 `Jido.Exec` can enforce one caller-selected timeout for a complete in-memory
 call. It can also return an owner-bound handle for one asynchronous call.
+Untimed synchronous calls run serial Actions in the caller. Timed and async
+calls share one execution worker; concurrent waves use bounded workers and a
+scheduler. Workers can continue after abrupt controller or scheduler death.
+Supervisor startup and telemetry delivery are synchronous, as in V2. Blocked
+host startup or cleanup handlers can delay the timeout response.
+See [Process Ownership](guides/execution.md#process-ownership).
 
 This foundation keeps the action boundary small:
 

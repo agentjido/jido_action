@@ -130,7 +130,7 @@ Jido.Exec.run(
 )
 ```
 
-Exec validates input, calls the Action in an owned process, validates normal
+Exec validates input, calls the Action in the current execution process, validates normal
 output, and converts exceptions, throws, exits, and invalid return shapes to
 structured errors. It does not retry the Action.
 

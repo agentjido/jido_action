@@ -327,6 +327,42 @@ Jido.Exec.run(action, params, context, timeout: 30_000)
 Review each call that relied on the package default. Select a timeout from the
 application policy for that operation.
 
+Version 2 used `timeout: 0` to disable its timer when there was no inherited
+deadline. Version 3 uses `timeout: :infinity` for that purpose. In version 3,
+`timeout: 0` returns an immediate timeout and starts no Action work.
+
+### Review Process Ownership
+
+The V3 beta no longer starts a separate worker and guard for every Action.
+A synchronous call with `timeout: :infinity` runs serial Actions in the caller.
+Catchable exceptions, throws, and exits remain structured errors, but a hard
+self-kill terminates the caller. Callback changes to the process dictionary,
+mailbox, flags, or Logger metadata can remain after return.
+
+Timed and async calls run serial Actions and continuations in one supervised
+execution worker. Concurrent waves use supervised workers without a separate
+guard. A living controller stops work on timeout or cancellation, including
+callbacks that trap exits. The async controller can cancel work after handle
+owner death. If the controller itself or a direct scheduler dies abruptly,
+workers may continue. Complete worker death now returns an execution-level `InternalError`;
+concurrent worker death returns a Flow runnable error. Managed task-start
+failures also return `InternalError`. These failures have no effect batch.
+
+Supervisor startup and telemetry handlers use synchronous calls, as in V2.
+There are no telemetry delivery or startup helper processes. Blocked host
+startup or cleanup handlers can delay timeout and cancellation responses.
+
+A direct call uses no Task.Supervisor slot. A timed Action uses one; an async
+Action uses two for control and execution. Add capacity for concurrent Flow
+workers. Keep the selected supervisor route through nested work and pauses.
+
+Close per-invocation external resources explicitly on normal return. Use a
+separate host owner that monitors the execution process as the fallback for
+forced kills. A serial Action return no longer implies worker termination.
+See [Process Ownership](execution.md#process-ownership) and
+[External Resource Ownership](execution.md#external-resource-ownership).
+
+
 ## Move Retry And Compensation Policy Out Of Jido Exec
 
 Version 2 can retry Actions with backoff and can call `on_error/4` when

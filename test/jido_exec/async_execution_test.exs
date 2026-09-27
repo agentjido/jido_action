@@ -302,7 +302,8 @@ defmodule JidoActionTest.Exec.AsyncExecutionTest do
     assert_receive {:DOWN, monitor_ref, :process, pid, :killed}, 1_000
     assert monitor_ref == handle.monitor_ref
     assert pid == handle.pid
-    assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :killed}, 1_000
+    send(worker, :finish)
+    assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :normal}, 1_000
 
     assert {:error, %Error.AsyncExecutionError{details: %{reason: :noproc}}} =
              Exec.await(handle, 10)

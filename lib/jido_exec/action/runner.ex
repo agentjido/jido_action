@@ -3,10 +3,8 @@ defmodule Jido.Exec.Action.Runner do
 
   alias Jido.Action.Error
   alias Jido.Action.Output
-  alias Jido.Exec.Runtime
   alias Jido.Exec.Transition
   alias Jido.Instruction
-  alias Jido.Exec.Telemetry
 
   @type target_phase :: :input | :execution | :output
   @type target_result ::
@@ -21,43 +19,23 @@ defmodule Jido.Exec.Action.Runner do
            | {:continue, Transition.t()}
            | {:error, target_phase(), Exception.t(), extras()}
 
-  @doc "Runs one Action Instruction through the isolated Action boundary."
+  @doc "Runs one Action Instruction in the current execution process."
   @spec run(Instruction.t(), keyword()) ::
           {:ok, term()}
           | {:ok, term(), Jido.Action.effects()}
           | {:continue, Transition.t()}
           | {:error, Exception.t()}
-  def run(%Instruction{target: action} = instruction, run_opts \\ []) do
-    invoke_isolated(action, instruction.params, instruction.context, run_opts, &direct_result/1)
+  def run(%Instruction{target: action} = instruction, _run_opts \\ []) do
+    direct_result(invoke(action, instruction.params, instruction.context))
   end
 
   @doc false
   @spec run_target(module(), term(), map(), keyword()) :: target_result()
-  def run_target(action, params, context, run_opts) do
-    invoke_isolated(action, params, context, run_opts, &target_result/1)
+  def run_target(action, params, context, _run_opts) do
+    target_result(invoke(action, params, context))
   end
 
-  @spec invoke_isolated(module(), term(), map(), keyword(), (invocation_result() -> result)) ::
-          result
-        when result: var
-  defp invoke_isolated(action, params, context, run_opts, to_result) do
-    task_supervisor = Keyword.fetch!(run_opts, :task_supervisor)
-
-    # Normalize results before the worker copies its reply to the caller.
-    case run_isolated(task_supervisor, fn -> to_result.(invoke(action, params, context)) end) do
-      {:ok, result} ->
-        result
-
-      {:exit, reason} ->
-        to_result.({:error, :execution, process_exit_error(action, reason), :no_extras})
-
-      {:start_error, reason} ->
-        to_result.(
-          {:error, :execution, process_start_error(action, task_supervisor, reason), :no_extras}
-        )
-    end
-  end
-
+  @spec invoke(module(), term(), map()) :: invocation_result()
   defp invoke(action, params, context) do
     with {:ok, params} <- validate_params(action, params) do
       case invoke_result(action, params, context) do
@@ -291,59 +269,6 @@ defmodule Jido.Exec.Action.Runner do
   defp to_error_message(message) when is_binary(message), do: message
   defp to_error_message(message) when is_atom(message), do: Atom.to_string(message)
   defp to_error_message(message), do: inspect(message)
-
-  defp run_isolated(task_supervisor, work) do
-    caller = self()
-    caller_group_leader = Process.group_leader()
-    caller_logger_metadata = Logger.metadata()
-    telemetry_tracker = Telemetry.tracker()
-    ref = make_ref()
-
-    case Runtime.start_child(task_supervisor, fn ->
-           worker = self()
-           spawn(fn -> Runtime.terminate_with_caller(caller, worker) end)
-           Telemetry.put_tracker(telemetry_tracker)
-
-           receive do
-             {^ref, :run} ->
-               Process.group_leader(worker, caller_group_leader)
-               Logger.metadata(caller_logger_metadata)
-               send(caller, {ref, worker, work.()})
-           end
-         end) do
-      {:ok, worker} -> await_worker(worker, ref)
-      {:error, reason} -> {:start_error, reason}
-    end
-  end
-
-  defp await_worker(worker, ref) do
-    monitor = Process.monitor(worker)
-    send(worker, {ref, :run})
-
-    receive do
-      {^ref, ^worker, result} ->
-        Process.demonitor(monitor, [:flush])
-        {:ok, result}
-
-      {:DOWN, ^monitor, :process, ^worker, reason} ->
-        {:exit, reason}
-    end
-  end
-
-  defp process_exit_error(action, reason) do
-    programming_error("action execution process exited", %{
-      action: action,
-      reason: reason
-    })
-  end
-
-  defp process_start_error(action, task_supervisor, reason) do
-    programming_error("action execution process could not start", %{
-      action: action,
-      task_supervisor: task_supervisor,
-      reason: reason
-    })
-  end
 
   defp programming_error(message, details) do
     Error.execution_error(message, Map.put(details, :retry, false))

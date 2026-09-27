@@ -66,11 +66,18 @@ defmodule JidoActionTest.Exec.WorkRetentionTest do
         output: Ref.result("fail")
       )
 
-    assert {:ok, execution} = Exec.start(flow, %{value: Enum.to_list(1..10_000)})
-    assert {:ok, finished} = Exec.continue(execution)
-    assert {:error, error} = Exec.result(finished)
-    assert error.message == "Action failed"
-    assert :erts_debug.flat_size(finished.runnable_errors) < 1_000
+    [small, large] =
+      for count <- [1, 10_000] do
+        assert {:ok, execution} = Exec.start(flow, %{value: Enum.to_list(1..count)})
+        assert {:ok, finished} = Exec.continue(execution)
+        assert {:error, error} = Exec.result(finished)
+        assert error.message == "Action failed"
+        :erts_debug.flat_size(finished.runnable_errors)
+      end
+
+    # Direct execution has a deeper error stack. Input size must not affect it.
+    assert small == large
+    assert large < 2_000
   end
 
   test "ready and completed descriptors do not copy or retain unrelated execution data" do

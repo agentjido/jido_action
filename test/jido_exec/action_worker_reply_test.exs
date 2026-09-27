@@ -46,7 +46,7 @@ defmodule JidoActionTest.Exec.ActionWorkerReplyTest do
 
       caller =
         Task.Supervisor.async_nolink(supervisor, fn ->
-          Exec.run(target, params, %{}, task_supervisor: supervisor)
+          Exec.run(target, params, %{}, task_supervisor: supervisor, timeout: 5_000)
         end)
 
       assert_receive {^ref, :ready, worker}, 1_000
@@ -57,7 +57,8 @@ defmodule JidoActionTest.Exec.ActionWorkerReplyTest do
         send(worker, {ref, :release})
 
         assert_receive {:trace, ^worker, :send, {reply_ref, ^worker, reply}, recipient}
-                       when is_reference(reply_ref) and is_pid(recipient),
+                       when is_reference(reply_ref) and recipient == reply_ref and
+                              elem(reply, 0) in [:ok, :error],
                        1_000
 
         assert_receive {:DOWN, ^monitor, :process, ^worker, :normal}, 1_000
@@ -95,19 +96,15 @@ defmodule JidoActionTest.Exec.ActionWorkerReplyTest do
 
   defp assert_reply(reply, result, kind, mode) do
     # Failed effects must not be copied out of the worker.
-    assert :erts_debug.flat_size(reply) < 1_000
+    assert :erts_debug.flat_size(reply) < 2_000
 
-    if kind == :action do
-      assert reply == result
-      assert {:error, error} = reply
-      assert_value(:error, error, mode)
-    else
-      phase = if mode == :output_error, do: :output, else: :execution
-      assert {:error, ^phase, error} = reply
-      assert_value(:error, error, mode)
-      assert {:error, public_error} = result
-      assert public_error.__struct__ == error.__struct__
-      assert public_error.message == error.message
+    assert reply == result
+    assert {:error, error} = reply
+    assert_value(:error, error, mode)
+
+    if kind == :flow do
+      assert error.details.phase ==
+               if(mode == :output_error, do: :step_output, else: :step_execution)
     end
   end
 

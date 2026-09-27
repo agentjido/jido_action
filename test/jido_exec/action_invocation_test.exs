@@ -66,7 +66,7 @@ defmodule JidoActionTest.Exec.ActionInvocationTest do
         envelope: [:input, :execution],
         continue: [:input, :execution]
       ] do
-    test "#{mode} runs each required phase once in one isolated worker" do
+    test "#{mode} runs each required phase once in the selected execution process" do
       counter = start_supervised!({Agent, fn -> [] end})
       supervisor = start_supervised!(Task.Supervisor)
       invocation = make_ref()
@@ -88,9 +88,10 @@ defmodule JidoActionTest.Exec.ActionInvocationTest do
         calls = Agent.get(counter, &Enum.reverse/1)
         assert Enum.map(calls, &elem(&1, 0)) == unquote(phases), to_string(path)
         assert [worker] = calls |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
-        refute worker == self()
+        isolated? = path in [:action_timeout, :action_async, :flow_timeout, :flow_async]
+        assert worker != self() == isolated?
 
-        for pid <- Enum.uniq([worker | Task.Supervisor.children(supervisor)]) do
+        for pid <- Enum.uniq([worker | Task.Supervisor.children(supervisor)]), pid != self() do
           monitor = Process.monitor(pid)
           assert_receive {:DOWN, ^monitor, :process, ^pid, reason}
           assert reason in [:normal, :noproc]

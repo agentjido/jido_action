@@ -154,7 +154,7 @@ defmodule Jido.Flow.CodecTest do
 
     assert Jido.Exec.run(action, %{marker: marker}) == {:ok, %{marker: marker}}
     assert_received {:inline_codec_body, ^marker, worker}
-    refute worker == self()
+    assert worker == self()
     refute_received {:inline_codec_body, _, _}
 
     flow = InlineProbeFlow.flow()

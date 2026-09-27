@@ -89,7 +89,8 @@ defmodule JidoActionTest.Exec.AsyncMailboxHygieneTest do
                details: %{operation: :handle_message, reason: :killed}
              }}} = Exec.handle_message(handle, down)
 
-    assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :killed}, 1_000
+    send(worker, :finish)
+    assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :normal}, 1_000
     refute_handle_messages(handle)
   end
 

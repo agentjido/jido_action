@@ -145,6 +145,17 @@ Use `jido_action` for validated work and data-first composition:
   `0`. Exec reserves `context.__jido_exec__` for runtime metadata. Pass context
   to nested calls to preserve or shorten the budget. This does not transfer
   cancellation ownership. Do not persist the reserved metadata.
+- Direct synchronous calls with `timeout: :infinity` run serial callbacks in
+  the caller and share its process state. A hard self-kill kills that caller.
+  Timed and async controllers stop work on timeout and explicit cancellation.
+  If a controller or concurrent scheduler dies abruptly, workers may continue;
+  this package does not start guards to enforce reverse lifetime ownership.
+  Timed and async calls reuse one execution worker for serial Actions and
+  continuations. Close per-invocation resources explicitly on normal return.
+- Supervisor startup and telemetry handlers run synchronously. Blocked host
+  startup or cleanup handlers can delay timeout and cancellation responses.
+  Keep them short; the package adds no helper processes to isolate them.
+- Use `timeout: :infinity` for no timer. `timeout: 0` rejects work immediately.
 - Pass `task_supervisor: reference` for a local Task.Supervisor PID, name, or
   via route. The host owns supervisor names and capacity. See
   [Runtime Configuration](guides/configuration.md#task-supervisor-references).

@@ -606,6 +606,7 @@ defmodule JidoActionTest.System.ExecutionTest do
               SystemLoad.combined_flow(),
               %{value: 4, items: [3, 1]},
               runtime_context(context, ref, observer),
+              timeout: 10_000,
               max_concurrency: 2,
               task_supervisor: context.supervisor
             )

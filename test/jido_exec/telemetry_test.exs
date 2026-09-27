@@ -5,7 +5,6 @@ defmodule JidoActionTest.Exec.TelemetryTest do
 
   alias Jido.Exec
   alias Jido.Exec.Telemetry
-  alias Jido.Exec.Telemetry.Tracker
   alias Jido.Flow
   alias Jido.Flow.{Iterate, Reduce, Ref, Step}
   alias Jido.Flow.Map, as: FlowMap
@@ -260,43 +259,6 @@ defmodule JidoActionTest.Exec.TelemetryTest do
     refute Process.alive?(worker)
   end
 
-  test "the finite-timeout tracker emits one terminal event per span" do
-    attach([@action_start, @action_stop, @action_error])
-    {:ok, tracker} = Jido.Exec.Telemetry.Tracker.start_link()
-
-    Jido.Exec.Telemetry.with_tracker(tracker, fn ->
-      span =
-        Jido.Exec.Telemetry.start([:jido, :action], %{
-          execution_id: "tracker-test",
-          kind: :action,
-          name: :tracker_test
-        })
-
-      assert Jido.Exec.Telemetry.stop(span) == :ok
-      assert Jido.Exec.Telemetry.stop(span) == :ok
-    end)
-
-    assert Jido.Exec.Telemetry.Tracker.fail_all(tracker, :timeout) == :ok
-
-    Jido.Exec.Telemetry.with_tracker(tracker, fn ->
-      suppressed =
-        Jido.Exec.Telemetry.start([:jido, :action], %{
-          execution_id: "tracker-test",
-          kind: :action,
-          name: :suppressed
-        })
-
-      assert Jido.Exec.Telemetry.error(suppressed, :late) == :ok
-    end)
-
-    assert Jido.Exec.Telemetry.Tracker.stop(tracker) == :ok
-
-    assert [
-             {@action_start, _, %{name: :tracker_test}},
-             {@action_stop, _, %{name: :tracker_test}}
-           ] = events()
-  end
-
   for form <- [:action, :flow], terminal <- [:cancel, :timeout] do
     @tag timeout: 10_000
     @tag inline_form: form, inline_terminal: terminal
@@ -396,25 +358,6 @@ defmodule JidoActionTest.Exec.TelemetryTest do
         Process.demonitor(caller_monitor, [:flush])
       end
     end
-  end
-
-  test "tracker calls are safe after the tracker stops" do
-    span =
-      Telemetry.start([:jido, :action], %{
-        execution_id: "stopped-tracker-test",
-        kind: :action,
-        name: :stopped_tracker
-      })
-
-    assert :ok = Telemetry.stop(span)
-    {:ok, tracker} = Tracker.start_link()
-    assert :ok = Tracker.stop(tracker)
-    refute Process.alive?(tracker)
-
-    assert :suppressed = Tracker.open(tracker, span)
-    assert :ok = Tracker.close(tracker, span, :stop, %{})
-    assert :ok = Tracker.fail_all(tracker, :late_failure)
-    assert :ok = Tracker.stop(tracker)
   end
 
   test "classifies raw telemetry errors by value type" do

@@ -4,14 +4,18 @@ defmodule Jido.Exec.Telemetry do
   alias Jido.Exec.Error, as: ExecError
   alias Jido.Flow.Error
 
+  @typedoc false
+  @type tracker :: reference() | nil
+
   @type span :: %{
+          owner: pid(),
           event: [atom()],
           id: reference(),
           metadata: map(),
           started_at: integer(),
           system_time: integer(),
-          tracker: pid() | nil,
-          tracked?: boolean()
+          tracker: tracker(),
+          order: integer()
         }
 
   @tracker_key {__MODULE__, :tracker}
@@ -31,26 +35,19 @@ defmodule Jido.Exec.Telemetry do
     tracker = tracker()
 
     span = %{
+      owner: self(),
       event: event,
       id: make_ref(),
       metadata: metadata,
       started_at: started_at,
       system_time: System.system_time(),
       tracker: tracker,
-      tracked?: false
+      order: :erlang.unique_integer([:monotonic])
     }
 
-    case tracker do
-      nil ->
-        emit_start(span)
-        %{span | tracked?: true}
-
-      tracker ->
-        case Jido.Exec.Telemetry.Tracker.open(tracker, span) do
-          :ok -> %{span | tracked?: true}
-          :suppressed -> span
-        end
-    end
+    notify(tracker, {:open, span})
+    emit_start(span)
+    span
   end
 
   @doc "Stops one telemetry span successfully."
@@ -78,18 +75,18 @@ defmodule Jido.Exec.Telemetry do
   end
 
   @doc false
-  @spec tracker() :: pid() | nil
+  @spec tracker() :: tracker()
   def tracker, do: Process.get(@tracker_key)
 
   @doc false
-  @spec put_tracker(pid() | nil) :: pid() | nil
-  def put_tracker(tracker) when is_pid(tracker) or is_nil(tracker) do
+  @spec put_tracker(tracker()) :: tracker()
+  def put_tracker(tracker) do
     Process.put(@tracker_key, tracker)
   end
 
   @doc false
-  @spec with_tracker(pid(), (-> result)) :: result when result: term()
-  def with_tracker(tracker, fun) when is_pid(tracker) and is_function(fun, 0) do
+  @spec with_tracker(tracker(), (-> result)) :: result when result: term()
+  def with_tracker(tracker, fun) when is_function(fun, 0) do
     prior = put_tracker(tracker)
 
     try do
@@ -98,6 +95,48 @@ defmodule Jido.Exec.Telemetry do
       put_tracker(prior)
     end
   end
+
+  @doc false
+  @spec record(map(), {:open, span()} | {:close, reference()}) :: map()
+  def record(spans, {:open, span}), do: Map.put(spans, span.id, span)
+  def record(spans, {:close, id}), do: Map.delete(spans, id)
+
+  @doc false
+  @spec drain(reference(), map()) :: map()
+  def drain(ref, spans) do
+    receive do
+      {^ref, :telemetry, event} -> drain(ref, record(spans, event))
+    after
+      0 -> drain_failures(ref, spans)
+    end
+  end
+
+  defp drain_failures(ref, spans) do
+    receive do
+      {^ref, :worker_error, worker, error} -> drain_failures(ref, fail(spans, error, worker))
+    after
+      0 -> spans
+    end
+  end
+
+  @doc false
+  @spec fail(map(), term(), pid() | nil) :: map()
+  def fail(spans, error, worker \\ nil) do
+    {failed, remaining} =
+      Enum.split_with(spans, fn {_, span} ->
+        is_nil(worker) or span.owner == worker
+      end)
+
+    failed
+    |> Enum.sort_by(fn {_, span} -> span.order end, :desc)
+    |> Enum.each(fn {_, span} -> emit_terminal(span, :error, error_metadata(error)) end)
+
+    Map.new(remaining)
+  end
+
+  @doc false
+  @spec fail_worker(reference(), pid(), term()) :: term()
+  def fail_worker(ref, worker, error), do: send(ref, {ref, :worker_error, worker, error})
 
   @doc false
   @spec emit_start(span()) :: :ok
@@ -124,15 +163,13 @@ defmodule Jido.Exec.Telemetry do
   @spec error_metadata(term()) :: map()
   def error_metadata(error), do: %{error: error, error_type: error_type(error)}
 
-  defp emit(%{tracked?: false}, _suffix, _extra_metadata), do: :ok
-
-  defp emit(%{tracker: nil} = span, suffix, extra_metadata) do
+  defp emit(span, suffix, extra_metadata) do
+    notify(span.tracker, {:close, span.id})
     emit_terminal(span, suffix, extra_metadata)
   end
 
-  defp emit(%{tracker: tracker} = span, suffix, extra_metadata) do
-    Jido.Exec.Telemetry.Tracker.close(tracker, span, suffix, extra_metadata)
-  end
+  defp notify(nil, _event), do: :ok
+  defp notify(ref, event), do: send(ref, {ref, :telemetry, event})
 
   defp error_type(error) when is_exception(error) do
     error_map = if ExecError.owned?(error), do: ExecError.to_map(error), else: Error.to_map(error)

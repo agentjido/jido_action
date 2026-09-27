@@ -46,6 +46,7 @@ defmodule JidoActionTest.Exec.AsyncErrorTest do
     for mode <- [:timeout, :exit] do
       handle = Jido.Exec.run_async(BlockingAction, %{value: 1}, %{test_pid: self()})
       assert_receive {:blocking_flow_node_started, worker}, 1_000
+      on_exit(fn -> Process.exit(worker, :kill) end)
       worker_monitor = Process.monitor(worker)
       handle_monitor = Process.monitor(handle.pid)
 
@@ -65,7 +66,14 @@ defmodule JidoActionTest.Exec.AsyncErrorTest do
         end
 
       assert_error_map(error)
-      assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :killed}, 1_000
+
+      if mode == :exit do
+        send(worker, :finish)
+        assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :normal}, 1_000
+      else
+        assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :killed}, 1_000
+      end
+
       Process.demonitor(handle_monitor, [:flush])
       refute Process.alive?(handle.pid)
       refute_received {:jido_exec_async_result, _, _, _}

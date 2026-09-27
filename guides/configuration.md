@@ -83,8 +83,9 @@ are invalid. Missing supervisors and task-start failures produce structured
 errors. Exec does not fall back to another supervisor or restart interrupted
 work. Failure details include the supplied `task_supervisor` and `reason`.
 
-The supervisor owns Action workers and async control tasks. An async call
-needs a control slot in addition to its Action worker slots. `run_async/4`
+The supervisor owns managed execution workers, concurrent wave workers, and
+async control tasks. An async call needs a control slot and an execution
+worker slot, plus slots for concurrent work. Direct serial calls use no slot. `run_async/4`
 raises `InvalidInputError` for invalid routing or `AsyncExecutionError` if its
 control task cannot start. After it returns a handle, failures use the normal
 async result contract.

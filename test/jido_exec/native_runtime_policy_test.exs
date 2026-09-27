@@ -389,7 +389,7 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
              {:ok, %{value: 2}}
   end
 
-  test "normalizes Task Supervisor capacity failures for finite and infinite calls" do
+  test "direct calls need no supervisor slot; timed calls report capacity failures" do
     instance = Module.concat(__MODULE__, CapacityLimitedJido)
     task_supervisor = Module.concat(instance, TaskSupervisor)
 
@@ -400,16 +400,13 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
       )
     )
 
-    for opts <- [
-          [task_supervisor: task_supervisor],
-          [task_supervisor: task_supervisor, timeout: 1_000]
-        ] do
-      assert {:error,
-              %Jido.Action.Error.ExecutionFailureError{
-                message: "action execution process could not start",
-                details: %{reason: :max_children, task_supervisor: ^task_supervisor}
-              }} = Exec.run(Add, %{value: 1}, %{}, opts)
-    end
+    assert Exec.run(Add, %{value: 1}, %{}, task_supervisor: task_supervisor) == {:ok, %{value: 2}}
+
+    assert {:error,
+            %Jido.Action.Error.InternalError{
+              message: "Execution process could not start",
+              details: %{reason: :max_children, task_supervisor: ^task_supervisor}
+            }} = Exec.run(Add, %{value: 1}, %{}, task_supervisor: task_supervisor, timeout: 1_000)
   end
 
   test "a zero timeout dispatches no work for every executable form" do

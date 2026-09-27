@@ -58,8 +58,12 @@ defmodule JidoActionTest.System.ResourceOwnershipTest do
              SessionOwner.open(context.sessions, context.service, context.observer) do
         send(context.observer, {:using, id, self(), owner})
 
-        receive do
-          :finish -> Map.get(params, :result, {:ok, %{session: id}})
+        try do
+          receive do
+            :finish -> Map.get(params, :result, {:ok, %{session: id}})
+          end
+        after
+          SessionOwner.close(owner)
         end
       end
     end
@@ -83,6 +87,36 @@ defmodule JidoActionTest.System.ResourceOwnershipTest do
     after
       Exec.cancel(handle)
     end
+  end
+
+  test "normal direct return releases the resource while the caller stays alive", context do
+    service = start_supervised!({Service, observer: self()})
+    caller = self()
+    token = make_ref()
+
+    {borrower, monitor} =
+      spawn_monitor(fn ->
+        result =
+          Exec.run(
+            UseSession,
+            %{},
+            %{sessions: context.sessions, service: service, observer: caller},
+            task_supervisor: context.tasks
+          )
+
+        send(caller, {token, result})
+        receive do: (:stop -> :ok)
+      end)
+
+    on_exit(fn -> Process.exit(borrower, :kill) end)
+    assert_receive {:using, id, ^borrower, owner}, 1_000
+    send(borrower, :finish)
+    assert_receive {^token, {:ok, %{session: ^id}}}, 1_000
+    assert Process.alive?(borrower)
+    owner_monitor = Process.monitor(owner)
+    assert_released(service, id, owner, owner_monitor)
+    send(borrower, :stop)
+    assert_receive {:DOWN, ^monitor, :process, ^borrower, :normal}
   end
 
   test "cancellation kills the Action but the independent owner releases the session", context do

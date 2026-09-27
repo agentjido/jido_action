@@ -188,10 +188,19 @@ for validation, return normalization, and error behavior.
 - Failure lists and node results use canonical node order.
 - `max_concurrency` applies across one execution, including nested Flows and
   collection work. Reduce and Iterate work stays serial.
-- Helper processes must have clear owners. Monitor owners and release permits,
-  task slots, registrations, and telemetry spans on all terminal paths.
-- Do not leave stale registered processes, active Tasks, monitors, or messages
-  after success, error, exit, or caller interruption.
+- Keep active worker PIDs and monitors in controller or scheduler state.
+  Living controllers enforce complete-call timeouts and explicit cancellation,
+  including concurrent callbacks that trap exits. Async controllers also
+  monitor the handle owner and cancel work when that owner dies.
+- Worker termination after abrupt caller, controller, or scheduler death is
+  deliberately not guaranteed. Do not add execution guards, ownership tables,
+  or global services to restore that rejected guarantee. Links and try/after
+  do not guarantee cleanup after arbitrary process death.
+- Release task slots, monitors, messages, and telemetry spans on normal and
+  handled error paths. Keep bounded cleanup for revision helpers. Supervisor
+  startup and telemetry are synchronous, as in V2; blocked startup or cleanup
+  handlers may delay timeout and cancellation responses. Do not add telemetry
+  delivery, startup, or guard processes to isolate these calls.
 - Keep `timeout:` as one complete-call limit for `Jido.Exec.run/4` and
   `Jido.Exec.run_async/4`. Keep async cancellation owner-bound and in-memory.
   Do not add automatic retry, per-runnable deadlines, durable cancellation,

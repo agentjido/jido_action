@@ -3,6 +3,7 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
 
   alias Jido.Exec.Execution
   alias Jido.Exec.Telemetry
+  alias Jido.Exec.Worker
   alias Jido.Flow.Error
   alias Runic.Workflow
   alias Runic.Workflow.FanIn
@@ -76,45 +77,136 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
   end
 
   defp execute_concurrently(execution, runnables) do
-    logger_metadata = Logger.metadata()
-    telemetry_tracker = Telemetry.tracker()
-    group_leader = Process.group_leader()
+    ref = :erlang.alias()
+    telemetry_tracker = Telemetry.tracker() || ref
     stopped = :atomics.new(1, [])
 
     execute = fn {runnable, index, metadata} ->
-      Process.group_leader(self(), group_leader)
-      Logger.metadata(logger_metadata)
       Telemetry.put_tracker(telemetry_tracker)
       executed = execute_with_metadata(runnable, metadata)
       if executed.status == :failed, do: :atomics.put(stopped, 1, 1)
       {index, executed}
     end
 
-    # Observe exits without waiting for earlier tasks. Stop the lazy input, but
-    # drain admitted tasks and restore source order before applying their results.
-    runnables
-    |> Enum.with_index()
-    |> Stream.take_while(fn _runnable -> :atomics.get(stopped, 1) == 0 end)
-    # Resolve telemetry in the caller. Workers must not capture the execution.
-    |> Stream.map(fn {runnable, index} ->
-      {runnable, index, node_metadata(execution, runnable)}
-    end)
-    |> Task.async_stream(execute,
-      max_concurrency: Keyword.fetch!(execution.options, :max_concurrency),
-      ordered: false,
-      zip_input_on_exit: true,
-      timeout: :infinity
-    )
-    |> Enum.map(fn
-      {:ok, indexed_result} ->
-        indexed_result
+    state = %{
+      ref: ref,
+      tracker: telemetry_tracker,
+      spans: %{},
+      supervisor: Keyword.fetch!(execution.options, :task_supervisor),
+      limit: Keyword.fetch!(execution.options, :max_concurrency),
+      pending: Enum.with_index(runnables),
+      active: %{},
+      completed: [],
+      stopped: stopped,
+      execute: execute,
+      metadata: &node_metadata(execution, &1)
+    }
 
-      {:exit, {{runnable, index, _metadata}, reason}} ->
-        :atomics.put(stopped, 1, 1)
-        {index, fail_exited_runnable(runnable, reason)}
-    end)
-    |> Enum.sort_by(&elem(&1, 0))
-    |> Enum.map(&elem(&1, 1))
+    try do
+      state
+      |> collect()
+      |> Enum.sort_by(&elem(&1, 0))
+      |> Enum.map(&elem(&1, 1))
+    after
+      :erlang.unalias(ref)
+      Telemetry.drain(ref, %{})
+      flush_results(ref)
+    end
+  end
+
+  defp collect(state) do
+    case advance(state) do
+      {:done, completed} -> completed
+      next -> collect(next)
+    end
+  end
+
+  defp advance(state) do
+    cond do
+      state.pending != [] and map_size(state.active) < state.limit and
+          :atomics.get(state.stopped, 1) == 0 ->
+        dispatch(state)
+
+      map_size(state.active) == 0 ->
+        Telemetry.drain(state.ref, state.spans)
+        {:done, state.completed}
+
+      true ->
+        receive_result(state)
+    end
+  catch
+    kind, reason ->
+      # Each iteration owns its current active map. Clean up before an error
+      # leaves this frame; no external registry or retained loop frames are needed.
+      stop_active(state.active)
+      :erlang.raise(kind, reason, __STACKTRACE__)
+  end
+
+  defp dispatch(%{pending: [{runnable, index} | rest]} = state) do
+    # Do not copy the Execution, sibling runnables, or completed results into workers.
+    work = worker(state.execute, {runnable, index, state.metadata.(runnable)})
+
+    case Worker.start(state.supervisor, state.ref, work) do
+      {:ok, pid, monitor} ->
+        %{state | pending: rest, active: Map.put(state.active, pid, {monitor, runnable, index})}
+
+      {:error, reason} ->
+        :atomics.put(state.stopped, 1, 1)
+        failed = fail_exited_runnable(runnable, {:start_error, reason})
+        %{state | pending: [], completed: [{index, failed} | state.completed]}
+    end
+  end
+
+  defp worker(execute, input), do: fn -> execute.(input) end
+
+  defp receive_result(%{ref: ref} = state) do
+    active = state.active
+
+    receive do
+      {^ref, :telemetry, event} ->
+        %{state | spans: Telemetry.record(state.spans, event)}
+
+      {^ref, :worker_error, worker, error} ->
+        %{state | spans: Telemetry.fail(Telemetry.drain(ref, state.spans), error, worker)}
+
+      {^ref, pid, indexed_result} when is_map_key(active, pid) ->
+        {monitor, _runnable, _index} = Map.fetch!(active, pid)
+        Worker.finish(pid, monitor)
+
+        %{state | active: Map.delete(active, pid), completed: [indexed_result | state.completed]}
+
+      {:DOWN, monitor, :process, pid, reason} when is_map_key(active, pid) ->
+        {^monitor, runnable, index} = Map.fetch!(active, pid)
+        :atomics.put(state.stopped, 1, 1)
+        failed = fail_exited_runnable(runnable, reason)
+
+        spans =
+          if state.tracker == ref do
+            Telemetry.fail(Telemetry.drain(ref, state.spans), failed.error, pid)
+          else
+            Telemetry.fail_worker(state.tracker, pid, failed.error)
+            state.spans
+          end
+
+        %{
+          state
+          | spans: spans,
+            active: Map.delete(active, pid),
+            pending: [],
+            completed: [{index, failed} | state.completed]
+        }
+    end
+  end
+
+  defp stop_active(active),
+    do: Worker.terminate(for {pid, {monitor, _, _}} <- active, do: {pid, monitor})
+
+  defp flush_results(ref) do
+    receive do
+      {^ref, _worker, _result} -> flush_results(ref)
+    after
+      0 -> :ok
+    end
   end
 
   defp safely_execute(runnable) do
@@ -181,6 +273,7 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
       Error.execution_error("flow runnable task exited", %{
         runnable_id: runnable.id,
         node: runnable_name(runnable),
+        node_path: [runnable_name(runnable)],
         reason: reason
       })
     )

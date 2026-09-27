@@ -15,6 +15,14 @@ defmodule JidoActionTest.Fixtures.Execution.SessionOwner do
     end
   end
 
+  def close(owner), do: GenServer.cast(owner, :close)
+
+  @impl true
+  def handle_cast(:close, state) do
+    cleanup(state)
+    {:stop, :normal, state}
+  end
+
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
 
   @impl true
