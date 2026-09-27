@@ -52,7 +52,8 @@ defmodule JidoActionTest.Flow.Compiler.IteratorTest do
       iterator = %{
         iterator()
         | state: Iterate.State.new!(schema: [], initial: %{guard: -1}, update: %{guard: %{}}),
-          completion: Jido.Expr.new!(:gte, [Jido.Flow.Ref.state(:guard), 0])
+          completion:
+            Jido.Expr.new!(:gte, [Jido.Expr.new!(:add, [Jido.Flow.Ref.state(:guard), 0]), 0])
       }
 
       assert {:error, %Jido.Flow.Error.ExecutionFailureError{} = error, ^state} =
@@ -61,7 +62,7 @@ defmodule JidoActionTest.Flow.Compiler.IteratorTest do
       assert error.message == "invalid iterator completion condition operands"
       assert error.details.iterations == 1
       assert error.details.phase == :iterate_completion
-      assert error.details.reason == :invalid_ordering_operands
+      assert error.details.reason == :invalid_numeric_operands
       assert_received {:iteration_started, %{iteration_index: 0, state_revision: 0}}
       assert_received {:iteration_failed, ^error}
       refute_received {:iteration_started, _}

@@ -62,8 +62,10 @@ defmodule Jido.ExprTest do
       {:lte, [2, 2], true},
       {:gt, ["b", "a"], true},
       {:gte, [2.0, 2], true},
-      {:in, [1, [2, 1.0]], true},
+      {:in, [1, [2, 1.0]], false},
       {:in, [1, []], false},
+      {:and, [true, 123], 123},
+      {:or, [false, "fallback"], "fallback"},
       {:all, [true, true], true},
       {:any, [false, true], true},
       {:not, [false], true},
@@ -105,7 +107,6 @@ defmodule Jido.ExprTest do
     for {operator, operands, reason} <- [
           {:all, [true, nil], :invalid_boolean_operand},
           {:not, [1], :invalid_boolean_operand},
-          {:lt, [:a, :b], :invalid_ordering_operands},
           {:in, [1, %{secret: "private"}], :invalid_membership_right_operand},
           {:add, ["private", 1], :invalid_numeric_operands},
           {:div, [2.0, 1], :invalid_numeric_operands},
@@ -124,9 +125,7 @@ defmodule Jido.ExprTest do
 
   test "each strict binary operator rejects invalid types on either side" do
     for {operators, invalid, valid, reason} <- [
-          {[:lt, :lte, :gt, :gte], "private", 1, :invalid_ordering_operands},
-          {[:add, :subtract, :multiply, :divide, :min, :max], "private", 1,
-           :invalid_numeric_operands},
+          {[:add, :subtract, :multiply, :divide], "private", 1, :invalid_numeric_operands},
           {[:div, :rem], 1.0, 1, :invalid_numeric_operands},
           {[:concat], nil, "private", :invalid_binary_operands}
         ],
@@ -236,7 +235,7 @@ defmodule Jido.ExprTest do
       {quote(do: "a" <> "b" <> "c"), "abc"},
       {quote(do: (1 == 1.0 and not false) or false), true},
       {quote(do: 2 != 3 and 2 < 3 and 2 <= 2 and 3 > 2 and 3 >= 3), true},
-      {quote(do: 1 in [1.0, 2]), true},
+      {quote(do: 1 in [1.0, 2]), false},
       {quote(do: all([eq(1, 1), neq(1, 2), lt(1, 2), lte(1, 1), gt(2, 1), gte(2, 2)])), true},
       {quote(do: any([false, true])), true},
       {quote(do: expr(%{items: [1 + 2, nil]})), %{items: [3, nil]}},
@@ -490,7 +489,7 @@ defmodule Jido.ExprTest do
                Jido.Expr.evaluate(expression, options)
     end
 
-    assert {:ok, true} = Jido.Expr.evaluate(expression, max_nodes: 38, max_binary_bytes: 21)
+    assert {:ok, false} = Jido.Expr.evaluate(expression, max_nodes: 38, max_binary_bytes: 21)
   end
 
   test "invalid options and invalid host callbacks return structured errors" do

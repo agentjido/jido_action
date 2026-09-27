@@ -71,7 +71,7 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
     output = %{
       total: Expr.new!(:add, [Expr.new!(:multiply, [Ref.input(:a), Ref.input(:b)]), 1]),
       flags: [
-        Expr.new!(:all, [Ref.input(:enabled), Expr.new!(:not, [Ref.context(:paused)])]),
+        Expr.new!(:and, [Ref.input(:enabled), Expr.new!(:not, [Ref.context(:paused)])]),
         Expr.new!(:eq, [Ref.input(:maybe), nil])
       ],
       message: Expr.new!(:concat, ["Hi ", Ref.result("echo", :name)])

@@ -199,3 +199,10 @@ function. There is no `on_error: :capture` option on Step or Choice.
 A `Jido.Flow.Choice` contains ordered `Jido.Flow.Choice.Option` values and one
 `Jido.Flow.Choice.Fallback`. Use their constructors for direct authoring or use
 `Jido.Flow.Builder.option/4` and `fallback/2` for runtime authoring.
+
+## Expression Result Types
+
+Conditions must produce a Boolean. Native `and` and `or` can return their
+right operand unchanged: `true and 123` evaluates to 123 and is rejected at
+the condition boundary. The same expression is valid inside a data map.
+See [Expressions](flow-expressions.md) for the V3 beta behavior corrections.

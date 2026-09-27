@@ -21,15 +21,31 @@ defmodule Jido.Expr do
 
   The grammar supports `==`, `!=`, `<`, `<=`, `>`, `>=`, `in`, `and`, `or`,
   `not`, `+`, binary and unary `-`, `*`, `/`, `div/2`, `rem/2`, `min/2`,
-  `max/2`, `abs/1`, and `<>`. Boolean operators require Boolean operands and
-  short-circuit. Ordering accepts two numbers or two binaries. Arithmetic
-  accepts numbers; `div` and `rem` require integers. Concatenation accepts
-  binaries. There is no implicit conversion. `in` requires a proper list.
-  Equality uses Elixir `==`, including numeric equality across integer and
-  float types. Parentheses use normal Elixir precedence.
+  `max/2`, `abs/1`, and `<>`. Supported operations follow native Elixir.
+  `and` and `or` require a Boolean left operand, short-circuit, and return the
+  evaluated right operand unchanged. `not` requires a Boolean. Parentheses
+  preserve native grouping and precedence; binary Boolean groups are not flattened.
 
-  The condition aliases `eq`, `neq`, `lt`, `lte`, `gt`, `gte`, `all`, and
-  `any` are also accepted. `all` and `any` take one non-empty operand list.
+  Equality uses `==`; list membership uses strict `===` and requires a proper
+  list. Ordering and `min`/`max` use Elixir term order, including mixed types.
+  Arithmetic accepts numbers; `div` and `rem` require integers. Concatenation
+  accepts binaries. There is no implicit conversion.
+
+  Literal data consists of atoms (including nil and Booleans), numbers,
+  binaries, proper lists, and maps with atom, integer, or binary keys. Host
+  references can supply data within the host's contract and the limits below.
+  Unsupported source forms, including tuples, ranges, arbitrary calls, unary
+  `+`, `&&`, `||`, and strict equality syntax, are rejected.
+
+  The comparison aliases `eq`, `neq`, `lt`, `lte`, `gt`, and `gte` follow their
+  native counterparts. The separate `all` and `any` helpers accept a non-empty
+  list and require each evaluated operand to be Boolean. They short-circuit
+  and return a Boolean; they are not aliases for binary `and` and `or`.
+
+  These are V3 beta corrections. Stored Flow document versions stay unchanged.
+  Existing `all` and `any` records retain their strict helper behavior. Rebuild
+  earlier source expressions to obtain the binary `and` and `or` operators.
+  Existing membership, ordering, and min/max records use the corrected rules.
 
   ## Resource limits
 
@@ -64,6 +80,8 @@ defmodule Jido.Expr do
     :gt,
     :gte,
     :in,
+    :and,
+    :or,
     :all,
     :any,
     :not,

@@ -75,9 +75,9 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
 
   test "portable skipped operands work in Choice, Iterate, and data fields" do
     cases = [
-      {quote(do: false and 1), Expr.new!(:all, [false, 1]), false},
-      {quote(do: true or nil), Expr.new!(:any, [true, nil]), true},
-      {quote(do: false and 1 + 1), Expr.new!(:all, [false, Expr.new!(:add, [1, 1])]), false}
+      {quote(do: false and 1), Expr.new!(:and, [false, 1]), false},
+      {quote(do: true or nil), Expr.new!(:or, [true, nil]), true},
+      {quote(do: false and 1 + 1), Expr.new!(:and, [false, Expr.new!(:add, [1, 1])]), false}
     ]
 
     for {{source, expression, expected}, index} <- Enum.with_index(cases) do
@@ -106,25 +106,24 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
     end
   end
 
-  test "evaluated non-Boolean operands fail with structured errors in every field" do
-    for {source, expression, operator} <- [
-          {quote(do: true and 1), Expr.new!(:all, [true, 1]), :all},
-          {quote(do: false or nil), Expr.new!(:any, [false, nil]), :any}
+  test "native non-Boolean results are data but fail at condition boundaries" do
+    for {source, expression, expected} <- [
+          {quote(do: true and 1), Expr.new!(:and, [true, 1]), 1},
+          {quote(do: false or nil), Expr.new!(:or, [false, nil]), nil}
         ] do
       assert {:ok, ^expression} = Jido.Flow.Expression.condition(expression, :any)
       assert {:ok, ^expression} = Expression.parse_condition(source)
+      assert Jido.Exec.run(output_flow(expression)) == {:ok, %{selected: expected}}
 
-      for {flow, phase, path} <- [
-            {choice_flow(expression), :choice_condition, [:operands, 1]},
-            {iterator_flow(expression), :iterate_completion, [:operands, 1]},
-            {output_flow(expression), nil, [:selected, :operands, 1]}
+      for {flow, phase} <- [
+            {choice_flow(expression), :choice_condition},
+            {iterator_flow(expression), :iterate_completion}
           ] do
         assert {:error, error} = Jido.Exec.run(flow)
         assert %Jido.Flow.Error.ExecutionFailureError{} = error
         assert error.details.reason == :invalid_boolean_operand
-        assert error.details.operator == operator
-        assert Map.get(error.details, :phase) == phase
-        assert error.details.expression_path == path
+        assert error.details.phase == phase
+        assert error.details.expression_path == []
         assert error.details.retry == false
       end
     end

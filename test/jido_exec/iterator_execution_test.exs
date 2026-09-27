@@ -317,14 +317,14 @@ defmodule JidoActionTest.Exec.IteratorExecutionTest do
     initial_failure =
       IteratorFixtures.iterator_flow(
         initial: %{count: 0},
-        completion: IteratorFixtures.gte(Ref.state(), 1),
+        completion: IteratorFixtures.gte(Jido.Expr.new!(:add, [Ref.state(), 0]), 1),
         max_iterations: 1
       )
 
     assert {:error,
             %FlowExecutionFailureError{
               message: "invalid iterator completion condition operands",
-              details: %{iterations: 0, reason: :invalid_ordering_operands}
+              details: %{iterations: 0, reason: :invalid_numeric_operands}
             }} = Exec.run(initial_failure, %{}, %{test_pid: self()})
 
     refute_received {Increment, _index}
@@ -333,7 +333,7 @@ defmodule JidoActionTest.Exec.IteratorExecutionTest do
       IteratorFixtures.iterator_flow(
         initial: %{count: 0, guard: -1},
         update: %{count: Ref.body_result(:count), guard: %{}},
-        completion: IteratorFixtures.gte(Ref.state(:guard), 0),
+        completion: IteratorFixtures.gte(Jido.Expr.new!(:add, [Ref.state(:guard), 0]), 0),
         max_iterations: 1
       )
 

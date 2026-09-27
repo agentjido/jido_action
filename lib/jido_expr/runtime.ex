@@ -176,6 +176,30 @@ defmodule Jido.Expr.Runtime do
        when operator in [:all, :any],
        do: boolean(operands, operator, state, path, depth, 0)
 
+  defp expression(
+         %Expr{operator: operator, operands: [left, right]},
+         state,
+         path,
+         depth,
+         :evaluate
+       )
+       when operator in [:and, :or] do
+    left_path = path ++ [:operands, 0]
+
+    with {:ok, value, state} <- visit(left, state, left_path, depth + 1, :evaluate) do
+      cond do
+        not is_boolean(value) ->
+          type_error(:invalid_boolean_operand, operator, [value], left_path)
+
+        (operator == :and and value) or (operator == :or and not value) ->
+          visit(right, state, path ++ [:operands, 1], depth + 1, :evaluate)
+
+        true ->
+          {:ok, value, state}
+      end
+    end
+  end
+
   defp expression(%Expr{operator: operator, operands: operands}, state, path, depth, :evaluate) do
     with {:ok, values, state} <-
            list(operands, state, path ++ [:operands], depth, :evaluate, 0, []),
@@ -242,20 +266,12 @@ defmodule Jido.Expr.Runtime do
     end
   end
 
-  defp operation(operator, [left, right] = values, state, path, _depth)
-       when operator in [:lt, :lte, :gt, :gte] do
-    if (is_number(left) and is_number(right)) or (is_binary(left) and is_binary(right)) do
-      result =
-        case operator do
-          :lt -> left < right
-          :lte -> left <= right
-          :gt -> left > right
-          :gte -> left >= right
-        end
-
-      {:ok, result, state}
-    else
-      type_error(:invalid_ordering_operands, operator, values, path)
+  defp operation(operator, [left, right], state, path, depth)
+       when operator in [:lt, :lte, :gt, :gte, :min, :max] do
+    # Charge comparison work even when operands came from host references.
+    with {:ok, _left, state} <- visit(left, state, path, depth, :data),
+         {:ok, _right, state} <- visit(right, state, path, depth, :data) do
+      {:ok, compare(operator, left, right), state}
     end
   end
 
@@ -298,6 +314,13 @@ defmodule Jido.Expr.Runtime do
     end
   end
 
+  defp compare(:lt, left, right), do: left < right
+  defp compare(:lte, left, right), do: left <= right
+  defp compare(:gt, left, right), do: left > right
+  defp compare(:gte, left, right), do: left >= right
+  defp compare(:min, left, right), do: min(left, right)
+  defp compare(:max, left, right), do: max(left, right)
+
   defp numeric_operands?(operator, values) when operator in [:div, :rem],
     do: Enum.all?(values, &is_integer/1)
 
@@ -313,8 +336,6 @@ defmodule Jido.Expr.Runtime do
         {:negate, [value]} -> -value
         {:div, [left, right]} -> div(left, right)
         {:rem, [left, right]} -> rem(left, right)
-        {:min, [left, right]} -> min(left, right)
-        {:max, [left, right]} -> max(left, right)
         {:abs, [value]} -> abs(value)
       end
 
@@ -338,7 +359,7 @@ defmodule Jido.Expr.Runtime do
   defp member(left, [head | tail], state, path, depth, cost) do
     with {:ok, state, cost} <- membership_left(left, state, path, depth, cost),
          {:ok, _right, state} <- visit(head, state, path, depth, :data) do
-      if left == head, do: {:ok, true, state}, else: member(left, tail, state, path, depth, cost)
+      if left === head, do: {:ok, true, state}, else: member(left, tail, state, path, depth, cost)
     end
   end
 

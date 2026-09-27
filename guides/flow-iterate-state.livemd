@@ -114,3 +114,10 @@ Iterate uses an Action module for its body. Put `state`,
 body result on later calls. In the update expression, it holds the current
 body result. The Action schema validates body params. The State schema
 separately validates each replacement State.
+
+## Expression Result Types
+
+Conditions must produce a Boolean. Native `and` and `or` can return their
+right operand unchanged: `true and 123` evaluates to 123 and is rejected at
+the condition boundary. The same expression is valid inside a data map.
+See [Expressions](flow-expressions.md) for the V3 beta behavior corrections.

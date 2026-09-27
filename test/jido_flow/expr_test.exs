@@ -84,8 +84,40 @@ defmodule JidoActionTest.Flow.ExprTest do
              {:ok, %{selected: true}}
   end
 
+  defmodule NativeOutput do
+    use Jido.Flow, name: "native_boolean_output"
+
+    flow do
+      step "echo", action: EchoParamsAction, params: %{value: true and 123}
+      output %{value: result("echo", :value), fallback: false or "fallback"}
+    end
+  end
+
+  test "data fields accept native Boolean results but condition boundaries reject them" do
+    assert Jido.Exec.run(NativeOutput) == {:ok, %{value: 123, fallback: "fallback"}}
+
+    assert {:ok, condition} = Expression.parse_condition(quote(do: true and 123))
+    assert {:error, error} = Jido.Exec.run(choice_flow(condition))
+    assert error.details.reason == :invalid_boolean_operand
+    assert error.details.phase == :choice_condition
+
+    iterator =
+      Jido.Flow.Iterate.new!(
+        name: "loop",
+        action: EchoParamsAction,
+        state: [schema: [], initial: %{}, update: %{}],
+        completion: condition,
+        max_iterations: 2
+      )
+
+    flow = Flow.new!(name: "native_condition", components: [iterator], output: Ref.result("loop"))
+    assert {:error, error} = Jido.Exec.run(flow)
+    assert error.details.reason == :invalid_boolean_operand
+    assert error.details.phase == :iterate_completion
+  end
+
   test "nested result references remain dependencies even when skipped" do
-    expression = Expr.new!(:any, [true, Expr.new!(:eq, [Ref.result(:later, :value), 1])])
+    expression = Expr.new!(:or, [true, Expr.new!(:eq, [Ref.result(:later, :value), 1])])
     first = Step.new!(name: "first", action: EchoParamsAction, params: %{selected: expression})
     later = Step.new!(name: "later", action: EchoParamsAction, params: %{value: 1})
 
@@ -239,12 +271,12 @@ defmodule JidoActionTest.Flow.ExprTest do
              Flow.semantic_identity(output_flow(%{value: %{operator: :add, operands: [1, 2]}}))
   end
 
-  test "helper and legacy condition spellings produce the same Flow model" do
+  test "native source and canonical binary operators produce the same Flow model" do
     assert {:ok, from_dsl} =
              Expression.parse_condition(quote(do: input(:score) * 2 >= 80 and input(:enabled)))
 
     from_helper =
-      Expr.new!(:all, [
+      Expr.new!(:and, [
         Expr.new!(:gte, [Expr.new!(:multiply, [Ref.input(:score), 2]), 80]),
         Ref.input(:enabled)
       ])

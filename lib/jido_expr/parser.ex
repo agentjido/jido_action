@@ -12,8 +12,8 @@ defmodule Jido.Expr.Parser do
     :> => :gt,
     :>= => :gte,
     :in => :in,
-    :and => :all,
-    :or => :any,
+    :and => :and,
+    :or => :or,
     :+ => :add,
     :- => :subtract,
     :* => :multiply,
@@ -32,6 +32,13 @@ defmodule Jido.Expr.Parser do
   }
   @unary %{:- => :negate, :not => :not, :abs => :abs}
   @reserved Map.keys(@binary) ++ Map.keys(@unary) ++ [:all, :any, :expr]
+
+  @doc false
+  @spec syntax() :: [{atom(), pos_integer()}]
+  def syntax do
+    Enum.map(Map.keys(@binary), &{&1, 2}) ++
+      Enum.map(Map.keys(@unary), &{&1, 1}) ++ [{:all, 1}, {:any, 1}]
+  end
 
   @doc false
   @spec parse(Macro.t(), keyword()) :: {:ok, term()} | {:error, term()}

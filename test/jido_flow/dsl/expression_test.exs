@@ -69,7 +69,7 @@ defmodule JidoActionTest.Flow.DSL.ExpressionTest do
         ])
       end
 
-    assert {:ok, %Jido.Expr{operator: :all}} = Expression.parse_condition(native)
+    assert {:ok, %Jido.Expr{operator: :and}} = Expression.parse_condition(native)
     assert {:ok, %Jido.Expr{operator: :all}} = Expression.parse_condition(function)
   end
 

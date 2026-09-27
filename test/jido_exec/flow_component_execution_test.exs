@@ -252,8 +252,8 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
 
     cases = [
       {Jido.Expr.new!(:all, [true_condition, true_condition]), 2},
-      {Jido.Expr.new!(:all, [false_condition, invalid_ordering()]), 20},
-      {Jido.Expr.new!(:any, [true_condition, invalid_ordering()]), 2},
+      {Jido.Expr.new!(:all, [false_condition, invalid_arithmetic()]), 20},
+      {Jido.Expr.new!(:any, [true_condition, invalid_arithmetic()]), 2},
       {Jido.Expr.new!(:any, [false_condition, false_condition]), 20},
       {Jido.Expr.new!(:not, [false_condition]), 2},
       {Jido.Expr.new!(:not, [true_condition]), 20}
@@ -266,36 +266,25 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
 
   test "returns condition errors from each boolean group" do
     for condition <- [
-          Jido.Expr.new!(:all, [invalid_ordering()]),
-          Jido.Expr.new!(:any, [invalid_ordering()]),
-          Jido.Expr.new!(:not, [invalid_ordering()])
+          Jido.Expr.new!(:all, [invalid_arithmetic()]),
+          Jido.Expr.new!(:any, [invalid_arithmetic()]),
+          Jido.Expr.new!(:not, [invalid_arithmetic()])
         ] do
       assert {:error,
               %ExecutionFailureError{
                 message: "invalid Flow expression",
-                details: %{reason: :invalid_ordering_operands}
+                details: %{reason: :invalid_numeric_operands}
               }} = Exec.run(choice_flow(condition))
     end
   end
 
-  test "classifies invalid ordering and membership operands" do
-    invalid_ordering_values = [
-      {1, "one", :integer, :binary},
-      {[], %{}, :list, :map},
-      {:one, {}, :atom, :tuple},
-      {self(), 1, :other, :integer}
-    ]
-
-    for {left, right, left_type, right_type} <- invalid_ordering_values do
+  test "orders host values like Elixir and rejects invalid membership operands" do
+    for {left, right} <- [{1, "one"}, {[], %{}}, {:one, {}}, {self(), 1}] do
       condition = Jido.Expr.new!(:lt, [Ref.input(:left), Ref.input(:right)])
+      expected = if left < right, do: 2, else: 20
 
-      assert {:error,
-              %ExecutionFailureError{
-                details: %{
-                  reason: :invalid_ordering_operands,
-                  types: [^left_type, ^right_type]
-                }
-              }} = Exec.run(choice_flow(condition), %{left: left, right: right})
+      assert Exec.run(choice_flow(condition), %{left: left, right: right}) ==
+               {:ok, %{value: expected}}
     end
 
     condition = Jido.Expr.new!(:in, [Ref.input(:left), Ref.input(:right)])
@@ -469,7 +458,7 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
     )
   end
 
-  defp invalid_ordering, do: Jido.Expr.new!(:lt, [%{}, 1])
+  defp invalid_arithmetic, do: Jido.Expr.new!(:add, [%{}, 1])
 
   defp target_error_flow(:step) do
     Flow.new!(
