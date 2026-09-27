@@ -255,7 +255,9 @@ defmodule Jido.Exec do
   end
 
   defp run_resolved_chain(executable, %Executable{} = resolved, input, context, chain) do
-    chain.notify.({:resolved, timeout_owner(resolved), resolved})
+    if chain.count > 0 or resolved.kind == :flow do
+      chain.notify.({:resolved, timeout_owner(resolved), execution_name(resolved)})
+    end
 
     case run_with_lifecycle(
            executable,
