@@ -189,15 +189,15 @@ An inline Step uses the same return forms as a named Action:
 
 ```elixir
 {:ok, result}
-{:ok, result, extra}
+{:ok, result, effects}
 {:error, reason}
-{:error, reason, extra}
+{:error, reason, effects}
 ```
 
 A normal success result is a map. Use `Jido.Action.Output` for an intentional
 raw, stream, batch, or opaque value.
 
-Flow components discard Action extras. A root Action can return
+Flow components collect effect lists and require a proper list for the third success element. A root Action can return
 `{:continue, input, target}`. A Step cannot continue to another target.
 
 ## Reuse A Compiled Inline Step

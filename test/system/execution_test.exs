@@ -242,8 +242,8 @@ defmodule JidoActionTest.System.ExecutionTest do
     assert {:error, %Jido.Flow.Error.ExecutionFailureError{failures: failures}} =
              Exec.await(handle, 5_000)
 
-    assert Enum.map(failures, & &1.error.details.node_path) ==
-             [["work_#{killed_id}"], ["work_#{sibling_id}"]]
+    expected_paths = Enum.sort([["work_#{killed_id}"], ["work_#{sibling_id}"]])
+    assert Enum.map(failures, & &1.error.details.node_path) == expected_paths
 
     assert_receive {:DOWN, ^sibling_monitor, :process, ^sibling_pid, :normal}, 5_000
     assert length(SystemLoad.snapshot(context.ledger).started) == 2

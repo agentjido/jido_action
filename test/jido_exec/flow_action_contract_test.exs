@@ -10,7 +10,7 @@ defmodule JidoActionTest.Exec.FlowActionContractTest do
       case mode do
         :map -> {:ok, %{value: value}}
         :output -> {:ok, Output.raw(value)}
-        :extras -> {:ok, %{value: value}, %{effect: :done}}
+        :extras -> {:ok, %{value: value}, [:request]}
         :error_extras -> {:error, Error.execution_error("body error"), %{effect: :done}}
         :raise -> raise "body failed"
         :throw -> throw({:body_throw, value})
@@ -123,11 +123,11 @@ defmodule JidoActionTest.Exec.FlowActionContractTest do
       end
 
       assert Exec.run(target, %{mode: :extras, value: 42}) ==
-               {:ok, %{value: 42}, %{effect: :done}}
+               {:ok, %{value: 42}, [:request]}
 
-      assert Exec.run(owner, %{mode: :extras, value: 42}) == {:ok, %{value: 42}}
+      assert Exec.run(owner, %{mode: :extras, value: 42}) == {:ok, %{value: 42}, [:request]}
 
-      assert {:error, %{message: "body error"}, %{effect: :done}} =
+      assert {:error, %{message: "body error"}} =
                Exec.run(target, %{mode: :error_extras, value: 42})
 
       assert {:error, %{message: "body error"}} =

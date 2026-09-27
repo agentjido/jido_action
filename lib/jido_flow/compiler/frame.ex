@@ -23,13 +23,26 @@ defmodule Jido.Flow.Compiler.Frame do
   def value(frame, output), do: {:jido_flow_value, frame, output}
 
   @doc false
+  @spec value(term(), term(), [term()]) :: tuple()
+  def value(frame, output, []), do: value(frame, output)
+  def value(frame, output, effects), do: {:jido_flow_value, frame, output, effects}
+
+  @doc false
+  @spec effects(term()) :: [term()]
+  def effects({:jido_flow_value, _frame, _output, effects}), do: effects
+  def effects({:jido_flow_transition, transition}), do: transition.effects
+  def effects(_value), do: []
+
+  @doc false
   @spec unwrap_value(term()) :: term()
   def unwrap_value({:jido_flow_value, _frame, output}), do: output
+  def unwrap_value({:jido_flow_value, _frame, output, _effects}), do: output
   def unwrap_value(output), do: output
 
   @doc false
   @spec input_of(term()) :: term()
   def input_of({:jido_flow_value, frame, _output}), do: frame
+  def input_of({:jido_flow_value, frame, _output, _effects}), do: frame
   def input_of({:jido_flow_input, _input, _parent} = frame), do: frame
   def input_of(value), do: value
 

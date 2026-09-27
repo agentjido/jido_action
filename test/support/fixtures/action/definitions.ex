@@ -118,7 +118,7 @@ defmodule JidoActionTest.Fixtures.Actions.ExtrasAction do
     output_schema: Zoi.object(%{value: Zoi.integer()})
 
   def run(%{value: value}, context) do
-    {:ok, %{value: value}, %{trace_id: Map.get(context, :trace_id)}}
+    {:ok, %{value: value}, [%{trace_id: Map.get(context, :trace_id)}]}
   end
 end
 
@@ -159,7 +159,7 @@ defmodule JidoActionTest.Fixtures.Actions.MapProbeAction do
         output = %{index: index, value: Map.get(params, :value)}
 
         if Map.get(params, :extras, false) do
-          {:ok, output, %{ignored: true}}
+          {:ok, output, [:request]}
         else
           {:ok, output}
         end

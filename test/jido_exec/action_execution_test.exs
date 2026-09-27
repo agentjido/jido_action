@@ -70,7 +70,7 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
     instruction = Instruction.new!(target: action, params: input)
 
     for target <- [action, instruction] do
-      assert Exec.run(target, input) == {:ok, %{value: 3}, %{effect: :already_ran}}
+      assert Exec.run(target, input) == {:ok, %{value: 3}, [%{effect: :requested}]}
     end
 
     explicit_flow =
@@ -81,10 +81,10 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
       )
 
     for flow <- [InlineResultFlow, explicit_flow] do
-      assert Exec.run(flow, input) == {:ok, %{value: 3}}
+      assert Exec.run(flow, input) == {:ok, %{value: 3}, [%{effect: :requested}]}
       assert {:ok, execution} = Exec.start(flow, input)
       assert {:ok, execution} = Exec.continue(execution)
-      assert Exec.result(execution) == {:ok, %{value: 3}}
+      assert Exec.result(execution) == {:ok, %{value: 3}, [%{effect: :requested}]}
     end
   end
 
@@ -141,10 +141,10 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
     end
 
     test "preserves action extras from leaf actions" do
-      assert {:ok, %{value: 5}, %{trace_id: "trace"}} =
+      assert {:ok, %{value: 5}, [%{trace_id: "trace"}]} =
                Exec.run(ExtrasAction, %{value: 5}, %{trace_id: "trace"})
 
-      assert {:ok, %{value: 5}, :none} =
+      assert {:error, %ExecutionFailureError{details: %{reason: :invalid_effects}}} =
                Exec.run(NoneExtrasAction, %{value: 5}, %{})
     end
 
@@ -167,7 +167,7 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
         Instruction.new!(target: RawOutputWithExtrasAction, params: %{value: 42})
 
       for executable <- [RawOutputWithExtrasAction, instruction] do
-        assert {:error, %ExecutionFailureError{}, %{effect: :already_ran}} =
+        assert {:error, %ExecutionFailureError{}} =
                  Exec.run(executable, %{value: 42}, %{})
       end
     end
@@ -187,12 +187,11 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
     end
 
     test "normalizes three-element action error tuples" do
-      assert {:error, %ExecutionFailureError{message: message, details: details}, extras} =
+      assert {:error, %ExecutionFailureError{message: message, details: details}} =
                Exec.run(ErrorWithExtrasAction, %{reason: :bad_with_extras}, %{})
 
       assert message == "bad_with_extras"
       assert details.reason == :bad_with_extras
-      assert extras == %{ignored: true}
     end
 
     test "preserves exception action errors returned by leaf actions" do

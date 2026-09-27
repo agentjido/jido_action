@@ -167,3 +167,14 @@ contract under test.
 
 A small end-to-end test can prove that DSL, direct constructors, Builder, and
 Codec converge. Do not repeat every lower-level case in that combined test.
+
+## Test Runnable Examples
+
+`test/examples/action_effects_test.exs` executes the Elixir cells from
+[Maps, Streams, And Optional Effects](action-effects.livemd). It checks the
+same order approval and CSV export Actions through public execution APIs.
+The tests run in the default suite; no external service is needed.
+
+```shell
+mix test test/examples/action_effects_test.exs
+```

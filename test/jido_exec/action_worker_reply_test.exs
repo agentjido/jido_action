@@ -87,22 +87,20 @@ defmodule JidoActionTest.Exec.ActionWorkerReplyTest do
     )
   end
 
-  defp assert_reply(reply, result, :action, mode) do
+  defp assert_reply(reply, result, _kind, :success) do
     assert reply == result
-    assert {status, value, extras} = reply
-    assert length(extras) == 100_000
-    assert hd(extras) == 1
-    assert List.last(extras) == 100_000
-    assert_value(status, value, mode)
+    assert {:ok, %{mode: :success}, effects} = reply
+    assert effects == Enum.to_list(1..100_000)
   end
 
-  defp assert_reply(reply, result, :flow, mode) do
-    # One copy of the extras needs at least 200,000 words.
+  defp assert_reply(reply, result, kind, mode) do
+    # Failed effects must not be copied out of the worker.
     assert :erts_debug.flat_size(reply) < 1_000
 
-    if mode == :success do
-      assert reply == {:ok, %{mode: :success}}
-      assert result == reply
+    if kind == :action do
+      assert reply == result
+      assert {:error, error} = reply
+      assert_value(:error, error, mode)
     else
       phase = if mode == :output_error, do: :output, else: :execution
       assert {:error, ^phase, error} = reply
@@ -112,8 +110,6 @@ defmodule JidoActionTest.Exec.ActionWorkerReplyTest do
       assert public_error.message == error.message
     end
   end
-
-  defp assert_value(:ok, %{mode: :success}, :success), do: :ok
 
   defp assert_value(:error, error, :execution_error),
     do: assert(error.__struct__ == Error.ExecutionFailureError)

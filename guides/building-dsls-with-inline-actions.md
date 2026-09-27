@@ -62,8 +62,8 @@ a `:ctx` parameter. Reusing that target requires a new `:ctx` input value.
 The body keeps the owner's private helpers, aliases, available imports,
 declaration-time attributes, and `__MODULE__`. It does not capture runtime
 variables outside the declaration. A normal success result is a map. Use
-`Jido.Action.Output` for an intentional non-map value. A Flow discards Action
-return extras. A continuation is valid only from a root Action or a terminal
+`Jido.Action.Output` for an intentional non-map value. A Flow preserves explicit
+effect lists and requires a proper list for the third success element. A continuation is valid only from a root Action or a terminal
 Dispatch expander, not from an ordinary Step or Dispatch decision.
 
 ## Flow Boundary

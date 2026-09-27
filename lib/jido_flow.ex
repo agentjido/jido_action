@@ -118,9 +118,11 @@ defmodule Jido.Flow do
   order, runs the first matching target, and uses a required routing fallback
   when no option matches.
 
-  Flow components consume only an Action output or error reason. Extra values from
-  an Action callback are returned only to direct Action or Instruction callers.
-  Flow execution discards them.
+  Flow collects the optional effect list from every successful executed
+  component and returns it with its final output. The third success element
+  must be a proper list. Failed execution returns no effect list. Effect order
+  uses canonical dependency order, then component name. Nested Flows occupy
+  their parent position; collections use input or iteration order.
 
   ## DSL field reference
 

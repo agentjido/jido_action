@@ -91,7 +91,7 @@ defmodule Jido.Exec.Flow.Engine do
   def status(%Execution{status: status}), do: status
 
   @doc "Returns the terminal result or an error while execution is running."
-  @spec result(Execution.t()) :: {:ok, term()} | {:error, Exception.t()}
+  @spec result(Execution.t()) :: Jido.Exec.exec_result()
   def result(%Execution{status: :running} = execution) do
     {:error,
      Error.invalid_execution_error("flow execution is not complete", %{
@@ -424,14 +424,22 @@ defmodule Jido.Exec.Flow.Engine do
            execution.input,
            execution.context
          ) do
-      {:continue, %Transition{} = transition} -> complete_transition(execution, transition)
-      {:ok, output} -> complete(execution, execution.finalizer.(output))
-      {:error, error} -> complete(execution, {:error, error})
+      {:continue, %Transition{} = transition} ->
+        effects = Compiler.runtime_effects(execution.compiled, execution.workflow)
+        complete_transition(execution, %{transition | effects: effects})
+
+      {:ok, output} ->
+        result = execution.finalizer.(output)
+        effects = Compiler.runtime_effects(execution.compiled, execution.workflow)
+        complete(execution, Jido.Exec.Effects.attach(result, effects))
+
+      {:error, error} ->
+        complete(execution, {:error, error})
     end
   end
 
   defp complete(execution, final_result) do
-    status = if match?({:ok, _output}, final_result), do: :succeeded, else: :failed
+    status = if elem(final_result, 0) == :ok, do: :succeeded, else: :failed
 
     Telemetry.finish(execution.lifecycle.flow, final_result)
 

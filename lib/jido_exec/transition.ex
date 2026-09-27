@@ -7,11 +7,12 @@ defmodule Jido.Exec.Transition do
           input: map(),
           target: Executable.target(),
           origin: module(),
+          effects: [term()],
           context: map()
         }
 
   @enforce_keys [:input, :target, :origin, :context]
-  defstruct @enforce_keys
+  defstruct @enforce_keys ++ [effects: []]
 
   @doc false
   @spec new(map(), Executable.target(), module(), map()) :: t()

@@ -120,15 +120,19 @@ Every Flow with Dispatch must follow these rules:
 These rules make the boundary clear: the graph completes before another
 executable starts.
 
-## Output Validation And Extras
+## Output Validation And Effects
 
 When the expander returns `{:ok, result}`, the current Flow owns the result and
-applies its output schema. Extras returned by the decision or expander are
-discarded like extras from other Flow nodes.
+applies its output schema. Decision and expander Actions can return an optional
+third element with a proper list of effect requests. Flow collects decision
+effects before expander effects.
 
 When the expander returns a continuation, the selected executable owns final
-output validation, extras, and the return value. This pattern lets a final
-Action return directives or other extras to a higher-level runtime:
+output validation and the final output. Earlier effects remain in the same
+list, before the next executable's effects. Failure anywhere in the chain
+returns no executable effects. See [Execution](execution.md#results-and-errors).
+
+A continuation selects the next executable:
 
 ```elixir
 def run(params, _context) do

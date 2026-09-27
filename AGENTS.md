@@ -128,8 +128,8 @@ for validation, return normalization, and error behavior.
 
 ### Actions And Instructions
 
-- An Action callback returns `{:ok, result}`, `{:ok, result, extra}`,
-  `{:error, reason}`, `{:error, reason, extra}`, or
+- An Action callback returns `{:ok, result}`, `{:ok, result, effects}`,
+  `{:error, reason}`, `{:error, reason, effects}`, or
   `{:continue, input, target}`.
 - A continuation is a terminal transition. A root Action or terminal Dynamic
   expander can select the next Action or Flow for the same complete Exec call.
@@ -160,7 +160,13 @@ for validation, return normalization, and error behavior.
   require an explicit, non-nil `output`. In the module DSL, `output` must be the
   final declaration. Do not infer output from source order or graph terminal
   nodes, and do not add a `return` alias.
-- A Flow discards the extra value from a three-item Action return.
+- Use `{:ok, output, requests}` for deferred effects.
+  Flow collects explicit effects from all successful executed components.
+  Canonical dependency order and component names define effect order; nested
+  Flows occupy their parent position. Collections use input or iteration order.
+- The third success element is an optional proper list of effect requests.
+  Put metadata in output. Failed, timed-out, or cancelled
+  executions return no executable effect batch. Exec never dispatches effects.
 - Stored-map encoding must be deterministic and versioned. Decoding must use
   `Jido.Flow.Registry` and must return structured validation errors.
 - Do not create atoms from runtime Flow input. Registry lookups must resolve

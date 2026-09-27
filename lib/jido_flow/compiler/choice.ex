@@ -7,7 +7,7 @@ defmodule Jido.Flow.Compiler.Choice do
 
   @doc false
   @spec run(Choice.t(), map()) ::
-          {:ok, term(), map()}
+          {:ok, term(), [term()], map()}
           | {:error, Exception.t(), map()}
           | {:error, Exception.t(), map(), map()}
   def run(%Choice{} = choice, state) do
@@ -16,7 +16,7 @@ defmodule Jido.Flow.Compiler.Choice do
         metadata = %{option: target_name(target), target: target.action}
 
         with {:ok, params} <- Expression.resolve(target.params, state),
-             {:ok, output} <-
+             {:ok, output, effects} <-
                Target.run(
                  target.action,
                  params,
@@ -25,7 +25,7 @@ defmodule Jido.Flow.Compiler.Choice do
                  state.execution_id,
                  state.target_runner
                ) do
-          {:ok, output, metadata}
+          {:ok, output, effects, metadata}
         else
           {:error, error} -> {:error, error, state, metadata}
         end

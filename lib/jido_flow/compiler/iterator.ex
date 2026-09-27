@@ -9,7 +9,7 @@ defmodule Jido.Flow.Compiler.Iterator do
 
   @doc false
   @spec run(Jido.Flow.Iterate.t(), map()) ::
-          {:ok, term()} | {:error, Exception.t(), map()}
+          {:ok, term(), [term()]} | {:error, Exception.t(), map()}
   def run(iterator, state) do
     run_resolved_iterator(iterator, state)
   rescue
@@ -28,6 +28,7 @@ defmodule Jido.Flow.Compiler.Iterator do
         state: iterator_state,
         revision: 0,
         completed: 0,
+        effects: [],
         body_result: nil
       }
 
@@ -74,7 +75,7 @@ defmodule Jido.Flow.Compiler.Iterator do
         with {:ok, params} <-
                Expression.resolve(iterator.params, local_state)
                |> Target.tag_validation(target_context),
-             {:ok, output} <-
+             {:ok, output, effects} <-
                Target.run(
                  iterator.action,
                  params,
@@ -109,6 +110,7 @@ defmodule Jido.Flow.Compiler.Iterator do
             state: next_state,
             revision: runtime.revision + 1,
             completed: runtime.completed + 1,
+            effects: [effects | runtime.effects],
             body_result: output
           }
 
@@ -159,7 +161,7 @@ defmodule Jido.Flow.Compiler.Iterator do
       output: runtime.body_result
     }
 
-    {:ok, output}
+    {:ok, output, runtime.effects |> Enum.reverse() |> Enum.concat()}
   end
 
   defp iterator_exhaust(iterator, state, runtime) do

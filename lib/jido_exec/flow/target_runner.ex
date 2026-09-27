@@ -9,6 +9,7 @@ defmodule Jido.Exec.Flow.TargetRunner do
   @doc false
   @spec run(module(), term(), map(), String.t(), keyword(), String.t(), Target.t()) ::
           {:ok, term()}
+          | {:ok, term(), Jido.Action.effects()}
           | {:continue, Transition.t()}
           | {:error, :input | :execution | :output, Exception.t()}
   def run(target, params, context, execution_id, run_opts, flow_name, owner) do

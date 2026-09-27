@@ -127,6 +127,7 @@ defmodule JidoAction.MixProject do
         ],
         "Run And Operate": [
           "guides/flow-execution.livemd",
+          "guides/action-effects.livemd",
           "guides/debugging-flows.md",
           "guides/configuration.md",
           "guides/security.md",
@@ -172,6 +173,7 @@ defmodule JidoAction.MixProject do
         {"guides/flow-inspection.md", title: "Inspect Flows"},
         # Run And Operate
         {"guides/flow-execution.livemd", title: "Executing Flows"},
+        {"guides/action-effects.livemd", title: "Maps, Streams, And Optional Effects"},
         {"guides/debugging-flows.md", title: "Debug Flows"},
         {"guides/configuration.md", title: "Runtime Configuration"},
         {"guides/security.md", title: "Security"},

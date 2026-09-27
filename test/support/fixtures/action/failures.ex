@@ -158,7 +158,7 @@ defmodule JidoActionTest.Fixtures.Actions.RawOutputWithExtrasAction do
   @moduledoc false
   use Jido.Action, name: "raw_output_with_extras_action"
 
-  def run(%{value: value}, _context), do: {:ok, value, %{effect: :already_ran}}
+  def run(%{value: value}, _context), do: {:ok, value, [:request]}
 end
 
 defmodule JidoActionTest.Fixtures.Actions.ErrorWithExtrasAction do

@@ -201,7 +201,7 @@ defmodule JidoActionTest.Fixtures.InlineResultFlow do
       case mode do
         :map -> {:ok, %{value: value}}
         :output -> {:ok, Output.raw(value)}
-        :extras -> {:ok, %{value: value}, %{effect: :already_ran}}
+        :extras -> {:ok, %{value: value}, [%{effect: :requested}]}
         :raise -> raise "inline body failed"
         :throw -> throw({:inline_throw, value})
         :exit -> exit({:inline_exit, value})

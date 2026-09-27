@@ -119,11 +119,14 @@ defmodule Jido.Flow.Compiler.Target do
 
   @doc false
   @spec run(module(), term(), map(), t(), String.t(), Jido.Flow.Compiler.target_runner()) ::
-          {:ok, term()} | {:continue, Transition.t()} | {:error, Exception.t()}
+          {:ok, term(), [term()]} | {:continue, Transition.t()} | {:error, Exception.t()}
   def run(action, params, context, %__MODULE__{} = owner, execution_id, target_runner) do
     case target_runner.(action, params, context, execution_id, owner) do
       {:ok, output} ->
-        {:ok, output}
+        {:ok, output, []}
+
+      {:ok, output, items} ->
+        {:ok, output, items}
 
       {:continue, %Transition{} = transition} ->
         {:continue, transition}

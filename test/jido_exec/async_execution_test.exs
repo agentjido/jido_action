@@ -26,7 +26,7 @@ defmodule JidoActionTest.Exec.AsyncExecutionTest do
     use Jido.Action, name: "async_invalid_output_action"
 
     @impl Jido.Action
-    def run(_params, _context), do: {:ok, 42, nil}
+    def run(_params, _context), do: {:ok, 42, [:request]}
   end
 
   test "returns an owner-bound handle and preserves Action results" do
@@ -50,7 +50,7 @@ defmodule JidoActionTest.Exec.AsyncExecutionTest do
 
     extras_handle = Exec.run_async(ExtrasAction, %{value: 4}, %{trace_id: "trace-4"})
 
-    assert {:ok, %{value: 4}, %{trace_id: "trace-4"}} =
+    assert {:ok, %{value: 4}, [%{trace_id: "trace-4"}]} =
              Exec.await(extras_handle, 1_000)
   end
 
@@ -83,7 +83,7 @@ defmodule JidoActionTest.Exec.AsyncExecutionTest do
     for _ <- 1..100 do
       handle = Exec.run_async(InvalidOutputAction)
 
-      assert {:error, %Jido.Action.Error.ExecutionFailureError{}, nil} =
+      assert {:error, %Jido.Action.Error.ExecutionFailureError{}} =
                Exec.await(handle, 1_000)
     end
   end

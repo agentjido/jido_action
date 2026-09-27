@@ -36,7 +36,7 @@ defmodule Jido.Flow.Compiler do
   alias Runic.Workflow.Map, as: RunicMap
   alias Runic.Workflow.Reduce, as: RunicReduce
 
-  @compiler_version 6
+  @compiler_version 7
   @runtime_ref %{
     kind: :context,
     target: :jido,
@@ -48,6 +48,7 @@ defmodule Jido.Flow.Compiler do
   @type target_runner ::
           (module(), term(), map(), String.t(), Target.t() ->
              {:ok, term()}
+             | {:ok, term(), Jido.Action.effects()}
              | {:continue, Transition.t()}
              | {:error, target_phase(), Exception.t()})
 
@@ -163,6 +164,26 @@ defmodule Jido.Flow.Compiler do
     end
   end
 
+  @doc false
+  @spec runtime_effects(Compiled.t(), Workflow.t()) :: [term()]
+  def runtime_effects(compiled, workflow), do: collect_effects(compiled.component_index, workflow)
+
+  defp collect_effects(index, workflow) do
+    index
+    |> Map.values()
+    |> Enum.sort_by(& &1.effect_order)
+    |> Enum.flat_map(fn
+      %{kind: :subflow, children: children} ->
+        collect_effects(children, workflow)
+
+      %{output: name} ->
+        case Workflow.results(workflow, [name], facts: true, all: true) do
+          %{^name => facts} -> Enum.flat_map(facts, &Frame.effects(Payload.unwrap(&1.value)))
+          _ -> []
+        end
+    end)
+  end
+
   defp resolve_output(output, input, context, results) do
     Expression.resolve(output, %{input: input, context: context, results: results})
   end
@@ -198,7 +219,12 @@ defmodule Jido.Flow.Compiler do
     |> Graph.canonical_components()
     |> Enum.reduce(initial, fn component, state ->
       # Identity uses the authored Flow. Runtime callbacks do not need metadata.
-      add_component(%{component | meta: %{}}, state)
+      next = add_component(%{component | meta: %{}}, state)
+
+      update_in(
+        next.component_index[component.name],
+        &Map.put(&1, :effect_order, map_size(state.component_index))
+      )
     end)
   end
 
@@ -228,8 +254,8 @@ defmodule Jido.Flow.Compiler do
       runtime_step(state, component.name, :choice, fn parent, runtime ->
         local = component_state(component, parent, runtime)
         result = ChoiceRuntime.run(component, Map.put(local, :namespace, namespace))
-        output = unwrap_component_result(result)
-        Frame.value(local.input_frame, output)
+        {output, effects} = unwrap_component_result(result)
+        Frame.value(local.input_frame, output, effects)
       end)
 
     add_authored_output(state, component, step, step)
@@ -242,8 +268,8 @@ defmodule Jido.Flow.Compiler do
       runtime_step(state, component.name, :iterate, fn parent, runtime ->
         local = component_state(component, parent, runtime)
         result = IterateRuntime.run(component, Map.put(local, :namespace, namespace))
-        output = unwrap_component_result(result)
-        Frame.value(local.input_frame, output)
+        {output, effects} = unwrap_component_result(result)
+        Frame.value(local.input_frame, output, effects)
       end)
 
     add_authored_output(state, component, step, step)
@@ -413,7 +439,13 @@ defmodule Jido.Flow.Compiler do
         hash: stable_hash({native_name, :fan_in}),
         map: nil,
         init: fn ->
-          Payload.new(%{initialized: false, accumulator: nil, input: nil, error: nil})
+          Payload.new(%{
+            initialized: false,
+            accumulator: nil,
+            input: nil,
+            error: nil,
+            effects: []
+          })
         end,
         reducer: Collection.reduce_fun(reduce, state.namespace),
         meta_refs: [@runtime_ref]
@@ -430,7 +462,12 @@ defmodule Jido.Flow.Compiler do
         work: fn result ->
           if result.error,
             do: raise(result.error),
-            else: Frame.value(result.input, result.accumulator)
+            else:
+              Frame.value(
+                result.input,
+                result.accumulator,
+                Enum.reverse(result.effects) |> Enum.concat()
+              )
         end
       )
 
@@ -728,7 +765,7 @@ defmodule Jido.Flow.Compiler do
 
   defp resolve_and_run(state, expression, action, owner) do
     with {:ok, params} <- Expression.resolve(expression, state),
-         {:ok, output} <-
+         {:ok, output, effects} <-
            Target.run(
              action,
              params,
@@ -737,7 +774,7 @@ defmodule Jido.Flow.Compiler do
              state.execution_id,
              state.target_runner
            ) do
-      {:ok, state.input_frame, output}
+      {:ok, state.input_frame, output, effects}
     else
       {:error, error} -> raise error
     end
@@ -745,7 +782,7 @@ defmodule Jido.Flow.Compiler do
 
   defp run_dispatch(dispatch, state) do
     with {:ok, params} <- Expression.resolve(dispatch.params, state),
-         {:ok, decision} <-
+         {:ok, decision, decision_effects} <-
            Target.run(
              dispatch.decision,
              params,
@@ -762,9 +799,14 @@ defmodule Jido.Flow.Compiler do
              state.execution_id,
              state.target_runner
            ) do
-        {:ok, output} -> Frame.value(state.input_frame, output)
-        {:continue, %Transition{} = transition} -> {:jido_flow_transition, transition}
-        {:error, error} -> raise error
+        {:ok, output, effects} ->
+          Frame.value(state.input_frame, output, decision_effects ++ effects)
+
+        {:continue, %Transition{} = transition} ->
+          {:jido_flow_transition, %{transition | effects: decision_effects}}
+
+        {:error, error} ->
+          raise error
       end
     else
       {:continue, %Transition{}} ->
@@ -778,10 +820,10 @@ defmodule Jido.Flow.Compiler do
     end
   end
 
-  defp wrap_result({:ok, frame, output}), do: Frame.value(frame, output)
+  defp wrap_result({:ok, frame, output, effects}), do: Frame.value(frame, output, effects)
 
-  defp unwrap_component_result({:ok, output}), do: output
-  defp unwrap_component_result({:ok, output, _metadata}), do: output
+  defp unwrap_component_result({:ok, output, effects}), do: {output, effects}
+  defp unwrap_component_result({:ok, output, effects, _metadata}), do: {output, effects}
   defp unwrap_component_result({:error, error, _state}), do: raise(error)
   defp unwrap_component_result({:error, error, _state, _metadata}), do: raise(error)
 

@@ -15,9 +15,9 @@ Use `jido_action` for validated work and data-first composition:
 - Implement `run/2` in every Action. A missing body is a compile error.
 - Provide stable `name` and useful `description` values.
 - Use Zoi schemas for `schema` and `output_schema`; omit them or use `[]` only when validation is intentionally empty.
-- Keep `run/2` strict: return `{:ok, result}`, `{:ok, result, extra}`,
+- Keep `run/2` strict: return `{:ok, result}`, `{:ok, result, effects}`,
   `{:continue, input, target}`, `{:error, reason}`, or
-  `{:error, reason, extra}`.
+  `{:error, reason, effects}`.
 - Return a normal map for success. Use `Jido.Action.Output` for an intentional
   raw, stream, batch, or opaque success value.
 - Keep side effects explicit inside `run/2` and make them easy to test.
@@ -180,3 +180,12 @@ Use `jido_action` for validated work and data-first composition:
 
 Keep bundled domain Actions, adapter-specific conversions, and higher-level
 runtime policy in separate packages.
+
+## Deferred Effect Requests
+
+Return `{:ok, output, requests}` from an Action to
+request effects after success. Flow collects these opaque requests in canonical
+dependency order and returns the complete batch with its final output. Exec
+does not execute effects. Failed execution returns no executable batch.
+The optional third success element must be a proper list of effect requests.
+See [Execution](guides/execution.md#results-and-errors) for ordering, collections, continuations, and migration.

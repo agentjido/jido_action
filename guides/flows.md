@@ -105,3 +105,12 @@ declaration; `new/1` and `validate/1` return the first error.
 Continue with [Flow DSL](flow-language.livemd),
 [Direct Construction And Builder](flow-builder.md), and
 [Store Flows As JSON](flow-storage.md).
+
+## Deferred Effect Requests
+
+Return `{:ok, output, requests}` from an Action to
+request effects after success. Flow collects these opaque requests in canonical
+dependency order and returns the complete batch with its final output. Exec
+does not execute effects. Failed execution returns no executable batch.
+The optional third success element must be a proper list of effect requests.
+See [Execution](execution.md#results-and-errors) for ordering, collections, continuations, and migration.

@@ -11,6 +11,7 @@ defmodule Jido.Exec.Action.Runner do
   @type target_phase :: :input | :execution | :output
   @type target_result ::
           {:ok, term()}
+          | {:ok, term(), Jido.Action.effects()}
           | {:continue, Transition.t()}
           | {:error, target_phase(), Exception.t()}
 
@@ -23,10 +24,9 @@ defmodule Jido.Exec.Action.Runner do
   @doc "Runs one Action Instruction through the isolated Action boundary."
   @spec run(Instruction.t(), keyword()) ::
           {:ok, term()}
-          | {:ok, term(), term()}
+          | {:ok, term(), Jido.Action.effects()}
           | {:continue, Transition.t()}
           | {:error, Exception.t()}
-          | {:error, Exception.t(), term()}
   def run(%Instruction{target: action} = instruction, run_opts \\ []) do
     invoke_isolated(action, instruction.params, instruction.context, run_opts, &direct_result/1)
   end
@@ -43,7 +43,7 @@ defmodule Jido.Exec.Action.Runner do
   defp invoke_isolated(action, params, context, run_opts, to_result) do
     task_supervisor = Keyword.fetch!(run_opts, :task_supervisor)
 
-    # Discard Flow extras before the worker copies its reply to the caller.
+    # Normalize results before the worker copies its reply to the caller.
     case run_isolated(task_supervisor, fn -> to_result.(invoke(action, params, context)) end) do
       {:ok, result} ->
         result
@@ -83,8 +83,19 @@ defmodule Jido.Exec.Action.Runner do
       {:ok, output} ->
         {:ok, output, :no_extras}
 
-      {:ok, output, extras} ->
-        {:ok, output, {:extras, extras}}
+      {:ok, output, effects} ->
+        if is_list(effects) and not List.improper?(effects) do
+          {:ok, output, {:extras, effects}}
+        else
+          {:error,
+           programming_error(
+             "the third success element must be a proper list of effect requests",
+             %{
+               action: action,
+               reason: :invalid_effects
+             }
+           ), :no_extras}
+        end
 
       {:error, reason} ->
         {:error, normalize_action_error(reason), :no_extras}
@@ -133,13 +144,19 @@ defmodule Jido.Exec.Action.Runner do
   end
 
   defp direct_result({:ok, output, :no_extras}), do: {:ok, output}
-  defp direct_result({:ok, output, {:extras, extras}}), do: {:ok, output, extras}
-  defp direct_result({:error, _phase, error, :no_extras}), do: {:error, error}
-  defp direct_result({:error, _phase, error, {:extras, extras}}), do: {:error, error, extras}
+
+  defp direct_result({:ok, output, {:extras, effects}}),
+    do: Jido.Exec.Effects.attach({:ok, output}, effects)
+
+  defp direct_result({:error, _phase, error, _effects}), do: {:error, error}
   defp direct_result({:continue, transition}), do: {:continue, transition}
 
-  defp target_result({:ok, output, _extras}), do: {:ok, output}
-  defp target_result({:error, phase, error, _extras}), do: {:error, phase, error}
+  defp target_result({:ok, output, :no_extras}), do: {:ok, output}
+
+  defp target_result({:ok, output, {:extras, effects}}),
+    do: Jido.Exec.Effects.attach({:ok, output}, effects)
+
+  defp target_result({:error, phase, error, _effects}), do: {:error, phase, error}
   defp target_result({:continue, transition}), do: {:continue, transition}
 
   defp invalid_continuation_input(action, input) do

@@ -10,6 +10,14 @@ defmodule Jido.Action.Output do
       Jido.Action.Output.batch([%{id: 1}, %{id: 2}])
       Jido.Action.Output.stream(Stream.map(1..3, & &1))
       Jido.Action.Output.opaque(reference, meta: %{owner: "worker"})
+
+  Effects are optional and separate from the output value:
+
+      {:ok, Jido.Action.Output.stream(stream)}
+      {:ok, Jido.Action.Output.stream(stream), requests}
+
+  `requests` is a proper list of effects for the caller. Exec does not consume
+  the stream or dispatch the requests. Output metadata is data, not effects.
   """
 
   alias Jido.Action.Error

@@ -158,7 +158,7 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
 
     flow do
       step "prepare", value <- input(:value) do
-        {:ok, %{value: value}, %{step_extra: :discarded}}
+        {:ok, %{value: value}}
       end
 
       dispatch "finish",
@@ -192,7 +192,7 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
 
       if params.continue?,
         do: {:continue, %{value: params.value}, params.target},
-        else: {:ok, %{value: params.value}, :discarded}
+        else: {:ok, %{value: params.value}}
     end
   end
 
@@ -213,7 +213,7 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
     use Jido.Action, name: "terminal_extras_decision"
 
     @impl true
-    def run(%{value: value}, _context), do: {:ok, %{value: value}, :discarded}
+    def run(%{value: value}, _context), do: {:ok, %{value: value}}
   end
 
   defmodule ExtrasExpander do
@@ -250,7 +250,7 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
       assert Exec.run(ContinueToAdd, %{value: 3}) == {:ok, %{value: 5}}
 
       assert Exec.run(ContinueToExtras, %{value: 3}, %{trace_id: "trace"}) ==
-               {:ok, %{value: 3}, %{trace_id: "trace"}}
+               {:ok, %{value: 3}, [%{trace_id: "trace"}]}
     end
 
     test "passes the current Action context to the next executable" do
@@ -359,7 +359,7 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
 
     test "a named expander continuation uses final target output validation and extras" do
       context = %{trace_id: "named-final"}
-      expected = {:ok, %{value: 3}, %{trace_id: "named-final"}}
+      expected = {:ok, %{value: 3}, [%{trace_id: "named-final"}]}
       assert Exec.run(NamedDispatchToExtras, %{value: 3}, context) == expected
       assert Exec.await(Exec.run_async(NamedDispatchToExtras, %{value: 3}, context)) == expected
     end
@@ -397,22 +397,22 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
       refute_received :dispatch_expander_started
     end
 
-    test "only the final Action owns extras after an inline Flow continuation" do
+    test "a final Action or normal expander returns its effect list" do
       input = %{value: 3}
       context = %{trace_id: "final-action"}
-      expected = {:ok, %{value: 3}, %{trace_id: "final-action"}}
+      expected = {:ok, %{value: 3}, [%{trace_id: "final-action"}]}
 
       # The continued Action, not the original Flow, owns output validation.
       assert Exec.run(InlineFlowToExtras, input, context) == expected
       handle = Exec.run_async(InlineFlowToExtras, input, context)
       assert Exec.await(handle) == expected
 
-      # An expander's normal result is still a Flow node result: its extras drop.
       assert Exec.run(
                dispatch_flow!(expander: ExtrasAction),
-               %{continue?: false, value: 3, target: Add},
+               %{value: 4, target: Add, continue?: false},
                context
-             ) == {:ok, %{value: 3}}
+             ) ==
+               {:ok, %{value: 4}, [%{trace_id: "final-action"}]}
     end
 
     test "a terminal expander can close normally or select the next executable" do

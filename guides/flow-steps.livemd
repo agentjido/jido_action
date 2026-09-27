@@ -177,5 +177,6 @@ output(%{
 Normal Flow output must be a map. Use an Action Output envelope when the Flow
 intentionally returns a raw, stream, batch, or opaque value.
 
-Action extras do not become Step results. Flow execution discards extras and
-keeps only the Action result or error reason.
+Use `{:ok, output, requests}` for deferred effects.
+Flow returns the complete batch separately from output after success. It
+requires a proper list for the third success element. See [Execution](execution.md#results-and-errors).

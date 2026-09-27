@@ -204,8 +204,8 @@ not validate each intermediate Step result. Calling an extracted target with
 missing binding can then fail as a function-clause error during execution
 unless the target's own schema rejects it or supplies a default first.
 
-Moving a direct Action call into a Flow also changes how its return extras
-reach the caller. This rule applies to explicit and inline Steps. See
+Explicit effect lists survive composition in explicit and
+inline Steps. Untagged success extras fail with migration guidance. See
 [Results And Errors](execution.md#results-and-errors).
 
 ## Source Metadata

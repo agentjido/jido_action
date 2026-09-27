@@ -29,21 +29,82 @@ A successful direct Action or Action Instruction returns:
 
 ```elixir
 {:ok, result}
-{:ok, result, extras}
+{:ok, result, requests}
 ```
 
-A Flow that finishes normally returns `{:ok, result}`. Flow nodes discard
-Action extras. This includes explicit Steps, inline Steps, and the final Step,
-in both run-to-completion and step-wise execution.
+An Action or Flow with deferred effect requests returns:
 
-Extras are values for the caller. Jido Action and Exec do not interpret or
-dispatch Actor Directives. If a higher-level runtime uses Action extras as
-Directives, moving that Action into a Flow does not preserve their delivery.
+```elixir
+{:ok, output, [request]}
+```
 
-A terminal Dispatch can continue to a final Action. That Action can return
-extras to the caller of the complete Exec call. This does not collect extras
-from earlier nodes. See
-[Output Validation And Extras](dynamic-flows.md#output-validation-and-extras).
+The output has the same validation as an ordinary success. Effects must be a
+proper list. Exec treats each request as an opaque value. It does not depend
+on Jido core, validate Agent Directives, or execute them. A success with no
+requests returns `{:ok, output}`, including an explicit empty batch.
+
+A Flow collects effects from all successful executed components, including
+components that its output does not reference. It keeps the final output
+separate from the effect batch. These rules apply to explicit and inline
+Steps, including the last Step, and to all supported authoring forms.
+
+Effect order is deterministic:
+
+1. Components use dependency depth, then component name, as in canonical Flow
+   order. Worker completion order and selected step order do not change it.
+2. A Subflow contributes its child effects once at its parent position. Child
+   components use the same rule. Equal effect values are not removed.
+3. Choice contributes only the selected option or fallback.
+4. Map and Reduce use input item order. Iterate uses iteration order. Each
+   Action's request list keeps its order. Empty work contributes no effects.
+5. Dispatch contributes decision effects, then normal expander effects. A
+   continuation keeps prior effects and appends the next executable's effects.
+   The continuation itself requests no effects. Dispatch remains unavailable
+   for step-wise execution and Subflows.
+
+`start/4`, `step/1`, `step/2`, and `wave/1` do not publish executable partial
+batches. Only a successful terminal `result/1` returns the complete batch.
+Run-to-completion and supported step-wise execution have the same result.
+
+A failed, timed-out, or cancelled execution returns no executable effect
+batch, including effects from earlier successful steps or continuations.
+Output validation must also succeed. A Map with `on_error: :collect_errors`
+handles item errors as data: a successful Flow retains effects from successful
+items only. Error extras never become success effects. Exec does not undo I/O
+that Actions already performed. Native execution inspection can contain
+intermediate data; it is not an effect dispatch API.
+
+### Optional Effect Lists
+
+Both a map and an Output value can have an optional effect list:
+
+```elixir
+{:ok, %{value: 42}}
+{:ok, %{value: 42}, requests}
+{:ok, Jido.Action.Output.stream(stream)}
+{:ok, Jido.Action.Output.stream(stream), requests}
+```
+
+Run [Maps, Streams, And Optional Effects](action-effects.livemd) for complete
+order approval and CSV export examples. Its integration tests execute the
+same guide code through direct Actions, Flows, Instructions, async calls,
+and step-wise execution.
+
+`requests` must be a proper list. Omit it when there are no effects, or return
+`[]`; Exec normalizes an empty list to the two-element success form. Exec does
+not consume a stream to collect effects. Requests describe work after the
+Action returns successfully; they do not imply that stream consumption has
+finished. A later stream failure cannot cancel an already returned request.
+
+The third success element is reserved for effects in direct Actions,
+Instructions, and Flows. Non-list values, including `nil`, and improper lists
+fail with `:invalid_effects`. Put other metadata in the output map or in
+`Jido.Action.Output` metadata. Error results discard their third element and
+return `{:error, error}`. Put diagnostic data in the error itself.
+
+Existing `{:ok, output, requests}` Actions need no wrapper for Flow use.
+Earlier versions silently dropped Flow node effects; this implementation
+preserves them. See [Dynamic Flows](dynamic-flows.md#output-validation-and-effects).
 
 Public failures are exception structs. Action boundary errors use:
 

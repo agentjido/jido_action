@@ -43,7 +43,8 @@ defmodule Jido.Action do
 
   `run/2` can be pure or can perform I/O. Keep one Action focused on one unit
   of work. The caller selects retry, timeout, scheduling, cancellation, and
-  persistence policy. `Jido.Exec` enforces a requested execution timeout and
+  persistence policy. Return an optional effect list with `{:ok, output, requests}`;
+  Exec carries the requests without dispatch. `Jido.Exec` enforces a requested execution timeout and
   owns process cleanup. It does not retry an Action automatically.
   """
 
@@ -52,13 +53,19 @@ defmodule Jido.Action do
   @typedoc "A static Action input or output schema."
   @type schema :: Zoi.schema() | []
 
+  @typedoc "An ordered list of opaque effect requests. Exec does not dispatch them."
+  @type effects :: [term()]
+
+  @typedoc "A successful output with optional deferred effect requests."
+  @type effect_result :: {:ok, map() | Output.t(), effects()}
+
   @typedoc "A supported Action callback result."
   @type result ::
-          {:ok, map() | Output.t()}
-          | {:ok, map() | Output.t(), term()}
+          effect_result()
+          | {:ok, map() | Output.t()}
           | {:continue, map(), Jido.Executable.target()}
           | {:error, term()}
-          | {:error, term(), term()}
+          | {:error, term(), effects()}
 
   @max_action_name_bytes 256
 
@@ -368,24 +375,29 @@ defmodule Jido.Action do
 
   ## Returns
 
-  - `{:ok, result}` where `result` is a map containing the action's output.
-  - `{:ok, result, extras}` where `result` is a map and `extras` is additional data (e.g., directives).
-  - `{:ok, output}` where `output` is an explicit `Jido.Action.Output` envelope for raw, stream, batch, or opaque success values.
-  - `{:ok, output, extras}` where `output` is an explicit `Jido.Action.Output` envelope and `extras` is additional data.
+  - `{:ok, result}` where `result` is a map or a `Jido.Action.Output` value.
+  - `{:ok, result, effects}` where `effects` is a proper list of effect requests.
   - `{:continue, continuation_input, continuation_target}` where the current
     executable ends and the target becomes the next executable.
-  - `{:error, reason}` where `reason` describes why the action failed.
-  - `{:error, reason, extras}` where `extras` is additional data (e.g., directives).
+  - `{:error, reason}` where `reason` describes why the Action failed.
+  - `{:error, reason, effects}` is accepted, but Exec discards the effects.
 
-  Extras are delivered only to direct action or instruction callers. When an
-  action runs as a `Jido.Flow` node, flow execution discards extras and uses only
-  the action output or error reason.
+  Effects are optional for both maps and Output values. An empty list returns
+  the two-element success form. Exec carries each request as opaque data and
+  never dispatches it. Flow collects requests from every successful executed
+  component in canonical dependency order, then component name. Nested Flows
+  use their parent position; collections use input or iteration order.
+  Failed execution or output validation returns no effect list.
+
+  The third success element is reserved for effect requests. Put metadata in
+  the result map or in `Jido.Action.Output` metadata. A value that is not a
+  proper list fails with `:invalid_effects` in direct and Flow execution.
 
   A continuation does not resume this Action. Its input must be a map, not a
   `Jido.Action.Output` envelope. Put an output envelope in a map field when the
   next executable must receive it. The target must be an Action module, Flow
   module, or `Jido.Flow` value. The final executable owns output validation,
-  errors, and extras.
+  errors, and its own effects.
   """
   @callback run(params :: map(), context :: map()) :: result()
 

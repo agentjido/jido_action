@@ -10,10 +10,9 @@ defmodule Jido.Exec.Action.Adapter do
   @doc false
   @spec run(Executable.t(), term(), term(), term(), String.t()) ::
           {:ok, term()}
-          | {:ok, term(), term()}
+          | {:ok, term(), Jido.Action.effects()}
           | {:continue, Jido.Exec.Transition.t()}
           | {:error, Exception.t()}
-          | {:error, Exception.t(), term()}
   def run(%Executable{target: action} = executable, input, context, opts, _execution_id) do
     with {:ok, run_opts} <- Options.validate_action(opts, :action),
          {:ok, instruction} <- normalize_instruction(action, input, context),
@@ -25,10 +24,9 @@ defmodule Jido.Exec.Action.Adapter do
   @doc false
   @spec run_instruction(Executable.t(), Instruction.t(), keyword(), String.t()) ::
           {:ok, term()}
-          | {:ok, term(), term()}
+          | {:ok, term(), Jido.Action.effects()}
           | {:continue, Jido.Exec.Transition.t()}
           | {:error, Exception.t()}
-          | {:error, Exception.t(), term()}
   def run_instruction(executable, %Instruction{} = instruction, opts, _execution_id) do
     with {:ok, run_opts} <- Options.validate_action(opts, :instruction),
          :ok <- Executable.validate(executable) do

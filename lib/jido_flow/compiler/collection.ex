@@ -69,7 +69,7 @@ defmodule Jido.Flow.Compiler.Collection do
       end
 
     case {map.on_error, outcome} do
-      {_, {:ok, output}} ->
+      {_, {:ok, output, effects}} ->
         runtime.observer.({:stop, span})
 
         output =
@@ -80,6 +80,7 @@ defmodule Jido.Flow.Compiler.Collection do
         token
         |> Map.put(:kind, :result)
         |> Map.put(:output, output)
+        |> Map.put(:effects, effects)
         |> Map.drop([:item, :results])
 
       {:collect_errors, {:error, error}} ->
@@ -155,7 +156,13 @@ defmodule Jido.Flow.Compiler.Collection do
             })
     end
 
-    Frame.value(input, values)
+    effects =
+      tokens
+      |> Enum.filter(&match?(%{kind: :result}, &1))
+      |> Enum.sort_by(& &1.index)
+      |> Enum.flat_map(&Map.get(&1, :effects, []))
+
+    Frame.value(input, values, effects)
   end
 
   @doc false
@@ -245,9 +252,9 @@ defmodule Jido.Flow.Compiler.Collection do
           end
 
         case result do
-          {:ok, output} ->
+          {:ok, output, effects} ->
             runtime.observer.({:stop, span})
-            %{aggregate | accumulator: output}
+            %{aggregate | accumulator: output, effects: [effects | aggregate.effects]}
 
           {:error, error} ->
             runtime.observer.({:error, span, error})

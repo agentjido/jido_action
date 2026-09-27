@@ -1,0 +1,215 @@
+# Maps, Streams, And Optional Effects
+
+These examples approve an order and prepare a CSV export. Each Action can
+return its result alone or with a list of requests for the caller:
+
+```text
+{:ok, map_or_output}
+{:ok, map_or_output, requests}
+```
+
+The requests in this guide are application data. `Jido.Exec` returns them;
+the caller decides how to perform them. No email or audit service is needed
+to run this guide. No request wrapper or Jido core dependency is needed.
+
+## Use The Local Package
+
+This example uses the local source with Flow effect support. Before you start
+Livebook, set `JIDO_ACTION_PATH` to the absolute path of your `jido_action`
+folder. The path must be available to the Livebook runtime. Run the cells in
+order.
+
+```elixir
+package_path = System.fetch_env!("JIDO_ACTION_PATH")
+
+Mix.install([{:jido_action, path: package_path}], lockfile: Path.join(package_path, "mix.lock"))
+```
+
+## Return A Map With An Optional Request
+
+The Action creates an approval result. If `notify` is true, it also requests
+an order confirmation. The caller owns the state update and notification.
+
+```elixir
+defmodule EffectExamples.ApproveOrder do
+  use Jido.Action,
+    name: "example_approve_order",
+    description: "Prepares an order approval and an optional confirmation request",
+    schema:
+      Zoi.object(%{
+        order_id: Zoi.string(),
+        notify: Zoi.boolean() |> Zoi.default(false)
+      }),
+    output_schema: Zoi.object(%{order_id: Zoi.string(), status: Zoi.atom()})
+
+  @impl true
+  def run(%{order_id: order_id, notify: notify}, _context) do
+    approval = %{order_id: order_id, status: :approved}
+
+    if notify do
+      {:ok, approval, [{:send_confirmation, order_id}]}
+    else
+      {:ok, approval}
+    end
+  end
+end
+```
+
+Run the same Action directly and inside a Flow. The Flow returns the same map
+and requests without changes to the Action.
+
+```elixir
+alias Jido.Action.Output
+alias Jido.{Exec, Flow, Instruction}
+alias Jido.Flow.{Ref, Step}
+
+approval_flow =
+  Flow.new!(
+    name: "approve_order",
+    components: [
+      Step.new!(name: "approve", action: EffectExamples.ApproveOrder, params: Ref.input([]))
+    ],
+    output: Ref.result("approve")
+  )
+
+for target <- [EffectExamples.ApproveOrder, approval_flow] do
+  {:ok, %{order_id: "order-42", status: :approved}} =
+    Exec.run(target, %{order_id: "order-42"})
+
+  {:ok, %{order_id: "order-42", status: :approved}, [{:send_confirmation, "order-42"}]} =
+    Exec.run(target, %{order_id: "order-42", notify: true})
+end
+```
+
+Omit the third element when there are no requests. Returning `[]` is also
+valid; Exec returns the same two-element success form.
+
+## Return A Stream With An Optional Request
+
+The export Action accepts a row source through context. Each row has integer
+`order_id` and `total_cents` fields. It builds a lazy CSV stream and can request
+an audit entry that records when the export was prepared.
+
+```elixir
+defmodule EffectExamples.ExportOrders do
+  use Jido.Action,
+    name: "example_export_orders",
+    description: "Prepares a lazy CSV stream and an optional audit request",
+    schema:
+      Zoi.object(%{
+        report_id: Zoi.string(),
+        audit: Zoi.boolean() |> Zoi.default(false)
+      })
+
+  @impl true
+  def run(%{report_id: report_id, audit: audit}, context) do
+    case Map.fetch(context, :rows) do
+      {:ok, rows} ->
+        lines = Stream.map(rows, fn row -> "#{row.order_id},#{row.total_cents}\n" end)
+        stream = Stream.concat(["order_id,total_cents\n"], lines)
+
+        output =
+          Jido.Action.Output.stream(stream,
+            meta: %{content_type: "text/csv", report_id: report_id}
+          )
+
+        if audit do
+          requests = [{:audit, %{event: :export_prepared, report_id: report_id}}]
+          {:ok, output, requests}
+        else
+          {:ok, output}
+        end
+
+      :error ->
+        {:error, :missing_sales_rows}
+    end
+  end
+end
+```
+
+`Output.meta` describes the stream. The third tuple element contains only
+effects. Exec does not read the rows or perform the audit request.
+
+```elixir
+export_flow =
+  Flow.new!(
+    name: "export_orders",
+    components: [
+      Step.new!(name: "export", action: EffectExamples.ExportOrders, params: Ref.input([]))
+    ],
+    output: Ref.result("export")
+  )
+
+rows = [%{order_id: 42, total_cents: 1250}, %{order_id: 43, total_cents: 750}]
+context = %{rows: rows}
+params = %{report_id: "report-7", audit: true}
+expected_csv = "order_id,total_cents\n42,1250\n43,750\n"
+
+for target <- [EffectExamples.ExportOrders, export_flow] do
+  {:ok, %Output{kind: :stream, value: stream},
+   [{:audit, %{event: :export_prepared, report_id: "report-7"}}]} =
+    Exec.run(target, params, context)
+
+  # The caller consumes the stream after Exec has returned.
+  ^expected_csv = Enum.join(stream)
+
+  {:ok, %Output{kind: :stream}} =
+    Exec.run(target, %{report_id: "report-7"}, context)
+end
+```
+
+The audit event means **export prepared**. It does not mean that all rows were
+read or sent. A row source can fail during later consumption. That failure
+cannot revoke a request that Exec has already returned. If the application
+needs an audit entry for completed delivery, it must create that entry after
+it has consumed and delivered the stream successfully.
+
+The caller must keep the row source available while it consumes the stream.
+An Action-owned resource can close when the Action returns.
+
+## Use Instructions, Async Calls, And Step-wise Execution
+
+The result and effect list have the same form through these entry points.
+
+```elixir
+instruction = Instruction.new!(target: export_flow, params: params, context: context)
+expected_requests = [{:audit, %{event: :export_prepared, report_id: "report-7"}}]
+
+{:ok, %Output{value: stream}, ^expected_requests} = Exec.run(instruction)
+^expected_csv = Enum.join(stream)
+
+handle = Exec.run_async(export_flow, params, context)
+{:ok, %Output{value: stream}, ^expected_requests} = Exec.await(handle)
+^expected_csv = Enum.join(stream)
+
+{:ok, execution} = Exec.start(export_flow, params, context)
+{:ok, execution} = Exec.continue(execution)
+{:ok, %Output{value: stream}, ^expected_requests} = Exec.result(execution)
+^expected_csv = Enum.join(stream)
+```
+
+## Handle Failure
+
+Without a row source, the export fails before it creates the stream. Exec
+returns an error with no audit request.
+
+```elixir
+{:error, _error} = Exec.run(export_flow, params)
+```
+
+For a Flow with several Actions, only successful completion returns the full
+effect list. Failure, cancellation, and timeout return no partial effect list.
+See the [execution contract](execution.md#results-and-errors) for the complete
+ordering and failure rules.
+
+## Run The Example Tests
+
+From the `jido_action` folder:
+
+```shell
+mix test test/examples/action_effects_test.exs
+```
+
+The tests execute this guide's Elixir cells with the current package source.
+They also check lazy consumption, optional effects, entry-point agreement,
+and failure before and after stream creation. They run in the default suite.

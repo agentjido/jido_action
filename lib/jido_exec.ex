@@ -17,6 +17,12 @@ defmodule Jido.Exec do
   caller-owned handle. Use `await/1`, `await/2`, `handle_message/2`, or
   `cancel/1` from the process that created the handle.
 
+  Return `{:ok, output, requests}` to request deferred
+  effects. Actions and Flows return the same explicit batch contract. Exec
+  never dispatches requests. A failed complete call returns no executable
+  batch, including effects collected before a continuation. Requests must be a
+  proper list. See `Jido.Action` for the result and ordering contract.
+
   ## Step-wise Flow execution
 
   `ready/1` returns small `Jido.Exec.Work` descriptions. Each value identifies
@@ -71,6 +77,7 @@ defmodule Jido.Exec do
            execution_id: String.t(),
            notify: (term() -> term()),
            deadline: integer() | :infinity,
+           effects: [term()],
            count: non_neg_integer(),
            continuation_limit: non_neg_integer()
          }
@@ -92,9 +99,8 @@ defmodule Jido.Exec do
   @typedoc "The result of an Action, Instruction, or Flow execution."
   @type exec_result ::
           {:ok, term()}
-          | {:ok, term(), term()}
+          | {:ok, term(), Jido.Action.effects()}
           | {:error, Exception.t()}
-          | {:error, Exception.t(), term()}
 
   @typedoc "The opaque one-shot state token shared by one asynchronous handle."
   @opaque async_state :: {:jido_exec_async_state, :atomics.atomics_ref()}
@@ -211,6 +217,7 @@ defmodule Jido.Exec do
             execution_id: execution_id,
             notify: notify,
             deadline: deadline,
+            effects: [],
             count: 0,
             continuation_limit: continuation_limit
           }
@@ -246,10 +253,14 @@ defmodule Jido.Exec do
            chain.deadline
          ) do
       {:continue, %Transition{} = transition} ->
-        continue_chain(transition, %{chain | count: chain.count + 1})
+        continue_chain(transition, %{
+          chain
+          | count: chain.count + 1,
+            effects: chain.effects ++ transition.effects
+        })
 
       result ->
-        result
+        Jido.Exec.Effects.attach(result, chain.effects)
     end
   end
 
@@ -465,7 +476,7 @@ defmodule Jido.Exec do
   The function returns a validation error while the execution is still running.
   It does not repeat Flow output validation.
   """
-  @spec result(Execution.t()) :: {:ok, term()} | {:error, Exception.t()}
+  @spec result(Execution.t()) :: exec_result()
   def result(%Execution{} = execution), do: Engine.result(execution)
 
   defp execute_with_timeout(

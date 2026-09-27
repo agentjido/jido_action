@@ -36,6 +36,7 @@ defmodule Jido.Exec.Execution do
           finalizer: (term() -> {:ok, term()} | {:error, Exception.t()}) | nil,
           final_result:
             {:ok, term()}
+            | {:ok, term(), Jido.Action.effects()}
             | {:error, Exception.t()}
             | nil,
           lifecycle: %{flow: map()}

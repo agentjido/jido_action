@@ -75,9 +75,9 @@ An Action callback returns one of five shapes:
 
 ```elixir
 {:ok, result}
-{:ok, result, extras}
+{:ok, result, effects}
 {:error, reason}
-{:error, reason, extras}
+{:error, reason, effects}
 {:continue, input, target}
 ```
 
@@ -89,8 +89,13 @@ value is intentionally raw, streamed, batched, or opaque.
 {:ok, Jido.Action.Output.batch([%{id: 1}, %{id: 2}])}
 ```
 
-Direct Action and Action Instruction calls preserve `extras`. A Flow consumes
-only the result or error reason from an Action node and discards node extras.
+Effects are optional for both maps and Output values. Return
+`{:ok, result, requests}` with a proper list to request deferred effects.
+An empty list returns the two-element success form. Direct Actions and Flows
+preserve the requests. Exec does not dispatch them or consume stream output.
+Non-list third success elements fail with `:invalid_effects`. Put metadata in
+the result map or `Output.meta`. Error results discard the third element.
+See the [effect rules](execution.md#results-and-errors).
 
 `{:continue, input, target}` tells `Jido.Exec` what to run next. The current
 Action does not return a domain result. `Jido.Exec` runs `target` with `input`

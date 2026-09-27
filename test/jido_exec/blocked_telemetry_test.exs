@@ -273,7 +273,9 @@ defmodule JidoActionTest.Exec.BlockedTelemetryTest do
       on_exit(fn -> Process.exit(handle.pid, :kill) end)
       assert_receive {^token, :handler_failed, handler}, 1_000
       assert_receive {^token, :action_started, action, tracker}, 1_000
-      owned = monitor_processes([handler, action, tracker])
+      # The async result can arrive before its worker exits. Monitor that worker
+      # as well as delivery and Action work before checking supervisor children.
+      owned = monitor_processes([handle.pid, handler, action, tracker])
       send(action, {token, :finish, {:ok, %{value: 1}}})
       assert {:ok, %{value: 1}} = Exec.await(handle, 1_000)
       assert_stopped(owned)

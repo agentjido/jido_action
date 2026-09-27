@@ -105,9 +105,12 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
     end
   end
 
-  test "Flow and Action schemas fail at their own boundaries, and Flow discards extras" do
-    assert Exec.run(Boundaries.SchemaFlow, %{}) == {:ok, %{value: 2}}
-    assert Exec.run(Boundaries.SchemaFlow, %{value: 3}) == {:ok, %{value: 4}}
+  test "Flow and Action schemas fail at their own boundaries, and Flow preserves explicit effects" do
+    assert Exec.run(Boundaries.SchemaFlow, %{}) ==
+             {:ok, %{value: 2}, [:schema_effect]}
+
+    assert Exec.run(Boundaries.SchemaFlow, %{value: 3}) ==
+             {:ok, %{value: 4}, [:schema_effect]}
 
     assert {:error, input_error} = Exec.run(Boundaries.SchemaFlow, %{value: "bad"})
     assert input_error.details.node_path == ["work"]

@@ -70,7 +70,14 @@ defmodule JidoActionTest.Exec.ActionInvocationTest do
       counter = start_supervised!({Agent, fn -> [] end})
       supervisor = start_supervised!(Task.Supervisor)
       invocation = make_ref()
-      params = %{counter: counter, mode: unquote(mode), extras: nil, invocation: invocation}
+
+      params = %{
+        counter: counter,
+        mode: unquote(mode),
+        extras: [:request],
+        invocation: invocation
+      }
+
       context = %{invocation: invocation}
 
       for {path, kind, run} <- paths(params, context, supervisor) do
@@ -136,23 +143,15 @@ defmodule JidoActionTest.Exec.ActionInvocationTest do
     end
   end
 
-  defp assert_result(result, kind, mode) when mode in [:success, :envelope] do
+  defp assert_result(result, _kind, mode) when mode in [:success, :envelope] do
     output = if mode == :envelope, do: Output.raw(42), else: %{value: 42}
-    expected = if kind == :action, do: {:ok, output, nil}, else: {:ok, output}
-    assert result == expected
+    assert result == {:ok, output, [:request]}
   end
 
   defp assert_result(result, :action, :continue), do: assert(result == {:ok, %{value: 42}})
 
   defp assert_result(result, kind, mode) do
-    error =
-      if kind == :action and mode in [:execution_error, :output_error, :invalid_output] do
-        assert {:error, error, nil} = result
-        error
-      else
-        assert {:error, error} = result
-        error
-      end
+    assert {:error, error} = result
 
     expected_type =
       if mode in [:input_error, :output_error],

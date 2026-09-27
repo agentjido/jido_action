@@ -24,7 +24,10 @@ defmodule Jido.Exec.Flow.Adapter do
 
   @doc false
   @spec run(Executable.t(), term(), term(), term(), String.t()) ::
-          {:ok, term()} | {:continue, Jido.Exec.Transition.t()} | {:error, Exception.t()}
+          {:ok, term()}
+          | {:ok, term(), Jido.Action.effects()}
+          | {:continue, Jido.Exec.Transition.t()}
+          | {:error, Exception.t()}
   def run(executable, input, context, opts, execution_id) do
     with {:ok, flow, compiled} <- materialize(executable),
          {:ok, execution} <-
@@ -39,7 +42,10 @@ defmodule Jido.Exec.Flow.Adapter do
 
   @doc false
   @spec run_instruction(Executable.t(), Instruction.t(), keyword(), String.t()) ::
-          {:ok, term()} | {:continue, Jido.Exec.Transition.t()} | {:error, Exception.t()}
+          {:ok, term()}
+          | {:ok, term(), Jido.Action.effects()}
+          | {:continue, Jido.Exec.Transition.t()}
+          | {:error, Exception.t()}
   def run_instruction(executable, %Instruction{} = instruction, opts, execution_id) do
     run(executable, instruction.params, instruction.context, opts, execution_id)
   end

@@ -121,7 +121,9 @@ defmodule JidoActionTest.Authoring.Boundaries.SchemaAction do
 
   @impl true
   def run(%{value: value}, %{mode: :bad_output}), do: {:ok, %{value: Integer.to_string(value)}}
-  def run(%{value: value}, _context), do: {:ok, %{value: value + 1}, %{extra: :discarded}}
+
+  def run(%{value: value}, _context),
+    do: {:ok, %{value: value + 1}, [:schema_effect]}
 end
 
 defmodule JidoActionTest.Authoring.Boundaries.SchemaFlow do

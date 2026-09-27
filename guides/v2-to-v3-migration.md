@@ -515,3 +515,19 @@ The host must start it before execution. See
 See [Actions](actions.md), [Instructions](instructions.md),
 [Execution](execution.md), [Flows](flows.md), and
 [Store Flows As JSON](flow-storage.md) for the version 3 contracts.
+
+## Preserve Effect Lists Through Flow Composition
+
+Use `{:ok, output, requests}` with a proper list of effect requests. The output
+can be a map or a `Jido.Action.Output` value. The list is optional, and no
+wrapper is required. Flow now preserves the effects that earlier execution
+dropped. Failed execution returns no effect list, including effects from
+prior successful steps. Error results discard their third element.
+
+Non-list third success elements fail with `:invalid_effects`. Put metadata in
+the output map or in `Output.meta`, and diagnostics in the error itself. See
+[Execution](execution.md#optional-effect-lists).
+
+Use an Action release that contains this Flow contract. The published version
+examples above do not identify that release. Use the coordinated source
+changes for local validation until the Action changes are released.

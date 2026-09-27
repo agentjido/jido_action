@@ -134,14 +134,15 @@ configured Task Supervisor. Code that integrates its own executor can use
 The Action `run/2` callback must return one of:
 
 - `{:ok, result}`
-- `{:ok, result, extra}`
+- `{:ok, result, effects}`
 - `{:continue, input, target}`
 - `{:error, reason}`
-- `{:error, reason, extra}`
+- `{:error, reason, effects}`
 
 The `{:continue, input, target}` result ends the current executable and runs
-the selected Action or Flow in the same bounded Exec call. Normal success and
-error three-tuples let callers receive an extra value. See
+the selected Action or Flow in the same bounded Exec call. A third success
+element contains an optional effect list. Exec discards the third element of
+an error result. See
 [Dynamic Flows](guides/dynamic-flows.md).
 
 ## Run Asynchronously
@@ -444,6 +445,7 @@ Livebook. ExDoc adds a **Run in Livebook** link to each `.livemd` guide.
 ### Run And Operate
 
 - [Executing Flows](guides/flow-execution.livemd)
+- [Maps, Streams, And Optional Effects](guides/action-effects.livemd)
 - [Debug Flows](guides/debugging-flows.md)
 - [Runtime Configuration](guides/configuration.md)
 - [Security](guides/security.md)
@@ -474,3 +476,14 @@ for development and pull-request guidance.
 Copyright 2024-2026 Mike Hostetler
 
 Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE).
+
+## Deferred Effect Requests
+
+Return `{:ok, output, requests}` from an Action to
+request effects after success. Flow collects these opaque requests in canonical
+dependency order and returns the complete batch with its final output. Exec
+does not execute effects. Failed execution returns no executable batch.
+The optional third success element must be a proper list of effect requests.
+Run [Maps, Streams, And Optional Effects](guides/action-effects.livemd) for
+complete order approval and CSV export examples with integration tests.
+See [Execution](guides/execution.md#results-and-errors) for ordering, collections, continuations, and migration.
