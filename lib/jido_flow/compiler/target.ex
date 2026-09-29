@@ -217,11 +217,10 @@ defmodule Jido.Flow.Compiler.Target do
 
   defp preserve_error_path(details, _error), do: details
 
-  defp merge_error_details(error, target_details) do
-    error
-    |> Map.get(:details, %{})
-    |> Map.merge(target_details)
-  end
+  defp merge_error_details(%{details: existing}, target_details) when is_map(existing),
+    do: Map.merge(existing, target_details)
+
+  defp merge_error_details(_error, target_details), do: target_details
 
   defp iterator_retry_policy(%Error.ExecutionFailureError{details: %{retry: retry}})
        when is_boolean(retry),

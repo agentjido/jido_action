@@ -5,6 +5,53 @@ defmodule JidoActionTest.Exec.FlowActionContractTest do
   alias Jido.Exec
   alias Jido.Action.{Error, Output}
 
+  defmodule InputError do
+    defexception [:message, :details, :stacktrace]
+  end
+
+  defmodule RejectedInputAction do
+    def __jido_executable__, do: Jido.Executable.action(__MODULE__)
+    def validate_params(%{error: error}), do: {:error, error}
+    def validate_output(value), do: {:ok, value}
+    def run(_params, _context), do: raise("invalid input reached the Action")
+  end
+
+  test "Step validation preserves input errors with any details shape" do
+    alias Jido.Flow.Builder
+
+    {:ok, flow} =
+      Builder.new(name: "rejected_input")
+      |> Builder.step("reject", RejectedInputAction, Builder.input())
+      |> Builder.output(Builder.result("reject"))
+      |> Builder.build()
+
+    stacktrace = [{__MODULE__, :validate_input, 1, [file: ~c"input.ex", line: 1]}]
+
+    errors = [
+      RuntimeError.exception("input rejected"),
+      %InputError{message: "input rejected", details: nil, stacktrace: stacktrace},
+      %InputError{message: "input rejected", details: [:invalid], stacktrace: stacktrace},
+      %InputError{
+        message: "input rejected",
+        details: %{field: :value, phase: :custom},
+        stacktrace: stacktrace
+      }
+    ]
+
+    for original <- errors do
+      assert Exec.run(RejectedInputAction, %{error: original}) == {:error, original}
+      assert {:error, %Error.InvalidInputError{} = error} = Exec.run(flow, %{error: original})
+      assert error.message == "input rejected"
+      assert error.details.node == "reject"
+      assert error.details.node_path == ["reject"]
+      assert error.details.action == RejectedInputAction
+      assert error.details.phase == :step_input
+
+      if is_map(Map.get(original, :details)), do: assert(error.details.field == :value)
+      if Map.has_key?(original, :stacktrace), do: assert(error.stacktrace == stacktrace)
+    end
+  end
+
   defmodule Results do
     def run(%{mode: mode, value: value}) do
       case mode do

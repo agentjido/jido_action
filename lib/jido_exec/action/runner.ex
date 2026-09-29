@@ -13,11 +13,10 @@ defmodule Jido.Exec.Action.Runner do
           | {:continue, Transition.t()}
           | {:error, target_phase(), Exception.t()}
 
-  @typep extras :: :no_extras | {:extras, term()}
   @typep invocation_result ::
-           {:ok, term(), extras()}
+           {:ok, term(), Jido.Action.effects()}
            | {:continue, Transition.t()}
-           | {:error, target_phase(), Exception.t(), extras()}
+           | {:error, target_phase(), Exception.t()}
 
   @doc "Runs one Action Instruction in the current execution process."
   @spec run(Instruction.t(), keyword()) ::
@@ -26,44 +25,44 @@ defmodule Jido.Exec.Action.Runner do
           | {:continue, Transition.t()}
           | {:error, Exception.t()}
   def run(%Instruction{target: action} = instruction, _run_opts \\ []) do
-    direct_result(invoke(action, instruction.params, instruction.context))
+    direct_result(run_target(action, instruction.params, instruction.context, []))
   end
 
   @doc false
   @spec run_target(module(), term(), map(), keyword()) :: target_result()
   def run_target(action, params, context, _run_opts) do
-    target_result(invoke(action, params, context))
+    normalize_result(invoke(action, params, context))
   end
 
   @spec invoke(module(), term(), map()) :: invocation_result()
   defp invoke(action, params, context) do
     with {:ok, params} <- validate_params(action, params) do
       case invoke_result(action, params, context) do
-        {:ok, output, extras} ->
+        {:ok, output, effects} ->
           case validate_output(action, output) do
-            {:ok, output} -> {:ok, output, extras}
-            {:error, error} -> {:error, :output, error, extras}
+            {:ok, output} -> {:ok, output, effects}
+            {:error, error} -> {:error, :output, error}
           end
 
-        {:error, error, extras} ->
-          {:error, :execution, error, extras}
+        {:error, error} ->
+          {:error, :execution, error}
 
         {:continue, %Transition{} = transition} ->
           {:continue, transition}
       end
     else
-      {:error, error} -> {:error, :input, error, :no_extras}
+      {:error, error} -> {:error, :input, error}
     end
   end
 
   defp invoke_result(action, params, context) do
     case action.run(params, context) do
       {:ok, output} ->
-        {:ok, output, :no_extras}
+        {:ok, output, []}
 
       {:ok, output, effects} ->
         if is_list(effects) and not List.improper?(effects) do
-          {:ok, output, {:extras, effects}}
+          {:ok, output, effects}
         else
           {:error,
            programming_error(
@@ -72,14 +71,14 @@ defmodule Jido.Exec.Action.Runner do
                action: action,
                reason: :invalid_effects
              }
-           ), :no_extras}
+           )}
         end
 
       {:error, reason} ->
-        {:error, normalize_action_error(reason), :no_extras}
+        {:error, normalize_action_error(reason)}
 
-      {:error, reason, extras} ->
-        {:error, normalize_action_error(reason), {:extras, extras}}
+      {:error, reason, _extras} ->
+        {:error, normalize_action_error(reason)}
 
       {:continue, %Output{} = input, _target} ->
         invalid_continuation_input(action, input)
@@ -95,7 +94,7 @@ defmodule Jido.Exec.Action.Runner do
          programming_error("action returned an unsupported result", %{
            action: action,
            result: other
-         }), :no_extras}
+         })}
     end
   rescue
     exception ->
@@ -107,7 +106,7 @@ defmodule Jido.Exec.Action.Runner do
            exception: exception.__struct__
          },
          __STACKTRACE__
-       ), :no_extras}
+       )}
   catch
     kind, reason ->
       {:error,
@@ -118,24 +117,16 @@ defmodule Jido.Exec.Action.Runner do
            reason: reason
          },
          __STACKTRACE__
-       ), :no_extras}
+       )}
   end
 
-  defp direct_result({:ok, output, :no_extras}), do: {:ok, output}
+  defp direct_result({:error, _phase, error}), do: {:error, error}
+  defp direct_result(result), do: result
 
-  defp direct_result({:ok, output, {:extras, effects}}),
+  defp normalize_result({:ok, output, effects}),
     do: Jido.Exec.Effects.attach({:ok, output}, effects)
 
-  defp direct_result({:error, _phase, error, _effects}), do: {:error, error}
-  defp direct_result({:continue, transition}), do: {:continue, transition}
-
-  defp target_result({:ok, output, :no_extras}), do: {:ok, output}
-
-  defp target_result({:ok, output, {:extras, effects}}),
-    do: Jido.Exec.Effects.attach({:ok, output}, effects)
-
-  defp target_result({:error, phase, error, _effects}), do: {:error, phase, error}
-  defp target_result({:continue, transition}), do: {:continue, transition}
+  defp normalize_result(result), do: result
 
   defp invalid_continuation_input(action, input) do
     {:error,
@@ -143,7 +134,7 @@ defmodule Jido.Exec.Action.Runner do
        action: action,
        reason: :invalid_input,
        input: input
-     }), :no_extras}
+     })}
   end
 
   defp validate_params(action, params) do

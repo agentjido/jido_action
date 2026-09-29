@@ -43,16 +43,21 @@ not load or execute an Action.
 
 ## Apply Runtime Limits
 
-Use a finite complete-call `timeout` when the caller needs a hard in-memory
-limit. Use `max_concurrency` to bound one concurrent Flow execution. Also
-validate collection sizes in application input. Runtime Map does not use the
-Codec collection limit.
+Use a finite complete-call `timeout` to bound execution while its controller
+is alive. Synchronous supervisor startup and telemetry handlers can delay
+timeout and cancellation responses. This is not a hard response-time limit.
+See [Process Ownership](execution.md#process-ownership) for these limits.
+Use `max_concurrency` to bound one concurrent Flow execution. Also validate
+collection sizes in application input. Runtime Map does not use the Codec
+collection limit.
 
 Each Iterate has a bound from 1 through 10,000. Select a smaller application
 limit when body work is expensive.
 
-This package does not provide automatic retry, per-node timeout, public
-cancellation, durable checkpoints, or exactly-once effects.
+The owner of an async handle can cancel active work with `Jido.Exec.cancel/1`.
+Cancellation is in-memory and cannot undo completed side effects. This package
+does not provide automatic retry, per-node timeout, durable cancellation,
+durable checkpoints, or exactly-once effects.
 
 ## Design Effects For Repetition
 

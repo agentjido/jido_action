@@ -133,8 +133,11 @@ when they can express the required change.
   )
 ```
 
-`Jido.Exec` validates the Action input and output and runs the Action under the
-configured Task Supervisor. Code that integrates its own executor can use
+`Jido.Exec` validates the Action input and output. A synchronous call with
+`timeout: :infinity` runs in the caller process. Timed and asynchronous calls
+run in a worker under the configured Task Supervisor. See
+[Process Ownership](guides/execution.md#process-ownership) for Flow concurrency
+and cleanup limits. Code that integrates its own executor can use
 `validate_params/1`, `run/2`, and `validate_output/1` directly.
 
 The Action `run/2` callback must return one of:
