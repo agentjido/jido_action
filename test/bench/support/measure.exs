@@ -152,6 +152,8 @@ defmodule JidoActionBench.Measure do
       collections: %{},
       observed_peak: %{
         process_memory_bytes: 0,
+        owned_ets_bytes: 0,
+        process_and_ets_bytes: 0,
         process_heap_bytes: 0,
         shared_binary_bytes: 0,
         vm_total_bytes: 0,
@@ -324,9 +326,26 @@ defmodule JidoActionBench.Measure do
     binaries = infos |> Enum.flat_map(&Keyword.fetch!(&1, :binary))
     binary_sizes = Map.new(binaries, fn {id, bytes, _refs} -> {id, bytes} end)
     vm = :erlang.memory()
+    process_set = MapSet.new(processes)
+
+    owned_ets_bytes =
+      Enum.reduce(:ets.all(), 0, fn table, total ->
+        if MapSet.member?(process_set, :ets.info(table, :owner)) do
+          case :ets.info(table, :memory) do
+            bytes when is_integer(bytes) -> total + bytes * :erlang.system_info(:wordsize)
+            _ -> total
+          end
+        else
+          total
+        end
+      end)
+
+    process_memory_bytes = Enum.sum(Enum.map(infos, &Keyword.fetch!(&1, :memory)))
 
     values = %{
-      process_memory_bytes: Enum.sum(Enum.map(infos, &Keyword.fetch!(&1, :memory))),
+      owned_ets_bytes: owned_ets_bytes,
+      process_and_ets_bytes: process_memory_bytes + owned_ets_bytes,
+      process_memory_bytes: process_memory_bytes,
       process_heap_bytes:
         Enum.sum(Enum.map(infos, &Keyword.fetch!(&1, :total_heap_size))) *
           :erlang.system_info(:wordsize),

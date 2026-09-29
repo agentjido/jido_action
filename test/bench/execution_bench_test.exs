@@ -56,6 +56,46 @@ defmodule JidoActionTest.ExecutionBenchTest do
     assert Enum.all?(resources.samples, &(&1.owned_remaining == 0))
   end
 
+  test "resource samples count caller and helper ETS and exclude other owners" do
+    for table_owner <- [:caller, :helper] do
+      owner = self()
+      tag = make_ref()
+      unrelated = :ets.new(:bench_unrelated, [:set, :private])
+      :ets.insert(unrelated, {:unrelated, Enum.to_list(1..1_000)})
+
+      workload = %{
+        setup: fn context -> context end,
+        run: fn context ->
+          work = fn ->
+            table = :ets.new(:bench_measured, [:set, :private])
+            :ets.insert(table, {:measured, Enum.to_list(1..100)})
+            bytes = :ets.info(table, :memory) * :erlang.system_info(:wordsize)
+            send(owner, {tag, bytes})
+            Fixtures.barrier(context)
+            :ok
+          end
+
+          case table_owner do
+            :caller ->
+              work.()
+
+            :helper ->
+              Task.Supervisor.async_nolink(JidoActionBench.TaskSupervisor, work) |> Task.await()
+          end
+        end,
+        check: fn :ok -> :ok end
+      }
+
+      sample = Measure.resources(workload).median
+      assert_received {^tag, bytes}
+      assert bytes > 0
+      assert sample.observed_peak.owned_ets_bytes == bytes
+      assert sample.observed_peak.process_and_ets_bytes >= bytes
+      assert sample.owned_remaining == 0
+      assert Task.Supervisor.children(JidoActionBench.TaskSupervisor) == []
+    end
+  end
+
   test "paused retention measures execution values from the measured call" do
     workload =
       Enum.find(Fixtures.workloads([2], [:small]), &(&1.name == "serial/paused_continue"))
