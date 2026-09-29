@@ -714,6 +714,11 @@ defmodule JidoActionTest.System.ExecutionTest do
     index_key = if kind == :iterate_iteration, do: :iteration_index, else: :item_index
     id_key = if kind == :iterate_iteration, do: :iteration_id, else: :item_id
 
+    # OTP can schedule parallel Map workers in either order. Compare their
+    # events by source index; Reduce and Iterate must keep serial order.
+    starts =
+      if kind == :map_item, do: Enum.sort_by(starts, &Map.fetch!(&1, index_key)), else: starts
+
     assert Enum.map(starts, &Map.fetch!(&1, index_key)) == indexes
     assert length(Enum.uniq(Enum.map(starts, &Map.fetch!(&1, id_key)))) == length(indexes)
 
@@ -726,8 +731,6 @@ defmodule JidoActionTest.System.ExecutionTest do
       Map.take(metadata, [:node, :kind, id_key, index_key, :state_revision])
     end
 
-    # Parallel Map items can finish in a different order from their starts.
-    # Reduce and Iterate still require their serial completion order.
     stops = if kind == :map_item, do: Enum.sort_by(stops, &Map.fetch!(&1, index_key)), else: stops
 
     assert Enum.map(starts, signature) == Enum.map(stops, signature)
