@@ -104,6 +104,7 @@ defmodule JidoActionTest.Exec.MapRetentionTest do
       for token <- tokens do
         refute Elixir.Map.has_key?(token, :results)
         refute Elixir.Map.has_key?(token, :item)
+        assert Elixir.Map.has_key?(token, :input) == (token.index == 0)
       end
     end
   end

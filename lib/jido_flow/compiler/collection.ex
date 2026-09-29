@@ -81,7 +81,7 @@ defmodule Jido.Flow.Compiler.Collection do
         |> Map.put(:kind, :result)
         |> Map.put(:output, output)
         |> Map.put(:effects, effects)
-        |> Map.drop([:item, :results])
+        |> result_token()
 
       {:collect_errors, {:error, error}} ->
         runtime.observer.({:error, span, error})
@@ -92,12 +92,19 @@ defmodule Jido.Flow.Compiler.Collection do
           status: :error,
           error: Error.to_map(error)
         })
-        |> Map.drop([:item, :results])
+        |> result_token()
 
       {:fail_fast, {:error, error}} ->
         runtime.observer.({:error, span, error})
         raise error
     end
+  end
+
+  # The collector needs one original input frame. Keep the first item's frame
+  # even when collect_errors turns that item into an error result.
+  defp result_token(token) do
+    keys = if token.index == 0, do: [:item, :results], else: [:item, :results, :input]
+    Map.drop(token, keys)
   end
 
   defp map_tokens(map, collection, local) when is_list(collection) do
@@ -143,11 +150,12 @@ defmodule Jido.Flow.Compiler.Collection do
       tokens
       |> Enum.find_value(fn token -> if is_map(token), do: Map.get(token, :input) end)
 
-    values =
+    ordered =
       tokens
       |> Enum.filter(&match?(%{kind: :result}, &1))
       |> Enum.sort_by(& &1.index)
-      |> Enum.map(& &1.output)
+
+    values = Enum.map(ordered, & &1.output)
 
     if is_nil(input) do
       raise Error.execution_error("Map collector did not receive Flow input", %{
@@ -156,11 +164,7 @@ defmodule Jido.Flow.Compiler.Collection do
             })
     end
 
-    effects =
-      tokens
-      |> Enum.filter(&match?(%{kind: :result}, &1))
-      |> Enum.sort_by(& &1.index)
-      |> Enum.flat_map(&Map.get(&1, :effects, []))
+    effects = Enum.flat_map(ordered, &Map.get(&1, :effects, []))
 
     Frame.value(input, values, effects)
   end

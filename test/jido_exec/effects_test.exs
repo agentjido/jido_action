@@ -355,6 +355,32 @@ defmodule JidoActionTest.Exec.EffectsTest do
     assert Exec.await(Exec.run_async(flow, input, %{flow: flow})) == expected
   end
 
+  test "Map retains original input after a collected error in its first item" do
+    component =
+      FlowMap.new!(
+        name: "map",
+        collection: Ref.input(:items),
+        action: Request,
+        params: Ref.item(),
+        on_error: :collect_errors
+      )
+
+    flow =
+      Flow.new!(
+        name: "map_input",
+        components: [component, step("after", %{label: Ref.input(:label)}, ["map"])],
+        output: %{items: Ref.result("map"), final: Ref.result("after")}
+      )
+
+    input = %{items: [%{label: :failed, fail: true}, %{label: :ok}], label: :original}
+
+    assert {:ok, %{items: [%{status: :error}, %{status: :ok}], final: %{label: :original}},
+            [:ok, :original]} = expected = Exec.run(flow, input)
+
+    assert_modes(flow, input, expected)
+    assert Exec.await(Exec.run_async(flow, input)) == expected
+  end
+
   defmodule Ancillary do
     use Jido.Action, name: "continued_ancillary"
     @impl true
