@@ -5,7 +5,7 @@ defmodule Jido.Flow.Reduce do
   A Reduce is one canonical authoring component. It lowers to a native Runic
   Reduce and FanIn. Its target calls form one serial left fold.
 
-  Create it with `new/1`, the Flow module DSL, `Jido.Flow.Builder`, or
+  Create it with `new/1`, the Flow module DSL, map-based definitions, or
   `Jido.Flow.Codec`.
   """
 

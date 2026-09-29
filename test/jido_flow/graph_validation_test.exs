@@ -1,22 +1,8 @@
 defmodule Jido.Flow.GraphValidationTest do
   use ExUnit.Case, async: true
-
   alias Jido.Expr
   alias Jido.Flow
-
-  alias Jido.Flow.{
-    Builder,
-    Choice,
-    Codec,
-    Dispatch,
-    Error,
-    Iterate,
-    Ref,
-    Registry,
-    Step,
-    Subflow
-  }
-
+  alias Jido.Flow.{Choice, Codec, Dispatch, Error, Iterate, Ref, Registry, Step, Subflow}
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.Reduce
   alias JidoActionTest.Fixtures.NestedFlow
@@ -24,7 +10,9 @@ defmodule Jido.Flow.GraphValidationTest do
   defmodule ProbeAction do
     use Jido.Action, name: "graph_probe"
     @impl true
-    def run(_params, _context), do: raise("validation must not run Action work")
+    def run(_params, _context) do
+      raise "validation must not run Action work"
+    end
   end
 
   defp registry do
@@ -59,12 +47,15 @@ defmodule Jido.Flow.GraphValidationTest do
     }
   end
 
-  defp stored_ref(name),
-    do: %{"$ref" => %{"source" => "result", "component" => name, "path" => []}}
+  defp stored_ref(name) do
+    %{"$ref" => %{"source" => "result", "component" => name, "path" => []}}
+  end
 
-  defp step(name, needs), do: Step.new!(name: name, action: ProbeAction, needs: needs)
+  defp step(name, needs) do
+    Step.new!(name: name, action: ProbeAction, needs: needs)
+  end
 
-  test "direct, Builder, DSL, and stored graphs agree on valid and invalid dependencies" do
+  test "direct, map, DSL, and stored graphs agree on valid and invalid dependencies" do
     cases = [
       {[{"one", []}, {"two", ["one"]}], "two", :ok},
       {[{"two", ["one"]}, {"one", []}], "two", :ok},
@@ -81,11 +72,17 @@ defmodule Jido.Flow.GraphValidationTest do
       direct = Flow.new(name: "graph", components: components, output: Ref.result(output))
 
       built =
-        Enum.reduce(edges, Builder.new(name: "graph"), fn {name, needs}, builder ->
-          Builder.step(builder, name, ProbeAction, %{}, needs: needs)
-        end)
-        |> Builder.output(Ref.result(output))
-        |> Builder.build()
+        Jido.Flow.new(%{
+          output: Ref.result(output),
+          components:
+            Enum.map(
+              edges,
+              fn {name, needs} ->
+                %{kind: :step, name: name, action: ProbeAction, params: %{}, needs: needs}
+              end
+            ),
+          name: "graph"
+        })
 
       document =
         stored(
@@ -101,15 +98,14 @@ defmodule Jido.Flow.GraphValidationTest do
           "step #{inspect(name)}, action: #{inspect(ProbeAction)}, params: %{}, needs: #{inspect(needs)}"
         end)
 
-      source = """
-      defmodule #{inspect(module)} do
-        use Jido.Flow, name: "graph"
-        flow do
-          #{declarations}
-          output(result(#{inspect(output)}))
-        end
-      end
-      """
+      source = "defmodule #{inspect(module)} do
+  use Jido.Flow, name: \"graph\"
+  flow do
+    #{declarations}
+    output(result(#{inspect(output)}))
+  end
+end
+"
 
       case expected do
         :ok ->
@@ -136,7 +132,6 @@ defmodule Jido.Flow.GraphValidationTest do
              Flow.new(name: "graph", components: [component], output: Ref.result("one"))
 
     assert error.details == %{owner: "one", component: "z_missing"}
-
     document = stored([stored_step("one", component.needs)], stored_ref("one"))
     assert {:error, %Error.Invalid{errors: errors}} = Codec.diagnose(document, registry())
 
@@ -307,22 +302,30 @@ defmodule Jido.Flow.GraphValidationTest do
     assert multiple.details.path == ["components", 1]
 
     assert {:error, %{message: "Dispatch must be the final component in the Flow"}} =
-             Builder.new(name: "graph")
-             |> Builder.dispatch("next", ProbeAction, ProbeAction, %{})
-             |> Builder.step("independent", ProbeAction, %{})
-             |> Builder.output([Ref.result("next")])
-             |> Builder.build()
+             Jido.Flow.new(%{
+               output: [Ref.result("next")],
+               components: [
+                 %{
+                   kind: :dispatch,
+                   name: "next",
+                   decision: ProbeAction,
+                   expander: ProbeAction,
+                   params: %{}
+                 },
+                 %{kind: :step, name: "independent", action: ProbeAction, params: %{}}
+               ],
+               name: "graph"
+             })
 
-    source = """
-    defmodule Jido.Flow.GraphValidationTest.NonterminalDispatch do
-      use Jido.Flow, name: "graph"
-      flow do
-        dispatch "next", decision: #{inspect(ProbeAction)}, expander: #{inspect(ProbeAction)}, params: %{}
-        step "independent", action: #{inspect(ProbeAction)}, params: %{}
-        output([result("next")])
-      end
-    end
-    """
+    source = "defmodule Jido.Flow.GraphValidationTest.NonterminalDispatch do
+  use Jido.Flow, name: \"graph\"
+  flow do
+    dispatch \"next\", decision: #{inspect(ProbeAction)}, expander: #{inspect(ProbeAction)}, params: %{}
+    step \"independent\", action: #{inspect(ProbeAction)}, params: %{}
+    output([result(\"next\")])
+  end
+end
+"
 
     error =
       assert_raise CompileError, ~r/Dispatch must be the final component/, fn ->
@@ -373,10 +376,13 @@ defmodule Jido.Flow.GraphValidationTest do
 
     for {name, declaration, output, line} <- cases do
       module = Module.concat(__MODULE__, name)
-
-      source =
-        "defmodule #{inspect(module)} do\nuse Jido.Flow, name: #{inspect(name)}\nflow do\n#{declaration}\n#{output}\nend\nend"
-
+      source = "defmodule #{inspect(module)} do
+use Jido.Flow, name: #{inspect(name)}
+flow do
+#{declaration}
+#{output}
+end
+end"
       file = name <> ".ex"
       error = assert_raise CompileError, fn -> Code.compile_string(source, file) end
       assert error.file == file
@@ -385,17 +391,16 @@ defmodule Jido.Flow.GraphValidationTest do
   end
 
   test "a duplicate across component kinds points to the second occurrence" do
-    source = """
-    defmodule Jido.Flow.GraphValidationTest.CrossKindDuplicate do
-      use Jido.Flow, name: "cross_kind_duplicate"
-      flow do
-        step "same", action: #{inspect(ProbeAction)}, params: %{}
-        map "same", collection: [], action: #{inspect(ProbeAction)}, params: %{}
-        reduce "same", collection: [], initial: %{}, action: #{inspect(ProbeAction)}, params: %{}
-        output(result("same"))
-      end
-    end
-    """
+    source = "defmodule Jido.Flow.GraphValidationTest.CrossKindDuplicate do
+  use Jido.Flow, name: \"cross_kind_duplicate\"
+  flow do
+    step \"same\", action: #{inspect(ProbeAction)}, params: %{}
+    map \"same\", collection: [], action: #{inspect(ProbeAction)}, params: %{}
+    reduce \"same\", collection: [], initial: %{}, action: #{inspect(ProbeAction)}, params: %{}
+    output(result(\"same\"))
+  end
+end
+"
 
     error =
       assert_raise CompileError, ~r/duplicate component name/, fn ->
@@ -428,19 +433,16 @@ defmodule Jido.Flow.GraphValidationTest do
 
     assert {:error, %Error.Invalid{errors: [stored_error]}} = Codec.diagnose(document, registry())
     assert stored_error.details == Map.put(canonical.details, :path, ["components"])
-
-    source = """
-    defmodule Jido.Flow.GraphValidationTest.BlockedCycle do
-      use Jido.Flow, name: "blocked_cycle"
-      flow do
-        step "blocked", action: #{inspect(ProbeAction)}, params: %{}, needs: ["one"]
-        step "one", action: #{inspect(ProbeAction)}, params: %{}, needs: ["two"]
-        step "two", action: #{inspect(ProbeAction)}, params: %{}, needs: ["one"]
-        output(result("blocked"))
-      end
-    end
-    """
-
+    source = "defmodule Jido.Flow.GraphValidationTest.BlockedCycle do
+  use Jido.Flow, name: \"blocked_cycle\"
+  flow do
+    step \"blocked\", action: #{inspect(ProbeAction)}, params: %{}, needs: [\"one\"]
+    step \"one\", action: #{inspect(ProbeAction)}, params: %{}, needs: [\"two\"]
+    step \"two\", action: #{inspect(ProbeAction)}, params: %{}, needs: [\"one\"]
+    output(result(\"blocked\"))
+  end
+end
+"
     error = assert_raise CompileError, fn -> Code.compile_string(source, "blocked_cycle.ex") end
     assert error.file == "blocked_cycle.ex"
     assert error.line == 4

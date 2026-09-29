@@ -11,12 +11,12 @@ contract tests remain under `test/jido_action`,
 `test/jido_flow`, and `test/jido_exec`.
 
 The adversarial slice runs all 24 declaration orders for one four-Step graph
-through the module DSL, direct constructors, Builder, stored JSON, and full and
+through the module DSL, direct constructors, data definitions, stored JSON, and full and
 step-wise execution. It also checks duplicate names, unknown dependencies,
 cycles, source error locations, and an untrusted stored Action identifier.
 
 The generated-graph properties build small DAGs with two value inputs per
-Step and independent `needs` edges. They compare direct, Builder, and stored
+Step and independent `needs` edges. They compare direct, data definitions, and stored
 JSON forms with a simple arithmetic model, exact Action calls, and dependency
 order. They also mutate graphs to test duplicate names, unknown dependencies,
 and cycles. StreamData reports a reduced graph and ExUnit seed on failure.

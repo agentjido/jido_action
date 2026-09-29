@@ -4,9 +4,8 @@ Code.require_file("support/boundaries.ex", __DIR__)
 defmodule JidoActionTest.Authoring.BoundariesTest do
   use ExUnit.Case, async: false
   @moduletag :authoring
-
   alias Jido.{Exec, Expr, Flow}
-  alias Jido.Flow.{Builder, Codec, Ref, Registry, Step}
+  alias Jido.Flow.{Codec, Ref, Registry, Step}
   alias JidoActionTest.Authoring.Boundaries
   alias JidoActionTest.Authoring.Components.Echo
 
@@ -33,16 +32,23 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
         output: output
       )
 
-    builder =
-      Builder.new(name: "reused_inline")
-      |> Builder.step("reused", action, %{value: Builder.input(:value)},
-        needs: ["gate"],
-        meta: %{"purpose" => "reused inline action"}
-      )
-      |> Builder.step("gate", Echo, %{})
-      |> Builder.output(output)
+    data = %{
+      output: output,
+      components: [
+        %{
+          kind: :step,
+          name: "reused",
+          action: action,
+          params: %{value: Jido.Flow.Ref.input(:value)},
+          needs: ["gate"],
+          meta: %{"purpose" => "reused inline action"}
+        },
+        %{kind: :step, name: "gate", action: Echo, params: %{}}
+      ],
+      name: "reused_inline"
+    }
 
-    assert {:ok, built} = Builder.build(builder)
+    assert {:ok, built} = Jido.Flow.new(data)
     assert built == direct
 
     for flow <- [direct, built] do
@@ -67,7 +73,7 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
     assert_raise ArgumentError, fn -> String.to_existing_atom(unknown) end
   end
 
-  test "nested operations agree across source, direct, Builder, and version 2 JSON" do
+  test "nested operations agree across source, direct, and version 2 JSON" do
     output = %{
       total: Expr.new!(:add, [Expr.new!(:multiply, [Ref.input(:a), Ref.input(:b)]), 1]),
       flags: [
@@ -84,19 +90,21 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
         output: output
       )
 
-    builder =
-      Builder.new(name: Boundaries.Expressions.name())
-      |> Builder.step("echo", Echo, %{name: Builder.input(:name)})
-      |> Builder.output(output)
+    data = %{
+      output: output,
+      components: [
+        %{kind: :step, name: "echo", action: Echo, params: %{name: Jido.Flow.Ref.input(:name)}}
+      ],
+      name: Boundaries.Expressions.name()
+    }
 
     assert Boundaries.Expressions.flow() == direct
-    assert {:ok, built} = Builder.build(builder)
+    assert {:ok, built} = Jido.Flow.new(data)
     assert built == direct
     assert {:ok, document, registry} = Codec.encode(direct)
     assert document["version"] == 2
     assert {:ok, restored} = Codec.decode(JSON.decode!(JSON.encode!(document)), registry)
     assert restored == direct
-
     input = %{name: "Ada", a: 2, b: 3, enabled: true, maybe: nil}
     expected = %{total: 7, flags: [true, true], message: "Hi Ada"}
 
@@ -106,12 +114,8 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
   end
 
   test "Flow and Action schemas fail at their own boundaries, and Flow preserves explicit effects" do
-    assert Exec.run(Boundaries.SchemaFlow, %{}) ==
-             {:ok, %{value: 2}, [:schema_effect]}
-
-    assert Exec.run(Boundaries.SchemaFlow, %{value: 3}) ==
-             {:ok, %{value: 4}, [:schema_effect]}
-
+    assert Exec.run(Boundaries.SchemaFlow, %{}) == {:ok, %{value: 2}, [:schema_effect]}
+    assert Exec.run(Boundaries.SchemaFlow, %{value: 3}) == {:ok, %{value: 4}, [:schema_effect]}
     assert {:error, input_error} = Exec.run(Boundaries.SchemaFlow, %{value: "bad"})
     assert input_error.details.node_path == ["work"]
 
@@ -133,12 +137,20 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
         output: %{value: Ref.result("bomb", :value)}
       )
 
-    builder =
-      Builder.new(name: Boundaries.Inert.name())
-      |> Builder.step("bomb", Boundaries.Bomb, %{value: Builder.input(:value)})
-      |> Builder.output(%{value: Builder.result("bomb", :value)})
+    data = %{
+      output: %{value: Jido.Flow.Ref.result("bomb", :value)},
+      components: [
+        %{
+          kind: :step,
+          name: "bomb",
+          action: Boundaries.Bomb,
+          params: %{value: Jido.Flow.Ref.input(:value)}
+        }
+      ],
+      name: Boundaries.Inert.name()
+    }
 
-    assert {:ok, built} = Builder.build(builder)
+    assert {:ok, built} = Jido.Flow.new(data)
     assert {:ok, document, registry} = Codec.encode(direct)
     assert {:ok, restored} = Codec.decode(JSON.decode!(JSON.encode!(document)), registry)
     assert Boundaries.Inert.flow() == direct
@@ -165,15 +177,10 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
 
   test "reference paths distinguish missing, nil, false, and atom or string keys" do
     assert Exec.run(Boundaries.Stored, %{value: nil}) == {:ok, %{value: nil}}
-
-    assert Exec.run(Boundaries.Stored, %{"value" => 7, value: false}) ==
-             {:ok, %{value: false}}
-
+    assert Exec.run(Boundaries.Stored, %{"value" => 7, value: false}) == {:ok, %{value: false}}
     assert Exec.run(Boundaries.Stored, %{"value" => 7}) == {:ok, %{value: 7}}
     assert {:error, %{details: %{reason: :missing_key}}} = Exec.run(Boundaries.Stored, %{})
-
-    assert Exec.run(Boundaries.Paths, %{payload: %{"items" => [nil]}}) ==
-             {:ok, %{value: nil}}
+    assert Exec.run(Boundaries.Paths, %{payload: %{"items" => [nil]}}) == {:ok, %{value: nil}}
 
     assert {:error, %{details: %{reason: :missing_index, path: [:payload, "items", 0]}}} =
              Exec.run(Boundaries.Paths, %{payload: %{"items" => []}})
@@ -189,13 +196,11 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
   test "full, step-wise, and async runs return one authored result" do
     expected = {:ok, %{value: 7}}
     assert Exec.run(Boundaries.Stored, %{value: 7}) == expected
-
     assert {:ok, execution} = Exec.start(Boundaries.Stored, %{value: 7})
     assert {:ok, execution} = Exec.continue(execution)
     assert Exec.result(execution) == expected
-
     handle = Exec.run_async(Boundaries.Stored, %{value: 7})
-    assert Exec.await(handle, 5_000) == expected
+    assert Exec.await(handle, 5000) == expected
   end
 
   test "fixed host Registry IDs match the saved JSON document" do
@@ -210,7 +215,6 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
     fixture = Path.join(__DIR__, "support/saved_flow.json")
     json = fixture |> File.read!() |> String.trim()
     document = JSON.decode!(json)
-
     assert {:ok, ^document} = Codec.encode(flow, registry)
     assert {:ok, restored} = Codec.decode(document, registry)
     assert restored == flow
@@ -228,16 +232,10 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
         "atoms/value" => {:atom, :value}
       })
 
-    document =
-      __DIR__
-      |> Path.join("support/saved_flow.json")
-      |> File.read!()
-      |> JSON.decode!()
-
+    document = __DIR__ |> Path.join("support/saved_flow.json") |> File.read!() |> JSON.decode!()
     old = put_in(document, ["components", Access.at(0), "action"], "actions/echo/old")
     assert {:ok, restored} = Codec.decode(old, registry)
     assert {:ok, ^document} = Codec.encode(restored, registry)
-
     wrong_kind = put_in(document, ["components", Access.at(0), "action"], "schemas/none/v1")
 
     assert {:error, %Jido.Flow.Error.InvalidDefinitionError{}} =
@@ -257,12 +255,7 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
         "atoms/value" => {:atom, :value}
       })
 
-    document =
-      __DIR__
-      |> Path.join("support/saved_flow.json")
-      |> File.read!()
-      |> JSON.decode!()
-
+    document = __DIR__ |> Path.join("support/saved_flow.json") |> File.read!() |> JSON.decode!()
     [step] = document["components"]
 
     cases = [
@@ -292,12 +285,7 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
         "atoms/value" => {:atom, :value}
       })
 
-    document =
-      __DIR__
-      |> Path.join("support/saved_flow.json")
-      |> File.read!()
-      |> JSON.decode!()
-
+    document = __DIR__ |> Path.join("support/saved_flow.json") |> File.read!() |> JSON.decode!()
     assert {:error, _error} = Codec.decode(Map.put(document, "name", <<255>>), registry)
   end
 
@@ -309,14 +297,13 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
         "atoms/value" => {:atom, :value}
       })
 
-    document =
-      __DIR__
-      |> Path.join("support/saved_flow.json")
-      |> File.read!()
-      |> JSON.decode!()
-
+    document = __DIR__ |> Path.join("support/saved_flow.json") |> File.read!() |> JSON.decode!()
     too_deep = Enum.reduce(1..101, 0, fn _, nested -> [nested] end)
-    too_many = for _ <- 1..1_001, do: List.duplicate(0, 100)
+
+    too_many =
+      for _ <- 1..1001 do
+        List.duplicate(0, 100)
+      end
 
     cases = [
       {Map.put(document, "output", too_deep), "nesting limit"},

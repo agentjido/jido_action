@@ -1,18 +1,17 @@
 defmodule JidoActionTest.Exec.SubflowOutputTest do
   use ExUnit.Case, async: true
-
   alias Jido.Action.Output
   alias Jido.Exec
   alias Jido.Flow
-  alias Jido.Flow.{Builder, Codec, Ref, Step, Subflow}
+  alias Jido.Flow.{Codec, Ref, Step, Subflow}
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
 
   defmodule Child do
     use Jido.Flow, name: "context_output_child"
 
     flow do
-      step "work", action: EchoParamsAction, params: %{value: input(:value)}
-      output %{work: result("work"), tenant: context(:tenant)}
+      step("work", action: EchoParamsAction, params: %{value: input(:value)})
+      output(%{work: result("work"), tenant: context(:tenant)})
     end
   end
 
@@ -20,8 +19,8 @@ defmodule JidoActionTest.Exec.SubflowOutputTest do
     use Jido.Flow, name: "context_output_parent"
 
     flow do
-      step "child", action: Child, params: %{value: input(:value)}
-      output result("child")
+      step("child", action: Child, params: %{value: input(:value)})
+      output(result("child"))
     end
   end
 
@@ -29,10 +28,10 @@ defmodule JidoActionTest.Exec.SubflowOutputTest do
     use Jido.Flow, name: "expression_output_child"
 
     flow do
-      step "work", action: EchoParamsAction, params: %{value: input(:value) + 1}
-      step "other", action: EchoParamsAction, params: %{value: input(:value) * 2}
+      step("work", action: EchoParamsAction, params: %{value: input(:value) + 1})
+      step("other", action: EchoParamsAction, params: %{value: input(:value) * 2})
 
-      output %{
+      output(%{
         input: input(:value),
         work: result("work"),
         context: context(),
@@ -43,7 +42,7 @@ defmodule JidoActionTest.Exec.SubflowOutputTest do
           ],
           total: result("work", :value) + result("other", :value) + context(:adjustment)
         }
-      }
+      })
     end
   end
 
@@ -51,18 +50,19 @@ defmodule JidoActionTest.Exec.SubflowOutputTest do
     use Jido.Flow, name: "nested_context_output"
 
     flow do
-      step "work", action: EchoParamsAction, params: %{value: input(:value) + 100}
+      step("work", action: EchoParamsAction, params: %{value: input(:value) + 100})
 
-      step "child",
+      step("child",
         action: ExpressionChild,
         params: %{value: input(:value) + 1, label: input(:label)}
+      )
 
-      output %{
+      output(%{
         input: input(:value),
         work: result("work"),
         child: result("child"),
         tenant: context([:accounts, 0, :tenant])
-      }
+      })
     end
   end
 
@@ -70,13 +70,13 @@ defmodule JidoActionTest.Exec.SubflowOutputTest do
     use Jido.Flow, name: "no_result_context_output"
 
     flow do
-      step "work", action: EchoParamsAction, params: %{}
+      step("work", action: EchoParamsAction, params: %{})
 
-      output %{
+      output(%{
         input: input(:value),
         tenant: context([:account, :tenant]),
         nil?: context([:account, :tenant]) == nil
-      }
+      })
     end
   end
 
@@ -84,8 +84,8 @@ defmodule JidoActionTest.Exec.SubflowOutputTest do
     use Jido.Flow, name: "complete_context_output"
 
     flow do
-      step "work", action: EchoParamsAction, params: %{}
-      output context(:output)
+      step("work", action: EchoParamsAction, params: %{})
+      output(context(:output))
     end
   end
 
@@ -115,18 +115,29 @@ defmodule JidoActionTest.Exec.SubflowOutputTest do
       )
 
     {:ok, built_child} =
-      Builder.new(name: child.name)
-      |> Builder.step("work", EchoParamsAction, %{value: Ref.input(:value)})
-      |> Builder.output(child.output)
-      |> Builder.build()
+      Jido.Flow.new(%{
+        output: child.output,
+        components: [
+          %{
+            kind: :step,
+            name: "work",
+            action: EchoParamsAction,
+            params: %{value: Ref.input(:value)}
+          }
+        ],
+        name: child.name
+      })
 
     parent = parent_flow(Child)
 
     {:ok, built_parent} =
-      Builder.new(name: parent.name)
-      |> Builder.step("child", Child, %{value: Ref.input(:value)})
-      |> Builder.output(parent.output)
-      |> Builder.build()
+      Jido.Flow.new(%{
+        output: parent.output,
+        components: [
+          %{kind: :subflow, flow: Child, name: "child", params: %{value: Ref.input(:value)}}
+        ],
+        name: parent.name
+      })
 
     assert child == Child.flow()
     assert child == built_child
@@ -296,13 +307,7 @@ defmodule JidoActionTest.Exec.SubflowOutputTest do
   end
 
   defp expression_context do
-    %{
-      accounts: [%{tenant: "acme"}],
-      prefix: "<",
-      suffix: ">",
-      adjustment: 10,
-      token: make_ref()
-    }
+    %{accounts: [%{tenant: "acme"}], prefix: "<", suffix: ">", adjustment: 10, token: make_ref()}
   end
 
   defp expression_output(value, label, context) do
@@ -314,7 +319,9 @@ defmodule JidoActionTest.Exec.SubflowOutputTest do
     }
   end
 
-  defp execute(flow, input, context, :run), do: Exec.run(flow, input, context)
+  defp execute(flow, input, context, :run) do
+    Exec.run(flow, input, context)
+  end
 
   defp execute(flow, input, context, mode) do
     {:ok, execution} = Exec.start(flow, input, context)

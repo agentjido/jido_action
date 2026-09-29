@@ -21,9 +21,9 @@ The package has four main public parts:
 - `Jido.Flow` defines a validated, in-memory graph of Action calls.
 - `Jido.Exec` is the public execution and error boundary.
 
-A Flow has four supported authoring forms. The module DSL,
-`Jido.Flow.Builder`, stored JSON through `Jido.Flow.Codec`, and direct
-constructors must all produce the same canonical `%Jido.Flow{}` model.
+A Flow has three supported authoring forms. The module DSL,
+map-based data definitions through `Jido.Flow.new/1` and component constructors,
+and stored JSON through `Jido.Flow.Codec` must all produce the same canonical `%Jido.Flow{}` model.
 Changes to one form must keep equivalent behavior in the other forms.
 
 `Jido.Exec` owns one in-memory execution session. It supports synchronous and
@@ -49,7 +49,7 @@ Read these files before a change that affects their subject:
 - `lib/jido_instruction.ex` contains the executable call frame.
 - `lib/jido_flow.ex` is the public Flow facade.
 - `lib/jido_flow/dsl/` contains compile-time authoring and lowering.
-- `lib/jido_flow/builder.ex` contains runtime authoring normalization.
+- `lib/jido_flow/component.ex` normalizes tagged component maps and constructors.
 - `lib/jido_flow/codec.ex` and `lib/jido_flow/registry.ex` contain the
   versioned stored-JSON boundary.
 - `lib/jido_flow/compiler/` converts canonical Flow data for execution.
@@ -150,13 +150,13 @@ for validation, return normalization, and error behavior.
 - Direct Flow and component constructors are a supported Flow authoring API.
   Raw struct literals can show the canonical shape, but constructors own
   validation.
-- The DSL, Builder, Codec reader, and direct constructors must use the same
+- The DSL, data definitions, Codec reader, and direct constructors must use the same
   validation rules.
 - Node names and semantic output must not depend on map enumeration, task
   completion, or scheduler order.
 - Source order does not create a dependency. Result references and `needs:`
   create dependencies.
-- Canonical Flow data, the module DSL, Builder, Codec, and direct constructors
+- Canonical Flow data, the module DSL, data definitions, Codec, and direct constructors
   require an explicit, non-nil `output`. In the module DSL, `output` must be the
   final declaration. Do not infer output from source order or graph terminal
   nodes, and do not add a `return` alias.

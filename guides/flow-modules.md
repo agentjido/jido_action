@@ -82,39 +82,11 @@ module must compile before each Flow that configures it.
 Extensions apply only to the compile-time module DSL. The extension module and
 macro calls are not part of the canonical `%Jido.Flow{}` value.
 
-For Builder authoring, use a normal function that takes and returns a Builder:
-
-```elixir
-defmodule MyApp.Flows.BuilderHelpers do
-  def notify(builder, name, address) do
-    Jido.Flow.Builder.step(
-      builder,
-      name,
-      MyApp.Actions.Notify,
-      %{address: address}
-    )
-  end
-end
-
-builder =
-  Jido.Flow.Builder.new(name: "welcome")
-  |> MyApp.Flows.BuilderHelpers.notify(
-    "welcome",
-    Jido.Flow.Builder.input(:address)
-  )
-  |> Jido.Flow.Builder.output(Jido.Flow.Builder.result("welcome"))
-```
-
-For direct construction, use normal functions that return canonical components
-or a canonical Flow. Builder and direct helpers run as application code. They
-do not use the extension list. Put them in a separate module. Spark imports the
-public functions and macros of a configured extension into the Flow module, so
-the extension module must have a small public namespace.
-
-Codec maps are data only. They cannot name or run an extension. If an
-application owns a higher-level stored format, translate that format to Builder
-or direct constructor calls in trusted application code. Then encode the
-canonical Flow through `Jido.Flow.Codec` and a trusted Registry.
+For data authoring, use normal functions that return component maps or complete
+Flow definitions. Validate the complete definition with `Jido.Flow.new/1`.
+The module DSL loads compile-time extensions. Data definitions do not load
+extensions or execute authoring macros. If an application owns another stored
+format, translate it to data definitions or Registry-backed Codec documents.
 
 ## Format The DSL
 
@@ -174,7 +146,7 @@ Lookup does not execute the body or create atoms.
 The helper returns only the target. It does not copy the Step's parameters,
 `needs`, or `meta`. Supply those fields for the new graph. Call the helper
 after its Flow module has compiled, not from that module's unfinished `flow`
-block. See [Builder reuse](flow-builder.md#reuse-an-inline-step) and
+block. See [data definitions reuse](flow-data.md#reuse-an-inline-step) and
 [JSON storage](flow-storage.md#store-a-compiled-inline-step).
 
 Context bindings are also Step parameters. For example, `ctx <- context()`
@@ -212,7 +184,7 @@ inline Steps. Untagged success extras fail with migration guidance. See
 
 The compiler stores file, line, and available column data in a source map
 outside the canonical Flow value. Component `meta` remains portable author
-data. This separation keeps direct, Builder, DSL, and Codec values equal.
+data. This separation keeps direct, data definitions, DSL, and Codec values equal.
 
 Inline body warnings and errors retain source locations. Runtime stacktraces
 include the body in its owning Flow module. Do not depend on the generated

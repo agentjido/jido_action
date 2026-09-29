@@ -3,9 +3,8 @@ Code.require_file("support/components.ex", __DIR__)
 defmodule JidoActionTest.Authoring.ComponentsTest do
   use ExUnit.Case, async: false
   @moduletag :authoring
-
   alias Jido.{Exec, Expr, Flow}
-  alias Jido.Flow.{Builder, Choice, Codec, Dispatch, Iterate, Ref, Reduce, Subflow}
+  alias Jido.Flow.{Choice, Codec, Dispatch, Iterate, Ref, Reduce, Subflow}
   alias Jido.Flow.Map, as: FlowMap
   alias JidoActionTest.Authoring.Components
 
@@ -35,22 +34,30 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
 
   alias Components.ReduceFlow
 
-  test "Map keyword and block forms match direct, Builder, and JSON, including empty input" do
+  test "Map keyword and block forms match direct, and JSON, including empty input" do
     params = %{value: Ref.item(), index: Ref.item_index(), item_id: Ref.item_id()}
 
     component =
       FlowMap.new!(name: "items", collection: Ref.input(:items), action: MapItem, params: params)
 
     output = %{items: Ref.result("items")}
-
     direct = Flow.new!(name: MapKeyword.name(), components: [component], output: output)
 
-    builder =
-      Builder.new(name: MapKeyword.name())
-      |> Builder.map("items", Builder.input(:items), MapItem, params)
-      |> Builder.output(output)
+    data = %{
+      output: output,
+      components: [
+        %{
+          kind: :map,
+          name: "items",
+          collection: Jido.Flow.Ref.input(:items),
+          action: MapItem,
+          params: params
+        }
+      ],
+      name: MapKeyword.name()
+    }
 
-    forms = parity(MapKeyword, direct, builder)
+    forms = parity(MapKeyword, direct, data)
     assert MapBlock.flow() == direct
 
     for form <- [MapBlock | forms] do
@@ -84,15 +91,22 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
     direct =
       Flow.new!(name: ReduceFlow.name(), components: [component], output: Ref.result("fold"))
 
-    builder =
-      Builder.new(name: ReduceFlow.name())
-      |> Builder.reduce("fold", Builder.input(:items), %{value: 1}, Fold, %{
-        acc: Builder.accumulator(:value),
-        item: Builder.item()
-      })
-      |> Builder.output(Builder.result("fold"))
+    data = %{
+      output: Jido.Flow.Ref.result("fold"),
+      components: [
+        %{
+          kind: :reduce,
+          name: "fold",
+          collection: Jido.Flow.Ref.input(:items),
+          initial: %{value: 1},
+          action: Fold,
+          params: %{acc: Jido.Flow.Ref.accumulator(:value), item: Jido.Flow.Ref.item()}
+        }
+      ],
+      name: ReduceFlow.name()
+    }
 
-    forms = parity(ReduceFlow, direct, builder)
+    forms = parity(ReduceFlow, direct, data)
 
     for form <- forms do
       assert Exec.run(form, %{items: []}, %{observer: self()}) == {:ok, %{value: 1}}
@@ -100,10 +114,7 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
     end
 
     refute_received {:fold, _, _}
-
-    assert Exec.run(ReduceFlow, %{items: [2, 2, 3]}, %{observer: self()}) ==
-             {:ok, %{value: 777}}
-
+    assert Exec.run(ReduceFlow, %{items: [2, 2, 3]}, %{observer: self()}) == {:ok, %{value: 777}}
     assert_receive {:fold, 2, 1}
     assert_receive {:fold, 2, 8}
     assert_receive {:fold, 3, 78}
@@ -130,17 +141,17 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
 
     task =
       Task.async(fn ->
-        Exec.run(GatedMapFlow, %{items: [7, 7, 9]}, %{observer: observer}, max_concurrency: 3)
+        Exec.run(GatedMapFlow, %{items: ~c"\a\a\t"}, %{observer: observer}, max_concurrency: 3)
       end)
 
     started =
       for _ <- 1..3, into: %{} do
-        assert_receive {:map_started, index, value, item_id, pid}, 5_000
+        assert_receive {:map_started, index, value, item_id, pid}, 5000
         {index, {value, item_id, pid}}
       end
 
     assert Map.keys(started) |> Enum.sort() == [0, 1, 2]
-    assert Enum.map(0..2, fn index -> started[index] |> elem(0) end) == [7, 7, 9]
+    assert Enum.map(0..2, fn index -> started[index] |> elem(0) end) == ~c"\a\a\t"
     assert started |> Map.values() |> Enum.map(&elem(&1, 1)) |> Enum.uniq() |> length() == 3
 
     for index <- [2, 1, 0] do
@@ -174,9 +185,7 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
   end
 
   test "Reduce failure stops before the next item" do
-    assert {:error, error} =
-             Exec.run(ReduceFlow, %{items: [2, :bad, 3]}, %{observer: self()})
-
+    assert {:error, error} = Exec.run(ReduceFlow, %{items: [2, :bad, 3]}, %{observer: self()})
     assert error.details.node_path == ["fold"]
     assert_receive {:fold, 2, 1}
     assert_receive {:fold, :bad, 8}
@@ -222,15 +231,23 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
           output: output
         )
 
-      builder =
-        Builder.new(name: module.name())
-        |> Builder.iterate("counter", Advance, params, state,
-          completion: completion,
-          max_iterations: maximum
-        )
-        |> Builder.output(output)
+      data = %{
+        output: output,
+        components: [
+          %{
+            kind: :iterate,
+            name: "counter",
+            action: Advance,
+            params: params,
+            state: state,
+            completion: completion,
+            max_iterations: maximum
+          }
+        ],
+        name: module.name()
+      }
 
-      for form <- parity(module, direct, builder) do
+      for form <- parity(module, direct, data) do
         assert {:ok, %{counter: %{iterations: ^iterations, state: state_value}}} =
                  Exec.run(form, input)
 
@@ -242,7 +259,6 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
              Exec.run(IterateWhile, %{limit: 0}, %{observer: self()})
 
     refute_received {:iteration, _, _, _}
-
     assert {:ok, _} = Exec.run(IterateRepeat, %{}, %{observer: self()})
     assert_receive {:iteration, 0, 0, nil}
     assert_receive {:iteration, 1, 1, %{count: 1, index: 0}}
@@ -260,10 +276,7 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
     end
 
     refute_received {:iteration, 4, _, _}
-
-    assert {:error, body_error} =
-             Exec.run(IterateRepeat, %{}, %{observer: self(), fail_at: 1})
-
+    assert {:error, body_error} = Exec.run(IterateRepeat, %{}, %{observer: self(), fail_at: 1})
     assert body_error.details.node_path == ["counter"]
     assert_receive {:iteration, 0, 0, nil}
     assert_receive {:iteration, 1, 1, %{count: 1, index: 0}}
@@ -282,12 +295,20 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
         output: output
       )
 
-    builder =
-      Builder.new(name: Parent.name())
-      |> Builder.step("child", Child, %{value: Builder.input(:value)})
-      |> Builder.output(output)
+    data = %{
+      output: output,
+      components: [
+        %{
+          kind: :subflow,
+          flow: Child,
+          name: "child",
+          params: %{value: Jido.Flow.Ref.input(:value)}
+        }
+      ],
+      name: Parent.name()
+    }
 
-    for form <- parity(Parent, direct, builder) do
+    for form <- parity(Parent, direct, data) do
       assert Exec.run(form, %{value: 5}, %{label: "shared"}) ==
                {:ok, %{child: %{value: 5, label: "shared"}}}
 
@@ -300,9 +321,7 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
     assert Exec.run(DoubleParent, %{left: 1, right: 2}, %{label: "shared"}) ==
              {:ok, %{left: %{value: 1, label: "shared"}, right: %{value: 2, label: "shared"}}}
 
-    assert {:error, error} =
-             Exec.run(DoubleParent, %{left: 1, right: "bad"}, %{label: "shared"})
-
+    assert {:error, error} = Exec.run(DoubleParent, %{left: 1, right: "bad"}, %{label: "shared"})
     assert error.details.node_path == ["right"]
   end
 
@@ -331,12 +350,13 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
         output: Ref.result("route")
       )
 
-    builder =
-      Builder.new(name: ChoiceFlow.name())
-      |> Builder.choice("route", options, fallback)
-      |> Builder.output(Builder.result("route"))
+    data = %{
+      output: Jido.Flow.Ref.result("route"),
+      components: [%{kind: :choice, name: "route", options: options, fallback: fallback}],
+      name: ChoiceFlow.name()
+    }
 
-    for form <- parity(ChoiceFlow, direct, builder),
+    for form <- parity(ChoiceFlow, direct, data),
         {score, route} <- [{100, :urgent}, {70, :priority}, {10, :standard}] do
       assert Exec.run(form, %{score: score}) == {:ok, %{route: route}}
     end
@@ -354,12 +374,15 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
         output: Ref.result("route")
       )
 
-    builder =
-      Builder.new(name: DispatchFlow.name())
-      |> Builder.dispatch("route", Decide, Expand, params)
-      |> Builder.output(Builder.result("route"))
+    data = %{
+      output: Jido.Flow.Ref.result("route"),
+      components: [
+        %{kind: :dispatch, name: "route", decision: Decide, expander: Expand, params: params}
+      ],
+      name: DispatchFlow.name()
+    }
 
-    for form <- parity(DispatchFlow, direct, builder) do
+    for form <- parity(DispatchFlow, direct, data) do
       for {mode, target, expected} <- [
             {:finish, nil, %{value: 5, label: "ctx"}},
             {:continue, Final, %{value: 6, label: "ctx"}},
@@ -374,9 +397,9 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
     end
   end
 
-  defp parity(module, direct, builder) do
+  defp parity(module, direct, data) do
     assert module.flow() == direct
-    assert {:ok, built} = Builder.build(builder)
+    assert {:ok, built} = Jido.Flow.new(data)
     assert built == direct
     assert {:ok, document, registry} = Codec.encode(direct)
     assert {:ok, restored} = Codec.decode(document |> JSON.encode!() |> JSON.decode!(), registry)

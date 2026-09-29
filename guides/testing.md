@@ -196,7 +196,7 @@ Place shared fixtures under `test/support/fixtures` with `action`, `flow`,
 module. A fixture function must not make assertions or hide the public
 contract under test.
 
-A small end-to-end test can prove that DSL, direct constructors, Builder, and
+A small end-to-end test can prove that DSL, direct constructors, data definitions, and
 Codec converge. Do not repeat every lower-level case in that combined test.
 
 ## Test Runnable Examples

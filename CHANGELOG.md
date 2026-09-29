@@ -11,6 +11,19 @@ entries return to the normal automated changelog process.
 
 <!-- changelog -->
 
+## Unreleased
+
+### Changed
+
+- Remove `Jido.Flow.Builder`. Define runtime Flows with `Jido.Flow.new/1`
+  and tagged component maps. Keep the module DSL, component constructors,
+  and stored JSON Codec. Data definitions declare child Flows explicitly
+  with `kind: :subflow` and `flow:`.
+- Move reference path selection to `Jido.Flow.Ref.select/2`. Use `Jido.Expr`
+  for conditions and operations. Map validation errors include the component
+  index and nested error path. See [Flow Data Definitions](guides/flow-data.md).
+
+
 ## [v3.0.0-beta.11](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.10...v3.0.0-beta.11) (2026-09-13)
 
 

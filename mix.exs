@@ -139,7 +139,7 @@ defmodule JidoAction.MixProject do
           "guides/flow-iterate-state.livemd",
           "guides/nested-flows.livemd",
           "guides/flow-modules.md",
-          "guides/flow-builder.md",
+          "guides/flow-data.md",
           "guides/flow-storage.md",
           "guides/flow-inspection.md"
         ],
@@ -187,7 +187,7 @@ defmodule JidoAction.MixProject do
         {"guides/flow-iterate-state.livemd", title: "Iterate And State"},
         {"guides/nested-flows.livemd", title: "Nested Flows"},
         {"guides/flow-modules.md", title: "Flow Modules"},
-        {"guides/flow-builder.md", title: "Direct Construction And Builder"},
+        {"guides/flow-data.md", title: "Flow Data Definitions"},
         {"guides/flow-storage.md", title: "Store Flows As JSON"},
         {"guides/flow-inspection.md", title: "Inspect Flows"},
         # Run And Operate
@@ -220,7 +220,6 @@ defmodule JidoAction.MixProject do
         ],
         "Flow API": [
           Jido.Flow,
-          Jido.Flow.Builder,
           Jido.Flow.Codec,
           Jido.Flow.Extension,
           Jido.Flow.Registry

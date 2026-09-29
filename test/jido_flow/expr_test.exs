@@ -1,15 +1,16 @@
 defmodule JidoActionTest.Flow.ExprTest do
   use ExUnit.Case, async: true
-
   alias Jido.Expr
   alias Jido.Flow
-  alias Jido.Flow.{Builder, Choice, Codec, Ref, Step}
+  alias Jido.Flow.{Choice, Codec, Ref, Step}
   alias Jido.Flow.DSL.Expression
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
 
   test "Flow parses transparent calculations and optional wrappers" do
     source =
-      quote(do: %{total: input(:quantity) * input(:price), label: expr("Hi " <> input(:name))})
+      quote do
+        %{total: input(:quantity) * input(:price), label: expr("Hi " <> input(:name))}
+      end
 
     assert {:ok, value} = Expression.parse(source)
     assert value.total == Expr.new!(:multiply, [Ref.input(:quantity), Ref.input(:price)])
@@ -19,7 +20,7 @@ defmodule JidoActionTest.Flow.ExprTest do
              Jido.Exec.run(output_flow(value), %{quantity: 2, price: 3, name: "Ada"})
   end
 
-  test "direct, Builder, and stored calculations have the same model and result" do
+  test "direct, and stored calculations have the same model and result" do
     total = Expr.new!(:multiply, [Ref.result("load", :quantity), Ref.input(:price)])
     label = Expr.new!(:concat, [Ref.context(:prefix), Ref.input(:name)])
 
@@ -34,10 +35,13 @@ defmodule JidoActionTest.Flow.ExprTest do
       Flow.new!(name: "calculated", components: [step], output: %{total: total, label: label})
 
     assert {:ok, built} =
-             Builder.new(name: "calculated")
-             |> Builder.step("load", EchoParamsAction, step.params)
-             |> Builder.output(direct.output)
-             |> Builder.build()
+             Jido.Flow.new(%{
+               output: direct.output,
+               components: [
+                 %{kind: :step, name: "load", action: EchoParamsAction, params: step.params}
+               ],
+               name: "calculated"
+             })
 
     assert built == direct
     assert {:ok, document, registry} = Codec.encode(built)
@@ -63,10 +67,18 @@ defmodule JidoActionTest.Flow.ExprTest do
 
   test "Boolean references and literals are strict conditions and short circuit" do
     for {ast, input, expected} <- [
-          {quote(do: input(:enabled)), %{enabled: true}, true},
-          {quote(do: not input(:enabled)), %{enabled: false}, true},
-          {quote(do: false and input(:missing)), %{}, false},
-          {quote(do: true or 1 / 0 > 0), %{}, true}
+          {quote do
+             input(:enabled)
+           end, %{enabled: true}, true},
+          {quote do
+             not input(:enabled)
+           end, %{enabled: false}, true},
+          {quote do
+             false and input(:missing)
+           end, %{}, false},
+          {quote do
+             true or 1 / 0 > 0
+           end, %{}, true}
         ] do
       assert {:ok, condition} = Expression.parse_condition(ast)
       assert Jido.Exec.run(choice_flow(condition), input) == {:ok, %{selected: expected}}
@@ -88,15 +100,21 @@ defmodule JidoActionTest.Flow.ExprTest do
     use Jido.Flow, name: "native_boolean_output"
 
     flow do
-      step "echo", action: EchoParamsAction, params: %{value: true and 123}
-      output %{value: result("echo", :value), fallback: false or "fallback"}
+      step("echo", action: EchoParamsAction, params: %{value: true and 123})
+      output(%{value: result("echo", :value), fallback: false or "fallback"})
     end
   end
 
   test "data fields accept native Boolean results but condition boundaries reject them" do
     assert Jido.Exec.run(NativeOutput) == {:ok, %{value: 123, fallback: "fallback"}}
 
-    assert {:ok, condition} = Expression.parse_condition(quote(do: true and 123))
+    assert {:ok, condition} =
+             Expression.parse_condition(
+               quote do
+                 true and 123
+               end
+             )
+
     assert {:error, error} = Jido.Exec.run(choice_flow(condition))
     assert error.details.reason == :invalid_boolean_operand
     assert error.details.phase == :choice_condition
@@ -153,7 +171,6 @@ defmodule JidoActionTest.Flow.ExprTest do
     assert error.details.operator == :divide
     assert error.details.expression_path == [:nested, 0]
     assert error.details.retry == false
-
     expression = Expr.new!(:concat, ["Hi ", Ref.input(:missing)])
 
     assert {:error, error} =
@@ -273,7 +290,11 @@ defmodule JidoActionTest.Flow.ExprTest do
 
   test "native source and canonical binary operators produce the same Flow model" do
     assert {:ok, from_dsl} =
-             Expression.parse_condition(quote(do: input(:score) * 2 >= 80 and input(:enabled)))
+             Expression.parse_condition(
+               quote do
+                 input(:score) * 2 >= 80 and input(:enabled)
+               end
+             )
 
     from_helper =
       Expr.new!(:and, [
@@ -328,13 +349,13 @@ defmodule JidoActionTest.Flow.ExprTest do
     refute Map.has_key?(error.details, :text)
   end
 
-  defp output_flow(output),
-    do:
-      Flow.new!(
-        name: "expression_output",
-        components: [Step.new!(name: "seed", action: EchoParamsAction)],
-        output: output
-      )
+  defp output_flow(output) do
+    Flow.new!(
+      name: "expression_output",
+      components: [Step.new!(name: "seed", action: EchoParamsAction)],
+      output: output
+    )
+  end
 
   defp choice_flow(condition) do
     Flow.new!(

@@ -3,13 +3,10 @@ Code.require_file("support/adversarial.ex", __DIR__)
 defmodule JidoActionTest.Authoring.AdversarialTest do
   use ExUnit.Case, async: false
   @moduletag :authoring
-
   alias Jido.{Exec, Flow}
-  alias Jido.Flow.{Builder, Codec, Ref, Step}
+  alias Jido.Flow.{Codec, Ref, Step}
   alias JidoActionTest.Authoring.Adversarial.{Echo, Sum}
-
   @nodes ["load/α", "right.$ref", "left space", "combine"]
-
   test "unusual names and forward references keep the same result in all authoring forms" do
     input = %{payload: %{"items" => [2]}, right: 3}
     context = %{left: 5}
@@ -19,21 +16,26 @@ defmodule JidoActionTest.Authoring.AdversarialTest do
       name = "adversarial_order_#{index}"
       module = Module.concat(__MODULE__, "Order#{index}")
       Code.compile_string(source(module, name, order), "authoring_order_#{index}.ex")
+      direct = Flow.new!(name: name, components: Enum.map(order, &step/1), output: output())
 
-      direct =
-        Flow.new!(
-          name: name,
-          components: Enum.map(order, &step/1),
-          output: output()
-        )
+      data = %{
+        output: output(),
+        components:
+          Enum.map(
+            direct.components,
+            fn component ->
+              %{
+                kind: :step,
+                name: component.name,
+                action: component.action,
+                params: component.params
+              }
+            end
+          ),
+        name: name
+      }
 
-      builder =
-        Enum.reduce(direct.components, Builder.new(name: name), fn component, acc ->
-          Builder.step(acc, component.name, component.action, component.params)
-        end)
-        |> Builder.output(output())
-
-      assert {:ok, built} = Builder.build(builder)
+      assert {:ok, built} = Jido.Flow.new(data)
       assert {:ok, document, registry} = Codec.encode(direct)
       assert {:ok, ^document, ^registry} = Codec.encode(direct)
 
@@ -43,7 +45,6 @@ defmodule JidoActionTest.Authoring.AdversarialTest do
       assert module.flow() == direct
       assert built == direct
       assert restored == direct
-
       assert {:ok, dependencies} = Flow.dependencies(direct)
 
       assert dependencies["combine"].effective ==
@@ -59,7 +60,7 @@ defmodule JidoActionTest.Authoring.AdversarialTest do
     end
   end
 
-  test "three invalid graph mutations fail in source, direct, Builder, and stored forms" do
+  test "three invalid graph mutations fail in source, direct, and stored forms" do
     order = @nodes
 
     valid =
@@ -85,15 +86,25 @@ defmodule JidoActionTest.Authoring.AdversarialTest do
       assert {:error, %{message: ^expected_message}} =
                Flow.new(name: valid.name, components: components, output: output())
 
-      builder =
-        Enum.reduce(components, Builder.new(name: valid.name), fn component, acc ->
-          Builder.step(acc, component.name, component.action, component.params,
-            needs: component.needs
-          )
-        end)
-        |> Builder.output(output())
+      data = %{
+        output: output(),
+        components:
+          Enum.map(
+            components,
+            fn component ->
+              %{
+                kind: :step,
+                name: component.name,
+                action: component.action,
+                params: component.params,
+                needs: component.needs
+              }
+            end
+          ),
+        name: valid.name
+      }
 
-      assert {:error, %{message: ^expected_message}} = Builder.build(builder)
+      assert {:error, %{message: ^expected_message}} = Jido.Flow.new(data)
 
       assert {:error, %{message: ^expected_message}} =
                Codec.decode(invalid_document(document, kind), registry)
@@ -121,10 +132,7 @@ defmodule JidoActionTest.Authoring.AdversarialTest do
       )
 
     assert {:ok, document, registry} = Codec.encode(flow)
-
-    untrusted =
-      "Elixir.JidoActionTest.Authoring.Untrusted#{System.unique_integer([:positive])}"
-
+    untrusted = "Elixir.JidoActionTest.Authoring.Untrusted#{System.unique_integer([:positive])}"
     assert_raise ArgumentError, fn -> String.to_existing_atom(untrusted) end
 
     changed =
@@ -146,10 +154,14 @@ defmodule JidoActionTest.Authoring.AdversarialTest do
     %{sum: Ref.result("combine", :sum), literal: Ref.result("load/α", :literal)}
   end
 
-  defp permutations([]), do: [[]]
+  defp permutations([]) do
+    [[]]
+  end
 
   defp permutations(nodes) do
-    for node <- nodes, rest <- permutations(List.delete(nodes, node)), do: [node | rest]
+    for node <- nodes, rest <- permutations(List.delete(nodes, node)) do
+      [node | rest]
+    end
   end
 
   defp step("load/α") do
@@ -225,16 +237,15 @@ defmodule JidoActionTest.Authoring.AdversarialTest do
         Map.get(overrides, step_name, declaration(step_name))
       end)
 
-    """
-    defmodule #{inspect(module)} do
-      use Jido.Flow, name: #{inspect(name)}
+    "defmodule #{inspect(module)} do
+  use Jido.Flow, name: #{inspect(name)}
 
-      flow do
-        #{declarations}
-        output(%{sum: result("combine", :sum), literal: result("load/α", :literal)})
-      end
-    end
-    """
+  flow do
+    #{declarations}
+    output(%{sum: result(\"combine\", :sum), literal: result(\"load/α\", :literal)})
+  end
+end
+"
   end
 
   defp declaration("load/α") do

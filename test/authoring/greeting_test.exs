@@ -3,35 +3,43 @@ Code.require_file("support/greeting.ex", __DIR__)
 defmodule JidoActionTest.Authoring.GreetingTest do
   use ExUnit.Case, async: false
   @moduletag :authoring
-
   alias Jido.Flow, as: FlowDefinition
-  alias Jido.Flow.{Builder, Codec, Ref, Step}
+  alias Jido.Flow.{Codec, Ref, Step}
   alias JidoActionTest.Authoring.Greeting.{Flow, Greet, Normalize}
 
   test "an authored Action validates input and carries caller context" do
     assert {:ok, %{name: "Ada"}} = Jido.Exec.run(Normalize, %{name: " Ada "})
-
-    assert {:ok, %{message: "Hi, Ada!"}} =
-             Jido.Exec.run(Greet, %{name: "Ada"}, %{prefix: "Hi"})
+    assert {:ok, %{message: "Hi, Ada!"}} = Jido.Exec.run(Greet, %{name: "Ada"}, %{prefix: "Hi"})
 
     assert {:error, %Jido.Action.Error.InvalidInputError{}} =
              Jido.Exec.run(Normalize, %{name: 12})
   end
 
-  test "module DSL, Builder, and constructors author the same executable Flow" do
+  test "module DSL, and constructors author the same executable Flow" do
     module_flow = Flow.flow()
 
-    builder =
-      Builder.new(
-        name: Flow.name(),
-        schema: Flow.schema(),
-        output_schema: Flow.output_schema()
-      )
-      |> Builder.step("normalize", Normalize, %{name: Builder.input(:name)})
-      |> Builder.step("greet", Greet, %{name: Builder.result("normalize", :name)})
-      |> Builder.output(Builder.result("greet"))
+    data = %{
+      output: Jido.Flow.Ref.result("greet"),
+      components: [
+        %{
+          kind: :step,
+          name: "normalize",
+          action: Normalize,
+          params: %{name: Jido.Flow.Ref.input(:name)}
+        },
+        %{
+          kind: :step,
+          name: "greet",
+          action: Greet,
+          params: %{name: Jido.Flow.Ref.result("normalize", :name)}
+        }
+      ],
+      name: Flow.name(),
+      schema: Flow.schema(),
+      output_schema: Flow.output_schema()
+    }
 
-    assert {:ok, builder_flow} = Builder.build(builder)
+    assert {:ok, data_flow} = Jido.Flow.new(data)
 
     direct_flow =
       FlowDefinition.new!(
@@ -40,19 +48,15 @@ defmodule JidoActionTest.Authoring.GreetingTest do
         output_schema: Flow.output_schema(),
         components: [
           Step.new!(name: "normalize", action: Normalize, params: %{name: Ref.input(:name)}),
-          Step.new!(
-            name: "greet",
-            action: Greet,
-            params: %{name: Ref.result("normalize", :name)}
-          )
+          Step.new!(name: "greet", action: Greet, params: %{name: Ref.result("normalize", :name)})
         ],
         output: Ref.result("greet")
       )
 
-    assert module_flow == builder_flow
+    assert module_flow == data_flow
     assert module_flow == direct_flow
 
-    for authored <- [Flow, module_flow, builder_flow, direct_flow] do
+    for authored <- [Flow, module_flow, data_flow, direct_flow] do
       assert {:ok, %{message: "Hi, Ada!"}} =
                Jido.Exec.run(authored, %{name: " Ada "}, %{prefix: "Hi"})
     end

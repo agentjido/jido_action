@@ -1,19 +1,17 @@
 defmodule Jido.Flow.GraphIdentityTest do
   use ExUnit.Case, async: true
-
   alias Jido.Flow.Error.InvalidDefinitionError
   alias Jido.Flow
-  alias Jido.Flow.Builder
   alias Jido.Flow.Ref
   alias Jido.Flow.Step
   alias JidoActionTest.Fixtures.Actions.{Add, EchoParamsAction}
   alias JidoActionTest.Fixtures.InlineAuthoring
   alias JidoActionTest.Fixtures.InlineParityFlow
 
-  test "equal inline DSL, Builder, and direct graph data has the same semantic identity" do
+  test "equal inline DSL, and direct graph data has the same semantic identity" do
     dsl = InlineParityFlow.flow()
     direct = InlineAuthoring.direct_flow!()
-    assert {:ok, built} = InlineAuthoring.builder() |> Builder.build()
+    assert {:ok, built} = Jido.Flow.new(InlineAuthoring.data())
     assert {:ok, identity} = Flow.semantic_identity(dsl)
     assert %{version: 3, algorithm: :sha256, digest: digest, uuid: uuid} = identity
     assert is_binary(digest)
@@ -36,10 +34,19 @@ defmodule Jido.Flow.GraphIdentityTest do
           ] do
         flows =
           for expression <- [reference, data] do
-            params = if unquote(field) == :params, do: %{data: expression}, else: %{}
+            params =
+              if unquote(field) == :params do
+                %{data: expression}
+              else
+                %{}
+              end
 
             output =
-              if unquote(field) == :output, do: %{data: expression}, else: Ref.result("echo")
+              if unquote(field) == :output do
+                %{data: expression}
+              else
+                Ref.result("echo")
+              end
 
             Flow.new!(
               name: "reference_identity",
@@ -91,13 +98,8 @@ defmodule Jido.Flow.GraphIdentityTest do
     assert Enum.map(flow.components, & &1.name) == ["first", "final", "gate"]
 
     assert {:ok,
-            %{
-              "final" => %{
-                needs: ["gate"],
-                references: ["first"],
-                effective: ["first", "gate"]
-              }
-            }} = Flow.dependencies(flow)
+            %{"final" => %{needs: ["gate"], references: ["first"], effective: ["first", "gate"]}}} =
+             Flow.dependencies(flow)
 
     assert final.needs == ["gate"]
   end

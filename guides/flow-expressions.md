@@ -97,7 +97,7 @@ A missing reference is an error. A present `nil` is a value: `input(:value)
 take priority; an atom path can fall back to its string spelling. A string
 path does not create or select an atom key.
 
-## Builder And Direct Construction
+## Data Definitions And Direct Construction
 
 Use `Jido.Expr.new!/2` for runtime operator data. Its non-raising `new/2`
 checks the operator and arity. Flow constructors then validate the complete
@@ -110,22 +110,25 @@ Calls inside a pin are rejected; compute a value before the macro if needed.
 
 ```elixir
 import Jido.Expr, only: [expr: 1]
-alias Jido.Flow.{Builder, Ref}
-
+alias Jido.Flow.Ref
 quantity = Ref.input(:quantity)
 price = Ref.input(:price)
 total = expr(^quantity * ^price)
 true = total == Jido.Expr.new!(:multiply, [quantity, price])
 
 {:ok, built} =
-  Builder.new(name: "expression_builder")
-  |> Builder.step(
-    "normalize",
-    ExprGuide.Invoice.step_action("normalize"),
-    %{name: Ref.input(:name)}
-  )
-  |> Builder.output(%{total: total})
-  |> Builder.build()
+  Jido.Flow.new(%{
+    output: %{total: total},
+    components: [
+      %{
+        kind: :step,
+        name: "normalize",
+        action: ExprGuide.Invoice.step_action("normalize"),
+        params: %{name: Ref.input(:name)}
+      }
+    ],
+    name: "expression_data"
+  })
 
 {:ok, %{total: 6}} = Jido.Exec.run(built, %{name: "Ada", quantity: 2, price: 3})
 ```
@@ -138,7 +141,7 @@ eligible = Jido.Expr.new!(:gte, [Ref.input(:score), 10])
 
 The V3 beta no longer provides `Jido.Flow.Condition` or accepts its records.
 Replace its constructors with `Jido.Expr.new/2` or `Jido.Expr.new!/2`.
-The `Jido.Flow.Builder` comparison and Boolean helpers remain available.
+Use `Jido.Expr` for comparison and Boolean operations.
 Expr construction checks the operator and arity; Flow constructors validate
 the full expression, portable values, and reference scope. Do not use
 `Jido.Expr.validate/2` as a replacement for Flow-specific validation.

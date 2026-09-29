@@ -1,9 +1,8 @@
 defmodule JidoActionTest.Flow.ExprBoundaryTest do
   use ExUnit.Case, async: true
-
   alias Jido.Expr
   alias Jido.Flow
-  alias Jido.Flow.{Builder, Choice, Codec, Iterate, Ref, Step}
+  alias Jido.Flow.{Choice, Codec, Iterate, Ref, Step}
   alias Jido.Flow.DSL.Expression
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
 
@@ -27,9 +26,13 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
     expression = Expr.new!(:eq, [calculation, Ref.input(:data)])
 
     assert {:ok, parsed} =
-             Expression.parse_condition(quote(do: input(:data) <> "" == input(:data)))
+             Expression.parse_condition(
+               quote do
+                 input(:data) <> "" == input(:data)
+               end
+             )
 
-    for condition <- [expression, parsed, Builder.eq(calculation, Ref.input(:data))] do
+    for condition <- [expression, parsed, Jido.Expr.new!(:eq, [calculation, Ref.input(:data)])] do
       assert {:ok, ^expression} = Jido.Flow.Expression.condition(condition, :any)
       choice = choice_flow(condition)
       assert {:ok, document, registry} = Codec.encode(choice)
@@ -47,7 +50,7 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
   test "Boolean groups keep the full calculated condition in the shared evaluator" do
     calculation = Expr.new!(:concat, [Ref.input(:data), ""])
     comparison = Expr.new!(:eq, [calculation, Ref.input(:data)])
-    comparison_true = Builder.eq(1, 1)
+    comparison_true = Jido.Expr.new!(:eq, [1, 1])
 
     for condition <- [
           Expr.new!(:all, [comparison_true, Expr.new!(:eq, [calculation, Ref.input(:data)])]),
@@ -64,7 +67,7 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
     end
   end
 
-  test "plain data keeps its DSL, Builder, direct and version-one storage contracts" do
+  test "plain data keeps its DSL, direct and version-one storage contracts" do
     cases = [
       %{items: List.duplicate(1, 10_000)},
       %{text: String.duplicate("x", 1_048_577)},
@@ -78,10 +81,11 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
       direct = output_flow(value)
 
       assert {:ok, built} =
-               Builder.new(name: "expression_boundary")
-               |> Builder.step("seed", EchoParamsAction, %{})
-               |> Builder.output(value)
-               |> Builder.build()
+               Jido.Flow.new(%{
+                 output: value,
+                 components: [%{kind: :step, name: "seed", action: EchoParamsAction, params: %{}}],
+                 name: "expression_boundary"
+               })
 
       assert built == direct
       assert module_flow(Module.concat(__MODULE__, "Plain#{index}"), source) == direct
@@ -107,7 +111,13 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
           Enum.reduce(1..70, 1, fn _, data -> [data] end)
         ] do
       expression = Expr.new!(:eq, [value, value])
-      assert {:error, _} = Expression.parse(quote(do: unquote(value) == unquote(value)))
+
+      assert {:error, _} =
+               Expression.parse(
+                 quote do
+                   unquote(value) == unquote(value)
+                 end
+               )
 
       assert {:error, _} =
                Step.new(name: "seed", action: EchoParamsAction, params: %{v: expression})
@@ -115,7 +125,7 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
   end
 
   test "normalization counts the complete operation tree" do
-    conditions = List.duplicate(Expr.new!(:eq, [1, 1]), 4_000)
+    conditions = List.duplicate(Expr.new!(:eq, [1, 1]), 4000)
     expression = Expr.new!(:all, conditions)
 
     assert {:error, error} =
@@ -131,9 +141,15 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
           [1 | 2],
           {:%{}, [], [{:value, 1} | 2]},
           {:%{}, [], [:invalid_pair]},
-          quote(do: %{1.5 => 1}),
-          quote(do: %{nested: [Date.utc_today()]}),
-          quote(do: %{duplicate: 1, duplicate: 2})
+          quote do
+            %{1.5 => 1}
+          end,
+          quote do
+            %{nested: [Date.utc_today()]}
+          end,
+          quote do
+            %{duplicate: 1, duplicate: 2}
+          end
         ] do
       assert {:error, %Jido.Flow.Error.InvalidDefinitionError{}} = Expression.parse(value)
     end
@@ -150,11 +166,9 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
              )
 
     assert error.details.path == [:outer, 0, :inner, :operands, 0]
-
     condition = Expr.new!(:eq, [Ref.item(), 1])
     assert {:error, error} = Jido.Flow.Expression.validate(%{outer: [condition]}, :flow)
     assert error.details.path == [:outer, 0, :operands, 0]
-
     assert {:error, error} = Jido.Flow.Expression.validate(%{outer: %{1.5 => :invalid}}, :flow)
     assert error.details.path == [:outer]
   end
@@ -183,15 +197,16 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
       assert {:error, error} = Codec.decode(put_in(document, path, invalid), registry)
 
       assert error.details.path ==
-               if(match?(%Choice{}, hd(flow.components)),
-                 do: ["components", 0, "options", 0, "condition", "$expr", "operator"],
-                 else: ["components", 0, "completion", "$expr", "operator"]
-               )
+               (if match?(%Choice{}, hd(flow.components)) do
+                  ["components", 0, "options", 0, "condition", "$expr", "operator"]
+                else
+                  ["components", 0, "completion", "$expr", "operator"]
+                end)
     end
   end
 
   test "canonical operations preserve Flow string and map-key rules" do
-    for data <- [<<255>>, %{nil => 1}, %{-1 => 1}, %{<<255>> => 1}] do
+    for data <- [<<255>>, %{nil: 1}, %{-1 => 1}, %{<<255>> => 1}] do
       expression = Expr.new!(:eq, [data, data])
       assert :ok = Expr.validate(expression)
 
@@ -207,7 +222,7 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
   end
 
   test "skipped nested operations still validate Flow data and reference scopes" do
-    for data <- [Ref.item(), <<255>>, %{nil => 1}, %{-1 => 1}] do
+    for data <- [Ref.item(), <<255>>, %{nil: 1}, %{-1 => 1}] do
       expression = Expr.new!(:all, [false, Expr.new!(:eq, [data, 1])])
 
       assert {:error, %Jido.Flow.Error.InvalidDefinitionError{} = error} =
@@ -219,9 +234,7 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
 
   test "invalid result names retain their complete normalization path" do
     reference = Ref.result("")
-
     expression = Expr.new!(:eq, [Expr.new!(:eq, [reference, 1]), true])
-
     assert {:error, error} = Jido.Flow.Expression.condition(expression, :any)
     assert Exception.message(error) == "Action name cannot be blank."
     assert error.details.path == [:operands, 0, :operands, 0]
@@ -230,7 +243,6 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
              Step.new(name: "seed", action: EchoParamsAction, params: %{outer: [expression]})
 
     assert error.details.path == [:outer, 0, :operands, 0, :operands, 0]
-
     assert {:error, error} = Jido.Flow.Expression.normalize(%{outer: [reference]})
     assert error.details.path == [:outer, 0]
   end
@@ -269,22 +281,30 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
     end
   end
 
-  defp nested_negate(count),
-    do: Enum.reduce(1..count, 1, fn _, value -> Expr.new!(:negate, [value]) end)
+  defp nested_negate(count) do
+    Enum.reduce(1..count, 1, fn _, value -> Expr.new!(:negate, [value]) end)
+  end
 
-  defp output_flow(value),
-    do:
-      Flow.new!(
-        name: "expression_boundary",
-        components: [Step.new!(name: "seed", action: EchoParamsAction)],
-        output: value
-      )
+  defp output_flow(value) do
+    Flow.new!(
+      name: "expression_boundary",
+      components: [Step.new!(name: "seed", action: EchoParamsAction)],
+      output: value
+    )
+  end
 
   defp choice_flow(condition) do
     choice =
       Choice.new!(
         name: "route",
-        options: [Builder.option("yes", condition, EchoParamsAction, %{selected: true})],
+        options: [
+          %{
+            name: "yes",
+            condition: condition,
+            action: EchoParamsAction,
+            params: %{selected: true}
+          }
+        ],
         fallback: [action: EchoParamsAction, params: %{selected: false}]
       )
 
@@ -310,8 +330,8 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
         use Jido.Flow, name: "expression_boundary"
 
         flow do
-          step "seed", action: unquote(EchoParamsAction), params: %{}
-          output unquote(source)
+          step("seed", action: unquote(EchoParamsAction), params: %{})
+          output(unquote(source))
         end
       end
 

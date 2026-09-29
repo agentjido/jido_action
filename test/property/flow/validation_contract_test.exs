@@ -6,9 +6,8 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
   use ExUnitProperties
   alias JidoActionTest.Property.Fuzz
   alias Jido.{Exec, Flow}
-  alias Jido.Flow.{Builder, Codec, Ref, Step}
+  alias Jido.Flow.{Codec, Ref, Step}
   alias JidoActionTest.Property.Runtime
-
   @tag contracts: ["FLOW-003", "FLOW-004"]
   @tag contract_cases: [
          "FLOW-003/duplicate",
@@ -16,11 +15,12 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
          "FLOW-003/nil-output",
          "FLOW-004/invalid-graph"
        ]
-  property "duplicate names unknown edges cycles and nil output fail without work" do
-    check all(value <- integer(), max_runs: 30) do
+  property("duplicate names unknown edges cycles and nil output fail without work") do
+    check(all(value <- integer(), max_runs: 30)) do
       components =
-        for name <- ["a", "b"],
-            do: Step.new!(name: name, action: Runtime.Emit, params: %{value: value})
+        for name <- ["a", "b"] do
+          Step.new!(name: name, action: Runtime.Emit, params: %{value: value})
+        end
 
       flow = Flow.new!(name: "invalid_graph", components: components, output: Ref.result("b"))
       assert {:ok, document, registry} = Codec.encode(flow)
@@ -28,17 +28,29 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
       for fault <- [:duplicate, :unknown, :cycle, :output] do
         {invalid, stored} = fault(flow, document, fault)
 
-        builder =
-          Enum.reduce(invalid.components, Builder.new(name: flow.name), fn step, builder ->
-            Builder.step(builder, step.name, step.action, step.params, needs: step.needs)
-          end)
-          |> Builder.output(invalid.output)
+        data = %{
+          output: invalid.output,
+          components:
+            Enum.map(
+              invalid.components,
+              fn step ->
+                %{
+                  kind: :step,
+                  name: step.name,
+                  action: step.action,
+                  params: step.params,
+                  needs: step.needs
+                }
+              end
+            ),
+          name: flow.name
+        }
 
         assert {:error, direct_error} = Flow.new(Map.from_struct(invalid))
-        assert {:error, builder_error} = Builder.build(builder)
+        assert {:error, data_error} = Jido.Flow.new(data)
         assert {:error, codec_error} = Codec.decode(JSON.decode!(JSON.encode!(stored)), registry)
         assert is_exception(direct_error)
-        assert builder_error.message == direct_error.message
+        assert data_error.message == direct_error.message
         assert is_exception(codec_error)
 
         Runtime.with_context(fn context ->
@@ -58,8 +70,8 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
          "FLOW-004/inspection",
          "FLOW-004/invalid-target"
        ]
-  property "validation inspection and Codec preserve inertness including invalid targets" do
-    check all(value <- integer(), max_runs: 30) do
+  property("validation inspection and Codec preserve inertness including invalid targets") do
+    check(all(value <- integer(), max_runs: 30)) do
       Runtime.with_context(fn context ->
         flow =
           Flow.new!(
@@ -91,8 +103,10 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
          "FLOW-005/codec-identity",
          "FLOW-005/compiled-digest"
        ]
-  property "semantic identity preserves round trips and distinguishes reference data from literal maps" do
-    check all(value <- integer(), max_runs: 40) do
+  property(
+    "semantic identity preserves round trips and distinguishes reference data from literal maps"
+  ) do
+    check(all(value <- integer(), max_runs: 40)) do
       reference = Ref.input(:value)
 
       flows =
@@ -130,22 +144,30 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
          "FLOW-003/fuzz-output",
          "FLOW-004/fuzz-inert-inspection"
        ]
-  test "fuzz: generated graph defects reject through every public data form", context do
+  test("fuzz: generated graph defects reject through every public data form", context) do
     generator =
       list_of(tuple({integer(), integer(0..100)}), min_length: 2, max_length: context.max_nodes)
       |> map(fn nodes -> Enum.map(nodes, &Tuple.to_list/1) end)
 
     Fuzz.check("graph_rejections", generator, Map.to_list(context), fn nodes ->
-      names = ["a", "b" | for(i <- 2..length(nodes), i < length(nodes), do: "n#{i}")]
+      names = [
+        "a",
+        "b"
+        | for i <- 2..length(nodes), i < length(nodes) do
+            "n#{i}"
+          end
+      ]
 
       components =
         nodes
         |> Enum.with_index()
         |> Enum.map(fn {[value, parent], index} ->
           needs =
-            if index == 0 or rem(parent, index + 1) == 0,
-              do: [],
-              else: [Enum.at(names, rem(parent, index))]
+            if index == 0 or rem(parent, index + 1) == 0 do
+              []
+            else
+              [Enum.at(names, rem(parent, index))]
+            end
 
           Step.new!(
             name: Enum.at(names, index),
@@ -167,15 +189,27 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
       for defect <- [:duplicate, :unknown, :cycle, :output] do
         {invalid, stored} = fault(flow, document, defect)
 
-        builder =
-          Enum.reduce(invalid.components, Builder.new(name: flow.name), fn step, acc ->
-            Builder.step(acc, step.name, step.action, step.params, needs: step.needs)
-          end)
-          |> Builder.output(invalid.output)
+        data = %{
+          output: invalid.output,
+          components:
+            Enum.map(
+              invalid.components,
+              fn step ->
+                %{
+                  kind: :step,
+                  name: step.name,
+                  action: step.action,
+                  params: step.params,
+                  needs: step.needs
+                }
+              end
+            ),
+          name: flow.name
+        }
 
         assert {:error, direct_error} = Flow.new(Map.from_struct(invalid))
-        assert {:error, builder_error} = Builder.build(builder)
-        assert builder_error.message == direct_error.message
+        assert {:error, data_error} = Jido.Flow.new(data)
+        assert data_error.message == direct_error.message
         assert {:error, error} = Codec.decode(JSON.decode!(JSON.encode!(stored)), registry)
         assert is_exception(error)
 
@@ -229,6 +263,7 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
     {%{flow | components: components}, document}
   end
 
-  defp fault(flow, document, :output),
-    do: {%{flow | output: nil}, Map.put(document, "output", nil)}
+  defp fault(flow, document, :output) do
+    {%{flow | output: nil}, Map.put(document, "output", nil)}
+  end
 end

@@ -290,7 +290,7 @@ compile to ordinary Actions. Use `inline:` to set the Action name, description,
 schemas, or context binding. Keep Step `needs:` and `meta:` options at the Step
 level.
 Use `MyApp.Flows.SimpleGreeting.step_action("greet")` to reuse its target in
-Builder or a trusted Registry. Neither Builder nor JSON accepts body code,
+data definitions or a trusted Registry. Data definitions and JSON do not accept body code,
 closures, or MFAs. See [Build Your First Flow](guides/build-your-first-flow.livemd).
 
 Flow inline Actions are limited to direct Step bodies. Map, Reduce, Choice,
@@ -302,27 +302,28 @@ module API.
 
 ## Build A Flow At Runtime
 
-Use `Jido.Flow.Builder` when runtime data defines the graph. Each node has an
+Use `Jido.Flow.new/1` when runtime data defines the graph. Each node has an
 explicit name, and each result reference uses that name.
 
 ```elixir
-alias Jido.Flow.Builder
+data = %{
+  output: Jido.Flow.Ref.result("greet"),
+  components: [
+    %{
+      kind: :step,
+      name: "greet",
+      action: MyApp.Actions.GreetUser,
+      params: %{name: Jido.Flow.Ref.input(:name), excited?: false}
+    }
+  ],
+  name: "runtime_greeting"
+}
 
-builder =
-  Builder.new(name: "runtime_greeting")
-  |> Builder.step(
-    "greet",
-    MyApp.Actions.GreetUser,
-    %{name: Builder.input(:name), excited?: Builder.value(false)}
-  )
-  |> Builder.output(Builder.result("greet"))
-
-{:ok, runtime_flow} = Builder.build(builder)
-{:ok, %{greeting: "Hello, Ada."}} =
-  Jido.Exec.run(runtime_flow, %{name: "Ada"})
+{:ok, runtime_flow} = Jido.Flow.new(data)
+{:ok, %{greeting: "Hello, Ada."}} = Jido.Exec.run(runtime_flow, %{name: "Ada"})
 ```
 
-The Builder and the Flow module DSL produce the same canonical Flow model.
+The data definitions and the Flow module DSL produce the same canonical Flow model.
 
 ## Load A Flow From JSON Or A Map
 
@@ -371,7 +372,7 @@ Use `Jido.Flow.Codec.diagnose/2` for a browser or AI editor that needs all
 independent stored-document and graph errors. It returns one ordered Splode
 error group with JSON paths and never returns a partial Flow.
 
-The Flow module DSL, Builder, stored JSON Codec, and direct constructors produce
+The Flow module DSL, data definitions, stored JSON Codec, and direct constructors produce
 one canonical `%Jido.Flow{}` model. The Codec uses explicit component kinds.
 It does not infer old records or module names.
 
@@ -448,7 +449,7 @@ Livebook. ExDoc adds a **Run in Livebook** link to each `.livemd` guide.
 - [Iterate And State](guides/flow-iterate-state.livemd)
 - [Nested Flows](guides/nested-flows.livemd)
 - [Flow Modules](guides/flow-modules.md)
-- [Direct Construction And Builder](guides/flow-builder.md)
+- [Flow Data Definitions](guides/flow-data.md)
 - [Store Flows As JSON](guides/flow-storage.md)
 - [Inspect Flows](guides/flow-inspection.md)
 

@@ -2,13 +2,11 @@ defmodule JidoActionTest.Authoring.GeneratedGraphTest do
   use ExUnit.Case, async: false
   use ExUnitProperties
   @moduletag :authoring
-
   alias Jido.{Exec, Flow}
-  alias Jido.Flow.{Builder, Codec, Ref, Step}
+  alias Jido.Flow.{Codec, Ref, Step}
 
   defmodule Add do
     use Jido.Action, name: "generated_graph_add"
-
     @impl true
     def run(%{id: id, left: left, right: right, delta: delta}, %{
           observer: observer,
@@ -19,20 +17,36 @@ defmodule JidoActionTest.Authoring.GeneratedGraphTest do
     end
   end
 
-  property "small DAGs keep results and dependency order across authoring forms" do
-    check all(graph <- graph_generator(1), max_runs: 80) do
+  property("small DAGs keep results and dependency order across authoring forms") do
+    check(all(graph <- graph_generator(1), max_runs: 80)) do
       flow = build_flow(graph.nodes)
       output = output(graph.nodes)
 
-      builder =
-        graph.nodes
-        |> Enum.reverse()
-        |> Enum.reduce(Builder.new(name: flow.name), fn node, builder ->
-          Builder.step(builder, node.name, Add, params(node), needs: node.needs)
-        end)
-        |> Builder.output(output)
+      data =
+        Map.put(
+          graph.nodes
+          |> Enum.reverse()
+          |> Enum.reduce(%{components: [], name: flow.name}, fn node, data ->
+            Map.update!(
+              data,
+              :components,
+              &(&1 ++
+                  [
+                    %{
+                      kind: :step,
+                      name: node.name,
+                      action: Add,
+                      params: params(node),
+                      needs: node.needs
+                    }
+                  ])
+            )
+          end),
+          :output,
+          output
+        )
 
-      assert {:ok, built} = Builder.build(builder)
+      assert {:ok, built} = Jido.Flow.new(data)
       assert {:ok, document, registry} = Codec.encode(flow)
       json = JSON.encode!(document)
       assert {:ok, restored} = Codec.decode(JSON.decode!(json), registry)
@@ -40,7 +54,6 @@ defmodule JidoActionTest.Authoring.GeneratedGraphTest do
       assert JSON.encode!(reencoded) == json
       assert built == flow
       assert restored == flow
-
       assert {:ok, dependencies} = Flow.dependencies(flow)
 
       for node <- graph.nodes do
@@ -61,7 +74,7 @@ defmodule JidoActionTest.Authoring.GeneratedGraphTest do
 
         events =
           for _ <- graph.nodes do
-            assert_receive {:generated_graph_step, ^run_ref, id, left, right}, 1_000
+            assert_receive {:generated_graph_step, ^run_ref, id, left, right}, 1000
             {id, left, right}
           end
 
@@ -75,7 +88,6 @@ defmodule JidoActionTest.Authoring.GeneratedGraphTest do
         for node <- graph.nodes do
           expected_left = input_value(node.left_parent, graph.seed, expected)
           expected_right = input_value(node.right_parent, graph.seed, expected)
-
           assert {node.name, expected_left, expected_right} in events
 
           for prerequisite <- Enum.uniq(referenced_parents(node) ++ node.needs) do
@@ -88,39 +100,43 @@ defmodule JidoActionTest.Authoring.GeneratedGraphTest do
     end
   end
 
-  property "generated duplicate, unknown, and cyclic graphs reject in every data form" do
-    check all(
-            graph <- graph_generator(2),
-            fault <- member_of([:duplicate, :unknown_need, :cycle]),
-            max_runs: 80
-          ) do
+  property("generated duplicate, unknown, and cyclic graphs reject in every data form") do
+    check(
+      all(
+        graph <- graph_generator(2),
+        fault <- member_of([:duplicate, :unknown_need, :cycle]),
+        max_runs: 80
+      )
+    ) do
       valid = build_flow(graph.nodes)
       assert {:ok, document, registry} = Codec.encode(valid)
-
       components = invalid_components(valid.components, fault)
       expected_message = expected_error(fault)
 
       assert {:error, %{message: ^expected_message}} =
                Flow.new(name: valid.name, components: components, output: valid.output)
 
-      builder =
-        Enum.reduce(components, Builder.new(name: valid.name), fn component, builder ->
-          Builder.step(builder, component.name, component.action, component.params,
-            needs: component.needs
-          )
-        end)
-        |> Builder.output(valid.output)
+      data = %{
+        output: valid.output,
+        components:
+          Enum.map(
+            components,
+            fn component ->
+              %{
+                kind: :step,
+                name: component.name,
+                action: component.action,
+                params: component.params,
+                needs: component.needs
+              }
+            end
+          ),
+        name: valid.name
+      }
 
-      assert {:error, %{message: ^expected_message}} = Builder.build(builder)
-
-      invalid_json =
-        document
-        |> invalid_document(fault)
-        |> JSON.encode!()
-        |> JSON.decode!()
-
+      assert {:error, %{message: ^expected_message}} = Jido.Flow.new(data)
+      invalid_json = document |> invalid_document(fault) |> JSON.encode!() |> JSON.decode!()
       assert {:error, %{message: ^expected_message}} = Codec.decode(invalid_json, registry)
-
       run_ref = make_ref()
 
       assert {:error, _error} =
@@ -135,7 +151,10 @@ defmodule JidoActionTest.Authoring.GeneratedGraphTest do
 
   defp graph_generator(min_nodes) do
     bind(integer(min_nodes..7), fn count ->
-      nodes = for index <- 1..count, do: node_generator(index)
+      nodes =
+        for index <- 1..count do
+          node_generator(index)
+        end
 
       bind(fixed_list(nodes), fn generated_nodes ->
         map(integer(-20..20), &%{seed: &1, nodes: generated_nodes})
@@ -153,12 +172,7 @@ defmodule JidoActionTest.Authoring.GeneratedGraphTest do
         |> map(fn indexes -> indexes |> Enum.uniq() |> Enum.map(&name/1) end)
       end
 
-    fixed_list([
-      integer(0..(index - 1)),
-      integer(0..(index - 1)),
-      needs,
-      integer(-5..5)
-    ])
+    fixed_list([integer(0..(index - 1)), integer(0..(index - 1)), needs, integer(-5..5)])
     |> map(fn [left_parent, right_parent, needs, delta] ->
       %{
         name: name(index),
@@ -170,18 +184,24 @@ defmodule JidoActionTest.Authoring.GeneratedGraphTest do
     end)
   end
 
-  defp name(index), do: "node_#{index}"
+  defp name(index) do
+    "node_#{index}"
+  end
 
   defp params(node) do
     left =
-      if node.left_parent == 0,
-        do: Ref.input(:seed),
-        else: Ref.result(name(node.left_parent), :value)
+      if node.left_parent == 0 do
+        Ref.input(:seed)
+      else
+        Ref.result(name(node.left_parent), :value)
+      end
 
     right =
-      if node.right_parent == 0,
-        do: Ref.input(:seed),
-        else: Ref.result(name(node.right_parent), :value)
+      if node.right_parent == 0 do
+        Ref.input(:seed)
+      else
+        Ref.result(name(node.right_parent), :value)
+      end
 
     %{id: node.name, left: left, right: right, delta: node.delta}
   end
@@ -219,8 +239,13 @@ defmodule JidoActionTest.Authoring.GeneratedGraphTest do
     end)
   end
 
-  defp input_value(0, seed, _values), do: seed
-  defp input_value(parent, _seed, values), do: Map.fetch!(values, name(parent))
+  defp input_value(0, seed, _values) do
+    seed
+  end
+
+  defp input_value(parent, _seed, values) do
+    Map.fetch!(values, name(parent))
+  end
 
   defp invalid_components(components, :duplicate) do
     first_name = hd(components).name
@@ -261,7 +286,15 @@ defmodule JidoActionTest.Authoring.GeneratedGraphTest do
     |> put_in(["components", Access.at(1), "needs"], [first_name])
   end
 
-  defp expected_error(:duplicate), do: "duplicate component name"
-  defp expected_error(:unknown_need), do: "Flow reference points to an unknown component"
-  defp expected_error(:cycle), do: "flow dependency graph contains a cycle"
+  defp expected_error(:duplicate) do
+    "duplicate component name"
+  end
+
+  defp expected_error(:unknown_need) do
+    "Flow reference points to an unknown component"
+  end
+
+  defp expected_error(:cycle) do
+    "flow dependency graph contains a cycle"
+  end
 end

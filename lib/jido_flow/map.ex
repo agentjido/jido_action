@@ -4,7 +4,7 @@ defmodule Jido.Flow.Map do
 
   A Map is one canonical authoring component. Native execution exposes its
   Runic FanOut, item, FanIn, and output work. Create it with `new/1`, the Flow
-  module DSL, `Jido.Flow.Builder`, or `Jido.Flow.Codec`.
+  module DSL, map-based definitions, or `Jido.Flow.Codec`.
   """
 
   alias Jido.Flow.Error

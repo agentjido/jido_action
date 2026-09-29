@@ -2,43 +2,73 @@ defmodule Jido.Flow.BoundaryValidationTest do
   use ExUnit.Case, async: true
 
   defmodule InvalidChildFlow do
-    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
-    def flow, do: :invalid
-    def validate_params(params), do: {:ok, params}
-    def validate_output(output), do: {:ok, output}
-    def run(_params, _context), do: {:ok, %{}}
+    def __jido_executable__ do
+      Jido.Executable.flow(__MODULE__)
+    end
+
+    def flow do
+      :invalid
+    end
+
+    def validate_params(params) do
+      {:ok, params}
+    end
+
+    def validate_output(output) do
+      {:ok, output}
+    end
+
+    def run(_params, _context) do
+      {:ok, %{}}
+    end
   end
 
   defmodule RaisingChildFlow do
-    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
-    def flow, do: raise("child definition failed")
-    def validate_params(params), do: {:ok, params}
-    def validate_output(output), do: {:ok, output}
-    def run(_params, _context), do: {:ok, %{}}
+    def __jido_executable__ do
+      Jido.Executable.flow(__MODULE__)
+    end
+
+    def flow do
+      raise "child definition failed"
+    end
+
+    def validate_params(params) do
+      {:ok, params}
+    end
+
+    def validate_output(output) do
+      {:ok, output}
+    end
+
+    def run(_params, _context) do
+      {:ok, %{}}
+    end
   end
 
   defmodule ThrowingChildFlow do
-    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
-    def flow, do: throw(:child_definition_failed)
-    def validate_params(params), do: {:ok, params}
-    def validate_output(output), do: {:ok, output}
-    def run(_params, _context), do: {:ok, %{}}
+    def __jido_executable__ do
+      Jido.Executable.flow(__MODULE__)
+    end
+
+    def flow do
+      throw(:child_definition_failed)
+    end
+
+    def validate_params(params) do
+      {:ok, params}
+    end
+
+    def validate_output(output) do
+      {:ok, output}
+    end
+
+    def run(_params, _context) do
+      {:ok, %{}}
+    end
   end
 
   alias Jido.Flow
-
-  alias Jido.Flow.{
-    Builder,
-    Choice,
-    Component,
-    Data,
-    Expression,
-    Iterate,
-    Reduce,
-    Ref,
-    Step
-  }
-
+  alias Jido.Flow.{Choice, Component, Data, Expression, Iterate, Reduce, Ref, Step}
   alias Jido.Flow.Map, as: FlowMap
   alias JidoActionTest.Fixtures.NestedFlow
   alias JidoActionTest.Fixtures.Actions.{Add, MissingRun}
@@ -63,7 +93,7 @@ defmodule Jido.Flow.BoundaryValidationTest do
     for {value, message, path} <- [
           {%{outer: [0, %{inner: self()}]}, "flow data contains an unsupported value",
            [:outer, 1, :inner]},
-          {%{outer: [0, %{nil => :value}]}, "flow data contains an unsupported map key",
+          {%{outer: [0, %{nil: :value}]}, "flow data contains an unsupported map key",
            [:outer, 1]},
           {%{outer: [0, <<255>>]}, "flow data strings must be valid UTF-8", [:outer, 1]},
           {%{outer: [0, %{<<255>> => :value}]}, "flow data strings must be valid UTF-8",
@@ -80,9 +110,7 @@ defmodule Jido.Flow.BoundaryValidationTest do
     step = Step.new!(name: "step", action: Add)
     subflow = Jido.Flow.Subflow.new!(name: "child", flow: NestedFlow)
     map = FlowMap.new!(name: "map", collection: [], action: Add)
-
-    reduce =
-      Reduce.new!(name: "reduce", collection: [], initial: %{}, action: Add)
+    reduce = Reduce.new!(name: "reduce", collection: [], initial: %{}, action: Add)
 
     iterate =
       Iterate.new!(
@@ -100,8 +128,14 @@ defmodule Jido.Flow.BoundaryValidationTest do
         fallback: [action: Add]
       )
 
-    assert Enum.map([step, subflow, map, reduce, iterate, choice], &Component.kind/1) ==
-             [:step, :subflow, :map, :reduce, :iterate, :choice]
+    assert Enum.map([step, subflow, map, reduce, iterate, choice], &Component.kind/1) == [
+             :step,
+             :subflow,
+             :map,
+             :reduce,
+             :iterate,
+             :choice
+           ]
 
     for component <- [step, subflow, map, reduce, iterate, choice] do
       assert {:ok, ^component} = Component.new(component)
@@ -163,69 +197,91 @@ defmodule Jido.Flow.BoundaryValidationTest do
     end
   end
 
-  test "Builder helpers converge and keep the first error" do
-    assert %Ref{source: :context} = Builder.context(:request_id)
-    assert %Ref{source: :item_index} = Builder.item_index()
-    assert %Ref{source: :item_id} = Builder.item_id()
-    assert %Ref{path: [:value]} = Builder.select(Builder.input(), :value)
+  test "reference helpers and map definitions use canonical constructors" do
+    assert %Ref{source: :context} = Jido.Flow.Ref.context(:request_id)
+    assert %Ref{source: :item_index} = Jido.Flow.Ref.item_index()
+    assert %Ref{source: :item_id} = Jido.Flow.Ref.item_id()
+    assert %Ref{path: [:value]} = Jido.Flow.Ref.select(Jido.Flow.Ref.input([]), :value)
 
     assert Enum.all?(
              [
-               Builder.neq(1, 2),
-               Builder.lt(1, 2),
-               Builder.lte(1, 2),
-               Builder.gt(2, 1),
-               Builder.in(1, [1]),
-               Builder.all([Builder.eq(1, 1)]),
-               Builder.any([Builder.eq(1, 1)]),
-               Builder.not(Builder.eq(1, 2))
+               Jido.Expr.new!(:neq, [1, 2]),
+               Jido.Expr.new!(:lt, [1, 2]),
+               Jido.Expr.new!(:lte, [1, 2]),
+               Jido.Expr.new!(:gt, [2, 1]),
+               Jido.Expr.new!(:in, [1, [1]]),
+               Jido.Expr.new!(:all, [Jido.Expr.new!(:eq, [1, 1])]),
+               Jido.Expr.new!(:any, [Jido.Expr.new!(:eq, [1, 1])]),
+               Jido.Expr.new!(:not, [Jido.Expr.new!(:eq, [1, 2])])
              ],
              &match?(%Jido.Expr{}, &1)
            )
 
-    option = Builder.option("yes", Builder.eq(1, 1), Add)
-    fallback = Builder.fallback(Add)
+    option = %{name: "yes", condition: Jido.Expr.new!(:eq, [1, 1]), action: Add, params: %{}}
+    fallback = %{action: Add, params: %{}}
 
     assert {:ok, %Flow{components: [_choice, _map, _reduce, _iterate]}} =
-             Builder.new(name: "all_builder_components")
-             |> Builder.choice("choice", [option], fallback)
-             |> Builder.map("map", [], Add, %{})
-             |> Builder.reduce("reduce", [], %{}, Add, %{})
-             |> Builder.iterate(
-               "iterate",
-               Add,
-               %{},
-               [schema: [], initial: %{}, update: %{}],
-               completion: Builder.eq(true, true),
-               max_iterations: 1
-             )
-             |> Builder.output(%{})
-             |> Builder.build()
+             Jido.Flow.new(%{
+               output: %{},
+               components: [
+                 %{kind: :choice, name: "choice", options: [option], fallback: fallback},
+                 %{kind: :map, name: "map", collection: [], action: Add, params: %{}},
+                 %{
+                   kind: :reduce,
+                   name: "reduce",
+                   collection: [],
+                   initial: %{},
+                   action: Add,
+                   params: %{}
+                 },
+                 %{
+                   kind: :iterate,
+                   name: "iterate",
+                   action: Add,
+                   params: %{},
+                   state: [schema: [], initial: %{}, update: %{}],
+                   completion: Jido.Expr.new!(:eq, [true, true]),
+                   max_iterations: 1
+                 }
+               ],
+               name: "all_data_components"
+             })
 
-    invalid =
-      Builder.new(name: "sticky_error")
-      |> Builder.step("bad", :not_an_executable, %{})
-      |> Builder.step("valid_but_ignored", Add, %{})
-      |> Builder.step("also_bad", Add, %{}, :not_options)
+    assert {:error, %Jido.Flow.Error.InvalidDefinitionError{}} =
+             Flow.new(%{
+               name: "invalid",
+               components: [%{kind: :step, name: "bad", action: nil}],
+               output: %{}
+             })
 
-    assert {:error, %Jido.Flow.Error.InvalidDefinitionError{} = first_error} =
-             Builder.build(invalid)
-
-    assert Exception.message(first_error) =~ "executable"
-    assert {:error, _error} = Builder.new([:not_keyword]) |> Builder.build()
-    assert {:error, _error} = Builder.new(:bad) |> Builder.build()
+    assert {:error, _error} = Flow.new([:not_keyword])
+    assert {:error, _error} = Flow.new(:bad)
   end
 
-  test "Builder keeps constructor failures at each component boundary" do
-    invalid_builders = [
-      Builder.new(name: "bad_map") |> Builder.map("map", [], nil, %{}),
-      Builder.new(name: "bad_reduce") |> Builder.reduce("reduce", [], %{}, nil, %{}),
-      Builder.new(name: "bad_iterate") |> Builder.iterate("iterate", Add, %{}, :bad),
-      Builder.new(name: "bad_choice") |> Builder.choice("choice", [], nil)
+  test "map definitions return constructor failures at each component boundary" do
+    invalid_definitions = [
+      %{
+        components: [%{kind: :map, name: "map", collection: [], action: nil, params: %{}}],
+        name: "bad_map"
+      },
+      %{
+        components: [
+          %{kind: :reduce, name: "reduce", collection: [], initial: %{}, action: nil, params: %{}}
+        ],
+        name: "bad_reduce"
+      },
+      %{
+        components: [%{kind: :iterate, name: "iterate", action: Add, params: %{}, state: :bad}],
+        name: "bad_iterate"
+      },
+      %{
+        components: [%{kind: :choice, name: "choice", options: [], fallback: nil}],
+        name: "bad_choice"
+      }
     ]
 
-    for builder <- invalid_builders do
-      assert {:error, %Jido.Flow.Error.InvalidDefinitionError{}} = Builder.build(builder)
+    for data <- invalid_definitions do
+      assert {:error, %Jido.Flow.Error.InvalidDefinitionError{}} = Jido.Flow.new(data)
     end
   end
 
@@ -258,7 +314,6 @@ defmodule Jido.Flow.BoundaryValidationTest do
       )
 
     assert {:error, _error} = Flow.validate_executable(invalid_target)
-
     valid_step = Step.new!(name: "step", action: Add)
 
     assert {:error, _error} =
@@ -288,8 +343,7 @@ defmodule Jido.Flow.BoundaryValidationTest do
           output: Ref.result("child")
         )
 
-      assert {:error, %Jido.Flow.Error.InvalidDefinitionError{}} =
-               Flow.validate_executable(flow)
+      assert {:error, %Jido.Flow.Error.InvalidDefinitionError{}} = Flow.validate_executable(flow)
     end
   end
 
@@ -297,7 +351,6 @@ defmodule Jido.Flow.BoundaryValidationTest do
     condition = Jido.Expr.new!(:eq, [true, true])
     valid_option = Choice.Option.new!(name: "yes", condition: condition, action: Add)
     valid_fallback = Choice.Fallback.new!(action: Add)
-
     assert Choice.Option.new(valid_option) == {:ok, valid_option}
     assert Choice.Fallback.new(valid_fallback) == {:ok, valid_fallback}
 
@@ -333,47 +386,28 @@ defmodule Jido.Flow.BoundaryValidationTest do
     end
 
     assert_raise Jido.Flow.Error.InvalidDefinitionError, fn -> apply(Choice, :new!, [:bad]) end
-
-    choice =
-      Choice.new!(
-        name: "route",
-        options: [valid_option],
-        fallback: valid_fallback
-      )
-
+    choice = Choice.new!(name: "route", options: [valid_option], fallback: valid_fallback)
     assert %{kind: :choice, options: [_], fallback: %{action: Add}} = Choice.to_map(choice)
   end
 
   test "Expression rejects invalid refs, scope, lists, and names" do
     assert {:error, invalid_scope} = Expression.validate(Ref.item(), :flow)
     assert invalid_scope.details == %{path: [], ref_type: :item, scope: :flow}
-
     invalid_ref = %Ref{source: :unsupported, component: nil, path: []}
     assert {:error, invalid_ref_error} = Expression.validate(invalid_ref)
     assert invalid_ref_error.details == %{path: [], ref_type: :unsupported}
-
     assert {:error, improper} = Expression.validate([1 | :tail])
     assert improper.details.reason == :improper_list
     assert {:error, _error} = Expression.normalize([Ref.result("ok") | :tail])
-
     atom_result_ref = %Ref{source: :result, component: :component, path: []}
-
-    assert Expression.normalize(atom_result_ref) ==
-             {:ok, Ref.result("component")}
-
+    assert Expression.normalize(atom_result_ref) == {:ok, Ref.result("component")}
     assert {:error, name_error} = Expression.normalize(Ref.result(""))
     assert Exception.message(name_error) == "Action name cannot be blank."
   end
 
   test "Expression preserves nested validation and normalization errors" do
     assert {:error, scoped_error} = Expression.validate([Ref.item()], :flow)
-
-    assert scoped_error.details == %{
-             path: [0],
-             ref_type: :item,
-             scope: :flow
-           }
-
+    assert scoped_error.details == %{path: [0], ref_type: :item, scope: :flow}
     invalid_result_ref = %Ref{source: :result, component: "", path: []}
     assert {:error, normalization_error} = Expression.normalize([%{result: invalid_result_ref}])
     assert Exception.message(normalization_error) == "Action name cannot be blank."

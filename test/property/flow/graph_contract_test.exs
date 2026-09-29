@@ -4,9 +4,8 @@ Code.require_file("../support/fuzz.exs", __DIR__)
 defmodule JidoActionTest.Property.Flow.GraphContractTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
-
   alias Jido.{Exec, Flow}
-  alias Jido.Flow.{Builder, Codec, Ref, Step}
+  alias Jido.Flow.{Codec, Ref, Step}
   alias JidoActionTest.Property.{Fuzz, Runtime}
 
   defmodule Add do
@@ -27,19 +26,26 @@ defmodule JidoActionTest.Property.Flow.GraphContractTest do
       max_runs: runs,
       max_run_time: budget,
       max_nodes: maximum,
-      timeout: if(suite == :fuzz, do: 900_000, else: 90_000)
+      timeout:
+        if suite == :fuzz do
+          900_000
+        else
+          90_000
+        end
     ]
     @tag contracts: ["FLOW-001", "FLOW-002", "STORE-001", "EFFECT-001"]
     @tag contract_cases: [
            "FLOW-001/direct",
-           "FLOW-001/builder",
+           "FLOW-001/data",
            "FLOW-001/codec",
            "EFFECT-001/graph-once",
            "EFFECT-001/graph-name-order",
            "EFFECT-001/serial-concurrent"
          ]
-    test "#{suite}: data forms preserve generated DAG results and canonical effects",
-         context do
+    test(
+      "#{suite}: data forms preserve generated DAG results and canonical effects",
+      context
+    ) do
       generator =
         map(tuple({graph(context.max_nodes), integer(-20..20)}), fn {nodes, seed} ->
           %{"seed" => seed, "nodes" => Enum.map(nodes, &[&1.left, &1.right, &1.delta])}
@@ -51,16 +57,20 @@ defmodule JidoActionTest.Property.Flow.GraphContractTest do
         %{"seed" => 1, "nodes" => List.duplicate([0, 0, 0], context.max_nodes)}
       ]
 
-      Fuzz.check("graph_semantics", generator, Map.to_list(context) ++ [examples: examples], fn
-        %{"seed" => seed, "nodes" => encoded} ->
-          nodes =
-            encoded
-            |> Enum.with_index(1)
-            |> Enum.map(fn {[left, right, delta], index} ->
-              %{name: name(index), left: left, right: right, delta: delta}
-            end)
+      Fuzz.check("graph_semantics", generator, Map.to_list(context) ++ [examples: examples], fn %{
+                                                                                                  "seed" =>
+                                                                                                    seed,
+                                                                                                  "nodes" =>
+                                                                                                    encoded
+                                                                                                } ->
+        nodes =
+          encoded
+          |> Enum.with_index(1)
+          |> Enum.map(fn {[left, right, delta], index} ->
+            %{name: name(index), left: left, right: right, delta: delta}
+          end)
 
-          assert_graph(nodes, seed)
+        assert_graph(nodes, seed)
       end)
     end
   end
@@ -70,7 +80,7 @@ defmodule JidoActionTest.Property.Flow.GraphContractTest do
     components = Enum.reverse(components(nodes))
     output = Map.new(nodes, &{&1.name, Ref.result(&1.name, :value)})
     direct = Flow.new!(name: "property_dag", components: components, output: output)
-    assert {:ok, built} = Builder.build(builder(components, output))
+    assert {:ok, built} = Jido.Flow.new(data(components, output))
     assert {:ok, stored, registry} = Codec.encode(direct)
     assert {:ok, restored} = Codec.decode(JSON.decode!(JSON.encode!(stored)), registry)
     assert {:ok, stored_again} = Codec.encode(restored, registry)
@@ -111,19 +121,24 @@ defmodule JidoActionTest.Property.Flow.GraphContractTest do
 
     [
       "nodes:#{length(nodes)}",
-      if(Enum.any?(nodes, &(&1.left != 0 and &1.right != 0)), do: "join", else: "no-join"),
-      if(Enum.all?(nodes, &(&1.left == 0 and &1.right == 0)),
-        do: "independent",
-        else: "dependent"
-      )
+      if Enum.any?(nodes, &(&1.left != 0 and &1.right != 0)) do
+        "join"
+      else
+        "no-join"
+      end,
+      if Enum.all?(nodes, &(&1.left == 0 and &1.right == 0)) do
+        "independent"
+      else
+        "dependent"
+      end
     ]
   end
 
   @tag :property
   @tag contracts: ["FLOW-003"]
   @tag contract_cases: ["FLOW-003/cycle"]
-  property "a generated back edge is rejected by all data authoring forms" do
-    check all(nodes <- graph(6), max_runs: 40) do
+  property("a generated back edge is rejected by all data authoring forms") do
+    check(all(nodes <- graph(6), max_runs: 40)) do
       components = components(nodes)
       [first | _] = components
       last = List.last(components)
@@ -141,7 +156,7 @@ defmodule JidoActionTest.Property.Flow.GraphContractTest do
 
       for result <- [
             Flow.new(name: "property_dag", components: invalid, output: output),
-            Builder.build(builder(invalid, output)),
+            Jido.Flow.new(data(invalid, output)),
             Codec.decode(JSON.decode!(JSON.encode!(stored)), registry)
           ] do
         assert {:error,
@@ -153,21 +168,16 @@ defmodule JidoActionTest.Property.Flow.GraphContractTest do
   end
 
   defp run(flow, seed, context, concurrency, nodes) do
-    result =
-      Exec.run(flow, %{seed: seed}, context, Runtime.options(context, concurrency))
-
+    result = Exec.run(flow, %{seed: seed}, context, Runtime.options(context, concurrency))
     workers = Runtime.calls(context)
-
     assert Enum.sort(Enum.map(workers, &elem(&1, 0))) == Enum.sort(Enum.map(nodes, & &1.name))
-
     Runtime.assert_workers_stopped(Enum.map(workers, &elem(&1, 1)))
     Runtime.assert_supervisor_idle(context.supervisor)
     result
   end
 
   defp graph(maximum) do
-    list_of(
-      tuple({integer(0..(maximum - 1)), integer(0..(maximum - 1)), integer(-5..5)}),
+    list_of(tuple({integer(0..(maximum - 1)), integer(0..(maximum - 1)), integer(-5..5)}),
       min_length: 2,
       max_length: maximum
     )
@@ -197,16 +207,40 @@ defmodule JidoActionTest.Property.Flow.GraphContractTest do
     end)
   end
 
-  defp builder(components, output) do
-    Enum.reduce(components, Builder.new(name: "property_dag"), fn step, acc ->
-      Builder.step(acc, step.name, step.action, step.params, needs: step.needs)
-    end)
-    |> Builder.output(output)
+  defp data(components, output) do
+    %{
+      name: "property_dag",
+      output: output,
+      components:
+        Enum.map(components, fn step ->
+          %{
+            kind: :step,
+            name: step.name,
+            action: step.action,
+            params: step.params,
+            needs: step.needs
+          }
+        end)
+    }
   end
 
-  defp source(0), do: Ref.input(:seed)
-  defp source(index), do: Ref.result(name(index), :value)
-  defp value(0, seed, _values), do: seed
-  defp value(index, _seed, values), do: Map.fetch!(values, name(index))
-  defp name(index), do: "node_#{index}"
+  defp source(0) do
+    Ref.input(:seed)
+  end
+
+  defp source(index) do
+    Ref.result(name(index), :value)
+  end
+
+  defp value(0, seed, _values) do
+    seed
+  end
+
+  defp value(index, _seed, values) do
+    Map.fetch!(values, name(index))
+  end
+
+  defp name(index) do
+    "node_#{index}"
+  end
 end

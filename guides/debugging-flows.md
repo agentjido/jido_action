@@ -66,7 +66,7 @@ compiled.source_map
 compiled.compilation_digest
 ```
 
-For a direct or Builder Flow, use `Jido.Flow.compile/2`:
+For a Flow from constructors or map definitions, use `Jido.Flow.compile/2`:
 
 ```elixir
 {:ok, compiled} = Jido.Flow.compile(flow)
@@ -101,7 +101,7 @@ compiled.source_map[[:components, "charge"]]
 #=> %{file: "lib/my_app/order_flow.ex", line: 24, column: 5}
 ```
 
-Direct construction, Builder, and stored JSON do not have source locations by
+Direct construction, data definitions, and stored JSON do not have source locations by
 default. A caller can pass a source map to `Jido.Flow.compile/2` when its own
 authoring tool has source data.
 

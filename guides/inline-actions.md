@@ -172,13 +172,19 @@ Step after the owner Flow has compiled:
 ```elixir
 action = MyApp.Flows.Greeting.step_action("normalize")
 
-Jido.Flow.Builder.new(name: "normalize_names")
-|> Jido.Flow.Builder.map(
-  "names",
-  Jido.Flow.Builder.input(:people),
-  action,
-  %{name: Jido.Flow.Builder.item()}
-)
+Jido.Flow.new!(%{
+  name: "normalize_names",
+  components: [
+    %{
+      kind: :map,
+      name: "names",
+      collection: Jido.Flow.Ref.input(:people),
+      action: action,
+      params: %{name: Jido.Flow.Ref.item()}
+    }
+  ],
+  output: Jido.Flow.Ref.result("names")
+})
 ```
 
 This is normal Action reuse. It is not an inline Map body.
@@ -216,7 +222,7 @@ target = MyApp.Flows.Greeting.step_action("normalize")
 work for Subflows or other component types.
 
 The target does not retain the original Flow binding expressions. Supply a new
-parameter map when you run it or place it in a Builder Flow.
+parameter map when you run it or place it in a data-defined Flow.
 
 Register a reused target under an application-owned stable identifier. Do not
 store its generated module name. JSON stores target identifiers and data, not
@@ -228,7 +234,7 @@ An inline body can use the owner module's private helpers, aliases, imports,
 module attributes, and `__MODULE__`. It cannot capture runtime variables from
 outside its declaration.
 
-Inline Actions are compile-time code. Direct constructors, Builder, and stored
+Inline Actions are compile-time code. Direct constructors, data definitions, and stored
 JSON cannot accept body code, anonymous functions, or MFAs. Deploy the owner
 module and its generated Action modules together.
 

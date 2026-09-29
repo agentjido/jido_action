@@ -1,30 +1,35 @@
 defmodule JidoActionTest.Flow.ConditionNormalizationTest do
   use ExUnit.Case, async: true
-
   alias Jido.Expr
   alias Jido.Flow
-  alias Jido.Flow.{Builder, Choice, Codec, Iterate, Ref, Registry, Step}
+  alias Jido.Flow.{Choice, Codec, Iterate, Ref, Registry, Step}
   alias Jido.Flow.DSL.Expression
   alias Jido.Flow.Error.InvalidDefinitionError
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
 
   test "singleton Boolean conditions have one shape across all authoring forms" do
     cases = [
-      {quote(do: all([true])), true, %{}, true},
-      {quote(do: all([false])), false, %{}, false},
-      {quote(do: all([input(:enabled)])), Ref.input(:enabled), %{enabled: true}, true},
-      {quote(do: all([input(:enabled)])), Ref.input(:enabled), %{enabled: false}, false}
+      {quote do
+         all([true])
+       end, true, %{}, true},
+      {quote do
+         all([false])
+       end, false, %{}, false},
+      {quote do
+         all([input(:enabled)])
+       end, Ref.input(:enabled), %{enabled: true}, true},
+      {quote do
+         all([input(:enabled)])
+       end, Ref.input(:enabled), %{enabled: false}, false}
     ]
 
     for {{source, value, input, expected}, index} <- Enum.with_index(cases) do
       expression = Expr.new!(:all, [value])
       assert {:ok, ^expression} = Expression.parse_condition(source)
-
       assert {:ok, ^expression} = Jido.Flow.Expression.condition(value, :flow)
-
       direct = choice_flow(expression)
       from_dsl = module_flow(Module.concat(__MODULE__, "Singleton#{index}"), source)
-      built = builder_flow(Builder.all([value]))
+      built = data_flow(Jido.Expr.new!(:all, [value]))
       restored = round_trip(direct, 2)
 
       for flow <- [from_dsl, built, restored, choice_flow(value)] do
@@ -37,7 +42,9 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
 
   test "nested all, any, and not use the same condition normalization" do
     source =
-      quote(do: all([all([true]), any([not all([false]), all([input(:enabled)])])]))
+      quote do
+        all([all([true]), any([not all([false]), all([input(:enabled)])])])
+      end
 
     expression =
       Expr.new!(:all, [
@@ -49,9 +56,12 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
       ])
 
     condition =
-      Builder.all([
-        Builder.all([true]),
-        Builder.any([Builder.not(Builder.all([false])), Builder.all([Ref.input(:enabled)])])
+      Jido.Expr.new!(:all, [
+        Jido.Expr.new!(:all, [true]),
+        Jido.Expr.new!(:any, [
+          Jido.Expr.new!(:not, [Jido.Expr.new!(:all, [false])]),
+          Jido.Expr.new!(:all, [Ref.input(:enabled)])
+        ])
       ])
 
     assert {:ok, parsed} = Expression.parse_condition(source)
@@ -63,7 +73,7 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
 
     for flow <- [
           module_flow(Module.concat(__MODULE__, "Nested"), source),
-          builder_flow(condition),
+          data_flow(condition),
           choice_flow(condition),
           round_trip(direct, 2)
         ] do
@@ -75,9 +85,15 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
 
   test "portable skipped operands work in Choice, Iterate, and data fields" do
     cases = [
-      {quote(do: false and 1), Expr.new!(:and, [false, 1]), false},
-      {quote(do: true or nil), Expr.new!(:or, [true, nil]), true},
-      {quote(do: false and 1 + 1), Expr.new!(:and, [false, Expr.new!(:add, [1, 1])]), false}
+      {quote do
+         false and 1
+       end, Expr.new!(:and, [false, 1]), false},
+      {quote do
+         true or nil
+       end, Expr.new!(:or, [true, nil]), true},
+      {quote do
+         false and 1 + 1
+       end, Expr.new!(:and, [false, Expr.new!(:add, [1, 1])]), false}
     ]
 
     for {{source, expression, expected}, index} <- Enum.with_index(cases) do
@@ -89,7 +105,7 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
       for flow <- [
             direct,
             module_flow(Module.concat(__MODULE__, "Skipped#{index}"), source),
-            builder_flow(expression),
+            data_flow(expression),
             round_trip(direct, 2)
           ] do
         assert flow == direct
@@ -98,7 +114,13 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
       end
 
       iterator = iterator_flow(Expr.new!(:any, [expression, Ref.state(:done)]))
-      iterations = if expected, do: 0, else: 1
+
+      iterations =
+        if expected do
+          0
+        else
+          1
+        end
 
       for flow <- [iterator, round_trip(iterator, 2)] do
         assert {:ok, %{iterations: ^iterations}} = Jido.Exec.run(flow)
@@ -108,8 +130,12 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
 
   test "native non-Boolean results are data but fail at condition boundaries" do
     for {source, expression, expected} <- [
-          {quote(do: true and 1), Expr.new!(:and, [true, 1]), 1},
-          {quote(do: false or nil), Expr.new!(:or, [false, nil]), nil}
+          {quote do
+             true and 1
+           end, Expr.new!(:and, [true, 1]), 1},
+          {quote do
+             false or nil
+           end, Expr.new!(:or, [false, nil]), nil}
         ] do
       assert {:ok, ^expression} = Jido.Flow.Expression.condition(expression, :any)
       assert {:ok, ^expression} = Expression.parse_condition(source)
@@ -156,7 +182,7 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
     assert error.details.component == "missing"
   end
 
-  test "raw Expr records and Builder helpers use the same model and version-two writer" do
+  test "raw Expr records in map definitions use the same model and version-two writer" do
     first = %Expr{operator: :eq, operands: [Ref.input(:score), 1]}
     second = %Expr{operator: :neq, operands: [Ref.input(:score), 2]}
 
@@ -165,19 +191,25 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
       operands: [first, %Expr{operator: :not, operands: [second]}]
     }
 
-    canonical = Builder.all([Builder.eq(Ref.input(:score), 1), Builder.not(second)])
+    canonical =
+      Jido.Expr.new!(:all, [
+        Jido.Expr.new!(:eq, [Ref.input(:score), 1]),
+        Jido.Expr.new!(:not, [second])
+      ])
 
     assert {:ok, ^canonical} = Jido.Flow.Expression.condition(condition, :any)
     assert {:ok, ^canonical} = Jido.Flow.Expression.condition(condition, :flow)
 
     assert {:ok, ^canonical} =
              Expression.parse_condition(
-               quote(do: all([eq(input(:score), 1), not neq(input(:score), 2)]))
+               quote do
+                 all([eq(input(:score), 1), not neq(input(:score), 2)])
+               end
              )
 
     flow = choice_flow(condition)
     assert choice_flow(canonical) == flow
-    assert builder_flow(condition) == flow
+    assert data_flow(condition) == flow
     assert round_trip(flow, 2) == flow
     assert Jido.Exec.run(flow, %{score: 1}) == {:ok, %{selected: false}}
   end
@@ -210,7 +242,6 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
           {:all, [true, :not_a_condition], :error}
         ] do
       expression = Expr.new!(operator, operands)
-
       assert {:ok, ^expression} = Jido.Flow.Expression.condition(expression, :flow)
 
       case expected do
@@ -230,7 +261,7 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
        :max_depth},
       {%Expr{
          operator: :all,
-         operands: List.duplicate(%Expr{operator: :eq, operands: [1, 1]}, 4_000)
+         operands: List.duplicate(%Expr{operator: :eq, operands: [1, 1]}, 4000)
        }, :max_nodes},
       {%Expr{operator: :eq, operands: [String.duplicate("x", 1_048_577), ""]}, :max_binary_bytes},
       {%Expr{operator: :eq, operands: [Bitwise.bsl(1, 4096), 0]}, :max_integer_bits}
@@ -259,7 +290,7 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
              "operands" =>
                List.duplicate(
                  %{"$condition" => %{"operator" => "eq", "operands" => [1, 1]}},
-                 4_000
+                 4000
                )
            }, :max_nodes}
         ] do
@@ -293,10 +324,7 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
     assert {:error, error} =
              Jido.Flow.Expression.normalize(%{
                outer: [
-                 %Expr{
-                   operator: :not,
-                   operands: [%Expr{operator: :unknown, operands: [1, 1]}]
-                 }
+                 %Expr{operator: :not, operands: [%Expr{operator: :unknown, operands: [1, 1]}]}
                ]
              })
 
@@ -304,9 +332,8 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
   end
 
   test "nested Expr trees share their complete construction budget" do
-    for count <- [64, 65] do
-      nested =
-        Enum.reduce(1..count, true, fn _, child -> Expr.new!(:not, [child]) end)
+    for count <- ~c"@A" do
+      nested = Enum.reduce(1..count, true, fn _, child -> Expr.new!(:not, [child]) end)
 
       if count == 64 do
         assert {:ok, expression} = Jido.Flow.Expression.condition(nested, :any)
@@ -318,7 +345,7 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
       end
     end
 
-    comparisons = List.duplicate(%Expr{operator: :eq, operands: [1, 1]}, 2_000)
+    comparisons = List.duplicate(%Expr{operator: :eq, operands: [1, 1]}, 2000)
     text = String.duplicate("x", 300_000)
 
     for {operator, operands, reason} <- [
@@ -339,12 +366,17 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
     for value <- [false, true] do
       expression = Expr.new!(:all, [value, 1])
       assert %Expr{operator: :all, operands: [^value, 1]} = expression
-      source = quote(do: all([unquote(value), 1]))
+
+      source =
+        quote do
+          all([unquote(value), 1])
+        end
+
       direct = choice_flow(expression)
 
       for flow <- [
             direct,
-            builder_flow(Builder.all([value, 1])),
+            data_flow(Jido.Expr.new!(:all, [value, 1])),
             module_flow(Module.concat(__MODULE__, "BooleanChild#{value}"), source),
             round_trip(direct, 2)
           ] do
@@ -394,41 +426,61 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
     end
   end
 
-  defp legacy_document(%{"$expr" => record}), do: %{"$condition" => legacy_document(record)}
+  defp legacy_document(%{"$expr" => record}) do
+    %{"$condition" => legacy_document(record)}
+  end
 
-  defp legacy_document(value) when is_map(value),
-    do: Map.new(value, fn {key, child} -> {key, legacy_document(child)} end)
+  defp legacy_document(value) when is_map(value) do
+    Map.new(value, fn {key, child} -> {key, legacy_document(child)} end)
+  end
 
-  defp legacy_document(value) when is_list(value), do: Enum.map(value, &legacy_document/1)
-  defp legacy_document(value), do: value
+  defp legacy_document(value) when is_list(value) do
+    Enum.map(value, &legacy_document/1)
+  end
+
+  defp legacy_document(value) do
+    value
+  end
 
   defp choice(condition) do
     Choice.new!(
       name: "route",
-      options: [Builder.option("yes", condition, EchoParamsAction, %{selected: true})],
+      options: [
+        %{name: "yes", condition: condition, action: EchoParamsAction, params: %{selected: true}}
+      ],
       fallback: [action: EchoParamsAction, params: %{selected: false}]
     )
   end
 
-  defp choice_flow(condition),
-    do:
-      Flow.new!(
-        name: "condition_parity",
-        components: [choice(condition)],
-        output: Ref.result("route")
-      )
+  defp choice_flow(condition) do
+    Flow.new!(
+      name: "condition_parity",
+      components: [choice(condition)],
+      output: Ref.result("route")
+    )
+  end
 
-  defp builder_flow(condition) do
+  defp data_flow(condition) do
     {:ok, flow} =
-      Builder.new(name: "condition_parity")
-      |> Builder.choice(
-        "route",
-        [Builder.option("yes", condition, EchoParamsAction, %{selected: true})],
-        action: EchoParamsAction,
-        params: %{selected: false}
-      )
-      |> Builder.output(Ref.result("route"))
-      |> Builder.build()
+      Jido.Flow.new(%{
+        output: Ref.result("route"),
+        components: [
+          %{
+            kind: :choice,
+            name: "route",
+            options: [
+              %{
+                name: "yes",
+                condition: condition,
+                action: EchoParamsAction,
+                params: %{selected: true}
+              }
+            ],
+            fallback: [action: EchoParamsAction, params: %{selected: false}]
+          }
+        ],
+        name: "condition_parity"
+      })
 
     flow
   end
@@ -439,16 +491,17 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
         use Jido.Flow, name: "condition_parity"
 
         flow do
-          choice "route" do
-            option "yes",
+          choice("route") do
+            option("yes",
               condition: unquote(source),
               action: unquote(EchoParamsAction),
               params: %{selected: true}
+            )
 
-            otherwise action: unquote(EchoParamsAction), params: %{selected: false}
+            otherwise(action: unquote(EchoParamsAction), params: %{selected: false})
           end
 
-          output result("route")
+          output(result("route"))
         end
       end
 

@@ -61,17 +61,16 @@ The authoring grammar permits any expression at `output`. At execution, a
 normal Flow result must be a map. Use `Jido.Action.Output` when a Flow must
 return an intentional raw, stream, batch, or opaque value.
 
-## Four Authoring Forms
+## Three Authoring Forms
 
 All supported forms produce the same canonical value:
 
 1. a module that uses `Jido.Flow`;
-2. direct construction with `Jido.Flow.new/1` and component constructors;
-3. `Jido.Flow.Builder` for runtime construction; and
-4. `Jido.Flow.Codec.decode/2` for stored JSON data.
+2. Data definitions with `Jido.Flow.new/1`, using component maps or constructors; and
+3. `Jido.Flow.Codec.decode/2` for stored JSON data.
 
 The module DSL is the normal source-code API. Direct constructors are also an
-official API. Builder and Codec input pass through the same canonical
+official API. Data definitions and Codec input pass through the same canonical
 validation.
 
 ## Author Data And Runtime Data
@@ -103,7 +102,7 @@ All authoring forms use the same graph rules. DSL errors identify the source
 declaration; `new/1` and `validate/1` return the first error.
 
 Continue with [Flow DSL](flow-language.livemd),
-[Direct Construction And Builder](flow-builder.md), and
+[Flow Data Definitions](flow-data.md), and
 [Store Flows As JSON](flow-storage.md).
 
 ## Deferred Effect Requests

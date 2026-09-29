@@ -1,13 +1,11 @@
 defmodule JidoActionTest.Flow.ConditionTest do
   use ExUnit.Case, async: true
-
   alias Jido.Flow.Error.InvalidDefinitionError
   alias Jido.Expr
-  alias Jido.Flow.Builder
   alias Jido.Flow.Expression
   alias Jido.Flow.Ref
 
-  describe "condition/2" do
+  describe("condition/2") do
     test "accepts every closed condition operator" do
       comparisons = [:eq, :neq, :lt, :lte, :gt, :gte, :in]
 
@@ -55,16 +53,15 @@ defmodule JidoActionTest.Flow.ConditionTest do
               %InvalidDefinitionError{
                 message: "invalid Flow expression",
                 details: %{path: [], reason: :unknown_operator}
-              }} =
-               Expression.condition(%Expr{operator: :unknown, operands: [1]}, :any)
+              }} = Expression.condition(%Expr{operator: :unknown, operands: [1]}, :any)
 
       for {operator, operands} <- [
-            {:eq, [1]},
-            {:all, []},
-            {:not, [true, false]},
-            {:eq, [1 | :tail]},
-            {:all, [true | :tail]},
-            {:eq, :bad}
+            eq: [1],
+            all: [],
+            not: [true, false],
+            eq: [1 | :tail],
+            all: [true | :tail],
+            eq: :bad
           ] do
         assert {:error,
                 %InvalidDefinitionError{message: "invalid Flow expression", details: details}} =
@@ -110,16 +107,19 @@ defmodule JidoActionTest.Flow.ConditionTest do
       assert details.reason == :unsupported_value
     end
 
-    test "Builder helpers validate Flow operands before returning an Expr" do
+    test "expression constructors and Flow validation keep their boundaries" do
       for operator <- [:eq, :neq, :lt, :lte, :gt, :gte, :in] do
-        assert %Expr{operator: ^operator} = apply(Builder, operator, [1, 2])
+        assert %Expr{operator: ^operator} = Expr.new!(operator, [1, 2])
       end
 
-      assert %Expr{operator: :all} = Builder.all([true])
-      assert %Expr{operator: :any} = Builder.any([false])
-      assert %Expr{operator: :not} = Builder.not(true)
-      assert_raise InvalidDefinitionError, fn -> Builder.all([]) end
-      assert_raise InvalidDefinitionError, fn -> Builder.eq(~D[2026-01-01], 1) end
+      assert %Expr{operator: :all} = Jido.Expr.new!(:all, [true])
+      assert %Expr{operator: :any} = Jido.Expr.new!(:any, [false])
+      assert %Expr{operator: :not} = Jido.Expr.new!(:not, [true])
+      assert_raise Jido.Expr.Error, fn -> Jido.Expr.new!(:all, []) end
+
+      assert {:error, %InvalidDefinitionError{}} =
+               Expression.condition(Jido.Expr.new!(:eq, [~D[2026-01-01], 1]), :any)
+
       assert {:error, %InvalidDefinitionError{}} = Expression.condition(:bad, :any)
     end
   end
@@ -134,7 +134,9 @@ defmodule JidoActionTest.Flow.ConditionTest do
         ])
       ])
 
-    assert condition |> Jido.Flow.Expression.result_refs() |> Enum.uniq() |> Enum.sort() ==
-             ["classify", "load_tags"]
+    assert condition |> Jido.Flow.Expression.result_refs() |> Enum.uniq() |> Enum.sort() == [
+             "classify",
+             "load_tags"
+           ]
   end
 end

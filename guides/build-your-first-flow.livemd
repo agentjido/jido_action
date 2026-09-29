@@ -106,5 +106,5 @@ step "greet",
 Use [Flow DSL](flow-language.livemd) for the complete language. Use
 [Executing Flows](flow-execution.livemd) for run-to-completion and step-wise
 execution.
-[Direct Construction And Builder](https://github.com/agentjido/jido_action/blob/release/v3/guides/flow-builder.md#reuse-an-inline-step)
+[Flow Data Definitions](https://github.com/agentjido/jido_action/blob/release/v3/guides/flow-data.md#reuse-an-inline-step)
 shows how to reuse the compiled body without extracting an Action.

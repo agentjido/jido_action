@@ -1,7 +1,6 @@
 defmodule Jido.Flow.DSL.NeedsTest do
   use ExUnit.Case, async: false
-
-  alias Jido.Flow.{Builder, Codec, Step}
+  alias Jido.Flow.{Codec, Step}
   alias JidoActionTest.Fixtures.Actions.Add
 
   test "keyword and block needs preserve defaults, nil, scalar, and list order" do
@@ -42,25 +41,7 @@ defmodule Jido.Flow.DSL.NeedsTest do
 
     compile(
       owner,
-      """
-      step "child", action: JidoActionTest.Fixtures.NestedFlow, params: %{}, needs: "first"
-      map "mapped", action: Add, collection: [], params: %{}, needs: "first"
-      reduce "reduced", action: Add, collection: [], initial: %{}, params: %{}, needs: "first"
-      choice "route" do
-        needs "first"
-        option "yes", condition: true, action: Add, params: %{}
-        otherwise action: Add, params: %{}
-      end
-      iterate "loop" do
-        needs "first"
-        state [], initial: %{}
-        action Add
-        params %{}
-        repeat 1
-      end
-      dispatch "next", decision: Add, expander: Add, params: %{},
-        needs: ["first", "second", "child", "mapped", "reduced", "route", "loop"]
-      """,
+      "step \"child\", action: JidoActionTest.Fixtures.NestedFlow, params: %{}, needs: \"first\"\nmap \"mapped\", action: Add, collection: [], params: %{}, needs: \"first\"\nreduce \"reduced\", action: Add, collection: [], initial: %{}, params: %{}, needs: \"first\"\nchoice \"route\" do\n  needs \"first\"\n  option \"yes\", condition: true, action: Add, params: %{}\n  otherwise action: Add, params: %{}\nend\niterate \"loop\" do\n  needs \"first\"\n  state [], initial: %{}\n  action Add\n  params %{}\n  repeat 1\nend\ndispatch \"next\", decision: Add, expander: Add, params: %{},\n  needs: [\"first\", \"second\", \"child\", \"mapped\", \"reduced\", \"route\", \"loop\"]\n",
       "result(\"next\")"
     )
 
@@ -69,7 +50,7 @@ defmodule Jido.Flow.DSL.NeedsTest do
                [["first", "second", "child", "mapped", "reduced", "route", "loop"]]
   end
 
-  test "direct, Builder, and Codec boundaries still reject invalid dependencies" do
+  test "direct, and Codec boundaries still reject invalid dependencies" do
     flow =
       Jido.Flow.new!(
         name: "needs",
@@ -79,17 +60,20 @@ defmodule Jido.Flow.DSL.NeedsTest do
 
     {:ok, document, registry} = Codec.encode(flow)
 
-    for value <- ["first", ["first", "first"], ["first" | :tail], [42]] do
+    for value <- ["first", ["first", "first"], ["first" | :tail], ~c"*"] do
       assert {:error, _} = Step.new(name: "work", action: Add, needs: value)
 
       assert {:error, _} =
-               Builder.new(name: "needs")
-               |> Builder.step("work", Add, %{}, needs: value)
-               |> Builder.output(%{})
-               |> Builder.build()
+               Jido.Flow.new(%{
+                 output: %{},
+                 components: [
+                   %{kind: :step, name: "work", action: Add, params: %{}, needs: value}
+                 ],
+                 name: "needs"
+               })
     end
 
-    for value <- ["first", ["first", "first"], [42]] do
+    for value <- ["first", ["first", "first"], ~c"*"] do
       invalid = put_in(document, ["components", Access.at(0), "needs"], value)
       assert {:error, _} = Codec.decode(invalid, registry)
     end
@@ -114,31 +98,48 @@ defmodule Jido.Flow.DSL.NeedsTest do
   test "Spark rejects repeated block properties" do
     error =
       assert_raise Spark.Error.DslError, fn ->
-        compile(unique_owner(), """
-        step "work" do
-          action Add
-          params %{}
-          needs "first"
-          needs "second"
-        end
-        """)
+        compile(
+          unique_owner(),
+          "step \"work\" do\n  action Add\n  params %{}\n  needs \"first\"\n  needs \"second\"\nend\n"
+        )
       end
 
     assert Exception.message(error) =~ "Multiple values for key `:needs`"
   end
 
   defp compile_step(form, field) do
-    field = if field == :omitted, do: "", else: inspect(field)
+    field =
+      if field == :omitted do
+        ""
+      else
+        inspect(field)
+      end
 
     declaration =
       case form do
         :keyword ->
-          suffix = if field == "", do: "", else: ", needs: " <> field
+          suffix =
+            if field == "" do
+              ""
+            else
+              ", needs: " <> field
+            end
+
           "step \"work\", action: Add, params: %{}" <> suffix
 
         :block ->
-          field = if field == "", do: "", else: "needs " <> field
-          "step \"work\" do\n action Add\n params %{}\n #{field}\nend"
+          field =
+            if field == "" do
+              ""
+            else
+              "needs " <> field
+            end
+
+          "step \"work\" do
+ action Add
+ params %{}
+ #{field}
+end"
       end
 
     owner = unique_owner()
@@ -153,22 +154,22 @@ defmodule Jido.Flow.DSL.NeedsTest do
     end)
 
     Code.compile_string(
-      """
-      defmodule #{inspect(owner)} do
-        use Jido.Flow, name: "needs"
-        alias JidoActionTest.Fixtures.Actions.Add
-        flow do
-          step "first", action: Add, params: %{}
-          step "second", action: Add, params: %{}
-          #{declaration}
-          output #{output}
-        end
-      end
-      """,
+      "defmodule #{inspect(owner)} do
+  use Jido.Flow, name: \"needs\"
+  alias JidoActionTest.Fixtures.Actions.Add
+  flow do
+    step \"first\", action: Add, params: %{}
+    step \"second\", action: Add, params: %{}
+    #{declaration}
+    output #{output}
+  end
+end
+",
       "flow_needs.ex"
     )
   end
 
-  defp unique_owner,
-    do: Module.concat(__MODULE__, "Owner#{System.unique_integer([:positive])}")
+  defp unique_owner do
+    Module.concat(__MODULE__, "Owner#{System.unique_integer([:positive])}")
+  end
 end

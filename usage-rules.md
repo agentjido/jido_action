@@ -98,9 +98,9 @@ Use `jido_action` for validated work and data-first composition:
   control order without a data dependency.
 - Do not add a `parallel` block. Independent nodes run concurrently when
   `max_concurrency` is greater than `1`.
-- Canonical Flow data, the module DSL, Builder, and Codec require an explicit
+- Canonical Flow data, the module DSL, data definitions, and Codec require an explicit
   `output`. In the module DSL, `output` must be the final declaration.
-- The DSL, Builder, and canonical data all use the name `output`.
+- The DSL, data definitions, and canonical data all use the name `output`.
 - Use `repeat` or a bounded `while` condition in the Spark `iterate` form. The
   lowerer converts it to canonical `completion` and `max_iterations` data.
 - Keep Iterate State local to that component.
@@ -109,7 +109,7 @@ Use `jido_action` for validated work and data-first composition:
 
 ## Runtime Flow Data
 
-- Use `Jido.Flow.Builder` only when graph structure comes from runtime data.
+- Use `Jido.Flow.new/1` for map-based definitions, including runtime graphs.
 - Use `Jido.Flow.Codec.encode/2` for portable Map or JSON storage.
 - Use `Jido.Flow.Codec.encode/1` only when a generated temporary Registry is
   sufficient. Keep its returned Registry for decoding.
@@ -127,12 +127,13 @@ Use `jido_action` for validated work and data-first composition:
   Invalid or unknown names and non-Step components raise `ArgumentError`.
 - Register that target with a stable host-owned Action identifier for JSON.
   Register named binding keys as atoms. Do not add body, function, or MFA data
-  to Builder, Registry, or Codec input.
+  to data definitions, Registry, or Codec input.
 - Deploy the owner and its generated Action BEAM files together. A body-only
   change can keep the same target and semantic graph identity. Track deployed
   code versions separately from graph identity.
-- Only `Builder.step/5` and a Spark `step` can derive a Subflow from an
-  executable of kind `:flow`. Choice, Map, Reduce, and Iterate target fields
+- Data definitions use `kind: :subflow` and a `flow` target for child Flows.
+  A Spark `step` can derive a Subflow from an executable of kind `:flow`.
+  Choice, Map, Reduce, and Iterate target fields
   accept Actions only. Dispatch decision and expander targets also accept
   Actions only.
 

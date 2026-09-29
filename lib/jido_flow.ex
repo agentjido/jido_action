@@ -19,12 +19,11 @@ defmodule Jido.Flow do
   A Flow contains named canonical components and one required output
   expression. Execution is delegated through `Jido.Exec`.
 
-  Flow has four supported authoring inputs:
+  Flow has three supported authoring inputs:
 
   * the compile-time Flow module DSL;
-  * `Jido.Flow.Builder` for runtime construction;
-  * versioned stored JSON documents through `Jido.Flow.Codec`; and
-  * direct canonical construction through `new/1` and component constructors.
+  * map-based data definitions through `new/1` and component constructors; and
+  * versioned stored JSON documents through `Jido.Flow.Codec`.
 
   Use the Flow module DSL as the primary developer authoring surface:
 
@@ -52,8 +51,8 @@ defmodule Jido.Flow do
         extensions: [MyApp.Flows.Helpers]
 
   Define each extension with `Jido.Flow.Extension`. Extensions change only
-  module DSL source authoring. Builder, direct construction, and Codec do not
-  load extensions. The compiled result remains one canonical Flow value.
+  module DSL source authoring. Data definitions and Codec do not load
+  extensions. The compiled result remains one canonical Flow value.
 
   For a small operation, bind data and write an inline Step body:
 
@@ -87,8 +86,8 @@ defmodule Jido.Flow do
   and result rules. See [Inline Actions](inline-actions.md).
 
   After the owner compiles, `MyApp.Greeting.step_action("greet")` returns its
-  Action target for Builder, direct construction, or trusted Registry reuse.
-  It does not copy parameters, dependencies, or metadata. Builder and stored
+  Action target for map-based definitions, direct construction, or trusted Registry reuse.
+  It does not copy parameters, dependencies, or metadata. Map-based definitions and stored
   JSON do not accept body code, anonymous functions, or MFA targets.
 
   `step_action/1` stays Step-only, including explicit Action-backed Steps but
@@ -177,7 +176,14 @@ defmodule Jido.Flow do
   @doc false
   defmacro __before_compile__(env), do: ModuleCompiler.before_compile(env)
 
-  @doc "Builds and validates one canonical Flow value."
+  @doc """
+  Builds and validates one canonical Flow value from a data definition.
+
+  Components accept tagged maps with a `kind` of `:step`, `:subflow`, `:choice`,
+  `:map`, `:reduce`, `:iterate`, or `:dispatch`, or canonical component structs.
+  Each map uses the corresponding component constructor. Data definitions use
+  explicit `:step`/`action` and `:subflow`/`flow` fields. Validation is inert.
+  """
   @spec new(map() | keyword() | t()) :: {:ok, t()} | {:error, Exception.t()}
   def new(%__MODULE__{} = flow), do: flow |> Map.from_struct() |> new()
 

@@ -31,6 +31,20 @@ defmodule Jido.Flow.Component do
   def new(%Iterate{} = iterate), do: Iterate.new(iterate)
   def new(%Dispatch{} = dispatch), do: Dispatch.new(dispatch)
 
+  for {kind, module} <- [
+        step: Step,
+        subflow: Subflow,
+        choice: Choice,
+        map: FlowMap,
+        reduce: Reduce,
+        iterate: Iterate,
+        dispatch: Dispatch
+      ] do
+    def new(%{kind: unquote(kind)} = attrs) when not is_struct(attrs) do
+      unquote(module).new(Map.delete(attrs, :kind))
+    end
+  end
+
   def new(value) do
     {:error, Error.validation_error("expected a canonical Flow component", %{value: value})}
   end

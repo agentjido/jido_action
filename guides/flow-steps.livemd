@@ -70,7 +70,7 @@ end
 Named bindings create an atom-keyed parameter map. For example,
 `name <- input(:name)` supplies `%{name: ...}` to the compiled Action. A sole
 map pattern receives its source as the complete parameter map. `[]` supplies
-`%{}`. When you reuse the target in Builder, supply a new mapping with the
+`%{}`. When you reuse the target in data definitions, supply a new mapping with the
 same parameter shape. The target does not retain the original source mapping.
 
 Step header options are `needs:`, `meta:`, and `inline:`. Use one binding

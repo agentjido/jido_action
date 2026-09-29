@@ -2,7 +2,7 @@ defmodule Jido.Flow.Iterate do
   @moduledoc """
   A bounded local loop in a canonical Flow.
 
-  Create it with `new/1`, the Flow module DSL, `Jido.Flow.Builder`, or
+  Create it with `new/1`, the Flow module DSL, map-based definitions, or
   `Jido.Flow.Codec`. An Iterate uses local state and stops when its completion
   condition is true. It fails when it reaches `max_iterations` first.
   """

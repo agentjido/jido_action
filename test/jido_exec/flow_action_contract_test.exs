@@ -1,7 +1,6 @@
 defmodule JidoActionTest.Exec.FlowActionContractTest do
   use ExUnit.Case, async: false
   @moduletag capture_log: true
-
   alias Jido.Exec
   alias Jido.Action.{Error, Output}
 
@@ -10,22 +9,39 @@ defmodule JidoActionTest.Exec.FlowActionContractTest do
   end
 
   defmodule RejectedInputAction do
-    def __jido_executable__, do: Jido.Executable.action(__MODULE__)
-    def validate_params(%{error: error}), do: {:error, error}
-    def validate_output(value), do: {:ok, value}
-    def run(_params, _context), do: raise("invalid input reached the Action")
+    def __jido_executable__ do
+      Jido.Executable.action(__MODULE__)
+    end
+
+    def validate_params(%{error: error}) do
+      {:error, error}
+    end
+
+    def validate_output(value) do
+      {:ok, value}
+    end
+
+    def run(_params, _context) do
+      raise "invalid input reached the Action"
+    end
   end
 
   test "Step validation preserves input errors with any details shape" do
-    alias Jido.Flow.Builder
-
     {:ok, flow} =
-      Builder.new(name: "rejected_input")
-      |> Builder.step("reject", RejectedInputAction, Builder.input())
-      |> Builder.output(Builder.result("reject"))
-      |> Builder.build()
+      Jido.Flow.new(%{
+        output: Jido.Flow.Ref.result("reject"),
+        components: [
+          %{
+            kind: :step,
+            name: "reject",
+            action: RejectedInputAction,
+            params: Jido.Flow.Ref.input([])
+          }
+        ],
+        name: "rejected_input"
+      })
 
-    stacktrace = [{__MODULE__, :validate_input, 1, [file: ~c"input.ex", line: 1]}]
+    stacktrace = [{__MODULE__, :validate_input, 1, file: ~c"input.ex", line: 1}]
 
     errors = [
       RuntimeError.exception("input rejected"),
@@ -47,8 +63,13 @@ defmodule JidoActionTest.Exec.FlowActionContractTest do
       assert error.details.action == RejectedInputAction
       assert error.details.phase == :step_input
 
-      if is_map(Map.get(original, :details)), do: assert(error.details.field == :value)
-      if Map.has_key?(original, :stacktrace), do: assert(error.stacktrace == stacktrace)
+      if is_map(Map.get(original, :details)) do
+        assert error.details.field == :value
+      end
+
+      if Map.has_key?(original, :stacktrace) do
+        assert error.stacktrace == stacktrace
+      end
     end
   end
 
@@ -70,36 +91,39 @@ defmodule JidoActionTest.Exec.FlowActionContractTest do
 
   defmodule MappedResultAction do
     use Jido.Action, name: "mapped_result_action"
-
     @impl true
-    def run(params, _context), do: Results.run(params)
+    def run(params, _context) do
+      Results.run(params)
+    end
   end
 
   defmodule IdentityDecision do
     use Jido.Action, name: "identity_decision"
-
     @impl true
-    def run(params, _context), do: {:ok, params}
+    def run(params, _context) do
+      {:ok, params}
+    end
   end
 
   defmodule CallbackResultAction do
     use Jido.Action, name: "callback_result_action"
-
     @impl true
-    def run(params, _context), do: Results.run(params)
+    def run(params, _context) do
+      Results.run(params)
+    end
   end
 
   defmodule MappedResults do
     use Jido.Flow, name: "mapped_results"
 
     flow do
-      map "mapped" do
-        collection [input()]
-        action MappedResultAction
-        params item()
+      map("mapped") do
+        collection([input()])
+        action(MappedResultAction)
+        params(item())
       end
 
-      output result("mapped", 0)
+      output(result("mapped", 0))
     end
   end
 
@@ -107,19 +131,18 @@ defmodule JidoActionTest.Exec.FlowActionContractTest do
     use Jido.Flow, name: "callback_results"
 
     flow do
-      dispatch "next" do
-        decision IdentityDecision
-        params input()
-        expander CallbackResultAction
+      dispatch("next") do
+        decision(IdentityDecision)
+        params(input())
+        expander(CallbackResultAction)
       end
 
-      output result("next")
+      output(result("next"))
     end
   end
 
   defmodule ControlledMapAction do
     use Jido.Action, name: "controlled_map_action"
-
     @impl true
     def run(%{value: value}, ctx) do
       Agent.update(ctx.probe, fn state ->
@@ -149,13 +172,13 @@ defmodule JidoActionTest.Exec.FlowActionContractTest do
     use Jido.Flow, name: "controlled_map"
 
     flow do
-      map "mapped" do
-        collection input(:items)
-        action ControlledMapAction
-        params %{value: item()}
+      map("mapped") do
+        collection(input(:items))
+        action(ControlledMapAction)
+        params(%{value: item()})
       end
 
-      output %{items: result("mapped")}
+      output(%{items: result("mapped")})
     end
   end
 
@@ -169,9 +192,7 @@ defmodule JidoActionTest.Exec.FlowActionContractTest do
         assert Exec.run(owner, %{mode: mode, value: 42}) == {:ok, expected}
       end
 
-      assert Exec.run(target, %{mode: :extras, value: 42}) ==
-               {:ok, %{value: 42}, [:request]}
-
+      assert Exec.run(target, %{mode: :extras, value: 42}) == {:ok, %{value: 42}, [:request]}
       assert Exec.run(owner, %{mode: :extras, value: 42}) == {:ok, %{value: 42}, [:request]}
 
       assert {:error, %{message: "body error"}} =
@@ -197,8 +218,14 @@ defmodule JidoActionTest.Exec.FlowActionContractTest do
         assert error.details.action == target
         assert Map.take(error.details, Map.keys(details)) == details
         refute Error.retryable?(error)
-        if executable == owner, do: assert(error.details.node == node)
-        if mode in [:raise, :throw, :exit], do: assert(%Splode.Stacktrace{} = error.stacktrace)
+
+        if executable == owner do
+          assert error.details.node == node
+        end
+
+        if mode in [:raise, :throw, :exit] do
+          assert %Splode.Stacktrace{} = error.stacktrace
+        end
       end
     end
   end
@@ -237,15 +264,16 @@ defmodule JidoActionTest.Exec.FlowActionContractTest do
           Enum.flat_map(Enum.chunk_every(1..4, limit), fn batch ->
             ready =
               for _ <- batch do
-                assert_receive {^ref, :ready, value, worker}, 1_000
+                assert_receive {^ref, :ready, value, worker}, 1000
                 {value, worker, Process.monitor(worker)}
               end
 
             # The Agent call is a barrier after every admitted body has recorded its start.
             assert Agent.get(probe, & &1.max) == limit
 
-            for {_value, worker, _monitor} <- Enum.reverse(ready),
-                do: send(worker, {:release, ref})
+            for {_value, worker, _monitor} <- Enum.reverse(ready) do
+              send(worker, {:release, ref})
+            end
 
             ready
           end)
@@ -257,7 +285,7 @@ defmodule JidoActionTest.Exec.FlowActionContractTest do
         assert Agent.get(probe, &Enum.sort(&1.started)) == [1, 2, 3, 4]
 
         for {value, worker, monitor} <- workers do
-          assert_receive {:DOWN, ^monitor, :process, ^worker, _}, 1_000
+          assert_receive {:DOWN, ^monitor, :process, ^worker, _}, 1000
           assert_received {^ref, :finished, ^value}
         end
 
@@ -286,19 +314,25 @@ defmodule JidoActionTest.Exec.FlowActionContractTest do
     try do
       workers =
         for _ <- 1..2 do
-          assert_receive {^ref, :ready, _value, worker}, 1_000
+          assert_receive {^ref, :ready, _value, worker}, 1000
           worker
         end
 
       children = Task.Supervisor.children(supervisor)
       assert handle.pid in children
       assert Enum.all?(workers, &(&1 in children))
-      monitors = for child <- children, do: {child, Process.monitor(child)}
+
+      monitors =
+        for child <- children do
+          {child, Process.monitor(child)}
+        end
+
       assert Agent.get(probe, & &1.max) == 2
       assert :ok = Exec.cancel(handle)
 
-      for {child, monitor} <- monitors,
-          do: assert_receive({:DOWN, ^monitor, :process, ^child, _}, 1_000)
+      for {child, monitor} <- monitors do
+        assert_receive {:DOWN, ^monitor, :process, ^child, _}, 1000
+      end
 
       assert Task.Supervisor.children(supervisor) == []
       assert length(Agent.get(probe, & &1.started)) == 2

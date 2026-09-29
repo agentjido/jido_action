@@ -73,7 +73,7 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
       Works for inline and explicit Action-backed Steps. Call it after this
       Flow module has compiled, not from its unfinished DSL block. Lookup
       does not run the body or create atoms. Supply new Step fields when
-      reusing the target through Builder or direct constructors. For stored
+      reusing the target through map-based definitions or direct constructors. For stored
       JSON, register the target with an application-owned Action identifier
       and register the required parameter atom keys.
 

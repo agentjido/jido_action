@@ -1,21 +1,20 @@
 defmodule JidoActionTest.Flow.DSL.ExprFlowTest do
   use ExUnit.Case, async: true
-
   alias Jido.Expr
   alias Jido.Flow
-  alias Jido.Flow.{Builder, Codec, Ref, Step}
+  alias Jido.Flow.{Codec, Ref, Step}
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
 
   defmodule Parity do
     use Jido.Flow, name: "calculated"
 
     flow do
-      step "load", action: EchoParamsAction, params: %{quantity: input(:quantity) + 1}
+      step("load", action: EchoParamsAction, params: %{quantity: input(:quantity) + 1})
 
-      output %{
+      output(%{
         total: result("load", :quantity) * input(:price),
         label: context(:prefix) <> input(:name)
-      }
+      })
     end
   end
 
@@ -23,8 +22,8 @@ defmodule JidoActionTest.Flow.DSL.ExprFlowTest do
     use Jido.Flow, name: "expression_child"
 
     flow do
-      step "echo", action: EchoParamsAction, params: %{value: input(:value) * 2}
-      output result("echo")
+      step("echo", action: EchoParamsAction, params: %{value: input(:value) * 2})
+      output(result("echo"))
     end
   end
 
@@ -32,46 +31,49 @@ defmodule JidoActionTest.Flow.DSL.ExprFlowTest do
     use Jido.Flow, name: "expression_positions"
 
     flow do
-      map "mapped",
+      map("mapped",
         collection: [input(:start) + 1, 2],
         action: EchoParamsAction,
         params: %{value: item() * 2, index: item_index() + 1, id: "item-" <> item_id()}
+      )
 
-      reduce "reduced",
+      reduce("reduced",
         collection: result("mapped"),
         initial: %{value: input(:start) - 1},
         action: EchoParamsAction,
         params: %{value: accumulator(:value) + item(:value)}
+      )
 
-      iterate "loop" do
-        state [], initial: %{count: input(:start) - 1, done: false}
-        action EchoParamsAction
-        params %{count: state(:count) + 1, index: iteration_index() + 1}
-        update %{count: body_result(:count), done: body_result(:count) >= 3}
-        while not state(:done)
-        max_iterations 5
+      iterate("loop") do
+        state([], initial: %{count: input(:start) - 1, done: false})
+        action(EchoParamsAction)
+        params(%{count: state(:count) + 1, index: iteration_index() + 1})
+        update(%{count: body_result(:count), done: body_result(:count) >= 3})
+        while(not state(:done))
+        max_iterations(5)
       end
 
-      step "inline", total <- result("reduced", :value) do
+      step("inline", total <- result("reduced", :value)) do
         {:ok, %{value: total + 1}}
       end
 
-      step "child", action: Child, params: %{value: result("inline", :value) + 1}
+      step("child", action: Child, params: %{value: result("inline", :value) + 1})
 
-      choice "route" do
-        option "enabled",
+      choice("route") do
+        option("enabled",
           condition: input(:enabled) and not context(:paused),
           action: EchoParamsAction,
           params: %{value: result("child", :value) / 2}
+        )
 
-        otherwise action: EchoParamsAction, params: %{value: -input(:start)}
+        otherwise(action: EchoParamsAction, params: %{value: -input(:start)})
       end
 
-      output %{
+      output(%{
         value: result("route", :value),
         loop: result("loop", :state),
         eligible: expr(input(:enabled) and result("inline", :value) >= 9)
-      }
+      })
     end
   end
 
@@ -79,12 +81,13 @@ defmodule JidoActionTest.Flow.DSL.ExprFlowTest do
     use Jido.Flow, name: "expression_dispatch"
 
     flow do
-      dispatch "finish",
+      dispatch("finish",
         decision: EchoParamsAction,
         expander: EchoParamsAction,
         params: %{value: min(input(:value) + 1, 10)}
+      )
 
-      output result("finish")
+      output(result("finish"))
     end
   end
 
@@ -99,10 +102,13 @@ defmodule JidoActionTest.Flow.DSL.ExprFlowTest do
     output = %{total: expr(^load * ^price), label: expr(^prefix <> ^name)}
 
     assert {:ok, built} =
-             Builder.new(name: "calculated")
-             |> Builder.step("load", EchoParamsAction, params)
-             |> Builder.output(output)
-             |> Builder.build()
+             Jido.Flow.new(%{
+               output: output,
+               components: [
+                 %{kind: :step, name: "load", action: EchoParamsAction, params: params}
+               ],
+               name: "calculated"
+             })
 
     direct =
       Flow.new!(
@@ -154,29 +160,18 @@ defmodule JidoActionTest.Flow.DSL.ExprFlowTest do
     flows =
       for {module, declaration} <- [
             {StepKeywordQuotedFields,
-             """
-             step "echo",
-               action: JidoActionTest.Fixtures.Actions.EchoParamsAction,
-               params: %{value: input(:value) + 1, nested: [nil, %{}]}
-             """},
+             "step \"echo\",\n  action: JidoActionTest.Fixtures.Actions.EchoParamsAction,\n  params: %{value: input(:value) + 1, nested: [nil, %{}]}\n"},
             {StepBlockQuotedFields,
-             """
-             step "echo" do
-               action JidoActionTest.Fixtures.Actions.EchoParamsAction
-               params %{value: input(:value) + 1, nested: [nil, %{}]}
-             end
-             """}
+             "step \"echo\" do\n  action JidoActionTest.Fixtures.Actions.EchoParamsAction\n  params %{value: input(:value) + 1, nested: [nil, %{}]}\nend\n"}
           ] do
-        Code.compile_string("""
-        defmodule #{inspect(module)} do
-          use Jido.Flow, name: "step_quoted_fields"
-          flow do
-            #{declaration}
-            output result("echo")
-          end
-        end
-        """)
-
+        Code.compile_string("defmodule #{inspect(module)} do
+  use Jido.Flow, name: \"step_quoted_fields\"
+  flow do
+    #{declaration}
+    output result(\"echo\")
+  end
+end
+")
         module.flow()
       end
 
@@ -187,36 +182,21 @@ defmodule JidoActionTest.Flow.DSL.ExprFlowTest do
   test "Map keyword and block fields preserve nested expressions and literal data" do
     declarations = [
       {MapKeywordFields,
-       """
-       map "mapped",
-         collection: [input(:start) + 1, 2],
-         action: JidoActionTest.Fixtures.Actions.EchoParamsAction,
-         params: %{nested: [item() * 2, %{empty: [], absent: nil}]},
-         on_error: :collect_errors
-       """},
+       "map \"mapped\",\n  collection: [input(:start) + 1, 2],\n  action: JidoActionTest.Fixtures.Actions.EchoParamsAction,\n  params: %{nested: [item() * 2, %{empty: [], absent: nil}]},\n  on_error: :collect_errors\n"},
       {MapBlockFields,
-       """
-       map "mapped" do
-         collection [input(:start) + 1, 2]
-         action JidoActionTest.Fixtures.Actions.EchoParamsAction
-         params %{nested: [item() * 2, %{empty: [], absent: nil}]}
-         on_error :collect_errors
-       end
-       """}
+       "map \"mapped\" do\n  collection [input(:start) + 1, 2]\n  action JidoActionTest.Fixtures.Actions.EchoParamsAction\n  params %{nested: [item() * 2, %{empty: [], absent: nil}]}\n  on_error :collect_errors\nend\n"}
     ]
 
     flows =
       for {module, declaration} <- declarations do
-        Code.compile_string("""
-        defmodule #{inspect(module)} do
-          use Jido.Flow, name: "map_fields"
-          flow do
-            #{declaration}
-            output %{items: result("mapped")}
-          end
-        end
-        """)
-
+        Code.compile_string("defmodule #{inspect(module)} do
+  use Jido.Flow, name: \"map_fields\"
+  flow do
+    #{declaration}
+    output %{items: result(\"mapped\")}
+  end
+end
+")
         module.flow()
       end
 
@@ -236,29 +216,19 @@ defmodule JidoActionTest.Flow.DSL.ExprFlowTest do
   test "Map fields reject literal tuples instead of treating them as reference AST" do
     for {module, declaration} <- [
           {MapKeywordTuple,
-           """
-           map "mapped", action: JidoActionTest.Fixtures.Actions.EchoParamsAction,
-             collection: [], params: %{value: {:input, [], []}}
-           """},
+           "map \"mapped\", action: JidoActionTest.Fixtures.Actions.EchoParamsAction,\n  collection: [], params: %{value: {:input, [], []}}\n"},
           {MapBlockTuple,
-           """
-           map "mapped" do
-             action JidoActionTest.Fixtures.Actions.EchoParamsAction
-             collection []
-             params %{value: {:input, [], []}}
-           end
-           """}
+           "map \"mapped\" do\n  action JidoActionTest.Fixtures.Actions.EchoParamsAction\n  collection []\n  params %{value: {:input, [], []}}\nend\n"}
         ] do
       assert_raise CompileError, ~r/unsupported Flow expression/, fn ->
-        Code.compile_string("""
-        defmodule #{inspect(module)} do
-          use Jido.Flow, name: "map_tuple"
-          flow do
-            #{declaration}
-            output %{items: result("mapped")}
-          end
-        end
-        """)
+        Code.compile_string("defmodule #{inspect(module)} do
+  use Jido.Flow, name: \"map_tuple\"
+  flow do
+    #{declaration}
+    output %{items: result(\"mapped\")}
+  end
+end
+")
       end
     end
   end

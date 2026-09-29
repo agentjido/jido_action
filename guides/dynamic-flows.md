@@ -7,8 +7,8 @@ Dispatch does not add a node to a running graph or change the current graph.
 It completes the current Flow, then its expander can continue the same
 `Jido.Exec` call with another executable.
 
-Use `Jido.Flow.Builder` instead when application code must construct the graph
-itself at runtime. See [Direct Construction And Builder](flow-builder.md).
+Use `Jido.Flow.new/1` instead when application code must construct the graph
+itself at runtime. See [Flow Data Definitions](flow-data.md).
 
 ## How Dispatch Works
 
@@ -143,23 +143,25 @@ end
 Do not start a nested `Jido.Exec` call from the expander. Return a continuation
 so one Exec call owns the complete chain.
 
-## Build Dispatch Directly Or With Builder
+## Define Dispatch With Data
 
 All Flow authoring forms produce the same canonical Dispatch value.
 
 ```elixir
-alias Jido.Flow.Builder
-
 {:ok, flow} =
-  Builder.new(name: "dynamic_route")
-  |> Builder.dispatch(
-    "route",
-    MyApp.Actions.ChooseRoute,
-    MyApp.Actions.ExpandRoute,
-    %{mode: Builder.input(:mode), value: Builder.input(:value)}
-  )
-  |> Builder.output(Builder.result("route"))
-  |> Builder.build()
+  Jido.Flow.new(%{
+    output: Jido.Flow.Ref.result("route"),
+    components: [
+      %{
+        kind: :dispatch,
+        name: "route",
+        decision: MyApp.Actions.ChooseRoute,
+        expander: MyApp.Actions.ExpandRoute,
+        params: %{mode: Jido.Flow.Ref.input(:mode), value: Jido.Flow.Ref.input(:value)}
+      }
+    ],
+    name: "dynamic_route"
+  })
 ```
 
 Use `Jido.Flow.Dispatch.new/1` for direct canonical construction. Use

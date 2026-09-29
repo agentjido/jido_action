@@ -1,8 +1,6 @@
 defmodule Jido.Flow.UnknownKeyValidationTest do
   use ExUnit.Case, async: true
-
   alias Jido.Flow
-  alias Jido.Flow.Builder
   alias Jido.Flow.Choice
   alias Jido.Flow.Codec
   alias Jido.Flow.Error.InvalidDefinitionError
@@ -42,72 +40,130 @@ defmodule Jido.Flow.UnknownKeyValidationTest do
     test "#{inspect(module)} preserves valid input and ordinary unknown-key errors" do
       module = unquote(module)
       attrs = unquote(Macro.escape(attrs))
-
       assert {:ok, record} = module.new(attrs)
       assert module.new(Map.to_list(attrs)) == {:ok, record}
       assert module.new(record) == {:ok, record}
-
       assert {:error, error} = module.new(Map.put(attrs, :unexpected, true))
       assert %InvalidDefinitionError{} = error
       assert error.message == "unknown #{unquote(label)} key: :unexpected"
 
       assert error.details ==
-               unquote(Macro.escape(if(module == Flow, do: %{key: :unexpected}, else: %{})))
+               unquote(
+                 Macro.escape(
+                   if module == Flow do
+                     %{key: :unexpected}
+                   else
+                     %{}
+                   end
+                 )
+               )
     end
 
-    for unknown <- [%{nil => :unexpected}, %{nil => :unexpected, unexpected: true}] do
+    for unknown <- [%{nil: :unexpected}, %{nil: :unexpected, unexpected: true}] do
       test "#{inspect(module)} rejects unknown fields #{inspect(unknown)}" do
         module = unquote(module)
         attrs = Map.merge(unquote(Macro.escape(attrs)), unquote(Macro.escape(unknown)))
         message = "unknown #{unquote(label)} key: nil"
-
         assert {:error, %InvalidDefinitionError{} = error} = module.new(attrs)
         assert error.message == message
 
         assert error.details ==
-                 unquote(Macro.escape(if(module == Flow, do: %{key: nil}, else: %{})))
+                 unquote(
+                   Macro.escape(
+                     if module == Flow do
+                       %{key: nil}
+                     else
+                       %{}
+                     end
+                   )
+                 )
 
         assert_raise InvalidDefinitionError, message, fn -> module.new!(attrs) end
       end
     end
   end
 
-  for unknown <- [%{nil => :unexpected}, %{nil => :unexpected, unexpected: true}] do
-    test "Builder rejects unknown Flow metadata #{inspect(unknown)}" do
-      attrs = Map.merge(%{name: "builder"}, unquote(Macro.escape(unknown)))
+  for unknown <- [%{nil: :unexpected}, %{nil: :unexpected, unexpected: true}] do
+    test "map authoring rejects unknown Flow metadata #{inspect(unknown)}" do
+      attrs = Map.merge(%{name: "data"}, unquote(Macro.escape(unknown)))
 
       assert {:error,
               %InvalidDefinitionError{
                 message: "unknown Flow configuration key: nil",
                 details: %{key: nil}
               }} =
-               attrs
-               |> Builder.new()
-               |> Builder.step("step", Add, %{})
-               |> Builder.output(%{})
-               |> Builder.build()
+               Jido.Flow.new(
+                 Map.put(
+                   Map.update!(
+                     Map.merge(
+                       %{components: []},
+                       attrs
+                     ),
+                     :components,
+                     &(&1 ++ [%{kind: :step, name: "step", action: Add, params: %{}}])
+                   ),
+                   :output,
+                   %{}
+                 )
+               )
     end
 
-    test "Builder rejects unknown nested record fields #{inspect(unknown)}" do
+    test "map authoring rejects unknown nested record fields #{inspect(unknown)}" do
       unknown = unquote(Macro.escape(unknown))
       option = %{name: "yes", condition: true, action: Add}
       fallback = %{action: Add}
       state = %{initial: %{}, update: %{}}
-      builder = Builder.new(name: "nested") |> Builder.output(%{})
+      data = %{output: %{}, components: [], name: "nested"}
 
-      for {invalid_builder, message, details} <- [
-            {Builder.choice(builder, "choice", [Map.merge(option, unknown)], fallback),
-             "unknown choice option key: nil", %{path: [:options, 0]}},
-            {Builder.choice(builder, "choice", [option], Map.merge(fallback, unknown)),
-             "unknown choice fallback key: nil", %{}},
-            {Builder.iterate(builder, "iterate", Add, %{}, Map.merge(state, unknown),
-               completion: true,
-               max_iterations: 1
+      for {invalid_data, message, details} <- [
+            {Map.update!(
+               data,
+               :components,
+               &(&1 ++
+                   [
+                     %{
+                       kind: :choice,
+                       name: "choice",
+                       options: [Map.merge(option, unknown)],
+                       fallback: fallback
+                     }
+                   ])
+             ), "unknown choice option key: nil", %{path: [:options, 0]}},
+            {Map.update!(
+               data,
+               :components,
+               &(&1 ++
+                   [
+                     %{
+                       kind: :choice,
+                       name: "choice",
+                       options: [option],
+                       fallback: Map.merge(fallback, unknown)
+                     }
+                   ])
+             ), "unknown choice fallback key: nil", %{}},
+            {Map.update!(
+               data,
+               :components,
+               &(&1 ++
+                   [
+                     %{
+                       kind: :iterate,
+                       name: "iterate",
+                       action: Add,
+                       params: %{},
+                       state: Map.merge(state, unknown),
+                       completion: true,
+                       max_iterations: 1
+                     }
+                   ])
              ), "unknown iterate state key: nil", %{}}
           ] do
-        assert {:error, %InvalidDefinitionError{} = error} = Builder.build(invalid_builder)
+        assert {:error, %InvalidDefinitionError{} = error} = Jido.Flow.new(invalid_data)
         assert error.message == message
-        assert error.details == details
+
+        assert error.details ==
+                 Map.update(details, :path, [:components, 0], &([:components, 0] ++ &1))
       end
     end
 
@@ -139,8 +195,8 @@ defmodule Jido.Flow.UnknownKeyDSLValidationTest do
   use ExUnit.Case, async: false
 
   for {suffix, unknown} <- [
-        {"Nil", %{nil => :unexpected}},
-        {"NilAndUnknown", %{nil => :unexpected, unexpected: true}}
+        {"Nil", %{nil: :unexpected}},
+        {"NilAndUnknown", %{nil: :unexpected, unexpected: true}}
       ] do
     test "DSL rejects unknown Flow configuration #{inspect(unknown)}" do
       module = Module.concat(__MODULE__, unquote(suffix))
@@ -151,15 +207,14 @@ defmodule Jido.Flow.UnknownKeyDSLValidationTest do
         :code.delete(module)
       end)
 
-      source = """
-      defmodule #{inspect(module)} do
-        use Jido.Flow, #{inspect(attrs)}
-        flow do
-          step "step", action: JidoActionTest.Fixtures.Actions.Add, params: %{}
-          output %{}
-        end
-      end
-      """
+      source = "defmodule #{inspect(module)} do
+  use Jido.Flow, #{inspect(attrs)}
+  flow do
+    step \"step\", action: JidoActionTest.Fixtures.Actions.Add, params: %{}
+    output %{}
+  end
+end
+"
 
       error =
         assert_raise CompileError, fn -> Code.compile_string(source, "unknown_flow_key.ex") end

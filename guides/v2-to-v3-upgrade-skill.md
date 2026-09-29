@@ -151,7 +151,7 @@ change application behavior.
 - Treat Jido.Flow as a new v3 API. Use current v3 field names. Do not add
   compatibility for unpublished beta field names.
 - Replace a reusable or executable Jido.Plan DAG with a Flow module, runtime
-  Builder Flow, or direct canonical Flow.
+  Flow from data definitions, or direct canonical Flow.
 - Give every Flow one explicit output.
 - Use result references for data dependencies.
 - Use `needs` only for required order that has no data reference.

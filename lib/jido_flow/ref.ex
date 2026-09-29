@@ -71,6 +71,15 @@ defmodule Jido.Flow.Ref do
   @spec result(atom() | String.t(), term()) :: t()
   def result(component, path \\ nil), do: ref(:result, normalize_component(component), path)
 
+  @doc "Appends a path to a reference after validating its source."
+  @spec select(t(), term()) :: t() | no_return()
+  def select(%__MODULE__{} = source, path) do
+    case validate(source, :any) do
+      :ok -> %{source | path: source.path ++ normalize_path(path)}
+      {:error, error} -> raise error
+    end
+  end
+
   @doc "Builds a Map or Reduce item reference."
   @spec item(term()) :: t()
   def item(path \\ nil), do: ref(:item, nil, path)
