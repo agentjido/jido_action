@@ -78,6 +78,26 @@ defmodule Jido.Flow.GraphIdentityTest do
     assert message =~ "cycle"
   end
 
+  test "compilation keeps authored metadata in the semantic digest" do
+    for meta <- [%{}, %{note: "authored"}] do
+      flow =
+        Flow.new!(
+          name: "metadata_identity",
+          components: [
+            Step.new!(name: "later", action: Add, needs: ["first"], meta: meta),
+            Step.new!(name: "first", action: Add)
+          ],
+          output: Ref.result("later")
+        )
+
+      assert {:ok, identity} = Flow.semantic_identity(flow)
+      assert {:ok, compiled} = Flow.compile(flow)
+      assert compiled.semantic_digest == identity.digest
+      assert {:ok, reordered} = Flow.compile(%{flow | components: Enum.reverse(flow.components)})
+      assert reordered.compilation_digest == compiled.compilation_digest
+    end
+  end
+
   test "source order does not change semantic identity" do
     one = Step.new!(name: "one", action: Add)
     two = Step.new!(name: "two", action: Add)

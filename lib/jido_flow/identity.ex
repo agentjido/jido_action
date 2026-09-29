@@ -15,8 +15,14 @@ defmodule Jido.Flow.Identity do
   @doc false
   @spec semantic_digest(Flow.t()) :: String.t()
   def semantic_digest(%Flow{} = flow) do
+    semantic_digest(flow, Graph.canonical_components(flow.components))
+  end
+
+  @doc false
+  @spec semantic_digest(Flow.t(), [Component.t()]) :: String.t()
+  def semantic_digest(%Flow{} = flow, ordered_components) do
     flow
-    |> identity_data()
+    |> identity_data(ordered_components)
     |> identity_hash()
     |> Base.encode16(case: :lower)
   end
@@ -25,21 +31,18 @@ defmodule Jido.Flow.Identity do
   @spec for_flow(Flow.t()) :: map()
   def for_flow(%Flow{} = flow) do
     flow
-    |> identity_data()
+    |> identity_data(Graph.canonical_components(flow.components))
     |> identity()
   end
 
-  defp identity_data(flow) do
+  defp identity_data(flow, ordered_components) do
     %{
       version: @identity_version,
       name: flow.name,
       description: flow.description,
       schema: flow.schema,
       output_schema: flow.output_schema,
-      components:
-        flow.components
-        |> Graph.canonical_components()
-        |> Enum.map(&Component.to_map/1),
+      components: Enum.map(ordered_components, &Component.to_map/1),
       output: Expression.to_map(flow.output)
     }
   end

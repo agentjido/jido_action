@@ -87,7 +87,7 @@ defmodule Jido.Flow.Compiler do
 
       digest_data = %{
         compiler: @compiler_version,
-        flow: Identity.semantic_digest(flow),
+        flow: state.semantic_digest,
         children: Enum.sort(state.child_digests)
       }
 
@@ -201,7 +201,10 @@ defmodule Jido.Flow.Compiler do
         %Step{} = parent -> Workflow.new(name: workflow_name) |> Workflow.add(parent)
       end
 
+    ordered_components = Graph.canonical_components(flow.components)
+
     initial = %{
+      semantic_digest: Identity.semantic_digest(flow, ordered_components),
       workflow: workflow,
       flow: flow,
       namespace: namespace,
@@ -215,9 +218,7 @@ defmodule Jido.Flow.Compiler do
       subflows: subflows
     }
 
-    flow.components
-    |> Graph.canonical_components()
-    |> Enum.reduce(initial, fn component, state ->
+    Enum.reduce(ordered_components, initial, fn component, state ->
       # Identity uses the authored Flow. Runtime callbacks do not need metadata.
       next = add_component(%{component | meta: %{}}, state)
 
@@ -564,7 +565,7 @@ defmodule Jido.Flow.Compiler do
         {output_step, :output}
       ])
 
-    child_digest = {subflow.name, Identity.semantic_digest(child_flow)}
+    child_digest = {subflow.name, child_state.semantic_digest}
 
     %{
       state
