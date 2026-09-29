@@ -86,7 +86,7 @@ defmodule Jido.Exec do
            execution_id: String.t(),
            notify: (term() -> term()),
            deadline: integer() | :infinity,
-           effects: [term()],
+           effect_batches: [[term()]],
            count: non_neg_integer(),
            continuation_limit: non_neg_integer()
          }
@@ -230,7 +230,7 @@ defmodule Jido.Exec do
             execution_id: execution_id,
             notify: notify,
             deadline: deadline,
-            effects: [],
+            effect_batches: [],
             count: 0,
             continuation_limit: continuation_limit
           }
@@ -272,11 +272,18 @@ defmodule Jido.Exec do
         continue_chain(transition, %{
           chain
           | count: chain.count + 1,
-            effects: chain.effects ++ transition.effects
+            effect_batches:
+              case transition.effects do
+                [] -> chain.effect_batches
+                effects -> [effects | chain.effect_batches]
+              end
         })
 
       result ->
-        Jido.Exec.Effects.attach(result, chain.effects)
+        case chain.effect_batches do
+          [] -> result
+          batches -> Jido.Exec.Effects.attach(result, batches |> Enum.reverse() |> Enum.concat())
+        end
     end
   end
 

@@ -318,6 +318,43 @@ defmodule JidoActionTest.Exec.EffectsTest do
     end
   end
 
+  defmodule BatchedNext do
+    use Jido.Action, name: "batched_effect_next"
+    @impl true
+    def run(%{label: 0}, %{fail: true}), do: {:error, :rejected}
+    def run(%{label: 0}, _), do: {:ok, %{done: true}, [[:terminal]]}
+
+    def run(%{label: count}, context) do
+      {:continue, %{label: count - 1, effects: [[count - 1], :same]}, context.flow}
+    end
+  end
+
+  test "several continuations preserve effect batches and discard them on final failure" do
+    flow =
+      Flow.new!(
+        name: "batched_effects",
+        components: [
+          Dispatch.new!(
+            name: "next",
+            decision: Request,
+            expander: BatchedNext,
+            params: Ref.input([])
+          )
+        ],
+        output: Ref.result("next")
+      )
+
+    input = %{label: 4, effects: [[4], :same]}
+    expected = {:ok, %{done: true}, Enum.flat_map(4..0//-1, &[[&1], :same]) ++ [[:terminal]]}
+
+    for opts <- [[], [timeout: 5_000]] do
+      assert Exec.run(flow, input, %{flow: flow}, opts) == expected
+      assert {:error, _} = Exec.run(flow, input, %{flow: flow, fail: true}, opts)
+    end
+
+    assert Exec.await(Exec.run_async(flow, input, %{flow: flow})) == expected
+  end
+
   defmodule Ancillary do
     use Jido.Action, name: "continued_ancillary"
     @impl true
