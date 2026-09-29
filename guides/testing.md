@@ -3,6 +3,37 @@
 Test the package as four connected boundaries: data, Codec, compilation, and
 execution. Give each behavior one primary test owner.
 
+## Public Contract Properties
+
+The [public contract register](public-contracts.md) connects critical promises
+to fixed and generated evidence. Property tests live under `test/property/`,
+grouped by API area. They are excluded from default `mix test`.
+
+```shell
+mix test.property --warnings-as-errors
+mix test.fuzz --warnings-as-errors --seed 123
+```
+
+Selected runs write `_build/test/property-report.json` with runtime, revision,
+test results, contract IDs, and declared forced case IDs. The report counts passing
+evidence; it does not claim complete API, branch, or random-transition coverage.
+One passed owner is not proof of every clause in a contract. The report marks
+incomplete and failed runs. CI must remove old reports before Mix starts and
+check the Mix exit status as well as the new report.
+See `test/property/README.md` in the source checkout for replay and cleanup.
+The `:fuzz` tag selects fifteen larger cases; `:property` selects the short suite.
+Budgets and input-size limits are ExUnit tags in the owning tests. Both tags are
+excluded by default. Each fuzz case records observations and saves reduced
+failures for replay. Fourteen use StreamData and JSON inputs; the revision case
+uses PropCheck's native command generation, shrinking, and term replay.
+
+Every fuzz case has a 15-minute ExUnit timeout. StreamData discovery also has a
+5-minute limit and a sample-count limit. The revision case uses 500 histories
+with a maximum size of 100. Short cases keep their current limits. The report
+separates property and fuzz evidence and records contract IDs with measurements.
+The [fuzz contract plan](public-contracts.md#fuzz-contract-plan) lists all fifteen
+implemented cases, their public contract IDs, and their expected checks.
+
 ## Test Data Without Running Work
 
 Data tests cover:

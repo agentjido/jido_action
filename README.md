@@ -434,6 +434,7 @@ Livebook. ExDoc adds a **Run in Livebook** link to each `.livemd` guide.
 - [Dynamic Flows](guides/dynamic-flows.md)
 - [Schemas & Validation](guides/schemas-validation.md)
 - [Execution Contract](guides/execution.md)
+- [Public Contract Register](guides/public-contracts.md)
 
 ### Author Flows
 

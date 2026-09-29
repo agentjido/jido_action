@@ -18,11 +18,20 @@ defmodule JidoAction.MixProject do
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
+      propcheck: [
+        counter_examples:
+          Path.join(System.get_env("MIX_BUILD_PATH", "_build"), "propcheck-property.ctx")
+      ],
       test_ignore_filters: [
         # This consumer compiles only in the isolated build tests.
         &String.starts_with?(&1, "test/fixtures/inline_consumer/"),
         # Authoring source is compiled only by the selected authoring suite.
         &String.starts_with?(&1, "test/authoring/support/"),
+        # Property support is loaded explicitly by its owning test file.
+        fn path ->
+          String.starts_with?(path, "test/property/") and
+            String.contains?(path, "/support/")
+        end,
         fn path ->
           String.starts_with?(path, "test/bench/") and
             not String.ends_with?(path, "_test.exs")
@@ -75,7 +84,15 @@ defmodule JidoAction.MixProject do
   end
 
   def cli do
-    [preferred_envs: ["test.authoring": :test, "test.system": :test, "test.load": :test]]
+    [
+      preferred_envs: [
+        "test.authoring": :test,
+        "test.system": :test,
+        "test.load": :test,
+        "test.property": :test,
+        "test.fuzz": :test
+      ]
+    ]
   end
 
   # Specifies which paths to compile per environment.
@@ -108,7 +125,8 @@ defmodule JidoAction.MixProject do
           "guides/flows.md",
           "guides/dynamic-flows.md",
           "guides/schemas-validation.md",
-          "guides/execution.md"
+          "guides/execution.md",
+          "guides/public-contracts.md"
         ],
         "Author Flows": [
           "guides/flow-language.livemd",
@@ -157,6 +175,7 @@ defmodule JidoAction.MixProject do
         {"guides/dynamic-flows.md", title: "Dynamic Flows"},
         {"guides/schemas-validation.md", title: "Schemas & Validation"},
         {"guides/execution.md", title: "Execution Contract"},
+        {"guides/public-contracts.md", title: "Public Contract Register"},
         # Author Flows
         {"guides/flow-language.livemd", title: "Flow DSL"},
         {"guides/flow-steps.livemd", title: "Steps And Output"},
@@ -297,7 +316,8 @@ defmodule JidoAction.MixProject do
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       {:doctor, "~> 0.23.0", only: :dev, runtime: false},
       {:mix_test_watch, "~> 1.0", only: [:dev, :test], runtime: false},
-      {:stream_data, "~> 1.4", only: :test, runtime: false}
+      {:stream_data, "~> 1.4", only: :test, runtime: false},
+      {:propcheck, "~> 1.5", only: :test, runtime: false}
     ]
   end
 
@@ -309,6 +329,8 @@ defmodule JidoAction.MixProject do
       "test.authoring": "test test/authoring --only authoring --seed 0",
       "test.system": "test test/system --only system --seed 0",
       "test.load": "test test/load --only load --seed 0",
+      "test.property": "test test/property --only property --seed 0",
+      "test.fuzz": "test test/property --only fuzz --seed 0",
 
       # Run to check the quality of your code
       q: ["quality"],
