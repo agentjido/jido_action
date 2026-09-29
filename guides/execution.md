@@ -16,6 +16,12 @@ The executable can be:
 - a Flow module; or
 - a runtime `%Jido.Flow{}` value.
 
+Flow modules use their `validate_params/1` and `validate_output/1` callbacks for
+both direct execution and Subflow execution. This includes custom validation
+and value transformations. Runtime `%Jido.Flow{}` values use their schemas.
+Validator failures return structured Flow errors, including callbacks that
+return plain error reasons or exceptions with no details map.
+
 For an Action, Exec validates the target and input, runs `run/2` in the current
 execution process, normalizes the callback result, and validates normal output.
 

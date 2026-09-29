@@ -13,6 +13,26 @@ defmodule JidoActionTest.Exec.AsyncMailboxHygieneTest do
     def run(params, _context), do: {:continue, params, BlockingAction}
   end
 
+  test "await preserves a queued controller failure before waiting" do
+    for timeout <- [0, 1_000] do
+      handle = Exec.run_async(BlockingAction, %{value: 1}, %{test_pid: self()})
+      assert_receive {:blocking_flow_node_started, worker}, 1_000
+      worker_monitor = monitor_worker(worker)
+      barrier = Process.monitor(handle.pid)
+      Process.exit(handle.pid, :kill)
+      assert_receive {:DOWN, ^barrier, :process, _, :killed}, 1_000
+      assert {:messages, messages} = Process.info(self(), :messages)
+      assert {:DOWN, handle.monitor_ref, :process, handle.pid, :killed} in messages
+      send(worker, :finish)
+      assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :normal}, 1_000
+
+      assert {:error, %Error.AsyncExecutionError{details: %{reason: :killed}}} =
+               Exec.await(handle, timeout)
+
+      refute_handle_messages(handle)
+    end
+  end
+
   test "await removes result and monitor messages after success" do
     handle = Exec.run_async(Add, %{value: 1})
     assert {:ok, %{value: 2}} = Exec.await(handle, 1_000)

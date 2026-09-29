@@ -6,7 +6,7 @@ defmodule Jido.Flow.GraphIdentityTest do
   alias Jido.Flow.Builder
   alias Jido.Flow.Ref
   alias Jido.Flow.Step
-  alias JidoActionTest.Fixtures.Actions.Add
+  alias JidoActionTest.Fixtures.Actions.{Add, EchoParamsAction}
   alias JidoActionTest.Fixtures.InlineAuthoring
   alias JidoActionTest.Fixtures.InlineParityFlow
 
@@ -15,12 +15,57 @@ defmodule Jido.Flow.GraphIdentityTest do
     direct = InlineAuthoring.direct_flow!()
     assert {:ok, built} = InlineAuthoring.builder() |> Builder.build()
     assert {:ok, identity} = Flow.semantic_identity(dsl)
-    assert %{version: 2, algorithm: :sha256, digest: digest, uuid: uuid} = identity
+    assert %{version: 3, algorithm: :sha256, digest: digest, uuid: uuid} = identity
     assert is_binary(digest)
     assert is_binary(uuid)
     assert Flow.Identity.semantic_digest(dsl) == digest
     assert Flow.semantic_identity(direct) == {:ok, identity}
     assert Flow.semantic_identity(built) == {:ok, identity}
+  end
+
+  for field <- [:output, :params] do
+    test "identity distinguishes references from literal maps in #{field}" do
+      ref = Ref.input([])
+      literal = Ref.to_map(ref)
+
+      for {reference, data} <- [
+            {ref, literal},
+            {%{nested: ref}, %{nested: literal}},
+            {Jido.Expr.new!(:eq, [ref, %{value: 42}]),
+             Jido.Expr.new!(:eq, [literal, %{value: 42}])}
+          ] do
+        flows =
+          for expression <- [reference, data] do
+            params = if unquote(field) == :params, do: %{data: expression}, else: %{}
+
+            output =
+              if unquote(field) == :output, do: %{data: expression}, else: Ref.result("echo")
+
+            Flow.new!(
+              name: "reference_identity",
+              components: [Step.new!(name: "echo", action: EchoParamsAction, params: params)],
+              output: output
+            )
+          end
+
+        [reference_flow, literal_flow] = flows
+        refute Flow.semantic_identity(reference_flow) == Flow.semantic_identity(literal_flow)
+        assert {:ok, reference_result} = Jido.Exec.run(reference_flow, %{value: 42})
+        assert {:ok, literal_result} = Jido.Exec.run(literal_flow, %{value: 42})
+        refute reference_result == literal_result
+
+        refute Flow.compile!(reference_flow).compilation_digest ==
+                 Flow.compile!(literal_flow).compilation_digest
+
+        for flow <- flows do
+          assert {:ok, document, registry} = Flow.Codec.encode(flow)
+          assert {:ok, restored} = Flow.Codec.decode(document, registry)
+          assert restored == flow
+          assert Flow.semantic_identity(restored) == Flow.semantic_identity(flow)
+          assert Flow.compile!(flow).semantic_digest == Flow.Identity.semantic_digest(flow)
+        end
+      end
+    end
   end
 
   test "author order, reference order, and effective order stay separate" do

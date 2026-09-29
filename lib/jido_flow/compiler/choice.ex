@@ -6,37 +6,20 @@ defmodule Jido.Flow.Compiler.Choice do
   alias Jido.Flow.Compiler.Target
 
   @doc false
-  @spec run(Choice.t(), map()) ::
-          {:ok, term(), [term()], map()}
-          | {:error, Exception.t(), map()}
-          | {:error, Exception.t(), map(), map()}
+  @spec run(Choice.t(), map()) :: {:ok, term(), [term()]} | {:error, Exception.t()}
   def run(%Choice{} = choice, state) do
-    case select_target(choice, state) do
-      {:ok, target} ->
-        metadata = %{option: target_name(target), target: target.action}
-
-        with {:ok, params} <- Expression.resolve(target.params, state),
-             {:ok, output, effects} <-
-               Target.run(
-                 target.action,
-                 params,
-                 state.context,
-                 Target.at(Target.choice(choice, target), state.namespace),
-                 state.execution_id,
-                 state.target_runner
-               ) do
-          {:ok, output, effects, metadata}
-        else
-          {:error, error} -> {:error, error, state, metadata}
-        end
-
-      {:error, error} ->
-        {:error, error, state}
+    with {:ok, target} <- select_target(choice, state),
+         {:ok, params} <- Expression.resolve(target.params, state) do
+      Target.run(
+        target.action,
+        params,
+        state.context,
+        Target.at(Target.choice(choice, target), state.namespace),
+        state.execution_id,
+        state.target_runner
+      )
     end
   end
-
-  defp target_name(%Choice.Option{name: name}), do: name
-  defp target_name(%Choice.Fallback{}), do: :fallback
 
   defp select_target(%Choice{} = choice, state) do
     choice.options

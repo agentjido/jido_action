@@ -52,7 +52,13 @@ identity.uuid
 ```
 
 Identity uses the canonical semantic form. Runtime compilation data and DSL
-source locations do not change it. The identity version is 2.
+source locations do not change it. The identity version is 3.
+
+Version 3 hashes canonical values directly, so references remain distinct from
+literal maps with the same fields. Semantic digests, compilation digests, and
+derived item and iteration IDs change from version 2. Recompute stored identity
+values from the canonical Flow. Stored document versions and `Jido.Flow.to_map/1`
+inspection data are unchanged.
 
 ## Get A Semantic Map
 

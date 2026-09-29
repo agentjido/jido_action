@@ -198,7 +198,7 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
       assert {:ok, ^flow} = Codec.decode(JSON.decode!(JSON.encode!(legacy)), registry)
       assert {:ok, ^document} = Codec.encode(flow, registry)
       assert Jido.Exec.run(flow, %{score: 1}) == {:ok, %{selected: true}}
-      assert {:ok, %{version: 2}} = Flow.semantic_identity(flow)
+      assert {:ok, %{version: 3}} = Flow.semantic_identity(flow)
     end
   end
 
@@ -362,7 +362,7 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
     end
   end
 
-  test "legacy JSON migrates with stable Registry IDs and the same version-two identity" do
+  test "legacy JSON migrates with stable Registry IDs and the same current identity" do
     registry =
       Registry.new!(%{
         "actions/echo/v1" => {:action, EchoParamsAction},
@@ -374,7 +374,7 @@ defmodule JidoActionTest.Flow.ConditionNormalizationTest do
 
     flow = choice_flow(Expr.new!(:eq, [Ref.input(:score), 1]))
     assert {:ok, document} = Codec.encode(flow, registry)
-    assert {:ok, %{version: 2} = identity} = Flow.semantic_identity(flow)
+    assert {:ok, %{version: 3} = identity} = Flow.semantic_identity(flow)
     action_path = ["components", Access.at(0), "options", Access.at(0), "action"]
 
     for version <- [1, 2] do

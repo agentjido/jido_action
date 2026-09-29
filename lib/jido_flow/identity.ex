@@ -5,10 +5,9 @@ defmodule Jido.Flow.Identity do
 
   alias Jido.Flow
   alias Jido.Flow.Component
-  alias Jido.Flow.Expression
   alias Jido.Flow.Graph
 
-  @identity_version 2
+  @identity_version 3
   @item_identity_version 1
   @iteration_identity_version 1
 
@@ -42,14 +41,14 @@ defmodule Jido.Flow.Identity do
       description: flow.description,
       schema: flow.schema,
       output_schema: flow.output_schema,
-      components: Enum.map(ordered_components, &Component.to_map/1),
-      output: Expression.to_map(flow.output)
+      components: ordered_components,
+      output: flow.output
     }
   end
 
   @doc false
   @spec identity(map()) :: %{
-          version: 2,
+          version: 3,
           algorithm: :sha256,
           digest: String.t(),
           uuid: String.t()

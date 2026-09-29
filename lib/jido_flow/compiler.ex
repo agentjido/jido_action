@@ -584,12 +584,46 @@ defmodule Jido.Flow.Compiler do
     }
   end
 
+  @doc false
+  @spec validate_callback(module(), :validate_params | :validate_output, term()) ::
+          {:ok, term()} | {:error, term()}
+  def validate_callback(module, callback, value) do
+    case apply(module, callback, [value]) do
+      {status, _value} = result when status in [:ok, :error] ->
+        result
+
+      result ->
+        {:error,
+         Error.invalid_execution_error("Flow validator returned an unsupported result", %{
+           flow: module,
+           callback: callback,
+           result: result
+         })}
+    end
+  rescue
+    exception ->
+      exception =
+        if Map.has_key?(exception, :stacktrace),
+          do: Map.update!(exception, :stacktrace, &(&1 || __STACKTRACE__)),
+          else: exception
+
+      {:error, exception}
+  catch
+    kind, reason ->
+      {:error,
+       Error.invalid_execution_error("Flow validator #{kind}", %{
+         flow: module,
+         callback: callback,
+         reason: reason
+       })}
+  end
+
   defp child_input_validator(subflow, namespace) do
     data_step(
       name: scoped(namespace, "$input"),
       hash: stable_hash({namespace, :input_validator}),
       work: fn {:jido_flow_input, params, parent} ->
-        case subflow.flow.validate_params(params) do
+        case validate_callback(subflow.flow, :validate_params, params) do
           {:ok, validated} when is_map(validated) ->
             {:jido_flow_input, validated, parent}
 
@@ -621,7 +655,7 @@ defmodule Jido.Flow.Compiler do
           |> unwrap_ok!()
 
         validated =
-          case subflow.flow.validate_output(output) do
+          case validate_callback(subflow.flow, :validate_output, output) do
             {:ok, value} ->
               value
 
@@ -824,9 +858,8 @@ defmodule Jido.Flow.Compiler do
   defp wrap_result({:ok, frame, output, effects}), do: Frame.value(frame, output, effects)
 
   defp unwrap_component_result({:ok, output, effects}), do: {output, effects}
-  defp unwrap_component_result({:ok, output, effects, _metadata}), do: {output, effects}
   defp unwrap_component_result({:error, error, _state}), do: raise(error)
-  defp unwrap_component_result({:error, error, _state, _metadata}), do: raise(error)
+  defp unwrap_component_result({:error, error}), do: raise(error)
 
   defp runtime_from_context(%{jido: runtime}), do: runtime
 
@@ -859,17 +892,11 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp flow_boundary_error(error, subflow, phase, namespace) do
-    details =
-      error
-      |> Map.get(:details, %{})
-      |> Map.merge(%{
-        component: subflow.name,
-        node_path: namespace,
-        flow: subflow.flow,
-        phase: phase,
-        cause: error.__struct__
-      })
-
-    Error.invalid_execution_error(Exception.message(error), details)
+    Error.wrap(error, %{
+      component: subflow.name,
+      node_path: namespace,
+      flow: subflow.flow,
+      phase: phase
+    })
   end
 end

@@ -183,51 +183,50 @@ defmodule Jido.Exec.Async do
   end
 
   defp await_valid(%{ref: ref, pid: pid, monitor_ref: monitor_ref} = async_ref, timeout) do
-    if Process.alive?(pid) or result_waiting?(ref, pid) do
-      deadline = deadline(timeout)
+    alive? = Process.alive?(pid)
+    deadline = deadline(if alive?, do: timeout, else: 0)
 
-      case receive_result(ref, pid, monitor_ref, deadline) do
-        {:result, result} ->
-          complete(async_ref, result)
+    case receive_result(ref, pid, monitor_ref, deadline) do
+      {:result, result} ->
+        complete(async_ref, result)
 
-        {:down, :normal} ->
-          result = missing_result(async_ref, :await)
-          complete(async_ref, result)
+      {:down, :normal} ->
+        complete(async_ref, missing_result(async_ref, :await))
 
-        {:down, reason} ->
-          result =
-            {:error,
-             Error.execution_error("Asynchronous execution process exited", %{
-               operation: :await,
-               pid: pid,
-               reason: reason,
-               retry: false
-             })}
+      {:down, reason} ->
+        result =
+          {:error,
+           Error.execution_error("Asynchronous execution process exited", %{
+             operation: :await,
+             pid: pid,
+             reason: reason,
+             retry: false
+           })}
 
-          complete(async_ref, result)
+        complete(async_ref, result)
 
-        :timeout ->
-          error =
-            Error.timeout_error("Asynchronous execution did not finish within #{timeout}ms", %{
-              operation: :await,
-              timeout: timeout,
-              retry: false
-            })
+      :timeout when not alive? ->
+        result =
+          {:error,
+           Error.execution_error("Asynchronous execution is no longer running", %{
+             operation: :await,
+             pid: pid,
+             reason: :noproc,
+             retry: false
+           })}
 
-          stop(async_ref, error)
-          complete(async_ref, {:error, error})
-      end
-    else
-      result =
-        {:error,
-         Error.execution_error("Asynchronous execution is no longer running", %{
-           operation: :await,
-           pid: pid,
-           reason: :noproc,
-           retry: false
-         })}
+        complete(async_ref, result)
 
-      complete(async_ref, result)
+      :timeout ->
+        error =
+          Error.timeout_error("Asynchronous execution did not finish within #{timeout}ms", %{
+            operation: :await,
+            timeout: timeout,
+            retry: false
+          })
+
+        stop(async_ref, error)
+        complete(async_ref, {:error, error})
     end
   end
 
@@ -329,16 +328,6 @@ defmodule Jido.Exec.Async do
       {:jido_exec_async_result, ^ref, ^pid, result} -> {:ok, result}
     after
       0 -> :none
-    end
-  end
-
-  defp result_waiting?(ref, pid) do
-    receive do
-      {:jido_exec_async_result, ^ref, ^pid, result} ->
-        send(self(), {:jido_exec_async_result, ref, pid, result})
-        true
-    after
-      0 -> false
     end
   end
 

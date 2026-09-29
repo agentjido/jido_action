@@ -140,6 +140,22 @@ defmodule Jido.Flow.Error do
     InvalidExecutionError.exception(message: message, details: normalize_input(details))
   end
 
+  @doc false
+  @spec wrap(term(), map(), module()) :: Exception.t()
+  def wrap(reason, details, type \\ InvalidExecutionError) do
+    if is_exception(reason) do
+      existing = Map.get(reason, :details)
+      existing = if is_map(existing), do: existing, else: %{}
+      details = existing |> Map.put(:cause, reason.__struct__) |> Map.merge(details)
+
+      error = type.exception(message: Exception.message(reason), details: details)
+      %{error | stacktrace: Map.get(reason, :stacktrace) || error.stacktrace}
+    else
+      message = if is_binary(reason), do: reason, else: inspect(reason)
+      type.exception(message: message, details: Map.put(details, :reason, reason))
+    end
+  end
+
   @doc "Creates a Flow execution failure."
   @spec execution_error(String.t(), details_input()) :: ExecutionFailureError.t()
   def execution_error(message, details \\ %{}) do

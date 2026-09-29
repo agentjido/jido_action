@@ -17,8 +17,11 @@ defmodule Jido.Exec.Flow.Adapter do
 
   defp validate(%Executable{kind: :flow, target: module} = executable) when is_atom(module) do
     case Executable.validate(executable) do
-      :ok -> :ok
-      {:error, error} -> {:error, flow_definition_error(error, module)}
+      :ok ->
+        :ok
+
+      {:error, error} ->
+        {:error, Error.wrap(error, %{flow: module}, Error.InvalidDefinitionError)}
     end
   end
 
@@ -31,7 +34,7 @@ defmodule Jido.Exec.Flow.Adapter do
   def run(executable, input, context, opts, execution_id) do
     with {:ok, flow, compiled} <- materialize(executable),
          {:ok, execution} <-
-           start_flow(flow, compiled, input, context, opts, execution_id, :run),
+           start_flow(executable, flow, compiled, input, context, opts, execution_id, :run),
          {:ok, execution} <- Engine.run_to_completion(execution) do
       Engine.result(execution)
     else
@@ -56,7 +59,7 @@ defmodule Jido.Exec.Flow.Adapter do
   def start(executable, input, context, opts, execution_id) do
     with {:ok, flow, compiled} <- materialize(executable),
          :ok <- reject_stepwise_dispatch(flow) do
-      start_flow(flow, compiled, input, context, opts, execution_id, :start)
+      start_flow(executable, flow, compiled, input, context, opts, execution_id, :start)
     end
   end
 
@@ -100,7 +103,7 @@ defmodule Jido.Exec.Flow.Adapter do
       error ->
         if Error.owned?(error),
           do: {:error, error},
-          else: {:error, flow_definition_error(error, module)}
+          else: {:error, Error.wrap(error, %{flow: module}, Error.InvalidDefinitionError)}
     catch
       kind, reason ->
         {:error,
@@ -120,7 +123,9 @@ defmodule Jido.Exec.Flow.Adapter do
     end
   end
 
-  defp start_flow(flow, compiled, input, context, opts, execution_id, mode) do
+  defp start_flow(executable, flow, compiled, input, context, opts, execution_id, mode) do
+    validator_module = if is_atom(executable.target), do: executable.target
+
     flow_span =
       Telemetry.start([:jido, :flow], %{execution_id: execution_id, flow: flow.name})
 
@@ -129,7 +134,7 @@ defmodule Jido.Exec.Flow.Adapter do
            {:ok, input} <- normalize_map(input, :input),
            {:ok, context} <- normalize_map(context, :context),
            {:ok, context} <- Jido.Exec.Budget.attach(context, :infinity),
-           {:ok, input} <- validate_data(flow.schema, input, "Flow", flow, :flow_input),
+           {:ok, input} <- validate_flow_input(validator_module, flow, input),
            {:ok, input} <- validate_flow_input_shape(flow, input) do
         flow_name = flow.name
 
@@ -147,7 +152,7 @@ defmodule Jido.Exec.Flow.Adapter do
 
         control = %{
           options: run_opts,
-          finalizer: fn output -> validate_flow_output(flow, output) end,
+          finalizer: fn output -> validate_flow_output(validator_module, flow, output) end,
           target_runner: target_runner,
           execution_id: execution_id,
           lifecycle: %{flow: flow_span}
@@ -165,6 +170,28 @@ defmodule Jido.Exec.Flow.Adapter do
         result
     end
   end
+
+  defp validate_flow_input(module, flow, input) when is_atom(module) and not is_nil(module) do
+    case Compiler.validate_callback(module, :validate_params, input) do
+      {:ok, input} -> {:ok, input}
+      {:error, error} -> {:error, flow_boundary_error(error, "Flow", flow, :flow_input)}
+    end
+  end
+
+  defp validate_flow_input(_module, flow, input),
+    do: validate_data(flow.schema, input, "Flow", flow, :flow_input)
+
+  defp validate_flow_output(module, flow, output)
+       when is_atom(module) and not is_nil(module) and is_map(output) do
+    with {:ok, output} <- validate_output_shape(flow, output, :run),
+         {:ok, output} <- Compiler.validate_callback(module, :validate_output, output) do
+      validate_flow_output_shape(flow, output)
+    else
+      {:error, error} -> tag_flow_output_error({:error, error}, flow)
+    end
+  end
+
+  defp validate_flow_output(_module, flow, output), do: validate_flow_output(flow, output)
 
   defp validate_flow_input_shape(_flow, input) when is_map(input), do: {:ok, input}
 
@@ -277,25 +304,24 @@ defmodule Jido.Exec.Flow.Adapter do
   end
 
   defp flow_boundary_error(error, context, subject, phase) do
-    details =
-      error
-      |> Map.get(:details, %{})
-      |> Map.merge(%{
-        context: context,
-        subject: subject,
-        phase: phase,
-        cause: error.__struct__
-      })
+    wrapped = Error.wrap(error, %{context: context, subject: subject, phase: phase})
 
-    Error.invalid_execution_error(Exception.message(error), details)
-  end
+    # Generated module validators use Action errors. Keep the root Flow contract.
+    case error do
+      %Jido.Action.Error.InvalidInputError{
+        message: message,
+        details: %{context: action_context, value: value}
+      }
+      when not is_map(value) and action_context in ["Action", "Action output"] and
+             message in [
+               "Action validation must return a map",
+               "Action output validation must return a map"
+             ] ->
+        label = if phase == :flow_input, do: "Flow input", else: "Flow output"
+        %{wrapped | message: "#{label} validation must return a map"}
 
-  defp flow_definition_error(error, module) do
-    details =
-      error
-      |> Map.get(:details, %{})
-      |> Map.merge(%{flow: module, cause: error.__struct__})
-
-    Error.validation_error(Exception.message(error), details)
+      _ ->
+        wrapped
+    end
   end
 end
