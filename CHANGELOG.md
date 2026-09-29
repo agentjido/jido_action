@@ -11,6 +11,67 @@ entries return to the normal automated changelog process.
 
 <!-- changelog -->
 
+## [v3.0.0-beta.12](https://github.com/agentjido/jido_action/compare/v3.0.0-beta.11...v3.0.0-beta.12) (2026-09-29)
+### Breaking Changes:
+
+* flow: replace Builder with map definitions by mikehostetler
+
+
+
+### Features:
+
+* exec: preserve optional effect lists through flows by mikehostetler
+
+* exec: expose remaining time through reserved context metadata by mikehostetler
+
+### Bug Fixes:
+
+* flow: preserve original callback stacktraces by mikehostetler
+
+* flow: preserve validator contracts and semantic identity by mikehostetler
+
+* exec: preserve Flow input errors and simplify result handling by mikehostetler
+
+* expr: align supported operators with Elixir (#286) by mikehostetler
+
+* bound Exec owner cancellation wait by mikehostetler
+
+* flow: use Spark 2.7.3 quoted keyword fields by mikehostetler
+
+* flow: reject nil configuration keys (#278) by mikehostetler
+
+* flow: reject invalid UTF-8 reference paths (#276) by mikehostetler
+
+* exec: monitor async child before it starts work by mikehostetler
+
+* flow: close authoring probes and add opt-in test suites by mikehostetler
+
+### Performance:
+
+* flow: retain one input frame per Map collection by mikehostetler
+
+* flow: reuse canonical order and semantic digests by mikehostetler
+
+* exec: accumulate continuation effects in batches by mikehostetler
+
+* exec: reduce target update messages by mikehostetler
+
+* flow: trim redundant FanIn work after Runic preparation by mikehostetler
+
+### Refactoring:
+
+* exec: scope workers to calls and waves (#287) by mikehostetler
+
+* flow: separate compiler responsibilities (#279) by mikehostetler
+
+* exec: group execution control state (#280) by mikehostetler
+
+* exec: consolidate caller monitoring (#281) by mikehostetler
+
+* remove redundant wrappers and internal work (#282) by mikehostetler
+
+* validation: share expression preparation and error helpers (#277) by mikehostetler
+
 ## Unreleased
 
 ### Changed
