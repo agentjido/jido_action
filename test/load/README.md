@@ -56,3 +56,10 @@ stops a case if that process exceeds the profile's memory limit (2 GiB for
 The limit protects the host; it is not a performance pass condition. An
 incorrect result fails the run and leaves the completed case rows in the
 progress file.
+
+Workflow heap inspection is off by default. The report marks this measurement
+as `not_measured` and writes `null` for its byte count. Use `--heap-size` to
+request it for a small case. The native `:erts_debug.size/1` call can take much
+longer than execution for a large graph with shared terms. A missing heap
+measurement does not mean zero memory use. The separate process memory guard
+stays active when heap inspection is off.

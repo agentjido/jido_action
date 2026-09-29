@@ -106,6 +106,7 @@ defmodule JidoActionLoad.Throughput do
           raise ArgumentError, "max_case_process_bytes must be positive"
       end
 
+    settings = Map.put(settings, :heap_size, Keyword.get(opts, :heap_size, false))
     on_case = Keyword.get(opts, :on_case, fn _row -> :ok end)
     selected = cases(settings)
 
@@ -137,6 +138,7 @@ defmodule JidoActionLoad.Throughput do
         "Native Runic Map results are checked as a multiset; Jido Flow Map results are checked in input order.",
         "Runic call-time probes change execution speed. Use untraced timing for throughput comparisons.",
         "Runic call times are caller-process measurements and can overlap. Do not add them as a wall-time breakdown.",
+        "Workflow heap inspection is opt-in; it can take much longer than execution on large shared graphs.",
         "Caller reductions omit helper processes. Workflow heap size omits off-heap binaries and is not a peak-memory measure.",
         "The memory guard observes only the case process at intervals. It can miss short peaks and does not measure all VM memory.",
         "Results on a shared host are observations, not speed guarantees. No timing value is a pass condition."
@@ -488,7 +490,11 @@ defmodule JidoActionLoad.Throughput do
     phase = phase_probe(benchmark)
     workflow = benchmark.workflow.(phase.result)
     graph = workflow.graph
-    heap_bytes = :erts_debug.size(workflow) * :erlang.system_info(:wordsize)
+
+    heap_bytes =
+      if settings.heap_size,
+        do: :erts_debug.size(workflow) * :erlang.system_info(:wordsize),
+        else: nil
 
     wall = distribution(Enum.map(samples, & &1.wall_ns))
 
@@ -509,7 +515,8 @@ defmodule JidoActionLoad.Throughput do
         vertices: map_size(graph.vertices),
         edges:
           Enum.reduce(graph.edges, 0, fn {_key, labels}, total -> total + map_size(labels) end),
-        workflow_local_heap_bytes: heap_bytes
+        workflow_local_heap_bytes: heap_bytes,
+        heap_size_status: if(settings.heap_size, do: "completed", else: "not_measured")
       }
     }
   end
@@ -672,7 +679,7 @@ defmodule JidoActionLoad.Throughput do
         reductions = Float.round(row.caller_reductions.median / row.items, 1)
         graph = row.final_graph
 
-        "| #{row.id} | #{ms} | #{p95} | #{rate} | #{reductions} | #{graph.vertices} | #{graph.edges} | #{graph.workflow_local_heap_bytes} |"
+        "| #{row.id} | #{ms} | #{p95} | #{rate} | #{reductions} | #{graph.vertices} | #{graph.edges} | #{graph.workflow_local_heap_bytes || graph.heap_size_status} |"
       end
 
     aborted =

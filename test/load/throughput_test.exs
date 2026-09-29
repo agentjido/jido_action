@@ -9,6 +9,8 @@ defmodule JidoActionTest.Load.ThroughputCheck do
   test "the separate smoke run checks every result and reports scaling data" do
     report = Throughput.run("smoke")
 
+    assert Enum.all?(report.cases, &(&1.final_graph.workflow_local_heap_bytes == nil))
+    assert Enum.all?(report.cases, &(&1.final_graph.heap_size_status == "not_measured"))
     assert length(report.cases) == 13
     assert Enum.all?(report.cases, &(&1.wall_ns.median > 0))
     assert Enum.all?(report.cases, &(&1.items_per_second > 0))
@@ -45,6 +47,13 @@ defmodule JidoActionTest.Load.ThroughputCheck do
     decoded = directory |> Path.join("report.json") |> File.read!() |> JSON.decode!()
     assert [%{"id" => "map/runic/repeated/8"}] = decoded["cases"]
     assert File.read!(Path.join(directory, "report.md")) =~ "map/runic/repeated/8"
+  end
+
+  test "heap inspection is separate and opt-in" do
+    report = Throughput.run("smoke", "map/runic/repeated/8", heap_size: true)
+    assert [%{status: "completed", final_graph: graph}] = report.cases
+    assert graph.heap_size_status == "completed"
+    assert graph.workflow_local_heap_bytes > 0
   end
 
   test "the largest work is opt-in and does not use a speed pass limit" do

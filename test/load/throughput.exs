@@ -2,14 +2,20 @@ Code.require_file("support/throughput.exs", __DIR__)
 
 {opts, args, invalid} =
   OptionParser.parse(System.argv(),
-    strict: [profile: :string, output: :string, filter: :string, max_memory_mb: :integer]
+    strict: [
+      profile: :string,
+      output: :string,
+      filter: :string,
+      max_memory_mb: :integer,
+      heap_size: :boolean
+    ]
   )
 
 if args != [] or invalid != [],
   do:
     raise(
       ArgumentError,
-      "usage: mix run test/load/throughput.exs --profile smoke|stress|extreme --filter CASE --output DIRECTORY --max-memory-mb INTEGER"
+      "usage: mix run test/load/throughput.exs --profile smoke|stress|extreme --filter CASE --output DIRECTORY --max-memory-mb INTEGER [--heap-size]"
     )
 
 profile = Keyword.get(opts, :profile, "smoke")
@@ -31,7 +37,9 @@ report =
   JidoActionLoad.Throughput.run(
     profile,
     Keyword.get(opts, :filter),
-    Keyword.put(memory_opts, :on_case, on_case)
+    memory_opts
+    |> Keyword.put(:on_case, on_case)
+    |> Keyword.put(:heap_size, Keyword.get(opts, :heap_size, false))
   )
 
 JidoActionLoad.Throughput.write!(report, output)
