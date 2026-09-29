@@ -603,19 +603,23 @@ defmodule Jido.Flow.Compiler do
   rescue
     exception ->
       exception =
-        if Map.has_key?(exception, :stacktrace),
-          do: Map.update!(exception, :stacktrace, &(&1 || __STACKTRACE__)),
-          else: exception
+        if Map.has_key?(exception, :stacktrace) do
+          Map.update!(exception, :stacktrace, &(&1 || __STACKTRACE__))
+        else
+          Map.put(exception, :stacktrace, %Splode.Stacktrace{stacktrace: __STACKTRACE__})
+        end
 
       {:error, exception}
   catch
     kind, reason ->
-      {:error,
-       Error.invalid_execution_error("Flow validator #{kind}", %{
-         flow: module,
-         callback: callback,
-         reason: reason
-       })}
+      error =
+        Error.invalid_execution_error("Flow validator #{kind}", %{
+          flow: module,
+          callback: callback,
+          reason: reason
+        })
+
+      {:error, %{error | stacktrace: %Splode.Stacktrace{stacktrace: __STACKTRACE__}}}
   end
 
   defp child_input_validator(subflow, namespace) do

@@ -101,17 +101,28 @@ defmodule Jido.Exec.Flow.Adapter do
       end
     rescue
       error ->
-        if Error.owned?(error),
-          do: {:error, error},
-          else: {:error, Error.wrap(error, %{flow: module}, Error.InvalidDefinitionError)}
+        if Error.owned?(error) do
+          {:error, error}
+        else
+          error =
+            if is_nil(Map.get(error, :stacktrace)) do
+              Map.put(error, :stacktrace, %Splode.Stacktrace{stacktrace: __STACKTRACE__})
+            else
+              error
+            end
+
+          {:error, Error.wrap(error, %{flow: module}, Error.InvalidDefinitionError)}
+        end
     catch
       kind, reason ->
-        {:error,
-         Error.internal_error("Flow materialization failed", %{
-           flow: module,
-           kind: kind,
-           reason: reason
-         })}
+        error =
+          Error.internal_error("Flow materialization failed", %{
+            flow: module,
+            kind: kind,
+            reason: reason
+          })
+
+        {:error, %{error | stacktrace: %Splode.Stacktrace{stacktrace: __STACKTRACE__}}}
     end
   end
 

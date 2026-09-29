@@ -472,10 +472,16 @@ defmodule Jido.Flow.Validation do
          Error.validation_error("Subflow flow/0 must return a Jido.Flow", %{value: value})}
     end
   rescue
-    error -> {:error, Error.validation_error("Subflow flow/0 failed", %{error: error})}
+    error ->
+      {:error, subflow_definition_error(%{error: error}, __STACKTRACE__)}
   catch
     kind, reason ->
-      {:error, Error.validation_error("Subflow flow/0 failed", %{kind: kind, reason: reason})}
+      {:error, subflow_definition_error(%{kind: kind, reason: reason}, __STACKTRACE__)}
+  end
+
+  defp subflow_definition_error(details, frames) do
+    error = Error.validation_error("Subflow flow/0 failed", details)
+    %{error | stacktrace: %Splode.Stacktrace{stacktrace: frames}}
   end
 
   defp target_error(error, component, field) do
@@ -484,7 +490,12 @@ defmodule Jido.Flow.Validation do
       |> Map.get(:details, %{})
       |> Map.merge(%{component: component, field: field, cause: error.__struct__})
 
-    Error.validation_error(Exception.message(error), details)
+    tagged = Error.validation_error(Exception.message(error), details)
+
+    case Map.get(error, :stacktrace) do
+      nil -> tagged
+      stacktrace -> %{tagged | stacktrace: stacktrace}
+    end
   end
 
   defp require_kind(%Executable{kind: kind}, kind, _name), do: :ok
