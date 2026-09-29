@@ -99,7 +99,8 @@ Jido.Action transforms ad-hoc functions into structured, validated, AI-compatibl
 - 25+ pre-built actions for common operations
 - File system operations, HTTP requests, arithmetic
 - Workflow primitives plus runnable examples
-- External API tool packs available via the `jido_lib` ecosystem package
+- Domain and vendor actions can live in the consuming application or in a
+  separately maintained integration package
 
 ## Installation
 

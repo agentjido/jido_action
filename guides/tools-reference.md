@@ -357,7 +357,9 @@ end
 ## External API Packs
 
 `jido_action` now focuses on core and generic tooling.
-For vendor/API-specific tools (GitHub, Weather, etc.), use `jido_lib`.
+Put vendor and API tools in the consuming application or in a separately
+maintained integration package. The former `jido_lib` package is archived and
+unsupported. Do not use it for new work.
 
 ## Workflow Tools
 
