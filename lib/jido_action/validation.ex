@@ -74,7 +74,9 @@ defmodule Jido.Action.Validation do
   end
 
   def action_schema?(%Zoi.Types.Literal{value: value}), do: is_map(value)
-  def action_schema?(%Zoi.Types.Default{inner: inner}), do: action_schema?(inner)
+
+  # Zoi 0.18.11 stores defaults in metadata and no longer defines this wrapper.
+  def action_schema?(%{__struct__: Zoi.Types.Default, inner: inner}), do: action_schema?(inner)
 
   def action_schema?(%Zoi.Types.Union{schemas: schemas}),
     do: Enum.any?(schemas, &action_schema?/1)

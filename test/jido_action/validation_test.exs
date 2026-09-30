@@ -285,4 +285,10 @@ defmodule JidoActionTest.Action.ValidationTest do
   end
 
   def map_schema, do: Zoi.object(%{value: Zoi.integer()})
+
+  test "defaults do not make scalar schemas Action-compatible" do
+    for schema <- [Zoi.integer(), Zoi.string(), Zoi.literal(:not_a_map)] do
+      refute Validation.action_schema?(Zoi.default(schema, %{value: 0}))
+    end
+  end
 end

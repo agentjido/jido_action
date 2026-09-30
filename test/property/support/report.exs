@@ -147,7 +147,8 @@ defmodule JidoActionTest.Property.Report do
          {top, 0} <-
            System.cmd(git, ["rev-parse", "--show-toplevel"], cd: root, stderr_to_stdout: true),
          true <- Path.expand(String.trim(top)) == Path.expand(root),
-         {revision, 0} <- System.cmd(git, ["rev-parse", "HEAD"], cd: root, stderr_to_stdout: true),
+         {revision, 0} <-
+           System.cmd(git, ["rev-parse", "HEAD"], cd: root, stderr_to_stdout: true),
          {status, 0} <-
            System.cmd(git, ["status", "--porcelain"], cd: root, stderr_to_stdout: true) do
       %{revision: String.trim(revision), working_tree_dirty: status != ""}
