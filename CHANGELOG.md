@@ -74,6 +74,11 @@ entries return to the normal automated changelog process.
 
 ## Unreleased
 
+### Fixed
+
+- Preserve fields produced by root Struct schema transforms in Action and
+  Flow input and output validation.
+
 ### Changed
 
 - Remove `Jido.Flow.Builder`. Define runtime Flows with `Jido.Flow.new/1`

@@ -12,7 +12,6 @@ defmodule Jido.Flow.Compiler.Frame do
       input_frame: frame,
       context: runtime.context,
       results: results,
-      options: runtime.options,
       target_runner: runtime.target_runner,
       observer: runtime.observer
     }

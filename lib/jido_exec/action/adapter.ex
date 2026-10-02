@@ -14,10 +14,10 @@ defmodule Jido.Exec.Action.Adapter do
           | {:continue, Jido.Exec.Transition.t()}
           | {:error, Exception.t()}
   def run(%Executable{target: action} = executable, input, context, opts, _call) do
-    with {:ok, run_opts} <- Options.validate_action(opts, :action),
+    with :ok <- Options.validate_action(opts, :action),
          {:ok, instruction} <- normalize_instruction(action, input, context),
          :ok <- Executable.validate(executable) do
-      Runner.run(instruction, run_opts)
+      Runner.run(instruction)
     end
   end
 
@@ -33,9 +33,9 @@ defmodule Jido.Exec.Action.Adapter do
           | {:continue, Jido.Exec.Transition.t()}
           | {:error, Exception.t()}
   def run_instruction(executable, %Instruction{} = instruction, opts, _call) do
-    with {:ok, run_opts} <- Options.validate_action(opts, :instruction),
+    with :ok <- Options.validate_action(opts, :instruction),
          :ok <- Executable.validate(executable) do
-      Runner.run(instruction, run_opts)
+      Runner.run(instruction)
     end
   end
 

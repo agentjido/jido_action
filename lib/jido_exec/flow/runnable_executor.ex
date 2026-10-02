@@ -66,7 +66,6 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
                 params,
                 ctx,
                 execution_id,
-                runtime.options,
                 runtime.flow,
                 owner,
                 invoke

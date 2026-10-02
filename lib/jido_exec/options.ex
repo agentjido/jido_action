@@ -80,20 +80,15 @@ defmodule Jido.Exec.Options do
 
   @doc false
   @spec validate_action(keyword(), :action | :instruction) ::
-          {:ok, keyword()} | {:error, Exception.t()}
+          :ok | {:error, Exception.t()}
   def validate_action(opts, executable_type) do
     with :ok <- validate_action_keyword(opts),
-         {:ok, task_supervisor} <- validate_task_supervisor(opts, ActionError),
+         {:ok, _task_supervisor} <- validate_task_supervisor(opts, ActionError),
          :ok <- validate_known_action_options(opts, executable_type),
          max_concurrency = Keyword.get(opts, :max_concurrency, @default_max_concurrency),
          :ok <- validate_max_concurrency(max_concurrency, ActionError),
-         {:ok, max_continuations} <- continuation_limit(opts, ActionError) do
-      {:ok,
-       [
-         max_concurrency: max_concurrency,
-         max_continuations: max_continuations,
-         task_supervisor: task_supervisor
-       ]}
+         {:ok, _max_continuations} <- continuation_limit(opts, ActionError) do
+      :ok
     end
   end
 

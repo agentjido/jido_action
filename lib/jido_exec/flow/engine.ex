@@ -46,7 +46,6 @@ defmodule Jido.Exec.Flow.Engine do
       flow: flow.name,
       flow_digest: compiled.semantic_digest,
       context: context,
-      options: options,
       target_runner: nil,
       observer: Jido.Exec.Flow.CollectionTelemetry.observer(execution_id, flow.name)
     }

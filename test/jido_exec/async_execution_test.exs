@@ -296,14 +296,14 @@ defmodule JidoActionTest.Exec.AsyncExecutionTest do
   end
 
   test "reports a handle whose process is no longer running" do
-    handle = Exec.run_async(BlockingAction, %{value: 1}, %{test_pid: self()})
+    %{pid: pid, monitor_ref: monitor_ref} =
+      handle = Exec.run_async(BlockingAction, %{value: 1}, %{test_pid: self()})
+
     assert_receive {:blocking_flow_node_started, worker}, 1_000
     worker_monitor = Process.monitor(worker)
 
-    Process.exit(handle.pid, :kill)
-    assert_receive {:DOWN, monitor_ref, :process, pid, :killed}, 1_000
-    assert monitor_ref == handle.monitor_ref
-    assert pid == handle.pid
+    Process.exit(pid, :kill)
+    assert_receive {:DOWN, ^monitor_ref, :process, ^pid, :killed}, 1_000
     assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :killed}, 1_000
 
     assert {:error, %Error.AsyncExecutionError{details: %{reason: :noproc}}} =

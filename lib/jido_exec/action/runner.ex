@@ -19,18 +19,18 @@ defmodule Jido.Exec.Action.Runner do
            | {:error, target_phase(), Exception.t()}
 
   @doc "Runs one Action Instruction inside its assigned supervised Task."
-  @spec run(Instruction.t(), keyword()) ::
+  @spec run(Instruction.t()) ::
           {:ok, term()}
           | {:ok, term(), Jido.Action.effects()}
           | {:continue, Transition.t()}
           | {:error, Exception.t()}
-  def run(%Instruction{target: action} = instruction, _run_opts \\ []) do
-    direct_result(run_target(action, instruction.params, instruction.context, []))
+  def run(%Instruction{target: action} = instruction) do
+    direct_result(run_target(action, instruction.params, instruction.context))
   end
 
   @doc false
-  @spec run_target(module(), term(), map(), keyword()) :: target_result()
-  def run_target(action, params, context, _run_opts) do
+  @spec run_target(module(), term(), map()) :: target_result()
+  def run_target(action, params, context) do
     normalize_result(invoke(action, params, context))
   end
 

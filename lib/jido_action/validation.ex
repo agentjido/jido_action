@@ -172,11 +172,13 @@ defmodule Jido.Action.Validation do
   defp object_schema?(%{__struct__: Zoi.Types.Struct}), do: true
   defp object_schema?(_schema), do: false
 
-  defp normalize_validated(%Zoi.Types.Struct{fields: fields}, validated)
+  defp normalize_validated(%Zoi.Types.Struct{fields: fields, meta: meta}, validated)
        when is_list(fields) and is_struct(validated) do
-    validated
-    |> Map.from_struct()
-    |> Map.take(Enum.map(fields, &elem(&1, 0)))
+    value = Map.from_struct(validated)
+
+    if Enum.any?(meta.effects, &match?({:transform, _}, &1)),
+      do: value,
+      else: Map.take(value, Enum.map(fields, &elem(&1, 0)))
   end
 
   defp normalize_validated(_schema, validated) when is_struct(validated),

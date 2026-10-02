@@ -7,17 +7,16 @@ defmodule Jido.Exec.Flow.TargetRunner do
   alias Jido.Flow.Compiler.Target
 
   @doc false
-  @spec run(module(), term(), map(), String.t(), keyword(), String.t(), Target.t(), (function() ->
-                                                                                       term())) ::
+  @spec run(module(), term(), map(), String.t(), String.t(), Target.t(), (function() -> term())) ::
           {:ok, term()}
           | {:ok, term(), Jido.Action.effects()}
           | {:continue, Transition.t()}
           | {:error, :input | :execution | :output, Exception.t()}
-  def run(target, params, context, execution_id, run_opts, flow_name, owner, invoke) do
+  def run(target, params, context, execution_id, flow_name, owner, invoke) do
     span = start_span(target, execution_id, flow_name, owner)
 
     result =
-      invoke.(fn -> Runner.run_target(target, params, context, run_opts) end)
+      invoke.(fn -> Runner.run_target(target, params, context) end)
       |> authorize_transition(owner)
 
     finish_span(span, result)

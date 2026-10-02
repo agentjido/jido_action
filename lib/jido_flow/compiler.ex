@@ -77,14 +77,14 @@ defmodule Jido.Flow.Compiler do
          {:ok, attrs, subflows} <-
            Validation.prepare_executable(Map.from_struct(flow), module_stack),
          flow = struct!(Flow, attrs),
-         {:ok, compiled} <- compile_prepared(flow, source_map, subflows, module_stack) do
+         {:ok, compiled} <- compile_prepared(flow, source_map, subflows) do
       {:ok, flow, compiled}
     end
   end
 
-  defp compile_prepared(flow, source_map, subflows, module_stack) do
+  defp compile_prepared(flow, source_map, subflows) do
     try do
-      state = compile_flow(flow, [], module_stack, source_map, nil, subflows)
+      state = compile_flow(flow, [], source_map, nil, subflows)
 
       digest_data = %{
         compiler: @compiler_version,
@@ -193,7 +193,7 @@ defmodule Jido.Flow.Compiler do
   @spec input_frame(term()) :: {:jido_flow_input, term(), nil}
   def input_frame(input), do: {:jido_flow_input, input, nil}
 
-  defp compile_flow(flow, namespace, module_stack, source_map, root_parent, subflows) do
+  defp compile_flow(flow, namespace, source_map, root_parent, subflows) do
     workflow_name = scoped(namespace, flow.name)
 
     workflow =
@@ -209,7 +209,6 @@ defmodule Jido.Flow.Compiler do
       workflow: workflow,
       flow: flow,
       namespace: namespace,
-      module_stack: module_stack,
       root_parent: root_parent,
       outputs: %{},
       component_index: %{},
@@ -492,14 +491,6 @@ defmodule Jido.Flow.Compiler do
   end
 
   defp add_subflow(subflow, state) do
-    if subflow.flow in state.module_stack do
-      raise Error.validation_error("recursive Subflow reference", %{
-              component: subflow.name,
-              flow: subflow.flow,
-              module_stack: Enum.reverse([subflow.flow | state.module_stack])
-            })
-    end
-
     child_flow = Map.fetch!(state.subflows, subflow.flow)
     child_source_map = child_source_map(subflow.flow)
     child_namespace = state.namespace ++ [subflow.name]
@@ -519,7 +510,6 @@ defmodule Jido.Flow.Compiler do
       compile_flow(
         child_flow,
         child_namespace,
-        [subflow.flow | state.module_stack],
         prefix_source_map(child_source_map, child_namespace),
         input_validator,
         state.subflows

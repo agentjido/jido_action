@@ -31,6 +31,12 @@ fields are validated. Unknown root fields stay in the returned map. Jido treats
 Zoi `unrecognized_keys: :strip` as `:preserve` at this root. Zoi `:error` and
 typed preservation policies stay unchanged.
 
+Struct validation returns a map. Without a root transform, undeclared struct
+defaults stay absent unless the input supplied them. If a root transform
+returns a struct, all fields in that final struct stay in the returned map.
+This applies when the transform returns a different struct or adds fields to
+the original struct. Action and Flow input and output schemas use this rule.
+
 ```elixir
 {:ok, validated} =
   MyApp.Actions.Price.validate_params(%{
