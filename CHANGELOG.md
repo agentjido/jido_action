@@ -76,8 +76,8 @@ entries return to the normal automated changelog process.
 
 ### Fixed
 
-- Accept negative numbers in explicit Flow `value/1` literals, including
-  nested data, without changing reference-path or map-key validation.
+- Include each nested Flow's full component path in compilation identity, so
+  exchanged child definitions cannot produce the same compilation digest.
 - Preserve fields produced by root Struct schema transforms in Action and
   Flow input and output validation.
 
