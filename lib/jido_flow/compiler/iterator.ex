@@ -26,7 +26,6 @@ defmodule Jido.Flow.Compiler.Iterator do
            validate_iterator_state_schema(iterator, candidate, :initial, nil, nil, 0) do
       runtime = %{
         state: iterator_state,
-        revision: 0,
         completed: 0,
         effects: [],
         body_result: nil
@@ -45,7 +44,7 @@ defmodule Jido.Flow.Compiler.Iterator do
     iteration_id = Identity.iteration_uuid(state.flow_digest, iterator.name, index)
 
     target_context =
-      Target.iterator(iterator, index, iteration_id, runtime.revision)
+      Target.iterator(iterator, index, iteration_id, runtime.completed)
       |> Target.at(state.namespace)
 
     span = state.observer.({:start, :iterate_iteration, target_context.details})
@@ -81,7 +80,7 @@ defmodule Jido.Flow.Compiler.Iterator do
                  :update,
                  index,
                  iteration_id,
-                 runtime.revision
+                 runtime.completed
                ),
              {:ok, next_state} <-
                validate_iterator_state_schema(
@@ -90,11 +89,10 @@ defmodule Jido.Flow.Compiler.Iterator do
                  :update,
                  index,
                  iteration_id,
-                 runtime.revision
+                 runtime.completed
                ) do
           next_runtime = %{
             state: next_state,
-            revision: runtime.revision + 1,
             completed: runtime.completed + 1,
             effects: [effects | runtime.effects],
             body_result: output
@@ -121,7 +119,7 @@ defmodule Jido.Flow.Compiler.Iterator do
         {:error, error}
 
       {:internal_error, error_type} ->
-        error = iterator_internal_error(iterator, index, runtime.revision, error_type)
+        error = iterator_internal_error(iterator, index, runtime.completed, error_type)
         state.observer.({:error, span, error})
         {:error, error}
     end
@@ -155,7 +153,7 @@ defmodule Jido.Flow.Compiler.Iterator do
         node: iterator.name,
         max_iterations: iterator.max_iterations,
         completed_iterations: runtime.completed,
-        state_revision: runtime.revision,
+        state_revision: runtime.completed,
         retry: false
       })
 

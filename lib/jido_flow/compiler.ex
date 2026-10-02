@@ -555,7 +555,7 @@ defmodule Jido.Flow.Compiler do
         {output_step, :output}
       ])
 
-    child_digest = {subflow.name, child_state.semantic_digest}
+    child_digest = {child_namespace, child_state.semantic_digest}
 
     %{
       state
