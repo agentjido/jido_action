@@ -333,6 +333,8 @@ defmodule JidoActionTest.Exec.FlowIdentityTest do
     end
   end
 
+  # Coverage and 1,000 separate supervised mutations can exceed the default timeout.
+  @tag timeout: 120_000
   test "1,000 serial nodes complete through step with each correct result" do
     assert {:ok, execution} = Exec.start(serial_flow(1_000), %{value: 0})
 
