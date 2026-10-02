@@ -76,6 +76,8 @@ entries return to the normal automated changelog process.
 
 ### Fixed
 
+- Accept negative numbers in explicit Flow `value/1` literals, including
+  nested data, without changing reference-path or map-key validation.
 - Preserve fields produced by root Struct schema transforms in Action and
   Flow input and output validation.
 

@@ -120,6 +120,8 @@ mix a map binding with named bindings. A map binding must be the only
 binding. Pins, header guards, top-level struct patterns, duplicate names, and
 bare `_` bindings are not supported. Flow operations are not supported in
 binding sources. Bind the required data and put calculations in the body.
+Use `value(-1)` to bind a negative number as literal data; bare unary minus
+is a Flow operation.
 
 ## Match Values Inside The Body
 

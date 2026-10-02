@@ -98,6 +98,30 @@ defmodule JidoActionTest.Flow.DSL.ExpressionTest do
              Expression.parse_condition(quote(do: 1 in []))
   end
 
+  test "explicit literals retain negative numbers without widening paths or map keys" do
+    assert {:ok, -1} = Expression.parse(quote(do: value(-1)))
+
+    assert {:ok, %{amounts: [-2, %{amount: -3.5}]}} =
+             Expression.parse(quote(do: value(%{amounts: [-2, %{amount: -3.5}]})))
+
+    assert {:ok, %Jido.Expr{operator: :negate, operands: [1]}} =
+             Expression.parse(quote(do: -1))
+
+    for expression <- [
+          quote(do: value(-input(:amount))),
+          quote(do: value(1 - 2)),
+          quote(do: value(%{-1 => :value})),
+          Code.string_to_quoted!("value(%{-1 => :first,\n-1 => :second})")
+        ] do
+      assert {:error, _error} = Expression.parse(expression)
+    end
+
+    for expression <- [quote(do: input([-1])), quote(do: input([[-1]]))] do
+      assert {:error, error} = Expression.parse(expression)
+      assert error.message =~ "unsupported Flow expression"
+    end
+  end
+
   test "rejects executable expressions, keyword data, and invalid conditions" do
     assert {:error, error} = Expression.parse(quote(do: Date.utc_today()))
 
