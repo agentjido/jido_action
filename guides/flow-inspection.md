@@ -84,3 +84,9 @@ compiled.compilation_digest
 
 `Jido.Flow.Compiled` is derived runtime data. Treat its fields and native
 Runic graph as inspection and execution data, not authoring data.
+
+Compilation identity includes each nested Flow's semantic identity at its full
+component path. Children with the same local name under different parents remain
+distinct. A child definition change can change the compilation digest while the
+root semantic digest stays unchanged. Action implementation code is not part of
+either digest.

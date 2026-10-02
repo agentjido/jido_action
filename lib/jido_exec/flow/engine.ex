@@ -135,8 +135,7 @@ defmodule Jido.Exec.Flow.Engine do
   @spec wave(Execution.t(), Controller.call()) ::
           {:ok, [Work.t()], Execution.t()} | {:error, Exception.t()}
   def wave(%Execution{status: :running, ready: [_ | _]} = execution, call) do
-    with {:ok, executed, next} <-
-           execution |> mutate(&do_wave(&1, call)) |> reject_stepwise_transition(execution) do
+    with {:ok, executed, next} <- mutate(execution, &do_wave(&1, call)) do
       {:ok, Enum.with_index(executed, &Inspection.work(execution, &1, &2)), next}
     end
   end
@@ -147,7 +146,7 @@ defmodule Jido.Exec.Flow.Engine do
   @spec continue(Execution.t(), Controller.call()) ::
           {:ok, Execution.t()} | {:error, Exception.t()}
   def continue(%Execution{status: :running} = execution, call) do
-    case execution |> mutate(&do_continue(&1, call)) |> reject_stepwise_transition(execution) do
+    case mutate(execution, &do_continue(&1, call)) do
       {:ok, :continued, execution} -> {:ok, execution}
       {:error, _} = error -> error
     end
@@ -234,10 +233,7 @@ defmodule Jido.Exec.Flow.Engine do
   defp map_item_key(_runnable, _compiled), do: :other
 
   defp step_at(execution, runnable, position, call) do
-    with {:ok, executed, next} <-
-           execution
-           |> mutate(&do_step(&1, runnable, call))
-           |> reject_stepwise_transition(execution) do
+    with {:ok, executed, next} <- mutate(execution, &do_step(&1, runnable, call)) do
       {:ok, Inspection.work(execution, executed, position), next}
     end
   end
@@ -477,28 +473,6 @@ defmodule Jido.Exec.Flow.Engine do
     :ok = ExecutionGuard.advance(operation, execution, next)
     mutation
   end
-
-  defp finish_mutation(
-         execution,
-         operation,
-         {:transition, %Transition{}, %Execution{} = next} = mutation
-       ) do
-    :ok = ExecutionGuard.advance(operation, execution, next)
-    mutation
-  end
-
-  defp reject_stepwise_transition(
-         {:transition, %Transition{}, %Execution{} = next},
-         _execution
-       ) do
-    {:error,
-     Error.invalid_execution_error("step-wise execution does not support Dispatch", %{
-       flow: next.flow_name,
-       component: :dispatch
-     })}
-  end
-
-  defp reject_stepwise_transition(result, _execution), do: result
 
   defp execution_not_running(execution) do
     {:error,

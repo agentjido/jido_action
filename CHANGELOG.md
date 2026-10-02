@@ -76,6 +76,8 @@ entries return to the normal automated changelog process.
 
 ### Fixed
 
+- Include each nested Flow's full component path in compilation identity, so
+  exchanged child definitions cannot produce the same compilation digest.
 - Preserve fields produced by root Struct schema transforms in Action and
   Flow input and output validation.
 

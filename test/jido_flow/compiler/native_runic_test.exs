@@ -275,6 +275,67 @@ defmodule JidoActionTest.Flow.Compiler.NativeRunicTest do
     refute first.compilation_digest == second.compilation_digest
   end
 
+  for {label, left_path, right_path} <- [
+        {"repeated local names", ["left", "inner"], ["right", "inner"]},
+        {"slash-containing path segments", ["outer/branch", "inner"], ["outer", "branch/inner"]}
+      ] do
+    @left_path left_path
+    @right_path right_path
+
+    test "nested child swaps change compilation identity with #{label}" do
+      suffix = System.unique_integer([:positive])
+
+      modules =
+        for role <- ["LeftLeaf", "RightLeaf", "LeftParent", "RightParent"],
+            do: Module.concat(__MODULE__, "#{role}#{suffix}")
+
+      [left_leaf, right_leaf, left_parent, right_parent] = modules
+
+      on_exit(fn ->
+        for module <- modules do
+          :code.purge(module)
+          :code.delete(module)
+        end
+      end)
+
+      [left_name, left_child] = @left_path
+      [right_name, right_child] = @right_path
+      define_child_module(left_leaf, 1)
+      define_child_module(right_leaf, 2)
+      define_parent_module(left_parent, left_leaf, left_child)
+      define_parent_module(right_parent, right_leaf, right_child)
+
+      flow =
+        Flow.new!(
+          name: "nested_transitive_digest",
+          components: [
+            Subflow.new!(name: left_name, flow: left_parent, params: Ref.input([])),
+            Subflow.new!(name: right_name, flow: right_parent, params: Ref.input([]))
+          ],
+          output: %{left: Ref.result(left_name), right: Ref.result(right_name)}
+        )
+
+      assert {:ok, first} = Flow.compile(flow)
+
+      assert Jido.Exec.run(flow, %{value: 0}) ==
+               {:ok, %{left: %{value: 1}, right: %{value: 2}}}
+
+      for {module, amount} <- [{left_leaf, 2}, {right_leaf, 1}] do
+        :code.purge(module)
+        :code.delete(module)
+        define_child_module(module, amount)
+      end
+
+      assert {:ok, second} = Flow.compile(flow)
+
+      assert Jido.Exec.run(flow, %{value: 0}) ==
+               {:ok, %{left: %{value: 2}, right: %{value: 1}}}
+
+      assert first.semantic_digest == second.semantic_digest
+      refute first.compilation_digest == second.compilation_digest
+    end
+  end
+
   test "prefixes source locations through every Subflow level" do
     flow =
       Flow.new!(
@@ -418,6 +479,32 @@ defmodule JidoActionTest.Flow.Compiler.NativeRunicTest do
         def validate_params(params), do: {:ok, params}
         def validate_output(output), do: {:ok, output}
         def run(params, context), do: Jido.Exec.run(flow(), params, context)
+      end
+
+    Module.create(module, quoted, Macro.Env.location(__ENV__))
+  end
+
+  defp define_parent_module(module, child_module, child_name) do
+    quoted =
+      quote do
+        def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+
+        def flow do
+          Jido.Flow.new!(
+            name: "versioned_parent",
+            components: [
+              Jido.Flow.Subflow.new!(
+                name: unquote(child_name),
+                flow: unquote(child_module),
+                params: Jido.Flow.Ref.input([])
+              )
+            ],
+            output: Jido.Flow.Ref.result(unquote(child_name))
+          )
+        end
+
+        def validate_params(params), do: {:ok, params}
+        def validate_output(output), do: {:ok, output}
       end
 
     Module.create(module, quoted, Macro.Env.location(__ENV__))

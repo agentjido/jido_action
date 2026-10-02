@@ -10,7 +10,6 @@ defmodule Jido.Exec.Controller do
   @max_receive_timeout 2_147_483_647
   @active 0
   @claimed 1
-  @terminal 2
 
   @type call :: %{
           supervisor: pid(),
@@ -369,7 +368,6 @@ defmodule Jido.Exec.Controller do
 
     {:jido_exec_async_state, _token, supervisor} = async_ref.state
     Runtime.retire_child(supervisor, async_ref.pid)
-    mark_terminal(async_ref)
     cleanup(async_ref, result)
   end
 
@@ -402,7 +400,7 @@ defmodule Jido.Exec.Controller do
 
   defp validate_state({:jido_exec_async_state, token, supervisor} = state)
        when is_pid(supervisor) do
-    if :atomics.get(token, 1) in [@active, @claimed, @terminal] do
+    if :atomics.get(token, 1) in [@active, @claimed] do
       :ok
     else
       invalid_handle(state)
@@ -454,12 +452,9 @@ defmodule Jido.Exec.Controller do
   defp claim(%{state: {:jido_exec_async_state, token, _supervisor}}) do
     case :atomics.compare_exchange(token, 1, @active, @claimed) do
       :ok -> :ok
-      phase when phase in [@claimed, @terminal] -> :consumed
+      @claimed -> :consumed
     end
   end
-
-  defp mark_terminal(%{state: {:jido_exec_async_state, token, _supervisor}}),
-    do: :atomics.put(token, 1, @terminal)
 
   defp consumed_handle_error(async_ref, operation) do
     Error.invalid_handle_error("Asynchronous execution handle was already consumed", %{
