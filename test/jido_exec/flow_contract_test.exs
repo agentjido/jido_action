@@ -1,5 +1,5 @@
 defmodule JidoActionTest.Exec.FlowContractTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   @moduletag capture_log: true
 
@@ -207,6 +207,8 @@ defmodule JidoActionTest.Exec.FlowContractTest do
   end
 
   test "validates Flow modules once in every execution path" do
+    start_transform_counter()
+
     for {path, run} <- ExecFixtures.flow_execution_paths(CountedValidationFlow, %{value: 3}) do
       Transforms.reset()
 
@@ -219,6 +221,8 @@ defmodule JidoActionTest.Exec.FlowContractTest do
   end
 
   test "rejects scalar Flow output transforms in every execution path" do
+    start_transform_counter()
+
     for {path, run} <-
           ExecFixtures.flow_execution_paths(ScalarTransformedOutputFlow, %{value: 3}) do
       Transforms.reset()
@@ -240,6 +244,8 @@ defmodule JidoActionTest.Exec.FlowContractTest do
   end
 
   test "rejects scalar Flow input transforms in every execution path" do
+    start_transform_counter()
+
     for {path, run} <-
           ExecFixtures.flow_execution_paths(ScalarTransformedInputFlow, %{value: 3}) do
       Transforms.reset()
@@ -261,6 +267,7 @@ defmodule JidoActionTest.Exec.FlowContractTest do
   end
 
   test "passes Flow output envelopes without normal output schema validation" do
+    start_transform_counter()
     expected = %Jido.Action.Output{kind: :raw, value: %{value: 3}, meta: %{source: :test}}
 
     for {path, run} <- ExecFixtures.flow_execution_paths(EnvelopeFlow, %{value: 3}) do
@@ -507,5 +514,10 @@ defmodule JidoActionTest.Exec.FlowContractTest do
 
       assert Exec.run(flow, %{value: 3, extra: "kept"}) == {:ok, %{extra: "kept"}}
     end
+  end
+
+  defp start_transform_counter do
+    counter = start_supervised!({Agent, fn -> %{} end})
+    Process.register(counter, Transforms)
   end
 end

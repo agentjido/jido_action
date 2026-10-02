@@ -24,6 +24,7 @@ defmodule JidoActionTest.Exec.ExecutionGuardInterruptionTest do
     {caller, caller_monitor, helper, helper_monitor} = start_step(execution)
 
     assert_receive {:blocking_flow_node_started, worker}, 1_000
+    on_exit(fn -> Process.exit(worker, :kill) end)
     worker_monitor = monitor_process(worker)
     Process.exit(caller, :kill)
 
@@ -119,7 +120,7 @@ defmodule JidoActionTest.Exec.ExecutionGuardInterruptionTest do
     invalid_execution = %{execution | compiled: invalid_compiled}
 
     # The injected internal error can change type when the lookup changes.
-    _reason = catch_error(Exec.step(invalid_execution))
+    assert {:error, %Jido.Flow.Error.InternalError{}} = Exec.step(invalid_execution)
 
     assert {:error, %InvalidExecutionError{details: %{reason: :indeterminate}}} =
              Exec.step(execution)
@@ -147,8 +148,9 @@ defmodule JidoActionTest.Exec.ExecutionGuardInterruptionTest do
         %{flow: "interrupted_after_action_effect"},
         test_pid
       ) do
-    send(test_pid, {:node_stopped_before_guard_advance, self()})
-    Process.exit(self(), :kill)
+    owner = hd(Process.get(:"$callers"))
+    send(test_pid, {:node_stopped_before_guard_advance, owner})
+    Process.exit(owner, :kill)
   end
 
   def capture_guard_before_node_start(
@@ -157,7 +159,7 @@ defmodule JidoActionTest.Exec.ExecutionGuardInterruptionTest do
         %{execution_id: execution_id},
         {test_pid, execution_id, token}
       ) do
-    send(test_pid, {token, :guard_ready, self()})
+    send(test_pid, {token, :guard_ready, hd(Process.get(:"$callers")), self()})
     receive do: ({^token, :resume} -> :ok)
   end
 
@@ -178,15 +180,16 @@ defmodule JidoActionTest.Exec.ExecutionGuardInterruptionTest do
     on_exit(fn -> :telemetry.detach(handler) end)
     {caller, caller_monitor} = spawn_monitor(fn -> Exec.step(execution) end)
     on_exit(fn -> Process.exit(caller, :kill) end)
-    assert_receive {^token, :guard_ready, ^caller}, 1_000
+    assert_receive {^token, :guard_ready, mutation, action}, 1_000
 
-    # At node start the mutation is claimed, but no Action worker exists yet.
-    # Caller death alone does not confirm that this helper handled its DOWN.
-    assert {:monitors, [{:process, helper}]} = Process.info(caller, :monitors)
+    assert {:monitors, monitors} = Process.info(mutation, :monitors)
+    [{:process, helper}] = Enum.reject(monitors, &(&1 == {:process, action}))
     helper_monitor = monitor_process(helper)
+    mutation_monitor = monitor_process(mutation)
+    Process.demonitor(caller_monitor, [:flush])
     :ok = :telemetry.detach(handler)
-    send(caller, {token, :resume})
-    {caller, caller_monitor, helper, helper_monitor}
+    send(action, {token, :resume})
+    {mutation, mutation_monitor, helper, helper_monitor}
   end
 
   defp monitor_process(pid) do

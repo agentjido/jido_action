@@ -49,12 +49,7 @@ defmodule Jido.Flow.Compiler.Collection do
       })
       |> Target.at(namespace)
 
-    span =
-      runtime.observer.({
-        :start,
-        :map_item,
-        %{node: map.name, target: map.action, item_index: token.index, item_id: token.id}
-      })
+    span = runtime.observer.({:start, :map_item, owner.details})
 
     outcome =
       with {:ok, params} <- Expression.resolve(map.params, local) do
@@ -86,18 +81,21 @@ defmodule Jido.Flow.Compiler.Collection do
       {:collect_errors, {:error, error}} ->
         runtime.observer.({:error, span, error})
 
-        token
-        |> Map.put(:kind, :result)
-        |> Map.put(:output, %{
-          status: :error,
-          error: Error.to_map(error)
-        })
-        |> result_token()
+        failed_map_item(token, error)
 
       {:fail_fast, {:error, error}} ->
         runtime.observer.({:error, span, error})
         raise error
     end
+  end
+
+  @doc false
+  @spec failed_map_item(map(), Exception.t()) :: map()
+  def failed_map_item(token, error) do
+    token
+    |> Map.put(:kind, :result)
+    |> Map.put(:output, %{status: :error, error: Error.to_map(error)})
+    |> result_token()
   end
 
   # The collector needs one original input frame. Keep the first item's frame
@@ -172,8 +170,6 @@ defmodule Jido.Flow.Compiler.Collection do
   @doc false
   @spec reduce_fun(Jido.Flow.Reduce.t(), [String.t()]) :: function()
   def reduce_fun(reduce, namespace) do
-    # Reduce uses Runic's simple FanIn mode. Its context is separate from facts.
-    # Keep target failures in the aggregate for the output Step to report.
     fn payload, accumulator, effective_context ->
       token = Payload.unwrap(payload)
       aggregate = Payload.unwrap(accumulator)
@@ -231,17 +227,7 @@ defmodule Jido.Flow.Compiler.Collection do
           })
           |> Target.at(namespace)
 
-        span =
-          runtime.observer.({
-            :start,
-            :reduce_item,
-            %{
-              node: reduce.name,
-              target: reduce.action,
-              item_index: token.index,
-              item_id: token.id
-            }
-          })
+        span = runtime.observer.({:start, :reduce_item, owner.details})
 
         result =
           with {:ok, params} <- Expression.resolve(reduce.params, local) do

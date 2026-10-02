@@ -2,6 +2,7 @@ defmodule Jido.Exec.Flow.Engine do
   @moduledoc false
 
   alias Jido.Exec.{Execution, ExecutionGuard, Work}
+  alias Jido.Exec.Controller
   alias Jido.Exec.Telemetry
   alias Jido.Exec.Transition
 
@@ -18,7 +19,6 @@ defmodule Jido.Exec.Flow.Engine do
   @typep start_control :: %{
            options: keyword(),
            finalizer: (term() -> {:ok, term()} | {:error, Exception.t()}),
-           target_runner: function(),
            execution_id: String.t(),
            lifecycle: map()
          }
@@ -34,13 +34,12 @@ defmodule Jido.Exec.Flow.Engine do
         %{
           options: options,
           finalizer: finalizer,
-          target_runner: target_runner,
           execution_id: execution_id,
           lifecycle: lifecycle
         }
       )
       when is_map(input) and is_map(context) and is_list(options) and
-             is_function(finalizer, 1) and is_function(target_runner, 5) and
+             is_function(finalizer, 1) and
              is_binary(execution_id) and is_map(lifecycle) do
     runtime = %{
       execution_id: execution_id,
@@ -48,7 +47,7 @@ defmodule Jido.Exec.Flow.Engine do
       flow_digest: compiled.semantic_digest,
       context: context,
       options: options,
-      target_runner: target_runner,
+      target_runner: nil,
       observer: Jido.Exec.Flow.CollectionTelemetry.observer(execution_id, flow.name)
     }
 
@@ -104,64 +103,58 @@ defmodule Jido.Exec.Flow.Engine do
   def result(%Execution{final_result: result}) when not is_nil(result), do: result
 
   @doc false
-  @spec run_to_completion(Execution.t()) ::
+  @spec detach(Execution.t()) :: Execution.t()
+  def detach(execution) do
+    %{execution | lifecycle: %{flow: Telemetry.detach(execution.lifecycle.flow)}}
+  end
+
+  @doc false
+  @spec run_to_completion(Execution.t(), Controller.call()) ::
           {:ok, Execution.t()} | {:continue, Transition.t()} | {:error, Exception.t()}
-  def run_to_completion(%Execution{status: :running} = execution) do
-    case mutate(execution, fn -> do_continue(execution) end) do
+  def run_to_completion(execution, call) do
+    case do_continue(execution, call) do
       {:ok, :continued, execution} -> {:ok, execution}
-      {:transition, %Transition{} = transition, _execution} -> {:continue, transition}
-      {:error, _error} = error -> error
+      {:transition, transition, _execution} -> {:continue, transition}
     end
   end
 
-  def run_to_completion(%Execution{} = execution), do: {:ok, execution}
-
-  @doc "Executes the first ready work unit."
-  @spec step(Execution.t()) :: {:ok, Work.t(), Execution.t()} | {:error, Exception.t()}
-  def step(%Execution{status: :running, ready: [runnable | _rest]} = execution),
-    do: step_at(execution, runnable, 0)
-
-  def step(%Execution{} = execution), do: execution_not_running(execution)
-
-  @doc "Executes one ready unit selected by its revision-scoped token."
-  @spec step(Execution.t(), Work.token()) ::
+  @doc false
+  @spec step(Execution.t(), Work.token() | :first_ready, Controller.call()) ::
           {:ok, Work.t(), Execution.t()} | {:error, Exception.t()}
-  def step(%Execution{status: :running} = execution, token) do
+  def step(%Execution{status: :running, ready: [runnable | _]} = execution, :first_ready, call),
+    do: step_at(execution, runnable, 0, call)
+
+  def step(%Execution{status: :running} = execution, token, call) do
     with {:ok, runnable, position} <- fetch_ready(execution, token) do
-      step_at(execution, runnable, position)
+      step_at(execution, runnable, position, call)
     end
   end
 
-  def step(%Execution{} = execution, _token), do: execution_not_running(execution)
+  def step(execution, _token, _call), do: execution_not_running(execution)
 
-  @doc "Executes currently ready units, stopping new dispatch on failure."
-  @spec wave(Execution.t()) :: {:ok, [Work.t()], Execution.t()} | {:error, Exception.t()}
-  def wave(%Execution{status: :running, ready: [_ | _]} = execution) do
+  @doc false
+  @spec wave(Execution.t(), Controller.call()) ::
+          {:ok, [Work.t()], Execution.t()} | {:error, Exception.t()}
+  def wave(%Execution{status: :running, ready: [_ | _]} = execution, call) do
     with {:ok, executed, next} <-
-           execution
-           |> mutate(fn -> do_wave(execution) end)
-           |> reject_stepwise_transition(execution) do
-      # The executor returns the admitted input prefix in source order.
-      # Positions remain distinct even when native IDs are equal.
-      work = Enum.with_index(executed, &Inspection.work(execution, &1, &2))
-      {:ok, work, next}
+           execution |> mutate(&do_wave(&1, call)) |> reject_stepwise_transition(execution) do
+      {:ok, Enum.with_index(executed, &Inspection.work(execution, &1, &2)), next}
     end
   end
 
-  def wave(%Execution{} = execution), do: execution_not_running(execution)
+  def wave(execution, _call), do: execution_not_running(execution)
 
-  @doc "Runs successive waves until the Flow has a terminal status."
-  @spec continue(Execution.t()) :: {:ok, Execution.t()} | {:error, Exception.t()}
-  def continue(%Execution{status: :running} = execution) do
-    mutation = mutate(execution, fn -> do_continue(execution) end)
-
-    case reject_stepwise_transition(mutation, execution) do
+  @doc false
+  @spec continue(Execution.t(), Controller.call()) ::
+          {:ok, Execution.t()} | {:error, Exception.t()}
+  def continue(%Execution{status: :running} = execution, call) do
+    case execution |> mutate(&do_continue(&1, call)) |> reject_stepwise_transition(execution) do
       {:ok, :continued, execution} -> {:ok, execution}
-      {:error, _error} = error -> error
+      {:error, _} = error -> error
     end
   end
 
-  def continue(%Execution{} = execution), do: {:ok, execution}
+  def continue(execution, _call), do: {:ok, execution}
 
   defp settle(%Execution{engine_error: error} = execution) when not is_nil(error),
     do: finalize(execution)
@@ -241,17 +234,17 @@ defmodule Jido.Exec.Flow.Engine do
 
   defp map_item_key(_runnable, _compiled), do: :other
 
-  defp step_at(execution, runnable, position) do
+  defp step_at(execution, runnable, position, call) do
     with {:ok, executed, next} <-
            execution
-           |> mutate(fn -> do_step(execution, runnable) end)
+           |> mutate(&do_step(&1, runnable, call))
            |> reject_stepwise_transition(execution) do
       {:ok, Inspection.work(execution, executed, position), next}
     end
   end
 
-  defp do_step(execution, runnable) do
-    executed = RunnableExecutor.execute(execution, runnable)
+  defp do_step(execution, runnable, call) do
+    executed = RunnableExecutor.execute(execution, runnable, call)
     execution = execution |> apply_runnable(executed) |> advance_revision()
 
     case settle(execution) do
@@ -260,8 +253,8 @@ defmodule Jido.Exec.Flow.Engine do
     end
   end
 
-  defp do_wave(execution) do
-    executed = RunnableExecutor.execute_many(execution, execution.ready)
+  defp do_wave(execution, call) do
+    executed = RunnableExecutor.execute_many(execution, execution.ready, call)
     execution = executed |> Enum.reduce(execution, &apply_runnable(&2, &1)) |> advance_revision()
 
     case settle(execution) do
@@ -270,14 +263,14 @@ defmodule Jido.Exec.Flow.Engine do
     end
   end
 
-  defp do_continue(%Execution{status: :running} = execution) do
-    case do_wave(execution) do
-      {:ok, _runnables, execution} -> do_continue(execution)
+  defp do_continue(%Execution{status: :running} = execution, call) do
+    case do_wave(execution, call) do
+      {:ok, _runnables, execution} -> do_continue(execution, call)
       {:transition, transition, execution} -> {:transition, transition, execution}
     end
   end
 
-  defp do_continue(%Execution{} = execution), do: {:ok, :continued, execution}
+  defp do_continue(%Execution{} = execution, _call), do: {:ok, :continued, execution}
 
   defp apply_runnable(%Execution{engine_error: error} = execution, _runnable)
        when not is_nil(error),
@@ -294,8 +287,6 @@ defmodule Jido.Exec.Flow.Engine do
          } = runnable
        ) do
     if Map.get(workflow.mapped, {:fan_in_completed, source_fact_hash, fan_in_hash}, false) do
-      # The first FanIn result consumed every sister activation. Later results
-      # from this prepared wave no longer have graph work to apply.
       %{execution | ready: []}
     else
       apply_active_runnable(execution, runnable)
@@ -468,7 +459,8 @@ defmodule Jido.Exec.Flow.Engine do
 
   defp mutate(execution, fun) do
     with {:ok, operation} <- ExecutionGuard.claim(execution) do
-      mutation = run_mutation(execution, operation, fun)
+      active = %{execution | lifecycle: %{flow: Telemetry.resume(execution.lifecycle.flow)}}
+      mutation = run_mutation(execution, operation, fn -> fun.(active) end)
       finish_mutation(execution, operation, mutation)
     end
   end

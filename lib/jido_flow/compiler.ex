@@ -2,6 +2,7 @@ defmodule Jido.Flow.Compiler do
   @moduledoc false
 
   alias Jido.Exec.Transition
+  alias Jido.Action.Output
   alias Jido.Flow
   alias Jido.Flow.Choice
   alias Jido.Flow.Compiled
@@ -219,7 +220,6 @@ defmodule Jido.Flow.Compiler do
     }
 
     Enum.reduce(ordered_components, initial, fn component, state ->
-      # Identity uses the authored Flow. Runtime callbacks do not need metadata.
       next = add_component(%{component | meta: %{}}, state)
 
       update_in(
@@ -643,6 +643,34 @@ defmodule Jido.Flow.Compiler do
     )
   end
 
+  @doc false
+  @spec validate_output_shape(module() | Flow.t(), term(), atom()) ::
+          {:ok, term()} | {:error, Exception.t()}
+  def validate_output_shape(_flow, %Output{} = output, _callback), do: Output.validate(output)
+
+  def validate_output_shape(flow, output, callback) when is_map(output) do
+    if is_struct(output) and Enumerable.impl_for(output) do
+      {:error,
+       Error.execution_error("Flow validator returned a value with an invalid shape", %{
+         flow: flow,
+         callback: callback,
+         expected: :map_or_output_envelope,
+         result: output
+       })}
+    else
+      {:ok, output}
+    end
+  end
+
+  def validate_output_shape(flow, output, _callback) do
+    {:error,
+     Jido.Action.Error.validation_error("Action output validation must return a map", %{
+       context: "Action output",
+       subject: flow,
+       value: output
+     })}
+  end
+
   defp child_output_step(subflow, child_state) do
     namespace = child_state.namespace
     output = child_state.flow.output
@@ -659,10 +687,11 @@ defmodule Jido.Flow.Compiler do
           |> unwrap_ok!()
 
         validated =
-          case validate_callback(subflow.flow, :validate_output, output) do
-            {:ok, value} ->
-              value
-
+          with {:ok, output} <- validate_output_shape(subflow.flow, output, :run),
+               {:ok, output} <- validate_callback(subflow.flow, :validate_output, output),
+               {:ok, output} <- validate_output_shape(subflow.flow, output, :output_schema) do
+            output
+          else
             {:error, error} ->
               raise flow_boundary_error(error, subflow, :subflow_output, namespace)
           end
@@ -741,7 +770,21 @@ defmodule Jido.Flow.Compiler do
 
     index =
       Enum.reduce(nodes, state.work_index, fn {node, role}, index ->
-        Map.put(index, node.hash, %{component_path: path, kind: kind, role: role})
+        metadata = %{component_path: path, kind: kind, role: role}
+
+        metadata =
+          case component do
+            %FlowMap{action: action, on_error: policy} ->
+              Map.merge(metadata, %{action: action, on_error: policy})
+
+            %Jido.Flow.Step{action: action} ->
+              Map.put(metadata, :action, action)
+
+            _ ->
+              metadata
+          end
+
+        Map.put(index, node.hash, metadata)
       end)
 
     %{state | work_index: index}
@@ -826,7 +869,7 @@ defmodule Jido.Flow.Compiler do
              dispatch.decision,
              params,
              state.context,
-             Target.dispatch(dispatch, :decision),
+             Target.at(Target.dispatch(dispatch, :decision), []),
              state.execution_id,
              state.target_runner
            ) do
@@ -834,7 +877,7 @@ defmodule Jido.Flow.Compiler do
              dispatch.expander,
              decision,
              state.context,
-             Target.dispatch(dispatch, :expander),
+             Target.at(Target.dispatch(dispatch, :expander), []),
              state.execution_id,
              state.target_runner
            ) do
@@ -862,7 +905,6 @@ defmodule Jido.Flow.Compiler do
   defp wrap_result({:ok, frame, output, effects}), do: Frame.value(frame, output, effects)
 
   defp unwrap_component_result({:ok, output, effects}), do: {output, effects}
-  defp unwrap_component_result({:error, error, _state}), do: raise(error)
   defp unwrap_component_result({:error, error}), do: raise(error)
 
   defp runtime_from_context(%{jido: runtime}), do: runtime

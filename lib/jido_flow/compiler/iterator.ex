@@ -9,13 +9,13 @@ defmodule Jido.Flow.Compiler.Iterator do
 
   @doc false
   @spec run(Jido.Flow.Iterate.t(), map()) ::
-          {:ok, term(), [term()]} | {:error, Exception.t(), map()}
+          {:ok, term(), [term()]} | {:error, Exception.t()}
   def run(iterator, state) do
     run_resolved_iterator(iterator, state)
   rescue
-    exception -> iterator_internal_failure(iterator, state, exception.__struct__)
+    exception -> iterator_internal_failure(iterator, exception.__struct__)
   catch
-    kind, _reason -> iterator_internal_failure(iterator, state, kind)
+    kind, _reason -> iterator_internal_failure(iterator, kind)
   end
 
   defp run_resolved_iterator(iterator, state) do
@@ -33,13 +33,10 @@ defmodule Jido.Flow.Compiler.Iterator do
       }
 
       case evaluate_iterator_completion(iterator, state, runtime) do
-        {:ok, true} -> iterator_complete(iterator, state, runtime)
+        {:ok, true} -> iterator_complete(runtime)
         {:ok, false} -> run_iterator_iteration(iterator, state, runtime)
-        {:error, error} -> iterator_fail(state, error)
+        {:error, error} -> {:error, error}
       end
-    else
-      {:error, error} ->
-        iterator_fail(state, error)
     end
   end
 
@@ -47,28 +44,17 @@ defmodule Jido.Flow.Compiler.Iterator do
     index = runtime.completed
     iteration_id = Identity.iteration_uuid(state.flow_digest, iterator.name, index)
 
-    span =
-      state.observer.({
-        :start,
-        :iterate_iteration,
-        %{
-          node: iterator.name,
-          target: iterator.action,
-          iteration_index: index,
-          iteration_id: iteration_id,
-          state_revision: runtime.revision
-        }
-      })
+    target_context =
+      Target.iterator(iterator, index, iteration_id, runtime.revision)
+      |> Target.at(state.namespace)
+
+    span = state.observer.({:start, :iterate_iteration, target_context.details})
 
     local_state =
       state
       |> Map.put(:iterate_state, runtime.state)
       |> Map.put(:iteration_index, index)
       |> Map.put(:body_result, runtime.body_result)
-
-    target_context =
-      Target.iterator(iterator, index, iteration_id, runtime.revision)
-      |> Target.at(state.namespace)
 
     result =
       try do
@@ -118,8 +104,6 @@ defmodule Jido.Flow.Compiler.Iterator do
             {:ok, completed?} -> {:ok, completed?, next_runtime}
             {:error, error} -> {:error, error}
           end
-        else
-          {:error, error} -> {:error, error}
         end
       rescue
         exception -> {:internal_error, exception.__struct__}
@@ -134,26 +118,26 @@ defmodule Jido.Flow.Compiler.Iterator do
 
       {:error, error} ->
         state.observer.({:error, span, error})
-        iterator_fail(state, error)
+        {:error, error}
 
       {:internal_error, error_type} ->
         error = iterator_internal_error(iterator, index, runtime.revision, error_type)
         state.observer.({:error, span, error})
-        iterator_fail(state, error)
+        {:error, error}
     end
   end
 
-  defp continue_iterator_after_iteration(iterator, state, runtime, true),
-    do: iterator_complete(iterator, state, runtime)
+  defp continue_iterator_after_iteration(_iterator, _state, runtime, true),
+    do: iterator_complete(runtime)
 
-  defp continue_iterator_after_iteration(iterator, state, runtime, false)
+  defp continue_iterator_after_iteration(iterator, _state, runtime, false)
        when runtime.completed == iterator.max_iterations,
-       do: iterator_exhaust(iterator, state, runtime)
+       do: iterator_exhaust(iterator, runtime)
 
   defp continue_iterator_after_iteration(iterator, state, runtime, false),
     do: run_iterator_iteration(iterator, state, runtime)
 
-  defp iterator_complete(_iterator, _state, runtime) do
+  defp iterator_complete(runtime) do
     output = %{
       kind: :jido_flow_iterate_result,
       iterations: runtime.completed,
@@ -164,7 +148,7 @@ defmodule Jido.Flow.Compiler.Iterator do
     {:ok, output, runtime.effects |> Enum.reverse() |> Enum.concat()}
   end
 
-  defp iterator_exhaust(iterator, state, runtime) do
+  defp iterator_exhaust(iterator, runtime) do
     error =
       Error.execution_error("flow iterator exhausted maximum iterations", %{
         phase: :iterate_exhaustion,
@@ -175,15 +159,13 @@ defmodule Jido.Flow.Compiler.Iterator do
         retry: false
       })
 
-    {:error, error, state}
+    {:error, error}
   end
 
-  defp iterator_fail(state, error), do: {:error, error, state}
-
-  defp iterator_internal_failure(iterator, state, error_type) do
+  defp iterator_internal_failure(iterator, error_type) do
     error = iterator_internal_error(iterator, nil, 0, error_type)
 
-    iterator_fail(state, error)
+    {:error, error}
   end
 
   defp iterator_internal_error(iterator, iteration_index, state_revision, error_type) do

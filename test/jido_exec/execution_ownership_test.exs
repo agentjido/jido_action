@@ -13,16 +13,34 @@ defmodule JidoActionTest.Exec.ExecutionOwnershipTest do
     end
   end
 
-  for {mode, starts} <- [sync: 0, timed: 1, async: 2, serial: 1, timed_serial: 2] do
+  for {mode, starts} <- [sync: 3, timed: 3, async: 3, serial: 6, timed_serial: 6, empty_map: 3] do
     @tag mode: mode
-    test "#{mode} starts #{starts} framework processes and reuses one callback process", %{
+    test "#{mode} starts #{starts} framework processes with distinct Action Tasks", %{
       mode: mode
     } do
       supervisor = start_supervised!(Task.Supervisor)
       observer = self()
       token = make_ref()
-      target = if mode in [:serial, :timed_serial], do: serial_flow(), else: Probe
-      count = if mode in [:serial, :timed_serial], do: 3, else: 1
+
+      target =
+        case mode do
+          mode when mode in [:serial, :timed_serial] ->
+            serial_flow()
+
+          :empty_map ->
+            Flow.new!(
+              name: "empty_map",
+              components: [Jido.Flow.Map.new!(name: "items", action: Probe, collection: [])],
+              output: %{value: 42}
+            )
+
+          _ ->
+            Probe
+        end
+
+      count =
+        if(mode == :empty_map, do: 0, else: if(mode in [:serial, :timed_serial], do: 3, else: 1))
+
       opts = [task_supervisor: supervisor, max_concurrency: 1]
       opts = if mode in [:timed, :timed_serial], do: [timeout: 5_000] ++ opts, else: opts
 
@@ -61,7 +79,7 @@ defmodule JidoActionTest.Exec.ExecutionOwnershipTest do
         end
 
       workers =
-        for _ <- 1..count do
+        for _ <- List.duplicate(:invocation, count) do
           assert_receive {^token, :ready, worker}, 2_000
 
           # The controller already owns its worker PID and monitor. It needs
@@ -76,16 +94,17 @@ defmodule JidoActionTest.Exec.ExecutionOwnershipTest do
           worker
         end
 
-      assert length(Enum.uniq(workers)) == 1
-
-      if mode in [:sync, :serial],
-        do: assert(hd(workers) == caller),
-        else: refute(hd(workers) == caller)
+      assert length(Enum.uniq(workers)) == count
+      refute caller in workers
 
       expected_effects = List.duplicate(:effect, count)
 
-      assert_receive {^token, :result, {:ok, %{value: 42}, ^expected_effects}, {:monitors, []}},
-                     2_000
+      expected =
+        if expected_effects == [],
+          do: {:ok, %{value: 42}},
+          else: {:ok, %{value: 42}, expected_effects}
+
+      assert_receive {^token, :result, ^expected, {:monitors, []}}, 2_000
 
       assert_receive {:DOWN, ^caller_monitor, :process, ^caller, :normal}
       marker = :erlang.trace_delivered(:all)
@@ -113,7 +132,7 @@ defmodule JidoActionTest.Exec.ExecutionOwnershipTest do
 
   for boundary <- [:timed, :async, :concurrent, :paused] do
     @tag boundary: boundary
-    test "#{boundary} work can finish after its controller dies", %{boundary: boundary} do
+    test "#{boundary} work stops when its controller dies", %{boundary: boundary} do
       supervisor = start_supervised!(Task.Supervisor)
       observer = self()
       token = make_ref()
@@ -165,30 +184,37 @@ defmodule JidoActionTest.Exec.ExecutionOwnershipTest do
           caller
         end
 
+      scope_monitors =
+        for pid <- Task.Supervisor.children(supervisor), do: {pid, Process.monitor(pid)}
+
       controller_monitor = Process.monitor(controller)
       Process.exit(controller, :kill)
       assert_receive {:DOWN, ^controller_monitor, :process, ^controller, :killed}, 1_000
 
       for {worker, monitor} <- workers do
-        send(worker, {token, :release})
-        assert_receive {:DOWN, ^monitor, :process, ^worker, :normal}, 1_000
+        assert_receive {:DOWN, ^monitor, :process, ^worker, :killed}, 1_000
       end
 
       assert_receive {:DOWN, ^caller_monitor, :process, ^caller, _}, 1_000
+
+      for {pid, monitor} <- scope_monitors,
+          do: assert_receive({:DOWN, ^monitor, :process, ^pid, _}, 1_000)
+
       assert Task.Supervisor.children(supervisor) == []
     end
   end
 
-  test "direct callbacks share process state; timed callbacks keep it in their worker" do
+  test "direct and timed callbacks keep process state in their own Task" do
     Process.put(:ownership_value, :caller)
-    assert Exec.run(__MODULE__.LocalState) == {:ok, %{before: :caller, pid: self()}}
-    assert Process.get(:ownership_value) == :action
+    assert {:ok, %{before: nil, pid: direct_worker}} = Exec.run(__MODULE__.LocalState)
+    refute direct_worker == self()
+    assert Process.get(:ownership_value) == :caller
 
     assert {:ok, %{before: nil, pid: worker}} =
              Exec.run(__MODULE__.LocalState, %{}, %{}, timeout: 5_000)
 
     refute worker == self()
-    assert Process.get(:ownership_value) == :action
+    assert Process.get(:ownership_value) == :caller
     Process.delete(:ownership_value)
   end
 
@@ -255,23 +281,25 @@ defmodule JidoActionTest.Exec.ExecutionOwnershipTest do
                max_concurrency: 2
              )
 
-    [first, _second] = execution.ready
-    # Corrupt only the second metadata lookup to exercise internal cleanup
-    # after the first worker has been admitted.
+    [_first, second] = execution.ready
+    # Corrupt only the second metadata path, after the first worker is admitted.
     compiled = %{
       execution.compiled
-      | work_index: Map.delete(execution.compiled.work_index, first.node.hash),
-        component_index: :invalid
+      | work_index:
+          Map.update!(
+            execution.compiled.work_index,
+            second.node.hash,
+            &Map.put(&1, :component_path, [:invalid])
+          ),
+        component_index: Map.put(execution.compiled.component_index, :invalid, :invalid)
     }
 
     {:monitors, initial_monitors} = Process.info(self(), :monitors)
 
-    assert_raise BadMapError, fn ->
-      Jido.Exec.Flow.RunnableExecutor.execute_many(
-        %{execution | compiled: compiled},
-        execution.ready
-      )
-    end
+    ready = [hd(execution.ready), %{second | node: %{name: :invalid}}]
+
+    assert {:error, %Jido.Flow.Error.InternalError{details: %{reason: {{:badkey, :hash, _}, _}}}} =
+             Exec.wave(%{execution | compiled: compiled, ready: ready})
 
     assert Task.Supervisor.children(supervisor) == []
     assert Process.info(self(), :monitors) == {:monitors, initial_monitors}

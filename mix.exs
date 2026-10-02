@@ -257,6 +257,7 @@ defmodule JidoAction.MixProject do
           Jido.Action.Error.InvalidInputError,
           Jido.Action.Error.TimeoutError,
           Jido.Exec.Error,
+          Jido.Exec.Error.TimeoutError,
           Jido.Exec.Error.AsyncExecutionError,
           Jido.Exec.Error.AsyncTimeoutError,
           Jido.Exec.Error.CancelledError,

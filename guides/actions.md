@@ -130,9 +130,11 @@ Jido.Exec.run(
 )
 ```
 
-Exec validates input, calls the Action in the current execution process, validates normal
-output, and converts exceptions, throws, exits, and invalid return shapes to
-structured errors. It does not retry the Action.
+Exec runs input validation, the Action callback, normal output validation,
+and result normalization in one fresh supervised Task for each invocation.
+Synchronous execution waits for its result, including with `timeout: :infinity`.
+Exceptions, throws, exits, hard Task exits, and invalid return shapes become
+structured errors. Exec does not retry the Action.
 
 ### Prepare Raw Input
 

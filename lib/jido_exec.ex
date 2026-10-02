@@ -23,14 +23,18 @@ defmodule Jido.Exec do
   batch, including effects collected before a continuation. Requests must be a
   proper list. See `Jido.Action` for the result and ordering contract.
 
-  Synchronous calls with `timeout: :infinity` run serial callbacks in the
-  caller. They share its process state and cannot contain a hard self-kill.
-  Finite-timeout and async calls use one supervised execution worker for the
-  complete call. Serial Steps and continuations reuse that worker. Concurrent
-  waves use bounded supervised workers. A living controller enforces deadlines
-  and cancellation. If that controller or a direct scheduler dies abruptly,
-  workers may continue. See the execution guide for ownership, process costs,
-  and external resource cleanup.
+  Each Action invocation uses a fresh supervised Task for input validation,
+  the callback, output validation, and result normalization. This includes
+  synchronous calls with `timeout: :infinity`, Flow Actions, and continuations.
+  Each root Flow also uses a fresh Task for validation and graph work. Each
+  root executable Task exits before the next executable starts.
+
+  One control Task runs under the selected `task_supervisor`. It owns a private
+  supervisor for executable and runnable Tasks. Caller or async owner death
+  stops the call. Control, Flow, or compound runnable death stops its workers,
+  including callbacks that trap exits. Paused operations create a new call
+  and leave no active workers after return. See the execution guide for
+  process costs and external resource cleanup.
 
   ## Step-wise Flow execution
 
@@ -67,44 +71,15 @@ defmodule Jido.Exec do
 
   alias Jido.Action.Error
   alias Jido.Executable
-  alias Jido.Exec.Async
+  alias Jido.Exec.Controller
   alias Jido.Exec.Execution
   alias Jido.Exec.Flow.Engine
   alias Jido.Exec.Options
   alias Jido.Exec.Telemetry
-  alias Jido.Exec.Runtime
   alias Jido.Exec.Transition
-  alias Jido.Exec.Worker
   alias Jido.Flow
   alias Jido.Flow.Error, as: FlowError
   alias Jido.Instruction
-
-  @max_receive_timeout 2_147_483_647
-
-  @typep chain_control :: %{
-           options: keyword(),
-           execution_id: String.t(),
-           notify: (term() -> term()),
-           deadline: integer() | :infinity,
-           effect_batches: [[term()]],
-           count: non_neg_integer(),
-           continuation_limit: non_neg_integer()
-         }
-
-  @typep managed_control :: %{
-           children: %{optional(pid()) => reference()},
-           worker: pid(),
-           monitor: reference(),
-           result_ref: reference(),
-           deadline: integer() | :infinity,
-           timeout_owner: module(),
-           executable: term(),
-           timeout: timeout(),
-           execution_id: String.t(),
-           spans: map(),
-           async: async_control() | nil,
-           owner_monitor: reference() | nil
-         }
 
   @typedoc "The result of an Action, Instruction, or Flow execution."
   @type exec_result ::
@@ -113,7 +88,7 @@ defmodule Jido.Exec do
           | {:error, Exception.t()}
 
   @typedoc "The opaque one-shot state token shared by one asynchronous handle."
-  @opaque async_state :: {:jido_exec_async_state, :atomics.atomics_ref()}
+  @opaque async_state :: {:jido_exec_async_state, :atomics.atomics_ref(), pid()}
 
   @typedoc "A caller-owned handle for one asynchronous run-to-completion execution."
   @type async_ref :: %{
@@ -174,7 +149,7 @@ defmodule Jido.Exec do
   @spec run(term(), map() | keyword() | nil, map() | keyword() | nil, [run_option()]) ::
           exec_result()
   def run(executable, input \\ %{}, context \\ %{}, opts \\ []) do
-    do_run(executable, input, context, opts, nil)
+    Controller.sync(executable, input, context, opts)
   end
 
   @doc """
@@ -204,99 +179,81 @@ defmodule Jido.Exec do
   def remaining_time(context), do: Jido.Exec.Budget.remaining(context)
 
   @doc false
-  @spec run_controlled(
-          term(),
-          map() | keyword() | nil,
-          map() | keyword() | nil,
-          keyword(),
-          reference(),
-          pid()
-        ) :: exec_result()
-  def run_controlled(executable, input, context, opts, ref, owner)
-      when is_reference(ref) and is_pid(owner) do
-    do_run(executable, input, context, opts, %{ref: ref, owner: owner})
-  end
+  @spec run_controlled(term(), term(), term(), keyword(), map()) :: exec_result()
+  def run_controlled(executable, input, context, opts, control),
+    do: do_run(executable, input, context, opts, control)
 
   defp do_run(executable, input, context, opts, control) do
     execution_id = Telemetry.execution_id()
-    timeout_owner = initial_timeout_owner(executable)
+    owner = initial_timeout_owner(executable)
 
-    with {:ok, timeout, run_opts} <- Options.take_timeout(opts, timeout_owner),
-         {:ok, continuation_limit} <- Options.continuation_limit(run_opts, timeout_owner) do
-      execute_with_timeout(
-        fn notify, deadline ->
-          chain = %{
+    with {:ok, timeout, run_opts} <- Options.take_timeout(opts, owner),
+         {:ok, limit} <- Options.continuation_limit(run_opts, owner) do
+      if timeout == 0 do
+        {:error,
+         Jido.Exec.Error.call_timeout_error("Execution timed out before dispatch", %{
+           timeout: 0,
+           execution_id: execution_id,
+           retry: false
+         })}
+      else
+        Controller.run(timeout, execution_id, control, fn controller ->
+          run_chain(executable, input, context, %{
+            controller: controller,
             options: run_opts,
-            execution_id: execution_id,
-            notify: notify,
-            deadline: deadline,
-            effect_batches: [],
             count: 0,
-            continuation_limit: continuation_limit
-          }
-
-          run_chain(executable, input, context, chain)
-        end,
-        timeout,
-        timeout_owner,
-        executable,
-        execution_id,
-        control,
-        run_opts
-      )
+            continuation_limit: limit,
+            effect_batches: [],
+            transition: nil,
+            timeout_owner: owner,
+            timeout_target: execution_name(executable)
+          })
+        end)
+      end
     end
   end
 
-  @spec run_chain(term(), term(), term(), chain_control()) :: exec_result()
   defp run_chain(executable, input, context, chain) do
-    with {:ok, resolved} <- resolve_run_target(executable) do
-      run_resolved_chain(executable, resolved, input, context, chain)
-    end
-  end
+    call = chain.controller.call
+    transition = chain.transition
+    options = chain.options
 
-  defp run_resolved_chain(executable, %Executable{} = resolved, input, context, chain) do
-    if chain.count > 0 or resolved.kind == :flow do
-      chain.notify.({:resolved, timeout_owner(resolved), execution_name(resolved)})
-    end
+    {result, error_owner, timeout_target} =
+      Controller.execute(
+        chain.controller,
+        fn ->
+          resolution =
+            if transition,
+              do: resolve_transition_target(transition),
+              else: resolve_run_target(executable)
 
-    case run_with_lifecycle(
-           executable,
-           resolved,
-           input,
-           context,
-           chain.options,
-           chain.execution_id,
-           chain.deadline
-         ) do
+          with {:ok, resolved} <- resolution do
+            Controller.resolved(call, timeout_owner(resolved), execution_name(resolved))
+
+            run_with_lifecycle(executable, resolved, input, context, options, call)
+          end
+        end,
+        chain.timeout_owner,
+        chain.timeout_target
+      )
+
+    case result do
       {:continue, %Transition{} = transition} ->
-        continue_chain(transition, %{
+        next = %{
           chain
           | count: chain.count + 1,
-            effect_batches:
-              case transition.effects do
-                [] -> chain.effect_batches
-                effects -> [effects | chain.effect_batches]
-              end
-        })
+            transition: transition,
+            timeout_owner: error_owner,
+            timeout_target: timeout_target,
+            effect_batches: [transition.effects | chain.effect_batches]
+        }
+
+        with :ok <- check_continuation_limit(transition, next.count, next.continuation_limit) do
+          run_chain(transition.target, transition.input, transition.context, next)
+        end
 
       result ->
-        case chain.effect_batches do
-          [] -> result
-          batches -> Jido.Exec.Effects.attach(result, batches |> Enum.reverse() |> Enum.concat())
-        end
-    end
-  end
-
-  defp continue_chain(%Transition{} = transition, chain) do
-    with :ok <- check_continuation_limit(transition, chain.count, chain.continuation_limit),
-         {:ok, resolved} <- resolve_transition_target(transition) do
-      run_resolved_chain(
-        transition.target,
-        resolved,
-        transition.input,
-        transition.context,
-        chain
-      )
+        Jido.Exec.Effects.attach(result, chain.effect_batches |> Enum.reverse() |> Enum.concat())
     end
   end
 
@@ -340,20 +297,20 @@ defmodule Jido.Exec do
   Only that process can wait for, handle, or cancel it. These operations are
   alternative one-shot terminal consumers.
 
-  Invalid routing raises `Jido.Action.Error.InvalidInputError` before a handle
-  exists. Failure to start the async control task raises
+  Malformed options or invalid routing raise `Jido.Action.Error.InvalidInputError`
+  before a handle exists. Failure to start the async control task raises
   `Jido.Exec.Error.AsyncExecutionError`. Once a handle exists, failures use its
   normal result and message contract.
   """
   @spec run_async(term(), map() | keyword() | nil, map() | keyword() | nil, [run_option()]) ::
           async_ref()
   def run_async(executable, input \\ %{}, context \\ %{}, opts \\ []) do
-    Async.start(executable, input, context, opts)
+    Controller.start(executable, input, context, opts)
   end
 
   @doc "Waits up to 5 seconds for an asynchronous execution result."
   @spec await(async_ref()) :: exec_result()
-  def await(async_ref), do: Async.await(async_ref)
+  def await(async_ref), do: Controller.await(async_ref)
 
   @doc """
   Waits for an asynchronous execution result.
@@ -364,7 +321,7 @@ defmodule Jido.Exec do
   separate complete-call execution limit.
   """
   @spec await(async_ref(), timeout()) :: exec_result()
-  def await(async_ref, timeout), do: Async.await(async_ref, timeout)
+  def await(async_ref, timeout), do: Controller.await(async_ref, timeout)
 
   @doc """
   Classifies one mailbox message for a caller-owned asynchronous execution.
@@ -378,7 +335,7 @@ defmodule Jido.Exec do
   function.
   """
   @spec handle_message(async_ref(), term()) :: async_message_result()
-  def handle_message(async_ref, message), do: Async.handle_message(async_ref, message)
+  def handle_message(async_ref, message), do: Controller.handle_message(async_ref, message)
 
   @doc """
   Cancels a caller-owned asynchronous execution.
@@ -391,7 +348,7 @@ defmodule Jido.Exec do
   then forces a stop and waits up to 500 milliseconds for its exit.
   """
   @spec cancel(async_ref()) :: :ok | {:error, Exception.t()}
-  def cancel(async_ref), do: Async.cancel(async_ref)
+  def cancel(async_ref), do: Controller.cancel(async_ref)
 
   @doc """
   Starts a paused Flow execution.
@@ -414,9 +371,16 @@ defmodule Jido.Exec do
   def start(executable, input \\ %{}, context \\ %{}, opts \\ []) do
     execution_id = Telemetry.execution_id()
 
-    with {:ok, resolved} <- resolve_run_target(executable) do
-      do_start(executable, resolved, input, context, opts, execution_id)
-    end
+    Controller.operation(
+      fn _call ->
+        with {:ok, resolved} <- resolve_run_target(executable) do
+          do_start(executable, resolved, input, context, opts, execution_id)
+          |> detach_execution()
+        end
+      end,
+      opts,
+      execution_id
+    )
   end
 
   @doc """
@@ -456,7 +420,8 @@ defmodule Jido.Exec do
   """
   @spec step(Execution.t()) ::
           {:ok, Jido.Exec.Work.t(), Execution.t()} | {:error, Exception.t()}
-  def step(%Execution{} = execution), do: Engine.step(execution)
+  def step(%Execution{} = execution),
+    do: mutate(execution, &Engine.step(execution, :first_ready, &1))
 
   @doc """
   Executes one ready unit selected by its opaque `t:Jido.Exec.Work.token/0`.
@@ -469,7 +434,8 @@ defmodule Jido.Exec do
   """
   @spec step(Execution.t(), Jido.Exec.Work.token()) ::
           {:ok, Jido.Exec.Work.t(), Execution.t()} | {:error, Exception.t()}
-  def step(%Execution{} = execution, token), do: Engine.step(execution, token)
+  def step(%Execution{} = execution, token),
+    do: mutate(execution, &Engine.step(execution, token, &1))
 
   @doc """
   Executes runnables from the set that is currently ready.
@@ -482,7 +448,7 @@ defmodule Jido.Exec do
   """
   @spec wave(Execution.t()) ::
           {:ok, [Jido.Exec.Work.t()], Execution.t()} | {:error, Exception.t()}
-  def wave(%Execution{} = execution), do: Engine.wave(execution)
+  def wave(%Execution{} = execution), do: mutate(execution, &Engine.wave(execution, &1))
 
   @doc """
   Continues a paused Flow execution until it reaches a terminal status.
@@ -491,7 +457,7 @@ defmodule Jido.Exec do
   Flow result.
   """
   @spec continue(Execution.t()) :: {:ok, Execution.t()} | {:error, Exception.t()}
-  def continue(%Execution{} = execution), do: Engine.continue(execution)
+  def continue(%Execution{} = execution), do: mutate(execution, &Engine.continue(execution, &1))
 
   @doc """
   Returns the cached result of a terminal Flow execution.
@@ -502,214 +468,20 @@ defmodule Jido.Exec do
   @spec result(Execution.t()) :: exec_result()
   def result(%Execution{} = execution), do: Engine.result(execution)
 
-  defp execute_with_timeout(
-         work,
-         :infinity,
-         _owner,
-         _executable,
-         _execution_id,
-         nil,
-         _opts
-       ) do
-    work.(fn _update -> :ok end, :infinity)
+  defp mutate(execution, work) do
+    Controller.operation(
+      fn call -> work.(call) |> detach_execution() end,
+      execution.options,
+      execution.id
+    )
   end
 
-  defp execute_with_timeout(_work, 0, owner, executable, execution_id, _control, _opts) do
-    {:error, timeout_error(owner, executable, 0, execution_id)}
-  end
+  defp detach_execution({:ok, %Execution{} = execution}), do: {:ok, Engine.detach(execution)}
 
-  defp execute_with_timeout(work, timeout, owner, executable, execution_id, control, opts)
-       when timeout == :infinity or (is_integer(timeout) and timeout > 0) do
-    deadline = execution_deadline(timeout)
-    ref = :erlang.alias()
-    owner_monitor = monitor_control_owner(control)
-    caller = self()
+  defp detach_execution({:ok, work, %Execution{} = execution}),
+    do: {:ok, work, Engine.detach(execution)}
 
-    work =
-      Worker.prepare(caller, ref, ref, fn ->
-        worker = self()
-        notify = fn update -> send(ref, {ref, worker, :update, update}) end
-        Telemetry.with_tracker(ref, fn -> work.(notify, deadline) end)
-      end)
-
-    try do
-      with {:ok, supervisor} <- Runtime.task_supervisor(opts) do
-        case Runtime.start_child(supervisor, work) do
-          {:ok, worker} ->
-            continue_execution(
-              %{
-                children: %{},
-                worker: worker,
-                monitor: Process.monitor(worker),
-                result_ref: ref,
-                deadline: deadline,
-                timeout_owner: owner,
-                executable: executable,
-                timeout: timeout,
-                execution_id: execution_id,
-                spans: %{},
-                async: control,
-                owner_monitor: owner_monitor
-              },
-              worker
-            )
-
-          {:error, reason} ->
-            {:error,
-             owner.internal_error("Execution process could not start", %{
-               reason: reason,
-               task_supervisor: supervisor,
-               retry: false
-             })}
-        end
-      end
-    after
-      :erlang.unalias(ref)
-      flush_managed_messages(ref)
-      demonitor_control_owner(owner_monitor)
-    end
-  end
-
-  @spec receive_execution_result(managed_control()) :: exec_result()
-  defp receive_execution_result(
-         %{
-           worker: worker,
-           monitor: monitor,
-           result_ref: result_ref,
-           async: async,
-           owner_monitor: owner_monitor
-         } = control
-       ) do
-    receive_timeout = execution_receive_timeout(control.deadline)
-    children = control.children
-
-    receive do
-      {^result_ref, ^worker, result} ->
-        Worker.finish(worker, monitor)
-        Worker.terminate(Map.to_list(children))
-        spans = Telemetry.drain(result_ref, control.spans)
-        if match?({:error, _}, result), do: Telemetry.fail(spans, elem(result, 1))
-        result
-
-      {^result_ref, ^worker, :update, {:resolved, next_owner, next_executable}} ->
-        # A continuation changes the error owner and target, never the deadline.
-        continue_execution(%{
-          control
-          | timeout_owner: next_owner,
-            executable: next_executable
-        })
-
-      {:DOWN, ^monitor, :process, ^worker, reason} ->
-        error = execution_process_error(control.timeout_owner, reason)
-        Worker.terminate(Map.to_list(children))
-        Telemetry.fail(Telemetry.drain(result_ref, control.spans), error)
-        {:error, error}
-
-      {^result_ref, :telemetry, event} ->
-        continue_execution(%{control | spans: Telemetry.record(control.spans, event)})
-
-      {^result_ref, :worker_error, child, error} ->
-        if child_monitor = Map.get(children, child), do: Worker.finish(child, child_monitor)
-        spans = Telemetry.fail(Telemetry.drain(result_ref, control.spans), error, child)
-        continue_execution(%{control | spans: spans, children: Map.delete(children, child)})
-
-      {^result_ref, :child, child} ->
-        child_monitor = Process.monitor(child)
-
-        continue_execution(
-          %{control | children: Map.put(children, child, child_monitor)},
-          child
-        )
-
-      {:DOWN, child_monitor, :process, child, _reason} when is_map_key(children, child) ->
-        ^child_monitor = Map.fetch!(children, child)
-        continue_execution(%{control | children: Map.delete(children, child)})
-
-      {Async, control_ref, {:stop, error}}
-      when not is_nil(async) and async.ref == control_ref and is_exception(error) ->
-        terminate_managed_execution(control, error)
-        {:error, error}
-
-      {:DOWN, ^owner_monitor, :process, control_owner, reason}
-      when not is_nil(async) and async.owner == control_owner ->
-        error =
-          Jido.Exec.Error.cancelled_error("Asynchronous execution owner exited", %{
-            operation: :owner_exit,
-            owner: control_owner,
-            reason: reason,
-            retry: false
-          })
-
-        terminate_managed_execution(control, error)
-        {:error, error}
-    after
-      receive_timeout -> continue_execution(control)
-    end
-  end
-
-  defp continue_execution(control, worker \\ nil) do
-    if execution_deadline_reached?(control.deadline) do
-      error =
-        timeout_error(
-          control.timeout_owner,
-          control.executable,
-          control.timeout,
-          control.execution_id
-        )
-
-      terminate_managed_execution(control, error)
-      {:error, error}
-    else
-      if worker, do: send(worker, {control.result_ref, :run})
-      receive_execution_result(control)
-    end
-  end
-
-  defp terminate_managed_execution(control, error) do
-    Process.exit(control.worker, :kill)
-    Worker.finish(control.worker, control.monitor)
-    Worker.terminate(Map.to_list(control.children))
-    Telemetry.fail(Telemetry.drain(control.result_ref, control.spans), error)
-  end
-
-  defp flush_managed_messages(ref) do
-    receive do
-      {^ref, :child, worker} ->
-        Worker.terminate([{worker, Process.monitor(worker)}])
-        flush_managed_messages(ref)
-
-      {^ref, _, _} ->
-        flush_managed_messages(ref)
-
-      {^ref, _, _, _} ->
-        flush_managed_messages(ref)
-    after
-      0 -> :ok
-    end
-  end
-
-  defp execution_deadline(:infinity), do: :infinity
-
-  defp execution_deadline(timeout),
-    do: System.monotonic_time(:millisecond) + timeout
-
-  defp execution_receive_timeout(:infinity), do: :infinity
-
-  defp execution_receive_timeout(deadline) do
-    remaining = max(deadline - System.monotonic_time(:millisecond), 0)
-    min(remaining, @max_receive_timeout)
-  end
-
-  defp execution_deadline_reached?(:infinity), do: false
-
-  defp execution_deadline_reached?(deadline),
-    do: System.monotonic_time(:millisecond) >= deadline
-
-  defp monitor_control_owner(nil), do: nil
-  defp monitor_control_owner(%{owner: owner}), do: Process.monitor(owner)
-
-  defp demonitor_control_owner(nil), do: :ok
-  defp demonitor_control_owner(monitor), do: Process.demonitor(monitor, [:flush])
+  defp detach_execution(result), do: result
 
   defp timeout_owner(%Executable{kind: :flow}), do: FlowError
   defp timeout_owner(%Executable{kind: :action}), do: Error
@@ -717,32 +489,6 @@ defmodule Jido.Exec do
   defp initial_timeout_owner(%Instruction{target: target}), do: initial_timeout_owner(target)
   defp initial_timeout_owner(%Flow{}), do: FlowError
   defp initial_timeout_owner(_executable), do: Error
-
-  defp timeout_error(FlowError, executable, timeout, execution_id) do
-    FlowError.timeout_error("Flow execution timed out after #{timeout}ms", %{
-      timeout: timeout,
-      flow: execution_name(executable),
-      execution_id: execution_id,
-      retry: false
-    })
-  end
-
-  defp timeout_error(Error, executable, timeout, execution_id) do
-    Error.timeout_error("Action execution timed out after #{timeout}ms", %{
-      timeout: timeout,
-      action: execution_name(executable),
-      execution_id: execution_id,
-      retry: false
-    })
-  end
-
-  defp execution_process_error(FlowError, reason) do
-    FlowError.internal_error("Flow execution process exited", %{reason: reason})
-  end
-
-  defp execution_process_error(Error, reason) do
-    Error.internal_error("Action execution process exited", %{reason: reason})
-  end
 
   defp execution_name(%Executable{target: target}), do: execution_name(target)
 
@@ -762,19 +508,17 @@ defmodule Jido.Exec do
          input,
          context,
          opts,
-         execution_id,
-         deadline
+         call
        ) do
     metadata = %{
-      execution_id: execution_id,
+      execution_id: call.execution_id,
       kind: :instruction,
       name: target_name(instruction.target)
     }
 
     action_span = Telemetry.start([:jido, :action], metadata)
 
-    result =
-      run_instruction(instruction, executable, input, context, opts, execution_id, deadline)
+    result = run_instruction(instruction, executable, input, context, opts, call)
 
     Telemetry.finish(action_span, result)
     result
@@ -786,11 +530,10 @@ defmodule Jido.Exec do
          input,
          context,
          opts,
-         execution_id,
-         deadline
+         call
        ) do
-    with {:ok, context} <- Jido.Exec.Budget.attach(context, deadline) do
-      run_resolved_with_lifecycle(executable, input, context, opts, execution_id)
+    with {:ok, context} <- Jido.Exec.Budget.attach(context, call.deadline) do
+      run_resolved_with_lifecycle(executable, input, context, opts, call)
     end
   end
 
@@ -799,19 +542,19 @@ defmodule Jido.Exec do
          input,
          context,
          opts,
-         execution_id
+         call
        ) do
     adapter = adapter_for(executable)
 
-    case adapter.lifecycle_metadata(executable, execution_id) do
+    case adapter.lifecycle_metadata(executable, call.execution_id) do
       {:ok, metadata} ->
         action_span = Telemetry.start([:jido, :action], metadata)
-        result = adapter.run(executable, input, context, opts, execution_id)
+        result = adapter.run(executable, input, context, opts, call)
         Telemetry.finish(action_span, result)
         result
 
       :none ->
-        adapter.run(executable, input, context, opts, execution_id)
+        adapter.run(executable, input, context, opts, call)
     end
   end
 
@@ -821,13 +564,13 @@ defmodule Jido.Exec do
          input,
          context,
          opts,
-         execution_id,
-         deadline
+         call
        ) do
     with {:ok, instruction} <- normalize_instruction(instruction, input, context),
-         {:ok, context} <- Jido.Exec.Budget.attach(instruction.context, deadline) do
+         {:ok, context} <- Jido.Exec.Budget.attach(instruction.context, call.deadline) do
       adapter = adapter_for(executable)
-      adapter.run_instruction(executable, %{instruction | context: context}, opts, execution_id)
+
+      adapter.run_instruction(executable, %{instruction | context: context}, opts, call)
     end
   end
 

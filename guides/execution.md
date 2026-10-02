@@ -31,66 +31,83 @@ Flow output.
 
 ## Process Ownership
 
-Actions do not start a worker or guard for each invocation. Validation, `run/2`,
-output validation, and result normalization use the same execution process.
+Each call starts one control Task under the selected `task_supervisor`.
+That Task starts a private, linked Task Supervisor for the call. The private
+supervisor owns all executable and runnable Tasks. These Tasks are temporary
+and use `shutdown: :brutal_kill`, so cancellation also stops callbacks that
+trap exits.
 
-| Call | User code runs in | Deadline and cleanup |
-| --- | --- | --- |
-| Sync, `timeout: :infinity` | Caller | No timer or isolated worker. |
-| Sync, finite timeout | One supervised execution worker | Caller enforces the complete-call deadline. Work may continue if the caller dies. |
-| Async | One supervised execution worker | Live control task enforces the deadline, owner death, and cancellation. Work may continue if the control task dies. |
-| Serial Flow | Current execution process | Uses the outer call's deadline and ownership. |
-| Concurrent Flow wave | Bounded supervised workers | The scheduler owns its active-worker map. Work may continue if the scheduler dies. |
-| Nested Flow | Current worker or an admitted concurrent worker | Keeps the outer deadline and concurrency limit. |
-| Continuation | Same caller or execution worker | Keeps the original deadline. It does not start another Action worker. |
-| Paused step, wave, or continue | Caller for serial work; wave workers for concurrent work | No timer. The revision helper marks interrupted mutations indeterminate. A completed pause operation leaves no workers. |
+Each Action invocation uses a fresh Task for input validation, the callback,
+output validation, and result normalization. Each root Flow uses a fresh Task
+for materialization, validation, graph work, and final output validation.
+This applies to synchronous calls, unlimited calls, asynchronous calls, and
+continuations. An Action Task exits before the next root executable starts.
+The caller waits for a result and does not execute these callbacks.
 
-There are no guard processes for worker ownership. The revision helper still
-prevents reuse of an execution revision. A managed controller holds
-its execution worker PID and monitor, plus the PIDs of active concurrent work
-for explicit cancellation. A concurrent scheduler uses its active-worker map.
-Worker ownership requires no ETS table or global service. Normal and handled
-error paths stop owned work and remove monitors and result messages. Reply
-aliases discard late internal messages after the receive loop ends.
+Tasks receive the caller's group leader. Exec does not copy, set, or reset
+Logger metadata. Action changes to the process dictionary, mailbox, flags,
+or Logger metadata do not transfer to another invocation. Runtime control
+data stays outside public context.
 
-A living controller enforces the complete-call deadline and explicit
-cancellation, including for callbacks that trap exits. The async controller
-also monitors its handle owner and cancels work when that owner dies. This is
-different from controller death: if a synchronous caller, async controller,
-or direct scheduler dies abruptly, its workers may continue. Links and
-`try/after` do not guarantee cleanup after arbitrary process death. A host
-that needs stronger lifetime guarantees must own that policy.
+| Work | Process use |
+| --- | --- |
+| Simple root Action | One control Task, one private supervisor, one Action Task. |
+| Root Flow | One control Task, one private supervisor, one Flow Task, plus Action Tasks. |
+| Step, Choice, Map item | One Task runs the Action and prepares its native result. No second wrapper Task. |
+| Reduce, Iterate, Dispatch | Each Action invocation gets a fresh Task. Concurrent compound work also uses a runnable Task. |
+| Subflow | Uses the root native graph and its existing Flow Task. |
+| Continuation | Uses the existing control Task and private supervisor. Each next root executable gets a new Task. |
+| Paused operation | Creates a new control Task, private supervisor, and Flow Task for that operation. Mutation also uses a revision helper. |
 
-A direct call shares the caller's mailbox, process dictionary, process flags,
-Logger metadata, and group leader. Changes to these values can remain after
-return. Serial callbacks in a managed call share these values within their
-execution worker. Concurrent workers receive the scheduler's Logger metadata
-and group leader. Do not assume that a fresh Action has a fresh process.
+An unlimited or finite simple Action starts three framework processes. A Flow
+with three serial Steps starts six: control, private supervisor, Flow, and
+three Action Tasks. A Flow with two parallel Steps starts five. These counts
+exclude the caller and the existing host supervisor. Synchronous and
+asynchronous execution have the same process structure. Only the control Task
+uses a slot in the selected host supervisor. `max_concurrency` limits admitted
+Flow work across the root graph, including structural Subflows.
 
-Raises, throws, and catchable exits still return structured errors. A direct
-`Process.exit(self(), :kill)` kills the caller; Exec cannot catch it. A killed
-managed worker returns an Action or Flow `InternalError` for the current
-executable. It cannot identify an inner Action phase after a hard kill.
-A killed concurrent worker returns a Flow runnable execution error. A supervisor
-capacity or task-start failure at the managed boundary returns `InternalError`
-with `reason`, `task_supervisor`, and `retry: false`. Routing validation before
-managed worker startup uses `Jido.Action.Error.InvalidInputError`, before the
-Action or Flow descriptor has been resolved. No error returns effects.
+The control Task monitors the caller or async handle owner. Owner death stops
+the call. Control Task death shuts down its private supervisor and its Tasks.
+Flow Task or compound runnable failure also stops the call and its workers.
+A normal Action error stops new dispatch; already admitted sibling Actions
+can finish. A terminal result is returned after worker cleanup. There is no
+worker registry, persistent owner process, or global ownership table.
 
-For a simple Action, framework process starts are 0 for a direct call, 1 for a
-timed call, and 2 for an async call. Async adds one control task. A serial Flow
-adds one revision helper per mutation, independent of its Action count. A
-concurrent wave adds one worker per admitted runnable. Nested Flows can add
-revision helpers. These counts exclude existing supervisors and processes
-started by application code.
+One internal controller handles both synchronous and asynchronous calls. It
+owns the deadline, owner monitor, and open telemetry spans. The Flow scheduler
+collects standard Task replies and keeps the canonical result order. It does
+not keep a second span tracker or worker ownership registry.
 
-Supervisor lookup and task startup use normal synchronous OTP calls, as in V2.
-A blocked host registry or supervisor can therefore delay the response beyond
-the execution timeout. The deadline still starts before lookup and is checked
-before the controller permits callbacks to run. It is not reset after startup.
-The controller cannot handle cancellation while blocked in host startup code.
-There is no startup helper, telemetry helper, or ETS table. Controllers and
-schedulers keep worker monitors and open span records in their existing state.
+Workers also link to the controller. These links let cleanup find Actions
+that trap exits if the private supervisor is killed before it can shut down
+its children. A compound Task identifies itself before it starts an Action,
+so its failure can stop the call even while the Flow scheduler is blocked.
+Only root Tasks wait for a start check; nested Tasks need no permission message.
+
+A paused `Execution` retains data and revision state, without a live control
+Task, private supervisor, or captured call data. Each operation supplies new
+call data and removes it before returning. The revision helper marks an interrupted
+mutation indeterminate. Reuse of an old or indeterminate revision cannot
+repeat Action work.
+
+Raises, throws, and catchable exits return structured errors. A hard Action
+Task exit returns `Jido.Action.Error.InternalError` with its original `reason`.
+Flow adds the component path and execution phase. A killed Flow Task returns
+`Jido.Flow.Error.InternalError`. Failure of a control Task returns
+`Jido.Exec.Error.AsyncExecutionError`. No failure returns executable effects.
+
+Malformed options and invalid routes use `Jido.Action.Error.InvalidInputError`
+before any target descriptor is resolved. This includes non-keyword options
+passed to `run_async/4`, which raises that error before a handle exists. Sync control startup failure returns an Action
+`InternalError`; async control startup failure raises `AsyncExecutionError`.
+Startup errors include the selected route, the reason, and `retry: false`.
+
+Supervisor lookup and Task startup use synchronous OTP calls. A blocked host
+registry or supervisor can delay the response beyond the timeout. The deadline
+starts before host lookup, and the control Task checks it before dispatch.
+Telemetry also remains synchronous. Blocked cleanup handlers can delay the
+response. There is no startup or telemetry delivery helper.
 
 ## Results And Errors
 
@@ -183,6 +200,12 @@ Public failures are exception structs. Action boundary errors use:
 - `Jido.Action.Error.TimeoutError`; and
 - `Jido.Action.Error.InternalError`.
 
+`timeout: 0` returns `Jido.Exec.Error.TimeoutError` for every executable form.
+It resolves no target and starts no executable work. Its public map type is
+`:execution_timeout`. Once a nonzero execution budget starts, timeout errors
+retain the current Action or Flow type. Continuation resolution retains the
+previous target until the next target resolves.
+
 Flow boundary errors use:
 
 - `Jido.Flow.Error.InvalidDefinitionError`;
@@ -252,7 +275,7 @@ All targets accept:
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `timeout` | `:infinity` | Complete-call limit for `run/4`. |
-| `task_supervisor` | `Jido.Exec.TaskSupervisor` | Local Task.Supervisor reference for execution workers, concurrent work, and async control. |
+| `task_supervisor` | `Jido.Exec.TaskSupervisor` | Local Task.Supervisor reference for the call control Task. |
 | `max_continuations` | `256` | Maximum continuations in one complete call. |
 | `max_concurrency` | `8` | Bounds ready Flow work if the chain runs a Flow. |
 
@@ -402,16 +425,23 @@ Jido emits `:start`, `:stop`, and `:error` events for these prefixes:
 [:jido, :flow, :iterate, :iteration]
 ```
 
-All nested events use one `execution_id`. Error events add `error` and
-`error_type`. Collection and iteration events can have high volume. Native
-Runic support nodes do not get artificial Jido node events. A complete-call
-timeout closes each active Jido span once with the timeout error.
+All nested events use one `execution_id`. Each span also has a unique
+`span_id`, its enclosing `parent_span_id` (or `nil` at the root), and a full
+`node_path`. Start and terminal events share these values. Target spans cover
+Steps, Choices, collection Actions, Iterate bodies, and Dispatch roles.
+Error events add `error` and `error_type`. Collection and iteration events
+can have high volume. Native Runic support nodes do not get artificial Jido
+node events. A complete-call timeout closes each active Jido span once with
+the timeout error.
 
 Telemetry handlers run synchronously in the emitting process, as in V2.
-Normal Action and Flow events run with their work. After timeout, cancellation,
-or hard worker failure, the controller or scheduler stops the affected workers
-and emits error events for their recorded open spans. It keeps those records
-in its existing receive loop. Telemetry needs no process or ETS table.
+Action and Flow events run in the Task that owns their lifecycle.
+Flow target events run in the native runnable's execution process. After
+timeout, cancellation, or hard worker failure, the controller emits error
+events for the recorded open spans. The scheduler reports handled worker
+failures to that controller. The controller stops the worker group on a
+call failure and keeps the only span tracker in its existing receive loop.
+Telemetry needs no process or ETS table.
 
 A blocked start handler delays the Action body. A blocked terminal handler
 delays completion. A finite deadline can kill a worker blocked in a handler,
@@ -443,9 +473,8 @@ A small pattern is one host-supervised process per session:
    owner cannot recover an external session.
 
 The owner is supervised separately from Exec workers. It must survive their
-termination. Normal return does not end a direct caller or a shared execution
-worker. Explicit release closes each Action invocation; the monitor is the
-fallback when a kill prevents the `after` block. Make release idempotent. A
+termination. Each Action Task exits before the next root executable starts.
+Explicit release closes each Action invocation; the monitor is the fallback when a kill prevents the `after` block. Make release idempotent. A
 session shared between Steps needs a different, host-owned lifetime.
 
 For example, an application adapter can use this shape (these are application

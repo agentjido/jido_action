@@ -204,7 +204,7 @@ defmodule JidoActionTest.Exec.RemainingTimeTest do
       {:ok, %{}}
     end
 
-    assert {:error, %Jido.Action.Error.TimeoutError{}} =
+    assert {:error, %Jido.Exec.Error.TimeoutError{}} =
              Exec.run(Operation, %{work: work}, %{}, opts ++ [timeout: 0])
 
     refute_received ^ref

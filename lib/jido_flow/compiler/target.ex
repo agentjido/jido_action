@@ -147,19 +147,38 @@ defmodule Jido.Flow.Compiler.Target do
   end
 
   @doc false
-  @spec telemetry_metadata(t(), module()) ::
-          {:ok, %{node: String.t(), kind: :step | :choice, target: module(), option: term()}}
-          | :none
+  @spec tag_execution(Exception.t(), t()) :: {:error, Exception.t()}
+  def tag_execution(error, owner), do: tag({:error, error}, :execution, owner, :target)
+
+  @doc false
+  @spec telemetry_metadata(t(), module()) :: map()
   def telemetry_metadata(%__MODULE__{kind: :node, details: details}, action) do
-    {:ok, %{node: details.node, kind: :step, target: action, option: nil}}
+    %{
+      node: details.node,
+      node_path: Map.get(details, :node_path, [details.node]),
+      kind: :step,
+      target: action,
+      option: nil
+    }
   end
 
   def telemetry_metadata(%__MODULE__{kind: :choice, details: details}, action) do
-    {:ok,
-     %{node: details.node, kind: :choice, target: action, option: Map.fetch!(details, :option)}}
+    %{
+      node: details.node,
+      node_path: Map.get(details, :node_path, [details.node]),
+      kind: :choice,
+      target: action,
+      option: Map.fetch!(details, :option)
+    }
   end
 
-  def telemetry_metadata(%__MODULE__{}, _action), do: :none
+  def telemetry_metadata(%__MODULE__{kind: kind, details: details}, action) do
+    Map.merge(details, %{
+      kind: kind,
+      target: action,
+      node_path: Map.get(details, :node_path, [details.node])
+    })
+  end
 
   defp tag({:ok, value}, _phase, _context, _mode), do: {:ok, value}
 

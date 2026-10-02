@@ -19,7 +19,12 @@ defmodule JidoActionTest.Load.ThroughputCheck do
 
     for row <- report.cases do
       assert row.phase_probe.calls["Runic.Workflow.prepare_for_dispatch/1"].calls > 0
-      assert row.phase_probe.calls["Runic.Workflow.execute_runnable/1"].calls > 0
+      execution_calls = row.phase_probe.calls["Runic.Workflow.execute_runnable/1"].calls
+
+      case row.system do
+        "runic" -> assert execution_calls > 0
+        "jido" -> assert execution_calls == 0
+      end
     end
 
     assert Enum.count(report.comparisons, &(&1.kind == "map_size")) == 4

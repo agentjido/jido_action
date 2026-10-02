@@ -229,12 +229,12 @@ defmodule JidoActionTest.ExecutionBenchTest do
     assert Measure.resources(direct).median.owned_process_starts == 0
   end
 
-  test "direct Action callbacks and untimed Exec calls start no helpers" do
+  test "untimed Exec calls start a control Task, private supervisor, and Action Task" do
     workloads = Fixtures.workloads([2], [:small])
     direct = Enum.find(workloads, &(&1.name == "action/direct"))
     run = Enum.find(workloads, &(&1.name == "action/run"))
     assert Measure.resources(direct).median.owned_process_starts == 0
-    assert Measure.resources(run).median.owned_process_starts == 0
+    assert Measure.resources(run).median.owned_process_starts == 3
     assert Task.Supervisor.children(JidoActionBench.TaskSupervisor) == []
   end
 

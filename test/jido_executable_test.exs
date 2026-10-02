@@ -1,5 +1,5 @@
 defmodule JidoActionTest.ExecutableTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Jido.Executable
   alias Jido.{Exec, Flow, Instruction}
@@ -129,6 +129,66 @@ defmodule JidoActionTest.ExecutableTest do
     assert :ok = Executable.validate(Add)
     assert :ok = Executable.validate(MathFlow)
     assert :ok = Executable.validate(MathFlow.flow())
+  end
+
+  for {kind, callback} <- [
+        action: quote(do: def(run(params, _context), do: {:ok, params})),
+        flow: quote(do: def(flow(), do: JidoActionTest.Fixtures.MathFlow.flow()))
+      ] do
+    @kind kind
+    @target_callback callback
+    @tag :tmp_dir
+    test "validation loads an unloaded #{@kind} descriptor target", %{tmp_dir: tmp_dir} do
+      module = Module.concat(__MODULE__, "Unloaded#{@kind}")
+
+      definition =
+        quote do
+          def __jido_executable__,
+            do: %Jido.Executable{kind: unquote(@kind), target: __MODULE__}
+
+          def validate_params(params), do: {:ok, params}
+          def validate_output(output), do: {:ok, output}
+          unquote(@target_callback)
+        end
+
+      {:module, ^module, beam, _value} = Module.create(module, definition, __ENV__)
+      File.write!(Path.join(tmp_dir, Atom.to_string(module) <> ".beam"), beam)
+      Code.prepend_path(tmp_dir)
+
+      on_exit(fn ->
+        Code.delete_path(tmp_dir)
+        :code.delete(module)
+        :code.purge(module)
+      end)
+
+      :code.delete(module)
+      :code.purge(module)
+      assert :code.is_loaded(module) == false
+
+      descriptor = %Executable{kind: @kind, target: module}
+      assert :ok = Executable.validate(descriptor)
+      assert {:ok, ^descriptor} = Executable.resolve(module)
+      if @kind == :flow, do: refute(function_exported?(module, :run, 2))
+    end
+  end
+
+  test "descriptor validation retains errors for missing modules and callbacks" do
+    for {kind, module, callback} <- [
+          {:action, __MODULE__.UnknownExecutable, "run/2"},
+          {:flow, __MODULE__.UnknownExecutable, "flow/0"},
+          {:action, MissingRun, "run/2"},
+          {:action, MissingValidateParams, "validate_params/1"},
+          {:action, MissingValidateOutput, "validate_output/1"},
+          {:flow, MissingFlowDefinition, "flow/0"},
+          {:flow, MissingFlowParams, "validate_params/1"},
+          {:flow, MissingFlowOutput, "validate_output/1"}
+        ] do
+      assert {:error, %Jido.Action.Error.InvalidInputError{} = error} =
+               Executable.validate(%Executable{kind: kind, target: module})
+
+      assert error.message == "module is not a valid Jido executable"
+      assert error.details == %{executable: module, reason: "missing #{callback}"}
+    end
   end
 
   test "validation checks the common module callbacks" do

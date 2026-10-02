@@ -2,6 +2,7 @@ defmodule JidoActionTest.Exec.CustomFlowValidationTest do
   use ExUnit.Case, async: true
 
   alias Jido.{Exec, Flow, Instruction}
+  alias Jido.Action.Output
   alias Jido.Flow.{Ref, Step, Subflow}
 
   defmodule CustomError do
@@ -62,6 +63,107 @@ defmodule JidoActionTest.Exec.CustomFlowValidationTest do
   defmodule Continue do
     use Jido.Action, name: "continue_custom_flow"
     def run(params, _), do: {:continue, params, CustomFlow}
+  end
+
+  defmodule OutputEffect do
+    use Jido.Action, name: "custom_flow_output_effect"
+    def run(params, _context), do: {:ok, params, [:child_effect]}
+  end
+
+  defmodule OutputFlow do
+    @behaviour Jido.Executable
+    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+
+    def flow do
+      Flow.new!(
+        name: "custom_output_shape",
+        components: [Step.new!(name: "effect", action: OutputEffect)],
+        output: Ref.input(:output)
+      )
+    end
+
+    def validate_params(params), do: {:ok, params}
+
+    def validate_output(output) do
+      :telemetry.execute([:jido_action_test, :custom_flow, :output], %{}, %{output: output})
+
+      case output do
+        %{replace_with: value} -> {:ok, value}
+        value when is_list(value) -> {:ok, %{repaired: value}}
+        value -> {:ok, value}
+      end
+    end
+  end
+
+  test "root and nested custom Flows enforce output shapes around one validation call" do
+    handler = make_ref()
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        [:jido_action_test, :custom_flow, :output],
+        &__MODULE__.record_output_validation/4,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    parent =
+      Flow.new!(
+        name: "custom_output_parent",
+        components: [Subflow.new!(name: "child", flow: OutputFlow, params: Ref.input([]))],
+        output: %{child: Ref.result("child")}
+      )
+
+    invalid = [[1], MapSet.new([1]), %Output{kind: :batch, value: :not_a_list}]
+    stream = Output.stream(Stream.map([1], fn _ -> raise "stream was consumed" end))
+    valid = [%{value: 1}, Output.raw(1), Output.batch([1]), stream]
+
+    cases =
+      Enum.map(invalid, &{&1, :error, 0}) ++
+        Enum.map(invalid, &{%{replace_with: &1}, :error, 1}) ++
+        Enum.map(valid, &{&1, {:ok, &1}, 1}) ++
+        [{%{replace_with: %{value: 2}}, {:ok, %{value: 2}}, 1}]
+
+    for {target, nested?} <- [{OutputFlow, false}, {parent, true}],
+        mode <- [:run, :async, :paused],
+        {output, expected, calls} <- cases do
+      result = execute_output_flow(target, %{output: output}, mode)
+
+      case expected do
+        :error ->
+          assert {:error, error} = result
+          assert is_exception(error)
+
+          if nested? do
+            assert error.details.phase == :subflow_output
+            assert error.details.node_path == ["child"]
+            assert error.details.component == "child"
+          end
+
+        {:ok, value} ->
+          value = if nested?, do: %{child: value}, else: value
+          assert result == {:ok, value, [:child_effect]}
+      end
+
+      if calls == 1, do: assert_received({:output_validated, ^output})
+      refute_received {:output_validated, _}
+    end
+  end
+
+  def record_output_validation(_event, _measurements, %{output: output}, owner) do
+    send(owner, {:output_validated, output})
+  end
+
+  defp execute_output_flow(target, input, :run), do: Exec.run(target, input)
+
+  defp execute_output_flow(target, input, :async),
+    do: target |> Exec.run_async(input) |> Exec.await()
+
+  defp execute_output_flow(target, input, :paused) do
+    assert {:ok, execution} = Exec.start(target, input)
+    assert {:ok, execution} = Exec.continue(execution)
+    Exec.result(execution)
   end
 
   defp parent do

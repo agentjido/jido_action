@@ -91,9 +91,8 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
 
         assert_receive {:blocking_flow_node_started, worker}, 1_000, inspect({form, mode})
 
-        if mode == :run,
-          do: assert(worker == elem(caller, 0)),
-          else: assert(worker in Task.Supervisor.children(expected_supervisor))
+        refute worker == elem(caller, 0)
+        assert scope_controller(worker) in Task.Supervisor.children(expected_supervisor)
 
         refute worker in Task.Supervisor.children(Jido.Exec.TaskSupervisor)
         monitor = monitor_worker(worker)
@@ -115,7 +114,8 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
 
         caller = start_caller(fn -> finish_execution(execution, operation) end)
         assert_receive {:blocking_flow_node_started, worker}, 1_000
-        assert worker == elem(caller, 0)
+        refute worker == elem(caller, 0)
+        assert scope_controller(worker) in Task.Supervisor.children(route)
         send(worker, :finish)
         assert {:ok, %{value: ^operation}} = caller_result(caller)
       end
@@ -166,9 +166,8 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
       for _ <- 1..count do
         assert_receive {:blocking_flow_node_started, worker}, 1_000
 
-        if mode == :run,
-          do: assert(worker == elem(caller, 0)),
-          else: assert(worker in Task.Supervisor.children(route))
+        refute worker == elem(caller, 0)
+        assert scope_controller(worker) in Task.Supervisor.children(route)
 
         send(worker, :finish)
       end
@@ -219,17 +218,22 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
     workers =
       for _ <- 1..2 do
         assert_receive {:blocking_flow_node_started, worker}, 1_000
-        assert worker in Task.Supervisor.children(route)
+        assert scope_controller(worker) in Task.Supervisor.children(route)
         worker
       end
 
     Enum.each(workers, &send(&1, :finish))
 
-    for _ <- 1..3 do
-      assert_receive {:blocking_flow_node_started, worker}, 1_000
-      assert worker == elem(caller, 0)
-      send(worker, :finish)
-    end
+    serial_workers =
+      for _ <- 1..3 do
+        assert_receive {:blocking_flow_node_started, worker}, 1_000
+        refute worker == elem(caller, 0)
+        assert scope_controller(worker) in Task.Supervisor.children(route)
+        send(worker, :finish)
+        worker
+      end
+
+    assert length(Enum.uniq(workers ++ serial_workers)) == 5
 
     assert {:ok, %{iterations: 1, output: %{value: :iteration}}} = caller_result(caller)
   end
@@ -246,7 +250,7 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
       handle = Exec.run_async(instruction, %{}, %{}, task_supervisor: route)
       assert_receive {:blocking_flow_node_started, worker}, 1_000
       children = Task.Supervisor.children(route)
-      assert worker in children
+      assert scope_controller(worker) in children
       assert handle.pid in children
       send(worker, :finish)
       assert {:ok, %{}} = Exec.await(handle)
@@ -281,9 +285,9 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
     on_exit(fn -> Process.exit(caller, :kill) end)
 
     assert_receive {:blocking_flow_node_started, worker}, 1_000
-    :erlang.trace(supervisor, true, [:receive])
+    monitor = Process.monitor(worker)
     Process.exit(worker, :kill)
-    assert_receive {:trace, ^supervisor, :receive, {:EXIT, ^worker, :killed}}, 1_000
+    assert_receive {:DOWN, ^monitor, :process, ^worker, :killed}, 1_000
 
     assert_receive {:held_result,
                     {:error, %Jido.Action.Error.InternalError{details: %{reason: :killed}}}},
@@ -292,7 +296,6 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
     # The supervisor has received the exit before this call, so a restart
     # would already be visible. The caller stays alive until this assertion.
     assert Task.Supervisor.children(supervisor) == []
-    :erlang.trace(supervisor, false, [:receive])
     send(caller, :stop)
     assert_receive {:DOWN, ^caller_monitor, :process, ^caller, :normal}
   end
@@ -311,11 +314,11 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
       Exec.run_async(BlockingAction, %{}, %{test_pid: self()}, task_supervisor: second)
 
     assert_receive {:blocking_flow_node_started, second_worker}
-    assert first_worker in Task.Supervisor.children(first)
-    assert second_worker in Task.Supervisor.children(second)
+    assert scope_controller(first_worker) in Task.Supervisor.children(first)
+    assert scope_controller(second_worker) in Task.Supervisor.children(second)
 
     Supervisor.stop(first)
-    assert_receive {:DOWN, ^first_monitor, :process, ^first_worker, :shutdown}
+    assert_receive {:DOWN, ^first_monitor, :process, ^first_worker, :killed}
     assert {:error, %AsyncExecutionError{}} = Exec.await(first_handle)
     assert Process.alive?(second_worker)
     send(second_worker, :finish)
@@ -337,10 +340,8 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
       replacement = start_supervised!({Task.Supervisor, name: route})
       refute original == replacement
 
-      assert {:ok, failed} = Exec.continue(pinned)
-
-      assert {:error, %{details: %{reason: {:start_error, {:exit, {:noproc, _}}}}}} =
-               Exec.result(failed)
+      assert {:error, %InvalidInputError{message: "Task Supervisor is not running"}} =
+               Exec.continue(pinned)
 
       refute_received {:blocking_flow_node_started, _}
 
@@ -348,7 +349,7 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
 
       for _ <- 1..2 do
         assert_receive {:blocking_flow_node_started, worker}, 1_000
-        assert worker in Task.Supervisor.children(replacement)
+        assert scope_controller(worker) in Task.Supervisor.children(replacement)
         send(worker, :finish)
       end
 
@@ -374,9 +375,9 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
       assert_receive {:blocking_flow_node_started, worker}
       monitor = monitor_worker(worker)
       Supervisor.stop(supervisor)
-      assert_receive {:DOWN, ^monitor, :process, ^worker, :shutdown}
+      assert_receive {:DOWN, ^monitor, :process, ^worker, :killed}
 
-      assert {:error, %{details: %{reason: :shutdown}}} = caller_result(caller)
+      assert {:error, %{details: %{reason: :killed}}} = caller_result(caller)
     end
   end
 
@@ -474,11 +475,7 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
       send(lookup_caller, {ref, failure})
       assert {:error, error} = caller_result(caller)
 
-      assert error.__struct__ ==
-               if(mode in [:async, :finite],
-                 do: InvalidInputError,
-                 else: Jido.Flow.Error.InvalidExecutionError
-               )
+      assert error.__struct__ == InvalidInputError
 
       assert error.message == "Task Supervisor lookup failed"
       assert error.details.task_supervisor == route
@@ -561,12 +558,13 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
       Exec.run_async(BlockingAction, %{}, %{}, task_supervisor: full)
     end
 
-    handle = Exec.run_async(BlockingAction, %{}, %{}, task_supervisor: one)
-
-    assert {:error, %Jido.Action.Error.InternalError{details: %{reason: :max_children}}} =
-             Exec.await(handle)
-
-    refute_received {:blocking_flow_node_started, _}
+    handle = Exec.run_async(BlockingAction, %{}, %{test_pid: self()}, task_supervisor: one)
+    assert_receive {:blocking_flow_node_started, worker}
+    assert [control] = Task.Supervisor.children(one)
+    assert control == handle.pid
+    refute worker == control
+    send(worker, :finish)
+    assert {:ok, %{}} = Exec.await(handle)
   end
 
   test "unknown options fail before Action work" do
@@ -684,5 +682,12 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
     else
       Exec.result(execution)
     end
+  end
+
+  defp scope_controller(worker) do
+    {:dictionary, dictionary} = Process.info(worker, :dictionary)
+    [supervisor | _] = dictionary[:"$ancestors"]
+    {:dictionary, dictionary} = Process.info(supervisor, :dictionary)
+    hd(dictionary[:"$ancestors"])
   end
 end

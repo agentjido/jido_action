@@ -132,7 +132,7 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
   alias JidoActionTest.Fixtures.Actions.{Add, EchoParamsAction, RecorderAction}
   alias Jido.Exec.Work
 
-  test "preserves caller Logger metadata in serial and concurrent runnables" do
+  test "does not copy or inject Logger metadata in serial and concurrent runnables" do
     flow =
       Flow.new!(
         name: "async_logger_metadata",
@@ -152,10 +152,11 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
 
       for id <- [:first, :second] do
         assert_receive {:action_logger_metadata, ^id, metadata}
-        assert metadata[metadata_key] == "request-123"
+        assert metadata == []
       end
     end
 
+    assert Logger.metadata()[metadata_key] == "request-123"
     refute_received {:action_logger_metadata, _, _}
   end
 
@@ -276,10 +277,10 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     assert {:error, %InvalidExecutionError{details: %{option: :max_concurrency}}} =
              Exec.run(flow, %{value: 3}, %{}, max_concurrency: 0)
 
-    assert {:error, %InvalidExecutionError{message: "run options must be a keyword list"}} =
+    assert {:error, %InvalidInputError{message: "run options must be a keyword list"}} =
              Exec.run(flow, %{}, %{}, :not_options)
 
-    assert {:error, %InvalidExecutionError{message: "run options must be a keyword list"}} =
+    assert {:error, %InvalidInputError{message: "run options must be a keyword list"}} =
              Exec.run(flow, %{}, %{}, [{:timeout, 10}, :not_an_option])
   end
 
@@ -389,7 +390,7 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
              {:ok, %{value: 2}}
   end
 
-  test "direct calls need no supervisor slot; timed calls report capacity failures" do
+  test "direct and timed calls report supervisor capacity failures" do
     instance = Module.concat(__MODULE__, CapacityLimitedJido)
     task_supervisor = Module.concat(instance, TaskSupervisor)
 
@@ -400,27 +401,22 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
       )
     )
 
-    assert Exec.run(Add, %{value: 1}, %{}, task_supervisor: task_supervisor) == {:ok, %{value: 2}}
-
-    assert {:error,
-            %Jido.Action.Error.InternalError{
-              message: "Execution process could not start",
-              details: %{reason: :max_children, task_supervisor: ^task_supervisor}
-            }} = Exec.run(Add, %{value: 1}, %{}, task_supervisor: task_supervisor, timeout: 1_000)
+    for timeout <- [:infinity, 1_000] do
+      assert {:error,
+              %Jido.Action.Error.InternalError{
+                message: "Execution process could not start",
+                details: %{reason: :max_children, task_supervisor: ^task_supervisor}
+              }} =
+               Exec.run(Add, %{value: 1}, %{}, task_supervisor: task_supervisor, timeout: timeout)
+    end
   end
 
   test "a zero timeout dispatches no work for every executable form" do
     for {form, {target, input, context}} <-
           ExecFixtures.blocking_execution_forms(BlockingFlow, self()) do
-      case Exec.run(target, input, context, timeout: 0) do
-        {:error, %ActionTimeoutError{timeout: 0}}
-        when form in [:action, :action_instruction, :flow_module, :flow_instruction] ->
-          :ok
-
-        {:error, %FlowTimeoutError{timeout: 0}}
-        when form in [:flow_value, :subflow] ->
-          :ok
-      end
+      assert {:error, %Jido.Exec.Error.TimeoutError{timeout: 0}} =
+               Exec.run(target, input, context, timeout: 0),
+             to_string(form)
 
       refute_received {:blocking_flow_node_started, _worker}
     end
@@ -467,7 +463,7 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     assert {:error, %InvalidInputError{details: %{option: :task_supervisor, value: "bad"}}} =
              Exec.run(Add, %{value: 1}, %{}, task_supervisor: "bad")
 
-    assert {:error, %InvalidExecutionError{details: %{option: :task_supervisor, value: "bad"}}} =
+    assert {:error, %InvalidInputError{details: %{option: :task_supervisor, value: "bad"}}} =
              Exec.run(flow, %{value: 1}, %{}, task_supervisor: "bad")
 
     missing_instance = Module.concat(__MODULE__, MissingJidoInstance)
@@ -475,23 +471,13 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
 
     for {form, {target, input, context}} <-
           ExecFixtures.blocking_execution_forms(BlockingFlow, self()) do
-      case Exec.run(target, input, context, task_supervisor: missing_supervisor) do
-        {:error,
-         %InvalidInputError{
-           message: "Task Supervisor is not running",
-           details: %{task_supervisor: ^missing_supervisor}
-         }}
-        when form in [:action, :action_instruction] ->
-          :ok
-
-        {:error,
-         %InvalidExecutionError{
-           message: "Task Supervisor is not running",
-           details: %{task_supervisor: ^missing_supervisor}
-         }}
-        when form in [:flow_value, :flow_module, :flow_instruction, :subflow] ->
-          :ok
-      end
+      assert {:error,
+              %InvalidInputError{
+                message: "Task Supervisor is not running",
+                details: %{task_supervisor: ^missing_supervisor}
+              }} =
+               Exec.run(target, input, context, task_supervisor: missing_supervisor),
+             to_string(form)
 
       refute_received {:blocking_flow_node_started, _worker}
     end

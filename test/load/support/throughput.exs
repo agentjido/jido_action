@@ -173,8 +173,6 @@ defmodule JidoActionLoad.Throughput do
     try do
       observe_case(pid, monitor, benchmark, settings.max_case_process_bytes, 0)
     after
-      # A killed probe cannot run its own `after` clause. Do not leave global
-      # call-time patterns active for the next case.
       Enum.each(@phase_calls, &:erlang.trace_pattern(&1, false, [:call_time]))
     end
   end
@@ -445,10 +443,6 @@ defmodule JidoActionLoad.Throughput do
     id = "throughput_#{System.unique_integer([:positive])}"
     span = Exec.Telemetry.start([:jido, :flow], %{execution_id: id, flow: flow.name})
 
-    runner = fn target, params, context, execution_id, owner ->
-      Exec.Flow.TargetRunner.run(target, params, context, execution_id, options, flow.name, owner)
-    end
-
     {:ok, execution} =
       Exec.Flow.Engine.start(
         flow,
@@ -458,7 +452,6 @@ defmodule JidoActionLoad.Throughput do
         %{
           options: options,
           finalizer: &{:ok, &1},
-          target_runner: runner,
           execution_id: id,
           lifecycle: %{flow: span}
         }

@@ -21,11 +21,15 @@ defmodule Jido.Exec.Runtime do
   end
 
   @doc false
-  @spec start_child(supervisor_reference(), (-> term())) :: {:ok, pid()} | {:error, term()}
-  def start_child(supervisor, work) do
+  @spec start_control(supervisor_reference(), (-> term())) ::
+          {:ok, pid(), pid()} | {:error, term()}
+  def start_control(supervisor, work) do
     case GenServer.whereis(supervisor) do
       pid when is_pid(pid) and node(pid) == node() ->
-        Task.Supervisor.start_child(pid, work, restart: :temporary)
+        with {:ok, worker} <-
+               Task.Supervisor.start_child(pid, work, restart: :temporary, shutdown: :brutal_kill) do
+          {:ok, worker, pid}
+        end
 
       nil ->
         {:error, :noproc}
@@ -37,6 +41,17 @@ defmodule Jido.Exec.Runtime do
     error -> {:error, {:error, error}}
   catch
     kind, reason -> {:error, {kind, reason}}
+  end
+
+  @doc false
+  @spec retire_child(pid(), pid()) :: :ok
+  def retire_child(supervisor, worker) do
+    # DOWN at the caller does not prove that the host processed its EXIT.
+    # A synchronous removal releases the capacity before the next call starts.
+    Task.Supervisor.terminate_child(supervisor, worker)
+    :ok
+  catch
+    :exit, _reason -> :ok
   end
 
   defp validate_options(opts) when is_list(opts) do

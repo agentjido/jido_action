@@ -99,16 +99,16 @@ defmodule JidoActionTest.Exec.ExecutionControlTest do
 
       try do
         if order == :cancel_first,
-          do: send(handle.pid, {Jido.Exec.Async, handle.ref, {:stop, error}})
+          do: send(handle.pid, {Jido.Exec.Controller, handle.ref, {:stop, error}})
 
         send(action, {token, :finish, {:ok, %{value: 7}}})
         assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :normal}, 1_000
 
         assert {:messages, messages} = Process.info(handle.pid, :messages)
-        assert Enum.any?(messages, &match?({_, ^worker, {:ok, %{value: 7}}}, &1))
+        assert Enum.any?(messages, &match?({ref, {:ok, %{value: 7}}} when is_reference(ref), &1))
 
         if order == :result_first,
-          do: send(handle.pid, {Jido.Exec.Async, handle.ref, {:stop, error}})
+          do: send(handle.pid, {Jido.Exec.Controller, handle.ref, {:stop, error}})
       after
         :erlang.resume_process(handle.pid)
       end
@@ -134,11 +134,11 @@ defmodule JidoActionTest.Exec.ExecutionControlTest do
     :erlang.suspend_process(handle.pid)
 
     try do
-      send(handle.pid, {make_ref(), worker, {:ok, %{wrong: :reference}}})
+      send(handle.pid, {make_ref(), {:ok, %{wrong: :reference}}})
 
       send(
         handle.pid,
-        {Jido.Exec.Async, make_ref(), {:stop, RuntimeError.exception("wrong ref")}}
+        {Jido.Exec.Controller, make_ref(), {:stop, RuntimeError.exception("wrong ref")}}
       )
 
       send(action, {token, :finish, {:ok, %{value: 7}}})
@@ -164,7 +164,7 @@ defmodule JidoActionTest.Exec.ExecutionControlTest do
       assert_receive {^token, :ready, :first, first_action, tracker}, 1_000
       send(first_action, {token, :finish, {:continue, %{phase: :next}, target}})
       assert_receive {^token, :ready, :next, action, ^tracker}, 1_000
-      assert action == first_action
+      refute action == first_action
       worker = action
       owned = monitor_owned(handle, action, tracker, worker)
 
@@ -192,17 +192,15 @@ defmodule JidoActionTest.Exec.ExecutionControlTest do
           Process.exit(worker, :kill)
           assert {:error, error} = Exec.await(handle, 1_000)
 
-          expected_type =
-            if direction == :action_to_flow,
-              do: Jido.Flow.Error.InternalError,
-              else: Jido.Action.Error.InternalError
+          assert error.__struct__ == Jido.Action.Error.InternalError
+          assert error.details.reason == :killed
 
-          assert error.__struct__ == expected_type
-          assert error.details == %{reason: :killed}
+          if direction == :action_to_flow,
+            do: assert(error.details.phase == :step_execution)
       end
 
       assert_cleanup(context, handle, owned)
-      {starts, errors} = if direction == :action_to_flow, do: {4, 3}, else: {3, 1}
+      {starts, errors} = if direction == :action_to_flow, do: {4, 3}, else: {5, 1}
       assert_lifecycles(token, starts, errors)
     end
   end
@@ -231,7 +229,7 @@ defmodule JidoActionTest.Exec.ExecutionControlTest do
     assert_receive {^token, :ready, :first, first_action, tracker}, 1_000
     send(first_action, {token, :finish, {:continue, %{phase: :next}, held_flow()}})
     assert_receive {^token, :ready, :next, action, ^tracker}, 1_000
-    assert action == first_action
+    refute action == first_action
     owned = monitor_owned(handle, action, tracker, action)
     send(owner, {token, :exit})
     assert_receive {:DOWN, ^owner_monitor, :process, ^owner, :normal}, 1_000
@@ -291,7 +289,7 @@ defmodule JidoActionTest.Exec.ExecutionControlTest do
   end
 
   defp monitor_owned(handle, action, tracker, worker) do
-    assert is_reference(tracker)
+    assert tracker == handle.pid
 
     for pid <- Enum.uniq([handle.pid, action, worker]) do
       monitor = Process.monitor(pid)

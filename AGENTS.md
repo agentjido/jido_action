@@ -176,6 +176,12 @@ for validation, return normalization, and error behavior.
 
 ### Execution And OTP
 
+- Each Action invocation must use a fresh supervised Task, including with
+  `timeout: :infinity`, inside serial or concurrent Flows, and through
+  continuations. Input validation, the callback, output validation, and result
+  normalization use that Task. Every root Flow also uses a fresh Task for
+  validation and graph work. Each root Task must exit before the next root
+  executable starts. Keep the complete-call deadline and concurrency limit.
 - For Flows that support step-wise execution, run-to-completion and step-wise
   execution must use the same Flow semantics and return the same final value.
 - A Flow with Dynamic is run-to-completion only. Step-wise execution and
@@ -188,14 +194,16 @@ for validation, return normalization, and error behavior.
 - Failure lists and node results use canonical node order.
 - `max_concurrency` applies across one execution, including nested Flows and
   collection work. Reduce and Iterate work stays serial.
-- Keep active worker PIDs and monitors in controller or scheduler state.
-  Living controllers enforce complete-call timeouts and explicit cancellation,
-  including concurrent callbacks that trap exits. Async controllers also
-  monitor the handle owner and cancel work when that owner dies.
-- Worker termination after abrupt caller, controller, or scheduler death is
-  deliberately not guaranteed. Do not add execution guards, ownership tables,
-  or global services to restore that rejected guarantee. Links and try/after
-  do not guarantee cleanup after arbitrary process death.
+- Each call has one control Task under the selected host Task Supervisor and
+  one private linked Task Supervisor. All executable and runnable Tasks are
+  temporary children of the private supervisor with brutal-kill shutdown.
+- Caller or async owner death stops the call. Control, Flow, and compound
+  runnable death must leave no active Action workers. Ordinary Action errors
+  can let admitted siblings finish. The private supervisor owns Tasks; the
+  scheduler owns Task results. Controller links support cleanup after a hard
+  supervisor failure. Do not add duplicate worker registries or global tables.
+- A paused Execution must contain no controller or supervisor references.
+  Supply new call data for each operation and detach it before returning.
 - Release task slots, monitors, messages, and telemetry spans on normal and
   handled error paths. Keep bounded cleanup for revision helpers. Supervisor
   startup and telemetry are synchronous, as in V2; blocked startup or cleanup

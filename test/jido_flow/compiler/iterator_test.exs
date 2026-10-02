@@ -10,7 +10,7 @@ defmodule JidoActionTest.Flow.Compiler.IteratorTest do
     test "contains failures before the iteration starts" do
       state = runtime_state(fn _action, _params, _context, _execution_id, _owner -> :unused end)
 
-      assert {:error, %Jido.Flow.Error.InternalError{details: details}, ^state} =
+      assert {:error, %Jido.Flow.Error.InternalError{details: details}} =
                IteratorCompiler.run(%{name: "broken"}, state)
 
       assert details.phase == :iterate_internal
@@ -23,7 +23,7 @@ defmodule JidoActionTest.Flow.Compiler.IteratorTest do
           ] do
         state = %{state | observer: observer}
 
-        assert {:error, %Jido.Flow.Error.InternalError{details: details}, ^state} =
+        assert {:error, %Jido.Flow.Error.InternalError{details: details}} =
                  IteratorCompiler.run(iterator(), state)
 
         assert details.error_type == error_type
@@ -31,7 +31,7 @@ defmodule JidoActionTest.Flow.Compiler.IteratorTest do
       end
     end
 
-    test "completion failure sees updated state and returns the original execution state" do
+    test "completion failure sees updated state and reports the iteration" do
       test_pid = self()
 
       state =
@@ -56,7 +56,7 @@ defmodule JidoActionTest.Flow.Compiler.IteratorTest do
             Jido.Expr.new!(:gte, [Jido.Expr.new!(:add, [Jido.Flow.Ref.state(:guard), 0]), 0])
       }
 
-      assert {:error, %Jido.Flow.Error.ExecutionFailureError{} = error, ^state} =
+      assert {:error, %Jido.Flow.Error.ExecutionFailureError{} = error} =
                IteratorCompiler.run(iterator, state)
 
       assert error.message == "invalid iterator completion condition operands"
@@ -81,7 +81,7 @@ defmodule JidoActionTest.Flow.Compiler.IteratorTest do
       for {target_runner, error_type} <- failures do
         state = runtime_state(target_runner)
 
-        assert {:error, %Jido.Flow.Error.InternalError{details: details}, ^state} =
+        assert {:error, %Jido.Flow.Error.InternalError{details: details}} =
                  IteratorCompiler.run(iterator(), state)
 
         assert details.phase == :iterate_internal

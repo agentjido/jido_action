@@ -5,10 +5,11 @@ defmodule Jido.Exec.Telemetry do
   alias Jido.Flow.Error
 
   @typedoc false
-  @type tracker :: reference() | nil
+  @type tracker :: pid() | nil
 
   @type span :: %{
-          owner: pid(),
+          owner: pid() | nil,
+          parent_id: reference() | nil,
           event: [atom()],
           id: reference(),
           metadata: map(),
@@ -19,6 +20,7 @@ defmodule Jido.Exec.Telemetry do
         }
 
   @tracker_key {__MODULE__, :tracker}
+  @parent_key {__MODULE__, :parent}
 
   @doc "Creates a random execution correlation identifier."
   @spec execution_id() :: String.t()
@@ -33,11 +35,20 @@ defmodule Jido.Exec.Telemetry do
   def start(event, metadata) do
     started_at = System.monotonic_time()
     tracker = tracker()
+    id = make_ref()
+    parent_id = parent()
+
+    metadata =
+      Map.merge(metadata, %{span_id: id, parent_span_id: parent_id})
+      |> Map.put_new(:node_path, [])
+
+    Process.put(@parent_key, id)
 
     span = %{
       owner: self(),
       event: event,
-      id: make_ref(),
+      id: id,
+      parent_id: parent_id,
       metadata: metadata,
       started_at: started_at,
       system_time: System.system_time(),
@@ -75,26 +86,44 @@ defmodule Jido.Exec.Telemetry do
   end
 
   @doc false
-  @spec tracker() :: tracker()
-  def tracker, do: Process.get(@tracker_key)
+  @spec parent() :: reference() | nil
+  def parent, do: Process.get(@parent_key)
 
   @doc false
-  @spec put_tracker(tracker()) :: tracker()
-  def put_tracker(tracker) do
-    Process.put(@tracker_key, tracker)
-  end
-
-  @doc false
-  @spec with_tracker(tracker(), (-> result)) :: result when result: term()
-  def with_tracker(tracker, fun) when is_function(fun, 0) do
-    prior = put_tracker(tracker)
+  @spec with_context(tracker(), reference() | nil, (-> term())) :: term()
+  def with_context(tracker, parent, work) do
+    prior = Process.put(@parent_key, parent)
+    prior_tracker = Process.put(@tracker_key, tracker)
 
     try do
-      fun.()
+      work.()
     after
-      put_tracker(prior)
+      Process.put(@parent_key, prior)
+      Process.put(@tracker_key, prior_tracker)
     end
   end
+
+  @doc false
+  @spec detach(span()) :: span()
+  def detach(span), do: %{span | owner: nil, tracker: nil, parent_id: nil}
+
+  @doc false
+  @spec resume(span()) :: span()
+  def resume(span) do
+    span = %{
+      span
+      | owner: self(),
+        tracker: tracker(),
+        parent_id: Process.put(@parent_key, span.id)
+    }
+
+    notify(span.tracker, {:open, span})
+    span
+  end
+
+  @doc false
+  @spec tracker() :: tracker()
+  def tracker, do: Process.get(@tracker_key)
 
   @doc false
   @spec record(map(), {:open, span()} | {:close, reference()}) :: map()
@@ -102,18 +131,18 @@ defmodule Jido.Exec.Telemetry do
   def record(spans, {:close, id}), do: Map.delete(spans, id)
 
   @doc false
-  @spec drain(reference(), map()) :: map()
-  def drain(ref, spans) do
+  @spec drain(map()) :: map()
+  def drain(spans) do
     receive do
-      {^ref, :telemetry, event} -> drain(ref, record(spans, event))
+      {:telemetry, event} -> drain(record(spans, event))
     after
-      0 -> drain_failures(ref, spans)
+      0 -> drain_failures(spans)
     end
   end
 
-  defp drain_failures(ref, spans) do
+  defp drain_failures(spans) do
     receive do
-      {^ref, :worker_error, worker, error} -> drain_failures(ref, fail(spans, error, worker))
+      {:worker_error, worker, error} -> drain_failures(fail(spans, error, worker))
     after
       0 -> spans
     end
@@ -135,8 +164,8 @@ defmodule Jido.Exec.Telemetry do
   end
 
   @doc false
-  @spec fail_worker(reference(), pid(), term()) :: term()
-  def fail_worker(ref, worker, error), do: send(ref, {ref, :worker_error, worker, error})
+  @spec fail_worker(pid(), pid(), term()) :: term()
+  def fail_worker(controller, worker, error), do: send(controller, {:worker_error, worker, error})
 
   @doc false
   @spec emit_start(span()) :: :ok
@@ -166,10 +195,12 @@ defmodule Jido.Exec.Telemetry do
   defp emit(span, suffix, extra_metadata) do
     notify(span.tracker, {:close, span.id})
     emit_terminal(span, suffix, extra_metadata)
+    Process.put(@parent_key, span.parent_id)
+    :ok
   end
 
   defp notify(nil, _event), do: :ok
-  defp notify(ref, event), do: send(ref, {ref, :telemetry, event})
+  defp notify(controller, event), do: send(controller, {:telemetry, event})
 
   defp error_type(error) when is_exception(error) do
     error_map = if ExecError.owned?(error), do: ExecError.to_map(error), else: Error.to_map(error)

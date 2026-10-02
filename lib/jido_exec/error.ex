@@ -1,10 +1,10 @@
 defmodule Jido.Exec.Error do
   @moduledoc """
-  Defines errors for the target-neutral asynchronous execution lifecycle.
+  Defines target-neutral errors for execution and asynchronous handles.
 
   Action and Flow failures keep their original error types. These errors cover
-  only handle validation, message handling, waiting, cancellation, and
-  failures of the managed asynchronous execution process.
+  zero-timeout rejection before target resolution, handle validation, message
+  handling, waiting, cancellation, and control process failures.
   """
 
   @type details_input :: map() | keyword()
@@ -14,6 +14,24 @@ defmodule Jido.Exec.Error do
           details: map(),
           retryable?: false
         }
+
+  defmodule TimeoutError do
+    @moduledoc "Error for a complete-call timeout before target resolution."
+    defexception message: "Execution timed out", timeout: nil, details: %{}
+    @type t :: %__MODULE__{message: String.t(), timeout: non_neg_integer() | nil, details: map()}
+  end
+
+  @doc "Creates a complete-call timeout error before target resolution."
+  @spec call_timeout_error(String.t(), details_input()) :: TimeoutError.t()
+  def call_timeout_error(message, details \\ %{}) do
+    details = normalize_details(details)
+
+    TimeoutError.exception(
+      message: message,
+      timeout: Map.get(details, :timeout),
+      details: details
+    )
+  end
 
   defmodule InvalidHandleError do
     @moduledoc "Error for an invalid asynchronous execution handle or operation."
@@ -77,8 +95,9 @@ defmodule Jido.Exec.Error do
     CancelledError.exception(message: message, details: normalize_details(details))
   end
 
-  @doc "Returns whether a value is an error owned by the async execution boundary."
+  @doc "Returns whether a value is an error owned by the execution boundary."
   @spec owned?(term()) :: boolean()
+  def owned?(%TimeoutError{}), do: true
   def owned?(%InvalidHandleError{}), do: true
   def owned?(%AsyncTimeoutError{}), do: true
   def owned?(%AsyncExecutionError{}), do: true
@@ -86,12 +105,15 @@ defmodule Jido.Exec.Error do
   def owned?(_error), do: false
 
   @doc """
-  Converts an async execution error into its public map.
+  Converts an execution error into its public map.
 
   Detail values stay unchanged. A caller that sends the map through JSON or
   another transport must convert its own detail values for that transport.
   """
   @spec to_map(Exception.t()) :: error_map()
+  def to_map(%TimeoutError{} = error),
+    do: error_map(:execution_timeout, error.message, error.details, timeout: error.timeout)
+
   def to_map(%InvalidHandleError{} = error),
     do: error_map(:async_invalid_handle, error.message, error.details)
 

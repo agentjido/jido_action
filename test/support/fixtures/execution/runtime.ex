@@ -259,10 +259,9 @@ end
 defmodule JidoActionTest.Fixtures.Transforms do
   @moduledoc false
 
-  @kinds [:input, :invalid_input, :output, :envelope_output, :invalid_output]
-
   def count(value, kind, _opts) do
-    Process.put({__MODULE__, kind}, calls(kind) + 1)
+    if counter = Process.whereis(__MODULE__),
+      do: Agent.update(counter, &Map.update(&1, kind, 1, fn count -> count + 1 end))
 
     transformed =
       case kind do
@@ -276,12 +275,8 @@ defmodule JidoActionTest.Fixtures.Transforms do
     {:ok, transformed}
   end
 
-  def calls(kind), do: Process.get({__MODULE__, kind}, 0)
-
-  def reset do
-    Enum.each(@kinds, &Process.delete({__MODULE__, &1}))
-    :ok
-  end
+  def calls(kind), do: Agent.get(__MODULE__, &Map.get(&1, kind, 0))
+  def reset, do: Agent.update(__MODULE__, fn _counts -> %{} end)
 end
 
 defmodule JidoActionTest.Fixtures.Iterator do

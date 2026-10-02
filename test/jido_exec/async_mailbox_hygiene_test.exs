@@ -23,8 +23,7 @@ defmodule JidoActionTest.Exec.AsyncMailboxHygieneTest do
       assert_receive {:DOWN, ^barrier, :process, _, :killed}, 1_000
       assert {:messages, messages} = Process.info(self(), :messages)
       assert {:DOWN, handle.monitor_ref, :process, handle.pid, :killed} in messages
-      send(worker, :finish)
-      assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :normal}, 1_000
+      assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :killed}, 1_000
 
       assert {:error, %Error.AsyncExecutionError{details: %{reason: :killed}}} =
                Exec.await(handle, timeout)
@@ -109,8 +108,7 @@ defmodule JidoActionTest.Exec.AsyncMailboxHygieneTest do
                details: %{operation: :handle_message, reason: :killed}
              }}} = Exec.handle_message(handle, down)
 
-    send(worker, :finish)
-    assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :normal}, 1_000
+    assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :killed}, 1_000
     refute_handle_messages(handle)
   end
 

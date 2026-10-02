@@ -1,86 +1,76 @@
 defmodule Jido.Exec.Worker do
   @moduledoc false
 
-  alias Jido.Exec.Runtime
-
-  @controller_key {__MODULE__, :controller}
+  alias Jido.Exec.{Controller, Telemetry}
 
   @doc false
-  @spec prepare(pid(), reference(), reference() | nil, (-> term())) :: (-> term())
-  def prepare(owner, ref, controller, work) do
-    group_leader = Process.group_leader()
-    metadata = Logger.metadata()
+  @spec invoke(Controller.call(), (-> term())) :: {:ok, term()} | {:error, Exception.t()}
+  def invoke(call, work) do
+    with {:ok, task} <- start(call, work) do
+      ref = task.ref
 
-    fn ->
-      if await_start(owner, controller || ref) do
-        Process.put(@controller_key, controller)
-        Process.group_leader(self(), group_leader)
-        Logger.metadata(metadata)
-        send(ref, {ref, self(), work.()})
+      receive do
+        {^ref, result} ->
+          finish(task)
+          {:ok, result}
+
+        {:DOWN, ^ref, :process, worker, reason} ->
+          error =
+            Jido.Action.Error.internal_error("Action execution process exited", %{reason: reason})
+
+          Telemetry.fail_worker(call.controller, worker, error)
+          {:error, error}
       end
+    else
+      {:error, reason} ->
+        {:error,
+         Jido.Action.Error.internal_error("Execution process could not start", %{
+           reason: reason,
+           retry: false
+         })}
     end
   end
 
   @doc false
-  @spec start(Runtime.supervisor_reference(), reference(), (-> term())) ::
-          {:ok, pid(), reference()} | {:error, term()}
-  def start(supervisor, ref, work) do
-    owner = self()
-    controller = Process.get(@controller_key)
-    work = prepare(owner, ref, controller, work)
+  @spec start(Controller.call(), (-> term()), :action | :compound) ::
+          {:ok, Task.t()} | {:error, term()}
+  def start(call, work, kind \\ :action) do
+    parent = Telemetry.parent()
 
-    case Runtime.start_child(supervisor, work) do
-      {:ok, worker} ->
-        monitor = Process.monitor(worker)
+    task =
+      Task.Supervisor.async_nolink(
+        call.supervisor,
+        fn ->
+          # Links keep the worker group observable after supervisor death.
+          # Register compounds before any nested Action starts, so their exits
+          # can stop the call while ordinary Action failures remain collectible.
+          Process.link(call.controller)
+          if kind == :compound, do: send(call.controller, {:compound, self()})
+          Process.group_leader(self(), call.group_leader)
+          Telemetry.with_context(call.controller, parent, work)
+        end,
+        shutdown: :brutal_kill
+      )
 
-        if controller,
-          do: send(controller, {controller, :child, worker}),
-          else: send(worker, {ref, :run})
-
-        {:ok, worker, monitor}
-
-      {:error, _} = error ->
-        error
-    end
-  end
-
-  defp await_start(owner, ref) do
-    # Only startup waits on the parent. Running callbacks can outlive it.
-    monitor = Process.monitor(owner)
-
-    receive do
-      {^ref, :run} ->
-        Process.demonitor(monitor, [:flush])
-        true
-
-      {:DOWN, ^monitor, :process, ^owner, _reason} ->
-        false
-    end
+    {:ok, task}
+  rescue
+    error -> {:error, {:error, error}}
+  catch
+    kind, reason -> {:error, {kind, reason}}
   end
 
   @doc false
-  @spec finish(pid(), reference()) :: :ok
-  def finish(worker, monitor) do
+  @spec finish(Task.t()) :: :ok
+  def finish(%Task{ref: ref, pid: pid} = task) do
+    # A result can arrive before the Task exits. Keep the Task boundary before
+    # a continuation or the next invocation starts.
     receive do
-      {:DOWN, ^monitor, :process, ^worker, _reason} -> :ok
+      {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
     after
-      1_000 -> Process.demonitor(monitor, [:flush])
+      1_000 -> Task.shutdown(task, :brutal_kill)
     end
 
-    :ok
-  end
-
-  @doc false
-  @spec terminate([{pid(), reference()}]) :: :ok
-  def terminate(workers) do
-    workers =
-      for {worker, monitor} <- workers do
-        Process.demonitor(monitor, [:flush])
-        {worker, Process.monitor(worker)}
-      end
-
-    for {worker, _monitor} <- workers, do: Process.exit(worker, :kill)
-    for {worker, monitor} <- workers, do: finish(worker, monitor)
+    Process.demonitor(ref, [:flush])
     :ok
   end
 end

@@ -8,12 +8,12 @@ defmodule Jido.Exec.Action.Adapter do
   alias Jido.Instruction
 
   @doc false
-  @spec run(Executable.t(), term(), term(), term(), String.t()) ::
+  @spec run(Executable.t(), term(), term(), term(), Jido.Exec.Controller.call()) ::
           {:ok, term()}
           | {:ok, term(), Jido.Action.effects()}
           | {:continue, Jido.Exec.Transition.t()}
           | {:error, Exception.t()}
-  def run(%Executable{target: action} = executable, input, context, opts, _execution_id) do
+  def run(%Executable{target: action} = executable, input, context, opts, _call) do
     with {:ok, run_opts} <- Options.validate_action(opts, :action),
          {:ok, instruction} <- normalize_instruction(action, input, context),
          :ok <- Executable.validate(executable) do
@@ -22,12 +22,17 @@ defmodule Jido.Exec.Action.Adapter do
   end
 
   @doc false
-  @spec run_instruction(Executable.t(), Instruction.t(), keyword(), String.t()) ::
+  @spec run_instruction(
+          Executable.t(),
+          Instruction.t(),
+          keyword(),
+          Jido.Exec.Controller.call()
+        ) ::
           {:ok, term()}
           | {:ok, term(), Jido.Action.effects()}
           | {:continue, Jido.Exec.Transition.t()}
           | {:error, Exception.t()}
-  def run_instruction(executable, %Instruction{} = instruction, opts, _execution_id) do
+  def run_instruction(executable, %Instruction{} = instruction, opts, _call) do
     with {:ok, run_opts} <- Options.validate_action(opts, :instruction),
          :ok <- Executable.validate(executable) do
       Runner.run(instruction, run_opts)

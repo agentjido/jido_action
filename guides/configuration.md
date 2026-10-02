@@ -75,20 +75,26 @@ Jido.Exec.run(MyApp.Flows.BuildReport, input, context, task_supervisor: route)
 ```
 
 Exec keeps the same reference and partition key through nested work and
-continuations. Names and via routes resolve at each task start, so later work
-can use a replacement supervisor. A PID selects only that process.
+continuations. One host supervisor owns the call control Task. Names and via
+routes resolve again for each paused operation, so a later operation can use a
+replacement supervisor. A PID selects only that process.
 
 The supervisor must be local; `nil`, remote references, and `:global` routes
 are invalid. Missing supervisors and task-start failures produce structured
 errors. Exec does not fall back to another supervisor or restart interrupted
 work. Failure details include the supplied `task_supervisor` and `reason`.
 
-The supervisor owns managed execution workers, concurrent wave workers, and
-async control tasks. An async call needs a control slot and an execution
-worker slot, plus slots for concurrent work. Direct serial calls use no slot. `run_async/4`
-raises `InvalidInputError` for invalid routing or `AsyncExecutionError` if its
-control task cannot start. After it returns a handle, failures use the normal
-async result contract.
+The selected supervisor owns one control Task per call, for both synchronous
+and asynchronous calls. That Task starts a private supervisor for executable
+and runnable Tasks. A host with `max_children: 1` can run one Flow with several
+concurrent Actions. Set `max_concurrency` to limit work inside that call.
+The host capacity limits active calls, not individual Actions.
+
+`run_async/4` raises `InvalidInputError` for malformed options or invalid
+routing, and `AsyncExecutionError` if its control Task cannot start. Once a handle exists,
+failures use the normal async result contract. Sync calls return routing and
+startup errors as `{:error, error}`. No routing check calls the target
+executable descriptor.
 
 `max_concurrency` limits Flow work, not every helper process or all callers
 that share a supervisor. Context values, including `context.jido`, remain

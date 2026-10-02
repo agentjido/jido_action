@@ -320,10 +320,11 @@ defmodule JidoActionTest.Exec.FlowActionContractTest do
 
       children = Task.Supervisor.children(supervisor)
       assert handle.pid in children
-      assert Enum.all?(workers, &(&1 in children))
+      assert children == [handle.pid]
+      assert Enum.all?(workers, &(&1 != handle.pid))
 
       monitors =
-        for child <- children do
+        for child <- children ++ workers do
           {child, Process.monitor(child)}
         end
 

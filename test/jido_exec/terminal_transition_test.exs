@@ -1,5 +1,5 @@
 defmodule JidoActionTest.Exec.TerminalTransitionTest do
-  use JidoActionTest.Case, async: true
+  use JidoActionTest.Case, async: false
 
   alias Jido.Action.Error.ExecutionFailureError
   alias Jido.Action.Output
@@ -105,7 +105,7 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
 
   defmodule CountingTarget do
     def __jido_executable__ do
-      if counter = Process.get(:terminal_transition_descriptor_counter) do
+      if counter = Process.whereis(__MODULE__) do
         Agent.update(counter, &(&1 + 1))
       end
 
@@ -260,8 +260,7 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
 
     test "resolves a continuation target exactly one time" do
       counter = start_supervised!({Agent, fn -> 0 end})
-      Process.put(:terminal_transition_descriptor_counter, counter)
-      on_exit(fn -> Process.delete(:terminal_transition_descriptor_counter) end)
+      Process.register(counter, CountingTarget)
 
       assert Exec.run(ContinueToCountingTarget, %{value: 3}) == {:ok, %{value: 3}}
       assert Agent.get(counter, & &1) == 1

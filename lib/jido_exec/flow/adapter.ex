@@ -8,7 +8,6 @@ defmodule Jido.Exec.Flow.Adapter do
   alias Jido.Exec.Flow.Engine
   alias Jido.Exec.Options
   alias Jido.Exec.Telemetry
-  alias Jido.Exec.Flow.TargetRunner
   alias Jido.Flow
   alias Jido.Flow.Compiler
   alias Jido.Flow.Dispatch
@@ -26,16 +25,16 @@ defmodule Jido.Exec.Flow.Adapter do
   end
 
   @doc false
-  @spec run(Executable.t(), term(), term(), term(), String.t()) ::
+  @spec run(Executable.t(), term(), term(), term(), Jido.Exec.Controller.call()) ::
           {:ok, term()}
           | {:ok, term(), Jido.Action.effects()}
           | {:continue, Jido.Exec.Transition.t()}
           | {:error, Exception.t()}
-  def run(executable, input, context, opts, execution_id) do
+  def run(executable, input, context, opts, call) do
     with {:ok, flow, compiled} <- materialize(executable),
          {:ok, execution} <-
-           start_flow(executable, flow, compiled, input, context, opts, execution_id, :run),
-         {:ok, execution} <- Engine.run_to_completion(execution) do
+           start_flow(executable, flow, compiled, input, context, opts, call.execution_id, :run),
+         {:ok, execution} <- Engine.run_to_completion(execution, call) do
       Engine.result(execution)
     else
       {:continue, %Jido.Exec.Transition{} = transition} -> {:continue, transition}
@@ -44,13 +43,18 @@ defmodule Jido.Exec.Flow.Adapter do
   end
 
   @doc false
-  @spec run_instruction(Executable.t(), Instruction.t(), keyword(), String.t()) ::
+  @spec run_instruction(
+          Executable.t(),
+          Instruction.t(),
+          keyword(),
+          Jido.Exec.Controller.call()
+        ) ::
           {:ok, term()}
           | {:ok, term(), Jido.Action.effects()}
           | {:continue, Jido.Exec.Transition.t()}
           | {:error, Exception.t()}
-  def run_instruction(executable, %Instruction{} = instruction, opts, execution_id) do
-    run(executable, instruction.params, instruction.context, opts, execution_id)
+  def run_instruction(executable, %Instruction{} = instruction, opts, call) do
+    run(executable, instruction.params, instruction.context, opts, call)
   end
 
   @doc false
@@ -147,24 +151,9 @@ defmodule Jido.Exec.Flow.Adapter do
            {:ok, context} <- Jido.Exec.Budget.attach(context, :infinity),
            {:ok, input} <- validate_flow_input(validator_module, flow, input),
            {:ok, input} <- validate_flow_input_shape(flow, input) do
-        flow_name = flow.name
-
-        target_runner = fn target, params, target_context, target_execution_id, owner ->
-          TargetRunner.run(
-            target,
-            params,
-            target_context,
-            target_execution_id,
-            run_opts,
-            flow_name,
-            owner
-          )
-        end
-
         control = %{
           options: run_opts,
           finalizer: fn output -> validate_flow_output(validator_module, flow, output) end,
-          target_runner: target_runner,
           execution_id: execution_id,
           lifecycle: %{flow: flow_span}
         }
@@ -194,7 +183,7 @@ defmodule Jido.Exec.Flow.Adapter do
 
   defp validate_flow_output(module, flow, output)
        when is_atom(module) and not is_nil(module) and is_map(output) do
-    with {:ok, output} <- validate_output_shape(flow, output, :run),
+    with {:ok, output} <- Compiler.validate_output_shape(flow, output, :run),
          {:ok, output} <- Compiler.validate_callback(module, :validate_output, output) do
       validate_flow_output_shape(flow, output)
     else
@@ -218,7 +207,7 @@ defmodule Jido.Exec.Flow.Adapter do
 
   defp validate_flow_output(flow, %Output{} = output) do
     flow
-    |> validate_output_shape(output, :output_schema)
+    |> Compiler.validate_output_shape(output, :output_schema)
     |> tag_flow_output_error(flow)
   end
 
@@ -245,7 +234,7 @@ defmodule Jido.Exec.Flow.Adapter do
 
   defp validate_flow_output_shape(flow, output) when is_map(output) do
     flow
-    |> validate_output_shape(output, :output_schema)
+    |> Compiler.validate_output_shape(output, :output_schema)
     |> tag_flow_output_error(flow)
   end
 
@@ -259,32 +248,12 @@ defmodule Jido.Exec.Flow.Adapter do
      })}
   end
 
-  defp validate_output_shape(_action, %Output{} = output, _callback), do: Output.validate(output)
-
-  defp validate_output_shape(action, output, callback) when is_map(output) do
-    if is_struct(output) and Enumerable.impl_for(output) do
-      invalid_validator_value(action, callback, output, :map_or_output_envelope)
-    else
-      {:ok, output}
-    end
-  end
-
   defp output_envelope_required(flow, output, callback) do
     {:error,
      Error.execution_error("Flow returned a value that requires an output envelope", %{
        flow: flow,
        callback: callback,
        output: output
-     })}
-  end
-
-  defp invalid_validator_value(flow, callback, result, expected) do
-    {:error,
-     Error.execution_error("Flow validator returned a value with an invalid shape", %{
-       flow: flow,
-       callback: callback,
-       expected: expected,
-       result: result
      })}
   end
 
@@ -317,7 +286,6 @@ defmodule Jido.Exec.Flow.Adapter do
   defp flow_boundary_error(error, context, subject, phase) do
     wrapped = Error.wrap(error, %{context: context, subject: subject, phase: phase})
 
-    # Generated module validators use Action errors. Keep the root Flow contract.
     case error do
       %Jido.Action.Error.InvalidInputError{
         message: message,

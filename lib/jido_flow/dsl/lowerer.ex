@@ -87,16 +87,20 @@ defmodule Jido.Flow.DSL.Lowerer do
 
   defp lower_entity(%Choice{} = choice) do
     with {:ok, options} <- lower_choice_options(choice.options),
-         {:ok, fallback} <- lower_fallback(choice.fallback),
-         {:ok, component} <-
-           FlowChoice.new(
+         {:ok, fallback} <- lower_fallback(choice.fallback) do
+      case FlowChoice.new(
              name: choice.name,
              options: options,
              fallback: fallback,
              needs: choice.needs,
              meta: choice.meta
            ) do
-      {:ok, {:component, component}}
+        {:ok, component} ->
+          {:ok, {:component, component}}
+
+        {:error, error} ->
+          {:error, attach_choice_location(error, choice, options, fallback)}
+      end
     end
   end
 
@@ -142,7 +146,7 @@ defmodule Jido.Flow.DSL.Lowerer do
          {:ok, while_condition} <- optional_condition(iterate.while),
          {:ok, completion, max_iterations} <-
            normalize_termination(iterate, while_condition),
-         {:ok, state} <- FlowIterate.State.new(Map.put(state, :update, update)),
+         {:ok, state} <- build_iterate_state(state, update, iterate.state),
          {:ok, component} <-
            FlowIterate.new(
              name: iterate.name,
@@ -242,6 +246,8 @@ defmodule Jido.Flow.DSL.Lowerer do
   defp lower_fallback(%Otherwise{} = fallback) do
     with {:ok, input} <- Expression.parse(fallback.params) do
       {:ok, %{action: fallback.action, params: input}}
+    else
+      {:error, error} -> {:error, attach_entity_location(error, fallback)}
     end
   end
 
@@ -254,6 +260,21 @@ defmodule Jido.Flow.DSL.Lowerer do
   defp lower_iterate_state(state) do
     with {:ok, initial} <- Expression.parse(state.initial) do
       {:ok, %{schema: state.schema, initial: initial}}
+    else
+      {:error, error} -> {:error, attach_entity_location(error, state)}
+    end
+  end
+
+  defp build_iterate_state(state, update, entity) do
+    case FlowIterate.State.new(Map.put(state, :update, update)) do
+      {:error, error} ->
+        case FlowIterate.State.new(Map.put(state, :update, Ref.body_result())) do
+          {:error, _state_error} -> {:error, attach_entity_location(error, entity)}
+          {:ok, _state} -> {:error, error}
+        end
+
+      result ->
+        result
     end
   end
 
@@ -318,6 +339,32 @@ defmodule Jido.Flow.DSL.Lowerer do
       end
 
     if entity, do: attach_entity_location(error, entity), else: error
+  end
+
+  defp attach_choice_location(
+         %{message: message, details: details} = error,
+         choice,
+         options,
+         fallback
+       ) do
+    option_source =
+      with %{path: [:options, index | _rest]} when is_integer(index) and index >= 0 <- details,
+           {:error, option_error} <- FlowChoice.Option.new(Enum.at(options, index)),
+           %{message: ^message, details: ^details} <-
+             Error.prefix_path(option_error, [:options, index]) do
+        Enum.at(choice.options, index)
+      else
+        _other -> nil
+      end
+
+    source =
+      option_source ||
+        case FlowChoice.Fallback.new(fallback) do
+          {:error, %{message: ^message, details: ^details}} -> choice.fallback
+          _other -> choice
+        end
+
+    attach_entity_location(error, source)
   end
 
   defp attach_entity_location(%{details: details} = error, entity) when is_map(details) do

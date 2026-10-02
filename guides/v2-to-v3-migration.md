@@ -333,33 +333,42 @@ deadline. Version 3 uses `timeout: :infinity` for that purpose. In version 3,
 
 ### Review Process Ownership
 
-The V3 beta no longer starts a separate worker and guard for every Action.
-A synchronous call with `timeout: :infinity` runs serial Actions in the caller.
-Catchable exceptions, throws, and exits remain structured errors, but a hard
-self-kill terminates the caller. Callback changes to the process dictionary,
-mailbox, flags, or Logger metadata can remain after return.
+Each Action invocation runs in a fresh supervised Task, including synchronous
+calls with `timeout: :infinity`, serial and concurrent Flow Actions, and
+continuations. Synchronous calls still wait for the existing result or
+structured error. Input validation, the callback, output validation, and
+result normalization use the same Task.
 
-Timed and async calls run serial Actions and continuations in one supervised
-execution worker. Concurrent waves use supervised workers without a separate
-guard. A living controller stops work on timeout or cancellation, including
-callbacks that trap exits. The async controller can cancel work after handle
-owner death. If the controller itself or a direct scheduler dies abruptly,
-workers may continue. Complete worker death now returns an execution-level `InternalError`;
-concurrent worker death returns a Flow runnable error. Managed task-start
-failures also return `InternalError`. These failures have no effect batch.
+Action process dictionary, mailbox, process flag, and Logger metadata changes
+do not transfer to the caller or another Action invocation. Tasks receive the
+execution process's group leader. Exec does not copy, set, or reset Logger
+metadata. Hard Action Task exits return `Jido.Action.Error.InternalError`;
+Flow adds the component path and execution phase. Failed executions return
+no effect batch.
 
-Supervisor startup and telemetry handlers use synchronous calls, as in V2.
-There are no telemetry delivery or startup helper processes. Blocked host
-startup or cleanup handlers can delay timeout and cancellation responses.
+Each call uses one control Task and one private Task Supervisor. Caller or
+async owner death stops the call. Control, Flow, or compound runnable failure
+stops its workers, including callbacks that trap exits. An Action Task exits
+before the next root executable starts. Flow validation and graph work also
+run in a fresh Task, including with `timeout: :infinity`.
 
-A direct call uses no Task.Supervisor slot. A timed Action uses one; an async
-Action uses two for control and execution. Add capacity for concurrent Flow
-workers. Keep the selected supervisor route through nested work and pauses.
+A simple Action uses three framework processes and one selected host
+Task.Supervisor slot. A Flow uses one host slot and schedules its workers under
+its private supervisor. Synchronous and async calls have the same structure.
+Paused operations create a new scope each time and retain no live scope after
+return. Keep the selected supervisor route in paused execution data.
 
-Close per-invocation external resources explicitly on normal return. Use a
-separate host owner that monitors the execution process as the fallback for
-forced kills. A serial Action return no longer implies worker termination.
-See [Process Ownership](execution.md#process-ownership) and
+`timeout: 0` now returns the target-neutral `Jido.Exec.Error.TimeoutError`
+without resolving the executable. Invalid routes and malformed options use
+Action `InvalidInputError` before descriptor resolution. Telemetry adds `span_id`,
+`parent_span_id`, and full `node_path` values. Collection and Dispatch Action
+invocations also emit target events.
+
+Supervisor startup and telemetry handlers remain synchronous. Blocked host
+startup or cleanup handlers can delay responses. Close external resources
+explicitly on normal return. Use a separate host owner that monitors the
+Action Task as the fallback for forced kills. See
+[Process Ownership](execution.md#process-ownership) and
 [External Resource Ownership](execution.md#external-resource-ownership).
 
 

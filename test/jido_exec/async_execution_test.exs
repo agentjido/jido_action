@@ -44,7 +44,8 @@ defmodule JidoActionTest.Exec.AsyncExecutionTest do
     assert is_pid(pid)
     assert owner == self()
     assert is_reference(monitor_ref)
-    assert {:jido_exec_async_state, state_ref} = state
+    assert {:jido_exec_async_state, state_ref, supervisor} = state
+    assert is_pid(supervisor)
     assert is_reference(state_ref)
     assert {:ok, %{value: 3}} = Exec.await(handle, 1_000)
 
@@ -246,7 +247,8 @@ defmodule JidoActionTest.Exec.AsyncExecutionTest do
     assert_receive {:blocking_flow_node_started, worker}, 1_000
     children = Task.Supervisor.children(task_supervisor)
     assert handle.pid in children
-    assert worker in children
+    assert children == [handle.pid]
+    refute worker == handle.pid
     assert :ok = Exec.cancel(handle)
   end
 
@@ -302,8 +304,7 @@ defmodule JidoActionTest.Exec.AsyncExecutionTest do
     assert_receive {:DOWN, monitor_ref, :process, pid, :killed}, 1_000
     assert monitor_ref == handle.monitor_ref
     assert pid == handle.pid
-    send(worker, :finish)
-    assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :normal}, 1_000
+    assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :killed}, 1_000
 
     assert {:error, %Error.AsyncExecutionError{details: %{reason: :noproc}}} =
              Exec.await(handle, 10)
@@ -316,7 +317,7 @@ defmodule JidoActionTest.Exec.AsyncExecutionTest do
       Exec.run_async(Add, %{value: 1}, %{}, task_supervisor: missing_supervisor)
     end
 
-    assert_raise Error.AsyncExecutionError, fn ->
+    assert_raise Jido.Action.Error.InvalidInputError, fn ->
       Exec.run_async(Add, %{value: 1}, %{}, :invalid)
     end
   end

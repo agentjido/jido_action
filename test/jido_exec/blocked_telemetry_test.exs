@@ -19,7 +19,7 @@ defmodule JidoActionTest.Exec.BlockedTelemetryTest do
 
   for mode <- [:direct, :timed, :async] do
     @tag mode: mode
-    test "#{mode} telemetry runs in the Action process", context do
+    test "#{mode} telemetry runs in the execution lifecycle process", context do
       %{mode: mode, supervisor: supervisor, token: token} = context
       attach(token, :none)
       opts = [task_supervisor: supervisor]
@@ -32,9 +32,10 @@ defmodule JidoActionTest.Exec.BlockedTelemetryTest do
           else: Exec.run(Probe, %{}, ctx, opts)
 
       assert {:ok, %{worker: worker}} = result
-      assert_receive {^token, :event, :start, ^worker}
+      emitter = worker
+      assert_receive {^token, :event, :start, ^emitter}
       assert_receive {^token, :work, ^worker}
-      assert_receive {^token, :event, :stop, ^worker}
+      assert_receive {^token, :event, :stop, ^emitter}
     end
   end
 

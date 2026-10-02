@@ -28,9 +28,10 @@ queues, scheduling, recovery, retries, durable cancellation policy,
 distributed coordination, supervision, and deployment-safe continuation.
 `Jido.Exec` can enforce one caller-selected timeout for a complete in-memory
 call. It can also return an owner-bound handle for one asynchronous call.
-Untimed synchronous calls run serial Actions in the caller. Timed and async
-calls share one execution worker; concurrent waves use bounded workers and a
-scheduler. Workers can continue after abrupt controller or scheduler death.
+Each Action invocation runs in a fresh supervised Task, including untimed
+synchronous calls, Flow Actions, and continuations. Synchronous calls wait for
+the result. Each call uses a control Task and private supervisor. Caller or controller
+death stops the call and its workers.
 Supervisor startup and telemetry delivery are synchronous, as in V2. Blocked
 host startup or cleanup handlers can delay the timeout response.
 See [Process Ownership](guides/execution.md#process-ownership).
@@ -133,9 +134,10 @@ when they can express the required change.
   )
 ```
 
-`Jido.Exec` validates the Action input and output. A synchronous call with
-`timeout: :infinity` runs in the caller process. Timed and asynchronous calls
-run in a worker under the configured Task Supervisor. See
+`Jido.Exec` validates the Action input and output in the same fresh Task as
+its callback. This applies to synchronous calls with `timeout: :infinity`,
+timed calls, and asynchronous calls. A private execution supervisor owns the Task. The configured host Task
+Supervisor owns one control Task per call. See
 [Process Ownership](guides/execution.md#process-ownership) for Flow concurrency
 and cleanup limits. Code that integrates its own executor can use
 `validate_params/1`, `run/2`, and `validate_output/1` directly.

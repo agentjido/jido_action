@@ -1,5 +1,6 @@
 defmodule JidoActionTest.Exec.ActionWorkerReplyTest do
-  use ExUnit.Case, async: true
+  # Large reply traces run without concurrent compiler and memory tests.
+  use ExUnit.Case, async: false
 
   alias Jido.Action.Error
   alias Jido.{Exec, Flow}
@@ -56,9 +57,8 @@ defmodule JidoActionTest.Exec.ActionWorkerReplyTest do
         assert :erlang.trace(worker, true, [:send, {:tracer, self()}]) == 1
         send(worker, {ref, :release})
 
-        assert_receive {:trace, ^worker, :send, {reply_ref, ^worker, reply}, recipient}
-                       when is_reference(reply_ref) and recipient == reply_ref and
-                              elem(reply, 0) in [:ok, :error],
+        assert_receive {:trace, ^worker, :send, {reply_ref, reply}, recipient}
+                       when is_reference(reply_ref) and recipient == reply_ref,
                        1_000
 
         assert_receive {:DOWN, ^monitor, :process, ^worker, :normal}, 1_000
@@ -69,7 +69,7 @@ defmodule JidoActionTest.Exec.ActionWorkerReplyTest do
         # All send traces must arrive before checking for another worker reply.
         delivered = :erlang.trace_delivered(:all)
         assert_receive {:trace_delivered, :all, ^delivered}, 1_000
-        refute_received {:trace, ^worker, :send, {^reply_ref, ^worker, _}, _}
+        refute_received {:trace, ^worker, :send, {^reply_ref, _}, _}
       after
         Process.exit(worker, :kill)
         Process.demonitor(monitor, [:flush])
@@ -88,6 +88,32 @@ defmodule JidoActionTest.Exec.ActionWorkerReplyTest do
     )
   end
 
+  defp assert_reply(
+         %Runic.Workflow.Runnable{
+           status: :completed,
+           result: %{
+             value: %Jido.Flow.Compiler.Payload{value: {:jido_flow_value, _, output, effects}}
+           }
+         },
+         result,
+         :flow,
+         :success
+       ) do
+    assert result == {:ok, output, effects}
+    assert effects == Enum.to_list(1..100_000)
+  end
+
+  defp assert_reply(
+         %Runic.Workflow.Runnable{status: :failed, error: worker_error} = reply,
+         {:error, error},
+         :flow,
+         mode
+       ) do
+    assert :erts_debug.flat_size(reply) < 5_000
+    assert worker_error == error
+    assert_value(:error, error, mode)
+  end
+
   defp assert_reply(reply, result, _kind, :success) do
     assert reply == result
     assert {:ok, %{mode: :success}, effects} = reply
@@ -98,9 +124,21 @@ defmodule JidoActionTest.Exec.ActionWorkerReplyTest do
     # Failed effects must not be copied out of the worker.
     assert :erts_debug.flat_size(reply) < 2_000
 
-    assert reply == result
-    assert {:error, error} = reply
-    assert_value(:error, error, mode)
+    worker_error =
+      case {kind, reply} do
+        {:flow, {:error, phase, error}} ->
+          assert phase == if(mode == :output_error, do: :output, else: :execution)
+          error
+
+        {:action, {:error, error}} ->
+          assert reply == result
+          error
+      end
+
+    assert {:error, error} = result
+    assert_value(:error, worker_error, mode)
+    assert worker_error.__struct__ == error.__struct__
+    assert worker_error.message == error.message
 
     if kind == :flow do
       assert error.details.phase ==

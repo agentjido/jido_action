@@ -183,18 +183,6 @@ defmodule JidoActionBench.Fixtures do
     name = flow.name
     span = Jido.Exec.Telemetry.start([:jido, :flow], %{execution_id: id, flow: name})
 
-    runner = fn target, params, target_context, execution_id, owner ->
-      Jido.Exec.Flow.TargetRunner.run(
-        target,
-        params,
-        target_context,
-        execution_id,
-        options,
-        name,
-        owner
-      )
-    end
-
     {:ok, execution} =
       Jido.Exec.Flow.Engine.start(
         flow,
@@ -204,7 +192,6 @@ defmodule JidoActionBench.Fixtures do
         %{
           options: options,
           finalizer: &{:ok, &1},
-          target_runner: runner,
           execution_id: id,
           lifecycle: %{flow: span}
         }

@@ -7,40 +7,29 @@ defmodule Jido.Exec.Flow.TargetRunner do
   alias Jido.Flow.Compiler.Target
 
   @doc false
-  @spec run(module(), term(), map(), String.t(), keyword(), String.t(), Target.t()) ::
+  @spec run(module(), term(), map(), String.t(), keyword(), String.t(), Target.t(), (function() ->
+                                                                                       term())) ::
           {:ok, term()}
           | {:ok, term(), Jido.Action.effects()}
           | {:continue, Transition.t()}
           | {:error, :input | :execution | :output, Exception.t()}
-  def run(target, params, context, execution_id, run_opts, flow_name, owner) do
+  def run(target, params, context, execution_id, run_opts, flow_name, owner, invoke) do
     span = start_span(target, execution_id, flow_name, owner)
 
     result =
-      target
-      |> Runner.run_target(params, context, run_opts)
+      invoke.(fn -> Runner.run_target(target, params, context, run_opts) end)
       |> authorize_transition(owner)
 
     finish_span(span, result)
   end
 
   defp start_span(target, execution_id, flow_name, owner) do
-    case Target.telemetry_metadata(owner, target) do
-      {:ok, metadata} ->
-        Telemetry.start(
-          [:jido, :flow, :target],
-          Map.merge(metadata, %{execution_id: execution_id, flow: flow_name})
-        )
+    metadata = Target.telemetry_metadata(owner, target)
 
-      :none ->
-        nil
-    end
-  end
-
-  defp finish_span(nil, result), do: result
-
-  defp finish_span(span, {:continue, %Transition{}} = result) do
-    Telemetry.stop(span)
-    result
+    Telemetry.start(
+      [:jido, :flow, :target],
+      Map.merge(metadata, %{execution_id: execution_id, flow: flow_name})
+    )
   end
 
   defp finish_span(span, {:error, _phase, error} = result) do

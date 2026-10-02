@@ -133,7 +133,7 @@ defmodule JidoActionTest.Exec.FailFastAdmissionTest do
       assert Enum.map(applied, &hd(&1.component_path)) == [first, second]
       assert Enum.map(applied, & &1.status) == [:completed, :failed]
       assert Enum.map(applied, & &1.token) == Enum.map(Enum.take(ready, 2), & &1.token)
-      assert {:error, %{message: "flow runnable task exited"}} = Exec.result(completed)
+      assert {:error, %{message: "Action execution process exited"}} = Exec.result(completed)
       refute_received {^ref, :native, _, _}
     after
       Task.shutdown(task, :brutal_kill)

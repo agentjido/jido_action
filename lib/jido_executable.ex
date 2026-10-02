@@ -136,6 +136,7 @@ defmodule Jido.Executable do
   end
 
   defp validate_module_callbacks(module, kind_callback) do
+    Code.ensure_loaded(module)
     callbacks = [kind_callback, {:validate_params, 1}, {:validate_output, 1}]
 
     Enum.reduce_while(callbacks, :ok, fn {callback, arity}, :ok ->

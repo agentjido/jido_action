@@ -80,7 +80,7 @@ defmodule JidoActionTest.Exec.AsyncMessageTest do
     assert {:error, %Error.InvalidHandleError{}} =
              Exec.handle_message(invalid_state_handle, :message)
 
-    forged_state_handle = %{handle | state: {:jido_exec_async_state, make_ref()}}
+    forged_state_handle = %{handle | state: {:jido_exec_async_state, make_ref(), self()}}
 
     assert {:error, %Error.InvalidHandleError{}} =
              Exec.handle_message(forged_state_handle, :message)

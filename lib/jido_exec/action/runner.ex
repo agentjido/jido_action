@@ -18,7 +18,7 @@ defmodule Jido.Exec.Action.Runner do
            | {:continue, Transition.t()}
            | {:error, target_phase(), Exception.t()}
 
-  @doc "Runs one Action Instruction in the current execution process."
+  @doc "Runs one Action Instruction inside its assigned supervised Task."
   @spec run(Instruction.t(), keyword()) ::
           {:ok, term()}
           | {:ok, term(), Jido.Action.effects()}

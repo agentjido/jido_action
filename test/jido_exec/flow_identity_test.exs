@@ -69,8 +69,7 @@ defmodule JidoActionTest.Exec.FlowIdentityTest do
         end
 
       [runnable] = Exec.native(execution).ready
-      # Add is pure. Calculate its Fact identity, then insert different data there.
-      %Runnable{status: :completed, result: result} = Workflow.execute_runnable(runnable)
+      %Runnable{status: :completed, result: result} = execute_fixture_runnable(runnable)
       %Payload{value: {:jido_flow_value, frame, _}} = result.value
       stale = %{result | value: Payload.new({:jido_flow_value, frame, %{value: 781}})}
       graph = Multigraph.add_vertex(execution.workflow.graph, stale)
@@ -130,8 +129,8 @@ defmodule JidoActionTest.Exec.FlowIdentityTest do
 
     assert {:ok, execution} = Exec.start(flow)
     [first, second] = Exec.native(execution).ready
-    first_result = Workflow.execute_runnable(first).result
-    second_result = Workflow.execute_runnable(second).result
+    first_result = execute_fixture_runnable(first).result
+    second_result = execute_fixture_runnable(second).result
     stale = %{first_result | value: Payload.new(:conflicting_value)}
 
     execution = %{
@@ -370,6 +369,16 @@ defmodule JidoActionTest.Exec.FlowIdentityTest do
         assert {:ok, _, next} = Exec.step(execution)
         advance_to_collector(next)
     end
+  end
+
+  defp execute_fixture_runnable(runnable) do
+    runner = fn target, params, context, _execution_id, _owner ->
+      Exec.run(target, params, context)
+    end
+
+    runnable = put_in(runnable.context.run_context.jido.target_runner, runner)
+    runnable = put_in(runnable.context.meta_context.jido.target_runner, runner)
+    Workflow.execute_runnable(runnable)
   end
 
   defp serial_flow(count) do

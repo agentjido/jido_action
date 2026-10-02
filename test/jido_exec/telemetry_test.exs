@@ -109,15 +109,24 @@ defmodule JidoActionTest.Exec.TelemetryTest do
            ] = events()
 
     execution_id = flow_start.execution_id
-    assert flow_start == %{execution_id: execution_id, flow: "native_telemetry_flow"}
 
-    assert node_start == %{
-             execution_id: execution_id,
+    assert %{
+             execution_id: ^execution_id,
+             flow: "native_telemetry_flow",
+             node_path: [],
+             parent_span_id: nil
+           } = flow_start
+
+    assert %{
+             execution_id: ^execution_id,
              flow: "native_telemetry_flow",
              node: "add",
-             kind: :step
-           }
+             kind: :step,
+             node_path: ["add"]
+           } = node_start
 
+    assert node_start.parent_span_id == flow_start.span_id
+    assert target_start.parent_span_id == node_start.span_id
     assert node_stop == node_start
     assert target_stop == target_start
     assert target_start.target == Add
@@ -410,6 +419,12 @@ defmodule JidoActionTest.Exec.TelemetryTest do
       |> Enum.map(fn {_event, _measurements, metadata} -> metadata.execution_id end)
 
     assert Enum.uniq(ids) == [start_metadata.execution_id]
+
+    for recorded <- [first_events, Enum.take(terminal_events, 4)] do
+      [{@node_start, _, node}, {@target_start, _, target}, _, _] = recorded
+      assert node.parent_span_id == start_metadata.span_id
+      assert target.parent_span_id == node.span_id
+    end
   end
 
   test "does not add a child Flow lifecycle around native Subflow work" do
@@ -490,6 +505,25 @@ defmodule JidoActionTest.Exec.TelemetryTest do
 
     ids = Enum.map(recorded, fn {_event, _measurements, metadata} -> metadata.execution_id end)
     assert length(Enum.uniq(ids)) == 1
+
+    for [{_start, _, started}, {_stop, _, stopped}] <- Enum.chunk_every(recorded, 2) do
+      assert stopped == started
+      assert started.node_path == [started.node]
+      assert started.target == Add
+      assert is_reference(started.parent_span_id)
+    end
+
+    for {node, events, index_key, id_key} <- [
+          {"mapped", Enum.take(recorded, 4), :item_index, :item_id},
+          {"total", Enum.slice(recorded, 4, 4), :item_index, :item_id},
+          {"count", Enum.drop(recorded, 8), :iteration_index, :iteration_id}
+        ] do
+      metadata = Enum.map(events, &elem(&1, 2))
+      assert Enum.all?(metadata, &(&1.node == node))
+      assert Enum.map(metadata, &Map.fetch!(&1, index_key)) == [0, 0, 1, 1]
+      assert metadata |> Enum.map(&Map.fetch!(&1, id_key)) |> Enum.uniq() |> length() == 2
+      assert metadata |> Enum.map(& &1.parent_span_id) |> Enum.uniq() |> length() == 1
+    end
   end
 
   test "emits a Map item error for a collected failure" do

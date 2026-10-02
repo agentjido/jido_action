@@ -88,8 +88,7 @@ defmodule JidoActionTest.Exec.ActionInvocationTest do
         calls = Agent.get(counter, &Enum.reverse/1)
         assert Enum.map(calls, &elem(&1, 0)) == unquote(phases), to_string(path)
         assert [worker] = calls |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
-        isolated? = path in [:action_timeout, :action_async, :flow_timeout, :flow_async]
-        assert worker != self() == isolated?
+        refute worker == self()
 
         for pid <- Enum.uniq([worker | Task.Supervisor.children(supervisor)]), pid != self() do
           monitor = Process.monitor(pid)
