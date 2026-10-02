@@ -90,7 +90,8 @@ defmodule Jido.Flow.DSL.Expression do
   defp parse_leaf({:input, _, [path]}), do: {:ok, Ref.input(parse_path!(path))}
   defp parse_leaf({:context, _, []}), do: {:ok, Ref.context([])}
   defp parse_leaf({:context, _, [path]}), do: {:ok, Ref.context(parse_path!(path))}
-  defp parse_leaf({:value, _, [value]}), do: {:ok, literal!(value)}
+
+  defp parse_leaf({:value, _, [value]}), do: {:ok, literal!(value, true)}
   defp parse_leaf({:result, _, [name]}), do: {:ok, Ref.result(node_name!(name))}
 
   defp parse_leaf({:result, _, [name, path]}),
@@ -126,17 +127,25 @@ defmodule Jido.Flow.DSL.Expression do
   defp parse_path!(value) when is_atom(value) or is_binary(value) or is_integer(value), do: value
   defp parse_path!(value) when is_list(value), do: Enum.map(value, &literal!/1)
   defp parse_path!(_), do: raise(ArgumentError, "invalid reference path")
-  defp literal!(value) when is_atom(value) or is_binary(value) or is_number(value), do: value
-  defp literal!(values) when is_list(values), do: Enum.map(values, &literal!/1)
+  defp literal!(value, negative_numbers? \\ false)
 
-  defp literal!({:%{}, _, pairs}) do
+  defp literal!(value, _negative_numbers?)
+       when is_atom(value) or is_binary(value) or is_number(value),
+       do: value
+
+  defp literal!({:-, _, [value]}, true) when is_number(value), do: -value
+
+  defp literal!(values, negative_numbers?) when is_list(values),
+    do: Enum.map(values, &literal!(&1, negative_numbers?))
+
+  defp literal!({:%{}, _, pairs}, negative_numbers?) do
     if length(Enum.uniq_by(pairs, &elem(&1, 0))) != length(pairs),
       do: raise(ArgumentError, "duplicate Flow map key")
 
-    Map.new(pairs, fn {key, value} -> {literal!(key), literal!(value)} end)
+    Map.new(pairs, fn {key, value} -> {literal!(key), literal!(value, negative_numbers?)} end)
   end
 
-  defp literal!(_), do: raise(ArgumentError, "invalid literal")
+  defp literal!(_, _negative_numbers?), do: raise(ArgumentError, "invalid literal")
 
   defp expression_message(_expression, %Expr.Error{reason: reason})
        when reason in [:max_depth, :max_nodes, :max_binary_bytes, :max_integer_bits],

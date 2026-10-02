@@ -744,6 +744,50 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     assert Macro.to_string(list.pattern_ast) == "%{a: a, b: b, _c: _c}"
   end
 
+  test "explicit negative literals match direct construction and stored Flow execution" do
+    owner = unique_owner("NegativeLiteral")
+
+    compile_source("""
+    defmodule #{inspect(owner)} do
+      use Jido.Flow, name: "negative_literal"
+      flow do
+        step "echo", amount <- value(-1) do
+          {:ok, %{amount: amount}, [:request]}
+        end
+        output result("echo")
+      end
+    end
+    """)
+
+    direct =
+      Jido.Flow.new!(
+        name: "negative_literal",
+        components: [
+          Jido.Flow.Step.new!(
+            name: "echo",
+            action: owner.step_action("echo"),
+            params: %{amount: -1}
+          )
+        ],
+        output: Ref.result("echo")
+      )
+
+    assert owner.flow() == direct
+    assert {:ok, document, registry} = Jido.Flow.Codec.encode(direct)
+
+    assert {:ok, restored} =
+             Jido.Flow.Codec.decode(JSON.decode!(JSON.encode!(document)), registry)
+
+    assert restored == direct
+
+    for target <- [owner, direct, restored] do
+      assert Jido.Exec.run(target) == {:ok, %{amount: -1}, [:request]}
+      assert {:ok, execution} = Jido.Exec.start(target)
+      assert {:ok, execution} = Jido.Exec.continue(execution)
+      assert Jido.Exec.result(execution) == {:ok, %{amount: -1}, [:request]}
+    end
+  end
+
   test "a sole map pattern retains nested matches and uses the whole source as params" do
     source = """
     step :read,
