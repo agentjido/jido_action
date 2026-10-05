@@ -180,6 +180,54 @@ defmodule Jido.ExprTest do
     end
   end
 
+  test "numeric type errors take precedence over zero divisor errors" do
+    for {operator, operands} <- [
+          {:divide, ["private", 0]},
+          {:divide, ["private", 0.0]},
+          {:div, [1.0, 0]},
+          {:div, [0, 0.0]},
+          {:rem, [1.0, 0]},
+          {:rem, [0, 0.0]}
+        ] do
+      assert {:error, %Jido.Expr.Error{reason: :invalid_numeric_operands, operator: ^operator}} =
+               Jido.Expr.evaluate(Jido.Expr.new!(operator, operands))
+    end
+  end
+
+  test "binary Boolean evaluation visits the left operand once and short-circuits the right" do
+    for {operator, left, expected, visit_right?} <- [
+          {:and, false, false, false},
+          {:or, true, true, false},
+          {:and, true, :right_value, true},
+          {:or, false, :right_value, true}
+        ] do
+      tag = make_ref()
+
+      resolver = fn
+        %Reference{key: :left} ->
+          send(self(), {tag, :left})
+          {:ok, left}
+
+        %Reference{key: :right} ->
+          send(self(), {tag, :right})
+          {:ok, :right_value}
+      end
+
+      expression =
+        Jido.Expr.new!(operator, [%Reference{key: :left}, %Reference{key: :right}])
+
+      assert {:ok, ^expected} = Jido.Expr.evaluate(expression, resolve: resolver)
+      assert_receive {^tag, :left}
+      refute_receive {^tag, :left}
+
+      if visit_right? do
+        assert_receive {^tag, :right}
+      else
+        refute_receive {^tag, :right}
+      end
+    end
+  end
+
   test "Boolean evaluation short-circuits while validation visits all operands" do
     reference = %Reference{key: :missing}
     resolver = fn _ -> flunk("skipped operand must not resolve") end
