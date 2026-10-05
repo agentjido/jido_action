@@ -25,10 +25,17 @@ end
 
 - `name/0` and `description/0`;
 - `schema/0` and `output_schema/0`;
+- `to_json/0` for a compile-time JSON-safe description;
 - `validate_params/1` and `validate_output/1`; and
 - the `Jido.Executable` descriptor used by `Jido.Exec`.
 
 The module must implement `run/2`. A missing implementation stops compilation.
+
+`to_json/0` returns the Action name, description, input JSON Schema, and output
+JSON Schema. It returns `nil` for an empty input or output schema. It raises
+`ArgumentError` when Zoi cannot project a declared schema to JSON Schema. That
+projection is descriptive. Use `validate_params/1` and `validate_output/1` for
+the runtime contract.
 
 `Jido.Action` declares the `run/2` callback and the optional input-preparation
 hook. `Jido.Executable` declares the descriptor, `validate_params/1`, and

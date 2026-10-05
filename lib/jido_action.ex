@@ -223,6 +223,41 @@ defmodule Jido.Action do
   end
 
   @doc false
+  @spec __compile_json__(map(), schema(), schema()) :: {:ok, map()} | {:error, String.t()}
+  def __compile_json__(opts, schema, output_schema) do
+    json =
+      %{
+        "kind" => "action",
+        "name" => Map.fetch!(opts, :name),
+        "description" => Map.get(opts, :description),
+        "input_schema" => compile_json_schema(schema, :schema),
+        "output_schema" => compile_json_schema(output_schema, :output_schema)
+      }
+      |> Jason.encode!(maps: :strict)
+      |> Jason.decode!()
+
+    {:ok, json}
+  rescue
+    exception -> {:error, Exception.message(exception)}
+  end
+
+  @doc false
+  @spec __json__!({:ok, map()} | {:error, String.t()}) :: map() | no_return()
+  def __json__!({:ok, json}), do: json
+  def __json__!({:error, message}), do: raise(ArgumentError, message)
+
+  defp compile_json_schema([], _option), do: nil
+
+  defp compile_json_schema(schema, option) do
+    Zoi.to_json_schema(schema)
+  rescue
+    exception ->
+      raise ArgumentError,
+            "#{inspect(option)} does not have a JSON-safe JSON Schema representation: " <>
+              Exception.message(exception)
+  end
+
+  @doc false
   @spec validate_params_for(map(), module()) ::
           {:ok, map()} | {:error, term()}
   def validate_params_for(params, module) do
@@ -317,8 +352,11 @@ defmodule Jido.Action do
       {validated_opts, stored_schema, stored_output_schema} =
         Action.__prepare_config__!(unquote(opts_ast), __ENV__)
 
+      action_json = Action.__compile_json__(validated_opts, stored_schema, stored_output_schema)
+
       Module.put_attribute(__MODULE__, :__jido_schema__, stored_schema)
       Module.put_attribute(__MODULE__, :__jido_output_schema__, stored_output_schema)
+      Module.put_attribute(__MODULE__, :__jido_action_json__, action_json)
 
       @validated_opts Map.drop(validated_opts, [:schema, :output_schema])
 
@@ -337,6 +375,16 @@ defmodule Jido.Action do
       @doc "Returns the output schema of the Action."
       @spec output_schema() :: Jido.Action.schema()
       def output_schema, do: @__jido_output_schema__
+
+      @doc """
+      Returns the compile-time Action description as JSON-safe data.
+
+      Raises `ArgumentError` when a declared Zoi schema has no JSON Schema
+      representation. Action validation and execution remain available in that
+      case.
+      """
+      @spec to_json() :: map()
+      def to_json, do: Action.__json__!(@__jido_action_json__)
 
       @doc false
       @impl Jido.Executable

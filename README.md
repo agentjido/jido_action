@@ -113,9 +113,17 @@ Public action functions:
 - `description/0`
 - `schema/0`
 - `output_schema/0`
+- `to_json/0`
 - `validate_params/1`
 - `validate_output/1`
 - `run/2`
+
+`to_json/0` returns a JSON-safe Action description with the name,
+description, input JSON Schema, and output JSON Schema. Jido builds and stores
+this description when it compiles the Action. An empty schema becomes `nil`.
+The function raises `ArgumentError` when Zoi cannot project a declared schema
+to JSON Schema. This does not stop that Action from compiling or running.
+Runtime Zoi validation remains authoritative.
 
 Every Action must implement `run/2`. A missing implementation stops compilation.
 

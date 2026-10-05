@@ -101,8 +101,10 @@ change application behavior.
   authorization, and secret lookup in run/2. These controls can also stay in a
   trusted caller or runtime. Put retry, rollback, and compensation policy in
   the caller or its runtime.
-- Replace category/0, tags/0, vsn/0, to_json/0, to_tool/0, and
+- Replace category/0, tags/0, vsn/0, to_tool/0, and
   __action_metadata__/0 call sites.
+- Update `to_json/0` call sites for the smaller provider-neutral Action
+  description.
 - Do not expect Jido.Exec to add :action_metadata to context.
 - Keep the supported two-tuple and three-tuple Action callback results.
 - Use Jido.Action.Output only when success data is intentionally raw, batch,

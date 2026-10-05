@@ -22,6 +22,69 @@ defmodule JidoActionTest.ActionTest do
       assert NoSchema.schema() == []
     end
 
+    test "exposes a JSON-safe Action description" do
+      description = OutputSchemaAction.to_json()
+
+      assert Jason.decode!(Jason.encode!(description)) == description
+
+      assert %{
+               "kind" => "action",
+               "name" => "output_schema_action",
+               "description" => "Action that validates output with schema",
+               "input_schema" => %{
+                 "type" => "object",
+                 "properties" => %{"input" => %{"type" => "string"}}
+               },
+               "output_schema" => %{
+                 "type" => "object",
+                 "properties" => %{
+                   "length" => %{"type" => "integer"},
+                   "result" => %{"type" => "string"}
+                 }
+               }
+             } = description
+
+      assert %{"input_schema" => nil, "output_schema" => nil} = NoSchema.to_json()
+    end
+
+    test "reports an Action schema without a JSON Schema representation" do
+      module = unique_module("PidSchemaAction")
+
+      create_module(
+        module,
+        quote do
+          use Jido.Action,
+            name: "pid_schema_action",
+            schema: Zoi.object(%{process: Zoi.pid()})
+
+          @impl true
+          def run(params, _context), do: {:ok, params}
+        end
+      )
+
+      assert_raise ArgumentError,
+                   ~r/:schema does not have a JSON-safe JSON Schema representation/,
+                   fn -> module.to_json() end
+    end
+
+    test "rejects Action metadata that is not valid JSON" do
+      module = unique_module("InvalidDescriptionAction")
+
+      create_module(
+        module,
+        quote do
+          use Jido.Action,
+            name: "invalid_description_action",
+            description: <<255>>
+
+          @impl true
+          def run(params, _context), do: {:ok, params}
+        end
+      )
+
+      assert_raise ArgumentError, ~r/invalid byte 0xFF/, fn -> module.to_json() end
+    end
+
     test "a missing run callback is reported during compilation" do
       module = unique_module("RuntimeDefaultAction")
 
@@ -211,6 +274,7 @@ defmodule JidoActionTest.ActionTest do
       assert Agent.get(counter, & &1) == 1
       assert {:ok, %{value: 1}} = module.validate_params(%{value: 1})
       assert module.schema() == module.schema()
+      assert module.to_json() == module.to_json()
       assert Agent.get(counter, & &1) == 1
     end
 

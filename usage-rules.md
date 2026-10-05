@@ -15,6 +15,9 @@ Use `jido_action` for validated work and data-first composition:
 - Implement `run/2` in every Action. A missing body is a compile error.
 - Provide stable `name` and useful `description` values.
 - Use Zoi schemas for `schema` and `output_schema`; omit them or use `[]` only when validation is intentionally empty.
+- Use `to_json/0` when a host needs provider-neutral Action metadata and JSON
+  Schema descriptions. Treat the result as descriptive data. Runtime Zoi
+  validation remains authoritative.
 - Keep `run/2` strict: return `{:ok, result}`, `{:ok, result, effects}`,
   `{:continue, input, target}`, `{:error, reason}`, or
   `{:error, reason, effects}`.
