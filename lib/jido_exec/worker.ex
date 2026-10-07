@@ -15,19 +15,32 @@ defmodule Jido.Exec.Worker do
           {:ok, result}
 
         {:DOWN, ^ref, :process, worker, reason} ->
-          error =
-            Jido.Action.Error.internal_error("Action execution process exited", %{reason: reason})
+          if Controller.invocation?(call) do
+            error = Jido.Exec.Error.interrupted_error(:worker, {:process_exit, reason}, nil)
+            Telemetry.fail_worker(call.controller, worker, error)
+            Controller.interrupt_invocation(call, error)
+          else
+            error =
+              Jido.Action.Error.internal_error("Action execution process exited", %{
+                reason: reason
+              })
 
-          Telemetry.fail_worker(call.controller, worker, error)
-          {:error, error}
+            Telemetry.fail_worker(call.controller, worker, error)
+            {:error, error}
+          end
       end
     else
       {:error, reason} ->
-        {:error,
-         Jido.Action.Error.internal_error("Execution process could not start", %{
-           reason: reason,
-           retry: false
-         })}
+        if Controller.invocation?(call) do
+          error = Jido.Exec.Error.interrupted_error(:worker, {:start_error, reason}, nil)
+          Controller.interrupt_invocation(call, error)
+        else
+          {:error,
+           Jido.Action.Error.internal_error("Execution process could not start", %{
+             reason: reason,
+             retry: false
+           })}
+        end
     end
   end
 

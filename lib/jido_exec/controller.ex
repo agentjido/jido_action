@@ -10,8 +10,10 @@ defmodule Jido.Exec.Controller do
   @max_receive_timeout 2_147_483_647
   @active 0
   @claimed 1
+  @invocation_stopped 1
 
   @type call :: %{
+          optional(:invocation_control) => %{token: reference(), stop: :atomics.atomics_ref()},
           supervisor: pid(),
           controller: pid(),
           deadline: integer() | :infinity,
@@ -474,6 +476,12 @@ defmodule Jido.Exec.Controller do
   @doc false
   @spec run(timeout(), String.t(), map(), (t() -> term())) :: term()
   def run(timeout, execution_id, control, work) do
+    run(timeout, execution_id, control, false, work)
+  end
+
+  @doc false
+  @spec run(timeout(), String.t(), map(), boolean(), (t() -> term())) :: term()
+  def run(timeout, execution_id, control, invocation?, work) do
     Process.flag(:trap_exit, true)
     {:ok, supervisor} = Task.Supervisor.start_link()
 
@@ -484,6 +492,16 @@ defmodule Jido.Exec.Controller do
       execution_id: execution_id,
       group_leader: Process.group_leader()
     }
+
+    call =
+      if invocation? do
+        Map.put(call, :invocation_control, %{
+          token: make_ref(),
+          stop: :atomics.new(1, signed: false)
+        })
+      else
+        call
+      end
 
     try do
       work.(%{
@@ -518,11 +536,18 @@ defmodule Jido.Exec.Controller do
         |> start_root()
 
       {:error, reason} ->
-        {{:error,
-          error_owner.internal_error("Execution process could not start", %{
-            reason: reason,
-            retry: false
-          })}, error_owner, target}
+        error =
+          if invocation?(controller.call) do
+            close_invocation(controller.call)
+            Error.interrupted_error(:worker, {:start_error, reason}, nil)
+          else
+            error_owner.internal_error("Execution process could not start", %{
+              reason: reason,
+              retry: false
+            })
+          end
+
+        {{:error, error}, error_owner, target}
     end
   end
 
@@ -530,6 +555,38 @@ defmodule Jido.Exec.Controller do
   @spec resolved(call(), module(), term()) :: term()
   def resolved(call, error_owner, target),
     do: send(call.controller, {:resolved, error_owner, target})
+
+  @doc false
+  @spec invocation?(call()) :: boolean()
+  def invocation?(%{invocation_control: %{token: token, stop: stop}})
+      when is_reference(token),
+      do: is_reference(stop)
+
+  def invocation?(_call), do: false
+
+  @doc false
+  @spec invocation_stopped?(call()) :: boolean()
+  def invocation_stopped?(%{invocation_control: %{stop: stop}}),
+    do: :atomics.get(stop, 1) == @invocation_stopped
+
+  def invocation_stopped?(_call), do: false
+
+  @doc false
+  @spec halt_if_interrupted(call()) :: :ok | no_return()
+  def halt_if_interrupted(call) do
+    if invocation_stopped?(call), do: park(), else: :ok
+  end
+
+  @doc false
+  @spec interrupt_invocation(call(), Error.InterruptedError.t()) :: no_return()
+  def interrupt_invocation(
+        %{controller: controller, invocation_control: %{token: token, stop: stop}},
+        %Error.InterruptedError{} = error
+      ) do
+    send(controller, {__MODULE__, token, {:invocation_interrupt, error}})
+    close_invocation_stop(stop)
+    park()
+  end
 
   defp start_root(%{owner_monitor: owner_monitor, ref: ref} = state) do
     receive do
@@ -557,20 +614,38 @@ defmodule Jido.Exec.Controller do
     supervisor = call.supervisor
     host = state.host
     compounds = state.compounds
+    invocation_token = invocation_token(call)
 
     receive do
       {^task_ref, result} ->
-        Worker.finish(task)
-        finish_call(state, result)
+        case take_invocation_interruption(call) do
+          {:ok, error} ->
+            close_invocation(call)
+            stop_call(state, error)
+
+          :none ->
+            Worker.finish(task)
+
+            if invocation_stopped?(call) do
+              stop_call(state, Error.interrupted_error(:worker, :interrupted, nil))
+            else
+              finish_call(state, result)
+            end
+        end
 
       {:DOWN, ^task_ref, :process, _worker, reason} ->
-        stop_call(
-          state,
-          state.error_owner.internal_error(
-            "#{label(state.error_owner)} execution process exited",
-            %{reason: reason}
+        if invocation?(call) do
+          close_invocation(call)
+          stop_call(state, worker_interruption(reason))
+        else
+          stop_call(
+            state,
+            state.error_owner.internal_error(
+              "#{label(state.error_owner)} execution process exited",
+              %{reason: reason}
+            )
           )
-        )
+        end
 
       {:compound, worker} ->
         advance(%{state | compounds: Map.put(compounds, worker, true)})
@@ -586,6 +661,11 @@ defmodule Jido.Exec.Controller do
           state
           | spans: Telemetry.fail(Telemetry.drain(state.spans), error, child)
         })
+
+      {__MODULE__, ^invocation_token, {:invocation_interrupt, error}}
+      when not is_nil(invocation_token) ->
+        close_invocation(call)
+        stop_call(state, error)
 
       {__MODULE__, ^ref, {:stop, error}} ->
         stop_call(state, error)
@@ -612,13 +692,18 @@ defmodule Jido.Exec.Controller do
         )
 
       {:EXIT, compound, reason} when reason != :normal and is_map_key(compounds, compound) ->
-        stop_call(
-          state,
-          Jido.Flow.Error.internal_error(
-            "Flow runnable process exited",
-            %{reason: reason}
+        if invocation?(call) do
+          close_invocation(call)
+          stop_call(state, worker_interruption(reason))
+        else
+          stop_call(
+            state,
+            Jido.Flow.Error.internal_error(
+              "Flow runnable process exited",
+              %{reason: reason}
+            )
           )
-        )
+        end
 
       {:EXIT, worker, _reason} ->
         advance(%{state | compounds: Map.delete(compounds, worker)})
@@ -640,6 +725,37 @@ defmodule Jido.Exec.Controller do
   end
 
   defp stop_call(state, error), do: finish_call(state, {:error, error})
+
+  defp worker_interruption(reason),
+    do: Error.interrupted_error(:worker, {:process_exit, reason}, nil)
+
+  defp invocation_token(%{invocation_control: %{token: token}}), do: token
+  defp invocation_token(_call), do: nil
+
+  defp take_invocation_interruption(%{invocation_control: %{token: token}}) do
+    receive do
+      {__MODULE__, ^token, {:invocation_interrupt, error}} -> {:ok, error}
+    after
+      0 -> :none
+    end
+  end
+
+  defp take_invocation_interruption(_call), do: :none
+
+  defp close_invocation(%{invocation_control: %{stop: stop}}), do: close_invocation_stop(stop)
+  defp close_invocation(_call), do: :ok
+
+  defp close_invocation_stop(stop) do
+    :atomics.put(stop, 1, @invocation_stopped)
+    :ok
+  end
+
+  defp park do
+    receive do
+    after
+      :infinity -> :ok
+    end
+  end
 
   defp finish_call(state, result) do
     # Stop the group before recovering spans. Links also find surviving Tasks

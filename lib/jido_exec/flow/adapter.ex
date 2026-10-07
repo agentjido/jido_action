@@ -174,13 +174,14 @@ defmodule Jido.Exec.Flow.Adapter do
     end
   end
 
-  defp invocation(run_opts, executable, compiled, %{chain_index: chain_index}) do
+  defp invocation(run_opts, executable, compiled, %{chain_index: chain_index} = call) do
     case Keyword.fetch(run_opts, :invocation) do
       {:ok, config} ->
         %{
           config: config,
           evidence: InvocationRuntime.flow_evidence(executable.target, compiled),
-          chain_index: chain_index
+          chain_index: chain_index,
+          control: call
         }
 
       :error ->

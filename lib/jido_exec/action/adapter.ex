@@ -67,7 +67,8 @@ defmodule Jido.Exec.Action.Adapter do
         %{
           config: config,
           evidence: InvocationRuntime.action_evidence(action),
-          id: InvocationRuntime.root_id(config, Map.fetch!(call, :chain_index))
+          id: InvocationRuntime.root_id(config, Map.fetch!(call, :chain_index)),
+          control: call
         }
 
       :error ->

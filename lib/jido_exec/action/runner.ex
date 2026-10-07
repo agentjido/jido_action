@@ -37,10 +37,10 @@ defmodule Jido.Exec.Action.Runner do
         nil ->
           invoke(action, params, context)
 
-        %{config: config, evidence: evidence, id: id} ->
+        %{config: config, evidence: evidence, id: id, control: control} ->
           descriptor = InvocationRuntime.descriptor(config, id, evidence, action, params)
 
-          InvocationRuntime.invoke(config, descriptor, action, context, fn ->
+          InvocationRuntime.invoke(config, descriptor, action, context, control, fn ->
             invoke(action, params, context)
           end)
       end

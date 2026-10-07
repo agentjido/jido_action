@@ -4,6 +4,7 @@ defmodule Jido.Exec.Invocation.Runtime do
   alias Jido.Action.Output
   alias Jido.Exec.Error
   alias Jido.Exec.Invocation
+  alias Jido.Exec.Controller
   alias Jido.Exec.Transition
   alias Jido.Flow.Compiled
   alias Jido.Flow.Compiler.Target
@@ -115,26 +116,28 @@ defmodule Jido.Exec.Invocation.Runtime do
           Invocation.invocation(),
           module(),
           map(),
+          Controller.call(),
           (-> term())
         ) :: term()
-  def invoke(config, invocation, action, context, work) when is_function(work, 0) do
+  def invoke(config, invocation, action, context, control, work) when is_function(work, 0) do
+    Controller.halt_if_interrupted(control)
+
     case before(config, invocation) do
       {:ok, :execute} ->
+        Controller.halt_if_interrupted(control)
         result = work.()
         receipt = receipt(invocation, result_to_outcome(result))
 
         case after_invoke(config, receipt) do
           :ok -> result
-          {:error, error} -> {:error, :execution, error}
+          {:error, error} -> Controller.interrupt_invocation(control, error)
         end
 
       {:ok, {:replay, receipt}} ->
         outcome_to_result(receipt.outcome, action, context)
 
       {:error, error} ->
-        # U3 routes this control failure through the controller. Until then,
-        # keep it distinct as an invocation error at the normal result edge.
-        {:error, :execution, error}
+        Controller.interrupt_invocation(control, error)
     end
   end
 

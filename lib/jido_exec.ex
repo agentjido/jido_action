@@ -198,18 +198,24 @@ defmodule Jido.Exec do
            retry: false
          })}
       else
-        Controller.run(timeout, execution_id, control, fn controller ->
-          run_chain(executable, input, context, %{
-            controller: controller,
-            options: run_opts,
-            count: 0,
-            continuation_limit: limit,
-            effect_batches: [],
-            transition: nil,
-            timeout_owner: owner,
-            timeout_target: execution_name(executable)
-          })
-        end)
+        Controller.run(
+          timeout,
+          execution_id,
+          control,
+          Keyword.has_key?(run_opts, :invocation),
+          fn controller ->
+            run_chain(executable, input, context, %{
+              controller: controller,
+              options: run_opts,
+              count: 0,
+              continuation_limit: limit,
+              effect_batches: [],
+              transition: nil,
+              timeout_owner: owner,
+              timeout_target: execution_name(executable)
+            })
+          end
+        )
       end
     end
   end

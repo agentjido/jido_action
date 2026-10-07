@@ -244,7 +244,8 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
   defp advance(state) do
     cond do
       state.pending != [] and map_size(state.active) < state.limit and
-          :atomics.get(state.stopped, 1) == 0 ->
+        :atomics.get(state.stopped, 1) == 0 and
+          not Controller.invocation_stopped?(state.call) ->
         dispatch(state)
 
       map_size(state.active) == 0 ->
@@ -273,9 +274,16 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
           }
 
         {:error, reason} ->
-          :atomics.put(state.stopped, 1, 1)
-          failed = fail_exited_runnable(runnable, {:start_error, reason})
-          %{state | pending: [], completed: [{index, failed} | state.completed]}
+          if Controller.invocation?(state.call) do
+            Controller.interrupt_invocation(
+              state.call,
+              Jido.Exec.Error.interrupted_error(:worker, {:start_error, reason}, nil)
+            )
+          else
+            :atomics.put(state.stopped, 1, 1)
+            failed = fail_exited_runnable(runnable, {:start_error, reason})
+            %{state | pending: [], completed: [{index, failed} | state.completed]}
+          end
       end
     end
   end
@@ -291,6 +299,12 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
 
       {:DOWN, ref, :process, pid, reason} when is_map_key(active, ref) ->
         {_task, runnable, index} = Map.fetch!(active, ref)
+
+        if Controller.invocation?(state.call) do
+          error = Jido.Exec.Error.interrupted_error(:worker, {:process_exit, reason}, nil)
+          Telemetry.fail_worker(state.call.controller, pid, error)
+          Controller.interrupt_invocation(state.call, error)
+        end
 
         {failed, error} =
           if state.kind.(runnable) == :action do
