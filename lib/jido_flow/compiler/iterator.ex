@@ -41,7 +41,9 @@ defmodule Jido.Flow.Compiler.Iterator do
 
   defp run_iterator_iteration(iterator, state, runtime) do
     index = runtime.completed
-    iteration_id = Identity.iteration_uuid(state.flow_digest, iterator.name, index)
+
+    iteration_id =
+      Identity.iteration_uuid(state.flow_digest, state.namespace ++ [iterator.name], index)
 
     target_context =
       Target.iterator(iterator, index, iteration_id, runtime.completed)

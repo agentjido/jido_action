@@ -38,7 +38,7 @@ defmodule Jido.Flow.Step do
     with :ok <- known_keys(attrs),
          {:ok, name} <- Fields.name(Map.get(attrs, :name)),
          {:ok, action} <- Fields.module(Map.get(attrs, :action), "step action"),
-         {:ok, params} <- Expression.prepare(Map.get(attrs, :params, %{})),
+         {:ok, params} <- Fields.params(attrs),
          {:ok, needs_names} <- Fields.needs_names(Map.get(attrs, :needs, [])),
          {:ok, meta} <- Fields.meta(Map.get(attrs, :meta, %{})) do
       {:ok,

@@ -262,7 +262,7 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
 
     assert Exec.run(flow, %{value: 3}, %{}, timeout: 100) == {:ok, %{value: 8}}
 
-    assert {:error, %InvalidExecutionError{details: %{option: :timeout, value: :soon}}} =
+    assert {:error, %InvalidInputError{details: %{option: :timeout, value: :soon}}} =
              Exec.run(flow, %{value: 3}, %{}, timeout: :soon)
 
     assert {:error, %InvalidExecutionError{details: %{option: :timeout}}} =
@@ -297,8 +297,26 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     assert {:error, %InvalidInputError{details: %{option: :max_continuations}}} =
              Exec.run(Add, %{value: 1}, %{}, max_continuations: -1)
 
-    assert {:error, %InvalidExecutionError{details: %{option: :max_continuations}}} =
+    assert {:error, %InvalidInputError{details: %{option: :max_continuations}}} =
              Exec.run(FlowFixtures.math_flow!(), %{value: 1}, %{}, max_continuations: 10_001)
+  end
+
+  test "complete-call option errors use one type before any target resolves" do
+    flow = FlowFixtures.math_flow!()
+    module = JidoActionTest.Fixtures.MathFlow
+
+    forms = [
+      module,
+      flow,
+      Instruction.new!(target: module, params: %{value: 1}),
+      Instruction.new!(target: flow, params: %{value: 1})
+    ]
+
+    for form <- forms, {option, value} <- [timeout: -1, max_continuations: -1] do
+      assert {:error, %InvalidInputError{details: %{option: ^option}}} =
+               Exec.run(form, %{value: 1}, %{}, [{option, value}]),
+             "#{inspect(option)} for #{inspect(form, limit: 3)}"
+    end
   end
 
   test "defaults the complete-call continuation limit to 256" do

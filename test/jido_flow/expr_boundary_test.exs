@@ -165,7 +165,7 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
                params: %{outer: [%{inner: expression}]}
              )
 
-    assert error.details.path == [:outer, 0, :inner, :operands, 0]
+    assert error.details.path == [:params, :outer, 0, :inner, :operands, 0]
     condition = Expr.new!(:eq, [Ref.item(), 1])
     assert {:error, error} = Jido.Flow.Expression.validate(%{outer: [condition]}, :flow)
     assert error.details.path == [:outer, 0, :operands, 0]
@@ -242,7 +242,7 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
     assert {:error, error} =
              Step.new(name: "seed", action: EchoParamsAction, params: %{outer: [expression]})
 
-    assert error.details.path == [:outer, 0, :operands, 0, :operands, 0]
+    assert error.details.path == [:params, :outer, 0, :operands, 0, :operands, 0]
     assert {:error, error} = Jido.Flow.Expression.normalize(%{outer: [reference]})
     assert error.details.path == [:outer, 0]
   end

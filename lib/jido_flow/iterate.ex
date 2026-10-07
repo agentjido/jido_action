@@ -41,6 +41,7 @@ defmodule Jido.Flow.Iterate do
     @moduledoc "Static state data for one `Jido.Flow.Iterate` component."
 
     alias Jido.Action
+    alias Jido.Flow.Component.Fields
     alias Jido.Flow.Error
     alias Jido.Flow.Expression
 
@@ -112,7 +113,7 @@ defmodule Jido.Flow.Iterate do
 
     defp expression(attrs, field, scope) do
       if Map.has_key?(attrs, field) do
-        Expression.prepare(Map.fetch!(attrs, field), scope)
+        Fields.expression(Map.fetch!(attrs, field), field, scope)
       else
         {:error, Error.validation_error("iterate state #{field} is required", %{path: [field]})}
       end
@@ -132,7 +133,7 @@ defmodule Jido.Flow.Iterate do
     with :ok <- known_keys(attrs),
          {:ok, name} <- Fields.name(Map.get(attrs, :name)),
          {:ok, action} <- Fields.module(Map.get(attrs, :action), "iterate action"),
-         {:ok, params} <- Expression.prepare(Map.get(attrs, :params, %{}), :iterate_params),
+         {:ok, params} <- Fields.params(attrs, :iterate_params),
          {:ok, state} <- state(Map.get(attrs, :state)),
          {:ok, completion} <- completion(Map.get(attrs, :completion)),
          {:ok, maximum} <- maximum(Map.get(attrs, :max_iterations)),
@@ -183,7 +184,7 @@ defmodule Jido.Flow.Iterate do
 
   defp completion(value)
        when is_struct(value, Jido.Expr) or is_struct(value, Jido.Flow.Ref) or is_boolean(value),
-       do: Expression.condition(value, :iterate_completion)
+       do: Fields.condition(value, :completion, :iterate_completion)
 
   defp completion(_value), do: {:error, Error.validation_error("iterate completion is required")}
 

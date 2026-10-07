@@ -74,16 +74,11 @@ defmodule Jido.Exec.Worker do
 
   @doc false
   @spec finish(Task.t()) :: :ok
-  def finish(%Task{ref: ref, pid: pid} = task) do
+  def finish(%Task{ref: ref, pid: pid}) do
     # A result can arrive before the Task exits. Keep the Task boundary before
     # a continuation or the next invocation starts.
     receive do
       {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
-    after
-      1_000 -> Task.shutdown(task, :brutal_kill)
     end
-
-    Process.demonitor(ref, [:flush])
-    :ok
   end
 end

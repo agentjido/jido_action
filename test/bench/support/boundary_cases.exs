@@ -220,7 +220,7 @@ defmodule JidoActionBench.BoundaryCases do
 
     simple(
       "identity/items/256",
-      fn -> Enum.map(0..255, &Identity.item_uuid(digest, "node", &1)) end,
+      fn -> Enum.map(0..255, &Identity.item_uuid(digest, ["node"], &1)) end,
       expected
     )
   end

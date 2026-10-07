@@ -157,7 +157,8 @@ defmodule Jido.Flow.RefPathAuthoringTest do
               details: %{path: [:nested, 0], segment: ^segment}
             }} = Jido.Flow.Expression.validate(params)
 
-    assert {:error, %InvalidDefinitionError{details: %{path: [:nested, 0], segment: ^segment}}} =
+    assert {:error,
+            %InvalidDefinitionError{details: %{path: [:params, :nested, 0], segment: ^segment}}} =
              Step.new(name: "echo", action: EchoParamsAction, params: params)
 
     assert {:error, %InvalidDefinitionError{details: %{path: [:nested, 0], segment: ^segment}}} =
@@ -169,7 +170,7 @@ defmodule Jido.Flow.RefPathAuthoringTest do
 
     assert {:error,
             %InvalidDefinitionError{
-              details: %{path: [:components, 0, :nested, 0], segment: ^segment}
+              details: %{path: [:components, 0, :params, :nested, 0], segment: ^segment}
             }} =
              Jido.Flow.new(%{
                output: Jido.Flow.Ref.result("echo"),
@@ -191,7 +192,7 @@ defmodule Jido.Flow.RefPathAuthoringTest do
       assert {:error,
               %InvalidDefinitionError{
                 message: "flow expression contains an invalid reference path",
-                details: %{path: [:components, 0], segment: ^segment}
+                details: %{path: [:components, 0, :params], segment: ^segment}
               }} = result
     end
 
@@ -202,7 +203,7 @@ defmodule Jido.Flow.RefPathAuthoringTest do
     assert {:error,
             %InvalidDefinitionError{
               message: "flow expression contains an invalid reference path",
-              details: %{path: ["components", 0], segment: ^segment}
+              details: %{path: ["components", 0, "params"], segment: ^segment}
             }} = Codec.decode(invalid_document, registry)
   end
 

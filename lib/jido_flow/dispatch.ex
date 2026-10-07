@@ -49,7 +49,7 @@ defmodule Jido.Flow.Dispatch do
          {:ok, name} <- Fields.name(Map.get(attrs, :name)),
          {:ok, decision} <- Fields.module(Map.get(attrs, :decision), "dispatch decision"),
          {:ok, expander} <- Fields.module(Map.get(attrs, :expander), "dispatch expander"),
-         {:ok, params} <- Expression.prepare(Map.get(attrs, :params, %{})),
+         {:ok, params} <- Fields.params(attrs),
          {:ok, needs_names} <- Fields.needs_names(Map.get(attrs, :needs, [])),
          {:ok, meta} <- Fields.meta(Map.get(attrs, :meta, %{})) do
       {:ok,

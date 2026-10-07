@@ -71,10 +71,11 @@ defmodule Jido.Exec.Error do
     Error for an interrupted Action invocation protocol.
 
     The stage reports where Exec observed the interruption. The reason and
-    invocation ID are diagnostic data. This error does not state if an
-    external effect occurred. It does not give retry or recovery advice.
+    invocation ID are diagnostic data. A raised, thrown, or exited host
+    callback keeps its stacktrace in `stacktrace`. This error does not state
+    if an external effect occurred. It does not give retry or recovery advice.
     """
-    defexception message: "Action invocation interrupted", details: %{}
+    defexception message: "Action invocation interrupted", details: %{}, stacktrace: nil
 
     @type stage :: :before_invoke | :after_invoke | :replay | :worker
     @type t :: %__MODULE__{
@@ -83,7 +84,8 @@ defmodule Jido.Exec.Error do
               required(:stage) => stage(),
               required(:reason) => term(),
               required(:invocation_id) => Jido.Exec.Invocation.occurrence_id() | nil
-            }
+            },
+            stacktrace: Splode.Stacktrace.t() | nil
           }
   end
 

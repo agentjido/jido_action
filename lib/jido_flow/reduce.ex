@@ -51,7 +51,7 @@ defmodule Jido.Flow.Reduce do
            validate_required_expression(attrs, :collection, :reduce_collection),
          {:ok, initial} <- validate_required_expression(attrs, :initial, :reduce_initial),
          {:ok, action} <- Fields.module(Map.get(attrs, :action), "reduce action"),
-         {:ok, params} <- validate_params(Map.get(attrs, :params, %{})),
+         {:ok, params} <- Fields.params(attrs, :reduce_params),
          {:ok, needs_names} <- Fields.needs_names(Map.get(attrs, :needs, [])),
          {:ok, meta} <- Fields.meta(Map.get(attrs, :meta, %{})) do
       {:ok,
@@ -106,15 +106,11 @@ defmodule Jido.Flow.Reduce do
 
   defp validate_required_expression(attrs, field, scope) do
     if Map.has_key?(attrs, field) do
-      Expression.prepare(Map.fetch!(attrs, field), scope)
+      Fields.expression(Map.fetch!(attrs, field), field, scope)
     else
       {:error, Error.validation_error("reduce #{field} is required", %{path: [field]})}
     end
   end
-
-  defp validate_params(nil), do: {:ok, %{}}
-
-  defp validate_params(params), do: Expression.prepare(params, :reduce_params)
 
   defp known_keys(attrs) do
     case Enum.reject(Map.keys(attrs), &(&1 in @config_keys)) do

@@ -239,6 +239,72 @@ defmodule JidoActionTest.Exec.InvocationInterruptionTest do
     end
   end
 
+  test "a deadline in the receipt window reports an interruption" do
+    supervisor = start_supervised!(Task.Supervisor)
+    token = make_ref()
+
+    handle =
+      Exec.run_async(Probe, %{owner: self(), token: token, value: 1}, %{},
+        task_supervisor: supervisor,
+        timeout: 50,
+        invocation: config(token, after: :gate)
+      )
+
+    assert_receive {^token, :after, _receipt, worker}, 1_000
+    monitor = Process.monitor(worker)
+
+    assert {:error,
+            %InterruptedError{
+              details: %{
+                stage: :worker,
+                reason: {:call_stopped, %Jido.Action.Error.TimeoutError{}}
+              }
+            }} = Exec.await(handle, 1_000)
+
+    assert_receive {:DOWN, ^monitor, :process, ^worker, :killed}, 1_000
+    assert_supervisor_quiescent(supervisor)
+  end
+
+  for target <- [:action, :flow] do
+    @tag target: target
+    test "private supervisor exit interrupts an opted-in #{target} call", %{target: target} do
+      supervisor = start_supervised!(Task.Supervisor)
+      token = make_ref()
+      params = %{owner: self(), token: token, value: 1}
+
+      executable =
+        case target do
+          :action ->
+            Probe
+
+          :flow ->
+            Flow.new!(
+              name: "invocation_supervisor_exit",
+              components: [Step.new!(name: "probe", action: Probe, params: Ref.input([]))],
+              output: Ref.result("probe")
+            )
+        end
+
+      handle =
+        Exec.run_async(executable, params, %{},
+          task_supervisor: supervisor,
+          invocation: config(token, after: :gate)
+        )
+
+      assert_receive {^token, :after, _receipt, worker}, 1_000
+      {:dictionary, dictionary} = Process.info(worker, :dictionary)
+      [private_supervisor | _] = Keyword.fetch!(dictionary, :"$ancestors")
+      Process.exit(private_supervisor, :kill)
+
+      assert {:error,
+              %InterruptedError{
+                details: %{stage: :worker, reason: {:supervisor_exit, :killed}}
+              }} = Exec.await(handle, 1_000)
+
+      assert_supervisor_quiescent(supervisor)
+    end
+  end
+
   test "owner death cleans up a hanging host callback" do
     supervisor = start_supervised!(Task.Supervisor)
     token = make_ref()

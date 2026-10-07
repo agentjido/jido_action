@@ -37,7 +37,7 @@ defmodule Jido.Flow.Subflow do
     with :ok <- known_keys(attrs),
          {:ok, name} <- Fields.name(Map.get(attrs, :name)),
          {:ok, flow} <- Fields.module(Map.get(attrs, :flow), "subflow module"),
-         {:ok, params} <- Expression.prepare(Map.get(attrs, :params, %{})),
+         {:ok, params} <- Fields.params(attrs),
          {:ok, needs_names} <- Fields.needs_names(Map.get(attrs, :needs, [])),
          {:ok, meta} <- Fields.meta(Map.get(attrs, :meta, %{})) do
       {:ok, %__MODULE__{name: name, flow: flow, params: params, needs: needs_names, meta: meta}}

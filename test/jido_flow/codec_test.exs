@@ -423,6 +423,37 @@ defmodule Jido.Flow.CodecTest do
            ]
   end
 
+  test "diagnose reports constructor expression errors at stored document paths" do
+    registry = CodecRegistry.mixed()
+    assert {:ok, document} = Codec.encode(FlowAuthoring.math_flow!(), registry)
+    [first, second] = document["components"]
+    item = %{"$ref" => %{"source" => "item", "component" => nil, "path" => []}}
+
+    stored_map = fn entries ->
+      %{
+        "$type" => "map",
+        "entries" => Enum.map(entries, fn {key, value} -> %{"key" => key, "value" => value} end)
+      }
+    end
+
+    invalid = %{
+      document
+      | "components" => [
+          %{first | "params" => stored_map.([{"x", stored_map.([{"y", item}])}])},
+          %{second | "params" => stored_map.([{"components", [stored_map.([]), item]}])}
+        ],
+        "output" => stored_map.([{"value", item}])
+    }
+
+    assert {:error, %Error.Invalid{errors: errors}} = Codec.diagnose(invalid, registry)
+
+    assert Enum.map(errors, & &1.details.path) == [
+             ["components", 0, "params", "entries", 0, "value", "entries", 0, "value"],
+             ["components", 1, "params", "entries", 0, "value", 1],
+             ["output", "entries", 0, "value"]
+           ]
+  end
+
   test "diagnose stops at document safety limits" do
     registry = CodecRegistry.mixed()
     assert {:ok, document} = Codec.encode(FlowAuthoring.mixed_flow!(), registry)

@@ -67,25 +67,29 @@ defmodule Jido.Flow.Identity do
   defp identity_hash(data), do: hash_term({:jido_flow_identity, @identity_version, data})
 
   @doc false
-  @spec item_uuid(String.t(), String.t(), non_neg_integer()) :: String.t()
-  def item_uuid(flow_digest, node_name, source_index)
-      when is_binary(flow_digest) and is_binary(node_name) and is_integer(source_index) and
-             source_index >= 0 do
-    {:jido_flow_item_identity, @item_identity_version, flow_digest, node_name, source_index}
+  @spec item_uuid(String.t(), [String.t(), ...], non_neg_integer()) :: String.t()
+  def item_uuid(flow_digest, component_path, source_index)
+      when is_binary(flow_digest) and is_integer(source_index) and source_index >= 0 do
+    {:jido_flow_item_identity, @item_identity_version, flow_digest, node_key(component_path),
+     source_index}
     |> hash_term()
     |> uuid_v8()
   end
 
   @doc false
-  @spec iteration_uuid(String.t(), String.t(), non_neg_integer()) :: String.t()
-  def iteration_uuid(flow_digest, node_name, iteration_index)
-      when is_binary(flow_digest) and is_binary(node_name) and is_integer(iteration_index) and
-             iteration_index >= 0 do
-    {:jido_flow_iterate_iteration_identity, @iteration_identity_version, flow_digest, node_name,
-     iteration_index}
+  @spec iteration_uuid(String.t(), [String.t(), ...], non_neg_integer()) :: String.t()
+  def iteration_uuid(flow_digest, component_path, iteration_index)
+      when is_binary(flow_digest) and is_integer(iteration_index) and iteration_index >= 0 do
+    {:jido_flow_iterate_iteration_identity, @iteration_identity_version, flow_digest,
+     node_key(component_path), iteration_index}
     |> hash_term()
     |> uuid_v8()
   end
+
+  # A root component keeps its original name key. A nested component uses its
+  # full Subflow path, so the same child Flow in two places has distinct IDs.
+  defp node_key([name]) when is_binary(name), do: name
+  defp node_key([_, _ | _] = path), do: path
 
   @doc false
   @spec hash_term(term()) :: binary()

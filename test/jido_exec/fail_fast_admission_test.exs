@@ -98,6 +98,41 @@ defmodule JidoActionTest.Exec.FailFastAdmissionTest do
     end
   end
 
+  defmodule ImmediateFailure do
+    use Jido.Action, name: "fail_fast_immediate"
+
+    @impl true
+    def run(%{id: id}, %{owner: owner, ref: ref}) do
+      send(owner, {ref, :started, id})
+      {:error, Jido.Action.Error.execution_error("immediate failure #{id}")}
+    end
+  end
+
+  test "every runnable admitted in one dispatch pass runs and reports its failure" do
+    names = Enum.map(1..4, &"failing_#{&1}")
+
+    flow =
+      Flow.new!(
+        name: "fail_fast_pass",
+        components:
+          Enum.map(names, &Step.new!(name: &1, action: ImmediateFailure, params: %{id: &1})),
+        output: Map.new(names, &{&1, Ref.result(&1)})
+      )
+
+    for _ <- 1..50 do
+      ref = make_ref()
+
+      assert {:error, error} =
+               Exec.run(flow, %{}, %{owner: self(), ref: ref}, max_concurrency: 8)
+
+      assert Enum.map(error.failures, & &1.node) == names
+
+      for name <- names do
+        assert_received {^ref, :started, ^name}
+      end
+    end
+  end
+
   test "a killed native worker stops admission for a caller that traps exits" do
     {context, ref} = context(0)
     assert {:ok, execution} = Exec.start(flow(), %{}, context, max_concurrency: 2)

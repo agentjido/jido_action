@@ -201,10 +201,9 @@ defmodule Jido.Exec do
 
   defp do_run(executable, input, context, opts, control) do
     execution_id = Telemetry.execution_id()
-    owner = initial_timeout_owner(executable)
 
-    with {:ok, timeout, run_opts} <- Options.take_timeout(opts, owner),
-         {:ok, limit} <- Options.continuation_limit(run_opts, owner) do
+    with {:ok, timeout, run_opts} <- Options.take_timeout(opts, Error),
+         {:ok, limit} <- Options.continuation_limit(run_opts, Error) do
       if timeout == 0 do
         {:error,
          Jido.Exec.Error.call_timeout_error("Execution timed out before dispatch", %{
@@ -226,7 +225,7 @@ defmodule Jido.Exec do
               continuation_limit: limit,
               effect_batches: [],
               transition: nil,
-              timeout_owner: owner,
+              timeout_owner: Error,
               timeout_target: execution_name(executable)
             })
           end
@@ -510,10 +509,6 @@ defmodule Jido.Exec do
 
   defp timeout_owner(%Executable{kind: :flow}), do: FlowError
   defp timeout_owner(%Executable{kind: :action}), do: Error
-
-  defp initial_timeout_owner(%Instruction{target: target}), do: initial_timeout_owner(target)
-  defp initial_timeout_owner(%Flow{}), do: FlowError
-  defp initial_timeout_owner(_executable), do: Error
 
   defp execution_name(%Executable{target: target}), do: execution_name(target)
 

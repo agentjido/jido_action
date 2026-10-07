@@ -13,7 +13,11 @@ defmodule Jido.Exec.Controller do
   @invocation_stopped 1
 
   @type call :: %{
-          optional(:invocation_control) => %{token: reference(), stop: :atomics.atomics_ref()},
+          optional(:invocation_control) => %{
+            token: reference(),
+            stop: :atomics.atomics_ref(),
+            fresh: :atomics.atomics_ref()
+          },
           optional(:chain_index) => non_neg_integer(),
           supervisor: pid(),
           controller: pid(),
@@ -499,7 +503,8 @@ defmodule Jido.Exec.Controller do
       if invocation? do
         Map.put(call, :invocation_control, %{
           token: make_ref(),
-          stop: :atomics.new(1, signed: false)
+          stop: :atomics.new(1, signed: false),
+          fresh: :atomics.new(1, signed: true)
         })
       else
         call
@@ -580,6 +585,19 @@ defmodule Jido.Exec.Controller do
   end
 
   @doc false
+  @spec begin_fresh_work(call()) :: :ok | no_return()
+  def begin_fresh_work(%{invocation_control: %{fresh: fresh}} = call) do
+    :atomics.add(fresh, 1, 1)
+    halt_if_interrupted(call)
+  end
+
+  @doc false
+  @spec accept_fresh_work(call()) :: :ok
+  def accept_fresh_work(%{invocation_control: %{fresh: fresh}}) do
+    :atomics.sub(fresh, 1, 1)
+  end
+
+  @doc false
   @spec interrupt_invocation(call(), Error.InterruptedError.t()) :: no_return()
   def interrupt_invocation(
         %{controller: controller, invocation_control: %{token: token, stop: stop}},
@@ -597,7 +615,7 @@ defmodule Jido.Exec.Controller do
     after
       0 ->
         if expired?(state.call.deadline) do
-          stop_call(state, timeout_error(state))
+          stop_call(state, deadline_error(state))
         else
           send(state.task.pid, :run)
           receive_root(state)
@@ -607,7 +625,7 @@ defmodule Jido.Exec.Controller do
 
   defp advance(state) do
     if expired?(state.call.deadline),
-      do: stop_call(state, timeout_error(state)),
+      do: stop_call(state, deadline_error(state)),
       else: receive_root(state)
   end
 
@@ -676,22 +694,10 @@ defmodule Jido.Exec.Controller do
         owner_down(state, owner, reason)
 
       {:EXIT, ^supervisor, reason} ->
-        stop_call(
-          state,
-          state.error_owner.internal_error(
-            "Execution Task Supervisor exited",
-            %{reason: reason, retry: false}
-          )
-        )
+        supervisor_exit(state, "Execution Task Supervisor exited", reason)
 
       {:EXIT, ^host, reason} ->
-        stop_call(
-          state,
-          state.error_owner.internal_error(
-            "Execution control supervisor exited",
-            %{reason: reason, retry: false}
-          )
-        )
+        supervisor_exit(state, "Execution control supervisor exited", reason)
 
       {:EXIT, compound, reason} when reason != :normal and is_map_key(compounds, compound) ->
         if invocation?(call) do
@@ -727,6 +733,32 @@ defmodule Jido.Exec.Controller do
   end
 
   defp stop_call(state, error), do: finish_call(state, {:error, error})
+
+  # Worker results are missing, so an opted-in call is interrupted.
+  defp supervisor_exit(%{call: call} = state, message, reason) do
+    if invocation?(call) do
+      close_invocation(call)
+      stop_call(state, Error.interrupted_error(:worker, {:supervisor_exit, reason}, nil))
+    else
+      stop_call(state, state.error_owner.internal_error(message, %{reason: reason, retry: false}))
+    end
+  end
+
+  # Close admission before the count is read. Counted work may have an
+  # external effect without an accepted receipt, so the host must resolve it.
+  defp deadline_error(%{call: call} = state) do
+    error = timeout_error(state)
+
+    if invocation?(call) do
+      close_invocation(call)
+
+      if :atomics.get(call.invocation_control.fresh, 1) > 0,
+        do: Error.interrupted_error(:worker, {:call_stopped, error}, nil),
+        else: error
+    else
+      error
+    end
+  end
 
   defp worker_interruption(reason),
     do: Error.interrupted_error(:worker, {:process_exit, reason}, nil)

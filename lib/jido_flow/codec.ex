@@ -300,11 +300,15 @@ defmodule Jido.Flow.Codec do
   defp diagnose_output_field(document, registry) do
     case Map.fetch(document, "output") do
       {:ok, value} ->
-        with {:ok, output} <- diagnose_expression(value, registry, 0, ["output"]),
-             :ok <- Expression.validate(output) do
-          {:ok, output}
-        else
-          {:error, error} -> {:error, ensure_json_path(error, ["output"])}
+        case diagnose_expression(value, registry, 0, ["output"]) do
+          {:ok, output} ->
+            case Expression.validate(output) do
+              :ok -> {:ok, output}
+              {:error, error} -> {:error, stored_error_path(error, value, registry, ["output"])}
+            end
+
+          {:error, error} ->
+            {:error, ensure_json_path(error, ["output"])}
         end
 
       :error ->
@@ -538,7 +542,7 @@ defmodule Jido.Flow.Codec do
     case collect_values(fields, initial_errors) do
       {:ok, %{common: common} = values} ->
         attrs = values |> Map.delete(:common) |> Map.merge(common)
-        diagnose_constructor(constructor.(attrs), path)
+        diagnose_constructor(constructor.(attrs), record, registry, path)
 
       {:error, errors} ->
         {:error, errors}
@@ -625,7 +629,7 @@ defmodule Jido.Flow.Codec do
     initial_errors = unknown_field_errors(record, ["name", "condition", "action", "params"], path)
 
     case collect_values(fields, initial_errors) do
-      {:ok, attrs} -> diagnose_constructor(Choice.Option.new(attrs), path)
+      {:ok, attrs} -> diagnose_constructor(Choice.Option.new(attrs), record, registry, path)
       {:error, errors} -> {:error, errors}
     end
   end
@@ -657,7 +661,7 @@ defmodule Jido.Flow.Codec do
     initial_errors = unknown_field_errors(record, ["action", "params"], path)
 
     case collect_values(fields, initial_errors) do
-      {:ok, attrs} -> diagnose_constructor(Choice.Fallback.new(attrs), path)
+      {:ok, attrs} -> diagnose_constructor(Choice.Fallback.new(attrs), record, registry, path)
       {:error, errors} -> {:error, errors}
     end
   end
@@ -683,7 +687,7 @@ defmodule Jido.Flow.Codec do
     initial_errors = unknown_field_errors(record, ["schema", "initial", "update"], path)
 
     case collect_values(fields, initial_errors) do
-      {:ok, attrs} -> diagnose_constructor(Iterate.State.new(attrs), path)
+      {:ok, attrs} -> diagnose_constructor(Iterate.State.new(attrs), record, registry, path)
       {:error, errors} -> {:error, errors}
     end
   end
@@ -1108,11 +1112,61 @@ defmodule Jido.Flow.Codec do
     end
   end
 
-  defp diagnose_constructor({:ok, value}, _path), do: {:ok, value}
+  defp diagnose_constructor({:ok, value}, _record, _registry, _path), do: {:ok, value}
 
-  defp diagnose_constructor({:error, error}, path) do
-    {:error, ensure_json_path(error, path)}
+  defp diagnose_constructor({:error, error}, record, registry, path) do
+    {:error, stored_error_path(error, record, registry, path)}
   end
+
+  # Constructor and expression errors use canonical value paths. Follow the
+  # stored document to report the JSON path of the same value.
+  defp stored_error_path(%{details: details} = error, stored, registry, base_path)
+       when is_map(details) do
+    path = stored_path(stored, Map.get(details, :path, []), registry)
+    %{error | details: Map.put(details, :path, base_path ++ path)}
+  end
+
+  defp stored_error_path(error, _stored, _registry, _base_path), do: error
+
+  defp stored_path(_stored, [], _registry), do: []
+
+  defp stored_path(%{"$type" => "map", "entries" => entries}, [key | rest] = path, registry)
+       when is_list(entries) do
+    case Enum.find_index(entries, &stored_key?(&1, key, registry)) do
+      nil ->
+        Enum.map(path, &json_path_segment/1)
+
+      index ->
+        value = entries |> Enum.at(index) |> Map.fetch!("value")
+        ["entries", index, "value" | stored_path(value, rest, registry)]
+    end
+  end
+
+  defp stored_path(%{"$expr" => %{"operands" => operands}}, [:operands | rest], registry),
+    do: ["$expr", "operands" | stored_path(operands, rest, registry)]
+
+  defp stored_path(%{"$condition" => %{"operands" => operands}}, [:operands | rest], registry),
+    do: ["$condition", "operands" | stored_path(operands, rest, registry)]
+
+  defp stored_path(values, [index | rest], registry)
+       when is_list(values) and is_integer(index) and index >= 0 and index < length(values),
+       do: [index | stored_path(Enum.at(values, index), rest, registry)]
+
+  defp stored_path(%{} = record, [field | rest] = path, registry) when is_atom(field) do
+    key = Atom.to_string(field)
+
+    case Map.fetch(record, key) do
+      {:ok, value} -> [key | stored_path(value, rest, registry)]
+      :error -> Enum.map(path, &json_path_segment/1)
+    end
+  end
+
+  defp stored_path(_stored, path, _registry), do: Enum.map(path, &json_path_segment/1)
+
+  defp stored_key?(%{"key" => stored}, key, registry),
+    do: diagnose_data(stored, registry, 0, []) == {:ok, key}
+
+  defp stored_key?(_entry, _key, _registry), do: false
 
   defp collect_values(fields, initial_errors \\ []) do
     {values, errors} =

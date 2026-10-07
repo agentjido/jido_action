@@ -208,13 +208,11 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
     |> Enum.reverse()
   end
 
+  # Admission depends only on results that this scheduler has received.
+  # A worker failure does not stop a dispatch pass that is already running.
   defp execute_concurrently(execution, runnables, call) do
-    stopped = :atomics.new(1, [])
-
     execute = fn {runnable, metadata, kind} ->
-      executed = execute_with_metadata(runnable, metadata, call, kind)
-      if executed.status == :failed, do: :atomics.put(stopped, 1, 1)
-      executed
+      execute_with_metadata(runnable, metadata, call, kind)
     end
 
     %{
@@ -225,7 +223,6 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
       pending: Enum.with_index(runnables),
       active: %{},
       completed: [],
-      stopped: stopped,
       execute: execute,
       metadata: &node_metadata(execution, &1)
     }
@@ -244,7 +241,6 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
   defp advance(state) do
     cond do
       state.pending != [] and map_size(state.active) < state.limit and
-        :atomics.get(state.stopped, 1) == 0 and
           not Controller.invocation_stopped?(state.call) ->
         dispatch(state)
 
@@ -280,7 +276,6 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
               Jido.Exec.Error.interrupted_error(:worker, {:start_error, reason}, nil)
             )
           else
-            :atomics.put(state.stopped, 1, 1)
             failed = fail_exited_runnable(runnable, {:start_error, reason})
             %{state | pending: [], completed: [{index, failed} | state.completed]}
           end
@@ -295,7 +290,13 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
       {ref, result} when is_map_key(active, ref) ->
         {task, _runnable, index} = Map.fetch!(active, ref)
         Worker.finish(task)
-        %{state | active: Map.delete(active, ref), completed: [{index, result} | state.completed]}
+
+        %{
+          state
+          | active: Map.delete(active, ref),
+            pending: if(result.status == :failed, do: [], else: state.pending),
+            completed: [{index, result} | state.completed]
+        }
 
       {:DOWN, ref, :process, pid, reason} when is_map_key(active, ref) ->
         {_task, runnable, index} = Map.fetch!(active, ref)
@@ -319,7 +320,6 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
             {failed, failed.error}
           end
 
-        if failed.status == :failed, do: :atomics.put(state.stopped, 1, 1)
         Telemetry.fail_worker(state.call.controller, pid, error)
 
         %{

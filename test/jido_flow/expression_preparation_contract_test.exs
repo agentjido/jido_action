@@ -14,7 +14,7 @@ defmodule Jido.Flow.ExpressionPreparationContractTest do
   alias JidoActionTest.Fixtures.Actions.Add
   alias JidoActionTest.Fixtures.NestedFlow
 
-  test "every parameter constructor normalizes nested result names and retains its nil rule" do
+  test "every parameter constructor normalizes nested result names and treats nil as empty" do
     params = %{nested: [%Ref{source: :result, component: :source, path: []}]}
     expected = %{nested: [Ref.result("source")]}
 
@@ -23,7 +23,7 @@ defmodule Jido.Flow.ExpressionPreparationContractTest do
       assert component.params == expected
 
       assert {:ok, component} = module.new(Keyword.put(attrs, :params, nil))
-      assert component.params == if(module in [FlowMap, Reduce], do: %{}, else: nil)
+      assert component.params == %{}
     end
   end
 
@@ -36,7 +36,7 @@ defmodule Jido.Flow.ExpressionPreparationContractTest do
                module.new(Keyword.put(attrs, :params, params))
 
       assert error.message == message
-      assert error.details == %{path: [1]}
+      assert error.details == %{path: [:params, 1]}
     end
   end
 
@@ -56,7 +56,7 @@ defmodule Jido.Flow.ExpressionPreparationContractTest do
                module.new(Keyword.put(attrs, :params, %{nested: [ref]}))
 
       assert error.message == "flow expression contains a scoped ref outside its valid scope"
-      assert error.details == %{path: [:nested, 0], ref_type: ref.source, scope: scope}
+      assert error.details == %{path: [:params, :nested, 0], ref_type: ref.source, scope: scope}
     end
   end
 
@@ -92,11 +92,15 @@ defmodule Jido.Flow.ExpressionPreparationContractTest do
     }
 
     assert {:error, local} = Choice.new(choice)
-    assert local.details.path == [:options, 0, :nested, 0]
+    assert local.details.path == [:options, 0, :params, :nested, 0]
 
     assert {:error, nested} = Flow.new(name: "nested", components: [choice], output: %{})
     assert nested.message == local.message
-    assert nested.details == %{local.details | path: [:components, 0, :options, 0, :nested, 0]}
+
+    assert nested.details == %{
+             local.details
+             | path: [:components, 0, :options, 0, :params, :nested, 0]
+           }
   end
 
   defp constructors do

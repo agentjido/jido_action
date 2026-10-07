@@ -127,7 +127,7 @@ defmodule Jido.Flow.Compiler.Collection do
               kind: :item,
               item: item,
               index: index,
-              id: Identity.item_uuid(local.flow_digest, map.name, index),
+              id: Identity.item_uuid(local.flow_digest, local.namespace ++ [map.name], index),
               input: local.input_frame,
               results: local.results
             }
@@ -274,7 +274,7 @@ defmodule Jido.Flow.Compiler.Collection do
             kind: :item,
             item: item,
             index: index,
-            id: Identity.item_uuid(local.flow_digest, reduce.name, index),
+            id: Identity.item_uuid(local.flow_digest, local.namespace ++ [reduce.name], index),
             input: local.input_frame,
             results: local.results,
             initial: initial

@@ -124,13 +124,17 @@ defmodule Jido.Exec.Invocation.Runtime do
 
     case before(config, invocation) do
       {:ok, :execute} ->
-        Controller.halt_if_interrupted(control)
+        Controller.begin_fresh_work(control)
         result = work.()
         receipt = receipt(invocation, result_to_outcome(result))
 
         case after_invoke(config, receipt) do
-          :ok -> result
-          {:error, error} -> Controller.interrupt_invocation(control, error)
+          :ok ->
+            Controller.accept_fresh_work(control)
+            result
+
+          {:error, error} ->
+            Controller.interrupt_invocation(control, error)
         end
 
       {:ok, {:replay, receipt}} ->
@@ -167,8 +171,8 @@ defmodule Jido.Exec.Invocation.Runtime do
       {:ok, other} ->
         {:error, Error.interrupted_error(stage, {:invalid_callback_return, other}, invocation_id)}
 
-      {:error, reason} ->
-        {:error, Error.interrupted_error(stage, reason, invocation_id)}
+      {:error, reason, stacktrace} ->
+        {:error, callback_failure(stage, reason, invocation_id, stacktrace)}
     end
   end
 
@@ -192,8 +196,8 @@ defmodule Jido.Exec.Invocation.Runtime do
       {:ok, other} ->
         {:error, Error.interrupted_error(stage, {:invalid_callback_return, other}, invocation_id)}
 
-      {:error, reason} ->
-        {:error, Error.interrupted_error(stage, reason, invocation_id)}
+      {:error, reason, stacktrace} ->
+        {:error, callback_failure(stage, reason, invocation_id, stacktrace)}
     end
   end
 
@@ -447,9 +451,14 @@ defmodule Jido.Exec.Invocation.Runtime do
   defp call(module, callback, args) do
     {:ok, apply(module, callback, args)}
   rescue
-    exception -> {:error, exception}
+    exception -> {:error, exception, __STACKTRACE__}
   catch
-    kind, reason -> {:error, %{kind: kind, reason: reason}}
+    kind, reason -> {:error, %{kind: kind, reason: reason}, __STACKTRACE__}
+  end
+
+  defp callback_failure(stage, reason, invocation_id, stacktrace) do
+    error = Error.interrupted_error(stage, reason, invocation_id)
+    %{error | stacktrace: %Splode.Stacktrace{stacktrace: stacktrace}}
   end
 
   defp invalid(reason), do: {:error, {reason, %{}}}

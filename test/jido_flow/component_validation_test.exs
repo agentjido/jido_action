@@ -30,7 +30,7 @@ defmodule Jido.Flow.ComponentValidationTest do
                max_iterations: 1
              )
 
-    assert {:error, %InvalidDefinitionError{details: %{path: [:value, :operands, 0]}}} =
+    assert {:error, %InvalidDefinitionError{details: %{path: [:params, :value, :operands, 0]}}} =
              Step.new(
                name: "old",
                action: Add,
@@ -283,10 +283,36 @@ defmodule Jido.Flow.ComponentValidationTest do
           assert {:error,
                   %InvalidDefinitionError{
                     message: "flow expression contains an invalid reference path",
-                    details: %{path: [:nested, 0, :value]}
+                    details: %{path: [:params, :nested, 0, :value]}
                   }} = module.new(Keyword.put(attrs, :params, params))
         end
       end
+    end
+  end
+
+  test "constructor expression errors start with their field" do
+    bad = %{nested: [Ref.input([nil])]}
+    bad_condition = Jido.Expr.new!(:eq, [Ref.input([nil]), 1])
+
+    cases = [
+      {:collection, FlowMap.new(name: "map", collection: bad, action: Add)},
+      {:collection, Reduce.new(name: "reduce", collection: bad, initial: %{}, action: Add)},
+      {:initial, Reduce.new(name: "reduce", collection: [], initial: bad, action: Add)},
+      {:initial, Iterate.State.new(schema: [], initial: bad, update: %{})},
+      {:update, Iterate.State.new(schema: [], initial: %{}, update: bad)},
+      {:condition, Choice.Option.new(name: "option", condition: bad_condition, action: Add)},
+      {:completion,
+       Iterate.new(
+         name: "iterate",
+         action: Add,
+         state: [schema: [], initial: %{}, update: %{}],
+         completion: bad_condition,
+         max_iterations: 1
+       )}
+    ]
+
+    for {field, result} <- cases do
+      assert {:error, %InvalidDefinitionError{details: %{path: [^field | _rest]}}} = result
     end
   end
 

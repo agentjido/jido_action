@@ -4,6 +4,7 @@ defmodule Jido.Flow.Component.Fields do
   alias Jido.Action
   alias Jido.Flow.Data
   alias Jido.Flow.Error
+  alias Jido.Flow.Expression
 
   @doc false
   @spec name(term()) :: {:ok, String.t()} | {:error, Exception.t()}
@@ -19,6 +20,28 @@ defmodule Jido.Flow.Component.Fields do
 
   def name(_value),
     do: {:error, Error.validation_error("component name must be a non-empty string")}
+
+  @doc false
+  @spec params(map(), atom()) :: {:ok, term()} | {:error, Exception.t()}
+  def params(attrs, scope \\ :flow) do
+    case Map.get(attrs, :params) do
+      nil -> {:ok, %{}}
+      params -> expression(params, :params, scope)
+    end
+  end
+
+  @doc false
+  @spec expression(term(), atom(), atom()) :: {:ok, term()} | {:error, Exception.t()}
+  def expression(value, field, scope),
+    do: value |> Expression.prepare(scope) |> at_field(field)
+
+  @doc false
+  @spec condition(term(), atom(), atom()) :: {:ok, term()} | {:error, Exception.t()}
+  def condition(value, field, scope),
+    do: value |> Expression.condition(scope) |> at_field(field)
+
+  defp at_field({:error, error}, field), do: {:error, Error.prefix_path(error, [field])}
+  defp at_field(result, _field), do: result
 
   @doc false
   @spec module(term(), String.t()) :: {:ok, module()} | {:error, Exception.t()}

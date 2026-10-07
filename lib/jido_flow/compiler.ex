@@ -310,12 +310,13 @@ defmodule Jido.Flow.Compiler do
 
   defp add_map(map, state) do
     resolver_name = support_name(state, map.name, "map-input")
+    namespace = state.namespace
 
     resolver =
       runtime_step_named(resolver_name, state, :map_input, fn parent, runtime ->
         local = component_state(map, parent, runtime)
 
-        Collection.map_input(map, local)
+        Collection.map_input(map, Map.put(local, :namespace, namespace))
       end)
 
     workflow = add_with_dependencies(state, map, resolver)
@@ -405,12 +406,13 @@ defmodule Jido.Flow.Compiler do
 
   defp add_reduce(reduce, state) do
     resolver_name = support_name(state, reduce.name, "reduce-input")
+    namespace = state.namespace
 
     resolver =
       runtime_step_named(resolver_name, state, :reduce_input, fn parent, runtime ->
         local = component_state(reduce, parent, runtime)
 
-        Collection.reduce_input(reduce, local)
+        Collection.reduce_input(reduce, Map.put(local, :namespace, namespace))
       end)
 
     workflow = add_with_dependencies(state, reduce, resolver)
@@ -902,11 +904,19 @@ defmodule Jido.Flow.Compiler do
   defp unwrap_ok!({:ok, result}), do: result
   defp unwrap_ok!({:error, error}), do: raise(error)
 
-  defp output_name(state, name), do: scoped(state.namespace, name)
-  defp support_name(state, name, suffix), do: scoped(state.namespace, "$#{name}/#{suffix}")
+  defp output_name(state, name), do: node_name(state.namespace, [segment(name)])
 
-  defp scoped([], name), do: to_string(name)
-  defp scoped(namespace, name), do: Enum.join(namespace ++ [to_string(name)], "/")
+  defp support_name(state, name, suffix),
+    do: node_name(state.namespace, ["$" <> segment(name), suffix])
+
+  defp scoped(namespace, name), do: node_name(namespace, [to_string(name)])
+
+  # Runic keeps one node per name. Escape authored segments so that a name
+  # with "/" or "$" cannot equal a nested or support node name.
+  defp node_name(namespace, tail),
+    do: Enum.join(Enum.map(namespace, &segment/1) ++ tail, "/")
+
+  defp segment(name), do: URI.encode(to_string(name), &(&1 not in ~c"%/$"))
 
   defp stable_hash(value), do: Components.fact_hash({:jido_flow, @compiler_version, value})
 

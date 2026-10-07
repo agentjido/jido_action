@@ -78,7 +78,7 @@ defmodule Jido.Flow.Choice do
            {:ok, name} <- Fields.name(Map.get(attrs, :name)),
            {:ok, condition} <- condition(Map.get(attrs, :condition)),
            {:ok, action} <- Fields.module(Map.get(attrs, :action), "choice option action"),
-           {:ok, params} <- Expression.prepare(Map.get(attrs, :params, %{})) do
+           {:ok, params} <- Fields.params(attrs) do
         {:ok, %__MODULE__{name: name, condition: condition, action: action, params: params}}
       end
     end
@@ -96,7 +96,7 @@ defmodule Jido.Flow.Choice do
 
     defp condition(value)
          when is_struct(value, Jido.Expr) or is_struct(value, Jido.Flow.Ref) or is_boolean(value),
-         do: Expression.condition(value, :flow)
+         do: Fields.condition(value, :condition, :flow)
 
     defp condition(_condition),
       do: {:error, Error.validation_error("choice option condition is required")}
@@ -147,7 +147,7 @@ defmodule Jido.Flow.Choice do
     def new(%{} = attrs) do
       with :ok <- known_keys(attrs),
            {:ok, action} <- Fields.module(Map.get(attrs, :action), "choice fallback action"),
-           {:ok, params} <- Expression.prepare(Map.get(attrs, :params, %{})) do
+           {:ok, params} <- Fields.params(attrs) do
         {:ok, %__MODULE__{action: action, params: params}}
       end
     end

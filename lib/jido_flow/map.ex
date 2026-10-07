@@ -50,7 +50,7 @@ defmodule Jido.Flow.Map do
          {:ok, name} <- Fields.name(Map.get(attrs, :name)),
          {:ok, collection} <- validate_required_expression(attrs, :collection, :map_collection),
          {:ok, action} <- Fields.module(Map.get(attrs, :action), "map action"),
-         {:ok, params} <- validate_params(Map.get(attrs, :params, %{})),
+         {:ok, params} <- Fields.params(attrs, :map_params),
          {:ok, on_error} <- validate_on_error(Map.get(attrs, :on_error, :fail_fast)),
          {:ok, needs_names} <- Fields.needs_names(Map.get(attrs, :needs, [])),
          {:ok, meta} <- Fields.meta(Map.get(attrs, :meta, %{})) do
@@ -105,15 +105,11 @@ defmodule Jido.Flow.Map do
 
   defp validate_required_expression(attrs, field, scope) do
     if Map.has_key?(attrs, field) do
-      Expression.prepare(Map.fetch!(attrs, field), scope)
+      Fields.expression(Map.fetch!(attrs, field), field, scope)
     else
       {:error, Error.validation_error("map #{field} is required", %{path: [field]})}
     end
   end
-
-  defp validate_params(nil), do: {:ok, %{}}
-
-  defp validate_params(params), do: Expression.prepare(params, :map_params)
 
   defp known_keys(attrs) do
     case Enum.reject(Map.keys(attrs), &(&1 in @config_keys)) do

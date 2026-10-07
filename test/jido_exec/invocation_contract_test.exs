@@ -254,6 +254,29 @@ defmodule JidoActionTest.Exec.InvocationContractTest do
     end
   end
 
+  defmodule AfterThrowHost do
+    @behaviour Invocation
+
+    @impl true
+    def before_invoke(_invocation, _ref), do: :execute
+
+    @impl true
+    def after_invoke(_receipt, _ref), do: throw(:after_failed)
+  end
+
+  describe "host callback failures" do
+    @describetag contracts: ["INVOKE-003"]
+
+    test "keep the host callback stacktrace" do
+      for {host, function} <- [{RaiseHost, :before_invoke}, {AfterThrowHost, :after_invoke}] do
+        assert {:error, %InterruptedError{stacktrace: %Splode.Stacktrace{stacktrace: frames}}} =
+                 Exec.run(Action, %{value: 1}, %{}, invocation: config(host: host))
+
+        assert [{^host, ^function, 2, _location} | _rest] = frames
+      end
+    end
+  end
+
   describe "receipt structure" do
     @describetag contracts: ["INVOKE-002"]
 

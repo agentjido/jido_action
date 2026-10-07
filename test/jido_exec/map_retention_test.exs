@@ -208,7 +208,7 @@ defmodule JidoActionTest.Exec.MapRetentionTest do
     current = flow()
     assert {:ok, %{digest: digest}} = Flow.semantic_identity(current)
 
-    expected_ids = Enum.map(0..2, &Identity.item_uuid(digest, "reduced", &1))
+    expected_ids = Enum.map(0..2, &Identity.item_uuid(digest, ["reduced"], &1))
 
     for _ <- 1..2 do
       assert {:ok, _} = Exec.run(current, %{items: [3, 1, 3]}, %{test_pid: self()})
@@ -216,7 +216,7 @@ defmodule JidoActionTest.Exec.MapRetentionTest do
       ids =
         for index <- 0..2 do
           assert_receive {ReduceProbeAction, :called, ^index, id, _, _}, 1000
-          refute id == Identity.item_uuid(digest, "mapped", index)
+          refute id == Identity.item_uuid(digest, ["mapped"], index)
           id
         end
 
