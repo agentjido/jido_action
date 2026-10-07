@@ -2,13 +2,12 @@ defmodule JidoActionTest.Exec.Flow.Compiler.TargetTest do
   use ExUnit.Case, async: true
 
   alias Jido.Exec.Flow.Target
-  alias Jido.Flow.Step
   alias Jido.Instruction
   alias JidoActionTest.Fixtures.Actions.Add
 
   test "uses an Instruction as the executable Flow target" do
     target =
-      Step.new!(name: "add", action: Add)
+      %{name: "add", kind: :call, call: {Instruction.template(:action, Add), %{}}}
       |> Target.step()
       |> Target.at(["child"])
 
@@ -39,5 +38,19 @@ defmodule JidoActionTest.Exec.Flow.Compiler.TargetTest do
 
     assert Target.run(target, params, context, "execution-1", runner) ==
              {:ok, %{value: 3}, [:effect]}
+  end
+
+  test "keeps non-map parameters after it binds the Instruction template" do
+    target =
+      %{name: "add", kind: :call, call: {Instruction.template(:action, Add), %{}}}
+      |> Target.step()
+
+    runner = fn instruction, _execution_id ->
+      assert instruction.params == [1, 2, 3]
+      {:ok, instruction.params}
+    end
+
+    assert Target.run(target, [1, 2, 3], %{}, "execution-1", runner) ==
+             {:ok, [1, 2, 3], []}
   end
 end

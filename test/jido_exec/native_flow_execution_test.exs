@@ -3,7 +3,7 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
 
   alias Jido.Exec
   alias Jido.Flow
-  alias Jido.Flow.{Map, Reduce, Ref, Step, Subflow}
+  alias Jido.Flow.Ref
   alias JidoActionTest.Fixtures.{ChoicePublicPaths, MathFlow}
   alias JidoActionTest.Fixtures.ChildIterator
   alias JidoActionTest.Fixtures.InlineControlledFlow
@@ -127,10 +127,10 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
 
   test "a Subflow exposes its child and input binding work" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "native_subflow_execution",
         components: [
-          Subflow.new!(
+          JidoActionTest.FlowComponent.subflow!(
             name: "child",
             flow: MathFlow,
             params: %{value: Ref.input([:value])}
@@ -156,12 +156,20 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
 
   test "needs controls readiness but does not add predecessor values to params" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "needs_is_control",
         components: [
-          Step.new!(name: "left", action: EchoParamsAction, params: %{side: :left}),
-          Step.new!(name: "right", action: EchoParamsAction, params: %{side: :right}),
-          Step.new!(
+          JidoActionTest.FlowComponent.step!(
+            name: "left",
+            action: EchoParamsAction,
+            params: %{side: :left}
+          ),
+          JidoActionTest.FlowComponent.step!(
+            name: "right",
+            action: EchoParamsAction,
+            params: %{side: :right}
+          ),
+          JidoActionTest.FlowComponent.step!(
             name: "final",
             action: EchoParamsAction,
             params: %{value: :only_authored_data},
@@ -201,7 +209,7 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
 
   test "Map preserves input order and handles an empty collection" do
     map =
-      Map.new!(
+      JidoActionTest.FlowComponent.map!(
         name: "mapped",
         collection: Ref.input([:items]),
         action: EchoParamsAction,
@@ -209,7 +217,7 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
       )
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "map_results",
         components: [map],
         output: %{items: Ref.result("mapped")}
@@ -230,7 +238,7 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
 
   test "Reduce handles an ordinary list, an empty list, and target failure" do
     reduce =
-      Reduce.new!(
+      JidoActionTest.FlowComponent.reduce!(
         name: "reduced",
         collection: Ref.input(:items),
         initial: %{values: [], indexes: []},
@@ -244,7 +252,7 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
       )
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "ordinary_reduce",
         components: [reduce],
         output: %{result: Ref.result("reduced")}
@@ -256,13 +264,21 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
     assert Exec.run(flow, %{items: []}) ==
              {:ok, %{result: %{values: [], indexes: []}}}
 
-    failed = %{
-      reduce
-      | action: ErrorAction,
+    failed =
+      JidoActionTest.FlowComponent.reduce!(
+        name: "reduced",
+        collection: Ref.input(:items),
+        initial: %{values: [], indexes: []},
+        action: ErrorAction,
         params: %{error_type: :validation}
-    }
+      )
 
-    failed_flow = %{flow | name: "ordinary_reduce_failure", components: [failed]}
+    failed_flow =
+      JidoActionTest.FlowBuilder.new!(
+        name: "ordinary_reduce_failure",
+        components: [failed],
+        output: %{result: Ref.result("reduced")}
+      )
 
     assert {:error, %Jido.Action.Error.ExecutionFailureError{}} =
              Exec.run(failed_flow, %{items: [1]})
@@ -270,7 +286,7 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
 
   test "Map error modes use failure or portable tagged outcomes" do
     fail_fast =
-      Map.new!(
+      JidoActionTest.FlowComponent.map!(
         name: "mapped",
         collection: [1],
         action: ErrorAction,
@@ -281,10 +297,14 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
     collect = %{fail_fast | on_error: :collect_errors}
 
     fail_flow =
-      Flow.new!(name: "map_fail", components: [fail_fast], output: %{items: Ref.result("mapped")})
+      JidoActionTest.FlowBuilder.new!(
+        name: "map_fail",
+        components: [fail_fast],
+        output: %{items: Ref.result("mapped")}
+      )
 
     collect_flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "map_collect",
         components: [collect],
         output: %{items: Ref.result("mapped")}
@@ -304,7 +324,7 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
 
   defp map_reduce_flow do
     map =
-      Map.new!(
+      JidoActionTest.FlowComponent.map!(
         name: "mapped",
         collection: Ref.input([:items]),
         action: EchoParamsAction,
@@ -312,7 +332,7 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
       )
 
     reduce =
-      Reduce.new!(
+      JidoActionTest.FlowComponent.reduce!(
         name: "reduced",
         collection: Ref.result("mapped"),
         initial: %{values: []},
@@ -325,7 +345,7 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
         }
       )
 
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "native_map_reduce_execution",
       components: [map, reduce],
       output: Ref.result("reduced")

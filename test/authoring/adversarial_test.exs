@@ -4,7 +4,7 @@ defmodule JidoActionTest.Authoring.AdversarialTest do
   use ExUnit.Case, async: false
   @moduletag :authoring
   alias Jido.{Exec, Flow}
-  alias Jido.Flow.{Codec, Ref, Step}
+  alias Jido.Flow.{Codec, Definition, Ref}
   alias JidoActionTest.Authoring.Adversarial.{Echo, Sum}
   @nodes ["load/α", "right.$ref", "left space", "combine"]
   test "unusual names and forward references keep the same result in all authoring forms" do
@@ -16,26 +16,21 @@ defmodule JidoActionTest.Authoring.AdversarialTest do
       name = "adversarial_order_#{index}"
       module = Module.concat(__MODULE__, "Order#{index}")
       Code.compile_string(source(module, name, order), "authoring_order_#{index}.ex")
-      direct = Flow.new!(name: name, components: Enum.map(order, &step/1), output: output())
+
+      direct =
+        JidoActionTest.FlowBuilder.new!(
+          name: name,
+          components: Enum.map(order, &step/1),
+          output: output()
+        )
 
       data = %{
         output: output(),
-        components:
-          Enum.map(
-            direct.components,
-            fn component ->
-              %{
-                kind: :step,
-                name: component.name,
-                action: component.action,
-                params: component.params
-              }
-            end
-          ),
+        components: Definition.to_definition(direct.components),
         name: name
       }
 
-      assert {:ok, built} = Jido.Flow.new(data)
+      assert {:ok, built} = JidoActionTest.FlowBuilder.new(data)
       assert {:ok, document, registry} = Codec.encode(direct)
       assert {:ok, ^document, ^registry} = Codec.encode(direct)
 
@@ -64,7 +59,7 @@ defmodule JidoActionTest.Authoring.AdversarialTest do
     order = @nodes
 
     valid =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "adversarial_invalid",
         components: Enum.map(order, &step/1),
         output: output()
@@ -81,30 +76,18 @@ defmodule JidoActionTest.Authoring.AdversarialTest do
     ]
 
     for {{kind, expected_message, source_message, source_line}, index} <- Enum.with_index(cases) do
-      components = invalid_components(valid.components, kind)
+      components = invalid_components(Definition.to_definition(valid.components), kind)
 
       assert {:error, %{message: ^expected_message}} =
-               Flow.new(name: valid.name, components: components, output: output())
+               JidoActionTest.FlowBuilder.new(
+                 name: valid.name,
+                 components: components,
+                 output: output()
+               )
 
-      data = %{
-        output: output(),
-        components:
-          Enum.map(
-            components,
-            fn component ->
-              %{
-                kind: :step,
-                name: component.name,
-                action: component.action,
-                params: component.params,
-                needs: component.needs
-              }
-            end
-          ),
-        name: valid.name
-      }
+      data = %{output: output(), components: components, name: valid.name}
 
-      assert {:error, %{message: ^expected_message}} = Jido.Flow.new(data)
+      assert {:error, %{message: ^expected_message}} = JidoActionTest.FlowBuilder.new(data)
 
       assert {:error, %{message: ^expected_message}} =
                Codec.decode(invalid_document(document, kind), registry)
@@ -125,7 +108,7 @@ defmodule JidoActionTest.Authoring.AdversarialTest do
 
   test "stored source cannot name an Action outside the trusted registry" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "adversarial_storage",
         components: Enum.map(@nodes, &step/1),
         output: output()
@@ -165,7 +148,7 @@ defmodule JidoActionTest.Authoring.AdversarialTest do
   end
 
   defp step("load/α") do
-    Step.new!(
+    JidoActionTest.FlowComponent.step!(
       name: "load/α",
       action: Echo,
       params: %{
@@ -176,15 +159,23 @@ defmodule JidoActionTest.Authoring.AdversarialTest do
   end
 
   defp step("right.$ref") do
-    Step.new!(name: "right.$ref", action: Echo, params: %{value: Ref.input(:right)})
+    JidoActionTest.FlowComponent.step!(
+      name: "right.$ref",
+      action: Echo,
+      params: %{value: Ref.input(:right)}
+    )
   end
 
   defp step("left space") do
-    Step.new!(name: "left space", action: Echo, params: %{value: Ref.context(:left)})
+    JidoActionTest.FlowComponent.step!(
+      name: "left space",
+      action: Echo,
+      params: %{value: Ref.context(:left)}
+    )
   end
 
   defp step("combine") do
-    Step.new!(
+    JidoActionTest.FlowComponent.step!(
       name: "combine",
       action: Sum,
       params: %{
@@ -196,27 +187,39 @@ defmodule JidoActionTest.Authoring.AdversarialTest do
   end
 
   defp invalid_components(components, :duplicate) do
-    List.update_at(components, 1, &%{&1 | name: "load/α"})
+    duplicate_name = components |> hd() |> Map.fetch!(:name)
+    List.update_at(components, 1, &%{&1 | name: duplicate_name})
   end
 
   defp invalid_components(components, :unknown_need) do
-    List.update_at(components, 3, &%{&1 | needs: ["absent"]})
+    update_component(components, "combine", &%{&1 | needs: ["absent"]})
   end
 
   defp invalid_components(components, :cycle) do
-    List.update_at(components, 0, &%{&1 | needs: ["combine"]})
+    update_component(components, "load/α", &%{&1 | needs: ["combine"]})
   end
 
   defp invalid_document(document, :duplicate) do
-    put_in(document, ["components", Access.at(1), "name"], "load/α")
+    duplicate_name = get_in(document, ["components", Access.at(0), "name"])
+    put_in(document, ["components", Access.at(1), "name"], duplicate_name)
   end
 
   defp invalid_document(document, :unknown_need) do
-    put_in(document, ["components", Access.at(3), "needs"], ["absent"])
+    update_document_component(document, "combine", &Map.put(&1, "needs", ["absent"]))
   end
 
   defp invalid_document(document, :cycle) do
-    put_in(document, ["components", Access.at(0), "needs"], ["combine"])
+    update_document_component(document, "load/α", &Map.put(&1, "needs", ["combine"]))
+  end
+
+  defp update_component(components, name, update) do
+    index = Enum.find_index(components, &(&1.name == name))
+    List.update_at(components, index, update)
+  end
+
+  defp update_document_component(document, name, update) do
+    index = Enum.find_index(document["components"], &(&1["name"] == name))
+    update_in(document, ["components", Access.at(index)], update)
   end
 
   defp invalid_declarations(:duplicate) do

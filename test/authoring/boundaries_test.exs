@@ -5,7 +5,7 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
   use ExUnit.Case, async: false
   @moduletag :authoring
   alias Jido.{Exec, Expr, Flow}
-  alias Jido.Flow.{Codec, Ref, Registry, Step}
+  alias Jido.Flow.{Codec, Ref, Registry}
   alias JidoActionTest.Authoring.Boundaries
   alias JidoActionTest.Authoring.Components.Echo
 
@@ -17,17 +17,17 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
     output = Ref.result("reused")
 
     direct =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "reused_inline",
         components: [
-          Step.new!(
+          JidoActionTest.FlowComponent.step!(
             name: "reused",
             action: action,
             params: %{value: Ref.input(:value)},
             needs: ["gate"],
             meta: %{"purpose" => "reused inline action"}
           ),
-          Step.new!(name: "gate", action: Echo, params: %{})
+          JidoActionTest.FlowComponent.step!(name: "gate", action: Echo, params: %{})
         ],
         output: output
       )
@@ -48,7 +48,7 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
       name: "reused_inline"
     }
 
-    assert {:ok, built} = Jido.Flow.new(data)
+    assert {:ok, built} = JidoActionTest.FlowBuilder.new(data)
     assert built == direct
 
     for flow <- [direct, built] do
@@ -66,7 +66,8 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
 
     assert {:ok, document} = Codec.encode(direct, registry)
     assert {:ok, ^direct} = Codec.decode(JSON.decode!(JSON.encode!(document)), registry)
-    assert get_in(document, ["components", Access.at(0), "action"]) == "actions/inline-ctx/v1"
+    reused = Enum.find(document["components"], &(&1["name"] == "reused"))
+    assert reused["action"] == "actions/inline-ctx/v1"
     unknown = "missing_#{System.unique_integer([:positive])}"
     assert_raise ArgumentError, fn -> String.to_existing_atom(unknown) end
     assert_raise ArgumentError, fn -> Boundaries.Inline.step_action(unknown) end
@@ -84,9 +85,15 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
     }
 
     direct =
-      Flow.new!(
-        name: Boundaries.Values.name(),
-        components: [Step.new!(name: "echo", action: Echo, params: %{name: Ref.input(:name)})],
+      JidoActionTest.FlowBuilder.new!(
+        name: Boundaries.Expressions.name(),
+        components: [
+          JidoActionTest.FlowComponent.step!(
+            name: "echo",
+            action: Echo,
+            params: %{name: Ref.input(:name)}
+          )
+        ],
         output: output
       )
 
@@ -95,11 +102,11 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
       components: [
         %{kind: :step, name: "echo", action: Echo, params: %{name: Jido.Flow.Ref.input(:name)}}
       ],
-      name: Boundaries.Values.name()
+      name: Boundaries.Expressions.name()
     }
 
-    assert Boundaries.Values.flow() == direct
-    assert {:ok, built} = Jido.Flow.new(data)
+    assert Boundaries.Expressions.flow() == direct
+    assert {:ok, built} = JidoActionTest.FlowBuilder.new(data)
     assert built == direct
     assert {:ok, document, registry} = Codec.encode(direct)
     assert document["version"] == 2
@@ -108,7 +115,7 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
     input = %{name: "Ada", a: 2, b: 3, enabled: true, maybe: nil}
     expected = %{total: 7, flags: [true, true], message: "Hi Ada"}
 
-    for form <- [Boundaries.Values, direct, built, restored] do
+    for form <- [Boundaries.Expressions, direct, built, restored] do
       assert Exec.run(form, input, %{paused: false}) == {:ok, expected}
     end
   end
@@ -129,10 +136,14 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
 
   test "inspection and all four canonical forms never execute Action work" do
     direct =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: Boundaries.Inert.name(),
         components: [
-          Step.new!(name: "bomb", action: Boundaries.Bomb, params: %{value: Ref.input(:value)})
+          JidoActionTest.FlowComponent.step!(
+            name: "bomb",
+            action: Boundaries.Bomb,
+            params: %{value: Ref.input(:value)}
+          )
         ],
         output: %{value: Ref.result("bomb", :value)}
       )
@@ -150,7 +161,7 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
       name: Boundaries.Inert.name()
     }
 
-    assert {:ok, built} = Jido.Flow.new(data)
+    assert {:ok, built} = JidoActionTest.FlowBuilder.new(data)
     assert {:ok, document, registry} = Codec.encode(direct)
     assert {:ok, restored} = Codec.decode(JSON.decode!(JSON.encode!(document)), registry)
     assert Boundaries.Inert.flow() == direct

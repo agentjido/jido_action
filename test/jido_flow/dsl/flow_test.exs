@@ -78,17 +78,19 @@ end
 defmodule Jido.Flow.DSL.FlowTest do
   use ExUnit.Case, async: false
 
-  alias Jido.Flow.Choice
-  alias Jido.Flow.Iterate
-  alias Jido.Flow.Map, as: FlowMap
-  alias Jido.Flow.Reduce
   alias Jido.Flow.Ref
-  alias Jido.Flow.Step
 
   test "inline Steps coexist with keyword Steps, field-block Steps, and Subflows" do
     module = Jido.Flow.DSL.FlowTest.InlineAndExistingFlow
 
-    assert [%Step{}, %Step{}, %Step{}, %Jido.Flow.Subflow{}] = module.flow().components
+    components = module.flow().components
+
+    for name <- ["inline", "keyword", "field_block"] do
+      assert %{kind: :call, call: {%Jido.Instruction{kind: :action}, _params}} = components[name]
+    end
+
+    assert %{kind: :call, call: {%Jido.Instruction{kind: :flow}, _params}} =
+             components["child"]
 
     assert Jido.Exec.run(module, %{name: " Ada "}) ==
              {:ok, %{message: "Hello, Ada!", value: 6}}
@@ -96,13 +98,18 @@ defmodule Jido.Flow.DSL.FlowTest do
 
   test "step_action returns only canonical Action-backed Step targets" do
     module = Jido.Flow.DSL.FlowTest.InlineAndExistingFlow
-    [inline, keyword, field_block, _child] = module.flow().components
+    components = module.flow().components
 
-    for step <- [inline, keyword, field_block] do
-      assert module.step_action(step.name) == step.action
+    [inline, keyword, field_block] =
+      Enum.map(["inline", "keyword", "field_block"], &components[&1])
+
+    for {name, step} <-
+          Enum.zip(["inline", "keyword", "field_block"], [inline, keyword, field_block]) do
+      {instruction, _params} = step.call
+      assert module.step_action(name) == instruction.target
     end
 
-    assert module.step_action(:inline) == inline.action
+    assert module.step_action(:inline) == elem(inline.call, 0).target
     assert module.step_action(:keyword) == JidoActionTest.Fixtures.Actions.Add
     assert module.step_action(:field_block) == JidoActionTest.Fixtures.Actions.Multiply
 
@@ -122,13 +129,13 @@ defmodule Jido.Flow.DSL.FlowTest do
   test "the unchanged Spark forms lower directly to canonical records" do
     flow = Jido.Flow.DSL.FlowTest.MixedFlow.flow()
 
-    assert [
-             %Step{name: "load", params: %{amount: 1}, meta: %{owner: "dsl"}},
-             %Choice{name: "route", needs: []},
-             %FlowMap{name: "mapped", on_error: :collect_errors},
-             %Reduce{name: "reduced"},
-             %Iterate{name: "loop", max_iterations: 1}
-           ] = flow.components
+    assert %{call: {_instruction, %{amount: 1}}, meta: %{owner: "dsl"}} =
+             flow.components["load"]
+
+    assert %{kind: :choice, needs: []} = flow.components["route"]
+    assert %{kind: :map, on_error: :collect_errors} = flow.components["mapped"]
+    assert %{kind: :reduce} = flow.components["reduced"]
+    assert %{kind: :iterate, max_iterations: 1} = flow.components["loop"]
 
     assert flow.output == Ref.result("loop")
   end
@@ -665,11 +672,11 @@ defmodule Jido.Flow.DSL.FlowTest do
 
     [{module, _bytecode}] = Code.compile_string(code)
 
-    assert [
-             %Jido.Flow.Step{},
-             %Jido.Flow.Step{needs: ["first"]},
-             %Jido.Flow.Iterate{needs: ["second", "first"]}
-           ] = module.flow().components
+    assert %{kind: :call, needs: []} = module.flow().components["first"]
+    assert %{kind: :call, needs: ["first"]} = module.flow().components["second"]
+
+    assert %{kind: :iterate, needs: ["second", "first"]} =
+             module.flow().components["loop"]
 
     assert %{[:components, "loop", :state] => %{line: line}} =
              module.__jido_flow_source_map__()

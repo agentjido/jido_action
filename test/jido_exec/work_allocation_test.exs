@@ -2,9 +2,9 @@ defmodule JidoActionTest.Exec.WorkAllocationTest do
   # Function tracing changes a VM-wide trace pattern.
   use ExUnit.Case, async: false
 
-  alias Jido.{Exec, Flow}
+  alias Jido.Exec
   alias Jido.Exec.Work
-  alias Jido.Flow.{Ref, Step}
+  alias Jido.Flow.{Ref}
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
 
   for mode <- [:run, :async, :continue] do
@@ -66,10 +66,14 @@ defmodule JidoActionTest.Exec.WorkAllocationTest do
 
   defp parallel_flow do
     names = Enum.map(1..16, &"work_#{&1}")
-    components = Enum.map(names, &Step.new!(name: &1, action: EchoParamsAction))
-    last = Step.new!(name: "last", action: EchoParamsAction, needs: names)
 
-    Flow.new!(
+    components =
+      Enum.map(names, &JidoActionTest.FlowComponent.step!(name: &1, action: EchoParamsAction))
+
+    last =
+      JidoActionTest.FlowComponent.step!(name: "last", action: EchoParamsAction, needs: names)
+
+    JidoActionTest.FlowBuilder.new!(
       name: "uninspected_work",
       components: components ++ [last],
       output: Ref.result("last")

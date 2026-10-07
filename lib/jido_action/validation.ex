@@ -58,36 +58,36 @@ defmodule Jido.Action.Validation do
   def zoi_schema?(value), do: is_struct(value) && Zoi.Type.impl_for(value) != nil
 
   @doc false
-  @spec action_schema?(term()) :: boolean()
-  def action_schema?(%Zoi.Types.Map{}), do: true
-  def action_schema?(%Zoi.Types.Struct{}), do: true
-  def action_schema?(%Zoi.Types.Any{}), do: true
-  def action_schema?(%Zoi.Types.DiscriminatedUnion{}), do: true
+  @spec map_schema?(term()) :: boolean()
+  def map_schema?(%Zoi.Types.Map{}), do: true
+  def map_schema?(%Zoi.Types.Struct{}), do: true
+  def map_schema?(%Zoi.Types.Any{}), do: true
+  def map_schema?(%Zoi.Types.DiscriminatedUnion{}), do: true
 
-  def action_schema?(%Zoi.Types.Lazy{} = schema) do
+  def map_schema?(%Zoi.Types.Lazy{} = schema) do
     case resolve_lazy(schema) do
       %Zoi.Types.Lazy{} -> false
-      resolved -> action_schema?(resolved)
+      resolved -> map_schema?(resolved)
     end
   rescue
     _exception -> false
   end
 
-  def action_schema?(%Zoi.Types.Literal{value: value}), do: is_map(value)
+  def map_schema?(%Zoi.Types.Literal{value: value}), do: is_map(value)
 
   # Zoi 0.18.11 stores defaults in metadata and no longer defines this wrapper.
-  def action_schema?(%{__struct__: Zoi.Types.Default, inner: inner}), do: action_schema?(inner)
+  def map_schema?(%{__struct__: Zoi.Types.Default, inner: inner}), do: map_schema?(inner)
 
-  def action_schema?(%Zoi.Types.Union{schemas: schemas}),
-    do: Enum.any?(schemas, &action_schema?/1)
+  def map_schema?(%Zoi.Types.Union{schemas: schemas}),
+    do: Enum.any?(schemas, &map_schema?/1)
 
-  def action_schema?(%Zoi.Types.Intersection{schemas: schemas}),
-    do: Enum.all?(schemas, &action_schema?/1)
+  def map_schema?(%Zoi.Types.Intersection{schemas: schemas}),
+    do: Enum.all?(schemas, &map_schema?/1)
 
-  def action_schema?(%Zoi.Types.Codec{from: from, to: to}),
-    do: action_schema?(from) and action_schema?(to)
+  def map_schema?(%Zoi.Types.Codec{from: from, to: to}),
+    do: map_schema?(from) and map_schema?(to)
 
-  def action_schema?(_schema), do: false
+  def map_schema?(_schema), do: false
 
   defp resolve_lazy(%Zoi.Types.Lazy{fun: {module, function, args}}),
     do: apply(module, function, args)

@@ -3,9 +3,8 @@ Code.require_file("support/components.ex", __DIR__)
 defmodule JidoActionTest.Authoring.ComponentsTest do
   use ExUnit.Case, async: false
   @moduletag :authoring
-  alias Jido.{Exec, Expr, Flow}
-  alias Jido.Flow.{Choice, Codec, Dispatch, Iterate, Ref, Reduce, Subflow}
-  alias Jido.Flow.Map, as: FlowMap
+  alias Jido.{Exec, Expr}
+  alias Jido.Flow.{Codec, Ref}
   alias JidoActionTest.Authoring.Components
 
   alias Components.{
@@ -38,10 +37,21 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
     params = %{value: Ref.item(), index: Ref.item_index(), item_id: Ref.item_id()}
 
     component =
-      FlowMap.new!(name: "items", collection: Ref.input(:items), action: MapItem, params: params)
+      JidoActionTest.FlowComponent.map!(
+        name: "items",
+        collection: Ref.input(:items),
+        action: MapItem,
+        params: params
+      )
 
     output = %{items: Ref.result("items")}
-    direct = Flow.new!(name: MapKeyword.name(), components: [component], output: output)
+
+    direct =
+      JidoActionTest.FlowBuilder.new!(
+        name: MapKeyword.name(),
+        components: [component],
+        output: output
+      )
 
     data = %{
       output: output,
@@ -80,7 +90,7 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
 
   test "Reduce matches all forms and a non-associative fold runs in source order" do
     component =
-      Reduce.new!(
+      JidoActionTest.FlowComponent.reduce!(
         name: "fold",
         collection: Ref.input(:items),
         initial: %{value: 1},
@@ -89,7 +99,11 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
       )
 
     direct =
-      Flow.new!(name: ReduceFlow.name(), components: [component], output: Ref.result("fold"))
+      JidoActionTest.FlowBuilder.new!(
+        name: ReduceFlow.name(),
+        components: [component],
+        output: Ref.result("fold")
+      )
 
     data = %{
       output: Jido.Flow.Ref.result("fold"),
@@ -194,9 +208,12 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
 
   test "fixed and bounded Iterate forms match all authoring forms" do
     state =
-      Iterate.State.new!(
+      JidoActionTest.FlowComponent.state!(
         schema:
-          IterateRepeat.flow().components |> hd() |> Map.fetch!(:state) |> Map.fetch!(:schema),
+          IterateRepeat.flow().components
+          |> Map.fetch!("counter")
+          |> Map.fetch!(:state)
+          |> Map.fetch!(:schema),
         initial: %{count: 0},
         update: %{count: Ref.body_result(:count)}
       )
@@ -215,10 +232,10 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
            4, %{limit: 3}, 3}
         ] do
       direct =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: module.name(),
           components: [
-            Iterate.new!(
+            JidoActionTest.FlowComponent.iterate!(
               name: "counter",
               action: Advance,
               params: params,
@@ -286,10 +303,14 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
     output = %{child: Ref.result("child")}
 
     direct =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: Parent.name(),
         components: [
-          Subflow.new!(name: "child", flow: Child, params: %{value: Ref.input(:value)})
+          JidoActionTest.FlowComponent.subflow!(
+            name: "child",
+            flow: Child,
+            params: %{value: Ref.input(:value)}
+          )
         ],
         output: output
       )
@@ -326,13 +347,13 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
 
   test "Choice matches all forms, selects first matching option, and falls back" do
     options = [
-      Choice.Option.new!(
+      JidoActionTest.FlowComponent.option!(
         name: "urgent",
         condition: Expr.new!(:>=, [Ref.input(:score), 90]),
         action: Echo,
         params: %{route: :urgent}
       ),
-      Choice.Option.new!(
+      JidoActionTest.FlowComponent.option!(
         name: "priority",
         condition: Expr.new!(:>=, [Ref.input(:score), 50]),
         action: Echo,
@@ -340,12 +361,18 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
       )
     ]
 
-    fallback = Choice.Fallback.new!(action: Echo, params: %{route: :standard})
+    fallback = JidoActionTest.FlowComponent.fallback!(action: Echo, params: %{route: :standard})
 
     direct =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: ChoiceFlow.name(),
-        components: [Choice.new!(name: "route", options: options, fallback: fallback)],
+        components: [
+          JidoActionTest.FlowComponent.choice!(
+            name: "route",
+            options: options,
+            fallback: fallback
+          )
+        ],
         output: Ref.result("route")
       )
 
@@ -365,10 +392,15 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
     params = %{mode: Ref.input(:mode), value: Ref.input(:value), target: Ref.input(:target)}
 
     direct =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: DispatchFlow.name(),
         components: [
-          Dispatch.new!(name: "route", decision: Decide, expander: Expand, params: params)
+          JidoActionTest.FlowComponent.dispatch!(
+            name: "route",
+            decision: Decide,
+            expander: Expand,
+            params: params
+          )
         ],
         output: Ref.result("route")
       )
@@ -398,7 +430,7 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
 
   defp parity(module, direct, data) do
     assert module.flow() == direct
-    assert {:ok, built} = Jido.Flow.new(data)
+    assert {:ok, built} = JidoActionTest.FlowBuilder.new(data)
     assert built == direct
     assert {:ok, document, registry} = Codec.encode(direct)
     assert {:ok, restored} = Codec.decode(document |> JSON.encode!() |> JSON.decode!(), registry)

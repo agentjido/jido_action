@@ -6,39 +6,69 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
   @moduletag :authoring
 
   alias Jido.{Exec, Flow}
-  alias Jido.Flow.{Choice, Dispatch, Iterate, Ref, Reduce, Step, Subflow}
-  alias Jido.Flow.Map, as: FlowMap
+  alias Jido.Flow.{Definition, Graph, Ref}
   alias JidoActionTest.Authoring.Components
   alias JidoActionTest.Authoring.Hostile
 
   test "Action-only component slots reject a Flow target at executable validation" do
     child = Components.Child
-    option = Choice.Option.new!(name: "selected", condition: true, action: child)
-    fallback = Choice.Fallback.new!(action: Components.Echo)
-    state = Components.IterateRepeat.flow().components |> hd() |> Map.fetch!(:state)
+
+    option =
+      JidoActionTest.FlowComponent.option!(name: "selected", condition: true, action: child)
+
+    fallback = JidoActionTest.FlowComponent.fallback!(action: Components.Echo)
+
+    state =
+      Components.IterateRepeat.flow().components |> Map.fetch!("counter") |> Map.fetch!(:state)
 
     components = [
-      {FlowMap.new!(name: "node", collection: [], action: child), :action},
-      {Reduce.new!(name: "node", collection: [], initial: %{}, action: child), :action},
-      {Iterate.new!(
+      {JidoActionTest.FlowComponent.map!(name: "node", collection: [], action: child), :action},
+      {JidoActionTest.FlowComponent.reduce!(
+         name: "node",
+         collection: [],
+         initial: %{},
+         action: child
+       ), :action},
+      {JidoActionTest.FlowComponent.iterate!(
          name: "node",
          state: state,
          action: child,
          completion: true,
          max_iterations: 1
        ), :action},
-      {Choice.new!(name: "node", options: [option], fallback: fallback), "selected"},
-      {Choice.new!(
+      {JidoActionTest.FlowComponent.choice!(name: "node", options: [option], fallback: fallback),
+       "selected"},
+      {JidoActionTest.FlowComponent.choice!(
          name: "node",
-         options: [Choice.Option.new!(name: "selected", condition: true, action: Components.Echo)],
-         fallback: Choice.Fallback.new!(action: child)
+         options: [
+           JidoActionTest.FlowComponent.option!(
+             name: "selected",
+             condition: true,
+             action: Components.Echo
+           )
+         ],
+         fallback: JidoActionTest.FlowComponent.fallback!(action: child)
        ), :fallback},
-      {Dispatch.new!(name: "node", decision: child, expander: Components.Expand), :decision},
-      {Dispatch.new!(name: "node", decision: Components.Decide, expander: child), :expander}
+      {JidoActionTest.FlowComponent.dispatch!(
+         name: "node",
+         decision: child,
+         expander: Components.Expand
+       ), :decision},
+      {JidoActionTest.FlowComponent.dispatch!(
+         name: "node",
+         decision: Components.Decide,
+         expander: child
+       ), :expander}
     ]
 
     for {component, field} <- components do
-      flow = Flow.new!(name: "wrong_target", components: [component], output: Ref.result("node"))
+      flow =
+        JidoActionTest.FlowBuilder.new!(
+          name: "wrong_target",
+          components: [component],
+          output: Ref.result("node")
+        )
+
       assert {:error, error} = Flow.validate_executable(flow)
       assert error.details.component == "node"
       assert error.details.field == field
@@ -50,7 +80,7 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
 
   test "Map, Reduce, and Iterate reject references outside each local scope" do
     assert {:error, map_error} =
-             FlowMap.new(
+             JidoActionTest.FlowComponent.map(
                name: "map",
                collection: Ref.item(),
                action: Components.MapItem
@@ -60,7 +90,7 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
     assert map_error.details.scope == :map_collection
 
     assert {:error, map_params_error} =
-             FlowMap.new(
+             JidoActionTest.FlowComponent.map(
                name: "map",
                collection: [],
                action: Components.MapItem,
@@ -71,7 +101,7 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
     assert map_params_error.details.scope == :map_params
 
     assert {:error, reduce_error} =
-             Reduce.new(
+             JidoActionTest.FlowComponent.reduce(
                name: "reduce",
                collection: [],
                initial: Ref.accumulator(),
@@ -82,7 +112,7 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
     assert reduce_error.details.scope == :reduce_initial
 
     assert {:error, iterate_error} =
-             Iterate.State.new(initial: Ref.state(:count), update: %{})
+             JidoActionTest.FlowComponent.state(initial: Ref.state(:count), update: %{})
 
     assert iterate_error.details.ref_type == :state
     assert iterate_error.details.scope == :iterate_initial
@@ -103,13 +133,20 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
   end
 
   test "Choice rejects missing fallback and non-Boolean direct conditions" do
-    valid_option = Choice.Option.new!(name: "ready", condition: true, action: Hostile.Watch)
+    valid_option =
+      JidoActionTest.FlowComponent.option!(name: "ready", condition: true, action: Hostile.Watch)
 
-    assert {:error, missing} = Choice.new(name: "route", options: [valid_option])
+    assert {:error, missing} =
+             JidoActionTest.FlowComponent.choice(name: "route", options: [valid_option])
+
     assert missing.message =~ "fallback"
 
     assert {:error, condition} =
-             Choice.Option.new(name: "ready", condition: :truthy, action: Hostile.Watch)
+             JidoActionTest.FlowComponent.option(
+               name: "ready",
+               condition: :truthy,
+               action: Hostile.Watch
+             )
 
     assert condition.message =~ "condition"
     refute_received {:hostile_action, _}
@@ -159,7 +196,8 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
   test "Iterate source rejects a missing while bound and a Flow body target" do
     for {suffix, action, bound, message} <- [
           {"MissingBound", Hostile.Watch, "", "iterate max_iterations must be an integer"},
-          {"FlowTarget", Hostile.ValidatedFinalFlow, "max_iterations 2", "wrong executable kind"}
+          {"FlowTarget", Hostile.ValidatedFinalFlow, "max_iterations 2",
+           "Flow component has the wrong target kind"}
         ] do
       source = """
       defmodule JidoActionTest.Authoring.Hostile.#{suffix} do
@@ -186,11 +224,17 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
   end
 
   test "Dispatch rejects a second sink, a second Dispatch, and a partial output" do
-    dispatch = Components.DispatchFlow.flow().components |> hd()
-    tail = Step.new!(name: "tail", action: Components.Echo, needs: ["route"])
+    dispatch = definition(Components.DispatchFlow, "route")
+
+    tail =
+      JidoActionTest.FlowComponent.step!(name: "tail", action: Components.Echo, needs: ["route"])
 
     second =
-      Dispatch.new!(name: "again", decision: Components.Decide, expander: Components.Expand)
+      JidoActionTest.FlowComponent.dispatch!(
+        name: "again",
+        decision: Components.Decide,
+        expander: Components.Expand
+      )
 
     cases = [
       {[dispatch, tail], Ref.result("tail"), "Dispatch must be the final component"},
@@ -200,15 +244,21 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
 
     for {components, output, message} <- cases do
       assert {:error, error} =
-               Flow.new(name: "invalid_dispatch", components: components, output: output)
+               JidoActionTest.FlowBuilder.new(
+                 name: "invalid_dispatch",
+                 components: components,
+                 output: output
+               )
 
       assert error.message =~ message
     end
 
     parent =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "dispatch_parent",
-        components: [Subflow.new!(name: "child", flow: Components.DispatchFlow)],
+        components: [
+          JidoActionTest.FlowComponent.subflow!(name: "child", flow: Components.DispatchFlow)
+        ],
         output: Ref.result("child")
       )
 
@@ -234,15 +284,15 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
 
     assert error.file == "authoring_wrong_kind_source.ex"
     assert error.line == 4
-    assert Exception.message(error) =~ "wrong executable kind"
+    assert Exception.message(error) =~ "Flow component has the wrong target kind"
   end
 
   test "a stale step-wise authored Flow cannot repeat Action work" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "stale_authoring",
         components: [
-          Step.new!(
+          JidoActionTest.FlowComponent.step!(
             name: "observed",
             action: Hostile.Watch,
             params: %{value: Ref.input(:value)}
@@ -263,7 +313,10 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
 
   test "only references and needs order a diamond declared in reverse source order" do
     flow = Hostile.Diamond.flow()
-    assert Enum.map(flow.components, & &1.name) == ["sink", "left", "right", "root"]
+    assert flow.components |> Map.keys() |> Enum.sort() == ["left", "right", "root", "sink"]
+
+    assert flow.components |> Graph.canonical_components() |> Enum.map(&elem(&1, 0)) ==
+             ["root", "left", "right", "sink"]
 
     assert {:ok, dependencies} = Flow.dependencies(flow)
     assert dependencies["root"].effective == []
@@ -289,7 +342,7 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
 
   test "Dispatch and ordinary Steps reject a decision or Step continuation" do
     dispatch =
-      Dispatch.new!(
+      JidoActionTest.FlowComponent.dispatch!(
         name: "route",
         decision: Hostile.Continues,
         expander: Hostile.Watch,
@@ -297,13 +350,17 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
       )
 
     dispatch_flow =
-      Flow.new!(name: "illegal_decision", components: [dispatch], output: Ref.result("route"))
+      JidoActionTest.FlowBuilder.new!(
+        name: "illegal_decision",
+        components: [dispatch],
+        output: Ref.result("route")
+      )
 
     step_flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "illegal_step",
         components: [
-          Step.new!(
+          JidoActionTest.FlowComponent.step!(
             name: "early",
             action: Hostile.Continues,
             params: %{value: Ref.input(:value)}
@@ -322,10 +379,18 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
 
   test "Dispatch rejects step-wise use and Subflow use before target work" do
     dispatch =
-      Dispatch.new!(name: "route", decision: Hostile.Watch, expander: Hostile.Watch)
+      JidoActionTest.FlowComponent.dispatch!(
+        name: "route",
+        decision: Hostile.Watch,
+        expander: Hostile.Watch
+      )
 
     child =
-      Flow.new!(name: "watched_dispatch", components: [dispatch], output: Ref.result("route"))
+      JidoActionTest.FlowBuilder.new!(
+        name: "watched_dispatch",
+        components: [dispatch],
+        output: Ref.result("route")
+      )
 
     assert {:error, step_error} = Exec.start(child, %{}, %{observer: self()})
     assert step_error.message == "step-wise execution does not support Dispatch"
@@ -333,9 +398,14 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
     # Subflow validation uses a source module, not a copied artifact.
     assert {:error, subflow_error} =
              Exec.run(
-               Flow.new!(
+               JidoActionTest.FlowBuilder.new!(
                  name: "dispatch_parent",
-                 components: [Subflow.new!(name: "child", flow: Components.DispatchFlow)],
+                 components: [
+                   JidoActionTest.FlowComponent.subflow!(
+                     name: "child",
+                     flow: Components.DispatchFlow
+                   )
+                 ],
                  output: Ref.result("child")
                ),
                %{},
@@ -347,10 +417,10 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
   end
 
   test "Dispatch continuation uses final Action or Flow output validation" do
-    dispatch = Components.DispatchFlow.flow().components |> hd()
+    dispatch = definition(Components.DispatchFlow, "route")
 
     strict_root =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "strict_dispatch_root",
         components: [dispatch],
         output: Ref.result("route"),
@@ -388,5 +458,10 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
     assert error.message == "continuation limit exceeded"
     assert error.details.count == 3
     assert error.details.max_continuations == 2
+  end
+
+  defp definition(module, name) do
+    flow = module.flow()
+    Definition.component_to_definition({name, Map.fetch!(flow.components, name)})
   end
 end

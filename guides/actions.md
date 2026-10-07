@@ -107,9 +107,9 @@ Action does not return a domain result. `Jido.Exec` runs `target` with `input`
 and the same context. The target can be an Action or a Flow. The final target
 owns output validation and the final result.
 
-Exec permits this result from a root Action and from the expander of a
-`Jido.Flow.Dispatch` component at the end of a Flow. Other Flow positions reject
-it. See [Dynamic Flows](dynamic-flows.md).
+Exec permits this result from a root Action and from the expander of a terminal
+Flow `dispatch` component. Other Flow positions reject it. See
+[Dynamic Flows](dynamic-flows.md).
 
 ## Validation
 

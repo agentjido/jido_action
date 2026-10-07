@@ -29,19 +29,12 @@ defmodule Jido.Flow.Codec do
   alias Jido.Action
   alias Jido.Expr
   alias Jido.Flow
-  alias Jido.Flow.Choice
-  alias Jido.Flow.Data
-  alias Jido.Flow.Dispatch
+  alias Jido.Flow.Definition
   alias Jido.Flow.Error
-  alias Jido.Flow.Value
-  alias Jido.Flow.Iterate
-  alias Jido.Flow.Map, as: FlowMap
-  alias Jido.Flow.Reduce
+  alias Jido.Flow.Graph
   alias Jido.Flow.Ref
   alias Jido.Flow.Registry
-  alias Jido.Flow.Step
-  alias Jido.Flow.Subflow
-  alias Jido.Flow.Validation
+  alias Jido.Flow.Value
 
   @type document :: %{required(String.t()) => term()}
 
@@ -90,7 +83,7 @@ defmodule Jido.Flow.Codec do
           {:ok, document(), Registry.t()} | {:error, Exception.t()}
   def encode(flow) do
     with {:ok, flow} <- Flow.validate_executable(flow),
-         {:ok, registry} <- flow |> Registry.Deriver.entries() |> Registry.new(),
+         {:ok, registry} <- flow |> Registry.entries() |> Registry.new(),
          {:ok, document} <- encode_validated(flow, registry) do
       {:ok, document, registry}
     end
@@ -268,7 +261,7 @@ defmodule Jido.Flow.Codec do
   defp diagnose_schema_field(document, field, registry) do
     with {:ok, schema} <- resolve_field(document, field, :schema, registry, []),
          :ok <- Action.validate_static_data(schema),
-         :ok <- Action.validate_action_schema(schema) do
+         :ok <- Action.validate_map_schema(schema) do
       {:ok, schema}
     else
       {:error, message} when is_binary(message) ->
@@ -291,8 +284,8 @@ defmodule Jido.Flow.Codec do
       {:ok, value} ->
         case diagnose_expression(value, registry, 0, ["output"]) do
           {:ok, output} ->
-            case Value.validate(output) do
-              :ok -> {:ok, output}
+            case Value.prepare(output) do
+              {:ok, output} -> {:ok, output}
               {:error, error} -> {:error, stored_error_path(error, value, registry, ["output"])}
             end
 
@@ -306,7 +299,7 @@ defmodule Jido.Flow.Codec do
   end
 
   defp diagnose_canonical_document(attrs) do
-    case Validation.diagnose(attrs) do
+    case Definition.diagnose_normalized(attrs, attrs.components) do
       {:ok, attrs} -> {:ok, struct!(Flow, attrs)}
       {:error, issues} -> issues |> canonical_errors() |> diagnostic_failure()
     end
@@ -391,7 +384,7 @@ defmodule Jido.Flow.Codec do
         action: fn -> resolve_field(record, "action", :action, registry, path) end,
         params: fn -> diagnose_expression_field(record, "params", registry, path) end
       ],
-      &Step.new/1
+      :step
     )
   end
 
@@ -407,7 +400,7 @@ defmodule Jido.Flow.Codec do
         flow: fn -> resolve_field(record, "flow", :flow, registry, path) end,
         params: fn -> diagnose_expression_field(record, "params", registry, path) end
       ],
-      &Subflow.new/1
+      :subflow
     )
   end
 
@@ -423,7 +416,7 @@ defmodule Jido.Flow.Codec do
         options: fn -> diagnose_choice_options_field(record, registry, path) end,
         fallback: fn -> diagnose_fallback_field(record, registry, path) end
       ],
-      &Choice.new/1
+      :choice
     )
   end
 
@@ -441,7 +434,7 @@ defmodule Jido.Flow.Codec do
         params: fn -> diagnose_expression_field(record, "params", registry, path) end,
         on_error: fn -> diagnose_on_error_field(record, path) end
       ],
-      &FlowMap.new/1
+      :map
     )
   end
 
@@ -459,7 +452,7 @@ defmodule Jido.Flow.Codec do
         action: fn -> resolve_field(record, "action", :action, registry, path) end,
         params: fn -> diagnose_expression_field(record, "params", registry, path) end
       ],
-      &Reduce.new/1
+      :reduce
     )
   end
 
@@ -488,7 +481,7 @@ defmodule Jido.Flow.Codec do
         completion: fn -> diagnose_condition_field(record, "completion", registry, path) end,
         max_iterations: fn -> positive_integer_field(record, "max_iterations", path) end
       ],
-      &Iterate.new/1
+      :iterate
     )
   end
 
@@ -513,7 +506,7 @@ defmodule Jido.Flow.Codec do
         expander: fn -> resolve_field(record, "expander", :action, registry, path) end,
         params: fn -> diagnose_expression_field(record, "params", registry, path) end
       ],
-      &Dispatch.new/1
+      :dispatch
     )
   end
 
@@ -523,15 +516,19 @@ defmodule Jido.Flow.Codec do
          path,
          allowed,
          specific_fields,
-         constructor
+         kind
        ) do
     fields = [common: fn -> diagnose_common(record, registry, path) end] ++ specific_fields
     initial_errors = unknown_field_errors(record, allowed, path)
 
     case collect_values(fields, initial_errors) do
       {:ok, %{common: common} = values} ->
-        attrs = values |> Map.delete(:common) |> Map.merge(common)
-        diagnose_constructor(constructor.(attrs), record, registry, path)
+        attrs = values |> Map.delete(:common) |> Map.merge(common) |> Map.put(:kind, kind)
+
+        case Definition.component(attrs) do
+          {:ok, named_component} -> {:ok, named_component}
+          {:error, error} -> {:error, stored_error_path(error, record, registry, path)}
+        end
 
       {:error, errors} ->
         {:error, errors}
@@ -552,7 +549,7 @@ defmodule Jido.Flow.Codec do
     case Map.fetch(record, "meta") do
       {:ok, value} ->
         with {:ok, meta} <- diagnose_data(value, registry, 0, path ++ ["meta"]),
-             :ok <- Data.validate_object(meta) do
+             :ok <- Value.validate_object(meta) do
           {:ok, meta}
         else
           {:error, error} -> {:error, ensure_json_path(error, path ++ ["meta"])}
@@ -618,7 +615,7 @@ defmodule Jido.Flow.Codec do
     initial_errors = unknown_field_errors(record, ["name", "condition", "action", "params"], path)
 
     case collect_values(fields, initial_errors) do
-      {:ok, attrs} -> diagnose_constructor(Choice.Option.new(attrs), record, registry, path)
+      {:ok, attrs} -> {:ok, attrs}
       {:error, errors} -> {:error, errors}
     end
   end
@@ -650,7 +647,7 @@ defmodule Jido.Flow.Codec do
     initial_errors = unknown_field_errors(record, ["action", "params"], path)
 
     case collect_values(fields, initial_errors) do
-      {:ok, attrs} -> diagnose_constructor(Choice.Fallback.new(attrs), record, registry, path)
+      {:ok, attrs} -> {:ok, attrs}
       {:error, errors} -> {:error, errors}
     end
   end
@@ -676,7 +673,7 @@ defmodule Jido.Flow.Codec do
     initial_errors = unknown_field_errors(record, ["schema", "initial", "update"], path)
 
     case collect_values(fields, initial_errors) do
-      {:ok, attrs} -> diagnose_constructor(Iterate.State.new(attrs), record, registry, path)
+      {:ok, attrs} -> {:ok, attrs}
       {:error, errors} -> {:error, errors}
     end
   end
@@ -688,7 +685,7 @@ defmodule Jido.Flow.Codec do
   defp diagnose_nested_schema_field(record, registry, path) do
     with {:ok, schema} <- resolve_field(record, "schema", :schema, registry, path),
          :ok <- Action.validate_static_data(schema),
-         :ok <- Action.validate_action_schema(schema) do
+         :ok <- Action.validate_map_schema(schema) do
       {:ok, schema}
     else
       {:error, message} when is_binary(message) ->
@@ -984,7 +981,7 @@ defmodule Jido.Flow.Codec do
     case Map.fetch(entry, "key") do
       {:ok, value} ->
         with {:ok, key} <- diagnose_data(value, registry, depth + 1, path ++ ["key"]),
-             :ok <- Data.validate_key(key) do
+             :ok <- Value.validate_key(key) do
           {:ok, key}
         else
           {:error, error} -> {:error, ensure_json_path(error, path ++ ["key"])}
@@ -1039,12 +1036,6 @@ defmodule Jido.Flow.Codec do
       :ok -> :ok
       {:error, error} -> {:error, ensure_json_path(error, path)}
     end
-  end
-
-  defp diagnose_constructor({:ok, value}, _record, _registry, _path), do: {:ok, value}
-
-  defp diagnose_constructor({:error, error}, record, registry, path) do
-    {:error, stored_error_path(error, record, registry, path)}
   end
 
   # Constructor and expression errors use canonical value paths. Follow the
@@ -1178,6 +1169,7 @@ defmodule Jido.Flow.Codec do
 
   defp encode_components(components, registry) do
     components
+    |> Graph.canonical_components()
     |> Enum.with_index()
     |> Enum.reduce_while({:ok, []}, fn {component, index}, {:ok, encoded} ->
       case encode_component(component, registry) do
@@ -1188,93 +1180,108 @@ defmodule Jido.Flow.Codec do
     |> reverse_ok()
   end
 
-  defp encode_component(%Step{} = step, registry) do
-    with {:ok, action} <- Registry.identifier(registry, :action, step.action),
-         {:ok, params} <- encode_expression(step.params, registry, 0),
-         {:ok, meta} <- encode_data(step.meta, registry, 0) do
+  defp encode_component(
+         {name, %{kind: :call, call: {%{kind: :action, target: action}, params}} = node},
+         registry
+       ) do
+    with {:ok, action} <- Registry.identifier(registry, :action, action),
+         {:ok, params} <- encode_expression(params, registry, 0),
+         {:ok, meta} <- encode_data(node.meta, registry, 0) do
       {:ok,
-       common_component("step", step, params, meta)
+       common_component("step", name, node, params, meta)
        |> Map.put("action", action)}
     end
   end
 
-  defp encode_component(%Subflow{} = subflow, registry) do
-    with {:ok, flow} <- Registry.identifier(registry, :flow, subflow.flow),
-         {:ok, params} <- encode_expression(subflow.params, registry, 0),
-         {:ok, meta} <- encode_data(subflow.meta, registry, 0) do
+  defp encode_component(
+         {name, %{kind: :call, call: {%{kind: :flow, target: flow}, params}} = node},
+         registry
+       ) do
+    with {:ok, flow} <- Registry.identifier(registry, :flow, flow),
+         {:ok, params} <- encode_expression(params, registry, 0),
+         {:ok, meta} <- encode_data(node.meta, registry, 0) do
       {:ok,
-       common_component("subflow", subflow, params, meta)
+       common_component("subflow", name, node, params, meta)
        |> Map.put("flow", flow)}
     end
   end
 
-  defp encode_component(%Choice{} = choice, registry) do
-    with {:ok, options} <- encode_choice_options(choice.options, registry),
-         {:ok, fallback} <- encode_fallback(choice.fallback, registry),
-         {:ok, meta} <- encode_data(choice.meta, registry, 0) do
+  defp encode_component({name, %{kind: :choice} = node}, registry) do
+    with {:ok, options} <- encode_choice_options(node.options, registry),
+         {:ok, fallback} <- encode_fallback(node.fallback, registry),
+         {:ok, meta} <- encode_data(node.meta, registry, 0) do
       {:ok,
        %{
          "kind" => "choice",
-         "name" => choice.name,
+         "name" => name,
          "options" => options,
          "fallback" => fallback,
-         "needs" => choice.needs,
+         "needs" => node.needs,
          "meta" => meta
        }}
     end
   end
 
-  defp encode_component(%FlowMap{} = map, registry) do
-    with {:ok, collection} <- encode_expression(map.collection, registry, 0),
-         {:ok, action} <- Registry.identifier(registry, :action, map.action),
-         {:ok, params} <- encode_expression(map.params, registry, 0),
-         {:ok, meta} <- encode_data(map.meta, registry, 0) do
+  defp encode_component(
+         {name, %{kind: :map, call: {instruction, params}} = node},
+         registry
+       ) do
+    with {:ok, collection} <- encode_expression(node.collection, registry, 0),
+         {:ok, action} <- Registry.identifier(registry, :action, instruction.target),
+         {:ok, params} <- encode_expression(params, registry, 0),
+         {:ok, meta} <- encode_data(node.meta, registry, 0) do
       {:ok,
        %{
          "kind" => "map",
-         "name" => map.name,
+         "name" => name,
          "collection" => collection,
          "action" => action,
          "params" => params,
-         "on_error" => Atom.to_string(map.on_error),
-         "needs" => map.needs,
+         "on_error" => Atom.to_string(node.on_error),
+         "needs" => node.needs,
          "meta" => meta
        }}
     end
   end
 
-  defp encode_component(%Reduce{} = reduce, registry) do
-    with {:ok, collection} <- encode_expression(reduce.collection, registry, 0),
-         {:ok, initial} <- encode_expression(reduce.initial, registry, 0),
-         {:ok, action} <- Registry.identifier(registry, :action, reduce.action),
-         {:ok, params} <- encode_expression(reduce.params, registry, 0),
-         {:ok, meta} <- encode_data(reduce.meta, registry, 0) do
+  defp encode_component(
+         {name, %{kind: :reduce, call: {instruction, params}} = node},
+         registry
+       ) do
+    with {:ok, collection} <- encode_expression(node.collection, registry, 0),
+         {:ok, initial} <- encode_expression(node.initial, registry, 0),
+         {:ok, action} <- Registry.identifier(registry, :action, instruction.target),
+         {:ok, params} <- encode_expression(params, registry, 0),
+         {:ok, meta} <- encode_data(node.meta, registry, 0) do
       {:ok,
        %{
          "kind" => "reduce",
-         "name" => reduce.name,
+         "name" => name,
          "collection" => collection,
          "initial" => initial,
          "action" => action,
          "params" => params,
-         "needs" => reduce.needs,
+         "needs" => node.needs,
          "meta" => meta
        }}
     end
   end
 
-  defp encode_component(%Iterate{} = iterate, registry) do
-    with {:ok, action} <- Registry.identifier(registry, :action, iterate.action),
-         {:ok, params} <- encode_expression(iterate.params, registry, 0),
-         {:ok, schema} <- Registry.identifier(registry, :schema, iterate.state.schema),
-         {:ok, initial} <- encode_expression(iterate.state.initial, registry, 0),
-         {:ok, update} <- encode_expression(iterate.state.update, registry, 0),
-         {:ok, completion} <- encode_expression(iterate.completion, registry, 0),
-         {:ok, meta} <- encode_data(iterate.meta, registry, 0) do
+  defp encode_component(
+         {name, %{kind: :iterate, call: {instruction, params}} = node},
+         registry
+       ) do
+    with {:ok, action} <- Registry.identifier(registry, :action, instruction.target),
+         {:ok, params} <- encode_expression(params, registry, 0),
+         {:ok, schema} <- Registry.identifier(registry, :schema, node.state.schema),
+         {:ok, initial} <- encode_expression(node.state.initial, registry, 0),
+         {:ok, update} <- encode_expression(node.state.update, registry, 0),
+         {:ok, completion} <- encode_expression(node.completion, registry, 0),
+         {:ok, meta} <- encode_data(node.meta, registry, 0) do
       {:ok,
        %{
          "kind" => "iterate",
-         "name" => iterate.name,
+         "name" => name,
          "action" => action,
          "params" => params,
          "state" => %{
@@ -1283,37 +1290,45 @@ defmodule Jido.Flow.Codec do
            "update" => update
          },
          "completion" => completion,
-         "max_iterations" => iterate.max_iterations,
-         "needs" => iterate.needs,
+         "max_iterations" => node.max_iterations,
+         "needs" => node.needs,
          "meta" => meta
        }}
     end
   end
 
-  defp encode_component(%Dispatch{} = dispatch, registry) do
-    with {:ok, decision} <- Registry.identifier(registry, :action, dispatch.decision),
-         {:ok, expander} <- Registry.identifier(registry, :action, dispatch.expander),
-         {:ok, params} <- encode_expression(dispatch.params, registry, 0),
-         {:ok, meta} <- encode_data(dispatch.meta, registry, 0) do
+  defp encode_component(
+         {name,
+          %{
+            kind: :dispatch,
+            decision: {decision, params},
+            expander: {expander, _expander_params}
+          } = node},
+         registry
+       ) do
+    with {:ok, decision} <- Registry.identifier(registry, :action, decision.target),
+         {:ok, expander} <- Registry.identifier(registry, :action, expander.target),
+         {:ok, params} <- encode_expression(params, registry, 0),
+         {:ok, meta} <- encode_data(node.meta, registry, 0) do
       {:ok,
        %{
          "kind" => "dispatch",
-         "name" => dispatch.name,
+         "name" => name,
          "decision" => decision,
          "expander" => expander,
          "params" => params,
-         "needs" => dispatch.needs,
+         "needs" => node.needs,
          "meta" => meta
        }}
     end
   end
 
-  defp common_component(kind, component, params, meta) do
+  defp common_component(kind, name, node, params, meta) do
     %{
       "kind" => kind,
-      "name" => component.name,
+      "name" => name,
       "params" => params,
-      "needs" => component.needs,
+      "needs" => node.needs,
       "meta" => meta
     }
   end
@@ -1324,8 +1339,9 @@ defmodule Jido.Flow.Codec do
     |> Enum.reduce_while({:ok, []}, fn {option, index}, {:ok, encoded} ->
       result =
         with {:ok, condition} <- encode_expression(option.condition, registry, 0),
-             {:ok, action} <- Registry.identifier(registry, :action, option.action),
-             {:ok, params} <- encode_expression(option.params, registry, 0) do
+             {instruction, option_params} = option.call,
+             {:ok, action} <- Registry.identifier(registry, :action, instruction.target),
+             {:ok, params} <- encode_expression(option_params, registry, 0) do
           {:ok,
            %{
              "name" => option.name,
@@ -1343,9 +1359,9 @@ defmodule Jido.Flow.Codec do
     |> reverse_ok()
   end
 
-  defp encode_fallback(fallback, registry) do
-    with {:ok, action} <- Registry.identifier(registry, :action, fallback.action),
-         {:ok, params} <- encode_expression(fallback.params, registry, 0) do
+  defp encode_fallback({instruction, fallback_params}, registry) do
+    with {:ok, action} <- Registry.identifier(registry, :action, instruction.target),
+         {:ok, params} <- encode_expression(fallback_params, registry, 0) do
       {:ok, %{"action" => action, "params" => params}}
     end
   end
@@ -1434,7 +1450,7 @@ defmodule Jido.Flow.Codec do
   defp encode_entries(map, registry, depth, value_encoder) do
     Enum.reduce_while(map, {:ok, []}, fn {key, value}, {:ok, encoded} ->
       result =
-        with :ok <- Data.validate_key(key),
+        with :ok <- Value.validate_key(key),
              {:ok, key} <- encode_data(key, registry, depth + 1),
              {:ok, value} <- value_encoder.(value, registry, depth + 1) do
           {:ok, %{"key" => key, "value" => value}}

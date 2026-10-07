@@ -33,15 +33,15 @@ defmodule JidoActionTest.Exec.FlowAdapterTest do
     def flow do
       JidoActionTest.Exec.FlowAdapterTest.CallCounter.increment(:root)
 
-      Jido.Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "counting_root",
         components: [
-          Jido.Flow.Subflow.new!(
+          JidoActionTest.FlowComponent.subflow!(
             name: "left",
             flow: JidoActionTest.Exec.FlowAdapterTest.CountingChildFlow,
             params: %{value: Jido.Flow.Ref.input(:value)}
           ),
-          Jido.Flow.Subflow.new!(
+          JidoActionTest.FlowComponent.subflow!(
             name: "right",
             flow: JidoActionTest.Exec.FlowAdapterTest.CountingChildFlow,
             params: %{value: Jido.Flow.Ref.input(:value)}
@@ -72,10 +72,10 @@ defmodule JidoActionTest.Exec.FlowAdapterTest do
     def flow, do: JidoActionTest.Fixtures.FlowAuthoring.math_flow!()
 
     def compiled do
-      Jido.Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "mismatched_compiled_flow",
         components: [
-          Jido.Flow.Step.new!(
+          JidoActionTest.FlowComponent.step!(
             name: "wrong",
             action: JidoActionTest.Fixtures.Actions.Add,
             params: %{value: Jido.Flow.Ref.input(:value), amount: 100}

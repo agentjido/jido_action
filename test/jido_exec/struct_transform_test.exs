@@ -1,9 +1,9 @@
 defmodule JidoActionTest.Exec.StructTransformTest do
   use ExUnit.Case, async: true
 
-  alias Jido.{Exec, Flow}
+  alias Jido.Exec
   alias Jido.Action.Validation
-  alias Jido.Flow.{Ref, Step, Subflow}
+  alias Jido.Flow.{Ref}
 
   defmodule Input do
     defstruct [:value, derived: :undeclared_default]
@@ -123,9 +123,15 @@ defmodule JidoActionTest.Exec.StructTransformTest do
       end
 
       parent =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "nested_struct_transform",
-          components: [Subflow.new!(name: "child", flow: @flow, params: Ref.input([]))],
+          components: [
+            JidoActionTest.FlowComponent.subflow!(
+              name: "child",
+              flow: @flow,
+              params: Ref.input([])
+            )
+          ],
           output: Ref.result("child")
         )
 
@@ -154,10 +160,12 @@ defmodule JidoActionTest.Exec.StructTransformTest do
   defp action_flow(action, options \\ []) do
     [
       name: "struct_transform",
-      components: [Step.new!(name: "echo", action: action, params: Ref.input([]))],
+      components: [
+        JidoActionTest.FlowComponent.step!(name: "echo", action: action, params: Ref.input([]))
+      ],
       output: Ref.result("echo")
     ]
     |> Keyword.merge(options)
-    |> Flow.new!()
+    |> JidoActionTest.FlowBuilder.new!()
   end
 end

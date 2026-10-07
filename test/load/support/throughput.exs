@@ -11,8 +11,7 @@ defmodule JidoActionLoad.Throughput do
   require Runic
 
   alias Jido.{Exec, Flow}
-  alias Jido.Flow.{Ref, Step}
-  alias Jido.Flow.Map, as: FlowMap
+  alias Jido.Flow.Ref
   alias JidoActionLoad.Identity
   alias Runic.Workflow
 
@@ -306,7 +305,7 @@ defmodule JidoActionLoad.Throughput do
 
     components =
       for {name, _chunk} <- named do
-        FlowMap.new!(
+        JidoActionTest.FlowComponent.map!(
           name: name,
           collection: Ref.input([:groups, name]),
           action: Identity,
@@ -315,7 +314,7 @@ defmodule JidoActionLoad.Throughput do
       end
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "throughput_partition_#{groups}",
         components: components,
         output: Map.new(named, fn {name, _chunk} -> {name, Ref.result(name)} end)
@@ -334,7 +333,11 @@ defmodule JidoActionLoad.Throughput do
   defp dependency_case(width, needs) do
     producers =
       for index <- 1..width do
-        Step.new!(name: "producer_#{index}", action: Identity, params: %{value: index})
+        JidoActionTest.FlowComponent.step!(
+          name: "producer_#{index}",
+          action: Identity,
+          params: %{value: index}
+        )
       end
 
     readers =
@@ -348,11 +351,15 @@ defmodule JidoActionLoad.Throughput do
             end)
         }
 
-        Step.new!(name: "reader_#{index}", action: Identity, params: params)
+        JidoActionTest.FlowComponent.step!(
+          name: "reader_#{index}",
+          action: Identity,
+          params: params
+        )
       end
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "throughput_dependencies_#{width}_#{needs}",
         components: producers ++ readers,
         output: Map.new(1..width, &{"reader_#{&1}", Ref.result("reader_#{&1}")})

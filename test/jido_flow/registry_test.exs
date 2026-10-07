@@ -2,11 +2,9 @@ defmodule Jido.Flow.RegistryTest do
   use ExUnit.Case, async: true
 
   alias Jido.Flow.Error.InvalidDefinitionError
-  alias Jido.Flow
   alias Jido.Flow.Codec
   alias Jido.Flow.Ref
   alias Jido.Flow.Registry
-  alias Jido.Flow.Step
   alias JidoActionTest.Fixtures.FlowAuthoring
   alias JidoActionTest.Fixtures.InlineParityFlow
   alias JidoActionTest.Fixtures.NestedFlow
@@ -17,10 +15,10 @@ defmodule Jido.Flow.RegistryTest do
     assert {:ok, registry} = Registry.from_flow(flow)
     assert Registry.from_flow(flow) == {:ok, registry}
 
-    for step <- flow.components do
-      assert {:ok, identifier} = Registry.identifier(registry, :action, step.action)
+    for {_name, %{call: {instruction, _params}}} <- flow.components do
+      assert {:ok, identifier} = Registry.identifier(registry, :action, instruction.target)
       assert String.starts_with?(identifier, "actions/generated-")
-      assert Registry.resolve(registry, identifier, :action) == {:ok, step.action}
+      assert Registry.resolve(registry, identifier, :action) == {:ok, instruction.target}
     end
 
     assert {:ok, document, ^registry} = Codec.encode(flow)
@@ -28,14 +26,17 @@ defmodule Jido.Flow.RegistryTest do
     assert {:ok, ^flow} =
              document |> Jason.encode!() |> Jason.decode!() |> Codec.decode(registry)
 
-    action = flow.components |> Enum.map(& &1.action) |> Enum.max_by(&Atom.to_string/1)
+    action =
+      flow.components
+      |> Enum.map(fn {_name, %{call: {instruction, _params}}} -> instruction.target end)
+      |> Enum.max_by(&Atom.to_string/1)
 
     subset =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(%{
         name: "inline_registry_subset",
-        components: [Step.new!(name: "only", action: action)],
+        components: [%{kind: :step, name: "only", action: action}],
         output: Ref.result("only")
-      )
+      })
 
     assert {:ok, subset_registry} = Registry.from_flow(subset)
     assert {:ok, original_id} = Registry.identifier(registry, :action, action)
@@ -70,11 +71,11 @@ defmodule Jido.Flow.RegistryTest do
 
   test "from_flow requires an executable Flow" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(%{
         name: "invalid_target",
-        components: [Step.new!(name: "invalid", action: String)],
+        components: [%{kind: :step, name: "invalid", action: String}],
         output: Ref.result("invalid")
-      )
+      })
 
     assert {:error, %InvalidDefinitionError{}} = Registry.from_flow(flow)
     assert {:error, %InvalidDefinitionError{}} = Registry.from_flow(:invalid)

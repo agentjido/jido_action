@@ -36,8 +36,59 @@ defmodule Jido.Expr.Runtime do
     end
   end
 
+  @doc false
+  @spec reduce(term(), term(), function(), keyword()) :: {:ok, term()} | {:error, term()}
+  def reduce(value, accumulator, reducer, options) do
+    if is_function(reducer, 2) or is_function(reducer, 3) do
+      with {:ok, state} <- Limits.new(options, []) do
+        state = Map.merge(state, %{accumulator: accumulator, reducer: reducer})
+
+        case visit(value, state, [], 0, :reduce) do
+          {:ok, _value, state} -> {:ok, state.accumulator}
+          {:halt, state} -> {:ok, state.accumulator}
+          {:error, _error} = error -> error
+        end
+      end
+    else
+      Limits.fail(:invalid_reducer, [])
+    end
+  end
+
+  defp reduce_callback(reducer, value, path, accumulator) do
+    result =
+      if is_function(reducer, 3),
+        do: reducer.(value, path, accumulator),
+        else: reducer.(value, accumulator)
+
+    {:ok, result}
+  rescue
+    _ -> Limits.fail(:reducer_failure, path)
+  catch
+    _, _ -> Limits.fail(:reducer_failure, path)
+  end
+
   defp expression_root(%Expr{}), do: :ok
   defp expression_root(_value), do: Limits.fail(:expected_expression, [])
+
+  defp visit(value, state, path, depth, :reduce) do
+    with {:ok, state} <- Limits.enter(state, value, path, depth),
+         {:ok, directive} <-
+           reduce_callback(state.reducer, value, path, state.accumulator) do
+      case directive do
+        {:cont, accumulator} ->
+          visit_value(value, %{state | accumulator: accumulator}, path, depth, :reduce)
+
+        {:halt, accumulator} ->
+          {:halt, %{state | accumulator: accumulator}}
+
+        {:error, error} ->
+          {:error, error}
+
+        _other ->
+          Limits.fail(:invalid_reducer_return, path)
+      end
+    end
+  end
 
   defp visit(value, state, path, depth, mode) do
     with {:ok, state} <- Limits.enter(state, value, path, depth),
@@ -75,6 +126,9 @@ defmodule Jido.Expr.Runtime do
     end
   end
 
+  defp visit_value(%_{} = value, state, _path, _depth, :reduce),
+    do: {:ok, value, state}
+
   defp visit_value(%_{} = value, state, path, depth, mode),
     do: host(value, state, path, depth, mode)
 
@@ -110,7 +164,9 @@ defmodule Jido.Expr.Runtime do
     end
   end
 
-  defp map_result(mode, result, _key, _child) when mode in [:data, :validate], do: result
+  defp map_result(mode, result, _key, _child) when mode in [:data, :reduce, :validate],
+    do: result
+
   defp map_result(_mode, result, key, child), do: Map.put(result, key, child)
 
   defp map_pair(key, value, state, path, depth, :data) do
@@ -141,14 +197,15 @@ defmodule Jido.Expr.Runtime do
     end
   end
 
-  defp list([], state, _path, _depth, mode, _index, result) when mode in [:data, :validate],
-    do: {:ok, result, state}
+  defp list([], state, _path, _depth, mode, _index, result)
+       when mode in [:data, :reduce, :validate],
+       do: {:ok, result, state}
 
   defp list([], state, _path, _depth, _mode, _index, result),
     do: {:ok, Enum.reverse(result), state}
 
   defp list([head | tail], state, path, depth, mode, index, result)
-       when mode in [:data, :validate] do
+       when mode in [:data, :reduce, :validate] do
     with {:ok, _value, state} <- visit(head, state, path ++ [index], depth + 1, mode) do
       list(tail, state, path, depth, mode, index + 1, result)
     end
@@ -176,9 +233,10 @@ defmodule Jido.Expr.Runtime do
     end
   end
 
-  defp expression(%Expr{operands: operands} = value, state, path, depth, :validate) do
+  defp expression(%Expr{operands: operands} = value, state, path, depth, mode)
+       when mode in [:reduce, :validate] do
     with {:ok, _operands, state} <-
-           list(operands, state, path ++ [:operands], depth, :validate, 0, operands) do
+           list(operands, state, path ++ [:operands], depth, mode, 0, operands) do
       {:ok, value, state}
     end
   end

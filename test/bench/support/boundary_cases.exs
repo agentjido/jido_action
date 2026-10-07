@@ -6,7 +6,8 @@ end
 defmodule JidoActionBench.BoundaryCases do
   @moduledoc false
   alias Jido.{Exec, Expr, Flow}
-  alias Jido.Flow.{Codec, Value, Identity, Ref, Step}
+  alias Jido.Exec.Flow.Identity
+  alias Jido.Flow.{Codec, Value, Ref}
   alias JidoActionBench.{ComponentCases, Echo, Fixtures, Record, SmallResult}
 
   def workloads do
@@ -118,9 +119,11 @@ defmodule JidoActionBench.BoundaryCases do
       params = %{"values" => Map.new(1..count, &{"k#{&1}", &1})}
 
       flow =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "codec_benchmark",
-          components: [Step.new!(name: "echo", action: Echo, params: params)],
+          components: [
+            JidoActionTest.FlowComponent.step!(name: "echo", action: Echo, params: params)
+          ],
           output: Ref.result("echo")
         )
 
@@ -161,10 +164,10 @@ defmodule JidoActionBench.BoundaryCases do
     ]
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "context_retention",
         components: [
-          Step.new!(
+          JidoActionTest.FlowComponent.step!(
             name: "small",
             action: SmallResult,
             params: %{value: Ref.input(:value), fail: false}

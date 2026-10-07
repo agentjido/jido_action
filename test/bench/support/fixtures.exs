@@ -22,7 +22,7 @@ end
 defmodule JidoActionBench.Fixtures do
   @moduledoc false
   alias Jido.{Exec, Flow}
-  alias Jido.Flow.{Ref, Step, Subflow}
+  alias Jido.Flow.Ref
   alias JidoActionBench.Echo
 
   def barrier(context) do
@@ -67,14 +67,23 @@ defmodule JidoActionBench.Fixtures do
             else: Ref.input(:value)
 
         if shape == :subflows do
-          Subflow.new!(name: name, flow: JidoActionBench.Child, params: %{value: value})
+          JidoActionTest.FlowComponent.subflow!(
+            name: name,
+            flow: JidoActionBench.Child,
+            params: %{value: value}
+          )
         else
-          Step.new!(name: name, action: Echo, params: %{value: value})
+          JidoActionTest.FlowComponent.step!(name: name, action: Echo, params: %{value: value})
         end
       end
 
     output = Map.new(1..count, &{"s#{&1}", Ref.result("s#{&1}")})
-    Flow.new!(name: "benchmark_#{shape}", components: components, output: output)
+
+    JidoActionTest.FlowBuilder.new!(
+      name: "benchmark_#{shape}",
+      components: components,
+      output: output
+    )
   end
 
   defp payload(:small), do: 42

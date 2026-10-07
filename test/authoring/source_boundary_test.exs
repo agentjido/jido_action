@@ -5,8 +5,8 @@ defmodule JidoActionTest.Authoring.SourceBoundaryTest do
   use ExUnit.Case, async: false
   @moduletag :authoring
 
-  alias Jido.{Expr, Flow}
-  alias Jido.Flow.{Ref, Step}
+  alias Jido.Expr
+  alias Jido.Flow.Ref
   alias JidoActionTest.Authoring.Hostile
 
   test "scoped and malformed references, unknown operators, and unsafe source fail before work" do
@@ -28,10 +28,10 @@ defmodule JidoActionTest.Authoring.SourceBoundaryTest do
     refute_received :unsafe_executed
     refute_received {:hostile_action, _}
 
-    step = Step.new!(name: "watch", action: Hostile.Watch)
+    step = JidoActionTest.FlowComponent.step!(name: "watch", action: Hostile.Watch)
 
     assert {:error, invalid_path} =
-             Step.new(
+             JidoActionTest.FlowComponent.step(
                name: "bad_path",
                action: Hostile.Watch,
                params: %{value: Ref.input([:payload, -1])}
@@ -40,7 +40,7 @@ defmodule JidoActionTest.Authoring.SourceBoundaryTest do
     assert invalid_path.message == "flow expression contains an invalid reference path"
 
     assert {:error, unknown_operator} =
-             Flow.new(
+             JidoActionTest.FlowBuilder.new(
                name: "unknown_operation",
                components: [step],
                output: %Expr{operator: :unknown, operands: [Ref.result("watch")]}
@@ -112,10 +112,14 @@ defmodule JidoActionTest.Authoring.SourceBoundaryTest do
       assert source_line(source, error.line) =~ ~r/defmodule|flow|step|output/
     end
 
-    valid_step = Step.new!(name: "watch", action: Hostile.Watch)
+    valid_step = JidoActionTest.FlowComponent.step!(name: "watch", action: Hostile.Watch)
 
     assert {:error, error} =
-             Flow.new(name: "no_inferred_output", components: [valid_step], output: nil)
+             JidoActionTest.FlowBuilder.new(
+               name: "no_inferred_output",
+               components: [valid_step],
+               output: nil
+             )
 
     assert error.message == "Flow output is required"
   end

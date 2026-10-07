@@ -6,7 +6,7 @@ defmodule JidoActionTest.Property.Execution.ContinuationContractTest do
   use ExUnitProperties
   alias JidoActionTest.Property.Fuzz
   alias Jido.{Exec, Flow}
-  alias Jido.Flow.{Ref, Step, Subflow}
+  alias Jido.Flow.Ref
   alias JidoActionTest.Property.Runtime
 
   defmodule Decision do
@@ -228,9 +228,11 @@ defmodule JidoActionTest.Property.Execution.ContinuationContractTest do
 
       # Unauthorized positions must not follow the requested target.
       invalid =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "invalid_chain",
-          components: [Step.new!(name: "work", action: Chain, params: input)],
+          components: [
+            JidoActionTest.FlowComponent.step!(name: "work", action: Chain, params: input)
+          ],
           output: Ref.result("work")
         )
 
@@ -353,9 +355,15 @@ defmodule JidoActionTest.Property.Execution.ContinuationContractTest do
         assert {:error, _} = Exec.start(DispatchFlow, input, context)
 
         parent =
-          Flow.new!(
+          JidoActionTest.FlowBuilder.new!(
             name: "dispatch_parent",
-            components: [Subflow.new!(name: "child", flow: DispatchFlow, params: input)],
+            components: [
+              JidoActionTest.FlowComponent.subflow!(
+                name: "child",
+                flow: DispatchFlow,
+                params: input
+              )
+            ],
             output: Ref.result("child")
           )
 
@@ -363,9 +371,11 @@ defmodule JidoActionTest.Property.Execution.ContinuationContractTest do
         Runtime.assert_calls(context, [])
 
         step_flow =
-          Flow.new!(
+          JidoActionTest.FlowBuilder.new!(
             name: "ordinary",
-            components: [Step.new!(name: "work", action: Next, params: input)],
+            components: [
+              JidoActionTest.FlowComponent.step!(name: "work", action: Next, params: input)
+            ],
             output: Ref.result("work")
           )
 

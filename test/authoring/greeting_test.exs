@@ -3,8 +3,7 @@ Code.require_file("support/greeting.ex", __DIR__)
 defmodule JidoActionTest.Authoring.GreetingTest do
   use ExUnit.Case, async: false
   @moduletag :authoring
-  alias Jido.Flow, as: FlowDefinition
-  alias Jido.Flow.{Codec, Ref, Step}
+  alias Jido.Flow.{Codec, Ref}
   alias JidoActionTest.Authoring.Greeting.{Flow, Greet, Normalize}
 
   test "an authored Action validates input and carries caller context" do
@@ -39,16 +38,24 @@ defmodule JidoActionTest.Authoring.GreetingTest do
       output_schema: Flow.output_schema()
     }
 
-    assert {:ok, data_flow} = Jido.Flow.new(data)
+    assert {:ok, data_flow} = JidoActionTest.FlowBuilder.new(data)
 
     direct_flow =
-      FlowDefinition.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: Flow.name(),
         schema: Flow.schema(),
         output_schema: Flow.output_schema(),
         components: [
-          Step.new!(name: "normalize", action: Normalize, params: %{name: Ref.input(:name)}),
-          Step.new!(name: "greet", action: Greet, params: %{name: Ref.result("normalize", :name)})
+          JidoActionTest.FlowComponent.step!(
+            name: "normalize",
+            action: Normalize,
+            params: %{name: Ref.input(:name)}
+          ),
+          JidoActionTest.FlowComponent.step!(
+            name: "greet",
+            action: Greet,
+            params: %{name: Ref.result("normalize", :name)}
+          )
         ],
         output: Ref.result("greet")
       )

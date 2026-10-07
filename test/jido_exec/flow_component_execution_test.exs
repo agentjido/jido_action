@@ -4,10 +4,8 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
   alias Jido.Action.Output
   alias Jido.Action.Error.ExecutionFailureError, as: ActionExecutionFailureError
   alias Jido.Exec
-  alias Jido.Flow
   alias Jido.Flow.Error.ExecutionFailureError
-  alias Jido.Flow.{Choice, Reduce, Ref, Step}
-  alias Jido.Flow.Map, as: FlowMap
+  alias Jido.Flow.{Ref}
 
   alias JidoActionTest.Fixtures.Actions.{Add, EchoParamsAction, ErrorAction, Multiply}
 
@@ -49,10 +47,10 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
     on_exit(fn -> :telemetry.detach(handler_id) end)
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "collected_structured_errors",
         components: [
-          FlowMap.new!(
+          JidoActionTest.FlowComponent.map!(
             name: "mapped",
             collection: [:invalid, :retry, :ok],
             action: CollectedErrorAction,
@@ -120,10 +118,10 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
 
   test "collected reference errors preserve details without invented target identity" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "collected_reference_error",
         components: [
-          FlowMap.new!(
+          JidoActionTest.FlowComponent.map!(
             name: "mapped",
             collection: [%{}],
             action: EchoParamsAction,
@@ -189,10 +187,10 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
     always = Jido.Expr.new!(:==, [1, 1])
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "first_matching_choice",
         components: [
-          Choice.new!(
+          JidoActionTest.FlowComponent.choice!(
             name: "route",
             options: [
               [
@@ -219,10 +217,10 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
 
   test "uses stable Map item identity in target inputs" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "map_item_identity",
         components: [
-          FlowMap.new!(
+          JidoActionTest.FlowComponent.map!(
             name: "mapped",
             collection: [:first, :second],
             action: EchoParamsAction,
@@ -298,10 +296,10 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
 
   test "resolves nested values and alternate map keys" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "expression_resolution",
         components: [
-          Step.new!(
+          JidoActionTest.FlowComponent.step!(
             name: "echo",
             action: EchoParamsAction,
             params: %{
@@ -332,10 +330,14 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
 
     for {ref, reason, segment, resolved_path, value_type} <- cases do
       flow =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "strict_expression_resolution",
           components: [
-            Step.new!(name: "echo", action: EchoParamsAction, params: %{resolved: ref})
+            JidoActionTest.FlowComponent.step!(
+              name: "echo",
+              action: EchoParamsAction,
+              params: %{resolved: ref}
+            )
           ],
           output: Ref.result("echo")
         )
@@ -360,10 +362,10 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
 
   test "classifies invalid Map collections" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "invalid_map_collection",
         components: [
-          FlowMap.new!(
+          JidoActionTest.FlowComponent.map!(
             name: "mapped",
             collection: Ref.input(:items),
             action: EchoParamsAction,
@@ -396,10 +398,10 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
 
   test "handles empty Maps and rejects invalid Reduce data" do
     empty_map =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "empty_map",
         components: [
-          FlowMap.new!(
+          JidoActionTest.FlowComponent.map!(
             name: "mapped",
             collection: [],
             action: EchoParamsAction,
@@ -413,10 +415,10 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
     assert Exec.run(empty_map) == {:ok, %{items: []}}
 
     reduce =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "invalid_reduce",
         components: [
-          Reduce.new!(
+          JidoActionTest.FlowComponent.reduce!(
             name: "reduced",
             collection: Ref.input(:items),
             initial: Ref.input(:initial),
@@ -438,10 +440,10 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
   end
 
   defp choice_flow(condition) do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "condition_runtime",
       components: [
-        Choice.new!(
+        JidoActionTest.FlowComponent.choice!(
           name: "route",
           options: [
             [
@@ -461,20 +463,24 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
   defp invalid_arithmetic, do: Jido.Expr.new!(:+, [%{}, 1])
 
   defp target_error_flow(:step) do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "step_target_error",
       components: [
-        Step.new!(name: "target", action: ErrorAction, params: %{error_type: :validation})
+        JidoActionTest.FlowComponent.step!(
+          name: "target",
+          action: ErrorAction,
+          params: %{error_type: :validation}
+        )
       ],
       output: Ref.result("target")
     )
   end
 
   defp target_error_flow(:choice) do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "choice_target_error",
       components: [
-        Choice.new!(
+        JidoActionTest.FlowComponent.choice!(
           name: "target",
           options: [
             [
@@ -492,10 +498,10 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
   end
 
   defp target_error_flow(:map) do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "map_target_error",
       components: [
-        FlowMap.new!(
+        JidoActionTest.FlowComponent.map!(
           name: "target",
           collection: [:item],
           action: ErrorAction,
@@ -507,10 +513,10 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
   end
 
   defp target_error_flow(:reduce) do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "reduce_target_error",
       components: [
-        Reduce.new!(
+        JidoActionTest.FlowComponent.reduce!(
           name: "target",
           collection: [:item],
           initial: %{},

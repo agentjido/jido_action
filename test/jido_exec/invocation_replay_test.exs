@@ -3,9 +3,7 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
 
   alias Jido.Action.Output
   alias Jido.Exec
-  alias Jido.Flow
-  alias Jido.Flow.{Choice, Dispatch, Iterate, Reduce, Ref, Step, Subflow}
-  alias Jido.Flow.Map, as: FlowMap
+  alias Jido.Flow.{Ref}
   alias Jido.Instruction
   alias JidoActionTest.Fixtures.Execution.InvocationChildFlow, as: ChildFlow
   alias JidoActionTest.Fixtures.Execution.InvocationChanged, as: Changed
@@ -24,10 +22,10 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
     @behaviour Jido.Flow
 
     def flow do
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "repeated_collection_child",
         components: [
-          FlowMap.new!(
+          JidoActionTest.FlowComponent.map!(
             name: "items",
             collection: [1],
             action: Probe,
@@ -49,10 +47,10 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
     def flow do
       schema = Zoi.map() |> Zoi.transform({Loop, :state_transform, []})
 
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "validated_invocation_iterate",
         components: [
-          Iterate.new!(
+          JidoActionTest.FlowComponent.iterate!(
             name: "loop",
             action: Loop,
             params: %{
@@ -61,7 +59,7 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
               state: Ref.state()
             },
             state:
-              Iterate.State.new!(
+              JidoActionTest.FlowComponent.state!(
                 schema: schema,
                 initial: %{count: 0},
                 update: %{count: Ref.body_result(:count)}
@@ -143,9 +141,16 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
     @behaviour Jido.Flow
 
     def flow do
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "validated_empty_invocation_flow",
-        components: [FlowMap.new!(name: "empty", collection: [], action: Probe, params: %{})],
+        components: [
+          JidoActionTest.FlowComponent.map!(
+            name: "empty",
+            collection: [],
+            action: Probe,
+            params: %{}
+          )
+        ],
         output: %{items: Ref.result("empty"), value: Ref.input(:value)}
       )
     end
@@ -237,10 +242,10 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
     store = start_supervised!({Agent, fn -> %{} end})
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "list_params_replay",
         components: [
-          Step.new!(
+          JidoActionTest.FlowComponent.step!(
             name: "list",
             action: ListParamsProbe,
             params: [Ref.context(:observer), Ref.input(:value)]
@@ -479,10 +484,10 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
           {"step-position", Final,
            fn config ->
              flow =
-               Flow.new!(
+               JidoActionTest.FlowBuilder.new!(
                  name: "disallowed_step_continuation",
                  components: [
-                   Step.new!(
+                   JidoActionTest.FlowComponent.step!(
                      name: "work",
                      action: Probe,
                      params: %{mode: :continue, target: Final, value: 1}
@@ -593,16 +598,24 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
     store = start_supervised!({Agent, fn -> %{} end})
 
     historical =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "historical_flow_evidence",
-        components: [Step.new!(name: "work", action: Probe, params: %{value: 1})],
+        components: [
+          JidoActionTest.FlowComponent.step!(name: "work", action: Probe, params: %{value: 1})
+        ],
         output: Ref.result("work")
       )
 
     current =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "current_flow_evidence",
-        components: [Step.new!(name: "work", action: Changed, params: %{different: true})],
+        components: [
+          JidoActionTest.FlowComponent.step!(
+            name: "work",
+            action: Changed,
+            params: %{different: true}
+          )
+        ],
         output: Ref.result("work")
       )
 
@@ -627,10 +640,15 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
     store = start_supervised!({Agent, fn -> %{} end})
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "empty_invocation_flow",
         components: [
-          FlowMap.new!(name: "empty", collection: [], action: Probe, params: %{})
+          JidoActionTest.FlowComponent.map!(
+            name: "empty",
+            collection: [],
+            action: Probe,
+            params: %{}
+          )
         ],
         output: %{items: Ref.result("empty"), value: Ref.input(:value)}
       )
@@ -696,10 +714,10 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
       store = start_supervised!({Agent, fn -> %{} end}, id: {Agent, name})
 
       flow =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: name,
           components: [
-            Choice.new!(
+            JidoActionTest.FlowComponent.choice!(
               name: "route",
               options: [
                 [
@@ -741,10 +759,10 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
     store = start_supervised!({Agent, fn -> %{} end})
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "invocation_map_business_error",
         components: [
-          FlowMap.new!(
+          JidoActionTest.FlowComponent.map!(
             name: "items",
             collection: [8],
             action: Probe,
@@ -866,11 +884,19 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
     store = start_supervised!({Agent, fn -> %{} end})
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "repeated_child_parent",
         components: [
-          Subflow.new!(name: "left", flow: RepeatedCollectionChild, params: %{}),
-          Subflow.new!(name: "right", flow: RepeatedCollectionChild, params: %{})
+          JidoActionTest.FlowComponent.subflow!(
+            name: "left",
+            flow: RepeatedCollectionChild,
+            params: %{}
+          ),
+          JidoActionTest.FlowComponent.subflow!(
+            name: "right",
+            flow: RepeatedCollectionChild,
+            params: %{}
+          )
         ],
         output: %{left: Ref.result("left"), right: Ref.result("right")}
       )
@@ -1106,10 +1132,10 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
   end
 
   defp replay_reduce_flow do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "invocation_reduce_prefix",
       components: [
-        Reduce.new!(
+        JidoActionTest.FlowComponent.reduce!(
           name: "items",
           collection: [:a, :b, :c, :d],
           initial: %{values: []},
@@ -1127,10 +1153,10 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
   end
 
   defp replay_dispatch_flow(continue?) do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "invocation_dispatch_replay",
       components: [
-        Dispatch.new!(
+        JidoActionTest.FlowComponent.dispatch!(
           name: "dispatch",
           decision: DispatchDecision,
           expander: DispatchExpander,
@@ -1142,25 +1168,30 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
   end
 
   defp effect_then_failure_flow do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "invocation_effect_then_failure",
       components: [
-        Step.new!(
+        JidoActionTest.FlowComponent.step!(
           name: "first",
           action: Probe,
           params: %{observer: Ref.context(:observer), value: 1, effects: [:first_effect]}
         ),
-        Step.new!(name: "later", action: FailingAction, params: %{}, needs: ["first"])
+        JidoActionTest.FlowComponent.step!(
+          name: "later",
+          action: FailingAction,
+          params: %{},
+          needs: ["first"]
+        )
       ],
       output: Ref.result("later")
     )
   end
 
   defp context_bound_flow do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "invocation_context_bound",
       components: [
-        Step.new!(
+        JidoActionTest.FlowComponent.step!(
           name: "work",
           action: Probe,
           params: %{temporary: Ref.context(:temporary), value: 1}
@@ -1194,10 +1225,10 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
   end
 
   defp step_flow do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "invocation_step",
       components: [
-        Step.new!(
+        JidoActionTest.FlowComponent.step!(
           name: "work",
           action: Probe,
           params: %{observer: Ref.context(:observer), value: 1}
@@ -1208,10 +1239,10 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
   end
 
   defp choice_flow do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "invocation_choice",
       components: [
-        Choice.new!(
+        JidoActionTest.FlowComponent.choice!(
           name: "route",
           options: [
             [name: "selected", condition: true, action: Probe, params: %{value: 1}]
@@ -1224,10 +1255,10 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
   end
 
   defp fallback_flow do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "invocation_fallback",
       components: [
-        Choice.new!(
+        JidoActionTest.FlowComponent.choice!(
           name: "route",
           options: [
             [name: "not-selected", condition: false, action: Probe, params: %{value: 1}]
@@ -1240,10 +1271,10 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
   end
 
   defp map_flow do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "invocation_map",
       components: [
-        FlowMap.new!(
+        JidoActionTest.FlowComponent.map!(
           name: "items",
           collection: [1, 2],
           action: Probe,
@@ -1255,10 +1286,10 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
   end
 
   defp reduce_flow do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "invocation_reduce",
       components: [
-        Reduce.new!(
+        JidoActionTest.FlowComponent.reduce!(
           name: "items",
           collection: [1, 2],
           initial: %{},
@@ -1271,14 +1302,14 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
   end
 
   defp iterate_flow do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "invocation_iterate",
       components: [
-        Iterate.new!(
+        JidoActionTest.FlowComponent.iterate!(
           name: "loop",
           action: Probe,
           params: %{value: Ref.iteration_index()},
-          state: Iterate.State.new!(initial: %{}, update: %{}),
+          state: JidoActionTest.FlowComponent.state!(initial: %{}, update: %{}),
           completion: Jido.Expr.new!(:>=, [Ref.iteration_index(), 2]),
           max_iterations: 2
         )
@@ -1288,18 +1319,20 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
   end
 
   defp subflow do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "invocation_parent",
-      components: [Subflow.new!(name: "child", flow: ChildFlow, params: %{})],
+      components: [
+        JidoActionTest.FlowComponent.subflow!(name: "child", flow: ChildFlow, params: %{})
+      ],
       output: Ref.result("child")
     )
   end
 
   defp dispatch_flow do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "invocation_dispatch",
       components: [
-        Dispatch.new!(
+        JidoActionTest.FlowComponent.dispatch!(
           name: "dispatch",
           decision: Probe,
           expander: Probe,

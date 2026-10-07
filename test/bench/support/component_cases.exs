@@ -23,8 +23,7 @@ end
 defmodule JidoActionBench.ComponentCases do
   @moduledoc false
   alias Jido.{Exec, Expr, Flow}
-  alias Jido.Flow.{Choice, Dispatch, Iterate, Reduce, Ref, Step}
-  alias Jido.Flow.Map, as: FlowMap
+  alias Jido.Flow.Ref
   alias JidoActionBench.{Accumulate, Continue, Echo, Fixtures}
 
   @opts [task_supervisor: JidoActionBench.TaskSupervisor, max_concurrency: 4]
@@ -65,7 +64,8 @@ defmodule JidoActionBench.ComponentCases do
             :binary -> %{notes: :binary.copy(<<42>>, 1_048_576)}
           end
 
-        flow = %{flow | components: Enum.map(flow.components, &%{&1 | meta: meta})}
+        components = Map.new(flow.components, fn {name, node} -> {name, %{node | meta: meta}} end)
+        flow = %{flow | components: components}
         modes = if kind == :dispatch, do: [:compile, :run], else: [:compile, :continue]
 
         cases(
@@ -93,7 +93,7 @@ defmodule JidoActionBench.ComponentCases do
 
   def graph(:map, _count) do
     component =
-      FlowMap.new!(
+      JidoActionTest.FlowComponent.map!(
         name: "work",
         collection: Ref.input(:items),
         action: Echo,
@@ -105,7 +105,7 @@ defmodule JidoActionBench.ComponentCases do
 
   def graph(:reduce, _count) do
     component =
-      Reduce.new!(
+      JidoActionTest.FlowComponent.reduce!(
         name: "work",
         collection: Ref.input(:items),
         initial: %{value: 0},
@@ -118,11 +118,12 @@ defmodule JidoActionBench.ComponentCases do
 
   def graph(:iterate, count) do
     component =
-      Iterate.new!(
+      JidoActionTest.FlowComponent.iterate!(
         name: "work",
         action: Accumulate,
         params: %{value: Ref.state(:value), amount: 1},
-        state: Iterate.State.new!(initial: %{value: 0}, update: Ref.body_result()),
+        state:
+          JidoActionTest.FlowComponent.state!(initial: %{value: 0}, update: Ref.body_result()),
         completion: Expr.new!(:==, [Ref.state(:value), count]),
         max_iterations: max(count, 1)
       )
@@ -132,7 +133,7 @@ defmodule JidoActionBench.ComponentCases do
 
   def graph(:choice, count) do
     component =
-      Choice.new!(
+      JidoActionTest.FlowComponent.choice!(
         name: "work",
         options:
           for(
@@ -152,7 +153,7 @@ defmodule JidoActionBench.ComponentCases do
 
   def graph(:dispatch, _count) do
     component =
-      Dispatch.new!(
+      JidoActionTest.FlowComponent.dispatch!(
         name: "work",
         decision: Echo,
         expander: Continue,
@@ -231,10 +232,15 @@ defmodule JidoActionBench.ComponentCases do
 
   defp dependency_cases do
     for size <- [0, 1_000], mode <- [:fail_fast, :collect_errors] do
-      producer = Step.new!(name: "producer", action: Echo, params: %{unused: Ref.input(:unused)})
+      producer =
+        JidoActionTest.FlowComponent.step!(
+          name: "producer",
+          action: Echo,
+          params: %{unused: Ref.input(:unused)}
+        )
 
       mapped =
-        FlowMap.new!(
+        JidoActionTest.FlowComponent.map!(
           name: "work",
           collection: Ref.input(:items),
           action: Echo,
@@ -250,7 +256,7 @@ defmodule JidoActionBench.ComponentCases do
       }
 
       flow =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "map_dependencies",
           components: [producer, mapped],
           output: %{items: Ref.result("work")}
@@ -285,9 +291,9 @@ defmodule JidoActionBench.ComponentCases do
   defp reduce_payload_cases do
     for count <- [0, 16], size <- [0, 1_000] do
       flow = graph(:reduce, count)
-      [component] = flow.components
+      component = Map.fetch!(flow.components, "work")
       component = %{component | initial: Ref.input(:initial)}
-      flow = %{flow | components: [component]}
+      flow = %{flow | components: Map.put(flow.components, "work", component)}
       initial = %{value: 0, unused: List.duplicate(7, size)}
       input = Map.put(input(count), :initial, initial)
       expected = if count == 0, do: {:ok, initial}, else: expected(:reduce, count)
@@ -327,7 +333,12 @@ defmodule JidoActionBench.ComponentCases do
   end
 
   defp flow(component, output),
-    do: Flow.new!(name: "bench_component", components: [component], output: output)
+    do:
+      JidoActionTest.FlowBuilder.new!(
+        name: "bench_component",
+        components: [component],
+        output: output
+      )
 
   defp input(0), do: %{items: [], value: 42}
   defp input(count), do: %{items: Enum.to_list(1..count), value: 42}

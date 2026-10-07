@@ -10,7 +10,6 @@ defmodule Jido.Exec.Flow.Adapter do
   alias Jido.Exec.Telemetry
   alias Jido.Flow
   alias Jido.Exec.Flow.Compiler
-  alias Jido.Flow.Dispatch
   alias Jido.Flow.Error
   alias Jido.Instruction
 
@@ -54,7 +53,7 @@ defmodule Jido.Exec.Flow.Adapter do
   end
 
   defp reject_stepwise_dispatch(%Flow{components: components}) do
-    if Enum.any?(components, &match?(%Dispatch{}, &1)) do
+    if Enum.any?(components, fn {_name, node} -> node.kind == :dispatch end) do
       {:error,
        Error.invalid_execution_error("step-wise execution does not support Dispatch", %{
          component: :dispatch

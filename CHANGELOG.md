@@ -95,9 +95,9 @@ entries return to the normal automated changelog process.
   Derived compilation data is now `Jido.Exec.Flow.Compiled`; the canonical
   `%Jido.Flow{}` value remains the Flow definition contract.
 - Remove `Jido.Flow.Builder`. Define runtime Flows with `Jido.Flow.new/1`
-  and tagged component maps. Keep the module DSL, component constructors,
-  and stored JSON Codec. Data definitions declare child Flows explicitly
-  with `kind: :subflow` and `flow:`.
+  and tagged component maps. Use the module DSL or stored JSON Codec for the
+  other supported authoring forms. Data definitions declare child Flows
+  explicitly with `kind: :subflow` and `flow:`.
 - Move reference path selection to `Jido.Flow.Ref.select/2`. Use `Jido.Expr`
   for conditions and operations. Map validation errors include the component
   index and nested error path. See [Flow Data Definitions](guides/flow-data.md).

@@ -26,7 +26,7 @@ defmodule Jido.Flow do
   Flow has three supported authoring inputs:
 
   * the compile-time Flow module DSL;
-  * map-based data definitions through `new/1` and component constructors; and
+  * map-based data definitions through `new/1`; and
   * versioned stored JSON documents through `Jido.Flow.Codec`.
 
   Use the Flow module DSL as the primary developer authoring surface:
@@ -90,7 +90,7 @@ defmodule Jido.Flow do
   and result rules. See [Inline Actions](inline-actions.md).
 
   After the owner compiles, `MyApp.Greeting.step_action("greet")` returns its
-  Action target for map-based definitions, direct construction, or trusted Registry reuse.
+  Action target for map-based definitions or trusted Registry reuse.
   It does not copy parameters, dependencies, or metadata. Map-based definitions and stored
   JSON do not accept body code, anonymous functions, or MFA targets.
 
@@ -129,7 +129,7 @@ defmodule Jido.Flow do
 
   ## DSL field reference
 
-  These fields describe the module DSL, not the direct constructor or stored JSON.
+  These fields describe the module DSL, not map definitions or stored JSON.
   Positional arguments are identified below. Choice and Iterate require field
   blocks; their nested declarations have their own references. Only Step supports
   inline Action bodies. The field types, required flags, and defaults come from
@@ -142,10 +142,8 @@ defmodule Jido.Flow do
   alias Jido.Flow.DSL.ModuleCompiler
   alias Jido.Exec.Flow.Compiler
   alias Jido.Exec.Flow.Compiled
-  alias Jido.Flow.Component
-  alias Jido.Flow.Graph
+  alias Jido.Flow.Definition
   alias Jido.Flow.Identity
-  alias Jido.Flow.Validation
 
   @schema Zoi.struct(
             __MODULE__,
@@ -155,7 +153,7 @@ defmodule Jido.Flow do
               schema: Zoi.any(description: "Flow input schema") |> Zoi.default([]),
               output_schema: Zoi.any(description: "Flow output schema") |> Zoi.default([]),
               components:
-                Zoi.list(Zoi.any(), description: "Canonical Flow components") |> Zoi.default([]),
+                Zoi.map(description: "Canonical named Flow component graph") |> Zoi.default(%{}),
               output: Zoi.any(description: "Declared output expression")
             },
             coerce: true
@@ -175,7 +173,7 @@ defmodule Jido.Flow do
   @callback flow() :: t()
 
   @doc "Validates Flow input parameters without running Flow work."
-  @callback validate_params(map()) :: {:ok, map()} | {:error, term()}
+  @callback validate_params(term()) :: {:ok, map()} | {:error, term()}
 
   @doc "Validates normal Flow output or an explicit output envelope."
   @callback validate_output(map() | Jido.Action.Output.t()) ::
@@ -194,21 +192,20 @@ defmodule Jido.Flow do
   Builds and validates one canonical Flow value from a data definition.
 
   Components accept tagged maps with a `kind` of `:step`, `:subflow`, `:choice`,
-  `:map`, `:reduce`, `:iterate`, or `:dispatch`, or canonical component structs.
-  Each map uses the corresponding component constructor. Data definitions use
-  explicit `:step`/`action` and `:subflow`/`flow` fields. Validation is inert.
+  `:map`, `:reduce`, `:iterate`, or `:dispatch`. Data definitions use explicit
+  `:step`/`action` and `:subflow`/`flow` fields. Validation is inert.
   """
-  @spec new(map() | keyword() | t()) :: {:ok, t()} | {:error, Exception.t()}
-  def new(%__MODULE__{} = flow), do: flow |> Map.from_struct() |> new()
-
-  def new(attrs) do
-    with {:ok, attrs} <- Validation.validate(attrs) do
+  @spec new(map()) :: {:ok, t()} | {:error, Exception.t()}
+  def new(attrs) when is_map(attrs) and not is_struct(attrs) do
+    with {:ok, attrs} <- Definition.validate(attrs) do
       {:ok, struct!(__MODULE__, attrs)}
     end
   end
 
+  def new(value), do: invalid_flow_subject(value)
+
   @doc "Builds one canonical Flow value or raises its validation error."
-  @spec new!(map() | keyword() | t()) :: t() | no_return()
+  @spec new!(map()) :: t() | no_return()
   def new!(attrs) do
     case new(attrs) do
       {:ok, flow} -> flow
@@ -245,7 +242,7 @@ defmodule Jido.Flow do
   @doc """
   Converts a Flow artifact to its deterministic semantic map.
 
-  Component order in this view is author declaration order. Use
+  Components use deterministic dependency order, then component name. Use
   `Jido.Flow.Codec` for database storage.
   """
   @spec to_map(t()) :: map()
@@ -255,13 +252,13 @@ defmodule Jido.Flow do
       description: flow.description,
       schema: flow.schema,
       output_schema: flow.output_schema,
-      components: Enum.map(flow.components, &Component.to_map/1),
+      components: Definition.to_map(flow.components),
       output: Jido.Flow.Value.to_map(flow.output)
     }
   end
 
   defp invalid_flow_subject(value) do
-    Validation.invalid_subject(value)
+    Definition.invalid_subject(value)
   end
 
   @doc """
@@ -292,7 +289,7 @@ defmodule Jido.Flow do
          description: flow.description,
          schema: flow.schema,
          output_schema: flow.output_schema,
-         components: Graph.canonical_components(flow.components),
+         components: Definition.to_map(flow.components),
          dependencies: dependency_map(flow),
          output: Jido.Flow.Value.to_map(flow.output),
          identity: Identity.for_flow(flow)
@@ -316,7 +313,7 @@ defmodule Jido.Flow do
   def semantic_identity(value), do: invalid_flow_subject(value)
 
   @doc """
-  Validates and normalizes the canonical Flow structure.
+  Validates the exact canonical Flow structure.
 
   This function checks schemas, components, expressions, references, dependencies,
   and graph cycles. It is inert: it does not load or check Action targets. Use
@@ -324,7 +321,15 @@ defmodule Jido.Flow do
   """
   @spec validate(t()) :: {:ok, t()} | {:error, Exception.t()}
   def validate(%__MODULE__{} = flow) do
-    with {:ok, attrs} <- flow |> Map.from_struct() |> Validation.validate() do
+    with {:ok, attrs} <-
+           Definition.validate_canonical(%{
+             name: flow.name,
+             description: flow.description,
+             schema: flow.schema,
+             output_schema: flow.output_schema,
+             components: flow.components,
+             output: flow.output
+           }) do
       {:ok, struct!(__MODULE__, attrs)}
     end
   end
@@ -334,28 +339,24 @@ defmodule Jido.Flow do
   @doc """
   Validates a canonical Flow and all Action or nested-Flow target contracts.
 
-  This function performs no Action work. It returns the normalized Flow when
-  both canonical structure and executable target contracts are valid.
+  This function performs no Action work. It returns the Flow when both its
+  canonical structure and executable target contracts are valid.
   """
   @spec validate_executable(t()) :: {:ok, t()} | {:error, Exception.t()}
-  def validate_executable(%__MODULE__{} = flow) do
-    with {:ok, attrs} <- flow |> Map.from_struct() |> Validation.validate_executable() do
-      {:ok, struct!(__MODULE__, attrs)}
-    end
-  end
+  def validate_executable(%__MODULE__{} = flow), do: Jido.Exec.Flow.Validator.validate(flow)
 
   def validate_executable(value), do: invalid_flow_subject(value)
 
   @doc false
   @spec __validate_config__(map()) :: {:ok, map()} | {:error, Exception.t()}
-  def __validate_config__(attrs), do: Validation.validate_config(attrs)
+  def __validate_config__(attrs), do: Definition.validate_config(attrs)
 
   defp dependency_map(flow) do
-    Map.new(flow.components, fn component ->
-      needs = Component.needs_of(component)
-      references = Component.reference_dependencies(component)
+    Map.new(flow.components, fn {name, node} ->
+      needs = Definition.needs(node)
+      references = Definition.reference_dependencies(node)
 
-      {Component.name_of(component),
+      {name,
        %{
          needs: needs,
          references: references,

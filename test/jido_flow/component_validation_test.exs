@@ -1,156 +1,130 @@
 defmodule Jido.Flow.ComponentValidationTest do
   use ExUnit.Case, async: true
 
+  alias Jido.Flow.Definition
   alias Jido.Flow.Error.InvalidDefinitionError
-  alias Jido.Flow.Choice
-  alias Jido.Flow.Component
-  alias Jido.Flow.Data
-  alias Jido.Flow.Dispatch
-  alias Jido.Flow.Iterate
-  alias Jido.Flow.Map, as: FlowMap
-  alias Jido.Flow.Reduce
   alias Jido.Flow.Ref
-  alias Jido.Flow.Step
-  alias Jido.Flow.Subflow
-  alias JidoActionTest.Fixtures.NestedFlow
+  alias Jido.Flow.Value
+  alias Jido.Instruction
   alias JidoActionTest.Fixtures.Actions.Add
+  alias JidoActionTest.Fixtures.NestedFlow
 
   test "legacy Condition records are rejected in condition and expression fields" do
     legacy = %{__struct__: Jido.Flow.Condition, operator: :==, operands: [1, 1]}
 
     assert {:error, %InvalidDefinitionError{}} =
-             Choice.Option.new(name: "old", condition: legacy, action: Add)
+             Definition.component(choice(%{name: "old", condition: legacy, action: Add}))
 
     assert {:error, %InvalidDefinitionError{}} =
-             Iterate.new(
+             Definition.component(%{
+               kind: :iterate,
                name: "old",
                action: Add,
-               state: %{schema: [], initial: %{}, update: %{}},
+               state: %{initial: %{}, update: %{}},
                completion: legacy,
                max_iterations: 1
-             )
+             })
 
     assert {:error, %InvalidDefinitionError{details: %{path: [:params, :value, :operands, 1]}}} =
-             Step.new(
+             Definition.component(%{
+               kind: :step,
                name: "old",
                action: Add,
                params: %{value: Jido.Expr.new!(:and, [false, legacy])}
-             )
+             })
   end
 
-  test "all canonical authoring records are strict structs" do
-    option = Choice.Option.new!(name: "add", condition: Jido.Expr.new!(:==, [1, 1]), action: Add)
-    fallback = Choice.Fallback.new!(action: Add)
-    state = Iterate.State.new!(schema: [], initial: %{}, update: %{})
+  test "all authoring forms normalize to tagged maps and Instruction call tuples" do
+    for attrs <- component_attrs() do
+      assert {:ok, {name, %{kind: kind} = node}} = Definition.component(attrs)
+      assert name == attrs.name
+      assert kind in [:call, :choice, :map, :reduce, :iterate, :dispatch]
+      assert is_map(node)
 
-    assert %Step{} = Step.new!(name: "step", action: Add)
-    assert %Subflow{} = Subflow.new!(name: "subflow", flow: NestedFlow)
-    assert %Choice{} = Choice.new!(name: "choice", options: [option], fallback: fallback)
-    assert %FlowMap{} = FlowMap.new!(name: "map", collection: [], action: Add)
-    assert %Reduce{} = Reduce.new!(name: "reduce", collection: [], initial: %{}, action: Add)
-    assert %Dispatch{} = Dispatch.new!(name: "dispatch", decision: Add, expander: Add)
-
-    assert %Iterate{} =
-             Iterate.new!(
-               name: "iterate",
-               action: Add,
-               state: state,
-               completion: Jido.Expr.new!(:==, [Ref.iteration_index(), 0]),
-               max_iterations: 1
-             )
-
-    for constructor <- [
-          &Step.new/1,
-          &Subflow.new/1,
-          &Choice.new/1,
-          &FlowMap.new/1,
-          &Reduce.new/1,
-          &Iterate.new/1,
-          &Dispatch.new/1
-        ] do
-      assert {:error, %InvalidDefinitionError{}} = constructor.(%{legacy: true})
-    end
-  end
-
-  test "Step, Subflow, and Dispatch constructors reject non-map configuration" do
-    for {module, message} <- [
-          {Step, "step configuration must be a map"},
-          {Subflow, "subflow configuration must be a map"},
-          {Dispatch, "dispatch configuration must be a map"}
-        ] do
-      assert {:error, %InvalidDefinitionError{message: ^message}} =
-               apply(module, :new, [:invalid])
-
-      assert_raise InvalidDefinitionError, message, fn ->
-        apply(module, :new!, [:invalid])
+      for {_role, instruction, _params} <- Definition.calls(node) do
+        assert %Instruction{params: %{}, context: %{}} = instruction
       end
     end
+
+    assert {:ok, {"step", %{kind: :call, call: {%Instruction{kind: :action}, %{}}}}} =
+             Definition.component(%{kind: :step, name: "step", action: Add})
+
+    assert {:ok, {"subflow", %{kind: :call, call: {%Instruction{kind: :flow}, %{}}}}} =
+             Definition.component(%{kind: :subflow, name: "subflow", flow: NestedFlow})
+
+    assert {:error, %InvalidDefinitionError{}} = Definition.component(%{legacy: true})
+    assert {:error, %InvalidDefinitionError{}} = Definition.component(:invalid)
   end
 
   test "params scopes accept only their native local references" do
-    assert {:ok, %FlowMap{}} =
-             FlowMap.new(name: "map", collection: [], action: Add, params: %{item: Ref.item()})
+    assert {:ok, {"map", %{kind: :map}}} =
+             Definition.component(%{
+               kind: :map,
+               name: "map",
+               collection: [],
+               action: Add,
+               params: %{item: Ref.item()}
+             })
 
     assert {:error, %InvalidDefinitionError{}} =
-             Step.new(name: "step", action: Add, params: %{item: Ref.item()})
+             Definition.component(%{
+               kind: :step,
+               name: "step",
+               action: Add,
+               params: %{item: Ref.item()}
+             })
 
     assert {:error, %InvalidDefinitionError{}} =
-             Reduce.new(
+             Definition.component(%{
+               kind: :reduce,
                name: "reduce",
                collection: [],
                initial: %{},
                action: Add,
                params: %{state: Ref.state()}
-             )
+             })
   end
 
   test "metadata uses only portable data" do
-    assert :ok = Data.validate_object(%{"owner" => "team", 1 => [:ready]})
+    assert :ok = Value.validate_object(%{"owner" => "team", 1 => [:ready]})
 
     assert {:error, %InvalidDefinitionError{}} =
-             Step.new(name: "step", action: Add, meta: %{fun: fn -> :bad end})
+             Definition.component(%{
+               kind: :step,
+               name: "step",
+               action: Add,
+               meta: %{fun: fn -> :bad end}
+             })
 
     assert {:error, %InvalidDefinitionError{}} =
-             Step.new(name: "step", action: Add, meta: %{pid: self()})
+             Definition.component(%{
+               kind: :step,
+               name: "step",
+               action: Add,
+               meta: %{pid: self()}
+             })
   end
 
   test "all canonical components use only needs for control dependencies" do
-    option = Choice.Option.new!(name: "add", condition: Jido.Expr.new!(:==, [1, 1]), action: Add)
-    fallback = Choice.Fallback.new!(action: Add)
-    state = Iterate.State.new!(schema: [], initial: %{}, update: %{})
-
-    cases = [
-      {Step, [name: "step", action: Add]},
-      {Subflow, [name: "subflow", flow: NestedFlow]},
-      {Choice, [name: "choice", options: [option], fallback: fallback]},
-      {FlowMap, [name: "map", collection: [], action: Add]},
-      {Reduce, [name: "reduce", collection: [], initial: %{}, action: Add]},
-      {Iterate,
-       [
-         name: "iterate",
-         action: Add,
-         state: state,
-         completion: Jido.Expr.new!(:==, [Ref.iteration_index(), 0]),
-         max_iterations: 1
-       ]},
-      {Dispatch, [name: "dispatch", decision: Add, expander: Add]}
-    ]
-
-    for {module, attrs} <- cases do
-      assert {:ok, default} = apply(module, :new, [attrs])
+    for attrs <- component_attrs() do
+      assert {:ok, {_name, default}} = Definition.component(attrs)
       assert default.needs == []
 
-      assert {:ok, component} =
-               apply(module, :new, [Keyword.put(attrs, :needs, [:second, "first"])])
+      assert {:ok, {_name, component}} =
+               attrs
+               |> Map.put(:needs, [:second, "first"])
+               |> Definition.component()
 
       assert component.needs == ["second", "first"]
 
-      semantic_map = Component.to_map(component)
+      semantic_map = Definition.component_to_definition({attrs.name, component})
       assert semantic_map.needs == ["second", "first"]
       refute Map.has_key?(semantic_map, :after)
 
       assert {:error, %InvalidDefinitionError{message: message}} =
-               apply(module, :new, [Keyword.put(attrs, :after, [])])
+               attrs
+               |> Map.put(:after, [])
+               |> Definition.component()
 
       assert message =~ "unknown"
       assert message =~ "after"
@@ -162,214 +136,220 @@ defmodule Jido.Flow.ComponentValidationTest do
             {["first", "first"], "component needs contains a duplicate"}
           ] do
         assert {:error, %InvalidDefinitionError{message: ^expected_message}} =
-                 apply(module, :new, [Keyword.put(attrs, :needs, value)])
+                 attrs
+                 |> Map.put(:needs, value)
+                 |> Definition.component()
       end
     end
   end
 
   test "effective dependencies combine and de-duplicate needs and result references" do
-    step =
-      Step.new!(
-        name: "step",
-        action: Add,
-        params: %{value: Ref.result("source")},
-        needs: ["gate", "source"]
-      )
+    assert {:ok, {"step", step}} =
+             Definition.component(%{
+               kind: :step,
+               name: "step",
+               action: Add,
+               params: %{value: Ref.result("source")},
+               needs: ["gate", "source"]
+             })
 
-    assert Component.needs_of(step) == ["gate", "source"]
-    assert Component.reference_dependencies(step) == ["source"]
-    assert Component.effective_dependencies(step) == ["gate", "source"]
+    assert Definition.needs(step) == ["gate", "source"]
+    assert Definition.reference_dependencies(step) == ["source"]
+    assert Definition.effective_dependencies(step) == ["gate", "source"]
   end
 
   test "Choice option and fallback names are not dependency targets" do
-    choice =
-      Choice.new!(
-        name: "route",
-        options: [[name: "yes", condition: Jido.Expr.new!(:==, [true, true]), action: Add]],
-        fallback: [action: Add]
-      )
-
-    dependent = Step.new!(name: "dependent", action: Add, needs: ["route"])
+    choice = choice(%{name: "yes", condition: Jido.Expr.new!(:==, [true, true]), action: Add})
+    dependent = %{kind: :step, name: "dependent", action: Add, needs: ["route"]}
 
     assert {:ok, _flow} =
-             Jido.Flow.new(
+             Jido.Flow.new(%{
                name: "valid_choice_dependency",
                components: [choice, dependent],
                output: Ref.result("dependent")
-             )
+             })
 
     for invalid_target <- ["yes", "fallback"] do
-      invalid_choice = %{choice | needs: [invalid_target]}
+      invalid_choice = Map.put(choice, :needs, [invalid_target])
 
       assert {:error,
               %InvalidDefinitionError{
                 message: "Flow reference points to an unknown component",
                 details: %{owner: "route", component: ^invalid_target}
               }} =
-               Jido.Flow.new(
+               Jido.Flow.new(%{
                  name: "invalid_choice_dependency",
                  components: [invalid_choice],
                  output: Ref.result("route")
-               )
+               })
     end
   end
 
   test "needs keep unknown, self, and cycle graph validation" do
-    unknown = Step.new!(name: "one", action: Add, needs: ["missing"])
+    unknown = %{kind: :step, name: "one", action: Add, needs: ["missing"]}
 
     assert {:error,
             %InvalidDefinitionError{
               message: "Flow reference points to an unknown component",
               details: %{owner: "one", component: "missing"}
             }} =
-             Jido.Flow.new(
+             Jido.Flow.new(%{
                name: "unknown_dependency",
                components: [unknown],
                output: Ref.result("one")
-             )
-
-    self_dependent = Step.new!(name: "one", action: Add, needs: ["one"])
+             })
 
     assert {:error, %InvalidDefinitionError{message: "flow dependency graph contains a cycle"}} =
-             Jido.Flow.new(
+             Jido.Flow.new(%{
                name: "self_dependency",
-               components: [self_dependent],
+               components: [%{kind: :step, name: "one", action: Add, needs: ["one"]}],
                output: Ref.result("one")
-             )
-
-    one = Step.new!(name: "one", action: Add, needs: ["two"])
-    two = Step.new!(name: "two", action: Add, needs: ["one"])
+             })
 
     assert {:error,
             %InvalidDefinitionError{
               message: "flow dependency graph contains a cycle",
               details: %{components: components}
             }} =
-             Jido.Flow.new(
+             Jido.Flow.new(%{
                name: "dependency_cycle",
-               components: [one, two],
+               components: [
+                 %{kind: :step, name: "one", action: Add, needs: ["two"]},
+                 %{kind: :step, name: "two", action: Add, needs: ["one"]}
+               ],
                output: Ref.result("one")
-             )
+             })
 
     assert Enum.sort(components) == ["one", "two"]
   end
 
-  test "constructors reject invalid paths inside nested params" do
-    constructors = [
-      {Step, [name: "step", action: Add]},
-      {Subflow, [name: "child", flow: NestedFlow]},
-      {Choice.Option, [name: "option", condition: Jido.Expr.new!(:==, [1, 1]), action: Add]},
-      {Choice.Fallback, [action: Add]},
-      {FlowMap, [name: "map", collection: [], action: Add]},
-      {Reduce, [name: "reduce", collection: [], initial: %{}, action: Add]},
-      {Iterate,
-       [
-         name: "iterate",
-         action: Add,
-         state: [schema: [], initial: %{}, update: %{}],
-         completion: Jido.Expr.new!(:==, [true, true]),
-         max_iterations: 1
-       ]},
-      {Dispatch, [name: "dispatch", decision: Add, expander: Add]}
-    ]
+  test "call values reject invalid paths inside nested params" do
+    for attrs <- component_attrs(),
+        ref <- [Ref.input(:value), Ref.context(:value), Ref.result("load", :value)] do
+      assert {:ok, _component} = Definition.component(put_params(attrs, %{nested: [ref]}))
 
-    for {module, attrs} <- constructors do
-      for ref <- [Ref.input(:value), Ref.context(:value), Ref.result("load", :value)] do
-        assert {:ok, _component} = module.new(Keyword.put(attrs, :params, %{nested: [ref]}))
+      for path <- [[nil], [:value, nil, "key"], [:value, nil], [:value | :tail], [%{}]] do
+        params = %{nested: [%{value: %{ref | path: path}}]}
 
-        for path <- [[nil], [:value, nil, "key"], [:value, nil], [:value | :tail], [%{}]] do
-          params = %{nested: [%{value: %{ref | path: path}}]}
+        assert {:error,
+                %InvalidDefinitionError{
+                  message: "flow expression contains an invalid reference path",
+                  details: %{path: error_path}
+                }} = Definition.component(put_params(attrs, params))
 
-          assert {:error,
-                  %InvalidDefinitionError{
-                    message: "flow expression contains an invalid reference path",
-                    details: %{path: [:params, :nested, 0, :value]}
-                  }} = module.new(Keyword.put(attrs, :params, params))
-        end
+        assert Enum.take(error_path, -4) == [:params, :nested, 0, :value]
       end
     end
   end
 
-  test "constructor expression errors start with their field" do
+  test "component expression errors start with their field" do
     bad = %{nested: [Ref.input([nil])]}
     bad_condition = Jido.Expr.new!(:==, [Ref.input([nil]), 1])
 
     cases = [
-      {:collection, FlowMap.new(name: "map", collection: bad, action: Add)},
-      {:collection, Reduce.new(name: "reduce", collection: bad, initial: %{}, action: Add)},
-      {:initial, Reduce.new(name: "reduce", collection: [], initial: bad, action: Add)},
-      {:initial, Iterate.State.new(schema: [], initial: bad, update: %{})},
-      {:update, Iterate.State.new(schema: [], initial: %{}, update: bad)},
-      {:condition, Choice.Option.new(name: "option", condition: bad_condition, action: Add)},
-      {:completion,
-       Iterate.new(
-         name: "iterate",
-         action: Add,
-         state: [schema: [], initial: %{}, update: %{}],
-         completion: bad_condition,
-         max_iterations: 1
-       )}
+      {:collection, %{kind: :map, name: "map", collection: bad, action: Add}},
+      {:collection, %{kind: :reduce, name: "reduce", collection: bad, initial: %{}, action: Add}},
+      {:initial, %{kind: :reduce, name: "reduce", collection: [], initial: bad, action: Add}},
+      {:initial, iterate(%{initial: bad, update: %{}}, Jido.Expr.new!(:==, [true, true]))},
+      {:update, iterate(%{initial: %{}, update: bad}, Jido.Expr.new!(:==, [true, true]))},
+      {:condition, choice(%{name: "option", condition: bad_condition, action: Add})},
+      {:completion, iterate(%{initial: %{}, update: %{}}, bad_condition)}
     ]
 
-    for {field, result} <- cases do
-      assert {:error, %InvalidDefinitionError{details: %{path: [^field | _rest]}}} = result
+    for {field, attrs} <- cases do
+      assert {:error, %InvalidDefinitionError{details: %{path: path}}} =
+               Definition.component(attrs)
+
+      assert field in path
     end
   end
 
-  test "constructors reject invalid local paths in their valid scopes" do
+  test "local values reject invalid paths in their valid scopes" do
     for path <- [[nil], [:value, nil], [:value | :tail], [-1]] do
       for ref <- [Ref.item(path), Ref.accumulator(path)] do
         assert {:error, %InvalidDefinitionError{details: %{segment: _}}} =
-                 Reduce.new(
+                 Definition.component(%{
+                   kind: :reduce,
                    name: "reduce",
                    collection: [],
                    initial: %{},
                    action: Add,
                    params: %{nested: [ref]}
-                 )
+                 })
       end
 
       assert {:error, %InvalidDefinitionError{details: %{segment: _}}} =
-               FlowMap.new(
+               Definition.component(%{
+                 kind: :map,
                  name: "map",
                  collection: [],
                  action: Add,
                  params: %{nested: [Ref.item(path)]}
-               )
+               })
 
       for ref <- [Ref.state(path), Ref.body_result(path)] do
         assert {:error, %InvalidDefinitionError{details: %{segment: _}}} =
-                 Iterate.State.new(schema: [], initial: %{}, update: %{nested: [ref]})
+                 Definition.component(iterate(%{initial: %{}, update: %{nested: [ref]}}, true))
       end
     end
   end
 
-  test "constructors reject invalid paths inside conditions and expression operands" do
+  test "conditions and expression operands reject invalid paths" do
     for path <- [[nil], [:value | :tail]] do
       ref = Ref.input(path)
 
       assert {:error, %InvalidDefinitionError{details: %{segment: _}}} =
-               Step.new(
+               Definition.component(%{
+                 kind: :step,
                  name: "step",
                  action: Add,
                  params: %{value: Jido.Expr.new!(:+, [ref, 1])}
-               )
+               })
 
       assert {:error, %InvalidDefinitionError{details: %{segment: _}}} =
                Jido.Flow.Value.condition(%Jido.Expr{operator: :==, operands: [ref, 1]}, :any)
 
       assert {:error, %InvalidDefinitionError{details: %{segment: _}}} =
-               Choice.new(
-                 name: "choice",
-                 options: [
-                   [
-                     name: "option",
-                     condition: %Jido.Expr{operator: :==, operands: [ref, 1]},
-                     action: Add
-                   ]
-                 ],
-                 fallback: [action: Add]
+               Definition.component(
+                 choice(%{
+                   name: "option",
+                   condition: %Jido.Expr{operator: :==, operands: [ref, 1]},
+                   action: Add
+                 })
                )
     end
   end
+
+  defp component_attrs do
+    [
+      %{kind: :step, name: "step", action: Add},
+      %{kind: :subflow, name: "subflow", flow: NestedFlow},
+      choice(%{name: "yes", condition: true, action: Add}),
+      %{kind: :map, name: "map", collection: [], action: Add},
+      %{kind: :reduce, name: "reduce", collection: [], initial: %{}, action: Add},
+      iterate(%{initial: %{}, update: %{}}, true),
+      %{kind: :dispatch, name: "dispatch", decision: Add, expander: Add}
+    ]
+  end
+
+  defp choice(option) do
+    %{kind: :choice, name: "route", options: [option], fallback: %{action: Add}}
+  end
+
+  defp iterate(state, completion) do
+    %{
+      kind: :iterate,
+      name: "iterate",
+      action: Add,
+      state: state,
+      completion: completion,
+      max_iterations: 1
+    }
+  end
+
+  defp put_params(%{kind: :choice} = attrs, params) do
+    put_in(attrs, [:options, Access.at(0), :params], params)
+  end
+
+  defp put_params(attrs, params), do: Map.put(attrs, :params, params)
 end

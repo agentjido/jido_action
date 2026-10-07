@@ -222,21 +222,9 @@ defmodule JidoAction.MixProject do
           Jido.Flow.Registry
         ],
         "Expression API": [Jido.Expr, Jido.Expr.Error],
-        "Flow Types": [
-          Jido.Flow.Choice,
-          Jido.Flow.Choice.Option,
-          Jido.Flow.Choice.Fallback,
-          Jido.Flow.Component,
-          Jido.Flow.Data,
-          Jido.Flow.Dispatch,
+        "Flow Values": [
           Jido.Flow.Value,
-          Jido.Flow.Iterate,
-          Jido.Flow.Iterate.State,
-          Jido.Flow.Map,
-          Jido.Flow.Reduce,
-          Jido.Flow.Ref,
-          Jido.Flow.Step,
-          Jido.Flow.Subflow
+          Jido.Flow.Ref
         ],
         Execution: [
           Jido.Exec,

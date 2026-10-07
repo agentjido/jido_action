@@ -5,9 +5,8 @@ defmodule JidoActionTest.Exec.FlowContractTest do
 
   alias Jido.Action.Error.ExecutionFailureError, as: ActionExecutionFailureError
   alias Jido.Exec
-  alias Jido.Flow
   alias Jido.Flow.Error.{InvalidDefinitionError, InvalidExecutionError}
-  alias Jido.Flow.{Ref, Step}
+  alias Jido.Flow.{Ref}
   alias Jido.Instruction
   alias JidoActionTest.Fixtures.Execution, as: ExecFixtures
 
@@ -291,9 +290,9 @@ defmodule JidoActionTest.Exec.FlowContractTest do
 
   test "uses zero-based result indexes in full and step-wise execution" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "indexed_result",
-        components: [Step.new!(name: "output", action: ListOutputAction)],
+        components: [JidoActionTest.FlowComponent.step!(name: "output", action: ListOutputAction)],
         output: Ref.result("output", [:items, 0])
       )
 
@@ -305,9 +304,11 @@ defmodule JidoActionTest.Exec.FlowContractTest do
 
   test "returns the same result path error in both execution modes" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "missing_index_result",
-        components: [Step.new!(name: "output", action: ShortListOutputAction)],
+        components: [
+          JidoActionTest.FlowComponent.step!(name: "output", action: ShortListOutputAction)
+        ],
         output: Ref.result("output", [:items, 99])
       )
 
@@ -324,10 +325,10 @@ defmodule JidoActionTest.Exec.FlowContractTest do
 
   test "returns a reference error from inside a list" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "missing_input_in_list",
         components: [
-          Step.new!(
+          JidoActionTest.FlowComponent.step!(
             name: "echo",
             action: EchoParamsAction,
             params: %{values: [Ref.input(:present), Ref.input(:missing)]}
@@ -352,9 +353,11 @@ defmodule JidoActionTest.Exec.FlowContractTest do
 
   test "reports a result path that reaches an improper list tail" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "improper_list_result",
-        components: [Step.new!(name: "output", action: ImproperListOutputAction)],
+        components: [
+          JidoActionTest.FlowComponent.step!(name: "output", action: ImproperListOutputAction)
+        ],
         output: Ref.result("output", [:value, :items, 1])
       )
 
@@ -376,10 +379,14 @@ defmodule JidoActionTest.Exec.FlowContractTest do
 
   test "checks Action contracts before execution" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "unchecked",
         components: [
-          Step.new!(name: "broken", action: MissingRun, params: %{value: Ref.input(:value)})
+          JidoActionTest.FlowComponent.step!(
+            name: "broken",
+            action: MissingRun,
+            params: %{value: Ref.input(:value)}
+          )
         ],
         output: Ref.result("broken")
       )
@@ -397,9 +404,11 @@ defmodule JidoActionTest.Exec.FlowContractTest do
     assert Exec.run(flow, [value: 3], []) == {:ok, %{value: 8}}
 
     empty_flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "empty_input",
-        components: [Step.new!(name: "constant", action: Add, params: %{value: 1})],
+        components: [
+          JidoActionTest.FlowComponent.step!(name: "constant", action: Add, params: %{value: 1})
+        ],
         output: Ref.result("constant")
       )
 
@@ -421,10 +430,10 @@ defmodule JidoActionTest.Exec.FlowContractTest do
 
   test "converts raised Action exceptions during Flow execution" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "divide",
         components: [
-          Step.new!(
+          JidoActionTest.FlowComponent.step!(
             name: "divide",
             action: Divide,
             params: %{value: Ref.input(:value), amount: 0.0}
@@ -443,11 +452,15 @@ defmodule JidoActionTest.Exec.FlowContractTest do
 
   test "validates Flow input and output schemas at their boundaries" do
     input_flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "input_schema",
         schema: Zoi.object(%{value: Zoi.integer()}),
         components: [
-          Step.new!(name: "echo", action: ContextEcho, params: %{value: Ref.input(:value)})
+          JidoActionTest.FlowComponent.step!(
+            name: "echo",
+            action: ContextEcho,
+            params: %{value: Ref.input(:value)}
+          )
         ],
         output: Ref.result("echo")
       )
@@ -469,10 +482,10 @@ defmodule JidoActionTest.Exec.FlowContractTest do
   test "normalizes raised and thrown Flow schema effects" do
     for mode <- [:raise, :throw] do
       flow =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "failing_input_schema_#{mode}",
           schema: Zoi.map() |> Zoi.transform({__MODULE__, :fail_flow_transform, [mode]}),
-          components: [Step.new!(name: "echo", action: EchoParamsAction)],
+          components: [JidoActionTest.FlowComponent.step!(name: "echo", action: EchoParamsAction)],
           output: Ref.result("echo")
         )
 
@@ -484,10 +497,10 @@ defmodule JidoActionTest.Exec.FlowContractTest do
     end
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "failing_output_schema",
         output_schema: Zoi.map() |> Zoi.transform({__MODULE__, :fail_flow_transform, [:raise]}),
-        components: [Step.new!(name: "echo", action: EchoParamsAction)],
+        components: [JidoActionTest.FlowComponent.step!(name: "echo", action: EchoParamsAction)],
         output: Ref.result("echo")
       )
 
@@ -500,11 +513,11 @@ defmodule JidoActionTest.Exec.FlowContractTest do
           Zoi.struct(StructInput, [value: Zoi.integer()], coerce: true)
         ] do
       flow =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "unknown_fields_#{System.unique_integer([:positive])}",
           schema: schema,
           components: [
-            Step.new!(
+            JidoActionTest.FlowComponent.step!(
               name: "echo",
               action: EchoParamsAction,
               params: %{value: Ref.input(:value), extra: Ref.input(:extra)}

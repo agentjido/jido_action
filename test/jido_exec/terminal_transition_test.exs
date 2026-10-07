@@ -6,8 +6,7 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
   alias Jido.Exec
   alias Jido.Exec.Error.AsyncTimeoutError
   alias Jido.Exec.Transition
-  alias Jido.Flow
-  alias Jido.Flow.{Dispatch, Ref, Step}
+  alias Jido.Flow.{Ref}
   alias Jido.Instruction
   alias JidoActionTest.Fixtures.Actions.{Add, ExtrasAction}
   alias JidoActionTest.Fixtures.MathFlow
@@ -401,9 +400,11 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
       assert Exception.message(error) == "step-wise execution does not support Dispatch"
 
       parent =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "named_dispatch_parent",
-          components: [Jido.Flow.Subflow.new!(name: "child", flow: NamedDispatch, params: %{})],
+          components: [
+            JidoActionTest.FlowComponent.subflow!(name: "child", flow: NamedDispatch, params: %{})
+          ],
           output: Ref.result("child")
         )
 
@@ -452,10 +453,14 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
 
     test "normal Transition-shaped output stays domain data" do
       step_flow =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "transition_data_step",
           components: [
-            Step.new!(name: "data", action: TransitionData, params: %{value: 3})
+            JidoActionTest.FlowComponent.step!(
+              name: "data",
+              action: TransitionData,
+              params: %{value: 3}
+            )
           ],
           output: Ref.result("data")
         )
@@ -479,10 +484,14 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
 
     test "normal Steps cannot return continuations" do
       flow =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "non_dispatch_transition",
           components: [
-            Step.new!(name: "continue", action: ContinueToAdd, params: %{value: 3})
+            JidoActionTest.FlowComponent.step!(
+              name: "continue",
+              action: ContinueToAdd,
+              params: %{value: 3}
+            )
           ],
           output: Ref.result("continue")
         )
@@ -510,11 +519,16 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
       dispatch = dispatch_component!()
 
       assert {:error, error} =
-               Flow.new(
+               JidoActionTest.FlowBuilder.new(
                  name: "dispatch_with_downstream",
                  components: [
                    dispatch,
-                   Step.new!(name: "later", action: Add, params: %{value: 1}, needs: ["next"])
+                   JidoActionTest.FlowComponent.step!(
+                     name: "later",
+                     action: Add,
+                     params: %{value: 1},
+                     needs: ["next"]
+                   )
                  ],
                  output: Ref.result("later")
                )
@@ -522,7 +536,7 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
       assert Exception.message(error) == "Dispatch must be the final component in the Flow"
 
       assert {:error, error} =
-               Flow.new(
+               JidoActionTest.FlowBuilder.new(
                  name: "dispatch_with_wrapped_output",
                  components: [dispatch],
                  output: %{value: Ref.result("next", :value)}
@@ -536,7 +550,7 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
       second = dispatch_component!(name: "other")
 
       assert {:error, error} =
-               Flow.new(
+               JidoActionTest.FlowBuilder.new(
                  name: "multiple_dispatch_components",
                  components: [first, second],
                  output: Ref.result("next")
@@ -560,7 +574,7 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
   defp dispatch_flow!(overrides \\ []) do
     dispatch = dispatch_component!(overrides)
 
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "terminal_dispatch_flow",
       components: [dispatch],
       output: Ref.result("next")
@@ -581,6 +595,6 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
       ]
       |> Keyword.merge(overrides)
 
-    Dispatch.new!(attrs)
+    JidoActionTest.FlowComponent.dispatch!(attrs)
   end
 end

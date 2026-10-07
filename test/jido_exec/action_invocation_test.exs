@@ -2,8 +2,8 @@ defmodule JidoActionTest.Exec.ActionInvocationTest do
   use ExUnit.Case, async: true
 
   alias Jido.Action.{Error, Output}
-  alias Jido.{Exec, Flow, Instruction}
-  alias Jido.Flow.{Ref, Step}
+  alias Jido.{Exec, Instruction}
+  alias Jido.Flow.{Ref}
 
   defmodule FinalAction do
     use Jido.Action, name: "invocation_final"
@@ -101,9 +101,11 @@ defmodule JidoActionTest.Exec.ActionInvocationTest do
     instruction = Instruction.new!(target: Probe, params: params, context: context)
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "invocation_probe",
-        components: [Step.new!(name: "probe", action: Probe, params: Ref.input([]))],
+        components: [
+          JidoActionTest.FlowComponent.step!(name: "probe", action: Probe, params: Ref.input([]))
+        ],
         output: Ref.result("probe")
       )
 

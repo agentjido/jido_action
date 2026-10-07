@@ -2,17 +2,10 @@ defmodule Jido.Flow.DSL.Lowerer do
   @moduledoc false
 
   alias Jido.Flow
+  alias Jido.Flow.Definition
   alias Jido.Expr
   alias Jido.Flow.Error
-  alias Jido.Flow.Validation
   alias Jido.Flow.Ref
-  alias Jido.Flow.Step, as: FlowStep
-  alias Jido.Flow.Subflow
-  alias Jido.Flow.Choice, as: FlowChoice
-  alias Jido.Flow.Map, as: FlowMap
-  alias Jido.Flow.Reduce, as: FlowReduce
-  alias Jido.Flow.Iterate, as: FlowIterate
-  alias Jido.Flow.Dispatch, as: FlowDispatch
 
   @maximum_iterations 10_000
 
@@ -45,7 +38,7 @@ defmodule Jido.Flow.DSL.Lowerer do
         output: output
       }
 
-      case Validation.diagnose(attrs) do
+      case Definition.diagnose(attrs) do
         {:ok, attrs} -> {:ok, struct!(Flow, attrs)}
         {:error, [issue | _rest]} -> {:error, attach_validation_location(issue, entities)}
       end
@@ -88,54 +81,53 @@ defmodule Jido.Flow.DSL.Lowerer do
   defp lower_entity(%Choice{} = choice) do
     with {:ok, options} <- lower_choice_options(choice.options),
          {:ok, fallback} <- lower_fallback(choice.fallback) do
-      case FlowChoice.new(
-             name: choice.name,
-             options: options,
-             fallback: fallback,
-             needs: choice.needs,
-             meta: choice.meta
-           ) do
-        {:ok, component} ->
-          {:ok, {:component, component}}
-
-        {:error, error} ->
-          {:error, attach_choice_location(error, choice, options, fallback)}
-      end
+      {:ok,
+       {:component,
+        %{
+          kind: :choice,
+          name: choice.name,
+          options: options,
+          fallback: fallback,
+          needs: choice.needs,
+          meta: choice.meta
+        }}}
     end
   end
 
   defp lower_entity(%MapNode{} = map) do
     with {:ok, collection} <- ValueParser.parse(map.collection),
-         {:ok, params} <- ValueParser.parse(map.params),
-         {:ok, component} <-
-           FlowMap.new(
-             name: map.name,
-             collection: collection,
-             action: map.action,
-             params: params,
-             on_error: map.on_error,
-             needs: map.needs,
-             meta: map.meta
-           ) do
-      {:ok, {:component, component}}
+         {:ok, params} <- ValueParser.parse(map.params) do
+      {:ok,
+       {:component,
+        %{
+          kind: :map,
+          name: map.name,
+          collection: collection,
+          action: map.action,
+          params: params,
+          on_error: map.on_error,
+          needs: map.needs,
+          meta: map.meta
+        }}}
     end
   end
 
   defp lower_entity(%Reduce{} = reduce) do
     with {:ok, collection} <- ValueParser.parse(reduce.collection),
          {:ok, initial} <- ValueParser.parse(reduce.initial),
-         {:ok, params} <- ValueParser.parse(reduce.params),
-         {:ok, component} <-
-           FlowReduce.new(
-             name: reduce.name,
-             collection: collection,
-             initial: initial,
-             action: reduce.action,
-             params: params,
-             needs: reduce.needs,
-             meta: reduce.meta
-           ) do
-      {:ok, {:component, component}}
+         {:ok, params} <- ValueParser.parse(reduce.params) do
+      {:ok,
+       {:component,
+        %{
+          kind: :reduce,
+          name: reduce.name,
+          collection: collection,
+          initial: initial,
+          action: reduce.action,
+          params: params,
+          needs: reduce.needs,
+          meta: reduce.meta
+        }}}
     end
   end
 
@@ -145,35 +137,36 @@ defmodule Jido.Flow.DSL.Lowerer do
          {:ok, update} <- optional_expression(iterate.update, Ref.body_result()),
          {:ok, while_condition} <- optional_condition(iterate.while),
          {:ok, completion, max_iterations} <-
-           normalize_termination(iterate, while_condition),
-         {:ok, state} <- build_iterate_state(state, update, iterate.state),
-         {:ok, component} <-
-           FlowIterate.new(
-             name: iterate.name,
-             action: iterate.action,
-             params: params,
-             state: state,
-             completion: completion,
-             max_iterations: max_iterations,
-             needs: iterate.needs,
-             meta: iterate.meta
-           ) do
-      {:ok, {:component, component}}
+           normalize_termination(iterate, while_condition) do
+      {:ok,
+       {:component,
+        %{
+          kind: :iterate,
+          name: iterate.name,
+          action: iterate.action,
+          params: params,
+          state: Map.put(state, :update, update),
+          completion: completion,
+          max_iterations: max_iterations,
+          needs: iterate.needs,
+          meta: iterate.meta
+        }}}
     end
   end
 
   defp lower_entity(%Dispatch{} = dispatch) do
-    with {:ok, params} <- ValueParser.parse(dispatch.params),
-         {:ok, component} <-
-           FlowDispatch.new(
-             name: dispatch.name,
-             decision: dispatch.decision,
-             expander: dispatch.expander,
-             params: params,
-             needs: dispatch.needs,
-             meta: dispatch.meta
-           ) do
-      {:ok, {:component, component}}
+    with {:ok, params} <- ValueParser.parse(dispatch.params) do
+      {:ok,
+       {:component,
+        %{
+          kind: :dispatch,
+          name: dispatch.name,
+          decision: dispatch.decision,
+          expander: dispatch.expander,
+          params: params,
+          needs: dispatch.needs,
+          meta: dispatch.meta
+        }}}
     end
   end
 
@@ -188,22 +181,26 @@ defmodule Jido.Flow.DSL.Lowerer do
          {:ok, instruction} <- Jido.Instruction.resolve(step.action) do
       case instruction.kind do
         :action ->
-          FlowStep.new(
-            name: step.name,
-            action: step.action,
-            params: params,
-            needs: step.needs,
-            meta: step.meta
-          )
+          {:ok,
+           %{
+             kind: :step,
+             name: step.name,
+             action: step.action,
+             params: params,
+             needs: step.needs,
+             meta: step.meta
+           }}
 
         :flow ->
-          Subflow.new(
-            name: step.name,
-            flow: step.action,
-            params: params,
-            needs: step.needs,
-            meta: step.meta
-          )
+          {:ok,
+           %{
+             kind: :subflow,
+             name: step.name,
+             flow: step.action,
+             params: params,
+             needs: step.needs,
+             meta: step.meta
+           }}
       end
     else
       {:error, error} when is_exception(error) ->
@@ -265,19 +262,6 @@ defmodule Jido.Flow.DSL.Lowerer do
     end
   end
 
-  defp build_iterate_state(state, update, entity) do
-    case FlowIterate.State.new(Map.put(state, :update, update)) do
-      {:error, error} ->
-        case FlowIterate.State.new(Map.put(state, :update, Ref.body_result())) do
-          {:error, _state_error} -> {:error, attach_entity_location(error, entity)}
-          {:ok, _state} -> {:error, error}
-        end
-
-      result ->
-        result
-    end
-  end
-
   defp optional_expression(nil, default), do: {:ok, default}
   defp optional_expression(expression, _default), do: ValueParser.parse(expression)
 
@@ -328,6 +312,29 @@ defmodule Jido.Flow.DSL.Lowerer do
         [:output | _rest] ->
           Enum.find(entities, &match?(%Output{}, &1))
 
+        [:components, index, :options, option_index | _rest]
+        when is_integer(index) and is_integer(option_index) ->
+          entities
+          |> Enum.reject(&match?(%Output{}, &1))
+          |> Enum.at(index)
+          |> Map.get(:options, [])
+          |> Enum.at(option_index)
+
+        [:components, index, :fallback | _rest] when is_integer(index) ->
+          entities
+          |> Enum.reject(&match?(%Output{}, &1))
+          |> Enum.at(index)
+          |> Map.get(:fallback)
+
+        [:components, index, :state, :update | _rest] when is_integer(index) ->
+          entities |> Enum.reject(&match?(%Output{}, &1)) |> Enum.at(index)
+
+        [:components, index, :state | _rest] when is_integer(index) ->
+          entities
+          |> Enum.reject(&match?(%Output{}, &1))
+          |> Enum.at(index)
+          |> Map.get(:state)
+
         [:components, index | _rest] when is_integer(index) ->
           entities |> Enum.reject(&match?(%Output{}, &1)) |> Enum.at(index)
 
@@ -339,32 +346,6 @@ defmodule Jido.Flow.DSL.Lowerer do
       end
 
     if entity, do: attach_entity_location(error, entity), else: error
-  end
-
-  defp attach_choice_location(
-         %{message: message, details: details} = error,
-         choice,
-         options,
-         fallback
-       ) do
-    option_source =
-      with %{path: [:options, index | _rest]} when is_integer(index) and index >= 0 <- details,
-           {:error, option_error} <- FlowChoice.Option.new(Enum.at(options, index)),
-           %{message: ^message, details: ^details} <-
-             Error.prefix_path(option_error, [:options, index]) do
-        Enum.at(choice.options, index)
-      else
-        _other -> nil
-      end
-
-    source =
-      option_source ||
-        case FlowChoice.Fallback.new(fallback) do
-          {:error, %{message: ^message, details: ^details}} -> choice.fallback
-          _other -> choice
-        end
-
-    attach_entity_location(error, source)
   end
 
   defp attach_entity_location(%{details: details} = error, entity) when is_map(details) do

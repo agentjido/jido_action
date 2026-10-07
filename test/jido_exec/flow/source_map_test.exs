@@ -76,10 +76,10 @@ defmodule JidoActionTest.Exec.Flow.Compiler.SourceMapTest do
   end
 
   defp flow do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "source_map",
       components: [
-        Jido.Flow.Step.new!(
+        JidoActionTest.FlowComponent.step!(
           name: "echo",
           action: JidoActionTest.Fixtures.Actions.EchoParamsAction
         )

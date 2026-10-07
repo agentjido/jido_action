@@ -3,7 +3,7 @@ defmodule JidoActionTest.Property.Execution.RevisionModel do
   use PropCheck
   @behaviour PropCheck.StateM
   alias Jido.{Exec, Flow}
-  alias Jido.Flow.{Ref, Step}
+  alias Jido.Flow.Ref
 
   @key {__MODULE__, :session}
 
@@ -160,12 +160,17 @@ defmodule JidoActionTest.Property.Execution.RevisionModel do
     {:ok, gate} = Agent.start_link(fn -> false end)
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "property_revisions",
         components:
           for(
             name <- names(count),
-            do: Step.new!(name: name, action: Probe, params: %{name: name, fail: name == failure})
+            do:
+              JidoActionTest.FlowComponent.step!(
+                name: name,
+                action: Probe,
+                params: %{name: name, fail: name == failure}
+              )
           ),
         output: Map.new(names(count), &{&1, Ref.result(&1)})
       )

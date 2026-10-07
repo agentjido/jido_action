@@ -5,8 +5,8 @@ defmodule JidoActionTest.Property.Execution.TelemetryContractTest do
   use ExUnit.Case, async: false
   use ExUnitProperties
   alias JidoActionTest.Property.Fuzz
-  alias Jido.{Exec, Flow}
-  alias Jido.Flow.{Ref, Step, Subflow}
+  alias Jido.Exec
+  alias Jido.Flow.Ref
   alias JidoActionTest.Property.Runtime
 
   @families [[:jido, :action], [:jido, :flow], [:jido, :flow, :node], [:jido, :flow, :target]]
@@ -125,9 +125,11 @@ defmodule JidoActionTest.Property.Execution.TelemetryContractTest do
 
       target =
         if sample["nested"] do
-          Flow.new!(
+          JidoActionTest.FlowBuilder.new!(
             name: "telemetry_wrapper",
-            components: [Subflow.new!(name: "child", flow: child, params: input)],
+            components: [
+              JidoActionTest.FlowComponent.subflow!(name: "child", flow: child, params: input)
+            ],
             output: Ref.result("child")
           )
         else
@@ -239,7 +241,7 @@ defmodule JidoActionTest.Property.Execution.TelemetryContractTest do
           components =
             for index <- 1..count,
                 do:
-                  Subflow.new!(
+                  JidoActionTest.FlowComponent.subflow!(
                     name: "child_#{index}",
                     flow: Child,
                     params: %{value: value + index, fail: fail and index == count},
@@ -251,7 +253,11 @@ defmodule JidoActionTest.Property.Execution.TelemetryContractTest do
                   )
 
           flow =
-            Flow.new!(name: "telemetry_parent", components: components, output: %{done: true})
+            JidoActionTest.FlowBuilder.new!(
+              name: "telemetry_parent",
+              components: components,
+              output: %{done: true}
+            )
 
           with_handler(fn ref ->
             result = Exec.run(flow, %{}, context, Runtime.options(context, concurrency))
@@ -293,10 +299,14 @@ defmodule JidoActionTest.Property.Execution.TelemetryContractTest do
         token = context.token
 
         flow =
-          Flow.new!(
+          JidoActionTest.FlowBuilder.new!(
             name: "telemetry_cancel",
             components: [
-              Step.new!(name: "blocked", action: Runtime.Gate, params: %{value: value})
+              JidoActionTest.FlowComponent.step!(
+                name: "blocked",
+                action: Runtime.Gate,
+                params: %{value: value}
+              )
             ],
             output: Ref.result("blocked")
           )

@@ -5,7 +5,7 @@ defmodule JidoActionTest.Property.Flow.GraphContractTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
   alias Jido.{Exec, Flow}
-  alias Jido.Flow.{Codec, Ref, Step}
+  alias Jido.Flow.{Codec, Ref}
   alias JidoActionTest.Property.{Fuzz, Runtime}
 
   defmodule Add do
@@ -79,8 +79,15 @@ defmodule JidoActionTest.Property.Flow.GraphContractTest do
     # Parent indexes precede children. Reverse declaration order to test scheduling.
     components = Enum.reverse(components(nodes))
     output = Map.new(nodes, &{&1.name, Ref.result(&1.name, :value)})
-    direct = Flow.new!(name: "property_dag", components: components, output: output)
-    assert {:ok, built} = Jido.Flow.new(data(components, output))
+
+    direct =
+      JidoActionTest.FlowBuilder.new!(
+        name: "property_dag",
+        components: components,
+        output: output
+      )
+
+    assert {:ok, built} = JidoActionTest.FlowBuilder.new(data(components, output))
     assert {:ok, stored, registry} = Codec.encode(direct)
     assert {:ok, restored} = Codec.decode(JSON.decode!(JSON.encode!(stored)), registry)
     assert {:ok, stored_again} = Codec.encode(restored, registry)
@@ -89,7 +96,11 @@ defmodule JidoActionTest.Property.Flow.GraphContractTest do
     assert restored == direct
 
     reordered =
-      Flow.new!(name: "property_dag", components: Enum.reverse(components), output: output)
+      JidoActionTest.FlowBuilder.new!(
+        name: "property_dag",
+        components: Enum.reverse(components),
+        output: output
+      )
 
     # Evaluate the graph as arithmetic, without using Exec to compute the answer.
     expected =
@@ -146,17 +157,28 @@ defmodule JidoActionTest.Property.Flow.GraphContractTest do
       # Force a path back to the first node, even if the generated DAG is disconnected.
       invalid = List.update_at(invalid, -1, &%{&1 | needs: [first.name]})
       output = %{value: Ref.result(last.name, :value)}
-      valid = Flow.new!(name: "property_dag", components: components, output: output)
+
+      valid =
+        JidoActionTest.FlowBuilder.new!(
+          name: "property_dag",
+          components: components,
+          output: output
+        )
+
       assert {:ok, stored, registry} = Codec.encode(valid)
 
       stored =
         stored
-        |> put_in(["components", Access.at(0), "needs"], [last.name])
-        |> put_in(["components", Access.at(-1), "needs"], [first.name])
+        |> update_document_component(first.name, &Map.put(&1, "needs", [last.name]))
+        |> update_document_component(last.name, &Map.put(&1, "needs", [first.name]))
 
       for result <- [
-            Flow.new(name: "property_dag", components: invalid, output: output),
-            Jido.Flow.new(data(invalid, output)),
+            JidoActionTest.FlowBuilder.new(
+              name: "property_dag",
+              components: invalid,
+              output: output
+            ),
+            JidoActionTest.FlowBuilder.new(data(invalid, output)),
             Codec.decode(JSON.decode!(JSON.encode!(stored)), registry)
           ] do
         assert {:error,
@@ -194,7 +216,7 @@ defmodule JidoActionTest.Property.Flow.GraphContractTest do
 
   defp components(nodes) do
     Enum.map(nodes, fn node ->
-      Step.new!(
+      JidoActionTest.FlowComponent.step!(
         name: node.name,
         action: Add,
         params: %{
@@ -222,6 +244,11 @@ defmodule JidoActionTest.Property.Flow.GraphContractTest do
           }
         end)
     }
+  end
+
+  defp update_document_component(document, name, update) do
+    index = Enum.find_index(document["components"], &(&1["name"] == name))
+    update_in(document, ["components", Access.at(index)], update)
   end
 
   defp source(0) do

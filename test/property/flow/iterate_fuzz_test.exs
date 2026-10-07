@@ -5,7 +5,7 @@ defmodule JidoActionTest.Property.Flow.IterateFuzzTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
   alias Jido.{Exec, Expr, Flow}
-  alias Jido.Flow.{Iterate, Ref, Step}
+  alias Jido.Flow.Ref
   alias JidoActionTest.Property.{Fuzz, Runtime}
 
   defmodule Advance do
@@ -93,7 +93,7 @@ defmodule JidoActionTest.Property.Flow.IterateFuzzTest do
     target = if fault == "exhausted", do: count + 1, else: count
 
     loop =
-      Iterate.new!(
+      JidoActionTest.FlowComponent.iterate!(
         name: "loop",
         action: Advance,
         needs: ["prior"],
@@ -106,7 +106,7 @@ defmodule JidoActionTest.Property.Flow.IterateFuzzTest do
           at: at
         },
         state:
-          Iterate.State.new!(
+          JidoActionTest.FlowComponent.state!(
             schema: Zoi.object(%{value: Zoi.integer()}),
             initial: %{value: initial},
             update: %{value: Ref.body_result(:value)}
@@ -116,12 +116,16 @@ defmodule JidoActionTest.Property.Flow.IterateFuzzTest do
       )
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "iterate_fuzz",
         components: [
-          Step.new!(name: "prior", action: Runtime.Emit, params: %{value: :prior}),
+          JidoActionTest.FlowComponent.step!(
+            name: "prior",
+            action: Runtime.Emit,
+            params: %{value: :prior}
+          ),
           loop,
-          Step.new!(
+          JidoActionTest.FlowComponent.step!(
             name: "after",
             action: Runtime.Emit,
             params: %{value: :after},

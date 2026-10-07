@@ -112,7 +112,8 @@ end
 
 ## Use Short Or Block Form
 
-The inline, short, and field-block forms all lower to `Jido.Flow.Step`.
+The inline, short, and field-block forms all lower to the same canonical call
+node.
 
 ```elixir
 defmodule FlowSteps.Example do
@@ -149,18 +150,20 @@ The result reference creates the dependency on `first`. Use the short form
 
 ## Step Fields
 
-A canonical Step has these fields:
+A Step map has these fields:
 
 | Field | Meaning |
 | --- | --- |
+| `kind` | `:step`. |
 | `name` | Unique string component name. |
 | `action` | Action module. |
 | `params` | Canonical expression for Action input. |
 | `needs` | Explicit control dependencies. |
 | `meta` | Portable author metadata with no execution meaning. |
 
-The Action must implement `Jido.Action`. A `step` that targets a module which
-implements `Jido.Flow` becomes `Jido.Flow.Subflow` instead.
+The Action must implement `Jido.Action`. A DSL `step` that targets a module
+which implements `Jido.Flow` becomes a Flow call. In a map definition, use
+`kind: :subflow` and the `flow` field for this call.
 
 ## Declare Output
 

@@ -3,7 +3,7 @@ defmodule JidoActionTest.Authoring.GeneratedGraphTest do
   use ExUnitProperties
   @moduletag :authoring
   alias Jido.{Exec, Flow}
-  alias Jido.Flow.{Codec, Ref, Step}
+  alias Jido.Flow.{Codec, Definition, Ref}
 
   defmodule Add do
     use Jido.Action, name: "generated_graph_add"
@@ -46,7 +46,7 @@ defmodule JidoActionTest.Authoring.GeneratedGraphTest do
           output
         )
 
-      assert {:ok, built} = Jido.Flow.new(data)
+      assert {:ok, built} = JidoActionTest.FlowBuilder.new(data)
       assert {:ok, document, registry} = Codec.encode(flow)
       json = JSON.encode!(document)
       assert {:ok, restored} = Codec.decode(JSON.decode!(json), registry)
@@ -110,31 +110,19 @@ defmodule JidoActionTest.Authoring.GeneratedGraphTest do
     ) do
       valid = build_flow(graph.nodes)
       assert {:ok, document, registry} = Codec.encode(valid)
-      components = invalid_components(valid.components, fault)
+      components = invalid_components(Definition.to_definition(valid.components), fault)
       expected_message = expected_error(fault)
 
       assert {:error, %{message: ^expected_message}} =
-               Flow.new(name: valid.name, components: components, output: valid.output)
+               JidoActionTest.FlowBuilder.new(
+                 name: valid.name,
+                 components: components,
+                 output: valid.output
+               )
 
-      data = %{
-        output: valid.output,
-        components:
-          Enum.map(
-            components,
-            fn component ->
-              %{
-                kind: :step,
-                name: component.name,
-                action: component.action,
-                params: component.params,
-                needs: component.needs
-              }
-            end
-          ),
-        name: valid.name
-      }
+      data = %{output: valid.output, components: components, name: valid.name}
 
-      assert {:error, %{message: ^expected_message}} = Jido.Flow.new(data)
+      assert {:error, %{message: ^expected_message}} = JidoActionTest.FlowBuilder.new(data)
       invalid_json = document |> invalid_document(fault) |> JSON.encode!() |> JSON.decode!()
       assert {:error, %{message: ^expected_message}} = Codec.decode(invalid_json, registry)
       run_ref = make_ref()
@@ -219,13 +207,18 @@ defmodule JidoActionTest.Authoring.GeneratedGraphTest do
   end
 
   defp build_flow(nodes) do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "generated_graph",
       components:
         nodes
         |> Enum.reverse()
         |> Enum.map(fn node ->
-          Step.new!(name: node.name, action: Add, params: params(node), needs: node.needs)
+          JidoActionTest.FlowComponent.step!(
+            name: node.name,
+            action: Add,
+            params: params(node),
+            needs: node.needs
+          )
         end),
       output: output(nodes)
     )

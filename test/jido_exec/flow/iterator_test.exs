@@ -3,7 +3,7 @@ defmodule JidoActionTest.Exec.Flow.Compiler.IteratorTest do
 
   @moduletag capture_log: true
   alias Jido.Exec.Flow.Iterator, as: IteratorCompiler
-  alias Jido.Flow.Iterate
+  alias Jido.Flow.Definition
   alias JidoActionTest.Fixtures.Actions.Add
 
   describe "Iterator adapter containment" do
@@ -51,7 +51,12 @@ defmodule JidoActionTest.Exec.Flow.Compiler.IteratorTest do
 
       iterator = %{
         iterator()
-        | state: Iterate.State.new!(schema: [], initial: %{guard: -1}, update: %{guard: %{}}),
+        | state:
+            JidoActionTest.FlowComponent.state!(
+              schema: [],
+              initial: %{guard: -1},
+              update: %{guard: %{}}
+            ),
           completion:
             Jido.Expr.new!(:>=, [Jido.Expr.new!(:+, [Jido.Flow.Ref.state(:guard), 0]), 0])
       }
@@ -93,14 +98,18 @@ defmodule JidoActionTest.Exec.Flow.Compiler.IteratorTest do
   end
 
   defp iterator do
-    Iterate.new!(
-      name: "contained_iterator",
-      action: Add,
-      params: %{},
-      state: Iterate.State.new!(schema: [], initial: %{}, update: %{}),
-      completion: Jido.Expr.new!(:==, [false, true]),
-      max_iterations: 1
-    )
+    definition =
+      JidoActionTest.FlowComponent.iterate!(
+        name: "contained_iterator",
+        action: Add,
+        params: %{},
+        state: JidoActionTest.FlowComponent.state!(schema: [], initial: %{}, update: %{}),
+        completion: Jido.Expr.new!(:==, [false, true]),
+        max_iterations: 1
+      )
+
+    {:ok, {name, node}} = Definition.component(definition)
+    Map.put(node, :name, name)
   end
 
   defp runtime_state(target_runner) do

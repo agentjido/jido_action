@@ -2,8 +2,8 @@
 
 ## Overview
 
-A Flow module used in a `step` becomes a canonical `Jido.Flow.Subflow`. This is
-the only implicit Subflow derivation.
+A Flow module used in a DSL `step` becomes a canonical Flow call. This is the
+only implicit child Flow derivation.
 
 Run the cells from top to bottom.
 
@@ -57,16 +57,17 @@ end
 ```
 
 ```elixir
-%Jido.Flow.Subflow{} =
-  NestedFlows.Parent.flow().components
-  |> List.first()
+%{
+  kind: :call,
+  call: {%Jido.Instruction{kind: :flow, target: NestedFlows.Child}, _params}
+} = NestedFlows.Parent.flow().components["child"]
 
 {:ok, %{value: 3}} =
   Jido.Exec.run(NestedFlows.Parent, %{value: 1})
 ```
 
-The DSL shape stays `step ... action: ChildFlow`. The lowerer resolves the
-target through `Jido.Instruction` and stores `Jido.Flow.Subflow`.
+The DSL shape stays `step ... action: ChildFlow`. The lowerer stores an inert
+Flow Instruction template in the call node.
 
 ## Native Execution Boundary
 
@@ -94,8 +95,8 @@ for single and concurrent failure inspection.
 ## Limits
 
 Only `step` derives Subflow. Choice options, Choice fallback, Map, Reduce, and
-Iterate target slots require Actions. A canonical Subflow stores a Flow module,
-not an arbitrary runtime Flow value.
+Iterate target slots require Actions. A canonical child call stores a Flow
+module, not an arbitrary runtime Flow value.
 
 Validate the complete boundary without running work:
 

@@ -3,7 +3,7 @@ defmodule JidoActionTest.Exec.CustomFlowValidationTest do
 
   alias Jido.{Exec, Flow, Instruction}
   alias Jido.Action.Output
-  alias Jido.Flow.{Ref, Step, Subflow}
+  alias Jido.Flow.{Ref}
 
   defmodule CustomError do
     defexception [:message, :details, :stacktrace]
@@ -22,9 +22,11 @@ defmodule JidoActionTest.Exec.CustomFlowValidationTest do
     @behaviour Jido.Flow
 
     def flow do
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "custom_validation",
-        components: [Step.new!(name: "echo", action: Echo, params: Ref.input([]))],
+        components: [
+          JidoActionTest.FlowComponent.step!(name: "echo", action: Echo, params: Ref.input([]))
+        ],
         output: Ref.result("echo")
       )
     end
@@ -73,9 +75,9 @@ defmodule JidoActionTest.Exec.CustomFlowValidationTest do
     @behaviour Jido.Flow
 
     def flow do
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "custom_output_shape",
-        components: [Step.new!(name: "effect", action: OutputEffect)],
+        components: [JidoActionTest.FlowComponent.step!(name: "effect", action: OutputEffect)],
         output: Ref.input(:output)
       )
     end
@@ -107,9 +109,15 @@ defmodule JidoActionTest.Exec.CustomFlowValidationTest do
     on_exit(fn -> :telemetry.detach(handler) end)
 
     parent =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "custom_output_parent",
-        components: [Subflow.new!(name: "child", flow: OutputFlow, params: Ref.input([]))],
+        components: [
+          JidoActionTest.FlowComponent.subflow!(
+            name: "child",
+            flow: OutputFlow,
+            params: Ref.input([])
+          )
+        ],
         output: %{child: Ref.result("child")}
       )
 
@@ -165,9 +173,15 @@ defmodule JidoActionTest.Exec.CustomFlowValidationTest do
   end
 
   defp parent do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "custom_parent",
-      components: [Subflow.new!(name: "child", flow: CustomFlow, params: Ref.input([]))],
+      components: [
+        JidoActionTest.FlowComponent.subflow!(
+          name: "child",
+          flow: CustomFlow,
+          params: Ref.input([])
+        )
+      ],
       output: Ref.result("child")
     )
   end
@@ -283,9 +297,15 @@ defmodule JidoActionTest.Exec.CustomFlowValidationTest do
 
   test "preserves the original child flow/0 frame when a Subflow cannot materialize" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "bad_child_parent",
-        components: [Subflow.new!(name: "child", flow: __MODULE__.BadChild, params: %{})],
+        components: [
+          JidoActionTest.FlowComponent.subflow!(
+            name: "child",
+            flow: __MODULE__.BadChild,
+            params: %{}
+          )
+        ],
         output: Ref.result("child")
       )
 

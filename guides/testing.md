@@ -39,7 +39,7 @@ implemented cases, their public contract IDs, and their expected checks.
 Data tests cover:
 
 - Action and Instruction construction;
-- component constructors;
+- tagged Flow map definitions;
 - Flow expressions and reference scopes;
 - Flow graph validation;
 - explicit and inferred dependencies; and
@@ -86,7 +86,7 @@ Do not use `Jido.Flow.to_map/1` as the stored format.
 
 ## Test Native Compilation
 
-Compilation tests own the mapping from canonical components to native Runic
+Compilation tests own the mapping from canonical graph nodes to native Runic
 constructs. Assert ports, connections, cardinality, Join, InputBinding,
 FanOut, FanIn, nested Workflow boundaries, source maps, and compilation
 identity where those facts are part of the contract.
@@ -196,8 +196,8 @@ Place shared fixtures under `test/support/fixtures` with `action`, `flow`,
 module. A fixture function must not make assertions or hide the public
 contract under test.
 
-A small end-to-end test can prove that DSL, direct constructors, data definitions, and
-Codec converge. Do not repeat every lower-level case in that combined test.
+A small end-to-end test can prove that DSL, map definitions, and Codec converge.
+Do not repeat every lower-level case in that combined test.
 
 ## Test Runnable Examples
 

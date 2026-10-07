@@ -1,8 +1,8 @@
 defmodule JidoActionTest.Exec.WorkRetentionTest do
   use ExUnit.Case, async: true
 
-  alias Jido.{Exec, Flow}
-  alias Jido.Flow.{Ref, Step}
+  alias Jido.Exec
+  alias Jido.Flow.{Ref}
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
   alias JidoActionTest.Fixtures.Actions.ErrorAction
 
@@ -12,9 +12,15 @@ defmodule JidoActionTest.Exec.WorkRetentionTest do
     [small, large] =
       for meta <- [%{}, metadata] do
         flow =
-          Flow.new!(
+          JidoActionTest.FlowBuilder.new!(
             name: "execution_metadata",
-            components: [Step.new!(name: "echo", action: EchoParamsAction, meta: meta)],
+            components: [
+              JidoActionTest.FlowComponent.step!(
+                name: "echo",
+                action: EchoParamsAction,
+                meta: meta
+              )
+            ],
             output: Ref.result("echo")
           )
 
@@ -33,9 +39,11 @@ defmodule JidoActionTest.Exec.WorkRetentionTest do
       [small, large] =
         for meta <- [%{}, %{notes: Enum.to_list(1..5_000)}] do
           flow =
-            Flow.new!(
+            JidoActionTest.FlowBuilder.new!(
               name: "finished_metadata",
-              components: [Step.new!(name: "work", action: action, meta: meta)],
+              components: [
+                JidoActionTest.FlowComponent.step!(name: "work", action: action, meta: meta)
+              ],
               output: Ref.result("work")
             )
 
@@ -58,10 +66,14 @@ defmodule JidoActionTest.Exec.WorkRetentionTest do
 
   test "failure records do not duplicate native runnable inputs" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "failure_retention",
         components: [
-          Step.new!(name: "fail", action: ErrorAction, params: %{value: Ref.input(:value)})
+          JidoActionTest.FlowComponent.step!(
+            name: "fail",
+            action: ErrorAction,
+            params: %{value: Ref.input(:value)}
+          )
         ],
         output: Ref.result("fail")
       )
@@ -89,11 +101,20 @@ defmodule JidoActionTest.Exec.WorkRetentionTest do
             else: %{}
 
         flow =
-          Flow.new!(
+          JidoActionTest.FlowBuilder.new!(
             name: "inspection_retention",
             components: [
-              Step.new!(name: "first", action: EchoParamsAction, params: %{value: 1}),
-              Step.new!(name: "last", action: EchoParamsAction, needs: ["first"], meta: data)
+              JidoActionTest.FlowComponent.step!(
+                name: "first",
+                action: EchoParamsAction,
+                params: %{value: 1}
+              ),
+              JidoActionTest.FlowComponent.step!(
+                name: "last",
+                action: EchoParamsAction,
+                needs: ["first"],
+                meta: data
+              )
             ],
             output: Ref.result("last")
           )

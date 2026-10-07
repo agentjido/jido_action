@@ -51,14 +51,14 @@ identity.digest
 identity.uuid
 ```
 
-Identity uses the canonical semantic form. Runtime compilation data and DSL
-source locations do not change it. The identity version is 3.
+Identity uses the canonical semantic form. Descriptions, component metadata,
+Instruction metadata, runtime compilation data, and DSL source locations do
+not change it. The identity version is 4.
 
-Version 3 hashes canonical values directly, so references remain distinct from
-literal maps with the same fields. Semantic digests, compilation digests, and
-derived item and iteration IDs change from version 2. Recompute stored identity
-values from the canonical Flow. Stored document versions and `Jido.Flow.to_map/1`
-inspection data are unchanged.
+Version 4 projects the normalized graph to stable author semantics before it
+hashes the value. References remain distinct from literal maps with the same
+fields. Recompute stored identity values from the canonical Flow. Stored
+document versions are separate from semantic identity versions.
 
 ## Get A Semantic Map
 
@@ -66,9 +66,10 @@ inspection data are unchanged.
 semantic_map = Jido.Flow.to_map(flow)
 ```
 
-This deterministic map keeps component declaration order and module values. It
-is useful for inspection and comparison inside the VM. Use `Jido.Flow.Codec`
-for portable storage.
+This deterministic map orders components by graph dependencies and name. It
+keeps module values and uses the public tagged component shape. It is useful
+for inspection and comparison inside the VM. Use `Jido.Flow.Codec` for
+portable storage.
 
 ## Inspect Native Compilation
 

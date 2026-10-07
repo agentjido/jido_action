@@ -4,8 +4,7 @@ defmodule JidoActionTest.Exec.ExecutionGuardInterruptionTest do
   alias Jido.Flow.Error.InvalidExecutionError
   alias Jido.Exec
   alias Jido.Exec.ExecutionGuard
-  alias Jido.Flow
-  alias Jido.Flow.{Ref, Step}
+  alias Jido.Flow.{Ref}
   alias JidoActionTest.Fixtures.Execution, as: ExecFixtures
   alias JidoActionTest.Fixtures.Actions.RecorderAction
 
@@ -14,9 +13,11 @@ defmodule JidoActionTest.Exec.ExecutionGuardInterruptionTest do
 
   test "marks a mutation indeterminate when its owner exits during Action work" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "interrupted_action_work",
-        components: [Step.new!(name: "block", action: ExecFixtures.BlockingAction)],
+        components: [
+          JidoActionTest.FlowComponent.step!(name: "block", action: ExecFixtures.BlockingAction)
+        ],
         output: Ref.result("block")
       )
 
@@ -201,9 +202,15 @@ defmodule JidoActionTest.Exec.ExecutionGuardInterruptionTest do
   end
 
   defp recorder_flow(name) do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: name,
-      components: [Step.new!(name: "record", action: RecorderAction, params: %{value: :once})],
+      components: [
+        JidoActionTest.FlowComponent.step!(
+          name: "record",
+          action: RecorderAction,
+          params: %{value: :once}
+        )
+      ],
       output: Ref.result("record")
     )
   end

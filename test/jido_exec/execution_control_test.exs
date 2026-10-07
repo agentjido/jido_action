@@ -4,8 +4,7 @@ defmodule JidoActionTest.Exec.ExecutionControlTest do
 
   alias Jido.Exec
   alias Jido.Exec.Telemetry
-  alias Jido.Flow
-  alias Jido.Flow.{Dispatch, Ref, Step}
+  alias Jido.Flow.{Ref}
 
   defmodule HeldAction do
     use Jido.Action, name: "execution_control_held"
@@ -264,10 +263,10 @@ defmodule JidoActionTest.Exec.ExecutionControlTest do
 
   defp transition_targets(:flow_to_action) do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "execution_control_dispatch",
         components: [
-          Dispatch.new!(
+          JidoActionTest.FlowComponent.dispatch!(
             name: "next",
             decision: Decision,
             expander: HeldAction,
@@ -281,9 +280,15 @@ defmodule JidoActionTest.Exec.ExecutionControlTest do
   end
 
   defp held_flow do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "execution_control_target",
-      components: [Step.new!(name: "work", action: HeldAction, params: Ref.input([]))],
+      components: [
+        JidoActionTest.FlowComponent.step!(
+          name: "work",
+          action: HeldAction,
+          params: Ref.input([])
+        )
+      ],
       output: Ref.result("work")
     )
   end

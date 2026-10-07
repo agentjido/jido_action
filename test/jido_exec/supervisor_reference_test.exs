@@ -4,9 +4,7 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
   alias Jido.Action.Error.InvalidInputError
   alias Jido.Exec
   alias Jido.Exec.Error.AsyncExecutionError
-  alias Jido.Flow
-  alias Jido.Flow.{Dispatch, Iterate, Reduce, Ref, Subflow}
-  alias Jido.Flow.Map, as: FlowMap
+  alias Jido.Flow.{Ref}
   alias Jido.Instruction
   alias JidoActionTest.Fixtures.BlockingFlow
   alias JidoActionTest.Fixtures.Execution, as: Fixtures
@@ -127,10 +125,10 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
     owner = self()
 
     dispatch =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "route_dispatch",
         components: [
-          Dispatch.new!(
+          JidoActionTest.FlowComponent.dispatch!(
             name: :dispatch,
             decision: BlockingAction,
             expander: Continue,
@@ -181,28 +179,28 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
     owner = self()
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "route_collections",
         components: [
-          FlowMap.new!(
+          JidoActionTest.FlowComponent.map!(
             name: :mapped,
             collection: [:a, :b],
             action: BlockingAction,
             params: %{value: Ref.item()}
           ),
-          Reduce.new!(
+          JidoActionTest.FlowComponent.reduce!(
             name: :reduced,
             collection: Ref.result(:mapped),
             initial: %{},
             action: BlockingAction,
             params: %{value: Ref.item(:value)}
           ),
-          Iterate.new!(
+          JidoActionTest.FlowComponent.iterate!(
             name: :loop,
             needs: [:reduced],
             action: BlockingAction,
             params: %{value: :iteration},
-            state: Iterate.State.new!(initial: %{}, update: Ref.body_result()),
+            state: JidoActionTest.FlowComponent.state!(initial: %{}, update: Ref.body_result()),
             completion: Jido.Expr.new!(:>=, [Ref.iteration_index(), 1]),
             max_iterations: 1
           )
@@ -496,10 +494,10 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
     flow = ContextFlow.flow()
 
     parent =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "nested_host_context",
         components: [
-          Subflow.new!(name: :child, flow: ContextFlow)
+          JidoActionTest.FlowComponent.subflow!(name: :child, flow: ContextFlow)
         ],
         output: Ref.result(:child)
       )
@@ -642,11 +640,19 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
   end
 
   defp parallel_flow do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "parallel_routing",
       components: [
-        Jido.Flow.Step.new!(name: "a", action: BlockingAction, params: Ref.input([])),
-        Jido.Flow.Step.new!(name: "b", action: BlockingAction, params: Ref.input([]))
+        JidoActionTest.FlowComponent.step!(
+          name: "a",
+          action: BlockingAction,
+          params: Ref.input([])
+        ),
+        JidoActionTest.FlowComponent.step!(
+          name: "b",
+          action: BlockingAction,
+          params: Ref.input([])
+        )
       ],
       output: Ref.result("b")
     )

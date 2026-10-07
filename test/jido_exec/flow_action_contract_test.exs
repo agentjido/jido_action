@@ -26,7 +26,7 @@ defmodule JidoActionTest.Exec.FlowActionContractTest do
 
   test "Step validation preserves input errors with any details shape" do
     {:ok, flow} =
-      Jido.Flow.new(%{
+      JidoActionTest.FlowBuilder.new(%{
         output: Jido.Flow.Ref.result("reject"),
         components: [
           %{

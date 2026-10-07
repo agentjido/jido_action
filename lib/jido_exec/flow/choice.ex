@@ -1,15 +1,15 @@
 defmodule Jido.Exec.Flow.Choice do
   @moduledoc false
 
-  alias Jido.Flow.Choice
   alias Jido.Exec.Flow.ValueResolver
   alias Jido.Exec.Flow.Target
 
   @doc false
-  @spec run(Choice.t(), map()) :: {:ok, term(), [term()]} | {:error, Exception.t()}
-  def run(%Choice{} = choice, state) do
+  @spec run(map(), map()) :: {:ok, term(), [term()]} | {:error, Exception.t()}
+  def run(%{kind: :choice} = choice, state) do
     with {:ok, target} <- select_target(choice, state),
-         {:ok, params} <- ValueResolver.resolve(target.params, state) do
+         {_instruction, params_expression} = target.call,
+         {:ok, params} <- ValueResolver.resolve(params_expression, state) do
       Target.run(
         Target.at(Target.choice(choice, target), state.namespace),
         params,
@@ -20,12 +20,14 @@ defmodule Jido.Exec.Flow.Choice do
     end
   end
 
-  defp select_target(%Choice{} = choice, state) do
+  defp select_target(choice, state) do
+    fallback = %{name: :fallback, call: choice.fallback}
+
     choice.options
-    |> Enum.reduce_while({:ok, choice.fallback}, fn option, {:ok, _fallback} ->
+    |> Enum.reduce_while({:ok, fallback}, fn option, {:ok, _fallback} ->
       case ValueResolver.condition(option.condition, state, choice.name, option.name) do
         {:ok, true} -> {:halt, {:ok, option}}
-        {:ok, false} -> {:cont, {:ok, choice.fallback}}
+        {:ok, false} -> {:cont, {:ok, fallback}}
         {:error, error} -> {:halt, {:error, error}}
       end
     end)

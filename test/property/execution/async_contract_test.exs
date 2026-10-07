@@ -4,8 +4,8 @@ defmodule JidoActionTest.Property.Execution.AsyncContractTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
   @moduletag :property
-  alias Jido.{Exec, Flow}
-  alias Jido.Flow.{Ref, Step}
+  alias Jido.Exec
+  alias Jido.Flow.Ref
   alias JidoActionTest.Property.Runtime
   @ready_timeout 5_000
 
@@ -137,17 +137,26 @@ defmodule JidoActionTest.Property.Execution.AsyncContractTest do
   defp blocked(count) do
     components =
       for index <- 1..count,
-          do: Step.new!(name: "n#{index}", action: Runtime.Gate, params: %{value: index})
+          do:
+            JidoActionTest.FlowComponent.step!(
+              name: "n#{index}",
+              action: Runtime.Gate,
+              params: %{value: index}
+            )
 
-    Flow.new!(name: "async", components: components, output: %{done: true})
+    JidoActionTest.FlowBuilder.new!(name: "async", components: components, output: %{done: true})
   end
 
   defp with_prior_effect(value) do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "partial_effects",
       components: [
-        Step.new!(name: "first", action: Runtime.Emit, params: %{value: value}),
-        Step.new!(
+        JidoActionTest.FlowComponent.step!(
+          name: "first",
+          action: Runtime.Emit,
+          params: %{value: value}
+        ),
+        JidoActionTest.FlowComponent.step!(
           name: "blocked",
           action: Runtime.Gate,
           params: %{value: value},

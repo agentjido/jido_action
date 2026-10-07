@@ -24,6 +24,6 @@ end
 
 defimpl Runic.Identity.Projectable, for: Jido.Exec.Flow.Payload do
   def identity_document(%{value: value}) do
-    {:jido_local_beam_value, 1, Jido.Flow.Identity.hash_term(value)}
+    {:jido_local_beam_value, 1, Jido.Exec.Flow.Identity.hash_term(value)}
   end
 end

@@ -1,8 +1,8 @@
 defmodule JidoActionTest.Exec.ScopedExecutionTest do
   use ExUnit.Case, async: false
 
-  alias Jido.{Exec, Flow}
-  alias Jido.Flow.{Ref, Reduce, Step, Subflow}
+  alias Jido.Exec
+  alias Jido.Flow.{Ref}
 
   @moduletag capture_log: true
 
@@ -15,9 +15,11 @@ defmodule JidoActionTest.Exec.ScopedExecutionTest do
     @behaviour Jido.Flow
 
     def flow do
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "scope_validators",
-        components: [Step.new!(name: "echo", action: Echo, params: Ref.input([]))],
+        components: [
+          JidoActionTest.FlowComponent.step!(name: "echo", action: Echo, params: Ref.input([]))
+        ],
         output: Ref.result("echo")
       )
     end
@@ -98,13 +100,13 @@ defmodule JidoActionTest.Exec.ScopedExecutionTest do
     attach(ref, [[:jido, :flow, :reduce, :item, :start]])
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "scope_compound",
         components:
           for(
             id <- ["a", "b"],
             do:
-              Reduce.new!(
+              JidoActionTest.FlowComponent.reduce!(
                 name: id,
                 collection: [1],
                 initial: %{},
@@ -152,10 +154,13 @@ defmodule JidoActionTest.Exec.ScopedExecutionTest do
     attach(ref, [[:jido, :flow, :target, :start], [:jido, :flow, :target, :stop]])
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "scope_nested",
         components:
-          for(name <- ["left", "right"], do: Subflow.new!(name: name, flow: ValidatedFlow)),
+          for(
+            name <- ["left", "right"],
+            do: JidoActionTest.FlowComponent.subflow!(name: name, flow: ValidatedFlow)
+          ),
         output: %{}
       )
 
@@ -177,10 +182,13 @@ defmodule JidoActionTest.Exec.ScopedExecutionTest do
       failure: failure
     } do
       flow =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "scope_failures",
           components:
-            for(id <- ["a", "b"], do: Step.new!(name: id, action: Held, params: %{id: id})),
+            for(
+              id <- ["a", "b"],
+              do: JidoActionTest.FlowComponent.step!(name: id, action: Held, params: %{id: id})
+            ),
           output: %{}
         )
 
@@ -222,10 +230,10 @@ defmodule JidoActionTest.Exec.ScopedExecutionTest do
 
   test "Map collect_errors retains hard Action failures as item data", %{supervisor: supervisor} do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "scope_collect_kill",
         components: [
-          Jido.Flow.Map.new!(
+          JidoActionTest.FlowComponent.map!(
             name: "items",
             collection: [1, 2, 3],
             action: KillFirst,
@@ -266,10 +274,13 @@ defmodule JidoActionTest.Exec.ScopedExecutionTest do
       start_supervised!(Supervisor.child_spec({Task.Supervisor, max_children: 1}, id: :limited))
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "scope_capacity",
         components:
-          for(id <- ["a", "b"], do: Step.new!(name: id, action: Held, params: %{id: id})),
+          for(
+            id <- ["a", "b"],
+            do: JidoActionTest.FlowComponent.step!(name: id, action: Held, params: %{id: id})
+          ),
         output: %{}
       )
 
@@ -314,11 +325,11 @@ defmodule JidoActionTest.Exec.ScopedExecutionTest do
     attach(ref, [[:jido, :flow, :target, :start]])
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "scope_paused",
         components: [
-          Step.new!(name: "a", action: Echo),
-          Step.new!(name: "b", action: Echo, needs: ["a"])
+          JidoActionTest.FlowComponent.step!(name: "a", action: Echo),
+          JidoActionTest.FlowComponent.step!(name: "b", action: Echo, needs: ["a"])
         ],
         output: %{}
       )

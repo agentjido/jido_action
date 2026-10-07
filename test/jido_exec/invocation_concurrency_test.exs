@@ -5,9 +5,7 @@ defmodule JidoActionTest.Exec.InvocationConcurrencyTest do
 
   alias Jido.Exec
   alias Jido.Exec.Error.InterruptedError
-  alias Jido.Flow
   alias Jido.Flow.Ref
-  alias Jido.Flow.Map, as: FlowMap
 
   defmodule GateHost do
     @behaviour Jido.Exec.Invocation
@@ -363,10 +361,10 @@ defmodule JidoActionTest.Exec.InvocationConcurrencyTest do
   end
 
   defp flow(values) do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "invocation_concurrency",
       components: [
-        FlowMap.new!(
+        JidoActionTest.FlowComponent.map!(
           name: "items",
           collection: values,
           action: ControlledAction,

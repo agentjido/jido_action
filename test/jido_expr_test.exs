@@ -363,7 +363,7 @@ defmodule Jido.ExprTest do
       ])
 
     assert {:ok, ^replacement} =
-             Jido.Expr.Runtime.normalize(legacy,
+             Jido.Expr.normalize(legacy,
                normalize_leaf: fn value, path ->
                  send(self(), {tag, :normalize, value.key, path})
                  {:ok, if(value == legacy, do: replacement, else: value)}
@@ -379,6 +379,55 @@ defmodule Jido.ExprTest do
     assert_received {^tag, :normalize, :leaf, ^leaf_path}
     assert_received {^tag, :validate, :leaf, ^leaf_path}
     refute_received {^tag, _, _, _}
+  end
+
+  test "bounded reduction visits expressions, containers, and host leaves with exact paths" do
+    reference = %Reference{key: :count}
+    expression = Jido.Expr.new!(:+, [reference, 2])
+    value = %{outer: [expression, %{done: true}]}
+
+    assert {:ok, visited} =
+             Jido.Expr.reduce(value, [], fn value, path, visited ->
+               {:cont, [{value, path} | visited]}
+             end)
+
+    assert Enum.any?(visited, fn {value, path} ->
+             is_struct(value, Jido.Expr) and path == [:outer, 0]
+           end)
+
+    assert {reference, [:outer, 0, :operands, 0]} in visited
+    assert {2, [:outer, 0, :operands, 1]} in visited
+    assert {true, [:outer, 1, :done]} in visited
+
+    assert {:ok, :found} =
+             Jido.Expr.reduce([reference, fn -> :unreachable end], :missing, fn
+               ^reference, _path, _accumulator -> {:halt, :found}
+               _value, _path, accumulator -> {:cont, accumulator}
+             end)
+
+    assert {:error, %Jido.Expr.Error{reason: :max_nodes, path: [:outer]}} =
+             Jido.Expr.reduce(
+               %{outer: [1, 2]},
+               nil,
+               fn _value, accumulator ->
+                 {:cont, accumulator}
+               end,
+               max_nodes: 1
+             )
+
+    assert {:error, %Jido.Expr.Error{reason: :improper_list, path: [1]}} =
+             Jido.Expr.reduce([1 | 2], nil, fn _value, accumulator ->
+               {:cont, accumulator}
+             end)
+
+    assert {:error, %Jido.Expr.Error{reason: :invalid_reducer}} =
+             Jido.Expr.reduce(1, nil, :invalid)
+
+    assert {:error, %Jido.Expr.Error{reason: :invalid_reducer_return}} =
+             Jido.Expr.reduce(1, nil, fn _value, _accumulator -> :invalid end)
+
+    assert {:error, %Jido.Expr.Error{reason: :reducer_failure}} =
+             Jido.Expr.reduce(1, nil, fn _value, _accumulator -> raise "private" end)
   end
 
   defp with_reductions(function) do

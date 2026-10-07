@@ -364,21 +364,19 @@ defmodule JidoActionTest.ActionTest do
       assert {:error, "must be a Zoi schema"} = Action.validate_config_schema(%{})
     end
 
-    test "rejects action schemas that cannot accept map-shaped data" do
-      assert {:error, "must accept map-shaped action data"} =
-               Action.validate_action_schema(Zoi.integer())
+    test "rejects schemas that cannot accept map-shaped data" do
+      assert {:error, "must accept map-shaped data"} =
+               Action.validate_map_schema(Zoi.integer())
 
-      assert {:error, "must accept map-shaped action data"} =
-               Action.validate_action_schema(Zoi.lazy(fn -> Zoi.integer() end))
+      assert {:error, "must accept map-shaped data"} =
+               Action.validate_map_schema(Zoi.lazy(fn -> Zoi.integer() end))
 
       assert :ok =
-               Action.validate_action_schema(
-                 Zoi.lazy(fn -> Zoi.object(%{value: Zoi.integer()}) end)
-               )
+               Action.validate_map_schema(Zoi.lazy(fn -> Zoi.object(%{value: Zoi.integer()}) end))
 
       module = unique_module("ScalarOutputSchemaAction")
 
-      assert_raise CompileError, ~r/must accept map-shaped action data/, fn ->
+      assert_raise CompileError, ~r/must accept map-shaped data/, fn ->
         create_module(
           module,
           quote do

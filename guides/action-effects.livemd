@@ -61,16 +61,21 @@ and requests without changes to the Action.
 ```elixir
 alias Jido.Action.Output
 alias Jido.{Exec, Flow, Instruction}
-alias Jido.Flow.{Ref, Step}
+alias Jido.Flow.Ref
 
 approval_flow =
-  Flow.new!(
+  Flow.new!(%{
     name: "approve_order",
     components: [
-      Step.new!(name: "approve", action: EffectExamples.ApproveOrder, params: Ref.input([]))
+      %{
+        kind: :step,
+        name: "approve",
+        action: EffectExamples.ApproveOrder,
+        params: Ref.input([])
+      }
     ],
     output: Ref.result("approve")
-  )
+  })
 
 for target <- [EffectExamples.ApproveOrder, approval_flow] do
   {:ok, %{order_id: "order-42", status: :approved}} =
@@ -132,13 +137,18 @@ effects. Exec does not read the rows or perform the audit request.
 
 ```elixir
 export_flow =
-  Flow.new!(
+  Flow.new!(%{
     name: "export_orders",
     components: [
-      Step.new!(name: "export", action: EffectExamples.ExportOrders, params: Ref.input([]))
+      %{
+        kind: :step,
+        name: "export",
+        action: EffectExamples.ExportOrders,
+        params: Ref.input([])
+      }
     ],
     output: Ref.result("export")
-  )
+  })
 
 rows = [%{order_id: 42, total_cents: 1250}, %{order_id: 43, total_cents: 750}]
 context = %{rows: rows}

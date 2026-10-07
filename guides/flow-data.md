@@ -26,10 +26,9 @@ alias Jido.Flow.Ref
 ```
 
 `new/1` returns `{:ok, flow}` or a structured validation error. `new!/1` raises
-that error. Maps and keyword lists are accepted for Flow configuration.
-Each component must be a tagged map or a value from a component constructor.
-Unknown fields and invalid component kinds are rejected. An explicit, non-nil
-`output` is required.
+that error. The Flow definition must be a map with atom keys. Each component
+must be a tagged map. Unknown fields and invalid component kinds are rejected.
+An explicit, non-nil `output` is required.
 
 Use normal Elixir list and map operations to assemble runtime definitions.
 Construct the complete definition, then call `Jido.Flow.new/1`. There is no
@@ -47,10 +46,8 @@ separate finalization call.
 | `:iterate` | `action` | `params`, `state`, `completion`, `max_iterations` |
 | `:dispatch` | `decision`, `expander` | `params` |
 
-All component kinds accept `name`, `needs`, and `meta`. Each tagged map uses
-its existing component constructor for field and expression validation.
-Choice options, its fallback, and Iterate state accept maps through their
-existing constructors.
+All component kinds accept `name`, `needs`, and `meta`. Choice options, the
+fallback, and Iterate state are nested maps.
 
 Keep components and Choice options in lists. Choice evaluates options in list
 order. Component declaration order does not create dependencies. Result
@@ -59,8 +56,42 @@ define execution results and effect order.
 
 Data definitions use an explicit `:subflow` kind and `flow` field for a child
 Flow module. A `:step` uses an Action module. The module DSL can derive a
-Subflow from a `step` target. Constructor validation is inert;
+Subflow from a `step` target. Definition validation is inert;
 `Jido.Flow.validate_executable/1` also checks target contracts.
+
+## Canonical Graph Shape
+
+`Jido.Flow.new/1` is the semantic normalization boundary. The input component
+list becomes a map keyed by component name in the `components` field of
+`%Jido.Flow{}`. The map supports direct lookup and does not carry declaration
+order as execution meaning. Dependencies define the graph order.
+
+A Step and a Subflow both normalize to a `:call` node. The target kind is held
+by an inert `Jido.Instruction` template:
+
+```elixir
+%{kind: :call, needs: [], meta: %{}, call: {template, params}} =
+  flow.components["send"]
+
+%Jido.Instruction{
+  kind: :action,
+  target: MyApp.SendNotice,
+  params: %{},
+  context: %{}
+} = template
+
+%{address: %Jido.Flow.Ref{}} = params
+```
+
+Each parameterized Action slot in Choice, Map, Reduce, Iterate, and Dispatch
+uses the same `{instruction_template, params_expression}` call tuple. The
+Dispatch expander keeps only its template because it receives the complete
+decision result. A template contains no bound params or context. Exec evaluates
+the expression and binds runtime data before execution.
+
+Do not build this normalized graph directly. Use a tagged component list with
+`Jido.Flow.new/1`. Use `Jido.Flow.to_map/1` for deterministic inspection and
+`Jido.Flow.Codec` for JSON storage.
 
 ## References And Expressions
 

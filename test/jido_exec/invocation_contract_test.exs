@@ -7,8 +7,6 @@ defmodule JidoActionTest.Exec.InvocationContractTest do
   alias Jido.Exec.Invocation
   alias Jido.Exec.Invocation.Runtime
   alias Jido.Exec.Options
-  alias Jido.Flow
-  alias Jido.Flow.Step
 
   defmodule Action do
     use Jido.Action, name: "invocation_contract_action"
@@ -125,9 +123,11 @@ defmodule JidoActionTest.Exec.InvocationContractTest do
                Options.validate_flow([invocation: invocation], :start)
 
       flow =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "invocation_start_rejection",
-          components: [Step.new!(name: "one", action: Action, params: %{value: 1})],
+          components: [
+            JidoActionTest.FlowComponent.step!(name: "one", action: Action, params: %{value: 1})
+          ],
           output: %{}
         )
 

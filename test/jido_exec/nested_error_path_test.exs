@@ -1,8 +1,8 @@
 defmodule JidoActionTest.Exec.NestedErrorPathTest do
   use ExUnit.Case, async: true
 
-  alias Jido.{Exec, Flow}
-  alias Jido.Flow.{Ref, Subflow}
+  alias Jido.Exec
+  alias Jido.Flow.{Ref}
 
   defmodule Write do
     use Jido.Action,
@@ -177,11 +177,15 @@ defmodule JidoActionTest.Exec.NestedErrorPathTest do
   end
 
   defp parent(child, names) do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "path_root",
       components:
         Enum.map(names, fn name ->
-          Subflow.new!(name: name, flow: child, params: %{mode: Ref.input(:mode)})
+          JidoActionTest.FlowComponent.subflow!(
+            name: name,
+            flow: child,
+            params: %{mode: Ref.input(:mode)}
+          )
         end),
       output: %{value: Ref.result(List.last(names))}
     )

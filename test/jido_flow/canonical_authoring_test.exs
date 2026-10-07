@@ -102,15 +102,9 @@ end
 defmodule Jido.Flow.CanonicalAuthoringTest do
   use ExUnit.Case, async: true
   alias Jido.Flow
-  alias Jido.Flow.Choice
   alias Jido.Flow.Codec
-  alias Jido.Flow.Dispatch
-  alias Jido.Flow.Iterate
-  alias Jido.Flow.Map, as: FlowMap
-  alias Jido.Flow.Reduce
   alias Jido.Flow.Ref
-  alias Jido.Flow.Step
-  alias Jido.Flow.Subflow
+  alias Jido.Instruction
   alias JidoActionTest.Fixtures.CodecRegistry
   alias JidoActionTest.Fixtures.FlowAuthoring
   alias JidoActionTest.Fixtures.InlineAuthoring
@@ -120,7 +114,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
 
   test "all inline binding forms have equal DSL, direct, and JSON graphs and results" do
     direct = InlineAuthoring.direct_flow!()
-    assert {:ok, built} = Jido.Flow.new(InlineAuthoring.data())
+    assert {:ok, built} = JidoActionTest.FlowBuilder.new(InlineAuthoring.data())
     dsl = InlineParityFlow.flow()
     assert built == direct
     assert dsl == direct
@@ -159,7 +153,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
     action = InlineParityFlow.step_action(:multiple)
 
     assert {:ok, flow} =
-             Jido.Flow.new(%{
+             JidoActionTest.FlowBuilder.new(%{
                output: Jido.Flow.Ref.result("message"),
                components: [
                  %{
@@ -183,11 +177,15 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
                name: "reused_inline"
              })
 
-    assert [_, %Step{} = reused] = flow.components
-    assert reused.action == action
-    assert reused.params == %{name: Ref.input(:recipient), prefix: Ref.input(:salutation)}
-    assert reused.needs == ["gate"]
-    assert reused.meta == %{owner: "data"}
+    assert %{
+             call:
+               {%Instruction{kind: :action, target: ^action},
+                %{name: %Ref{source: :input}, prefix: %Ref{source: :input}} = params},
+             needs: ["gate"],
+             meta: %{owner: "data"}
+           } = flow.components["message"]
+
+    assert params == %{name: Ref.input(:recipient), prefix: Ref.input(:salutation)}
 
     assert {:ok, %{"message" => %{needs: ["gate"], references: [], effective: ["gate"]}}} =
              Flow.dependencies(flow)
@@ -200,7 +198,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
     action = InlineParityFlow.step_action("named")
 
     assert {:ok, flow} =
-             Jido.Flow.new(%{
+             JidoActionTest.FlowBuilder.new(%{
                output: %{names: Jido.Flow.Ref.result("names")},
                components: [
                  %{
@@ -214,7 +212,10 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
                name: "mapped_inline"
              })
 
-    assert [%FlowMap{action: ^action, params: %{name: %Ref{source: :item}}}] = flow.components
+    assert %{
+             kind: :map,
+             call: {%Instruction{kind: :action, target: ^action}, %{name: %Ref{source: :item}}}
+           } = flow.components["names"]
 
     assert Jido.Exec.run(flow, %{people: [" Ada ", " Grace "]}) ==
              {:ok, %{names: [%{name: "Ada"}, %{name: "Grace"}]}}
@@ -222,10 +223,10 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
 
   test "direct, and Spark Step authoring produce the same canonical data" do
     direct =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "canonical_spark_flow",
         components: [
-          Step.new!(
+          JidoActionTest.FlowComponent.step!(
             name: "add",
             action: Add,
             params: %{value: Ref.input(:value), amount: 1},
@@ -237,7 +238,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
       )
 
     {:ok, built} =
-      Jido.Flow.new(%{
+      JidoActionTest.FlowBuilder.new(%{
         output: Jido.Flow.Ref.result("add"),
         components: [
           %{
@@ -258,10 +259,10 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
 
   test "Spark derives a Subflow and map authoring declares its kind" do
     direct =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "canonical_spark_subflow",
         components: [
-          Subflow.new!(
+          JidoActionTest.FlowComponent.subflow!(
             name: "child",
             flow: NestedFlow,
             params: %{value: Ref.input(:value)},
@@ -273,7 +274,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
       )
 
     {:ok, built} =
-      Jido.Flow.new(%{
+      JidoActionTest.FlowBuilder.new(%{
         output: Jido.Flow.Ref.result("child"),
         components: [
           %{
@@ -289,15 +290,19 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
 
     assert built == direct
     assert Jido.Flow.CanonicalAuthoringTest.SparkSubflow.flow() == direct
-    assert [%Subflow{}] = built.components
+
+    assert %{
+             kind: :call,
+             call: {%Instruction{kind: :flow, target: NestedFlow}, _params}
+           } = built.components["child"]
   end
 
   test "direct, Spark, and JSON Dispatch forms produce the same canonical data" do
     direct =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "canonical_dispatch_flow",
         components: [
-          Dispatch.new!(
+          JidoActionTest.FlowComponent.dispatch!(
             name: "next",
             decision: Add,
             expander: Add,
@@ -309,7 +314,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
       )
 
     {:ok, built} =
-      Jido.Flow.new(%{
+      JidoActionTest.FlowBuilder.new(%{
         output: Jido.Flow.Ref.result("next"),
         components: [
           %{
@@ -334,7 +339,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
 
   test "direct, Spark, and JSON authoring produce one mixed canonical Flow" do
     direct = FlowAuthoring.mixed_flow!()
-    assert {:ok, built} = Jido.Flow.new(FlowAuthoring.mixed_data())
+    assert {:ok, built} = JidoActionTest.FlowBuilder.new(FlowAuthoring.mixed_data())
     assert Jido.Flow.CanonicalAuthoringTest.SparkMixedFlow.flow() == direct
     assert built == direct
     registry = CodecRegistry.mixed()
@@ -343,14 +348,14 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
     assert {:ok, decoded} = json |> Jason.decode!() |> Codec.decode(registry)
     assert decoded == direct
 
-    assert Enum.map(direct.components, & &1.__struct__) == [
-             Step,
-             Subflow,
-             Choice,
-             FlowMap,
-             Reduce,
-             Iterate
-           ]
+    assert direct.components["load"].kind == :call
+    assert elem(direct.components["load"].call, 0).kind == :action
+    assert direct.components["child"].kind == :call
+    assert elem(direct.components["child"].call, 0).kind == :flow
+
+    assert Enum.map(["route", "mapped", "reduced", "loop"], fn name ->
+             direct.components[name].kind
+           end) == [:choice, :map, :reduce, :iterate]
 
     compiled_forms =
       for flow <- [direct, built, decoded, Jido.Flow.CanonicalAuthoringTest.SparkMixedFlow.flow()] do
@@ -366,8 +371,8 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
   test "Spark source data stays outside the canonical Flow" do
     flow = Jido.Flow.CanonicalAuthoringTest.SparkFlow.flow()
     source_map = Jido.Flow.CanonicalAuthoringTest.SparkFlow.__jido_flow_source_map__()
-    assert flow.components |> hd() |> Map.fetch!(:meta) == %{owner: "spark"}
-    refute Map.has_key?(flow.components |> hd() |> Map.fetch!(:meta), :line)
+    assert flow.components["add"].meta == %{owner: "spark"}
+    refute Map.has_key?(flow.components["add"].meta, :line)
     assert %{file: file, line: line} = source_map[[:components, "add"]]
     assert is_binary(file)
     assert is_integer(line)
@@ -376,7 +381,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
 
   test "map authoring rejects removed aliases" do
     assert {:error, error} =
-             Jido.Flow.new(%{
+             JidoActionTest.FlowBuilder.new(%{
                output: Jido.Flow.Ref.result("add"),
                components: [
                  %{kind: :step, name: "add", action: Add, params: %{}, deps: ["other"]}
@@ -384,7 +389,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
                name: "bad_data"
              })
 
-    assert Exception.message(error) == "unknown step configuration key: :deps"
+    assert Exception.message(error) == "unknown step key: :deps"
   end
 
   test "map authoring accepts needs for every component kind" do
@@ -392,7 +397,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
     fallback = %{action: Add, params: %{}}
 
     assert {:ok, flow} =
-             Jido.Flow.new(%{
+             JidoActionTest.FlowBuilder.new(%{
                output: Jido.Flow.Ref.result("dispatch"),
                components: [
                  %{kind: :step, name: "root", action: Add, params: %{}},
@@ -433,7 +438,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
                    name: "iterate",
                    action: Add,
                    params: %{},
-                   state: [schema: [], initial: %{}, update: %{}],
+                   state: %{schema: [], initial: %{}, update: %{}},
                    needs: ["root"],
                    completion: true,
                    max_iterations: 1
@@ -450,15 +455,18 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
                name: "all_data_needs"
              })
 
-    assert Enum.map(flow.components, &{&1.__struct__, &1.needs}) == [
-             {Step, []},
-             {Step, ["root"]},
-             {Subflow, ["root"]},
-             {Choice, ["root"]},
-             {FlowMap, ["root"]},
-             {Reduce, ["root"]},
-             {Iterate, ["root"]},
-             {Dispatch, ["action", "subflow", "choice", "map", "reduce", "iterate"]}
+    assert Enum.map(
+             ["root", "action", "subflow", "choice", "map", "reduce", "iterate", "dispatch"],
+             fn name -> {flow.components[name].kind, flow.components[name].needs} end
+           ) == [
+             {:call, []},
+             {:call, ["root"]},
+             {:call, ["root"]},
+             {:choice, ["root"]},
+             {:map, ["root"]},
+             {:reduce, ["root"]},
+             {:iterate, ["root"]},
+             {:dispatch, ["action", "subflow", "choice", "map", "reduce", "iterate"]}
            ]
   end
 
@@ -524,7 +532,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
     ]
 
     for data <- definitions do
-      assert {:error, error} = Jido.Flow.new(Map.put(data, :output, %{}))
+      assert {:error, error} = JidoActionTest.FlowBuilder.new(Map.put(data, :output, %{}))
       assert error.message =~ "unknown"
       assert error.message =~ ":after"
       assert error.details.path == [:components, 0]
@@ -533,7 +541,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
 
   test "map authoring still requires an explicit output" do
     assert {:error, error} =
-             Jido.Flow.new(%{
+             JidoActionTest.FlowBuilder.new(%{
                components: [%{kind: :step, name: "step", action: Add, params: %{}}],
                name: "missing_output"
              })
@@ -544,12 +552,12 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
 
   test "public inspection exposes needs and sorted effective dependencies" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "dependency_inspection",
         components: [
-          Step.new!(name: "beta", action: Add),
-          Step.new!(name: "alpha", action: Add),
-          Step.new!(
+          JidoActionTest.FlowComponent.step!(name: "beta", action: Add),
+          JidoActionTest.FlowComponent.step!(name: "alpha", action: Add),
+          JidoActionTest.FlowComponent.step!(
             name: "work",
             action: Add,
             params: [Ref.result("beta"), Ref.result("alpha"), Ref.result("beta")],
@@ -575,7 +583,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
 
   test "canonical public operations accept one Flow and reject other subjects" do
     flow = FlowAuthoring.math_flow!()
-    assert Flow.new(flow) == {:ok, flow}
+    assert JidoActionTest.FlowBuilder.new(flow) == {:ok, flow}
     assert %Jido.Exec.Flow.Compiled{} = Flow.compile!(flow, %{})
     assert %{name: "math_flow", components: [_first, _second]} = Flow.to_map(flow)
     assert {:ok, %{"double" => %{references: ["add_one"]}}} = Flow.dependencies(flow)
@@ -598,10 +606,13 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
     end
 
     invalid =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "compile_bang_error",
         components: [
-          Step.new!(name: "missing", action: JidoActionTest.Fixtures.Actions.MissingRun)
+          JidoActionTest.FlowComponent.step!(
+            name: "missing",
+            action: JidoActionTest.Fixtures.Actions.MissingRun
+          )
         ],
         output: Ref.result("missing")
       )
@@ -609,7 +620,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
     assert_raise Jido.Flow.Error.InvalidDefinitionError, fn -> Flow.compile!(invalid) end
 
     assert_raise Jido.Flow.Error.InvalidDefinitionError, fn ->
-      Flow.new!(name: "missing_output")
+      JidoActionTest.FlowBuilder.new!(name: "missing_output")
     end
   end
 end

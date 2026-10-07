@@ -5,10 +5,10 @@ defmodule Jido.Exec.Flow.Iterator do
   alias Jido.Action.Validation
   alias Jido.Exec.Flow.ValueResolver
   alias Jido.Exec.Flow.Target
-  alias Jido.Flow.Identity
+  alias Jido.Exec.Flow.Identity
 
   @doc false
-  @spec run(Jido.Flow.Iterate.t(), map()) ::
+  @spec run(map(), map()) ::
           {:ok, term(), [term()]} | {:error, Exception.t()}
   def run(iterator, state) do
     run_resolved_iterator(iterator, state)
@@ -57,10 +57,12 @@ defmodule Jido.Exec.Flow.Iterator do
       |> Map.put(:iteration_index, index)
       |> Map.put(:body_result, runtime.body_result)
 
+    {_instruction, params_expression} = iterator.call
+
     result =
       try do
         with {:ok, params} <-
-               ValueResolver.resolve(iterator.params, local_state)
+               ValueResolver.resolve(params_expression, local_state)
                |> Target.tag_validation(target_context),
              {:ok, output, effects} <-
                Target.run(

@@ -1,8 +1,8 @@
 defmodule JidoActionTest.Exec.ExecutionOwnershipTest do
   use ExUnit.Case, async: false
   @moduletag capture_log: true
-  alias Jido.{Exec, Flow}
-  alias Jido.Flow.{Ref, Step}
+  alias Jido.Exec
+  alias Jido.Flow.{Ref}
 
   defmodule Probe do
     use Jido.Action, name: "ownership_probe"
@@ -28,9 +28,11 @@ defmodule JidoActionTest.Exec.ExecutionOwnershipTest do
             serial_flow()
 
           :empty_map ->
-            Flow.new!(
+            JidoActionTest.FlowBuilder.new!(
               name: "empty_map",
-              components: [Jido.Flow.Map.new!(name: "items", action: Probe, collection: [])],
+              components: [
+                JidoActionTest.FlowComponent.map!(name: "items", action: Probe, collection: [])
+              ],
               output: %{value: 42}
             )
 
@@ -138,10 +140,18 @@ defmodule JidoActionTest.Exec.ExecutionOwnershipTest do
       token = make_ref()
 
       flow =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "surviving_wave",
           components:
-            for(id <- 1..2, do: Step.new!(name: "s#{id}", action: Trap, params: %{id: id})),
+            for(
+              id <- 1..2,
+              do:
+                JidoActionTest.FlowComponent.step!(
+                  name: "s#{id}",
+                  action: Trap,
+                  params: %{id: id}
+                )
+            ),
           output: Ref.result("s2")
         )
 
@@ -227,10 +237,18 @@ defmodule JidoActionTest.Exec.ExecutionOwnershipTest do
       token = make_ref()
 
       flow =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "controlled_wave",
           components:
-            for(id <- 1..3, do: Step.new!(name: "s#{id}", action: Trap, params: %{id: id})),
+            for(
+              id <- 1..3,
+              do:
+                JidoActionTest.FlowComponent.step!(
+                  name: "s#{id}",
+                  action: Trap,
+                  params: %{id: id}
+                )
+            ),
           output: Ref.result("s3")
         )
 
@@ -266,11 +284,11 @@ defmodule JidoActionTest.Exec.ExecutionOwnershipTest do
     supervisor = start_supervised!(Task.Supervisor)
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "interrupted_admission",
         components: [
-          Step.new!(name: "first", action: Trap, params: %{id: 1}),
-          Step.new!(name: "second", action: Trap, params: %{id: 2})
+          JidoActionTest.FlowComponent.step!(name: "first", action: Trap, params: %{id: 1}),
+          JidoActionTest.FlowComponent.step!(name: "second", action: Trap, params: %{id: 2})
         ],
         output: Ref.result("second")
       )
@@ -327,12 +345,16 @@ defmodule JidoActionTest.Exec.ExecutionOwnershipTest do
   end
 
   defp serial_flow do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "three_serial_actions",
       components: [
-        Step.new!(name: "one", action: Probe, params: Ref.input([])),
-        Step.new!(name: "two", action: Probe, params: Ref.result("one")),
-        Step.new!(name: "three", action: Probe, params: Ref.result("two"))
+        JidoActionTest.FlowComponent.step!(name: "one", action: Probe, params: Ref.input([])),
+        JidoActionTest.FlowComponent.step!(name: "two", action: Probe, params: Ref.result("one")),
+        JidoActionTest.FlowComponent.step!(
+          name: "three",
+          action: Probe,
+          params: Ref.result("two")
+        )
       ],
       output: Ref.result("three")
     )

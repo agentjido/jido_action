@@ -16,22 +16,23 @@ A Flow has six fields:
 | `description` | string or `nil` | Optional description. |
 | `schema` | static Zoi schema or `[]` | Input contract. |
 | `output_schema` | static Zoi schema or `[]` | Output contract. |
-| `components` | ordered component list | Author-declared graph data. |
+| `components` | name-keyed map | Normalized graph nodes. |
 | `output` | expression | Required Flow result. |
 
-The component types are:
+Map definitions use these component kinds:
 
-- `Jido.Flow.Step` for one Action call;
-- `Jido.Flow.Subflow` for one child Flow module;
-- `Jido.Flow.Choice` for ordered routing with a required fallback;
-- `Jido.Flow.Map` for ordered fan-out and fan-in;
-- `Jido.Flow.Reduce` for a serial left fold; and
-- `Jido.Flow.Iterate` for a bounded local loop; and
-- `Jido.Flow.Dispatch` for one choice at the end of a Flow.
+- `:step` for one Action call;
+- `:subflow` for one child Flow module;
+- `:choice` for ordered routing with a required fallback;
+- `:map` for ordered fan-out and fan-in;
+- `:reduce` for a serial left fold;
+- `:iterate` for a bounded local loop; and
+- `:dispatch` for one choice at the end of a Flow.
 
-Each component has a name, explicit `needs` dependencies, and portable `meta`
-data. Data references create inferred dependencies. Jido keeps explicit and
-inferred dependencies separate.
+Each author component has a name, explicit `needs` dependencies, and portable
+`meta` data. The normalized graph uses the name as its map key. Data references
+create inferred dependencies. Jido keeps explicit and inferred dependencies
+separate.
 
 A Flow can have at most one Dispatch component. Dispatch must be the last
 component, and the Flow output must be the complete Dispatch result. Its
@@ -67,12 +68,37 @@ return an intentional raw, stream, batch, or opaque value.
 All supported forms produce the same canonical value:
 
 1. a module that uses `Jido.Flow`;
-2. Data definitions with `Jido.Flow.new/1`, using component maps or constructors; and
+2. map definitions with `Jido.Flow.new/1`; and
 3. `Jido.Flow.Codec.decode/2` for stored JSON data.
 
-The module DSL is the normal source-code API. Direct constructors are also an
-official API. Data definitions and Codec input pass through the same canonical
-validation.
+The module DSL is the normal source-code API. Map definitions and Codec input
+pass through the same canonical validation.
+
+`new/1` accepts a plain map. Its `components` field contains a list of tagged
+component maps. The canonical `%Jido.Flow{}` stores those components in a map
+keyed by component name. Each value is a tagged node. A call node has this
+shape:
+
+```elixir
+%{
+  kind: :call,
+  needs: [],
+  meta: %{},
+  call: {
+    Jido.Instruction.template(:action, MyApp.Actions.Send),
+    %{address: Jido.Flow.Ref.input(:address)}
+  }
+}
+```
+
+The tuple joins one inert Instruction template with its parameter expression.
+The template identifies the Action or child Flow. `Jido.Exec` binds evaluated
+parameters, context, and runtime location data when it executes the call.
+Choice, Map, Reduce, Iterate, and Dispatch nodes use the same call tuple where
+they invoke an Action. A Dispatch expander uses `nil` as the tuple value because
+it receives the decision result directly. This internal graph shape is for
+inspection. Author with the DSL or tagged component maps, and store a Flow with
+`Jido.Flow.Codec`.
 
 ## Author Data And Runtime Data
 

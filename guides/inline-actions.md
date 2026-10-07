@@ -236,9 +236,9 @@ An inline body can use the owner module's private helpers, aliases, imports,
 module attributes, and `__MODULE__`. It cannot capture runtime variables from
 outside its declaration.
 
-Inline Actions are compile-time code. Direct constructors, data definitions, and stored
-JSON cannot accept body code, anonymous functions, or MFAs. Deploy the owner
-module and its generated Action modules together.
+Inline Actions are compile-time code. Map definitions and stored JSON cannot
+accept body code, anonymous functions, or MFAs. Deploy the owner module and its
+generated Action modules together.
 
 Use a named Action module when the work needs independent reuse, lifecycle
 hooks, a public module API, or a separate deployment boundary.

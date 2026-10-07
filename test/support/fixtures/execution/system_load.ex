@@ -1,10 +1,8 @@
 defmodule JidoActionTest.Fixtures.Execution.SystemLoad do
   @moduledoc false
 
-  alias Jido.Flow
   alias Jido.Expr
-  alias Jido.Flow.{Choice, Iterate, Reduce, Ref, Step, Subflow}
-  alias Jido.Flow.Map, as: FlowMap
+  alias Jido.Flow.Ref
 
   defmodule HeldWork do
     use Jido.Action, name: "system_load_held_work"
@@ -52,20 +50,20 @@ defmodule JidoActionTest.Fixtures.Execution.SystemLoad do
   def snapshot(ledger), do: Agent.get(ledger, & &1)
 
   def composed_flow do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "system_composed_flow",
       components: [
-        Step.new!(
+        JidoActionTest.FlowComponent.step!(
           name: "left",
           action: HeldWork,
           params: %{id: :left, value: Ref.input(:left)}
         ),
-        Step.new!(
+        JidoActionTest.FlowComponent.step!(
           name: "right",
           action: HeldWork,
           params: %{id: :right, value: Ref.input(:right)}
         ),
-        FlowMap.new!(
+        JidoActionTest.FlowComponent.map!(
           name: "mapped",
           action: HeldWork,
           collection: Ref.input(:items),
@@ -82,21 +80,25 @@ defmodule JidoActionTest.Fixtures.Execution.SystemLoad do
   end
 
   def wide_flow(count) do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "load_wide_flow",
       components:
         for id <- 1..count do
-          Step.new!(name: "work_#{id}", action: HeldWork, params: %{id: id, value: id})
+          JidoActionTest.FlowComponent.step!(
+            name: "work_#{id}",
+            action: HeldWork,
+            params: %{id: id, value: id}
+          )
         end,
       output: %{values: for(id <- 1..count, do: Ref.result("work_#{id}", :value))}
     )
   end
 
   def map_flow do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "load_map_flow",
       components: [
-        FlowMap.new!(
+        JidoActionTest.FlowComponent.map!(
           name: "mapped",
           collection: Ref.input(:items),
           action: HeldWork,
@@ -108,10 +110,10 @@ defmodule JidoActionTest.Fixtures.Execution.SystemLoad do
   end
 
   def map_flow_with_ids do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "load_map_with_ids",
       components: [
-        FlowMap.new!(
+        JidoActionTest.FlowComponent.map!(
           name: "mapped",
           collection: Ref.input(:items),
           action: HeldWork,
@@ -128,14 +130,14 @@ defmodule JidoActionTest.Fixtures.Execution.SystemLoad do
         value =
           if index == 1, do: Ref.input(:value), else: Ref.result("work_#{index - 1}", :value)
 
-        Step.new!(
+        JidoActionTest.FlowComponent.step!(
           name: "work_#{index}",
           action: CountedWork,
           params: %{id: index, value: value}
         )
       end
 
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "load_deep_flow",
       components: components,
       output: %{value: Ref.result("work_#{count}", :value)}
@@ -149,7 +151,7 @@ defmodule JidoActionTest.Fixtures.Execution.SystemLoad do
 
     readers =
       for name <- reader_names do
-        Step.new!(
+        JidoActionTest.FlowComponent.step!(
           name: name,
           action: CountedWork,
           params: %{id: name, value: producer_values}
@@ -158,7 +160,7 @@ defmodule JidoActionTest.Fixtures.Execution.SystemLoad do
 
     producers =
       for name <- producer_names do
-        Step.new!(
+        JidoActionTest.FlowComponent.step!(
           name: name,
           action: CountedWork,
           params: %{id: name, value: Ref.result("root", :value)}
@@ -166,13 +168,13 @@ defmodule JidoActionTest.Fixtures.Execution.SystemLoad do
       end
 
     root =
-      Step.new!(
+      JidoActionTest.FlowComponent.step!(
         name: "root",
         action: CountedWork,
         params: %{id: "root", value: Ref.input(:value)}
       )
 
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "load_diamond_flow",
       components: readers ++ Enum.reverse(producers) ++ [root],
       output: %{readers: for(name <- reader_names, do: Ref.result(name, :value))}
@@ -180,15 +182,15 @@ defmodule JidoActionTest.Fixtures.Execution.SystemLoad do
   end
 
   def counted_flow do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "load_counted_flow",
       components: [
-        Step.new!(
+        JidoActionTest.FlowComponent.step!(
           name: "first",
           action: CountedWork,
           params: %{id: :first, value: Ref.input(:value)}
         ),
-        Step.new!(
+        JidoActionTest.FlowComponent.step!(
           name: "second",
           action: CountedWork,
           params: %{id: :second, value: Ref.result("first", :value)}
@@ -199,10 +201,10 @@ defmodule JidoActionTest.Fixtures.Execution.SystemLoad do
   end
 
   def combined_child_flow do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "system_combined_child",
       components: [
-        Step.new!(
+        JidoActionTest.FlowComponent.step!(
           name: "child_work",
           action: HeldWork,
           params: %{id: :child, value: Ref.input(:value)}
@@ -226,48 +228,52 @@ defmodule JidoActionTest.Fixtures.Execution.SystemLoad do
 
   def combined_flow do
     choice =
-      Choice.new!(
+      JidoActionTest.FlowComponent.choice!(
         name: "route",
         options: [
-          Choice.Option.new!(
+          JidoActionTest.FlowComponent.option!(
             name: "positive",
             condition: Expr.new!(:>=, [Ref.input(:value), 0]),
             action: HeldWork,
             params: %{id: :choice, value: Ref.result("child", :value)}
           )
         ],
-        fallback: Choice.Fallback.new!(action: HeldWork, params: %{id: :fallback, value: 0})
+        fallback:
+          JidoActionTest.FlowComponent.fallback!(
+            action: HeldWork,
+            params: %{id: :fallback, value: 0}
+          )
       )
 
     state =
-      Iterate.State.new!(
+      JidoActionTest.FlowComponent.state!(
         schema: Zoi.object(%{count: Zoi.integer()}),
         initial: %{count: Ref.result("reduce", :value)},
         update: %{count: Ref.body_result(:value)}
       )
 
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "system_all_components",
       components: [
-        Step.new!(
+        JidoActionTest.FlowComponent.step!(
           name: "start",
           action: HeldWork,
           params: %{id: :start, value: Ref.input(:value)}
         ),
-        Subflow.new!(
+        JidoActionTest.FlowComponent.subflow!(
           name: "child",
           flow: CombinedChild,
           params: %{value: Ref.result("start", :value)}
         ),
         choice,
-        FlowMap.new!(
+        JidoActionTest.FlowComponent.map!(
           name: "mapped",
           collection: Ref.input(:items),
           action: HeldWork,
           params: %{id: Ref.item(), value: Ref.item()},
           needs: ["route"]
         ),
-        Reduce.new!(
+        JidoActionTest.FlowComponent.reduce!(
           name: "reduce",
           collection: Ref.result("mapped"),
           initial: %{value: 0},
@@ -277,7 +283,7 @@ defmodule JidoActionTest.Fixtures.Execution.SystemLoad do
             value: Expr.new!(:+, [Ref.accumulator(:value), Ref.item(:value)])
           }
         ),
-        Iterate.new!(
+        JidoActionTest.FlowComponent.iterate!(
           name: "iterate",
           state: state,
           action: HeldWork,

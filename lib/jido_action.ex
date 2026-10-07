@@ -83,14 +83,14 @@ defmodule Jido.Action do
                                 description:
                                   "A Zoi schema for validating the Action's input parameters."
                               )
-                              |> Zoi.refine({__MODULE__, :validate_action_schema, []})
+                              |> Zoi.refine({__MODULE__, :validate_map_schema, []})
                               |> Zoi.default([]),
                             output_schema:
                               Zoi.any(
                                 description:
                                   "A Zoi schema for validating the Action's output. Only specified fields are validated."
                               )
-                              |> Zoi.refine({__MODULE__, :validate_action_schema, []})
+                              |> Zoi.refine({__MODULE__, :validate_map_schema, []})
                               |> Zoi.default([])
                           },
                           unrecognized_keys: :error
@@ -135,13 +135,13 @@ defmodule Jido.Action do
   end
 
   @doc false
-  @spec validate_action_schema(term(), keyword()) :: :ok | {:error, String.t()}
-  def validate_action_schema(value, opts \\ []) do
+  @spec validate_map_schema(term(), keyword()) :: :ok | {:error, String.t()}
+  def validate_map_schema(value, opts \\ []) do
     with :ok <- validate_config_schema(value, opts) do
-      if value == [] or Validation.action_schema?(value) do
+      if value == [] or Validation.map_schema?(value) do
         :ok
       else
-        {:error, "must accept map-shaped action data"}
+        {:error, "must accept map-shaped data"}
       end
     end
   end
@@ -257,7 +257,7 @@ defmodule Jido.Action do
   end
 
   @doc false
-  @spec validate_params_for(map(), module()) ::
+  @spec validate_params_for(term(), module()) ::
           {:ok, map()} | {:error, term()}
   def validate_params_for(params, module) do
     with {:ok, params} <- prepare_params(params, module),
@@ -386,7 +386,7 @@ defmodule Jido.Action do
 
       @doc unquote(validate_params_doc)
       @impl Jido.Action
-      @spec validate_params(map()) ::
+      @spec validate_params(term()) ::
               {:ok, map()} | {:error, term()}
       def validate_params(params), do: Action.validate_params_for(params, __MODULE__)
 
@@ -443,7 +443,7 @@ defmodule Jido.Action do
   @callback run(params :: map(), context :: map()) :: result()
 
   @doc "Validates Action input parameters without running Action work."
-  @callback validate_params(params :: map()) :: {:ok, map()} | {:error, term()}
+  @callback validate_params(params :: term()) :: {:ok, map()} | {:error, term()}
 
   @doc "Validates normal Action output or an explicit output envelope."
   @callback validate_output(map() | Output.t()) ::
@@ -456,7 +456,7 @@ defmodule Jido.Action do
   before Zoi can parse the value. Prefer Zoi coercion, defaults, enums, and
   refinements when they can express the required rule.
   """
-  @callback on_before_validate_params(params :: map()) ::
+  @callback on_before_validate_params(params :: term()) ::
               {:ok, map()} | {:error, term()}
 
   @optional_callbacks on_before_validate_params: 1

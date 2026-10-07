@@ -4,9 +4,8 @@ defmodule JidoActionTest.Property.Execution.EffectFailureContractTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
   @moduletag :property
-  alias Jido.{Exec, Flow}
-  alias Jido.Flow.{Reduce, Ref, Step}
-  alias Jido.Flow.Map, as: FlowMap
+  alias Jido.Exec
+  alias Jido.Flow.Ref
   alias JidoActionTest.Property.Runtime
 
   @tag contracts: ["EXEC-004", "EFFECT-002"]
@@ -16,7 +15,7 @@ defmodule JidoActionTest.Property.Execution.EffectFailureContractTest do
       for failure <- 1..count do
         components =
           for index <- 1..count do
-            Step.new!(
+            JidoActionTest.FlowComponent.step!(
               name: "n#{index}",
               action: Runtime.Emit,
               params: %{value: value, label: index, fail: index == failure},
@@ -24,7 +23,12 @@ defmodule JidoActionTest.Property.Execution.EffectFailureContractTest do
             )
           end
 
-        flow = Flow.new!(name: "failure_chain", components: components, output: %{done: true})
+        flow =
+          JidoActionTest.FlowBuilder.new!(
+            name: "failure_chain",
+            components: components,
+            output: %{done: true}
+          )
 
         for mode <- [:run, :step, :wave, :continue] do
           Runtime.with_context(fn context ->
@@ -52,7 +56,7 @@ defmodule JidoActionTest.Property.Execution.EffectFailureContractTest do
         items = for index <- 1..count, do: %{value: index, label: index, fail: index == failure}
 
         collected =
-          FlowMap.new!(
+          JidoActionTest.FlowComponent.map!(
             name: "work",
             collection: items,
             action: Runtime.Emit,
@@ -61,7 +65,7 @@ defmodule JidoActionTest.Property.Execution.EffectFailureContractTest do
           )
 
         flow =
-          Flow.new!(
+          JidoActionTest.FlowBuilder.new!(
             name: "collect",
             components: [collected],
             output: %{items: Ref.result("work")}
@@ -84,7 +88,7 @@ defmodule JidoActionTest.Property.Execution.EffectFailureContractTest do
 
         for component <- [
               %{collected | on_error: :fail_fast},
-              Reduce.new!(
+              JidoActionTest.FlowComponent.reduce!(
                 name: "work",
                 collection: items,
                 initial: %{},
@@ -93,7 +97,11 @@ defmodule JidoActionTest.Property.Execution.EffectFailureContractTest do
               )
             ] do
           flow =
-            Flow.new!(name: "fail_collection", components: [component], output: %{done: true})
+            JidoActionTest.FlowBuilder.new!(
+              name: "fail_collection",
+              components: [component],
+              output: %{done: true}
+            )
 
           Runtime.with_context(fn context ->
             assert {:error, _} = execute(flow, context, :run)

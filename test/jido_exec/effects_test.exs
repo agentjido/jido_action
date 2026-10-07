@@ -3,8 +3,7 @@ defmodule JidoActionTest.Exec.EffectsTest do
 
   alias Jido.Action.Output
   alias Jido.{Exec, Flow, Instruction}
-  alias Jido.Flow.{Choice, Dispatch, Iterate, Reduce, Ref, Step}
-  alias Jido.Flow.Map, as: FlowMap
+  alias Jido.Flow.Ref
 
   defmodule PlainResult do
     use Jido.Action, name: "plain_effect_result"
@@ -20,9 +19,15 @@ defmodule JidoActionTest.Exec.EffectsTest do
 
   test "maps and Output values accept an optional plain effect list" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "plain_result",
-        components: [Step.new!(name: "value", action: PlainResult, params: Ref.input([]))],
+        components: [
+          JidoActionTest.FlowComponent.step!(
+            name: "value",
+            action: PlainResult,
+            params: Ref.input([])
+          )
+        ],
         output: Ref.result("value")
       )
 
@@ -60,9 +65,15 @@ defmodule JidoActionTest.Exec.EffectsTest do
     params = %{output: output, effects: [:request]}
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "stream_effects",
-        components: [Step.new!(name: "value", action: PlainResult, params: Ref.input([]))],
+        components: [
+          JidoActionTest.FlowComponent.step!(
+            name: "value",
+            action: PlainResult,
+            params: Ref.input([])
+          )
+        ],
         output: Ref.result("value")
       )
 
@@ -82,9 +93,15 @@ defmodule JidoActionTest.Exec.EffectsTest do
     output = Output.stream(Stream.map([1], fn _ -> raise "consumer failure" end))
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "failing_stream",
-        components: [Step.new!(name: "value", action: PlainResult, params: Ref.input([]))],
+        components: [
+          JidoActionTest.FlowComponent.step!(
+            name: "value",
+            action: PlainResult,
+            params: Ref.input([])
+          )
+        ],
         output: Ref.result("value")
       )
 
@@ -174,7 +191,7 @@ defmodule JidoActionTest.Exec.EffectsTest do
 
   test "parallel effects use canonical name order after reversed worker completion" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "parallel",
         components: [step("b", %{label: :b, gate: true}), step("a", %{label: :a, gate: true})],
         output: %{done: true}
@@ -199,20 +216,26 @@ defmodule JidoActionTest.Exec.EffectsTest do
 
   test "Choice keeps only the selected option or fallback" do
     choice =
-      Choice.new!(
+      JidoActionTest.FlowComponent.choice!(
         name: "choose",
         options: [
-          Choice.Option.new!(
+          JidoActionTest.FlowComponent.option!(
             name: "yes",
             condition: Ref.input(:choose),
             action: Request,
             params: %{label: :selected}
           )
         ],
-        fallback: Choice.Fallback.new!(action: Request, params: %{label: :fallback})
+        fallback:
+          JidoActionTest.FlowComponent.fallback!(action: Request, params: %{label: :fallback})
       )
 
-    flow = Flow.new!(name: "choice_effects", components: [choice], output: Ref.result("choose"))
+    flow =
+      JidoActionTest.FlowBuilder.new!(
+        name: "choice_effects",
+        components: [choice],
+        output: Ref.result("choose")
+      )
 
     for {choose, label} <- [{true, :selected}, {false, :fallback}] do
       expected = {:ok, %{label: label}, [label]}
@@ -233,7 +256,7 @@ defmodule JidoActionTest.Exec.EffectsTest do
 
   test "Map collect_errors keeps successful item effects and no failed item effects" do
     component =
-      FlowMap.new!(
+      JidoActionTest.FlowComponent.map!(
         name: "map",
         collection: [%{label: :a}, %{label: :b, fail: true}, %{label: :c}],
         action: Request,
@@ -242,7 +265,7 @@ defmodule JidoActionTest.Exec.EffectsTest do
       )
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "collect_effects",
         components: [component],
         output: %{items: Ref.result("map")}
@@ -254,7 +277,7 @@ defmodule JidoActionTest.Exec.EffectsTest do
 
   test "Reduce preserves list-valued effects in serial item order" do
     component =
-      Reduce.new!(
+      JidoActionTest.FlowComponent.reduce!(
         name: "reduce",
         collection: [:a, :b],
         initial: %{},
@@ -263,7 +286,11 @@ defmodule JidoActionTest.Exec.EffectsTest do
       )
 
     flow =
-      Flow.new!(name: "reduce_effects", components: [component], output: Ref.result("reduce"))
+      JidoActionTest.FlowBuilder.new!(
+        name: "reduce_effects",
+        components: [component],
+        output: Ref.result("reduce")
+      )
 
     expected = {:ok, %{label: :b}, [[:a], [:b]]}
     assert Exec.run(flow) == expected
@@ -288,11 +315,16 @@ defmodule JidoActionTest.Exec.EffectsTest do
 
   test "empty Map and Reduce return no effects" do
     for component <- [
-          FlowMap.new!(name: "empty", collection: [], action: Request),
-          Reduce.new!(name: "empty", collection: [], initial: %{}, action: Request)
+          JidoActionTest.FlowComponent.map!(name: "empty", collection: [], action: Request),
+          JidoActionTest.FlowComponent.reduce!(
+            name: "empty",
+            collection: [],
+            initial: %{},
+            action: Request
+          )
         ] do
       flow =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "empty_effects",
           components: [component],
           output: %{value: Ref.result("empty")}
@@ -331,10 +363,10 @@ defmodule JidoActionTest.Exec.EffectsTest do
 
   test "several continuations preserve effect batches and discard them on final failure" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "batched_effects",
         components: [
-          Dispatch.new!(
+          JidoActionTest.FlowComponent.dispatch!(
             name: "next",
             decision: Request,
             expander: BatchedNext,
@@ -357,7 +389,7 @@ defmodule JidoActionTest.Exec.EffectsTest do
 
   test "Map retains original input after a collected error in its first item" do
     component =
-      FlowMap.new!(
+      JidoActionTest.FlowComponent.map!(
         name: "map",
         collection: Ref.input(:items),
         action: Request,
@@ -366,7 +398,7 @@ defmodule JidoActionTest.Exec.EffectsTest do
       )
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "map_input",
         components: [component, step("after", %{label: Ref.input(:label)}, ["map"])],
         output: %{items: Ref.result("map"), final: Ref.result("after")}
@@ -395,7 +427,7 @@ defmodule JidoActionTest.Exec.EffectsTest do
   end
 
   test "collection failure and iteration exhaustion return no earlier effects" do
-    for module <- [FlowMap, Reduce] do
+    for kind <- [:map, :reduce] do
       options = [
         name: "work",
         collection: [%{label: :first}, %{label: :bad, fail: true}],
@@ -403,12 +435,13 @@ defmodule JidoActionTest.Exec.EffectsTest do
         params: Ref.item()
       ]
 
-      options = if module == Reduce, do: Keyword.put(options, :initial, %{}), else: options
+      options = if kind == :reduce, do: Keyword.put(options, :initial, %{}), else: options
+      component = apply(JidoActionTest.FlowComponent, :"#{kind}!", [options])
 
       flow =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "failed_collection",
-          components: [module.new!(options)],
+          components: [component],
           output: %{result: Ref.result("work")}
         )
 
@@ -455,9 +488,9 @@ defmodule JidoActionTest.Exec.EffectsTest do
 
   test "output envelopes remain output, separate from effects" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "raw",
-        components: [Step.new!(name: "raw", action: RawOutput)],
+        components: [JidoActionTest.FlowComponent.step!(name: "raw", action: RawOutput)],
         output: Ref.result("raw")
       )
 
@@ -476,7 +509,7 @@ defmodule JidoActionTest.Exec.EffectsTest do
 
   test "a later failure returns no partial effect batch in all execution modes" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "failed",
         components: [
           step("first", %{label: :first}),
@@ -494,7 +527,7 @@ defmodule JidoActionTest.Exec.EffectsTest do
       ref = make_ref()
 
       flow =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "blocked",
           components: [
             step("first", %{label: :deferred}),
@@ -521,7 +554,7 @@ defmodule JidoActionTest.Exec.EffectsTest do
   end
 
   defp one do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "one",
       components: [step("request", Ref.input([]))],
       output: Ref.result("request")
@@ -529,7 +562,7 @@ defmodule JidoActionTest.Exec.EffectsTest do
   end
 
   defp three do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "three",
       components: [
         step("z_first", %{label: :first}),
@@ -541,24 +574,34 @@ defmodule JidoActionTest.Exec.EffectsTest do
   end
 
   defp mapped(params) do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "map_effects",
       components: [
-        FlowMap.new!(name: "map", collection: [:a, :b], action: Request, params: params)
+        JidoActionTest.FlowComponent.map!(
+          name: "map",
+          collection: [:a, :b],
+          action: Request,
+          params: params
+        )
       ],
       output: %{items: Ref.result("map")}
     )
   end
 
   defp iterated(count) do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "iterate_effects",
       components: [
-        Iterate.new!(
+        JidoActionTest.FlowComponent.iterate!(
           name: "loop",
           action: Request,
           params: %{label: Ref.iteration_index()},
-          state: Iterate.State.new!(schema: Zoi.object(%{}), initial: %{}, update: %{}),
+          state:
+            JidoActionTest.FlowComponent.state!(
+              schema: Zoi.object(%{}),
+              initial: %{},
+              update: %{}
+            ),
           completion: Jido.Expr.new!(:>=, [Ref.iteration_index(), count]),
           max_iterations: 3
         )
@@ -568,11 +611,11 @@ defmodule JidoActionTest.Exec.EffectsTest do
   end
 
   defp dispatched(expander) do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "dispatch_effects",
       components: [
         step("first", %{label: :first}),
-        Dispatch.new!(
+        JidoActionTest.FlowComponent.dispatch!(
           name: "dispatch",
           decision: Request,
           expander: expander,
@@ -585,7 +628,7 @@ defmodule JidoActionTest.Exec.EffectsTest do
   end
 
   defp step(name, params, needs \\ []) do
-    Step.new!(name: name, action: Request, params: params, needs: needs)
+    JidoActionTest.FlowComponent.step!(name: name, action: Request, params: params, needs: needs)
   end
 
   defp assert_modes(flow, input, expected) do

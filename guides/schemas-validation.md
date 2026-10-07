@@ -115,6 +115,6 @@ value to the error details.
 
 ## Test Both Boundaries
 
-Test constructors and generated validation functions for data rules. Then use
-`Jido.Exec.run/4` to test the complete execution boundary. Constructor
+Test map definitions and generated validation functions for data rules. Then
+use `Jido.Exec.run/4` to test the complete execution boundary. Flow definition
 validation is inert. It never calls an Action.

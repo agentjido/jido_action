@@ -4,8 +4,8 @@ defmodule JidoActionTest.Property.Instruction.TargetContractTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
   @moduletag :property
-  alias Jido.{Flow, Instruction}
-  alias Jido.Flow.{Ref, Step}
+  alias Jido.Instruction
+  alias Jido.Flow.Ref
   alias JidoActionTest.Property.Runtime
 
   defmodule Child do
@@ -31,9 +31,15 @@ defmodule JidoActionTest.Property.Instruction.TargetContractTest do
   property "resolution preserves exact target kind and contains unsupported targets without work" do
     check all(value <- integer(), max_runs: 40) do
       flow =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "target",
-          components: [Step.new!(name: "work", action: Runtime.Emit, params: %{value: value})],
+          components: [
+            JidoActionTest.FlowComponent.step!(
+              name: "work",
+              action: Runtime.Emit,
+              params: %{value: value}
+            )
+          ],
           output: Ref.result("work")
         )
 

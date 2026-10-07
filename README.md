@@ -42,7 +42,7 @@ This foundation keeps the action boundary small:
 - `Jido.Action.Inline` lets host DSLs compile inline bodies to normal Actions.
 - `Jido.Expr` defines fixed, data-only operations for Flow and host DSLs.
 - `Jido.Instruction` resolves one Action or Flow target and captures its call data.
-- `Jido.Flow` composes actions as a validated graph with steps and Choices.
+- `Jido.Flow` composes actions as a validated graph of tagged nodes.
 - `Jido.Flow.Extension` adds compile-time macros that lower to the normal Flow DSL.
 - `Jido.Exec.Invocation` defines the optional Action receipt host protocol.
 - `Jido.Exec` runs actions, instructions, and Flows, including asynchronous
@@ -351,7 +351,11 @@ data = %{
 {:ok, %{greeting: "Hello, Ada."}} = Jido.Exec.run(runtime_flow, %{name: "Ada"})
 ```
 
-The data definitions and the Flow module DSL produce the same canonical Flow model.
+The data definitions and the Flow module DSL produce the same canonical Flow
+model. The authoring list becomes a map keyed by component name. Call nodes
+keep an inert `Jido.Instruction` template and the parameter expression in one
+tuple. Exec binds evaluated params, context, and runtime location data before
+it invokes the target.
 
 ## Load A Flow From JSON Or A Map
 
@@ -400,9 +404,9 @@ Use `Jido.Flow.Codec.diagnose/2` for a browser or AI editor that needs all
 independent stored-document and graph errors. It returns one ordered Splode
 error group with JSON paths and never returns a partial Flow.
 
-The Flow module DSL, data definitions, stored JSON Codec, and direct constructors produce
-one canonical `%Jido.Flow{}` model. The Codec uses explicit component kinds.
-It does not infer old records or module names.
+The Flow module DSL, map definitions, and stored JSON Codec produce one
+canonical `%Jido.Flow{}` model. The Codec uses explicit component kinds. It
+does not infer old records or module names.
 
 ## Run A Flow Step By Step
 

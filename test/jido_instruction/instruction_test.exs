@@ -4,7 +4,143 @@ defmodule JidoActionTest.InstructionTest do
   alias Jido.Instruction
   alias JidoActionTest.Fixtures.MathFlow
 
-  alias JidoActionTest.Fixtures.Actions.{Add, BasicAction}
+  alias JidoActionTest.Fixtures.Actions.{Add, BasicAction, MissingRun}
+
+  describe "template/3" do
+    test "creates an inert module template without loading the target" do
+      target = Module.concat(__MODULE__, "NotLoaded#{System.unique_integer([:positive])}")
+
+      assert :code.is_loaded(target) == false
+
+      assert %Instruction{
+               kind: :action,
+               target: ^target,
+               params: %{},
+               context: %{},
+               metadata: %{source: :stored}
+             } = Instruction.template(:action, target, %{source: :stored})
+
+      assert :code.is_loaded(target) == false
+    end
+
+    test "requires a declared kind, module atom, and metadata map" do
+      assert_raise ArgumentError, ~r/kind/, fn ->
+        apply(Instruction, :template, [:worker, BasicAction])
+      end
+
+      assert_raise ArgumentError, ~r/module atom/, fn ->
+        apply(Instruction, :template, [:action, "Elixir.MyApp.Action"])
+      end
+
+      assert_raise ArgumentError, ~r/metadata/, fn ->
+        apply(Instruction, :template, [:action, BasicAction, [source: :stored]])
+      end
+    end
+  end
+
+  describe "bind/4" do
+    test "binds and validates an Action template" do
+      template =
+        Instruction.template(:action, BasicAction, %{
+          jido_flow: %{source: :authored},
+          retained: true
+        })
+
+      assert {:ok, instruction} =
+               Instruction.bind(
+                 template,
+                 %{value: 42},
+                 %{tenant: "acme"},
+                 %{jido_flow: %{occurrence: "one"}, runtime: true}
+               )
+
+      assert instruction == %Instruction{
+               kind: :action,
+               target: BasicAction,
+               params: %{value: 42},
+               context: %{tenant: "acme"},
+               metadata: %{
+                 jido_flow: %{occurrence: "one"},
+                 retained: true,
+                 runtime: true
+               }
+             }
+    end
+
+    test "binds and validates a Flow template" do
+      template = Instruction.template(:flow, MathFlow)
+
+      assert {:ok,
+              %Instruction{
+                kind: :flow,
+                target: MathFlow,
+                params: %{value: 2},
+                context: %{},
+                metadata: %{}
+              }} = Instruction.bind(template, %{value: 2}, %{})
+    end
+
+    test "confirms the declared target kind" do
+      template = Instruction.template(:flow, BasicAction)
+
+      assert {:error,
+              %Jido.Action.Error.ConfigurationError{
+                details: %{
+                  declared: :flow,
+                  actual: :action,
+                  reason: :target_kind_changed
+                }
+              }} = Instruction.bind(template, %{}, %{})
+    end
+
+    test "validates the executable callbacks" do
+      template = Instruction.template(:action, MissingRun)
+
+      assert {:error,
+              %Jido.Action.Error.InvalidInputError{
+                details: %{target: MissingRun, reason: "missing run/2"}
+              }} = Instruction.bind(template, %{}, %{})
+    end
+
+    test "keeps raw parameters for target input validation" do
+      template = Instruction.template(:action, BasicAction)
+
+      for params <- [[value: 1], nil, 123] do
+        assert {:ok, %Instruction{params: ^params}} =
+                 Instruction.bind(template, params, %{})
+      end
+    end
+
+    test "requires map context and metadata" do
+      template = Instruction.template(:action, BasicAction)
+
+      for {context, metadata, field} <- [
+            {[tenant: "acme"], %{}, :context},
+            {%{}, [source: :runtime], :metadata}
+          ] do
+        assert {:error,
+                %Jido.Action.Error.InvalidInputError{
+                  details: %{field: ^field, reason: :invalid_binding_data}
+                }} = Instruction.bind(template, %{}, context, metadata)
+      end
+    end
+
+    test "rejects bound or malformed template values" do
+      for {template, reason} <- [
+            {%Instruction{kind: nil, target: BasicAction}, :invalid_kind},
+            {%Instruction{kind: :action, target: "BasicAction"}, :invalid_target},
+            {%Instruction{kind: :action, target: BasicAction, params: %{value: 1}},
+             :bound_params},
+            {%Instruction{kind: :action, target: BasicAction, context: %{tenant: "acme"}},
+             :bound_context}
+          ] do
+        assert {:error,
+                %Jido.Action.Error.InvalidInputError{
+                  details: %{reason: ^reason}
+                }} = Instruction.bind(template, %{}, %{})
+      end
+    end
+  end
 
   describe "new/1" do
     test "exposes the resolved kind and four call-data fields" do

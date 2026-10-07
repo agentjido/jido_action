@@ -1,7 +1,7 @@
 # Dynamic Flows
 
 A dynamic Flow can select the next Action or Flow from runtime data. Use a
-terminal `Jido.Flow.Dispatch` when the current Flow must make that selection.
+terminal `dispatch` component when the current Flow must make that selection.
 
 Dispatch does not add a node to a running graph or change the current graph.
 It completes the current Flow, then its expander can continue the same
@@ -145,7 +145,7 @@ so one Exec call owns the complete chain.
 
 ## Define Dispatch With Data
 
-All Flow authoring forms produce the same canonical Dispatch value.
+All Flow authoring forms produce the same canonical Dispatch node.
 
 ```elixir
 {:ok, flow} =
@@ -164,8 +164,8 @@ All Flow authoring forms produce the same canonical Dispatch value.
   })
 ```
 
-Use `Jido.Flow.Dispatch.new/1` for direct canonical construction. Use
-`Jido.Flow.Codec` and a trusted Registry when stored JSON defines the Flow.
+Use `Jido.Flow.new/1` for map definitions. Use `Jido.Flow.Codec` and a trusted
+Registry when stored JSON defines the Flow.
 
 ## Build A Bounded Loop
 

@@ -1,17 +1,19 @@
 defmodule JidoActionTest.Exec.RunnableCaptureTest do
   use ExUnit.Case, async: true
 
-  alias Jido.{Exec, Flow}
-  alias Jido.Flow.{Ref, Step}
+  alias Jido.Exec
+  alias Jido.Flow.{Ref}
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
 
   test "run context does not duplicate input carried by native facts" do
     sizes =
       for input <- [%{}, %{unused: Enum.to_list(1..10_000)}] do
         flow =
-          Flow.new!(
+          JidoActionTest.FlowBuilder.new!(
             name: "input_context_capture",
-            components: [Step.new!(name: "echo", action: EchoParamsAction)],
+            components: [
+              JidoActionTest.FlowComponent.step!(name: "echo", action: EchoParamsAction)
+            ],
             output: Ref.result("echo")
           )
 
@@ -26,15 +28,23 @@ defmodule JidoActionTest.Exec.RunnableCaptureTest do
   end
 
   test "concurrent workers do not copy unrelated Flow data or execution indexes" do
-    retained = Enum.to_list(1..100_000)
+    retained = Enum.to_list(1..90_000)
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "worker_capture",
         components: [
-          Step.new!(name: "a", action: EchoParamsAction, params: %{value: "a"}),
-          Step.new!(name: "b", action: EchoParamsAction, params: %{value: "b"}),
-          Step.new!(
+          JidoActionTest.FlowComponent.step!(
+            name: "a",
+            action: EchoParamsAction,
+            params: %{value: "a"}
+          ),
+          JidoActionTest.FlowComponent.step!(
+            name: "b",
+            action: EchoParamsAction,
+            params: %{value: "b"}
+          ),
+          JidoActionTest.FlowComponent.step!(
             name: "later",
             action: EchoParamsAction,
             needs: ["a", "b"],

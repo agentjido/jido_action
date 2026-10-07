@@ -4,8 +4,8 @@ Code.require_file("../support/fuzz.exs", __DIR__)
 defmodule JidoActionTest.Property.Flow.NestedFailureFuzzTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
-  alias Jido.{Exec, Flow}
-  alias Jido.Flow.{Choice, Ref, Subflow}
+  alias Jido.Exec
+  alias Jido.Flow.Ref
   alias JidoActionTest.Property.{Fuzz, Runtime}
 
   defmodule Work do
@@ -150,22 +150,26 @@ defmodule JidoActionTest.Property.Flow.NestedFailureFuzzTest do
       end
 
     choice =
-      Choice.new!(
+      JidoActionTest.FlowComponent.choice!(
         name: "route",
         options: [
-          Choice.Option.new!(
+          JidoActionTest.FlowComponent.option!(
             name: "first",
             condition: sample["first"],
             action: Runtime.Emit,
             params: %{value: :first}
           )
         ],
-        fallback: Choice.Fallback.new!(action: Runtime.Emit, params: %{value: :fallback})
+        fallback:
+          JidoActionTest.FlowComponent.fallback!(
+            action: Runtime.Emit,
+            params: %{value: :fallback}
+          )
       )
 
     components =
       for group <- 1..groups do
-        Subflow.new!(
+        JidoActionTest.FlowComponent.subflow!(
           name: "child_#{group}",
           flow: child,
           params: %{items: items, group: group},
@@ -174,7 +178,7 @@ defmodule JidoActionTest.Property.Flow.NestedFailureFuzzTest do
       end
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "nested_failures",
         components: [choice | components],
         output: Map.new(1..groups, &{"child_#{&1}", Ref.result("child_#{&1}")})

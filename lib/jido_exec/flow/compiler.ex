@@ -3,9 +3,7 @@ defmodule Jido.Exec.Flow.Compiler do
 
   alias Jido.Exec.Transition
   alias Jido.Flow
-  alias Jido.Flow.Choice
   alias Jido.Exec.Flow.Compiled
-  alias Jido.Flow.Dispatch
   alias Jido.Flow.Error
   alias Jido.Exec.Flow.Choice, as: ChoiceRuntime
   alias Jido.Exec.Flow.Collection
@@ -16,15 +14,9 @@ defmodule Jido.Exec.Flow.Compiler do
   alias Jido.Exec.Flow.Compiler.SourceMap
   alias Jido.Exec.Flow.Target
   alias Jido.Exec.Flow.Validator
-  alias Jido.Flow.Component
+  alias Jido.Flow.Definition
   alias Jido.Flow.Graph
-  alias Jido.Flow.Identity
-  alias Jido.Flow.Iterate
-  alias Jido.Flow.Map, as: FlowMap
-  alias Jido.Flow.Reduce, as: FlowReduce
-  alias Jido.Flow.Step, as: FlowStep
-  alias Jido.Flow.Subflow
-  alias Jido.Flow.Validation
+  alias Jido.Flow.Identity, as: SemanticIdentity
   alias Runic.Workflow
 
   alias Runic.Workflow.{
@@ -66,9 +58,7 @@ defmodule Jido.Exec.Flow.Compiler do
           {:ok, Flow.t(), Compiled.t()} | {:error, Exception.t()}
   def prepare(%Flow{} = flow, opts, module_stack) when is_list(module_stack) do
     with {:ok, source_map} <- SourceMap.prepare(opts, module_stack),
-         {:ok, attrs, subflows} <-
-           Validation.prepare_executable(Map.from_struct(flow), module_stack),
-         flow = struct!(Flow, attrs),
+         {:ok, flow, subflows} <- Validator.prepare(flow, module_stack),
          {:ok, compiled} <- compile_prepared(flow, source_map, subflows) do
       {:ok, flow, compiled}
     end
@@ -119,7 +109,7 @@ defmodule Jido.Exec.Flow.Compiler do
     ordered_components = Graph.canonical_components(flow.components)
 
     initial = %{
-      semantic_digest: Identity.semantic_digest(flow, ordered_components),
+      semantic_digest: SemanticIdentity.semantic_digest(flow, ordered_components),
       workflow: workflow,
       flow: flow,
       namespace: namespace,
@@ -132,18 +122,23 @@ defmodule Jido.Exec.Flow.Compiler do
       subflows: subflows
     }
 
-    Enum.reduce(ordered_components, initial, fn component, state ->
-      next = add_component(%{component | meta: %{}}, state)
+    Enum.reduce(ordered_components, initial, fn {name, node}, state ->
+      component = node |> Map.put(:name, name) |> Map.put(:meta, %{})
+      next = add_component(component, state)
 
       update_in(
-        next.component_index[component.name],
+        next.component_index[name],
         &Map.put(&1, :effect_order, map_size(state.component_index))
       )
     end)
   end
 
-  defp add_component(%FlowStep{} = component, state) do
+  defp add_component(
+         %{kind: :call, call: {%Jido.Instruction{kind: :action}, _params}} = component,
+         state
+       ) do
     namespace = state.namespace
+    {_instruction, params} = component.call
 
     step =
       runtime_step(state, component.name, :step, fn parent, runtime ->
@@ -151,7 +146,7 @@ defmodule Jido.Exec.Flow.Compiler do
 
         local
         |> resolve_and_run(
-          component.params,
+          params,
           Target.at(Target.step(component), namespace)
         )
         |> wrap_result()
@@ -160,7 +155,7 @@ defmodule Jido.Exec.Flow.Compiler do
     add_authored_output(state, component, step, step)
   end
 
-  defp add_component(%Choice{} = component, state) do
+  defp add_component(%{kind: :choice} = component, state) do
     namespace = state.namespace
 
     step =
@@ -174,7 +169,7 @@ defmodule Jido.Exec.Flow.Compiler do
     add_authored_output(state, component, step, step)
   end
 
-  defp add_component(%Iterate{} = component, state) do
+  defp add_component(%{kind: :iterate} = component, state) do
     namespace = state.namespace
 
     step =
@@ -188,7 +183,7 @@ defmodule Jido.Exec.Flow.Compiler do
     add_authored_output(state, component, step, step)
   end
 
-  defp add_component(%Dispatch{} = component, state) do
+  defp add_component(%{kind: :dispatch} = component, state) do
     step =
       runtime_step(state, component.name, :dispatch, fn parent, runtime ->
         local = component_state(component, parent, runtime)
@@ -198,9 +193,14 @@ defmodule Jido.Exec.Flow.Compiler do
     add_authored_output(state, component, step, step)
   end
 
-  defp add_component(%FlowMap{} = component, state), do: add_map(component, state)
-  defp add_component(%FlowReduce{} = component, state), do: add_reduce(component, state)
-  defp add_component(%Subflow{} = component, state), do: add_subflow(component, state)
+  defp add_component(%{kind: :map} = component, state), do: add_map(component, state)
+  defp add_component(%{kind: :reduce} = component, state), do: add_reduce(component, state)
+
+  defp add_component(
+         %{kind: :call, call: {%Jido.Instruction{kind: :flow}, _params}} = component,
+         state
+       ),
+       do: add_subflow(component, state)
 
   defp add_authored_output(state, component, native_component, output_node) do
     workflow = add_with_dependencies(state, component, native_component)
@@ -213,7 +213,7 @@ defmodule Jido.Exec.Flow.Compiler do
         outputs: Map.put(state.outputs, component.name, output_node),
         component_index:
           Map.put(state.component_index, component.name, %{
-            kind: Component.kind(component),
+            kind: component_kind(component),
             component: native_component,
             output: output_name,
             output_port: :out
@@ -406,20 +406,22 @@ defmodule Jido.Exec.Flow.Compiler do
   end
 
   defp add_subflow(subflow, state) do
-    child_flow = Map.fetch!(state.subflows, subflow.flow)
-    child_source_map = child_source_map(subflow.flow)
+    {instruction, params} = subflow.call
+    flow_module = instruction.target
+    child_flow = Map.fetch!(state.subflows, flow_module)
+    child_source_map = child_source_map(flow_module)
     child_namespace = state.namespace ++ [subflow.name]
     params_name = support_name(state, subflow.name, "subflow-input")
 
     params_step =
       runtime_step_named(params_name, state, :subflow_input, fn parent, runtime ->
         local = component_state(subflow, parent, runtime)
-        params = ValueResolver.resolve(subflow.params, local) |> unwrap_ok!()
-        {:jido_flow_input, params, local.input_frame}
+        resolved_params = ValueResolver.resolve(params, local) |> unwrap_ok!()
+        {:jido_flow_input, resolved_params, local.input_frame}
       end)
 
     workflow = add_with_dependencies(state, subflow, params_step)
-    input_validator = child_input_validator(subflow, child_namespace)
+    input_validator = child_input_validator(subflow, flow_module, child_namespace)
 
     child_state =
       compile_flow(
@@ -430,7 +432,7 @@ defmodule Jido.Exec.Flow.Compiler do
         state.subflows
       )
 
-    child_output = child_output_step(subflow, child_state)
+    child_output = child_output_step(subflow, flow_module, child_state)
 
     child_workflow =
       Workflow.add(child_state.workflow, child_output, to: child_output_parents(child_state))
@@ -489,12 +491,12 @@ defmodule Jido.Exec.Flow.Compiler do
     }
   end
 
-  defp child_input_validator(subflow, namespace) do
+  defp child_input_validator(subflow, flow_module, namespace) do
     data_step(
       name: scoped(namespace, "$input"),
       hash: stable_hash({namespace, :input_validator}),
       work: fn {:jido_flow_input, params, parent} ->
-        case Validator.callback(subflow.flow, :validate_params, params) do
+        case Validator.callback(flow_module, :validate_params, params) do
           {:ok, validated} when is_map(validated) ->
             {:jido_flow_input, validated, parent}
 
@@ -504,13 +506,13 @@ defmodule Jido.Exec.Flow.Compiler do
                   })
 
           {:error, error} ->
-            raise flow_boundary_error(error, subflow, :subflow_input, namespace)
+            raise flow_boundary_error(error, subflow, flow_module, :subflow_input, namespace)
         end
       end
     )
   end
 
-  defp child_output_step(subflow, child_state) do
+  defp child_output_step(subflow, flow_module, child_state) do
     namespace = child_state.namespace
     output = child_state.flow.output
 
@@ -530,14 +532,14 @@ defmodule Jido.Exec.Flow.Compiler do
           |> unwrap_ok!()
 
         validated =
-          with {:ok, output} <- Validator.output_shape(subflow.flow, output, :run),
-               {:ok, output} <- Validator.callback(subflow.flow, :validate_output, output),
+          with {:ok, output} <- Validator.output_shape(flow_module, output, :run),
+               {:ok, output} <- Validator.callback(flow_module, :validate_output, output),
                {:ok, output} <-
-                 Validator.output_shape(subflow.flow, output, :output_schema) do
+                 Validator.output_shape(flow_module, output, :output_schema) do
             output
           else
             {:error, error} ->
-              raise flow_boundary_error(error, subflow, :subflow_output, namespace)
+              raise flow_boundary_error(error, subflow, flow_module, :subflow_output, namespace)
           end
 
         {:jido_flow_input, _input, parent_input} = local.input_frame
@@ -582,7 +584,7 @@ defmodule Jido.Exec.Flow.Compiler do
   end
 
   defp add_with_dependencies(state, component, native_component) do
-    dependencies = Component.effective_dependencies(component)
+    dependencies = Definition.effective_dependencies(component)
 
     parents =
       case dependencies do
@@ -610,7 +612,7 @@ defmodule Jido.Exec.Flow.Compiler do
 
   defp index_work(state, component, nodes) do
     path = state.namespace ++ [component.name]
-    kind = Component.kind(component)
+    kind = component_kind(component)
 
     index =
       Enum.reduce(nodes, state.work_index, fn {node, role}, index ->
@@ -618,11 +620,11 @@ defmodule Jido.Exec.Flow.Compiler do
 
         metadata =
           case component do
-            %FlowMap{action: action, on_error: policy} ->
-              Map.merge(metadata, %{action: action, on_error: policy})
+            %{kind: :map, call: {instruction, _params}, on_error: policy} ->
+              Map.merge(metadata, %{action: instruction.target, on_error: policy})
 
-            %Jido.Flow.Step{action: action} ->
-              Map.put(metadata, :action, action)
+            %{kind: :call, call: {%Jido.Instruction{kind: :action} = instruction, _params}} ->
+              Map.put(metadata, :action, instruction.target)
 
             _ ->
               metadata
@@ -660,8 +662,8 @@ defmodule Jido.Exec.Flow.Compiler do
   end
 
   defp component_state(component, parent, runtime) do
-    dependencies = Component.effective_dependencies(component)
-    references = Component.reference_dependencies(component)
+    dependencies = Definition.effective_dependencies(component)
+    references = Definition.reference_dependencies(component)
     dependency_state(dependencies, references, parent, runtime)
   end
 
@@ -706,7 +708,9 @@ defmodule Jido.Exec.Flow.Compiler do
   end
 
   defp run_dispatch(dispatch, state) do
-    with {:ok, params} <- ValueResolver.resolve(dispatch.params, state),
+    {_decision, params} = dispatch.decision
+
+    with {:ok, params} <- ValueResolver.resolve(params, state),
          {:ok, decision, decision_effects} <-
            Target.run(
              Target.at(Target.dispatch(dispatch, :decision), []),
@@ -770,7 +774,7 @@ defmodule Jido.Exec.Flow.Compiler do
   defp stable_hash(value), do: Components.fact_hash({:jido_flow, @compiler_version, value})
 
   defp digest(value) do
-    Identity.hash_term(value)
+    Jido.Exec.Flow.Identity.hash_term(value)
     |> Base.encode16(case: :lower)
   end
 
@@ -786,12 +790,20 @@ defmodule Jido.Exec.Flow.Compiler do
     end
   end
 
-  defp flow_boundary_error(error, subflow, phase, namespace) do
+  defp flow_boundary_error(error, subflow, flow_module, phase, namespace) do
     Error.wrap(error, %{
       component: subflow.name,
       node_path: namespace,
-      flow: subflow.flow,
+      flow: flow_module,
       phase: phase
     })
   end
+
+  defp component_kind(%{kind: :call, call: {%Jido.Instruction{kind: :action}, _params}}),
+    do: :step
+
+  defp component_kind(%{kind: :call, call: {%Jido.Instruction{kind: :flow}, _params}}),
+    do: :subflow
+
+  defp component_kind(%{kind: kind}), do: kind
 end

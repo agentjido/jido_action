@@ -1,8 +1,5 @@
 defmodule JidoActionTest.Fixtures.FlowAuthoring do
   @moduledoc false
-  alias Jido.Flow
-  alias Jido.Flow.{Choice, Iterate, Reduce, Ref, Step, Subflow}
-  alias Jido.Flow.Map, as: FlowMap
   alias JidoActionTest.Fixtures.NestedFlow
   alias JidoActionTest.Fixtures.Actions.{Add, Multiply}
 
@@ -29,73 +26,12 @@ defmodule JidoActionTest.Fixtures.FlowAuthoring do
   end
 
   def math_flow! do
-    {:ok, flow} = Jido.Flow.new(math_data())
+    {:ok, flow} = JidoActionTest.FlowBuilder.new(math_data())
     flow
   end
 
   def mixed_flow! do
-    Flow.new!(
-      name: "canonical_mixed_flow",
-      description: "All canonical authoring forms",
-      components: [
-        Step.new!(
-          name: "load",
-          action: Add,
-          params: %{value: Ref.input(:value), amount: 1},
-          meta: %{owner: "parity"}
-        ),
-        Subflow.new!(
-          name: "child",
-          flow: NestedFlow,
-          params: %{value: Ref.result("load", :value)},
-          needs: ["load"]
-        ),
-        Choice.new!(
-          name: "route",
-          options: [
-            Choice.Option.new!(
-              name: "add",
-              condition: Jido.Expr.new!(:==, [Ref.input(:kind), :add]),
-              action: Add,
-              params: %{value: Ref.result("child", :value), amount: 1}
-            )
-          ],
-          fallback:
-            Choice.Fallback.new!(
-              action: Multiply,
-              params: %{value: Ref.result("child", :value), amount: 2}
-            )
-        ),
-        FlowMap.new!(
-          name: "mapped",
-          collection: Ref.input(:items),
-          action: Add,
-          params: %{value: Ref.item(:value), amount: 1},
-          on_error: :collect_errors
-        ),
-        Reduce.new!(
-          name: "reduced",
-          collection: Ref.result("mapped"),
-          initial: %{value: 1},
-          action: Multiply,
-          params: %{value: Ref.accumulator(:value), amount: Ref.item(:value)}
-        ),
-        Iterate.new!(
-          name: "loop",
-          action: Add,
-          params: %{value: Ref.state(:count), amount: 1},
-          state:
-            Iterate.State.new!(
-              schema: [],
-              initial: %{count: 0},
-              update: %{count: Ref.body_result(:value)}
-            ),
-          completion: Jido.Expr.new!(:>=, [Ref.iteration_index(), 2]),
-          max_iterations: 2
-        )
-      ],
-      output: Ref.result("loop")
-    )
+    JidoActionTest.FlowBuilder.new!(mixed_data())
   end
 
   def mixed_data do

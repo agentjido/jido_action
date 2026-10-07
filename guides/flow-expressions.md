@@ -98,7 +98,7 @@ path does not create or select an atom key.
 ## Data Definitions And Direct Construction
 
 Use `Jido.Expr.new!/2` for runtime operator data. Its non-raising `new/2`
-checks the operator and arity. Flow constructors then validate the complete
+checks the operator and arity. Flow definitions then validate the complete
 expression and its reference scopes.
 
 The standalone `expr/1` macro uses the same operation syntax. Insert a
@@ -140,7 +140,7 @@ eligible = Jido.Expr.new!(:>=, [Ref.input(:score), 10])
 The V3 beta no longer provides `Jido.Flow.Condition` or accepts its records.
 Replace its constructors with `Jido.Expr.new/2` or `Jido.Expr.new!/2`.
 Use `Jido.Expr` for comparison and Boolean operations.
-Expr construction checks the operator and arity; Flow constructors validate
+Expr construction checks the operator and arity; Flow definitions validate
 the full expression, portable values, and reference scope. Do not use
 `Jido.Expr.validate/2` as a replacement for Flow-specific validation.
 

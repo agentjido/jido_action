@@ -3,8 +3,7 @@ defmodule JidoActionTest.Exec.AsyncMessageTest do
 
   alias Jido.Exec
   alias Jido.Exec.Error
-  alias Jido.Flow
-  alias Jido.Flow.{Dispatch, Ref}
+  alias Jido.Flow.{Ref}
   alias JidoActionTest.Fixtures.Actions.Add
   alias JidoActionTest.Fixtures.Execution.BlockingAction
   alias JidoActionTest.Fixtures.MathFlow
@@ -122,10 +121,10 @@ defmodule JidoActionTest.Exec.AsyncMessageTest do
   end
 
   defp continuation_flow do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "async_message_dispatch_flow",
       components: [
-        Dispatch.new!(
+        JidoActionTest.FlowComponent.dispatch!(
           name: "next",
           decision: DispatchDecision,
           expander: DispatchExpander,

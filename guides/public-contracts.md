@@ -43,7 +43,7 @@ Primary property evidence is in `test/property/action/` and
 | ACT-002 | Callback exceptions, throws, exits, invalid returns, and returned errors become structured public errors. | Each failure form through direct, serial Flow, and concurrent Flow calls; original reason or exception and original callback stack frame where applicable. |
 | ACT-003 | Normal output validation runs after the callback. | Invalid output through Action and Flow calls; one callback and a structured error without effects. |
 | ACT-004 | Intentional non-map success uses an Output envelope; effect requests are proper lists. | Raw, batch, opaque, and lazy stream envelopes; unwrapped scalar rejection; malformed lists rejected; empty effects normalized; duplicate requests retained. |
-| ACT-005 | An inline Step becomes an ordinary Action and retains its owner's lexical helpers. | Generated values through the Flow, extracted Action, and direct constructor; equal results; unknown Step name rejected. |
+| ACT-005 | An inline Step becomes an ordinary Action and retains its owner's lexical helpers. | Generated values through the Flow, extracted Action, and direct Action execution; equal results; unknown Step name rejected. |
 | TARGET-001 | Resolution preserves the exact supported target and kind and rejects invalid descriptors. | Action, Flow module, and Flow value; wrong descriptor owner; unsupported scalar, map, function, and module targets. |
 | INS-001 | An Instruction carries call data and uses shallow params/context overrides without turning metadata into policy. | Map and keyword construction; Action and Flow-value execution; nested replacements; false-value preservation; metadata unchanged; nil maps; invalid maps and removed fields rejected. |
 | ERROR-001 | Error maps preserve documented type, details, and retry policy while omitting top-level stacktraces. | All Action constructor types; map/keyword details; error tuple wrappers; retry allowed only for execution/timeout errors; unsupported maps cannot select a type or retry. |
@@ -64,7 +64,7 @@ remains in `test/authoring/` and `test/jido_flow/`.
 
 | ID | Public promise | Forced property cases and oracle |
 | --- | --- | --- |
-| FLOW-001 | Equivalent DSL, data definitions, direct constructors, and Codec data produce the same canonical Flow. | DSL, maps, component constructors, and Codec for Step graphs; canonical equality plus an independent arithmetic result; extracted inline Action parity. |
+| FLOW-001 | Equivalent DSL, map definitions, and Codec data produce the same canonical Flow. | DSL, tagged maps, and Codec for Step graphs; canonical equality plus an independent arithmetic result; extracted inline Action parity. |
 | FLOW-002 | References and needs create dependencies; source order does not. | Chain, diamond, disconnected, fan-in, and fan-out shapes; references-only, needs-only, and combined edges; reversed declarations; prerequisite callbacks precede dependent callbacks. |
 | FLOW-003 | Invalid graph definitions return structured validation errors. | Duplicate names, unknown needs, cycles, and nil output through data forms; invalid execution starts no work. |
 | FLOW-004 | Validation and inspection do not run Action work. | Valid/invalid structure, executable validation, invalid target contracts, dependencies, explanation, identity, compilation, Codec decode and diagnosis. |
@@ -179,7 +179,7 @@ an expected result and a generator that can reduce a failure.
 
 | Case and status | Contract IDs | Generated variation | Expected result or check |
 | --- | --- | --- | --- |
-| `graph_semantics` — implemented | FLOW-001, FLOW-002, STORE-001, EFFECT-001 | DAG edges, values, declaration order, direct/data definitions/Codec forms, and execution limits | Independent arithmetic and dependency-depth/name models check values and ordered effects; encoding stays stable. This case does not generate DSL source. |
+| `graph_semantics` — implemented | FLOW-001, FLOW-002, STORE-001, EFFECT-001 | DAG edges, values, declaration order, map definitions, Codec forms, and execution limits | Independent arithmetic and dependency-depth/name models check values and ordered effects; encoding stays stable. This case does not generate DSL source. |
 | `mixed_components` — implemented | EXEC-003, EFFECT-001 | Choice, Map, non-associative Reduce, optional Subflow, collection sizes, and execution modes | An independent list calculation checks full, step, wave, and continue results and effects. |
 | `async_schedules` — implemented | EXEC-004, EXEC-006, EFFECT-001, EFFECT-002 | Worker release ranks, concurrency limits, stop positions, success, failure, and cancellation | Ready/release messages check effects, stopped admission, handle reuse, and owned process cleanup. |
 | `codec_mutations` — implemented | FLOW-003, FLOW-004, STORE-002, STORE-003 | Change one known field or boundary in a valid stored document: kind, reference, Registry ID, version, UTF-8, depth, width, or node count | Known-invalid changes return structured errors and start no work. Unknown identifier strings do not become atoms. Use selected mutations with known outcomes, not arbitrary byte changes with guessed outcomes. |

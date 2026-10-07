@@ -5,9 +5,7 @@ defmodule JidoActionTest.Exec.TelemetryTest do
 
   alias Jido.Exec
   alias Jido.Exec.Telemetry
-  alias Jido.Flow
-  alias Jido.Flow.{Iterate, Reduce, Ref, Step}
-  alias Jido.Flow.Map, as: FlowMap
+  alias Jido.Flow.{Ref}
   alias Jido.Instruction
   alias JidoActionTest.Fixtures.{BlockingFlow, MathFlow, TelemetryParentFlow}
   alias JidoActionTest.Fixtures.InlineControlledFlow
@@ -383,11 +381,15 @@ defmodule JidoActionTest.Exec.TelemetryTest do
     attach(@flow_events)
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "stepwise_telemetry",
         components: [
-          Step.new!(name: "first", action: Add, params: %{value: Ref.input(:value)}),
-          Step.new!(
+          JidoActionTest.FlowComponent.step!(
+            name: "first",
+            action: Add,
+            params: %{value: Ref.input(:value)}
+          ),
+          JidoActionTest.FlowComponent.step!(
             name: "second",
             action: Add,
             params: %{value: Ref.result("first", :value)}
@@ -449,23 +451,23 @@ defmodule JidoActionTest.Exec.TelemetryTest do
     attach(@collection_events)
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "collection_telemetry",
         components: [
-          FlowMap.new!(
+          JidoActionTest.FlowComponent.map!(
             name: "mapped",
             collection: [1, 2],
             action: Add,
             params: %{value: Ref.item(), amount: 1}
           ),
-          Reduce.new!(
+          JidoActionTest.FlowComponent.reduce!(
             name: "total",
             collection: Ref.result("mapped"),
             initial: %{value: 0},
             action: Add,
             params: %{value: Ref.accumulator(:value), amount: Ref.item(:value)}
           ),
-          Iterate.new!(
+          JidoActionTest.FlowComponent.iterate!(
             name: "count",
             action: Add,
             params: %{value: Ref.state(:value), amount: 1},
@@ -528,10 +530,10 @@ defmodule JidoActionTest.Exec.TelemetryTest do
     attach(@collection_events)
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "map_error_telemetry",
         components: [
-          FlowMap.new!(
+          JidoActionTest.FlowComponent.map!(
             name: "mapped",
             collection: [:one],
             action: ErrorAction,
@@ -555,9 +557,11 @@ defmodule JidoActionTest.Exec.TelemetryTest do
   end
 
   defp one_step_flow(action, params \\ %{value: Ref.input(:value)}) do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "native_telemetry_flow",
-      components: [Step.new!(name: "add", action: action, params: params)],
+      components: [
+        JidoActionTest.FlowComponent.step!(name: "add", action: action, params: params)
+      ],
       output: Ref.result("add")
     )
   end

@@ -79,6 +79,12 @@ and `output`.
 The exact component and expression fields are owned by Codec. Do not hand-edit
 a semantic `Jido.Flow.to_map/1` result into a stored document.
 
+Codec keeps the existing version 1 and version 2 component-list format. Decode
+hydrates that list through the same normalizer as `Jido.Flow.new/1`; the
+returned `%Jido.Flow{}` keeps its normalized components in a name-keyed map.
+Encode projects that graph back to the versioned list format. The internal map
+and Instruction templates do not change the stored JSON contract.
+
 ## Document Versions And Operations
 
 The writer uses version 2 for documents with operations and version 1 for

@@ -28,10 +28,27 @@ defmodule Jido.Flow.Registry do
   does not contain the Registry.
   """
 
+  alias Jido.Expr
+  alias Jido.Flow
+  alias Jido.Flow.Definition
   alias Jido.Flow.Error
+  alias Jido.Flow.Ref
 
   @maximum_entries 10_000
   @identifier_pattern ~r/\A[A-Za-z0-9][A-Za-z0-9._\/:@-]{0,254}\z/
+  @generated_kinds [:action, :flow, :schema, :atom]
+  @generated_namespaces %{
+    action: "actions",
+    flow: "flows",
+    schema: "schemas",
+    atom: "atoms"
+  }
+  @tree_options [
+    max_depth: 1_048_576,
+    max_nodes: 1_048_576_000,
+    max_binary_bytes: 1_048_576_000,
+    max_integer_bits: 1_048_576
+  ]
 
   @type stable_id :: String.t()
   @type kind :: :action | :flow | :schema | :atom
@@ -103,9 +120,34 @@ defmodule Jido.Flow.Registry do
   def from_flow(flow) do
     with {:ok, flow} <- Jido.Flow.validate_executable(flow) do
       flow
-      |> Jido.Flow.Registry.Deriver.entries()
+      |> entries()
       |> new()
     end
+  end
+
+  @doc false
+  @spec entries(Flow.t()) :: %{stable_id() => write_entry()}
+  def entries(%Flow{} = flow) do
+    values =
+      empty_generated_values()
+      |> add_generated_value(:schema, flow.schema)
+      |> add_generated_value(:schema, flow.output_schema)
+      |> collect_components(flow.components)
+      |> collect_expression(flow.output)
+
+    @generated_kinds
+    |> Enum.flat_map(fn kind ->
+      values
+      |> Map.fetch!(kind)
+      |> MapSet.to_list()
+      |> Enum.sort_by(&generated_sort_key(kind, &1))
+      |> Enum.with_index(1)
+      |> Enum.map(fn {value, index} ->
+        identifier = "#{Map.fetch!(@generated_namespaces, kind)}/generated-#{index}"
+        {identifier, {kind, value}}
+      end)
+    end)
+    |> Map.new()
   end
 
   @doc "Resolves one identifier of the required kind."
@@ -139,6 +181,71 @@ defmodule Jido.Flow.Registry do
       :error ->
         error("flow registry has no identifier for the required value", %{kind: kind})
     end
+  end
+
+  defp empty_generated_values,
+    do: Map.new(@generated_kinds, &{&1, MapSet.new()})
+
+  defp add_generated_value(values, kind, value),
+    do: Map.update!(values, kind, &MapSet.put(&1, value))
+
+  defp generated_sort_key(kind, value) when kind in [:action, :flow, :atom],
+    do: Atom.to_string(value)
+
+  defp generated_sort_key(:schema, value), do: :erlang.term_to_binary(value)
+
+  defp collect_components(values, components) do
+    Enum.reduce(components, values, fn {_name, node}, values ->
+      collect_component(values, node)
+    end)
+  end
+
+  defp collect_component(values, node) do
+    values =
+      Enum.reduce(Definition.calls(node), values, fn {_role, instruction, _params}, values ->
+        add_generated_value(values, instruction.kind, instruction.target)
+      end)
+
+    values =
+      Enum.reduce(Definition.values(node), values, fn expression, values ->
+        collect_expression(values, expression)
+      end)
+
+    values = collect_expression(values, node.meta)
+
+    case node do
+      %{kind: :iterate, state: %{schema: schema}} -> add_generated_value(values, :schema, schema)
+      _node -> values
+    end
+  end
+
+  defp collect_expression(values, expression) do
+    reducer = fn
+      %Ref{path: path}, _value_path, values ->
+        {:cont, collect_expression(values, path)}
+
+      value, _path, values when is_map(value) and not is_struct(value) ->
+        values =
+          Enum.reduce(Map.keys(value), values, fn key, values ->
+            if is_atom(key) and not is_nil(key) and not is_boolean(key) do
+              add_generated_value(values, :atom, key)
+            else
+              values
+            end
+          end)
+
+        {:cont, values}
+
+      value, _path, values
+      when is_atom(value) and not is_nil(value) and not is_boolean(value) ->
+        {:cont, add_generated_value(values, :atom, value)}
+
+      _value, _path, values ->
+        {:cont, values}
+    end
+
+    {:ok, values} = Expr.reduce(expression, values, reducer, @tree_options)
+    values
   end
 
   defp valid_identifier?(identifier) when is_binary(identifier) do

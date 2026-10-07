@@ -4,8 +4,7 @@ Code.require_file("../support/fuzz.exs", __DIR__)
 defmodule JidoActionTest.Property.Execution.ScheduleContractTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
-  alias Jido.{Exec, Flow}
-  alias Jido.Flow.Step
+  alias Jido.Exec
   alias JidoActionTest.Property.{Fuzz, Runtime}
   @ready_timeout 5_000
 
@@ -169,7 +168,7 @@ defmodule JidoActionTest.Property.Execution.ScheduleContractTest do
   defp flow(count, prior) do
     gates =
       for index <- 1..count do
-        Step.new!(
+        JidoActionTest.FlowComponent.step!(
           name: "n#{index}",
           action: Runtime.Gate,
           params: %{value: index},
@@ -177,10 +176,15 @@ defmodule JidoActionTest.Property.Execution.ScheduleContractTest do
         )
       end
 
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "schedule",
       components: [
-        Step.new!(name: "first", action: Runtime.Emit, params: %{value: prior}) | gates
+        JidoActionTest.FlowComponent.step!(
+          name: "first",
+          action: Runtime.Emit,
+          params: %{value: prior}
+        )
+        | gates
       ],
       output: %{done: true}
     )

@@ -2,7 +2,7 @@ defmodule JidoActionTest.Flow.ExprTest do
   use ExUnit.Case, async: true
   alias Jido.Expr
   alias Jido.Flow
-  alias Jido.Flow.{Choice, Codec, Ref, Step}
+  alias Jido.Flow.{Codec, Ref}
   alias Jido.Flow.DSL.ValueParser
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
 
@@ -25,17 +25,21 @@ defmodule JidoActionTest.Flow.ExprTest do
     label = Expr.new!(:<>, [Ref.context(:prefix), Ref.input(:name)])
 
     step =
-      Step.new!(
+      JidoActionTest.FlowComponent.step!(
         name: "load",
         action: EchoParamsAction,
         params: %{quantity: Expr.new!(:+, [Ref.input(:quantity), 1])}
       )
 
     direct =
-      Flow.new!(name: "calculated", components: [step], output: %{total: total, label: label})
+      JidoActionTest.FlowBuilder.new!(
+        name: "calculated",
+        components: [step],
+        output: %{total: total, label: label}
+      )
 
     assert {:ok, built} =
-             Jido.Flow.new(%{
+             JidoActionTest.FlowBuilder.new(%{
                output: direct.output,
                components: [
                  %{kind: :step, name: "load", action: EchoParamsAction, params: step.params}
@@ -120,7 +124,7 @@ defmodule JidoActionTest.Flow.ExprTest do
     assert error.details.phase == :choice_condition
 
     iterator =
-      Jido.Flow.Iterate.new!(
+      JidoActionTest.FlowComponent.iterate!(
         name: "loop",
         action: EchoParamsAction,
         state: [schema: [], initial: %{}, update: %{}],
@@ -128,7 +132,13 @@ defmodule JidoActionTest.Flow.ExprTest do
         max_iterations: 2
       )
 
-    flow = Flow.new!(name: "native_condition", components: [iterator], output: Ref.result("loop"))
+    flow =
+      JidoActionTest.FlowBuilder.new!(
+        name: "native_condition",
+        components: [iterator],
+        output: Ref.result("loop")
+      )
+
     assert {:error, error} = Jido.Exec.run(flow)
     assert error.details.reason == :invalid_boolean_operand
     assert error.details.phase == :iterate_completion
@@ -136,30 +146,44 @@ defmodule JidoActionTest.Flow.ExprTest do
 
   test "nested result references remain dependencies even when skipped" do
     expression = Expr.new!(:or, [true, Expr.new!(:==, [Ref.result(:later, :value), 1])])
-    first = Step.new!(name: "first", action: EchoParamsAction, params: %{selected: expression})
-    later = Step.new!(name: "later", action: EchoParamsAction, params: %{value: 1})
+
+    first =
+      JidoActionTest.FlowComponent.step!(
+        name: "first",
+        action: EchoParamsAction,
+        params: %{selected: expression}
+      )
+
+    later =
+      JidoActionTest.FlowComponent.step!(
+        name: "later",
+        action: EchoParamsAction,
+        params: %{value: 1}
+      )
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "nested_dependencies",
         components: [first, later],
         output: Ref.result("first")
       )
 
-    assert Jido.Flow.Component.reference_dependencies(first) == ["later"]
+    assert Jido.Flow.Definition.reference_dependencies(flow.components["first"]) == ["later"]
     assert Jido.Exec.run(flow) == {:ok, %{selected: true}}
 
     assert {:error, error} =
-             Flow.new(
+             JidoActionTest.FlowBuilder.new(
                name: "unknown_ref",
-               components: [Step.new!(name: "seed", action: EchoParamsAction)],
+               components: [
+                 JidoActionTest.FlowComponent.step!(name: "seed", action: EchoParamsAction)
+               ],
                output: %{value: expression}
              )
 
     assert error.details.component == "later"
 
     assert {:error, _} =
-             Step.new(
+             JidoActionTest.FlowComponent.step(
                name: "bad_scope",
                action: EchoParamsAction,
                params: %{value: Expr.new!(:+, [Ref.item(), 1])}
@@ -255,7 +279,7 @@ defmodule JidoActionTest.Flow.ExprTest do
 
   test "iterator completion failures retain the expression and reference locations" do
     iterator =
-      Jido.Flow.Iterate.new!(
+      JidoActionTest.FlowComponent.iterate!(
         name: "loop",
         action: EchoParamsAction,
         state: [schema: [], initial: %{}, update: %{}],
@@ -263,7 +287,13 @@ defmodule JidoActionTest.Flow.ExprTest do
         max_iterations: 2
       )
 
-    flow = Flow.new!(name: "iterator_error", components: [iterator], output: Ref.result("loop"))
+    flow =
+      JidoActionTest.FlowBuilder.new!(
+        name: "iterator_error",
+        components: [iterator],
+        output: Ref.result("loop")
+      )
+
     assert {:error, error} = Jido.Exec.run(flow)
     assert error.details.phase == :iterate_completion
     assert error.details.path == [:missing]
@@ -333,11 +363,21 @@ defmodule JidoActionTest.Flow.ExprTest do
           Expr.new!(:+, [fn -> 1 end, 2])
         ] do
       assert {:error, _} =
-               Step.new(name: "invalid", action: EchoParamsAction, params: %{value: invalid})
+               JidoActionTest.FlowComponent.step(
+                 name: "invalid",
+                 action: EchoParamsAction,
+                 params: %{value: invalid}
+               )
     end
 
     deep = Enum.reduce(1..70, 1, fn _, value -> Expr.new!(:-, [value]) end)
-    assert {:error, _} = Step.new(name: "deep", action: EchoParamsAction, params: %{value: deep})
+
+    assert {:error, _} =
+             JidoActionTest.FlowComponent.step(
+               name: "deep",
+               action: EchoParamsAction,
+               params: %{value: deep}
+             )
 
     assert {:error, error} =
              Jido.Exec.run(
@@ -350,18 +390,18 @@ defmodule JidoActionTest.Flow.ExprTest do
   end
 
   defp output_flow(output) do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "expression_output",
-      components: [Step.new!(name: "seed", action: EchoParamsAction)],
+      components: [JidoActionTest.FlowComponent.step!(name: "seed", action: EchoParamsAction)],
       output: output
     )
   end
 
   defp choice_flow(condition) do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "expression_choice",
       components: [
-        Choice.new!(
+        JidoActionTest.FlowComponent.choice!(
           name: "route",
           options: [
             [

@@ -5,8 +5,7 @@ defmodule JidoActionTest.Property.Execution.ControlContractTest do
   use ExUnitProperties
   @moduletag :property
   alias Jido.{Exec, Expr, Flow}
-  alias Jido.Flow.{Iterate, Reduce, Ref, Step, Subflow}
-  alias Jido.Flow.Map, as: FlowMap
+  alias Jido.Flow.Ref
   alias JidoActionTest.Property.Runtime
 
   defmodule Probe do
@@ -149,10 +148,14 @@ defmodule JidoActionTest.Property.Execution.ControlContractTest do
           token = context.token
 
           flow =
-            Flow.new!(
+            JidoActionTest.FlowBuilder.new!(
               name: "claim",
               components: [
-                Step.new!(name: "blocked", action: Runtime.Gate, params: %{value: value})
+                JidoActionTest.FlowComponent.step!(
+                  name: "blocked",
+                  action: Runtime.Gate,
+                  params: %{value: value}
+                )
               ],
               output: %{done: true}
             )
@@ -251,24 +254,34 @@ defmodule JidoActionTest.Property.Execution.ControlContractTest do
   end
 
   defp emit_flow(count) do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "tokens",
       components:
         for(
           index <- 1..count,
-          do: Step.new!(name: "n#{index}", action: Runtime.Emit, params: %{value: index})
+          do:
+            JidoActionTest.FlowComponent.step!(
+              name: "n#{index}",
+              action: Runtime.Emit,
+              params: %{value: index}
+            )
         ),
       output: %{done: true}
     )
   end
 
   defp gated_flow(count) do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "fail_fast",
       components:
         for(
           index <- 1..count,
-          do: Step.new!(name: "n#{index}", action: Runtime.Gate, params: %{value: index})
+          do:
+            JidoActionTest.FlowComponent.step!(
+              name: "n#{index}",
+              action: Runtime.Gate,
+              params: %{value: index}
+            )
         ),
       output: %{done: true}
     )
@@ -276,31 +289,54 @@ defmodule JidoActionTest.Property.Execution.ControlContractTest do
 
   defp probe_flow(:steps, items, limit) do
     steps =
-      for item <- items, do: Step.new!(name: "n#{item}", action: Probe, params: %{value: item})
+      for item <- items,
+          do:
+            JidoActionTest.FlowComponent.step!(
+              name: "n#{item}",
+              action: Probe,
+              params: %{value: item}
+            )
 
-    {Flow.new!(name: "steps", components: steps, output: %{done: true}), length(items), limit}
+    {JidoActionTest.FlowBuilder.new!(name: "steps", components: steps, output: %{done: true}),
+     length(items), limit}
   end
 
   defp probe_flow(:map, items, limit) do
     component =
-      FlowMap.new!(name: "work", collection: items, action: Probe, params: %{value: Ref.item()})
+      JidoActionTest.FlowComponent.map!(
+        name: "work",
+        collection: items,
+        action: Probe,
+        params: %{value: Ref.item()}
+      )
 
-    {Flow.new!(name: "map", components: [component], output: %{items: Ref.result("work")}),
-     length(items), limit}
+    {JidoActionTest.FlowBuilder.new!(
+       name: "map",
+       components: [component],
+       output: %{items: Ref.result("work")}
+     ), length(items), limit}
   end
 
   defp probe_flow(:nested, items, limit) do
     components =
       for name <- ["left", "right"],
-          do: Subflow.new!(name: name, flow: Child, params: %{items: items})
+          do:
+            JidoActionTest.FlowComponent.subflow!(
+              name: name,
+              flow: Child,
+              params: %{items: items}
+            )
 
-    {Flow.new!(name: "nested", components: components, output: %{done: true}), length(items) * 2,
-     limit}
+    {JidoActionTest.FlowBuilder.new!(
+       name: "nested",
+       components: components,
+       output: %{done: true}
+     ), length(items) * 2, limit}
   end
 
   defp probe_flow(:reduce, items, _limit) do
     component =
-      Reduce.new!(
+      JidoActionTest.FlowComponent.reduce!(
         name: "work",
         collection: items,
         initial: %{},
@@ -308,23 +344,30 @@ defmodule JidoActionTest.Property.Execution.ControlContractTest do
         params: %{value: Ref.item()}
       )
 
-    {Flow.new!(name: "reduce", components: [component], output: Ref.result("work")),
-     length(items), 1}
+    {JidoActionTest.FlowBuilder.new!(
+       name: "reduce",
+       components: [component],
+       output: Ref.result("work")
+     ), length(items), 1}
   end
 
   defp probe_flow(:iterate, items, _limit) do
     count = length(items)
 
     component =
-      Iterate.new!(
+      JidoActionTest.FlowComponent.iterate!(
         name: "work",
         action: Probe,
         params: %{value: Ref.iteration_index()},
-        state: Iterate.State.new!(initial: %{}, update: %{}),
+        state: JidoActionTest.FlowComponent.state!(initial: %{}, update: %{}),
         completion: Expr.new!(:>=, [Ref.iteration_index(), count]),
         max_iterations: count
       )
 
-    {Flow.new!(name: "iterate", components: [component], output: Ref.result("work")), count, 1}
+    {JidoActionTest.FlowBuilder.new!(
+       name: "iterate",
+       components: [component],
+       output: Ref.result("work")
+     ), count, 1}
   end
 end

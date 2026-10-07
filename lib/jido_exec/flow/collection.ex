@@ -7,10 +7,10 @@ defmodule Jido.Exec.Flow.Collection do
   alias Jido.Exec.Flow.Payload
   alias Jido.Exec.Flow.Target
   alias Jido.Flow.Error
-  alias Jido.Flow.Identity
+  alias Jido.Exec.Flow.Identity
 
   @doc false
-  @spec map_input(Jido.Flow.Map.t(), map()) :: [map()]
+  @spec map_input(map(), map()) :: [map()]
   def map_input(map, local) do
     case ValueResolver.resolve(map.collection, local) do
       {:ok, collection} -> map_tokens(map, collection, local)
@@ -19,7 +19,7 @@ defmodule Jido.Exec.Flow.Collection do
   end
 
   @doc false
-  @spec reduce_input(Jido.Flow.Reduce.t(), map()) :: [map()]
+  @spec reduce_input(map(), map()) :: [map()]
   def reduce_input(reduce, local) do
     with {:ok, collection} <- ValueResolver.resolve(reduce.collection, local),
          {:ok, initial} <- ValueResolver.resolve(reduce.initial, local) do
@@ -30,7 +30,7 @@ defmodule Jido.Exec.Flow.Collection do
   end
 
   @doc false
-  @spec map_item(Jido.Flow.Map.t(), [String.t()], map(), map()) :: map()
+  @spec map_item(map(), [String.t()], map(), map()) :: map()
   def map_item(_map, _namespace, %{kind: :empty} = token, _runtime), do: token
 
   def map_item(map, namespace, %{kind: :item} = token, runtime) do
@@ -51,8 +51,10 @@ defmodule Jido.Exec.Flow.Collection do
 
     span = runtime.observer.({:start, :map_item, Target.details(owner)})
 
+    {_instruction, params_expression} = map.call
+
     outcome =
-      with {:ok, params} <- ValueResolver.resolve(map.params, local) do
+      with {:ok, params} <- ValueResolver.resolve(params_expression, local) do
         Target.run(
           owner,
           params,
@@ -139,7 +141,7 @@ defmodule Jido.Exec.Flow.Collection do
     do: invalid_collection!(:map, map.name, collection)
 
   @doc false
-  @spec collect_map_tokens(Jido.Flow.Map.t(), term()) :: term()
+  @spec collect_map_tokens(map(), term()) :: term()
   def collect_map_tokens(map, tokens) do
     tokens = if is_list(tokens), do: tokens, else: [tokens]
 
@@ -167,7 +169,7 @@ defmodule Jido.Exec.Flow.Collection do
   end
 
   @doc false
-  @spec reduce_fun(Jido.Flow.Reduce.t(), [String.t()]) :: function()
+  @spec reduce_fun(map(), [String.t()]) :: function()
   def reduce_fun(reduce, namespace) do
     fn payload, accumulator, effective_context ->
       token = Payload.unwrap(payload)
@@ -228,8 +230,10 @@ defmodule Jido.Exec.Flow.Collection do
 
         span = runtime.observer.({:start, :reduce_item, Target.details(owner)})
 
+        {_instruction, params_expression} = reduce.call
+
         result =
-          with {:ok, params} <- ValueResolver.resolve(reduce.params, local) do
+          with {:ok, params} <- ValueResolver.resolve(params_expression, local) do
             Target.run(
               owner,
               params,

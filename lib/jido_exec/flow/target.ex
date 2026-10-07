@@ -58,27 +58,26 @@ defmodule Jido.Exec.Flow.Target do
   }
 
   @doc false
-  @spec step(Jido.Flow.Step.t()) :: t()
-  def step(%Jido.Flow.Step{} = step) do
-    new(:step, step.action, %{node: step.name})
+  @spec step(map()) :: t()
+  def step(%{name: name, call: {template, _params}}) do
+    new(:step, template, %{node: name})
   end
 
   @doc false
-  @spec choice(
-          Jido.Flow.Choice.t(),
-          Jido.Flow.Choice.Option.t() | Jido.Flow.Choice.Fallback.t()
-        ) :: t()
-  def choice(choice, target) do
-    new(:choice, target.action, %{
+  @spec choice(map(), map()) :: t()
+  def choice(choice, %{name: option, call: {template, _params}}) do
+    new(:choice, template, %{
       node: choice.name,
-      option: choice_target_name(target)
+      option: option
     })
   end
 
   @doc false
-  @spec map(Jido.Flow.Map.t(), map()) :: t()
+  @spec map(map(), map()) :: t()
   def map(map, item) do
-    new(:map, map.action, %{
+    {template, _params} = map.call
+
+    new(:map, template, %{
       node: map.name,
       item_index: item.item_index,
       item_id: item.item_id
@@ -86,9 +85,11 @@ defmodule Jido.Exec.Flow.Target do
   end
 
   @doc false
-  @spec reduce(Jido.Flow.Reduce.t(), map()) :: t()
+  @spec reduce(map(), map()) :: t()
   def reduce(reduce, item) do
-    new(:reduce, reduce.action, %{
+    {template, _params} = reduce.call
+
+    new(:reduce, template, %{
       node: reduce.name,
       item_index: item.item_index,
       item_id: item.item_id
@@ -96,9 +97,11 @@ defmodule Jido.Exec.Flow.Target do
   end
 
   @doc false
-  @spec iterator(Jido.Flow.Iterate.t(), non_neg_integer(), String.t(), non_neg_integer()) :: t()
+  @spec iterator(map(), non_neg_integer(), String.t(), non_neg_integer()) :: t()
   def iterator(iterator, iteration_index, iteration_id, state_revision) do
-    new(:iterate, iterator.action, %{
+    {template, _params} = iterator.call
+
+    new(:iterate, template, %{
       node: iterator.name,
       iteration_index: iteration_index,
       iteration_id: iteration_id,
@@ -107,32 +110,35 @@ defmodule Jido.Exec.Flow.Target do
   end
 
   @doc false
-  @spec dispatch(Jido.Flow.Dispatch.t(), :decision | :expander) :: t()
+  @spec dispatch(map(), :decision | :expander) :: t()
   def dispatch(dispatch, phase) when phase in [:decision, :expander] do
-    target = if phase == :decision, do: dispatch.decision, else: dispatch.expander
+    {template, _params} = Map.fetch!(dispatch, phase)
 
-    new(:dispatch, target, %{node: dispatch.name, dispatch_phase: phase})
+    new(:dispatch, template, %{node: dispatch.name, dispatch_phase: phase})
   end
 
   @doc false
-  @spec new(kind(), module(), map()) :: t()
-  def new(kind, target, details)
+  @spec new(kind(), Instruction.template_t(), map()) :: t()
+  def new(kind, %Instruction{} = template, details)
       when kind in [:step, :choice, :map, :reduce, :iterate, :dispatch] and is_map(details) do
-    %Instruction{
-      kind: :action,
-      target: target,
-      params: %{},
-      context: %{},
-      metadata: %{@metadata_key => %{kind: kind, details: details}}
-    }
+    metadata = Map.put(template.metadata, @metadata_key, %{kind: kind, details: details})
+    %{template | metadata: metadata}
   end
 
   @doc false
   @spec run(t(), term(), map(), String.t(), runner()) ::
           {:ok, term(), [term()]} | {:continue, Transition.t()} | {:error, Exception.t()}
   def run(%Instruction{} = instruction, params, context, execution_id, target_runner) do
-    instruction = %{instruction | params: params, context: context}
+    case Instruction.bind(instruction, params, context) do
+      {:ok, instruction} ->
+        run_bound(instruction, execution_id, target_runner)
 
+      {:error, error} ->
+        tag_validation({:error, error}, instruction)
+    end
+  end
+
+  defp run_bound(instruction, execution_id, target_runner) do
     case target_runner.(instruction, execution_id) do
       {:ok, output} ->
         {:ok, output, []}
@@ -337,9 +343,6 @@ defmodule Jido.Exec.Flow.Target do
   end
 
   defp error_details(instruction, phase), do: instruction |> details() |> Map.put(:phase, phase)
-
-  defp choice_target_name(%Jido.Flow.Choice.Option{name: name}), do: name
-  defp choice_target_name(%Jido.Flow.Choice.Fallback{}), do: :fallback
 
   defp preserve_error_path(details, %{details: %{path: path}}) when is_list(path) do
     Map.put(details, :path, path)

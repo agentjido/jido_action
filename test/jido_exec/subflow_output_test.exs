@@ -2,8 +2,7 @@ defmodule JidoActionTest.Exec.SubflowOutputTest do
   use ExUnit.Case, async: true
   alias Jido.Action.Output
   alias Jido.Exec
-  alias Jido.Flow
-  alias Jido.Flow.{Codec, Ref, Step, Subflow}
+  alias Jido.Flow.{Codec, Ref}
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
 
   defmodule Child do
@@ -91,10 +90,14 @@ defmodule JidoActionTest.Exec.SubflowOutputTest do
 
   test "root and child outputs use the same caller context" do
     parent =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "context_output_parent",
         components: [
-          Subflow.new!(name: "child", flow: Child, params: %{value: Ref.input(:value)})
+          JidoActionTest.FlowComponent.subflow!(
+            name: "child",
+            flow: Child,
+            params: %{value: Ref.input(:value)}
+          )
         ],
         output: Ref.result("child")
       )
@@ -106,16 +109,20 @@ defmodule JidoActionTest.Exec.SubflowOutputTest do
 
   test "all authoring forms preserve root and child output context" do
     child =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "context_output_child",
         components: [
-          Step.new!(name: "work", action: EchoParamsAction, params: %{value: Ref.input(:value)})
+          JidoActionTest.FlowComponent.step!(
+            name: "work",
+            action: EchoParamsAction,
+            params: %{value: Ref.input(:value)}
+          )
         ],
         output: %{work: Ref.result("work"), tenant: Ref.context(:tenant)}
       )
 
     {:ok, built_child} =
-      Jido.Flow.new(%{
+      JidoActionTest.FlowBuilder.new(%{
         output: child.output,
         components: [
           %{
@@ -131,7 +138,7 @@ defmodule JidoActionTest.Exec.SubflowOutputTest do
     parent = parent_flow(Child)
 
     {:ok, built_parent} =
-      Jido.Flow.new(%{
+      JidoActionTest.FlowBuilder.new(%{
         output: parent.output,
         components: [
           %{kind: :subflow, flow: Child, name: "child", params: %{value: Ref.input(:value)}}
@@ -173,16 +180,20 @@ defmodule JidoActionTest.Exec.SubflowOutputTest do
 
   test "two child levels and repeated calls keep each input and result scope" do
     parent =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "repeated_nested_context_output",
         components: [
-          Step.new!(name: "work", action: EchoParamsAction, params: %{value: 999}),
-          Subflow.new!(
+          JidoActionTest.FlowComponent.step!(
+            name: "work",
+            action: EchoParamsAction,
+            params: %{value: 999}
+          ),
+          JidoActionTest.FlowComponent.subflow!(
             name: "left",
             flow: Nested,
             params: %{value: Ref.input(:left), label: "left"}
           ),
-          Subflow.new!(
+          JidoActionTest.FlowComponent.subflow!(
             name: "right",
             flow: Nested,
             params: %{value: Ref.input(:right), label: "right"}
@@ -293,9 +304,11 @@ defmodule JidoActionTest.Exec.SubflowOutputTest do
   end
 
   defp parent_flow(child, params \\ %{value: Ref.input(:value)}) do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "context_output_parent",
-      components: [Subflow.new!(name: "child", flow: child, params: params)],
+      components: [
+        JidoActionTest.FlowComponent.subflow!(name: "child", flow: child, params: params)
+      ],
       output: Ref.result("child")
     )
   end

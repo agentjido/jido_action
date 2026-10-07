@@ -1,16 +1,15 @@
 defmodule Jido.Flow.AccumulationTest do
   use ExUnit.Case, async: true
 
-  alias Jido.Flow
-  alias Jido.Flow.{Codec, Component, Error, Registry, Step}
+  alias Jido.Flow.{Codec, Definition, Error, Registry}
 
   defp document do
     registry = Registry.new!(%{"action" => {:action, UnloadedAction}, "schema" => {:schema, []}})
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "ordered",
-        components: [Step.new!(name: "one", action: UnloadedAction)],
+        components: [JidoActionTest.FlowComponent.step!(name: "one", action: UnloadedAction)],
         output: %{}
       )
 
@@ -20,20 +19,20 @@ defmodule Jido.Flow.AccumulationTest do
 
   test "needs names preserve normalized order and error precedence" do
     names = ["last", :first] ++ Enum.map(1..128, &"name_#{&1}")
-    assert {:ok, normalized} = Component.needs_names(names)
+    assert {:ok, normalized} = normalize_needs(names)
     assert normalized == Enum.map(names, &to_string/1)
 
     assert {:error, %{message: "component needs contains a duplicate", details: %{name: "first"}}} =
-             Component.needs_names([:first, "last", "first", "last"])
+             normalize_needs([:first, "last", "first", "last"])
 
     assert {:error, %{message: "component needs must contain component names"}} =
-             Component.needs_names([:first, "first", nil])
+             normalize_needs([:first, "first", nil])
 
     assert {:error, %{message: "component needs must be a proper list"}} =
-             Component.needs_names(["first" | :tail])
+             normalize_needs(["first" | :tail])
 
     assert {:error, %{message: "component needs must be a list"}} =
-             Component.needs_names("first")
+             normalize_needs("first")
   end
 
   test "needs validation has bounded reduction growth" do
@@ -46,7 +45,7 @@ defmodule Jido.Flow.AccumulationTest do
         Task.async(fn ->
           :erlang.garbage_collect()
           {:reductions, before} = Process.info(self(), :reductions)
-          assert {:ok, ^names} = Component.needs_names(names)
+          assert {:ok, ^names} = normalize_needs(names)
           {:reductions, after_count} = Process.info(self(), :reductions)
           after_count - before
         end)
@@ -142,5 +141,17 @@ defmodule Jido.Flow.AccumulationTest do
     assert {:error, decoded_error} = Codec.decode(invalid, registry)
     assert decoded_error.message == first.message
     assert decoded_error.details == first.details
+  end
+
+  defp normalize_needs(needs) do
+    case Definition.component(%{
+           kind: :step,
+           name: "component",
+           action: UnloadedAction,
+           needs: needs
+         }) do
+      {:ok, {_name, node}} -> {:ok, Definition.needs(node)}
+      {:error, error} -> {:error, error}
+    end
   end
 end

@@ -53,43 +53,11 @@ end
 
 defmodule JidoActionTest.Fixtures.InlineAuthoring do
   @moduledoc false
-  alias Jido.Flow
-  alias Jido.Flow.{Ref, Registry, Step}
+  alias Jido.Flow.Registry
   alias JidoActionTest.Fixtures.InlineParityFlow
 
   def direct_flow! do
-    Flow.new!(
-      name: "inline_parity",
-      description: "All inline binding forms",
-      components: [
-        Step.new!(name: "empty", action: InlineParityFlow.step_action("empty"), params: %{}),
-        Step.new!(
-          name: "named",
-          action: InlineParityFlow.step_action("named"),
-          params: %{name: Ref.input(:raw_name)},
-          needs: ["empty"],
-          meta: %{owner: "inline"}
-        ),
-        Step.new!(
-          name: "multiple",
-          action: InlineParityFlow.step_action("multiple"),
-          params: %{name: Ref.result("named", :name), prefix: Ref.context(:prefix)},
-          needs: ["empty"],
-          meta: %{purpose: "greeting"}
-        ),
-        Step.new!(
-          name: "sole_map",
-          action: InlineParityFlow.step_action("sole_map"),
-          params: Ref.input(:payload),
-          needs: ["multiple"]
-        )
-      ],
-      output: %{
-        "empty" => Ref.result("empty"),
-        "greeting" => Ref.result("multiple"),
-        "profile" => Ref.result("sole_map")
-      }
-    )
+    JidoActionTest.FlowBuilder.new!(data())
   end
 
   def data do

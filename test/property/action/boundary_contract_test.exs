@@ -4,9 +4,9 @@ Code.require_file("../support/fuzz.exs", __DIR__)
 defmodule JidoActionTest.Property.Action.BoundaryContractTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
-  alias Jido.{Exec, Flow}
+  alias Jido.Exec
   alias Jido.Action.{Error, Output}
-  alias Jido.Flow.{Ref, Step}
+  alias Jido.Flow.Ref
   alias JidoActionTest.Property.{Fuzz, Runtime}
 
   defmodule Validated do
@@ -181,9 +181,11 @@ defmodule JidoActionTest.Property.Action.BoundaryContractTest do
   end
 
   defp flow(action) do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "boundary",
-      components: [Step.new!(name: "work", action: action, params: Ref.input([]))],
+      components: [
+        JidoActionTest.FlowComponent.step!(name: "work", action: action, params: Ref.input([]))
+      ],
       output: Ref.result("work")
     )
   end

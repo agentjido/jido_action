@@ -3,7 +3,7 @@ defmodule JidoActionTest.Exec.FlowIdentityTest do
 
   alias Jido.{Exec, Flow}
   alias Jido.Exec.Work
-  alias Jido.Flow.{Ref, Step}
+  alias Jido.Flow.Ref
   alias Jido.Exec.Flow.Payload
   alias Jido.Flow.Error.{ExecutionFailureError, InvalidExecutionError}
   alias JidoActionTest.Fixtures.Actions.{Add, EchoParamsAction}
@@ -118,11 +118,11 @@ defmodule JidoActionTest.Exec.FlowIdentityTest do
 
   test "a conflict stops later graph commits in an already executed wave" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "parallel_conflict",
         components: [
-          Step.new!(name: "left", action: Add, params: %{value: 1}),
-          Step.new!(name: "right", action: Add, params: %{value: 2})
+          JidoActionTest.FlowComponent.step!(name: "left", action: Add, params: %{value: 1}),
+          JidoActionTest.FlowComponent.step!(name: "right", action: Add, params: %{value: 2})
         ],
         output: %{left: Ref.result("left"), right: Ref.result("right")}
       )
@@ -151,10 +151,10 @@ defmodule JidoActionTest.Exec.FlowIdentityTest do
 
   test "a Map collector conflict becomes a terminal Jido error" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "collector_conflict",
         components: [
-          Jido.Flow.Map.new!(
+          JidoActionTest.FlowComponent.map!(
             name: "mapped",
             action: Add,
             collection: Ref.input(:items),
@@ -207,11 +207,19 @@ defmodule JidoActionTest.Exec.FlowIdentityTest do
 
   test "Flow input and dependent results preserve local BEAM terms" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "local_values",
         components: [
-          Step.new!(name: "first", action: EchoParamsAction, params: Ref.input([])),
-          Step.new!(name: "second", action: EchoParamsAction, params: Ref.result("first"))
+          JidoActionTest.FlowComponent.step!(
+            name: "first",
+            action: EchoParamsAction,
+            params: Ref.input([])
+          ),
+          JidoActionTest.FlowComponent.step!(
+            name: "second",
+            action: EchoParamsAction,
+            params: Ref.result("first")
+          )
         ],
         output: Ref.result("second")
       )
@@ -260,16 +268,16 @@ defmodule JidoActionTest.Exec.FlowIdentityTest do
 
   test "Map and Reduce preserve repeated local values and accumulator order" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "local_collection_values",
         components: [
-          Jido.Flow.Map.new!(
+          JidoActionTest.FlowComponent.map!(
             name: "mapped",
             action: EchoParamsAction,
             collection: Ref.input(:items),
             params: %{value: Ref.item()}
           ),
-          Jido.Flow.Reduce.new!(
+          JidoActionTest.FlowComponent.reduce!(
             name: "folded",
             action: EchoParamsAction,
             collection: Ref.result("mapped"),
@@ -295,16 +303,16 @@ defmodule JidoActionTest.Exec.FlowIdentityTest do
 
   test "Map and Reduce facts exclude runtime services" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "collection_fact_data",
         components: [
-          Jido.Flow.Map.new!(
+          JidoActionTest.FlowComponent.map!(
             name: "mapped",
             action: EchoParamsAction,
             collection: Ref.input(:items),
             params: %{value: Ref.item()}
           ),
-          Jido.Flow.Reduce.new!(
+          JidoActionTest.FlowComponent.reduce!(
             name: "sum",
             action: Add,
             collection: Ref.result("mapped"),
@@ -384,14 +392,18 @@ defmodule JidoActionTest.Exec.FlowIdentityTest do
   end
 
   defp serial_flow(count) do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "identity_serial_#{count}",
       components:
         Enum.map(1..count, fn index ->
           source =
             if index == 1, do: Ref.input(:value), else: Ref.result("step_#{index - 1}", [:value])
 
-          Step.new!(name: "step_#{index}", action: Add, params: %{value: source, amount: 1})
+          JidoActionTest.FlowComponent.step!(
+            name: "step_#{index}",
+            action: Add,
+            params: %{value: source, amount: 1}
+          )
         end),
       output: Ref.result("step_#{count}")
     )

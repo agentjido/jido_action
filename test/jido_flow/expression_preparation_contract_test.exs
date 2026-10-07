@@ -1,125 +1,175 @@
 defmodule Jido.Flow.ValuePreparationContractTest do
   use ExUnit.Case, async: true
 
-  alias Jido.Flow
-  alias Jido.Flow.Choice
-  alias Jido.Flow.Dispatch
+  alias Jido.Flow.Definition
   alias Jido.Flow.Error.InvalidDefinitionError
-  alias Jido.Flow.Iterate
-  alias Jido.Flow.Map, as: FlowMap
-  alias Jido.Flow.Reduce
   alias Jido.Flow.Ref
-  alias Jido.Flow.Step
-  alias Jido.Flow.Subflow
   alias JidoActionTest.Fixtures.Actions.Add
   alias JidoActionTest.Fixtures.NestedFlow
 
-  test "every parameter constructor normalizes nested result names and treats nil as empty" do
+  test "every call form normalizes nested result names and treats nil params as empty" do
     params = %{nested: [%Ref{source: :result, component: :source, path: []}]}
     expected = %{nested: [Ref.result("source")]}
 
-    for {module, attrs} <- constructors() do
-      assert {:ok, component} = module.new(Keyword.put(attrs, :params, params))
-      assert component.params == expected
+    for {attrs, role, _scope} <- call_cases(params) do
+      assert {:ok, {_name, node}} = Definition.component(attrs)
+      assert call_params(node, role) == expected
+    end
 
-      assert {:ok, component} = module.new(Keyword.put(attrs, :params, nil))
-      assert component.params == %{}
+    for {attrs, role, _scope} <- call_cases(nil) do
+      assert {:ok, {_name, node}} = Definition.component(attrs)
+      assert call_params(node, role) == %{}
     end
   end
 
-  test "normalization failures precede scope validation across the complete parameter value" do
+  test "normalization failures precede scope validation across each call value" do
     params = [Ref.body_result(), %Ref{source: :result, component: "", path: []}]
     {:error, message} = Jido.Action.validate_name("")
 
-    for {module, attrs} <- constructors() do
-      assert {:error, %InvalidDefinitionError{} = error} =
-               module.new(Keyword.put(attrs, :params, params))
-
+    for {attrs, _role, _scope} <- call_cases(params) do
+      assert {:error, %InvalidDefinitionError{} = error} = Definition.component(attrs)
       assert error.message == message
-      assert error.details == %{path: [:params, 1]}
+      assert List.last(error.details.path) == 1
+      assert :params in error.details.path
     end
   end
 
   test "parameter scopes report the exact nested path" do
-    for {module, attrs} <- constructors() do
-      scope =
-        case module do
-          FlowMap -> :map_params
-          Reduce -> :reduce_params
-          Iterate -> :iterate_params
-          _ -> :flow
-        end
+    for {attrs, role, scope} <- call_cases(%{}) do
+      attrs = put_call_params(attrs, role, %{nested: [scope_ref(scope)]})
 
-      ref = if module == Iterate, do: Ref.item(), else: Ref.body_result()
-
-      assert {:error, error} =
-               module.new(Keyword.put(attrs, :params, %{nested: [ref]}))
-
+      assert {:error, error} = Definition.component(attrs)
       assert error.message == "flow expression contains a scoped ref outside its valid scope"
-      assert error.details == %{path: [:params, :nested, 0], ref_type: ref.source, scope: scope}
+      assert error.details.ref_type == scope_ref(scope).source
+      assert error.details.scope == scope
+      assert Enum.take(error.details.path, -3) == [:params, :nested, 0]
     end
   end
 
   test "required expression fields distinguish nil from absence" do
-    assert {:ok, %FlowMap{collection: nil}} =
-             FlowMap.new(name: "map", collection: nil, action: Add)
+    assert {:ok, {"map", %{collection: nil}}} =
+             Definition.component(%{kind: :map, name: "map", collection: nil, action: Add})
 
-    assert {:ok, %Reduce{collection: nil, initial: nil}} =
-             Reduce.new(name: "reduce", collection: nil, initial: nil, action: Add)
+    assert {:ok, {"reduce", %{collection: nil, initial: nil}}} =
+             Definition.component(%{
+               kind: :reduce,
+               name: "reduce",
+               collection: nil,
+               initial: nil,
+               action: Add
+             })
 
-    assert {:ok, %Iterate.State{initial: nil, update: nil}} =
-             Iterate.State.new(initial: nil, update: nil)
+    assert {:ok, {"iterate", %{state: %{initial: nil, update: nil}}}} =
+             Definition.component(%{
+               kind: :iterate,
+               name: "iterate",
+               action: Add,
+               state: %{initial: nil, update: nil},
+               completion: true,
+               max_iterations: 1
+             })
 
-    for {module, attrs, message, field} <- [
-          {FlowMap, [name: "map", action: Add], "map collection is required", :collection},
-          {Reduce, [name: "reduce", collection: [], action: Add], "reduce initial is required",
-           :initial},
-          {Iterate.State, [initial: nil], "iterate state update is required", :update}
+    for {attrs, message, field} <- [
+          {%{kind: :map, name: "map", action: Add}, "map collection is required", :collection},
+          {%{kind: :reduce, name: "reduce", collection: [], action: Add},
+           "reduce initial is required", :initial},
+          {%{
+             kind: :iterate,
+             name: "iterate",
+             action: Add,
+             state: %{initial: nil},
+             completion: true,
+             max_iterations: 1
+           }, "iterate state update is required", :update}
         ] do
-      assert {:error, error} = module.new(attrs)
+      assert {:error, error} = Definition.component(attrs)
       assert error.message == message
-      assert error.details == %{path: [field]}
+      assert List.last(error.details.path) == field
     end
   end
 
   test "nested Choice errors retain component, option, and expression path segments" do
-    choice = %Choice{
+    choice = %{
+      kind: :choice,
       name: "route",
       options: [
         %{name: "yes", condition: true, action: Add, params: %{nested: [self()]}}
       ],
-      fallback: Choice.Fallback.new!(action: Add)
+      fallback: %{action: Add}
     }
 
-    assert {:error, local} = Choice.new(choice)
+    assert {:error, local} = Definition.component(choice)
     assert local.details.path == [:options, 0, :params, :nested, 0]
 
-    assert {:error, nested} = Flow.new(name: "nested", components: [choice], output: %{})
-    assert nested.message == local.message
+    assert {:error, nested} =
+             Jido.Flow.new(%{name: "nested", components: [choice], output: %{}})
 
-    assert nested.details == %{
-             local.details
-             | path: [:components, 0, :options, 0, :params, :nested, 0]
-           }
+    assert nested.message == local.message
+    assert nested.details.path == [:components, 0, :options, 0, :params, :nested, 0]
   end
 
-  defp constructors do
+  defp call_cases(params) do
     [
-      {Step, [name: "step", action: Add]},
-      {Subflow, [name: "child", flow: NestedFlow]},
-      {Choice.Option, [name: "yes", condition: true, action: Add]},
-      {Choice.Fallback, [action: Add]},
-      {FlowMap, [name: "map", collection: [], action: Add]},
-      {Reduce, [name: "reduce", collection: [], initial: %{}, action: Add]},
-      {Iterate,
-       [
+      {%{kind: :step, name: "step", action: Add, params: params}, :call, :flow},
+      {%{kind: :subflow, name: "child", flow: NestedFlow, params: params}, :call, :flow},
+      {%{
+         kind: :choice,
+         name: "option",
+         options: [%{name: "yes", condition: true, action: Add, params: params}],
+         fallback: %{action: Add}
+       }, "yes", :flow},
+      {%{
+         kind: :choice,
+         name: "fallback",
+         options: [%{name: "yes", condition: true, action: Add}],
+         fallback: %{action: Add, params: params}
+       }, :fallback, :flow},
+      {%{kind: :map, name: "map", collection: [], action: Add, params: params}, :map,
+       :map_params},
+      {%{
+         kind: :reduce,
+         name: "reduce",
+         collection: [],
+         initial: %{},
+         action: Add,
+         params: params
+       }, :reduce, :reduce_params},
+      {%{
+         kind: :iterate,
          name: "iterate",
          action: Add,
-         state: [initial: %{}, update: %{}],
+         params: params,
+         state: %{initial: %{}, update: %{}},
          completion: true,
          max_iterations: 1
-       ]},
-      {Dispatch, [name: "dispatch", decision: Add, expander: Add]}
+       }, :iterate, :iterate_params},
+      {%{
+         kind: :dispatch,
+         name: "dispatch",
+         decision: Add,
+         expander: Add,
+         params: params
+       }, :decision, :flow}
     ]
   end
+
+  defp call_params(node, role) do
+    {_role, _instruction, params} =
+      Enum.find(Definition.calls(node), fn {call_role, _instruction, _params} ->
+        call_role == role
+      end)
+
+    params
+  end
+
+  defp put_call_params(%{kind: :choice} = attrs, "yes", params),
+    do: put_in(attrs, [:options, Access.at(0), :params], params)
+
+  defp put_call_params(%{kind: :choice} = attrs, :fallback, params),
+    do: put_in(attrs, [:fallback, :params], params)
+
+  defp put_call_params(attrs, _role, params), do: Map.put(attrs, :params, params)
+
+  defp scope_ref(:iterate_params), do: Ref.item()
+  defp scope_ref(_scope), do: Ref.body_result()
 end

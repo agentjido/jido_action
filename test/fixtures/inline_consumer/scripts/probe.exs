@@ -62,7 +62,7 @@ expected_roles = 6 + 2 * offset
 {:ok, %{value: ^expected_roles}} = Jido.Exec.run(Roles, %{value: 6})
 
 steps = steps_owner.flow().components
-expected = (2 + offset) * length(steps)
+expected = (2 + offset) * map_size(steps)
 {:ok, %{value: ^expected}} = Jido.Exec.run(Steps, %{value: 2})
 
 # Removed paths must be absent from both public lookup APIs.
@@ -75,7 +75,7 @@ missing = fn lookup ->
   end
 end
 
-for name <- ["first", "second", "renamed"], name not in Enum.map(steps, & &1.name) do
+for name <- ["first", "second", "renamed"], name not in Map.keys(steps) do
   missing.(fn -> steps_owner.step_action(name) end)
 end
 
@@ -92,7 +92,13 @@ IO.puts(
   "INLINE_RESULT=" <>
     JSON.encode!(%{
       roles: snapshot.(Roles, role_targets),
-      steps: snapshot.(Steps, Map.new(steps, &{&1.name, &1.action})),
+      steps:
+        snapshot.(
+          Steps,
+          Map.new(steps, fn {name, %{call: {instruction, _params}}} ->
+            {name, instruction.target}
+          end)
+        ),
       count: length(targets)
     })
 )

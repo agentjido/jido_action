@@ -66,10 +66,10 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     end
 
     defp definition do
-      Jido.Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "blocking_descriptor_flow",
         components: [
-          Jido.Flow.Step.new!(
+          JidoActionTest.FlowComponent.step!(
             name: "add",
             action: JidoActionTest.Fixtures.Actions.Add,
             params: %{value: Jido.Flow.Ref.input(:value)}
@@ -115,11 +115,10 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
   alias Jido.Action.Error.TimeoutError, as: ActionTimeoutError
   alias Jido.Exec
   alias Jido.Exec.Options
-  alias Jido.Flow
   alias Jido.Flow.Error.ExecutionFailureError, as: FlowExecutionFailureError
   alias Jido.Flow.Error.InvalidExecutionError
   alias Jido.Flow.Error.TimeoutError, as: FlowTimeoutError
-  alias Jido.Flow.{Ref, Step}
+  alias Jido.Flow.{Ref}
   alias Jido.Instruction
 
   alias JidoActionTest.Fixtures.{
@@ -138,11 +137,19 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
 
   test "does not copy or inject Logger metadata in serial and concurrent runnables" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "async_logger_metadata",
         components: [
-          Step.new!(name: "first", action: LoggerMetadataAction, params: %{id: :first}),
-          Step.new!(name: "second", action: LoggerMetadataAction, params: %{id: :second})
+          JidoActionTest.FlowComponent.step!(
+            name: "first",
+            action: LoggerMetadataAction,
+            params: %{id: :first}
+          ),
+          JidoActionTest.FlowComponent.step!(
+            name: "second",
+            action: LoggerMetadataAction,
+            params: %{id: :second}
+          )
         ],
         output: %{first: Ref.result("first"), second: Ref.result("second")}
       )
@@ -446,15 +453,15 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
 
   test "a Flow timeout stops concurrent workers" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "concurrent_flow_timeout",
         components: [
-          Step.new!(
+          JidoActionTest.FlowComponent.step!(
             name: "left",
             action: ExecFixtures.BlockingAction,
             params: %{value: :left}
           ),
-          Step.new!(
+          JidoActionTest.FlowComponent.step!(
             name: "right",
             action: ExecFixtures.BlockingAction,
             params: %{value: :right}
@@ -513,15 +520,15 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
 
   test "continue runs dependent waves in order" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "ordered_continue_waves",
         components: [
-          Step.new!(
+          JidoActionTest.FlowComponent.step!(
             name: "first",
             action: ExecFixtures.BlockingAction,
             params: %{value: :first}
           ),
-          Step.new!(
+          JidoActionTest.FlowComponent.step!(
             name: "second",
             action: ExecFixtures.BlockingAction,
             params: %{value: Ref.result("first", :value)}
@@ -549,15 +556,15 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     ref = make_ref()
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "native_multiple_failures",
         components: [
-          Step.new!(
+          JidoActionTest.FlowComponent.step!(
             name: "first",
             action: GatedErrorAction,
             params: %{message: "first failure"}
           ),
-          Step.new!(
+          JidoActionTest.FlowComponent.step!(
             name: "second",
             action: GatedErrorAction,
             params: %{message: "second failure"}
@@ -593,10 +600,10 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
 
   test "does not leak Runic's handled-runnable warning" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "quiet_handled_failure",
         components: [
-          Step.new!(
+          JidoActionTest.FlowComponent.step!(
             name: "failure",
             action: ControlledErrorAction,
             params: %{message: "expected failure"}
@@ -615,15 +622,19 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
 
   test "a selected failure does not dispatch another ready runnable" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "selected_failure",
         components: [
-          Step.new!(
+          JidoActionTest.FlowComponent.step!(
             name: "fail",
             action: ControlledErrorAction,
             params: %{message: "failed first"}
           ),
-          Step.new!(name: "independent", action: RecorderAction, params: %{side: :independent})
+          JidoActionTest.FlowComponent.step!(
+            name: "independent",
+            action: RecorderAction,
+            params: %{side: :independent}
+          )
         ],
         output: Ref.result("independent")
       )
@@ -637,9 +648,9 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
 
   test "validates step selection and terminal operations" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "selection_validation",
-        components: [Step.new!(name: "echo", action: EchoParamsAction)],
+        components: [JidoActionTest.FlowComponent.step!(name: "echo", action: EchoParamsAction)],
         output: Ref.result("echo")
       )
 

@@ -20,8 +20,7 @@ end
 defmodule Jido.Flow.RefPathAuthoringTest do
   use ExUnit.Case, async: true
   alias Jido.Flow
-  alias Jido.Flow.{Codec, Iterate, Reduce, Ref, Step}
-  alias Jido.Flow.Map, as: FlowMap
+  alias Jido.Flow.{Codec, Ref}
   alias Jido.Flow.Error.InvalidDefinitionError
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
 
@@ -45,14 +44,20 @@ defmodule Jido.Flow.RefPathAuthoringTest do
     output = %{echo: Ref.result("echo"), selected: Ref.result("echo", :selected)}
 
     direct =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "reference_paths",
-        components: [Step.new!(name: "echo", action: EchoParamsAction, params: params)],
+        components: [
+          JidoActionTest.FlowComponent.step!(
+            name: "echo",
+            action: EchoParamsAction,
+            params: params
+          )
+        ],
         output: output
       )
 
     assert {:ok, built} =
-             Jido.Flow.new(%{
+             JidoActionTest.FlowBuilder.new(%{
                output: output,
                components: [
                  %{kind: :step, name: "echo", action: EchoParamsAction, params: params}
@@ -81,10 +86,14 @@ defmodule Jido.Flow.RefPathAuthoringTest do
 
   test "atom paths prefer present atom keys, including nil and false, before string keys" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "key_precedence",
         components: [
-          Step.new!(name: "echo", action: EchoParamsAction, params: %{value: Ref.input(:value)})
+          JidoActionTest.FlowComponent.step!(
+            name: "echo",
+            action: EchoParamsAction,
+            params: %{value: Ref.input(:value)}
+          )
         ],
         output: Ref.result("echo")
       )
@@ -98,8 +107,15 @@ defmodule Jido.Flow.RefPathAuthoringTest do
   end
 
   test "Flow, and Codec reject malformed reference paths" do
-    step = Step.new!(name: "echo", action: EchoParamsAction)
-    valid = Flow.new!(name: "invalid_paths", components: [step], output: Ref.input([]))
+    step = JidoActionTest.FlowComponent.step!(name: "echo", action: EchoParamsAction)
+
+    valid =
+      JidoActionTest.FlowBuilder.new!(
+        name: "invalid_paths",
+        components: [step],
+        output: Ref.input([])
+      )
+
     assert {:ok, document, registry} = Codec.encode(valid)
 
     for path <- [
@@ -114,10 +130,14 @@ defmodule Jido.Flow.RefPathAuthoringTest do
       ref = Ref.input(path)
 
       assert {:error, %InvalidDefinitionError{}} =
-               Flow.new(name: "invalid_paths", components: [step], output: %{nested: [ref]})
+               JidoActionTest.FlowBuilder.new(
+                 name: "invalid_paths",
+                 components: [step],
+                 output: %{nested: [ref]}
+               )
 
       assert {:error, %InvalidDefinitionError{}} =
-               Jido.Flow.new(%{
+               JidoActionTest.FlowBuilder.new(%{
                  output: Jido.Flow.Ref.result("echo"),
                  components: [
                    %{
@@ -131,7 +151,7 @@ defmodule Jido.Flow.RefPathAuthoringTest do
                })
 
       assert {:error, %InvalidDefinitionError{}} =
-               Jido.Flow.new(%{
+               JidoActionTest.FlowBuilder.new(%{
                  output: %{nested: [Jido.Flow.Ref.select(Jido.Flow.Ref.input([]), path)]},
                  components: [%{kind: :step, name: "echo", action: EchoParamsAction, params: %{}}],
                  name: "invalid_paths"
@@ -159,12 +179,18 @@ defmodule Jido.Flow.RefPathAuthoringTest do
 
     assert {:error,
             %InvalidDefinitionError{details: %{path: [:params, :nested, 0], segment: ^segment}}} =
-             Step.new(name: "echo", action: EchoParamsAction, params: params)
+             JidoActionTest.FlowComponent.step(
+               name: "echo",
+               action: EchoParamsAction,
+               params: params
+             )
 
     assert {:error, %InvalidDefinitionError{details: %{path: [:nested, 0], segment: ^segment}}} =
-             Flow.new(
+             JidoActionTest.FlowBuilder.new(
                name: "utf8_paths",
-               components: [Step.new!(name: "echo", action: EchoParamsAction)],
+               components: [
+                 JidoActionTest.FlowComponent.step!(name: "echo", action: EchoParamsAction)
+               ],
                output: params
              )
 
@@ -172,7 +198,7 @@ defmodule Jido.Flow.RefPathAuthoringTest do
             %InvalidDefinitionError{
               details: %{path: [:components, 0, :params, :nested, 0], segment: ^segment}
             }} =
-             Jido.Flow.new(%{
+             JidoActionTest.FlowBuilder.new(%{
                output: Jido.Flow.Ref.result("echo"),
                components: [
                  %{kind: :step, name: "echo", action: EchoParamsAction, params: params}
@@ -183,10 +209,27 @@ defmodule Jido.Flow.RefPathAuthoringTest do
 
   test "Codec rejects invalid UTF-8 reference paths before returning a stored document" do
     segment = <<255>>
-    step = Step.new!(name: "echo", action: EchoParamsAction, params: Ref.input([]))
-    valid = Flow.new!(name: "utf8_paths", components: [step], output: %{})
+
+    step =
+      JidoActionTest.FlowComponent.step!(
+        name: "echo",
+        action: EchoParamsAction,
+        params: Ref.input([])
+      )
+
+    valid = JidoActionTest.FlowBuilder.new!(name: "utf8_paths", components: [step], output: %{})
     assert {:ok, document, registry} = Codec.encode(valid)
-    invalid = %{valid | components: [%{step | params: Ref.input([segment])}]}
+    node = valid.components["echo"]
+    {instruction, _params} = node.call
+
+    invalid = %{
+      valid
+      | components:
+          Map.put(valid.components, "echo", %{
+            node
+            | call: {instruction, Ref.input([segment])}
+          })
+    }
 
     for result <- [Codec.encode(invalid, registry), Codec.encode(invalid)] do
       assert {:error,
@@ -249,17 +292,21 @@ defmodule Jido.Flow.RefPathAuthoringTest do
 
   test "Exec rejects invalid paths for every source before any Action work" do
     calls = start_supervised!({Agent, fn -> 0 end})
-    first = Step.new!(name: "first", action: CountedAction)
+    first = JidoActionTest.FlowComponent.step!(name: "first", action: CountedAction)
 
     components =
       for ref <- [Ref.input([]), Ref.context(), Ref.result("first")] do
-        Step.new!(name: "node", action: EchoParamsAction, params: %{value: ref})
+        JidoActionTest.FlowComponent.step!(
+          name: "node",
+          action: EchoParamsAction,
+          params: %{value: ref}
+        )
       end
 
     components =
       components ++
         for ref <- [Ref.item(), Ref.item_index(), Ref.item_id()] do
-          FlowMap.new!(
+          JidoActionTest.FlowComponent.map!(
             name: "node",
             action: EchoParamsAction,
             collection: [],
@@ -270,7 +317,7 @@ defmodule Jido.Flow.RefPathAuthoringTest do
     components =
       components ++
         [
-          Reduce.new!(
+          JidoActionTest.FlowComponent.reduce!(
             name: "node",
             action: EchoParamsAction,
             collection: [],
@@ -279,7 +326,7 @@ defmodule Jido.Flow.RefPathAuthoringTest do
           )
         ] ++
         for ref <- [Ref.state(), Ref.iteration_index()] do
-          Iterate.new!(
+          JidoActionTest.FlowComponent.iterate!(
             name: "node",
             action: EchoParamsAction,
             params: %{value: ref},
@@ -304,7 +351,7 @@ defmodule Jido.Flow.RefPathAuthoringTest do
     end
 
     iterate =
-      Iterate.new!(
+      JidoActionTest.FlowComponent.iterate!(
         name: "node",
         action: EchoParamsAction,
         state: [schema: [], initial: %{}, update: %{value: Ref.body_result()}],

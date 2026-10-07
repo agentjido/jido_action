@@ -4,8 +4,8 @@ defmodule JidoActionTest.Property.Instruction.CallContractTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
   alias JidoActionTest.Property.Fuzz
-  alias Jido.{Exec, Flow, Instruction}
-  alias Jido.Flow.{Ref, Step}
+  alias Jido.{Exec, Instruction}
+  alias Jido.Flow.Ref
 
   defmodule Echo do
     use Jido.Action, name: "property_instruction_echo"
@@ -112,9 +112,11 @@ defmodule JidoActionTest.Property.Instruction.CallContractTest do
             max_runs: 40
           ) do
       flow =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "instruction",
-          components: [Step.new!(name: "echo", action: Echo, params: Ref.input([]))],
+          components: [
+            JidoActionTest.FlowComponent.step!(name: "echo", action: Echo, params: Ref.input([]))
+          ],
           output: Ref.result("echo")
         )
 

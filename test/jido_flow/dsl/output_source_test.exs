@@ -67,10 +67,10 @@ defmodule Jido.Flow.DSL.OutputSourceTest do
              %{file: "valid_output_source.ex", line: 5}
 
     expected =
-      Jido.Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "output_source",
         components: [
-          Jido.Flow.Step.new!(
+          JidoActionTest.FlowComponent.step!(
             name: "first",
             action: JidoActionTest.Fixtures.Actions.EchoParamsAction,
             params: %{}

@@ -2,9 +2,7 @@ defmodule Jido.Flow.GraphValidationTest do
   use ExUnit.Case, async: true
   alias Jido.Expr
   alias Jido.Flow
-  alias Jido.Flow.{Choice, Codec, Dispatch, Error, Iterate, Ref, Registry, Step, Subflow}
-  alias Jido.Flow.Map, as: FlowMap
-  alias Jido.Flow.Reduce
+  alias Jido.Flow.{Codec, Error, Ref, Registry}
   alias JidoActionTest.Fixtures.NestedFlow
 
   defmodule ProbeAction do
@@ -52,7 +50,7 @@ defmodule Jido.Flow.GraphValidationTest do
   end
 
   defp step(name, needs) do
-    Step.new!(name: name, action: ProbeAction, needs: needs)
+    JidoActionTest.FlowComponent.step!(name: name, action: ProbeAction, needs: needs)
   end
 
   test "direct, map, DSL, and stored graphs agree on valid and invalid dependencies" do
@@ -69,10 +67,16 @@ defmodule Jido.Flow.GraphValidationTest do
 
     for {{edges, output, expected}, index} <- Enum.with_index(cases) do
       components = Enum.map(edges, fn {name, needs} -> step(name, needs) end)
-      direct = Flow.new(name: "graph", components: components, output: Ref.result(output))
+
+      direct =
+        JidoActionTest.FlowBuilder.new(
+          name: "graph",
+          components: components,
+          output: Ref.result(output)
+        )
 
       built =
-        Jido.Flow.new(%{
+        JidoActionTest.FlowBuilder.new(%{
           output: Ref.result(output),
           components:
             Enum.map(
@@ -129,7 +133,11 @@ end
     component = step("one", ["z_missing", "a_missing"])
 
     assert {:error, error} =
-             Flow.new(name: "graph", components: [component], output: Ref.result("one"))
+             JidoActionTest.FlowBuilder.new(
+               name: "graph",
+               components: [component],
+               output: Ref.result("one")
+             )
 
     assert error.details == %{owner: "one", component: "z_missing"}
     document = stored([stored_step("one", component.needs)], stored_ref("one"))
@@ -160,7 +168,7 @@ end
            ]
 
     assert {:error, error} =
-             Flow.new(
+             JidoActionTest.FlowBuilder.new(
                name: "graph",
                components: [step("same", ["missing"]), step("same", [])],
                output: Ref.result("missing_output")
@@ -173,7 +181,7 @@ end
     components = [step("same", []), step("same", [])]
 
     assert {:error, %{message: "Flow output is required", details: %{path: [:output]}}} =
-             Flow.new(name: "graph", components: components, output: nil)
+             JidoActionTest.FlowBuilder.new(name: "graph", components: components, output: nil)
 
     assert {:error, %Error.Invalid{errors: [duplicate]}} =
              Codec.diagnose(
@@ -194,12 +202,20 @@ end
     ref = fn name -> Ref.result(name) end
 
     components = [
-      Step.new!(name: "step", action: ProbeAction, params: ref.("dep_step")),
-      Subflow.new!(name: "child", flow: NestedFlow, params: ref.("dep_child")),
-      Choice.new!(
+      JidoActionTest.FlowComponent.step!(
+        name: "step",
+        action: ProbeAction,
+        params: ref.("dep_step")
+      ),
+      JidoActionTest.FlowComponent.subflow!(
+        name: "child",
+        flow: NestedFlow,
+        params: ref.("dep_child")
+      ),
+      JidoActionTest.FlowComponent.choice!(
         name: "choice",
         options: [
-          Choice.Option.new!(
+          JidoActionTest.FlowComponent.option!(
             name: "yes",
             action: ProbeAction,
             condition: Expr.new!(:or, [true, Expr.new!(:==, [ref.("dep_condition"), 1])]),
@@ -208,20 +224,20 @@ end
         ],
         fallback: [action: ProbeAction, params: ref.("dep_fallback")]
       ),
-      FlowMap.new!(
+      JidoActionTest.FlowComponent.map!(
         name: "mapped",
         action: ProbeAction,
         collection: ref.("dep_collection"),
         params: [Ref.item(), ref.("dep_map_params")]
       ),
-      Reduce.new!(
+      JidoActionTest.FlowComponent.reduce!(
         name: "reduced",
         action: ProbeAction,
         collection: ref.("dep_reduce_collection"),
         initial: ref.("dep_reduce_initial"),
         params: [Ref.accumulator(), ref.("dep_reduce_params")]
       ),
-      Iterate.new!(
+      JidoActionTest.FlowComponent.iterate!(
         name: "iterated",
         action: ProbeAction,
         params: [Ref.state(), ref.("dep_iterate_params")],
@@ -253,7 +269,14 @@ end
     ]
 
     producers = Enum.map(dependencies, &step(&1, []))
-    flow = Flow.new!(name: "graph", components: producers ++ components, output: %{})
+
+    flow =
+      JidoActionTest.FlowBuilder.new!(
+        name: "graph",
+        components: producers ++ components,
+        output: %{}
+      )
+
     assert {:ok, document} = Codec.encode(flow, registry())
     document = %{document | "components" => Enum.drop(document["components"], length(producers))}
     assert {:error, %Error.Invalid{errors: errors}} = Codec.diagnose(document, registry())
@@ -261,12 +284,24 @@ end
     assert Enum.all?(errors, &(&1.message == "Flow reference points to an unknown component"))
 
     assert {:error, %{details: %{component: "dep_step"}}} =
-             Flow.validate(%{flow | components: components})
+             Flow.validate(%{flow | components: Map.drop(flow.components, dependencies)})
   end
 
   test "Dispatch checks use graph sinks and the complete result" do
-    dispatch = Dispatch.new!(name: "next", decision: ProbeAction, expander: ProbeAction)
-    flow = Flow.new!(name: "graph", components: [dispatch], output: Ref.result("next"))
+    dispatch =
+      JidoActionTest.FlowComponent.dispatch!(
+        name: "next",
+        decision: ProbeAction,
+        expander: ProbeAction
+      )
+
+    flow =
+      JidoActionTest.FlowBuilder.new!(
+        name: "graph",
+        components: [dispatch],
+        output: Ref.result("next")
+      )
+
     assert {:ok, document} = Codec.encode(flow, registry())
     [stored_dispatch] = document["components"]
 
@@ -284,7 +319,7 @@ end
            ]
 
     assert {:error, %{message: "Dispatch must be the final component in the Flow"}} =
-             Flow.new(
+             JidoActionTest.FlowBuilder.new(
                name: "graph",
                components: [dispatch, step("independent", [])],
                output: [Ref.result("next")]
@@ -302,7 +337,7 @@ end
     assert multiple.details.path == ["components", 1]
 
     assert {:error, %{message: "Dispatch must be the final component in the Flow"}} =
-             Jido.Flow.new(%{
+             JidoActionTest.FlowBuilder.new(%{
                output: [Ref.result("next")],
                components: [
                  %{
@@ -338,18 +373,20 @@ end
 
   test "Dispatch parameter references precede terminal graph rules" do
     dispatch =
-      Dispatch.new!(
+      JidoActionTest.FlowComponent.dispatch!(
         name: "next",
         decision: ProbeAction,
         expander: ProbeAction,
         params: Expr.new!(:and, [false, Ref.result("missing")])
       )
 
-    assert {:error, error} = Flow.new(name: "graph", components: [dispatch], output: %{})
+    assert {:error, error} =
+             JidoActionTest.FlowBuilder.new(name: "graph", components: [dispatch], output: %{})
+
     assert error.details == %{owner: "next", component: "missing"}
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "graph",
         components: [step("missing", []), dispatch],
         output: Ref.result("next")
@@ -416,7 +453,7 @@ end
     components = Enum.map(edges, fn {name, dependencies} -> step(name, dependencies) end)
 
     assert {:error, canonical} =
-             Flow.new(
+             JidoActionTest.FlowBuilder.new(
                name: "blocked_cycle",
                components: components,
                output: Ref.result("blocked")
@@ -449,10 +486,19 @@ end
   end
 
   test "unloaded targets remain valid for inert construction and decoding" do
-    component = Step.new!(name: "one", action: NotLoadedAction, params: Expr.new!(:+, [1, 2]))
+    component =
+      JidoActionTest.FlowComponent.step!(
+        name: "one",
+        action: NotLoadedAction,
+        params: Expr.new!(:+, [1, 2])
+      )
 
     assert {:ok, flow} =
-             Flow.new(name: "graph", components: [component], output: Ref.result("one"))
+             JidoActionTest.FlowBuilder.new(
+               name: "graph",
+               components: [component],
+               output: Ref.result("one")
+             )
 
     assert {:ok, ^flow} = Flow.validate(flow)
 

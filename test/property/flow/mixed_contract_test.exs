@@ -4,9 +4,8 @@ Code.require_file("../support/fuzz.exs", __DIR__)
 defmodule JidoActionTest.Property.Flow.MixedContractTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
-  alias Jido.{Exec, Expr, Flow}
-  alias Jido.Flow.{Choice, Reduce, Ref, Subflow}
-  alias Jido.Flow.Map, as: FlowMap
+  alias Jido.{Exec, Expr}
+  alias Jido.Flow.Ref
   alias JidoActionTest.Property.{Fuzz, Runtime}
 
   defmodule Fold do
@@ -93,23 +92,27 @@ defmodule JidoActionTest.Property.Flow.MixedContractTest do
     effects = [offset] ++ items ++ mapped
 
     choice =
-      Choice.new!(
+      JidoActionTest.FlowComponent.choice!(
         name: "choice",
         options: [
-          Choice.Option.new!(
+          JidoActionTest.FlowComponent.option!(
             name: "first",
             condition: sample["first"],
             action: Runtime.Emit,
             params: %{value: sample["offset"]}
           )
         ],
-        fallback: Choice.Fallback.new!(action: Runtime.Emit, params: %{value: -sample["offset"]})
+        fallback:
+          JidoActionTest.FlowComponent.fallback!(
+            action: Runtime.Emit,
+            params: %{value: -sample["offset"]}
+          )
       )
 
     {mapped_component, collection} = mapping(sample)
 
     reduced =
-      Reduce.new!(
+      JidoActionTest.FlowComponent.reduce!(
         name: "fold",
         collection: collection,
         initial: %{value: sample["seed"]},
@@ -118,7 +121,7 @@ defmodule JidoActionTest.Property.Flow.MixedContractTest do
       )
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "mixed",
         components: [reduced, mapped_component, choice],
         output: Ref.result("fold")
@@ -143,7 +146,7 @@ defmodule JidoActionTest.Property.Flow.MixedContractTest do
   end
 
   defp mapping(%{"nested" => true} = sample) do
-    {Subflow.new!(
+    {JidoActionTest.FlowComponent.subflow!(
        name: "map",
        flow: Child,
        params: %{
@@ -155,7 +158,7 @@ defmodule JidoActionTest.Property.Flow.MixedContractTest do
   end
 
   defp mapping(sample) do
-    {FlowMap.new!(
+    {JidoActionTest.FlowComponent.map!(
        name: "map",
        collection: sample["items"],
        action: Runtime.Emit,

@@ -2,8 +2,7 @@ defmodule JidoActionTest.Exec.FailFastAdmissionTest do
   use ExUnit.Case, async: true
 
   alias Jido.Exec
-  alias Jido.Flow
-  alias Jido.Flow.{Ref, Step}
+  alias Jido.Flow.{Ref}
 
   defmodule ControlledAction do
     use Jido.Action, name: "fail_fast_controlled"
@@ -112,10 +111,17 @@ defmodule JidoActionTest.Exec.FailFastAdmissionTest do
     names = Enum.map(1..4, &"failing_#{&1}")
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "fail_fast_pass",
         components:
-          Enum.map(names, &Step.new!(name: &1, action: ImmediateFailure, params: %{id: &1})),
+          Enum.map(
+            names,
+            &JidoActionTest.FlowComponent.step!(
+              name: &1,
+              action: ImmediateFailure,
+              params: %{id: &1}
+            )
+          ),
         output: Map.new(names, &{&1, Ref.result(&1)})
       )
 
@@ -289,19 +295,26 @@ defmodule JidoActionTest.Exec.FailFastAdmissionTest do
   defp flow do
     names = Enum.map(1..5, &"step_#{&1}")
 
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "fail_fast_admission",
       components:
-        Enum.map(names, &Step.new!(name: &1, action: ControlledAction, params: %{id: &1})),
+        Enum.map(
+          names,
+          &JidoActionTest.FlowComponent.step!(
+            name: &1,
+            action: ControlledAction,
+            params: %{id: &1}
+          )
+        ),
       output: Map.new(names, &{&1, Ref.result(&1)})
     )
   end
 
   defp map_flow(mode) do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "fail_fast_map",
       components: [
-        Jido.Flow.Map.new!(
+        JidoActionTest.FlowComponent.map!(
           name: "items",
           collection: Enum.to_list(1..5),
           action: ControlledAction,

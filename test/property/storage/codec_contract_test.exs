@@ -5,8 +5,7 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
   alias Jido.{Expr, Flow}
-  alias Jido.Flow.{Choice, Codec, Dispatch, Iterate, Reduce, Ref, Registry, Step, Subflow}
-  alias Jido.Flow.Map, as: FlowMap
+  alias Jido.Flow.{Codec, Ref, Registry}
   alias JidoActionTest.Property.{Fuzz, Runtime}
 
   defmodule Child do
@@ -52,9 +51,15 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
       refute existing_atom?(identifier)
 
       flow =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "registry",
-          components: [Step.new!(name: "work", action: Runtime.Emit, params: %{value: suffix})],
+          components: [
+            JidoActionTest.FlowComponent.step!(
+              name: "work",
+              action: Runtime.Emit,
+              params: %{value: suffix}
+            )
+          ],
           output: Ref.result("work")
         )
 
@@ -90,9 +95,9 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
   property "malformed envelopes unsupported versions and boundary safety limits reject" do
     check all(extra <- integer(1..5), max_runs: 10) do
       flow =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "limits",
-          components: [Step.new!(name: "work", action: Runtime.Emit)],
+          components: [JidoActionTest.FlowComponent.step!(name: "work", action: Runtime.Emit)],
           output: %{}
         )
 
@@ -125,9 +130,15 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
       })
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "wire_oracle",
-        components: [Step.new!(name: "work", action: Runtime.Emit, params: %{value: value})],
+        components: [
+          JidoActionTest.FlowComponent.step!(
+            name: "work",
+            action: Runtime.Emit,
+            params: %{value: value}
+          )
+        ],
         output: Ref.result("work")
       )
 
@@ -163,45 +174,50 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
   defp all_components(value) do
     params = %{"key" => value, 1 => value, :value => value}
 
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "stored",
       components: [
-        Step.new!(name: "step", action: Runtime.Emit, params: params),
-        Subflow.new!(name: "child", flow: Child, params: params, needs: ["step"]),
-        Choice.new!(
+        JidoActionTest.FlowComponent.step!(name: "step", action: Runtime.Emit, params: params),
+        JidoActionTest.FlowComponent.subflow!(
+          name: "child",
+          flow: Child,
+          params: params,
+          needs: ["step"]
+        ),
+        JidoActionTest.FlowComponent.choice!(
           name: "choice",
           options: [
-            Choice.Option.new!(
+            JidoActionTest.FlowComponent.option!(
               name: "yes",
               condition: Expr.new!(:==, [1, 1]),
               action: Runtime.Emit,
               params: params
             )
           ],
-          fallback: Choice.Fallback.new!(action: Runtime.Emit, params: params)
+          fallback: JidoActionTest.FlowComponent.fallback!(action: Runtime.Emit, params: params)
         ),
-        FlowMap.new!(
+        JidoActionTest.FlowComponent.map!(
           name: "map",
           collection: [value],
           action: Runtime.Emit,
           params: %{value: Ref.item()}
         ),
-        Reduce.new!(
+        JidoActionTest.FlowComponent.reduce!(
           name: "reduce",
           collection: [value],
           initial: %{},
           action: Runtime.Emit,
           params: params
         ),
-        Iterate.new!(
+        JidoActionTest.FlowComponent.iterate!(
           name: "iterate",
           action: Runtime.Emit,
           params: params,
-          state: Iterate.State.new!(initial: %{}, update: %{}),
+          state: JidoActionTest.FlowComponent.state!(initial: %{}, update: %{}),
           completion: Expr.new!(:==, [1, 1]),
           max_iterations: 1
         ),
-        Dispatch.new!(
+        JidoActionTest.FlowComponent.dispatch!(
           name: "dispatch",
           decision: Runtime.Emit,
           expander: Runtime.Emit,
@@ -236,7 +252,7 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
     assert document["version"] == 2
 
     assert Enum.map(document["components"], & &1["kind"]) ==
-             ["step", "subflow", "choice", "map", "reduce", "iterate", "dispatch"]
+             ["choice", "iterate", "map", "reduce", "step", "subflow", "dispatch"]
 
     assert {:ok, ^flow} = Codec.decode(JSON.decode!(JSON.encode!(document)), registry)
     assert {:ok, ^flow} = Codec.diagnose(document, registry)
@@ -278,10 +294,14 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
         refute existing_atom?(identifier)
 
         flow =
-          Flow.new!(
+          JidoActionTest.FlowBuilder.new!(
             name: "mutated",
             components: [
-              Step.new!(name: "work", action: Runtime.Emit, params: %{value: sample["value"]})
+              JidoActionTest.FlowComponent.step!(
+                name: "work",
+                action: Runtime.Emit,
+                params: %{value: sample["value"]}
+              )
             ],
             output: Ref.result("work")
           )
@@ -375,10 +395,14 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
 
       flows =
         for expression <- [reference, Ref.to_map(reference)] do
-          Flow.new!(
+          JidoActionTest.FlowBuilder.new!(
             name: "identity",
             components: [
-              Step.new!(name: "work", action: Runtime.Emit, params: %{value: sample["value"]})
+              JidoActionTest.FlowComponent.step!(
+                name: "work",
+                action: Runtime.Emit,
+                params: %{value: sample["value"]}
+              )
             ],
             output: %{value: expression}
           )

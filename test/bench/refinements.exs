@@ -24,7 +24,7 @@ defmodule JidoActionBench.EmptyNext do
 end
 
 alias Jido.{Exec, Flow}
-alias Jido.Flow.{Dispatch, Ref, Step}
+alias Jido.Flow.Ref
 alias JidoActionBench.{Echo, Measure}
 alias Jido.Exec.Flow.{Collection, Frame}
 
@@ -48,9 +48,10 @@ collectors =
 compilers =
   for count <- [1, 32, 128] do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "compile",
-        components: for(i <- 1..count, do: Step.new!(name: "s#{i}", action: Echo)),
+        components:
+          for(i <- 1..count, do: JidoActionTest.FlowComponent.step!(name: "s#{i}", action: Echo)),
         output: %{}
       )
 
@@ -64,10 +65,10 @@ compilers =
   end
 
 flow =
-  Flow.new!(
+  JidoActionTest.FlowBuilder.new!(
     name: "effect_chain",
     components: [
-      Dispatch.new!(
+      JidoActionTest.FlowComponent.dispatch!(
         name: "next",
         decision: JidoActionBench.EffectDecision,
         expander: JidoActionBench.EffectNext,

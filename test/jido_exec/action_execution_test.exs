@@ -5,8 +5,7 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
   alias Jido.Action.Error
   alias Jido.Action.Error.{ConfigurationError, ExecutionFailureError, InvalidInputError}
   alias Jido.Exec
-  alias Jido.Flow
-  alias Jido.Flow.{Ref, Step}
+  alias Jido.Flow.{Ref}
   alias Jido.Instruction
   alias JidoActionTest.Fixtures.ActionWithFlowFunction
   alias JidoActionTest.Fixtures.InlineResultFlow
@@ -74,9 +73,15 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
     end
 
     explicit_flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "explicit_inline_result",
-        components: [Step.new!(name: "result", action: action, params: Ref.input([]))],
+        components: [
+          JidoActionTest.FlowComponent.step!(
+            name: "result",
+            action: action,
+            params: Ref.input([])
+          )
+        ],
         output: Ref.result("result")
       )
 
@@ -361,10 +366,10 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
 
   test "preserves Action stacktraces through serial and concurrent Flow nodes" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "stacktrace_flow",
         components: [
-          Step.new!(
+          JidoActionTest.FlowComponent.step!(
             name: "failure",
             action: StacktraceAction,
             params: %{mode: :raise}
@@ -381,10 +386,10 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
 
   test "preserves validator stacktraces when a Flow retags an input failure" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "validator_stacktrace_flow",
         components: [
-          Step.new!(
+          JidoActionTest.FlowComponent.step!(
             name: "failure",
             action: StacktraceValidationAction,
             params: %{mode: :input}

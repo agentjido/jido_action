@@ -184,7 +184,7 @@ inline Steps. Untagged success extras fail with migration guidance. See
 
 The compiler stores file, line, and available column data in a source map
 outside the canonical Flow value. Component `meta` remains portable author
-data. This separation keeps direct, data definitions, DSL, and Codec values equal.
+data. This separation keeps map definitions, DSL, and Codec values equal.
 
 Inline body warnings and errors retain source locations. Runtime stacktraces
 include the body in its owning Flow module. Do not depend on the generated

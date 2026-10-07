@@ -2,7 +2,7 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
   @moduledoc false
 
   alias Jido.Flow.DSL.{Lowerer, MacroSupport}
-  alias Jido.Flow.Component
+  alias Jido.Flow.Definition
 
   @doc false
   defmacro __using__(opts_ast) do
@@ -44,7 +44,7 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
 
       @doc "Validates Flow input parameters."
       @impl Jido.Flow
-      @spec validate_params(map()) ::
+      @spec validate_params(term()) ::
               {:ok, map()} | {:error, Jido.Action.Error.InvalidInputError.t()}
       def validate_params(params), do: Jido.Action.validate_params_for(params, __MODULE__)
 
@@ -70,8 +70,8 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
       Works for inline and explicit Action-backed Steps. Call it after this
       Flow module has compiled, not from its unfinished DSL block. Lookup
       does not run the body or create atoms. Supply new Step fields when
-      reusing the target through map-based definitions or direct constructors. For stored
-      JSON, register the target with an application-owned Action identifier
+      reusing the target through map-based definitions. For stored JSON,
+      register the target with an application-owned Action identifier
       and register the required parameter atom keys.
 
       Deploy the owning module and generated Actions together. The target
@@ -157,7 +157,7 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
   @spec register_step!(term(), Macro.Env.t()) :: String.t()
   def register_step!(value, env) do
     name =
-      case Component.name(value) do
+      case Definition.name(value) do
         {:ok, name} -> name
         {:error, error} -> MacroSupport.compile_error!(env, Exception.message(error))
       end
@@ -223,7 +223,9 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
     escaped_source_map = Macro.escape(source_map)
 
     step_actions =
-      for %Jido.Flow.Step{name: name, action: action} <- flow.components,
+      for {name,
+           %{kind: :call, call: {%Jido.Instruction{kind: :action, target: action}, _params}}} <-
+            flow.components,
           into: %{},
           do: {name, action}
 
@@ -233,7 +235,7 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
 
       @__jido_inline_generated__ {:step_action, 1}
       def step_action(name) do
-        with {:ok, normalized} <- Jido.Flow.Component.name(name),
+        with {:ok, normalized} <- Jido.Flow.Definition.name(name),
              {:ok, action} <- Map.fetch(unquote(Macro.escape(step_actions)), normalized) do
           action
         else
@@ -274,7 +276,7 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
 
   defp ensure_targets_compiled(flow) do
     flow.components
-    |> Enum.flat_map(&Component.target_modules/1)
+    |> Enum.flat_map(fn {_name, node} -> Definition.target_modules(node) end)
     |> Enum.uniq()
     |> Enum.each(&Code.ensure_compiled/1)
   end

@@ -1,8 +1,8 @@
 defmodule JidoActionTest.Instruction.TargetTest do
   use ExUnit.Case, async: true
 
-  alias Jido.{Exec, Flow, Instruction}
-  alias Jido.Flow.{Ref, Subflow}
+  alias Jido.{Exec, Instruction}
+  alias Jido.Flow.Ref
   alias JidoActionTest.Fixtures.MathFlow
   alias JidoActionTest.Fixtures.Actions.Add
 
@@ -122,10 +122,10 @@ defmodule JidoActionTest.Instruction.TargetTest do
     flow = Instruction.new!(target: MathFlow, params: %{value: 2})
 
     assert {:error, %Jido.Flow.Error.InvalidDefinitionError{}} =
-             Jido.Flow.Step.new(name: "action", action: action)
+             JidoActionTest.FlowComponent.step(name: "action", action: action)
 
     assert {:error, %Jido.Flow.Error.InvalidDefinitionError{}} =
-             Jido.Flow.Subflow.new(name: "flow", flow: flow)
+             JidoActionTest.FlowComponent.subflow(name: "flow", flow: flow)
   end
 
   test "callbacks without a target behaviour do not classify a module" do
@@ -161,9 +161,15 @@ defmodule JidoActionTest.Instruction.TargetTest do
     instruction = Instruction.new!(target: FlowWithoutRun, params: input)
 
     parent =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "flow_without_run_parent",
-        components: [Subflow.new!(name: "child", flow: FlowWithoutRun, params: Ref.input([]))],
+        components: [
+          JidoActionTest.FlowComponent.subflow!(
+            name: "child",
+            flow: FlowWithoutRun,
+            params: Ref.input([])
+          )
+        ],
         output: Ref.result("child")
       )
 

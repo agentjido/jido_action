@@ -1,9 +1,8 @@
 defmodule JidoActionTest.Fixtures.Execution do
   @moduledoc false
 
-  alias Jido.{Exec, Flow, Instruction}
-  alias Jido.Flow.Map, as: FlowMap
-  alias Jido.Flow.{Reduce, Ref, Step, Subflow}
+  alias Jido.{Exec, Instruction}
+  alias Jido.Flow.Ref
   alias JidoActionTest.Fixtures.ConcurrencyProbeAction
 
   alias JidoActionTest.Fixtures.Actions.{
@@ -28,15 +27,15 @@ defmodule JidoActionTest.Fixtures.Execution do
   end
 
   def linear_flow do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "step_linear",
       components: [
-        Step.new!(
+        JidoActionTest.FlowComponent.step!(
           name: :add,
           action: Add,
           params: %{value: Ref.input(:value), amount: 1}
         ),
-        Step.new!(
+        JidoActionTest.FlowComponent.step!(
           name: :multiply,
           action: Multiply,
           params: %{value: Ref.result(:add, :value), amount: 2}
@@ -49,10 +48,10 @@ defmodule JidoActionTest.Fixtures.Execution do
   def map_flow(items, on_error) do
     items = Enum.map(items, &Map.put_new(&1, :block, false))
 
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "step_map",
       components: [
-        FlowMap.new!(
+        JidoActionTest.FlowComponent.map!(
           name: :mapped,
           collection: items,
           action: MapProbeAction,
@@ -75,17 +74,17 @@ defmodule JidoActionTest.Fixtures.Execution do
       end
       |> Enum.map(&Map.put_new(&1, :block, false))
 
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "stepwise_map_reduce",
       components: [
-        FlowMap.new!(
+        JidoActionTest.FlowComponent.map!(
           name: :mapped,
           collection: items,
           action: MapProbeAction,
           params: map_probe_input(),
           on_error: :collect_errors
         ),
-        Reduce.new!(
+        JidoActionTest.FlowComponent.reduce!(
           name: :reduced,
           collection: Ref.result(:mapped),
           initial: %{values: [], indexes: []},
@@ -117,12 +116,20 @@ defmodule JidoActionTest.Fixtures.Execution do
       %{side: side}
     end
 
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "step_diamond",
       components: [
-        Step.new!(name: :right, action: action, params: branch_input.(:right)),
-        Step.new!(name: :left, action: action, params: branch_input.(:left)),
-        Step.new!(
+        JidoActionTest.FlowComponent.step!(
+          name: :right,
+          action: action,
+          params: branch_input.(:right)
+        ),
+        JidoActionTest.FlowComponent.step!(
+          name: :left,
+          action: action,
+          params: branch_input.(:left)
+        ),
+        JidoActionTest.FlowComponent.step!(
           name: :merge,
           action: EchoParamsAction,
           params: %{
@@ -144,12 +151,20 @@ defmodule JidoActionTest.Fixtures.Execution do
       }
     end
 
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "step_probe_diamond",
       components: [
-        Step.new!(name: :right, action: ConcurrencyProbeAction, params: branch_input.(:right)),
-        Step.new!(name: :left, action: ConcurrencyProbeAction, params: branch_input.(:left)),
-        Step.new!(
+        JidoActionTest.FlowComponent.step!(
+          name: :right,
+          action: ConcurrencyProbeAction,
+          params: branch_input.(:right)
+        ),
+        JidoActionTest.FlowComponent.step!(
+          name: :left,
+          action: ConcurrencyProbeAction,
+          params: branch_input.(:left)
+        ),
+        JidoActionTest.FlowComponent.step!(
           name: :merge,
           action: EchoParamsAction,
           params: %{
@@ -169,11 +184,20 @@ defmodule JidoActionTest.Fixtures.Execution do
       names
       |> Enum.reverse()
       |> Enum.map(fn name ->
-        Step.new!(name: name, action: EchoParamsAction, params: %{name: name})
+        JidoActionTest.FlowComponent.step!(
+          name: name,
+          action: EchoParamsAction,
+          params: %{name: name}
+        )
       end)
 
     output = Map.new(names, &{&1, Ref.result(&1)})
-    Flow.new!(name: "wide_step_flow", components: components, output: output)
+
+    JidoActionTest.FlowBuilder.new!(
+      name: "wide_step_flow",
+      components: components,
+      output: output
+    )
   end
 
   def serial_flow(node_count) do
@@ -186,10 +210,10 @@ defmodule JidoActionTest.Fixtures.Execution do
             %{value: Ref.result(node_name(index - 1), :value), amount: 1}
           end
 
-        Step.new!(name: node_name(index), action: Add, params: params)
+        JidoActionTest.FlowComponent.step!(name: node_name(index), action: Add, params: params)
       end)
 
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "serial_step_flow_#{node_count}",
       components: components,
       output: Ref.result(node_name(node_count))
@@ -201,9 +225,11 @@ defmodule JidoActionTest.Fixtures.Execution do
     instruction = Instruction.new!(target: module, params: input)
 
     parent =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "parent_#{System.unique_integer([:positive])}",
-        components: [Subflow.new!(name: :inner, flow: module, params: Ref.input([]))],
+        components: [
+          JidoActionTest.FlowComponent.subflow!(name: :inner, flow: module, params: Ref.input([]))
+        ],
         output: Ref.result(:inner)
       )
 
@@ -229,10 +255,10 @@ defmodule JidoActionTest.Fixtures.Execution do
       )
 
     parent =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "blocking_parent_flow",
         components: [
-          Subflow.new!(
+          JidoActionTest.FlowComponent.subflow!(
             name: "child",
             flow: module,
             params: %{value: Ref.input(:value)}
@@ -282,8 +308,7 @@ end
 defmodule JidoActionTest.Fixtures.Iterator do
   @moduledoc false
 
-  alias Jido.Flow
-  alias Jido.Flow.{Iterate, Ref}
+  alias Jido.Flow.Ref
 
   @state_schema_recorder :jido_flow_iterator_runtime_state_schema_recorder
 
@@ -314,7 +339,7 @@ defmodule JidoActionTest.Fixtures.Iterator do
     max_iterations = Keyword.fetch!(opts, :max_iterations)
 
     iterator =
-      Iterate.new!(
+      JidoActionTest.FlowComponent.iterate!(
         name: :count,
         action: action,
         params: input,
@@ -323,7 +348,11 @@ defmodule JidoActionTest.Fixtures.Iterator do
         max_iterations: max_iterations
       )
 
-    Flow.new!(name: "iterator_runtime", components: [iterator], output: Ref.result(:count))
+    JidoActionTest.FlowBuilder.new!(
+      name: "iterator_runtime",
+      components: [iterator],
+      output: Ref.result(:count)
+    )
   end
 
   def eq(left, right), do: %Jido.Expr{operator: :==, operands: [left, right]}

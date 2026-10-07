@@ -7,6 +7,7 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
   alias Jido.Exec.Worker
   alias Jido.Exec.Controller
   alias Jido.Flow.Error
+  alias Jido.Instruction
   alias Runic.Workflow
   alias Runic.Workflow.FanIn
   alias Runic.Workflow.Runnable
@@ -104,7 +105,7 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
           details
       end
 
-    instruction = Target.new(kind, metadata.action, details)
+    instruction = Target.new(kind, Instruction.template(:action, metadata.action), details)
     {:error, error} = Target.tag_execution(error, instruction)
 
     result =
@@ -131,7 +132,7 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
 
   defp dispatch_kind(execution, runnable) do
     case Map.get(execution.compiled.work_index, runnable.node.hash) do
-      %{kind: kind, role: :execute} when kind in [:step, :choice] ->
+      %{kind: :step, role: :execute} ->
         :action
 
       %{kind: :map, role: :map_item} ->
@@ -139,7 +140,9 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
           do: :support,
           else: :action
 
-      %{kind: kind, role: :execute} when kind in [:iterate, :dispatch] ->
+      # Choice selects its Action at runtime. Keep its outer work compound so
+      # the selected target owns the Action worker and its failure metadata.
+      %{kind: kind, role: :execute} when kind in [:choice, :iterate, :dispatch] ->
         :compound
 
       %{kind: :reduce, role: :fan_in} ->

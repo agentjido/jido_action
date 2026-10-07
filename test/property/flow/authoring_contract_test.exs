@@ -6,8 +6,8 @@ defmodule JidoActionTest.Property.Flow.AuthoringContractTest do
   use ExUnit.Case, async: false
   use ExUnitProperties
   alias JidoActionTest.Property.Fuzz
-  alias Jido.{Exec, Expr, Flow}
-  alias Jido.Flow.{Codec, Ref, Step}
+  alias Jido.{Exec, Expr}
+  alias Jido.Flow.{Codec, Ref}
   alias JidoActionTest.Property.Runtime
   @generated JidoActionTest.Property.Flow.GeneratedGraph
   @tag contracts: ["FLOW-001", "FLOW-002", "EFFECT-001"]
@@ -85,10 +85,14 @@ defmodule JidoActionTest.Property.Flow.AuthoringContractTest do
       action = Inline.step_action("work")
 
       direct =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "property_inline",
           components: [
-            Step.new!(name: "work", action: action, params: %{value: Ref.input(:value)})
+            JidoActionTest.FlowComponent.step!(
+              name: "work",
+              action: action,
+              params: %{value: Ref.input(:value)}
+            )
           ],
           output: Ref.result("work")
         )
@@ -102,10 +106,14 @@ defmodule JidoActionTest.Property.Flow.AuthoringContractTest do
       assert_raise ArgumentError, fn -> Inline.step_action("absent") end
 
       extended =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "property_extended",
           components: [
-            Step.new!(name: "work", action: Runtime.Emit, params: %{value: Ref.input(:value)})
+            JidoActionTest.FlowComponent.step!(
+              name: "work",
+              action: Runtime.Emit,
+              params: %{value: Ref.input(:value)}
+            )
           ],
           output: Ref.result("work")
         )
@@ -118,7 +126,7 @@ defmodule JidoActionTest.Property.Flow.AuthoringContractTest do
         name: "property_extended"
       }
 
-      assert {:ok, ^extended} = Jido.Flow.new(data)
+      assert {:ok, ^extended} = JidoActionTest.FlowBuilder.new(data)
       assert Extended.flow() == extended
 
       Runtime.with_context(fn runtime ->
@@ -227,7 +235,7 @@ defmodule JidoActionTest.Property.Flow.AuthoringContractTest do
             Expr.new!(:+, [value, Ref.result(parent, :value)])
           end)
 
-        Step.new!(
+        JidoActionTest.FlowComponent.step!(
           name: name,
           action: Runtime.Emit,
           params: %{value: value, label: name},
@@ -241,7 +249,13 @@ defmodule JidoActionTest.Property.Flow.AuthoringContractTest do
       end
 
     output = Map.new(parents, fn {name, _} -> {name, Ref.result(name, :value)} end)
-    direct = Flow.new!(name: "classified_graph", components: components, output: output)
+
+    direct =
+      JidoActionTest.FlowBuilder.new!(
+        name: "classified_graph",
+        components: components,
+        output: output
+      )
 
     data = %{
       output: output,
@@ -261,7 +275,7 @@ defmodule JidoActionTest.Property.Flow.AuthoringContractTest do
       name: direct.name
     }
 
-    assert {:ok, built} = Jido.Flow.new(data)
+    assert {:ok, built} = JidoActionTest.FlowBuilder.new(data)
     assert {:ok, document, registry} = Codec.encode(direct)
     assert {:ok, decoded} = Codec.decode(JSON.decode!(JSON.encode!(document)), registry)
 

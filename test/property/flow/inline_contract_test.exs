@@ -5,8 +5,8 @@ defmodule JidoActionTest.Property.Flow.InlineContractTest do
   use ExUnit.Case, async: false
   use ExUnitProperties
   @moduletag :property
-  alias Jido.{Exec, Flow, Instruction}
-  alias Jido.Flow.{Codec, Ref, Step}
+  alias Jido.{Exec, Instruction}
+  alias Jido.Flow.{Codec, Ref}
   alias JidoActionTest.Property.Runtime
   alias JidoActionTest.Property.AuthoringFixtures.{Inline, Extended}
   @tag contracts: ["ACT-005", "FLOW-001", "TARGET-001"]
@@ -24,10 +24,14 @@ defmodule JidoActionTest.Property.Flow.InlineContractTest do
       assert :ok = Instruction.validate(target)
 
       direct =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "property_inline",
           components: [
-            Step.new!(name: "work", action: target, params: %{value: Ref.input(:value)})
+            JidoActionTest.FlowComponent.step!(
+              name: "work",
+              action: target,
+              params: %{value: Ref.input(:value)}
+            )
           ],
           output: Ref.result("work")
         )
@@ -49,10 +53,14 @@ defmodule JidoActionTest.Property.Flow.InlineContractTest do
   property("a host extension expands to canonical declarations with equal execution") do
     check(all(value <- integer(), max_runs: 40)) do
       direct =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "property_extended",
           components: [
-            Step.new!(name: "work", action: Runtime.Emit, params: %{value: Ref.input(:value)})
+            JidoActionTest.FlowComponent.step!(
+              name: "work",
+              action: Runtime.Emit,
+              params: %{value: Ref.input(:value)}
+            )
           ],
           output: Ref.result("work")
         )
@@ -65,7 +73,7 @@ defmodule JidoActionTest.Property.Flow.InlineContractTest do
         name: "property_extended"
       }
 
-      assert {:ok, ^direct} = Jido.Flow.new(data)
+      assert {:ok, ^direct} = JidoActionTest.FlowBuilder.new(data)
       assert direct == Extended.flow()
 
       Runtime.with_context(fn context ->

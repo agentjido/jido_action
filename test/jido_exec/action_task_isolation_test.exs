@@ -2,8 +2,8 @@ defmodule JidoActionTest.Exec.ActionTaskIsolationTest do
   use ExUnit.Case, async: true
   import JidoActionTest.ProcessCleanup
 
-  alias Jido.{Exec, Flow, Instruction}
-  alias Jido.Flow.{Ref, Step}
+  alias Jido.{Exec, Instruction}
+  alias Jido.Flow.{Ref}
 
   @moduletag capture_log: true
 
@@ -27,9 +27,9 @@ defmodule JidoActionTest.Exec.ActionTaskIsolationTest do
         if unquote(kind) == :action do
           Held
         else
-          Flow.new!(
+          JidoActionTest.FlowBuilder.new!(
             name: "hard_task_exit",
-            components: [Step.new!(name: "held", action: Held)],
+            components: [JidoActionTest.FlowComponent.step!(name: "held", action: Held)],
             output: Ref.result("held")
           )
         end
@@ -211,12 +211,12 @@ defmodule JidoActionTest.Exec.ActionTaskIsolationTest do
   end
 
   defp flow do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "action_task_isolation",
       components: [
-        Step.new!(name: "one", action: Probe),
-        Step.new!(name: "two", action: Probe),
-        Step.new!(name: "three", action: Probe, needs: ["one", "two"])
+        JidoActionTest.FlowComponent.step!(name: "one", action: Probe),
+        JidoActionTest.FlowComponent.step!(name: "two", action: Probe),
+        JidoActionTest.FlowComponent.step!(name: "three", action: Probe, needs: ["one", "two"])
       ],
       output: %{one: Ref.result("one"), two: Ref.result("two"), three: Ref.result("three")}
     )

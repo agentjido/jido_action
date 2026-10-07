@@ -59,7 +59,9 @@ defmodule Jido.Flow.DSL.InlineStepTest do
       end
       """)
 
-      assert [%Jido.Flow.Step{name: "increment", action: action}] = owner.flow().components
+      assert %{call: {%Jido.Instruction{target: action}, _params}} =
+               owner.flow().components["increment"]
+
       assert owner.step_action("increment") == action
       assert {:ok, %{value: 2}} = Jido.Exec.run(owner, %{})
     end
@@ -76,7 +78,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
 
     compile_source(flow_source(owner, declarations, ~s(@step_name "first")))
 
-    assert Enum.map(owner.flow().components, & &1.name) == ["first", "second"]
+    assert Map.keys(owner.flow().components) |> Enum.sort() == ["first", "second"]
 
     for name <- ["first", "second"] do
       {target, _} = generated_identity(owner, name)
@@ -169,7 +171,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
       """
 
       compile_source(flow_source(owner, declarations))
-      assert [%Jido.Flow.Step{name: "same"}] = owner.flow().components
+      assert %{kind: :call} = owner.flow().components["same"]
       assert owner.step_action("same").run(%{}, %{}) == {:ok, %{value: :used}}
       refute_received :inline_name_expression_evaluated
       {unused_target, _} = generated_identity(owner, "expression_name")
@@ -413,8 +415,9 @@ defmodule Jido.Flow.DSL.InlineStepTest do
   end
 
   test "inline bindings compile and run through ordinary Steps with inferred dependencies" do
-    assert [%Jido.Flow.Step{action: action, params: params}, %Jido.Flow.Step{}] =
-             JidoActionTest.Fixtures.InlineGreetingFlow.flow().components
+    flow = JidoActionTest.Fixtures.InlineGreetingFlow.flow()
+    assert %{call: {%Jido.Instruction{target: action}, params}} = flow.components["normalize"]
+    assert %{kind: :call} = flow.components["greet"]
 
     assert is_atom(action)
     assert params == %{name: Ref.input(:name)}
@@ -445,7 +448,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
            }
 
     assert module.current_prefix() == "after"
-    assert Enum.map(module.flow().components, & &1.name) == ["lexical", "local_import"]
+    assert Map.keys(module.flow().components) |> Enum.sort() == ["lexical", "local_import"]
   end
 
   for namespace <- [
@@ -473,7 +476,7 @@ defmodule Jido.Flow.DSL.InlineStepTest do
       compile_source(flow_source(owner, declaration, "import #{inspect(helper)}"))
 
       assert owner.step_action("same").run(%{}, %{}) == {:ok, %{marker: :retained}}
-      assert [%Jido.Flow.Step{name: "same"}] = owner.flow().components
+      assert %{kind: :call} = owner.flow().components["same"]
     end
   end
 
@@ -481,14 +484,12 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     flow = JidoActionTest.Fixtures.InlineGreetingFlow.flow()
     map = Jido.Flow.to_map(flow)
 
-    for step <- flow.components do
-      assert Map.keys(Map.from_struct(step)) |> Enum.sort() ==
-               [:action, :meta, :name, :needs, :params]
-
-      assert is_atom(step.action)
-      assert step.action.name() == step.name
-      assert step.action.schema() == []
-      assert step.action.output_schema() == []
+    for {name, %{call: {%Jido.Instruction{target: action}, _params}} = node} <- flow.components do
+      assert Map.keys(node) |> Enum.sort() == [:call, :kind, :meta, :needs]
+      assert is_atom(action)
+      assert action.name() == name
+      assert action.schema() == []
+      assert action.output_schema() == []
     end
 
     assert canonical_data?(map)
@@ -645,16 +646,19 @@ defmodule Jido.Flow.DSL.InlineStepTest do
 
     compile_source(source)
     module = Module.concat(__MODULE__, BindingFormsFlow)
-    assert [seed, one, two, two_options, list, pattern] = module.flow().components
-    assert seed.name == "seed"
-    assert seed.params == %{}
+    components = module.flow().components
+
+    [seed, one, two, two_options, list, pattern] =
+      Enum.map(["seed", "one", "two", "two_options", "list", "pattern"], &components[&1])
+
+    assert call_params(seed) == %{}
     assert one.needs == ["seed"]
     assert one.meta == %{form: "one"}
-    assert two.params == %{name: Ref.result("one", :name), ctx: Ref.context()}
+    assert call_params(two) == %{name: Ref.result("one", :name), ctx: Ref.context()}
     assert two_options.needs == ["seed"]
     assert two_options.meta == %{form: "two"}
     assert list.meta == %{form: "list"}
-    assert pattern.params == Ref.input([])
+    assert call_params(pattern) == Ref.input([])
 
     assert Jido.Exec.run(
              module,
@@ -760,10 +764,10 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     """)
 
     direct =
-      Jido.Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "negative_literal",
         components: [
-          Jido.Flow.Step.new!(
+          JidoActionTest.FlowComponent.step!(
             name: "echo",
             action: owner.step_action("echo"),
             params: %{amount: -1}
@@ -1106,6 +1110,8 @@ defmodule Jido.Flow.DSL.InlineStepTest do
 
   defp ast(source), do: Code.string_to_quoted!(source, line: @source_line, columns: true)
   defp caller, do: %{__ENV__ | file: @source_file, line: @source_line}
+
+  defp call_params(%{call: {_instruction, params}}), do: params
 
   defp canonical_data?(value) when is_map(value) do
     not is_struct(value, Macro.Env) and

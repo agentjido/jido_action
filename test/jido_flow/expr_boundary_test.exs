@@ -1,8 +1,7 @@
 defmodule JidoActionTest.Flow.ExprBoundaryTest do
   use ExUnit.Case, async: true
   alias Jido.Expr
-  alias Jido.Flow
-  alias Jido.Flow.{Choice, Codec, Iterate, Ref, Step}
+  alias Jido.Flow.{Codec, Ref}
   alias Jido.Flow.DSL.ValueParser
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
 
@@ -81,7 +80,7 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
       direct = output_flow(value)
 
       assert {:ok, built} =
-               Jido.Flow.new(%{
+               JidoActionTest.FlowBuilder.new(%{
                  output: value,
                  components: [%{kind: :step, name: "seed", action: EchoParamsAction, params: %{}}],
                  name: "expression_boundary"
@@ -120,7 +119,11 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
                )
 
       assert {:error, _} =
-               Step.new(name: "seed", action: EchoParamsAction, params: %{v: expression})
+               JidoActionTest.FlowComponent.step(
+                 name: "seed",
+                 action: EchoParamsAction,
+                 params: %{v: expression}
+               )
     end
   end
 
@@ -159,7 +162,7 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
     expression = Expr.new!(:+, [Ref.item(), 1])
 
     assert {:error, error} =
-             Step.new(
+             JidoActionTest.FlowComponent.step(
                name: "seed",
                action: EchoParamsAction,
                params: %{outer: [%{inner: expression}]}
@@ -188,20 +191,17 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
     expression = Expr.new!(:==, [Expr.new!(:+, [1, 1]), 2])
     invalid = %{"$expr" => %{"operator" => "unknown", "operands" => []}}
 
-    for {flow, path} <- [
+    for {flow, path, expected_path} <- [
           {choice_flow(expression),
-           ["components", Access.at(0), "options", Access.at(0), "condition"]},
-          {iterator_flow(expression), ["components", Access.at(0), "completion"]}
+           ["components", Access.at(0), "options", Access.at(0), "condition"],
+           ["components", 0, "options", 0, "condition", "$expr", "operator"]},
+          {iterator_flow(expression), ["components", Access.at(0), "completion"],
+           ["components", 0, "completion", "$expr", "operator"]}
         ] do
       assert {:ok, document, registry} = Codec.encode(flow)
       assert {:error, error} = Codec.decode(put_in(document, path, invalid), registry)
 
-      assert error.details.path ==
-               (if match?(%Choice{}, hd(flow.components)) do
-                  ["components", 0, "options", 0, "condition", "$expr", "operator"]
-                else
-                  ["components", 0, "completion", "$expr", "operator"]
-                end)
+      assert error.details.path == expected_path
     end
   end
 
@@ -214,7 +214,11 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
                Jido.Flow.Value.validate(expression)
 
       assert {:error, %Jido.Flow.Error.InvalidDefinitionError{}} =
-               Step.new(name: "seed", action: EchoParamsAction, params: %{nested: expression})
+               JidoActionTest.FlowComponent.step(
+                 name: "seed",
+                 action: EchoParamsAction,
+                 params: %{nested: expression}
+               )
 
       assert {:error, %Jido.Flow.Error.InvalidDefinitionError{}} =
                Jido.Flow.Value.condition(%Expr{operator: :==, operands: [data, data]}, :any)
@@ -240,7 +244,11 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
     assert error.details.path == [:operands, 0, :operands, 0]
 
     assert {:error, error} =
-             Step.new(name: "seed", action: EchoParamsAction, params: %{outer: [expression]})
+             JidoActionTest.FlowComponent.step(
+               name: "seed",
+               action: EchoParamsAction,
+               params: %{outer: [expression]}
+             )
 
     assert error.details.path == [:params, :outer, 0, :operands, 0, :operands, 0]
     assert {:error, error} = Jido.Flow.Value.normalize(%{outer: [reference]})
@@ -299,16 +307,16 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
   end
 
   defp output_flow(value) do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "expression_boundary",
-      components: [Step.new!(name: "seed", action: EchoParamsAction)],
+      components: [JidoActionTest.FlowComponent.step!(name: "seed", action: EchoParamsAction)],
       output: value
     )
   end
 
   defp choice_flow(condition) do
     choice =
-      Choice.new!(
+      JidoActionTest.FlowComponent.choice!(
         name: "route",
         options: [
           %{
@@ -321,12 +329,16 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
         fallback: [action: EchoParamsAction, params: %{selected: false}]
       )
 
-    Flow.new!(name: "expression_boundary", components: [choice], output: Ref.result("route"))
+    JidoActionTest.FlowBuilder.new!(
+      name: "expression_boundary",
+      components: [choice],
+      output: Ref.result("route")
+    )
   end
 
   defp iterator_flow(condition) do
     iterator =
-      Iterate.new!(
+      JidoActionTest.FlowComponent.iterate!(
         name: "loop",
         action: EchoParamsAction,
         state: [schema: [], initial: %{}, update: %{}],
@@ -334,7 +346,11 @@ defmodule JidoActionTest.Flow.ExprBoundaryTest do
         max_iterations: 1
       )
 
-    Flow.new!(name: "expression_boundary", components: [iterator], output: Ref.result("loop"))
+    JidoActionTest.FlowBuilder.new!(
+      name: "expression_boundary",
+      components: [iterator],
+      output: Ref.result("loop")
+    )
   end
 
   defp module_flow(module, source) do

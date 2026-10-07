@@ -37,7 +37,7 @@ defmodule JidoActionTest.Exec.ComponentScopeTest do
   describe "authored names" do
     test "a name with a path separator stays distinct from a Subflow child" do
       flow =
-        Flow.new!(%{
+        JidoActionTest.FlowBuilder.new!(%{
           name: "scope_separator",
           components: [
             %{kind: :step, name: "b/double", action: Add, params: %{value: 1000, amount: 1}},
@@ -58,7 +58,7 @@ defmodule JidoActionTest.Exec.ComponentScopeTest do
     test "a name that matches a support node stays distinct from that node" do
       for name <- ["$m/map-input", "$m/map", "$m/map-collector", "$m/map/item"] do
         flow =
-          Flow.new!(%{
+          JidoActionTest.FlowBuilder.new!(%{
             name: "scope_support",
             components: [
               %{kind: :step, name: name, action: Add, params: %{value: 1000, amount: 1}},
@@ -83,7 +83,7 @@ defmodule JidoActionTest.Exec.ComponentScopeTest do
     test "Subflow child input and output nodes stay distinct from authored names" do
       for name <- ["b/$input", "b/$output"] do
         flow =
-          Flow.new!(%{
+          JidoActionTest.FlowBuilder.new!(%{
             name: "scope_boundary",
             components: [
               %{kind: :step, name: name, action: Add, params: %{value: 1000, amount: 1}},
@@ -119,7 +119,7 @@ defmodule JidoActionTest.Exec.ComponentScopeTest do
       on_exit(fn -> :telemetry.detach(handler) end)
 
       flow =
-        Flow.new!(%{
+        JidoActionTest.FlowBuilder.new!(%{
           name: "scope_ids",
           components: [
             %{kind: :subflow, name: "b1", flow: ChildCollections, params: %{}},
@@ -144,7 +144,7 @@ defmodule JidoActionTest.Exec.ComponentScopeTest do
 
     test "a root collection keeps its item ID" do
       flow =
-        Flow.new!(%{
+        JidoActionTest.FlowBuilder.new!(%{
           name: "scope_root_ids",
           components: [
             %{
@@ -160,7 +160,7 @@ defmodule JidoActionTest.Exec.ComponentScopeTest do
 
       assert {:ok, %{items: [%{id: id}]}} = Exec.run(flow, %{}, %{})
       {:ok, compiled} = Flow.compile(flow)
-      assert id == Jido.Flow.Identity.item_uuid(compiled.semantic_digest, ["m"], 0)
+      assert id == Jido.Exec.Flow.Identity.item_uuid(compiled.semantic_digest, ["m"], 0)
     end
   end
 

@@ -50,7 +50,8 @@ defmodule Jido.Expr do
 
   ## Resource limits
 
-  `parse/2`, `validate/2`, and `evaluate/2` accept positive integer limits:
+  `parse/2`, `normalize/2`, `reduce/4`, `validate/2`, and `evaluate/2` accept
+  positive integer limits:
 
   * `:max_depth` defaults to 64 nested data or expression levels.
   * `:max_nodes` defaults to 10,000 visited values, including resolved data
@@ -122,6 +123,23 @@ defmodule Jido.Expr do
 
   @type validate_options :: [validate_option()]
 
+  @typedoc "Options accepted by `normalize/2`."
+  @type normalize_option ::
+          limit_option()
+          | {:normalize_leaf, (term() -> term()) | (term(), path() -> term())}
+          | {:validate_leaf, (term() -> term()) | (term(), path() -> term())}
+
+  @type normalize_options :: [normalize_option()]
+
+  @typedoc "One result from a `reduce/4` callback."
+  @type reduce_result(accumulator) ::
+          {:cont, accumulator} | {:halt, accumulator} | {:error, term()}
+
+  @typedoc "A callback accepted by `reduce/4`."
+  @type reducer(accumulator) ::
+          (term(), accumulator -> reduce_result(accumulator))
+          | (term(), path(), accumulator -> reduce_result(accumulator))
+
   @typedoc "Options accepted by `evaluate/2`."
   @type evaluate_option ::
           limit_option()
@@ -172,6 +190,41 @@ defmodule Jido.Expr do
   @doc "Builds expression data from source; `^variable` inserts trusted host data."
   @spec expr(Macro.t()) :: Macro.t()
   defmacro expr(ast), do: Parser.expand!(ast)
+
+  @doc """
+  Normalizes an expression or a data tree without evaluating operations.
+
+  A `:normalize_leaf` callback can replace a host struct. It must return
+  `{:ok, value}` or `{:error, error}`. A `:validate_leaf` callback then checks
+  every host struct that remains. Each callback can accept the current path as
+  its second argument.
+
+  The walk accepts expression nodes, host structs, maps, proper lists, and
+  literal expression data. It applies the standard expression limits to the
+  complete input tree.
+  """
+  @spec normalize(term(), normalize_options()) :: {:ok, term()} | {:error, term()}
+  def normalize(value, options \\ []), do: Runtime.normalize(value, options)
+
+  @doc """
+  Reduces an expression or data tree with limits and exact paths.
+
+  The reducer receives each value before its children. An arity-three reducer
+  also receives the current path. Return `{:cont, accumulator}` to visit the
+  children, `{:halt, accumulator}` to stop successfully, or `{:error, error}`
+  to stop with an error.
+
+  Expression operand paths contain `:operands` and a zero-based index. List
+  paths contain an index. Map value paths contain the map key. The reducer
+  receives each map, so it can inspect its keys. Map keys count toward the
+  resource limits but are not separate reducer values. Host structs are
+  leaves.
+  """
+  @spec reduce(term(), accumulator, reducer(accumulator), [limit_option()]) ::
+          {:ok, accumulator} | {:error, term()}
+        when accumulator: term()
+  def reduce(value, accumulator, reducer, options \\ []),
+    do: Runtime.reduce(value, accumulator, reducer, options)
 
   @doc """
   Validates a complete expression tree without running operations.

@@ -5,8 +5,7 @@ defmodule JidoActionTest.Property.Flow.ComponentContractTest do
   use ExUnitProperties
   @moduletag :property
   alias Jido.{Exec, Expr, Flow}
-  alias Jido.Flow.{Choice, Iterate, Reduce, Ref, Subflow}
-  alias Jido.Flow.Map, as: FlowMap
+  alias Jido.Flow.Ref
   alias JidoActionTest.Property.Runtime
   alias Runtime.Emit
 
@@ -47,7 +46,7 @@ defmodule JidoActionTest.Property.Flow.ComponentContractTest do
           ) do
       for items <- [[], [seed], [seed, seed], values] do
         mapped =
-          FlowMap.new!(
+          JidoActionTest.FlowComponent.map!(
             name: "work",
             collection: items,
             action: Emit,
@@ -55,7 +54,7 @@ defmodule JidoActionTest.Property.Flow.ComponentContractTest do
           )
 
         reduced =
-          Reduce.new!(
+          JidoActionTest.FlowComponent.reduce!(
             name: "work",
             collection: items,
             initial: %{value: seed},
@@ -70,8 +69,14 @@ defmodule JidoActionTest.Property.Flow.ComponentContractTest do
               {mapped, %{items: Ref.result("work")}, expected_map},
               {reduced, Ref.result("work"), expected_fold}
             ] do
-          flow = Flow.new!(name: "collection", components: [component], output: output)
-          assert_modes(flow, expected, items, items, component.__struct__ == Reduce)
+          flow =
+            JidoActionTest.FlowBuilder.new!(
+              name: "collection",
+              components: [component],
+              output: output
+            )
+
+          assert_modes(flow, expected, items, items, component.kind == :reduce)
         end
       end
     end
@@ -93,16 +98,16 @@ defmodule JidoActionTest.Property.Flow.ComponentContractTest do
           ],
           fail <- [false, true] do
         choice =
-          Choice.new!(
+          JidoActionTest.FlowComponent.choice!(
             name: "work",
             options: [
-              Choice.Option.new!(
+              JidoActionTest.FlowComponent.option!(
                 name: "first",
                 condition: first,
                 action: Emit,
                 params: %{value: value, label: "first", fail: fail}
               ),
-              Choice.Option.new!(
+              JidoActionTest.FlowComponent.option!(
                 name: "second",
                 condition: second,
                 action: Emit,
@@ -110,13 +115,18 @@ defmodule JidoActionTest.Property.Flow.ComponentContractTest do
               )
             ],
             fallback:
-              Choice.Fallback.new!(
+              JidoActionTest.FlowComponent.fallback!(
                 action: Emit,
                 params: %{value: value, label: "fallback", fail: fail}
               )
           )
 
-        flow = Flow.new!(name: "choice", components: [choice], output: Ref.result("work"))
+        flow =
+          JidoActionTest.FlowBuilder.new!(
+            name: "choice",
+            components: [choice],
+            output: Ref.result("work")
+          )
 
         if fail do
           for mode <- [:run, :step, :wave, :continue] do
@@ -180,9 +190,15 @@ defmodule JidoActionTest.Property.Flow.ComponentContractTest do
   property "Subflow input mapping and output agree across all step-wise modes" do
     check all(value <- integer(), max_runs: 40) do
       flow =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "parent",
-          components: [Subflow.new!(name: "child", flow: Child, params: %{value: value})],
+          components: [
+            JidoActionTest.FlowComponent.subflow!(
+              name: "child",
+              flow: Child,
+              params: %{value: value}
+            )
+          ],
           output: %{child: Ref.result("child")}
         )
 
@@ -192,12 +208,12 @@ defmodule JidoActionTest.Property.Flow.ComponentContractTest do
 
   defp iterator(seed, target, maximum) do
     loop =
-      Iterate.new!(
+      JidoActionTest.FlowComponent.iterate!(
         name: "loop",
         action: Fold,
         params: %{acc: Ref.state(:value), item: Ref.iteration_index()},
         state:
-          Iterate.State.new!(
+          JidoActionTest.FlowComponent.state!(
             schema: Zoi.object(%{value: Zoi.integer()}),
             initial: %{value: seed},
             update: %{value: Ref.body_result(:value)}
@@ -206,7 +222,11 @@ defmodule JidoActionTest.Property.Flow.ComponentContractTest do
         max_iterations: maximum
       )
 
-    Flow.new!(name: "iterate", components: [loop], output: Ref.result("loop"))
+    JidoActionTest.FlowBuilder.new!(
+      name: "iterate",
+      components: [loop],
+      output: Ref.result("loop")
+    )
   end
 
   defp assert_modes(flow, output, effects, calls, serial?) do

@@ -79,7 +79,7 @@ indexes return structured execution errors.
 
 `Jido.Flow.Ref.select/2` validates its source reference before it appends a path.
 An invalid source raises `Jido.Flow.Error.InvalidDefinitionError`. The next
-component or Flow constructor validates the complete selected path.
+component or Flow definition validates the complete selected path.
 
 A result reference creates an inferred dependency on the named component.
 Input and context references do not.

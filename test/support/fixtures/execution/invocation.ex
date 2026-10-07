@@ -177,17 +177,15 @@ defmodule JidoActionTest.Fixtures.Execution.InvocationRestart do
   @moduledoc false
 
   alias Jido.Exec
-  alias Jido.Flow
   alias Jido.Flow.Ref
-  alias Jido.Flow.Map, as: FlowMap
   alias JidoActionTest.Fixtures.Execution.InvocationHost
   alias JidoActionTest.Fixtures.Execution.InvocationRestartAction
 
   def definition do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "invocation_restart",
       components: [
-        FlowMap.new!(
+        JidoActionTest.FlowComponent.map!(
           name: "items",
           collection: Ref.input(:items),
           action: InvocationRestartAction,
@@ -329,9 +327,7 @@ end
 defmodule JidoActionTest.Fixtures.Execution.InvocationCountedFlow do
   @moduledoc false
 
-  alias Jido.Flow
   alias Jido.Flow.Ref
-  alias Jido.Flow.Step
   alias JidoActionTest.Fixtures.Execution.InvocationProbe
 
   @behaviour Jido.Flow
@@ -339,10 +335,10 @@ defmodule JidoActionTest.Fixtures.Execution.InvocationCountedFlow do
   def flow do
     if counter = Process.whereis(__MODULE__), do: Agent.update(counter, &(&1 + 1))
 
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "invocation_counted_flow",
       components: [
-        Step.new!(
+        JidoActionTest.FlowComponent.step!(
           name: "work",
           action: InvocationProbe,
           params: %{observer: Ref.context(:observer), value: Ref.input(:value)}
@@ -360,17 +356,21 @@ end
 defmodule JidoActionTest.Fixtures.Execution.InvocationChildFlow do
   @moduledoc false
 
-  alias Jido.Flow
   alias Jido.Flow.Ref
-  alias Jido.Flow.Step
   alias JidoActionTest.Fixtures.Execution.InvocationProbe
 
   @behaviour Jido.Flow
 
   def flow do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "invocation_child",
-      components: [Step.new!(name: "inside", action: InvocationProbe, params: %{value: 1})],
+      components: [
+        JidoActionTest.FlowComponent.step!(
+          name: "inside",
+          action: InvocationProbe,
+          params: %{value: 1}
+        )
+      ],
       output: Ref.result("inside")
     )
   end

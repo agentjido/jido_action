@@ -275,20 +275,20 @@ defmodule JidoActionTest.Action.ValidationTest do
           Zoi.lazy(fn -> map end),
           Zoi.lazy({__MODULE__, :map_schema, []})
         ] do
-      assert Validation.action_schema?(schema)
+      assert Validation.map_schema?(schema)
     end
 
-    refute Validation.action_schema?(Zoi.integer())
-    refute Validation.action_schema?(Zoi.literal(:not_a_map))
-    refute Validation.action_schema?(Zoi.union([Zoi.integer(), Zoi.string()]))
-    refute Validation.action_schema?(Zoi.intersection([map, Zoi.integer()]))
+    refute Validation.map_schema?(Zoi.integer())
+    refute Validation.map_schema?(Zoi.literal(:not_a_map))
+    refute Validation.map_schema?(Zoi.union([Zoi.integer(), Zoi.string()]))
+    refute Validation.map_schema?(Zoi.intersection([map, Zoi.integer()]))
   end
 
   def map_schema, do: Zoi.object(%{value: Zoi.integer()})
 
-  test "defaults do not make scalar schemas Action-compatible" do
+  test "defaults do not make scalar schemas map-compatible" do
     for schema <- [Zoi.integer(), Zoi.string(), Zoi.literal(:not_a_map)] do
-      refute Validation.action_schema?(Zoi.default(schema, %{value: 0}))
+      refute Validation.map_schema?(Zoi.default(schema, %{value: 0}))
     end
   end
 end

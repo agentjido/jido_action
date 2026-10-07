@@ -1,7 +1,7 @@
 defmodule JidoActionTest.Exec.ConcurrentTelemetryTest do
   use ExUnit.Case, async: false
-  alias Jido.{Exec, Flow}
-  alias Jido.Flow.{Ref, Step}
+  alias Jido.Exec
+  alias Jido.Flow.{Ref}
 
   defmodule Held do
     use Jido.Action, name: "concurrent_telemetry_held"
@@ -23,11 +23,11 @@ defmodule JidoActionTest.Exec.ConcurrentTelemetryTest do
       on_exit(fn -> :telemetry.detach(tag) end)
 
       flow =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "crash_spans",
           components: [
-            Step.new!(name: "a", action: Held),
-            Step.new!(name: "b", action: Held)
+            JidoActionTest.FlowComponent.step!(name: "a", action: Held),
+            JidoActionTest.FlowComponent.step!(name: "b", action: Held)
           ],
           output: Ref.result("b")
         )

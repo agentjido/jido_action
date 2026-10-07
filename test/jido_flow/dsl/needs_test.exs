@@ -1,6 +1,6 @@
 defmodule Jido.Flow.DSL.NeedsTest do
   use ExUnit.Case, async: false
-  alias Jido.Flow.{Codec, Step}
+  alias Jido.Flow.Codec
   alias JidoActionTest.Fixtures.Actions.Add
 
   test "keyword and block needs preserve defaults, nil, scalar, and list order" do
@@ -13,7 +13,7 @@ defmodule Jido.Flow.DSL.NeedsTest do
           {["second", "first"], ["second", "first"]}
         ] do
       owner = compile_step(form, field)
-      assert List.last(owner.flow().components).needs == expected
+      assert owner.flow().components["work"].needs == expected
     end
   end
 
@@ -45,26 +45,31 @@ defmodule Jido.Flow.DSL.NeedsTest do
       "result(\"next\")"
     )
 
-    assert Enum.map(Enum.drop(owner.flow().components, 2), & &1.needs) ==
+    components = owner.flow().components
+
+    assert Enum.map(["child", "mapped", "reduced", "route", "loop", "next"], fn name ->
+             components[name].needs
+           end) ==
              List.duplicate(["first"], 5) ++
                [["first", "second", "child", "mapped", "reduced", "route", "loop"]]
   end
 
   test "direct, and Codec boundaries still reject invalid dependencies" do
     flow =
-      Jido.Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "needs",
-        components: [Step.new!(name: "first", action: Add)],
+        components: [JidoActionTest.FlowComponent.step!(name: "first", action: Add)],
         output: %{}
       )
 
     {:ok, document, registry} = Codec.encode(flow)
 
     for value <- ["first", ["first", "first"], ["first" | :tail], ~c"*"] do
-      assert {:error, _} = Step.new(name: "work", action: Add, needs: value)
+      assert {:error, _} =
+               JidoActionTest.FlowComponent.step(name: "work", action: Add, needs: value)
 
       assert {:error, _} =
-               Jido.Flow.new(%{
+               JidoActionTest.FlowBuilder.new(%{
                  output: %{},
                  components: [
                    %{kind: :step, name: "work", action: Add, params: %{}, needs: value}

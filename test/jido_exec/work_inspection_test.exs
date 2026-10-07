@@ -1,10 +1,9 @@
 defmodule JidoActionTest.Exec.WorkInspectionTest do
   use ExUnit.Case, async: true
 
-  alias Jido.{Exec, Flow}
+  alias Jido.Exec
   alias Jido.Exec.Work
-  alias Jido.Flow.{Ref, Step, Subflow}
-  alias Jido.Flow.Map, as: FlowMap
+  alias Jido.Flow.{Ref}
   alias Jido.Flow.Error.InvalidExecutionError
   alias JidoActionTest.Fixtures.Actions.{EchoParamsAction, ErrorAction, RecorderAction}
   alias JidoActionTest.Fixtures.MathFlow
@@ -144,10 +143,13 @@ defmodule JidoActionTest.Exec.WorkInspectionTest do
 
   test "concurrent token use is rejected while the original operation owns the guard" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "concurrent_token",
         components: [
-          Step.new!(name: "block", action: JidoActionTest.Fixtures.Execution.BlockingAction)
+          JidoActionTest.FlowComponent.step!(
+            name: "block",
+            action: JidoActionTest.Fixtures.Execution.BlockingAction
+          )
         ],
         output: Ref.result("block")
       )
@@ -176,10 +178,14 @@ defmodule JidoActionTest.Exec.WorkInspectionTest do
 
   test "failed work reports status without retaining errors or payloads" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "failed_work",
         components: [
-          Step.new!(name: "fail", action: ErrorAction, params: %{error_type: :validation})
+          JidoActionTest.FlowComponent.step!(
+            name: "fail",
+            action: ErrorAction,
+            params: %{error_type: :validation}
+          )
         ],
         output: Ref.result("fail")
       )
@@ -217,10 +223,10 @@ defmodule JidoActionTest.Exec.WorkInspectionTest do
   test "Map item failures distinguish failed work from collected error data" do
     for mode <- [:fail_fast, :collect_errors] do
       flow =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "map_item_errors",
           components: [
-            FlowMap.new!(
+            JidoActionTest.FlowComponent.map!(
               name: "mapped",
               collection: [1, 2],
               action: ErrorAction,
@@ -251,12 +257,12 @@ defmodule JidoActionTest.Exec.WorkInspectionTest do
 
   test "repeated Subflows retain complete paths and input binding support" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "repeated_children",
         components:
           Enum.map(
             ["left/part", "right"],
-            &Subflow.new!(name: &1, flow: MathFlow, params: %{value: 3})
+            &JidoActionTest.FlowComponent.subflow!(name: &1, flow: MathFlow, params: %{value: 3})
           ),
         output: %{left: Ref.result("left/part"), right: Ref.result("right")}
       )
@@ -275,12 +281,16 @@ defmodule JidoActionTest.Exec.WorkInspectionTest do
 
   test "Join activations remain separate selectable work units" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "joined_work",
         components: [
-          Step.new!(name: "a", action: EchoParamsAction),
-          Step.new!(name: "b", action: EchoParamsAction),
-          Step.new!(name: "joined", action: EchoParamsAction, needs: ["a", "b"])
+          JidoActionTest.FlowComponent.step!(name: "a", action: EchoParamsAction),
+          JidoActionTest.FlowComponent.step!(name: "b", action: EchoParamsAction),
+          JidoActionTest.FlowComponent.step!(
+            name: "joined",
+            action: EchoParamsAction,
+            needs: ["a", "b"]
+          )
         ],
         output: Ref.result("joined")
       )
@@ -296,13 +306,21 @@ defmodule JidoActionTest.Exec.WorkInspectionTest do
 
   test "shared Join support has no single authored owner" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "shared_join",
         components: [
-          Step.new!(name: "a", action: EchoParamsAction),
-          Step.new!(name: "b", action: EchoParamsAction),
-          Step.new!(name: "left", action: EchoParamsAction, needs: ["a", "b"]),
-          Step.new!(name: "right", action: EchoParamsAction, needs: ["a", "b"])
+          JidoActionTest.FlowComponent.step!(name: "a", action: EchoParamsAction),
+          JidoActionTest.FlowComponent.step!(name: "b", action: EchoParamsAction),
+          JidoActionTest.FlowComponent.step!(
+            name: "left",
+            action: EchoParamsAction,
+            needs: ["a", "b"]
+          ),
+          JidoActionTest.FlowComponent.step!(
+            name: "right",
+            action: EchoParamsAction,
+            needs: ["a", "b"]
+          )
         ],
         output: %{left: Ref.result("left"), right: Ref.result("right")}
       )
@@ -329,19 +347,26 @@ defmodule JidoActionTest.Exec.WorkInspectionTest do
   end
 
   defp recorder_flow do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "token_selection",
       components:
-        Enum.map(["a", "b"], &Step.new!(name: &1, action: RecorderAction, params: %{value: &1})),
+        Enum.map(
+          ["a", "b"],
+          &JidoActionTest.FlowComponent.step!(
+            name: &1,
+            action: RecorderAction,
+            params: %{value: &1}
+          )
+        ),
       output: %{a: Ref.result("a"), b: Ref.result("b")}
     )
   end
 
   defp map_flow do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "map_inspection",
       components: [
-        FlowMap.new!(
+        JidoActionTest.FlowComponent.map!(
           name: "mapped",
           collection: Ref.input(:items),
           action: EchoParamsAction,

@@ -77,6 +77,34 @@ Only a Flow Instruction supports step-wise execution.
 Jido.Exec.result(execution)
 ```
 
+## Use An Inert Template
+
+`template/2` records a declared target kind without loading the module or
+binding runtime data:
+
+```elixir
+template = Jido.Instruction.template(:action, MyApp.Actions.SendEmail)
+```
+
+`bind/4` checks the loaded target and creates a resolved Instruction with
+concrete call data:
+
+```elixir
+{:ok, instruction} =
+  Jido.Instruction.bind(
+    template,
+    %{to: "user@example.com"},
+    %{tenant_id: "tenant-1"},
+    %{request_id: "req-1"}
+  )
+```
+
+A canonical Flow call stores `{template, params_expression}`. The template has
+empty params and context. Exec adds Flow location metadata, validates and binds
+the template with the current context, and attaches the evaluated parameter
+value. This lets Flow use the same Instruction target model as a direct call
+without putting runtime values in the authoring graph.
+
 ## Boundary
 
 An Instruction does not contain Flow structure or runtime policy. It is not a
@@ -84,6 +112,7 @@ general JSON form because module atoms and runtime Flow values do not have one
 portable representation. Use `Jido.Flow.Codec` to store a Flow definition.
 Choose an application-owned format if you must store Instructions.
 
-Flow components keep module targets and their own parameter expressions. They
-do not accept bound Instructions. Direct Exec calls and Action continuations do
-accept bound Instructions.
+Flow call nodes keep Instruction templates beside their parameter expressions.
+Map definitions still use `action` or `flow` module fields; `Jido.Flow.new/1`
+creates the templates. They do not accept bound Instructions. Direct Exec calls
+and Action continuations do accept bound Instructions.

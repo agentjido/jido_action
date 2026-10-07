@@ -2,7 +2,7 @@ defmodule JidoActionTest.Exec.Flow.Compiler.NativeRunicTest do
   use ExUnit.Case, async: true
 
   alias Jido.Flow
-  alias Jido.Flow.{Map, Reduce, Ref, Step, Subflow}
+  alias Jido.Flow.{Ref}
   alias JidoActionTest.Fixtures.{MathFlow, TelemetryParentFlow}
   alias JidoActionTest.Fixtures.Actions.{EchoParamsAction, ReduceProbeAction}
   alias Runic.Workflow
@@ -17,10 +17,10 @@ defmodule JidoActionTest.Exec.Flow.Compiler.NativeRunicTest do
     @behaviour Jido.Flow
 
     def flow do
-      Jido.Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "cycle_a",
         components: [
-          Jido.Flow.Subflow.new!(
+          JidoActionTest.FlowComponent.subflow!(
             name: "b",
             flow: JidoActionTest.Exec.Flow.Compiler.NativeRunicTest.CycleB
           )
@@ -40,10 +40,10 @@ defmodule JidoActionTest.Exec.Flow.Compiler.NativeRunicTest do
     @behaviour Jido.Flow
 
     def flow do
-      Jido.Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "cycle_b",
         components: [
-          Jido.Flow.Subflow.new!(
+          JidoActionTest.FlowComponent.subflow!(
             name: "a",
             flow: JidoActionTest.Exec.Flow.Compiler.NativeRunicTest.CycleA
           )
@@ -74,10 +74,10 @@ defmodule JidoActionTest.Exec.Flow.Compiler.NativeRunicTest do
 
   test "compiles a Step to a native Runic Step without changing the Flow" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "step_compile",
         components: [
-          Step.new!(
+          JidoActionTest.FlowComponent.step!(
             name: "echo",
             action: EchoParamsAction,
             params: %{value: Ref.input([:value])}
@@ -101,7 +101,7 @@ defmodule JidoActionTest.Exec.Flow.Compiler.NativeRunicTest do
 
   test "compiles Map with one batch collector and Reduce from its retained list" do
     map =
-      Map.new!(
+      JidoActionTest.FlowComponent.map!(
         name: "mapped",
         collection: Ref.input([:items]),
         action: EchoParamsAction,
@@ -109,7 +109,7 @@ defmodule JidoActionTest.Exec.Flow.Compiler.NativeRunicTest do
       )
 
     reduce =
-      Reduce.new!(
+      JidoActionTest.FlowComponent.reduce!(
         name: "reduced",
         collection: Ref.result("mapped"),
         initial: %{values: []},
@@ -123,7 +123,7 @@ defmodule JidoActionTest.Exec.Flow.Compiler.NativeRunicTest do
       )
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "map_reduce_compile",
         components: [map, reduce],
         output: %{items: Ref.result("mapped"), reduced: Ref.result("reduced")}
@@ -161,10 +161,10 @@ defmodule JidoActionTest.Exec.Flow.Compiler.NativeRunicTest do
 
   test "uses one native Workflow boundary for a Subflow" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "subflow_compile",
         components: [
-          Subflow.new!(
+          JidoActionTest.FlowComponent.subflow!(
             name: "math",
             flow: MathFlow,
             params: %{value: Ref.input([:value])}
@@ -212,15 +212,15 @@ defmodule JidoActionTest.Exec.Flow.Compiler.NativeRunicTest do
 
   test "two sibling Subflows have independent native names, hashes, and results" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "sibling_subflows",
         components: [
-          Subflow.new!(
+          JidoActionTest.FlowComponent.subflow!(
             name: "left",
             flow: MathFlow,
             params: %{value: Ref.input(:left)}
           ),
-          Subflow.new!(
+          JidoActionTest.FlowComponent.subflow!(
             name: "right",
             flow: MathFlow,
             params: %{value: Ref.input(:right)}
@@ -259,9 +259,9 @@ defmodule JidoActionTest.Exec.Flow.Compiler.NativeRunicTest do
     end)
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "transitive_digest",
-        components: [Subflow.new!(name: "child", flow: child_module)],
+        components: [JidoActionTest.FlowComponent.subflow!(name: "child", flow: child_module)],
         output: Ref.result("child")
       )
 
@@ -306,11 +306,19 @@ defmodule JidoActionTest.Exec.Flow.Compiler.NativeRunicTest do
       define_parent_module(right_parent, right_leaf, right_child)
 
       flow =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "nested_transitive_digest",
           components: [
-            Subflow.new!(name: left_name, flow: left_parent, params: Ref.input([])),
-            Subflow.new!(name: right_name, flow: right_parent, params: Ref.input([]))
+            JidoActionTest.FlowComponent.subflow!(
+              name: left_name,
+              flow: left_parent,
+              params: Ref.input([])
+            ),
+            JidoActionTest.FlowComponent.subflow!(
+              name: right_name,
+              flow: right_parent,
+              params: Ref.input([])
+            )
           ],
           output: %{left: Ref.result(left_name), right: Ref.result(right_name)}
         )
@@ -338,9 +346,11 @@ defmodule JidoActionTest.Exec.Flow.Compiler.NativeRunicTest do
 
   test "prefixes source locations through every Subflow level" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "nested_source_map",
-        components: [Subflow.new!(name: "outer", flow: TelemetryParentFlow)],
+        components: [
+          JidoActionTest.FlowComponent.subflow!(name: "outer", flow: TelemetryParentFlow)
+        ],
         output: Ref.result("outer")
       )
 
@@ -368,9 +378,9 @@ defmodule JidoActionTest.Exec.Flow.Compiler.NativeRunicTest do
 
   test "source locations do not change compilation identity or Runic hashes" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "source_map_compile",
-        components: [Step.new!(name: "echo", action: EchoParamsAction)],
+        components: [JidoActionTest.FlowComponent.step!(name: "echo", action: EchoParamsAction)],
         output: Ref.result("echo")
       )
 
@@ -413,9 +423,9 @@ defmodule JidoActionTest.Exec.Flow.Compiler.NativeRunicTest do
 
   test "rejects malformed compile options and source maps" do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "source_map_validation",
-        components: [Step.new!(name: "echo", action: EchoParamsAction)],
+        components: [JidoActionTest.FlowComponent.step!(name: "echo", action: EchoParamsAction)],
         output: Ref.result("echo")
       )
 
@@ -435,9 +445,11 @@ defmodule JidoActionTest.Exec.Flow.Compiler.NativeRunicTest do
     end
 
     nested =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "invalid_child_source_map",
-        components: [Subflow.new!(name: "child", flow: InvalidSourceMapChild)],
+        components: [
+          JidoActionTest.FlowComponent.subflow!(name: "child", flow: InvalidSourceMapChild)
+        ],
         output: Ref.result("child")
       )
 
@@ -463,10 +475,10 @@ defmodule JidoActionTest.Exec.Flow.Compiler.NativeRunicTest do
         @behaviour Jido.Flow
 
         def flow do
-          Jido.Flow.new!(
+          JidoActionTest.FlowBuilder.new!(
             name: "versioned_child",
             components: [
-              Jido.Flow.Step.new!(
+              JidoActionTest.FlowComponent.step!(
                 name: "add",
                 action: JidoActionTest.Fixtures.Actions.Add,
                 params: %{value: Jido.Flow.Ref.input(:value), amount: @amount}
@@ -490,10 +502,10 @@ defmodule JidoActionTest.Exec.Flow.Compiler.NativeRunicTest do
         @behaviour Jido.Flow
 
         def flow do
-          Jido.Flow.new!(
+          JidoActionTest.FlowBuilder.new!(
             name: "versioned_parent",
             components: [
-              Jido.Flow.Subflow.new!(
+              JidoActionTest.FlowComponent.subflow!(
                 name: unquote(child_name),
                 flow: unquote(child_module),
                 params: Jido.Flow.Ref.input([])

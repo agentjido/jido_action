@@ -429,8 +429,8 @@ A downstream host defines its own path. It can use several declaration
 segments when its DSL has nested roles. Explicit Action `name:` changes public
 Action metadata, not host lookup identity.
 
-An extracted target works with direct constructors, data definitions, and a trusted
-Registry. Supply a new parameter mapping for each host position. Register
+An extracted target works with map definitions and a trusted Registry. Supply
+a new parameter mapping for each host position. Register
 the target under an application-owned identifier, not its generated module
 name. JSON stores ordinary targets and data, never bodies. Inline Actions add
 no Codec version; Expr nodes still follow the existing version 2 rule.

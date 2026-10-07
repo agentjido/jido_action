@@ -26,9 +26,17 @@ defmodule Jido.Instruction do
   for telemetry, error details, and invocation occurrence IDs.
 
   Bound Instructions can be direct Exec targets and continuation targets.
-  Canonical Flow components require module targets and keep their parameter
-  expressions in the component. This prevents bound context, which can contain
-  local runtime values, from becoming part of portable Flow data.
+  Public constructors accept map parameters. Flow can resolve any portable
+  value before Action input validation, so an internal bound call can hold a
+  non-map value long enough for the target validator to return its normal
+  input error.
+
+  `template/3` creates an inert module reference with a declared target kind.
+  It does not load or inspect the module. `bind/4` turns a template into a
+  resolved Instruction after it checks the current module kind and executable
+  callbacks. Canonical Flow components keep parameter expressions outside the
+  template. This prevents bound context, which can contain local runtime
+  values, from becoming part of portable Flow data.
 
   Use `:target` for every target kind. The removed `:action`, `:flow`, and
   `:opts` inputs return construction errors. Pass execution options directly to
@@ -50,7 +58,7 @@ defmodule Jido.Instruction do
                 Zoi.enum([:action, :flow], description: "Resolved target kind")
                 |> Zoi.optional(),
               target: Zoi.any(description: "Action or Flow target") |> Zoi.optional(),
-              params: Zoi.map(description: "Target parameters") |> Zoi.default(%{}),
+              params: Zoi.any(description: "Resolved target parameters") |> Zoi.default(%{}),
               context: Zoi.map(description: "Execution context") |> Zoi.default(%{}),
               metadata: Zoi.map(description: "Instruction metadata") |> Zoi.default(%{})
             },
@@ -63,8 +71,16 @@ defmodule Jido.Instruction do
   @type target :: module() | Flow.t()
   @typedoc "A resolved call value for one Action or Flow target."
   @type t :: unquote(Zoi.type_spec(@schema))
-  @typedoc "Input parameters for the target."
-  @type params :: map()
+  @typedoc "An inert module target with a declared kind and no bound call data."
+  @type template_t :: %__MODULE__{
+          kind: kind(),
+          target: module(),
+          params: map(),
+          context: map(),
+          metadata: metadata()
+        }
+  @typedoc "Resolved input parameters before target validation."
+  @type params :: term()
   @typedoc "Caller-supplied execution context."
   @type context :: map()
   @typedoc "Caller metadata with no execution meaning."
@@ -72,6 +88,69 @@ defmodule Jido.Instruction do
 
   @enforce_keys Zoi.Struct.enforce_keys(@schema)
   defstruct Zoi.Struct.struct_fields(@schema)
+
+  @doc """
+  Creates an inert Instruction template for a module target.
+
+  This function does not load or inspect `target`. The declared `kind` is
+  checked when `bind/4` prepares the template for execution.
+
+  A template has empty parameters and context. Metadata is portable authoring
+  data and must be a map.
+  """
+  @spec template(kind(), module(), metadata()) :: template_t()
+  def template(kind, target, metadata \\ %{}) do
+    unless kind in [:action, :flow] do
+      raise ArgumentError, "expected Instruction template kind to be :action or :flow"
+    end
+
+    unless is_atom(target) and not is_nil(target) do
+      raise ArgumentError, "expected Instruction template target to be a module atom"
+    end
+
+    unless is_map(metadata) do
+      raise ArgumentError, "expected Instruction template metadata to be a map"
+    end
+
+    %__MODULE__{
+      kind: kind,
+      target: target,
+      params: %{},
+      context: %{},
+      metadata: metadata
+    }
+  end
+
+  @doc """
+  Binds concrete call data to an inert Instruction template.
+
+  Parameters remain raw until target input validation. Context and runtime
+  metadata must be maps. Runtime metadata replaces equal keys in template
+  metadata. Binding loads and classifies the target, confirms its declared
+  kind, and validates its executable callbacks.
+  """
+  @spec bind(template_t() | term(), params(), map(), map()) ::
+          {:ok, t()} | {:error, Exception.t()}
+  def bind(template, params, context, metadata \\ %{}) do
+    with :ok <- validate_template(template),
+         {:ok, context} <- require_map_field(context, :context),
+         {:ok, metadata} <- require_map_field(metadata, :metadata),
+         {:ok, actual_kind} <- classify(template.target),
+         :ok <- validate_declared_kind(template.kind, actual_kind) do
+      instruction = %__MODULE__{
+        kind: actual_kind,
+        target: template.target,
+        params: params,
+        context: context,
+        metadata: Map.merge(template.metadata, metadata)
+      }
+
+      case validate_resolved(instruction) do
+        :ok -> {:ok, instruction}
+        {:error, _error} = error -> error
+      end
+    end
+  end
 
   @doc """
   Resolves a target or Instruction and applies call-site data.
@@ -233,6 +312,40 @@ defmodule Jido.Instruction do
     {:ok, %__MODULE__{kind: nil, target: target, params: %{}, context: %{}, metadata: %{}}}
   end
 
+  @doc false
+  @spec validate_template(term()) :: :ok | {:error, Exception.t()}
+  def validate_template(
+        %__MODULE__{
+          kind: kind,
+          target: target,
+          params: params,
+          context: context,
+          metadata: metadata
+        } = template
+      ) do
+    cond do
+      kind not in [:action, :flow] ->
+        invalid_template(template, :invalid_kind)
+
+      not (is_atom(target) and not is_nil(target)) ->
+        invalid_template(template, :invalid_target)
+
+      not (is_map(params) and map_size(params) == 0) ->
+        invalid_template(template, :bound_params)
+
+      not (is_map(context) and map_size(context) == 0) ->
+        invalid_template(template, :bound_context)
+
+      not is_map(metadata) ->
+        invalid_template(template, :invalid_metadata)
+
+      true ->
+        :ok
+    end
+  end
+
+  def validate_template(template), do: invalid_template(template, :invalid_template)
+
   defp classify(%Flow{}), do: {:ok, :flow}
 
   defp classify(module) when is_atom(module) and not is_nil(module) do
@@ -324,6 +437,17 @@ defmodule Jido.Instruction do
 
   defp normalize_map_field(value, field), do: invalid_map_field(field, value)
 
+  defp require_map_field(value, _field) when is_map(value), do: {:ok, value}
+
+  defp require_map_field(value, field) do
+    {:error,
+     Error.validation_error("Instruction binding #{field} must be a map", %{
+       field: field,
+       value: value,
+       reason: :invalid_binding_data
+     })}
+  end
+
   defp invalid_map_field(field, value) do
     label = Atom.to_string(field)
 
@@ -351,6 +475,14 @@ defmodule Jido.Instruction do
     {:error,
      Error.validation_error("module is not a valid Instruction target", %{
        target: target,
+       reason: reason
+     })}
+  end
+
+  defp invalid_template(template, reason) do
+    {:error,
+     Error.validation_error("Invalid Instruction template", %{
+       template: template,
        reason: reason
      })}
   end

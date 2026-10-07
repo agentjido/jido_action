@@ -377,13 +377,11 @@ defmodule Jido.Flow.DSL.InlineActionTest do
         "result(\"finish\")"
       )
 
-      assert Enum.map(owner.flow().components, & &1.__struct__) == [
-               Jido.Flow.Map,
-               Jido.Flow.Reduce,
-               Jido.Flow.Choice,
-               Jido.Flow.Iterate,
-               Jido.Flow.Dispatch
-             ]
+      components = owner.flow().components
+
+      assert Enum.map(["mapped", "total", "increment", "loop", "finish"], fn name ->
+               components[name].kind
+             end) == [:map, :reduce, :choice, :iterate, :dispatch]
 
       assert {:ok, %{value: 9}} = Jido.Exec.run(owner, %{values: [1, 2], selected: true})
       assert {:ok, %{value: 4}} = Jido.Exec.run(owner, %{values: [1, 2], selected: false})

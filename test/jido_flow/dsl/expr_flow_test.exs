@@ -1,8 +1,7 @@
 defmodule JidoActionTest.Flow.DSL.ExprFlowTest do
   use ExUnit.Case, async: true
   alias Jido.Expr
-  alias Jido.Flow
-  alias Jido.Flow.{Codec, Ref, Step}
+  alias Jido.Flow.{Codec, Ref}
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
 
   defmodule Parity do
@@ -102,7 +101,7 @@ defmodule JidoActionTest.Flow.DSL.ExprFlowTest do
     output = %{total: expr(^load * ^price), label: expr(^prefix <> ^name)}
 
     assert {:ok, built} =
-             Jido.Flow.new(%{
+             JidoActionTest.FlowBuilder.new(%{
                output: output,
                components: [
                  %{kind: :step, name: "load", action: EchoParamsAction, params: params}
@@ -111,9 +110,15 @@ defmodule JidoActionTest.Flow.DSL.ExprFlowTest do
              })
 
     direct =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "calculated",
-        components: [Step.new!(name: "load", action: EchoParamsAction, params: params)],
+        components: [
+          JidoActionTest.FlowComponent.step!(
+            name: "load",
+            action: EchoParamsAction,
+            params: params
+          )
+        ],
         output: output
       )
 
@@ -146,13 +151,19 @@ defmodule JidoActionTest.Flow.DSL.ExprFlowTest do
 
   test "Boolean expressions can supply calculated parameter values" do
     step =
-      Step.new!(
+      JidoActionTest.FlowComponent.step!(
         name: "echo",
         action: EchoParamsAction,
         params: %{eligible: Expr.new!(:>=, [Expr.new!(:*, [Ref.input(:score), 2]), 80])}
       )
 
-    flow = Flow.new!(name: "condition_value", components: [step], output: Ref.result("echo"))
+    flow =
+      JidoActionTest.FlowBuilder.new!(
+        name: "condition_value",
+        components: [step],
+        output: Ref.result("echo")
+      )
+
     assert Jido.Exec.run(flow, %{score: 40}) == {:ok, %{eligible: true}}
   end
 
@@ -201,7 +212,12 @@ end
       end
 
     assert [flow, flow] = flows
-    assert [%Jido.Flow.Map{action: EchoParamsAction, on_error: :collect_errors}] = flow.components
+
+    assert %{
+             kind: :map,
+             call: {%Jido.Instruction{target: EchoParamsAction}, _params},
+             on_error: :collect_errors
+           } = flow.components["mapped"]
 
     assert Jido.Exec.run(flow, %{start: 2}) ==
              {:ok,

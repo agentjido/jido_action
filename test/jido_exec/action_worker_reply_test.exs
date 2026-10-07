@@ -3,8 +3,8 @@ defmodule JidoActionTest.Exec.ActionWorkerReplyTest do
   use ExUnit.Case, async: false
 
   alias Jido.Action.Error
-  alias Jido.{Exec, Flow}
-  alias Jido.Flow.{Ref, Step}
+  alias Jido.Exec
+  alias Jido.Flow.{Ref}
 
   defmodule LargeExtras do
     @behaviour Jido.Action
@@ -77,9 +77,15 @@ defmodule JidoActionTest.Exec.ActionWorkerReplyTest do
   defp target(:action), do: LargeExtras
 
   defp target(:flow) do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "large_extras",
-      components: [Step.new!(name: "probe", action: LargeExtras, params: Ref.input([]))],
+      components: [
+        JidoActionTest.FlowComponent.step!(
+          name: "probe",
+          action: LargeExtras,
+          params: Ref.input([])
+        )
+      ],
       output: Ref.result("probe")
     )
   end

@@ -5,10 +5,7 @@ defmodule JidoActionTest.Exec.InvocationInterruptionTest do
 
   alias Jido.Exec
   alias Jido.Exec.Error.InterruptedError
-  alias Jido.Flow
   alias Jido.Flow.Ref
-  alias Jido.Flow.Step
-  alias Jido.Flow.Map, as: FlowMap
 
   defmodule Host do
     @behaviour Jido.Exec.Invocation
@@ -278,9 +275,15 @@ defmodule JidoActionTest.Exec.InvocationInterruptionTest do
             Probe
 
           :flow ->
-            Flow.new!(
+            JidoActionTest.FlowBuilder.new!(
               name: "invocation_supervisor_exit",
-              components: [Step.new!(name: "probe", action: Probe, params: Ref.input([]))],
+              components: [
+                JidoActionTest.FlowComponent.step!(
+                  name: "probe",
+                  action: Probe,
+                  params: Ref.input([])
+                )
+              ],
               output: Ref.result("probe")
             )
         end
@@ -378,10 +381,10 @@ defmodule JidoActionTest.Exec.InvocationInterruptionTest do
     token = make_ref()
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "nested_invocation_worker_exit",
         components: [
-          Step.new!(
+          JidoActionTest.FlowComponent.step!(
             name: "work",
             action: Probe,
             params: %{
@@ -412,10 +415,10 @@ defmodule JidoActionTest.Exec.InvocationInterruptionTest do
   end
 
   defp map_flow(mode) do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "invocation_interruption_map",
       components: [
-        FlowMap.new!(
+        JidoActionTest.FlowComponent.map!(
           name: "items",
           collection: [1],
           action: Probe,

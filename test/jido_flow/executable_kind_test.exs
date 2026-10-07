@@ -3,32 +3,34 @@ defmodule Jido.Flow.ExecutableKindTest do
 
   alias Jido.Flow
   alias Jido.Flow.Error.InvalidDefinitionError
-  alias Jido.Flow.Choice
-  alias Jido.Flow.Iterate
-  alias Jido.Flow.Map, as: FlowMap
-  alias Jido.Flow.Reduce
   alias Jido.Flow.Ref
   alias JidoActionTest.Fixtures.NestedFlow
 
   test "embedded Action slots reject a Flow module" do
     components = [
-      Choice.new!(
+      JidoActionTest.FlowComponent.choice!(
         name: "choice",
         options: [
-          Choice.Option.new!(
+          JidoActionTest.FlowComponent.option!(
             name: "nested",
             condition: Jido.Expr.new!(:==, [1, 1]),
             action: NestedFlow
           )
         ],
-        fallback: Choice.Fallback.new!(action: JidoActionTest.Fixtures.Actions.Add)
+        fallback:
+          JidoActionTest.FlowComponent.fallback!(action: JidoActionTest.Fixtures.Actions.Add)
       ),
-      FlowMap.new!(name: "map", collection: [], action: NestedFlow),
-      Reduce.new!(name: "reduce", collection: [], initial: %{}, action: NestedFlow),
-      Iterate.new!(
+      JidoActionTest.FlowComponent.map!(name: "map", collection: [], action: NestedFlow),
+      JidoActionTest.FlowComponent.reduce!(
+        name: "reduce",
+        collection: [],
+        initial: %{},
+        action: NestedFlow
+      ),
+      JidoActionTest.FlowComponent.iterate!(
         name: "iterate",
         action: NestedFlow,
-        state: Iterate.State.new!(schema: [], initial: %{}, update: %{}),
+        state: JidoActionTest.FlowComponent.state!(schema: [], initial: %{}, update: %{}),
         completion: Jido.Expr.new!(:==, [Ref.iteration_index(), 0]),
         max_iterations: 1
       )
@@ -36,7 +38,7 @@ defmodule Jido.Flow.ExecutableKindTest do
 
     Enum.each(components, fn component ->
       flow =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "bad_#{component.name}",
           components: [component],
           output: Ref.result(component.name)

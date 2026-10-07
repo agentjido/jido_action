@@ -3,7 +3,6 @@ defmodule Jido.Flow.GraphIdentityTest do
   alias Jido.Flow.Error.InvalidDefinitionError
   alias Jido.Flow
   alias Jido.Flow.Ref
-  alias Jido.Flow.Step
   alias JidoActionTest.Fixtures.Actions.{Add, EchoParamsAction}
   alias JidoActionTest.Fixtures.InlineAuthoring
   alias JidoActionTest.Fixtures.InlineParityFlow
@@ -11,9 +10,9 @@ defmodule Jido.Flow.GraphIdentityTest do
   test "equal inline DSL, and direct graph data has the same semantic identity" do
     dsl = InlineParityFlow.flow()
     direct = InlineAuthoring.direct_flow!()
-    assert {:ok, built} = Jido.Flow.new(InlineAuthoring.data())
+    assert {:ok, built} = JidoActionTest.FlowBuilder.new(InlineAuthoring.data())
     assert {:ok, identity} = Flow.semantic_identity(dsl)
-    assert %{version: 3, algorithm: :sha256, digest: digest, uuid: uuid} = identity
+    assert %{version: 4, algorithm: :sha256, digest: digest, uuid: uuid} = identity
     assert is_binary(digest)
     assert is_binary(uuid)
     assert Flow.Identity.semantic_digest(dsl) == digest
@@ -48,9 +47,15 @@ defmodule Jido.Flow.GraphIdentityTest do
                 Ref.result("echo")
               end
 
-            Flow.new!(
+            JidoActionTest.FlowBuilder.new!(
               name: "reference_identity",
-              components: [Step.new!(name: "echo", action: EchoParamsAction, params: params)],
+              components: [
+                JidoActionTest.FlowComponent.step!(
+                  name: "echo",
+                  action: EchoParamsAction,
+                  params: params
+                )
+              ],
               output: output
             )
           end
@@ -76,26 +81,26 @@ defmodule Jido.Flow.GraphIdentityTest do
   end
 
   test "author order, reference order, and effective order stay separate" do
-    first = Step.new!(name: "first", action: Add)
+    first = JidoActionTest.FlowComponent.step!(name: "first", action: Add)
 
     final =
-      Step.new!(
+      JidoActionTest.FlowComponent.step!(
         name: "final",
         action: Add,
         params: %{value: Ref.result("first", :value)},
         needs: ["gate"]
       )
 
-    gate = Step.new!(name: "gate", action: Add)
+    gate = JidoActionTest.FlowComponent.step!(name: "gate", action: Add)
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "dependencies",
         components: [first, final, gate],
         output: Ref.result("final")
       )
 
-    assert Enum.map(flow.components, & &1.name) == ["first", "final", "gate"]
+    assert Map.keys(flow.components) |> Enum.sort() == ["final", "first", "gate"]
 
     assert {:ok,
             %{"final" => %{needs: ["gate"], references: ["first"], effective: ["first", "gate"]}}} =
@@ -106,18 +111,20 @@ defmodule Jido.Flow.GraphIdentityTest do
 
   test "unknown references and cycles fail without changing author data" do
     assert {:error, %InvalidDefinitionError{}} =
-             Flow.new(
+             JidoActionTest.FlowBuilder.new(
                name: "unknown",
-               components: [Step.new!(name: "one", action: Add, needs: ["missing"])],
+               components: [
+                 JidoActionTest.FlowComponent.step!(name: "one", action: Add, needs: ["missing"])
+               ],
                output: Ref.result("one")
              )
 
     assert {:error, %InvalidDefinitionError{message: message}} =
-             Flow.new(
+             JidoActionTest.FlowBuilder.new(
                name: "cycle",
                components: [
-                 Step.new!(name: "one", action: Add, needs: ["two"]),
-                 Step.new!(name: "two", action: Add, needs: ["one"])
+                 JidoActionTest.FlowComponent.step!(name: "one", action: Add, needs: ["two"]),
+                 JidoActionTest.FlowComponent.step!(name: "two", action: Add, needs: ["one"])
                ],
                output: Ref.result("one")
              )
@@ -125,45 +132,52 @@ defmodule Jido.Flow.GraphIdentityTest do
     assert message =~ "cycle"
   end
 
-  test "compilation keeps authored metadata in the semantic digest" do
-    for meta <- [%{}, %{note: "authored"}] do
-      flow =
-        Flow.new!(
+  test "description and component metadata do not change semantic identity" do
+    flows =
+      for {description, meta} <- [{nil, %{}}, {"Display text", %{note: "authored"}}] do
+        JidoActionTest.FlowBuilder.new!(%{
           name: "metadata_identity",
+          description: description,
           components: [
-            Step.new!(name: "later", action: Add, needs: ["first"], meta: meta),
-            Step.new!(name: "first", action: Add)
+            %{kind: :step, name: "later", action: Add, needs: ["first"], meta: meta},
+            %{kind: :step, name: "first", action: Add}
           ],
           output: Ref.result("later")
-        )
+        })
+      end
 
+    [plain, annotated] = flows
+    assert Flow.semantic_identity(plain) == Flow.semantic_identity(annotated)
+
+    for flow <- flows do
       assert {:ok, identity} = Flow.semantic_identity(flow)
       assert {:ok, compiled} = Flow.compile(flow)
       assert compiled.semantic_digest == identity.digest
-      assert {:ok, reordered} = Flow.compile(%{flow | components: Enum.reverse(flow.components)})
-      assert reordered.compilation_digest == compiled.compilation_digest
     end
+
+    assert Flow.compile!(plain).compilation_digest ==
+             Flow.compile!(annotated).compilation_digest
   end
 
   test "source order does not change semantic identity" do
-    one = Step.new!(name: "one", action: Add)
-    two = Step.new!(name: "two", action: Add)
+    one = JidoActionTest.FlowComponent.step!(name: "one", action: Add)
+    two = JidoActionTest.FlowComponent.step!(name: "two", action: Add)
 
     first =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "identity",
         components: [one, two],
         output: %{one: Ref.result("one"), two: Ref.result("two")}
       )
 
     second =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "identity",
         components: [two, one],
         output: %{one: Ref.result("one"), two: Ref.result("two")}
       )
 
-    refute first == second
+    assert first == second
     assert Flow.semantic_identity(first) == Flow.semantic_identity(second)
   end
 end

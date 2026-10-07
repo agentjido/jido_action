@@ -5,8 +5,7 @@ defmodule JidoActionTest.Exec.AsyncExecutionTest do
 
   alias Jido.Exec
   alias Jido.Exec.Error
-  alias Jido.Flow
-  alias Jido.Flow.{Ref, Step}
+  alias Jido.Flow.{Ref}
   alias Jido.Instruction
   alias JidoActionTest.Fixtures.{MathFlow, BlockingFlow}
   alias JidoActionTest.Fixtures.Actions.{Add, ErrorAction, ExtrasAction}
@@ -323,22 +322,38 @@ defmodule JidoActionTest.Exec.AsyncExecutionTest do
   end
 
   defp blocking_parallel_flow do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "async_parallel_flow",
       components: [
-        Step.new!(name: "left", action: BlockingAction, params: %{value: :left}),
-        Step.new!(name: "right", action: BlockingAction, params: %{value: :right})
+        JidoActionTest.FlowComponent.step!(
+          name: "left",
+          action: BlockingAction,
+          params: %{value: :left}
+        ),
+        JidoActionTest.FlowComponent.step!(
+          name: "right",
+          action: BlockingAction,
+          params: %{value: :right}
+        )
       ],
       output: %{left: Ref.result("left"), right: Ref.result("right")}
     )
   end
 
   defp io_parallel_flow do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "async_io_flow",
       components: [
-        Step.new!(name: "left", action: IOAction, params: %{message: "async flow left"}),
-        Step.new!(name: "right", action: IOAction, params: %{message: "async flow right"})
+        JidoActionTest.FlowComponent.step!(
+          name: "left",
+          action: IOAction,
+          params: %{message: "async flow left"}
+        ),
+        JidoActionTest.FlowComponent.step!(
+          name: "right",
+          action: IOAction,
+          params: %{message: "async flow right"}
+        )
       ],
       output: %{left: Ref.result("left"), right: Ref.result("right")}
     )

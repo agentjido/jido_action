@@ -1,8 +1,7 @@
 defmodule JidoActionTest.Exec.RemainingTimeTest do
   use ExUnit.Case, async: true
   alias Jido.Exec
-  alias Jido.Flow
-  alias Jido.Flow.{Ref, Step, Subflow}
+  alias Jido.Flow.{Ref}
   alias Jido.Instruction
 
   defmodule ReadBudget do
@@ -137,12 +136,12 @@ defmodule JidoActionTest.Exec.RemainingTimeTest do
 
   test "parallel work, Subflows, and Map items share the deadline", %{opts: opts} do
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "parallel_budget",
         components: [
-          Step.new!(name: "read", action: ReadBudget, params: %{}),
-          Subflow.new!(name: "child", flow: ChildFlow, params: %{}),
-          Jido.Flow.Map.new!(
+          JidoActionTest.FlowComponent.step!(name: "read", action: ReadBudget, params: %{}),
+          JidoActionTest.FlowComponent.subflow!(name: "child", flow: ChildFlow, params: %{}),
+          JidoActionTest.FlowComponent.map!(
             name: "items",
             collection: [1, 2],
             action: ReadBudget,

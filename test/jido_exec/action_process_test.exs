@@ -5,6 +5,7 @@ defmodule JidoActionTest.Exec.ActionProcessTest do
 
   alias Jido.Action.Error
   alias Jido.Exec
+  alias Jido.Flow.Ref
   alias Jido.Instruction
   alias JidoActionTest.Fixtures.Execution, as: Fixtures
   alias JidoActionTest.Fixtures.Execution.BlockingAction
@@ -37,6 +38,37 @@ defmodule JidoActionTest.Exec.ActionProcessTest do
       assert error.details.reason == :killed
       refute Error.retryable?(error)
     end
+  end
+
+  test "a selected Choice Action hard kill preserves its worker-exit error" do
+    flow =
+      JidoActionTest.FlowBuilder.new!(
+        name: "choice_worker_exit",
+        components: [
+          JidoActionTest.FlowComponent.choice!(
+            name: "route",
+            options: [
+              [
+                name: "selected",
+                condition: true,
+                action: KillingAction,
+                params: %{}
+              ]
+            ],
+            fallback: [action: KillingAction, params: %{}]
+          )
+        ],
+        output: Ref.result("route")
+      )
+
+    assert {:error, error} = Exec.run(flow)
+    assert error.message == "Action execution process exited"
+    assert error.details.reason == :killed
+    assert error.details.phase == :choice_target_execution
+    assert error.details.node == "route"
+    assert error.details.node_path == ["route"]
+    assert error.details.option == "selected"
+    assert error.details.target == KillingAction
   end
 
   test "untimed work stops when the Exec caller exits for every executable form" do

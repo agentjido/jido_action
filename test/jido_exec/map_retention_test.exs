@@ -2,7 +2,8 @@ defmodule JidoActionTest.Exec.MapRetentionTest do
   use ExUnit.Case, async: true
 
   alias Jido.{Exec, Flow}
-  alias Jido.Flow.{Identity, Map, Reduce, Ref, Step, Subflow}
+  alias Jido.Exec.Flow.Identity
+  alias Jido.Flow.{Definition, Ref}
   alias JidoActionTest.Fixtures.Actions.{EchoParamsAction, ReduceProbeAction}
 
   defmodule Counted do
@@ -58,15 +59,15 @@ defmodule JidoActionTest.Exec.MapRetentionTest do
           {:collect_errors, [:a, :fail]}
         ] do
       current =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "map_dependencies",
           components: [
-            Step.new!(
+            JidoActionTest.FlowComponent.step!(
               name: "producer",
               action: EchoParamsAction,
               params: %{large: Ref.input(:large)}
             ),
-            Map.new!(
+            JidoActionTest.FlowComponent.map!(
               name: "mapped",
               collection: Ref.input(:items),
               action: DiscardDependency,
@@ -143,10 +144,10 @@ defmodule JidoActionTest.Exec.MapRetentionTest do
       mapped = Enum.map(items, &%{value: &1})
 
       current =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "shared_map",
           components: [
-            Map.new!(
+            JidoActionTest.FlowComponent.map!(
               name: "mapped",
               collection: Ref.input(:items),
               action: Counted,
@@ -154,12 +155,17 @@ defmodule JidoActionTest.Exec.MapRetentionTest do
             ),
             counted_reduce("sum"),
             counted_reduce("reduced"),
-            Step.new!(
+            JidoActionTest.FlowComponent.step!(
               name: "reader",
               action: Counted,
               params: %{kind: :reader, items: Ref.result("mapped")}
             ),
-            Step.new!(name: "after", action: Counted, needs: ["mapped"], params: %{kind: :after})
+            JidoActionTest.FlowComponent.step!(
+              name: "after",
+              action: Counted,
+              needs: ["mapped"],
+              params: %{kind: :after}
+            )
           ],
           output: %{
             items: Ref.result("mapped"),
@@ -187,10 +193,14 @@ defmodule JidoActionTest.Exec.MapRetentionTest do
 
   test "nested and JSON-restored Flows retain both results" do
     parent =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "parent",
         components: [
-          Subflow.new!(name: "child", flow: Child, params: %{items: Ref.input(:items)})
+          JidoActionTest.FlowComponent.subflow!(
+            name: "child",
+            flow: Child,
+            params: %{items: Ref.input(:items)}
+          )
         ],
         output: Ref.result("child")
       )
@@ -229,24 +239,30 @@ defmodule JidoActionTest.Exec.MapRetentionTest do
 
   test "a bare Map list still requires an output envelope" do
     current = flow()
-    [mapped, _] = current.components
-    current = Flow.new!(name: "map_only", components: [mapped], output: Ref.result("mapped"))
+    mapped = Definition.component_to_definition({"mapped", current.components["mapped"]})
+
+    current =
+      JidoActionTest.FlowBuilder.new!(
+        name: "map_only",
+        components: [mapped],
+        output: Ref.result("mapped")
+      )
 
     assert {:error, %{message: "Flow returned a value that requires an output envelope"}} =
              Exec.run(current, %{items: []})
   end
 
   defp flow(name \\ "reduced", output \\ :both) do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "retention",
       components: [
-        Map.new!(
+        JidoActionTest.FlowComponent.map!(
           name: "mapped",
           collection: Ref.input(:items),
           action: EchoParamsAction,
           params: %{value: Ref.item()}
         ),
-        Reduce.new!(
+        JidoActionTest.FlowComponent.reduce!(
           name: name,
           collection: Ref.result("mapped"),
           initial: %{values: [], indexes: []},
@@ -268,7 +284,7 @@ defmodule JidoActionTest.Exec.MapRetentionTest do
   end
 
   defp counted_reduce(name) do
-    Reduce.new!(
+    JidoActionTest.FlowComponent.reduce!(
       name: name,
       collection: Ref.result("mapped"),
       initial: %{values: []},

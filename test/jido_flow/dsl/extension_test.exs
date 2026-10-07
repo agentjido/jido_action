@@ -120,7 +120,13 @@ defmodule Jido.Flow.DSL.ExtensionTest do
   alias Jido.Flow.DSL.ExtensionTest.{ExtendedFlow, ExtendedNeedsFlow, InlineFlow, PlainFlow}
 
   test "a Flow extension lowers its macros to canonical Flow declarations" do
-    assert [%Jido.Flow.Step{name: "add"}] = ExtendedFlow.flow().components
+    assert %{
+             "add" => %{
+               kind: :call,
+               call: {%Jido.Instruction{kind: :action}, _params}
+             }
+           } = ExtendedFlow.flow().components
+
     assert Jido.Exec.run(ExtendedFlow, %{value: 3}) == {:ok, %{value: 5}}
   end
 
@@ -142,18 +148,20 @@ defmodule Jido.Flow.DSL.ExtensionTest do
       name: "extended_flow"
     }
 
-    assert {:ok, flow} = Jido.Flow.new(data)
+    assert {:ok, flow} = JidoActionTest.FlowBuilder.new(data)
     assert ExtendedFlow.flow() == flow
   end
 
   test "an extension can expand to an inline Step that keeps the Flow owner scope" do
-    assert [%Jido.Flow.Step{action: action}] = InlineFlow.flow().components
+    assert %{call: {%Jido.Instruction{target: action}, _params}} =
+             InlineFlow.flow().components["double"]
+
     assert action == InlineFlow.step_action("double")
     assert Jido.Exec.run(InlineFlow, %{value: 3}) == {:ok, %{value: 6}}
   end
 
   test "extension-expanded needs lower to canonical dependencies" do
-    assert [_first, %Jido.Flow.Step{needs: ["first"]}] = ExtendedNeedsFlow.flow().components
+    assert %{needs: ["first"]} = ExtendedNeedsFlow.flow().components["second"]
     assert Jido.Exec.run(ExtendedNeedsFlow) == {:ok, %{value: 2}}
   end
 

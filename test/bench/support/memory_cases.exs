@@ -17,7 +17,7 @@ end
 defmodule JidoActionBench.MemoryCases do
   @moduledoc false
   alias Jido.{Exec, Flow}
-  alias Jido.Flow.{Ref, Step, Subflow}
+  alias Jido.Flow.Ref
   alias JidoActionBench.{Child, Echo, Fixtures, SmallResult}
 
   @opts [task_supervisor: JidoActionBench.TaskSupervisor, max_concurrency: 1]
@@ -41,12 +41,18 @@ defmodule JidoActionBench.MemoryCases do
         attrs = [name: "s#{index}", params: %{value: Ref.input(:value)}, meta: meta]
 
         case shape do
-          :step -> Step.new!([action: Echo] ++ attrs)
-          :subflow -> Subflow.new!([flow: Child] ++ attrs)
+          :step -> JidoActionTest.FlowComponent.step!([action: Echo] ++ attrs)
+          :subflow -> JidoActionTest.FlowComponent.subflow!([flow: Child] ++ attrs)
         end
       end
 
-    flow = Flow.new!(name: "metadata_#{shape}", components: components, output: Ref.result("s4"))
+    flow =
+      JidoActionTest.FlowBuilder.new!(
+        name: "metadata_#{shape}",
+        components: components,
+        output: Ref.result("s4")
+      )
+
     {:ok, compiled} = Flow.compile(flow)
     digest = compiled.compilation_digest
 
@@ -70,10 +76,10 @@ defmodule JidoActionBench.MemoryCases do
   defp input_workloads do
     for outcome <- [:success, :failure], payload <- [:small, :large_list] do
       flow =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "retention_#{outcome}",
           components: [
-            Step.new!(
+            JidoActionTest.FlowComponent.step!(
               name: "small_result",
               action: SmallResult,
               params: %{value: Ref.input(:value), fail: outcome == :failure}
@@ -125,12 +131,18 @@ defmodule JidoActionBench.MemoryCases do
 
   defp collector_workload do
     names = Enum.map(1..32, &"s#{&1}")
-    producers = Enum.map(names, &Step.new!(name: &1, action: Echo, params: %{value: 42}))
+
+    producers =
+      Enum.map(
+        names,
+        &JidoActionTest.FlowComponent.step!(name: &1, action: Echo, params: %{value: 42})
+      )
+
     params = Map.new(names, &{&1, Ref.result(&1)})
-    collector = Step.new!(name: "collect", action: Echo, params: params)
+    collector = JidoActionTest.FlowComponent.step!(name: "collect", action: Echo, params: params)
 
     flow =
-      Flow.new!(
+      JidoActionTest.FlowBuilder.new!(
         name: "wide_collector",
         components: producers ++ [collector],
         output: Ref.result("collect")

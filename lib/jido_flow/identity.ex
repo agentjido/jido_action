@@ -4,12 +4,10 @@ defmodule Jido.Flow.Identity do
   import Bitwise
 
   alias Jido.Flow
-  alias Jido.Flow.Component
+  alias Jido.Flow.Definition
   alias Jido.Flow.Graph
 
-  @identity_version 3
-  @item_identity_version 1
-  @iteration_identity_version 1
+  @identity_version 4
 
   @doc false
   @spec semantic_digest(Flow.t()) :: String.t()
@@ -18,7 +16,7 @@ defmodule Jido.Flow.Identity do
   end
 
   @doc false
-  @spec semantic_digest(Flow.t(), [Component.t()]) :: String.t()
+  @spec semantic_digest(Flow.t(), [Definition.named_component()]) :: String.t()
   def semantic_digest(%Flow{} = flow, ordered_components) do
     flow
     |> identity_data(ordered_components)
@@ -38,17 +36,22 @@ defmodule Jido.Flow.Identity do
     %{
       version: @identity_version,
       name: flow.name,
-      description: flow.description,
       schema: flow.schema,
       output_schema: flow.output_schema,
-      components: ordered_components,
+      components: Enum.map(ordered_components, &component_identity/1),
       output: flow.output
     }
   end
 
+  defp component_identity(named_component) do
+    named_component
+    |> Definition.component_to_definition()
+    |> Map.delete(:meta)
+  end
+
   @doc false
   @spec identity(map()) :: %{
-          version: 3,
+          version: 4,
           algorithm: :sha256,
           digest: String.t(),
           uuid: String.t()
@@ -66,34 +69,7 @@ defmodule Jido.Flow.Identity do
 
   defp identity_hash(data), do: hash_term({:jido_flow_identity, @identity_version, data})
 
-  @doc false
-  @spec item_uuid(String.t(), [String.t(), ...], non_neg_integer()) :: String.t()
-  def item_uuid(flow_digest, component_path, source_index)
-      when is_binary(flow_digest) and is_integer(source_index) and source_index >= 0 do
-    {:jido_flow_item_identity, @item_identity_version, flow_digest, node_key(component_path),
-     source_index}
-    |> hash_term()
-    |> uuid_v8()
-  end
-
-  @doc false
-  @spec iteration_uuid(String.t(), [String.t(), ...], non_neg_integer()) :: String.t()
-  def iteration_uuid(flow_digest, component_path, iteration_index)
-      when is_binary(flow_digest) and is_integer(iteration_index) and iteration_index >= 0 do
-    {:jido_flow_iterate_iteration_identity, @iteration_identity_version, flow_digest,
-     node_key(component_path), iteration_index}
-    |> hash_term()
-    |> uuid_v8()
-  end
-
-  # A root component keeps its original name key. A nested component uses its
-  # full Subflow path, so the same child Flow in two places has distinct IDs.
-  defp node_key([name]) when is_binary(name), do: name
-  defp node_key([_, _ | _] = path), do: path
-
-  @doc false
-  @spec hash_term(term()) :: binary()
-  def hash_term(term) do
+  defp hash_term(term) do
     case :erlang.term_to_iovec(term, [:deterministic]) do
       [bytes] ->
         :crypto.hash(:sha256, bytes)
@@ -105,11 +81,9 @@ defmodule Jido.Flow.Identity do
     end
   end
 
-  @doc false
-  @spec uuid_v8(binary()) :: String.t()
-  def uuid_v8(
-        <<time_low::32, time_mid::16, version_bits::16, variant_bits::16, node::48, _::binary>>
-      ) do
+  defp uuid_v8(
+         <<time_low::32, time_mid::16, version_bits::16, variant_bits::16, node::48, _::binary>>
+       ) do
     version_bits = bor(band(version_bits, 0x0FFF), 0x8000)
     variant_bits = bor(band(variant_bits, 0x3FFF), 0x8000)
 

@@ -6,7 +6,7 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
   use ExUnitProperties
   alias JidoActionTest.Property.Fuzz
   alias Jido.{Exec, Flow}
-  alias Jido.Flow.{Codec, Ref, Step}
+  alias Jido.Flow.{Codec, Definition, Ref}
   alias JidoActionTest.Property.Runtime
   @tag contracts: ["FLOW-003", "FLOW-004"]
   @tag contract_cases: [
@@ -19,44 +19,37 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
     check(all(value <- integer(), max_runs: 30)) do
       components =
         for name <- ["a", "b"] do
-          Step.new!(name: name, action: Runtime.Emit, params: %{value: value})
+          JidoActionTest.FlowComponent.step!(
+            name: name,
+            action: Runtime.Emit,
+            params: %{value: value}
+          )
         end
 
-      flow = Flow.new!(name: "invalid_graph", components: components, output: Ref.result("b"))
+      flow =
+        JidoActionTest.FlowBuilder.new!(
+          name: "invalid_graph",
+          components: components,
+          output: Ref.result("b")
+        )
+
       assert {:ok, document, registry} = Codec.encode(flow)
 
       for fault <- [:duplicate, :unknown, :cycle, :output] do
-        {invalid, stored} = fault(flow, document, fault)
+        {attrs, invalid, stored} = fault(flow, document, fault)
 
-        data = %{
-          output: invalid.output,
-          components:
-            Enum.map(
-              invalid.components,
-              fn step ->
-                %{
-                  kind: :step,
-                  name: step.name,
-                  action: step.action,
-                  params: step.params,
-                  needs: step.needs
-                }
-              end
-            ),
-          name: flow.name
-        }
-
-        assert {:error, direct_error} = Flow.new(Map.from_struct(invalid))
-        assert {:error, data_error} = Jido.Flow.new(data)
+        assert {:error, direct_error} = JidoActionTest.FlowBuilder.new(attrs)
         assert {:error, codec_error} = Codec.decode(JSON.decode!(JSON.encode!(stored)), registry)
         assert is_exception(direct_error)
-        assert data_error.message == direct_error.message
         assert is_exception(codec_error)
 
         Runtime.with_context(fn context ->
-          assert {:error, _} = Flow.validate(invalid)
-          assert {:error, _} = Flow.validate_executable(invalid)
-          assert {:error, _} = Exec.run(invalid, %{}, context, Runtime.options(context))
+          if invalid do
+            assert {:error, _} = Flow.validate(invalid)
+            assert {:error, _} = Flow.validate_executable(invalid)
+            assert {:error, _} = Exec.run(invalid, %{}, context, Runtime.options(context))
+          end
+
           Runtime.assert_calls(context, [])
         end)
       end
@@ -74,9 +67,15 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
     check(all(value <- integer(), max_runs: 30)) do
       Runtime.with_context(fn context ->
         flow =
-          Flow.new!(
+          JidoActionTest.FlowBuilder.new!(
             name: "inert",
-            components: [Step.new!(name: "work", action: Runtime.Emit, params: %{value: value})],
+            components: [
+              JidoActionTest.FlowComponent.step!(
+                name: "work",
+                action: Runtime.Emit,
+                params: %{value: value}
+              )
+            ],
             output: Ref.result("work")
           )
 
@@ -89,7 +88,7 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
         assert {:ok, document, registry} = Codec.encode(flow)
         assert {:ok, ^flow} = Codec.decode(document, registry)
         assert {:ok, ^flow} = Codec.diagnose(document, registry)
-        invalid = %{flow | components: [%{hd(flow.components) | action: String}]}
+        invalid = replace_target(flow, "work", String)
         assert {:ok, ^invalid} = Flow.validate(invalid)
         assert {:error, _} = Flow.validate_executable(invalid)
         Runtime.assert_calls(context, [])
@@ -111,9 +110,15 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
 
       flows =
         for expression <- [reference, Ref.to_map(reference)] do
-          Flow.new!(
+          JidoActionTest.FlowBuilder.new!(
             name: "identity",
-            components: [Step.new!(name: "work", action: Runtime.Emit, params: %{value: value})],
+            components: [
+              JidoActionTest.FlowComponent.step!(
+                name: "work",
+                action: Runtime.Emit,
+                params: %{value: value}
+              )
+            ],
             output: %{value: expression}
           )
         end
@@ -169,7 +174,7 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
               [Enum.at(names, rem(parent, index))]
             end
 
-          Step.new!(
+          JidoActionTest.FlowComponent.step!(
             name: Enum.at(names, index),
             action: Runtime.Emit,
             params: %{value: value},
@@ -178,7 +183,7 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
         end)
 
       flow =
-        Flow.new!(
+        JidoActionTest.FlowBuilder.new!(
           name: "rejected_graph",
           components: components,
           output: Ref.result(List.last(names))
@@ -187,36 +192,19 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
       assert {:ok, document, registry} = Codec.encode(flow)
 
       for defect <- [:duplicate, :unknown, :cycle, :output] do
-        {invalid, stored} = fault(flow, document, defect)
+        {attrs, invalid, stored} = fault(flow, document, defect)
 
-        data = %{
-          output: invalid.output,
-          components:
-            Enum.map(
-              invalid.components,
-              fn step ->
-                %{
-                  kind: :step,
-                  name: step.name,
-                  action: step.action,
-                  params: step.params,
-                  needs: step.needs
-                }
-              end
-            ),
-          name: flow.name
-        }
-
-        assert {:error, direct_error} = Flow.new(Map.from_struct(invalid))
-        assert {:error, data_error} = Jido.Flow.new(data)
-        assert data_error.message == direct_error.message
+        assert {:error, _direct_error} = JidoActionTest.FlowBuilder.new(attrs)
         assert {:error, error} = Codec.decode(JSON.decode!(JSON.encode!(stored)), registry)
         assert is_exception(error)
 
         Runtime.with_context(fn runtime ->
-          assert {:error, _} = Flow.validate(invalid)
-          assert {:error, _} = Flow.validate_executable(invalid)
-          assert {:error, _} = Exec.run(invalid, %{}, runtime, Runtime.options(runtime))
+          if invalid do
+            assert {:error, _} = Flow.validate(invalid)
+            assert {:error, _} = Flow.validate_executable(invalid)
+            assert {:error, _} = Exec.run(invalid, %{}, runtime, Runtime.options(runtime))
+          end
+
           Runtime.assert_calls(runtime, [])
         end)
       end
@@ -229,7 +217,7 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
           assert {:ok, _} = apply(Flow, operation, [flow])
         end
 
-        invalid = %{flow | components: List.update_at(components, 0, &%{&1 | action: String})}
+        invalid = replace_target(flow, List.first(names), String)
         assert {:error, _} = Flow.validate_executable(invalid)
         assert {:error, _} = Exec.run(invalid, %{}, runtime, Runtime.options(runtime))
         Runtime.assert_calls(runtime, [])
@@ -240,30 +228,62 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
   end
 
   defp fault(flow, document, :duplicate) do
-    {%{flow | components: List.update_at(flow.components, 1, &%{&1 | name: "a"})},
-     put_in(document, ["components", Access.at(1), "name"], "a")}
+    components = Definition.to_definition(flow.components)
+    attrs = definition(flow, List.update_at(components, 1, &%{&1 | name: "a"}))
+    {attrs, nil, put_in(document, ["components", Access.at(1), "name"], "a")}
   end
 
   defp fault(flow, document, :unknown) do
-    {%{flow | components: List.update_at(flow.components, 1, &%{&1 | needs: ["absent"]})},
-     put_in(document, ["components", Access.at(1), "needs"], ["absent"])}
+    components = Definition.to_definition(flow.components)
+    attrs = definition(flow, List.update_at(components, 1, &%{&1 | needs: ["absent"]}))
+    invalid = update_node(flow, "b", &%{&1 | needs: ["absent"]})
+    {attrs, invalid, put_in(document, ["components", Access.at(1), "needs"], ["absent"])}
   end
 
   defp fault(flow, document, :cycle) do
-    components =
+    definitions =
       flow.components
+      |> Definition.to_definition()
       |> List.update_at(0, &%{&1 | needs: ["b"]})
       |> List.update_at(1, &%{&1 | needs: ["a"]})
+
+    invalid =
+      flow
+      |> update_node("a", &%{&1 | needs: ["b"]})
+      |> update_node("b", &%{&1 | needs: ["a"]})
 
     document =
       document
       |> put_in(["components", Access.at(0), "needs"], ["b"])
       |> put_in(["components", Access.at(1), "needs"], ["a"])
 
-    {%{flow | components: components}, document}
+    {definition(flow, definitions), invalid, document}
   end
 
   defp fault(flow, document, :output) do
-    {%{flow | output: nil}, Map.put(document, "output", nil)}
+    {definition(flow, Definition.to_definition(flow.components), nil), %{flow | output: nil},
+     Map.put(document, "output", nil)}
+  end
+
+  defp definition(flow, components, output \\ :flow_output) do
+    %{
+      name: flow.name,
+      description: flow.description,
+      schema: flow.schema,
+      output_schema: flow.output_schema,
+      components: components,
+      output: if(output == :flow_output, do: flow.output, else: output)
+    }
+  end
+
+  defp replace_target(flow, name, target) do
+    update_node(flow, name, fn node ->
+      {instruction, params} = node.call
+      %{node | call: {%{instruction | target: target}, params}}
+    end)
+  end
+
+  defp update_node(flow, name, update) do
+    %{flow | components: Map.update!(flow.components, name, update)}
   end
 end

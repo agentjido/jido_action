@@ -3,8 +3,7 @@ defmodule JidoActionTest.Exec.CallerMonitorTest do
   import JidoActionTest.ProcessCleanup
 
   alias Jido.Exec
-  alias Jido.Flow
-  alias Jido.Flow.{Ref, Subflow}
+  alias Jido.Flow.{Ref}
 
   @moduletag capture_log: true
 
@@ -139,9 +138,15 @@ defmodule JidoActionTest.Exec.CallerMonitorTest do
   end
 
   defp nested_flow do
-    Flow.new!(
+    JidoActionTest.FlowBuilder.new!(
       name: "caller_monitor_parent",
-      components: [Subflow.new!(name: "child", flow: HeldFlow, params: Ref.input([]))],
+      components: [
+        JidoActionTest.FlowComponent.subflow!(
+          name: "child",
+          flow: HeldFlow,
+          params: Ref.input([])
+        )
+      ],
       output: Ref.result("child")
     )
   end
