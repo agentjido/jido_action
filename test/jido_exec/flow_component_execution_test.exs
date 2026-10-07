@@ -170,12 +170,12 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
 
   test "executes every comparison operator with runtime operands" do
     cases = [
-      {Jido.Expr.new!(:eq, [Ref.input(:left), Ref.input(:right)]), 1, 1},
-      {Jido.Expr.new!(:neq, [Ref.input(:left), Ref.input(:right)]), 1, 2},
-      {Jido.Expr.new!(:lt, [Ref.input(:left), Ref.input(:right)]), 1, 2},
-      {Jido.Expr.new!(:lte, [Ref.input(:left), Ref.input(:right)]), 2, 2},
-      {Jido.Expr.new!(:gt, [Ref.input(:left), Ref.input(:right)]), 2, 1},
-      {Jido.Expr.new!(:gte, [Ref.input(:left), Ref.input(:right)]), "b", "a"},
+      {Jido.Expr.new!(:==, [Ref.input(:left), Ref.input(:right)]), 1, 1},
+      {Jido.Expr.new!(:!=, [Ref.input(:left), Ref.input(:right)]), 1, 2},
+      {Jido.Expr.new!(:<, [Ref.input(:left), Ref.input(:right)]), 1, 2},
+      {Jido.Expr.new!(:<=, [Ref.input(:left), Ref.input(:right)]), 2, 2},
+      {Jido.Expr.new!(:>, [Ref.input(:left), Ref.input(:right)]), 2, 1},
+      {Jido.Expr.new!(:>=, [Ref.input(:left), Ref.input(:right)]), "b", "a"},
       {Jido.Expr.new!(:in, [Ref.input(:left), Ref.input(:right)]), :two, [:one, :two, :three]}
     ]
 
@@ -186,7 +186,7 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
   end
 
   test "selects the first matching Choice option" do
-    always = Jido.Expr.new!(:eq, [1, 1])
+    always = Jido.Expr.new!(:==, [1, 1])
 
     flow =
       Flow.new!(
@@ -246,15 +246,15 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
     assert first_id != second_id
   end
 
-  test "short-circuits all, any, and not conditions" do
-    true_condition = Jido.Expr.new!(:eq, [1, 1])
-    false_condition = Jido.Expr.new!(:eq, [1, 2])
+  test "short-circuits and, or, and not conditions" do
+    true_condition = Jido.Expr.new!(:==, [1, 1])
+    false_condition = Jido.Expr.new!(:==, [1, 2])
 
     cases = [
-      {Jido.Expr.new!(:all, [true_condition, true_condition]), 2},
-      {Jido.Expr.new!(:all, [false_condition, invalid_arithmetic()]), 20},
-      {Jido.Expr.new!(:any, [true_condition, invalid_arithmetic()]), 2},
-      {Jido.Expr.new!(:any, [false_condition, false_condition]), 20},
+      {Jido.Expr.new!(:and, [true_condition, true_condition]), 2},
+      {Jido.Expr.new!(:and, [false_condition, invalid_arithmetic()]), 20},
+      {Jido.Expr.new!(:or, [true_condition, invalid_arithmetic()]), 2},
+      {Jido.Expr.new!(:or, [false_condition, false_condition]), 20},
       {Jido.Expr.new!(:not, [false_condition]), 2},
       {Jido.Expr.new!(:not, [true_condition]), 20}
     ]
@@ -266,8 +266,8 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
 
   test "returns condition errors from each boolean group" do
     for condition <- [
-          Jido.Expr.new!(:all, [invalid_arithmetic()]),
-          Jido.Expr.new!(:any, [invalid_arithmetic()]),
+          Jido.Expr.new!(:and, [true, invalid_arithmetic()]),
+          Jido.Expr.new!(:or, [false, invalid_arithmetic()]),
           Jido.Expr.new!(:not, [invalid_arithmetic()])
         ] do
       assert {:error,
@@ -280,7 +280,7 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
 
   test "orders host values like Elixir and rejects invalid membership operands" do
     for {left, right} <- [{1, "one"}, {[], %{}}, {:one, {}}, {self(), 1}] do
-      condition = Jido.Expr.new!(:lt, [Ref.input(:left), Ref.input(:right)])
+      condition = Jido.Expr.new!(:<, [Ref.input(:left), Ref.input(:right)])
       expected = if left < right, do: 2, else: 20
 
       assert Exec.run(choice_flow(condition), %{left: left, right: right}) ==
@@ -458,7 +458,7 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
     )
   end
 
-  defp invalid_arithmetic, do: Jido.Expr.new!(:add, [%{}, 1])
+  defp invalid_arithmetic, do: Jido.Expr.new!(:+, [%{}, 1])
 
   defp target_error_flow(:step) do
     Flow.new!(
@@ -479,7 +479,7 @@ defmodule JidoActionTest.Exec.FlowComponentExecutionTest do
           options: [
             [
               name: "selected",
-              condition: Jido.Expr.new!(:eq, [1, 1]),
+              condition: Jido.Expr.new!(:==, [1, 1]),
               action: ErrorAction,
               params: %{error_type: :validation}
             ]

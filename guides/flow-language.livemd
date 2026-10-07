@@ -178,8 +178,10 @@ input(:enabled) == true and input(:blocked) != true
 not (input(:status) == :closed)
 ```
 
-The canonical operators are `eq`, `neq`, `lt`, `lte`, `gt`, `gte`, `in`,
-`all`, `any`, and `not`.
+The expression data uses the same operator atoms as this Elixir syntax:
+`:==`, `:!=`, `:<`, `:<=`, `:>`, `:>=`, `:in`, `:and`, `:or`, and `:not`.
+Build more than two Boolean tests as an explicit tree of binary `and` or `or`
+operations.
 
 ## Declare Output
 

@@ -9,7 +9,7 @@ defmodule Jido.Flow.Map do
 
   alias Jido.Flow.Error
   alias Jido.Flow.Component.Fields
-  alias Jido.Flow.Expression
+  alias Jido.Flow.Value
 
   @config_keys [:name, :collection, :action, :params, :on_error, :needs, :meta]
 
@@ -82,8 +82,8 @@ defmodule Jido.Flow.Map do
   @spec result_refs(t()) :: [String.t()]
   def result_refs(%__MODULE__{} = map) do
     map.collection
-    |> Expression.result_refs()
-    |> Kernel.++(Expression.result_refs(map.params))
+    |> Value.result_refs()
+    |> Kernel.++(Value.result_refs(map.params))
     |> Enum.uniq()
     |> Enum.sort()
   end
@@ -94,9 +94,9 @@ defmodule Jido.Flow.Map do
     %{
       kind: :map,
       name: map.name,
-      collection: Expression.to_map(map.collection),
+      collection: Value.to_map(map.collection),
       action: map.action,
-      params: Expression.to_map(map.params),
+      params: Value.to_map(map.params),
       on_error: map.on_error,
       needs: map.needs,
       meta: map.meta

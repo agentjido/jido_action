@@ -210,10 +210,9 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
     output = %{counter: Ref.result("counter")}
 
     for {module, completion, maximum, input, iterations} <- [
-          {IterateRepeat, Expr.new!(:gte, [Ref.iteration_index(), 3]), 3, %{}, 3},
-          {IterateWhile,
-           Expr.new!(:not, [Expr.new!(:lt, [Ref.state(:count), Ref.input(:limit)])]), 4,
-           %{limit: 3}, 3}
+          {IterateRepeat, Expr.new!(:>=, [Ref.iteration_index(), 3]), 3, %{}, 3},
+          {IterateWhile, Expr.new!(:not, [Expr.new!(:<, [Ref.state(:count), Ref.input(:limit)])]),
+           4, %{limit: 3}, 3}
         ] do
       direct =
         Flow.new!(
@@ -329,13 +328,13 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
     options = [
       Choice.Option.new!(
         name: "urgent",
-        condition: Expr.new!(:gte, [Ref.input(:score), 90]),
+        condition: Expr.new!(:>=, [Ref.input(:score), 90]),
         action: Echo,
         params: %{route: :urgent}
       ),
       Choice.Option.new!(
         name: "priority",
-        condition: Expr.new!(:gte, [Ref.input(:score), 50]),
+        condition: Expr.new!(:>=, [Ref.input(:score), 50]),
         action: Echo,
         params: %{route: :priority}
       )

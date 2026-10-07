@@ -3,7 +3,7 @@ defmodule Jido.Exec.Flow.Iterator do
 
   alias Jido.Flow.Error
   alias Jido.Action.Validation
-  alias Jido.Exec.Flow.Expression
+  alias Jido.Exec.Flow.ValueResolver
   alias Jido.Exec.Flow.Target
   alias Jido.Flow.Identity
 
@@ -19,7 +19,7 @@ defmodule Jido.Exec.Flow.Iterator do
   end
 
   defp run_resolved_iterator(iterator, state) do
-    with {:ok, candidate} <- Expression.resolve(iterator.state.initial, state),
+    with {:ok, candidate} <- ValueResolver.resolve(iterator.state.initial, state),
          {:ok, candidate} <-
            validate_plain_iterator_state(iterator, candidate, :initial, nil, nil, 0),
          {:ok, iterator_state} <-
@@ -60,7 +60,7 @@ defmodule Jido.Exec.Flow.Iterator do
     result =
       try do
         with {:ok, params} <-
-               Expression.resolve(iterator.params, local_state)
+               ValueResolver.resolve(iterator.params, local_state)
                |> Target.tag_validation(target_context),
              {:ok, output, effects} <-
                Target.run(
@@ -73,7 +73,7 @@ defmodule Jido.Exec.Flow.Iterator do
              update_state =
                local_state
                |> Map.put(:body_result, output),
-             {:ok, candidate} <- Expression.resolve(iterator.state.update, update_state),
+             {:ok, candidate} <- ValueResolver.resolve(iterator.state.update, update_state),
              {:ok, candidate} <-
                validate_plain_iterator_state(
                  iterator,
@@ -195,7 +195,7 @@ defmodule Jido.Exec.Flow.Iterator do
          iteration_id: iteration_id,
          state_revision: revision,
          reason: :not_a_plain_map,
-         value_type: Expression.value_type(value),
+         value_type: ValueResolver.value_type(value),
          retry: false
        })}
     end
@@ -230,7 +230,7 @@ defmodule Jido.Exec.Flow.Iterator do
            "iterator state schema must return a plain map",
            Map.merge(details, %{
              reason: :not_a_plain_map,
-             value_type: Expression.value_type(validated)
+             value_type: ValueResolver.value_type(validated)
            })
          )}
 
@@ -250,7 +250,7 @@ defmodule Jido.Exec.Flow.Iterator do
       |> Map.put(:iteration_index, runtime.completed)
       |> Map.put(:body_result, runtime.body_result)
 
-    case Expression.condition(iterator.completion, local_state, iterator.name, :iterate) do
+    case ValueResolver.condition(iterator.completion, local_state, iterator.name, :iterate) do
       {:ok, result} ->
         {:ok, result}
 

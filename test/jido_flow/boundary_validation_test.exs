@@ -62,7 +62,7 @@ defmodule Jido.Flow.BoundaryValidationTest do
   end
 
   alias Jido.Flow
-  alias Jido.Flow.{Choice, Component, Data, Expression, Iterate, Reduce, Ref, Step}
+  alias Jido.Flow.{Choice, Component, Data, Value, Iterate, Reduce, Ref, Step}
   alias Jido.Flow.Map, as: FlowMap
   alias JidoActionTest.Fixtures.NestedFlow
   alias JidoActionTest.Fixtures.Actions.{Add, MissingRun}
@@ -111,14 +111,14 @@ defmodule Jido.Flow.BoundaryValidationTest do
         name: "iterate",
         action: Add,
         state: [schema: [], initial: %{}, update: %{}],
-        completion: Jido.Expr.new!(:eq, [true, true]),
+        completion: Jido.Expr.new!(:==, [true, true]),
         max_iterations: 1
       )
 
     choice =
       Choice.new!(
         name: "choice",
-        options: [[name: "yes", condition: Jido.Expr.new!(:eq, [true, true]), action: Add]],
+        options: [[name: "yes", condition: Jido.Expr.new!(:==, [true, true]), action: Add]],
         fallback: [action: Add]
       )
 
@@ -158,7 +158,7 @@ defmodule Jido.Flow.BoundaryValidationTest do
             name: "iterate",
             action: Add,
             state: [schema: [], initial: %{}, update: %{}],
-            completion: Jido.Expr.new!(:eq, [true, true]),
+            completion: Jido.Expr.new!(:==, [true, true]),
             max_iterations: 0
           })
         ] do
@@ -199,19 +199,19 @@ defmodule Jido.Flow.BoundaryValidationTest do
 
     assert Enum.all?(
              [
-               Jido.Expr.new!(:neq, [1, 2]),
-               Jido.Expr.new!(:lt, [1, 2]),
-               Jido.Expr.new!(:lte, [1, 2]),
-               Jido.Expr.new!(:gt, [2, 1]),
+               Jido.Expr.new!(:!=, [1, 2]),
+               Jido.Expr.new!(:<, [1, 2]),
+               Jido.Expr.new!(:<=, [1, 2]),
+               Jido.Expr.new!(:>, [2, 1]),
                Jido.Expr.new!(:in, [1, [1]]),
-               Jido.Expr.new!(:all, [Jido.Expr.new!(:eq, [1, 1])]),
-               Jido.Expr.new!(:any, [Jido.Expr.new!(:eq, [1, 1])]),
-               Jido.Expr.new!(:not, [Jido.Expr.new!(:eq, [1, 2])])
+               Jido.Expr.new!(:and, [true, Jido.Expr.new!(:==, [1, 1])]),
+               Jido.Expr.new!(:or, [false, Jido.Expr.new!(:==, [1, 1])]),
+               Jido.Expr.new!(:not, [Jido.Expr.new!(:==, [1, 2])])
              ],
              &match?(%Jido.Expr{}, &1)
            )
 
-    option = %{name: "yes", condition: Jido.Expr.new!(:eq, [1, 1]), action: Add, params: %{}}
+    option = %{name: "yes", condition: Jido.Expr.new!(:==, [1, 1]), action: Add, params: %{}}
     fallback = %{action: Add, params: %{}}
 
     assert {:ok, %Flow{components: [_choice, _map, _reduce, _iterate]}} =
@@ -234,7 +234,7 @@ defmodule Jido.Flow.BoundaryValidationTest do
                    action: Add,
                    params: %{},
                    state: [schema: [], initial: %{}, update: %{}],
-                   completion: Jido.Expr.new!(:eq, [true, true]),
+                   completion: Jido.Expr.new!(:==, [true, true]),
                    max_iterations: 1
                  }
                ],
@@ -342,7 +342,7 @@ defmodule Jido.Flow.BoundaryValidationTest do
   end
 
   test "Choice constructors reject incomplete and duplicate routing data" do
-    condition = Jido.Expr.new!(:eq, [true, true])
+    condition = Jido.Expr.new!(:==, [true, true])
     valid_option = Choice.Option.new!(name: "yes", condition: condition, action: Add)
     valid_fallback = Choice.Fallback.new!(action: Add)
     assert Choice.Option.new(valid_option) == {:ok, valid_option}
@@ -384,26 +384,26 @@ defmodule Jido.Flow.BoundaryValidationTest do
     assert %{kind: :choice, options: [_], fallback: %{action: Add}} = Choice.to_map(choice)
   end
 
-  test "Expression rejects invalid refs, scope, lists, and names" do
-    assert {:error, invalid_scope} = Expression.validate(Ref.item(), :flow)
+  test "Value rejects invalid refs, scope, lists, and names" do
+    assert {:error, invalid_scope} = Value.validate(Ref.item(), :flow)
     assert invalid_scope.details == %{path: [], ref_type: :item, scope: :flow}
     invalid_ref = %Ref{source: :unsupported, component: nil, path: []}
-    assert {:error, invalid_ref_error} = Expression.validate(invalid_ref)
+    assert {:error, invalid_ref_error} = Value.validate(invalid_ref)
     assert invalid_ref_error.details == %{path: [], ref_type: :unsupported}
-    assert {:error, improper} = Expression.validate([1 | :tail])
+    assert {:error, improper} = Value.validate([1 | :tail])
     assert improper.details.reason == :improper_list
-    assert {:error, _error} = Expression.normalize([Ref.result("ok") | :tail])
+    assert {:error, _error} = Value.normalize([Ref.result("ok") | :tail])
     atom_result_ref = %Ref{source: :result, component: :component, path: []}
-    assert Expression.normalize(atom_result_ref) == {:ok, Ref.result("component")}
-    assert {:error, name_error} = Expression.normalize(Ref.result(""))
+    assert Value.normalize(atom_result_ref) == {:ok, Ref.result("component")}
+    assert {:error, name_error} = Value.normalize(Ref.result(""))
     assert Exception.message(name_error) == "Action name cannot be blank."
   end
 
-  test "Expression preserves nested validation and normalization errors" do
-    assert {:error, scoped_error} = Expression.validate([Ref.item()], :flow)
+  test "Value preserves nested validation and normalization errors" do
+    assert {:error, scoped_error} = Value.validate([Ref.item()], :flow)
     assert scoped_error.details == %{path: [0], ref_type: :item, scope: :flow}
     invalid_result_ref = %Ref{source: :result, component: "", path: []}
-    assert {:error, normalization_error} = Expression.normalize([%{result: invalid_result_ref}])
+    assert {:error, normalization_error} = Value.normalize([%{result: invalid_result_ref}])
     assert Exception.message(normalization_error) == "Action name cannot be blank."
   end
 end

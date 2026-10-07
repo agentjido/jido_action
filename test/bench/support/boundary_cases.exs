@@ -6,7 +6,7 @@ end
 defmodule JidoActionBench.BoundaryCases do
   @moduledoc false
   alias Jido.{Exec, Expr, Flow}
-  alias Jido.Flow.{Codec, Expression, Identity, Ref, Step}
+  alias Jido.Flow.{Codec, Value, Identity, Ref, Step}
   alias JidoActionBench.{ComponentCases, Echo, Fixtures, Record, SmallResult}
 
   def workloads do
@@ -23,12 +23,14 @@ defmodule JidoActionBench.BoundaryCases do
 
     walks =
       for {shape, value} <- data do
+        expression = Expr.new!(:==, [value, value])
+
         [
-          simple("expr/validate/#{shape}", fn -> Expr.validate(value) end, :ok),
+          simple("expr/validate/#{shape}", fn -> Expr.validate(expression) end, :ok),
           simple(
             "expr/equal/#{shape}",
             fn ->
-              Expr.evaluate(Expr.new!(:eq, [Ref.input(:value), Ref.input(:value)]),
+              Expr.evaluate(Expr.new!(:==, [Ref.input(:value), Ref.input(:value)]),
                 resolve: fn _ -> {:ok, value} end,
                 max_nodes: 100_000
               )
@@ -37,12 +39,12 @@ defmodule JidoActionBench.BoundaryCases do
           ),
           simple(
             "expression/validate/#{shape}",
-            fn -> Expression.validate(%{value: value}) end,
+            fn -> Value.validate(%{value: value}) end,
             :ok
           ),
           simple(
             "expression/normalize/#{shape}",
-            fn -> Expression.normalize(%{value: value}) end,
+            fn -> Value.normalize(%{value: value}) end,
             {:ok, %{value: value}}
           )
         ]
@@ -67,14 +69,14 @@ defmodule JidoActionBench.BoundaryCases do
       end
 
     invalid = %{items: [1, %{value: [2, fn -> :invalid end]}]}
-    expected_error = validation_error(Expression.validate(invalid))
+    expected_error = validation_error(Value.validate(invalid))
 
     walks ++
       membership ++
       [
         simple(
           "expression/invalid/nested",
-          fn -> validation_error(Expression.validate(invalid)) end,
+          fn -> validation_error(Value.validate(invalid)) end,
           expected_error
         )
       ]

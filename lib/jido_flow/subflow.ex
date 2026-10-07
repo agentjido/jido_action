@@ -3,7 +3,7 @@ defmodule Jido.Flow.Subflow do
 
   alias Jido.Flow.Error
   alias Jido.Flow.Component.Fields
-  alias Jido.Flow.Expression
+  alias Jido.Flow.Value
 
   @schema Zoi.struct(
             __MODULE__,
@@ -57,7 +57,7 @@ defmodule Jido.Flow.Subflow do
 
   @doc false
   @spec result_refs(t()) :: [String.t()]
-  def result_refs(%__MODULE__{params: params}), do: Expression.result_refs(params)
+  def result_refs(%__MODULE__{params: params}), do: Value.result_refs(params)
 
   @doc false
   @spec to_map(t()) :: map()
@@ -66,7 +66,7 @@ defmodule Jido.Flow.Subflow do
       kind: :subflow,
       name: subflow.name,
       flow: subflow.flow,
-      params: Expression.to_map(subflow.params),
+      params: Value.to_map(subflow.params),
       needs: subflow.needs,
       meta: subflow.meta
     }

@@ -4,40 +4,33 @@ defmodule Jido.Expr.Parser do
   alias Jido.Expr
   alias Jido.Expr.Limits
 
-  @binary %{
-    :== => :eq,
-    :!= => :neq,
-    :< => :lt,
-    :<= => :lte,
-    :> => :gt,
-    :>= => :gte,
-    :in => :in,
-    :and => :and,
-    :or => :or,
-    :+ => :add,
-    :- => :subtract,
-    :* => :multiply,
-    :/ => :divide,
-    :<> => :concat,
-    :eq => :eq,
-    :neq => :neq,
-    :lt => :lt,
-    :lte => :lte,
-    :gt => :gt,
-    :gte => :gte,
-    :div => :div,
-    :rem => :rem,
-    :min => :min,
-    :max => :max
-  }
-  @unary %{:- => :negate, :not => :not, :abs => :abs}
-  @reserved Map.keys(@binary) ++ Map.keys(@unary) ++ [:all, :any, :expr]
+  @binary [
+    :==,
+    :!=,
+    :<,
+    :<=,
+    :>,
+    :>=,
+    :in,
+    :and,
+    :or,
+    :+,
+    :-,
+    :*,
+    :/,
+    :<>,
+    :div,
+    :rem,
+    :min,
+    :max
+  ]
+  @unary [:-, :not, :abs]
+  @reserved Enum.uniq(@binary ++ @unary ++ [:expr])
 
   @doc false
   @spec syntax() :: [{atom(), pos_integer()}]
   def syntax do
-    Enum.map(Map.keys(@binary), &{&1, 2}) ++
-      Enum.map(Map.keys(@unary), &{&1, 1}) ++ [{:all, 1}, {:any, 1}]
+    Enum.map(@binary, &{&1, 2}) ++ Enum.map(@unary, &{&1, 1})
   end
 
   @doc false
@@ -56,7 +49,7 @@ defmodule Jido.Expr.Parser do
   defp run(ast, options, pins?) do
     with {:ok, state} <- Limits.new(options, [:leaf_parser]),
          {:ok, result, _state} <- walk(ast, Map.put(state, :pins?, pins?), [], 0) do
-      {:ok, result}
+      if is_struct(result, Expr), do: {:ok, result}, else: Limits.fail(:expected_expression, [])
     end
   end
 
@@ -72,14 +65,11 @@ defmodule Jido.Expr.Parser do
   defp node(%_{} = value, state, path, _depth), do: leaf(value, state, path)
   defp node({:expr, _, [ast]}, state, path, depth), do: walk(ast, state, path, depth)
 
-  defp node({name, _, [left, right]}, state, path, depth) when is_map_key(@binary, name),
-    do: operation(Map.fetch!(@binary, name), [left, right], state, path, depth)
+  defp node({name, _, [left, right]}, state, path, depth) when name in @binary,
+    do: operation(name, [left, right], state, path, depth)
 
-  defp node({name, _, [operand]}, state, path, depth) when is_map_key(@unary, name),
-    do: operation(Map.fetch!(@unary, name), [operand], state, path, depth)
-
-  defp node({name, _, [operands]}, state, path, depth) when name in [:all, :any],
-    do: operation(name, operands, state, path, depth)
+  defp node({name, _, [operand]}, state, path, depth) when name in @unary,
+    do: operation(name, [operand], state, path, depth)
 
   defp node({name, _, _args}, _state, path, _depth) when name in @reserved,
     do: Limits.fail(:invalid_arity, path)

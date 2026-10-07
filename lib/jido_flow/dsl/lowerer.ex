@@ -20,7 +20,7 @@ defmodule Jido.Flow.DSL.Lowerer do
     Choice,
     ChoiceOption,
     Dispatch,
-    Expression,
+    ValueParser,
     Iterate,
     MapNode,
     Otherwise,
@@ -79,7 +79,7 @@ defmodule Jido.Flow.DSL.Lowerer do
   end
 
   defp lower_entity(%Step{} = step) do
-    with {:ok, params} <- Expression.parse(step.params),
+    with {:ok, params} <- ValueParser.parse(step.params),
          {:ok, component} <- step_component(step, params) do
       {:ok, {:component, component}}
     end
@@ -105,8 +105,8 @@ defmodule Jido.Flow.DSL.Lowerer do
   end
 
   defp lower_entity(%MapNode{} = map) do
-    with {:ok, collection} <- Expression.parse(map.collection),
-         {:ok, params} <- Expression.parse(map.params),
+    with {:ok, collection} <- ValueParser.parse(map.collection),
+         {:ok, params} <- ValueParser.parse(map.params),
          {:ok, component} <-
            FlowMap.new(
              name: map.name,
@@ -122,9 +122,9 @@ defmodule Jido.Flow.DSL.Lowerer do
   end
 
   defp lower_entity(%Reduce{} = reduce) do
-    with {:ok, collection} <- Expression.parse(reduce.collection),
-         {:ok, initial} <- Expression.parse(reduce.initial),
-         {:ok, params} <- Expression.parse(reduce.params),
+    with {:ok, collection} <- ValueParser.parse(reduce.collection),
+         {:ok, initial} <- ValueParser.parse(reduce.initial),
+         {:ok, params} <- ValueParser.parse(reduce.params),
          {:ok, component} <-
            FlowReduce.new(
              name: reduce.name,
@@ -141,7 +141,7 @@ defmodule Jido.Flow.DSL.Lowerer do
 
   defp lower_entity(%Iterate{} = iterate) do
     with {:ok, state} <- lower_iterate_state(iterate.state),
-         {:ok, params} <- Expression.parse(iterate.params),
+         {:ok, params} <- ValueParser.parse(iterate.params),
          {:ok, update} <- optional_expression(iterate.update, Ref.body_result()),
          {:ok, while_condition} <- optional_condition(iterate.while),
          {:ok, completion, max_iterations} <-
@@ -163,7 +163,7 @@ defmodule Jido.Flow.DSL.Lowerer do
   end
 
   defp lower_entity(%Dispatch{} = dispatch) do
-    with {:ok, params} <- Expression.parse(dispatch.params),
+    with {:ok, params} <- ValueParser.parse(dispatch.params),
          {:ok, component} <-
            FlowDispatch.new(
              name: dispatch.name,
@@ -178,7 +178,7 @@ defmodule Jido.Flow.DSL.Lowerer do
   end
 
   defp lower_entity(%Output{} = output) do
-    with {:ok, expression} <- Expression.parse(output.value) do
+    with {:ok, expression} <- ValueParser.parse(output.value) do
       {:ok, {:output, expression}}
     end
   end
@@ -226,8 +226,8 @@ defmodule Jido.Flow.DSL.Lowerer do
   defp lower_choice_options(options) do
     options
     |> Enum.reduce_while({:ok, []}, fn %ChoiceOption{} = option, {:ok, lowered} ->
-      with {:ok, condition} <- Expression.parse_condition(option.condition),
-           {:ok, input} <- Expression.parse(option.params) do
+      with {:ok, condition} <- ValueParser.parse_condition(option.condition),
+           {:ok, input} <- ValueParser.parse(option.params) do
         value = %{
           name: option.name,
           condition: condition,
@@ -244,7 +244,7 @@ defmodule Jido.Flow.DSL.Lowerer do
   end
 
   defp lower_fallback(%Otherwise{} = fallback) do
-    with {:ok, input} <- Expression.parse(fallback.params) do
+    with {:ok, input} <- ValueParser.parse(fallback.params) do
       {:ok, %{action: fallback.action, params: input}}
     else
       {:error, error} -> {:error, attach_entity_location(error, fallback)}
@@ -258,7 +258,7 @@ defmodule Jido.Flow.DSL.Lowerer do
   end
 
   defp lower_iterate_state(state) do
-    with {:ok, initial} <- Expression.parse(state.initial) do
+    with {:ok, initial} <- ValueParser.parse(state.initial) do
       {:ok, %{schema: state.schema, initial: initial}}
     else
       {:error, error} -> {:error, attach_entity_location(error, state)}
@@ -279,10 +279,10 @@ defmodule Jido.Flow.DSL.Lowerer do
   end
 
   defp optional_expression(nil, default), do: {:ok, default}
-  defp optional_expression(expression, _default), do: Expression.parse(expression)
+  defp optional_expression(expression, _default), do: ValueParser.parse(expression)
 
   defp optional_condition(nil), do: {:ok, nil}
-  defp optional_condition(condition), do: Expression.parse_condition(condition)
+  defp optional_condition(condition), do: ValueParser.parse_condition(condition)
 
   defp normalize_termination(iterate, while_condition) do
     case {while_condition, iterate.repeat, iterate.max_iterations} do
@@ -291,7 +291,7 @@ defmodule Jido.Flow.DSL.Lowerer do
         {:ok, Expr.new!(:not, [condition]), maximum}
 
       {nil, count, nil} when is_integer(count) and count in 1..@maximum_iterations ->
-        {:ok, Expr.new!(:gte, [Ref.iteration_index(), count]), count}
+        {:ok, Expr.new!(:>=, [Ref.iteration_index(), count]), count}
 
       {condition, nil, _maximum} when not is_nil(condition) ->
         {:error,

@@ -6,46 +6,37 @@ defmodule Jido.Expr.ElixirConformanceTest do
   alias Jido.Flow.{Codec, Ref, Step}
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
 
-  # Each entry owns one accepted spelling and arity. Alias entries give the
-  # native expression that defines their meaning.
+  # Each entry owns one accepted Elixir spelling and arity.
   @syntax [
-    {:==, 2, :eq, "1 == 1.0", "1 == 1.0"},
-    {:!=, 2, :neq, "1 != 1.0", "1 != 1.0"},
-    {:<, 2, :lt, "1 < :a", "1 < :a"},
-    {:<=, 2, :lte, "[1] <= [1.0]", "[1] <= [1.0]"},
-    {:>, 2, :gt, "%{a: 1} > []", "%{a: 1} > []"},
-    {:>=, 2, :gte, "nil >= false", "nil >= false"},
+    {:==, 2, :==, "1 == 1.0", "1 == 1.0"},
+    {:!=, 2, :!=, "1 != 1.0", "1 != 1.0"},
+    {:<, 2, :<, "1 < :a", "1 < :a"},
+    {:<=, 2, :<=, "[1] <= [1.0]", "[1] <= [1.0]"},
+    {:>, 2, :>, "%{a: 1} > []", "%{a: 1} > []"},
+    {:>=, 2, :>=, "nil >= false", "nil >= false"},
     {:in, 2, :in, "1 in [1.0]", "1 in [1.0]"},
     {:and, 2, :and, "true and 123", "true and 123"},
     {:or, 2, :or, "false or \"fallback\"", "false or \"fallback\""},
     {:not, 1, :not, "not false", "not false"},
-    {:+, 2, :add, "1 + 2.5", "1 + 2.5"},
-    {:-, 2, :subtract, "1 - 2", "1 - 2"},
-    {:-, 1, :negate, "-2.5", "-2.5"},
-    {:*, 2, :multiply, "2 * 1.5", "2 * 1.5"},
-    {:/, 2, :divide, "3 / 2", "3 / 2"},
-    {:<>, 2, :concat, "\"a\" <> \"b\"", "\"a\" <> \"b\""},
+    {:+, 2, :+, "1 + 2.5", "1 + 2.5"},
+    {:-, 2, :-, "1 - 2", "1 - 2"},
+    {:-, 1, :-, "-2.5", "-2.5"},
+    {:*, 2, :*, "2 * 1.5", "2 * 1.5"},
+    {:/, 2, :/, "3 / 2", "3 / 2"},
+    {:<>, 2, :<>, "\"a\" <> \"b\"", "\"a\" <> \"b\""},
     {:div, 2, :div, "div(-7, 3)", "div(-7, 3)"},
     {:rem, 2, :rem, "rem(-7, 3)", "rem(-7, 3)"},
     {:min, 2, :min, "min(:a, 1)", "min(:a, 1)"},
     {:max, 2, :max, "max([1], [1.0])", "max([1], [1.0])"},
-    {:abs, 1, :abs, "abs(-2.5)", "abs(-2.5)"},
-    {:eq, 2, :eq, "eq(1, 1.0)", "1 == 1.0"},
-    {:neq, 2, :neq, "neq(1, 1.0)", "1 != 1.0"},
-    {:lt, 2, :lt, "lt(:a, :b)", ":a < :b"},
-    {:lte, 2, :lte, "lte([], :a)", "[] <= :a"},
-    {:gt, 2, :gt, "gt(\"a\", 1)", "\"a\" > 1"},
-    {:gte, 2, :gte, "gte(%{}, [])", "%{} >= []"},
-    {:all, 1, :all, "all([true, false])", "true and false"},
-    {:any, 1, :any, "any([false, true])", "false or true"}
+    {:abs, 1, :abs, "abs(-2.5)", "abs(-2.5)"}
   ]
 
   test "every supported spelling and canonical operator has a reference case" do
     assert Enum.sort(Expr.Parser.syntax()) ==
              Enum.sort(Enum.map(@syntax, fn {name, arity, _, _, _} -> {name, arity} end))
 
-    assert Enum.sort(Expr.operators()) ==
-             @syntax |> Enum.map(&elem(&1, 2)) |> Enum.uniq() |> Enum.sort()
+    assert Enum.sort(Expr.operations()) ==
+             @syntax |> Enum.map(fn {name, arity, _, _, _} -> {name, arity} end) |> Enum.sort()
   end
 
   for {name, arity, operator, source, native_source} <- @syntax do
@@ -164,13 +155,6 @@ defmodule Jido.Expr.ElixirConformanceTest do
     assert :ok = Expr.validate(Expr.new!(:or, [left, right]), validate_leaf: fn _ -> :ok end)
   end
 
-  test "all and any retain their strict Boolean helper contract" do
-    for {name, first} <- [{:all, true}, {:any, false}] do
-      assert {:error, %Expr.Error{reason: :invalid_boolean_operand}} =
-               Expr.evaluate(Expr.new!(name, [first, 123]))
-    end
-  end
-
   test "unsupported source never becomes a general evaluator" do
     for source <- [
           "1 === 1.0",
@@ -185,13 +169,17 @@ defmodule Jido.Expr.ElixirConformanceTest do
           "fn -> 1 end",
           "if true, do: 1",
           "1 in [1 | 2]",
-          "\"a\#{1}\""
+          "\"a\#{1}\"",
+          "eq(1, 1)",
+          "gte(2, 1)",
+          "all([true, false])",
+          "any([false, true])"
         ] do
       assert {:error, %Expr.Error{}} = source |> Code.string_to_quoted!() |> Expr.parse()
     end
   end
 
-  test "stored beta documents keep their version and use the corrected rules" do
+  test "stored documents use the supported Elixir rules" do
     assert Expr.expr(true and 123) == Expr.new!(:and, [true, 123])
     output = %{member: Expr.new!(:in, [1, [1.0]]), value: Expr.new!(:and, [true, 123])}
 

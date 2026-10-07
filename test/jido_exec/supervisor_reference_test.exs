@@ -203,7 +203,7 @@ defmodule JidoActionTest.Exec.SupervisorReferenceTest do
             action: BlockingAction,
             params: %{value: :iteration},
             state: Iterate.State.new!(initial: %{}, update: Ref.body_result()),
-            completion: Jido.Expr.new!(:gte, [Ref.iteration_index(), 1]),
+            completion: Jido.Expr.new!(:>=, [Ref.iteration_index(), 1]),
             max_iterations: 1
           )
         ],

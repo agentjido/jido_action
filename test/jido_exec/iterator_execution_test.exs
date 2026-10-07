@@ -317,7 +317,7 @@ defmodule JidoActionTest.Exec.IteratorExecutionTest do
     initial_failure =
       IteratorFixtures.iterator_flow(
         initial: %{count: 0},
-        completion: IteratorFixtures.gte(Jido.Expr.new!(:add, [Ref.state(), 0]), 1),
+        completion: IteratorFixtures.gte(Jido.Expr.new!(:+, [Ref.state(), 0]), 1),
         max_iterations: 1
       )
 
@@ -333,7 +333,7 @@ defmodule JidoActionTest.Exec.IteratorExecutionTest do
       IteratorFixtures.iterator_flow(
         initial: %{count: 0, guard: -1},
         update: %{count: Ref.body_result(:count), guard: %{}},
-        completion: IteratorFixtures.gte(Jido.Expr.new!(:add, [Ref.state(:guard), 0]), 0),
+        completion: IteratorFixtures.gte(Jido.Expr.new!(:+, [Ref.state(:guard), 0]), 0),
         max_iterations: 1
       )
 

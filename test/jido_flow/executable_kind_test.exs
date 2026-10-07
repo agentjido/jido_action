@@ -17,7 +17,7 @@ defmodule Jido.Flow.ExecutableKindTest do
         options: [
           Choice.Option.new!(
             name: "nested",
-            condition: Jido.Expr.new!(:eq, [1, 1]),
+            condition: Jido.Expr.new!(:==, [1, 1]),
             action: NestedFlow
           )
         ],
@@ -29,7 +29,7 @@ defmodule Jido.Flow.ExecutableKindTest do
         name: "iterate",
         action: NestedFlow,
         state: Iterate.State.new!(schema: [], initial: %{}, update: %{}),
-        completion: Jido.Expr.new!(:eq, [Ref.iteration_index(), 0]),
+        completion: Jido.Expr.new!(:==, [Ref.iteration_index(), 0]),
         max_iterations: 1
       )
     ]

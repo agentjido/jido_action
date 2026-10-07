@@ -161,8 +161,8 @@ defmodule JidoActionTest.Property.Flow.MixedContractTest do
        action: Runtime.Emit,
        params: %{
          value:
-           Expr.new!(:add, [
-             Expr.new!(:multiply, [Ref.item(), sample["scale"]]),
+           Expr.new!(:+, [
+             Expr.new!(:*, [Ref.item(), sample["scale"]]),
              Ref.result("choice", :value)
            ]),
          label: Ref.item()

@@ -1,7 +1,7 @@
 defmodule Jido.Flow.DSL.InlineStepTest do
   use ExUnit.Case, async: false
 
-  alias Jido.Flow.DSL.{Expression, InlineStep}
+  alias Jido.Flow.DSL.{ValueParser, InlineStep}
   alias Jido.Flow.Ref
 
   @source_file "inline_header.ex"
@@ -726,19 +726,19 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     assert parsed.pattern_ast == {:%{}, [line: @source_line], [name: variable]}
     assert parsed.body_ast == options[:do]
     assert parsed.options == []
-    assert Expression.parse(parsed.params_ast) == {:ok, %{name: Ref.input(:name)}}
+    assert ValueParser.parse(parsed.params_ast) == {:ok, %{name: Ref.input(:name)}}
   end
 
   test "binding lists use named atom keys" do
     two = parse("step :sum, [left <- input(:left), right <- result(:load)], do: :ok")
     list = parse("step :sum, [a <- input(), b <- context(), _c <- value(3)], do: :ok")
 
-    assert Expression.parse(two.params_ast) ==
+    assert ValueParser.parse(two.params_ast) ==
              {:ok, %{left: Ref.input(:left), right: Ref.result(:load)}}
 
     assert Macro.to_string(two.pattern_ast) == "%{left: left, right: right}"
 
-    assert Expression.parse(list.params_ast) ==
+    assert ValueParser.parse(list.params_ast) ==
              {:ok, %{a: Ref.input([]), b: Ref.context([]), _c: 3}}
 
     assert Macro.to_string(list.pattern_ast) == "%{a: a, b: b, _c: _c}"
@@ -801,11 +801,11 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     assert parsed.pattern_ast == pattern
     assert parsed.params_ast == params
     assert parsed.body_ast == options[:do]
-    assert Expression.parse(parsed.params_ast) == {:ok, Ref.input([])}
+    assert ValueParser.parse(parsed.params_ast) == {:ok, Ref.input([])}
 
     list = parse("step :read, [%{name: name} <- result(:load)], do: name")
     assert Macro.to_string(list.pattern_ast) == "%{name: name}"
-    assert Expression.parse(list.params_ast) == {:ok, Ref.result(:load)}
+    assert ValueParser.parse(list.params_ast) == {:ok, Ref.result(:load)}
   end
 
   test "an explicit empty binding list produces empty params and a map pattern" do

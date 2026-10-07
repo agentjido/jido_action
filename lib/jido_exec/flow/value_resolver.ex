@@ -1,4 +1,4 @@
-defmodule Jido.Exec.Flow.Expression do
+defmodule Jido.Exec.Flow.ValueResolver do
   @moduledoc false
 
   alias Jido.Flow.Error
@@ -10,10 +10,10 @@ defmodule Jido.Exec.Flow.Expression do
           nil | :action_output | :list | :map | :binary | :number | :atom | :tuple | :other
 
   @doc false
-  @spec condition(Expr.t(), map(), String.t(), term()) ::
+  @spec condition(boolean() | Ref.t() | Expr.t(), map(), String.t(), term()) ::
           {:ok, boolean()} | {:error, Exception.t()}
-  def condition(%Expr{} = expression, state, node, option) do
-    case resolve(expression, state) do
+  def condition(value, state, node, option) do
+    case resolve(value, state) do
       {:ok, result} when is_boolean(result) ->
         {:ok, result}
 

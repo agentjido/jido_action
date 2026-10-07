@@ -53,22 +53,21 @@ components use Action modules.
 
 | Syntax | Runtime operator | Rules |
 | --- | --- | --- |
-| `==`, `!=` | `:eq`, `:neq` | Elixir equality: `1 == 1.0`; atoms and strings differ. |
-| `<`, `<=`, `>`, `>=` | `:lt`, `:lte`, `:gt`, `:gte` | Native Elixir term order, including mixed types. |
+| `==`, `!=` | `:==`, `:!=` | Elixir equality: `1 == 1.0`; atoms and strings differ. |
+| `<`, `<=`, `>`, `>=` | `:<`, `:<=`, `:>`, `:>=` | Native Elixir term order, including mixed types. |
 | `in` | `:in` | Right operand is a proper list; membership uses strict `===`. |
 | `and`, `or` | `:and`, `:or` | Boolean left operand; short-circuit or return the right operand unchanged. |
 | `not` | `:not` | Boolean operand. |
-| `+`, binary `-`, `*`, `/` | `:add`, `:subtract`, `:multiply`, `:divide` | Numbers only; `/` returns a float. |
-| Unary `-` | `:negate` | A number. |
+| `+`, binary `-`, `*`, `/` | `:+`, `:-`, `:*`, `:/` | Numbers only; `/` returns a float. |
+| Unary `-` | `:-` | A number. |
 | `div`, `rem` | `:div`, `:rem` | Integers; division truncates toward zero; remainder has the dividend's sign. |
 | `min`, `max` | `:min`, `:max` | Native Elixir term order; preserve the selected value and type. |
 | `abs` | `:abs` | A number. |
-| `<>` | `:concat` | Binaries only; no implicit conversion. |
+| `<>` | `:<>` | Binaries only; no implicit conversion. |
 
-Parentheses use normal Elixir precedence. `all` and `any` accept a non-empty
-list of strict Boolean operands and return a Boolean. They remain separate
-from binary `and` and `or`. The existing `eq`, `neq`, `lt`, `lte`, `gt`, and `gte` aliases remain.
-Portable literals, nested maps/lists, and reference helpers remain valid.
+Parentheses use normal Elixir precedence. Build more than two Boolean tests as
+an explicit tree of binary `and` or `or` operations. Portable literals, nested
+maps and lists, and reference helpers remain valid.
 
 There is no `&&`, `||`, `!`, `===`, `!==`, power, rounding, interpolation,
 range, unary `+`, conditional statement, assignment, pipe, function call, or custom
@@ -88,9 +87,8 @@ remains a static dependency, including references in skipped operands.
 Binary Boolean expressions preserve native grouping. `false and 1` returns
 `false`; `true and 1` returns `1`. `(true and 1) and false` fails because the
 outer left operand is not Boolean. A Flow condition rejects the result of
-`true and 1`, but `%{value: true and 1}` is valid output data. The `all` and
-`any` helpers still reject non-Boolean evaluated operands. Construction checks
-data, tree shape, and reference scope even in skipped operands.
+`true and 1`, but `%{value: true and 1}` is valid output data. Construction
+checks data, tree shape, and reference scope even in skipped operands.
 
 A missing reference is an error. A present `nil` is a value: `input(:value)
 == nil` tests that value, but does not catch a missing key. Exact map keys
@@ -114,7 +112,7 @@ alias Jido.Flow.Ref
 quantity = Ref.input(:quantity)
 price = Ref.input(:price)
 total = expr(^quantity * ^price)
-true = total == Jido.Expr.new!(:multiply, [quantity, price])
+true = total == Jido.Expr.new!(:*, [quantity, price])
 
 {:ok, built} =
   Jido.Flow.new(%{
@@ -136,7 +134,7 @@ true = total == Jido.Expr.new!(:multiply, [quantity, price])
 Use `Jido.Expr` for conditions and Boolean parameter or output values:
 
 ```elixir
-eligible = Jido.Expr.new!(:gte, [Ref.input(:score), 10])
+eligible = Jido.Expr.new!(:>=, [Ref.input(:score), 10])
 ```
 
 The V3 beta no longer provides `Jido.Flow.Condition` or accepts its records.
@@ -230,26 +228,19 @@ Each complete operation tree, including conditions, has limits of 64 levels,
 10,000 visited values, 1,048,576 cumulative binary bytes, and 4,096 bits per
 integer magnitude. These limits apply at construction and evaluation.
 Evaluation also counts resolved data, comparison work, and generated values.
-A Boolean group's operand list must fit within the remaining node limit
-even when evaluation skips operands.
+A Boolean expression tree must fit within the remaining node limit even when
+evaluation skips an operand.
 
 Surrounding plain Flow data is outside the operation budget. Flow uses the
 fixed limits; a separate host can set the `Jido.Expr` limit options. Stored
 documents also have [Codec limits](flow-storage.md#validation-and-limits).
 
-## V3 Beta Behavior Correction
+## Elixir Conformance
 
-Supported syntax now follows native Elixir for the supported data set.
-`1 in [1.0]` is false. `true and 123` returns 123. Ordering and `min`/`max`
-accept mixed portable values and use term order. Comparison aliases follow
-the same rules. `all` and `any` retain their strict Boolean helper contract.
-
-This beta change does not add a document version or a compatibility evaluator.
-Stored membership and ordering expressions use the corrected behavior. Earlier
-source `and`/`or` expressions were encoded as `all`/`any`; those stored operators
-retain their helper meaning. Rebuild and encode the source to obtain the new
-binary operators. Recheck stored routing rules before use after an upgrade.
+Supported syntax follows native Elixir for the supported data set. For
+example, `1 in [1.0]` is false, and `true and 123` returns `123`. Ordering and
+`min` or `max` accept mixed portable values and use term order.
 
 The default test suite includes `test/jido_expr/elixir_conformance_test.exs`.
-It compares trusted source fixtures with native Elixir using strict result
-comparison. Native evaluation is used only in tests.
+It lists every accepted spelling and compares trusted fixtures with native
+Elixir by strict result comparison. Native evaluation is used only in tests.

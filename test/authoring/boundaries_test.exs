@@ -75,17 +75,17 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
 
   test "nested operations agree across source, direct, and version 2 JSON" do
     output = %{
-      total: Expr.new!(:add, [Expr.new!(:multiply, [Ref.input(:a), Ref.input(:b)]), 1]),
+      total: Expr.new!(:+, [Expr.new!(:*, [Ref.input(:a), Ref.input(:b)]), 1]),
       flags: [
         Expr.new!(:and, [Ref.input(:enabled), Expr.new!(:not, [Ref.context(:paused)])]),
-        Expr.new!(:eq, [Ref.input(:maybe), nil])
+        Expr.new!(:==, [Ref.input(:maybe), nil])
       ],
-      message: Expr.new!(:concat, ["Hi ", Ref.result("echo", :name)])
+      message: Expr.new!(:<>, ["Hi ", Ref.result("echo", :name)])
     }
 
     direct =
       Flow.new!(
-        name: Boundaries.Expressions.name(),
+        name: Boundaries.Values.name(),
         components: [Step.new!(name: "echo", action: Echo, params: %{name: Ref.input(:name)})],
         output: output
       )
@@ -95,10 +95,10 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
       components: [
         %{kind: :step, name: "echo", action: Echo, params: %{name: Jido.Flow.Ref.input(:name)}}
       ],
-      name: Boundaries.Expressions.name()
+      name: Boundaries.Values.name()
     }
 
-    assert Boundaries.Expressions.flow() == direct
+    assert Boundaries.Values.flow() == direct
     assert {:ok, built} = Jido.Flow.new(data)
     assert built == direct
     assert {:ok, document, registry} = Codec.encode(direct)
@@ -108,7 +108,7 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
     input = %{name: "Ada", a: 2, b: 3, enabled: true, maybe: nil}
     expected = %{total: 7, flags: [true, true], message: "Hi Ada"}
 
-    for form <- [Boundaries.Expressions, direct, built, restored] do
+    for form <- [Boundaries.Values, direct, built, restored] do
       assert Exec.run(form, input, %{paused: false}) == {:ok, expected}
     end
   end

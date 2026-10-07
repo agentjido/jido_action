@@ -3,7 +3,7 @@ defmodule Jido.Flow.Step do
 
   alias Jido.Flow.Error
   alias Jido.Flow.Component.Fields
-  alias Jido.Flow.Expression
+  alias Jido.Flow.Value
 
   @schema Zoi.struct(
             __MODULE__,
@@ -59,7 +59,7 @@ defmodule Jido.Flow.Step do
 
   @doc false
   @spec result_refs(t()) :: [String.t()]
-  def result_refs(%__MODULE__{params: params}), do: Expression.result_refs(params)
+  def result_refs(%__MODULE__{params: params}), do: Value.result_refs(params)
 
   @doc false
   @spec to_map(t()) :: map()
@@ -68,7 +68,7 @@ defmodule Jido.Flow.Step do
       kind: :step,
       name: step.name,
       action: step.action,
-      params: Expression.to_map(step.params),
+      params: Value.to_map(step.params),
       needs: step.needs,
       meta: step.meta
     }

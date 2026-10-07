@@ -10,7 +10,7 @@ defmodule Jido.Flow.Iterate do
   alias Jido.Action
   alias Jido.Flow.Error
   alias Jido.Flow.Component.Fields
-  alias Jido.Flow.Expression
+  alias Jido.Flow.Value
 
   @maximum_iterations 10_000
   @keys [:name, :action, :params, :state, :completion, :max_iterations, :needs, :meta]
@@ -43,7 +43,7 @@ defmodule Jido.Flow.Iterate do
     alias Jido.Action
     alias Jido.Flow.Component.Fields
     alias Jido.Flow.Error
-    alias Jido.Flow.Expression
+    alias Jido.Flow.Value
 
     @schema Zoi.struct(
               __MODULE__,
@@ -90,7 +90,7 @@ defmodule Jido.Flow.Iterate do
     @doc false
     @spec result_refs(t()) :: [String.t()]
     def result_refs(%__MODULE__{} = state),
-      do: Expression.result_refs(state.initial) ++ Expression.result_refs(state.update)
+      do: Value.result_refs(state.initial) ++ Value.result_refs(state.update)
 
     defp known_keys(attrs) do
       case Enum.reject(Map.keys(attrs), &(&1 in [:schema, :initial, :update])) do
@@ -167,9 +167,9 @@ defmodule Jido.Flow.Iterate do
   @doc false
   @spec result_refs(t()) :: [String.t()]
   def result_refs(%__MODULE__{} = iterate) do
-    Expression.result_refs(iterate.params) ++
+    Value.result_refs(iterate.params) ++
       State.result_refs(iterate.state) ++
-      Expression.result_refs(iterate.completion)
+      Value.result_refs(iterate.completion)
   end
 
   @doc false
@@ -179,13 +179,13 @@ defmodule Jido.Flow.Iterate do
       kind: :iterate,
       name: iterate.name,
       action: iterate.action,
-      params: Expression.to_map(iterate.params),
+      params: Value.to_map(iterate.params),
       state: %{
         schema: iterate.state.schema,
-        initial: Expression.to_map(iterate.state.initial),
-        update: Expression.to_map(iterate.state.update)
+        initial: Value.to_map(iterate.state.initial),
+        update: Value.to_map(iterate.state.update)
       },
-      completion: Expression.to_map(iterate.completion),
+      completion: Value.to_map(iterate.completion),
       max_iterations: iterate.max_iterations,
       needs: iterate.needs,
       meta: iterate.meta

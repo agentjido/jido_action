@@ -2,7 +2,7 @@ defmodule Jido.Flow.DSL.InlineStep do
   @moduledoc false
 
   alias Jido.Action.Inline
-  alias Jido.Flow.DSL.{Expression, MacroSupport}
+  alias Jido.Flow.DSL.{ValueParser, MacroSupport}
 
   @action_fields [:name, :description, :schema, :output_schema, :context]
   @component_fields [:needs, :meta]
@@ -163,7 +163,7 @@ defmodule Jido.Flow.DSL.InlineStep do
   end
 
   defp validate_source!(source, caller) do
-    with {:ok, expression} <- Expression.parse(source),
+    with {:ok, expression} <- ValueParser.parse(source),
          :ok <- reject_source_operations(expression) do
       :ok
     else

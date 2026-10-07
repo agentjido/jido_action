@@ -3,7 +3,7 @@ defmodule JidoActionTest.Flow.ExprTest do
   alias Jido.Expr
   alias Jido.Flow
   alias Jido.Flow.{Choice, Codec, Ref, Step}
-  alias Jido.Flow.DSL.Expression
+  alias Jido.Flow.DSL.ValueParser
   alias JidoActionTest.Fixtures.Actions.EchoParamsAction
 
   test "Flow parses transparent calculations and optional wrappers" do
@@ -12,23 +12,23 @@ defmodule JidoActionTest.Flow.ExprTest do
         %{total: input(:quantity) * input(:price), label: expr("Hi " <> input(:name))}
       end
 
-    assert {:ok, value} = Expression.parse(source)
-    assert value.total == Expr.new!(:multiply, [Ref.input(:quantity), Ref.input(:price)])
-    assert value.label == Expr.new!(:concat, ["Hi ", Ref.input(:name)])
+    assert {:ok, value} = ValueParser.parse(source)
+    assert value.total == Expr.new!(:*, [Ref.input(:quantity), Ref.input(:price)])
+    assert value.label == Expr.new!(:<>, ["Hi ", Ref.input(:name)])
 
     assert {:ok, %{total: 6, label: "Hi Ada"}} =
              Jido.Exec.run(output_flow(value), %{quantity: 2, price: 3, name: "Ada"})
   end
 
   test "direct, and stored calculations have the same model and result" do
-    total = Expr.new!(:multiply, [Ref.result("load", :quantity), Ref.input(:price)])
-    label = Expr.new!(:concat, [Ref.context(:prefix), Ref.input(:name)])
+    total = Expr.new!(:*, [Ref.result("load", :quantity), Ref.input(:price)])
+    label = Expr.new!(:<>, [Ref.context(:prefix), Ref.input(:name)])
 
     step =
       Step.new!(
         name: "load",
         action: EchoParamsAction,
-        params: %{quantity: Expr.new!(:add, [Ref.input(:quantity), 1])}
+        params: %{quantity: Expr.new!(:+, [Ref.input(:quantity), 1])}
       )
 
     direct =
@@ -80,7 +80,7 @@ defmodule JidoActionTest.Flow.ExprTest do
              true or 1 / 0 > 0
            end, %{}, true}
         ] do
-      assert {:ok, condition} = Expression.parse_condition(ast)
+      assert {:ok, condition} = ValueParser.parse_condition(ast)
       assert Jido.Exec.run(choice_flow(condition), input) == {:ok, %{selected: expected}}
     end
 
@@ -109,7 +109,7 @@ defmodule JidoActionTest.Flow.ExprTest do
     assert Jido.Exec.run(NativeOutput) == {:ok, %{value: 123, fallback: "fallback"}}
 
     assert {:ok, condition} =
-             Expression.parse_condition(
+             ValueParser.parse_condition(
                quote do
                  true and 123
                end
@@ -135,7 +135,7 @@ defmodule JidoActionTest.Flow.ExprTest do
   end
 
   test "nested result references remain dependencies even when skipped" do
-    expression = Expr.new!(:or, [true, Expr.new!(:eq, [Ref.result(:later, :value), 1])])
+    expression = Expr.new!(:or, [true, Expr.new!(:==, [Ref.result(:later, :value), 1])])
     first = Step.new!(name: "first", action: EchoParamsAction, params: %{selected: expression})
     later = Step.new!(name: "later", action: EchoParamsAction, params: %{value: 1})
 
@@ -162,16 +162,16 @@ defmodule JidoActionTest.Flow.ExprTest do
              Step.new(
                name: "bad_scope",
                action: EchoParamsAction,
-               params: %{value: Expr.new!(:add, [Ref.item(), 1])}
+               params: %{value: Expr.new!(:+, [Ref.item(), 1])}
              )
   end
 
   test "operation failures and missing references keep a useful location" do
-    assert {:error, error} = Jido.Exec.run(output_flow(%{nested: [Expr.new!(:divide, [1, 0])]}))
-    assert error.details.operator == :divide
+    assert {:error, error} = Jido.Exec.run(output_flow(%{nested: [Expr.new!(:/, [1, 0])]}))
+    assert error.details.operator == :/
     assert error.details.expression_path == [:nested, 0]
     assert error.details.retry == false
-    expression = Expr.new!(:concat, ["Hi ", Ref.input(:missing)])
+    expression = Expr.new!(:<>, ["Hi ", Ref.input(:missing)])
 
     assert {:error, error} =
              Jido.Exec.run(output_flow(%{label: expression}), %{secret: "do not expose"})
@@ -180,17 +180,17 @@ defmodule JidoActionTest.Flow.ExprTest do
     assert error.details.expression_path == [:label, :operands, 1]
     refute inspect(error.details) =~ "do not expose"
 
-    assert Jido.Exec.run(output_flow(%{is_nil: Expr.new!(:eq, [Ref.input(:value), nil])}), %{
+    assert Jido.Exec.run(output_flow(%{is_nil: Expr.new!(:==, [Ref.input(:value), nil])}), %{
              value: nil
            }) == {:ok, %{is_nil: true}}
 
-    assert {:error, _} = Jido.Exec.run(output_flow(Expr.new!(:add, [1, 2])))
+    assert {:error, _} = Jido.Exec.run(output_flow(Expr.new!(:+, [1, 2])))
   end
 
   test "resolved private map keys are absent from complete Flow errors" do
     private_key = "private-token-as-key"
     private_value = String.duplicate("private-value", 100_000)
-    expression = Expr.new!(:eq, [Ref.context(:secrets), nil])
+    expression = Expr.new!(:==, [Ref.context(:secrets), nil])
 
     assert {:error, error} =
              Jido.Exec.run(output_flow(%{answer: expression}), %{}, %{
@@ -229,14 +229,14 @@ defmodule JidoActionTest.Flow.ExprTest do
           Ref.body_result()
         ],
         scope <- scopes do
-      expression = Expr.new!(:eq, [reference, nil])
+      expression = Expr.new!(:==, [reference, nil])
 
       case Ref.validate(reference, scope) do
         :ok ->
-          assert :ok = Jido.Flow.Expression.validate(expression, scope)
+          assert :ok = Jido.Flow.Value.validate(expression, scope)
 
         {:error, _} ->
-          assert {:error, error} = Jido.Flow.Expression.validate(expression, scope)
+          assert {:error, error} = Jido.Flow.Value.validate(expression, scope)
           assert error.details.ref_type == reference.source
           assert error.details.scope == scope
       end
@@ -245,10 +245,10 @@ defmodule JidoActionTest.Flow.ExprTest do
 
   test "malformed references inside calculated conditions return validation errors" do
     reference = %Ref{source: :unknown, path: []}
-    expression = Expr.new!(:add, [reference, 1])
+    expression = Expr.new!(:+, [reference, 1])
 
     assert {:error, error} =
-             Jido.Flow.Expression.condition(%Expr{operator: :eq, operands: [expression, 2]}, :any)
+             Jido.Flow.Value.condition(%Expr{operator: :==, operands: [expression, 2]}, :any)
 
     assert error.details.ref_type == :unknown
   end
@@ -259,7 +259,7 @@ defmodule JidoActionTest.Flow.ExprTest do
         name: "loop",
         action: EchoParamsAction,
         state: [schema: [], initial: %{}, update: %{}],
-        completion: Expr.new!(:gt, [Expr.new!(:add, [Ref.input(:missing), 1]), 0]),
+        completion: Expr.new!(:>, [Expr.new!(:+, [Ref.input(:missing), 1]), 0]),
         max_iterations: 2
       )
 
@@ -272,25 +272,25 @@ defmodule JidoActionTest.Flow.ExprTest do
   end
 
   test "version one remains stable and literal maps are never expression nodes" do
-    literal = %{"$expr" => %{"operator" => "add", "operands" => [1, 2]}}
+    literal = %{"$expr" => %{"operator" => "+", "operands" => [1, 2]}}
     legacy = output_flow(literal)
     assert {:ok, document, registry} = Codec.encode(legacy)
     assert document["version"] == 1
     assert {:ok, restored} = Codec.decode(document, registry)
     assert Jido.Exec.run(restored) == {:ok, literal}
-    expression = output_flow(%{value: Expr.new!(:add, [1, 2])})
+    expression = output_flow(%{value: Expr.new!(:+, [1, 2])})
     assert {:ok, expression_document, expression_registry} = Codec.encode(expression)
 
     assert {:error, _} =
              Codec.decode(Map.put(expression_document, "version", 1), expression_registry)
 
     refute Flow.semantic_identity(expression) ==
-             Flow.semantic_identity(output_flow(%{value: %{operator: :add, operands: [1, 2]}}))
+             Flow.semantic_identity(output_flow(%{value: %{operator: :+, operands: [1, 2]}}))
   end
 
   test "native source and canonical binary operators produce the same Flow model" do
     assert {:ok, from_dsl} =
-             Expression.parse_condition(
+             ValueParser.parse_condition(
                quote do
                  input(:score) * 2 >= 80 and input(:enabled)
                end
@@ -298,7 +298,7 @@ defmodule JidoActionTest.Flow.ExprTest do
 
     from_helper =
       Expr.new!(:and, [
-        Expr.new!(:gte, [Expr.new!(:multiply, [Ref.input(:score), 2]), 80]),
+        Expr.new!(:>=, [Expr.new!(:*, [Ref.input(:score), 2]), 80]),
         Ref.input(:enabled)
       ])
 
@@ -306,15 +306,15 @@ defmodule JidoActionTest.Flow.ExprTest do
   end
 
   test "malformed stored expressions fail with JSON paths and no atom creation" do
-    assert {:ok, document, registry} = Codec.encode(output_flow(Expr.new!(:add, [1, 2])))
+    assert {:ok, document, registry} = Codec.encode(output_flow(Expr.new!(:+, [1, 2])))
     unknown = "unknown_operator_#{System.unique_integer([:positive])}"
     assert_raise ArgumentError, fn -> String.to_existing_atom(unknown) end
 
     for {record, expected_path} <- [
           {%{"operator" => unknown, "operands" => [1, 2]}, ["output", "$expr", "operator"]},
-          {%{"operator" => "add", "operands" => [1]}, ["output", "$expr"]},
-          {%{"operator" => "add", "operands" => "invalid"}, ["output", "$expr", "operands"]},
-          {%{"operator" => "add", "operands" => [1, 2], "call" => "System.halt"},
+          {%{"operator" => "+", "operands" => [1]}, ["output", "$expr"]},
+          {%{"operator" => "+", "operands" => "invalid"}, ["output", "$expr", "operands"]},
+          {%{"operator" => "+", "operands" => [1, 2], "call" => "System.halt"},
            ["output", "$expr", "call"]}
         ] do
       assert {:error, error} =
@@ -329,19 +329,19 @@ defmodule JidoActionTest.Flow.ExprTest do
   test "nested invalid expression definitions and evaluation limits stay structured" do
     for invalid <- [
           %Expr{operator: :unknown, operands: []},
-          %Expr{operator: :add, operands: [1 | :tail]},
-          Expr.new!(:add, [fn -> 1 end, 2])
+          %Expr{operator: :+, operands: [1 | :tail]},
+          Expr.new!(:+, [fn -> 1 end, 2])
         ] do
       assert {:error, _} =
                Step.new(name: "invalid", action: EchoParamsAction, params: %{value: invalid})
     end
 
-    deep = Enum.reduce(1..70, 1, fn _, value -> Expr.new!(:negate, [value]) end)
+    deep = Enum.reduce(1..70, 1, fn _, value -> Expr.new!(:-, [value]) end)
     assert {:error, _} = Step.new(name: "deep", action: EchoParamsAction, params: %{value: deep})
 
     assert {:error, error} =
              Jido.Exec.run(
-               output_flow(%{value: Expr.new!(:concat, [Ref.input(:text), Ref.input(:text)])}),
+               output_flow(%{value: Expr.new!(:<>, [Ref.input(:text), Ref.input(:text)])}),
                %{text: String.duplicate("a", 400_000)}
              )
 

@@ -229,7 +229,7 @@ defmodule JidoAction.MixProject do
           Jido.Flow.Component,
           Jido.Flow.Data,
           Jido.Flow.Dispatch,
-          Jido.Flow.Expression,
+          Jido.Flow.Value,
           Jido.Flow.Iterate,
           Jido.Flow.Iterate.State,
           Jido.Flow.Map,

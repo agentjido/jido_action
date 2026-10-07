@@ -55,7 +55,7 @@ defmodule JidoActionTest.Fixtures.FlowAuthoring do
           options: [
             Choice.Option.new!(
               name: "add",
-              condition: Jido.Expr.new!(:eq, [Ref.input(:kind), :add]),
+              condition: Jido.Expr.new!(:==, [Ref.input(:kind), :add]),
               action: Add,
               params: %{value: Ref.result("child", :value), amount: 1}
             )
@@ -90,7 +90,7 @@ defmodule JidoActionTest.Fixtures.FlowAuthoring do
               initial: %{count: 0},
               update: %{count: Ref.body_result(:value)}
             ),
-          completion: Jido.Expr.new!(:gte, [Ref.iteration_index(), 2]),
+          completion: Jido.Expr.new!(:>=, [Ref.iteration_index(), 2]),
           max_iterations: 2
         )
       ],
@@ -122,7 +122,7 @@ defmodule JidoActionTest.Fixtures.FlowAuthoring do
           options: [
             %{
               name: "add",
-              condition: Jido.Expr.new!(:eq, [Jido.Flow.Ref.input(:kind), :add]),
+              condition: Jido.Expr.new!(:==, [Jido.Flow.Ref.input(:kind), :add]),
               action: Add,
               params: %{value: Jido.Flow.Ref.result("child", :value), amount: 1}
             }
@@ -158,7 +158,7 @@ defmodule JidoActionTest.Fixtures.FlowAuthoring do
             initial: %{count: 0},
             update: %{count: Jido.Flow.Ref.body_result(:value)}
           },
-          completion: Jido.Expr.new!(:gte, [Jido.Flow.Ref.iteration_index(), 2]),
+          completion: Jido.Expr.new!(:>=, [Jido.Flow.Ref.iteration_index(), 2]),
           max_iterations: 2
         }
       ],

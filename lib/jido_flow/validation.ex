@@ -5,7 +5,7 @@ defmodule Jido.Flow.Validation do
   alias Jido.Flow.Component
   alias Jido.Flow.Choice
   alias Jido.Flow.Dispatch
-  alias Jido.Flow.Expression
+  alias Jido.Flow.Value
   alias Jido.Flow.Error
   alias Jido.Flow.Graph
   alias Jido.Flow.Iterate
@@ -194,7 +194,7 @@ defmodule Jido.Flow.Validation do
 
   defp output(nil), do: {:ok, nil}
 
-  defp output(value), do: Expression.prepare(value)
+  defp output(value), do: Value.prepare(value)
 
   defp output_issues(nil) do
     [
@@ -254,7 +254,7 @@ defmodule Jido.Flow.Validation do
   end
 
   defp unknown_dependency_issues(components, output, known) do
-    output_issues = unknown_refs(Expression.result_refs(output), known, :output, [:output])
+    output_issues = unknown_refs(Value.result_refs(output), known, :output, [:output])
 
     component_issues =
       components

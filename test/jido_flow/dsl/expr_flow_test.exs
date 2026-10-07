@@ -149,7 +149,7 @@ defmodule JidoActionTest.Flow.DSL.ExprFlowTest do
       Step.new!(
         name: "echo",
         action: EchoParamsAction,
-        params: %{eligible: Expr.new!(:gte, [Expr.new!(:multiply, [Ref.input(:score), 2]), 80])}
+        params: %{eligible: Expr.new!(:>=, [Expr.new!(:*, [Ref.input(:score), 2]), 80])}
       )
 
     flow = Flow.new!(name: "condition_value", components: [step], output: Ref.result("echo"))

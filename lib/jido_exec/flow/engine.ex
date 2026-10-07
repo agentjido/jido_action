@@ -6,7 +6,7 @@ defmodule Jido.Exec.Flow.Engine do
   alias Jido.Exec.Telemetry
   alias Jido.Exec.Transition
 
-  alias Jido.Exec.Flow.{Expression, Frame, Inspection, Payload, RunnableExecutor}
+  alias Jido.Exec.Flow.{ValueResolver, Frame, Inspection, Payload, RunnableExecutor}
   alias Jido.Exec.Flow.Compiled
 
   alias Jido.Flow
@@ -390,7 +390,7 @@ defmodule Jido.Exec.Flow.Engine do
   defp runnable_name(%Runnable{node: node}), do: node.__struct__
 
   defp runtime_result(%Execution{} = execution) do
-    result_names = execution.compiled.output |> Flow.Expression.result_refs() |> Enum.uniq()
+    result_names = execution.compiled.output |> Flow.Value.result_refs() |> Enum.uniq()
 
     result_names
     |> Enum.reduce_while({:ok, %{}}, fn name, {:ok, results} ->
@@ -425,7 +425,7 @@ defmodule Jido.Exec.Flow.Engine do
     end)
     |> case do
       {:ok, results} ->
-        Expression.resolve(execution.compiled.output, %{
+        ValueResolver.resolve(execution.compiled.output, %{
           input: execution.input,
           context: execution.context,
           results: results

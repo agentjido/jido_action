@@ -2,7 +2,7 @@ defmodule Jido.Exec.Flow.Collection do
   @moduledoc false
 
   alias Jido.Action.Output
-  alias Jido.Exec.Flow.Expression
+  alias Jido.Exec.Flow.ValueResolver
   alias Jido.Exec.Flow.Frame
   alias Jido.Exec.Flow.Payload
   alias Jido.Exec.Flow.Target
@@ -12,7 +12,7 @@ defmodule Jido.Exec.Flow.Collection do
   @doc false
   @spec map_input(Jido.Flow.Map.t(), map()) :: [map()]
   def map_input(map, local) do
-    case Expression.resolve(map.collection, local) do
+    case ValueResolver.resolve(map.collection, local) do
       {:ok, collection} -> map_tokens(map, collection, local)
       {:error, error} -> raise error
     end
@@ -21,8 +21,8 @@ defmodule Jido.Exec.Flow.Collection do
   @doc false
   @spec reduce_input(Jido.Flow.Reduce.t(), map()) :: [map()]
   def reduce_input(reduce, local) do
-    with {:ok, collection} <- Expression.resolve(reduce.collection, local),
-         {:ok, initial} <- Expression.resolve(reduce.initial, local) do
+    with {:ok, collection} <- ValueResolver.resolve(reduce.collection, local),
+         {:ok, initial} <- ValueResolver.resolve(reduce.initial, local) do
       reduce_tokens(reduce, collection, initial, local)
     else
       {:error, error} -> raise error
@@ -52,7 +52,7 @@ defmodule Jido.Exec.Flow.Collection do
     span = runtime.observer.({:start, :map_item, Target.details(owner)})
 
     outcome =
-      with {:ok, params} <- Expression.resolve(map.params, local) do
+      with {:ok, params} <- ValueResolver.resolve(map.params, local) do
         Target.run(
           owner,
           params,
@@ -229,7 +229,7 @@ defmodule Jido.Exec.Flow.Collection do
         span = runtime.observer.({:start, :reduce_item, Target.details(owner)})
 
         result =
-          with {:ok, params} <- Expression.resolve(reduce.params, local) do
+          with {:ok, params} <- ValueResolver.resolve(reduce.params, local) do
             Target.run(
               owner,
               params,
@@ -298,7 +298,7 @@ defmodule Jido.Exec.Flow.Collection do
               phase: :reduce_initial,
               node: reduce.name,
               reason: :output_envelope_required,
-              value_type: Expression.value_type(initial),
+              value_type: ValueResolver.value_type(initial),
               retry: false
             })
     end
@@ -309,7 +309,7 @@ defmodule Jido.Exec.Flow.Collection do
             phase: String.to_atom("#{kind}_collection"),
             node: name,
             reason: :not_a_proper_list,
-            value_type: Expression.value_type(collection),
+            value_type: ValueResolver.value_type(collection),
             retry: false
           })
   end

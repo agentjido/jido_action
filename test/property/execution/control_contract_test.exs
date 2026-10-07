@@ -321,7 +321,7 @@ defmodule JidoActionTest.Property.Execution.ControlContractTest do
         action: Probe,
         params: %{value: Ref.iteration_index()},
         state: Iterate.State.new!(initial: %{}, update: %{}),
-        completion: Expr.new!(:gte, [Ref.iteration_index(), count]),
+        completion: Expr.new!(:>=, [Ref.iteration_index(), count]),
         max_iterations: count
       )
 

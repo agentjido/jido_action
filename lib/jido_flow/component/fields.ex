@@ -4,7 +4,7 @@ defmodule Jido.Flow.Component.Fields do
   alias Jido.Action
   alias Jido.Flow.Data
   alias Jido.Flow.Error
-  alias Jido.Flow.Expression
+  alias Jido.Flow.Value
 
   @doc false
   @spec name(term()) :: {:ok, String.t()} | {:error, Exception.t()}
@@ -33,12 +33,12 @@ defmodule Jido.Flow.Component.Fields do
   @doc false
   @spec expression(term(), atom(), atom()) :: {:ok, term()} | {:error, Exception.t()}
   def expression(value, field, scope),
-    do: value |> Expression.prepare(scope) |> at_field(field)
+    do: value |> Value.prepare(scope) |> at_field(field)
 
   @doc false
   @spec condition(term(), atom(), atom()) :: {:ok, term()} | {:error, Exception.t()}
   def condition(value, field, scope),
-    do: value |> Expression.condition(scope) |> at_field(field)
+    do: value |> Value.condition(scope) |> at_field(field)
 
   defp at_field({:error, error}, field), do: {:error, Error.prefix_path(error, [field])}
   defp at_field(result, _field), do: result

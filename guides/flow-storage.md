@@ -86,21 +86,14 @@ documents without operations. Every operation, including a condition, uses
 `$expr`:
 
 ```json
-{"$expr": {"operator": "multiply", "operands": [2, 3]}}
+{"$expr": {"operator": "*", "operands": [2, 3]}}
 ```
 
-The reader accepts versions 1 and 2. It converts `$condition` records in
-either version to `Jido.Expr`; version 1 rejects `$expr`. Literal maps use
-their own tag, so a literal `$expr` key is not an operation. Operand reference
-atoms use Registry IDs. Document versions and semantic identity versions
-are separate contracts.
-
-V3 beta operator corrections do not change these document versions. Existing
-membership and ordering records use native Elixir behavior. Binary `and` and
-`or` now have distinct operators; existing `all` and `any` records retain their
-strict Boolean behavior. Rebuild earlier source expressions to obtain the new
-binary operators. Review stored branch rules after upgrading. See
-[Beta behavior corrections](flow-expressions.md#v3-beta-behavior-correction).
+The reader accepts versions 1 and 2. Version 1 rejects `$expr`. Literal maps
+use their own tag, so a literal `$expr` key is not an operation. Operand
+reference atoms use Registry IDs. Document versions and semantic identity
+versions are separate contracts. Operator strings are the supported Elixir
+spellings, such as `"=="`, `">="`, `"and"`, `"not"`, `"+"`, and `"*"`.
 
 ## Store A Compiled Inline Step
 

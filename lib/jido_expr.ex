@@ -1,11 +1,16 @@
 defmodule Jido.Expr do
   @moduledoc """
-  Portable expressions and a shared, restricted helper DSL.
+  Small, data-only expressions for limited use in Flow DSLs.
 
-  Expressions store fixed operators and data, never executable callbacks.
-  Host packages can share the same syntax through `parse/2`, then supply
-  their own reference parser, validator, and resolver. This module does not
-  depend on a host package or a reference namespace.
+  Use `Jido.Expr` for simple conditions and calculations in Flow parameters,
+  outputs, and other DSL fields. It is not a general Elixir evaluator or a
+  general-purpose expression language. Expressions contain fixed operators
+  and data. They never contain executable callbacks.
+
+  Other small, data-only DSLs can use the same syntax through `parse/2`. Each
+  host supplies its own reference parser, validator, and resolver. These
+  callbacks can handle leaf values. They cannot add operators. This module
+  does not depend on a host package or a reference namespace.
 
   ## Author expressions
 
@@ -19,12 +24,18 @@ defmodule Jido.Expr do
   expression syntax. Application calls, including calls inside a pin, are
   rejected. A host parser does not accept pins by default.
 
-  The grammar supports `==`, `!=`, `<`, `<=`, `>`, `>=`, `in`, `and`, `or`,
-  `not`, `+`, binary and unary `-`, `*`, `/`, `div/2`, `rem/2`, `min/2`,
-  `max/2`, `abs/1`, and `<>`. Supported operations follow native Elixir.
+  The grammar is a small subset of Elixir expression syntax. It supports `==`,
+  `!=`, `<`, `<=`, `>`, `>=`, `in`, `and`, `or`, `not`, `+`, binary and unary
+  `-`, `*`, `/`, `div/2`, `rem/2`, `min/2`, `max/2`, `abs/1`, and `<>`.
+  Conformance tests list every accepted spelling and compare each supported
+  operation with the equivalent Elixir expression. These tests enforce
+  consistent syntax, precedence, grouping, and success or failure behavior
+  for the supported subset.
+
   `and` and `or` require a Boolean left operand, short-circuit, and return the
   evaluated right operand unchanged. `not` requires a Boolean. Parentheses
-  preserve native grouping and precedence; binary Boolean groups are not flattened.
+  preserve native grouping and precedence; binary Boolean groups are not
+  flattened.
 
   Equality uses `==`; list membership uses strict `===` and requires a proper
   list. Ordering and `min`/`max` use Elixir term order, including mixed types.
@@ -36,16 +47,6 @@ defmodule Jido.Expr do
   references can supply data within the host's contract and the limits below.
   Unsupported source forms, including tuples, ranges, arbitrary calls, unary
   `+`, `&&`, `||`, and strict equality syntax, are rejected.
-
-  The comparison aliases `eq`, `neq`, `lt`, `lte`, `gt`, and `gte` follow their
-  native counterparts. The separate `all` and `any` helpers accept a non-empty
-  list and require each evaluated operand to be Boolean. They short-circuit
-  and return a Boolean; they are not aliases for binary `and` and `or`.
-
-  These are V3 beta corrections. Stored Flow document versions stay unchanged.
-  Existing `all` and `any` records retain their strict helper behavior. Rebuild
-  earlier source expressions to obtain the binary `and` and `or` operators.
-  Existing membership, ordering, and min/max records use the corrected rules.
 
   ## Resource limits
 
@@ -61,42 +62,38 @@ defmodule Jido.Expr do
   Limits cannot exceed 1,048,576,000. `:max_integer_bits` has a lower maximum
   of 1,048,576 to keep the limit check itself bounded.
 
-  Limits apply to each call. Evaluation checks a Boolean group's operand-list
-  shape within the remaining node limit before it short-circuits. A group
-  with too many operands can fail even when its first operand determines the
-  result. Skipped operands are not resolved or evaluated. Validation checks
-  the complete tree. Resolve and validation callbacks belong to trusted host
-  code and must themselves be bounded.
+  Limits apply to each call. Skipped operands are not resolved or evaluated.
+  Validation checks the complete tree. Resolve and validation callbacks belong
+  to trusted host code and must themselves be bounded.
   Resolved values are checked as data and are never evaluated as expressions.
   """
 
   alias Jido.Expr.{Error, Parser, Runtime}
 
-  @operators [
-    :eq,
-    :neq,
-    :lt,
-    :lte,
-    :gt,
-    :gte,
-    :in,
-    :and,
-    :or,
-    :all,
-    :any,
-    :not,
-    :add,
-    :subtract,
-    :multiply,
-    :divide,
-    :negate,
-    :div,
-    :rem,
-    :min,
-    :max,
-    :abs,
-    :concat
+  @operations [
+    {:==, 2},
+    {:!=, 2},
+    {:<, 2},
+    {:<=, 2},
+    {:>, 2},
+    {:>=, 2},
+    {:in, 2},
+    {:and, 2},
+    {:or, 2},
+    {:not, 1},
+    {:+, 2},
+    {:-, 2},
+    {:-, 1},
+    {:*, 2},
+    {:/, 2},
+    {:div, 2},
+    {:rem, 2},
+    {:min, 2},
+    {:max, 2},
+    {:abs, 1},
+    {:<>, 2}
   ]
+  @operator_names @operations |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
 
   @enforce_keys [:operator, :operands]
   defstruct [:operator, :operands]
@@ -104,21 +101,46 @@ defmodule Jido.Expr do
   @typedoc "One fixed operation with data or nested expression operands."
   @type t :: %__MODULE__{operator: atom(), operands: [term()]}
 
-  @typedoc "Expression limits and trusted host integration callbacks."
-  @type options :: keyword()
+  @typedoc "A path within an expression tree."
+  @type path :: [atom() | integer() | String.t()]
 
-  @doc "Returns the closed list of canonical operator atoms."
-  @spec operators() :: [atom()]
-  def operators, do: @operators
+  @typedoc "One resource limit option."
+  @type limit_option ::
+          {:max_depth, pos_integer()}
+          | {:max_nodes, pos_integer()}
+          | {:max_binary_bytes, pos_integer()}
+          | {:max_integer_bits, pos_integer()}
+
+  @typedoc "Options accepted by `parse/2`."
+  @type parse_option :: limit_option() | {:leaf_parser, (Macro.t() -> term())}
+  @type parse_options :: [parse_option()]
+
+  @typedoc "Options accepted by `validate/2`."
+  @type validate_option ::
+          limit_option()
+          | {:validate_leaf, (term() -> term()) | (term(), path() -> term())}
+
+  @type validate_options :: [validate_option()]
+
+  @typedoc "Options accepted by `evaluate/2`."
+  @type evaluate_option ::
+          limit_option()
+          | {:resolve, (term() -> term()) | (term(), path() -> term())}
+
+  @type evaluate_options :: [evaluate_option()]
+
+  @doc "Returns the closed list of supported Elixir operators and arities."
+  @spec operations() :: [{atom(), pos_integer()}]
+  def operations, do: @operations
 
   @doc "Constructs an expression after checking its operator and operand arity."
   @spec new(atom(), [term()]) :: {:ok, t()} | {:error, Error.t()}
   def new(operator, operands) do
     cond do
-      operator not in @operators ->
+      operator not in @operator_names ->
         {:error, %Error{reason: :unknown_operator, operator: safe_operator(operator)}}
 
-      not valid_arity?(operator, operands) ->
+      not valid_operands?(operator, operands) ->
         {:error, %Error{reason: :invalid_arity, operator: operator}}
 
       true ->
@@ -140,11 +162,11 @@ defmodule Jido.Expr do
   The callback is trusted authoring code, not stored in the result. Neither
   this function nor its default grammar evaluates source.
   """
-  @spec parse(Macro.t(), options()) :: {:ok, term()} | {:error, term()}
+  @spec parse(Macro.t(), parse_options()) :: {:ok, t()} | {:error, term()}
   def parse(ast, options \\ []), do: Parser.parse(ast, options)
 
   @doc "Parses quoted source, or raises on a parse failure."
-  @spec parse!(Macro.t(), options()) :: term()
+  @spec parse!(Macro.t(), parse_options()) :: t()
   def parse!(ast, options \\ []), do: unwrap!(parse(ast, options))
 
   @doc "Builds expression data from source; `^variable` inserts trusted host data."
@@ -152,7 +174,7 @@ defmodule Jido.Expr do
   defmacro expr(ast), do: Parser.expand!(ast)
 
   @doc """
-  Validates a complete expression or data tree without running operations.
+  Validates a complete expression tree without running operations.
 
   A `:validate_leaf` callback can accept a host struct and return `:ok` or
   `{:error, error}`. Unknown structs otherwise fail validation. Callback
@@ -160,11 +182,11 @@ defmodule Jido.Expr do
   An arity-two callback also receives the current path. A returned
   `Jido.Expr.Error` path is relative to that location.
   """
-  @spec validate(term(), options()) :: :ok | {:error, term()}
+  @spec validate(t(), validate_options()) :: :ok | {:error, term()}
   def validate(value, options \\ []), do: Runtime.validate(value, options)
 
   @doc """
-  Evaluates an expression or data tree with bounded fixed operations.
+  Evaluates an expression tree with bounded fixed operations.
 
   A `:resolve` callback accepts a host struct and returns `{:ok, value}` or
   `{:error, error}`. Unknown structs otherwise fail. Returned data is not
@@ -172,18 +194,14 @@ defmodule Jido.Expr do
   An arity-two callback also receives the current path. A returned
   `Jido.Expr.Error` path is relative to that location.
   """
-  @spec evaluate(term(), options()) :: {:ok, term()} | {:error, term()}
+  @spec evaluate(t(), evaluate_options()) :: {:ok, term()} | {:error, term()}
   def evaluate(value, options \\ []), do: Runtime.evaluate(value, options)
 
-  defp valid_arity?(operator, [_]) when operator in [:not, :negate, :abs], do: true
+  defp valid_operands?(operator, operands) when is_list(operands) do
+    not List.improper?(operands) and {operator, length(operands)} in @operations
+  end
 
-  defp valid_arity?(operator, [_ | _] = operands) when operator in [:all, :any],
-    do: not List.improper?(operands)
-
-  defp valid_arity?(operator, [_, _]) when operator not in [:not, :negate, :abs, :all, :any],
-    do: true
-
-  defp valid_arity?(_, _), do: false
+  defp valid_operands?(_operator, _operands), do: false
 
   defp safe_operator(operator) when is_atom(operator), do: operator
   defp safe_operator(_), do: nil

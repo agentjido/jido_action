@@ -202,7 +202,7 @@ end
           Choice.Option.new!(
             name: "yes",
             action: ProbeAction,
-            condition: Expr.new!(:any, [true, Expr.new!(:eq, [ref.("dep_condition"), 1])]),
+            condition: Expr.new!(:or, [true, Expr.new!(:==, [ref.("dep_condition"), 1])]),
             params: ref.("dep_option")
           )
         ],
@@ -230,7 +230,7 @@ end
           initial: ref.("dep_initial"),
           update: [Ref.body_result(), ref.("dep_update")]
         ],
-        completion: Expr.new!(:eq, [Ref.iteration_index(), ref.("dep_completion")]),
+        completion: Expr.new!(:==, [Ref.iteration_index(), ref.("dep_completion")]),
         max_iterations: 1
       )
     ]
@@ -342,7 +342,7 @@ end
         name: "next",
         decision: ProbeAction,
         expander: ProbeAction,
-        params: Expr.new!(:all, [false, Ref.result("missing")])
+        params: Expr.new!(:and, [false, Ref.result("missing")])
       )
 
     assert {:error, error} = Flow.new(name: "graph", components: [dispatch], output: %{})
@@ -449,7 +449,7 @@ end
   end
 
   test "unloaded targets remain valid for inert construction and decoding" do
-    component = Step.new!(name: "one", action: NotLoadedAction, params: Expr.new!(:add, [1, 2]))
+    component = Step.new!(name: "one", action: NotLoadedAction, params: Expr.new!(:+, [1, 2]))
 
     assert {:ok, flow} =
              Flow.new(name: "graph", components: [component], output: Ref.result("one"))

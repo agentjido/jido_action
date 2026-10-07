@@ -474,7 +474,7 @@ defmodule JidoActionTest.Exec.TelemetryTest do
               initial: %{value: Ref.result("total", :value)},
               update: Ref.body_result()
             ],
-            completion: Jido.Expr.new!(:gte, [Ref.state(:value), 7]),
+            completion: Jido.Expr.new!(:>=, [Ref.state(:value), 7]),
             max_iterations: 2
           )
         ],

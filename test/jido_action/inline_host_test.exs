@@ -61,7 +61,7 @@ defmodule Jido.Action.InlineHostTest do
     assert {:ok, %Jido.Instruction{kind: :action, target: ^target}} =
              Jido.Instruction.resolve(target)
 
-    assert %{value: %Jido.Expr{operator: :multiply, operands: [%Field{key: :value}, 2]}} =
+    assert %{value: %Jido.Expr{operator: :*, operands: [%Field{key: :value}, 2]}} =
              owner.action_source("double")
 
     assert owner.action_params("double", %{value: 3}) == {:ok, %{value: 6}}
@@ -231,7 +231,7 @@ defmodule Jido.Action.InlineHostTest do
     assert InlineHost.run(owner, "double", %{}, %{observer: self()}) ==
              {:error, {:missing_field, :value}}
 
-    assert {:error, %Jido.Expr.Error{operator: :multiply}} =
+    assert {:error, %Jido.Expr.Error{operator: :*}} =
              InlineHost.run(owner, "double", %{value: "bad"}, %{observer: self()})
 
     refute_received :body_ran

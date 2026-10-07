@@ -53,7 +53,7 @@ defmodule JidoActionTest.Exec.Flow.Compiler.IteratorTest do
         iterator()
         | state: Iterate.State.new!(schema: [], initial: %{guard: -1}, update: %{guard: %{}}),
           completion:
-            Jido.Expr.new!(:gte, [Jido.Expr.new!(:add, [Jido.Flow.Ref.state(:guard), 0]), 0])
+            Jido.Expr.new!(:>=, [Jido.Expr.new!(:+, [Jido.Flow.Ref.state(:guard), 0]), 0])
       }
 
       assert {:error, %Jido.Flow.Error.ExecutionFailureError{} = error} =
@@ -98,7 +98,7 @@ defmodule JidoActionTest.Exec.Flow.Compiler.IteratorTest do
       action: Add,
       params: %{},
       state: Iterate.State.new!(schema: [], initial: %{}, update: %{}),
-      completion: Jido.Expr.new!(:eq, [false, true]),
+      completion: Jido.Expr.new!(:==, [false, true]),
       max_iterations: 1
     )
   end

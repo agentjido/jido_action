@@ -1,4 +1,4 @@
-defmodule Jido.Flow.ExpressionPreparationContractTest do
+defmodule Jido.Flow.ValuePreparationContractTest do
   use ExUnit.Case, async: true
 
   alias Jido.Flow

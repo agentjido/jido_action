@@ -326,6 +326,6 @@ defmodule JidoActionTest.Fixtures.Iterator do
     Flow.new!(name: "iterator_runtime", components: [iterator], output: Ref.result(:count))
   end
 
-  def eq(left, right), do: %Jido.Expr{operator: :eq, operands: [left, right]}
-  def gte(left, right), do: %Jido.Expr{operator: :gte, operands: [left, right]}
+  def eq(left, right), do: %Jido.Expr{operator: :==, operands: [left, right]}
+  def gte(left, right), do: %Jido.Expr{operator: :>=, operands: [left, right]}
 end

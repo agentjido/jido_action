@@ -5,7 +5,7 @@ defmodule Jido.Flow.Choice do
       option =
         Jido.Flow.Choice.Option.new!(
           name: "ready",
-          condition: Jido.Expr.new!(:eq, [Jido.Flow.Ref.input(:status), :ready]),
+          condition: Jido.Expr.new!(:==, [Jido.Flow.Ref.input(:status), :ready]),
           action: MyApp.HandleReady
         )
 
@@ -18,7 +18,7 @@ defmodule Jido.Flow.Choice do
 
   alias Jido.Flow.Error
   alias Jido.Flow.Component.Fields
-  alias Jido.Flow.Expression
+  alias Jido.Flow.Value
 
   @keys [:name, :options, :fallback, :needs, :meta]
 
@@ -46,7 +46,7 @@ defmodule Jido.Flow.Choice do
 
     alias Jido.Flow.Error
     alias Jido.Flow.Component.Fields
-    alias Jido.Flow.Expression
+    alias Jido.Flow.Value
 
     @keys [:name, :condition, :action, :params]
 
@@ -119,7 +119,7 @@ defmodule Jido.Flow.Choice do
 
     alias Jido.Flow.Error
     alias Jido.Flow.Component.Fields
-    alias Jido.Flow.Expression
+    alias Jido.Flow.Value
 
     @keys [:action, :params]
 
@@ -217,9 +217,9 @@ defmodule Jido.Flow.Choice do
   def result_refs(%__MODULE__{} = choice) do
     choice.options
     |> Enum.flat_map(fn option ->
-      Expression.result_refs(option.condition) ++ Expression.result_refs(option.params)
+      Value.result_refs(option.condition) ++ Value.result_refs(option.params)
     end)
-    |> Kernel.++(Expression.result_refs(choice.fallback.params))
+    |> Kernel.++(Value.result_refs(choice.fallback.params))
     |> Enum.uniq()
     |> Enum.sort()
   end
@@ -234,14 +234,14 @@ defmodule Jido.Flow.Choice do
         Enum.map(choice.options, fn option ->
           %{
             name: option.name,
-            condition: Expression.to_map(option.condition),
+            condition: Value.to_map(option.condition),
             action: option.action,
-            params: Expression.to_map(option.params)
+            params: Value.to_map(option.params)
           }
         end),
       fallback: %{
         action: choice.fallback.action,
-        params: Expression.to_map(choice.fallback.params)
+        params: Value.to_map(choice.fallback.params)
       },
       needs: choice.needs,
       meta: choice.meta

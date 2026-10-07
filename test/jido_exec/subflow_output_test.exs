@@ -24,7 +24,7 @@ defmodule JidoActionTest.Exec.SubflowOutputTest do
     end
   end
 
-  defmodule ExpressionChild do
+  defmodule ValueChild do
     use Jido.Flow, name: "expression_output_child"
 
     flow do
@@ -53,7 +53,7 @@ defmodule JidoActionTest.Exec.SubflowOutputTest do
       step("work", action: EchoParamsAction, params: %{value: input(:value) + 100})
 
       step("child",
-        action: ExpressionChild,
+        action: ValueChild,
         params: %{value: input(:value) + 1, label: input(:label)}
       )
 
@@ -162,10 +162,10 @@ defmodule JidoActionTest.Exec.SubflowOutputTest do
   test "nested expressions keep local input and results with the full caller context" do
     context = expression_context()
     input = %{value: 7, label: "child"}
-    parent = parent_flow(ExpressionChild, Ref.input([]))
+    parent = parent_flow(ValueChild, Ref.input([]))
     expected = {:ok, expression_output(7, "child", context)}
 
-    for flow <- [ExpressionChild, parent, from_json(parent)],
+    for flow <- [ValueChild, parent, from_json(parent)],
         mode <- [:run, :step, :wave, :continue] do
       assert execute(flow, input, context, mode) == expected
     end
@@ -279,7 +279,7 @@ defmodule JidoActionTest.Exec.SubflowOutputTest do
   test "missing context inside an expression keeps the same reference error" do
     context = Map.delete(expression_context(), :suffix)
 
-    for flow <- [ExpressionChild, parent_flow(ExpressionChild, Ref.input([]))],
+    for flow <- [ValueChild, parent_flow(ValueChild, Ref.input([]))],
         mode <- [:run, :step, :wave, :continue] do
       assert {:error, %Jido.Flow.Error.ExecutionFailureError{} = error} =
                execute(flow, %{value: 7, label: "child"}, context, mode)

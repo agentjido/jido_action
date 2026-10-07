@@ -8,6 +8,7 @@ defmodule Jido.Expr.Runtime do
   @spec evaluate(term(), keyword()) :: {:ok, term()} | {:error, term()}
   def evaluate(value, options) do
     with {:ok, state} <- Limits.new(options, [:resolve]),
+         :ok <- expression_root(value),
          {:ok, result, _state} <- visit(value, state, [], 0, :evaluate) do
       {:ok, result}
     end
@@ -17,6 +18,7 @@ defmodule Jido.Expr.Runtime do
   @spec validate(term(), keyword()) :: :ok | {:error, term()}
   def validate(value, options) do
     with {:ok, state} <- Limits.new(options, [:validate_leaf]),
+         :ok <- expression_root(value),
          {:ok, _value, _state} <- visit(value, state, [], 0, :validate) do
       :ok
     end
@@ -33,6 +35,9 @@ defmodule Jido.Expr.Runtime do
       {:ok, value}
     end
   end
+
+  defp expression_root(%Expr{}), do: :ok
+  defp expression_root(_value), do: Limits.fail(:expected_expression, [])
 
   defp visit(value, state, path, depth, mode) do
     with {:ok, state} <- Limits.enter(state, value, path, depth),
@@ -164,27 +169,12 @@ defmodule Jido.Expr.Runtime do
   defp list(_tail, _state, path, _depth, _mode, index, _result),
     do: Limits.fail(:improper_list, path ++ [index])
 
-  defp shape(%Expr{operator: operator, operands: [_ | _] = operands}, state, path)
-       when operator in [:all, :any],
-       do: boolean_shape(operands, state.max_nodes - state.nodes, operator, path, 0)
-
   defp shape(%Expr{operator: operator, operands: operands}, _state, path) do
     case Expr.new(operator, operands) do
       {:ok, _} -> :ok
       {:error, error} -> {:error, %{error | path: path}}
     end
   end
-
-  defp boolean_shape([], _remaining, _operator, _path, _index), do: :ok
-
-  defp boolean_shape([_ | _], 0, _operator, path, index),
-    do: Limits.fail(:max_nodes, path ++ [:operands, index])
-
-  defp boolean_shape([_ | tail], remaining, operator, path, index),
-    do: boolean_shape(tail, remaining - 1, operator, path, index + 1)
-
-  defp boolean_shape(_tail, _remaining, operator, path, _index),
-    do: Limits.fail(:invalid_arity, path, operator)
 
   defp expression(%Expr{operands: operands} = value, state, path, depth, :validate) do
     with {:ok, _operands, state} <-
@@ -199,10 +189,6 @@ defmodule Jido.Expr.Runtime do
       {:ok, %{value | operands: operands}, state}
     end
   end
-
-  defp expression(%Expr{operator: operator, operands: operands}, state, path, depth, :evaluate)
-       when operator in [:all, :any],
-       do: boolean(operands, operator, state, path, depth, 0)
 
   defp expression(
          %Expr{operator: operator, operands: [left, right]},
@@ -244,33 +230,6 @@ defmodule Jido.Expr.Runtime do
   defp binary_boolean(:or, false, right, state, _left_path, path, depth),
     do: visit(right, state, path ++ [:operands, 1], depth + 1, :evaluate)
 
-  defp boolean([], :all, state, _path, _depth, _index), do: {:ok, true, state}
-  defp boolean([], :any, state, _path, _depth, _index), do: {:ok, false, state}
-
-  defp boolean([head | tail], operator, state, path, depth, index) do
-    operand_path = path ++ [:operands, index]
-
-    with {:ok, value, state} <- visit(head, state, operand_path, depth + 1, :evaluate) do
-      boolean_result(value, tail, operator, state, operand_path, path, depth, index)
-    end
-  end
-
-  defp boolean_result(value, _tail, operator, _state, operand_path, _path, _depth, _index)
-       when not is_boolean(value),
-       do: type_error(:invalid_boolean_operand, operator, [value], operand_path)
-
-  defp boolean_result(false, _tail, :all, state, _operand_path, _path, _depth, _index),
-    do: {:ok, false, state}
-
-  defp boolean_result(true, _tail, :any, state, _operand_path, _path, _depth, _index),
-    do: {:ok, true, state}
-
-  defp boolean_result(true, tail, :all, state, _operand_path, path, depth, index),
-    do: boolean(tail, :all, state, path, depth, index + 1)
-
-  defp boolean_result(false, tail, :any, state, _operand_path, path, depth, index),
-    do: boolean(tail, :any, state, path, depth, index + 1)
-
   defp host(value, %{resolve: callback} = state, path, depth, :evaluate) do
     case Limits.callback(callback, value, path) do
       {:ok, result} -> visit(result, state, path, depth, :data)
@@ -294,14 +253,14 @@ defmodule Jido.Expr.Runtime do
   defp host(_value, _state, path, _depth, mode) when mode in [:validate, :normalize],
     do: Limits.fail(:unsupported_value, path, nil, %{type: :struct})
 
-  defp operation(operator, [left, right], state, path, depth) when operator in [:eq, :neq] do
+  defp operation(operator, [left, right], state, path, depth) when operator in [:==, :!=] do
     with {:ok, equal?, state} <- equal(left, right, state, path, depth) do
       {:ok, equality_result(operator, equal?), state}
     end
   end
 
   defp operation(operator, [left, right], state, path, depth)
-       when operator in [:lt, :lte, :gt, :gte, :min, :max] do
+       when operator in [:<, :<=, :>, :>=, :min, :max] do
     # Charge comparison work even when operands came from host references.
     with {:ok, _left, state} <- visit(left, state, path, depth, :data),
          {:ok, _right, state} <- visit(right, state, path, depth, :data) do
@@ -323,36 +282,36 @@ defmodule Jido.Expr.Runtime do
   defp operation(:not, values, _state, path, _depth),
     do: type_error(:invalid_boolean_operand, :not, values, path)
 
-  defp operation(:concat, [left, right], state, path, _depth)
+  defp operation(:<>, [left, right], state, path, _depth)
        when is_binary(left) and is_binary(right) do
     if state.bytes + byte_size(left) + byte_size(right) > state.max_binary_bytes do
-      Limits.fail(:max_binary_bytes, path, :concat)
+      Limits.fail(:max_binary_bytes, path, :<>)
     else
       {:ok, left <> right, state}
     end
   end
 
-  defp operation(:concat, values, _state, path, _depth),
-    do: type_error(:invalid_binary_operands, :concat, values, path)
+  defp operation(:<>, values, _state, path, _depth),
+    do: type_error(:invalid_binary_operands, :<>, values, path)
 
   defp operation(operator, [left, right] = values, _state, path, _depth)
-       when operator in [:add, :subtract, :multiply] and
+       when operator in [:+, :-, :*] and
               (not is_number(left) or not is_number(right)),
        do: type_error(:invalid_numeric_operands, operator, values, path)
 
   defp operation(operator, [_, _] = values, state, path, _depth)
-       when operator in [:add, :subtract, :multiply],
+       when operator in [:+, :-, :*],
        do: arithmetic(operator, values, state, path)
 
-  defp operation(:divide, [left, right] = values, _state, path, _depth)
+  defp operation(:/, [left, right] = values, _state, path, _depth)
        when not is_number(left) or not is_number(right),
-       do: type_error(:invalid_numeric_operands, :divide, values, path)
+       do: type_error(:invalid_numeric_operands, :/, values, path)
 
-  defp operation(:divide, [_left, divisor], _state, path, _depth) when divisor == 0,
-    do: Limits.fail(:division_by_zero, path, :divide)
+  defp operation(:/, [_left, divisor], _state, path, _depth) when divisor == 0,
+    do: Limits.fail(:division_by_zero, path, :/)
 
-  defp operation(:divide, [_, _] = values, state, path, _depth),
-    do: arithmetic(:divide, values, state, path)
+  defp operation(:/, [_, _] = values, state, path, _depth),
+    do: arithmetic(:/, values, state, path)
 
   defp operation(operator, [left, right] = values, _state, path, _depth)
        when operator in [:div, :rem] and
@@ -367,17 +326,17 @@ defmodule Jido.Expr.Runtime do
        do: arithmetic(operator, values, state, path)
 
   defp operation(operator, [value] = values, _state, path, _depth)
-       when operator in [:negate, :abs] and not is_number(value),
+       when operator in [:-, :abs] and not is_number(value),
        do: type_error(:invalid_numeric_operands, operator, values, path)
 
   defp operation(operator, [_] = values, state, path, _depth)
-       when operator in [:negate, :abs],
+       when operator in [:-, :abs],
        do: arithmetic(operator, values, state, path)
 
-  defp compare(:lt, left, right), do: left < right
-  defp compare(:lte, left, right), do: left <= right
-  defp compare(:gt, left, right), do: left > right
-  defp compare(:gte, left, right), do: left >= right
+  defp compare(:<, left, right), do: left < right
+  defp compare(:<=, left, right), do: left <= right
+  defp compare(:>, left, right), do: left > right
+  defp compare(:>=, left, right), do: left >= right
   defp compare(:min, left, right), do: min(left, right)
   defp compare(:max, left, right), do: max(left, right)
 
@@ -387,17 +346,17 @@ defmodule Jido.Expr.Runtime do
     ArithmeticError -> Limits.fail(:arithmetic_error, path, operator)
   end
 
-  defp arithmetic_value(:add, [left, right]), do: left + right
-  defp arithmetic_value(:subtract, [left, right]), do: left - right
-  defp arithmetic_value(:multiply, [left, right]), do: left * right
-  defp arithmetic_value(:divide, [left, right]), do: left / right
-  defp arithmetic_value(:negate, [value]), do: -value
+  defp arithmetic_value(:+, [left, right]), do: left + right
+  defp arithmetic_value(:-, [left, right]), do: left - right
+  defp arithmetic_value(:*, [left, right]), do: left * right
+  defp arithmetic_value(:/, [left, right]), do: left / right
+  defp arithmetic_value(:-, [value]), do: -value
   defp arithmetic_value(:div, [left, right]), do: div(left, right)
   defp arithmetic_value(:rem, [left, right]), do: rem(left, right)
   defp arithmetic_value(:abs, [value]), do: abs(value)
 
-  defp equality_result(:eq, equal?), do: equal?
-  defp equality_result(:neq, equal?), do: not equal?
+  defp equality_result(:==, equal?), do: equal?
+  defp equality_result(:!=, equal?), do: not equal?
 
   defp equal(left, right, state, path, depth) do
     with {:ok, _left, state} <- visit(left, state, path, depth, :data),

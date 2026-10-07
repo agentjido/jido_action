@@ -559,7 +559,7 @@ defmodule JidoActionTest.Exec.EffectsTest do
           action: Request,
           params: %{label: Ref.iteration_index()},
           state: Iterate.State.new!(schema: Zoi.object(%{}), initial: %{}, update: %{}),
-          completion: Jido.Expr.new!(:gte, [Ref.iteration_index(), count]),
+          completion: Jido.Expr.new!(:>=, [Ref.iteration_index(), count]),
           max_iterations: 3
         )
       ],

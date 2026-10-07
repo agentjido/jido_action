@@ -173,7 +173,7 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
           options: [
             Choice.Option.new!(
               name: "yes",
-              condition: Expr.new!(:eq, [1, 1]),
+              condition: Expr.new!(:==, [1, 1]),
               action: Runtime.Emit,
               params: params
             )
@@ -198,7 +198,7 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
           action: Runtime.Emit,
           params: params,
           state: Iterate.State.new!(initial: %{}, update: %{}),
-          completion: Expr.new!(:eq, [1, 1]),
+          completion: Expr.new!(:==, [1, 1]),
           max_iterations: 1
         ),
         Dispatch.new!(
@@ -222,8 +222,6 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
     end)
   end
 
-  defp legacy(%{"$expr" => value}), do: %{"$condition" => value}
-
   defp existing_atom?(value) do
     _atom = String.to_existing_atom(value)
     true
@@ -237,22 +235,11 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
     assert {:ok, document, registry} = Codec.encode(flow)
     assert document["version"] == 2
 
-    legacy =
-      document
-      |> Map.put("version", 1)
-      |> update_in(
-        ["components", Access.at(2), "options", Access.at(0), "condition"],
-        &legacy/1
-      )
-      |> update_in(["components", Access.at(5), "completion"], &legacy/1)
+    assert Enum.map(document["components"], & &1["kind"]) ==
+             ["step", "subflow", "choice", "map", "reduce", "iterate", "dispatch"]
 
-    for stored <- [document, legacy] do
-      assert Enum.map(stored["components"], & &1["kind"]) ==
-               ["step", "subflow", "choice", "map", "reduce", "iterate", "dispatch"]
-
-      assert {:ok, ^flow} = Codec.decode(JSON.decode!(JSON.encode!(stored)), registry)
-      assert {:ok, ^flow} = Codec.diagnose(stored, registry)
-    end
+    assert {:ok, ^flow} = Codec.decode(JSON.decode!(JSON.encode!(document)), registry)
+    assert {:ok, ^flow} = Codec.diagnose(document, registry)
 
     assert {:ok, ^document} = Codec.encode(flow, registry)
   end

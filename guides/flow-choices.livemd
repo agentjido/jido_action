@@ -75,11 +75,11 @@ The DSL accepts:
 ```text
 ==  !=  <  <=  >  >=  in
 and  or  not
-eq  neq  lt  lte  gt  gte
-all  any
 ```
 
 Conditions compare Flow expressions. They do not call application functions.
+Use parentheses to make a larger binary `and` or `or` tree. The condition
+grammar does not define separate `all` or `any` operations.
 Put complex or effectful decisions in an Action before the Choice, then test
 that Action result.
 

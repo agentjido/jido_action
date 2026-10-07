@@ -29,8 +29,8 @@ defmodule Jido.Flow.GraphIdentityTest do
       for {reference, data} <- [
             {ref, literal},
             {%{nested: ref}, %{nested: literal}},
-            {Jido.Expr.new!(:eq, [ref, %{value: 42}]),
-             Jido.Expr.new!(:eq, [literal, %{value: 42}])}
+            {Jido.Expr.new!(:==, [ref, %{value: 42}]),
+             Jido.Expr.new!(:==, [literal, %{value: 42}])}
           ] do
         flows =
           for expression <- [reference, data] do

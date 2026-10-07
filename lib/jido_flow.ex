@@ -256,7 +256,7 @@ defmodule Jido.Flow do
       schema: flow.schema,
       output_schema: flow.output_schema,
       components: Enum.map(flow.components, &Component.to_map/1),
-      output: Jido.Flow.Expression.to_map(flow.output)
+      output: Jido.Flow.Value.to_map(flow.output)
     }
   end
 
@@ -294,7 +294,7 @@ defmodule Jido.Flow do
          output_schema: flow.output_schema,
          components: Graph.canonical_components(flow.components),
          dependencies: dependency_map(flow),
-         output: Jido.Flow.Expression.to_map(flow.output),
+         output: Jido.Flow.Value.to_map(flow.output),
          identity: Identity.for_flow(flow)
        }}
     end

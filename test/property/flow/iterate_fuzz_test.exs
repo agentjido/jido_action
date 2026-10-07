@@ -111,7 +111,7 @@ defmodule JidoActionTest.Property.Flow.IterateFuzzTest do
             initial: %{value: initial},
             update: %{value: Ref.body_result(:value)}
           ),
-        completion: Expr.new!(:gte, [Ref.iteration_index(), target]),
+        completion: Expr.new!(:>=, [Ref.iteration_index(), target]),
         max_iterations: max(count, 1)
       )
 

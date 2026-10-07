@@ -23,10 +23,10 @@ defmodule JidoActionTest.Property.Expression.ExpressionContractTest do
       {expression, expected, depth} = expression(sample["tree"])
       assert Expr.evaluate(expression) == {:ok, expected}
       size = sample["size"]
-      bad = Expr.new!(:divide, [size, 0])
+      bad = Expr.new!(:/, [size, 0])
       assert Expr.evaluate(Expr.new!(:and, [false, bad])) == {:ok, false}
       assert Expr.evaluate(Expr.new!(:or, [true, bad])) == {:ok, true}
-      assert {:error, %Expr.Error{}} = Expr.evaluate(Expr.new!(:add, ["invalid", expression]))
+      assert {:error, %Expr.Error{}} = Expr.evaluate(Expr.new!(:+, ["invalid", expression]))
 
       for {value, limits} <- [
             {String.duplicate("x", size), [max_binary_bytes: size - 1]},
@@ -34,11 +34,12 @@ defmodule JidoActionTest.Property.Expression.ExpressionContractTest do
             {List.duplicate(0, size), [max_nodes: size - 1]},
             {Enum.reduce(1..size, 0, fn _, acc -> [acc] end), [max_depth: size - 1]}
           ] do
-        assert {:error, %Expr.Error{}} = Expr.validate(value, limits)
-        assert {:error, %Expr.Error{}} = Expr.evaluate(value, limits)
+        expression = Expr.new!(:==, [value, value])
+        assert {:error, %Expr.Error{}} = Expr.validate(expression, limits)
+        assert {:error, %Expr.Error{}} = Expr.evaluate(expression, limits)
       end
 
-      for operator <- Expr.operators(),
+      for {operator, _arity} <- Expr.operations(),
           do: assert({:error, %Expr.Error{}} = Expr.new(operator, []))
 
       assert {:error, %Expr.Error{}} = Expr.parse(quote do: send(self(), unquote(size)))
@@ -53,7 +54,7 @@ defmodule JidoActionTest.Property.Expression.ExpressionContractTest do
     one_of([
       number_tree(0),
       fixed_map(%{
-        "op" => member_of(~w(add subtract multiply min max)),
+        "op" => member_of(["+", "-", "*", "min", "max"]),
         "left" => number_tree(depth - 1),
         "right" => number_tree(depth - 1)
       })
@@ -64,7 +65,7 @@ defmodule JidoActionTest.Property.Expression.ExpressionContractTest do
     one_of([
       boolean(),
       fixed_map(%{
-        "op" => member_of(~w(eq lt gte)),
+        "op" => member_of(["==", "<", ">="]),
         "left" => number_tree(3),
         "right" => number_tree(3)
       })
@@ -88,14 +89,14 @@ defmodule JidoActionTest.Property.Expression.ExpressionContractTest do
 
     {operator, value} =
       case op do
-        "add" -> {:add, a + b}
-        "subtract" -> {:subtract, a - b}
-        "multiply" -> {:multiply, a * b}
+        "+" -> {:+, a + b}
+        "-" -> {:-, a - b}
+        "*" -> {:*, a * b}
         "min" -> {:min, min(a, b)}
         "max" -> {:max, max(a, b)}
-        "eq" -> {:eq, a == b}
-        "lt" -> {:lt, a < b}
-        "gte" -> {:gte, a >= b}
+        "==" -> {:==, a == b}
+        "<" -> {:<, a < b}
+        ">=" -> {:>=, a >= b}
         "and" -> {:and, a and b}
         "or" -> {:or, a or b}
       end
@@ -116,25 +117,25 @@ defmodule JidoActionTest.Property.Expression.ExpressionContractTest do
   property "the fixed operator set agrees with native Elixir for generated operands" do
     check all(left <- integer(-100..100), right <- integer(1..100), max_runs: 60) do
       cases = [
-        {:add, [left, right], left + right},
-        {:subtract, [left, right], left - right},
-        {:multiply, [left, right], left * right},
-        {:divide, [left, right], left / right},
+        {:+, [left, right], left + right},
+        {:-, [left, right], left - right},
+        {:*, [left, right], left * right},
+        {:/, [left, right], left / right},
         {:div, [left, right], div(left, right)},
         {:rem, [left, right], rem(left, right)},
-        {:negate, [left], -left},
+        {:-, [left], -left},
         {:abs, [left], abs(left)},
         {:min, [left, right], min(left, right)},
         {:max, [left, right], max(left, right)},
-        {:eq, [left, right], left == right},
-        {:neq, [left, right], left != right},
-        {:lt, [left, right], left < right},
-        {:lte, [left, right], left <= right},
-        {:gt, [left, right], left > right},
-        {:gte, [left, right], left >= right},
+        {:==, [left, right], left == right},
+        {:!=, [left, right], left != right},
+        {:<, [left, right], left < right},
+        {:<=, [left, right], left <= right},
+        {:>, [left, right], left > right},
+        {:>=, [left, right], left >= right},
         {:in, [left, [right, left]], true},
         {:in, [left, [left * 1.0]], false},
-        {:concat, [Integer.to_string(left), Integer.to_string(right)],
+        {:<>, [Integer.to_string(left), Integer.to_string(right)],
          Integer.to_string(left) <> Integer.to_string(right)}
       ]
 
@@ -154,20 +155,18 @@ defmodule JidoActionTest.Property.Expression.ExpressionContractTest do
   @tag contract_cases: [
          "EXPR-001/short-circuit",
          "EXPR-001/right-value",
-         "EXPR-001/strict-groups",
+         "EXPR-001/strict-left",
          "EXPR-001/invalid-operands"
        ]
   property "Boolean operations short-circuit invalid branches and retain their result rules" do
     check all(value <- integer(), max_runs: 40) do
-      invalid = Expr.new!(:divide, [value, 0])
+      invalid = Expr.new!(:/, [value, 0])
 
       for {operator, operands, expected} <- [
             {:and, [false, invalid], false},
             {:or, [true, invalid], true},
             {:and, [true, value], value},
             {:or, [false, value], value},
-            {:all, [true, false, invalid], false},
-            {:any, [false, true, invalid], true},
             {:not, [true], false},
             {:not, [false], true}
           ] do
@@ -178,7 +177,6 @@ defmodule JidoActionTest.Property.Expression.ExpressionContractTest do
         assert {:error, %Expr.Error{}} = Expr.evaluate(Expr.new!(operator, [value, true]))
       end
 
-      assert {:error, %Expr.Error{}} = Expr.evaluate(Expr.new!(:all, [true, value]))
       assert {:error, %Expr.Error{}} = Expr.evaluate(invalid)
     end
   end
@@ -201,11 +199,12 @@ defmodule JidoActionTest.Property.Expression.ExpressionContractTest do
             {List.duplicate(0, size), [max_nodes: size - 1]},
             {Enum.reduce(1..size, 0, fn _, value -> [value] end), [max_depth: size - 1]}
           ] do
-        assert {:error, %Expr.Error{}} = Expr.validate(value, options)
-        assert {:error, %Expr.Error{}} = Expr.evaluate(value, options)
+        expression = Expr.new!(:==, [value, value])
+        assert {:error, %Expr.Error{}} = Expr.validate(expression, options)
+        assert {:error, %Expr.Error{}} = Expr.evaluate(expression, options)
       end
 
-      for operator <- Expr.operators() do
+      for {operator, _arity} <- Expr.operations() do
         assert {:error, %Expr.Error{}} = Expr.new(operator, [])
       end
 

@@ -212,28 +212,22 @@ defmodule Jido.Flow.CodecTest do
     assert error.details == %{path: ["output"]}
   end
 
-  test "all component kinds round trip needs in both current document versions" do
+  test "all component kinds round trip needs in the current document version" do
     registry = CodecRegistry.mixed()
     flow = all_component_flow!()
-    assert {:ok, expression_document} = Codec.encode(flow, registry)
-    assert expression_document["version"] == 2
-    version_one_document = version_one_conditions(expression_document)
-    assert version_one_document["version"] == 1
+    assert {:ok, document} = Codec.encode(flow, registry)
+    assert document["version"] == 2
 
-    for document <- [expression_document, version_one_document] do
-      assert Enum.map(document["components"], & &1["kind"]) ==
-               ["step", "subflow", "choice", "map", "reduce", "iterate", "dispatch"]
+    assert Enum.map(document["components"], & &1["kind"]) ==
+             ["step", "subflow", "choice", "map", "reduce", "iterate", "dispatch"]
 
-      for component <- document["components"] do
-        assert Map.has_key?(component, "needs")
-        refute Map.has_key?(component, "after")
-      end
-
-      assert {:ok, ^flow} = Codec.decode(document, registry)
-
-      assert {:ok, ^flow} =
-               document |> Jason.encode!() |> Jason.decode!() |> Codec.decode(registry)
+    for component <- document["components"] do
+      assert Map.has_key?(component, "needs")
+      refute Map.has_key?(component, "after")
     end
+
+    assert {:ok, ^flow} = Codec.decode(document, registry)
+    assert {:ok, ^flow} = document |> Jason.encode!() |> Jason.decode!() |> Codec.decode(registry)
   end
 
   test "stored components reject after without conversion" do
@@ -313,7 +307,7 @@ defmodule Jido.Flow.CodecTest do
 
     option =
       option
-      |> Map.put("condition", true)
+      |> Map.put("condition", "invalid")
       |> Map.put("action", 42)
 
     fallback = Map.put(choice["fallback"], "action", "actions/missing")
@@ -604,7 +598,7 @@ defmodule Jido.Flow.CodecTest do
     [option] = choice["options"]
 
     condition = %{
-      "$condition" => %{
+      "$expr" => %{
         "operator" => "all",
         "operands" => [true, false]
       }
@@ -631,7 +625,7 @@ defmodule Jido.Flow.CodecTest do
     invalid = replace_component(document, 2, choice) |> Map.put("output", output)
 
     assert {:error, %Error.Invalid{errors: errors}} = Codec.diagnose(invalid, registry)
-    assert length(errors) == 9
+    assert length(errors) == 8
 
     duplicate_map = %{
       "$type" => "map",
@@ -941,9 +935,9 @@ defmodule Jido.Flow.CodecTest do
               Choice.Option.new!(
                 name: "nested",
                 condition:
-                  Jido.Expr.new!(:all, [
-                    Jido.Expr.new!(:eq, [Ref.input(:kind), :go]),
-                    Jido.Expr.new!(:not, [Jido.Expr.new!(:eq, [Ref.input(:value), 0])])
+                  Jido.Expr.new!(:and, [
+                    Jido.Expr.new!(:==, [Ref.input(:kind), :go]),
+                    Jido.Expr.new!(:not, [Jido.Expr.new!(:==, [Ref.input(:value), 0])])
                   ]),
                 action: Add
               )
@@ -968,7 +962,7 @@ defmodule Jido.Flow.CodecTest do
             options: [
               Choice.Option.new!(
                 name: "multiply",
-                condition: Jido.Expr.new!(:eq, [1, 1]),
+                condition: Jido.Expr.new!(:==, [1, 1]),
                 action: Multiply
               )
             ],
@@ -1013,7 +1007,7 @@ defmodule Jido.Flow.CodecTest do
       replace_component(
         document,
         2,
-        %{choice | "options" => [%{option | "condition" => true}]}
+        %{choice | "options" => [%{option | "condition" => "invalid"}]}
       ),
       replace_component(
         document,
@@ -1024,7 +1018,7 @@ defmodule Jido.Flow.CodecTest do
               %{
                 option
                 | "condition" => %{
-                    "$condition" => %{"operator" => "all", "operands" => "invalid"}
+                    "$expr" => %{"operator" => "and", "operands" => "invalid"}
                   }
               }
             ]
@@ -1066,7 +1060,7 @@ defmodule Jido.Flow.CodecTest do
   end
 
   defp all_component_flow! do
-    option = Choice.Option.new!(name: "yes", condition: Jido.Expr.new!(:eq, [1, 1]), action: Add)
+    option = Choice.Option.new!(name: "yes", condition: Jido.Expr.new!(:==, [1, 1]), action: Add)
     fallback = Choice.Fallback.new!(action: Multiply)
 
     Flow.new!(
@@ -1092,7 +1086,7 @@ defmodule Jido.Flow.CodecTest do
           name: "iterate",
           action: Add,
           state: Iterate.State.new!(initial: %{}, update: %{}),
-          completion: Jido.Expr.new!(:eq, [1, 1]),
+          completion: Jido.Expr.new!(:==, [1, 1]),
           max_iterations: 1,
           needs: ["step"]
         ),
@@ -1106,18 +1100,6 @@ defmodule Jido.Flow.CodecTest do
       output: Ref.result("dispatch")
     )
   end
-
-  defp version_one_conditions(document) do
-    document
-    |> Map.put("version", 1)
-    |> update_in(
-      ["components", Access.at(2), "options", Access.at(0), "condition"],
-      &legacy_condition/1
-    )
-    |> update_in(["components", Access.at(5), "completion"], &legacy_condition/1)
-  end
-
-  defp legacy_condition(%{"$expr" => expression}), do: %{"$condition" => expression}
 
   defp replace_component(document, index, component) do
     %{document | "components" => List.replace_at(document["components"], index, component)}

@@ -12,7 +12,7 @@ defmodule Jido.Flow.Dispatch do
 
   alias Jido.Flow.Component.Fields
   alias Jido.Flow.Error
-  alias Jido.Flow.Expression
+  alias Jido.Flow.Value
 
   @config_keys [:name, :decision, :expander, :params, :needs, :meta]
 
@@ -78,7 +78,7 @@ defmodule Jido.Flow.Dispatch do
   @doc false
   @spec result_refs(t()) :: [String.t()]
   def result_refs(%__MODULE__{} = dispatch) do
-    dispatch.params |> Expression.result_refs() |> Enum.uniq() |> Enum.sort()
+    dispatch.params |> Value.result_refs() |> Enum.uniq() |> Enum.sort()
   end
 
   @doc false
@@ -89,7 +89,7 @@ defmodule Jido.Flow.Dispatch do
       name: dispatch.name,
       decision: dispatch.decision,
       expander: dispatch.expander,
-      params: Expression.to_map(dispatch.params),
+      params: Value.to_map(dispatch.params),
       needs: dispatch.needs,
       meta: dispatch.meta
     }

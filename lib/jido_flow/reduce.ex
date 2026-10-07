@@ -11,7 +11,7 @@ defmodule Jido.Flow.Reduce do
 
   alias Jido.Flow.Error
   alias Jido.Flow.Component.Fields
-  alias Jido.Flow.Expression
+  alias Jido.Flow.Value
 
   @config_keys [:name, :collection, :initial, :action, :params, :needs, :meta]
 
@@ -82,9 +82,9 @@ defmodule Jido.Flow.Reduce do
   @spec result_refs(t()) :: [String.t()]
   def result_refs(%__MODULE__{} = reduce) do
     reduce.collection
-    |> Expression.result_refs()
-    |> Kernel.++(Expression.result_refs(reduce.initial))
-    |> Kernel.++(Expression.result_refs(reduce.params))
+    |> Value.result_refs()
+    |> Kernel.++(Value.result_refs(reduce.initial))
+    |> Kernel.++(Value.result_refs(reduce.params))
     |> Enum.uniq()
     |> Enum.sort()
   end
@@ -95,10 +95,10 @@ defmodule Jido.Flow.Reduce do
     %{
       kind: :reduce,
       name: reduce.name,
-      collection: Expression.to_map(reduce.collection),
-      initial: Expression.to_map(reduce.initial),
+      collection: Value.to_map(reduce.collection),
+      initial: Value.to_map(reduce.initial),
       action: reduce.action,
-      params: Expression.to_map(reduce.params),
+      params: Value.to_map(reduce.params),
       needs: reduce.needs,
       meta: reduce.meta
     }

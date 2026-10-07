@@ -150,7 +150,9 @@ defmodule InlineHostGuide.DSL do
 
   def resolve(:callback, _source, params), do: {:ok, params}
 
-  def resolve(:bound, source, input) do
+  def resolve(:bound, source, input), do: resolve_value(source, input)
+
+  defp resolve_value(%Jido.Expr{} = source, input) do
     Jido.Expr.evaluate(source,
       resolve: fn %Field{key: key} ->
         case Map.fetch(input, key) do
@@ -160,6 +162,37 @@ defmodule InlineHostGuide.DSL do
       end
     )
   end
+
+  defp resolve_value(%Field{key: key}, input) do
+    case Map.fetch(input, key) do
+      {:ok, value} -> {:ok, value}
+      :error -> {:error, {:missing_field, key}}
+    end
+  end
+
+  defp resolve_value(values, input) when is_list(values) do
+    Enum.reduce_while(values, {:ok, []}, fn value, {:ok, resolved} ->
+      case resolve_value(value, input) do
+        {:ok, value} -> {:cont, {:ok, [value | resolved]}}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+    |> case do
+      {:ok, values} -> {:ok, Enum.reverse(values)}
+      error -> error
+    end
+  end
+
+  defp resolve_value(%{} = values, input) do
+    Enum.reduce_while(values, {:ok, %{}}, fn {key, value}, {:ok, resolved} ->
+      case resolve_value(value, input) do
+        {:ok, value} -> {:cont, {:ok, Map.put(resolved, key, value)}}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+  end
+
+  defp resolve_value(value, _input), do: {:ok, value}
 
   defp declaration(name, header, options, caller) do
     parsed =
@@ -191,13 +224,8 @@ defmodule InlineHostGuide.DSL do
   defp parse_source!(%Inline{params_ast: ast}, caller) do
     fields = Module.get_attribute(caller.module, :guide_fields)
 
-    with {:ok, source} <- Jido.Expr.parse(ast, leaf_parser: &parse_field/1),
-         :ok <-
-           Jido.Expr.validate(source,
-             validate_leaf: fn %Field{key: key} ->
-               if key in fields, do: :ok, else: {:error, {:unknown_field, key}}
-             end
-           ) do
+    with {:ok, source} <- parse_value(ast),
+         :ok <- validate_value(source, fields) do
       source
     else
       {:error, reason} ->
@@ -210,6 +238,63 @@ defmodule InlineHostGuide.DSL do
 
   defp parse_field({:field, _, [key]}) when is_atom(key), do: {:ok, %Field{key: key}}
   defp parse_field(_ast), do: :error
+
+  defp parse_value({:%{}, _, pairs}) when is_list(pairs) do
+    Enum.reduce_while(pairs, {:ok, %{}}, fn {key, value}, {:ok, parsed} ->
+      case parse_value(value) do
+        {:ok, value} -> {:cont, {:ok, Map.put(parsed, key, value)}}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+  end
+
+  defp parse_value(values) when is_list(values) do
+    Enum.reduce_while(values, {:ok, []}, fn value, {:ok, parsed} ->
+      case parse_value(value) do
+        {:ok, value} -> {:cont, {:ok, [value | parsed]}}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+    |> case do
+      {:ok, values} -> {:ok, Enum.reverse(values)}
+      error -> error
+    end
+  end
+
+  defp parse_value(value) when is_atom(value) or is_number(value) or is_binary(value),
+    do: {:ok, value}
+
+  defp parse_value(ast) do
+    case parse_field(ast) do
+      {:ok, field} -> {:ok, field}
+      :error -> Jido.Expr.parse(ast, leaf_parser: &parse_field/1)
+    end
+  end
+
+  defp validate_value(%Jido.Expr{} = source, fields) do
+    Jido.Expr.validate(source,
+      validate_leaf: fn %Field{key: key} ->
+        if key in fields, do: :ok, else: {:error, {:unknown_field, key}}
+      end
+    )
+  end
+
+  defp validate_value(%Field{key: key}, fields),
+    do: if(key in fields, do: :ok, else: {:error, {:unknown_field, key}})
+
+  defp validate_value(values, fields) when is_list(values) do
+    Enum.reduce_while(values, :ok, fn value, :ok ->
+      case validate_value(value, fields) do
+        :ok -> {:cont, :ok}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+  end
+
+  defp validate_value(%{} = values, fields),
+    do: validate_value(Map.values(values), fields)
+
+  defp validate_value(_value, _fields), do: :ok
 end
 ```
 
@@ -305,9 +390,10 @@ error and input-size policy.
    `%Jido.Action.Inline{}` contains AST, not runtime data. `params_ast` is `nil`
    only in callback mode. Shared parsing checks shape, not host source scope.
 3. In bound mode, parse and validate `params_ast` with the host adapter before
-   compilation. Use the public Expr `leaf_parser`, `validate_leaf`, and
-   `resolve` callbacks for a host that needs expressions. Do not evaluate
-   source calls to make them valid.
+   compilation. The host owns direct references, literals, and data
+   containers. Use the public Expr `leaf_parser`, `validate_leaf`, and
+   `resolve` callbacks for operation subtrees. Do not evaluate source calls to
+   make them valid.
 4. Call `compile!/4` with path AST, the parsed value, the caller environment,
    and compiler options. `default_name:` is AST for valid Action metadata.
    `remove_imports:` lists only exact declaration imports as

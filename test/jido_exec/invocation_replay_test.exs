@@ -66,7 +66,7 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
                 initial: %{count: 0},
                 update: %{count: Ref.body_result(:count)}
               ),
-            completion: Jido.Expr.new!(:gte, [Ref.state(:count), 3]),
+            completion: Jido.Expr.new!(:>=, [Ref.state(:count), 3]),
             max_iterations: 3
           )
         ],
@@ -1279,7 +1279,7 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
           action: Probe,
           params: %{value: Ref.iteration_index()},
           state: Iterate.State.new!(initial: %{}, update: %{}),
-          completion: Jido.Expr.new!(:gte, [Ref.iteration_index(), 2]),
+          completion: Jido.Expr.new!(:>=, [Ref.iteration_index(), 2]),
           max_iterations: 2
         )
       ],

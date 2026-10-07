@@ -1,11 +1,11 @@
-defmodule Jido.Flow.DSL.Expression do
+defmodule Jido.Flow.DSL.ValueParser do
   @moduledoc false
 
   alias Jido.Expr
   alias Jido.Flow.Error
   alias Jido.Flow.Ref
 
-  @doc "Parses one DSL expression into canonical Flow data."
+  @doc "Parses one DSL value into canonical Flow data."
   @spec parse(term()) :: {:ok, term()} | {:error, Exception.t()}
   def parse(expression) do
     case parse_value(expression) do
@@ -39,7 +39,21 @@ defmodule Jido.Flow.DSL.Expression do
   defp parse_value(value) when is_atom(value) or is_number(value) or is_binary(value),
     do: {:ok, value}
 
-  defp parse_value(value), do: Expr.parse(value, leaf_parser: &parse_leaf/1)
+  defp parse_value(value) do
+    case direct_leaf(value) do
+      {:ok, leaf} -> {:ok, leaf}
+      :error -> Expr.parse(value, leaf_parser: &parse_leaf/1)
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp direct_leaf(value) do
+    parse_leaf(value)
+  rescue
+    _error -> {:error, %Expr.Error{reason: :unsupported_syntax}}
+  catch
+    _, _ -> {:error, %Expr.Error{reason: :unsupported_syntax}}
+  end
 
   defp parse_list([], values), do: {:ok, Enum.reverse(values)}
 
@@ -67,10 +81,11 @@ defmodule Jido.Flow.DSL.Expression do
   end
 
   @doc "Parses one DSL condition into canonical Flow data."
-  @spec parse_condition(term()) :: {:ok, Expr.t()} | {:error, Exception.t()}
+  @spec parse_condition(term()) ::
+          {:ok, boolean() | Ref.t() | Expr.t()} | {:error, Exception.t()}
   def parse_condition(condition) do
     with {:ok, value} <- parse(condition) do
-      case Jido.Flow.Expression.condition(value, :any) do
+      case Jido.Flow.Value.condition(value, :any) do
         {:ok, value} ->
           {:ok, value}
 
@@ -78,7 +93,7 @@ defmodule Jido.Flow.DSL.Expression do
           {:error,
            Error.validation_error(
              "unsupported Flow condition: #{source_text(condition)}; " <>
-               "use a Boolean reference, Boolean literal, or Flow condition",
+               "use a Boolean reference, Boolean literal, or Jido.Expr operation",
              source_details(condition)
            )}
       end

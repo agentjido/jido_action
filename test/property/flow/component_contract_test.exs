@@ -51,7 +51,7 @@ defmodule JidoActionTest.Property.Flow.ComponentContractTest do
             name: "work",
             collection: items,
             action: Emit,
-            params: %{value: Expr.new!(:multiply, [Ref.item(), 2]), label: Ref.item()}
+            params: %{value: Expr.new!(:*, [Ref.item(), 2]), label: Ref.item()}
           )
 
         reduced =
@@ -202,7 +202,7 @@ defmodule JidoActionTest.Property.Flow.ComponentContractTest do
             initial: %{value: seed},
             update: %{value: Ref.body_result(:value)}
           ),
-        completion: Expr.new!(:gte, [Ref.iteration_index(), target]),
+        completion: Expr.new!(:>=, [Ref.iteration_index(), target]),
         max_iterations: maximum
       )
 

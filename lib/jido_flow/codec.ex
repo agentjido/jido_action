@@ -33,7 +33,7 @@ defmodule Jido.Flow.Codec do
   alias Jido.Flow.Data
   alias Jido.Flow.Dispatch
   alias Jido.Flow.Error
-  alias Jido.Flow.Expression
+  alias Jido.Flow.Value
   alias Jido.Flow.Iterate
   alias Jido.Flow.Map, as: FlowMap
   alias Jido.Flow.Reduce
@@ -47,7 +47,9 @@ defmodule Jido.Flow.Codec do
 
   @version 1
   @expression_version 2
-  @expression_operators Map.new(Expr.operators(), &{Atom.to_string(&1), &1})
+  @expression_operators Map.new(Expr.operations(), fn {operator, _arity} ->
+                          {Atom.to_string(operator), operator}
+                        end)
   @maximum_depth 100
   @maximum_collection_size 10_000
   @maximum_document_nodes 100_000
@@ -73,19 +75,6 @@ defmodule Jido.Flow.Codec do
     "state" => :state,
     "iteration_index" => :iteration_index,
     "body_result" => :body_result
-  }
-
-  @operators %{
-    "eq" => :eq,
-    "neq" => :neq,
-    "lt" => :lt,
-    "lte" => :lte,
-    "gt" => :gt,
-    "gte" => :gte,
-    "in" => :in,
-    "all" => :all,
-    "any" => :any,
-    "not" => :not
   }
 
   @on_error %{"fail_fast" => :fail_fast, "collect_errors" => :collect_errors}
@@ -302,7 +291,7 @@ defmodule Jido.Flow.Codec do
       {:ok, value} ->
         case diagnose_expression(value, registry, 0, ["output"]) do
           {:ok, output} ->
-            case Expression.validate(output) do
+            case Value.validate(output) do
               :ok -> {:ok, output}
               {:error, error} -> {:error, stored_error_path(error, value, registry, ["output"])}
             end
@@ -831,82 +820,22 @@ defmodule Jido.Flow.Codec do
     end
   end
 
-  defp diagnose_condition(%{"$expr" => _} = value, registry, depth, path),
-    do: diagnose_expression(value, registry, depth, path)
+  defp diagnose_condition(value, registry, depth, path) do
+    case diagnose_expression(value, registry, depth, path) do
+      {:ok, value}
+      when is_boolean(value) or is_struct(value, Ref) or is_struct(value, Expr) ->
+        {:ok, value}
 
-  defp diagnose_condition(%{"$condition" => record} = value, registry, depth, path) do
-    initial_errors =
-      unknown_field_errors(value, ["$condition"], path) ++
-        result_errors(ensure_depth(depth, path))
+      {:ok, _value} ->
+        {:error,
+         Error.validation_error(
+           "stored Flow condition must be a Boolean, reference, or expression",
+           %{path: path}
+         )}
 
-    case plain_map(record, "Flow condition", path ++ ["$condition"]) do
-      :ok ->
-        operator_result = diagnose_condition_operator(record, path)
-
-        fields = [
-          operator: fn -> operator_result end,
-          operands: fn ->
-            diagnose_condition_operands_field(record, operator_result, registry, depth, path)
-          end
-        ]
-
-        errors =
-          initial_errors ++
-            unknown_field_errors(record, ["operator", "operands"], path ++ ["$condition"])
-
-        case collect_values(fields, errors) do
-          {:ok, attrs} -> build_operation(attrs, path ++ ["$condition"])
-          {:error, errors} -> {:error, errors}
-        end
-
-      {:error, error} ->
-        {:error, initial_errors ++ [error]}
+      error ->
+        error
     end
-  end
-
-  defp diagnose_condition(_value, _registry, _depth, path) do
-    {:error,
-     Error.validation_error("stored Flow condition must be a tagged condition", %{path: path})}
-  end
-
-  defp diagnose_condition_operator(record, path) do
-    with {:ok, operator_name} <- string_field(record, "operator", path ++ ["$condition"]) do
-      closed_value(
-        @operators,
-        operator_name,
-        "condition operator",
-        path ++ ["$condition", "operator"]
-      )
-    end
-  end
-
-  defp diagnose_condition_operands_field(record, {:ok, operator}, registry, depth, path) do
-    case Map.fetch(record, "operands") do
-      {:ok, values} when operator in [:all, :any, :not] ->
-        diagnose_list(
-          values,
-          registry,
-          depth + 1,
-          path ++ ["$condition", "operands"],
-          &diagnose_condition/4
-        )
-
-      {:ok, values} ->
-        diagnose_list(
-          values,
-          registry,
-          depth + 1,
-          path ++ ["$condition", "operands"],
-          &diagnose_expression/4
-        )
-
-      :error ->
-        required_field(path ++ ["$condition", "operands"], "operands")
-    end
-  end
-
-  defp diagnose_condition_operands_field(_record, {:error, _error}, _registry, _depth, _path) do
-    {:ok, []}
   end
 
   defp build_operation(attrs, path) do
@@ -1144,9 +1073,6 @@ defmodule Jido.Flow.Codec do
 
   defp stored_path(%{"$expr" => %{"operands" => operands}}, [:operands | rest], registry),
     do: ["$expr", "operands" | stored_path(operands, rest, registry)]
-
-  defp stored_path(%{"$condition" => %{"operands" => operands}}, [:operands | rest], registry),
-    do: ["$condition", "operands" | stored_path(operands, rest, registry)]
 
   defp stored_path(values, [index | rest], registry)
        when is_list(values) and is_integer(index) and index >= 0 and index < length(values),

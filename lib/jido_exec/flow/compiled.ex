@@ -21,7 +21,7 @@ defmodule Jido.Exec.Flow.Compiled do
           workflow: Runic.Workflow.t(),
           component_index: map(),
           work_index: map(),
-          output: Jido.Flow.Expression.t(),
+          output: Jido.Flow.Value.t(),
           source_map: source_map(),
           semantic_digest: binary(),
           compilation_digest: binary()

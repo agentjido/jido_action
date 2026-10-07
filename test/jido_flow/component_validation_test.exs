@@ -16,7 +16,7 @@ defmodule Jido.Flow.ComponentValidationTest do
   alias JidoActionTest.Fixtures.Actions.Add
 
   test "legacy Condition records are rejected in condition and expression fields" do
-    legacy = %{__struct__: Jido.Flow.Condition, operator: :eq, operands: [1, 1]}
+    legacy = %{__struct__: Jido.Flow.Condition, operator: :==, operands: [1, 1]}
 
     assert {:error, %InvalidDefinitionError{}} =
              Choice.Option.new(name: "old", condition: legacy, action: Add)
@@ -30,16 +30,16 @@ defmodule Jido.Flow.ComponentValidationTest do
                max_iterations: 1
              )
 
-    assert {:error, %InvalidDefinitionError{details: %{path: [:params, :value, :operands, 0]}}} =
+    assert {:error, %InvalidDefinitionError{details: %{path: [:params, :value, :operands, 1]}}} =
              Step.new(
                name: "old",
                action: Add,
-               params: %{value: Jido.Expr.new!(:all, [legacy])}
+               params: %{value: Jido.Expr.new!(:and, [false, legacy])}
              )
   end
 
   test "all canonical authoring records are strict structs" do
-    option = Choice.Option.new!(name: "add", condition: Jido.Expr.new!(:eq, [1, 1]), action: Add)
+    option = Choice.Option.new!(name: "add", condition: Jido.Expr.new!(:==, [1, 1]), action: Add)
     fallback = Choice.Fallback.new!(action: Add)
     state = Iterate.State.new!(schema: [], initial: %{}, update: %{})
 
@@ -55,7 +55,7 @@ defmodule Jido.Flow.ComponentValidationTest do
                name: "iterate",
                action: Add,
                state: state,
-               completion: Jido.Expr.new!(:eq, [Ref.iteration_index(), 0]),
+               completion: Jido.Expr.new!(:==, [Ref.iteration_index(), 0]),
                max_iterations: 1
              )
 
@@ -115,7 +115,7 @@ defmodule Jido.Flow.ComponentValidationTest do
   end
 
   test "all canonical components use only needs for control dependencies" do
-    option = Choice.Option.new!(name: "add", condition: Jido.Expr.new!(:eq, [1, 1]), action: Add)
+    option = Choice.Option.new!(name: "add", condition: Jido.Expr.new!(:==, [1, 1]), action: Add)
     fallback = Choice.Fallback.new!(action: Add)
     state = Iterate.State.new!(schema: [], initial: %{}, update: %{})
 
@@ -130,7 +130,7 @@ defmodule Jido.Flow.ComponentValidationTest do
          name: "iterate",
          action: Add,
          state: state,
-         completion: Jido.Expr.new!(:eq, [Ref.iteration_index(), 0]),
+         completion: Jido.Expr.new!(:==, [Ref.iteration_index(), 0]),
          max_iterations: 1
        ]},
       {Dispatch, [name: "dispatch", decision: Add, expander: Add]}
@@ -185,7 +185,7 @@ defmodule Jido.Flow.ComponentValidationTest do
     choice =
       Choice.new!(
         name: "route",
-        options: [[name: "yes", condition: Jido.Expr.new!(:eq, [true, true]), action: Add]],
+        options: [[name: "yes", condition: Jido.Expr.new!(:==, [true, true]), action: Add]],
         fallback: [action: Add]
       )
 
@@ -258,7 +258,7 @@ defmodule Jido.Flow.ComponentValidationTest do
     constructors = [
       {Step, [name: "step", action: Add]},
       {Subflow, [name: "child", flow: NestedFlow]},
-      {Choice.Option, [name: "option", condition: Jido.Expr.new!(:eq, [1, 1]), action: Add]},
+      {Choice.Option, [name: "option", condition: Jido.Expr.new!(:==, [1, 1]), action: Add]},
       {Choice.Fallback, [action: Add]},
       {FlowMap, [name: "map", collection: [], action: Add]},
       {Reduce, [name: "reduce", collection: [], initial: %{}, action: Add]},
@@ -267,7 +267,7 @@ defmodule Jido.Flow.ComponentValidationTest do
          name: "iterate",
          action: Add,
          state: [schema: [], initial: %{}, update: %{}],
-         completion: Jido.Expr.new!(:eq, [true, true]),
+         completion: Jido.Expr.new!(:==, [true, true]),
          max_iterations: 1
        ]},
       {Dispatch, [name: "dispatch", decision: Add, expander: Add]}
@@ -292,7 +292,7 @@ defmodule Jido.Flow.ComponentValidationTest do
 
   test "constructor expression errors start with their field" do
     bad = %{nested: [Ref.input([nil])]}
-    bad_condition = Jido.Expr.new!(:eq, [Ref.input([nil]), 1])
+    bad_condition = Jido.Expr.new!(:==, [Ref.input([nil]), 1])
 
     cases = [
       {:collection, FlowMap.new(name: "map", collection: bad, action: Add)},
@@ -352,11 +352,11 @@ defmodule Jido.Flow.ComponentValidationTest do
                Step.new(
                  name: "step",
                  action: Add,
-                 params: %{value: Jido.Expr.new!(:add, [ref, 1])}
+                 params: %{value: Jido.Expr.new!(:+, [ref, 1])}
                )
 
       assert {:error, %InvalidDefinitionError{details: %{segment: _}}} =
-               Jido.Flow.Expression.condition(%Jido.Expr{operator: :eq, operands: [ref, 1]}, :any)
+               Jido.Flow.Value.condition(%Jido.Expr{operator: :==, operands: [ref, 1]}, :any)
 
       assert {:error, %InvalidDefinitionError{details: %{segment: _}}} =
                Choice.new(
@@ -364,7 +364,7 @@ defmodule Jido.Flow.ComponentValidationTest do
                  options: [
                    [
                      name: "option",
-                     condition: %Jido.Expr{operator: :eq, operands: [ref, 1]},
+                     condition: %Jido.Expr{operator: :==, operands: [ref, 1]},
                      action: Add
                    ]
                  ],

@@ -2,7 +2,7 @@ defmodule JidoActionTest.Flow.DSL.ExpressionTest do
   use ExUnit.Case, async: true
 
   alias Jido.Flow.Ref
-  alias Jido.Flow.DSL.Expression
+  alias Jido.Flow.DSL.ValueParser
 
   test "lowers the closed Flow expression vocabulary" do
     expression =
@@ -31,7 +31,7 @@ defmodule JidoActionTest.Flow.DSL.ExpressionTest do
         }
       end
 
-    assert {:ok, parsed} = Expression.parse(expression)
+    assert {:ok, parsed} = ValueParser.parse(expression)
     assert parsed.input == Ref.input([])
     assert parsed.input_path == Ref.input(:id)
     assert parsed.context == Ref.context([])
@@ -54,58 +54,58 @@ defmodule JidoActionTest.Flow.DSL.ExpressionTest do
     assert parsed.nested == [1, true, nil, "value"]
   end
 
-  test "lowers native and function condition forms" do
+  test "lowers native condition forms and rejects non-Elixir aliases" do
     native =
       quote do
         input(:kind) in [:priority, :express] and
           not (context(:blocked) == true or input(:total) < 0)
       end
 
-    function =
-      quote do
-        all([
-          eq(input(:kind), :priority),
-          any([gte(input(:total), 10), neq(context(:region), "blocked")])
-        ])
-      end
+    assert {:ok, %Jido.Expr{operator: :and}} = ValueParser.parse_condition(native)
 
-    assert {:ok, %Jido.Expr{operator: :and}} = Expression.parse_condition(native)
-    assert {:ok, %Jido.Expr{operator: :all}} = Expression.parse_condition(function)
+    for expression <- [
+          quote(do: eq(input(:kind), :priority)),
+          quote(do: gte(input(:total), 10)),
+          quote(do: all([true, false])),
+          quote(do: any([false, true]))
+        ] do
+      assert {:error, _error} = ValueParser.parse_condition(expression)
+    end
   end
 
   test "lowers empty list literals without changing reference paths or keyword rejection" do
-    assert {:ok, []} = Expression.parse(quote(do: []))
-    assert {:ok, []} = Expression.parse(quote(do: value([])))
+    assert {:ok, []} = ValueParser.parse(quote(do: []))
+    assert {:ok, []} = ValueParser.parse(quote(do: value([])))
 
     assert {:ok, %{items: [[], %{values: []}]}} =
-             Expression.parse(quote(do: %{items: [[], %{values: []}]}))
+             ValueParser.parse(quote(do: %{items: [[], %{values: []}]}))
 
-    assert {:ok, %{items: []}} = Expression.parse(%{items: []})
-    assert {:ok, ref} = Expression.parse(quote(do: input([])))
+    assert {:ok, %{items: []}} = ValueParser.parse(%{items: []})
+    assert {:ok, ref} = ValueParser.parse(quote(do: input([])))
     assert ref == Ref.input([])
-    assert {:ok, ref} = Expression.parse(quote(do: result("step", [])))
+    assert {:ok, ref} = ValueParser.parse(quote(do: result("step", [])))
     assert ref == Ref.result("step")
-    assert {:error, _error} = Expression.parse(quote(do: [items: []]))
+    assert {:error, _error} = ValueParser.parse(quote(do: [items: []]))
   end
 
   test "lowers empty lists in comparison operands" do
-    assert {:ok, %Jido.Expr{operator: :eq, operands: [ref, []]}} =
-             Expression.parse_condition(quote(do: input(:items) == []))
+    assert {:ok, %Jido.Expr{operator: :==, operands: [ref, []]}} =
+             ValueParser.parse_condition(quote(do: input(:items) == []))
 
     assert ref == Ref.input(:items)
 
     assert {:ok, %Jido.Expr{operator: :in, operands: [1, []]}} =
-             Expression.parse_condition(quote(do: 1 in []))
+             ValueParser.parse_condition(quote(do: 1 in []))
   end
 
   test "explicit literals retain negative numbers without widening paths or map keys" do
-    assert {:ok, -1} = Expression.parse(quote(do: value(-1)))
+    assert {:ok, -1} = ValueParser.parse(quote(do: value(-1)))
 
     assert {:ok, %{amounts: [-2, %{amount: -3.5}]}} =
-             Expression.parse(quote(do: value(%{amounts: [-2, %{amount: -3.5}]})))
+             ValueParser.parse(quote(do: value(%{amounts: [-2, %{amount: -3.5}]})))
 
-    assert {:ok, %Jido.Expr{operator: :negate, operands: [1]}} =
-             Expression.parse(quote(do: -1))
+    assert {:ok, %Jido.Expr{operator: :-, operands: [1]}} =
+             ValueParser.parse(quote(do: -1))
 
     for expression <- [
           quote(do: value(-input(:amount))),
@@ -113,28 +113,28 @@ defmodule JidoActionTest.Flow.DSL.ExpressionTest do
           quote(do: value(%{-1 => :value})),
           Code.string_to_quoted!("value(%{-1 => :first,\n-1 => :second})")
         ] do
-      assert {:error, _error} = Expression.parse(expression)
+      assert {:error, _error} = ValueParser.parse(expression)
     end
 
     for expression <- [quote(do: input([-1])), quote(do: input([[-1]]))] do
-      assert {:error, error} = Expression.parse(expression)
+      assert {:error, error} = ValueParser.parse(expression)
       assert error.message =~ "unsupported Flow expression"
     end
   end
 
   test "rejects executable expressions, keyword data, and invalid conditions" do
-    assert {:error, error} = Expression.parse(quote(do: Date.utc_today()))
+    assert {:error, error} = ValueParser.parse(quote(do: Date.utc_today()))
 
     assert Exception.message(error) ==
              "unsupported Flow expression: Date.utc_today(); use a Flow reference, literal, map, or list"
 
-    assert {:error, error} = Expression.parse(status: :ready)
+    assert {:error, error} = ValueParser.parse(status: :ready)
     assert Exception.message(error) =~ "unsupported Flow expression"
 
-    assert {:error, error} = Expression.parse_condition(quote(do: :ready))
+    assert {:error, error} = ValueParser.parse_condition(quote(do: :ready))
 
     assert Exception.message(error) ==
-             "unsupported Flow condition: :ready; use a Boolean reference, Boolean literal, or Flow condition"
+             "unsupported Flow condition: :ready; use a Boolean reference, Boolean literal, or Jido.Expr operation"
   end
 
   test "rejects assignment, pattern matching, and pipes as declarative data" do
@@ -143,31 +143,30 @@ defmodule JidoActionTest.Flow.DSL.ExpressionTest do
           quote(do: %{value: selected} = input(:payload)),
           quote(do: input(:value) |> Integer.to_string())
         ] do
-      assert {:error, error} = Expression.parse(expression)
+      assert {:error, error} = ValueParser.parse(expression)
       assert Exception.message(error) =~ "use a Flow reference, literal, map, or list"
     end
   end
 
   test "accepts canonical references and literal maps" do
     ref = Ref.result("loaded", :value)
-    assert {:ok, ^ref} = Expression.parse(ref)
+    assert {:ok, ^ref} = ValueParser.parse(ref)
 
-    assert {:ok, %{status: :ready}} = Expression.parse(quote(do: value(%{status: :ready})))
+    assert {:ok, %{status: :ready}} = ValueParser.parse(quote(do: value(%{status: :ready})))
 
-    assert {:ok, %{status: :ready}} = Expression.parse(%{status: :ready})
+    assert {:ok, %{status: :ready}} = ValueParser.parse(%{status: :ready})
   end
 
-  test "lowers every comparison spelling" do
+  test "lowers every supported comparison" do
     for {expression, operator} <- [
-          {quote(do: input(:left) != input(:right)), :neq},
-          {quote(do: input(:left) <= input(:right)), :lte},
-          {quote(do: input(:left) > input(:right)), :gt},
-          {quote(do: input(:left) >= input(:right)), :gte},
-          {quote(do: lt(input(:left), input(:right))), :lt},
-          {quote(do: lte(input(:left), input(:right))), :lte},
-          {quote(do: gt(input(:left), input(:right))), :gt}
+          {quote(do: input(:left) == input(:right)), :==},
+          {quote(do: input(:left) != input(:right)), :!=},
+          {quote(do: input(:left) < input(:right)), :<},
+          {quote(do: input(:left) <= input(:right)), :<=},
+          {quote(do: input(:left) > input(:right)), :>},
+          {quote(do: input(:left) >= input(:right)), :>=}
         ] do
-      assert {:ok, %Jido.Expr{operator: ^operator}} = Expression.parse_condition(expression)
+      assert {:ok, %Jido.Expr{operator: ^operator}} = ValueParser.parse_condition(expression)
     end
   end
 
@@ -181,7 +180,7 @@ defmodule JidoActionTest.Flow.DSL.ExpressionTest do
     ]
 
     for expression <- invalid do
-      assert {:error, error} = Expression.parse(expression)
+      assert {:error, error} = ValueParser.parse(expression)
 
       assert Enum.any?(
                ["unsupported Flow expression", "duplicate Flow map key"],

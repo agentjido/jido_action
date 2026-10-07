@@ -155,7 +155,7 @@ defmodule Jido.Flow.RefPathAuthoringTest do
             %InvalidDefinitionError{
               message: "flow expression contains an invalid reference path",
               details: %{path: [:nested, 0], segment: ^segment}
-            }} = Jido.Flow.Expression.validate(params)
+            }} = Jido.Flow.Value.validate(params)
 
     assert {:error,
             %InvalidDefinitionError{details: %{path: [:params, :nested, 0], segment: ^segment}}} =

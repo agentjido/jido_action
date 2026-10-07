@@ -231,7 +231,7 @@ defmodule JidoActionTest.Fixtures.Execution.SystemLoad do
         options: [
           Choice.Option.new!(
             name: "positive",
-            condition: Expr.new!(:gte, [Ref.input(:value), 0]),
+            condition: Expr.new!(:>=, [Ref.input(:value), 0]),
             action: HeldWork,
             params: %{id: :choice, value: Ref.result("child", :value)}
           )
@@ -274,15 +274,15 @@ defmodule JidoActionTest.Fixtures.Execution.SystemLoad do
           action: HeldWork,
           params: %{
             id: :reduce,
-            value: Expr.new!(:add, [Ref.accumulator(:value), Ref.item(:value)])
+            value: Expr.new!(:+, [Ref.accumulator(:value), Ref.item(:value)])
           }
         ),
         Iterate.new!(
           name: "iterate",
           state: state,
           action: HeldWork,
-          params: %{id: :iterate, value: Expr.new!(:add, [Ref.state(:count), 1])},
-          completion: Expr.new!(:gte, [Ref.iteration_index(), 2]),
+          params: %{id: :iterate, value: Expr.new!(:+, [Ref.state(:count), 1])},
+          completion: Expr.new!(:>=, [Ref.iteration_index(), 2]),
           max_iterations: 2
         )
       ],

@@ -1,7 +1,7 @@
 defmodule JidoActionTest.Flow.DSL.ConditionExamplesTest do
   use ExUnit.Case, async: true
 
-  alias Jido.Flow.DSL.Expression
+  alias Jido.Flow.DSL.ValueParser
 
   defmodule BooleanRoute do
     use Jido.Flow,
@@ -36,9 +36,9 @@ defmodule JidoActionTest.Flow.DSL.ConditionExamplesTest do
   end
 
   test "not accepts both conditions and Boolean references" do
-    assert {:ok, _} = Expression.parse_condition(quote(do: not (input(:enabled) == true)))
-    assert {:ok, _} = Expression.parse_condition(quote(do: state(:done) == false))
-    assert {:ok, _} = Expression.parse_condition(quote(do: not input(:enabled)))
-    assert {:ok, _} = Expression.parse_condition(quote(do: not state(:done)))
+    assert {:ok, _} = ValueParser.parse_condition(quote(do: not (input(:enabled) == true)))
+    assert {:ok, _} = ValueParser.parse_condition(quote(do: state(:done) == false))
+    assert {:ok, _} = ValueParser.parse_condition(quote(do: not input(:enabled)))
+    assert {:ok, _} = ValueParser.parse_condition(quote(do: not state(:done)))
   end
 end

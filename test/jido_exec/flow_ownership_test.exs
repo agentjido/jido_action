@@ -5,7 +5,7 @@ defmodule JidoActionTest.Exec.FlowOwnershipTest do
     assert Code.ensure_loaded?(Jido.Exec.Flow.Compiler)
     assert Code.ensure_loaded?(Jido.Exec.Flow.Compiled)
     assert Code.ensure_loaded?(Jido.Exec.Flow.Collection)
-    assert Code.ensure_loaded?(Jido.Exec.Flow.Expression)
+    assert Code.ensure_loaded?(Jido.Exec.Flow.ValueResolver)
     assert Code.ensure_loaded?(Jido.Exec.Flow.Frame)
     assert Code.ensure_loaded?(Jido.Exec.Flow.Iterator)
     assert Code.ensure_loaded?(Jido.Exec.Flow.Payload)

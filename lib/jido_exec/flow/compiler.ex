@@ -10,7 +10,7 @@ defmodule Jido.Exec.Flow.Compiler do
   alias Jido.Exec.Flow.Choice, as: ChoiceRuntime
   alias Jido.Exec.Flow.Collection
   alias Jido.Exec.Flow.Frame
-  alias Jido.Exec.Flow.Expression
+  alias Jido.Exec.Flow.ValueResolver
   alias Jido.Exec.Flow.Payload
   alias Jido.Exec.Flow.Iterator, as: IterateRuntime
   alias Jido.Exec.Flow.Compiler.SourceMap
@@ -414,7 +414,7 @@ defmodule Jido.Exec.Flow.Compiler do
     params_step =
       runtime_step_named(params_name, state, :subflow_input, fn parent, runtime ->
         local = component_state(subflow, parent, runtime)
-        params = Expression.resolve(subflow.params, local) |> unwrap_ok!()
+        params = ValueResolver.resolve(subflow.params, local) |> unwrap_ok!()
         {:jido_flow_input, params, local.input_frame}
       end)
 
@@ -522,7 +522,7 @@ defmodule Jido.Exec.Flow.Compiler do
         local = output_state(output, parent, runtime)
 
         output =
-          Expression.resolve(output, %{
+          ValueResolver.resolve(output, %{
             input: local.input,
             context: local.context,
             results: local.results
@@ -547,7 +547,7 @@ defmodule Jido.Exec.Flow.Compiler do
   end
 
   defp child_output_parents(child_state) do
-    refs = child_state.flow.output |> Flow.Expression.result_refs() |> Enum.uniq() |> Enum.sort()
+    refs = child_state.flow.output |> Flow.Value.result_refs() |> Enum.uniq() |> Enum.sort()
 
     case refs do
       [] -> child_state.root_parent
@@ -557,7 +557,7 @@ defmodule Jido.Exec.Flow.Compiler do
   end
 
   defp output_state(output, parent, runtime) do
-    deps = output |> Flow.Expression.result_refs() |> Enum.uniq() |> Enum.sort()
+    deps = output |> Flow.Value.result_refs() |> Enum.uniq() |> Enum.sort()
     dependency_state(deps, deps, parent, runtime)
   end
 
@@ -690,7 +690,7 @@ defmodule Jido.Exec.Flow.Compiler do
   defp dependency_values(names, parent), do: Enum.zip(names, List.wrap(parent))
 
   defp resolve_and_run(state, expression, instruction) do
-    with {:ok, params} <- Expression.resolve(expression, state),
+    with {:ok, params} <- ValueResolver.resolve(expression, state),
          {:ok, output, effects} <-
            Target.run(
              instruction,
@@ -706,7 +706,7 @@ defmodule Jido.Exec.Flow.Compiler do
   end
 
   defp run_dispatch(dispatch, state) do
-    with {:ok, params} <- Expression.resolve(dispatch.params, state),
+    with {:ok, params} <- ValueResolver.resolve(dispatch.params, state),
          {:ok, decision, decision_effects} <-
            Target.run(
              Target.at(Target.dispatch(dispatch, :decision), []),

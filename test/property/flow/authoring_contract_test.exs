@@ -223,8 +223,8 @@ defmodule JidoActionTest.Property.Flow.AuthoringContractTest do
           end
 
         value =
-          Enum.reduce(refs, Expr.new!(:add, [Ref.input(:seed), delta]), fn parent, value ->
-            Expr.new!(:add, [value, Ref.result(parent, :value)])
+          Enum.reduce(refs, Expr.new!(:+, [Ref.input(:seed), delta]), fn parent, value ->
+            Expr.new!(:+, [value, Ref.result(parent, :value)])
           end)
 
         Step.new!(

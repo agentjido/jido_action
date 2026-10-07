@@ -123,7 +123,7 @@ defmodule JidoActionBench.ComponentCases do
         action: Accumulate,
         params: %{value: Ref.state(:value), amount: 1},
         state: Iterate.State.new!(initial: %{value: 0}, update: Ref.body_result()),
-        completion: Expr.new!(:eq, [Ref.state(:value), count]),
+        completion: Expr.new!(:==, [Ref.state(:value), count]),
         max_iterations: max(count, 1)
       )
 
@@ -139,7 +139,7 @@ defmodule JidoActionBench.ComponentCases do
             index <- 1..count,
             do: [
               name: "o#{index}",
-              condition: Expr.new!(:eq, [Ref.input(:selected), index]),
+              condition: Expr.new!(:==, [Ref.input(:selected), index]),
               action: Echo,
               params: %{value: index}
             ]
