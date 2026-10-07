@@ -74,6 +74,14 @@ entries return to the normal automated changelog process.
 
 ## Unreleased
 
+### Added
+
+- Add an optional `Jido.Exec.Invocation` host protocol to `run/4` and
+  `run_async/4`. A host can allow Action work, supply a confirmed normalized
+  receipt, or accept a fresh receipt. The protocol supplies occurrence identity
+  and execution evidence. It does not supply storage, retry, recovery policy,
+  Execution snapshots, or a durable workflow engine.
+
 ### Fixed
 
 - Include each nested Flow's full component path in compilation identity, so

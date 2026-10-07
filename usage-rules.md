@@ -174,8 +174,33 @@ Use `jido_action` for validated work and data-first composition:
   `handle_message/2` in OTP callbacks. Await, message handling, and cancellation
   are alternative one-shot terminal consumers. An await timeout cancels that
   call.
+- Use the optional `invocation:` configuration only when a host must record or
+  reuse complete normalized Action outcomes. The host module implements
+  `Jido.Exec.Invocation`. It receives one callback before Action validation and
+  one callback after a fresh normalized result.
+- Treat replay as a new `run/4` or `run_async/4` call. Flow orchestration runs
+  again. A host-approved receipt replaces Action input validation, `run/2`, and
+  output validation for that occurrence.
+- Use the structured occurrence ID for receipt lookup. Use compatibility,
+  Action, resolved parameters, and executable evidence for a separate host
+  compatibility decision. Raw context is not in the descriptor. Context values
+  that authored bindings copy into parameters remain in those parameters.
+- Make replayed orchestration deterministic for the selected inputs. Flow does
+  not check this condition. Validators, expressions, materializers, state
+  functions, and other work outside the Action receipt boundary can run again.
+- Keep durable intent, receipt storage, encoding, recovery, and deferred effect
+  delivery in the host. Exec cannot decide if an external effect occurred when
+  the call stops before the host accepts its receipt. It supplies no retry,
+  exactly-once, or deduplication policy.
+- Treat receipt payloads as Elixir values. Exceptions, streams, PIDs,
+  references, functions, and effect terms are not automatically portable.
+- Structural Subflows and permitted continuations keep invocation identity in
+  the same Exec call. A nested Exec call made inside an Action is a separate,
+  opaque call. It gets no automatic identity from its parent.
 - Use `start/4`, `ready/1`, `step/1`, `step/2`, `wave/1`, `continue/1`, and
   `result/1` for a Flow or an Instruction with a Flow target.
+- Do not pass `invocation:` to `start/4`. Step-wise Execution values are
+  in-memory state and are not replay checkpoints.
 - Treat values from `ready/1`, `step/1`, `step/2`, and `wave/1` as small
   `Jido.Exec.Work` descriptions. Support work remains visible.
 - Use `Jido.Exec.native/1` for advanced, read-only native inspection. Native

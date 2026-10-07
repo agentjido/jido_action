@@ -100,6 +100,21 @@ regressions remain in `test/jido_exec/` and `test/system/`.
 | EFFECT-002 | Failure, timeout, and cancellation return no executable effect batch. | Each failure position after prior work; invalid output/effects; Choice failure, collected failed items, exhaustion, await and complete-call timeouts, cancellation. |
 | OBS-001 | Started telemetry lifecycles close once at a handled terminal result with the documented execution ID and measurements. | Nested success/failure, serial/concurrent execution, and explicit cancellation; start/terminal counts, stable metadata, one execution ID, non-negative integer durations. |
 
+Invocation replay has fixed contract evidence. Its primary tests are under
+`test/jido_exec/` and `test/system/`.
+
+| ID | Public promise | Primary test owners |
+| --- | --- | --- |
+| INVOKE-001 | The optional host callbacks wrap the complete normalized Action boundary. Replay skips Action validation and work. Fresh work is not released before receipt acceptance. | `invocation_contract_test.exs`, `action_invocation_test.exs`, `invocation_replay_test.exs` |
+| INVOKE-002 | Each Action occurrence has a versioned structured key. The descriptor separates that key from compatibility, executable evidence, Action, and resolved parameters. Raw context is absent. | `invocation_contract_test.exs`, `invocation_replay_test.exs` |
+| INVOKE-003 | Host refusal, host failure, invalid replay, and missing worker results interrupt the complete opted-in call. They do not become collected Action errors or select a recovery policy. | `invocation_interruption_test.exs`, `invocation_concurrency_test.exs`, `invocation_contract_test.exs` |
+| INVOKE-004 | A new Exec call can rebuild Flow state from confirmed Action receipts at every supported position. Receipt lookup is independent of completion order. | `invocation_replay_test.exs`, `invocation_restart_test.exs` |
+| INVOKE-005 | The protocol is optional. Calls without it keep the existing Action, Instruction, Flow, async, step-wise, continuation, and Output contracts. `start/4` rejects it. | `invocation_contract_test.exs`, `action_execution_test.exs`, `instruction_execution_test.exs`, `flow_contract_test.exs`, `async_execution_test.exs`, `terminal_transition_test.exs`, `effects_test.exs` |
+
+Lifecycle telemetry can cover a replayed Action position. It does not prove
+that Action validators, the Action callback, or invocation host callbacks ran.
+Host receipt data owns that distinction.
+
 The generated command model remains sequential and uses independent Steps.
 The fuzz variant includes failed terminal states, foreign tokens, and competing
 claims with explicit callback barriers. It does not model dependent support work
@@ -156,10 +171,11 @@ a measured record with contract IDs, so both can be traced to a public promise.
 
 ## Fuzz Contract Plan
 
-All 15 cases in this plan are implemented. They map to all 30 registered
-promises. A passing case provides evidence for its tested clauses, not proof
-of the complete contract. One case can check several related contracts. Each
-case has an expected result and a generator that can reduce a failure.
+All 15 cases in this plan are implemented. They map to all 30 property and fuzz
+promises. The five `INVOKE` promises use the fixed tests listed above. A
+passing case provides evidence for its tested clauses, not proof of the
+complete contract. One case can check several related contracts. Each case has
+an expected result and a generator that can reduce a failure.
 
 | Case and status | Contract IDs | Generated variation | Expected result or check |
 | --- | --- | --- | --- |

@@ -62,6 +62,8 @@ defmodule JidoActionTest.Exec.InvocationContractTest do
   end
 
   describe "public protocol" do
+    @describetag contracts: ["INVOKE-001", "INVOKE-002"]
+
     test "defines exactly the two host callbacks" do
       assert Invocation.behaviour_info(:callbacks) |> Enum.sort() ==
                [after_invoke: 2, before_invoke: 2]
@@ -83,6 +85,8 @@ defmodule JidoActionTest.Exec.InvocationContractTest do
   end
 
   describe "configuration validation" do
+    @describetag contracts: ["INVOKE-005"]
+
     test "rejects missing fields and invalid run keys" do
       valid = config()
 
@@ -131,6 +135,21 @@ defmodule JidoActionTest.Exec.InvocationContractTest do
                Exec.start(flow, %{}, %{}, invocation: invocation)
     end
 
+    test "keeps existing option defaults when invocation is omitted" do
+      assert :ok = Options.validate_action([], :action)
+      assert :ok = Options.validate_action([], :instruction)
+
+      assert {:ok, run_opts} = Options.validate_flow([], :run)
+      assert run_opts[:max_concurrency] == 8
+      assert run_opts[:max_continuations] == 256
+      refute Keyword.has_key?(run_opts, :invocation)
+
+      assert {:ok, start_opts} = Options.validate_flow([], :start)
+      assert start_opts[:max_concurrency] == 8
+      refute Keyword.has_key?(start_opts, :max_continuations)
+      refute Keyword.has_key?(start_opts, :invocation)
+    end
+
     test "uses the existing target error type for invalid invocation options" do
       invalid = %{host: Host}
 
@@ -149,6 +168,8 @@ defmodule JidoActionTest.Exec.InvocationContractTest do
   end
 
   describe "callback validation" do
+    @describetag contracts: ["INVOKE-001", "INVOKE-003"]
+
     test "calls valid host callbacks with the configured reference" do
       config = config(ref: self())
       invocation = invocation(config)
@@ -234,6 +255,8 @@ defmodule JidoActionTest.Exec.InvocationContractTest do
   end
 
   describe "receipt structure" do
+    @describetag contracts: ["INVOKE-002"]
+
     test "accepts every version 1 occurrence selector and executable evidence shape" do
       occurrence_ids = [
         occurrence_id(),
@@ -400,6 +423,8 @@ defmodule JidoActionTest.Exec.InvocationContractTest do
   end
 
   describe "interruption error" do
+    @describetag contracts: ["INVOKE-003"]
+
     test "exposes and maps the documented fields" do
       id = occurrence_id()
       error = Exec.Error.interrupted_error(:replay, :invalid_receipt, id)

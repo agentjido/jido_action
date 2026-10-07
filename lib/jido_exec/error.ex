@@ -4,7 +4,8 @@ defmodule Jido.Exec.Error do
 
   Action and Flow failures keep their original error types. These errors cover
   zero-timeout rejection before target resolution, handle validation, message
-  handling, waiting, cancellation, and control process failures.
+  handling, waiting, cancellation, invocation host interruption, and control
+  process failures.
   """
 
   @type details_input :: map() | keyword()
@@ -66,7 +67,13 @@ defmodule Jido.Exec.Error do
   end
 
   defmodule InterruptedError do
-    @moduledoc "Error for an interrupted Action invocation protocol."
+    @moduledoc """
+    Error for an interrupted Action invocation protocol.
+
+    The stage reports where Exec observed the interruption. The reason and
+    invocation ID are diagnostic data. This error does not state if an
+    external effect occurred. It does not give retry or recovery advice.
+    """
     defexception message: "Action invocation interrupted", details: %{}
 
     @type stage :: :before_invoke | :after_invoke | :replay | :worker

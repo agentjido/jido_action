@@ -46,6 +46,7 @@ This foundation keeps the action boundary small:
 - `Jido.Instruction` captures one requested executable call as data.
 - `Jido.Flow` composes actions as a validated graph with steps and Choices.
 - `Jido.Flow.Extension` adds compile-time macros that lower to the normal Flow DSL.
+- `Jido.Exec.Invocation` defines the optional Action receipt host protocol.
 - `Jido.Exec` runs actions, instructions, and Flows, including asynchronous
   run-to-completion calls and step-wise Flows.
 
@@ -201,6 +202,25 @@ limit for the complete execution.
 
 `cancel/1` stops active in-memory Action and Flow work. It cannot undo side
 effects that already completed.
+
+## Replay Action Invocations
+
+`run/4` and `run_async/4` accept an optional `invocation:` configuration. A
+module that implements `Jido.Exec.Invocation` can allow fresh Action work,
+supply a prior normalized receipt, or interrupt the complete call. Exec asks
+the host to accept each fresh receipt before its result reaches later Flow
+work or the root caller.
+
+Replay starts a new Exec call. Flow orchestration runs again, and the host can
+replace confirmed Action work with saved outcomes. The host owns compatibility,
+durability, encoding, recovery, and effect delivery. The orchestration must be
+deterministic for the inputs that the host selects.
+
+This is an Action receipt edge. It is not storage, automatic retry, an
+Execution snapshot, an exactly-once effect guarantee, or a durable workflow
+engine. `start/4` does not accept the option. See
+[Replay Action Invocations](guides/execution.md#replay-action-invocations) for
+the callback, identity, receipt, uncertainty, and payload contracts.
 
 ## Capture A Call Frame
 

@@ -278,6 +278,7 @@ All targets accept:
 | `task_supervisor` | `Jido.Exec.TaskSupervisor` | Local Task.Supervisor reference for the call control Task. |
 | `max_continuations` | `256` | Maximum continuations in one complete call. |
 | `max_concurrency` | `8` | Bounds ready Flow work if the chain runs a Flow. |
+| `invocation` | none | Optional `Jido.Exec.Invocation` host configuration for Action receipts. |
 
 Use `max_concurrency: 1` for serial Flow scheduling. A value greater than `1`
 runs independent ready work concurrently, up to the selected limit.
@@ -295,7 +296,228 @@ continuation limit cover the full chain. See
 
 `start/4` accepts `task_supervisor` and `max_concurrency`. It does not accept a timeout or
 Dispatch because a paused execution cannot run a continuation as part of one
-complete call.
+complete call. It also rejects `invocation` through normal option validation.
+An in-memory Execution is not a replay checkpoint.
+
+## Replay Action Invocations
+
+`run/4` and `run_async/4` accept one optional invocation host configuration:
+
+```elixir
+invocation = %{
+  host: MyApp.InvocationHost,
+  ref: host_ref,
+  run_key: "order-123",
+  compatibility: %{release: "2026-10"}
+}
+
+Jido.Exec.run(MyApp.OrderFlow, input, context, invocation: invocation)
+```
+
+The map has exactly these four fields. The `host` module implements
+`Jido.Exec.Invocation`. The `ref` and
+`compatibility` values are opaque host terms. The `run_key` is a nonempty
+binary that identifies the logical run for the host. The configuration applies
+to every Action in the complete call, including permitted continuations.
+It covers root Actions, Action Instructions, Steps, Choice targets, Map items,
+Reduce items, Iterate bodies, structural Subflows, and both Dispatch Actions.
+Flow Instructions, Flow modules, and runtime Flow values use the same Action
+edges inside their Flow work.
+
+Exec calls two functions around the complete normalized Action boundary:
+
+```elixir
+@callback before_invoke(invocation, ref) ::
+            :execute
+            | {:replay, receipt}
+            | {:interrupt, reason}
+            | {:error, reason}
+
+@callback after_invoke(receipt, ref) ::
+            :ok
+            | {:interrupt, reason}
+            | {:error, reason}
+```
+
+`before_invoke/2` runs before Action input validation, `run/2`, and output
+validation. `:execute` permits all three phases. `{:replay, receipt}` replaces
+all three phases with the normalized outcome in that receipt. Exec does not
+call `after_invoke/2` for replayed work.
+
+For fresh work, Exec creates a receipt after the normalized Action result.
+It calls `after_invoke/2` before that result can reach a dependent Flow
+component or the root caller. The host returns `:ok` to accept the receipt.
+An interrupt, an error return, an invalid callback return, or a callback
+failure interrupts the complete Exec call. It does not become a collected
+Action error.
+
+The callbacks run in the existing Action Task. Concurrent Flow Actions can
+call the host at the same time. The host must use the invocation key for each
+lookup. It must not depend on callback completion order.
+
+### Test Host Example
+
+This small host sends callback data to a test process. It is an observation
+fixture. It is not a storage adapter.
+
+```elixir
+defmodule MyApp.TestInvocationHost do
+  @behaviour Jido.Exec.Invocation
+
+  @impl true
+  def before_invoke(invocation, test_pid) do
+    send(test_pid, {:before_invoke, invocation})
+    :execute
+  end
+
+  @impl true
+  def after_invoke(receipt, test_pid) do
+    send(test_pid, {:after_invoke, receipt})
+    :ok
+  end
+end
+
+opts = [
+  invocation: %{
+    host: MyApp.TestInvocationHost,
+    ref: self(),
+    run_key: "test-run-1",
+    compatibility: :test_version
+  }
+]
+
+{:ok, result} = Jido.Exec.run(MyApp.Actions.Work, %{}, %{}, opts)
+```
+
+### Descriptor And Receipt Data
+
+Each callback receives version 1 data. An invocation descriptor has this
+shape:
+
+```elixir
+%{
+  version: 1,
+  id: %{
+    version: 1,
+    run_key: "order-123",
+    chain_index: 0,
+    component_path: ["load", "items"],
+    role: :map,
+    selector: %{index: 2}
+  },
+  compatibility: compatibility,
+  evidence: %{
+    executable: %{kind: :flow, form: :module, module: MyApp.OrderFlow},
+    flow_semantic_digest: semantic_digest,
+    compilation_digest: compilation_digest
+  },
+  action: MyApp.Actions.LoadItem,
+  params: resolved_params
+}
+```
+
+The occurrence ID is independent of Task PIDs, telemetry IDs, completion
+order, and native workflow revisions. The initial root segment has chain index
+zero. Each accepted continuation increases it by one. `component_path` keeps
+the full list of authored component names. It includes all structural Subflow
+names.
+
+The role and selector show the Action position:
+
+| Role | Selector |
+| --- | --- |
+| `:root_action` | `nil` |
+| `:step` | `nil` |
+| `:choice` | `%{kind: :option, name: name}` or `%{kind: :fallback}` |
+| `:map` | `%{index: zero_based_source_index}` |
+| `:reduce` | `%{index: zero_based_source_index}` |
+| `:iterate` | `%{index: zero_based_iteration_index}` |
+| `:dispatch` | `%{phase: :decision}` or `%{phase: :expander}` |
+
+`evidence.executable` describes the current root or continuation segment. Flow
+segments also include the semantic and compilation digests from the prepared
+Flow. These digests do not identify all Action code or helper code. Root Action
+digests are `nil`. A Flow module uses `form: :module` and its module name. A
+runtime Flow value uses `form: :value` and `module: nil`.
+
+The descriptor has no raw context. `params` contains the resolved parameters
+before Action input validation. If a Flow binding copies a context value into
+parameters, Exec keeps that value unchanged in `params`.
+
+A receipt keeps the historical descriptor and one normalized outcome:
+
+```elixir
+%{version: 1, invocation: invocation, outcome: outcome}
+```
+
+The outcome is one of:
+
+```elixir
+%{kind: :ok, output: output, effects: effects}
+%{kind: :error, phase: :input | :execution | :output, error: exception}
+%{kind: :continue, input: input, target: target}
+```
+
+Success output is a map or a valid `Jido.Action.Output`. Effects are a proper
+list in canonical Action order. A continuation input is a map. The target is
+the raw target returned by the Action.
+
+On replay, Exec checks the protocol versions, exact occurrence ID, descriptor
+shape, and normalized outcome shape. It does not require the historical and
+current compatibility values, Action modules, parameters, or evidence to be
+equal. The host compares those values and decides if it can return the receipt.
+
+### Replay Model And Host Duties
+
+Replay starts a new `run/4` or `run_async/4` call. Exec does not restore an
+Execution. It materializes and runs orchestration again. At each Action edge,
+the host can return a confirmed receipt. Exec then uses the saved Action
+outcome. Work outside the Action boundary can run again. This work includes
+Flow expressions, branching, parameter binding, Reduce accumulation, Iterate
+state updates and completion checks, Flow validation, and materialization.
+Flow output validation also runs again. An empty Flow has no Action edge, so it
+does not call the invocation host.
+
+The host and user must make this orchestration deterministic, or control its
+changing inputs. Flow structure alone does not prove determinism. A changing
+deadline, context value, validator, materializer, dispatch function, or state
+function can change the replay path.
+
+Structural Subflows use the full parent component path. Continuation targets
+stay in the same Exec call and use the next chain index. If an Action calls
+`Jido.Exec.run/4` or `run_async/4`, that nested call is a separate call. Its
+work is opaque to the parent invocation. It gets no automatic child identity,
+and this protocol cannot resume code inside an Action.
+
+There is an uncertainty window after Action work and before the host accepts
+the receipt. An external effect can finish before `after_invoke/2` returns
+`:ok`. If the call stops in this window, Exec reports an interruption. It does
+not state whether the effect occurred and it does not select a retry or
+recovery action. The host must resolve this state. A host can also accept a
+receipt before the caller receives the result. A new Exec call can then replay
+that accepted receipt.
+
+The host owns:
+
+- compatibility decisions;
+- durable intent and receipt storage when durability is required;
+- receipt encoding and payload limits;
+- recovery for missing, unresolved, or uncertain work; and
+- delivery and deduplication of deferred effect requests.
+
+A replayed success can return its deferred effect requests again. Exec keeps
+their canonical order. The host must make durable delivery and deduplication
+decisions.
+
+Invocation and receipt maps use portable structural identity. Their payloads
+keep normal Elixir value semantics. Exceptions, streams, PIDs, references,
+functions, opaque Output values, and effect terms are not automatically
+portable. Exec does not enumerate a stream or convert an exception map back
+into an exception for storage.
+
+This package supplies no journal, database, storage adapter, automatic retry,
+backoff, compensation, lease, queue, exactly-once effect guarantee, Execution
+snapshot, or durable engine.
 
 ## Read The Remaining Time
 
@@ -443,6 +665,12 @@ failures to that controller. The controller stops the worker group on a
 call failure and keeps the only span tracker in its existing receive loop.
 Telemetry needs no process or ETS table.
 
+Invocation replay keeps the normal lifecycle telemetry for the current Exec
+call. A start or stop event can cover a replayed Action position. These events
+do not prove that `before_invoke/2` returned `:execute`, or that Action input
+validation, `run/2`, output validation, or `after_invoke/2` ran. Use the host's
+own receipt data when that distinction matters.
+
 A blocked start handler delays the Action body. A blocked terminal handler
 delays completion. A finite deadline can kill a worker blocked in a handler,
 but handlers invoked by the controller during cleanup can delay the response
@@ -532,6 +760,7 @@ remote cleanup.
 
 Exec provides one in-memory execution session. It provides validation, process
 ownership, whole-call timeout, owner-bound async handles, optional
-concurrency, and explicit supervisor routing. It does not provide automatic retry,
-per-node deadlines, durable cancellation, persistence, rewind, queues,
-recovery, or distributed coordination.
+concurrency, explicit supervisor routing, and an optional Action receipt edge.
+It does not provide automatic retry, per-node deadlines, durable cancellation,
+persistence, rewind, queues, recovery, exactly-once effects, or distributed
+coordination.

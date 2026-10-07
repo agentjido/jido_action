@@ -61,7 +61,16 @@ defmodule Jido.Exec do
 
   Execution keeps Jido Action and Flow telemetry. Map, Reduce, and Iterate can
   also emit item or iteration telemetry. Native Runic support nodes do not get
-  an artificial Jido component lifecycle.
+  an artificial Jido component lifecycle. With invocation replay, lifecycle
+  telemetry can describe a replayed Action position. It does not prove that
+  Action validation or the Action callback ran.
+
+  `run/4` and `run_async/4` accept an optional `:invocation` configuration.
+  A `Jido.Exec.Invocation` host can allow Action work, supply a prior receipt,
+  or accept a fresh receipt. Replay starts a new Exec call. It reruns
+  orchestration and replaces host-approved Action work with normalized receipt
+  outcomes. This edge does not store receipts or provide a durable engine.
+  `start/4` rejects the option because an Execution is only in-memory state.
 
   Telemetry handlers run synchronously in the process that emits the event.
   Supervisor startup also uses a normal synchronous OTP call. Blocked startup
@@ -146,6 +155,12 @@ defmodule Jido.Exec do
   call. The default `:max_continuations` value is `256`. Its valid range is 0
   through 10,000. This limit and the complete-call timeout stop infinite
   continuation chains.
+
+  The optional `invocation:` map must contain exactly `:host`, `:ref`,
+  `:run_key`, and `:compatibility`. It applies to each Action in the complete call. The host
+  implements `Jido.Exec.Invocation`. See that module and the execution guide
+  for the callback and receipt contracts. `start/4` does not accept this
+  option.
   """
   @spec run(term(), map() | keyword() | nil, map() | keyword() | nil, [run_option()]) ::
           exec_result()
@@ -300,6 +315,8 @@ defmodule Jido.Exec do
   `run/4`. Use `await/2` to receive its final result, `handle_message/2` in an
   OTP callback, or `cancel/1` to stop it.
 
+  The optional invocation host protocol is also the same as `run/4`.
+
   The handle is tied to the mailbox of the process that starts the execution.
   Only that process can wait for, handle, or cancel it. These operations are
   alternative one-shot terminal consumers.
@@ -371,7 +388,8 @@ defmodule Jido.Exec do
 
   A paused execution has no running timeout. `start/4` does not accept the
   `:timeout` option. The step-wise API also does not accept retry, deadline,
-  asynchronous execution, cancellation, persistence, or rewind options.
+  asynchronous execution, cancellation, invocation replay, persistence, or
+  rewind options.
   """
   @spec start(term(), map() | keyword() | nil, map() | keyword() | nil, [start_option()]) ::
           {:ok, Execution.t()} | {:error, Exception.t()}

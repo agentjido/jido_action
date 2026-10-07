@@ -84,6 +84,38 @@ source locations, and a compilation digest. Do not store the compiled value.
 fan-in support work. Select a unit with its revision-scoped token. Use
 `Jido.Exec.native/1` for advanced, read-only native inspection.
 
+## Invocation Replay
+
+Run-to-completion calls can use the optional `Jido.Exec.Invocation` host
+protocol. The protocol records normalized Action outcomes. It does not record
+one whole Flow outcome or an Execution snapshot.
+
+Replay starts the Flow in a new Exec call. Flow materialization, validation,
+expressions, bindings, branching, Reduce accumulation, Iterate state updates,
+and Iterate completion checks run again. At each Action position, the host can
+supply a confirmed receipt. That receipt replaces Action input validation,
+the Action callback, and Action output validation.
+
+An empty Flow has no Action occurrence. It runs its normal Flow validation and
+output work without an invocation host callback.
+
+The occurrence identity includes the complete component path and the position
+inside a collection or Dispatch. Map and Reduce use the zero-based source
+index. Iterate uses the zero-based iteration index. Choice uses the selected
+option or fallback. Dispatch identifies its decision and expander Actions.
+Structural Subflows add all parent names to the component path. Thus, the same
+child Flow used in two locations gets different Action occurrence keys.
+
+Permitted continuations remain in the same complete Exec call. Each next root
+target uses a larger chain index. A nested `Jido.Exec.run/4` call made inside
+an Action is a separate call. The parent treats it as opaque Action work.
+
+The host and Flow author must make orchestration deterministic for replay.
+Flow cannot prove this condition. Changing context, deadlines, expressions,
+validators, materializers, or state functions can select different work.
+See [Replay Action Invocations](execution.md#replay-action-invocations) for the
+host callbacks, receipt shapes, and recovery limits.
+
 ## Validation And Inspection
 
 ```elixir
