@@ -73,7 +73,7 @@ Portable literals, nested maps/lists, and reference helpers remain valid.
 There is no `&&`, `||`, `!`, `===`, `!==`, power, rounding, interpolation,
 range, unary `+`, conditional statement, assignment, pipe, function call, or custom
 guard system. The fixed helpers above are the only function-shaped
-operations. Expressions are not `Jido.Executable` targets.
+operations. Expressions are not `Jido.Instruction` targets.
 
 ## Boolean Conditions And Missing Values
 

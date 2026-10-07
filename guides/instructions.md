@@ -19,6 +19,7 @@ The fields have these roles:
 
 | Field | Meaning |
 | --- | --- |
+| `kind` | The resolved `:action` or `:flow` kind. |
 | `target` | The Action or Flow to execute. |
 | `params` | Input for the target. |
 | `context` | Caller-owned runtime data. |
@@ -42,6 +43,11 @@ flow_instruction = Jido.Instruction.new!(target: MyApp.Flows.DeliverOrder)
 The constructor accepts maps with atom keys or keyword lists. Params, context,
 and metadata can be maps, keyword lists, or nil. Nil becomes an empty map.
 The target is required; explicit nil is an invalid executable target.
+
+An existing Instruction can be the target of another Instruction. Construction
+flattens it to one value. Outer params, context, and metadata replace equal
+inner keys. Exec refreshes `kind` from the loaded target module before each
+execution, so a retained kind does not select the adapter after a code reload.
 
 ## Execute An Instruction
 
@@ -77,3 +83,7 @@ An Instruction does not contain Flow structure or runtime policy. It is not a
 general JSON form because module atoms and runtime Flow values do not have one
 portable representation. Use `Jido.Flow.Codec` to store a Flow definition.
 Choose an application-owned format if you must store Instructions.
+
+Flow components keep module targets and their own parameter expressions. They
+do not accept bound Instructions. Direct Exec calls and Action continuations do
+accept bound Instructions.

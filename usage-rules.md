@@ -29,11 +29,12 @@ Use `jido_action` for validated work and data-first composition:
 
 - Use `Jido.Instruction` when one requested executable call must be data before
   execution.
-- Store only the executable target, params, context, and caller metadata in an
-  Instruction.
+- Store only the resolved kind, target, params, context, and caller metadata in
+  an Instruction.
 - Use an Action module, Flow module, or runtime Flow value as the target.
 - Pass execution options directly to `Jido.Exec`.
-- Validate the executable contract explicitly when a caller needs that guarantee.
+- Use `Jido.Instruction.validate/1` when a caller needs an explicit target
+  contract check.
 
 ## Validation
 
@@ -61,8 +62,8 @@ Use `jido_action` for validated work and data-first composition:
 - Use `Jido.Flow.Extension` for shared authoring macros that expand to normal
   Flow declarations. Configure extensions with the static `extensions:` list.
   Do not add component types or runtime behavior through an extension.
-- Resolve target kinds with `Jido.Executable`. A Flow requires `flow/0` and
-  validation callbacks; its generated `run/2` is a convenience function.
+- Resolve target kinds with `Jido.Instruction`. An Action module implements
+  `Jido.Action`. A Flow module implements `Jido.Flow` and provides `flow/0`.
 - Add `:jido_action` to `.formatter.exs` `import_deps` to keep DSL declarations
   without parentheses. No formatter plugin is required.
 - Give every component a stable string name.

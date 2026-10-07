@@ -38,12 +38,10 @@ See [Process Ownership](guides/execution.md#process-ownership).
 
 This foundation keeps the action boundary small:
 
-- `Jido.Executable` is the advanced descriptor API for the common Action and
-  Flow target contract.
 - `Jido.Action` defines a named action with Zoi input and output schemas.
 - `Jido.Action.Inline` lets host DSLs compile inline bodies to normal Actions.
 - `Jido.Expr` defines fixed, data-only operations for Flow and host DSLs.
-- `Jido.Instruction` captures one requested executable call as data.
+- `Jido.Instruction` resolves one Action or Flow target and captures its call data.
 - `Jido.Flow` composes actions as a validated graph with steps and Choices.
 - `Jido.Flow.Extension` adds compile-time macros that lower to the normal Flow DSL.
 - `Jido.Exec.Invocation` defines the optional Action receipt host protocol.
