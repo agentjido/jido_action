@@ -214,10 +214,7 @@ defmodule JidoAction.MixProject do
           Jido.Action.Inline,
           Jido.Action.Output
         ],
-        "Executable API": [
-          Jido.Executable,
-          Jido.Instruction
-        ],
+        "Execution Values": [Jido.Instruction],
         "Flow API": [
           Jido.Flow,
           Jido.Flow.Codec,

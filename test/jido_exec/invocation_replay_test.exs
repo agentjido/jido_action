@@ -21,9 +21,7 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
   alias JidoActionTest.Fixtures.Execution.InvocationProbe, as: Probe
 
   defmodule RepeatedCollectionChild do
-    @behaviour Jido.Executable
-
-    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+    @behaviour Jido.Flow
 
     def flow do
       Flow.new!(
@@ -46,9 +44,7 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
   end
 
   defmodule ValidatedIterateFlow do
-    @behaviour Jido.Executable
-
-    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+    @behaviour Jido.Flow
 
     def flow do
       schema = Zoi.map() |> Zoi.transform({Loop, :state_transform, []})
@@ -123,10 +119,6 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
 
   defmodule ListParamsProbe do
     @behaviour Jido.Action
-    @behaviour Jido.Executable
-
-    @impl true
-    def __jido_executable__, do: Jido.Executable.action(__MODULE__)
 
     @impl true
     def validate_params([observer, value]) do
@@ -148,9 +140,7 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
   end
 
   defmodule ValidatedEmptyFlow do
-    @behaviour Jido.Executable
-
-    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+    @behaviour Jido.Flow
 
     def flow do
       Flow.new!(

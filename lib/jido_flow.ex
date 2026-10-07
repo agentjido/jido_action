@@ -110,7 +110,7 @@ defmodule Jido.Flow do
   operation materializes it once. Put changing runtime data in Flow input or
   context.
 
-  Flow modules implement `Jido.Executable` and provide their definition through
+  Flow modules implement `Jido.Flow` and provide their definition through
   `flow/0`. The generated `run/2` delegates to `Jido.Exec` with default options.
 
   A Choice is one Flow component. It evaluates data-only conditions in authored
@@ -166,6 +166,16 @@ defmodule Jido.Flow do
 
   @enforce_keys Zoi.Struct.enforce_keys(@schema)
   defstruct Zoi.Struct.struct_fields(@schema)
+
+  @doc "Returns the stable canonical Flow value owned by a Flow module."
+  @callback flow() :: t()
+
+  @doc "Validates Flow input parameters without running Flow work."
+  @callback validate_params(map()) :: {:ok, map()} | {:error, term()}
+
+  @doc "Validates normal Flow output or an explicit output envelope."
+  @callback validate_output(map() | Jido.Action.Output.t()) ::
+              {:ok, map() | Jido.Action.Output.t()} | {:error, term()}
 
   defmacro __using__(opts_ast) do
     quote do

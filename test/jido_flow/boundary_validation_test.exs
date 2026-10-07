@@ -2,9 +2,7 @@ defmodule Jido.Flow.BoundaryValidationTest do
   use ExUnit.Case, async: true
 
   defmodule InvalidChildFlow do
-    def __jido_executable__ do
-      Jido.Executable.flow(__MODULE__)
-    end
+    @behaviour Jido.Flow
 
     def flow do
       :invalid
@@ -24,9 +22,7 @@ defmodule Jido.Flow.BoundaryValidationTest do
   end
 
   defmodule RaisingChildFlow do
-    def __jido_executable__ do
-      Jido.Executable.flow(__MODULE__)
-    end
+    @behaviour Jido.Flow
 
     def flow do
       raise "child definition failed"
@@ -46,9 +42,7 @@ defmodule Jido.Flow.BoundaryValidationTest do
   end
 
   defmodule ThrowingChildFlow do
-    def __jido_executable__ do
-      Jido.Executable.flow(__MODULE__)
-    end
+    @behaviour Jido.Flow
 
     def flow do
       throw(:child_definition_failed)

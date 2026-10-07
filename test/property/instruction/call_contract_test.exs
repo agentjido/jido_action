@@ -27,8 +27,6 @@ defmodule JidoActionTest.Property.Instruction.CallContractTest do
   end
 
   defmodule WrongOwner do
-    def __jido_executable__,
-      do: Jido.Executable.action(JidoActionTest.Property.Instruction.CallContractTest.Echo)
   end
 
   @tag :fuzz
@@ -40,7 +38,7 @@ defmodule JidoActionTest.Property.Instruction.CallContractTest do
          "TARGET-001/fuzz-all-targets",
          "TARGET-001/fuzz-descriptors"
        ]
-  test "fuzz: call data uses shallow overrides and keeps exact executable targets", context do
+  test "fuzz: call data uses shallow overrides and keeps exact Instruction targets", context do
     value = one_of([integer(), boolean(), constant(nil), list_of(integer(), max_length: 10)])
     data = optional_map(Map.new(~w(a b c nested), &{&1, value}))
 
@@ -64,8 +62,8 @@ defmodule JidoActionTest.Property.Instruction.CallContractTest do
 
       for {target, kind} <- [{Echo, :action}, {Child, :flow}, {Child.flow(), :flow}],
           form <- [:map, :keyword] do
-        assert {:ok, %Jido.Executable{kind: ^kind, target: ^target}} =
-                 Jido.Executable.resolve(target)
+        assert {:ok, %Instruction{kind: ^kind, target: ^target}} =
+                 Instruction.resolve(target)
 
         attrs = %{target: target, params: params, context: params, metadata: metadata}
 
@@ -84,7 +82,7 @@ defmodule JidoActionTest.Property.Instruction.CallContractTest do
 
       for invalid <- [WrongOwner, String, sample["label"], sample["stored"], fn -> :invalid end] do
         assert {:error, %Jido.Action.Error.ConfigurationError{}} =
-                 Jido.Executable.resolve(invalid)
+                 Instruction.resolve(invalid)
       end
 
       for field <- [:params, :context, :metadata] do

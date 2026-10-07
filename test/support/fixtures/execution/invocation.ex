@@ -76,10 +76,6 @@ defmodule JidoActionTest.Fixtures.Execution.InvocationLoop do
   @moduledoc false
 
   @behaviour Jido.Action
-  @behaviour Jido.Executable
-
-  @impl true
-  def __jido_executable__, do: Jido.Executable.action(__MODULE__)
 
   @impl true
   def validate_params(params) do
@@ -252,13 +248,9 @@ defmodule JidoActionTest.Fixtures.Execution.InvocationProbe do
   @moduledoc false
 
   @behaviour Jido.Action
-  @behaviour Jido.Executable
 
   alias Jido.Action.Error
   alias Jido.Action.Output
-
-  @impl true
-  def __jido_executable__, do: Jido.Executable.action(__MODULE__)
 
   @impl true
   def validate_params(params) do
@@ -342,7 +334,7 @@ defmodule JidoActionTest.Fixtures.Execution.InvocationCountedFlow do
   alias Jido.Flow.Step
   alias JidoActionTest.Fixtures.Execution.InvocationProbe
 
-  def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+  @behaviour Jido.Flow
 
   def flow do
     if counter = Process.whereis(__MODULE__), do: Agent.update(counter, &(&1 + 1))
@@ -373,7 +365,7 @@ defmodule JidoActionTest.Fixtures.Execution.InvocationChildFlow do
   alias Jido.Flow.Step
   alias JidoActionTest.Fixtures.Execution.InvocationProbe
 
-  def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+  @behaviour Jido.Flow
 
   def flow do
     Flow.new!(
@@ -391,7 +383,7 @@ end
 defmodule JidoActionTest.Fixtures.Execution.InvocationInvalidFlow do
   @moduledoc false
 
-  def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+  @behaviour Jido.Flow
   def flow, do: :not_a_flow
   def validate_params(params), do: {:ok, params}
   def validate_output(output), do: {:ok, output}

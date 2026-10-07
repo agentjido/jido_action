@@ -4,7 +4,6 @@ defmodule JidoActionTest.Exec.FlowContractTest do
   @moduletag capture_log: true
 
   alias Jido.Action.Error.ExecutionFailureError, as: ActionExecutionFailureError
-  alias Jido.Executable
   alias Jido.Exec
   alias Jido.Flow
   alias Jido.Flow.Error.{InvalidDefinitionError, InvalidExecutionError}
@@ -368,7 +367,9 @@ defmodule JidoActionTest.Exec.FlowContractTest do
   test "executes a Flow module and equivalent artifact" do
     flow = FlowFixtures.math_flow!()
 
-    assert {:ok, %Executable{kind: :flow, target: MathFlow}} = Executable.resolve(MathFlow)
+    assert {:ok, %Jido.Instruction{kind: :flow, target: MathFlow}} =
+             Jido.Instruction.resolve(MathFlow)
+
     assert Exec.run(MathFlow, %{value: 3}) == Exec.run(MathFlow.flow(), %{value: 3})
     assert Exec.run(flow, %{value: 3}) == {:ok, %{value: 8}}
   end
@@ -386,9 +387,9 @@ defmodule JidoActionTest.Exec.FlowContractTest do
     assert {:error, %InvalidDefinitionError{message: message, details: details}} =
              Exec.run(flow, %{value: 3})
 
-    assert message =~ "module is not a valid Jido executable"
+    assert message =~ "module is not a valid Instruction target"
     assert details.component == "broken"
-    assert details.executable == MissingRun
+    assert details.target == MissingRun
   end
 
   test "normalizes nil and keyword Flow input and context" do

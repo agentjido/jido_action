@@ -37,7 +37,7 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
   }
 
   defmodule RaisingActionName do
-    def __jido_executable__, do: Jido.Executable.action(__MODULE__)
+    @behaviour Jido.Action
     def validate_params(params), do: {:ok, params}
     def validate_output(output), do: {:ok, output}
     def run(params, _context), do: {:ok, params}
@@ -45,7 +45,7 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
   end
 
   defmodule ThrowingActionName do
-    def __jido_executable__, do: Jido.Executable.action(__MODULE__)
+    @behaviour Jido.Action
     def validate_params(params), do: {:ok, params}
     def validate_output(output), do: {:ok, output}
     def run(params, _context), do: {:ok, params}
@@ -335,15 +335,15 @@ defmodule JidoActionTest.Exec.ActionExecutionTest do
 
   test "rejects unknown executable values with a configuration error" do
     assert {:error, %ConfigurationError{message: message}} = Exec.run(:not_a_real_executable)
-    assert message =~ "unknown executable"
+    assert message =~ "unknown Instruction target"
   end
 
   test "rejects unsupported executable values with a configuration error" do
     assert {:error, %ConfigurationError{message: message, details: details}} =
              Exec.run("not executable")
 
-    assert message =~ "unknown executable"
-    assert details.executable == "not executable"
+    assert message =~ "unknown Instruction target"
+    assert details.target == "not executable"
   end
 
   test "Exec contains Action boundary failures" do

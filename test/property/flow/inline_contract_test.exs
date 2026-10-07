@@ -5,7 +5,7 @@ defmodule JidoActionTest.Property.Flow.InlineContractTest do
   use ExUnit.Case, async: false
   use ExUnitProperties
   @moduletag :property
-  alias Jido.{Exec, Executable, Flow}
+  alias Jido.{Exec, Flow, Instruction}
   alias Jido.Flow.{Codec, Ref, Step}
   alias JidoActionTest.Property.Runtime
   alias JidoActionTest.Property.AuthoringFixtures.{Inline, Extended}
@@ -20,8 +20,8 @@ defmodule JidoActionTest.Property.Flow.InlineContractTest do
   ) do
     check(all(value <- integer(-100..100), max_runs: 40)) do
       target = Inline.step_action("work")
-      assert {:ok, %Executable{kind: :action, target: ^target}} = Executable.resolve(target)
-      assert :ok = Executable.validate(target)
+      assert {:ok, %Instruction{kind: :action, target: ^target}} = Instruction.resolve(target)
+      assert :ok = Instruction.validate(target)
 
       direct =
         Flow.new!(

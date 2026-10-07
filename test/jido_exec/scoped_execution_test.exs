@@ -12,7 +12,7 @@ defmodule JidoActionTest.Exec.ScopedExecutionTest do
   end
 
   defmodule ValidatedFlow do
-    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+    @behaviour Jido.Flow
 
     def flow do
       Flow.new!(

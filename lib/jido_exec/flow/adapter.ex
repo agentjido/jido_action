@@ -3,7 +3,6 @@ defmodule Jido.Exec.Flow.Adapter do
 
   alias Jido.Action.Output
   alias Jido.Action.Validation
-  alias Jido.Executable
   alias Jido.Exec.Execution
   alias Jido.Exec.Flow.Engine
   alias Jido.Exec.Invocation.Runtime, as: InvocationRuntime
@@ -15,8 +14,9 @@ defmodule Jido.Exec.Flow.Adapter do
   alias Jido.Flow.Error
   alias Jido.Instruction
 
-  defp validate(%Executable{kind: :flow, target: module} = executable) when is_atom(module) do
-    case Executable.validate(executable) do
+  defp validate(%Instruction{kind: :flow, target: module} = instruction)
+       when is_atom(module) do
+    case Instruction.validate_resolved(instruction) do
       :ok ->
         :ok
 
@@ -26,15 +26,15 @@ defmodule Jido.Exec.Flow.Adapter do
   end
 
   @doc false
-  @spec run(Executable.t(), term(), term(), term(), Jido.Exec.Controller.call()) ::
+  @spec run(Instruction.t(), keyword(), Jido.Exec.Controller.call()) ::
           {:ok, term()}
           | {:ok, term(), Jido.Action.effects()}
           | {:continue, Jido.Exec.Transition.t()}
           | {:error, Exception.t()}
-  def run(executable, input, context, opts, call) do
-    with {:ok, flow, compiled} <- materialize(executable),
+  def run(%Instruction{} = instruction, opts, call) do
+    with {:ok, flow, compiled} <- materialize(instruction),
          {:ok, execution} <-
-           start_flow(executable, flow, compiled, input, context, opts, call, :run),
+           start_flow(instruction, flow, compiled, opts, call, :run),
          {:ok, execution} <- Engine.run_to_completion(execution, call) do
       Engine.result(execution)
     else
@@ -44,27 +44,12 @@ defmodule Jido.Exec.Flow.Adapter do
   end
 
   @doc false
-  @spec run_instruction(
-          Executable.t(),
-          Instruction.t(),
-          keyword(),
-          Jido.Exec.Controller.call()
-        ) ::
-          {:ok, term()}
-          | {:ok, term(), Jido.Action.effects()}
-          | {:continue, Jido.Exec.Transition.t()}
-          | {:error, Exception.t()}
-  def run_instruction(executable, %Instruction{} = instruction, opts, call) do
-    run(executable, instruction.params, instruction.context, opts, call)
-  end
-
-  @doc false
-  @spec start(Executable.t(), term(), term(), term(), String.t()) ::
+  @spec start(Instruction.t(), keyword(), String.t()) ::
           {:ok, Execution.t()} | {:error, Exception.t()}
-  def start(executable, input, context, opts, execution_id) do
-    with {:ok, flow, compiled} <- materialize(executable),
+  def start(%Instruction{} = instruction, opts, execution_id) do
+    with {:ok, flow, compiled} <- materialize(instruction),
          :ok <- reject_stepwise_dispatch(flow) do
-      start_flow(executable, flow, compiled, input, context, opts, execution_id, :start)
+      start_flow(instruction, flow, compiled, opts, execution_id, :start)
     end
   end
 
@@ -80,16 +65,16 @@ defmodule Jido.Exec.Flow.Adapter do
   end
 
   @doc false
-  @spec lifecycle_metadata(Executable.t(), String.t()) :: :none
-  def lifecycle_metadata(_executable, _execution_id), do: :none
+  @spec lifecycle_metadata(Instruction.t(), String.t()) :: :none
+  def lifecycle_metadata(_instruction, _execution_id), do: :none
 
-  defp materialize(%Executable{target: %Flow{} = flow}) do
+  defp materialize(%Instruction{target: %Flow{} = flow}) do
     Compiler.prepare(flow)
   end
 
-  defp materialize(%Executable{target: module} = executable) do
+  defp materialize(%Instruction{target: module} = instruction) do
     try do
-      with :ok <- validate(executable) do
+      with :ok <- validate(instruction) do
         case module.flow() do
           %Flow{} = flow ->
             source_map = module_source_map(module)
@@ -139,17 +124,17 @@ defmodule Jido.Exec.Flow.Adapter do
     end
   end
 
-  defp start_flow(executable, flow, compiled, input, context, opts, call_or_id, mode) do
+  defp start_flow(instruction, flow, compiled, opts, call_or_id, mode) do
     execution_id = execution_id(call_or_id)
-    validator_module = if is_atom(executable.target), do: executable.target
+    validator_module = if is_atom(instruction.target), do: instruction.target
 
     flow_span =
       Telemetry.start([:jido, :flow], %{execution_id: execution_id, flow: flow.name})
 
     result =
       with {:ok, run_opts} <- Options.validate_flow(opts, mode),
-           {:ok, input} <- normalize_map(input, :input),
-           {:ok, context} <- normalize_map(context, :context),
+           {:ok, input} <- normalize_map(instruction.params, :input),
+           {:ok, context} <- normalize_map(instruction.context, :context),
            {:ok, context} <- Jido.Exec.Budget.attach(context, :infinity),
            {:ok, input} <- validate_flow_input(validator_module, flow, input),
            {:ok, input} <- validate_flow_input_shape(flow, input) do
@@ -158,7 +143,7 @@ defmodule Jido.Exec.Flow.Adapter do
           finalizer: fn output -> validate_flow_output(validator_module, flow, output) end,
           execution_id: execution_id,
           lifecycle: %{flow: flow_span},
-          invocation: invocation(run_opts, executable, compiled, call_or_id)
+          invocation: invocation(run_opts, instruction, compiled, call_or_id)
         }
 
         Engine.start(flow, compiled, input, context, control)
@@ -174,12 +159,12 @@ defmodule Jido.Exec.Flow.Adapter do
     end
   end
 
-  defp invocation(run_opts, executable, compiled, %{chain_index: chain_index} = call) do
+  defp invocation(run_opts, instruction, compiled, %{chain_index: chain_index} = call) do
     case Keyword.fetch(run_opts, :invocation) do
       {:ok, config} ->
         %{
           config: config,
-          evidence: InvocationRuntime.flow_evidence(executable.target, compiled),
+          evidence: InvocationRuntime.flow_evidence(instruction.target, compiled),
           chain_index: chain_index,
           control: call
         }
@@ -189,7 +174,7 @@ defmodule Jido.Exec.Flow.Adapter do
     end
   end
 
-  defp invocation(_run_opts, _executable, _compiled, _execution_id), do: nil
+  defp invocation(_run_opts, _instruction, _compiled, _execution_id), do: nil
 
   defp execution_id(%{execution_id: execution_id}), do: execution_id
   defp execution_id(execution_id) when is_binary(execution_id), do: execution_id

@@ -93,8 +93,7 @@ The host capacity limits active calls, not individual Actions.
 `run_async/4` raises `InvalidInputError` for malformed options or invalid
 routing, and `AsyncExecutionError` if its control Task cannot start. Once a handle exists,
 failures use the normal async result contract. Sync calls return routing and
-startup errors as `{:error, error}`. No routing check calls the target
-executable descriptor.
+startup errors as `{:error, error}`. No routing check resolves the target.
 
 `max_concurrency` limits Flow work, not every helper process or all callers
 that share a supervisor. Context values, including `context.jido`, remain

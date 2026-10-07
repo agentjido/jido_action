@@ -14,7 +14,7 @@ defmodule JidoActionTest.Flow.Compiler.NativeRunicTest do
   defmodule CycleA do
     @moduledoc false
 
-    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+    @behaviour Jido.Flow
 
     def flow do
       Jido.Flow.new!(
@@ -37,7 +37,7 @@ defmodule JidoActionTest.Flow.Compiler.NativeRunicTest do
   defmodule CycleB do
     @moduledoc false
 
-    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+    @behaviour Jido.Flow
 
     def flow do
       Jido.Flow.new!(
@@ -60,7 +60,7 @@ defmodule JidoActionTest.Flow.Compiler.NativeRunicTest do
   defmodule InvalidSourceMapChild do
     @moduledoc false
 
-    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+    @behaviour Jido.Flow
     def flow, do: JidoActionTest.Fixtures.MathFlow.flow()
 
     def __jido_flow_source_map__ do
@@ -460,7 +460,7 @@ defmodule JidoActionTest.Flow.Compiler.NativeRunicTest do
       quote do
         @amount unquote(amount)
 
-        def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+        @behaviour Jido.Flow
 
         def flow do
           Jido.Flow.new!(
@@ -487,7 +487,7 @@ defmodule JidoActionTest.Flow.Compiler.NativeRunicTest do
   defp define_parent_module(module, child_module, child_name) do
     quoted =
       quote do
-        def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+        @behaviour Jido.Flow
 
         def flow do
           Jido.Flow.new!(

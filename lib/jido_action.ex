@@ -63,7 +63,7 @@ defmodule Jido.Action do
   @type result ::
           effect_result()
           | {:ok, map() | Output.t()}
-          | {:continue, map(), Jido.Executable.target()}
+          | {:continue, map(), Jido.Instruction.target() | Jido.Instruction.t()}
           | {:error, term()}
           | {:error, term(), effects()}
 
@@ -375,7 +375,6 @@ defmodule Jido.Action do
 
     quote location: :keep do
       @behaviour Jido.Action
-      @behaviour Jido.Executable
 
       alias Jido.Action
 
@@ -416,19 +415,14 @@ defmodule Jido.Action do
       @spec to_json() :: map()
       def to_json, do: Action.__json__!(@__jido_action_json__)
 
-      @doc false
-      @impl Jido.Executable
-      @spec __jido_executable__() :: Jido.Executable.t()
-      def __jido_executable__, do: Jido.Executable.action(__MODULE__)
-
       @doc unquote(validate_params_doc)
-      @impl Jido.Executable
+      @impl Jido.Action
       @spec validate_params(map()) ::
               {:ok, map()} | {:error, term()}
       def validate_params(params), do: Action.validate_params_for(params, __MODULE__)
 
       @doc unquote(validate_output_doc)
-      @impl Jido.Executable
+      @impl Jido.Action
       @spec validate_output(map() | Jido.Action.Output.t()) ::
               {:ok, map() | Jido.Action.Output.t()}
               | {:error, Jido.Action.Error.InvalidInputError.t()}
@@ -474,10 +468,17 @@ defmodule Jido.Action do
   A continuation does not resume this Action. Its input must be a map, not a
   `Jido.Action.Output` envelope. Put an output envelope in a map field when the
   next executable must receive it. The target must be an Action module, Flow
-  module, or `Jido.Flow` value. The final executable owns output validation,
-  errors, and its own effects.
+  module, `Jido.Flow` value, or bound `Jido.Instruction`. The final target owns
+  output validation, errors, and its own effects.
   """
   @callback run(params :: map(), context :: map()) :: result()
+
+  @doc "Validates Action input parameters without running Action work."
+  @callback validate_params(params :: map()) :: {:ok, map()} | {:error, term()}
+
+  @doc "Validates normal Action output or an explicit output envelope."
+  @callback validate_output(map() | Output.t()) ::
+              {:ok, map() | Output.t()} | {:error, term()}
 
   @doc """
   Prepares raw input parameters before schema validation.

@@ -2,7 +2,6 @@ defmodule Jido.Flow.Validation do
   @moduledoc false
 
   alias Jido.Action
-  alias Jido.Executable
   alias Jido.Flow.Component
   alias Jido.Flow.Choice
   alias Jido.Flow.Dispatch
@@ -14,6 +13,7 @@ defmodule Jido.Flow.Validation do
   alias Jido.Flow.Reduce
   alias Jido.Flow.Step
   alias Jido.Flow.Subflow
+  alias Jido.Instruction
   alias Jido.Flow.Ref
 
   @module_config_keys [:name, :description, :schema, :output_schema]
@@ -367,9 +367,9 @@ defmodule Jido.Flow.Validation do
   end
 
   defp validate_target(%Step{name: name, action: action}, _module_stack, subflows) do
-    with {:ok, executable} <- Executable.resolve(action),
-         :ok <- require_kind(executable, :action, name),
-         :ok <- Executable.validate(executable) do
+    with {:ok, instruction} <- Instruction.resolve(action),
+         :ok <- require_kind(instruction, :action, name),
+         :ok <- Instruction.validate_resolved(instruction) do
       {:ok, subflows}
     else
       {:error, error} -> {:error, target_error(error, name, :action)}
@@ -377,9 +377,9 @@ defmodule Jido.Flow.Validation do
   end
 
   defp validate_target(%Subflow{name: name, flow: flow}, module_stack, subflows) do
-    with {:ok, executable} <- Executable.resolve(flow),
-         :ok <- require_kind(executable, :flow, name),
-         :ok <- Executable.validate(executable),
+    with {:ok, instruction} <- Instruction.resolve(flow),
+         :ok <- require_kind(instruction, :flow, name),
+         :ok <- Instruction.validate_resolved(instruction),
          :ok <- reject_recursive_subflow(flow, module_stack),
          {:ok, subflows} <- materialize_subflow(flow, module_stack, subflows) do
       {:ok, subflows}
@@ -414,9 +414,9 @@ defmodule Jido.Flow.Validation do
 
   defp validate_action_targets(targets, component, subflows) do
     Enum.reduce_while(targets, {:ok, subflows}, fn {field, target}, {:ok, subflows} ->
-      with {:ok, executable} <- Executable.resolve(target),
-           :ok <- require_kind(executable, :action, component),
-           :ok <- Executable.validate(executable) do
+      with {:ok, instruction} <- Instruction.resolve(target),
+           :ok <- require_kind(instruction, :action, component),
+           :ok <- Instruction.validate_resolved(instruction) do
         {:cont, {:ok, subflows}}
       else
         {:error, error} ->
@@ -498,11 +498,11 @@ defmodule Jido.Flow.Validation do
     end
   end
 
-  defp require_kind(%Executable{kind: kind}, kind, _name), do: :ok
+  defp require_kind(%Instruction{kind: kind}, kind, _name), do: :ok
 
-  defp require_kind(%Executable{kind: actual}, expected, name) do
+  defp require_kind(%Instruction{kind: actual}, expected, name) do
     {:error,
-     Error.validation_error("Flow component has the wrong executable kind", %{
+     Error.validation_error("Flow component has the wrong target kind", %{
        component: name,
        expected: expected,
        actual: actual

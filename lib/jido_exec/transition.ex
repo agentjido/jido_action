@@ -1,11 +1,11 @@
 defmodule Jido.Exec.Transition do
   @moduledoc false
 
-  alias Jido.Executable
+  alias Jido.Instruction
 
   @type t :: %__MODULE__{
           input: map(),
-          target: Executable.target(),
+          target: Instruction.target() | Instruction.t(),
           origin: module(),
           effects: [term()],
           context: map()
@@ -15,7 +15,7 @@ defmodule Jido.Exec.Transition do
   defstruct @enforce_keys ++ [effects: []]
 
   @doc false
-  @spec new(map(), Executable.target(), module(), map()) :: t()
+  @spec new(map(), Instruction.target() | Instruction.t(), module(), map()) :: t()
   def new(input, target, origin, context)
       when is_map(input) and is_atom(origin) and is_map(context) do
     %__MODULE__{input: input, target: target, origin: origin, context: context}

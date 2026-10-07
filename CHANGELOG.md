@@ -289,8 +289,8 @@ entries return to the normal automated changelog process.
 * add aggregate stored-Flow diagnostics for browser and AI authoring tools
 * add a Splode-based `Jido.Flow.Error` boundary for Flow definition,
   compilation, and execution failures
-* let `Jido.Instruction` target Actions, Flow modules, and runtime Flows through
-  `Jido.Executable`
+* let `Jido.Instruction` resolve Actions, Flow modules, and runtime Flows as one
+  first-class execution value
 * route Action, Instruction, Flow, and Subflow workers through a running Jido
   instance Task Supervisor with the common `jido:` option
 * add stable Action, Flow, Flow-node, and collection telemetry lifecycles
@@ -303,6 +303,8 @@ entries return to the normal automated changelog process.
 * replace `Jido.Flow.Iterator` with `Jido.Flow.Iterate`
 * replace the `Jido.Instruction.action` field with the executable-neutral
   `Jido.Instruction.target` field
+* remove `Jido.Executable`; `Jido.Instruction` now resolves target kind and
+  carries all Action or Flow call data
 * remove `Jido.Exec.FlowFailureError`; multiple runnable failures now use
   `Jido.Flow.Error.ExecutionFailureError`
 * move the root, Task, and concurrency supervisors under the `Jido.Exec`

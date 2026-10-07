@@ -66,7 +66,7 @@ end
 ```
 
 The DSL shape stays `step ... action: ChildFlow`. The lowerer resolves the
-target through `Jido.Executable` and stores `Jido.Flow.Subflow`.
+target through `Jido.Instruction` and stores `Jido.Flow.Subflow`.
 
 ## Native Execution Boundary
 

@@ -98,7 +98,10 @@ defmodule Jido.Action.InlineTest do
     assert target.schema() == []
     assert target.output_schema() == []
     assert target.name() == "test_action"
-    assert target.__jido_executable__().kind == :action
+
+    assert {:ok, %Jido.Instruction{kind: :action, target: ^target}} =
+             Jido.Instruction.resolve(target)
+
     assert target.run(%{value: 2}, %{}) == {:ok, %{value: 3, owner: owner}}
   end
 

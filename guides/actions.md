@@ -26,8 +26,7 @@ end
 - `name/0` and `description/0`;
 - `schema/0` and `output_schema/0`;
 - `to_json/0` for a compile-time JSON-safe description;
-- `validate_params/1` and `validate_output/1`; and
-- the `Jido.Executable` descriptor used by `Jido.Exec`.
+- `validate_params/1` and `validate_output/1`.
 
 The module must implement `run/2`. A missing implementation stops compilation.
 
@@ -37,12 +36,11 @@ JSON Schema. It returns `nil` for an empty input or output schema. It raises
 projection is descriptive. Use `validate_params/1` and `validate_output/1` for
 the runtime contract.
 
-`Jido.Action` declares the `run/2` callback and the optional input-preparation
-hook. `Jido.Executable` declares the descriptor, `validate_params/1`, and
-`validate_output/1` callbacks shared by Action and Flow modules. An Action
-implements both behaviours. A Flow implements `Jido.Executable` and supplies
-`flow/0` as its definition. Runtime contract checks remain in place for all
-module targets, including modules that do not declare the behaviours.
+`Jido.Action` declares `run/2`, `validate_params/1`, `validate_output/1`, and
+the optional input-preparation hook. A Flow implements `Jido.Flow` and supplies
+`flow/0` plus its validation callbacks. `Jido.Instruction` resolves these
+behaviours to an execution kind. Runtime contract checks remain in place for
+all resolved module targets.
 
 ## Use An Inline Step For Small Local Work
 

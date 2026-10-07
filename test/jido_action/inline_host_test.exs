@@ -57,7 +57,9 @@ defmodule Jido.Action.InlineHostTest do
 
     target = owner.action_target("double")
     assert target.name() == "double"
-    assert target.__jido_executable__().kind == :action
+
+    assert {:ok, %Jido.Instruction{kind: :action, target: ^target}} =
+             Jido.Instruction.resolve(target)
 
     assert %{value: %Jido.Expr{operator: :multiply, operands: [%Field{key: :value}, 2]}} =
              owner.action_source("double")
@@ -361,7 +363,10 @@ defmodule Jido.Action.InlineHostTest do
           target = Jido.Action.Inline.target!(owner, InlineHost.path(name))
           assert owner.action_target(name) == target
           assert target.name() == name
-          assert target.__jido_executable__().kind == :action
+
+          assert {:ok, %Jido.Instruction{kind: :action, target: ^target}} =
+                   Jido.Instruction.resolve(target)
+
           {name, target}
         end
 

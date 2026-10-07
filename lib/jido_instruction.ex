@@ -1,50 +1,66 @@
 defmodule Jido.Instruction do
   @moduledoc """
-  Defines the invocation value for one executable target.
+  Defines the invocation value for one Action or Flow target.
 
-  An Instruction contains a target, params, context, and metadata. The target
-  follows the `Jido.Executable` contract. It can contain an Action module, a
-  Flow module, or a runtime `Jido.Flow` value.
-
-  Use `:target` for every executable kind. The removed `:action`, `:flow`,
-  and `:opts` inputs return construction errors. Pass execution options
-  directly to `Jido.Exec`.
+  A resolved Instruction identifies the target kind and keeps the exact target,
+  parameters, context, and descriptive metadata:
 
       %Jido.Instruction{
+        kind: :action,
         target: MyApp.Actions.SendEmail,
         params: %{to: "user@example.com"},
         context: %{tenant_id: "tenant_123"},
         metadata: %{request_id: "req_123"}
       }
 
-  The constructor resolves the target and validates the three invocation maps.
-  It keeps the target value without conversion. Metadata has no execution
-  meaning in this module.
+  An Action target is a module that implements `Jido.Action`. A Flow target is
+  a module that implements `Jido.Flow`, or a runtime `Jido.Flow` value.
+  Resolution checks the currently loaded module on every execution. A stored
+  `kind` value does not remain authoritative after code reload.
 
-  Constructor maps are not a stored or JSON representation. Executable module
-  atoms and runtime Flow values do not have one general JSON form.
+  `normalize!/3` and `resolve/3` accept a target or an existing Instruction.
+  Existing Instructions are flattened. Their parameters and context are merged
+  with shallow, right-biased call data. Metadata remains an annotation and has
+  no execution meaning.
+
+  Bound Instructions can be direct Exec targets and continuation targets.
+  Canonical Flow components require module targets and keep their parameter
+  expressions in the component. This prevents bound context, which can contain
+  local runtime values, from becoming part of portable Flow data.
+
+  Use `:target` for every target kind. The removed `:action`, `:flow`, and
+  `:opts` inputs return construction errors. Pass execution options directly to
+  `Jido.Exec`.
+
+  Constructor maps are not a stored or JSON representation. Module atoms and
+  runtime Flow values do not have one general JSON form.
   """
 
   alias Jido.Action.Error
-  alias Jido.Executable
+  alias Jido.Flow
 
   @removed_fields [:id, :action, :flow, :opts]
 
   @schema Zoi.struct(
             __MODULE__,
             %{
-              target: Zoi.any(description: "Executable target") |> Zoi.optional(),
-              params: Zoi.map(description: "Executable parameters") |> Zoi.default(%{}),
+              kind:
+                Zoi.enum([:action, :flow], description: "Resolved target kind")
+                |> Zoi.optional(),
+              target: Zoi.any(description: "Action or Flow target") |> Zoi.optional(),
+              params: Zoi.map(description: "Target parameters") |> Zoi.default(%{}),
               context: Zoi.map(description: "Execution context") |> Zoi.default(%{}),
-              metadata: Zoi.map(description: "Invocation metadata") |> Zoi.default(%{})
+              metadata: Zoi.map(description: "Instruction metadata") |> Zoi.default(%{})
             },
             coerce: true
           )
 
-  @typedoc "Call data for one executable target."
-  @type t :: unquote(Zoi.type_spec(@schema))
+  @typedoc "The resolved target kind."
+  @type kind :: :action | :flow
   @typedoc "An Action module, Flow module, or runtime Flow value."
-  @type executable_target :: Executable.target()
+  @type target :: module() | Flow.t()
+  @typedoc "A resolved call value for one Action or Flow target."
+  @type t :: unquote(Zoi.type_spec(@schema))
   @typedoc "Input parameters for the target."
   @type params :: map()
   @typedoc "Caller-supplied execution context."
@@ -55,119 +71,118 @@ defmodule Jido.Instruction do
   @enforce_keys Zoi.Struct.enforce_keys(@schema)
   defstruct Zoi.Struct.struct_fields(@schema)
 
+  @doc """
+  Resolves a target or Instruction and applies call-site data.
+
+  Call-site parameters and context replace equal keys from a bound Instruction.
+  Resolution refreshes `kind` from the current target module.
+  """
+  @spec resolve(target() | t() | term(), map() | keyword() | nil, map() | keyword() | nil) ::
+          {:ok, t()} | {:error, Exception.t()}
+  def resolve(target_or_instruction, params \\ %{}, context \\ %{}) do
+    with {:ok, params} <- normalize_map_field(params, :params),
+         {:ok, context} <- normalize_map_field(context, :context),
+         {:ok, instruction} <- flatten(target_or_instruction),
+         {:ok, kind} <- classify(instruction.target) do
+      {:ok,
+       %__MODULE__{
+         kind: kind,
+         target: instruction.target,
+         params: Map.merge(instruction.params, params),
+         context: Map.merge(instruction.context, context),
+         metadata: instruction.metadata
+       }}
+    end
+  end
+
   @doc false
-  @spec normalize!(executable_target() | t(), map() | keyword(), map() | keyword()) :: t()
+  @spec normalize!(target() | t(), map() | keyword() | nil, map() | keyword() | nil) :: t()
   def normalize!(target_or_instruction, params \\ %{}, context \\ %{}) do
     params = normalize_map!(params, :params)
     context = normalize_map!(context, :context)
 
-    case target_or_instruction do
-      %__MODULE__{} = instruction ->
-        normalize_instruction!(instruction, params, context)
+    case resolve(target_or_instruction, params, context) do
+      {:ok, instruction} ->
+        instruction
 
-      target ->
-        new!(%{target: target, params: params, context: context})
-    end
-  end
-
-  defp normalize_instruction!(instruction, params, context) do
-    normalized = merge_instruction!(instruction, params, context)
-
-    case new(Map.from_struct(normalized)) do
-      {:ok, normalized} ->
-        normalized
+      {:error, error} when is_exception(error) ->
+        raise error
 
       {:error, error} ->
         raise Error.validation_error("Invalid instruction configuration", %{reason: error})
     end
   end
 
+  @doc """
+  Validates the current target contract.
+
+  This function resolves the target again before it checks callbacks. It does
+  not trust a `kind` value retained across a module reload.
+  """
+  @spec validate(t() | target() | term()) :: :ok | {:error, Exception.t()}
+  def validate(target_or_instruction) do
+    with {:ok, instruction} <- resolve(target_or_instruction) do
+      validate_resolved(instruction)
+    end
+  end
+
   @doc false
-  @spec normalize_resolved!(executable_target() | t(), map() | keyword(), map() | keyword()) ::
-          t()
-  def normalize_resolved!(target_or_instruction, params, context) do
-    params = normalize_map!(params, :params)
-    context = normalize_map!(context, :context)
+  @spec validate_resolved(t()) :: :ok | {:error, Exception.t()}
+  def validate_resolved(%__MODULE__{kind: :flow, target: %Flow{}}), do: :ok
 
-    case target_or_instruction do
-      %__MODULE__{} = instruction ->
-        merge_instruction!(instruction, params, context)
-
-      target ->
-        %__MODULE__{target: target, params: params, context: context, metadata: %{}}
-    end
+  def validate_resolved(%__MODULE__{kind: kind, target: module})
+      when kind in [:action, :flow] and is_atom(module) and not is_nil(module) do
+    callback = if kind == :action, do: {:run, 2}, else: {:flow, 0}
+    validate_module_callbacks(module, [callback, {:validate_params, 1}, {:validate_output, 1}])
   end
 
-  defp merge_instruction!(instruction, params, context) do
-    %__MODULE__{
-      target: instruction.target,
-      params: Map.merge(normalize_map!(instruction.params, :params), params),
-      context: Map.merge(normalize_map!(instruction.context, :context), context),
-      metadata: normalize_map!(instruction.metadata, :metadata)
-    }
-  end
-
-  @spec normalize_map!(term(), atom()) :: map()
-  defp normalize_map!(value, field) do
-    case normalize_map_field(value, field) do
-      {:ok, map} ->
-        map
-
-      {:error, _error} ->
-        raise ArgumentError, normalize_map_message(value, field)
-    end
+  def validate_resolved(%__MODULE__{} = instruction) do
+    {:error,
+     Error.validation_error("invalid Instruction target", %{
+       instruction: instruction,
+       reason: :invalid_target
+     })}
   end
 
   @doc """
-  Creates an instruction from a map or keyword list.
+  Creates an Instruction from a map or keyword list.
 
-  `:target` identifies an Action module, Flow module, or runtime Flow value.
-  `:params`, `:context`, and `:metadata` are optional maps or keyword lists.
-  A nil invocation map becomes an empty map.
-
-  The removed `:id`, `:action`, `:flow`, and `:opts` keys return an error,
-  including when their values are nil or empty. Use `:target` for the
-  executable, `:metadata` for descriptive identity, and `Jido.Exec` options
-  for execution policy.
+  `:target` identifies an Action module, Flow module, runtime Flow value, or an
+  existing Instruction. An existing Instruction is flattened. Outer parameters,
+  context, and metadata replace equal inner keys.
   """
   @spec new(map() | keyword()) :: {:ok, t()} | {:error, Exception.t()}
   def new(attrs) when is_list(attrs) do
     if Keyword.keyword?(attrs) do
       attrs |> Map.new() |> new()
     else
-      {:error,
-       Error.validation_error("Invalid instruction configuration", %{
-         reason: :invalid_attributes
-       })}
+      invalid_attributes()
     end
   end
 
   def new(%{} = attrs) do
     with :ok <- reject_removed_fields(attrs),
-         {:ok, %Executable{target: target}} <- resolve_target(attrs),
+         {:ok, target} <- fetch_target(attrs),
          {:ok, params} <- normalize_map_field(Map.get(attrs, :params, %{}), :params),
          {:ok, context} <- normalize_map_field(Map.get(attrs, :context, %{}), :context),
-         {:ok, metadata} <- normalize_map_field(Map.get(attrs, :metadata, %{}), :metadata) do
+         {:ok, metadata} <- normalize_map_field(Map.get(attrs, :metadata, %{}), :metadata),
+         {:ok, instruction} <- flatten(target),
+         {:ok, kind} <- classify(instruction.target),
+         :ok <- validate_declared_kind(Map.get(attrs, :kind), kind) do
       {:ok,
        %__MODULE__{
-         target: target,
-         params: params,
-         context: context,
-         metadata: metadata
+         kind: kind,
+         target: instruction.target,
+         params: Map.merge(instruction.params, params),
+         context: Map.merge(instruction.context, context),
+         metadata: Map.merge(instruction.metadata, metadata)
        }}
     end
   end
 
-  def new(_attrs) do
-    {:error,
-     Error.validation_error("Invalid instruction configuration", %{
-       reason: :invalid_attributes
-     })}
-  end
+  def new(_attrs), do: invalid_attributes()
 
-  @doc """
-  Creates an instruction or raises on failure.
-  """
+  @doc "Creates an Instruction or raises on failure."
   @spec new!(map() | keyword()) :: t() | no_return()
   def new!(attrs) do
     case new(attrs) do
@@ -182,10 +197,92 @@ defmodule Jido.Instruction do
     end
   end
 
-  defp resolve_target(%{target: target}), do: Executable.resolve(target)
-  defp resolve_target(_attrs), do: missing_target_error()
+  defp flatten(%__MODULE__{} = instruction) do
+    with {:ok, params} <- normalize_map_field(instruction.params, :params),
+         {:ok, context} <- normalize_map_field(instruction.context, :context),
+         {:ok, metadata} <- normalize_map_field(instruction.metadata, :metadata) do
+      case instruction.target do
+        %__MODULE__{} = inner ->
+          with {:ok, inner} <- flatten(inner) do
+            {:ok,
+             %__MODULE__{
+               kind: nil,
+               target: inner.target,
+               params: Map.merge(inner.params, params),
+               context: Map.merge(inner.context, context),
+               metadata: Map.merge(inner.metadata, metadata)
+             }}
+          end
 
-  defp missing_target_error do
+        target ->
+          {:ok,
+           %__MODULE__{
+             kind: instruction.kind,
+             target: target,
+             params: params,
+             context: context,
+             metadata: metadata
+           }}
+      end
+    end
+  end
+
+  defp flatten(target) do
+    {:ok, %__MODULE__{kind: nil, target: target, params: %{}, context: %{}, metadata: %{}}}
+  end
+
+  defp classify(%Flow{}), do: {:ok, :flow}
+
+  defp classify(module) when is_atom(module) and not is_nil(module) do
+    case Code.ensure_loaded(module) do
+      {:module, ^module} -> classify_loaded_module(module)
+      {:error, reason} -> unknown_target(module, reason)
+    end
+  end
+
+  defp classify(target), do: unknown_target(target, nil)
+
+  defp classify_loaded_module(module) do
+    behaviours =
+      module.module_info(:attributes)
+      |> Keyword.get_values(:behaviour)
+      |> List.flatten()
+
+    case {Jido.Action in behaviours, Jido.Flow in behaviours} do
+      {true, false} -> {:ok, :action}
+      {false, true} -> {:ok, :flow}
+      {true, true} -> ambiguous_target(module)
+      {false, false} -> unknown_target(module, :missing_behaviour)
+    end
+  end
+
+  defp validate_declared_kind(nil, _actual), do: :ok
+  defp validate_declared_kind(kind, kind), do: :ok
+
+  defp validate_declared_kind(declared, actual) do
+    {:error,
+     Error.config_error("Instruction target kind does not match the current module", %{
+       declared: declared,
+       actual: actual,
+       reason: :target_kind_changed
+     })}
+  end
+
+  defp validate_module_callbacks(module, callbacks) do
+    Code.ensure_loaded(module)
+
+    Enum.reduce_while(callbacks, :ok, fn {callback, arity}, :ok ->
+      if function_exported?(module, callback, arity) do
+        {:cont, :ok}
+      else
+        {:halt, invalid_target_contract(module, "missing #{callback}/#{arity}")}
+      end
+    end)
+  end
+
+  defp fetch_target(%{target: target}), do: {:ok, target}
+
+  defp fetch_target(_attrs) do
     {:error,
      Error.validation_error("Invalid instruction configuration", %{
        field: :target,
@@ -209,15 +306,18 @@ defmodule Jido.Instruction do
     end
   end
 
+  defp normalize_map!(value, field) do
+    case normalize_map_field(value, field) do
+      {:ok, map} -> map
+      {:error, _error} -> raise ArgumentError, normalize_map_message(value, field)
+    end
+  end
+
   defp normalize_map_field(nil, _field), do: {:ok, %{}}
   defp normalize_map_field(value, _field) when is_map(value), do: {:ok, value}
 
   defp normalize_map_field(value, field) when is_list(value) do
-    if Keyword.keyword?(value) do
-      {:ok, Map.new(value)}
-    else
-      invalid_map_field(field, value)
-    end
+    if Keyword.keyword?(value), do: {:ok, Map.new(value)}, else: invalid_map_field(field, value)
   end
 
   defp normalize_map_field(value, field), do: invalid_map_field(field, value)
@@ -228,10 +328,7 @@ defmodule Jido.Instruction do
     {:error,
      Error.validation_error(
        "Invalid #{label} format. #{String.capitalize(label)} must be a map or keyword list.",
-       %{
-         field => value,
-         expected_format: "%{key: value} or [key: value]"
-       }
+       %{field => value, expected_format: "%{key: value} or [key: value]"}
      )}
   end
 
@@ -240,4 +337,40 @@ defmodule Jido.Instruction do
 
   defp normalize_map_message(value, field),
     do: "expected #{field} to be a map or keyword list, got: #{inspect(value)}"
+
+  defp invalid_attributes do
+    {:error,
+     Error.validation_error("Invalid instruction configuration", %{
+       reason: :invalid_attributes
+     })}
+  end
+
+  defp invalid_target_contract(target, reason) do
+    {:error,
+     Error.validation_error("module is not a valid Instruction target", %{
+       target: target,
+       reason: reason
+     })}
+  end
+
+  defp ambiguous_target(module) do
+    {:error,
+     Error.config_error("Instruction target implements both Jido.Action and Jido.Flow", %{
+       target: module,
+       reason: :ambiguous_behaviour
+     })}
+  end
+
+  defp unknown_target(target, nil) do
+    {:error,
+     Error.config_error("unknown Instruction target: #{inspect(target)}", %{target: target})}
+  end
+
+  defp unknown_target(target, reason) do
+    {:error,
+     Error.config_error("unknown Instruction target: #{inspect(target)}", %{
+       target: target,
+       reason: reason
+     })}
+  end
 end

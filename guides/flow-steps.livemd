@@ -159,8 +159,8 @@ A canonical Step has these fields:
 | `needs` | Explicit control dependencies. |
 | `meta` | Portable author metadata with no execution meaning. |
 
-The Action must satisfy the `Jido.Executable` Action contract. A `step` that
-targets a Flow module becomes `Jido.Flow.Subflow` instead.
+The Action must implement `Jido.Action`. A `step` that targets a module which
+implements `Jido.Flow` becomes `Jido.Flow.Subflow` instead.
 
 ## Declare Output
 

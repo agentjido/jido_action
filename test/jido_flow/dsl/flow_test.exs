@@ -137,7 +137,6 @@ defmodule Jido.Flow.DSL.FlowTest do
     module = Jido.Flow.DSL.FlowTest.MixedFlow
 
     for {name, arity} <- [
-          __jido_executable__: 0,
           flow: 0,
           step_action: 1,
           compiled: 0,
@@ -451,7 +450,7 @@ defmodule Jido.Flow.DSL.FlowTest do
     """
 
     error =
-      assert_raise CompileError, ~r/wrong executable kind/, fn -> Code.compile_string(code) end
+      assert_raise CompileError, ~r/wrong target kind/, fn -> Code.compile_string(code) end
 
     assert error.line == 6
   end
@@ -486,7 +485,7 @@ defmodule Jido.Flow.DSL.FlowTest do
       |> Kernel.+(1)
 
     error =
-      assert_raise CompileError, ~r/wrong executable kind/, fn ->
+      assert_raise CompileError, ~r/wrong target kind/, fn ->
         Code.compile_string(code, source_file)
       end
 

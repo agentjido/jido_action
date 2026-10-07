@@ -185,8 +185,8 @@ defmodule Jido.Flow.DSL.Lowerer do
 
   defp step_component(step, params) do
     with {:module, _module} <- Code.ensure_compiled(step.action),
-         {:ok, executable} <- Jido.Executable.resolve(step.action) do
-      case executable.kind do
+         {:ok, instruction} <- Jido.Instruction.resolve(step.action) do
+      case instruction.kind do
         :action ->
           FlowStep.new(
             name: step.name,
