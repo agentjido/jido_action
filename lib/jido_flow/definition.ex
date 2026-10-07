@@ -862,7 +862,9 @@ defmodule Jido.Flow.Definition do
   defp choice_options(_values),
     do: {:error, Error.validation_error("choice options must be a list")}
 
-  defp choice_option(%{} = attrs) when not is_struct(attrs) do
+  @doc false
+  @spec choice_option(term()) :: {:ok, choice_option()} | {:error, Exception.t()}
+  def choice_option(%{} = attrs) when not is_struct(attrs) do
     with :ok <- known_keys(attrs, [:name, :condition, :action, :params], "choice option"),
          {:ok, name} <- name(Map.get(attrs, :name), "choice option"),
          {:ok, condition} <- condition(Map.get(attrs, :condition), :condition, :flow),
@@ -872,12 +874,14 @@ defmodule Jido.Flow.Definition do
     end
   end
 
-  defp choice_option(_value), do: {:error, Error.validation_error("choice option must be a map")}
+  def choice_option(_value), do: {:error, Error.validation_error("choice option must be a map")}
 
-  defp choice_fallback(nil),
+  @doc false
+  @spec choice_fallback(term()) :: {:ok, call()} | {:error, Exception.t()}
+  def choice_fallback(nil),
     do: {:error, Error.validation_error("choice fallback is required")}
 
-  defp choice_fallback(%{} = attrs) when not is_struct(attrs) do
+  def choice_fallback(%{} = attrs) when not is_struct(attrs) do
     with :ok <- known_keys(attrs, [:action, :params], "choice fallback"),
          {:ok, action} <- module_atom(Map.get(attrs, :action), "choice fallback action"),
          {:ok, params} <- params(attrs, :flow) do
@@ -885,15 +889,17 @@ defmodule Jido.Flow.Definition do
     end
   end
 
-  defp choice_fallback(_value),
+  def choice_fallback(_value),
     do: {:error, Error.validation_error("choice fallback must be a map")}
 
   defp nested_field({:ok, value}, _field), do: {:ok, value}
   defp nested_field({:error, error}, field), do: {:error, Error.prefix_path(error, [field])}
 
-  defp iterate_state(nil), do: {:error, Error.validation_error("iterate state is required")}
+  @doc false
+  @spec iterate_state(term()) :: {:ok, map()} | {:error, Exception.t()}
+  def iterate_state(nil), do: {:error, Error.validation_error("iterate state is required")}
 
-  defp iterate_state(%{} = attrs) when not is_struct(attrs) do
+  def iterate_state(%{} = attrs) when not is_struct(attrs) do
     with :ok <- known_keys(attrs, [:schema, :initial, :update], "iterate state"),
          {:ok, schema} <-
            nested_field(schema(Map.get(attrs, :schema, []), "iterate state schema"), :schema),
@@ -903,7 +909,7 @@ defmodule Jido.Flow.Definition do
     end
   end
 
-  defp iterate_state(_value),
+  def iterate_state(_value),
     do: {:error, Error.validation_error("iterate state must be a map")}
 
   defp reverse_choice_options({:ok, reversed}) do

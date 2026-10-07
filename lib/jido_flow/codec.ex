@@ -615,8 +615,11 @@ defmodule Jido.Flow.Codec do
     initial_errors = unknown_field_errors(record, ["name", "condition", "action", "params"], path)
 
     case collect_values(fields, initial_errors) do
-      {:ok, attrs} -> {:ok, attrs}
-      {:error, errors} -> {:error, errors}
+      {:ok, attrs} ->
+        diagnose_nested_definition(Definition.choice_option(attrs), attrs, record, registry, path)
+
+      {:error, errors} ->
+        {:error, errors}
     end
   end
 
@@ -647,8 +650,17 @@ defmodule Jido.Flow.Codec do
     initial_errors = unknown_field_errors(record, ["action", "params"], path)
 
     case collect_values(fields, initial_errors) do
-      {:ok, attrs} -> {:ok, attrs}
-      {:error, errors} -> {:error, errors}
+      {:ok, attrs} ->
+        diagnose_nested_definition(
+          Definition.choice_fallback(attrs),
+          attrs,
+          record,
+          registry,
+          path
+        )
+
+      {:error, errors} ->
+        {:error, errors}
     end
   end
 
@@ -673,14 +685,23 @@ defmodule Jido.Flow.Codec do
     initial_errors = unknown_field_errors(record, ["schema", "initial", "update"], path)
 
     case collect_values(fields, initial_errors) do
-      {:ok, attrs} -> {:ok, attrs}
-      {:error, errors} -> {:error, errors}
+      {:ok, attrs} ->
+        diagnose_nested_definition(Definition.iterate_state(attrs), attrs, record, registry, path)
+
+      {:error, errors} ->
+        {:error, errors}
     end
   end
 
   defp diagnose_iterate_state(_record, _registry, path) do
     {:error, Error.validation_error("iterate state must be a map", %{path: path})}
   end
+
+  defp diagnose_nested_definition({:ok, _normalized}, attrs, _record, _registry, _path),
+    do: {:ok, attrs}
+
+  defp diagnose_nested_definition({:error, error}, _attrs, record, registry, path),
+    do: {:error, stored_error_path(error, record, registry, path)}
 
   defp diagnose_nested_schema_field(record, registry, path) do
     with {:ok, schema} <- resolve_field(record, "schema", :schema, registry, path),

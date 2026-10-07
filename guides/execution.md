@@ -52,8 +52,8 @@ data stays outside public context.
 | --- | --- |
 | Simple root Action | One control Task, one private supervisor, one Action Task. |
 | Root Flow | One control Task, one private supervisor, one Flow Task, plus Action Tasks. |
-| Step, Choice, Map item | One Task runs the Action and prepares its native result. No second wrapper Task. |
-| Reduce, Iterate, Dispatch | Each Action invocation gets a fresh Task. Concurrent compound work also uses a runnable Task. |
+| Step, Map item | One Task runs the Action and prepares its native result. No second wrapper Task. |
+| Choice, Reduce, Iterate, Dispatch | Each Action invocation gets a fresh Task. Concurrent compound work also uses a runnable Task. |
 | Subflow | Uses the root native graph and its existing Flow Task. |
 | Continuation | Uses the existing control Task and private supervisor. Each next root executable gets a new Task. |
 | Paused operation | Creates a new control Task, private supervisor, and Flow Task for that operation. Mutation also uses a revision helper. |

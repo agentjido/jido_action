@@ -100,6 +100,44 @@ defmodule Jido.ExprTest do
     end
   end
 
+  test "fixed arities reject oversized operand lists with bounded work" do
+    operands = List.duplicate(1, 1_000_000)
+    improper_operands = [1 | operands] ++ :invalid_tail
+
+    for values <- [operands, improper_operands] do
+      expression = %Jido.Expr{operator: :+, operands: values}
+
+      for check <- [
+            fn -> Jido.Expr.new(:+, values) end,
+            fn -> Jido.Expr.validate(expression, max_nodes: 1) end,
+            fn -> Jido.Expr.evaluate(expression, max_nodes: 1) end,
+            fn -> Jido.Expr.normalize(expression, max_nodes: 1) end,
+            fn ->
+              Jido.Expr.reduce(
+                expression,
+                nil,
+                fn _value, accumulator ->
+                  {:cont, accumulator}
+                end,
+                max_nodes: 1
+              )
+            end
+          ] do
+        {result, reductions} = with_reductions(check)
+        assert {:error, %Jido.Expr.Error{reason: :invalid_arity, operator: :+}} = result
+        assert reductions < 10_000
+      end
+    end
+
+    for {operator, values} <- [{:not, [true, false]}, {:+, [1]}, {:-, []}, {:-, [1, 2, 3]}] do
+      assert {:error, %Jido.Expr.Error{reason: :invalid_arity}} =
+               Jido.Expr.new(operator, values)
+    end
+
+    assert {:ok, %Jido.Expr{}} = Jido.Expr.new(:-, [1])
+    assert {:ok, %Jido.Expr{}} = Jido.Expr.new(:-, [1, 2])
+  end
+
   test "strict type and arithmetic failures contain no runtime values" do
     for {operator, operands, reason} <- [
           {:not, [1], :invalid_boolean_operand},
@@ -379,6 +417,72 @@ defmodule Jido.ExprTest do
     assert_received {^tag, :normalize, :leaf, ^leaf_path}
     assert_received {^tag, :validate, :leaf, ^leaf_path}
     refute_received {^tag, _, _, _}
+  end
+
+  test "normalization checks replacement scalar limits at their exact paths" do
+    reference = %Reference{key: :value}
+
+    for {replacement, options, reason} <- [
+          {"abcde", [max_binary_bytes: 4], :max_binary_bytes},
+          {16, [max_integer_bits: 4], :max_integer_bits},
+          {-16, [max_integer_bits: 4], :max_integer_bits}
+        ],
+        {value, path} <- [{reference, []}, {%{nested: [reference]}, [:nested, 0]}] do
+      options = Keyword.put(options, :normalize_leaf, fn ^reference -> {:ok, replacement} end)
+
+      assert {:error, %Jido.Expr.Error{reason: ^reason, path: ^path}} =
+               Jido.Expr.normalize(value, options)
+    end
+  end
+
+  test "normalization counts replacement bytes cumulatively and each node once" do
+    tag = make_ref()
+    first = %Reference{key: :first}
+    second = %Reference{key: :second}
+
+    normalize = fn reference, path ->
+      send(self(), {tag, reference.key, path})
+      {:ok, "abc"}
+    end
+
+    assert {:ok, ["abc", "abc"]} =
+             Jido.Expr.normalize([first, second],
+               normalize_leaf: normalize,
+               max_nodes: 3,
+               max_binary_bytes: 6
+             )
+
+    assert_received {^tag, :first, [0]}
+    assert_received {^tag, :second, [1]}
+    refute_received {^tag, _, _}
+
+    assert {:error, %Jido.Expr.Error{reason: :max_binary_bytes, path: [1]}} =
+             Jido.Expr.normalize([first, second],
+               normalize_leaf: normalize,
+               max_binary_bytes: 5
+             )
+  end
+
+  test "normalization does not call a host callback after a limit is exhausted" do
+    reference = %Reference{key: :value}
+    tag = make_ref()
+
+    for {value, options, reason, path} <- [
+          {[0, reference], [max_nodes: 2], :max_nodes, [1]},
+          {[[[reference]]], [max_depth: 2], :max_depth, [0, 0, 0]},
+          {["abc", reference], [max_binary_bytes: 2], :max_binary_bytes, [0]},
+          {[16, reference], [max_integer_bits: 4], :max_integer_bits, [0]}
+        ] do
+      normalize = fn _ ->
+        send(self(), tag)
+        {:ok, 1}
+      end
+
+      assert {:error, %Jido.Expr.Error{reason: ^reason, path: ^path}} =
+               Jido.Expr.normalize(value, Keyword.put(options, :normalize_leaf, normalize))
+
+      refute_received ^tag
+    end
   end
 
   test "bounded reduction visits expressions, containers, and host leaves with exact paths" do

@@ -452,6 +452,66 @@ defmodule Jido.Flow.CodecTest do
            ]
   end
 
+  test "diagnose collects canonical errors from each Choice option and fallback" do
+    registry = CodecRegistry.mixed()
+    assert {:ok, document} = Codec.encode(FlowAuthoring.mixed_flow!(), registry)
+    choice_index = component_index(document, "route")
+    choice = component(document, "route")
+    [option] = choice["options"]
+    item = %{"$ref" => %{"source" => "item", "component" => nil, "path" => []}}
+
+    choice = %{
+      choice
+      | "options" => [
+          %{option | "params" => item},
+          %{option | "name" => "second", "params" => item}
+        ],
+        "fallback" => %{choice["fallback"] | "params" => item}
+    }
+
+    invalid = replace_component(document, choice_index, choice)
+
+    assert {:error, %Error.Invalid{errors: [first | _] = errors}} =
+             Codec.diagnose(invalid, registry)
+
+    assert Enum.map(errors, & &1.details.path) == [
+             ["components", choice_index, "options", 0, "params"],
+             ["components", choice_index, "options", 1, "params"],
+             ["components", choice_index, "fallback", "params"]
+           ]
+
+    assert Codec.decode(invalid, registry) == {:error, first}
+  end
+
+  test "diagnose collects Iterate state errors before independent completion errors" do
+    registry = CodecRegistry.mixed()
+    assert {:ok, document} = Codec.encode(FlowAuthoring.mixed_flow!(), registry)
+    iterate_index = component_index(document, "loop")
+    iterate = component(document, "loop")
+
+    for {field, source} <- [{"initial", "state"}, {"update", "item"}] do
+      invalid_ref = %{"$ref" => %{"source" => source, "component" => nil, "path" => []}}
+
+      invalid_iterate = %{
+        iterate
+        | "state" => Map.put(iterate["state"], field, invalid_ref),
+          "completion" => "invalid"
+      }
+
+      invalid = replace_component(document, iterate_index, invalid_iterate)
+
+      assert {:error, %Error.Invalid{errors: [first | _] = errors}} =
+               Codec.diagnose(invalid, registry)
+
+      assert Enum.map(errors, & &1.details.path) == [
+               ["components", iterate_index, "state", field],
+               ["components", iterate_index, "completion"]
+             ]
+
+      assert Codec.decode(invalid, registry) == {:error, first}
+    end
+  end
+
   test "diagnose stops at document safety limits" do
     registry = CodecRegistry.mixed()
     assert {:ok, document} = Codec.encode(FlowAuthoring.mixed_flow!(), registry)

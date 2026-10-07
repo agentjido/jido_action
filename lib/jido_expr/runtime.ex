@@ -91,23 +91,26 @@ defmodule Jido.Expr.Runtime do
   end
 
   defp visit(value, state, path, depth, mode) do
-    with {:ok, state} <- Limits.enter(state, value, path, depth),
-         {:ok, value} <- normalize_value(value, state, path, mode) do
+    with {:ok, value} <- normalize_value(value, state, path, depth, mode),
+         {:ok, state} <- Limits.enter(state, value, path, depth) do
       visit_value(value, state, path, depth, mode)
     end
   end
 
-  defp normalize_value(%Expr{} = value, _state, _path, _mode), do: {:ok, value}
+  defp normalize_value(%Expr{} = value, _state, _path, _depth, _mode), do: {:ok, value}
 
-  defp normalize_value(%_{} = value, %{normalize_leaf: callback}, path, :normalize) do
-    case Limits.callback(callback, value, path) do
-      {:ok, value} -> {:ok, value}
-      {:error, error} -> Limits.callback_error(error, path)
-      _ -> Limits.fail(:invalid_callback_return, path)
+  defp normalize_value(%_{} = value, %{normalize_leaf: callback} = state, path, depth, :normalize) do
+    # Admit the host callback first; visit/5 charges the replacement node once.
+    with {:ok, _state} <- Limits.enter(state, value, path, depth) do
+      case Limits.callback(callback, value, path) do
+        {:ok, value} -> {:ok, value}
+        {:error, error} -> Limits.callback_error(error, path)
+        _ -> Limits.fail(:invalid_callback_return, path)
+      end
     end
   end
 
-  defp normalize_value(value, _state, _path, _mode), do: {:ok, value}
+  defp normalize_value(value, _state, _path, _depth, _mode), do: {:ok, value}
 
   defp visit_value(value, state, path, depth, :data) when is_map(value),
     do: map(:maps.iterator(value), state, path, depth, :data, value)

@@ -250,10 +250,8 @@ defmodule Jido.Expr do
   @spec evaluate(t(), evaluate_options()) :: {:ok, term()} | {:error, term()}
   def evaluate(value, options \\ []), do: Runtime.evaluate(value, options)
 
-  defp valid_operands?(operator, operands) when is_list(operands) do
-    not List.improper?(operands) and {operator, length(operands)} in @operations
-  end
-
+  defp valid_operands?(operator, [_]), do: {operator, 1} in @operations
+  defp valid_operands?(operator, [_, _]), do: {operator, 2} in @operations
   defp valid_operands?(_operator, _operands), do: false
 
   defp safe_operator(operator) when is_atom(operator), do: operator
