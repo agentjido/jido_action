@@ -1,5 +1,12 @@
 # AGENTS.md
 
+## Jido Exec V2 rebuild branch
+
+On branch `jido-exec-v2`, read `JIDO_EXEC_V2_PLAN.md` before work on Action
+execution or Flow execution. That plan replaces the Exec-specific architecture
+and compatibility rules below while the hard-cut rebuild is in progress. All
+other package, quality, and test rules in this file still apply.
+
 ## Scope
 
 These instructions apply to the `jido_action` package.
