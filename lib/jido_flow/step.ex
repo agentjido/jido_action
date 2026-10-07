@@ -61,6 +61,23 @@ defmodule Jido.Flow.Step do
   @spec result_refs(t()) :: [String.t()]
   def result_refs(%__MODULE__{params: params}), do: Expression.result_refs(params)
 
+  @doc false
+  @spec to_map(t()) :: map()
+  def to_map(%__MODULE__{} = step) do
+    %{
+      kind: :step,
+      name: step.name,
+      action: step.action,
+      params: Expression.to_map(step.params),
+      needs: step.needs,
+      meta: step.meta
+    }
+  end
+
+  @doc false
+  @spec target_modules(t()) :: [module()]
+  def target_modules(%__MODULE__{action: action}), do: [action]
+
   defp known_keys(attrs) do
     case Enum.reject(Map.keys(attrs), &(&1 in [:name, :action, :params, :needs, :meta])) do
       [] ->

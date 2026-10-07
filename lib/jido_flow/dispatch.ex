@@ -76,8 +76,8 @@ defmodule Jido.Flow.Dispatch do
   end
 
   @doc false
-  @spec result_deps(t()) :: [String.t()]
-  def result_deps(%__MODULE__{} = dispatch) do
+  @spec result_refs(t()) :: [String.t()]
+  def result_refs(%__MODULE__{} = dispatch) do
     dispatch.params |> Expression.result_refs() |> Enum.uniq() |> Enum.sort()
   end
 
@@ -94,6 +94,11 @@ defmodule Jido.Flow.Dispatch do
       meta: dispatch.meta
     }
   end
+
+  @doc false
+  @spec target_modules(t()) :: [module()]
+  def target_modules(%__MODULE__{decision: decision, expander: expander}),
+    do: [decision, expander]
 
   defp known_keys(attrs) do
     case Enum.reject(Map.keys(attrs), &(&1 in @config_keys)) do

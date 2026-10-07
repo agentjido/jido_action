@@ -59,6 +59,23 @@ defmodule Jido.Flow.Subflow do
   @spec result_refs(t()) :: [String.t()]
   def result_refs(%__MODULE__{params: params}), do: Expression.result_refs(params)
 
+  @doc false
+  @spec to_map(t()) :: map()
+  def to_map(%__MODULE__{} = subflow) do
+    %{
+      kind: :subflow,
+      name: subflow.name,
+      flow: subflow.flow,
+      params: Expression.to_map(subflow.params),
+      needs: subflow.needs,
+      meta: subflow.meta
+    }
+  end
+
+  @doc false
+  @spec target_modules(t()) :: [module()]
+  def target_modules(%__MODULE__{flow: flow}), do: [flow]
+
   defp known_keys(attrs) do
     case Enum.reject(Map.keys(attrs), &(&1 in @keys)) do
       [] -> :ok

@@ -79,8 +79,8 @@ defmodule Jido.Flow.Map do
   end
 
   @doc false
-  @spec result_deps(t()) :: [String.t()]
-  def result_deps(%__MODULE__{} = map) do
+  @spec result_refs(t()) :: [String.t()]
+  def result_refs(%__MODULE__{} = map) do
     map.collection
     |> Expression.result_refs()
     |> Kernel.++(Expression.result_refs(map.params))
@@ -102,6 +102,10 @@ defmodule Jido.Flow.Map do
       meta: map.meta
     }
   end
+
+  @doc false
+  @spec target_modules(t()) :: [module()]
+  def target_modules(%__MODULE__{action: action}), do: [action]
 
   defp validate_required_expression(attrs, field, scope) do
     if Map.has_key?(attrs, field) do

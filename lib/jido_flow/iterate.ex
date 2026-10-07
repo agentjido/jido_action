@@ -172,6 +172,30 @@ defmodule Jido.Flow.Iterate do
       Expression.result_refs(iterate.completion)
   end
 
+  @doc false
+  @spec to_map(t()) :: map()
+  def to_map(%__MODULE__{} = iterate) do
+    %{
+      kind: :iterate,
+      name: iterate.name,
+      action: iterate.action,
+      params: Expression.to_map(iterate.params),
+      state: %{
+        schema: iterate.state.schema,
+        initial: Expression.to_map(iterate.state.initial),
+        update: Expression.to_map(iterate.state.update)
+      },
+      completion: Expression.to_map(iterate.completion),
+      max_iterations: iterate.max_iterations,
+      needs: iterate.needs,
+      meta: iterate.meta
+    }
+  end
+
+  @doc false
+  @spec target_modules(t()) :: [module()]
+  def target_modules(%__MODULE__{action: action}), do: [action]
+
   defp known_keys(attrs) do
     case Enum.reject(Map.keys(attrs), &(&1 in @keys)) do
       [] -> :ok

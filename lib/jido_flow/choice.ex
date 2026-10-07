@@ -213,8 +213,8 @@ defmodule Jido.Flow.Choice do
   end
 
   @doc false
-  @spec result_deps(t()) :: [String.t()]
-  def result_deps(%__MODULE__{} = choice) do
+  @spec result_refs(t()) :: [String.t()]
+  def result_refs(%__MODULE__{} = choice) do
     choice.options
     |> Enum.flat_map(fn option ->
       Expression.result_refs(option.condition) ++ Expression.result_refs(option.params)
@@ -247,6 +247,11 @@ defmodule Jido.Flow.Choice do
       meta: choice.meta
     }
   end
+
+  @doc false
+  @spec target_modules(t()) :: [module()]
+  def target_modules(%__MODULE__{} = choice),
+    do: Enum.map(choice.options, & &1.action) ++ [choice.fallback.action]
 
   defp options(values) when is_list(values) do
     cond do
