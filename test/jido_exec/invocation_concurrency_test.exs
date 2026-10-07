@@ -33,6 +33,34 @@ defmodule JidoActionTest.Exec.InvocationConcurrencyTest do
     end
   end
 
+  defmodule ReplayGateHost do
+    @behaviour Jido.Exec.Invocation
+
+    @impl true
+    def before_invoke(invocation, ref) do
+      send(ref.owner, {ref.token, :before, invocation, self()})
+
+      case {ref.mode, Agent.get(ref.store, &Map.get(&1, invocation.id))} do
+        {:replay, receipt} when not is_nil(receipt) ->
+          {:replay, receipt}
+
+        _other ->
+          token = ref.token
+
+          receive do
+            {^token, :before_result, result} -> result
+          end
+      end
+    end
+
+    @impl true
+    def after_invoke(receipt, ref) do
+      Agent.update(ref.store, &Map.put(&1, receipt.invocation.id, receipt))
+      send(ref.owner, {ref.token, :after, receipt, self()})
+      :ok
+    end
+  end
+
   defmodule ControlledAction do
     use Jido.Action, name: "invocation_concurrency_controlled"
 
@@ -130,6 +158,89 @@ defmodule JidoActionTest.Exec.InvocationConcurrencyTest do
               }, [{:effect, 0}, {:effect, 1}]}
   end
 
+  test "partial Map receipts use source keys after reverse completion and a concurrency change" do
+    store = start_supervised!({Agent, fn -> %{} end})
+    token = make_ref()
+    owner = self()
+
+    first =
+      Task.async(fn ->
+        Exec.run(flow([:same, :same, :same]), %{}, %{owner: owner, token: token},
+          max_concurrency: 3,
+          invocation: replay_config(token, store, :record, owner)
+        )
+      end)
+
+    on_exit(fn -> Process.exit(first.pid, :kill) end)
+    {workers, descriptors} = take_before_callbacks(token, 3)
+
+    for index <- [2, 1, 0] do
+      worker = Map.fetch!(workers, index)
+      send(worker, {token, :before_result, :execute})
+      assert_receive {^token, :action_started, :same, ^worker}, 1_000
+      send(worker, {token, :finish})
+      assert_receive {^token, :after, receipt, ^worker}, 1_000
+      assert receipt.invocation.id.selector == %{index: index}
+    end
+
+    expected =
+      {:ok,
+       %{
+         items: [
+           %{status: :ok, value: %{value: :same}},
+           %{status: :ok, value: %{value: :same}},
+           %{status: :ok, value: %{value: :same}}
+         ]
+       }, [{:effect, :same}, {:effect, :same}, {:effect, :same}]}
+
+    assert Task.await(first, 1_000) == expected
+
+    assert Enum.map(descriptors, fn {index, descriptor} -> {index, descriptor.id.selector} end)
+           |> Enum.sort() ==
+             [{0, %{index: 0}}, {1, %{index: 1}}, {2, %{index: 2}}]
+
+    receipts = Agent.get(store, & &1)
+
+    kept =
+      receipts
+      |> Enum.reject(fn {id, _receipt} -> id.selector == %{index: 1} end)
+      |> Map.new()
+
+    Agent.update(store, fn _receipts -> kept end)
+    flush_messages()
+    replay_token = make_ref()
+
+    second =
+      Task.async(fn ->
+        Exec.run(flow([:same, :same, :same]), %{}, %{owner: owner, token: replay_token},
+          max_concurrency: 1,
+          invocation: replay_config(replay_token, store, :replay, owner)
+        )
+      end)
+
+    on_exit(fn -> Process.exit(second.pid, :kill) end)
+
+    assert_receive {^replay_token, :before, %{id: %{selector: %{index: 0}}}, first_replay},
+                   1_000
+
+    refute_received {^replay_token, :action_started, :same, ^first_replay}
+
+    assert_receive {^replay_token, :before, %{id: %{selector: %{index: 1}}}, missing}, 1_000
+    send(missing, {replay_token, :before_result, :execute})
+    assert_receive {^replay_token, :action_started, :same, ^missing}, 1_000
+    send(missing, {replay_token, :finish})
+
+    assert_receive {^replay_token, :after, %{invocation: %{id: %{selector: %{index: 1}}}},
+                    ^missing},
+                   1_000
+
+    assert_receive {^replay_token, :before, %{id: %{selector: %{index: 2}}}, last_replay},
+                   1_000
+
+    refute_received {^replay_token, :action_started, :same, ^last_replay}
+    assert Task.await(second, 1_000) == expected
+  end
+
   test "an unrelated invocation token cannot stop the call" do
     token = make_ref()
 
@@ -194,5 +305,22 @@ defmodule JidoActionTest.Exec.InvocationConcurrencyTest do
       run_key: "concurrency-#{inspect(token)}",
       compatibility: :current
     }
+  end
+
+  defp replay_config(token, store, mode, owner) do
+    %{
+      host: ReplayGateHost,
+      ref: %{owner: owner, token: token, store: store, mode: mode},
+      run_key: "replay-concurrency",
+      compatibility: :current
+    }
+  end
+
+  defp flush_messages do
+    receive do
+      _message -> flush_messages()
+    after
+      0 -> :ok
+    end
   end
 end

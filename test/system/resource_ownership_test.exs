@@ -109,11 +109,12 @@ defmodule JidoActionTest.System.ResourceOwnershipTest do
       end)
 
     on_exit(fn -> Process.exit(borrower, :kill) end)
-    assert_receive {:using, id, ^borrower, owner}, 1_000
-    send(borrower, :finish)
+    assert_receive {:using, id, worker, owner}, 1_000
+    refute worker == borrower
+    owner_monitor = Process.monitor(owner)
+    send(worker, :finish)
     assert_receive {^token, {:ok, %{session: ^id}}}, 1_000
     assert Process.alive?(borrower)
-    owner_monitor = Process.monitor(owner)
     assert_released(service, id, owner, owner_monitor)
     send(borrower, :stop)
     assert_receive {:DOWN, ^monitor, :process, ^borrower, :normal}

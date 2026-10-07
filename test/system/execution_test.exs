@@ -79,7 +79,7 @@ defmodule JidoActionTest.System.ExecutionTest do
     assert Task.Supervisor.children(context.supervisor) == []
     refute_received {^ref, :ready, _, _}
 
-    assert_lifecycles(context.event_ref, %{flow: 1, node: 3, target: 2, map_item: 3}, :stop)
+    assert_lifecycles(context.event_ref, %{flow: 1, node: 3, target: 5, map_item: 3}, :stop)
   end
 
   test "all Flow components compose with exact leaf work and input-order results", context do
@@ -166,12 +166,18 @@ defmodule JidoActionTest.System.ExecutionTest do
              ])
 
     assert event_metadata(events, [:jido, :flow, :target, :start])
-           |> Enum.map(&{&1.node, &1.kind, &1.option, &1.target})
+           |> Enum.map(&{&1.node, &1.kind, Map.get(&1, :option), &1.target})
            |> Enum.sort() ==
              Enum.sort([
                {"start", :step, nil, SystemLoad.HeldWork},
                {"child_work", :step, nil, SystemLoad.HeldWork},
-               {"route", :choice, "positive", SystemLoad.HeldWork}
+               {"route", :choice, "positive", SystemLoad.HeldWork},
+               {"mapped", :map, nil, SystemLoad.HeldWork},
+               {"mapped", :map, nil, SystemLoad.HeldWork},
+               {"reduce", :reduce, nil, SystemLoad.HeldWork},
+               {"reduce", :reduce, nil, SystemLoad.HeldWork},
+               {"iterate", :iterate, nil, SystemLoad.HeldWork},
+               {"iterate", :iterate, nil, SystemLoad.HeldWork}
              ])
 
     assert_collection_metadata(events, [:map, :item], "mapped", :map_item, [0, 1])
@@ -482,7 +488,7 @@ defmodule JidoActionTest.System.ExecutionTest do
     assert_lifecycles(context.event_ref, %{flow: 1, node: 2, target: 2, map_item: 0}, :error)
   end
 
-  test "supervisor shutdown ends held work and returns a structured error", context do
+  test "supervisor shutdown ends held work and returns the control process error", context do
     ref = make_ref()
     observer = self()
 
@@ -510,15 +516,23 @@ defmodule JidoActionTest.System.ExecutionTest do
     end
 
     assert_receive {^ref, :result,
-                    {:error, %Jido.Flow.Error.ExecutionFailureError{failures: failures}}},
+                    {:error,
+                     %Jido.Exec.Error.AsyncExecutionError{
+                       details: %{operation: :await, reason: :killed}
+                     }}},
                    5_000
 
-    assert length(failures) == 2
-    assert Enum.sort(Enum.map(failures, & &1.error.details.node_path)) == [["left"], ["right"]]
-    assert Enum.all?(failures, &(&1.error.details.reason == :shutdown))
     assert :ok = Task.await(caller, 5_000)
     refute_received {^ref, :ready, _, _}
-    assert_lifecycles(context.event_ref, %{flow: 1, node: 2, target: 2, map_item: 0}, :error)
+
+    events = telemetry(context.event_ref)
+    assert length(event_metadata(events, [:jido, :flow, :start])) == 1
+    assert length(event_metadata(events, [:jido, :flow, :node, :start])) == 2
+    assert length(event_metadata(events, [:jido, :flow, :target, :start])) == 2
+
+    refute Enum.any?(events, fn {event, _measurements, _metadata} ->
+             List.last(event) in [:stop, :error]
+           end)
   end
 
   test "supervisor loss clears the caller-owned async mailbox", context do
