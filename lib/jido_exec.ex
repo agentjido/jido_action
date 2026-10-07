@@ -113,6 +113,7 @@ defmodule Jido.Exec do
           | {:timeout, timeout()}
           | {:max_concurrency, pos_integer()}
           | {:max_continuations, non_neg_integer()}
+          | {:invocation, Jido.Exec.Invocation.config()}
 
   @typedoc "Options for a paused Flow execution."
   @type start_option ::

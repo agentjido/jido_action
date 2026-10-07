@@ -2,11 +2,16 @@ defmodule Jido.Exec.Options do
   @moduledoc false
 
   alias Jido.Action.Error, as: ActionError
+  alias Jido.Exec.Invocation.Runtime, as: InvocationRuntime
   alias Jido.Exec.Runtime
   alias Jido.Flow.Error, as: FlowError
 
   @routing_option_keys [:task_supervisor]
-  @common_run_option_keys [:max_concurrency, :max_continuations | @routing_option_keys]
+  @common_run_option_keys [
+    :max_concurrency,
+    :max_continuations,
+    :invocation | @routing_option_keys
+  ]
   @flow_run_option_keys @common_run_option_keys
   @flow_start_option_keys [:max_concurrency | @routing_option_keys]
   @action_run_option_keys @common_run_option_keys
@@ -71,10 +76,11 @@ defmodule Jido.Exec.Options do
          {:ok, task_supervisor} <- validate_task_supervisor(opts, FlowError),
          max_concurrency = Keyword.get(opts, :max_concurrency, @default_max_concurrency),
          :ok <- validate_max_concurrency(max_concurrency, FlowError),
+         {:ok, invocation_options} <- invocation_options(opts, mode, FlowError),
          {:ok, continuation_options} <- continuation_options(opts, mode) do
       {:ok,
        [max_concurrency: max_concurrency, task_supervisor: task_supervisor] ++
-         continuation_options}
+         continuation_options ++ invocation_options}
     end
   end
 
@@ -87,7 +93,8 @@ defmodule Jido.Exec.Options do
          :ok <- validate_known_action_options(opts, executable_type),
          max_concurrency = Keyword.get(opts, :max_concurrency, @default_max_concurrency),
          :ok <- validate_max_concurrency(max_concurrency, ActionError),
-         {:ok, _max_continuations} <- continuation_limit(opts, ActionError) do
+         {:ok, _max_continuations} <- continuation_limit(opts, ActionError),
+         {:ok, _invocation_options} <- invocation_options(opts, :run, ActionError) do
       :ok
     end
   end
@@ -169,6 +176,29 @@ defmodule Jido.Exec.Options do
   end
 
   defp continuation_options(_opts, :start), do: {:ok, []}
+
+  defp invocation_options(opts, :run, error_module) do
+    case Keyword.fetch(opts, :invocation) do
+      :error ->
+        {:ok, []}
+
+      {:ok, config} ->
+        case InvocationRuntime.validate_config(config) do
+          {:ok, config} ->
+            {:ok, [invocation: config]}
+
+          {:error, details} ->
+            {:error,
+             execution_option_error(
+               error_module,
+               "invocation option must define a valid host, ref, run_key, and compatibility",
+               Map.put(details, :option, :invocation)
+             )}
+        end
+    end
+  end
+
+  defp invocation_options(_opts, :start, _error_module), do: {:ok, []}
 
   defp validate_max_concurrency(max_concurrency, _error_module)
        when is_integer(max_concurrency) and max_concurrency > 0,

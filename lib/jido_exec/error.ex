@@ -65,6 +65,21 @@ defmodule Jido.Exec.Error do
     @type t :: %__MODULE__{message: String.t(), details: map()}
   end
 
+  defmodule InterruptedError do
+    @moduledoc "Error for an interrupted Action invocation protocol."
+    defexception message: "Action invocation interrupted", details: %{}
+
+    @type stage :: :before_invoke | :after_invoke | :replay | :worker
+    @type t :: %__MODULE__{
+            message: String.t(),
+            details: %{
+              required(:stage) => stage(),
+              required(:reason) => term(),
+              required(:invocation_id) => Jido.Exec.Invocation.occurrence_id() | nil
+            }
+          }
+  end
+
   @doc "Creates an invalid-handle error."
   @spec invalid_handle_error(String.t(), details_input()) :: InvalidHandleError.t()
   def invalid_handle_error(message, details \\ %{}) do
@@ -95,6 +110,14 @@ defmodule Jido.Exec.Error do
     CancelledError.exception(message: message, details: normalize_details(details))
   end
 
+  @doc "Creates an Action invocation interruption error."
+  @spec interrupted_error(InterruptedError.stage(), term(), map() | nil) :: InterruptedError.t()
+  def interrupted_error(stage, reason, invocation_id \\ nil) do
+    InterruptedError.exception(
+      details: %{stage: stage, reason: reason, invocation_id: invocation_id}
+    )
+  end
+
   @doc "Returns whether a value is an error owned by the execution boundary."
   @spec owned?(term()) :: boolean()
   def owned?(%TimeoutError{}), do: true
@@ -102,6 +125,7 @@ defmodule Jido.Exec.Error do
   def owned?(%AsyncTimeoutError{}), do: true
   def owned?(%AsyncExecutionError{}), do: true
   def owned?(%CancelledError{}), do: true
+  def owned?(%InterruptedError{}), do: true
   def owned?(_error), do: false
 
   @doc """
@@ -126,6 +150,9 @@ defmodule Jido.Exec.Error do
 
   def to_map(%CancelledError{} = error),
     do: error_map(:async_cancelled, error.message, error.details)
+
+  def to_map(%InterruptedError{} = error),
+    do: error_map(:execution_interrupted, error.message, error.details)
 
   defp error_map(type, message, details, fields \\ []) do
     details =
