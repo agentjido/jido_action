@@ -68,8 +68,6 @@ defmodule Jido.Action do
           | {:error, term(), effects()}
 
   @max_action_name_bytes 256
-  @json_subschema_keys [:items, :prefixItems, :additionalProperties, :anyOf, :oneOf, :allOf]
-
   @action_config_schema Zoi.object(
                           %{
                             name:
@@ -231,7 +229,7 @@ defmodule Jido.Action do
         "kind" => "action",
         "name" => Map.fetch!(opts, :name),
         "description" => Map.get(opts, :description),
-        "input_schema" => schema |> compile_json_schema(:schema) |> optional_defaults(),
+        "input_schema" => compile_json_schema(schema, :schema),
         "output_schema" => compile_json_schema(output_schema, :output_schema)
       }
       |> Jason.encode!(maps: :strict)
@@ -256,35 +254,6 @@ defmodule Jido.Action do
       raise ArgumentError,
             "#{inspect(option)} does not have a JSON-safe JSON Schema representation: " <>
               Exception.message(exception)
-  end
-
-  # Input validation fills a missing field that has a default, so callers can
-  # omit it. Validated output always contains it, so output keeps the field.
-  defp optional_defaults(%{properties: properties, required: required} = json_schema)
-       when is_map(properties) and is_list(required) do
-    properties = Map.new(properties, fn {key, value} -> {key, optional_defaults(value)} end)
-
-    %{
-      subschemas(json_schema)
-      | properties: properties,
-        required: Enum.reject(required, &match?(%{default: _}, Map.get(properties, &1)))
-    }
-  end
-
-  defp optional_defaults(json_schema) when is_map(json_schema), do: subschemas(json_schema)
-  defp optional_defaults(json_schema), do: json_schema
-
-  defp subschemas(json_schema) do
-    Map.new(json_schema, fn
-      {key, values} when key in @json_subschema_keys and is_list(values) ->
-        {key, Enum.map(values, &optional_defaults/1)}
-
-      {key, value} when key in @json_subschema_keys ->
-        {key, optional_defaults(value)}
-
-      pair ->
-        pair
-    end)
   end
 
   @doc false

@@ -47,52 +47,6 @@ defmodule JidoActionTest.ActionTest do
       assert %{"input_schema" => nil, "output_schema" => nil} = NoSchema.to_json()
     end
 
-    test "omits input fields with defaults from the required JSON fields" do
-      module = unique_module("DefaultJsonAction")
-
-      create_module(
-        module,
-        quote do
-          use Jido.Action,
-            name: "default_json_action",
-            schema:
-              Zoi.object(%{
-                input: Zoi.string(),
-                count: Zoi.integer() |> Zoi.default(3),
-                options:
-                  Zoi.object(%{
-                    mode: Zoi.string(),
-                    retries: Zoi.integer() |> Zoi.default(0)
-                  }),
-                items:
-                  Zoi.array(
-                    Zoi.object(%{id: Zoi.string(), tag: Zoi.string() |> Zoi.default("x")})
-                  )
-              }),
-            output_schema:
-              Zoi.object(%{
-                result: Zoi.string(),
-                count: Zoi.integer() |> Zoi.default(3)
-              })
-
-          @impl true
-          def run(%{input: input}, _context), do: {:ok, %{result: input}}
-        end
-      )
-
-      json = module.to_json()
-      input = json["input_schema"]
-
-      assert Enum.sort(input["required"]) == ["input", "items", "options"]
-      assert input["properties"]["count"]["default"] == 3
-      assert input["properties"]["options"]["required"] == ["mode"]
-      assert input["properties"]["items"]["items"]["required"] == ["id"]
-      assert Enum.sort(json["output_schema"]["required"]) == ["count", "result"]
-
-      assert {:ok, %{count: 3}} =
-               module.validate_params(%{input: "x", options: %{mode: "m"}, items: []})
-    end
-
     test "reports an Action schema without a JSON Schema representation" do
       module = unique_module("PidSchemaAction")
 
