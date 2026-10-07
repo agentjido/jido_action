@@ -121,6 +121,32 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
     end
   end
 
+  defmodule ListParamsProbe do
+    @behaviour Jido.Action
+    @behaviour Jido.Executable
+
+    @impl true
+    def __jido_executable__, do: Jido.Executable.action(__MODULE__)
+
+    @impl true
+    def validate_params([observer, value]) do
+      send(observer, {:list_params_phase, :input, self()})
+      {:ok, %{observer: observer, value: value}}
+    end
+
+    @impl true
+    def run(%{observer: observer, value: value}, _context) do
+      send(observer, {:list_params_phase, :execution, self()})
+      {:ok, %{observer: observer, value: value}}
+    end
+
+    @impl true
+    def validate_output(%{observer: observer} = output) do
+      send(observer, {:list_params_phase, :output, self()})
+      {:ok, Map.delete(output, :observer)}
+    end
+  end
+
   defmodule ValidatedEmptyFlow do
     @behaviour Jido.Executable
 
@@ -172,6 +198,86 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
     assert replayed.id == receipt.invocation.id
     refute replay_worker == fresh_worker
     refute_receive {:action_phase, _event, ^replay_worker}
+    refute_receive {:after_invoke, _receipt, ^replay_worker}
+  end
+
+  test "P4 reuses an accepted receipt after the first caller loses its result" do
+    store = start_supervised!({Agent, fn -> %{} end})
+    owner = self()
+    token = make_ref()
+    params = %{observer: owner, value: 13}
+
+    {caller, caller_monitor} =
+      spawn_monitor(fn ->
+        {:ok, %{value: 13}} =
+          Exec.run(Probe, params, %{attempt: :lost},
+            invocation: Host.config(store, owner, run_key: "lost-result")
+          )
+
+        send(owner, {token, :result_ready, self()})
+
+        receive do
+          {^token, :discard_result} -> :ok
+        end
+      end)
+
+    assert_receive {^token, :result_ready, ^caller}
+    assert map_size(Host.receipts(store)) == 1
+
+    assert_receive {:before_invoke, _descriptor, fresh_worker}
+    assert_receive {:action_phase, :input, ^fresh_worker}
+    assert_receive {:action_phase, {:execution, :lost}, ^fresh_worker}
+    assert_receive {:action_phase, :output, ^fresh_worker}
+    assert_receive {:after_invoke, receipt, ^fresh_worker}
+
+    send(caller, {token, :discard_result})
+    assert_receive {:DOWN, ^caller_monitor, :process, ^caller, :normal}
+
+    assert Exec.run(Probe, params, %{attempt: :replay},
+             invocation: Host.config(store, self(), mode: :replay, run_key: "lost-result")
+           ) == {:ok, %{value: 13}}
+
+    assert_receive {:before_invoke, replayed, replay_worker}
+    assert replayed.id == receipt.invocation.id
+    refute_receive {:action_phase, _phase, ^replay_worker}
+    refute_receive {:after_invoke, _receipt, ^replay_worker}
+  end
+
+  test "a Flow replays an Action receipt with resolved list parameters" do
+    store = start_supervised!({Agent, fn -> %{} end})
+
+    flow =
+      Flow.new!(
+        name: "list_params_replay",
+        components: [
+          Step.new!(
+            name: "list",
+            action: ListParamsProbe,
+            params: [Ref.context(:observer), Ref.input(:value)]
+          )
+        ],
+        output: Ref.result("list")
+      )
+
+    config = Host.config(store, self(), run_key: "list-params")
+
+    assert Exec.run(flow, %{value: 7}, %{observer: self()}, invocation: config) ==
+             {:ok, %{value: 7}}
+
+    assert_receive {:before_invoke, _fresh_invocation, fresh_worker}
+    assert_receive {:list_params_phase, :input, ^fresh_worker}
+    assert_receive {:list_params_phase, :execution, ^fresh_worker}
+    assert_receive {:list_params_phase, :output, ^fresh_worker}
+    assert_receive {:after_invoke, receipt, ^fresh_worker}
+    assert receipt.invocation.params == [self(), 7]
+
+    assert Exec.run(flow, %{value: 7}, %{observer: self()},
+             invocation: Host.config(store, self(), mode: :replay, run_key: "list-params")
+           ) == {:ok, %{value: 7}}
+
+    assert_receive {:before_invoke, _replayed_invocation, replay_worker}
+    refute replay_worker == fresh_worker
+    refute_receive {:list_params_phase, _phase, ^replay_worker}
     refute_receive {:after_invoke, _receipt, ^replay_worker}
   end
 
@@ -233,6 +339,31 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
            }
   end
 
+  test "P6 replays an Instruction without repeating its Action boundary" do
+    store = start_supervised!({Agent, fn -> %{} end})
+    params = %{observer: self(), value: 21, effects: [:instruction_effect]}
+    instruction = Instruction.new!(target: Probe, params: params, context: %{attempt: :fresh})
+    config = Host.config(store, self(), run_key: "instruction-replay")
+    expected = {:ok, %{value: 21}, [:instruction_effect]}
+
+    assert Exec.run(instruction, %{}, %{}, invocation: config) == expected
+
+    assert_receive {:before_invoke, %{id: %{role: :root_action}}, fresh_worker}
+    assert_receive {:action_phase, :input, ^fresh_worker}
+    assert_receive {:action_phase, {:execution, :fresh}, ^fresh_worker}
+    assert_receive {:action_phase, :output, ^fresh_worker}
+    assert_receive {:after_invoke, _receipt, ^fresh_worker}
+
+    assert Exec.run(instruction, %{}, %{},
+             invocation: Host.config(store, self(), mode: :replay, run_key: "instruction-replay")
+           ) == expected
+
+    assert_receive {:before_invoke, %{id: %{role: :root_action}}, replay_worker}
+    refute replay_worker == fresh_worker
+    refute_receive {:action_phase, _phase, ^replay_worker}
+    refute_receive {:after_invoke, _receipt, ^replay_worker}
+  end
+
   test "the host owns compatibility decisions for changed descriptor fields" do
     store = start_supervised!({Agent, fn -> %{} end})
 
@@ -289,6 +420,56 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
 
     ids = store |> Host.receipts() |> Map.keys()
     assert Enum.sort(Enum.map(ids, & &1.chain_index)) == [0, 1]
+  end
+
+  test "P15 replays a root continuation into a nonempty Flow at chain index one" do
+    store = start_supervised!({Agent, fn -> %{} end})
+    params = %{mode: :continue, observer: self(), target: CountedFlow, value: 34}
+    run_key = "replayed-flow-continuation"
+
+    assert Exec.run(Probe, params, %{observer: self()},
+             max_continuations: 1,
+             invocation: Host.config(store, self(), run_key: run_key)
+           ) == {:ok, %{value: 34}}
+
+    receipts = Host.receipts(store)
+    root_id = Enum.find(Map.keys(receipts), &(&1.chain_index == 0))
+    root_receipt = Map.fetch!(receipts, root_id)
+    Agent.update(store, fn _receipts -> %{root_id => root_receipt} end)
+    flush_messages()
+
+    assert Exec.run(Probe, params, %{observer: self()},
+             max_continuations: 1,
+             invocation: Host.config(store, self(), mode: :replay, run_key: run_key)
+           ) == {:ok, %{value: 34}}
+
+    assert_receive {:before_invoke, %{id: %{chain_index: 0}}, root_worker}
+    refute_receive {:action_phase, _phase, ^root_worker}
+
+    assert_receive {:before_invoke, %{id: %{chain_index: 1, component_path: ["work"]}},
+                    flow_worker}
+
+    assert_receive {:action_phase, :input, ^flow_worker}
+    assert_receive {:action_phase, {:execution, nil}, ^flow_worker}
+    assert_receive {:action_phase, :output, ^flow_worker}
+    assert_receive {:after_invoke, %{invocation: %{id: %{chain_index: 1}}}, ^flow_worker}
+
+    Agent.update(store, fn _receipts -> %{root_id => root_receipt} end)
+    flush_messages()
+
+    assert {:error,
+            %Jido.Action.Error.ExecutionFailureError{
+              message: "continuation limit exceeded",
+              details: %{count: 1, max_continuations: 0}
+            }} =
+             Exec.run(Probe, params, %{observer: self()},
+               max_continuations: 0,
+               invocation: Host.config(store, self(), mode: :replay, run_key: run_key)
+             )
+
+    assert_receive {:before_invoke, %{id: %{chain_index: 0}}, limited_worker}
+    refute_receive {:before_invoke, %{id: %{chain_index: 1}}, _worker}
+    refute_receive {:action_phase, _phase, ^limited_worker}
   end
 
   test "replayed continuations keep invalid target and Flow position rules" do
@@ -564,6 +745,49 @@ defmodule JidoActionTest.Exec.InvocationReplayTest do
       refute_receive {:action_phase, _phase, ^replay_worker}
       refute_receive {:after_invoke, _receipt, ^replay_worker}
     end
+  end
+
+  test "P10 replays a collected Map business error without repeated Action work" do
+    store = start_supervised!({Agent, fn -> %{} end})
+
+    flow =
+      Flow.new!(
+        name: "invocation_map_business_error",
+        components: [
+          FlowMap.new!(
+            name: "items",
+            collection: [8],
+            action: Probe,
+            params: %{
+              observer: Ref.context(:observer),
+              value: Ref.item(),
+              mode: :execution_error
+            },
+            on_error: :collect_errors
+          )
+        ],
+        output: %{items: Ref.result("items")}
+      )
+
+    config = Host.config(store, self(), run_key: "map-business-error")
+
+    assert {:ok, %{items: [%{status: :error, error: first_error}]} = first_output} =
+             Exec.run(flow, %{}, %{observer: self()}, invocation: config)
+
+    assert %{message: "execution rejected"} = first_error
+    assert_receive {:before_invoke, %{id: %{role: :map}}, fresh_worker}
+    assert_receive {:action_phase, :input, ^fresh_worker}
+    assert_receive {:action_phase, {:execution, nil}, ^fresh_worker}
+    assert_receive {:after_invoke, %{outcome: %{kind: :error}}, ^fresh_worker}
+
+    assert Exec.run(flow, %{}, %{observer: self()},
+             invocation: Host.config(store, self(), mode: :replay, run_key: "map-business-error")
+           ) == {:ok, first_output}
+
+    assert_receive {:before_invoke, %{id: %{role: :map}}, replay_worker}
+    refute replay_worker == fresh_worker
+    refute_receive {:action_phase, _phase, ^replay_worker}
+    refute_receive {:after_invoke, _receipt, ^replay_worker}
   end
 
   test "Reduce rebuilds its accumulator from a prefix of keyed receipts" do

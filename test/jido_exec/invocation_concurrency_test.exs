@@ -115,6 +115,90 @@ defmodule JidoActionTest.Exec.InvocationConcurrencyTest do
     assert_supervisor_quiescent(supervisor)
   end
 
+  test "P18 reuses an accepted sibling receipt after another sibling interrupts" do
+    store = start_supervised!({Agent, fn -> %{} end})
+    owner = self()
+    first_token = make_ref()
+
+    first_call =
+      Task.async(fn ->
+        Exec.run(flow([0, 1]), %{}, %{owner: owner, token: first_token},
+          max_concurrency: 2,
+          timeout: :infinity,
+          invocation: replay_config(first_token, store, :record, owner)
+        )
+      end)
+
+    on_exit(fn -> Process.exit(first_call.pid, :kill) end)
+
+    {first_workers, _descriptors} = take_before_callbacks(first_token, 2)
+    accepted_worker = Map.fetch!(first_workers, 0)
+    interrupted_worker = Map.fetch!(first_workers, 1)
+
+    first_monitors =
+      for worker <- Map.values(first_workers), into: %{} do
+        {worker, Process.monitor(worker)}
+      end
+
+    send(accepted_worker, {first_token, :before_result, :execute})
+    assert_receive {^first_token, :action_started, 0, ^accepted_worker}, 1_000
+    send(accepted_worker, {first_token, :finish})
+
+    assert_receive {^first_token, :after, accepted_receipt, ^accepted_worker}, 1_000
+    assert accepted_receipt.invocation.id.selector == %{index: 0}
+    assert Agent.get(store, &Map.keys/1) == [accepted_receipt.invocation.id]
+
+    send(interrupted_worker, {first_token, :before_result, {:interrupt, :stop_after_accept}})
+
+    assert {:error,
+            %InterruptedError{
+              details: %{stage: :before_invoke, reason: :stop_after_accept}
+            }} = Task.await(first_call, 1_000)
+
+    for {worker, monitor} <- first_monitors do
+      assert_receive {:DOWN, ^monitor, :process, ^worker, _reason}, 1_000
+    end
+
+    second_token = make_ref()
+
+    second_call =
+      Task.async(fn ->
+        Exec.run(flow([0, 1]), %{}, %{owner: owner, token: second_token},
+          max_concurrency: 2,
+          timeout: :infinity,
+          invocation: replay_config(second_token, store, :replay, owner)
+        )
+      end)
+
+    on_exit(fn -> Process.exit(second_call.pid, :kill) end)
+
+    {second_workers, _descriptors} = take_before_callbacks(second_token, 2)
+    replayed_worker = Map.fetch!(second_workers, 0)
+    missing_worker = Map.fetch!(second_workers, 1)
+    missing_monitor = Process.monitor(missing_worker)
+
+    send(missing_worker, {second_token, :before_result, :execute})
+    assert_receive {^second_token, :action_started, 1, ^missing_worker}, 1_000
+    send(missing_worker, {second_token, :finish})
+
+    assert_receive {^second_token, :after, missing_receipt, ^missing_worker}, 1_000
+    assert missing_receipt.invocation.id.selector == %{index: 1}
+
+    assert Task.await(second_call, 1_000) ==
+             {:ok,
+              %{
+                items: [
+                  %{status: :ok, value: %{value: 0}},
+                  %{status: :ok, value: %{value: 1}}
+                ]
+              }, [{:effect, 0}, {:effect, 1}]}
+
+    assert_receive {:DOWN, ^missing_monitor, :process, ^missing_worker, :normal}, 1_000
+    refute_received {^second_token, :action_started, 0, ^replayed_worker}
+    refute_received {^second_token, :after, _receipt, ^replayed_worker}
+    assert map_size(Agent.get(store, & &1)) == 2
+  end
+
   test "callbacks may finish in reverse order while output and effects stay canonical" do
     token = make_ref()
     owner = self()

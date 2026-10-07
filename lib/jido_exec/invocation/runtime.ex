@@ -41,7 +41,7 @@ defmodule Jido.Exec.Invocation.Runtime do
           Invocation.occurrence_id(),
           Invocation.evidence(),
           module(),
-          map()
+          term()
         ) ::
           Invocation.invocation()
   def descriptor(config, id, evidence, action, params) do
@@ -260,8 +260,7 @@ defmodule Jido.Exec.Invocation.Runtime do
          :ok <- validate_version(invocation.version, :unsupported_invocation_version),
          :ok <- validate_id(invocation.id),
          :ok <- validate_evidence(invocation.evidence),
-         true <- is_atom(invocation.action) and not is_nil(invocation.action),
-         true <- is_map(invocation.params) do
+         true <- is_atom(invocation.action) and not is_nil(invocation.action) do
       :ok
     else
       {:error, _reason} = error -> error

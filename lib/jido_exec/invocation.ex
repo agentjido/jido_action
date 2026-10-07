@@ -100,7 +100,7 @@ defmodule Jido.Exec.Invocation do
           required(:compatibility) => term(),
           required(:evidence) => evidence(),
           required(:action) => module(),
-          required(:params) => map()
+          required(:params) => term()
         }
 
   @typedoc "A normalized successful Action outcome."

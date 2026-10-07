@@ -402,12 +402,18 @@ defmodule JidoActionTest.Exec.InvocationContractTest do
       end
     end
 
+    test "accepts a descriptor with non-map resolved parameters" do
+      current = config() |> invocation() |> Map.put(:params, [:resolved, 1])
+      receipt = Runtime.receipt(current, ok_outcome())
+
+      assert Runtime.validate_receipt(receipt, current) == {:ok, receipt}
+    end
+
     test "rejects malformed descriptors and selector shapes" do
       current = invocation(config())
       receipt = Runtime.receipt(current, ok_outcome())
 
       malformed = [
-        put_in(receipt, [:invocation, :params], :not_a_map),
         put_in(receipt, [:invocation, :evidence, :executable, :form], :unknown),
         put_in(receipt, [:invocation, :id, :run_key], ""),
         put_in(receipt, [:invocation, :id, :component_path], [:not_a_string]),
