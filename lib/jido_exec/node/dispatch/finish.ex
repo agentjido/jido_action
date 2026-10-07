@@ -6,6 +6,10 @@ defmodule Jido.Exec.Node.Dispatch.Finish do
   @enforce_keys [:id, :name, :hash, :dispatch_name, :component, :target_component]
   defstruct [:id, :name, :hash, :dispatch_name, :component, :target_component]
 
+  @type t :: %__MODULE__{}
+
+  @doc false
+  @spec new(Jido.Exec.Node.Dispatch.t(), term()) :: t()
   def new(%Jido.Exec.Node.Dispatch{} = dispatch, target_id) do
     id = {dispatch.id, :finish, target_id}
 
@@ -24,6 +28,8 @@ defmodule Jido.Exec.Node.Dispatch.Finish do
     }
   end
 
+  @doc false
+  @spec finish(t(), term()) :: {:ok, term()} | {:error, term()}
   def finish(
         %__MODULE__{} = _node,
         {:jido_dispatch_target_result, frame, component, output, effects}

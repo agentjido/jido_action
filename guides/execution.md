@@ -33,8 +33,9 @@ compiles a Runic workflow, runs it until it stops, and projects the result.
   Jido.Exec.run(MyApp.Flows.Notify, %{name: "Ada"}, %{request_id: "r-1"})
 ```
 
-`run/4` uses Runic's immediate execution loop. It does not create a Jido worker,
-execution struct, cursor, or checkpoint.
+`run/4` uses Runic's immediate execution loop inside an unlinked temporary task
+under `Jido.Exec.TaskSupervisor`. The task keeps the caller's group leader. It
+does not create a Jido worker, execution struct, cursor, or checkpoint.
 
 ## Compile Without Running
 
@@ -104,6 +105,7 @@ components. Exec does not follow Action result continuations in a private loop.
 | `base_delay_ms` | `0` | Non-negative retry delay base. |
 | `max_delay_ms` | `0` | Non-negative retry delay limit. |
 | `max_concurrency` | `1` | Ready Runnable concurrency for immediate execution. |
+| `task_supervisor` | `Jido.Exec.TaskSupervisor` | Local Task Supervisor for the execution task. |
 
 Exec converts these options to `Runic.Workflow.SchedulerPolicy`. Runic performs
 the timeout, retry, backoff, and scheduling work. The default failure action is
@@ -165,6 +167,56 @@ Managed execution accepts Runic worker options such as `checkpoint_strategy`,
 `on_complete`, `executor`, `scheduler`, and their option lists. It also accepts
 the policy options listed above, except `max_concurrency` is a worker option.
 
+## Stepwise Execution
+
+Automatic dispatch is the default. Set `dispatch_mode: :manual` when a caller
+must inspect a managed Flow between Runic scheduler units:
+
+```elixir
+{:ok, _worker} =
+  Jido.Exec.start(
+    MyApp.Runner,
+    "order-42",
+    MyApp.Flows.ProcessOrder,
+    %{order_id: 42},
+    %{},
+    dispatch_mode: :manual,
+    checkpoint_strategy: :every_cycle
+  )
+
+case Jido.Exec.step(MyApp.Runner, "order-42") do
+  {:ok, %Runic.Workflow{} = workflow} ->
+    # One scheduler unit was dispatched. Inspect the current Runic state.
+    workflow
+
+  {:complete, %Runic.Workflow{} = workflow} ->
+    # No ready work remains. Inspect results or failure events.
+    workflow
+
+  {:error, :busy} ->
+    # The prior unit is still active. Try again after it completes.
+    :busy
+end
+```
+
+With the default scheduler, one call dispatches one Runnable. A batching
+scheduler can define a larger scheduler unit. A Runic unit is not always one
+authored Flow Step. Flow output, control, join, and collection components are
+also executable Runic units.
+
+`step/2` returns the current `%Runic.Workflow{}` after dispatch. The dispatched
+unit can still be active. Call it again after the unit finishes. A terminal
+failure also returns `{:complete, workflow}` because no ready work remains;
+inspect `workflow.runnable_events` for `Runic.Workflow.RunnableFailed`.
+
+Use `Runic.Runner.continue/2` to change the same worker back to automatic
+dispatch. Use `dispatch_mode: :manual` with `Runic.Runner.resume/3` to keep
+stepwise control after durable recovery.
+
+Runic remains responsible for readiness, dispatch, active work, events,
+persistence, and recovery. `Jido.Exec.step/2` only delegates the dispatch and
+returns Runic's current workflow state.
+
 ## Durable Boundaries
 
 A durable execution has two separate records:
@@ -190,6 +242,35 @@ Runic's public scheduler, executor, or store components.
 Stopping a managed execution cancels active Action Tasks. A timeout or process
 exit becomes a failed Runnable and follows the selected Runic policy. Jido does
 not add another Task tree or cancellation model.
+
+## Telemetry
+
+Jido emits semantic spans for Action attempts and immediate Flow invocations:
+
+- `[:jido, :action, :start | :stop | :exception]`
+- `[:jido, :flow, :start | :stop | :exception]`
+
+A normal returned error emits `:stop` with `outcome: :error`. The `:exception`
+event is for a raise, throw, or exit that escapes the span. Metadata includes
+static Action or Flow identity, authored Flow location, and Runic activation
+and attempt identities. Start and normal stop metadata do not include
+parameters, context, results, effects, complete errors, or stacktraces. A
+standard `:telemetry.span/3` exception event includes its reason and
+stacktrace.
+
+Runic emits managed runtime telemetry under `[:runic, :runner, ...]`. Use those
+events for workflow lifecycle, runnable dispatch, persistence, promises, and
+rehydration. Jido does not copy those events under a second prefix. Managed
+Action spans can be correlated with Runic runnable events by `runnable_id`.
+
+A durable execution does not keep one Jido Flow span open across process stop
+and resume. Runic workflow events describe each managed runtime lifecycle.
+
+Runic can terminate an Action process after a timeout or cancellation. Such an
+Action attempt can emit `:start` without a terminal Jido event. For managed
+execution, use the Runic runnable failure event as the terminal runtime signal.
+For immediate execution, use the returned Exec error and the outer Flow span,
+when the target is a Flow.
 
 ## Scope
 

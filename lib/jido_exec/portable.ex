@@ -3,6 +3,7 @@ defmodule Jido.Exec.Portable do
 
   alias Jido.Action.Error
 
+  @doc false
   @spec validate(term(), atom()) :: :ok | {:error, Exception.t()}
   def validate(value, field) do
     case walk(value, [field]) do

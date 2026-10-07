@@ -7,6 +7,10 @@ defmodule Jido.Exec.Node.Map.Collection do
   @enforce_keys [:id, :name, :hash, :component, :value]
   defstruct [:id, :name, :hash, :component, :value, :location]
 
+  @type t :: %__MODULE__{}
+
+  @doc false
+  @spec new(keyword()) :: t()
   def new(opts) do
     opts = Keyword.validate!(opts, [:id, :name, :component, :value, :location])
     id = Keyword.fetch!(opts, :id)
@@ -26,6 +30,8 @@ defmodule Jido.Exec.Node.Map.Collection do
     }
   end
 
+  @doc false
+  @spec resolve(t(), term(), term()) :: {:ok, [term()]} | {:error, term()}
   def resolve(%__MODULE__{} = node, input, context) do
     with {:ok, frame} <- Frame.merge(input),
          {:ok, collection} <-

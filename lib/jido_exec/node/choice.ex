@@ -10,7 +10,10 @@ defmodule Jido.Exec.Node.Choice do
   @enforce_keys [:id, :name, :hash, :component, :options, :fallback]
   defstruct [:id, :name, :hash, :component, :options, :fallback, :location]
 
-  @spec new(keyword()) :: struct()
+  @type t :: %__MODULE__{}
+
+  @doc false
+  @spec new(keyword()) :: t()
   def new(opts) do
     opts = Keyword.validate!(opts, [:id, :name, :component, :options, :fallback, :location])
     id = Keyword.fetch!(opts, :id)
@@ -28,6 +31,7 @@ defmodule Jido.Exec.Node.Choice do
   end
 
   @doc false
+  @spec connect(t(), [term()], Workflow.t()) :: Workflow.t()
   def connect(%__MODULE__{} = node, parents, %Workflow{} = workflow) do
     paths = option_paths(node.options) ++ [fallback_path(node.options, node.fallback)]
 
@@ -86,6 +90,7 @@ defmodule Jido.Exec.Node.Choice do
   end
 
   @doc false
+  @spec condition(term(), term()) :: struct()
   def condition(id, name) do
     hash =
       Identity.digest(:component_definition, %{kind: "jido_choice_condition", version: 1, id: id})
@@ -106,10 +111,12 @@ defmodule Jido.Exec.Node.Choice do
   end
 
   @doc false
+  @spec selected?(term()) :: boolean()
   def selected?({:jido_choice_branch, true, _frame}), do: true
   def selected?(_value), do: false
 
   @doc false
+  @spec pass(term()) :: {:ok, term()}
   def pass({:jido_flow_frame, 1, _input, _results, _effects} = frame), do: {:ok, frame}
 
   def pass({:jido_nested_flow_frame, 1, _parent, _child} = frame), do: {:ok, frame}

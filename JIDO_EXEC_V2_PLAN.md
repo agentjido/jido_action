@@ -2,15 +2,97 @@
 
 ## Status
 
-This plan is ready for implementation. Build it in design-gate order. Stop at
-each gate until its focused tests pass.
+The base Exec V2 implementation is committed on the active Jido Action branch.
+All five design gates and the 17 original implementation steps are complete.
+Step 18 adds the verified stepwise execution extension.
 
-The rejected Exec implementation is safe in the Git stash named
-`backup rejected Exec V2 implementation before Runic restart`.
+The active Jido Action worktree uses `../../runic` as a path dependency. The
+Runic checkout is on the local `integration/jido-exec-stepwise` branch. It
+combines the stepwise Runner API from
+[zblanco/runic#23](https://github.com/zblanco/runic/pull/23) with the execution
+and durability fixes from
+[zblanco/runic#24](https://github.com/zblanco/runic/pull/24).
 
-The branch is reset to the prepared Exec rebuild base. The package does not
-compile at this point because the old Exec source was removed on purpose. Only
-this plan is changed.
+### Gate results
+
+- Gate 1: an Action module or Instruction becomes one executable
+  `Jido.Exec.Node.Action` in a real Runic Workflow.
+- Gate 2: Runic policy owns timeout, retries, backoff, failure halt,
+  concurrency, cancellation, and crash handling.
+- Gate 3: serial work, branches, joins, parameters, context, errors, and
+  deferred effects compose through Runic Facts and ports.
+- Gate 4: a ten-Action Flow checkpoints after Action 5, loses its Worker, and
+  resumes with Action 6. Actions 1 through 5 do not run again.
+- Gate 5: the same Flow definition survives a JSON round trip through a safe
+  Registry and compiles with stable component identity.
+
+### Stepwise result
+
+- Automatic execution remains the default.
+- `dispatch_mode: :manual` starts a managed Runic worker without automatic
+  dispatch.
+- `Jido.Exec.step/2` asks Runic to dispatch one scheduler unit and returns the
+  current `%Runic.Workflow{}`.
+- `{:complete, workflow}` reports that Runic has no ready work. The workflow
+  events distinguish success from terminal failure.
+- Stepwise durable recovery uses `Runic.Runner.resume/3` with
+  `dispatch_mode: :manual`.
+- Jido adds no scheduler, cursor, step state, or checkpoint data.
+
+### Component results
+
+- Step is `Jido.Exec.Node.Action`.
+- Choice uses Runic Conditions with Jido selection and branch components.
+- Map uses Runic FanOut, `Jido.Exec.Node.Action`, and FanIn.
+- Reduce and Iterate use `Jido.Exec.Node.Loop`, a Runic component that records
+  loop progress as Facts and Runnable events. Each body call remains an
+  `Jido.Exec.Node.Action` activation.
+- Nested Flow uses native Runic Workflow composition.
+- Dispatch uses Runic dynamic component events. Its decision, expander, and
+  selected target are executable Runic components.
+
+The durability suite also restores unfinished Map items, Iterate state, nested
+Flow work, and a dynamic Dispatch target without replaying completed Actions.
+No Jido cursor, checkpoint Instruction, private scheduler, or private Runner
+message exists.
+
+### Runic patch scope
+
+The implementation exposed gaps in public Runic execution paths. PR #24:
+
+- restores and dispatches an existing prepared Runnable frontier;
+- records lifecycle events during immediate policy execution;
+- persists components added during Runnable apply;
+- applies Runnable results in stable order and stops after a terminal
+  `on_failure: :halt` event;
+- preserves FanOut item order; and
+- gives local non-canonical Fact values deterministic process-local identity
+  without changing canonical Fact identity.
+
+These changes keep scheduling and recovery in Runic. They do not add a Jido
+runtime or a Jido checkpoint format.
+
+PR #23 adds opt-in manual dispatch to `Runic.Runner`. It changes no workflow
+state format. The Runner still owns readiness, scheduler units, active work,
+events, persistence, and resume.
+
+### Verification status
+
+The current verification results are:
+
+- default package suite: 674 passed;
+- authoring suite: 59 passed;
+- property suite: 49 passed;
+- system suite: 1 passed;
+- load suite: 1 passed;
+- focused Exec suite: 43 passed;
+- focused stepwise suite: 4 passed;
+- complete Runic suite: 1,474 passed and 13 skipped; and
+- package quality gate: format, strict compile, Doctor, documentation, Credo,
+  and Dialyzer passed.
+
+The focused stepwise suite also passes on the minimum supported Elixir 1.18
+with OTP 28. The release target is Elixir 1.20 with OTP 29.
 
 ## Core decision
 
@@ -37,8 +119,9 @@ same executable Action components.
 Jido does not build a second scheduler, readiness engine, task system,
 checkpoint format, or recovery system. Runic owns these runtime functions.
 
-Build against the pinned Runic `0.1.0-alpha.11` dependency. Do not patch or
-fork Runic for this work.
+Use the local `../../runic` path dependency while the recovery patch is under
+review. Restore a released Runic version requirement before Jido Action is
+released.
 
 ## Vocabulary and ownership
 
@@ -119,8 +202,7 @@ Runic runtime, and projects the Runic result into the Jido result contract.
 7. Durable state cannot contain PIDs, references, Tasks, closures, monitors,
    or process dictionary values.
 8. The system does not claim exactly-once external effects.
-9. Jido uses the public Runic protocols and extension points as they exist in
-   `0.1.0-alpha.11`.
+9. Jido uses public Runic protocols and extension points.
 10. Jido does not implement `Runic.Transmutable` for `Atom`.
 
 ## Prior art from jido_runic
@@ -138,11 +220,11 @@ child-worker runtime.
 
 The old package also shows three designs that this rebuild must avoid:
 
-- its ActionNode calls `Jido.Exec.run/4`, which would recurse after Exec starts
+- its Action node calls `Jido.Exec.run/4`, which would recurse after Exec starts
   Runic
 - its `Runic.Transmutable` implementation for `Atom` changes protocol behavior
   for every atom
-- its ActionNode reads Runic graph internals for Map and Reduce behavior
+- its Action node reads Runic graph internals for Map and Reduce behavior
 
 Use Runic native collection components and public protocols instead.
 
@@ -151,7 +233,7 @@ Use Runic native collection components and public protocols instead.
 Add one small internal component:
 
 ```elixir
-%Jido.Exec.ActionNode{
+%Jido.Exec.Node.Action{
   id: node_id,
   name: node_name,
   instruction: %Jido.Instruction{},
@@ -160,7 +242,7 @@ Add one small internal component:
 }
 ```
 
-`Jido.Exec.ActionNode` implements:
+`Jido.Exec.Node.Action` implements:
 
 - `Runic.Component`
 - `Runic.Workflow.Invokable`
@@ -170,12 +252,12 @@ Do not compile an Action to a Runic Step that contains an anonymous closure.
 The component must keep portable data and named modules.
 
 Implement `Runic.Transmutable` for `Jido.Instruction`. An Action Instruction
-converts to `Jido.Exec.ActionNode`. `to_workflow/1` wraps that node in a
+converts to `Jido.Exec.Node.Action`. `to_workflow/1` wraps that node in a
 one-step Workflow. A Flow Instruction delegates to `Jido.Exec.Compiler` for
 `to_workflow/1`; it is not a single Action component.
 
 Do not implement `Runic.Component` or `Runic.Workflow.Invokable` directly on
-Instruction. The ActionNode gives the graph a stable node identity and
+Instruction. `Jido.Exec.Node.Action` gives the graph a stable node identity and
 explicit ports without adding graph fields to the Instruction contract.
 
 Do not implement `Runic.Transmutable` for Action module atoms. Exec first
@@ -183,14 +265,14 @@ normalizes an Action module to an Instruction, then transmutes the Instruction.
 
 ### Prepare phase
 
-Runic selects a ready ActionNode and creates a Runnable. The Runnable contains
+Runic selects a ready Action node and creates a Runnable. The Runnable contains
 the input Fact and Runic activation data.
 
 Jido does not perform a separate readiness check.
 
 ### Execute phase
 
-The ActionNode:
+The Action node:
 
 1. merges the Instruction data with the input Fact
 2. validates the Action input
@@ -272,6 +354,27 @@ Jido.Exec.start(runner, execution_id, target, params, context, opts)
 
 This operation delegates to `Runic.Runner`. It does not create a Jido worker.
 
+Keep automatic Runner dispatch as the default. Add opt-in stepwise dispatch
+through the same managed entry point:
+
+```elixir
+Jido.Exec.start(runner, execution_id, target, params, context,
+  dispatch_mode: :manual
+)
+
+Jido.Exec.step(runner, execution_id)
+```
+
+`step/2` delegates one scheduler unit to `Runic.Runner.step/2`. It returns
+`{:ok, workflow}` after dispatch and `{:complete, workflow}` when Runic has no
+ready work. It can return `{:error, :busy}` while the prior unit is active.
+The returned value is the native Runic Workflow. Jido does not define a step
+handle or execution-state struct.
+
+One scheduler unit is one Runnable with the default scheduler. A batching
+scheduler can define a larger unit. A unit can be an Action node or another
+executable Flow component.
+
 Use Runic operations directly for resume, stop, checkpoint, and result
 inspection unless Jido must translate a value or error.
 
@@ -342,23 +445,23 @@ modules. Remove these references during the first build slice.
 
 Do not add runtime modules under `Jido.Flow`.
 
-### Initial component mapping
+### Component mapping
 
 | Flow authoring construct | Runic runtime construct |
 | --- | --- |
-| Step | `Jido.Exec.ActionNode` |
-| Dependency | Runic edge and ports |
-| Choice | Condition or Rule |
-| Map | Map or FanOut |
-| Join | Join or FanIn |
-| Nested Flow | Workflow component or Workflow merge |
-| Reduce | Select after a semantic comparison |
-| Iterate | StateMachine or a small custom component |
-| Dispatch | Dynamic composition or a small custom component |
+| Step | `Jido.Exec.Node.Action` |
+| Dependency | Runic edge and named ports |
+| Choice | Runic Condition plus Action node branches |
+| Map | Runic FanOut, Action node, and FanIn |
+| Join | Runic Join and port readiness |
+| Nested Flow | native Runic Workflow composition |
+| Reduce | `Jido.Exec.Node.Loop` with serial Action node activations |
+| Iterate | `Jido.Exec.Node.Loop` with Fact-carried state and serial Action node activations |
+| Dispatch | `Jido.Exec.Node.Dispatch` with durable Runic component-add events |
 
-Do not copy the old Flow runtime state machines before this mapping is tested.
-Use a custom component only when a native Runic component cannot keep the Flow
-semantics.
+The custom Jido components implement public Runic component protocols. They do
+not select ready work or execute Action callbacks directly. Runic creates,
+schedules, applies, records, and restores their Runnables.
 
 ## Expressions and value flow
 
@@ -428,9 +531,7 @@ a parallel Jido checkpoint format.
 
 ## Runic compatibility boundary
 
-Do not change Runic source code for this rebuild.
-
-Use these public Runic extension points when needed:
+Use public Runic extension points:
 
 - `Runic.Component`
 - `Runic.Workflow.Invokable`
@@ -439,13 +540,15 @@ Use these public Runic extension points when needed:
 - `Runic.Runner.Executor`
 - `Runic.Runner.Scheduler`
 
-Do not read or change Runic private graph state from ActionNode. Native Runic
-Map, Reduce, FanOut, FanIn, Join, Condition, Rule, and StateMachine components
-own their runtime behavior.
+The completed design required a small Runic patch because public immediate and
+managed execution did not persist every dynamic apply event or resume every
+prepared frontier. The patch belongs in Runic because the behavior applies to
+all Runic components and stores. Jido does not read private graph state or
+reimplement the missing behavior.
 
-If a required Flow semantic cannot use a public Runic API, stop at that design
-gate and record the unsupported semantic. Do not add a second Jido runtime as
-a workaround.
+The integration worktree uses the local Runic path until the upstream patch is
+released. Before a Jido Action release, replace the path with a compatible
+released Runic requirement.
 
 ## Process and policy ownership
 
@@ -465,17 +568,53 @@ Map Jido options to Runic policy:
 Do not add `Jido.Exec.Scope`, a private Task supervisor, an async handle, or a
 second cancellation model. Use the Runic Runner extension points.
 
-## Initial module budget
+## Runtime modules
 
-Start with three runtime modules and one protocol implementation:
+The final runtime stays under `Jido.Exec`:
 
-- `Jido.Exec` — public facade and result projection
-- `Jido.Exec.Compiler` — target normalization and Flow-to-Runic lowering
-- `Jido.Exec.ActionNode` — executable Runic Action component
-- `Runic.Transmutable` for `Jido.Instruction` — explicit conversion to an
-  ActionNode or Workflow
+- `Jido.Exec` is the public facade and result projection.
+- `Jido.Exec.Compiler` lowers executable targets to Runic.
+- `Jido.Exec.Node.Action` adapts one Instruction to one executable component.
+- `Jido.Exec.Node.Choice`, `Jido.Exec.Node.Map`, `Jido.Exec.Node.Loop`, and
+  `Jido.Exec.Node.Dispatch` implement Flow control through public Runic
+  component contracts.
+- `Jido.Exec.Node.Input` and `Jido.Exec.Node.Output` validate Flow boundaries.
+- `Jido.Exec.Frame` and `Jido.Exec.ValueResolver` carry and resolve Flow values.
+- `Jido.Exec.Runner.TaskExecutor` runs managed Actions under the Runic Runner
+  supervisor.
+- `Jido.Exec.Portable` enforces durable input and output boundaries.
+- `Runic.Transmutable` for `Jido.Instruction` provides explicit conversion.
 
-Add another module only when a design gate needs it.
+These modules are adapters and executable Runic components. None is a Jido
+scheduler, worker, store, cursor, or checkpoint implementation.
+
+### File organization
+
+Keep executable components under `lib/jido_exec/node/`:
+
+- `action.ex`, `input.ex`, and `output.ex` contain the basic nodes.
+- `choice.ex`, `map.ex`, `loop.ex`, and `dispatch.ex` contain the public
+  control nodes.
+- Each internal control component has its own nested file. Examples are
+  `choice/selector.ex`, `map/collection.ex`, and `dispatch/finish.ex`.
+
+Keep Runner integration under `lib/jido_exec/runner/`. Keep Runic protocol
+integration under `lib/jido_exec/runic/`. Do not add a base `Jido.Exec.Node`
+behavior. The Runic protocols are the component contracts.
+
+Use the same groups in `test/jido_exec/`:
+
+- `api_test.exs`, `compiler_test.exs`, and `flow_execution_test.exs` test the
+  public facade and complete Flow behavior.
+- `node/` contains focused component tests.
+- `runner/` contains policy, durability, and task executor tests.
+- `portable_test.exs`, `source_map_test.exs`, and `stored_flow_test.exs` test
+  their named boundaries.
+
+Use `exec_test.exs`, `exec_contract_test.exs`, and `exec_load_test.exs` for the
+system, property, and load suites. Do not use the `ExecV2` suffix in module or
+file names. Exec V2 is the active implementation, so compatibility aliases are
+not required.
 
 ## Build preparation
 
@@ -487,10 +626,10 @@ Create these first files:
 
 - `lib/jido_exec.ex`
 - `lib/jido_exec/compiler.ex`
-- `lib/jido_exec/action_node.ex`
-- `lib/jido_exec/transmutable_instruction.ex`
-- `test/jido_exec/action_node_test.exs`
-- `test/jido_exec/exec_test.exs`
+- `lib/jido_exec/node/action.ex`
+- `lib/jido_exec/runic/instruction.ex`
+- `test/jido_exec/node/action_test.exs`
+- `test/jido_exec/api_test.exs`
 
 Make narrow boundary edits in these existing files:
 
@@ -503,7 +642,7 @@ not add execution logic under `Jido.Flow`.
 The first focused tests must cover:
 
 - Action module to Instruction normalization
-- Instruction to ActionNode conversion
+- Instruction to `Jido.Exec.Node.Action` conversion
 - stable node identity
 - Action schema exposure through `Runic.Component`
 - Runic prepare, execute, and apply phases
@@ -517,7 +656,7 @@ The first focused tests must cover:
 
 Do not copy the old `jido_runic` module. Port only the behavior required by
 these tests and update it for the current Instruction, Zoi schema, Action
-result, and Runic `0.1.0-alpha.11` contracts.
+result, and Runic contracts.
 
 ## Design gates
 
@@ -527,13 +666,13 @@ Prove:
 
 - Action module normalization
 - Instruction normalization
-- Instruction-to-ActionNode transmutation
+- Instruction-to-`Jido.Exec.Node.Action` transmutation
 - real Runic preparation
 - Action execution through a Runnable
 - Runic apply
 - Jido success and error projection
 - no global Atom protocol implementation
-- no call from ActionNode back into `Jido.Exec.run/4`
+- no call from an Action node back into `Jido.Exec.run/4`
 
 No direct Action execution path can bypass Runic.
 
@@ -575,19 +714,19 @@ compile it, and run or resume it with the same stable component identity.
 ## Implementation sequence
 
 1. Make this plan the only Exec rebuild source of truth.
-2. Inventory the Action, Instruction, Expr, Flow, and public Runic
-   `0.1.0-alpha.11` contracts that remain on the branch. Use the old
-   `jido_runic` ActionNode and pipeline tests only as prior art.
+2. Inventory the Action, Instruction, Expr, Flow, and public Runic contracts
+   that remain on the branch. Use the old
+   `jido_runic` Action node and pipeline tests only as prior art.
 3. Remove the stale `Jido.Exec.Flow` runtime references from `Jido.Flow` and
    its DSL module compiler.
 4. Implement the one-step Flow normalizer.
-5. Implement `Jido.Exec.ActionNode` and its Runic protocols.
+5. Implement `Jido.Exec.Node.Action` and its Runic protocols.
 6. Implement `Runic.Transmutable` for `Jido.Instruction`. Do not implement it
    for `Atom`.
 7. Implement `Jido.Exec.compile/2`, `compile!/2`, and `run/4`.
 8. Complete Gate 1.
 9. Map execution options to Runic and complete Gate 2.
-10. Compile the minimum serial Flow to real ActionNodes and edges.
+10. Compile the minimum serial Flow to real Action nodes and edges.
 11. Complete Gate 3 and settle the Fact and output-port contract.
 12. Connect Runic Runner and Store, then complete Gate 4.
 13. Implement or refine `Jido.Flow.Codec`, then complete Gate 5.
@@ -597,8 +736,16 @@ compile it, and run or resume it with the same stable component identity.
 16. Migrate the remaining package tests and documentation.
 17. Run format, strict compile, package tests, property tests, system tests,
     static analysis, documentation checks, and supported version checks.
+18. Add opt-in manual Runner dispatch through `Jido.Exec.step/2`. Verify a
+    multi-step Flow, normal completion, failure, and durable resume. Keep the
+    returned state native to Runic.
 
-Make one checkpoint commit after each accepted gate.
+Keep Runic and Jido Action commits in their own repositories.
+
+Steps 1 through 18 are complete. The Runic patches complete the manual
+dispatch, recovery, dynamic apply-event, failure-stop, ordering, and Fact
+identity work needed by Steps 12, 15, and 18. The package tests and
+documentation use the Exec V2 and Runic-owned runtime contracts.
 
 ## Acceptance tests
 
@@ -606,7 +753,7 @@ Make one checkpoint commit after each accepted gate.
 
 - An Action module runs as a one-node Runic Workflow.
 - A bound Instruction runs through the same path.
-- An Action Instruction transmutes to an ActionNode.
+- An Action Instruction transmutes to `Jido.Exec.Node.Action`.
 - A Flow Instruction transmutes to a compiled Workflow.
 - A normal atom keeps Runic's existing behavior.
 - Input and output schemas are enforced.
@@ -618,6 +765,10 @@ Make one checkpoint commit after each accepted gate.
 - Choice and Join use Runic readiness.
 - Map uses Runic collection or fan-out behavior.
 - Exec does not select ready nodes.
+- Automatic Runner dispatch remains the default.
+- Manual execution dispatches one Runic scheduler unit for each `step/2` call.
+- Each step returns inspectable native Runic Workflow state.
+- A failed manual unit stops dependent work through Runic policy.
 
 ### Durability
 
@@ -626,6 +777,8 @@ Make one checkpoint commit after each accepted gate.
 - Stable activation and attempt identity survive recovery.
 - A retry does not change the logical effect identity.
 - No Jido runtime checkpoint exists.
+- A manually dispatched Flow resumes in manual mode without replaying
+  completed Actions.
 
 ### Collections and state
 
@@ -663,10 +816,9 @@ Do not implement:
 - exactly-once external effects
 - old Exec compatibility wrappers
 - non-executable Runic placeholder nodes
-- a Runic fork or source patch
 - a global `Runic.Transmutable` implementation for `Atom`
-- calls from ActionNode to `Jido.Exec.run/4`
-- reads of private Runic graph state from ActionNode
+- calls from an Action node to `Jido.Exec.run/4`
+- reads of private Runic graph state from an Action node
 
 ## Completion criteria
 
@@ -679,5 +831,9 @@ The rebuild is complete when:
 5. a ten-step durable Flow resumes at Action 6 after process loss
 6. a JSON-stored Flow hydrates and compiles with stable node identity
 7. no Jido module repeats a Runic runtime responsibility
-8. the build uses the unmodified Runic `0.1.0-alpha.11` dependency
+8. the integration build uses the reviewed Runic recovery patch
 9. all package quality checks pass
+10. stepwise execution delegates each unit to Runic and returns native Runic
+    workflow state
+
+Criteria 1 through 10 are met.

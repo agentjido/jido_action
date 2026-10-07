@@ -6,6 +6,10 @@ defmodule Jido.Exec.Node.Loop.Start do
   @enforce_keys [:id, :name, :hash, :loop]
   defstruct [:id, :name, :hash, :loop]
 
+  @type t :: %__MODULE__{}
+
+  @doc false
+  @spec new(Jido.Exec.Node.Loop.t()) :: t()
   def new(%Jido.Exec.Node.Loop{} = loop) do
     id = {loop.id, :start}
 

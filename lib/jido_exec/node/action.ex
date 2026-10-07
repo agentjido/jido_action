@@ -19,6 +19,7 @@ defmodule Jido.Exec.Node.Action do
           outputs: keyword()
         }
 
+  @doc false
   @spec new(Instruction.t(), keyword()) :: t()
   def new(instruction, opts \\ [])
 
@@ -56,6 +57,7 @@ defmodule Jido.Exec.Node.Action do
           "expected an Action Instruction, got: #{inspect(instruction.kind)}"
   end
 
+  @doc false
   @spec action_metadata(t()) :: map() | nil
   def action_metadata(%__MODULE__{instruction: %Instruction{target: action}}) do
     if function_exported?(action, :to_json, 0), do: action.to_json()
@@ -466,6 +468,7 @@ end
 
 defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Action do
   alias Jido.Exec.Node.Action
+  alias Jido.Exec.Telemetry
   alias Runic.Workflow
 
   alias Runic.Workflow.{CausalContext, Fact, HookRunner, Runnable}
@@ -494,7 +497,10 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Action do
 
   def execute(%Action{} = node, %Runnable{input_fact: fact, context: context} = runnable) do
     with {:ok, before_apply_fns} <- HookRunner.run_before(context, node, fact),
-         {:ok, value, effects} <- Action.execute(node, fact.value, context.run_context) do
+         {:ok, value, effects} <-
+           Telemetry.span(:action, Telemetry.action_metadata(node, runnable), fn ->
+             Action.execute(node, fact.value, context.run_context)
+           end) do
       result_fact =
         Fact.new(
           value: value,

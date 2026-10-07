@@ -7,15 +7,25 @@ defmodule Jido.Exec do
   graph updates, and durable runtime state.
   """
 
-  alias Jido.Exec.{Compiler, Frame, Portable}
+  alias Jido.Exec.{Compiler, Frame, Portable, Telemetry}
   alias Jido.Instruction
   alias Runic.Workflow
   alias Runic.Workflow.{Fact, RunnableFailed, SchedulerPolicy}
+
+  @default_task_supervisor Jido.Exec.TaskSupervisor
+
+  @typedoc "A local Task Supervisor PID, registered name, or via reference."
+  @type task_supervisor :: pid() | atom() | {:via, module(), term()}
 
   @type exec_result ::
           {:ok, term()}
           | {:ok, term(), [term()]}
           | {:error, Exception.t() | term()}
+
+  @type step_result ::
+          {:ok, Workflow.t()}
+          | {:complete, Workflow.t()}
+          | {:error, term()}
 
   @doc "Compiles an Action, Instruction, Flow module, or Flow value to Runic."
   @spec compile(term(), keyword()) :: {:ok, Workflow.t()} | {:error, Exception.t()}
@@ -40,11 +50,44 @@ defmodule Jido.Exec do
     })
   end
 
-  @doc "Runs an Action or Flow to completion with the in-memory Runic runtime."
+  @doc """
+  Runs an Action or Flow to completion with the in-memory Runic runtime.
+
+  The complete execution runs in an unlinked temporary task under
+  `Jido.Exec.TaskSupervisor`. The task keeps the caller's group leader. Pass
+  `task_supervisor: reference` to use another local Task Supervisor.
+  """
   @spec run(term(), map() | keyword() | nil, map() | keyword() | nil, keyword()) :: exec_result()
   def run(target, params \\ %{}, context \\ %{}, opts \\ []) do
-    with {:ok, instruction} <- Instruction.resolve(target, params, context),
-         {:ok, instruction} <- validate_flow_input(instruction),
+    group_leader = Process.group_leader()
+
+    with {:ok, task_supervisor, execution_opts} <- run_options(opts) do
+      run_supervised(task_supervisor, group_leader, fn ->
+        do_run(target, params, context, execution_opts)
+      end)
+    end
+  end
+
+  defp do_run(target, params, context, opts) do
+    with {:ok, instruction} <- Instruction.resolve(target, params, context) do
+      run_instruction(instruction, opts)
+    else
+      {:error, error} -> {:error, normalize_runtime_error(error)}
+    end
+  end
+
+  defp run_instruction(%Instruction{kind: :flow} = instruction, opts) do
+    Telemetry.span(:flow, Telemetry.flow_metadata(instruction), fn ->
+      do_run_instruction(instruction, opts)
+    end)
+  end
+
+  defp run_instruction(%Instruction{} = instruction, opts) do
+    do_run_instruction(instruction, opts)
+  end
+
+  defp do_run_instruction(instruction, opts) do
+    with {:ok, instruction} <- validate_flow_input(instruction),
          {:ok, workflow} <- compile(instruction),
          {:ok, workflow, last_fact} <-
            run_workflow(workflow, execution_input(instruction), instruction.context, opts) do
@@ -79,6 +122,30 @@ defmodule Jido.Exec do
       {:ok, pid}
     else
       {:error, error} -> {:error, normalize_runtime_error(error)}
+    end
+  end
+
+  @doc """
+  Dispatches one Runic scheduler unit for a manually dispatched execution.
+
+  Start the execution with `dispatch_mode: :manual`. The default scheduler
+  dispatches one Runnable per call. A custom batching scheduler can define a
+  larger unit.
+
+  `{:ok, workflow}` means that Runic dispatched one unit. The returned
+  workflow is the current Runic state and the unit can still be active. Retry
+  after `{:error, :busy}` when that unit completes.
+
+  `{:complete, workflow}` means that Runic has no ready work. Inspect the
+  workflow results and events to distinguish successful completion from a
+  terminal failure.
+  """
+  @spec step(module(), term()) :: step_result()
+  def step(runner, execution_id) do
+    case Runic.Runner.step(runner, execution_id) do
+      :ok -> current_workflow(runner, execution_id, :ok)
+      {:error, :not_runnable} -> current_workflow(runner, execution_id, :complete)
+      {:error, _reason} = error -> error
     end
   end
 
@@ -175,10 +242,108 @@ defmodule Jido.Exec do
   defp execution_options(_opts),
     do: {:error, Jido.Action.Error.config_error("execution options must be a keyword list")}
 
+  defp run_options(opts) when is_list(opts) do
+    if Keyword.keyword?(opts) do
+      case Keyword.get_values(opts, :task_supervisor) do
+        [] ->
+          with :ok <- validate_task_supervisor(@default_task_supervisor) do
+            {:ok, @default_task_supervisor, opts}
+          end
+
+        [task_supervisor] ->
+          with :ok <- validate_task_supervisor(task_supervisor) do
+            {:ok, task_supervisor, Keyword.delete(opts, :task_supervisor)}
+          end
+
+        _duplicates ->
+          {:error,
+           Jido.Action.Error.config_error("pass only one task_supervisor reference", %{
+             option: :task_supervisor,
+             reason: :duplicate_option
+           })}
+      end
+    else
+      {:error, Jido.Action.Error.config_error("execution options must be a keyword list")}
+    end
+  end
+
+  defp run_options(_opts),
+    do: {:error, Jido.Action.Error.config_error("execution options must be a keyword list")}
+
+  defp validate_task_supervisor(task_supervisor)
+       when is_pid(task_supervisor) or
+              (is_atom(task_supervisor) and task_supervisor not in [nil, true, false]) or
+              (is_tuple(task_supervisor) and tuple_size(task_supervisor) == 3 and
+                 elem(task_supervisor, 0) == :via) do
+    case GenServer.whereis(task_supervisor) do
+      pid when is_pid(pid) and node(pid) == node() ->
+        :ok
+
+      _other ->
+        {:error,
+         Jido.Action.Error.config_error("Task Supervisor is not running", %{
+           option: :task_supervisor,
+           task_supervisor: task_supervisor
+         })}
+    end
+  rescue
+    exception ->
+      {:error,
+       Jido.Action.Error.config_error("Task Supervisor lookup failed", %{
+         option: :task_supervisor,
+         task_supervisor: task_supervisor,
+         reason: exception
+       })}
+  catch
+    kind, reason ->
+      {:error,
+       Jido.Action.Error.config_error("Task Supervisor lookup failed", %{
+         option: :task_supervisor,
+         task_supervisor: task_supervisor,
+         reason: {kind, reason}
+       })}
+  end
+
+  defp validate_task_supervisor(task_supervisor) do
+    {:error,
+     Jido.Action.Error.config_error(
+       "task_supervisor must be a local PID, registered name, or {:via, module, name} reference",
+       %{option: :task_supervisor, value: task_supervisor}
+     )}
+  end
+
+  defp run_supervised(task_supervisor, group_leader, work) do
+    task =
+      Task.Supervisor.async_nolink(task_supervisor, fn ->
+        Process.group_leader(self(), group_leader)
+        work.()
+      end)
+
+    case Task.yield(task, :infinity) do
+      {:ok, result} -> result
+      {:exit, reason} -> {:error, execution_task_error(reason)}
+      nil -> {:error, execution_task_error(:no_result)}
+    end
+  rescue
+    exception ->
+      {:error, execution_task_error(exception)}
+  catch
+    kind, reason ->
+      {:error, execution_task_error({kind, reason})}
+  end
+
+  defp execution_task_error(reason) do
+    Jido.Action.Error.execution_error("Exec task exited", %{
+      phase: :execution_task,
+      reason: reason
+    })
+  end
+
   defp managed_options(runner, opts) when is_list(opts) do
     policy_keys = [:timeout, :max_attempts, :backoff, :base_delay_ms, :max_delay_ms]
 
     worker_keys = [
+      :dispatch_mode,
       :max_concurrency,
       :on_complete,
       :checkpoint_strategy,
@@ -223,6 +388,13 @@ defmodule Jido.Exec do
         :executor_opts,
         task_supervisor: Module.concat(runner, TaskSupervisor)
       )
+    end
+  end
+
+  defp current_workflow(runner, execution_id, status) do
+    case Runic.Runner.get_workflow(runner, execution_id) do
+      {:ok, %Workflow{} = workflow} -> {status, workflow}
+      {:error, _reason} = error -> error
     end
   end
 

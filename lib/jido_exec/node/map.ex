@@ -21,6 +21,10 @@ defmodule Jido.Exec.Node.Map do
     :location
   ]
 
+  @type t :: %__MODULE__{}
+
+  @doc false
+  @spec new(keyword()) :: t()
   def new(opts) do
     opts =
       Keyword.validate!(opts, [
@@ -50,6 +54,7 @@ defmodule Jido.Exec.Node.Map do
   end
 
   @doc false
+  @spec connect(t(), [term()], Workflow.t()) :: Workflow.t()
   def connect(%__MODULE__{} = node, parents, %Workflow{} = workflow) do
     collection =
       Collection.new(
@@ -114,15 +119,18 @@ defmodule Jido.Exec.Node.Map do
   end
 
   @doc false
+  @spec initial() :: nil
   def initial, do: nil
 
   @doc false
+  @spec collect(term(), term()) :: term()
   def collect({:jido_map_result, frame, component, index, on_error, result}, accumulator) do
     frame = accumulator || frame
     Frame.put_collection_item(frame, component, index, {on_error, result})
   end
 
   @doc false
+  @spec pass(term()) :: term()
   def pass({:jido_flow_frame, 1, _input, _results, _effects} = frame), do: frame
 
   def pass({:jido_nested_flow_frame, 1, _parent, _child} = frame), do: frame

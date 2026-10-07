@@ -26,6 +26,7 @@ defmodule Jido.Exec.Node.Output do
           validator: module() | Jido.Flow.t() | nil
         }
 
+  @doc false
   @spec new(keyword()) :: t()
   def new(opts) do
     opts =

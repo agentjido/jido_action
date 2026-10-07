@@ -126,10 +126,11 @@ when they can express the required change.
 ```
 
 `Jido.Exec` resolves an Instruction, compiles it to a real Runic workflow, and
-runs that workflow to completion. Input validation, the Action callback, and
-output validation occur inside the executable Runic Action node. Code that
-integrates its own executor can use `validate_params/1`, `run/2`, and
-`validate_output/1` directly.
+runs that workflow to completion in an unlinked task under
+`Jido.Exec.TaskSupervisor`. The task keeps the caller's group leader. Input
+validation, the Action callback, and output validation occur inside the
+executable Runic Action node. Code that integrates its own executor can use
+`validate_params/1`, `run/2`, and `validate_output/1` directly.
 
 The Action `run/2` callback must return one of:
 
@@ -161,6 +162,13 @@ supervised `Runic.Runner` and a stable execution ID.
 
 Use `Runic.Runner` to stop, checkpoint, resume, and inspect the execution.
 Jido does not keep a second checkpoint or cursor.
+
+Managed execution uses automatic dispatch by default. For stepwise control,
+start it with `dispatch_mode: :manual`, then call `Jido.Exec.step/2`. Each call
+dispatches one Runic scheduler unit and returns the current
+`%Runic.Workflow{}`. See the
+[Execution Contract](guides/execution.md#stepwise-execution) for completion,
+failure, and durable resume behavior.
 
 ## Capture A Call Frame
 

@@ -10,12 +10,15 @@ defmodule Jido.Exec.Frame do
   @type t :: {:jido_flow_frame, 1, term(), map(), %{optional(String.t()) => [term()]}}
   @type nested_t :: {:jido_nested_flow_frame, 1, t() | nested_t(), t()}
 
+  @doc false
   @spec new(term()) :: t()
   def new(input), do: {@tag, @version, input, %{}, %{}}
 
+  @doc false
   @spec nest(t() | nested_t(), term()) :: nested_t()
   def nest(parent, input), do: {@nested_tag, @version, parent, new(input)}
 
+  @doc false
   @spec merge(t() | nested_t() | [t() | nested_t()]) ::
           {:ok, t() | nested_t()} | {:error, Exception.t()}
   def merge({@tag, @version, _input, _results, _effects} = frame), do: {:ok, frame}
@@ -43,6 +46,7 @@ defmodule Jido.Exec.Frame do
      })}
   end
 
+  @doc false
   @spec put_result(t() | nested_t(), String.t(), term(), [term()]) :: t() | nested_t()
   def put_result({@tag, @version, input, results, effects}, name, value, requests) do
     {
@@ -58,6 +62,7 @@ defmodule Jido.Exec.Frame do
     {@nested_tag, @version, parent, put_result(child, name, value, requests)}
   end
 
+  @doc false
   @spec put_collection_item(t() | nested_t(), String.t(), non_neg_integer(), term()) ::
           t() | nested_t()
   def put_collection_item({@nested_tag, @version, parent, child}, name, index, result) do
@@ -111,6 +116,7 @@ defmodule Jido.Exec.Frame do
      Map.put(effects, name, collected_effects)}
   end
 
+  @doc false
   @spec resolver_state(t() | nested_t(), map()) :: map()
   def resolver_state({@tag, @version, input, results, _effects}, context) do
     %{input: input, context: context, results: results}
@@ -120,6 +126,7 @@ defmodule Jido.Exec.Frame do
     resolver_state(child, context)
   end
 
+  @doc false
   @spec effects(t() | nested_t(), [String.t()]) :: [term()]
   def effects({@tag, @version, _input, _results, effects}, order) do
     Enum.flat_map(order, &Map.get(effects, &1, []))
@@ -127,6 +134,7 @@ defmodule Jido.Exec.Frame do
 
   def effects({@nested_tag, @version, _parent, child}, order), do: effects(child, order)
 
+  @doc false
   @spec fetch_result(t() | nested_t(), String.t()) :: {:ok, term()} | :error
   def fetch_result({@tag, @version, _input, results, _effects}, name),
     do: Map.fetch(results, name)
@@ -134,6 +142,7 @@ defmodule Jido.Exec.Frame do
   def fetch_result({@nested_tag, @version, _parent, child}, name),
     do: fetch_result(child, name)
 
+  @doc false
   @spec effects_for(t() | nested_t(), String.t()) :: [term()]
   def effects_for({@tag, @version, _input, _results, effects}, name),
     do: Map.get(effects, name, [])
@@ -141,6 +150,7 @@ defmodule Jido.Exec.Frame do
   def effects_for({@nested_tag, @version, _parent, child}, name),
     do: effects_for(child, name)
 
+  @doc false
   @spec complete_nested(nested_t(), String.t(), term(), [term()]) :: t() | nested_t()
   def complete_nested({@nested_tag, @version, parent, _child}, name, value, requests) do
     put_result(parent, name, value, requests)

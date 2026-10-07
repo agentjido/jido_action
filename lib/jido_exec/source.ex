@@ -1,6 +1,7 @@
 defmodule Jido.Exec.Source do
   @moduledoc false
 
+  @doc false
   @spec attach(term(), map() | nil, map()) :: term()
   def attach(error, location, extra \\ %{})
 

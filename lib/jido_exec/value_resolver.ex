@@ -6,6 +6,7 @@ defmodule Jido.Exec.ValueResolver do
   alias Jido.Flow.Error
   alias Jido.Flow.Ref
 
+  @doc false
   @spec condition(boolean() | Ref.t() | Expr.t(), map(), String.t(), term()) ::
           {:ok, boolean()} | {:error, Exception.t()}
   def condition(value, state, node, option) do
@@ -34,6 +35,7 @@ defmodule Jido.Exec.ValueResolver do
     end
   end
 
+  @doc false
   @spec resolve(term(), map()) :: {:ok, term()} | {:error, Exception.t()}
   def resolve(%Expr{} = expression, state) do
     case Expr.evaluate(expression,

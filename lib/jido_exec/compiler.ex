@@ -11,6 +11,7 @@ defmodule Jido.Exec.Compiler do
   alias Jido.Instruction
   alias Runic.Workflow
 
+  @doc false
   @spec compile(term(), keyword()) :: {:ok, Workflow.t()} | {:error, Exception.t()}
   def compile(target, opts \\ []) do
     with {:ok, opts} <- validate_options(opts),
@@ -22,6 +23,7 @@ defmodule Jido.Exec.Compiler do
     error -> {:error, error}
   end
 
+  @doc false
   @spec compile!(term(), keyword()) :: Workflow.t() | no_return()
   def compile!(target, opts \\ []) do
     case compile(target, opts) do
@@ -32,6 +34,7 @@ defmodule Jido.Exec.Compiler do
   end
 
   @doc false
+  @spec compile_nested!(Instruction.t(), keyword()) :: Workflow.t() | no_return()
   def compile_nested!(%Instruction{kind: :flow} = instruction, opts) do
     with {:ok, flow} <- instruction_flow(instruction),
          {:ok, flow} <- validate(flow),
@@ -52,6 +55,7 @@ defmodule Jido.Exec.Compiler do
     end
   end
 
+  @doc false
   @spec validate(Flow.t()) :: {:ok, Flow.t()} | {:error, Exception.t()}
   def validate(%Flow{} = flow) do
     with {:ok, flow} <- Flow.validate(flow),

@@ -100,9 +100,12 @@ defmodule Jido.Action.Inline.Compiler do
         use Jido.Action, unquote(Macro.escape(config))
 
         @doc false
+        @spec __jido_inline_action__() :: {module(), Jido.Action.Inline.path()}
         def __jido_inline_action__(), do: unquote(Macro.escape({owner, path}))
 
+        @doc false
         @impl Jido.Action
+        @spec run(map(), map()) :: Jido.Action.result()
         def run(params, context), do: unquote(owner).unquote(function)(params, context)
       end
 
@@ -153,6 +156,8 @@ defmodule Jido.Action.Inline.Compiler do
 
   defp clause_def(function_name, {pattern, nil, body}, context, unimports, default_line) do
     quote line: ast_line(pattern, default_line) do
+      @doc false
+      @spec unquote(function_name)(map(), map()) :: Jido.Action.result()
       def unquote(function_name)(unquote(pattern), unquote(context)) do
         unquote_splicing(unimports)
         unquote(body)
@@ -162,6 +167,8 @@ defmodule Jido.Action.Inline.Compiler do
 
   defp clause_def(function_name, {pattern, guard, body}, context, unimports, default_line) do
     quote line: ast_line(pattern, default_line) do
+      @doc false
+      @spec unquote(function_name)(map(), map()) :: Jido.Action.result()
       def unquote(function_name)(unquote(pattern), unquote(context)) when unquote(guard) do
         unquote_splicing(unimports)
         unquote(body)

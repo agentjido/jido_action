@@ -7,6 +7,10 @@ defmodule Jido.Exec.Node.Choice.Branch do
   @enforce_keys [:id, :name, :hash, :component, :option]
   defstruct [:id, :name, :hash, :component, :option, :location]
 
+  @type t :: %__MODULE__{}
+
+  @doc false
+  @spec new(keyword()) :: t()
   def new(opts) do
     opts =
       Keyword.validate!(opts, [
@@ -30,6 +34,8 @@ defmodule Jido.Exec.Node.Choice.Branch do
     }
   end
 
+  @doc false
+  @spec select(t(), term(), term()) :: {:ok, term()} | {:error, term()}
   def select(
         %__MODULE__{} = node,
         {:jido_choice_selection, option, input},

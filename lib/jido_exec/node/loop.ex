@@ -30,6 +30,7 @@ defmodule Jido.Exec.Node.Loop do
   @type kind :: :reduce | :iterate
   @type t :: %__MODULE__{}
 
+  @doc false
   @spec new(keyword()) :: t()
   def new(opts) do
     opts =
@@ -78,6 +79,7 @@ defmodule Jido.Exec.Node.Loop do
   end
 
   @doc false
+  @spec connect(t(), [term()], Workflow.t()) :: Workflow.t()
   def connect(%__MODULE__{} = node, parents, %Workflow{} = workflow) do
     start = Start.new(node)
 
@@ -125,6 +127,7 @@ defmodule Jido.Exec.Node.Loop do
   end
 
   @doc false
+  @spec start(t(), term(), term()) :: {:ok, term()} | {:error, term()}
   def start(%__MODULE__{kind: :reduce} = node, input, context) do
     with {:ok, frame} <- Frame.merge(input),
          state = Frame.resolver_state(frame, context),
@@ -149,6 +152,8 @@ defmodule Jido.Exec.Node.Loop do
   end
 
   @doc false
+  @spec run_action(t(), Instruction.t(), term(), term(), function()) ::
+          {:ok, term(), [term()]} | {:error, term()}
   def run_action(
         %__MODULE__{kind: :reduce} = node,
         instruction,
@@ -214,16 +219,19 @@ defmodule Jido.Exec.Node.Loop do
   end
 
   @doc false
+  @spec continue?(term()) :: boolean()
   def continue?({:jido_reduce, :continue, _, _, _, _, _, _}), do: true
   def continue?({:jido_iterate, :continue, _, _, _, _, _, _}), do: true
   def continue?(_value), do: false
 
   @doc false
+  @spec complete?(term()) :: boolean()
   def complete?({:jido_reduce, :complete, _, _, _, _, _, _}), do: true
   def complete?({:jido_iterate, :complete, _, _, _, _, _, _}), do: true
   def complete?(_value), do: false
 
   @doc false
+  @spec finish(t(), term()) :: {:ok, term()}
   def finish(
         %__MODULE__{kind: :reduce},
         {:jido_reduce, :complete, frame, component, _items, _index, accumulator, effects}
@@ -246,6 +254,7 @@ defmodule Jido.Exec.Node.Loop do
   end
 
   @doc false
+  @spec condition(term(), term(), :continue | :complete) :: struct()
   def condition(id, name, status) when status in [:continue, :complete] do
     hash =
       Identity.digest(:component_definition, %{

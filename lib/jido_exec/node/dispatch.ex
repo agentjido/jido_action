@@ -30,6 +30,7 @@ defmodule Jido.Exec.Node.Dispatch do
 
   @type t :: %__MODULE__{}
 
+  @doc false
   @spec new(keyword()) :: t()
   def new(opts) do
     opts =
@@ -63,6 +64,7 @@ defmodule Jido.Exec.Node.Dispatch do
   end
 
   @doc false
+  @spec connect(t(), [term()], Workflow.t()) :: Workflow.t()
   def connect(%__MODULE__{} = node, parents, %Workflow{} = workflow) do
     decision = action(node, :decision, node.decision, node.decision_params)
     expander = action(node, :expander, node.expander, nil)
@@ -76,6 +78,7 @@ defmodule Jido.Exec.Node.Dispatch do
   end
 
   @doc false
+  @spec expand(Workflow.t(), t(), term(), term()) :: Workflow.t()
   def expand(workflow, node, target, input) do
     with {:ok, instruction} <- Instruction.resolve(target) do
       case instruction do
@@ -91,6 +94,7 @@ defmodule Jido.Exec.Node.Dispatch do
   end
 
   @doc false
+  @spec finish(term()) :: {:ok, term()} | {:continue, term()}
   def finish({:jido_dispatch_finish, frame, component, output, effects}) do
     {:ok, Frame.put_result(frame, component, output, effects)}
   end
@@ -99,6 +103,7 @@ defmodule Jido.Exec.Node.Dispatch do
     do: {:continue, value}
 
   @doc false
+  @spec target_component_key(t()) :: String.t()
   def target_component_key(%__MODULE__{} = node) do
     "__jido_dispatch_target__/#{node.component}"
   end

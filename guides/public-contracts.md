@@ -50,6 +50,8 @@ Keep an ID when its wording becomes more precise. Do not reuse a retired ID.
 | EXEC-003 | Choice, Map, Reduce, Iterate, nested Flow, and Dispatch keep their authored semantics. | `test/property/flow/component_contract_test.exs`, `test/property/flow/mixed_contract_test.exs` |
 | EXEC-004 | Failure stops new work according to Runic policy, while work that is already admitted can finish. | `test/property/flow/iterate_fuzz_test.exs`, `test/jido_exec/runner/policy_test.exs` |
 | EXEC-005 | One concurrency policy applies to nested and collection work, while Reduce and Iterate remain serial. | `test/property/flow/iterate_fuzz_test.exs`, `test/jido_exec/runner/policy_test.exs` |
+| EXEC-006 | Manual managed execution dispatches one Runic scheduler unit per step and returns inspectable Runic workflow state. | `test/jido_exec/runner/stepwise_test.exs`, Runic stepwise Runner tests |
+| EXEC-007 | Jido emits bounded Action and immediate Flow telemetry. Runic owns managed runtime telemetry. | `test/jido_exec/telemetry_test.exs`, Runic Runner telemetry tests |
 | EFFECT-001 | Effects preserve dependency, component, nested, and collection order and request multiplicity. | `test/property/flow/component_contract_test.exs`, `test/examples/action_effects_test.exs` |
 | EFFECT-002 | Failed Action output does not expose an executable effect batch. | `test/property/action/boundary_contract_test.exs`, `test/property/flow/component_contract_test.exs` |
 

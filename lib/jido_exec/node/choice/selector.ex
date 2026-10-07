@@ -7,6 +7,10 @@ defmodule Jido.Exec.Node.Choice.Selector do
   @enforce_keys [:id, :name, :hash, :component, :options]
   defstruct [:id, :name, :hash, :component, :options, :location]
 
+  @type t :: %__MODULE__{}
+
+  @doc false
+  @spec new(keyword()) :: t()
   def new(opts) do
     opts = Keyword.validate!(opts, [:id, :name, :component, :options, :location])
     id = Keyword.fetch!(opts, :id)
@@ -22,6 +26,8 @@ defmodule Jido.Exec.Node.Choice.Selector do
     }
   end
 
+  @doc false
+  @spec select(t(), term(), term()) :: {:ok, term()} | {:error, term()}
   def select(%__MODULE__{} = node, input, context) do
     with {:ok, frame} <- Frame.merge(input),
          {:ok, option} <- first_match(node, frame, context) do

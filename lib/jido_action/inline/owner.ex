@@ -149,8 +149,9 @@ defmodule Jido.Action.Inline.Owner do
 
   defp index_definition(index) do
     quote generated: true do
-      @doc false
       @__jido_inline_generated__ {:__jido_inline_actions__, 0}
+      @doc false
+      @spec __jido_inline_actions__() :: %{optional(Jido.Action.Inline.path()) => module()}
       def __jido_inline_actions__, do: unquote(Macro.escape(index))
       Module.delete_attribute(__MODULE__, :__jido_inline_generated__)
     end
