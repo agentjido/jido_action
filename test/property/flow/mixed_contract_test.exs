@@ -173,12 +173,8 @@ defmodule JidoActionTest.Property.Flow.MixedContractTest do
      ), Ref.result("map")}
   end
 
-  defp execute(flow, context, mode) when mode in [:serial, :concurrent] do
-    Exec.run(flow, %{}, context, Runtime.options(context, if(mode == :serial, do: 1, else: 3)))
-  end
-
   defp execute(flow, context, mode) do
-    {:ok, execution} = Exec.start(flow, %{}, context, Runtime.options(context))
-    Runtime.finish(execution, mode)
+    concurrency = if mode == :concurrent, do: 3, else: 1
+    Exec.run(flow, %{}, context, Runtime.options(context, concurrency))
   end
 end

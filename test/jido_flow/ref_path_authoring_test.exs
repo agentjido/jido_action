@@ -347,7 +347,6 @@ defmodule Jido.Flow.RefPathAuthoringTest do
       }
 
       assert {:error, %InvalidDefinitionError{}} = Jido.Exec.run(flow, %{}, %{calls: calls})
-      assert {:error, %InvalidDefinitionError{}} = Jido.Exec.start(flow, %{}, %{calls: calls})
     end
 
     iterate =
@@ -362,7 +361,6 @@ defmodule Jido.Flow.RefPathAuthoringTest do
     invalid = put_in(iterate.state.update.value.path, [nil])
     flow = %Flow{name: "invalid_update", components: [first, invalid], output: Ref.result("node")}
     assert {:error, %InvalidDefinitionError{}} = Jido.Exec.run(flow, %{}, %{calls: calls})
-    assert {:error, %InvalidDefinitionError{}} = Jido.Exec.start(flow, %{}, %{calls: calls})
     assert Agent.get(calls, & &1) == 0
     assert {:ok, %{}} = Jido.Exec.run(CountedAction, %{}, %{calls: calls})
     assert Agent.get(calls, & &1) == 1

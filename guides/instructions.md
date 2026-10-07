@@ -69,12 +69,13 @@ Jido.Exec.run(
 
 An Instruction accepts the [Exec options](configuration.md) of its target.
 
-Only a Flow Instruction supports step-wise execution.
+Use a supervised Runic Runner for managed execution:
 
 ```elixir
-{:ok, execution} = Jido.Exec.start(flow_instruction)
-{:ok, execution} = Jido.Exec.continue(execution)
-Jido.Exec.result(execution)
+{:ok, _worker} =
+  Jido.Exec.start(MyApp.Runner, "delivery-1", flow_instruction, %{}, %{},
+    checkpoint_strategy: :every_cycle
+  )
 ```
 
 ## Use An Inert Template
@@ -115,4 +116,4 @@ Choose an application-owned format if you must store Instructions.
 Flow call nodes keep Instruction templates beside their parameter expressions.
 Map definitions still use `action` or `flow` module fields; `Jido.Flow.new/1`
 creates the templates. They do not accept bound Instructions. Direct Exec calls
-and Action continuations do accept bound Instructions.
+accept bound Instructions.

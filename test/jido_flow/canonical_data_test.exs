@@ -195,7 +195,7 @@ defmodule JidoActionTest.Flow.CanonicalDataTest do
     flow = step_flow()
 
     assert Flow.validate(flow) == {:ok, flow}
-    assert Flow.validate_executable(flow) == {:ok, flow}
+    assert Jido.Exec.Compiler.validate(flow) == {:ok, flow}
 
     invalid_params = put_in(flow.components["step"].call, replace_params(flow, Ref.item()))
     assert_invalid_canonical(invalid_params)
@@ -258,7 +258,7 @@ defmodule JidoActionTest.Flow.CanonicalDataTest do
   end
 
   defp assert_invalid_canonical(flow) do
-    for validate <- [&Flow.validate/1, &Flow.validate_executable/1] do
+    for validate <- [&Flow.validate/1, &Jido.Exec.Compiler.validate/1] do
       assert {:error, %InvalidDefinitionError{}} = validate.(flow)
     end
   end

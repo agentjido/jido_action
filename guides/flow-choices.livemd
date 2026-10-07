@@ -185,8 +185,8 @@ end
 
 The wrapper preserves the expected error's mapped type, message, details, and
 retry flag. This result is successful application data, not a failed Flow
-node. It does not receive automatic error telemetry or added node/execution
-identity. Add application correlation data explicitly when needed. A selected
+node. It does not receive a failed Runnable event or added node identity. Add
+application correlation data explicitly when needed. A selected
 route that fails still fails the Flow; it does not run `otherwise`.
 
 The provider above is an ordinary function. If the provider is another Jido

@@ -57,7 +57,7 @@ define execution results and effect order.
 Data definitions use an explicit `:subflow` kind and `flow` field for a child
 Flow module. A `:step` uses an Action module. The module DSL can derive a
 Subflow from a `step` target. Definition validation is inert;
-`Jido.Flow.validate_executable/1` also checks target contracts.
+`Jido.Exec.compile/1` also checks target contracts and returns the native Runic workflow.
 
 ## Canonical Graph Shape
 

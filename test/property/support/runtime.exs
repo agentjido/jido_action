@@ -1,7 +1,6 @@
 defmodule JidoActionTest.Property.Runtime do
   @moduledoc false
   import ExUnit.Assertions
-  alias Jido.Exec
 
   def with_context(fun) do
     {:ok, supervisor} = Task.Supervisor.start_link()
@@ -31,8 +30,8 @@ defmodule JidoActionTest.Property.Runtime do
     end
   end
 
-  def options(context, concurrency \\ 1),
-    do: [task_supervisor: context.supervisor, max_concurrency: concurrency]
+  def options(_context, concurrency \\ 1),
+    do: [max_concurrency: concurrency]
 
   # Read callback messages only after a public completion or mutation barrier.
   def calls(context), do: calls(context.token, [])
@@ -68,30 +67,6 @@ defmodule JidoActionTest.Property.Runtime do
     # A DOWN message to this process does not confirm that the supervisor has
     # removed the child's entry. Check live processes, not that bookkeeping race.
     refute Enum.any?(Task.Supervisor.children(supervisor), &Process.alive?/1)
-  end
-
-  def finish(execution, mode) do
-    if Exec.status(execution) == :running do
-      next =
-        case mode do
-          :continue ->
-            {:ok, next} = Exec.continue(execution)
-            next
-
-          :wave ->
-            {:ok, _, next} = Exec.wave(execution)
-            next
-
-          :step ->
-            work = List.last(Exec.ready(execution))
-            {:ok, _, next} = Exec.step(execution, work.token)
-            next
-        end
-
-      finish(next, mode)
-    else
-      Exec.result(execution)
-    end
   end
 
   defmodule Emit do

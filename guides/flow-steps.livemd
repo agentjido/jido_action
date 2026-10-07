@@ -96,8 +96,8 @@ See [Inline Actions](https://github.com/agentjido/jido_action/blob/release/v3/gu
 for runnable examples.
 
 Keep a named Action for custom lifecycle hooks or a separate public module
-API. All forms use the same Exec errors, telemetry, timeout, concurrency, and
-lifecycle rules. A normal Step cannot return a continuation.
+API. All forms use the same Exec errors and Runic policy. A normal Step cannot
+return a continuation.
 
 ## Define An Action
 

@@ -1,7 +1,6 @@
 defmodule Jido.Flow.ExecutableKindTest do
   use ExUnit.Case, async: true
 
-  alias Jido.Flow
   alias Jido.Flow.Error.InvalidDefinitionError
   alias Jido.Flow.Ref
   alias JidoActionTest.Fixtures.NestedFlow
@@ -45,7 +44,7 @@ defmodule Jido.Flow.ExecutableKindTest do
         )
 
       assert {:error, %InvalidDefinitionError{details: details}} =
-               Flow.validate_executable(flow)
+               Jido.Exec.Compiler.validate(flow)
 
       assert details.component == component.name
       assert details.actual == :flow

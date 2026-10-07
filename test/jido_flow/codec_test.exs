@@ -148,7 +148,7 @@ defmodule Jido.Flow.CodecTest do
 
     assert Jido.Exec.run(action, %{marker: marker}) == {:ok, %{marker: marker}}
     assert_received {:inline_codec_body, ^marker, worker}
-    refute worker == self()
+    assert worker == self()
     refute_received {:inline_codec_body, _, _}
 
     flow = InlineProbeFlow.flow()
@@ -157,7 +157,7 @@ defmodule Jido.Flow.CodecTest do
     assert InlineProbeFlow.step_action("mark") == action
     assert %{"mark" => %{call: {%Instruction{target: ^action}, _params}}} = flow.components
     assert {:ok, ^flow} = Flow.validate(flow)
-    assert {:ok, ^flow} = Flow.validate_executable(flow)
+    assert {:ok, ^flow} = Jido.Exec.Compiler.validate(flow)
     assert {:ok, _} = Flow.explain(flow)
     assert is_map(Flow.to_map(flow))
     assert {:ok, document} = Codec.encode(flow, registry)
@@ -288,7 +288,7 @@ defmodule Jido.Flow.CodecTest do
             %InvalidDefinitionError{
               message: "Flow artifact contains non-canonical data",
               details: %{path: [:schema], reason: :non_canonical}
-            }} = Flow.validate_executable(raw_flow)
+            }} = Jido.Exec.Compiler.validate(raw_flow)
 
     assert {:error, %InvalidDefinitionError{details: %{path: [:schema]}}} =
              Codec.encode(raw_flow)

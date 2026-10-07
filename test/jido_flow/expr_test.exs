@@ -60,12 +60,6 @@ defmodule JidoActionTest.Flow.ExprTest do
     for flow <- [direct, built, restored] do
       assert Jido.Exec.run(flow, %{quantity: 2, price: 3, name: "Ada"}, %{prefix: "Hi "}) ==
                {:ok, %{total: 9, label: "Hi Ada"}}
-
-      assert {:ok, execution} =
-               Jido.Exec.start(flow, %{quantity: 2, price: 3, name: "Ada"}, %{prefix: "Hi "})
-
-      assert {:ok, execution} = Jido.Exec.continue(execution)
-      assert Jido.Exec.result(execution) == {:ok, %{total: 9, label: "Hi Ada"}}
     end
   end
 
@@ -208,7 +202,7 @@ defmodule JidoActionTest.Flow.ExprTest do
              value: nil
            }) == {:ok, %{is_nil: true}}
 
-    assert {:error, _} = Jido.Exec.run(output_flow(Expr.new!(:+, [1, 2])))
+    assert {:ok, 3} = Jido.Exec.run(output_flow(Expr.new!(:+, [1, 2])))
   end
 
   test "resolved private map keys are absent from complete Flow errors" do

@@ -1,36 +1,34 @@
 # Inspect Flows
 
-Flow inspection works on canonical `%Jido.Flow{}` values. It does not run
-Actions.
+Flow inspection separates inert author data from executable Runic data.
 
 ## Validate Structure Or Targets
 
+Use `Jido.Flow.validate/1` for inert structural validation:
+
 ```elixir
 {:ok, flow} = Jido.Flow.validate(flow)
-{:ok, flow} = Jido.Flow.validate_executable(flow)
 ```
 
-`validate/1` checks schemas, components, expressions, references, dependencies,
-and cycles. It is inert and does not check module contracts.
+This checks schemas, components, expressions, references, dependencies, and
+cycles. It does not load Action targets.
 
-`validate_executable/1` also checks each Action and child Flow contract. It
-still does not execute work.
+Use `Jido.Exec.compile/2` to check executable targets and build the Runic graph:
+
+```elixir
+{:ok, %Runic.Workflow{} = workflow} = Jido.Exec.compile(flow)
+```
+
+Neither operation runs Action work.
 
 ## Read Dependencies
 
 ```elixir
 {:ok, dependencies} = Jido.Flow.dependencies(flow)
-
-dependencies["publish"]
-#=> %{
-#=>   needs: ["approve"],
-#=>   references: ["render"],
-#=>   effective: ["approve", "render"]
-#=> }
 ```
 
-`needs` is explicit author order. `references` is derived from result
-references. `effective` is their sorted union.
+Each component entry contains explicit `needs`, referenced components, and the
+effective dependency list.
 
 ## Explain A Flow
 
@@ -38,56 +36,37 @@ references. `effective` is their sorted union.
 {:ok, explanation} = Jido.Flow.explain(flow)
 ```
 
-The explanation is versioned canonical inspection data. It contains Flow
-metadata, normalized components, dependencies, output, and semantic identity.
-It is useful for tooling and review. It is not the stored JSON format.
+The explanation contains the canonical components, dependencies, output, and
+semantic identity. It contains author data and no runtime state.
 
 ## Compare Semantic Identity
 
 ```elixir
 {:ok, identity} = Jido.Flow.semantic_identity(flow)
-
-identity.digest
-identity.uuid
 ```
 
-Identity uses the canonical semantic form. Descriptions, component metadata,
-Instruction metadata, runtime compilation data, and DSL source locations do
-not change it. The identity version is 4.
-
-Version 4 projects the normalized graph to stable author semantics before it
-hashes the value. References remain distinct from literal maps with the same
-fields. Recompute stored identity values from the canonical Flow. Stored
-document versions are separate from semantic identity versions.
+The identity is deterministic for the canonical Flow definition. Runtime
+context, execution state, and source locations do not change it.
 
 ## Get A Semantic Map
 
 ```elixir
-semantic_map = Jido.Flow.to_map(flow)
+map = Jido.Flow.to_map(flow)
 ```
 
-This deterministic map orders components by graph dependencies and name. It
-keeps module values and uses the public tagged component shape. It is useful
-for inspection and comparison inside the VM. Use `Jido.Flow.Codec` for
-portable storage.
+Use this map for inspection. Use `Jido.Flow.Codec` for database storage because
+the Codec records versions and replaces modules and atoms through a safe
+Registry.
 
 ## Inspect Native Compilation
 
-```elixir
-{:ok, compiled} = Jido.Flow.compile(flow)
+`Jido.Exec.compile/2` returns the exact `Runic.Workflow` that Exec can run:
 
-compiled.workflow
-compiled.component_index
-compiled.output
-compiled.source_map
-compiled.compilation_digest
+```elixir
+{:ok, workflow} = Jido.Exec.compile(flow)
+Runic.Workflow.build_log(workflow)
 ```
 
-`Jido.Exec.Flow.Compiled` is derived runtime data. Treat its fields as
-inspection and execution data, not authoring data.
-
-Compilation identity includes each nested Flow's semantic identity at its full
-component path. Children with the same local name under different parents remain
-distinct. A child definition change can change the compilation digest while the
-root semantic digest stays unchanged. Action implementation code is not part of
-either digest.
+Use Runic's public functions to inspect components, ports, build events,
+runnable events, and results. The compiled workflow is derived runtime data.
+Do not use it as the canonical stored Flow definition.

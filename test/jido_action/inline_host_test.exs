@@ -107,8 +107,7 @@ defmodule Jido.Action.InlineHostTest do
       assert InlineHost.run(owner, "greet", input, context) ==
                {:ok, %{message: "owner:Hello [ADA]!"}}
 
-      execution_context = Map.put(context, :__jido_exec__, %{deadline: :infinity})
-      assert_received {:body, ^owner, %{name: " Ada ", suffix: "!"}, ^execution_context}
+      assert_received {:body, ^owner, %{name: " Ada ", suffix: "!"}, ^context}
     end
   end
 

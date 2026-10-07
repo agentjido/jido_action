@@ -46,7 +46,7 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
         Runtime.with_context(fn context ->
           if invalid do
             assert {:error, _} = Flow.validate(invalid)
-            assert {:error, _} = Flow.validate_executable(invalid)
+            assert {:error, _} = Jido.Exec.Compiler.validate(invalid)
             assert {:error, _} = Exec.run(invalid, %{}, context, Runtime.options(context))
           end
 
@@ -80,17 +80,17 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
           )
 
         assert {:ok, ^flow} = Flow.validate(flow)
-        assert {:ok, ^flow} = Flow.validate_executable(flow)
+        assert {:ok, ^flow} = Jido.Exec.Compiler.validate(flow)
         assert {:ok, _} = Flow.dependencies(flow)
         assert {:ok, _} = Flow.explain(flow)
         assert {:ok, _} = Flow.semantic_identity(flow)
-        assert {:ok, _} = Flow.compile(flow)
+        assert {:ok, _} = Jido.Exec.compile(flow)
         assert {:ok, document, registry} = Codec.encode(flow)
         assert {:ok, ^flow} = Codec.decode(document, registry)
         assert {:ok, ^flow} = Codec.diagnose(document, registry)
         invalid = replace_target(flow, "work", String)
         assert {:ok, ^invalid} = Flow.validate(invalid)
-        assert {:error, _} = Flow.validate_executable(invalid)
+        assert {:error, _} = Jido.Exec.Compiler.validate(invalid)
         Runtime.assert_calls(context, [])
       end)
     end
@@ -100,7 +100,7 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
   @tag contract_cases: [
          "FLOW-005/reference-vs-data",
          "FLOW-005/codec-identity",
-         "FLOW-005/compiled-digest"
+         "FLOW-005/compiled-graph-identity"
        ]
   property(
     "semantic identity preserves round trips and distinguishes reference data from literal maps"
@@ -130,8 +130,9 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
         assert {:ok, identity} = Flow.semantic_identity(flow)
         assert identity.algorithm == :sha256
         assert byte_size(identity.digest) == 64
-        assert {:ok, compiled} = Flow.compile(flow)
-        assert compiled.semantic_digest == identity.digest
+        assert {:ok, compiled} = Jido.Exec.compile(flow)
+        assert {:ok, recompiled} = Jido.Exec.compile(flow)
+        assert compiled.components == recompiled.components
         assert {:ok, document, registry} = Codec.encode(flow)
         assert {:ok, restored} = Codec.decode(document, registry)
         assert Flow.semantic_identity(restored) == {:ok, identity}
@@ -201,7 +202,7 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
         Runtime.with_context(fn runtime ->
           if invalid do
             assert {:error, _} = Flow.validate(invalid)
-            assert {:error, _} = Flow.validate_executable(invalid)
+            assert {:error, _} = Jido.Exec.Compiler.validate(invalid)
             assert {:error, _} = Exec.run(invalid, %{}, runtime, Runtime.options(runtime))
           end
 
@@ -211,14 +212,14 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
 
       Runtime.with_context(fn runtime ->
         assert {:ok, ^flow} = Flow.validate(flow)
-        assert {:ok, ^flow} = Flow.validate_executable(flow)
+        assert {:ok, ^flow} = Jido.Exec.Compiler.validate(flow)
 
         for operation <- [:dependencies, :explain, :semantic_identity, :compile] do
           assert {:ok, _} = apply(Flow, operation, [flow])
         end
 
         invalid = replace_target(flow, List.first(names), String)
-        assert {:error, _} = Flow.validate_executable(invalid)
+        assert {:error, _} = Jido.Exec.Compiler.validate(invalid)
         assert {:error, _} = Exec.run(invalid, %{}, runtime, Runtime.options(runtime))
         Runtime.assert_calls(runtime, [])
       end)

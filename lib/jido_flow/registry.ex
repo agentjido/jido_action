@@ -118,7 +118,7 @@ defmodule Jido.Flow.Registry do
   """
   @spec from_flow(Jido.Flow.t()) :: {:ok, t()} | {:error, Exception.t()}
   def from_flow(flow) do
-    with {:ok, flow} <- Jido.Flow.validate_executable(flow) do
+    with {:ok, flow} <- Jido.Exec.Compiler.validate(flow) do
       flow
       |> entries()
       |> new()

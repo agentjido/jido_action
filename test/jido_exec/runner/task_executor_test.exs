@@ -1,0 +1,64 @@
+defmodule Jido.Exec.Runner.TaskExecutorTest do
+  use ExUnit.Case, async: false
+
+  alias Jido.Exec
+  alias JidoActionTest.Fixtures.Actions.KillingAction
+
+  defmodule BlockingAction do
+    use Jido.Action, name: "exec_v2_blocking"
+
+    @impl true
+    def run(_params, %{observer: observer}) do
+      send(Process.whereis(observer), {:blocking_action_started, self()})
+
+      receive do
+        :release -> {:ok, %{released: true}}
+      end
+    end
+  end
+
+  test "managed execution contains an Action process crash" do
+    runner = start_runner!()
+    test_pid = self()
+
+    assert {:ok, worker} =
+             Exec.start(runner, unique_id(), KillingAction, %{}, %{},
+               hooks: [
+                 on_failed: fn _runnable, reason, _state ->
+                   send(test_pid, {:managed_failed, reason})
+                 end,
+                 on_idle: fn _state -> send(test_pid, :managed_idle) end
+               ]
+             )
+
+    assert_receive {:managed_failed, :killed}, 1_000
+    assert_receive :managed_idle, 1_000
+    assert is_pid(worker)
+    assert Process.alive?(worker)
+  end
+
+  test "stopping managed execution cancels its active Action task" do
+    runner = start_runner!()
+    execution_id = unique_id()
+    observer = :"exec_v2_observer_#{System.unique_integer([:positive])}"
+    Process.register(self(), observer)
+    on_exit(fn -> if Process.whereis(observer) == self(), do: Process.unregister(observer) end)
+
+    assert {:ok, _worker} =
+             Exec.start(runner, execution_id, BlockingAction, %{}, %{observer: observer})
+
+    assert_receive {:blocking_action_started, action_pid}, 1_000
+    monitor = Process.monitor(action_pid)
+
+    assert :ok = Runic.Runner.stop(runner, execution_id, persist: false)
+    assert_receive {:DOWN, ^monitor, :process, ^action_pid, _reason}, 1_000
+  end
+
+  defp start_runner! do
+    runner = __MODULE__.Runner
+    start_supervised!({Runic.Runner, name: runner})
+    runner
+  end
+
+  defp unique_id, do: {:exec_v2_task_executor, System.unique_integer([:positive])}
+end

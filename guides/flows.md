@@ -36,13 +36,9 @@ separate.
 
 A Flow can have at most one Dispatch component. Dispatch must be the last
 component, and the Flow output must be the complete Dispatch result. Its
-decision Action returns data for its expander Action. A normal expander result
-completes the Flow. `{:continue, input, target}` ends the Flow and selects the
-next executable for the same `Jido.Exec.run/4` call.
-
-Dispatch is not available through step-wise execution or as part of a Subflow.
-These limits keep continuation in one complete Exec call. See
-[Dynamic Flows](dynamic-flows.md).
+decision Action returns data for its expander Action. The expander selects the
+next Action or Flow target. Runic adds that target to the executable graph.
+See [Dynamic Flows](dynamic-flows.md).
 
 ## One Expression Grammar
 
@@ -102,60 +98,28 @@ inspection. Author with the DSL or tagged component maps, and store a Flow with
 
 ## Author Data And Runtime Data
 
-A Flow stores author intent. `Jido.Flow.compile/2` delegates to Exec and derives
-a `Jido.Exec.Flow.Compiled` execution plan with component indexes, source
-locations, and a compilation digest. Do not store the compiled value.
+A Flow stores author intent. `Jido.Exec.compile/2` derives a native
+`Runic.Workflow`. Do not store the compiled value. Store the canonical Flow as
+JSON and compile it after hydration.
 
-`Jido.Exec` compiles and runs a Flow. Step-wise execution exposes small
-`Jido.Exec.Work` descriptions, including Join, input binding, fan-out, and
-fan-in support work. Select a unit with its revision-scoped token. Use
-`Jido.Exec.native/1` for advanced, read-only native inspection.
-
-## Invocation Replay
-
-Run-to-completion calls can use the optional `Jido.Exec.Invocation` host
-protocol. The protocol records normalized Action outcomes. It does not record
-one whole Flow outcome or an Execution snapshot.
-
-Replay starts the Flow in a new Exec call. Flow materialization, validation,
-expressions, bindings, branching, Reduce accumulation, Iterate state updates,
-and Iterate completion checks run again. At each Action position, the host can
-supply a confirmed receipt. That receipt replaces Action input validation,
-the Action callback, and Action output validation.
-
-An empty Flow has no Action occurrence. It runs its normal Flow validation and
-output work without an invocation host callback.
-
-The occurrence identity includes the complete component path and the position
-inside a collection or Dispatch. Map and Reduce use the zero-based source
-index. Iterate uses the zero-based iteration index. Choice uses the selected
-option or fallback. Dispatch identifies its decision and expander Actions.
-Structural Subflows add all parent names to the component path. Thus, the same
-child Flow used in two locations gets different Action occurrence keys.
-
-Permitted continuations remain in the same complete Exec call. Each next root
-target uses a larger chain index. A nested `Jido.Exec.run/4` call made inside
-an Action is a separate call. The parent treats it as opaque Action work.
-
-The host and Flow author must make orchestration deterministic for replay.
-Flow cannot prove this condition. Changing context, deadlines, expressions,
-validators, materializers, or state functions can select different work.
-See [Replay Action Invocations](execution.md#replay-action-invocations) for the
-host callbacks, receipt shapes, and recovery limits.
+Runic owns all runtime state. Immediate execution uses
+`Jido.Exec.run/4`. Durable execution uses `Jido.Exec.start/6` with a
+`Runic.Runner`. Checkpoint, stop, resume, and result inspection use the Runic
+Runner API.
 
 ## Validation And Inspection
 
 ```elixir
 {:ok, flow} = Jido.Flow.validate(flow)
-{:ok, flow} = Jido.Flow.validate_executable(flow)
 {:ok, dependencies} = Jido.Flow.dependencies(flow)
 {:ok, explanation} = Jido.Flow.explain(flow)
 {:ok, identity} = Jido.Flow.semantic_identity(flow)
+{:ok, %Runic.Workflow{} = workflow} = Jido.Exec.compile(flow)
 ```
 
 `validate/1` is inert and does not load or check target modules.
-`validate_executable/1` also checks Action and child Flow contracts. Neither
-function runs Action work.
+`Jido.Exec.compile/2` also checks Action and child Flow contracts. Neither
+operation runs Action work.
 
 All authoring forms use the same graph rules. DSL errors identify the source
 declaration; `new/1` and `validate/1` return the first error.
@@ -171,4 +135,5 @@ request effects after success. Flow collects these opaque requests in canonical
 dependency order and returns the complete batch with its final output. Exec
 does not execute effects. Failed execution returns no executable batch.
 The optional third success element must be a proper list of effect requests.
-See [Execution](execution.md#results-and-errors) for ordering, collections, continuations, and migration.
+See [Execution](execution.md#results-and-errors) for ordering, collections,
+and migration.

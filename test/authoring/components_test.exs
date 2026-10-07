@@ -422,9 +422,6 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
         assert Exec.run(form, %{mode: mode, value: 5, target: target}, %{label: "ctx"}) ==
                  {:ok, expected}
       end
-
-      assert {:error, %Jido.Flow.Error.InvalidExecutionError{}} =
-               Exec.start(form, %{mode: :finish, value: 5, target: nil}, %{label: "ctx"})
     end
   end
 

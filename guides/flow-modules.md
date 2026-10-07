@@ -129,8 +129,8 @@ MyApp.Flows.Greeting.run(%{name: "Ada"}, %{})
 `flow/0` returns the same canonical value for the life of the loaded module
 version. Put changing values in input or context, not in module construction.
 
-`compiled/0` returns a derived `Jido.Exec.Flow.Compiled` execution plan and its
-source map. It is not a storage format.
+`compiled/0` returns a derived `Runic.Workflow` with the module source map
+applied during compilation. It is not a storage format.
 
 `run/2` delegates to `Jido.Exec.run/4` with default options. Use `Jido.Exec`
 directly when you need runtime options. Exec uses the descriptor to select

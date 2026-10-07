@@ -13,28 +13,14 @@
 `jido_action` is part of the [Jido](https://github.com/agentjido/jido)
 ecosystem. See [jido.run](https://jido.run) for the project and its packages.
 
-`jido_action` defines validated actions, executable call frames, data-first Flows,
-and one public execution boundary.
+`jido_action` defines validated Actions, Instructions, declarative Flows, and
+one execution boundary.
 
-Jido Flow is a declarative, in-memory graph execution layer for Jido Actions.
-Runic owns graph mechanics, planning, runnable discovery, node execution, and
-graph-state transitions. Jido Flow owns its DSL, validation, lossless Map/JSON
-representation, compilation, and Flow semantics. Jido Exec owns one in-memory
-execution session: step-wise execution, bounded concurrency, Action invocation,
-errors, telemetry, and final results.
-
-Durable orchestration is not provided. An outer system must own persistence,
-queues, scheduling, recovery, retries, durable cancellation policy,
-distributed coordination, supervision, and deployment-safe continuation.
-`Jido.Exec` can enforce one caller-selected timeout for a complete in-memory
-call. It can also return an owner-bound handle for one asynchronous call.
-Each Action invocation runs in a fresh supervised Task, including untimed
-synchronous calls, Flow Actions, and continuations. Synchronous calls wait for
-the result. Each call uses a control Task and private supervisor. Caller or controller
-death stops the call and its workers.
-Supervisor startup and telemetry delivery are synchronous, as in V2. Blocked
-host startup or cleanup handlers can delay the timeout response.
-See [Process Ownership](guides/execution.md#process-ownership).
+`Jido.Flow` owns authoring, validation, and lossless Map and JSON definitions.
+`Jido.Exec` compiles Actions and Flows to executable Runic workflows. Runic
+owns runnable creation, scheduling, retries, timeouts, checkpoints,
+persistence, and recovery. A single Action uses the same path as a one-step
+Flow.
 
 This foundation keeps the action boundary small:
 
@@ -44,9 +30,7 @@ This foundation keeps the action boundary small:
 - `Jido.Instruction` resolves one Action or Flow target and captures its call data.
 - `Jido.Flow` composes actions as a validated graph of tagged nodes.
 - `Jido.Flow.Extension` adds compile-time macros that lower to the normal Flow DSL.
-- `Jido.Exec.Invocation` defines the optional Action receipt host protocol.
-- `Jido.Exec` runs actions, instructions, and Flows, including asynchronous
-  run-to-completion calls and step-wise Flows.
+- `Jido.Exec` compiles and runs Actions, Instructions, and Flows through Runic.
 
 Version 3.0.0-beta.11 is a public beta. It includes the declarative Flow DSL,
 runtime Flow construction, safe stored Flow maps, and one Flow execution
@@ -141,84 +125,42 @@ when they can express the required change.
   )
 ```
 
-`Jido.Exec` validates the Action input and output in the same fresh Task as
-its callback. This applies to synchronous calls with `timeout: :infinity`,
-timed calls, and asynchronous calls. A private execution supervisor owns the Task. The configured host Task
-Supervisor owns one control Task per call. See
-[Process Ownership](guides/execution.md#process-ownership) for Flow concurrency
-and cleanup limits. Code that integrates its own executor can use
-`validate_params/1`, `run/2`, and `validate_output/1` directly.
+`Jido.Exec` resolves an Instruction, compiles it to a real Runic workflow, and
+runs that workflow to completion. Input validation, the Action callback, and
+output validation occur inside the executable Runic Action node. Code that
+integrates its own executor can use `validate_params/1`, `run/2`, and
+`validate_output/1` directly.
 
 The Action `run/2` callback must return one of:
 
 - `{:ok, result}`
 - `{:ok, result, effects}`
-- `{:continue, input, target}`
 - `{:error, reason}`
 - `{:error, reason, effects}`
 
-The `{:continue, input, target}` result ends the current executable and runs
-the selected Action or Flow in the same bounded Exec call. A third success
-element contains an optional effect list. Exec discards the third element of
-an error result. See
-[Dynamic Flows](guides/dynamic-flows.md).
+A third success element contains an optional effect list. Exec discards the
+third element of an error result. Dynamic control flow belongs in Flow
+components such as Choice, Iterate, and Dispatch.
 
-## Run Asynchronously
+## Run Under A Runic Runner
 
-`run_async/4` accepts the same run-to-completion targets and options as
-`run/4`. It returns a handle immediately.
+Use `Jido.Exec.start/6` for managed or durable execution. The host supplies a
+supervised `Runic.Runner` and a stable execution ID.
 
 ```elixir
-handle =
-  Jido.Exec.run_async(
+{:ok, _pid} =
+  Jido.Exec.start(
+    MyApp.Runner,
+    "greeting-123",
     MyApp.Actions.GreetUser,
-    %{name: "Ada", excited?: true},
-    %{request_id: "req-123"}
+    %{name: "Ada"},
+    %{request_id: "req-123"},
+    checkpoint_strategy: :every_cycle
   )
-
-{:ok, %{greeting: "Hello, Ada!"}} = Jido.Exec.await(handle)
 ```
 
-The process that calls `run_async/4` owns the handle. Only that process can
-call `await/1`, `await/2`, `handle_message/2`, or `cancel/1`. Use
-`handle_message/2` to classify messages in an OTP callback without blocking:
-
-```elixir
-def handle_info(message, %{handle: handle} = state) do
-  case Jido.Exec.handle_message(handle, message) do
-    {:done, result} -> {:noreply, %{state | handle: nil, result: result}}
-    :ignore -> {:noreply, state}
-    {:error, error} -> {:stop, error, state}
-  end
-end
-```
-
-`await/2`, `handle_message/2`, and `cancel/1` are alternative one-shot
-terminal consumers. The default wait limit for `await/1` is 5 seconds. An
-`await/2` timeout cancels the work. The `timeout:` run option is a separate
-limit for the complete execution.
-
-`cancel/1` stops active in-memory Action and Flow work. It cannot undo side
-effects that already completed.
-
-## Replay Action Invocations
-
-`run/4` and `run_async/4` accept an optional `invocation:` configuration. A
-module that implements `Jido.Exec.Invocation` can allow fresh Action work,
-supply a prior normalized receipt, or interrupt the complete call. Exec asks
-the host to accept each fresh receipt before its result reaches later Flow
-work or the root caller.
-
-Replay starts a new Exec call. Flow orchestration runs again, and the host can
-replace confirmed Action work with saved outcomes. The host owns compatibility,
-durability, encoding, recovery, and effect delivery. The orchestration must be
-deterministic for the inputs that the host selects.
-
-This is an Action receipt edge. It is not storage, automatic retry, an
-Execution snapshot, an exactly-once effect guarantee, or a durable workflow
-engine. `start/4` does not accept the option. See
-[Replay Action Invocations](guides/execution.md#replay-action-invocations) for
-the callback, identity, receipt, uncertainty, and payload contracts.
+Use `Runic.Runner` to stop, checkpoint, resume, and inspect the execution.
+Jido does not keep a second checkpoint or cursor.
 
 ## Capture A Call Frame
 
@@ -282,7 +224,7 @@ Each Flow module and canonical Flow has one explicit output expression. In a
 module Flow, `output` must be the final declaration. Flows also support
 ordered Choices, Map and Reduce collections, bounded Iterate components with
 State, independent components that can run in parallel, one Dispatch at the
-end of a Flow, and a step-wise execution API.
+end of a Flow, and durable execution through `Runic.Runner`.
 
 ### Use Inline Steps For Small Operations
 
@@ -378,7 +320,7 @@ decoded = JSON.decode!(json)
 
 case Jido.Flow.Codec.decode(decoded, registry) do
   {:ok, flow} ->
-    Jido.Flow.validate_executable(flow)
+    Jido.Exec.compile(flow)
 
   {:error, error} ->
     {:error, Jido.Flow.Error.to_map(error)}
@@ -408,45 +350,17 @@ The Flow module DSL, map definitions, and stored JSON Codec produce one
 canonical `%Jido.Flow{}` model. The Codec uses explicit component kinds. It
 does not infer old records or module names.
 
-## Run A Flow Step By Step
+## Compile And Inspect A Flow
 
-Run-to-completion and step-wise execution use the same engine:
+`Jido.Exec.compile/2` returns the executable `Runic.Workflow`:
 
 ```elixir
-{:ok, execution} = Jido.Exec.start(runtime_flow, %{name: "Ada"})
-[work] = Jido.Exec.ready(execution)
-
-{:ok, %Jido.Exec.Work{status: :completed}, execution} =
-  Jido.Exec.step(execution, work.token)
-
-:succeeded = Jido.Exec.status(execution)
-{:ok, %{greeting: "Hello, Ada."}} = Jido.Exec.result(execution)
+{:ok, workflow} = Jido.Exec.compile(runtime_flow)
 ```
 
-`wave/1` runs work from the current ready set. A failed runnable stops new
-dispatch; work already admitted can finish. `continue/1` runs until the Flow
-reaches a terminal result. Always pass the newest execution value to the next
-call. The caller owns this in-memory lifecycle. Jido does not persist or recover it.
-Jido rejects reuse of a stale execution revision. Each revision has its own
-work tokens. Descriptors expose component paths and support roles without
-application payloads. Use `Jido.Exec.native/1` for advanced native inspection.
-See [Debug Flows](guides/debugging-flows.md).
-
-## Observe Execution
-
-Telemetry covers Action, Flow, Flow node, and collection work-unit lifecycles.
-Direct Actions and Instructions emit `[:jido, :action, :start]`,
-`[:jido, :action, :stop]`, and `[:jido, :action, :error]`. Flows and their
-nodes use the `[:jido, :flow]` namespace. Map items, Reduce items, and Iterate
-iterations add work-unit spans in that namespace. One `execution_id`
-correlates nested work. Step and selected Choice Actions emit a target
-lifecycle with the Action module and selected option. An Action inside a Flow
-does not emit a separate direct Action lifecycle. Telemetry observes execution
-only; it does not control scheduling or results. A complete-call timeout closes
-all active Jido spans with an error event.
-
-See [Execution](guides/execution.md) for exact event names, measurements,
-metadata, nesting, and step-wise semantics.
+Use Runic's public workflow and Runner APIs to inspect runnable state,
+lifecycle events, checkpoints, and results. Jido does not define a parallel
+execution struct or work-token API. See [Debug Flows](guides/debugging-flows.md).
 
 ## Docs
 
@@ -529,4 +443,5 @@ does not execute effects. Failed execution returns no executable batch.
 The optional third success element must be a proper list of effect requests.
 Run [Maps, Streams, And Optional Effects](guides/action-effects.livemd) for
 complete order approval and CSV export examples with integration tests.
-See [Execution](guides/execution.md#results-and-errors) for ordering, collections, continuations, and migration.
+See [Execution](guides/execution.md#results-and-errors) for ordering,
+collections, and error behavior.

@@ -69,7 +69,7 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
           output: Ref.result("node")
         )
 
-      assert {:error, error} = Flow.validate_executable(flow)
+      assert {:error, error} = Jido.Exec.Compiler.validate(flow)
       assert error.details.component == "node"
       assert error.details.field == field
       assert error.details.expected == :action
@@ -262,8 +262,7 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
         output: Ref.result("child")
       )
 
-    assert {:error, error} = Flow.validate_executable(parent)
-    assert error.message =~ "cannot be used as a Subflow"
+    assert {:ok, ^parent} = Jido.Exec.Compiler.validate(parent)
   end
 
   test "a wrong-kind source declaration reports its own source file and line" do
@@ -285,30 +284,6 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
     assert error.file == "authoring_wrong_kind_source.ex"
     assert error.line == 4
     assert Exception.message(error) =~ "Flow component has the wrong target kind"
-  end
-
-  test "a stale step-wise authored Flow cannot repeat Action work" do
-    flow =
-      JidoActionTest.FlowBuilder.new!(
-        name: "stale_authoring",
-        components: [
-          JidoActionTest.FlowComponent.step!(
-            name: "observed",
-            action: Hostile.Watch,
-            params: %{value: Ref.input(:value)}
-          )
-        ],
-        output: Ref.result("observed")
-      )
-
-    assert {:ok, stale} = Exec.start(flow, %{value: 7}, %{observer: self()})
-    assert {:ok, _work, current} = Exec.step(stale)
-    assert_receive {:hostile_action, %{value: 7}}
-    assert Exec.result(current) == {:ok, %{value: 7}}
-
-    assert {:error, error} = Exec.continue(stale)
-    assert error.details.reason == :stale_revision
-    refute_received {:hostile_action, _}
   end
 
   test "only references and needs order a diamond declared in reverse source order" do
@@ -371,52 +346,14 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
 
     for flow <- [dispatch_flow, step_flow] do
       assert {:error, error} = Exec.run(flow, %{value: 1}, %{observer: self()})
-      assert error.message == "action continuation is not allowed from this Flow position"
+      assert error.message == "Action continuations are not supported by Runic execution"
+      assert error.details.reason == :unsupported_continuation
       assert_receive :attempted_continuation
       refute_received {:hostile_action, _}
     end
   end
 
-  test "Dispatch rejects step-wise use and Subflow use before target work" do
-    dispatch =
-      JidoActionTest.FlowComponent.dispatch!(
-        name: "route",
-        decision: Hostile.Watch,
-        expander: Hostile.Watch
-      )
-
-    child =
-      JidoActionTest.FlowBuilder.new!(
-        name: "watched_dispatch",
-        components: [dispatch],
-        output: Ref.result("route")
-      )
-
-    assert {:error, step_error} = Exec.start(child, %{}, %{observer: self()})
-    assert step_error.message == "step-wise execution does not support Dispatch"
-
-    # Subflow validation uses a source module, not a copied artifact.
-    assert {:error, subflow_error} =
-             Exec.run(
-               JidoActionTest.FlowBuilder.new!(
-                 name: "dispatch_parent",
-                 components: [
-                   JidoActionTest.FlowComponent.subflow!(
-                     name: "child",
-                     flow: Components.DispatchFlow
-                   )
-                 ],
-                 output: Ref.result("child")
-               ),
-               %{},
-               %{observer: self()}
-             )
-
-    assert subflow_error.message =~ "cannot be used as a Subflow"
-    refute_received {:hostile_action, _}
-  end
-
-  test "Dispatch continuation uses final Action or Flow output validation" do
+  test "Dispatch targets and their parent Flow validate their outputs" do
     dispatch = definition(Components.DispatchFlow, "route")
 
     strict_root =
@@ -432,32 +369,38 @@ defmodule JidoActionTest.Authoring.RejectionsTest do
     assert {:error, _root_schema_error} =
              Exec.run(strict_root, %{mode: :finish, value: 5, target: nil}, context)
 
+    permissive_root = %{strict_root | output_schema: []}
+
     for target <- [Hostile.ValidatedFinal, Hostile.ValidatedFinalFlow] do
       input = %{mode: :continue, value: 5, target: target}
-      assert Exec.run(strict_root, input, context) == {:ok, %{value: 5, label: "shared"}}
+      assert {:error, root_schema_error} = Exec.run(strict_root, input, context)
+      assert root_schema_error.details.phase == :flow_output
+
+      assert Exec.run(permissive_root, input, context) ==
+               {:ok, %{value: 5, label: "shared"}}
 
       assert {:error, direct_error} = Exec.run(target, %{value: "bad"}, context)
 
       assert {:error, continued_error} =
-               Exec.run(strict_root, %{input | value: "bad"}, context)
+               Exec.run(permissive_root, %{input | value: "bad"}, context)
 
       assert continued_error.__struct__ == direct_error.__struct__
       assert continued_error.message == direct_error.message
     end
   end
 
-  test "a Dispatch continuation chain stops at its complete-call limit" do
+  test "a Dispatch target cannot start an Action continuation chain" do
     assert {:error, error} =
              Exec.run(
                Components.DispatchFlow,
                %{mode: :continue, value: 5, target: Hostile.Loop},
-               %{observer: self()},
-               max_continuations: 2
+               %{observer: self()}
              )
 
-    assert error.message == "continuation limit exceeded"
-    assert error.details.count == 3
-    assert error.details.max_continuations == 2
+    assert error.message == "Action continuations are not supported by Runic execution"
+    assert error.details.reason == :unsupported_continuation
+    assert_receive {:loop_started, 5}
+    refute_received {:loop_started, _}
   end
 
   defp definition(module, name) do

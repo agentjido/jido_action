@@ -212,7 +212,7 @@ defmodule Jido.Flow.BoundaryValidationTest do
         output: Ref.result("missing")
       })
 
-    assert {:error, _error} = Flow.validate_executable(invalid_target)
+    assert {:error, _error} = Jido.Exec.Compiler.validate(invalid_target)
     valid_step = %{kind: :step, name: "step", action: Add}
 
     assert {:error, _error} =
@@ -243,7 +243,7 @@ defmodule Jido.Flow.BoundaryValidationTest do
           output: Ref.result("child")
         })
 
-      assert {:error, %InvalidDefinitionError{}} = Flow.validate_executable(flow)
+      assert {:error, %InvalidDefinitionError{}} = Jido.Exec.Compiler.validate(flow)
     end
   end
 

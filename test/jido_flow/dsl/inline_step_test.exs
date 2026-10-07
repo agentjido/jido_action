@@ -513,9 +513,9 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     module = Module.concat(__MODULE__, InertFlow)
     flow = module.flow()
     assert {:ok, ^flow} = Jido.Flow.validate(flow)
-    assert {:ok, ^flow} = Jido.Flow.validate_executable(flow)
+    assert {:ok, ^flow} = Jido.Exec.Compiler.validate(flow)
     assert {:ok, _} = Jido.Flow.explain(flow)
-    assert {:ok, _} = Jido.Flow.compile(flow)
+    assert {:ok, _} = Jido.Exec.compile(flow)
     assert is_map(Jido.Flow.to_map(flow))
     refute_received {:inline_work, _}
 
@@ -786,9 +786,6 @@ defmodule Jido.Flow.DSL.InlineStepTest do
 
     for target <- [owner, direct, restored] do
       assert Jido.Exec.run(target) == {:ok, %{amount: -1}, [:request]}
-      assert {:ok, execution} = Jido.Exec.start(target)
-      assert {:ok, execution} = Jido.Exec.continue(execution)
-      assert Jido.Exec.result(execution) == {:ok, %{amount: -1}, [:request]}
     end
   end
 

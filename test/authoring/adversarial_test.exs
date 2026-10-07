@@ -48,10 +48,6 @@ defmodule JidoActionTest.Authoring.AdversarialTest do
       for authored <- [module, direct, built, restored] do
         assert Exec.run(authored, input, context) == {:ok, expected}
       end
-
-      assert {:ok, execution} = Exec.start(restored, input, context)
-      assert {:ok, execution} = Exec.continue(execution)
-      assert Exec.result(execution) == {:ok, expected}
     end
   end
 

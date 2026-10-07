@@ -45,7 +45,7 @@ defmodule JidoActionTest.Examples.ActionEffectsTest do
              {:ok, %{order_id: "order-42", status: :approved}}
   end
 
-  test "the export example stays lazy through Action, Flow, Instruction, and async calls",
+  test "the export example stays lazy through Action, Flow, and Instruction calls",
        context do
     owner = self()
     ref = make_ref()
@@ -62,8 +62,7 @@ defmodule JidoActionTest.Examples.ActionEffectsTest do
     results = [
       Exec.run(EffectExamples.ExportOrders, params, %{rows: rows}),
       Exec.run(context.export_flow, params, %{rows: rows}),
-      Exec.run(instruction, %{}, %{rows: rows}),
-      Exec.await(Exec.run_async(context.export_flow, params, %{rows: rows}))
+      Exec.run(instruction, %{}, %{rows: rows})
     ]
 
     # All calls have completed. None has consumed the stream.
@@ -89,22 +88,13 @@ defmodule JidoActionTest.Examples.ActionEffectsTest do
     end
   end
 
-  test "step-wise approval and export return the same requests", context do
-    assert {:ok, approval} =
-             Exec.start(context.approval_flow, %{order_id: "order-42", notify: true})
-
-    assert {:ok, approval} = Exec.continue(approval)
-
-    assert Exec.result(approval) ==
+  test "approval and export return their requests", context do
+    assert Exec.run(context.approval_flow, %{order_id: "order-42", notify: true}) ==
              {:ok, %{order_id: "order-42", status: :approved}, [{:send_confirmation, "order-42"}]}
 
-    assert {:ok, export} =
-             Exec.start(context.export_flow, %{report_id: "report-7", audit: true}, %{rows: []})
-
-    assert {:ok, export} = Exec.continue(export)
-
     assert {:ok, %Output{kind: :stream, value: stream},
-            [{:audit, %{event: :export_prepared, report_id: "report-7"}}]} = Exec.result(export)
+            [{:audit, %{event: :export_prepared, report_id: "report-7"}}]} =
+             Exec.run(context.export_flow, %{report_id: "report-7", audit: true}, %{rows: []})
 
     assert Enum.to_list(stream) == ["order_id,total_cents\n"]
   end

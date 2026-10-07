@@ -244,12 +244,8 @@ defmodule JidoActionTest.Property.Flow.ComponentContractTest do
     end
   end
 
-  defp execute(flow, context, mode) when mode in [:run, :concurrent] do
-    Exec.run(flow, %{}, context, Runtime.options(context, if(mode == :run, do: 1, else: 3)))
-  end
-
   defp execute(flow, context, mode) do
-    {:ok, execution} = Exec.start(flow, %{}, context, Runtime.options(context))
-    Runtime.finish(execution, mode)
+    concurrency = if mode == :concurrent, do: 3, else: 1
+    Exec.run(flow, %{}, context, Runtime.options(context, concurrency))
   end
 end

@@ -136,14 +136,6 @@ defmodule JidoActionTest.Flow.DSL.ExprFlowTest do
     for flow <- [Mixed, restored] do
       assert Jido.Exec.run(flow, %{start: 1, enabled: true}, %{paused: false}) ==
                {:ok, %{value: 10.0, loop: %{count: 3, done: true}, eligible: true}}
-
-      assert {:ok, execution} =
-               Jido.Exec.start(flow, %{start: 1, enabled: true}, %{paused: false})
-
-      assert {:ok, execution} = Jido.Exec.continue(execution)
-
-      assert Jido.Exec.result(execution) ==
-               {:ok, %{value: 10.0, loop: %{count: 3, done: true}, eligible: true}}
     end
 
     assert Jido.Exec.run(Dispatched, %{value: 20}) == {:ok, %{value: 10}}

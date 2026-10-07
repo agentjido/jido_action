@@ -3,9 +3,9 @@
 A dynamic Flow can select the next Action or Flow from runtime data. Use a
 terminal `dispatch` component when the current Flow must make that selection.
 
-Dispatch does not add a node to a running graph or change the current graph.
-It completes the current Flow, then its expander can continue the same
-`Jido.Exec` call with another executable.
+Dispatch uses Runic's public dynamic graph behavior. The decision and expander
+run as Action nodes. When the expander selects another executable, Runic adds
+the compiled target and schedules its Runnables.
 
 Use `Jido.Flow.new/1` instead when application code must construct the graph
 itself at runtime. See [Flow Data Definitions](flow-data.md).
@@ -25,9 +25,8 @@ The expander can return either form:
 {:continue, next_input, next_executable}
 ```
 
-A normal result completes the Flow. A continuation completes the Flow and runs
-the selected Action or Flow next. The same context, timeout, and continuation
-budget apply to the complete chain.
+A normal result completes the Flow. A continuation selects the Action or Flow
+that Runic adds next.
 
 ## Define A Dispatch
 
@@ -114,11 +113,9 @@ Every Flow with Dispatch must follow these rules:
 - Flow output is the complete Dispatch result, such as `result("route")`.
 - Only the expander can return `{:continue, input, target}`.
 - The decision and all other Flow components cannot continue.
-- Dispatch works only with run-to-completion execution.
-- A Flow with Dispatch cannot be used as a Subflow.
+- The continuation form is valid only for a Dispatch expander.
 
-These rules make the boundary clear: the graph completes before another
-executable starts.
+These rules keep dynamic composition in an explicit Flow component.
 
 ## Output Validation And Effects
 
@@ -140,8 +137,8 @@ def run(params, _context) do
 end
 ```
 
-Do not start a nested `Jido.Exec` call from the expander. Return a continuation
-so one Exec call owns the complete chain.
+Do not start a nested `Jido.Exec` call from the expander. Return the Dispatch
+continuation so Runic owns the complete graph.
 
 ## Define Dispatch With Data
 
@@ -169,61 +166,10 @@ Registry when stored JSON defines the Flow.
 
 ## Build A Bounded Loop
 
-A continued Action can return to the dynamic Flow. This supports tool loops
-and other bounded decision cycles:
+Use an Iterate component for a bounded loop. Iterate keeps explicit state,
+checks a declarative completion expression, and requires `max_iterations`.
+Each body call is a normal Action node and each iteration is part of Runic's
+durable execution state.
 
-```elixir
-defmodule MyApp.Actions.RunTool do
-  use Jido.Action, name: "run_tool"
-
-  @impl true
-  def run(%{call: call, messages: messages}, context) do
-    with {:ok, result} <- MyApp.Tools.call(call, context) do
-      messages = messages ++ [%{role: :tool, content: result}]
-      {:continue, %{messages: messages}, MyApp.Flows.Reason}
-    end
-  end
-end
-```
-
-One `Jido.Exec.run/4` call owns the full chain. Set both limits for loops:
-
-```elixir
-Jido.Exec.run(MyApp.Flows.Reason, input, context,
-  max_continuations: 12,
-  timeout: 30_000
-)
-```
-
-`max_continuations` defaults to `256` and accepts `0` through `10_000`. The
-timeout covers the complete chain. `run_async/4` uses the same rules, and its
-handle represents the complete chain.
-
-## Continue From A Root Action
-
-A root Action can also select the next executable without a Flow:
-
-```elixir
-def run(%{tool: tool, arguments: arguments}, _context) do
-  {:continue, arguments, tool}
-end
-```
-
-The input must be a map. The target can be an Action module, a Flow module, or
-a runtime Flow value. The current context passes to the target without a
-change.
-
-The complete input cannot be a `Jido.Action.Output` envelope. Put an envelope
-in a named map field when the next executable must receive it:
-
-```elixir
-{:continue, %{output: Jido.Action.Output.raw("complete")}, MyApp.Actions.Next}
-```
-
-Target resolution belongs to the current executable. If the complete-call
-timeout expires before the target descriptor resolves, the timeout error
-belongs to the current executable. After resolution, the selected target owns
-its execution lifecycle.
-
-Use Dispatch when earlier Flow work supplies the decision. Use a root Action
-continuation when no graph is needed.
+A root Action cannot select another executable through `{:continue, ...}`.
+Use Dispatch when runtime data must select the next Action or Flow.

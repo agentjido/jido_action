@@ -83,11 +83,11 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
       Module.delete_attribute(__MODULE__, :__jido_inline_generated__)
 
       @doc false
-      @spec __jido_flow_source_map__() :: Jido.Exec.Flow.Compiled.source_map()
+      @spec __jido_flow_source_map__() :: Jido.Flow.source_map()
       def __jido_flow_source_map__()
 
       @doc "Returns the derived execution plan for this module's canonical Flow."
-      @spec compiled() :: Jido.Exec.Flow.Compiled.t()
+      @spec compiled() :: Runic.Workflow.t()
       def compiled()
 
       @doc "Runs this Flow through Jido.Exec with default execution options."
@@ -248,7 +248,7 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
       Module.delete_attribute(__MODULE__, :__jido_inline_generated__)
 
       def compiled,
-        do: Jido.Flow.compile!(flow(), source_map: __jido_flow_source_map__())
+        do: Jido.Exec.compile!(flow(), source_map: __jido_flow_source_map__())
 
       # This is a convenience entry point. Exec selects native Flow execution
       # from the resolved Instruction and does not call this through the Action runner.
@@ -266,28 +266,16 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
            output_schema: output_schema
          ) do
       {:ok, flow} ->
-        ensure_targets_compiled(flow)
-        {validate_executable!(flow, env, source_map), source_map}
+        case Jido.Exec.Compiler.validate(flow) do
+          {:ok, flow} ->
+            {flow, source_map}
+
+          {:error, error} ->
+            raise_compile_error!(env, Exception.message(error), error, source_map)
+        end
 
       {:error, error} ->
         raise_compile_error!(env, Exception.message(error), error, source_map)
-    end
-  end
-
-  defp ensure_targets_compiled(flow) do
-    flow.components
-    |> Enum.flat_map(fn {_name, node} -> Definition.target_modules(node) end)
-    |> Enum.uniq()
-    |> Enum.each(&Code.ensure_compiled/1)
-  end
-
-  defp validate_executable!(flow, env, source_map) do
-    case Jido.Flow.validate_executable(flow) do
-      {:ok, flow} ->
-        flow
-
-      {:error, error} ->
-        raise_compile_error!(env, compile_error_message(error), error, source_map)
     end
   end
 
@@ -295,7 +283,7 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
           Macro.Env.t(),
           String.t(),
           Exception.t(),
-          Jido.Exec.Flow.Compiled.source_map()
+          Jido.Flow.source_map()
         ) ::
           no_return()
   defp raise_compile_error!(env, description, error, source_map) do
@@ -337,19 +325,6 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
   defp source_paths(%{component: component}), do: [[:components, component]]
   defp source_paths(%{node: component}), do: [[:components, component]]
   defp source_paths(_details), do: []
-
-  defp compile_error_message(error) when is_exception(error) do
-    message = Exception.message(error)
-    details = Map.get(error, :details, %{})
-
-    case {Map.fetch(details, :node), Map.fetch(details, :action)} do
-      {{:ok, node}, {:ok, action}} ->
-        "#{message} (node: #{inspect(node)}, action: #{inspect(action)})"
-
-      _other ->
-        message
-    end
-  end
 
   defp normalize_options(raw_opts) when is_list(raw_opts) do
     if Keyword.keyword?(raw_opts), do: Map.new(raw_opts), else: raw_opts

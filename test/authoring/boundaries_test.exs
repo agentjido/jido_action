@@ -173,7 +173,7 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
 
     for flow <- [Boundaries.Inert.flow(), direct, built, restored] do
       assert {:ok, ^flow} = Flow.validate(flow)
-      assert {:ok, ^flow} = Flow.validate_executable(flow)
+      assert {:ok, ^flow} = Jido.Exec.Compiler.validate(flow)
       assert {:ok, ^dependencies} = Flow.dependencies(flow)
       assert {:ok, ^explanation} = Flow.explain(flow)
       assert {:ok, ^identity} = Flow.semantic_identity(flow)
@@ -200,18 +200,13 @@ defmodule JidoActionTest.Authoring.BoundariesTest do
   test "raw output is intentional but a normal scalar Flow result is rejected" do
     assert Exec.run(Boundaries.RawFlow) == {:ok, Jido.Action.Output.raw("done")}
 
-    assert {:error, %Jido.Flow.Error.ExecutionFailureError{}} =
+    assert {:error, %{details: %{phase: :flow_output}}} =
              Exec.run(Boundaries.ScalarFlow, %{value: 7})
   end
 
-  test "full, step-wise, and async runs return one authored result" do
+  test "a full run returns one authored result" do
     expected = {:ok, %{value: 7}}
     assert Exec.run(Boundaries.Stored, %{value: 7}) == expected
-    assert {:ok, execution} = Exec.start(Boundaries.Stored, %{value: 7})
-    assert {:ok, execution} = Exec.continue(execution)
-    assert Exec.result(execution) == expected
-    handle = Exec.run_async(Boundaries.Stored, %{value: 7})
-    assert Exec.await(handle, 5000) == expected
   end
 
   test "fixed host Registry IDs match the saved JSON document" do

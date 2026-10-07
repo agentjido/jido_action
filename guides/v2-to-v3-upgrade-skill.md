@@ -1,236 +1,57 @@
-# Upgrade From v2 To v3 Skill
+# Upgrade From Version 2 To Version 3
 
-Use this prompt with an AI coding agent to upgrade an Elixir application from
-`jido_action` v2 to v3. The prompt uses the published `v2.3.2` release as the
-v2 baseline.
-
-Read the [Version 2 To Version 3 Migration Guide](v2-to-v3-migration.md) before
-you use the prompt. The guide explains the API decisions and the required
-replacements.
+Use this checklist when an application moves from Jido Action 2.x to 3.x.
+Review the detailed [migration guide](v2-to-v3-migration.md) before you edit.
 
 ## Before You Start
 
-Give the agent access to the application repository. Start from a clean branch
-or record all current changes. The agent must preserve changes that are not
-part of the upgrade.
-
-Decide which v3 release you want. The prompt below uses `3.0.0-beta.6`, which
-requires Elixir 1.18 or later.
+- Keep the V2 package and application tests green.
+- Record the current Action input, output, error, and effect behavior.
+- Find every Exec call and every stored Instruction or workflow record.
+- Decide which calls are immediate and which need durable Runic execution.
 
 ## Agent Prompt
 
-Copy this complete prompt into your coding agent:
-
 ```text
-Upgrade this Elixir application from jido_action v2 to
-jido_action 3.0.0-beta.6.
+Upgrade this application from jido_action 2.x to 3.x.
 
-Use the published jido_action v2.3.2 API as the v2 baseline. Do not use an
-unpublished Flow spike or a mid-development v3 API as the baseline. Version 2
-has Jido.Action, Jido.Instruction, Jido.Exec, Jido.Plan, Action catalogs,
-Action tools, and bundled tools. Version 2 does not have Jido.Flow.
-
-Read the current jido_action v3 upgrade guide and the installed v3 module
-documentation before you edit code. Inspect this application first. Preserve
-all current user changes and all behavior that is outside this upgrade.
-
-Work in these stages.
-
-1. Record the baseline
-
-- Show the current branch and working-tree state.
-- Find the jido_action requirement and locked version.
-- Find the Elixir and OTP requirements and the CI matrix.
-- Run the existing test and quality commands before edits when they can run.
-- Record failures that already exist. Do not attribute them to the upgrade.
-
-2. Build an upgrade inventory
-
-Search all source, test, configuration, and documentation files for these v2
-surfaces:
-
-- Jido.Action options: category, tags, vsn, compensation, schema, and
-  output_schema;
-- Action lifecycle callbacks and generated metadata or tool functions;
-- NimbleOptions Action schemas and dynamic Zoi schemas;
-- Jido.Instruction fields, constructors, normalization, tuple shorthand, and
-  allowlist calls;
-- Jido.Exec runtime options, asynchronous handles, retries, cancellation,
-  context propagation, Chains, and Closures;
-- Jido.Plan and PlanInstruction;
-- Jido.Action.Catalog and its Entry, Hit, and Query types;
-- Jido.Action.Tool, Jido.Tools.*, and Jido.Tools.ActionPlan;
-- old Mix tasks and code-generation commands;
-- direct references to JidoAction.Supervisor or
-  Jido.Action.TaskSupervisor; and
-- application configuration under :jido_action.
-
-Report the inventory before large edits. Separate mechanical changes from
-changes that need an application policy decision. Continue with changes that
-have one clear result. Ask for a decision only when different choices would
-change application behavior.
-
-3. Update the package and platform
-
-- Change the dependency to {:jido_action, "~> 3.0.0-beta.6"}.
-- Set the application to Elixir 1.18 or later for `3.0.0-beta.6`.
-- Update CI to test the selected Elixir and OTP versions.
-- Run mix deps.get.
-- Add direct dependencies for libraries that the application used only
-  because jido_action v2 supplied them. Examples include Jason,
-  NimbleOptions, Req, Lua, Multigraph, and Igniter.
-
-4. Migrate Actions
-
-- Keep name, description, schema, output_schema, and run/2.
-- Remove category, tags, vsn, and compensation from use Jido.Action.
-- Move application metadata to application-owned modules or plain functions
-  when it is still needed.
-- Convert each NimbleOptions Action schema to a map-shaped Zoi schema.
-- Keep [] only when the Action intentionally has no declared schema.
-- Make schemas static module data. Replace anonymous or lazy schema effects
-  with named MFA effects.
-- Set the Zoi unknown-key policy on each nested object. Jido preserves unknown
-  keys at a direct Action schema root. Nested and wrapped schemas use their
-  declared Zoi policy.
-- Keep on_before_validate_params/1 only for deterministic raw input
-  preparation that must happen before Zoi validation.
-- Remove on_after_validate_params/1, on_before_validate_output/1,
-  on_after_validate_output/1, on_after_run/1, and on_error/4.
-- Prefer schema transformations in Zoi. Put Action-owned authentication,
-  authorization, and secret lookup in run/2. These controls can also stay in a
-  trusted caller or runtime. Put retry, rollback, and compensation policy in
-  the caller or its runtime.
-- Replace category/0, tags/0, vsn/0, to_tool/0, and
-  __action_metadata__/0 call sites.
-- Update `to_json/0` call sites for the smaller provider-neutral Action
-  description.
-- Do not expect Jido.Exec to add :action_metadata to context.
-- Keep the supported two-tuple and three-tuple Action callback results.
-- Use Jido.Action.Output only when success data is intentionally raw, batch,
-  stream, or opaque.
-- Use {:continue, input, target} only when a root Action must select the next
-  Action or Flow. Use a terminal Flow Dispatch when a Flow must make this
-  selection.
-
-5. Migrate Instructions
-
-- Replace the action field with target.
-- Move descriptive id data to metadata or to caller-owned data.
-- Remove opts from the Instruction, including empty or nil values. Pass
-  supported execution options directly to Jido.Exec. Use task_supervisor for
-  routing. Keep removed v2 policy, such as retry and backoff, in the caller.
-- Keep params and context as maps.
-- Replace normalize/3, normalize_single/3, tuple shorthand, list shorthand,
-  and validate_allowed_actions/2 with explicit new/1 or new!/1 calls and an
-  application-owned allowlist.
-- Remember that a v3 target can be an Action module, a Flow module, or a
-  runtime Jido.Flow value.
-
-6. Migrate execution policy
-
-- Keep Jido.Exec.run/4 as the normal execution boundary.
-- Note that its default timeout changed from 30 seconds to :infinity. Select
-  and pass an explicit timeout when the application needs a limit.
-- Remove max_retries, backoff, log_level, telemetry,
-  context_propagators, context_propagator_failure_mode, and
-  error_normalization from Exec options.
-- Keep run_async/4, await/1, await/2, handle_message/2, and cancel/1 for
-  owner-bound, in-memory execution. They accept Actions, Instructions, and
-  Flows.
-- Treat an await timeout as destructive cancellation. Keep the timeout run
-  option as a separate complete-call limit.
-- Use max_continuations and a finite timeout to bound an executable
-  continuation loop.
-- Move retry count, backoff, durable cancellation policy, deadline, and
-  compensation to the caller. Preserve idempotency rules.
-- Pass task_supervisor: to select a running Task.Supervisor.
-- Remove the Flow async option. Use max_concurrency alone for Flow scheduling.
-  Its default is 8. Use 1 for serial scheduling.
-
-7. Replace Plans and Chains only where needed
-
-- Treat Jido.Flow as a new v3 API. Use current v3 field names. Do not add
-  compatibility for unpublished beta field names.
-- Replace a reusable or executable Jido.Plan DAG with a Flow module, runtime
-  Flow from data definitions, or direct canonical Flow.
-- Give every Flow one explicit output.
-- Use result references for data dependencies.
-- Use `needs` only for required order that has no data reference.
-- Pass runtime context to Jido.Exec or an Instruction. Do not store runtime
-  context in the Flow definition.
-- Do not reproduce the implicit parameter merge from Jido.Exec.Chain. Define
-  each Flow step input with input, context, result, and select references.
-- Use Enum.reduce_while with Jido.Exec.run when the old Chain was only a
-  dynamic sequential loop and a reusable graph adds no value.
-- Replace Jido.Exec.Closure with an ordinary application function.
-
-8. Replace removed package concerns
-
-- Move Action catalog search, discovery, visibility, and merge policy to the
-  application or its owning package.
-- Do not use Jido.Flow.Registry as a replacement for Jido.Action.Catalog.
-  Registry is only a trusted identifier lookup for Jido.Flow.Codec.
-- Move AI tool conversion out of jido_action. Build the adapter from Action
-  name, description, schema, and Jido.Exec.run/4.
-- Replace Jido.Tools.* with application Actions or the package that owns each
-  integration.
-- Remove calls to the old Action, workflow, and install Mix tasks.
-
-9. Migrate errors, supervisors, and storage
-
-- Keep valid matches on the concrete Jido.Action.Error exception types.
-- Do not expect Jido.Exec to retry an error. Treat details.retry as
-  information for the caller.
-- Use Jido.Flow.Error for Flow definition and Flow execution failures.
-- Use Jido.Action.Error.to_map/1 or Jido.Flow.Error.to_map/1 for the common
-  error-map shape. Select and convert details in the host application before
-  JSON, HTTP, log, or UI transport.
-- Replace Jido.Action.TaskSupervisor with Jido.Exec.TaskSupervisor for the
-  global execution supervisor.
-- Do not depend on the package root supervisor name. Use
-  Jido.Exec.TaskSupervisor when direct Task Supervisor access is required.
-- Remove calls to Jido.Exec.task_supervisor_name/1. The host names its Task.Supervisor.
-- Pass task_supervisor: MyApp.Jido.TaskSupervisor when the host keeps that name.
-- Treat the v3 stored Flow document as a new format. Do not decode v2 Plan,
-  Instruction, Action JSON, or development-spike data with Jido.Flow.Codec.
-- Use Jido.Flow.Codec with a trusted Jido.Flow.Registry for stored Flows.
-
-10. Verify the result
-
-- Format all changed Elixir files.
-- Compile with warnings as errors.
-- Run the complete test suite and the repository quality command.
-- Test Action input validation, output validation, two-tuple and three-tuple
-  results, exceptions, throws, exits, and timeouts.
-- Test the declared unknown-key policy at the Action root and in nested data.
-- Test each migrated Flow for validation, dependency order, result data,
-  complete execution, and step-wise execution when the application uses it.
-- Round-trip stored Flows through real JSON bytes and the trusted Registry.
-- Confirm that no removed v2 module, callback, field, option, configuration
-  key, or supervisor name remains unless it is in migration documentation.
-- Review the final diff for unrelated edits and accidental compatibility
-  layers.
-
-Do not add aliases or silent fallbacks for removed v2 APIs unless the
-application has an explicit compatibility requirement. Do not commit, push,
-tag, publish, deploy, or change external services unless I request that action.
-
-At the end, report:
-
-- the v2 API use that you found;
-- the code and configuration that you changed;
-- each behavior decision and its reason;
-- unresolved application choices;
-- test and quality results; and
-- any remaining release risk.
+Use Jido.Action with static Zoi input and output schemas.
+Replace old Instruction fields with target, params, context, metadata, and kind.
+Replace Jido.Plan or Action chains with Jido.Flow only when a reusable graph is needed.
+Give every Flow an explicit output.
+Use Jido.Exec.run/4 for immediate work.
+Use Jido.Exec.compile/2 when native Runic inspection is needed.
+Use Jido.Exec.start/6 with a supervised Runic.Runner for managed or durable work.
+Use Runic.Runner for checkpoint, stop, resume, and results.
+Do not add compatibility wrappers for removed async handles, step-wise Execution values, or root Action continuations.
+Store Flow definitions with Jido.Flow.Codec and a trusted Registry.
+Store runtime progress through the Runic Store contract.
+Run format, compile, tests, property tests, documentation checks, Credo, and Dialyzer.
 ```
+
+## Required Changes
+
+1. Update the package requirement and lock file.
+2. Convert Action schemas to static Zoi schemas.
+3. Replace removed Action hooks and generated metadata functions.
+4. Replace old Instruction fields and shorthand constructors.
+5. Replace old Exec retry options with `max_attempts`, `backoff`,
+   `base_delay_ms`, and `max_delay_ms`.
+6. Replace async handle and step-wise Exec APIs with immediate Exec or managed
+   Runic execution.
+7. Replace root Action continuations with explicit Flow control components.
+8. Convert stored workflow data to `Jido.Flow.Codec` documents and a trusted
+   Registry.
+9. Add durable recovery tests when execution must survive process loss.
 
 ## Review The Result
 
-The prompt gives the agent a migration procedure. It cannot select your
-application policy for retry, compensation, cancellation, AI tools, or catalog
-search. Review those choices before you release the upgraded application.
+Confirm these facts:
 
-The final application must not depend on an implicit conversion from v2 Plan
-or Chain data. A v3 Flow must show its data references and required output.
+- Every Action and Flow runs through a real Runic workflow.
+- No application code depends on a Jido execution cursor or checkpoint.
+- Durable work resumes through `Runic.Runner` and its Store.
+- Stored Flow JSON cannot create atoms or select unregistered modules.
+- Action and Flow output schemas still match the V2 application contract.
+- Deferred effects have stable host deduplication keys when retries are enabled.
+- All package and application checks pass.

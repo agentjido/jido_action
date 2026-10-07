@@ -24,7 +24,7 @@ Make file, network, database, and process effects clear in Action names,
 schemas, and tests. Give an Action only the capabilities that it needs.
 
 Treat context as sensitive caller data. Do not copy secrets into Flow results,
-error details, component metadata, or telemetry.
+error details, component metadata, or persisted execution events.
 
 ## Apply Storage Limits
 
@@ -43,21 +43,17 @@ not load or execute an Action.
 
 ## Apply Runtime Limits
 
-Use a finite complete-call `timeout` to bound execution while its controller
-is alive. Synchronous supervisor startup and telemetry handlers can delay
-timeout and cancellation responses. This is not a hard response-time limit.
-See [Process Ownership](execution.md#process-ownership) for these limits.
-Use `max_concurrency` to bound one concurrent Flow execution. Also validate
-collection sizes in application input. Runtime Map does not use the Codec
-collection limit.
+Use a finite `timeout` to bound each Runic Runnable attempt. Use
+`max_attempts`, backoff limits, and `max_concurrency` to bound one execution.
+Also validate collection sizes in application input. Runtime Map does not use
+the Codec collection limit.
 
 Each Iterate has a bound from 1 through 10,000. Select a smaller application
 limit when body work is expensive.
 
-The owner of an async handle can cancel active work with `Jido.Exec.cancel/1`.
-Cancellation is in-memory and cannot undo completed side effects. This package
-does not provide automatic retry, per-node timeout, durable cancellation,
-durable checkpoints, or exactly-once effects.
+Use `Runic.Runner.stop/3` to stop managed work. Cancellation cannot undo
+completed side effects. Runic owns retry, per-node timeout, checkpoints, and
+recovery. This package does not provide exactly-once effects.
 
 ## Design Effects For Repetition
 
@@ -65,15 +61,15 @@ A caller, process restart, or higher-level runtime can repeat work. Use
 idempotency keys, conditional writes, deduplication, or transactions when an
 effect must not occur twice.
 
-Step-wise stale-revision checks stop one old Execution value from dispatching
-again. They do not create a durable exactly-once guarantee.
+Stable Runnable and effect identities support host deduplication. They do not
+create a durable exactly-once guarantee.
 
-## Protect Errors And Telemetry
+## Protect Errors And Events
 
 Errors can contain module names, node names, details, and in-memory
-stacktraces. Telemetry contains execution, Flow, node, target, item, and
+stacktraces. Runic events contain execution, node, activation, item, and
 iteration identifiers.
 
 Redact errors before external logging. Do not place credentials, tokens,
-personal data, or full context maps in error messages or telemetry metadata.
-Treat telemetry handlers as a data-access boundary.
+personal data, or full context maps in error messages or persisted event
+metadata. Treat Store and event adapters as data-access boundaries.

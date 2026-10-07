@@ -2,15 +2,15 @@
 
 ## Overview
 
-`Jido.Exec` runs canonical Flows through native Runic workflow state. The same
-engine supports run-to-completion and step-wise execution.
+`Jido.Exec` compiles Actions and Flows to native Runic workflows. Runic owns
+scheduling and durable runtime state.
 
 Run the cells from top to bottom.
 
 ## Install The Package
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-beta.11"}])
+Mix.install([{:jido_action, "~> 3.0.0-beta.12"}])
 ```
 
 ## Define Actions And A Flow
@@ -65,7 +65,7 @@ end
   Jido.Exec.run(FlowExecution.Diamond, %{value: 5})
 ```
 
-Enable concurrent independent work at the call boundary.
+Independent ready work can run concurrently:
 
 ```elixir
 {:ok, result} =
@@ -77,64 +77,17 @@ Enable concurrent independent work at the call boundary.
   )
 ```
 
-## Start Paused
+## Compile And Inspect
 
 ```elixir
-{:ok, execution} =
-  Jido.Exec.start(
-    FlowExecution.Diamond,
-    %{value: 5},
-    %{},
-    max_concurrency: 2
-  )
+{:ok, %Runic.Workflow{} = workflow} =
+  Jido.Exec.compile(FlowExecution.Diamond)
 
-:running = Jido.Exec.status(execution)
-ready = Jido.Exec.ready(execution)
+Runic.Workflow.build_log(workflow)
 ```
 
-`ready` contains small `Jido.Exec.Work` descriptions. Each has a component
-path, kind, role, status, optional Map item index, and an opaque token. It
-includes authored components and native support work.
-
-## Step One Work Unit
-
-```elixir
-[work | _] = ready
-
-{:ok, %Jido.Exec.Work{} = applied, execution} =
-  Jido.Exec.step(execution, work.token)
-
-{applied.status, Jido.Exec.status(execution)}
-```
-
-`step/1` selects the first ready unit. `step/2` accepts its opaque token.
-A failed unit returns a Work with `status: :failed`. Get new tokens after
-each mutation, including for work that remains ready.
-
-## Run A Wave
-
-```elixir
-{:ok, applied, execution} = Jido.Exec.wave(execution)
-
-Enum.map(applied, & &1.status)
-```
-
-A wave runs work from the set that is ready when the call begins. A failure
-stops new dispatch; work already admitted can finish. The returned list contains
-only admitted runnables. Work that becomes ready waits for the next operation.
-The wave consumes one execution revision.
-
-## Continue And Read The Result
-
-```elixir
-{:ok, execution} = Jido.Exec.continue(execution)
-
-:succeeded = Jido.Exec.status(execution)
-{:ok, %{result: %{total: 13}}} = Jido.Exec.result(execution)
-```
-
-Always pass the latest Execution value. Reusing an old revision returns
-`Jido.Flow.Error.InvalidExecutionError` before Action work starts.
+The result is the executable graph. It contains real Runic components and
+edges. Jido does not create a separate execution-plan struct.
 
 ## Observe Failure
 
@@ -161,23 +114,33 @@ end
 Exception.message(error)
 ```
 
-A failed runnable stops new dispatch after Jido applies the failure. Work that
-already started in the same wave can finish. When multiple wave runnables
-fail, the Flow error keeps a canonical failure list.
+The Action error fails its Runic Runnable. With the default policy, a terminal
+failure stops later dispatch.
 
-## Support Work Is Visible
+## Managed Execution
 
-Map exposes FanOut, item work, FanIn, and output work. Reduce uses native
-Reduce and FanIn work. Subflow exposes its nested Workflow and InputBinding
-work. A Join can enforce explicit or inferred dependencies.
+A supervised application can start the same compiled Flow under a
+`Runic.Runner`:
 
-This boundary keeps one native scheduler and one graph state. Do not assume
-that every Work is one authored component. Use `Jido.Exec.native/1` when
-you need advanced, read-only inspection of native graphs and facts.
+```elixir
+{:ok, runner} = Runic.Runner.start_link(name: FlowExecution.Runner)
 
-## Execution Lifetime
+{:ok, _worker} =
+  Jido.Exec.start(
+    FlowExecution.Runner,
+    "diamond-1",
+    FlowExecution.Diamond,
+    %{value: 5},
+    %{},
+    checkpoint_strategy: :every_cycle
+  )
+```
 
-An Execution is caller-owned in-memory state. It is not a persistent
-checkpoint. It cannot resume safely after deployment or process recovery.
-Use a higher-level runtime for queues, persistence, retry, cancellation policy,
-recovery, and distributed coordination.
+```elixir
+{:ok, productions} =
+  Runic.Runner.get_results(FlowExecution.Runner, "diamond-1")
+```
+
+Use `Runic.Runner.checkpoint/2`, `stop/3`, and `resume/3` for durable lifecycle
+control. The Runic Store contains progress. Flow JSON contains only the
+portable definition.

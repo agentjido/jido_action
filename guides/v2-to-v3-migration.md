@@ -315,119 +315,54 @@ When a target name comes from an external boundary, resolve it through an
 application allowlist before you build the Instruction. Do not create an atom
 from external input.
 
-## Set An Explicit Execution Timeout
+## Replace The Exec Runtime Boundary
 
-The version 2 `Jido.Exec` default timeout is 30 seconds. The version 3 default
-is `:infinity`.
-
-### What You Need To Change
-
-If your application depends on the version 2 limit, pass it explicitly:
+Version 3 keeps `Jido.Exec.run/4` as the immediate execution entry point, but
+it compiles every Action or Flow to a Runic workflow. One Action is a one-node
+workflow.
 
 ```elixir
-Jido.Exec.run(action, params, context, timeout: 30_000)
-```
-
-Review each call that relied on the package default. Select a timeout from the
-application policy for that operation.
-
-Version 2 used `timeout: 0` to disable its timer when there was no inherited
-deadline. Version 3 uses `timeout: :infinity` for that purpose. In version 3,
-`timeout: 0` returns an immediate timeout and starts no Action work.
-
-### Review Process Ownership
-
-Each Action invocation runs in a fresh supervised Task, including synchronous
-calls with `timeout: :infinity`, serial and concurrent Flow Actions, and
-continuations. Synchronous calls still wait for the existing result or
-structured error. Input validation, the callback, output validation, and
-result normalization use the same Task.
-
-Action process dictionary, mailbox, process flag, and Logger metadata changes
-do not transfer to the caller or another Action invocation. Tasks receive the
-execution process's group leader. Exec does not copy, set, or reset Logger
-metadata. Hard Action Task exits return `Jido.Action.Error.InternalError`;
-Flow adds the component path and execution phase. Failed executions return
-no effect batch.
-
-Each call uses one control Task and one private Task Supervisor. Caller or
-async owner death stops the call. Control, Flow, or compound runnable failure
-stops its workers, including callbacks that trap exits. An Action Task exits
-before the next root executable starts. Flow validation and graph work also
-run in a fresh Task, including with `timeout: :infinity`.
-
-A simple Action uses three framework processes and one selected host
-Task.Supervisor slot. A Flow uses one host slot and schedules its workers under
-its private supervisor. Synchronous and async calls have the same structure.
-Paused operations create a new scope each time and retain no live scope after
-return. Keep the selected supervisor route in paused execution data.
-
-`timeout: 0` now returns the target-neutral `Jido.Exec.Error.TimeoutError`
-without resolving the executable. Invalid routes and malformed options use
-Action `InvalidInputError` before descriptor resolution. Telemetry adds `span_id`,
-`parent_span_id`, and full `node_path` values. Collection and Dispatch Action
-invocations also emit target events.
-
-Supervisor startup and telemetry handlers remain synchronous. Blocked host
-startup or cleanup handlers can delay responses. Close external resources
-explicitly on normal return. Use a separate host owner that monitors the
-Action Task as the fallback for forced kills. See
-[Process Ownership](execution.md#process-ownership) and
-[External Resource Ownership](execution.md#external-resource-ownership).
-
-
-## Move Retry And Compensation Policy Out Of Jido Exec
-
-Version 2 can retry Actions with backoff and can call `on_error/4` when
-compensation is enabled. Version 3 does neither.
-
-An error can still state whether another attempt can be safe. `Jido.Exec` does
-not act on that value.
-
-### What You Need To Change
-
-Move attempt count, backoff, deadline, idempotency, rollback, and compensation
-to the caller or to a higher-level runtime. Do not copy automatic retry into
-`run/2` unless the Action itself owns the complete idempotent operation.
-
-## Remove Unsupported Exec Options And Package Configuration
-
-Version 3 removes these version 2 Exec options:
-
-- `max_retries`
-- `backoff`
-- `log_level`
-- `telemetry`
-- `context_propagators`
-- `context_propagator_failure_mode`
-- `error_normalization`
-
-Version 3 also stops reading package defaults such as:
-
-```elixir
-config :jido_action,
-  default_timeout: 30_000,
-  default_max_retries: 3,
-  default_backoff: 500,
-  default_log_level: :info
-```
-
-### What You Need To Change
-
-Remove unsupported options from every Exec call and from each Instruction.
-Unknown version 3 run options return an error.
-
-Move required configuration to your application. Read it before the call and
-pass supported policy directly:
-
-```elixir
-timeout = Application.fetch_env!(:my_app, :action_timeout)
-
 Jido.Exec.run(action, params, context,
-  timeout: timeout,
-  task_supervisor: MyApp.Jido.TaskSupervisor
+  timeout: 30_000,
+  max_attempts: 3,
+  backoff: :exponential,
+  base_delay_ms: 50,
+  max_delay_ms: 2_000
 )
 ```
+
+The timeout is a per-attempt Runic timeout. `max_attempts` includes the first
+attempt. Runic owns retry and backoff. Remove version 2 options that are not in
+[Runtime Configuration](configuration.md).
+
+Version 3 removes the Jido async handle and step-wise Execution APIs. Replace
+`run_async`, `await`, `cancel`, `ready`, `step`, `wave`, `continue`, and
+`result` calls with one of these paths:
+
+- use `Jido.Exec.run/4` for immediate execution;
+- use `Jido.Exec.compile/2` for a native `Runic.Workflow`;
+- use `Jido.Exec.start/6` with a supervised `Runic.Runner` for managed work;
+- use `Runic.Runner` for checkpoint, stop, resume, and result inspection.
+
+```elixir
+{:ok, _worker} =
+  Jido.Exec.start(
+    MyApp.Runner,
+    execution_id,
+    target,
+    params,
+    context,
+    checkpoint_strategy: :every_cycle
+  )
+```
+
+Do not copy version 2 continuation loops into Actions. Use Choice, Iterate, or
+Dispatch so Runic owns control flow. Only a Dispatch expander can return the
+special `{:continue, input, target}` form.
+
+For durable execution, store two values: the Flow definition through
+`Jido.Flow.Codec`, and runtime progress through a Runic Store. Do not store a
+compiled workflow or add checkpoint fields to Instructions.
 
 ## Replace Jido Plan With Jido Flow
 
@@ -526,22 +461,21 @@ Do not send version 2 data directly to `Jido.Flow.Codec.decode/2`. Add a format
 version to application-owned stored data and test the migration through real
 JSON bytes.
 
-## Update The Default Task Supervisor Name
+## Replace Direct Task Supervisor References
 
-Version 2 uses `Jido.Action.TaskSupervisor` as its default Task Supervisor.
-Version 3 uses `Jido.Exec.TaskSupervisor`.
+Version 2 can refer to `Jido.Action.TaskSupervisor` directly. Version 3 uses
+Runic Runner supervision for managed execution.
 
 ### What You Need To Change
 
-Replace direct references to the old global supervisor name.
-
-Pass a custom supervisor directly with `task_supervisor: reference`.
-The host must start it before execution. See
-[Task Supervisor References](configuration.md#task-supervisor-references).
+Replace direct references to the old global supervisor. Supervise a
+`Runic.Runner` and pass its name to `Jido.Exec.start/6`. Configure custom
+executors and schedulers through Runic Runner options. See
+[Runtime Configuration](configuration.md#managed-execution).
 
 ## Version 2 To Version 3 Migration Checklist
 
-1. Change the dependency to `jido_action` `3.0.0-beta.6`.
+1. Change the dependency to `jido_action` `3.0.0-beta.12`.
 2. Add direct dependencies that application code used through version 2.
 3. Remove unsupported Action options and convert NimbleOptions schemas to
    static, map-shaped Zoi schemas.
@@ -550,13 +484,13 @@ The host must start it before execution. See
    Action hooks.
 6. Replace generated Action metadata, JSON, and AI tool functions.
 7. Replace Instruction fields, shorthand forms, and allowlist calls.
-8. Set explicit Exec timeouts where the application relied on 30 seconds.
-9. Move retry, backoff, rollback, and compensation to their owning runtime.
+8. Set explicit Runic policy where the application relied on V2 defaults.
+9. Move rollback and compensation to their owning application service.
 10. Remove unsupported Exec options and `:jido_action` runtime defaults.
 11. Replace Plans, Chains, and Closures where the application uses them.
 12. Replace catalog, bundled-tool, and generator integrations.
 13. Migrate stored version 2 data with an explicit versioned data migration.
-14. Replace direct references to `Jido.Action.TaskSupervisor`.
+14. Replace direct Task Supervisor references with managed Runic execution.
 15. Compile with warnings as errors and remove all old Instruction fields.
 16. Test Action input, output, error, timeout, and process-exit boundaries.
 17. Test each replacement Flow for data dependencies, order, and final output.

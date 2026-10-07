@@ -40,7 +40,7 @@ defmodule EffectExamples.ApproveOrder do
         order_id: Zoi.string(),
         notify: Zoi.boolean() |> Zoi.default(false)
       }),
-    output_schema: Zoi.object(%{order_id: Zoi.string(), status: Zoi.atom()})
+    output_schema: Zoi.object(%{order_id: Zoi.string(), status: Zoi.enum([:approved])})
 
   @impl true
   def run(%{order_id: order_id, notify: notify}, _context) do
@@ -177,24 +177,15 @@ it has consumed and delivered the stream successfully.
 The caller must keep the row source available while it consumes the stream.
 An Action-owned resource can close when the Action returns.
 
-## Use Instructions, Async Calls, And Step-wise Execution
+## Use Instructions
 
-The result and effect list have the same form through these entry points.
+An Instruction gives Exec the target, parameters, and context as one value.
 
 ```elixir
 instruction = Instruction.new!(target: export_flow, params: params, context: context)
 expected_requests = [{:audit, %{event: :export_prepared, report_id: "report-7"}}]
 
 {:ok, %Output{value: stream}, ^expected_requests} = Exec.run(instruction)
-^expected_csv = Enum.join(stream)
-
-handle = Exec.run_async(export_flow, params, context)
-{:ok, %Output{value: stream}, ^expected_requests} = Exec.await(handle)
-^expected_csv = Enum.join(stream)
-
-{:ok, execution} = Exec.start(export_flow, params, context)
-{:ok, execution} = Exec.continue(execution)
-{:ok, %Output{value: stream}, ^expected_requests} = Exec.result(execution)
 ^expected_csv = Enum.join(stream)
 ```
 

@@ -82,7 +82,7 @@ defmodule Jido.Flow.Codec do
   @spec encode(Flow.t()) ::
           {:ok, document(), Registry.t()} | {:error, Exception.t()}
   def encode(flow) do
-    with {:ok, flow} <- Flow.validate_executable(flow),
+    with {:ok, flow} <- Jido.Exec.Compiler.validate(flow),
          {:ok, registry} <- flow |> Registry.entries() |> Registry.new(),
          {:ok, document} <- encode_validated(flow, registry) do
       {:ok, document, registry}

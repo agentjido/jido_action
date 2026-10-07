@@ -84,25 +84,30 @@ Jido keeps the three forms separate:
 }
 ```
 
-## Execute A Ready Wave
+## Execute Independent Work
+
+Run the Flow with a Runic concurrency limit:
 
 ```elixir
-{:ok, execution} =
-  Jido.Exec.start(FlowDependencies.Diamond, %{value: 4})
-
-Jido.Exec.ready(execution)
+{:ok, %{joined: %{left: 4, right: 4}}} =
+  Jido.Exec.run(
+    FlowDependencies.Diamond,
+    %{value: 4},
+    %{},
+    max_concurrency: 2
+  )
 ```
 
-The ready values are small `Jido.Exec.Work` descriptions. Independent
-authored nodes can be in the same ready set. Run one current set with
-`wave/1`.
+Runic derives the ready frontier from graph dependencies. `left` and `right`
+can run together. `join` becomes ready only after both results exist. The
+option changes scheduling capacity. It does not change the graph.
+
+For low-level inspection, compile the Flow and use Runic's public preparation
+API:
 
 ```elixir
-{:ok, _runnables, execution} = Jido.Exec.wave(execution)
-{:ok, execution} = Jido.Exec.continue(execution)
-{:ok, %{joined: %{left: 4, right: 4}}} = Jido.Exec.result(execution)
+workflow = Jido.Exec.compile!(FlowDependencies.Diamond)
+workflow = Runic.Workflow.plan_eagerly(workflow, %{value: 4})
+{workflow, runnables} = Runic.Workflow.prepare_for_dispatch(workflow)
+Enum.map(runnables, & &1.node.name)
 ```
-
-Ready work runs concurrently when `max_concurrency` is greater than `1`.
-`max_concurrency` bounds the execution and defaults to `8`. Use `1` for serial
-execution. The option does not change the graph.

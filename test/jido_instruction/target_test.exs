@@ -176,14 +176,9 @@ defmodule JidoActionTest.Instruction.TargetTest do
     assert Exec.run(FlowWithoutRun, input) == expected
     assert Exec.run(instruction) == expected
     assert Exec.run(parent, input) == expected
-    assert Exec.run(ContinueToFlow, input) == expected
-    assert FlowWithoutRun |> Exec.run_async(input) |> Exec.await() == expected
 
-    for target <- [FlowWithoutRun, instruction, parent] do
-      assert {:ok, execution} = Exec.start(target, input)
-      assert {:ok, execution} = Exec.continue(execution)
-      assert Exec.result(execution) == expected
-    end
+    assert {:error, %{details: %{reason: :unsupported_continuation}}} =
+             Exec.run(ContinueToFlow, input)
   end
 
   test "generated Flow run/2 delegates to Exec" do

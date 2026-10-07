@@ -140,8 +140,6 @@ defmodule Jido.Flow do
 
   alias Jido.Flow.Error
   alias Jido.Flow.DSL.ModuleCompiler
-  alias Jido.Exec.Flow.Compiler
-  alias Jido.Exec.Flow.Compiled
   alias Jido.Flow.Definition
   alias Jido.Flow.Identity
 
@@ -165,6 +163,8 @@ defmodule Jido.Flow do
           references: [String.t()],
           effective: [String.t()]
         }
+  @type source_location :: %{optional(:file) => String.t(), optional(:line) => pos_integer()}
+  @type source_map :: %{optional([term()]) => source_location()}
 
   @enforce_keys Zoi.Struct.enforce_keys(@schema)
   defstruct Zoi.Struct.struct_fields(@schema)
@@ -210,32 +210,6 @@ defmodule Jido.Flow do
     case new(attrs) do
       {:ok, flow} -> flow
       {:error, error} when is_exception(error) -> raise error
-    end
-  end
-
-  @doc """
-  Prepares a validated Flow for execution.
-
-  The returned value is a derived execution plan owned by `Jido.Exec`. It is
-  not an authoring or storage format. Use `Jido.Flow.Codec` to store a Flow.
-
-  Pass a source map directly, or pass `source_map: source_map`. `source_map`
-  is the only compile option. Unknown options and malformed source locations
-  return a validation error.
-  """
-  @spec compile(t(), keyword() | Compiled.source_map()) ::
-          {:ok, Compiled.t()} | {:error, Exception.t()}
-  def compile(flow, opts \\ [])
-  def compile(%__MODULE__{} = flow, opts), do: Compiler.compile(flow, opts)
-
-  def compile(value, _opts), do: invalid_flow_subject(value)
-
-  @doc "Prepares a Flow for execution or raises the compilation error."
-  @spec compile!(t(), keyword() | Compiled.source_map()) :: Compiled.t() | no_return()
-  def compile!(%__MODULE__{} = flow, opts \\ []) do
-    case compile(flow, opts) do
-      {:ok, compiled} -> compiled
-      {:error, error} -> raise error
     end
   end
 
@@ -315,9 +289,9 @@ defmodule Jido.Flow do
   @doc """
   Validates the exact canonical Flow structure.
 
-  This function checks schemas, components, expressions, references, dependencies,
-  and graph cycles. It is inert: it does not load or check Action targets. Use
-  `validate_executable/1` when the Flow must be ready for execution.
+  This function checks schemas, components, expressions, references,
+  dependencies, and graph cycles. It is inert: it does not load or check
+  Action targets. `Jido.Exec.compile/2` checks executable target contracts.
   """
   @spec validate(t()) :: {:ok, t()} | {:error, Exception.t()}
   def validate(%__MODULE__{} = flow) do
@@ -335,17 +309,6 @@ defmodule Jido.Flow do
   end
 
   def validate(value), do: invalid_flow_subject(value)
-
-  @doc """
-  Validates a canonical Flow and all Action or nested-Flow target contracts.
-
-  This function performs no Action work. It returns the Flow when both its
-  canonical structure and executable target contracts are valid.
-  """
-  @spec validate_executable(t()) :: {:ok, t()} | {:error, Exception.t()}
-  def validate_executable(%__MODULE__{} = flow), do: Jido.Exec.Flow.Validator.validate(flow)
-
-  def validate_executable(value), do: invalid_flow_subject(value)
 
   @doc false
   @spec __validate_config__(map()) :: {:ok, map()} | {:error, Exception.t()}

@@ -230,7 +230,7 @@ defmodule JidoActionTest.Property.Action.BoundaryContractTest do
             assert error.details.reason == {:property_failure, value}
 
           :invalid ->
-            assert error.details.result == {:unknown, value}
+            assert error.details.return == {:unknown, value}
         end
 
         if mode in [:raise, :throw, :exit] do
@@ -297,7 +297,7 @@ defmodule JidoActionTest.Property.Action.BoundaryContractTest do
 
   defp assert_effects(value) do
     for target <- [Result, flow(Result)] do
-      assert {:error, %Error.ExecutionFailureError{}} =
+      assert {:error, %Error.InvalidInputError{}} =
                Exec.run(target, %{output: value, effects: []})
 
       for effects <- [nil, %{value: value}, [value | :improper]] do

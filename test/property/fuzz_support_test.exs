@@ -70,16 +70,18 @@ defmodule JidoActionTest.Property.FuzzSupportTest do
         [root: root, seed: 1, max_runs: 1],
         fn value ->
           Runtime.with_context(fn context ->
-            handle =
-              Exec.run_async(Runtime.Gate, %{value: value}, context, Runtime.options(context))
+            task =
+              Task.async(fn ->
+                Exec.run(Runtime.Gate, %{value: value}, context, Runtime.options(context))
+              end)
 
             try do
               ready = context.token
               assert_receive {^ready, :ready, ^value, worker}, 5_000
-              send(self(), {token, [worker, handle.pid]})
+              send(self(), {token, [worker, task.pid]})
               raise "probe"
             after
-              Exec.cancel(handle)
+              Task.shutdown(task, :brutal_kill)
             end
           end)
         end

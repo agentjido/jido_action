@@ -82,7 +82,7 @@ Child output uses the same caller context as root Flow output. This includes
 context references inside expressions, maps, and lists. Input references read
 the validated child input. Result references read components in that child.
 A missing context key returns a reference error. A key with a `nil` value is
-present and resolves to `nil`. These rules also apply to step-wise execution.
+present and resolves to `nil`. These rules also apply to managed Runic execution.
 
 An Action failure keeps its typed error and leaf details. Its
 `details.node_path` identifies the authored Subflow path, for example
@@ -101,6 +101,5 @@ module, not an arbitrary runtime Flow value.
 Validate the complete boundary without running work:
 
 ```elixir
-NestedFlows.Parent.flow()
-|> Jido.Flow.validate_executable()
+Jido.Exec.compile(NestedFlows.Parent)
 ```

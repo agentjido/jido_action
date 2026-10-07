@@ -66,15 +66,20 @@ defmodule Jido.Flow.GraphIdentityTest do
         assert {:ok, literal_result} = Jido.Exec.run(literal_flow, %{value: 42})
         refute reference_result == literal_result
 
-        refute Flow.compile!(reference_flow).compilation_digest ==
-                 Flow.compile!(literal_flow).compilation_digest
+        refute workflow_log(reference_flow) == workflow_log(literal_flow)
 
         for flow <- flows do
           assert {:ok, document, registry} = Flow.Codec.encode(flow)
           assert {:ok, restored} = Flow.Codec.decode(document, registry)
           assert restored == flow
           assert Flow.semantic_identity(restored) == Flow.semantic_identity(flow)
-          assert Flow.compile!(flow).semantic_digest == Flow.Identity.semantic_digest(flow)
+
+          assert {:flow, digest, nil, "echo"} =
+                   Jido.Exec.compile!(flow)
+                   |> Runic.Workflow.get_component("echo")
+                   |> Map.fetch!(:id)
+
+          assert digest == Flow.Identity.semantic_digest(flow)
         end
       end
     end
@@ -151,12 +156,10 @@ defmodule Jido.Flow.GraphIdentityTest do
 
     for flow <- flows do
       assert {:ok, identity} = Flow.semantic_identity(flow)
-      assert {:ok, compiled} = Flow.compile(flow)
-      assert compiled.semantic_digest == identity.digest
+      assert {:ok, compiled} = Jido.Exec.compile(flow)
+      assert {:flow, digest, nil, "first"} = Runic.Workflow.get_component(compiled, "first").id
+      assert digest == identity.digest
     end
-
-    assert Flow.compile!(plain).compilation_digest ==
-             Flow.compile!(annotated).compilation_digest
   end
 
   test "source order does not change semantic identity" do
@@ -180,4 +183,6 @@ defmodule Jido.Flow.GraphIdentityTest do
     assert first == second
     assert Flow.semantic_identity(first) == Flow.semantic_identity(second)
   end
+
+  defp workflow_log(flow), do: flow |> Jido.Exec.compile!() |> Runic.Workflow.build_log()
 end

@@ -215,10 +215,6 @@ defmodule JidoActionTest.Property.Flow.IterateFuzzTest do
     [fault, "iterations:#{count}", "all-modes"]
   end
 
-  defp execute(flow, context, :run), do: Exec.run(flow, %{}, context, Runtime.options(context, 3))
-
-  defp execute(flow, context, mode) do
-    {:ok, execution} = Exec.start(flow, %{}, context, Runtime.options(context, 3))
-    Runtime.finish(execution, mode)
-  end
+  defp execute(flow, context, _mode),
+    do: Exec.run(flow, %{}, context, Runtime.options(context, 3))
 end

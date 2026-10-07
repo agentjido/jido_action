@@ -186,7 +186,7 @@ These limits do not bound HTTP bytes or the JSON parser. Apply transport and
 parser limits before `decode/2`.
 
 Decode is inert. It does not run Actions. Call
-`Jido.Flow.validate_executable/1` when you want a target-contract check, or
+`Jido.Exec.compile/1` when you want a target-contract check, or
 run through `Jido.Exec`.
 
 ## Diagnose An Editor Draft
@@ -219,8 +219,8 @@ these failures.
 
 `diagnose/2` checks the stored and canonical Flow contract. It does not check
 whether resolved Action or child Flow modules are executable. After a valid
-decode, call `Jido.Flow.validate_executable/1` when the editor also needs that
-host-runtime check.
+decode, call `Jido.Exec.compile/1` when the editor also needs that host-runtime
+check.
 
-Store the encoded document, not `Jido.Exec.Flow.Compiled`, a raw struct map, or an
+Store the encoded document, not a compiled `Runic.Workflow`, a raw struct map, or an
 Instruction.

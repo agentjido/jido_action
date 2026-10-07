@@ -64,7 +64,7 @@ This form compiles the body to an ordinary Action. It does not add inline
 methods to `use Jido.Action` or function/MFA executable targets. Its field
 schemas default to empty. Use Step `inline:` settings for explicit schemas,
 descriptions, or execution context. No schema is inferred from bindings.
-Exec still owns validation, errors, timeouts, and telemetry.
+Exec owns the Jido adapter and result contract. Runic owns execution policy.
 
 The separate public `Jido.Action.Inline` API lets a downstream package provide
 inline Actions in its own compile-time DSL.
@@ -76,14 +76,13 @@ the complete inline example and named-Action extraction.
 
 ## Callback Results
 
-An Action callback returns one of five shapes:
+An Action callback returns one of four normal shapes:
 
 ```elixir
 {:ok, result}
 {:ok, result, effects}
 {:error, reason}
 {:error, reason, effects}
-{:continue, input, target}
 ```
 
 A normal success result is a map. Use `Jido.Action.Output` when a successful
@@ -102,14 +101,9 @@ Non-list third success elements fail with `:invalid_effects`. Put metadata in
 the result map or `Output.meta`. Error results discard the third element.
 See the [effect rules](execution.md#results-and-errors).
 
-`{:continue, input, target}` tells `Jido.Exec` what to run next. The current
-Action does not return a domain result. `Jido.Exec` runs `target` with `input`
-and the same context. The target can be an Action or a Flow. The final target
-owns output validation and the final result.
-
-Exec permits this result from a root Action and from the expander of a terminal
-Flow `dispatch` component. Other Flow positions reject it. See
-[Dynamic Flows](dynamic-flows.md).
+A terminal Flow Dispatch expander can also return its special
+`{:continue, input, target}` form. Root Actions and other Flow positions reject
+that form. See [Dynamic Flows](dynamic-flows.md).
 
 ## Validation
 
@@ -135,11 +129,9 @@ Jido.Exec.run(
 )
 ```
 
-Exec runs input validation, the Action callback, normal output validation,
-and result normalization in one fresh supervised Task for each invocation.
-Synchronous execution waits for its result, including with `timeout: :infinity`.
-Exceptions, throws, exits, hard Task exits, and invalid return shapes become
-structured errors. Exec does not retry the Action.
+Exec runs input validation, the Action callback, output validation, and result
+normalization through a Runic Runnable. Exceptions and invalid return shapes
+become structured errors. Runic owns timeout and retry policy.
 
 ### Prepare Raw Input
 
@@ -171,9 +163,8 @@ and compensation out of this callback.
 - Keep one Action focused on one unit of work.
 - Put external effects in the Action, not in a Flow expression.
 - Treat context as caller-owned execution data.
-- Exec reserves `context.__jido_exec__` for runtime metadata. Use
-  `Jido.Exec.remaining_time(context)` to read its budget. Do not persist this
-  reserved field. Other context fields remain caller-owned.
+- Keep process-local values out of context when managed execution must persist
+  and resume it.
 - Return structured domain errors when the caller can act on them.
 - Make effects idempotent when a higher-level runtime can repeat work.
 

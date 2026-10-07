@@ -359,10 +359,8 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
 
     compiled_forms =
       for flow <- [direct, built, decoded, Jido.Flow.CanonicalAuthoringTest.SparkMixedFlow.flow()] do
-        assert {:ok, compiled} = Flow.compile(flow)
-
-        {compiled.workflow.graph, compiled.work_index, compiled.component_index,
-         compiled.semantic_digest, compiled.compilation_digest}
+        assert {:ok, compiled} = Jido.Exec.compile(flow)
+        Runic.Workflow.build_log(compiled)
       end
 
     assert length(Enum.uniq(compiled_forms)) == 1
@@ -584,7 +582,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
   test "canonical public operations accept one Flow and reject other subjects" do
     flow = FlowAuthoring.math_flow!()
     assert JidoActionTest.FlowBuilder.new(flow) == {:ok, flow}
-    assert %Jido.Exec.Flow.Compiled{} = Flow.compile!(flow, %{})
+    assert %Runic.Workflow{} = Jido.Exec.compile!(flow, source_map: %{})
     assert %{name: "math_flow", components: [_first, _second]} = Flow.to_map(flow)
     assert {:ok, %{"double" => %{references: ["add_one"]}}} = Flow.dependencies(flow)
     assert {:ok, %{kind: :flow, name: "math_flow"}} = Flow.explain(flow)
@@ -592,14 +590,14 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
     assert is_binary(digest)
     assert is_binary(uuid)
     assert {:ok, ^flow} = Flow.validate(flow)
-    assert {:ok, ^flow} = Flow.validate_executable(flow)
+    assert {:ok, ^flow} = Jido.Exec.Compiler.validate(flow)
 
     for operation <- [
           &Flow.dependencies/1,
           &Flow.explain/1,
           &Flow.semantic_identity/1,
           &Flow.validate/1,
-          &Flow.validate_executable/1
+          &Jido.Exec.Compiler.validate/1
         ] do
       assert {:error, error} = operation.(:not_a_flow)
       assert Exception.message(error) == "expected a Jido.Flow artifact"
@@ -617,7 +615,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
         output: Ref.result("missing")
       )
 
-    assert_raise Jido.Flow.Error.InvalidDefinitionError, fn -> Flow.compile!(invalid) end
+    assert_raise Jido.Flow.Error.InvalidDefinitionError, fn -> Jido.Exec.compile!(invalid) end
 
     assert_raise Jido.Flow.Error.InvalidDefinitionError, fn ->
       JidoActionTest.FlowBuilder.new!(name: "missing_output")

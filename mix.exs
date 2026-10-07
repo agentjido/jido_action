@@ -224,12 +224,7 @@ defmodule JidoAction.MixProject do
           Jido.Flow.Value,
           Jido.Flow.Ref
         ],
-        Execution: [
-          Jido.Exec,
-          Jido.Exec.Execution,
-          Jido.Exec.Flow.Compiled,
-          Jido.Exec.Work
-        ],
+        Execution: [Jido.Exec],
         Errors: [
           Jido.Action.Error,
           Jido.Action.Error.ConfigurationError,
@@ -237,12 +232,6 @@ defmodule JidoAction.MixProject do
           Jido.Action.Error.InternalError,
           Jido.Action.Error.InvalidInputError,
           Jido.Action.Error.TimeoutError,
-          Jido.Exec.Error,
-          Jido.Exec.Error.TimeoutError,
-          Jido.Exec.Error.AsyncExecutionError,
-          Jido.Exec.Error.AsyncTimeoutError,
-          Jido.Exec.Error.CancelledError,
-          Jido.Exec.Error.InvalidHandleError,
           Jido.Flow.Error,
           Jido.Flow.Error.Invalid,
           Jido.Flow.Error.ExecutionFailureError,
@@ -285,7 +274,7 @@ defmodule JidoAction.MixProject do
       {:telemetry, "~> 1.3"},
       {:zoi, "~> 0.17"},
       {:jason, "~> 1.4"},
-      {:runic, "== 0.1.0-alpha.11"},
+      {:runic, path: "../../runic", override: true},
       {:splode, "~> 0.3.0"},
       {:spark, "~> 2.7.3"},
 

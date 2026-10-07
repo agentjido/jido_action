@@ -6,9 +6,9 @@ provide inline Actions. For normal Flow authoring, start with
 [Inline Actions](inline-actions.md).
 
 An inline body compiles to an ordinary Action. It uses the normal `Jido.Exec`
-input validation, output validation, errors, telemetry, timeout, cancellation,
-and concurrency rules. It does not add a runtime function target or store code
-in a Flow. A downstream DSL can use `Jido.Action.Inline` without Flow.
+validation and error contract and Runic execution policy. It does not add a
+runtime function target or store code in a Flow. A downstream DSL can use
+`Jido.Action.Inline` without Flow.
 
 ## Select The Input Mode
 
@@ -63,8 +63,8 @@ The body keeps the owner's private helpers, aliases, available imports,
 declaration-time attributes, and `__MODULE__`. It does not capture runtime
 variables outside the declaration. A normal success result is a map. Use
 `Jido.Action.Output` for an intentional non-map value. A Flow preserves explicit
-effect lists and requires a proper list for the third success element. A continuation is valid only from a root Action or a terminal
-Dispatch expander, not from an ordinary Step or Dispatch decision.
+effect lists and requires a proper list for the third success element. A
+continuation is valid only from a terminal Dispatch expander.
 
 ## Flow Boundary
 
