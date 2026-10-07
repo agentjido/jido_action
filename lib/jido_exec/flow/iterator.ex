@@ -1,10 +1,10 @@
-defmodule Jido.Flow.Compiler.Iterator do
+defmodule Jido.Exec.Flow.Iterator do
   @moduledoc false
 
   alias Jido.Flow.Error
   alias Jido.Action.Validation
-  alias Jido.Flow.Compiler.Expression
-  alias Jido.Flow.Compiler.Target
+  alias Jido.Exec.Flow.Expression
+  alias Jido.Exec.Flow.Target
   alias Jido.Flow.Identity
 
   @doc false

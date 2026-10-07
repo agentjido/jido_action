@@ -1,7 +1,7 @@
-defmodule Jido.Flow.Compiler.SourceMap do
+defmodule Jido.Exec.Flow.Compiler.SourceMap do
   @moduledoc false
 
-  alias Jido.Flow.Compiled
+  alias Jido.Exec.Flow.Compiled
   alias Jido.Flow.Error
 
   @doc false

@@ -26,7 +26,7 @@ end
 alias Jido.{Exec, Flow}
 alias Jido.Flow.{Dispatch, Ref, Step}
 alias JidoActionBench.{Echo, Measure}
-alias Jido.Flow.Compiler.{Collection, Frame}
+alias Jido.Exec.Flow.{Collection, Frame}
 
 Logger.configure(level: :warning)
 [destination | filters] = System.argv()

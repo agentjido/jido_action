@@ -178,7 +178,7 @@ defmodule JidoActionTest.Exec.FlowAdapterTest do
     assert {:ok, execution} = Exec.start(SourceMappedFlow, %{value: 1})
 
     assert %Runic.Workflow{} = workflow = Exec.native(execution).workflow
-    assert %Jido.Flow.Compiled{} = compiled = Exec.native(execution).compiled
+    assert %Jido.Exec.Flow.Compiled{} = compiled = Exec.native(execution).compiled
     assert workflow == execution.workflow
     assert compiled == execution.compiled
     assert compiled.source_map == SourceMappedFlow.__jido_flow_source_map__()

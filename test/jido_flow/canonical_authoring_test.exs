@@ -576,7 +576,7 @@ defmodule Jido.Flow.CanonicalAuthoringTest do
   test "canonical public operations accept one Flow and reject other subjects" do
     flow = FlowAuthoring.math_flow!()
     assert Flow.new(flow) == {:ok, flow}
-    assert %Jido.Flow.Compiled{} = Flow.compile!(flow, %{})
+    assert %Jido.Exec.Flow.Compiled{} = Flow.compile!(flow, %{})
     assert %{name: "math_flow", components: [_first, _second]} = Flow.to_map(flow)
     assert {:ok, %{"double" => %{references: ["add_one"]}}} = Flow.dependencies(flow)
     assert {:ok, %{kind: :flow, name: "math_flow"}} = Flow.explain(flow)

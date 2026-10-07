@@ -92,7 +92,7 @@ FanOut, FanIn, nested Workflow boundaries, source maps, and compilation
 identity where those facts are part of the contract.
 
 ```elixir
-assert {:ok, %Jido.Flow.Compiled{} = compiled} =
+assert {:ok, %Jido.Exec.Flow.Compiled{} = compiled} =
          Jido.Flow.compile(flow)
 
 assert %Runic.Workflow{} = compiled.workflow

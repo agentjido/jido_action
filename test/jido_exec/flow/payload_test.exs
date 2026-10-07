@@ -1,7 +1,7 @@
-defmodule JidoActionTest.Flow.Compiler.PayloadTest do
+defmodule JidoActionTest.Exec.Flow.Compiler.PayloadTest do
   use ExUnit.Case, async: true
 
-  alias Jido.Flow.Compiler.Payload
+  alias Jido.Exec.Flow.Payload
   alias Runic.Workflow.Fact
 
   test "payload projection keeps the deterministic external-term digest" do

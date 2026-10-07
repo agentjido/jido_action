@@ -83,11 +83,11 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
       Module.delete_attribute(__MODULE__, :__jido_inline_generated__)
 
       @doc false
-      @spec __jido_flow_source_map__() :: Jido.Flow.Compiled.source_map()
+      @spec __jido_flow_source_map__() :: Jido.Exec.Flow.Compiled.source_map()
       def __jido_flow_source_map__()
 
-      @doc "Compiles this module's canonical Flow into a Runic workflow."
-      @spec compiled() :: Jido.Flow.Compiled.t()
+      @doc "Returns the derived execution plan for this module's canonical Flow."
+      @spec compiled() :: Jido.Exec.Flow.Compiled.t()
       def compiled()
 
       @doc "Runs this Flow through Jido.Exec with default execution options."
@@ -293,7 +293,7 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
           Macro.Env.t(),
           String.t(),
           Exception.t(),
-          Jido.Flow.Compiled.source_map()
+          Jido.Exec.Flow.Compiled.source_map()
         ) ::
           no_return()
   defp raise_compile_error!(env, description, error, source_map) do

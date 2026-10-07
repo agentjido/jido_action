@@ -6,8 +6,8 @@ defmodule Jido.Exec.Invocation.Runtime do
   alias Jido.Exec.Invocation
   alias Jido.Exec.Controller
   alias Jido.Exec.Transition
-  alias Jido.Flow.Compiled
-  alias Jido.Flow.Compiler.Target
+  alias Jido.Exec.Flow.Compiled
+  alias Jido.Exec.Flow.Target
 
   @config_keys [:host, :ref, :run_key, :compatibility]
   @invocation_keys [:version, :id, :compatibility, :evidence, :action, :params]

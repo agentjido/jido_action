@@ -11,7 +11,7 @@ defmodule Jido.Exec.Execution do
   lifecycle.
   """
 
-  alias Jido.Flow.Compiled
+  alias Jido.Exec.Flow.Compiled
   alias Runic.Workflow
   alias Runic.Workflow.Runnable
 

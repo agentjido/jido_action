@@ -1,8 +1,8 @@
-defmodule JidoActionTest.Flow.Compiler.IteratorTest do
+defmodule JidoActionTest.Exec.Flow.Compiler.IteratorTest do
   use ExUnit.Case, async: false
 
   @moduletag capture_log: true
-  alias Jido.Flow.Compiler.Iterator, as: IteratorCompiler
+  alias Jido.Exec.Flow.Iterator, as: IteratorCompiler
   alias Jido.Flow.Iterate
   alias JidoActionTest.Fixtures.Actions.Add
 

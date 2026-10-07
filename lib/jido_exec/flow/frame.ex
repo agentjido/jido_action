@@ -1,5 +1,9 @@
-defmodule Jido.Flow.Compiler.Frame do
+defmodule Jido.Exec.Flow.Frame do
   @moduledoc false
+
+  @doc false
+  @spec input(term()) :: {:jido_flow_input, term(), nil}
+  def input(value), do: {:jido_flow_input, value, nil}
 
   @doc false
   @spec base_runtime_state(map(), term(), map()) :: map()

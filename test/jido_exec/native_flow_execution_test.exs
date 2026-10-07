@@ -298,7 +298,7 @@ defmodule JidoActionTest.Exec.NativeFlowExecutionTest do
 
   test "the DSL module supplies canonical Flow data and compiled Runic data" do
     assert %Flow{} = MathFlow.flow()
-    assert %Jido.Flow.Compiled{workflow: %Runic.Workflow{}} = MathFlow.compiled()
+    assert %Jido.Exec.Flow.Compiled{workflow: %Runic.Workflow{}} = MathFlow.compiled()
     assert MathFlow.run(%{value: 5}, %{}) == {:ok, %{value: 12}}
   end
 

@@ -2,11 +2,10 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
   @moduledoc false
 
   alias Jido.Exec.Execution
-  alias Jido.Flow.Compiler.{Collection, Payload, Target}
+  alias Jido.Exec.Flow.{Collection, Payload, Target}
   alias Jido.Exec.Telemetry
   alias Jido.Exec.Worker
   alias Jido.Exec.Controller
-  alias Jido.Exec.Flow.TargetRunner
   alias Jido.Flow.Error
   alias Runic.Workflow
   alias Runic.Workflow.FanIn
@@ -61,7 +60,7 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
               end
 
             runner = fn instruction, execution_id ->
-              TargetRunner.run(
+              Target.invoke(
                 instruction,
                 execution_id,
                 runtime.flow,

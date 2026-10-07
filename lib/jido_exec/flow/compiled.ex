@@ -1,4 +1,4 @@
-defmodule Jido.Flow.Compiled do
+defmodule Jido.Exec.Flow.Compiled do
   @moduledoc """
   Derived Runic compilation data for one canonical Flow.
 

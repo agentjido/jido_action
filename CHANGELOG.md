@@ -91,6 +91,9 @@ entries return to the normal automated changelog process.
 
 ### Changed
 
+- Move native Flow compilation and runtime helpers under `Jido.Exec.Flow`.
+  Derived compilation data is now `Jido.Exec.Flow.Compiled`; the canonical
+  `%Jido.Flow{}` value remains the Flow definition contract.
 - Remove `Jido.Flow.Builder`. Define runtime Flows with `Jido.Flow.new/1`
   and tagged component maps. Keep the module DSL, component constructors,
   and stored JSON Codec. Data definitions declare child Flows explicitly

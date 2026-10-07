@@ -319,7 +319,7 @@ defmodule JidoActionTest.Exec.WorkInspectionTest do
     assert {:ok, execution} = Exec.start(MathFlow, %{value: 3})
     ready = Exec.ready(execution)
 
-    assert %{workflow: %Runic.Workflow{}, compiled: %Jido.Flow.Compiled{}, ready: [_]} =
+    assert %{workflow: %Runic.Workflow{}, compiled: %Jido.Exec.Flow.Compiled{}, ready: [_]} =
              Exec.native(execution)
 
     assert Exec.ready(execution) == ready

@@ -1,4 +1,4 @@
-defmodule JidoActionTest.Flow.Compiler.CaptureTest do
+defmodule JidoActionTest.Exec.Flow.Compiler.CaptureTest do
   use ExUnit.Case, async: true
 
   alias Jido.Flow

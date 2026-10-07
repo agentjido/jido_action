@@ -4,7 +4,7 @@ defmodule JidoActionTest.Exec.FlowIdentityTest do
   alias Jido.{Exec, Flow}
   alias Jido.Exec.Work
   alias Jido.Flow.{Ref, Step}
-  alias Jido.Flow.Compiler.Payload
+  alias Jido.Exec.Flow.Payload
   alias Jido.Flow.Error.{ExecutionFailureError, InvalidExecutionError}
   alias JidoActionTest.Fixtures.Actions.{Add, EchoParamsAction}
   alias Runic.Workflow

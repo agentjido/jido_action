@@ -52,10 +52,10 @@ Read these files before a change that affects their subject:
 - `lib/jido_flow/component.ex` normalizes tagged component maps and constructors.
 - `lib/jido_flow/codec.ex` and `lib/jido_flow/registry.ex` contain the
   versioned stored-JSON boundary.
-- `lib/jido_flow/compiler/` converts canonical Flow data for execution.
+- `lib/jido_exec/flow/compiler.ex` converts canonical Flow data for execution.
 - `lib/jido_exec.ex` is the public execution facade.
-- `lib/jido_exec/` contains execution state, scheduling, guards, limits, and
-  failure handling.
+- `lib/jido_exec/` contains execution compilation, state, scheduling, guards,
+  limits, and failure handling.
 - `test/support/` contains shared Actions and Flow fixtures.
 
 Compiler, codec, graph-adapter, scheduler, and guard modules are internal.

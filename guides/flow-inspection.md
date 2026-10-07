@@ -82,8 +82,8 @@ compiled.source_map
 compiled.compilation_digest
 ```
 
-`Jido.Flow.Compiled` is derived runtime data. Treat its fields and native
-Runic graph as inspection and execution data, not authoring data.
+`Jido.Exec.Flow.Compiled` is derived runtime data. Treat its fields as
+inspection and execution data, not authoring data.
 
 Compilation identity includes each nested Flow's semantic identity at its full
 component path. Children with the same local name under different parents remain

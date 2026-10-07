@@ -304,7 +304,7 @@ required.
 
 ## Runic Ownership Boundary
 
-`Jido.Flow.Compiled.workflow` is the supported native compilation value.
+`Jido.Exec.Flow.Compiled.workflow` is the supported native compilation value.
 `Jido.Exec.native/1` returns the live workflow, compilation data, and native
 ready values for advanced, read-only inspection. `Jido.Exec.ready/1` returns
 small Work descriptions. Jido still owns

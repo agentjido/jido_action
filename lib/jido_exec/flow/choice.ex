@@ -1,9 +1,9 @@
-defmodule Jido.Flow.Compiler.Choice do
+defmodule Jido.Exec.Flow.Choice do
   @moduledoc false
 
   alias Jido.Flow.Choice
-  alias Jido.Flow.Compiler.Expression
-  alias Jido.Flow.Compiler.Target
+  alias Jido.Exec.Flow.Expression
+  alias Jido.Exec.Flow.Target
 
   @doc false
   @spec run(Choice.t(), map()) :: {:ok, term(), [term()]} | {:error, Exception.t()}

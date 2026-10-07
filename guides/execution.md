@@ -25,9 +25,8 @@ return plain error reasons or exceptions with no details map.
 For an Action, Exec validates the target and input, runs `run/2` in the current
 execution process, normalizes the callback result, and validates normal output.
 
-For a Flow, Exec also validates the graph and targets, compiles the canonical
-Flow to Runic, executes the graph, evaluates the explicit output, and validates
-Flow output.
+For a Flow, Exec also validates the graph and targets, builds the execution
+plan, runs it, evaluates the explicit output, and validates Flow output.
 
 ## Process Ownership
 

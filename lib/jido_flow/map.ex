@@ -2,9 +2,9 @@ defmodule Jido.Flow.Map do
   @moduledoc """
   A named Flow fan-out operation over one ordered collection.
 
-  A Map is one canonical authoring component. Native execution exposes its
-  Runic FanOut, item, FanIn, and output work. Create it with `new/1`, the Flow
-  module DSL, map-based definitions, or `Jido.Flow.Codec`.
+  A Map is one canonical authoring component. It applies one Action template
+  to each item and collects results in input order. Create it with `new/1`, the
+  Flow module DSL, map-based definitions, or `Jido.Flow.Codec`.
   """
 
   alias Jido.Flow.Error

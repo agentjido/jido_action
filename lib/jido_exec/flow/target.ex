@@ -1,12 +1,22 @@
-defmodule Jido.Flow.Compiler.Target do
+defmodule Jido.Exec.Flow.Target do
   @moduledoc false
 
   alias Jido.Action.Error
+  alias Jido.Exec.Action.Runner
+  alias Jido.Exec.Invocation.Runtime, as: InvocationRuntime
+  alias Jido.Exec.Telemetry
   alias Jido.Exec.Transition
   alias Jido.Instruction
 
   @type kind :: :step | :choice | :map | :reduce | :iterate | :dispatch
+  @type phase :: :input | :execution | :output
   @type t :: Instruction.t()
+  @type runner ::
+          (t(), String.t() ->
+             {:ok, term()}
+             | {:ok, term(), Jido.Action.effects()}
+             | {:continue, Transition.t()}
+             | {:error, phase(), Exception.t()})
 
   @metadata_key :jido_flow
 
@@ -118,7 +128,7 @@ defmodule Jido.Flow.Compiler.Target do
   end
 
   @doc false
-  @spec run(t(), term(), map(), String.t(), Jido.Flow.Compiler.target_runner()) ::
+  @spec run(t(), term(), map(), String.t(), runner()) ::
           {:ok, term(), [term()]} | {:continue, Transition.t()} | {:error, Exception.t()}
   def run(%Instruction{} = instruction, params, context, execution_id, target_runner) do
     instruction = %{instruction | params: params, context: context}
@@ -139,6 +149,30 @@ defmodule Jido.Flow.Compiler.Target do
       {:error, phase, error} when phase in [:execution, :output] ->
         tag({:error, error}, phase, instruction, :target)
     end
+  end
+
+  @doc false
+  @spec invoke(
+          Instruction.t(),
+          String.t(),
+          String.t(),
+          map() | nil,
+          (function() -> term())
+        ) ::
+          {:ok, term()}
+          | {:ok, term(), Jido.Action.effects()}
+          | {:continue, Transition.t()}
+          | {:error, phase(), Exception.t()}
+  def invoke(%Instruction{} = instruction, execution_id, flow_name, invocation, invoke) do
+    span = start_span(instruction, execution_id, flow_name)
+
+    result =
+      invoke.(fn ->
+        Runner.run_target(instruction, bind_invocation(invocation, instruction))
+      end)
+      |> authorize_transition(instruction)
+
+    finish_span(span, result)
   end
 
   @doc false
@@ -168,6 +202,56 @@ defmodule Jido.Flow.Compiler.Target do
   @spec telemetry_metadata(t(), module()) :: map()
   def telemetry_metadata(%Instruction{} = instruction, action) do
     telemetry_metadata(kind(instruction), details(instruction), action)
+  end
+
+  defp bind_invocation(nil, _instruction), do: nil
+
+  defp bind_invocation(%{config: config, chain_index: chain_index} = invocation, instruction) do
+    Map.put(invocation, :id, InvocationRuntime.target_id(config, chain_index, instruction))
+  end
+
+  defp start_span(%Instruction{target: target} = instruction, execution_id, flow_name) do
+    metadata = telemetry_metadata(instruction, target)
+
+    Telemetry.start(
+      [:jido, :flow, :target],
+      Map.merge(metadata, %{execution_id: execution_id, flow: flow_name})
+    )
+  end
+
+  defp finish_span(span, {:error, _phase, error} = result) do
+    Telemetry.error(span, error)
+    result
+  end
+
+  defp finish_span(span, result) do
+    Telemetry.stop(span)
+    result
+  end
+
+  defp authorize_transition({:continue, %Transition{} = transition}, instruction) do
+    if kind(instruction) == :dispatch and details(instruction).dispatch_phase == :expander do
+      {:continue, transition}
+    else
+      continuation_not_allowed(transition, instruction)
+    end
+  end
+
+  defp authorize_transition(result, _instruction), do: result
+
+  defp continuation_not_allowed(%Transition{} = transition, instruction) do
+    target_details = details(instruction)
+
+    {:error, :execution,
+     Error.execution_error(
+       "action continuation is not allowed from this Flow position",
+       %{
+         action: transition.origin,
+         component: target_details.node,
+         component_kind: kind(instruction),
+         retry: false
+       }
+     )}
   end
 
   defp telemetry_metadata(:step, details, action) do

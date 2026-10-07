@@ -88,7 +88,7 @@ defmodule JidoActionTest.Exec.ActionWorkerReplyTest do
          %Runic.Workflow.Runnable{
            status: :completed,
            result: %{
-             value: %Jido.Flow.Compiler.Payload{value: {:jido_flow_value, _, output, effects}}
+             value: %Jido.Exec.Flow.Payload{value: {:jido_flow_value, _, output, effects}}
            }
          },
          result,

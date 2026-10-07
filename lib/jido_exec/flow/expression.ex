@@ -1,4 +1,4 @@
-defmodule Jido.Flow.Compiler.Expression do
+defmodule Jido.Exec.Flow.Expression do
   @moduledoc false
 
   alias Jido.Flow.Error

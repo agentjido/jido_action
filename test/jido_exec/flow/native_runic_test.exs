@@ -1,4 +1,4 @@
-defmodule JidoActionTest.Flow.Compiler.NativeRunicTest do
+defmodule JidoActionTest.Exec.Flow.Compiler.NativeRunicTest do
   use ExUnit.Case, async: true
 
   alias Jido.Flow
@@ -22,7 +22,7 @@ defmodule JidoActionTest.Flow.Compiler.NativeRunicTest do
         components: [
           Jido.Flow.Subflow.new!(
             name: "b",
-            flow: JidoActionTest.Flow.Compiler.NativeRunicTest.CycleB
+            flow: JidoActionTest.Exec.Flow.Compiler.NativeRunicTest.CycleB
           )
         ],
         output: Jido.Flow.Ref.result("b")
@@ -45,7 +45,7 @@ defmodule JidoActionTest.Flow.Compiler.NativeRunicTest do
         components: [
           Jido.Flow.Subflow.new!(
             name: "a",
-            flow: JidoActionTest.Flow.Compiler.NativeRunicTest.CycleA
+            flow: JidoActionTest.Exec.Flow.Compiler.NativeRunicTest.CycleA
           )
         ],
         output: Jido.Flow.Ref.result("a")

@@ -4,12 +4,12 @@ defmodule Jido.Exec.Flow.Adapter do
   alias Jido.Action.Output
   alias Jido.Action.Validation
   alias Jido.Exec.Execution
-  alias Jido.Exec.Flow.Engine
+  alias Jido.Exec.Flow.{Engine, Validator}
   alias Jido.Exec.Invocation.Runtime, as: InvocationRuntime
   alias Jido.Exec.Options
   alias Jido.Exec.Telemetry
   alias Jido.Flow
-  alias Jido.Flow.Compiler
+  alias Jido.Exec.Flow.Compiler
   alias Jido.Flow.Dispatch
   alias Jido.Flow.Error
   alias Jido.Instruction
@@ -180,7 +180,7 @@ defmodule Jido.Exec.Flow.Adapter do
   defp execution_id(execution_id) when is_binary(execution_id), do: execution_id
 
   defp validate_flow_input(module, flow, input) when is_atom(module) and not is_nil(module) do
-    case Compiler.validate_callback(module, :validate_params, input) do
+    case Validator.callback(module, :validate_params, input) do
       {:ok, input} -> {:ok, input}
       {:error, error} -> {:error, flow_boundary_error(error, "Flow", flow, :flow_input)}
     end
@@ -191,8 +191,8 @@ defmodule Jido.Exec.Flow.Adapter do
 
   defp validate_flow_output(module, flow, output)
        when is_atom(module) and not is_nil(module) and is_map(output) do
-    with {:ok, output} <- Compiler.validate_output_shape(flow, output, :run),
-         {:ok, output} <- Compiler.validate_callback(module, :validate_output, output) do
+    with {:ok, output} <- Validator.output_shape(flow, output, :run),
+         {:ok, output} <- Validator.callback(module, :validate_output, output) do
       validate_flow_output_shape(flow, output)
     else
       {:error, error} -> tag_flow_output_error({:error, error}, flow)
@@ -215,7 +215,7 @@ defmodule Jido.Exec.Flow.Adapter do
 
   defp validate_flow_output(flow, %Output{} = output) do
     flow
-    |> Compiler.validate_output_shape(output, :output_schema)
+    |> Validator.output_shape(output, :output_schema)
     |> tag_flow_output_error(flow)
   end
 
@@ -242,7 +242,7 @@ defmodule Jido.Exec.Flow.Adapter do
 
   defp validate_flow_output_shape(flow, output) when is_map(output) do
     flow
-    |> Compiler.validate_output_shape(output, :output_schema)
+    |> Validator.output_shape(output, :output_schema)
     |> tag_flow_output_error(flow)
   end
 

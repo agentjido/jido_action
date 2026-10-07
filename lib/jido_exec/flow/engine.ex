@@ -6,11 +6,11 @@ defmodule Jido.Exec.Flow.Engine do
   alias Jido.Exec.Telemetry
   alias Jido.Exec.Transition
 
-  alias Jido.Exec.Flow.{Inspection, RunnableExecutor}
+  alias Jido.Exec.Flow.{Expression, Frame, Inspection, Payload, RunnableExecutor}
+  alias Jido.Exec.Flow.Compiled
 
   alias Jido.Flow
-  alias Jido.Flow.{Compiled, Compiler, Error}
-  alias Jido.Flow.Compiler.Payload
+  alias Jido.Flow.Error
   alias Runic.Workflow
   alias Runic.Workflow.FanIn
   alias Runic.Workflow.IdentityConflictError
@@ -55,7 +55,7 @@ defmodule Jido.Exec.Flow.Engine do
     workflow =
       compiled.workflow
       |> Workflow.put_run_context(%{_global: %{jido: runtime}})
-      |> Workflow.plan_eagerly(Payload.new(Compiler.input_frame(input)))
+      |> Workflow.plan_eagerly(Payload.new(Frame.input(input)))
 
     execution = %Execution{
       id: execution_id,
@@ -389,6 +389,76 @@ defmodule Jido.Exec.Flow.Engine do
   defp runnable_name(%Runnable{node: %{name: name}}), do: name
   defp runnable_name(%Runnable{node: node}), do: node.__struct__
 
+  defp runtime_result(%Execution{} = execution) do
+    result_names = execution.compiled.output |> Flow.Expression.result_refs() |> Enum.uniq()
+
+    result_names
+    |> Enum.reduce_while({:ok, %{}}, fn name, {:ok, results} ->
+      case Map.fetch(execution.compiled.component_index, name) do
+        {:ok, %{kind: kind, output: output_name}} ->
+          case Workflow.results(execution.workflow, [output_name], facts: true, all: true) do
+            %{^output_name => facts} when is_list(facts) and facts != [] ->
+              raw_value = facts |> List.last() |> Map.fetch!(:value) |> Payload.unwrap()
+
+              case {kind, raw_value} do
+                {:dispatch, {:jido_flow_transition, %Transition{} = transition}} ->
+                  {:halt, {:continue, transition}}
+
+                {_kind, value} ->
+                  {:cont, {:ok, Map.put(results, name, Frame.unwrap_value(value))}}
+              end
+
+            _other ->
+              {:halt,
+               {:error,
+                Error.execution_error("flow execution produced no final state", %{
+                  component: name,
+                  output: output_name
+                })}}
+          end
+
+        :error ->
+          {:halt,
+           {:error,
+            Error.execution_error("compiled Flow output is not indexed", %{component: name})}}
+      end
+    end)
+    |> case do
+      {:ok, results} ->
+        Expression.resolve(execution.compiled.output, %{
+          input: execution.input,
+          context: execution.context,
+          results: results
+        })
+
+      {:continue, %Transition{} = transition} ->
+        {:continue, transition}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp runtime_effects(%Execution{} = execution) do
+    collect_effects(execution.compiled.component_index, execution.workflow)
+  end
+
+  defp collect_effects(index, workflow) do
+    index
+    |> Map.values()
+    |> Enum.sort_by(& &1.effect_order)
+    |> Enum.flat_map(fn
+      %{kind: :subflow, children: children} ->
+        collect_effects(children, workflow)
+
+      %{output: name} ->
+        case Workflow.results(workflow, [name], facts: true, all: true) do
+          %{^name => facts} -> Enum.flat_map(facts, &Frame.effects(Payload.unwrap(&1.value)))
+          _ -> []
+        end
+    end)
+  end
+
   defp finalize(%Execution{engine_error: error} = execution) when not is_nil(error) do
     complete(execution, {:error, error})
   end
@@ -406,19 +476,14 @@ defmodule Jido.Exec.Flow.Engine do
   end
 
   defp finalize(%Execution{} = execution) do
-    case Compiler.runtime_result(
-           execution.compiled,
-           execution.workflow,
-           execution.input,
-           execution.context
-         ) do
+    case runtime_result(execution) do
       {:continue, %Transition{} = transition} ->
-        effects = Compiler.runtime_effects(execution.compiled, execution.workflow)
+        effects = runtime_effects(execution)
         complete_transition(execution, %{transition | effects: effects})
 
       {:ok, output} ->
         result = execution.finalizer.(output)
-        effects = Compiler.runtime_effects(execution.compiled, execution.workflow)
+        effects = runtime_effects(execution)
         complete(execution, Jido.Exec.Effects.attach(result, effects))
 
       {:error, error} ->

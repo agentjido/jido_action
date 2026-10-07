@@ -96,7 +96,7 @@ defmodule JidoActionTest.Exec.MapRetentionTest do
       tokens =
         Exec.native(finished).workflow
         |> Runic.Workflow.productions()
-        |> Enum.map(&Jido.Flow.Compiler.Payload.unwrap(&1.value))
+        |> Enum.map(&Jido.Exec.Flow.Payload.unwrap(&1.value))
         |> Enum.filter(&match?(%{kind: :result, index: _}, &1))
 
       assert Enum.sort(Enum.uniq(Enum.map(tokens, & &1.index))) == [0, 1]

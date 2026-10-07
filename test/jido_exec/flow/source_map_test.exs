@@ -1,4 +1,4 @@
-defmodule JidoActionTest.Flow.Compiler.SourceMapTest do
+defmodule JidoActionTest.Exec.Flow.Compiler.SourceMapTest do
   use ExUnit.Case, async: true
 
   alias Jido.Flow

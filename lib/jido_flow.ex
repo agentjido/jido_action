@@ -16,6 +16,10 @@ defmodule Jido.Flow do
   @moduledoc """
   Defines the canonical Jido Flow data artifact and compile-time module DSL.
 
+  A Flow is a declarative control program. Its leaves are Instruction
+  templates, its values are computed by expressions, and Actions provide its
+  executable behavior.
+
   A Flow contains named canonical components and one required output
   expression. Execution is delegated through `Jido.Exec`.
 
@@ -136,8 +140,8 @@ defmodule Jido.Flow do
 
   alias Jido.Flow.Error
   alias Jido.Flow.DSL.ModuleCompiler
-  alias Jido.Flow.Compiler
-  alias Jido.Flow.Compiled
+  alias Jido.Exec.Flow.Compiler
+  alias Jido.Exec.Flow.Compiled
   alias Jido.Flow.Component
   alias Jido.Flow.Graph
   alias Jido.Flow.Identity
@@ -213,10 +217,10 @@ defmodule Jido.Flow do
   end
 
   @doc """
-  Compiles a validated Flow to one native Runic workflow.
+  Prepares a validated Flow for execution.
 
-  The returned value contains derived runtime data. It is not an authoring or
-  storage format. Use `Jido.Flow.Codec` to store a Flow.
+  The returned value is a derived execution plan owned by `Jido.Exec`. It is
+  not an authoring or storage format. Use `Jido.Flow.Codec` to store a Flow.
 
   Pass a source map directly, or pass `source_map: source_map`. `source_map`
   is the only compile option. Unknown options and malformed source locations
@@ -229,7 +233,7 @@ defmodule Jido.Flow do
 
   def compile(value, _opts), do: invalid_flow_subject(value)
 
-  @doc "Compiles a Flow or raises the compilation error."
+  @doc "Prepares a Flow for execution or raises the compilation error."
   @spec compile!(t(), keyword() | Compiled.source_map()) :: Compiled.t() | no_return()
   def compile!(%__MODULE__{} = flow, opts \\ []) do
     case compile(flow, opts) do

@@ -238,12 +238,10 @@ defmodule JidoAction.MixProject do
           Jido.Flow.Step,
           Jido.Flow.Subflow
         ],
-        "Flow Compilation": [
-          Jido.Flow.Compiled
-        ],
         Execution: [
           Jido.Exec,
           Jido.Exec.Execution,
+          Jido.Exec.Flow.Compiled,
           Jido.Exec.Work
         ],
         Errors: [

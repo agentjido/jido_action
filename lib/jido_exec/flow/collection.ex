@@ -1,11 +1,11 @@
-defmodule Jido.Flow.Compiler.Collection do
+defmodule Jido.Exec.Flow.Collection do
   @moduledoc false
 
   alias Jido.Action.Output
-  alias Jido.Flow.Compiler.Expression
-  alias Jido.Flow.Compiler.Frame
-  alias Jido.Flow.Compiler.Payload
-  alias Jido.Flow.Compiler.Target
+  alias Jido.Exec.Flow.Expression
+  alias Jido.Exec.Flow.Frame
+  alias Jido.Exec.Flow.Payload
+  alias Jido.Exec.Flow.Target
   alias Jido.Flow.Error
   alias Jido.Flow.Identity
 

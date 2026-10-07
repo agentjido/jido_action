@@ -436,7 +436,7 @@ defmodule Jido.Exec do
   """
   @spec native(Execution.t()) :: %{
           workflow: Runic.Workflow.t(),
-          compiled: Jido.Flow.Compiled.t(),
+          compiled: Jido.Exec.Flow.Compiled.t(),
           ready: [Runic.Workflow.Runnable.t()]
         }
   def native(%Execution{} = execution) do

@@ -1,7 +1,7 @@
-defmodule JidoActionTest.Flow.Compiler.TargetTest do
+defmodule JidoActionTest.Exec.Flow.Compiler.TargetTest do
   use ExUnit.Case, async: true
 
-  alias Jido.Flow.Compiler.Target
+  alias Jido.Exec.Flow.Target
   alias Jido.Flow.Step
   alias Jido.Instruction
   alias JidoActionTest.Fixtures.Actions.Add

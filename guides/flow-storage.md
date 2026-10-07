@@ -223,5 +223,5 @@ whether resolved Action or child Flow modules are executable. After a valid
 decode, call `Jido.Flow.validate_executable/1` when the editor also needs that
 host-runtime check.
 
-Store the encoded document, not `Jido.Flow.Compiled`, a raw struct map, or an
+Store the encoded document, not `Jido.Exec.Flow.Compiled`, a raw struct map, or an
 Instruction.

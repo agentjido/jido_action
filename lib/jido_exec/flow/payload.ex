@@ -1,4 +1,4 @@
-defmodule Jido.Flow.Compiler.Payload do
+defmodule Jido.Exec.Flow.Payload do
   @moduledoc false
 
   # Runic identities are portable by default. Jido executes in one BEAM and
@@ -22,7 +22,7 @@ defmodule Jido.Flow.Compiler.Payload do
   def unwrap(value), do: value
 end
 
-defimpl Runic.Identity.Projectable, for: Jido.Flow.Compiler.Payload do
+defimpl Runic.Identity.Projectable, for: Jido.Exec.Flow.Payload do
   def identity_document(%{value: value}) do
     {:jido_local_beam_value, 1, Jido.Flow.Identity.hash_term(value)}
   end

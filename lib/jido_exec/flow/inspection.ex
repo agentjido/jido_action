@@ -2,7 +2,7 @@ defmodule Jido.Exec.Flow.Inspection do
   @moduledoc false
 
   alias Jido.Exec.{Execution, Work}
-  alias Jido.Flow.Compiler.Payload
+  alias Jido.Exec.Flow.Payload
   alias Runic.Workflow
   alias Runic.Workflow.{InputBinding, Join, Runnable}
 

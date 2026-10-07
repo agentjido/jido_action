@@ -1,7 +1,8 @@
 # Flows
 
-A `Jido.Flow` is the canonical authoring value for a local workflow. It lowers
-to native Runic workflow data for execution through `Jido.Exec`.
+A `Jido.Flow` is a declarative control program. Its leaves are Instruction
+templates, its values are computed by expressions, and Actions provide its
+executable behavior. `Jido.Exec` owns compilation and execution.
 
 See [Flow Modules](flow-modules.md#generated-api) for the module API.
 
@@ -75,9 +76,9 @@ validation.
 
 ## Author Data And Runtime Data
 
-A Flow stores author intent. `Jido.Flow.compile/2` derives a
-`Jido.Flow.Compiled` value with a native `Runic.Workflow`, component indexes,
-source locations, and a compilation digest. Do not store the compiled value.
+A Flow stores author intent. `Jido.Flow.compile/2` delegates to Exec and derives
+a `Jido.Exec.Flow.Compiled` execution plan with component indexes, source
+locations, and a compilation digest. Do not store the compiled value.
 
 `Jido.Exec` compiles and runs a Flow. Step-wise execution exposes small
 `Jido.Exec.Work` descriptions, including Join, input binding, fan-out, and
