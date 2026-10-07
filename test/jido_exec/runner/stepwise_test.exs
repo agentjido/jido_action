@@ -5,7 +5,7 @@ defmodule Jido.Exec.Runner.StepwiseTest do
   alias Jido.Flow
   alias Jido.Flow.Ref
   alias Runic.Workflow
-  alias Runic.Workflow.{RunnableCompleted, RunnableFailed}
+  alias Runic.Workflow.RunnableFailed
 
   defmodule Recorder do
     use Agent
@@ -45,12 +45,16 @@ defmodule Jido.Exec.Runner.StepwiseTest do
   test "automatic dispatch remains the default", %{runner: runner} do
     flow = serial_flow("automatic_stepwise_default")
     execution_id = {:automatic, System.unique_integer([:positive])}
+    tag = make_ref()
 
-    assert {:ok, _pid} = Exec.start(runner, execution_id, flow, %{value: 0})
+    assert {:ok, _pid} =
+             Exec.start(runner, execution_id, flow, %{value: 0}, %{}, hooks: runner_hooks(tag))
+
     assert {:error, :automatic_dispatch} = Exec.step(runner, execution_id)
+    assert_receive {^tag, :idle}, 1_000
 
-    wait_for_result(runner, execution_id, %{value: 2})
-
+    assert {:ok, productions} = Runic.Runner.get_results(runner, execution_id)
+    assert %{value: 2} in productions
     assert Recorder.entries() == [:first, :second]
   end
 
@@ -59,14 +63,16 @@ defmodule Jido.Exec.Runner.StepwiseTest do
   } do
     flow = serial_flow("manual_stepwise_flow")
     execution_id = {:manual, System.unique_integer([:positive])}
+    tag = make_ref()
 
     assert {:ok, _pid} =
              Exec.start(runner, execution_id, flow, %{value: 0}, %{},
                dispatch_mode: :manual,
-               max_concurrency: 1
+               max_concurrency: 1,
+               hooks: runner_hooks(tag)
              )
 
-    assert {3, %Workflow{} = workflow} = step_to_completion(runner, execution_id)
+    assert {3, %Workflow{} = workflow} = step_to_completion(runner, execution_id, tag)
     refute Workflow.is_runnable?(workflow)
     assert Recorder.entries() == [:first, :second]
 
@@ -77,11 +83,15 @@ defmodule Jido.Exec.Runner.StepwiseTest do
   test "a failed unit returns terminal Runic state and blocks dependent work", %{runner: runner} do
     flow = failure_flow()
     execution_id = {:failure, System.unique_integer([:positive])}
+    tag = make_ref()
 
     assert {:ok, _pid} =
-             Exec.start(runner, execution_id, flow, %{}, %{}, dispatch_mode: :manual)
+             Exec.start(runner, execution_id, flow, %{}, %{},
+               dispatch_mode: :manual,
+               hooks: runner_hooks(tag)
+             )
 
-    assert {_steps, %Workflow{} = workflow} = step_to_completion(runner, execution_id)
+    assert {_steps, %Workflow{} = workflow} = step_to_completion(runner, execution_id, tag)
 
     assert Enum.any?(workflow.runnable_events, fn
              %RunnableFailed{
@@ -99,17 +109,19 @@ defmodule Jido.Exec.Runner.StepwiseTest do
   test "manual execution resumes from durable Runic state", %{runner: runner} do
     flow = serial_flow("durable_stepwise_flow")
     execution_id = {:durable_manual, System.unique_integer([:positive])}
+    tag = make_ref()
 
     assert {:ok, _pid} =
              Exec.start(runner, execution_id, flow, %{value: 0}, %{},
                dispatch_mode: :manual,
                max_concurrency: 1,
-               checkpoint_strategy: :every_cycle
+               checkpoint_strategy: :every_cycle,
+               hooks: runner_hooks(tag)
              )
 
-    assert {:ok, %Workflow{} = workflow} = step_when_ready(runner, execution_id)
-    first = Workflow.get_component(workflow, "first")
-    wait_for_node(runner, execution_id, first.hash)
+    assert {:ok, %Workflow{} = workflow} = Exec.step(runner, execution_id)
+    first_hash = Workflow.get_component(workflow, "first").hash
+    assert_receive {^tag, :unit_done, ^first_hash}, 1_000
     assert Recorder.entries() == [:first]
 
     assert :ok = Runic.Runner.checkpoint(runner, execution_id)
@@ -120,10 +132,11 @@ defmodule Jido.Exec.Runner.StepwiseTest do
                dispatch_mode: :manual,
                executor: Jido.Exec.Runner.TaskExecutor,
                executor_opts: [task_supervisor: Module.concat(runner, TaskSupervisor)],
-               max_concurrency: 1
+               max_concurrency: 1,
+               hooks: runner_hooks(tag)
              )
 
-    assert {_steps, %Workflow{}} = step_to_completion(runner, execution_id)
+    assert {_steps, %Workflow{}} = step_to_completion(runner, execution_id, tag)
     assert Recorder.entries() == [:first, :second]
 
     assert {:ok, productions} = Runic.Runner.get_results(runner, execution_id)
@@ -167,64 +180,30 @@ defmodule Jido.Exec.Runner.StepwiseTest do
     })
   end
 
-  defp step_to_completion(runner, execution_id, count \\ 0) do
-    case step_when_ready(runner, execution_id) do
-      {:ok, %Workflow{}} -> step_to_completion(runner, execution_id, count + 1)
-      {:complete, %Workflow{} = workflow} -> {count, workflow}
-    end
+  # Runic calls these hooks in the Worker before it handles the next call, so
+  # each message is a barrier for the next step.
+  defp runner_hooks(tag) do
+    test_pid = self()
+
+    [
+      on_complete: fn runnable, _duration, _state ->
+        send(test_pid, {tag, :unit_done, runnable.node.hash})
+      end,
+      on_failed: fn runnable, _reason, _state ->
+        send(test_pid, {tag, :unit_done, runnable.node.hash})
+      end,
+      on_idle: fn _state -> send(test_pid, {tag, :idle}) end
+    ]
   end
 
-  defp step_when_ready(runner, execution_id, attempts \\ 200)
-
-  defp step_when_ready(_runner, _execution_id, 0),
-    do: flunk("Runic step did not become ready")
-
-  defp step_when_ready(runner, execution_id, attempts) do
+  defp step_to_completion(runner, execution_id, tag, count \\ 0) do
     case Exec.step(runner, execution_id) do
-      {:error, :busy} ->
-        Process.sleep(10)
-        step_when_ready(runner, execution_id, attempts - 1)
+      {:ok, %Workflow{}} ->
+        assert_receive {^tag, :unit_done, _node_hash}, 1_000
+        step_to_completion(runner, execution_id, tag, count + 1)
 
-      result ->
-        result
-    end
-  end
-
-  defp wait_for_node(runner, execution_id, node_hash) do
-    wait_until(fn ->
-      with {:ok, workflow} <- Runic.Runner.get_workflow(runner, execution_id) do
-        completed_node?(workflow, node_hash)
-      else
-        _other -> false
-      end
-    end)
-  end
-
-  defp completed_node?(workflow, node_hash) do
-    Enum.any?(workflow.runnable_events, fn
-      %RunnableCompleted{node_hash: ^node_hash} -> true
-      _event -> false
-    end)
-  end
-
-  defp wait_for_result(runner, execution_id, expected) do
-    wait_until(fn ->
-      case Runic.Runner.get_results(runner, execution_id) do
-        {:ok, productions} -> expected in productions
-        {:error, _reason} -> false
-      end
-    end)
-  end
-
-  defp wait_until(condition, attempts \\ 200)
-  defp wait_until(_condition, 0), do: flunk("condition did not become true")
-
-  defp wait_until(condition, attempts) do
-    if condition.() do
-      :ok
-    else
-      Process.sleep(10)
-      wait_until(condition, attempts - 1)
+      {:complete, %Workflow{} = workflow} ->
+        {count, workflow}
     end
   end
 end

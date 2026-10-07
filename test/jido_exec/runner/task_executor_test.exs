@@ -31,7 +31,7 @@ defmodule Jido.Exec.Runner.TaskExecutorTest do
                ]
              )
 
-    assert_receive {:managed_failed, :killed}, 1_000
+    assert_receive {:managed_failed, {:task_crashed, :killed}}, 1_000
     assert_receive :managed_idle, 1_000
     assert is_pid(worker)
     assert Process.alive?(worker)

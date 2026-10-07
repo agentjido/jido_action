@@ -239,9 +239,6 @@ defmodule Jido.Exec do
     end
   end
 
-  defp execution_options(_opts),
-    do: {:error, Jido.Action.Error.config_error("execution options must be a keyword list")}
-
   defp run_options(opts) when is_list(opts) do
     if Keyword.keyword?(opts) do
       case Keyword.get_values(opts, :task_supervisor) do
@@ -313,10 +310,15 @@ defmodule Jido.Exec do
   end
 
   defp run_supervised(task_supervisor, group_leader, work) do
+    caller = self()
+
     task =
       Task.Supervisor.async_nolink(task_supervisor, fn ->
         Process.group_leader(self(), group_leader)
-        work.()
+        watcher = watch_caller(caller, self())
+        result = work.()
+        stop_watcher(watcher)
+        result
       end)
 
     case Task.yield(task, :infinity) do
@@ -330,6 +332,24 @@ defmodule Jido.Exec do
   catch
     kind, reason ->
       {:error, execution_task_error({kind, reason})}
+  end
+
+  # The execution task is not linked to the caller, so a killed Action cannot
+  # exit the caller. This linked watcher kills the task, and the processes
+  # linked to it, when the caller exits.
+  defp watch_caller(caller, task) do
+    spawn_link(fn ->
+      monitor = Process.monitor(caller)
+
+      receive do
+        {:DOWN, ^monitor, :process, ^caller, _reason} -> Process.exit(task, :kill)
+      end
+    end)
+  end
+
+  defp stop_watcher(watcher) do
+    Process.unlink(watcher)
+    Process.exit(watcher, :kill)
   end
 
   defp execution_task_error(reason) do

@@ -2,6 +2,8 @@ defmodule Jido.Exec.Runner.ImmediateTaskTest do
   use ExUnit.Case, async: false
 
   alias Jido.Exec
+  alias Jido.Flow
+  alias Jido.Flow.Ref
 
   defmodule BlockingAction do
     use Jido.Action, name: "exec_immediate_blocking"
@@ -25,7 +27,7 @@ defmodule Jido.Exec.Runner.ImmediateTaskTest do
 
   test "run/4 executes under the application Task Supervisor by default" do
     expected_group_leader = Process.group_leader()
-    caller = run_blocking([])
+    caller = run_blocking(BlockingAction, [])
 
     assert_receive {:action_started, action_pid, ^expected_group_leader}, 1_000
     refute action_pid == elem(caller, 0)
@@ -39,7 +41,7 @@ defmodule Jido.Exec.Runner.ImmediateTaskTest do
   test "run/4 preserves the caller group leader" do
     group_leader = spawn(fn -> receive do: (:stop -> :ok) end)
     on_exit(fn -> if Process.alive?(group_leader), do: Process.exit(group_leader, :kill) end)
-    caller = run_blocking([], group_leader)
+    caller = run_blocking(BlockingAction, [], group_leader)
 
     assert_receive {:action_started, action_pid, ^group_leader}, 1_000
     send(action_pid, :release)
@@ -51,7 +53,7 @@ defmodule Jido.Exec.Runner.ImmediateTaskTest do
   test "run/4 accepts an injected Task Supervisor" do
     supervisor = start_supervised!(Task.Supervisor)
     expected_group_leader = Process.group_leader()
-    caller = run_blocking(task_supervisor: supervisor)
+    caller = run_blocking(BlockingAction, task_supervisor: supervisor)
 
     assert_receive {:action_started, action_pid, ^expected_group_leader}, 1_000
     assert action_pid in Task.Supervisor.children(supervisor)
@@ -70,12 +72,70 @@ defmodule Jido.Exec.Runner.ImmediateTaskTest do
     assert Process.alive?(self())
   end
 
-  defp run_blocking(opts, group_leader \\ nil) do
+  describe "caller exit" do
+    test "stops an Action that runs in the execution task" do
+      assert_caller_exit_stops_actions(BlockingAction, [], 1)
+    end
+
+    test "stops an Action that runs under a Runic timeout" do
+      assert_caller_exit_stops_actions(BlockingAction, [timeout: 60_000], 1)
+    end
+
+    test "stops concurrent Flow Actions" do
+      assert_caller_exit_stops_actions(parallel_flow(), [max_concurrency: 2], 2)
+    end
+  end
+
+  test "run/4 leaves no linked helper process after completion" do
+    caller = run_blocking(BlockingAction, [])
+
+    assert_receive {:action_started, task_pid, _group_leader}, 1_000
+    supervisor = GenServer.whereis(Jido.Exec.TaskSupervisor)
+    {:links, links} = Process.info(task_pid, :links)
+    monitors = for pid <- [task_pid | links], pid != supervisor, do: Process.monitor(pid)
+
+    send(task_pid, :release)
+    assert_caller_result(caller, {:ok, %{released: true}})
+
+    for monitor <- monitors do
+      assert_receive {:DOWN, ^monitor, :process, _pid, _reason}, 1_000
+    end
+  end
+
+  defp assert_caller_exit_stops_actions(target, opts, count) do
+    {caller, caller_monitor} = run_blocking(target, opts)
+
+    action_monitors =
+      for _index <- 1..count do
+        assert_receive {:action_started, action_pid, _group_leader}, 1_000
+        Process.monitor(action_pid)
+      end
+
+    Process.exit(caller, :kill)
+    assert_receive {:DOWN, ^caller_monitor, :process, ^caller, :killed}, 1_000
+
+    for monitor <- action_monitors do
+      assert_receive {:DOWN, ^monitor, :process, _pid, _reason}, 1_000
+    end
+  end
+
+  defp parallel_flow do
+    Flow.new!(%{
+      name: "exec_immediate_parallel",
+      components: [
+        %{kind: :step, name: "left", action: BlockingAction, params: %{}},
+        %{kind: :step, name: "right", action: BlockingAction, params: %{}}
+      ],
+      output: %{left: Ref.result("left"), right: Ref.result("right")}
+    })
+  end
+
+  defp run_blocking(target, opts, group_leader \\ nil) do
     owner = self()
 
     spawn_monitor(fn ->
       if group_leader, do: Process.group_leader(self(), group_leader)
-      result = Exec.run(BlockingAction, %{}, %{observer: owner}, opts)
+      result = Exec.run(target, %{}, %{observer: owner}, opts)
       send(owner, {:caller_result, self(), result})
     end)
   end

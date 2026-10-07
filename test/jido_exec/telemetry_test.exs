@@ -49,7 +49,7 @@ defmodule Jido.Exec.TelemetryTest do
 
     assert_receive {^token, @action_start, start_measurements, start_metadata}
     assert_receive {^token, @action_stop, stop_measurements, stop_metadata}
-    refute_receive {^token, @action_exception, _, _}
+    refute_received {^token, @action_exception, _, _}
 
     assert is_integer(start_measurements.system_time)
     assert is_integer(stop_measurements.duration)
@@ -84,7 +84,7 @@ defmodule Jido.Exec.TelemetryTest do
 
     assert_receive {^token, @action_start, _, start_metadata}
     assert_receive {^token, @action_stop, _, stop_metadata}
-    refute_receive {^token, @action_exception, _, _}
+    refute_received {^token, @action_exception, _, _}
 
     assert Map.drop(stop_metadata, [:outcome, :error_type, :retryable?]) == start_metadata
     assert stop_metadata.outcome == :error
@@ -202,21 +202,18 @@ defmodule Jido.Exec.TelemetryTest do
              )
 
     assert_receive :managed_telemetry_idle, 1_000
-    events = drain_events(token)
 
-    assert metadata_for(events, @flow_start) == []
-    assert metadata_for(events, @flow_stop) == []
+    assert_receive {^token, @action_start, _, %{runnable_id: runnable_id}}, 1_000
+    assert_receive {^token, @action_stop, _, %{runnable_id: ^runnable_id}}, 1_000
+    assert_receive {^token, ^runic_workflow_start, _, %{id: ^execution_id}}, 1_000
+    assert_receive {^token, ^runic_workflow_stop, _, %{id: ^execution_id}}, 1_000
+    assert_receive {^token, ^runic_runnable_start, _, %{runnable_id: ^runnable_id}}, 1_000
+    assert_receive {^token, ^runic_runnable_stop, _, %{runnable_id: ^runnable_id}}, 1_000
 
-    assert [action_start] = metadata_for(events, @action_start)
-    assert [_action_stop] = metadata_for(events, @action_stop)
-    assert [workflow_start] = metadata_for(events, runic_workflow_start)
-    assert [_workflow_stop] = metadata_for(events, runic_workflow_stop)
-    runnable_starts = metadata_for(events, runic_runnable_start)
-    runnable_stops = metadata_for(events, runic_runnable_stop)
-
-    assert workflow_start.id == execution_id
-    assert Enum.any?(runnable_starts, &(&1.runnable_id == action_start.runnable_id))
-    assert Enum.any?(runnable_stops, &(&1.runnable_id == action_start.runnable_id))
+    refute_received {^token, @flow_start, _, _}
+    refute_received {^token, @flow_stop, _, _}
+    refute_received {^token, @action_start, _, _}
+    refute_received {^token, ^runic_workflow_start, _, _}
   end
 
   def handle_event(event, measurements, metadata, {test_pid, token}) do
@@ -236,15 +233,6 @@ defmodule Jido.Exec.TelemetryTest do
       assert_receive {^token, event, measurements, metadata}, 1_000
       {event, measurements, metadata}
     end)
-  end
-
-  defp drain_events(token, events \\ []) do
-    receive do
-      {^token, event, measurements, metadata} ->
-        drain_events(token, [{event, measurements, metadata} | events])
-    after
-      20 -> Enum.reverse(events)
-    end
   end
 
   defp metadata_for(events, event) do
