@@ -11,10 +11,9 @@ defmodule Jido.Flow.Compiler.Choice do
     with {:ok, target} <- select_target(choice, state),
          {:ok, params} <- Expression.resolve(target.params, state) do
       Target.run(
-        target.action,
+        Target.at(Target.choice(choice, target), state.namespace),
         params,
         state.context,
-        Target.at(Target.choice(choice, target), state.namespace),
         state.execution_id,
         state.target_runner
       )

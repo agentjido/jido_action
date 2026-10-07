@@ -21,7 +21,9 @@ defmodule Jido.Instruction do
   `normalize!/3` and `resolve/3` accept a target or an existing Instruction.
   Existing Instructions are flattened. Their parameters and context are merged
   with shallow, right-biased call data. Metadata remains an annotation and has
-  no execution meaning.
+  no meaning to the target. Flow-created Action Instructions use the reserved
+  `:jido_flow` metadata entry for their component location. Flow uses this data
+  for telemetry, error details, and invocation occurrence IDs.
 
   Bound Instructions can be direct Exec targets and continuation targets.
   Canonical Flow components require module targets and keep their parameter

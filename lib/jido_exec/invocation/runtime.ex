@@ -94,12 +94,14 @@ defmodule Jido.Exec.Invocation.Runtime do
   @doc false
   @spec target_id(Invocation.config(), non_neg_integer(), Target.t()) ::
           Invocation.occurrence_id()
-  def target_id(config, chain_index, %Target{kind: kind, details: details}) do
+  def target_id(config, chain_index, instruction) do
+    kind = Target.kind(instruction)
+    details = Target.details(instruction)
     path = Map.get(details, :node_path, [details.node])
 
     {role, selector} =
       case kind do
-        :node -> {:step, nil}
+        :step -> {:step, nil}
         :choice -> {:choice, choice_selector(Map.fetch!(details, :option))}
         :map -> {:map, %{index: Map.fetch!(details, :item_index)}}
         :reduce -> {:reduce, %{index: Map.fetch!(details, :item_index)}}

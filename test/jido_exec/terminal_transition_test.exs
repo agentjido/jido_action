@@ -503,7 +503,7 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
       assert message == "action continuation is not allowed from this Flow position"
       assert details.action == action
       assert details.component == "result"
-      assert details.component_kind == :node
+      assert details.component_kind == :step
     end
 
     test "Dispatch must end every Flow path and be the exact Flow output" do

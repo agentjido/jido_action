@@ -49,7 +49,7 @@ defmodule Jido.Flow.Compiler.Iterator do
       Target.iterator(iterator, index, iteration_id, runtime.completed)
       |> Target.at(state.namespace)
 
-    span = state.observer.({:start, :iterate_iteration, target_context.details})
+    span = state.observer.({:start, :iterate_iteration, Target.details(target_context)})
 
     local_state =
       state
@@ -64,10 +64,9 @@ defmodule Jido.Flow.Compiler.Iterator do
                |> Target.tag_validation(target_context),
              {:ok, output, effects} <-
                Target.run(
-                 iterator.action,
+                 target_context,
                  params,
                  state.context,
-                 target_context,
                  state.execution_id,
                  state.target_runner
                ),

@@ -60,14 +60,11 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
                   end
               end
 
-            runner = fn target, params, ctx, execution_id, owner ->
+            runner = fn instruction, execution_id ->
               TargetRunner.run(
-                target,
-                params,
-                ctx,
+                instruction,
                 execution_id,
                 runtime.flow,
-                owner,
                 runtime.invocation,
                 invoke
               )
@@ -108,8 +105,8 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
           details
       end
 
-    owner = %Target{kind: if(kind == :step, do: :node, else: kind), details: details}
-    {:error, error} = Target.tag_execution(error, owner)
+    instruction = Target.new(kind, metadata.action, details)
+    {:error, error} = Target.tag_execution(error, instruction)
 
     result =
       case metadata do

@@ -25,13 +25,16 @@ defmodule Jido.Exec.Action.Runner do
           | {:ok, term(), Jido.Action.effects()}
           | {:continue, Transition.t()}
           | {:error, Exception.t()}
-  def run(%Instruction{target: action} = instruction, invocation \\ nil) do
-    direct_result(run_target(action, instruction.params, instruction.context, invocation))
+  def run(%Instruction{} = instruction, invocation \\ nil) do
+    direct_result(run_target(instruction, invocation))
   end
 
   @doc false
-  @spec run_target(module(), term(), map(), map() | nil) :: target_result()
-  def run_target(action, params, context, invocation \\ nil) do
+  @spec run_target(Instruction.t(), map() | nil) :: target_result()
+  def run_target(
+        %Instruction{target: action, params: params, context: context},
+        invocation \\ nil
+      ) do
     result =
       case invocation do
         nil ->

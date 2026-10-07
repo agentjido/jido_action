@@ -49,15 +49,14 @@ defmodule Jido.Flow.Compiler.Collection do
       })
       |> Target.at(namespace)
 
-    span = runtime.observer.({:start, :map_item, owner.details})
+    span = runtime.observer.({:start, :map_item, Target.details(owner)})
 
     outcome =
       with {:ok, params} <- Expression.resolve(map.params, local) do
         Target.run(
-          map.action,
+          owner,
           params,
           runtime.context,
-          owner,
           runtime.execution_id,
           runtime.target_runner
         )
@@ -227,15 +226,14 @@ defmodule Jido.Flow.Compiler.Collection do
           })
           |> Target.at(namespace)
 
-        span = runtime.observer.({:start, :reduce_item, owner.details})
+        span = runtime.observer.({:start, :reduce_item, Target.details(owner)})
 
         result =
           with {:ok, params} <- Expression.resolve(reduce.params, local) do
             Target.run(
-              reduce.action,
+              owner,
               params,
               runtime.context,
-              owner,
               runtime.execution_id,
               runtime.target_runner
             )

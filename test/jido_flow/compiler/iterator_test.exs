@@ -8,7 +8,7 @@ defmodule JidoActionTest.Flow.Compiler.IteratorTest do
 
   describe "Iterator adapter containment" do
     test "contains failures before the iteration starts" do
-      state = runtime_state(fn _action, _params, _context, _execution_id, _owner -> :unused end)
+      state = runtime_state(fn _instruction, _execution_id -> :unused end)
 
       assert {:error, %Jido.Flow.Error.InternalError{details: details}} =
                IteratorCompiler.run(%{name: "broken"}, state)
@@ -35,7 +35,7 @@ defmodule JidoActionTest.Flow.Compiler.IteratorTest do
       test_pid = self()
 
       state =
-        runtime_state(fn _action, _params, _context, _execution_id, _owner -> {:ok, %{}} end)
+        runtime_state(fn _instruction, _execution_id -> {:ok, %{}} end)
 
       state = %{
         state
@@ -70,10 +70,10 @@ defmodule JidoActionTest.Flow.Compiler.IteratorTest do
 
     test "contains raised and thrown target runner failures inside an iteration" do
       failures = [
-        {fn _action, _params, _context, _execution_id, _owner ->
+        {fn _instruction, _execution_id ->
            raise "target runner failed"
          end, RuntimeError},
-        {fn _action, _params, _context, _execution_id, _owner ->
+        {fn _instruction, _execution_id ->
            throw(:target_runner_failed)
          end, :throw}
       ]

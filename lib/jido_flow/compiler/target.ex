@@ -3,21 +3,23 @@ defmodule Jido.Flow.Compiler.Target do
 
   alias Jido.Action.Error
   alias Jido.Exec.Transition
+  alias Jido.Instruction
 
-  @type kind :: :node | :choice | :map | :reduce | :iterate | :dispatch
-  @type t :: %__MODULE__{kind: kind(), details: map()}
+  @type kind :: :step | :choice | :map | :reduce | :iterate | :dispatch
+  @type t :: Instruction.t()
 
-  @enforce_keys [:kind, :details]
-  defstruct [:kind, :details]
+  @metadata_key :jido_flow
 
   @doc false
   @spec at(t(), [String.t()]) :: t()
-  def at(%__MODULE__{} = owner, namespace) do
-    %{owner | details: Map.put(owner.details, :node_path, namespace ++ [owner.details.node])}
+  def at(%Instruction{} = instruction, namespace) do
+    update_details(instruction, fn details ->
+      Map.put(details, :node_path, namespace ++ [details.node])
+    end)
   end
 
   @phases %{
-    node: %{input: :step_input, execution: :step_execution, output: :step_output},
+    step: %{input: :step_input, execution: :step_execution, output: :step_output},
     choice: %{
       input: :choice_target_input,
       execution: :choice_target_execution,
@@ -46,9 +48,9 @@ defmodule Jido.Flow.Compiler.Target do
   }
 
   @doc false
-  @spec node(Jido.Flow.Step.t()) :: t()
-  def node(%Jido.Flow.Step{} = node) do
-    %__MODULE__{kind: :node, details: %{node: node.name, action: node.action}}
+  @spec step(Jido.Flow.Step.t()) :: t()
+  def step(%Jido.Flow.Step{} = step) do
+    new(:step, step.action, %{node: step.name})
   end
 
   @doc false
@@ -57,53 +59,41 @@ defmodule Jido.Flow.Compiler.Target do
           Jido.Flow.Choice.Option.t() | Jido.Flow.Choice.Fallback.t()
         ) :: t()
   def choice(choice, target) do
-    %__MODULE__{
-      kind: :choice,
-      details: %{node: choice.name, option: choice_target_name(target), target: target.action}
-    }
+    new(:choice, target.action, %{
+      node: choice.name,
+      option: choice_target_name(target)
+    })
   end
 
   @doc false
   @spec map(Jido.Flow.Map.t(), map()) :: t()
   def map(map, item) do
-    %__MODULE__{
-      kind: :map,
-      details: %{
-        node: map.name,
-        target: map.action,
-        item_index: item.item_index,
-        item_id: item.item_id
-      }
-    }
+    new(:map, map.action, %{
+      node: map.name,
+      item_index: item.item_index,
+      item_id: item.item_id
+    })
   end
 
   @doc false
   @spec reduce(Jido.Flow.Reduce.t(), map()) :: t()
   def reduce(reduce, item) do
-    %__MODULE__{
-      kind: :reduce,
-      details: %{
-        node: reduce.name,
-        target: reduce.action,
-        item_index: item.item_index,
-        item_id: item.item_id
-      }
-    }
+    new(:reduce, reduce.action, %{
+      node: reduce.name,
+      item_index: item.item_index,
+      item_id: item.item_id
+    })
   end
 
   @doc false
   @spec iterator(Jido.Flow.Iterate.t(), non_neg_integer(), String.t(), non_neg_integer()) :: t()
   def iterator(iterator, iteration_index, iteration_id, state_revision) do
-    %__MODULE__{
-      kind: :iterate,
-      details: %{
-        node: iterator.name,
-        target: iterator.action,
-        iteration_index: iteration_index,
-        iteration_id: iteration_id,
-        state_revision: state_revision
-      }
-    }
+    new(:iterate, iterator.action, %{
+      node: iterator.name,
+      iteration_index: iteration_index,
+      iteration_id: iteration_id,
+      state_revision: state_revision
+    })
   end
 
   @doc false
@@ -111,17 +101,29 @@ defmodule Jido.Flow.Compiler.Target do
   def dispatch(dispatch, phase) when phase in [:decision, :expander] do
     target = if phase == :decision, do: dispatch.decision, else: dispatch.expander
 
-    %__MODULE__{
-      kind: :dispatch,
-      details: %{node: dispatch.name, target: target, dispatch_phase: phase}
+    new(:dispatch, target, %{node: dispatch.name, dispatch_phase: phase})
+  end
+
+  @doc false
+  @spec new(kind(), module(), map()) :: t()
+  def new(kind, target, details)
+      when kind in [:step, :choice, :map, :reduce, :iterate, :dispatch] and is_map(details) do
+    %Instruction{
+      kind: :action,
+      target: target,
+      params: %{},
+      context: %{},
+      metadata: %{@metadata_key => %{kind: kind, details: details}}
     }
   end
 
   @doc false
-  @spec run(module(), term(), map(), t(), String.t(), Jido.Flow.Compiler.target_runner()) ::
+  @spec run(t(), term(), map(), String.t(), Jido.Flow.Compiler.target_runner()) ::
           {:ok, term(), [term()]} | {:continue, Transition.t()} | {:error, Exception.t()}
-  def run(action, params, context, %__MODULE__{} = owner, execution_id, target_runner) do
-    case target_runner.(action, params, context, execution_id, owner) do
+  def run(%Instruction{} = instruction, params, context, execution_id, target_runner) do
+    instruction = %{instruction | params: params, context: context}
+
+    case target_runner.(instruction, execution_id) do
       {:ok, output} ->
         {:ok, output, []}
 
@@ -132,27 +134,43 @@ defmodule Jido.Flow.Compiler.Target do
         {:continue, transition}
 
       {:error, :input, error} ->
-        tag_validation({:error, error}, owner)
+        tag_validation({:error, error}, instruction)
 
       {:error, phase, error} when phase in [:execution, :output] ->
-        tag({:error, error}, phase, owner, :target)
+        tag({:error, error}, phase, instruction, :target)
     end
   end
 
   @doc false
   @spec tag_validation({:ok, term()} | {:error, Exception.t()}, t()) ::
           {:ok, term()} | {:error, Exception.t()}
-  def tag_validation(result, %__MODULE__{} = owner) do
-    tag(result, :input, owner, :validation)
+  def tag_validation(result, %Instruction{} = instruction) do
+    tag(result, :input, instruction, :validation)
   end
 
   @doc false
   @spec tag_execution(Exception.t(), t()) :: {:error, Exception.t()}
-  def tag_execution(error, owner), do: tag({:error, error}, :execution, owner, :target)
+  def tag_execution(error, instruction),
+    do: tag({:error, error}, :execution, instruction, :target)
+
+  @doc false
+  @spec kind(t()) :: kind()
+  def kind(%Instruction{metadata: %{@metadata_key => %{kind: kind}}}), do: kind
+
+  @doc false
+  @spec details(t()) :: map()
+  def details(%Instruction{target: target, metadata: %{@metadata_key => target_data}}) do
+    key = if target_data.kind == :step, do: :action, else: :target
+    Map.put(target_data.details, key, target)
+  end
 
   @doc false
   @spec telemetry_metadata(t(), module()) :: map()
-  def telemetry_metadata(%__MODULE__{kind: :node, details: details}, action) do
+  def telemetry_metadata(%Instruction{} = instruction, action) do
+    telemetry_metadata(kind(instruction), details(instruction), action)
+  end
+
+  defp telemetry_metadata(:step, details, action) do
     %{
       node: details.node,
       node_path: Map.get(details, :node_path, [details.node]),
@@ -162,7 +180,7 @@ defmodule Jido.Flow.Compiler.Target do
     }
   end
 
-  def telemetry_metadata(%__MODULE__{kind: :choice, details: details}, action) do
+  defp telemetry_metadata(:choice, details, action) do
     %{
       node: details.node,
       node_path: Map.get(details, :node_path, [details.node]),
@@ -172,7 +190,7 @@ defmodule Jido.Flow.Compiler.Target do
     }
   end
 
-  def telemetry_metadata(%__MODULE__{kind: kind, details: details}, action) do
+  defp telemetry_metadata(kind, details, action) do
     Map.merge(details, %{
       kind: kind,
       target: action,
@@ -182,10 +200,10 @@ defmodule Jido.Flow.Compiler.Target do
 
   defp tag({:ok, value}, _phase, _context, _mode), do: {:ok, value}
 
-  defp tag({:error, error}, phase, context, mode) when is_exception(error) do
-    tagged_phase = phase(context, phase)
+  defp tag({:error, error}, phase, instruction, mode) when is_exception(error) do
+    tagged_phase = phase(instruction, phase)
 
-    case exception_strategy(context, tagged_phase, error, mode) do
+    case exception_strategy(instruction, tagged_phase, error, mode) do
       {:validation, details} ->
         tagged_error = Error.validation_error(Exception.message(error), details)
         {:error, preserve_stacktrace(tagged_error, error)}
@@ -198,34 +216,43 @@ defmodule Jido.Flow.Compiler.Target do
     end
   end
 
-  defp phase(%__MODULE__{kind: kind}, phase) do
-    @phases |> Map.fetch!(kind) |> Map.fetch!(phase)
+  defp phase(%Instruction{} = instruction, phase) do
+    @phases |> Map.fetch!(kind(instruction)) |> Map.fetch!(phase)
   end
 
-  defp exception_strategy(%__MODULE__{kind: :node} = context, phase, error, :validation) do
-    {:validation, merge_error_details(error, details(context, phase))}
+  defp exception_strategy(%Instruction{} = instruction, phase, error, :validation) do
+    if kind(instruction) == :step do
+      {:validation, merge_error_details(error, error_details(instruction, phase))}
+    else
+      exception_strategy(instruction, phase, error, :target)
+    end
   end
 
-  defp exception_strategy(%__MODULE__{kind: :iterate} = context, phase, error, _mode) do
+  defp exception_strategy(
+         %Instruction{metadata: %{@metadata_key => %{kind: :iterate}}} = instruction,
+         phase,
+         error,
+         _mode
+       ) do
     tagged_details =
-      context
-      |> details(phase)
+      instruction
+      |> error_details(phase)
       |> preserve_error_path(error)
       |> Map.put(:retry, iterator_retry_policy(error))
 
     {:replace, tagged_details}
   end
 
-  defp exception_strategy(%__MODULE__{} = context, phase, %{details: existing}, _mode)
+  defp exception_strategy(%Instruction{} = instruction, phase, %{details: existing}, _mode)
        when is_map(existing) do
-    {:merge, Map.merge(existing, details(context, phase))}
+    {:merge, Map.merge(existing, error_details(instruction, phase))}
   end
 
-  defp exception_strategy(%__MODULE__{} = context, phase, _error, _mode) do
-    {:replace, details(context, phase)}
+  defp exception_strategy(%Instruction{} = instruction, phase, _error, _mode) do
+    {:replace, error_details(instruction, phase)}
   end
 
-  defp details(%__MODULE__{details: details}, phase), do: Map.put(details, :phase, phase)
+  defp error_details(instruction, phase), do: instruction |> details() |> Map.put(:phase, phase)
 
   defp choice_target_name(%Jido.Flow.Choice.Option{name: name}), do: name
   defp choice_target_name(%Jido.Flow.Choice.Fallback{}), do: :fallback
@@ -270,4 +297,8 @@ defmodule Jido.Flow.Compiler.Target do
   end
 
   defp preserve_stacktrace(tagged_error, _error), do: tagged_error
+
+  defp update_details(%Instruction{} = instruction, fun) do
+    update_in(instruction.metadata[@metadata_key].details, fun)
+  end
 end

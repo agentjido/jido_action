@@ -47,7 +47,7 @@ defmodule Jido.Flow.Compiler do
 
   @type target_phase :: :input | :execution | :output
   @type target_runner ::
-          (module(), term(), map(), String.t(), Target.t() ->
+          (Target.t(), String.t() ->
              {:ok, term()}
              | {:ok, term(), Jido.Action.effects()}
              | {:continue, Transition.t()}
@@ -238,8 +238,7 @@ defmodule Jido.Flow.Compiler do
         local
         |> resolve_and_run(
           component.params,
-          component.action,
-          Target.at(Target.node(component), namespace)
+          Target.at(Target.step(component), namespace)
         )
         |> wrap_result()
       end)
@@ -837,14 +836,13 @@ defmodule Jido.Flow.Compiler do
   defp dependency_values(names, parent) when is_list(parent), do: Enum.zip(names, parent)
   defp dependency_values(names, parent), do: Enum.zip(names, List.wrap(parent))
 
-  defp resolve_and_run(state, expression, action, owner) do
+  defp resolve_and_run(state, expression, instruction) do
     with {:ok, params} <- Expression.resolve(expression, state),
          {:ok, output, effects} <-
            Target.run(
-             action,
+             instruction,
              params,
              state.context,
-             owner,
              state.execution_id,
              state.target_runner
            ) do
@@ -858,18 +856,16 @@ defmodule Jido.Flow.Compiler do
     with {:ok, params} <- Expression.resolve(dispatch.params, state),
          {:ok, decision, decision_effects} <-
            Target.run(
-             dispatch.decision,
+             Target.at(Target.dispatch(dispatch, :decision), []),
              params,
              state.context,
-             Target.at(Target.dispatch(dispatch, :decision), []),
              state.execution_id,
              state.target_runner
            ) do
       case Target.run(
-             dispatch.expander,
+             Target.at(Target.dispatch(dispatch, :expander), []),
              decision,
              state.context,
-             Target.at(Target.dispatch(dispatch, :expander), []),
              state.execution_id,
              state.target_runner
            ) do

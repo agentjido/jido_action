@@ -374,8 +374,8 @@ defmodule JidoActionTest.Exec.FlowIdentityTest do
   end
 
   defp execute_fixture_runnable(runnable) do
-    runner = fn target, params, context, _execution_id, _owner ->
-      Exec.run(target, params, context)
+    runner = fn instruction, _execution_id ->
+      Exec.run(instruction)
     end
 
     runnable = put_in(runnable.context.run_context.jido.target_runner, runner)
