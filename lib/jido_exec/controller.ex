@@ -14,6 +14,7 @@ defmodule Jido.Exec.Controller do
 
   @type call :: %{
           optional(:invocation_control) => %{token: reference(), stop: :atomics.atomics_ref()},
+          optional(:chain_index) => non_neg_integer(),
           supervisor: pid(),
           controller: pid(),
           deadline: integer() | :infinity,
@@ -35,6 +36,7 @@ defmodule Jido.Exec.Controller do
           state: {:jido_exec_async_state, :atomics.atomics_ref(), pid()}
         }
   @type exec_result :: Exec.exec_result()
+  @typep error_owner :: Jido.Action.Error | Jido.Flow.Error
 
   @doc false
   @spec start(term(), map() | keyword() | nil, map() | keyword() | nil, keyword()) ::
@@ -517,7 +519,7 @@ defmodule Jido.Exec.Controller do
   end
 
   @doc false
-  @spec execute(t(), (-> term()), module(), term()) :: {term(), module(), term()}
+  @spec execute(t(), (-> term()), error_owner(), term()) :: {term(), error_owner(), term()}
   def execute(controller, work, error_owner, target) do
     # Keep only the root gate. Startup can block beyond the deadline, and a
     # continuation must not start after queued cancellation or owner death.
@@ -552,7 +554,7 @@ defmodule Jido.Exec.Controller do
   end
 
   @doc false
-  @spec resolved(call(), module(), term()) :: term()
+  @spec resolved(call(), error_owner(), term()) :: term()
   def resolved(call, error_owner, target),
     do: send(call.controller, {:resolved, error_owner, target})
 
@@ -750,6 +752,7 @@ defmodule Jido.Exec.Controller do
     :ok
   end
 
+  @spec park() :: no_return()
   defp park do
     receive do
     after

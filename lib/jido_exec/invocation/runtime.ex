@@ -214,9 +214,8 @@ defmodule Jido.Exec.Invocation.Runtime do
          :ok <- validate_version(receipt.version, :unsupported_receipt_version),
          :ok <- validate_invocation(receipt.invocation),
          :ok <- validate_current_invocation(current_invocation),
-         :ok <- validate_occurrence(receipt.invocation.id, current_invocation.id),
-         :ok <- validate_outcome(receipt.outcome) do
-      :ok
+         :ok <- validate_occurrence(receipt.invocation.id, current_invocation.id) do
+      validate_outcome(receipt.outcome)
     end
   end
 
