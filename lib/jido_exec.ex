@@ -215,7 +215,7 @@ defmodule Jido.Exec do
   end
 
   defp run_chain(executable, input, context, chain) do
-    call = chain.controller.call
+    call = Map.put(chain.controller.call, :chain_index, chain.count)
     transition = chain.transition
     options = chain.options
 

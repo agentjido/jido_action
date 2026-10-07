@@ -3,6 +3,7 @@ defmodule Jido.Exec.Action.Runner do
 
   alias Jido.Action.Error
   alias Jido.Action.Output
+  alias Jido.Exec.Invocation.Runtime, as: InvocationRuntime
   alias Jido.Exec.Transition
   alias Jido.Instruction
 
@@ -19,19 +20,32 @@ defmodule Jido.Exec.Action.Runner do
            | {:error, target_phase(), Exception.t()}
 
   @doc "Runs one Action Instruction inside its assigned supervised Task."
-  @spec run(Instruction.t()) ::
+  @spec run(Instruction.t(), map() | nil) ::
           {:ok, term()}
           | {:ok, term(), Jido.Action.effects()}
           | {:continue, Transition.t()}
           | {:error, Exception.t()}
-  def run(%Instruction{target: action} = instruction) do
-    direct_result(run_target(action, instruction.params, instruction.context))
+  def run(%Instruction{target: action} = instruction, invocation \\ nil) do
+    direct_result(run_target(action, instruction.params, instruction.context, invocation))
   end
 
   @doc false
-  @spec run_target(module(), term(), map()) :: target_result()
-  def run_target(action, params, context) do
-    normalize_result(invoke(action, params, context))
+  @spec run_target(module(), term(), map(), map() | nil) :: target_result()
+  def run_target(action, params, context, invocation \\ nil) do
+    result =
+      case invocation do
+        nil ->
+          invoke(action, params, context)
+
+        %{config: config, evidence: evidence, id: id} ->
+          descriptor = InvocationRuntime.descriptor(config, id, evidence, action, params)
+
+          InvocationRuntime.invoke(config, descriptor, action, context, fn ->
+            invoke(action, params, context)
+          end)
+      end
+
+    normalize_result(result)
   end
 
   @spec invoke(module(), term(), map()) :: invocation_result()

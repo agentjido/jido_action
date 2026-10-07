@@ -6,6 +6,7 @@ defmodule Jido.Exec.Flow.Adapter do
   alias Jido.Executable
   alias Jido.Exec.Execution
   alias Jido.Exec.Flow.Engine
+  alias Jido.Exec.Invocation.Runtime, as: InvocationRuntime
   alias Jido.Exec.Options
   alias Jido.Exec.Telemetry
   alias Jido.Flow
@@ -33,7 +34,7 @@ defmodule Jido.Exec.Flow.Adapter do
   def run(executable, input, context, opts, call) do
     with {:ok, flow, compiled} <- materialize(executable),
          {:ok, execution} <-
-           start_flow(executable, flow, compiled, input, context, opts, call.execution_id, :run),
+           start_flow(executable, flow, compiled, input, context, opts, call, :run),
          {:ok, execution} <- Engine.run_to_completion(execution, call) do
       Engine.result(execution)
     else
@@ -138,7 +139,8 @@ defmodule Jido.Exec.Flow.Adapter do
     end
   end
 
-  defp start_flow(executable, flow, compiled, input, context, opts, execution_id, mode) do
+  defp start_flow(executable, flow, compiled, input, context, opts, call_or_id, mode) do
+    execution_id = execution_id(call_or_id)
     validator_module = if is_atom(executable.target), do: executable.target
 
     flow_span =
@@ -155,7 +157,8 @@ defmodule Jido.Exec.Flow.Adapter do
           options: run_opts,
           finalizer: fn output -> validate_flow_output(validator_module, flow, output) end,
           execution_id: execution_id,
-          lifecycle: %{flow: flow_span}
+          lifecycle: %{flow: flow_span},
+          invocation: invocation(run_opts, executable, compiled, call_or_id)
         }
 
         Engine.start(flow, compiled, input, context, control)
@@ -170,6 +173,25 @@ defmodule Jido.Exec.Flow.Adapter do
         result
     end
   end
+
+  defp invocation(run_opts, executable, compiled, %{chain_index: chain_index}) do
+    case Keyword.fetch(run_opts, :invocation) do
+      {:ok, config} ->
+        %{
+          config: config,
+          evidence: InvocationRuntime.flow_evidence(executable.target, compiled),
+          chain_index: chain_index
+        }
+
+      :error ->
+        nil
+    end
+  end
+
+  defp invocation(_run_opts, _executable, _compiled, _execution_id), do: nil
+
+  defp execution_id(%{execution_id: execution_id}), do: execution_id
+  defp execution_id(execution_id) when is_binary(execution_id), do: execution_id
 
   defp validate_flow_input(module, flow, input) when is_atom(module) and not is_nil(module) do
     case Compiler.validate_callback(module, :validate_params, input) do

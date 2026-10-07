@@ -17,6 +17,7 @@ defmodule Jido.Exec.Flow.Engine do
   alias Runic.Workflow.Runnable
 
   @typep start_control :: %{
+           optional(:invocation) => map() | nil,
            options: keyword(),
            finalizer: (term() -> {:ok, term()} | {:error, Exception.t()}),
            execution_id: String.t(),
@@ -36,7 +37,7 @@ defmodule Jido.Exec.Flow.Engine do
           finalizer: finalizer,
           execution_id: execution_id,
           lifecycle: lifecycle
-        }
+        } = control
       )
       when is_map(input) and is_map(context) and is_list(options) and
              is_function(finalizer, 1) and
@@ -47,6 +48,7 @@ defmodule Jido.Exec.Flow.Engine do
       flow_digest: compiled.semantic_digest,
       context: context,
       target_runner: nil,
+      invocation: Map.get(control, :invocation),
       observer: Jido.Exec.Flow.CollectionTelemetry.observer(execution_id, flow.name)
     }
 

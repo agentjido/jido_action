@@ -68,6 +68,7 @@ defmodule Jido.Exec.Flow.RunnableExecutor do
                 execution_id,
                 runtime.flow,
                 owner,
+                runtime.invocation,
                 invoke
               )
             end

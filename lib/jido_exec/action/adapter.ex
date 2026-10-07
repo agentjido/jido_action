@@ -4,6 +4,7 @@ defmodule Jido.Exec.Action.Adapter do
   alias Jido.Action.Error
   alias Jido.Executable
   alias Jido.Exec.Action.Runner
+  alias Jido.Exec.Invocation.Runtime, as: InvocationRuntime
   alias Jido.Exec.Options
   alias Jido.Instruction
 
@@ -13,11 +14,11 @@ defmodule Jido.Exec.Action.Adapter do
           | {:ok, term(), Jido.Action.effects()}
           | {:continue, Jido.Exec.Transition.t()}
           | {:error, Exception.t()}
-  def run(%Executable{target: action} = executable, input, context, opts, _call) do
+  def run(%Executable{target: action} = executable, input, context, opts, call) do
     with :ok <- Options.validate_action(opts, :action),
          {:ok, instruction} <- normalize_instruction(action, input, context),
          :ok <- Executable.validate(executable) do
-      Runner.run(instruction)
+      Runner.run(instruction, invocation(opts, call, action))
     end
   end
 
@@ -32,10 +33,10 @@ defmodule Jido.Exec.Action.Adapter do
           | {:ok, term(), Jido.Action.effects()}
           | {:continue, Jido.Exec.Transition.t()}
           | {:error, Exception.t()}
-  def run_instruction(executable, %Instruction{} = instruction, opts, _call) do
+  def run_instruction(executable, %Instruction{} = instruction, opts, call) do
     with :ok <- Options.validate_action(opts, :instruction),
          :ok <- Executable.validate(executable) do
-      Runner.run(instruction)
+      Runner.run(instruction, invocation(opts, call, instruction.target))
     end
   end
 
@@ -58,6 +59,20 @@ defmodule Jido.Exec.Action.Adapter do
     {:ok, Instruction.normalize_resolved!(action, input, context)}
   rescue
     exception -> {:error, Error.validation_error(Exception.message(exception))}
+  end
+
+  defp invocation(opts, call, action) do
+    case Keyword.fetch(opts, :invocation) do
+      {:ok, config} ->
+        %{
+          config: config,
+          evidence: InvocationRuntime.action_evidence(action),
+          id: InvocationRuntime.root_id(config, Map.fetch!(call, :chain_index))
+        }
+
+      :error ->
+        nil
+    end
   end
 
   defp action_name(module) do

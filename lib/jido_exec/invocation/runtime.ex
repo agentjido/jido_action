@@ -4,6 +4,9 @@ defmodule Jido.Exec.Invocation.Runtime do
   alias Jido.Action.Output
   alias Jido.Exec.Error
   alias Jido.Exec.Invocation
+  alias Jido.Exec.Transition
+  alias Jido.Flow.Compiled
+  alias Jido.Flow.Compiler.Target
 
   @config_keys [:host, :ref, :run_key, :compatibility]
   @invocation_keys [:version, :id, :compatibility, :evidence, :action, :params]
@@ -54,6 +57,86 @@ defmodule Jido.Exec.Invocation.Runtime do
   @doc false
   @spec receipt(Invocation.invocation(), Invocation.outcome()) :: Invocation.receipt()
   def receipt(invocation, outcome), do: %{version: 1, invocation: invocation, outcome: outcome}
+
+  @doc false
+  @spec action_evidence(module()) :: Invocation.evidence()
+  def action_evidence(action) do
+    %{
+      executable: %{kind: :action, form: :module, module: action},
+      flow_semantic_digest: nil,
+      compilation_digest: nil
+    }
+  end
+
+  @doc false
+  @spec flow_evidence(module() | Jido.Flow.t(), Compiled.t()) :: Invocation.evidence()
+  def flow_evidence(target, %Compiled{} = compiled) do
+    executable =
+      case target do
+        module when is_atom(module) -> %{kind: :flow, form: :module, module: module}
+        %Jido.Flow{} -> %{kind: :flow, form: :value, module: nil}
+      end
+
+    %{
+      executable: executable,
+      flow_semantic_digest: compiled.semantic_digest,
+      compilation_digest: compiled.compilation_digest
+    }
+  end
+
+  @doc false
+  @spec root_id(Invocation.config(), non_neg_integer()) :: Invocation.occurrence_id()
+  def root_id(config, chain_index) do
+    occurrence_id(config, chain_index, [], :root_action, nil)
+  end
+
+  @doc false
+  @spec target_id(Invocation.config(), non_neg_integer(), Target.t()) ::
+          Invocation.occurrence_id()
+  def target_id(config, chain_index, %Target{kind: kind, details: details}) do
+    path = Map.get(details, :node_path, [details.node])
+
+    {role, selector} =
+      case kind do
+        :node -> {:step, nil}
+        :choice -> {:choice, choice_selector(Map.fetch!(details, :option))}
+        :map -> {:map, %{index: Map.fetch!(details, :item_index)}}
+        :reduce -> {:reduce, %{index: Map.fetch!(details, :item_index)}}
+        :iterate -> {:iterate, %{index: Map.fetch!(details, :iteration_index)}}
+        :dispatch -> {:dispatch, %{phase: Map.fetch!(details, :dispatch_phase)}}
+      end
+
+    occurrence_id(config, chain_index, path, role, selector)
+  end
+
+  @doc false
+  @spec invoke(
+          Invocation.config(),
+          Invocation.invocation(),
+          module(),
+          map(),
+          (-> term())
+        ) :: term()
+  def invoke(config, invocation, action, context, work) when is_function(work, 0) do
+    case before(config, invocation) do
+      {:ok, :execute} ->
+        result = work.()
+        receipt = receipt(invocation, result_to_outcome(result))
+
+        case after_invoke(config, receipt) do
+          :ok -> result
+          {:error, error} -> {:error, :execution, error}
+        end
+
+      {:ok, {:replay, receipt}} ->
+        outcome_to_result(receipt.outcome, action, context)
+
+      {:error, error} ->
+        # U3 routes this control failure through the controller. Until then,
+        # keep it distinct as an invocation error at the normal result edge.
+        {:error, :execution, error}
+    end
+  end
 
   @doc false
   @spec before(Invocation.config(), Invocation.invocation()) ::
@@ -133,6 +216,41 @@ defmodule Jido.Exec.Invocation.Runtime do
       :ok
     end
   end
+
+  defp occurrence_id(config, chain_index, component_path, role, selector) do
+    %{
+      version: 1,
+      run_key: config.run_key,
+      chain_index: chain_index,
+      component_path: component_path,
+      role: role,
+      selector: selector
+    }
+  end
+
+  defp choice_selector(:fallback), do: %{kind: :fallback}
+  defp choice_selector(name), do: %{kind: :option, name: name}
+
+  defp result_to_outcome({:ok, output}),
+    do: %{kind: :ok, output: output, effects: []}
+
+  defp result_to_outcome({:ok, output, effects}),
+    do: %{kind: :ok, output: output, effects: effects}
+
+  defp result_to_outcome({:error, phase, error}),
+    do: %{kind: :error, phase: phase, error: error}
+
+  defp result_to_outcome({:continue, %Transition{} = transition}),
+    do: %{kind: :continue, input: transition.input, target: transition.target}
+
+  defp outcome_to_result(%{kind: :ok, output: output, effects: effects}, _action, _context),
+    do: {:ok, output, effects}
+
+  defp outcome_to_result(%{kind: :error, phase: phase, error: error}, _action, _context),
+    do: {:error, phase, error}
+
+  defp outcome_to_result(%{kind: :continue, input: input, target: target}, action, context),
+    do: {:continue, Transition.new(input, target, action, context)}
 
   defp validate_invocation(invocation) do
     with :ok <- validate_exact_map(invocation, @invocation_keys, :invalid_invocation),
