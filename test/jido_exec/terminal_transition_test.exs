@@ -8,6 +8,7 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
   alias Jido.Exec.Transition
   alias Jido.Flow
   alias Jido.Flow.{Dispatch, Ref, Step}
+  alias Jido.Instruction
   alias JidoActionTest.Fixtures.Actions.{Add, ExtrasAction}
   alias JidoActionTest.Fixtures.MathFlow
   alias JidoActionTest.Fixtures.InlineResultFlow
@@ -64,11 +65,11 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
   end
 
   defmodule InvalidResolvedAction do
-    def __jido_executable__, do: Jido.Executable.action(__MODULE__)
+    @behaviour Jido.Action
   end
 
   defmodule InvalidResolvedFlow do
-    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+    @behaviour Jido.Flow
   end
 
   defmodule ContextTarget do
@@ -104,15 +105,16 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
   end
 
   defmodule CountingTarget do
-    def __jido_executable__ do
+    @behaviour Jido.Action
+
+    def validate_params(params) do
       if counter = Process.whereis(__MODULE__) do
         Agent.update(counter, &(&1 + 1))
       end
 
-      Jido.Executable.action(__MODULE__)
+      {:ok, params}
     end
 
-    def validate_params(params), do: {:ok, params}
     def validate_output(output), do: {:ok, output}
     def run(params, _context), do: {:ok, params}
   end
@@ -258,7 +260,22 @@ defmodule JidoActionTest.Exec.TerminalTransitionTest do
                {:ok, %{value: 3, trace_id: "trace"}}
     end
 
-    test "resolves a continuation target exactly one time" do
+    test "accepts a bound Instruction as a continuation target" do
+      target =
+        Instruction.new!(
+          target: Add,
+          params: %{value: 1, amount: 2},
+          context: %{source: :instruction}
+        )
+
+      assert Exec.run(
+               ContinueToTarget,
+               %{input: %{value: 5}, target: target},
+               %{trace_id: "trace"}
+             ) == {:ok, %{value: 7}}
+    end
+
+    test "validates a continuation target exactly one time" do
       counter = start_supervised!({Agent, fn -> 0 end})
       Process.register(counter, CountingTarget)
 

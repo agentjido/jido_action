@@ -9,9 +9,7 @@ defmodule JidoActionTest.Exec.FlowActionContractTest do
   end
 
   defmodule RejectedInputAction do
-    def __jido_executable__ do
-      Jido.Executable.action(__MODULE__)
-    end
+    @behaviour Jido.Action
 
     def validate_params(%{error: error}) do
       {:error, error}

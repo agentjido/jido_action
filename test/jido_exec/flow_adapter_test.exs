@@ -15,7 +15,7 @@ defmodule JidoActionTest.Exec.FlowAdapterTest do
   end
 
   defmodule CountingChildFlow do
-    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+    @behaviour Jido.Flow
 
     def flow do
       JidoActionTest.Exec.FlowAdapterTest.CallCounter.increment(:child)
@@ -28,7 +28,7 @@ defmodule JidoActionTest.Exec.FlowAdapterTest do
   end
 
   defmodule CountingRootFlow do
-    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+    @behaviour Jido.Flow
 
     def flow do
       JidoActionTest.Exec.FlowAdapterTest.CallCounter.increment(:root)
@@ -60,7 +60,7 @@ defmodule JidoActionTest.Exec.FlowAdapterTest do
   end
 
   defmodule FlowWithoutCompiledCallback do
-    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+    @behaviour Jido.Flow
     def flow, do: JidoActionTest.Fixtures.FlowAuthoring.math_flow!()
     def validate_params(params), do: {:ok, params}
     def validate_output(output), do: {:ok, output}
@@ -68,7 +68,7 @@ defmodule JidoActionTest.Exec.FlowAdapterTest do
   end
 
   defmodule MismatchedCompiledFlow do
-    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+    @behaviour Jido.Flow
     def flow, do: JidoActionTest.Fixtures.FlowAuthoring.math_flow!()
 
     def compiled do
@@ -92,7 +92,7 @@ defmodule JidoActionTest.Exec.FlowAdapterTest do
   end
 
   defmodule IgnoredCompiledFailureFlow do
-    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+    @behaviour Jido.Flow
     def flow, do: JidoActionTest.Fixtures.FlowAuthoring.math_flow!()
 
     def compiled,
@@ -104,7 +104,7 @@ defmodule JidoActionTest.Exec.FlowAdapterTest do
   end
 
   defmodule SourceMappedFlow do
-    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+    @behaviour Jido.Flow
     def flow, do: JidoActionTest.Fixtures.FlowAuthoring.math_flow!()
 
     def __jido_flow_source_map__ do
@@ -117,7 +117,7 @@ defmodule JidoActionTest.Exec.FlowAdapterTest do
   end
 
   defmodule InvalidSourceMapFlow do
-    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+    @behaviour Jido.Flow
     def flow, do: JidoActionTest.Fixtures.FlowAuthoring.math_flow!()
     def __jido_flow_source_map__, do: :invalid
     def validate_params(params), do: {:ok, params}
@@ -126,7 +126,7 @@ defmodule JidoActionTest.Exec.FlowAdapterTest do
   end
 
   defmodule InvalidDefinitionFlow do
-    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+    @behaviour Jido.Flow
     def flow, do: :invalid
     def validate_params(params), do: {:ok, params}
     def validate_output(output), do: {:ok, output}
@@ -134,7 +134,7 @@ defmodule JidoActionTest.Exec.FlowAdapterTest do
   end
 
   defmodule OwnedRaisingDefinitionFlow do
-    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+    @behaviour Jido.Flow
     def flow, do: raise(Jido.Flow.Error.validation_error("owned Flow definition failure"))
     def validate_params(params), do: {:ok, params}
     def validate_output(output), do: {:ok, output}
@@ -142,7 +142,7 @@ defmodule JidoActionTest.Exec.FlowAdapterTest do
   end
 
   defmodule RaisingDefinitionFlow do
-    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+    @behaviour Jido.Flow
     def flow, do: raise("Flow definition failure")
     def validate_params(params), do: {:ok, params}
     def validate_output(output), do: {:ok, output}
@@ -150,7 +150,7 @@ defmodule JidoActionTest.Exec.FlowAdapterTest do
   end
 
   defmodule ThrowingDefinitionFlow do
-    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+    @behaviour Jido.Flow
     def flow, do: throw(:flow_definition_failure)
     def validate_params(params), do: {:ok, params}
     def validate_output(output), do: {:ok, output}
@@ -158,7 +158,7 @@ defmodule JidoActionTest.Exec.FlowAdapterTest do
   end
 
   defmodule MissingDefinitionCallback do
-    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+    @behaviour Jido.Flow
     def validate_params(params), do: {:ok, params}
     def validate_output(output), do: {:ok, output}
   end

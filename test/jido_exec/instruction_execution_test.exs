@@ -1,5 +1,5 @@
 defmodule JidoActionTest.Exec.InstructionExecutionTest do
-  # Descriptor counters use one registered test process.
+  # Callback counters use one registered test process.
   use ExUnit.Case, async: false
 
   alias Jido.Action.Error.{ConfigurationError, InvalidInputError}
@@ -13,10 +13,7 @@ defmodule JidoActionTest.Exec.InstructionExecutionTest do
   end
 
   defmodule CountingDescriptorAction do
-    def __jido_executable__ do
-      JidoActionTest.Exec.InstructionExecutionTest.record_call(:descriptor)
-      Jido.Executable.action(__MODULE__)
-    end
+    @behaviour Jido.Action
 
     def validate_params(params) do
       JidoActionTest.Exec.InstructionExecutionTest.record_call(:input)
@@ -35,10 +32,7 @@ defmodule JidoActionTest.Exec.InstructionExecutionTest do
   end
 
   defmodule CountingDescriptorFlow do
-    def __jido_executable__ do
-      JidoActionTest.Exec.InstructionExecutionTest.record_call(:descriptor)
-      Jido.Executable.flow(__MODULE__)
-    end
+    @behaviour Jido.Flow
 
     def flow do
       JidoActionTest.Exec.InstructionExecutionTest.record_call(:flow)
@@ -84,7 +78,9 @@ defmodule JidoActionTest.Exec.InstructionExecutionTest do
     @field field
     test "rejects false #{@field} before Action work at every Exec boundary" do
       Process.register(self(), __MODULE__.CallbackObserver)
-      message = "expected #{@field} to be a map or keyword list, got: false"
+
+      message =
+        "Invalid #{to_string(@field)} format. #{String.capitalize(to_string(@field))} must be a map or keyword list."
 
       for target <- [CallDataProbeAction, CallDataProbeFlow, CallDataProbeFlow.flow()] do
         instruction = struct!(Instruction, [{:target, target}, {@field, false}])
@@ -123,7 +119,7 @@ defmodule JidoActionTest.Exec.InstructionExecutionTest do
     end
   end
 
-  test "resolves each execution target once in synchronous, timed, and async calls" do
+  test "resolves each execution target before synchronous, timed, and async calls" do
     counter = start_supervised!({Agent, fn -> %{} end})
     Process.register(counter, __MODULE__.Counts)
 
@@ -131,7 +127,7 @@ defmodule JidoActionTest.Exec.InstructionExecutionTest do
         mode <- [:sync, :finite, :async] do
       Agent.update(counter, fn _ -> %{} end)
       instruction = Instruction.new!(target: target, params: %{value: 2})
-      assert Agent.get(counter, & &1) == %{descriptor: 1}
+      assert Agent.get(counter, & &1) == %{}
       Agent.update(counter, fn _ -> %{} end)
 
       result =
@@ -143,16 +139,16 @@ defmodule JidoActionTest.Exec.InstructionExecutionTest do
 
       if target == CountingDescriptorAction do
         assert result == {:ok, %{value: 2}}
-        assert Agent.get(counter, & &1) == %{descriptor: 1, input: 1, output: 1, run: 1}
+        assert Agent.get(counter, & &1) == %{input: 1, output: 1, run: 1}
       else
         assert result == {:ok, %{value: 6}}
-        assert Agent.get(counter, & &1) == %{descriptor: 1, flow: 1}
+        assert Agent.get(counter, & &1) == %{flow: 1}
       end
     end
 
     Agent.update(counter, fn _ -> %{} end)
     assert Exec.run(CountingDescriptorAction, %{value: 1}) == {:ok, %{value: 1}}
-    assert Agent.get(counter, & &1) == %{descriptor: 1, input: 1, output: 1, run: 1}
+    assert Agent.get(counter, & &1) == %{input: 1, output: 1, run: 1}
   end
 
   test "resolves and materializes an Instruction once before step-wise Flow work" do
@@ -161,10 +157,10 @@ defmodule JidoActionTest.Exec.InstructionExecutionTest do
     instruction = %Instruction{target: CountingDescriptorFlow, params: %{value: 2}}
 
     assert {:ok, execution} = Exec.start(instruction)
-    assert Agent.get(counter, & &1) == %{descriptor: 1, flow: 1}
+    assert Agent.get(counter, & &1) == %{flow: 1}
     assert {:ok, execution} = Exec.continue(execution)
     assert Exec.result(execution) == {:ok, %{value: 6}}
-    assert Agent.get(counter, & &1) == %{descriptor: 1, flow: 1}
+    assert Agent.get(counter, & &1) == %{flow: 1}
   end
 
   test "keeps shallow merges and metadata separate from execution policy" do
@@ -197,7 +193,7 @@ defmodule JidoActionTest.Exec.InstructionExecutionTest do
     for target <- [Add, MathFlow, MathFlow.flow()], field <- [:params, :context, :metadata] do
       instruction = struct!(Instruction, [{:target, target}, {field, [:not_keyword]}])
       assert {:error, %InvalidInputError{message: message}} = Exec.run(instruction)
-      assert message =~ "expected a map or keyword list"
+      assert message =~ "must be a map or keyword list"
       assert {:error, %InvalidInputError{message: ^message}} = Exec.start(instruction)
 
       assert {:error, %InvalidInputError{message: ^message}} =
@@ -249,7 +245,7 @@ defmodule JidoActionTest.Exec.InstructionExecutionTest do
     assert {:error, %InvalidInputError{message: message}} =
              Exec.run(instruction, :not_params, %{})
 
-    assert message =~ "expected params to be a map or keyword list"
+    assert message =~ "Params must be a map or keyword list"
   end
 
   test "rejects malformed raw Instruction structs" do
@@ -291,7 +287,7 @@ defmodule JidoActionTest.Exec.InstructionExecutionTest do
   test "rejects step-wise execution for an Action Instruction" do
     instruction = Instruction.new!(target: Add, params: %{value: 1})
 
-    assert {:error, %InvalidInputError{details: %{executable_type: :instruction}}} =
+    assert {:error, %InvalidInputError{details: %{executable_type: :action}}} =
              Exec.start(instruction)
   end
 end

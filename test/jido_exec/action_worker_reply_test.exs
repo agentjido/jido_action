@@ -8,10 +8,6 @@ defmodule JidoActionTest.Exec.ActionWorkerReplyTest do
 
   defmodule LargeExtras do
     @behaviour Jido.Action
-    @behaviour Jido.Executable
-
-    @impl true
-    def __jido_executable__, do: Jido.Executable.action(__MODULE__)
 
     @impl true
     def validate_params(params), do: {:ok, params}

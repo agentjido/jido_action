@@ -19,8 +19,7 @@ defmodule JidoActionTest.Exec.CustomFlowValidationTest do
   end
 
   defmodule CustomFlow do
-    @behaviour Jido.Executable
-    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+    @behaviour Jido.Flow
 
     def flow do
       Flow.new!(
@@ -54,7 +53,7 @@ defmodule JidoActionTest.Exec.CustomFlowValidationTest do
   end
 
   defmodule BrokenFlow do
-    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+    @behaviour Jido.Flow
     def flow, do: raise(CustomError, message: "definition failed", details: nil)
     def validate_params(value), do: {:ok, value}
     def validate_output(value), do: {:ok, value}
@@ -71,8 +70,7 @@ defmodule JidoActionTest.Exec.CustomFlowValidationTest do
   end
 
   defmodule OutputFlow do
-    @behaviour Jido.Executable
-    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+    @behaviour Jido.Flow
 
     def flow do
       Flow.new!(
@@ -297,14 +295,14 @@ defmodule JidoActionTest.Exec.CustomFlowValidationTest do
   end
 
   defmodule RuntimeDefinition do
-    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+    @behaviour Jido.Flow
     def flow, do: raise("definition frame")
     def validate_params(value), do: {:ok, value}
     def validate_output(value), do: {:ok, value}
   end
 
   defmodule BadChild do
-    def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
+    @behaviour Jido.Flow
     def flow, do: raise("child definition frame")
     def validate_params(value), do: {:ok, value}
     def validate_output(value), do: {:ok, value}

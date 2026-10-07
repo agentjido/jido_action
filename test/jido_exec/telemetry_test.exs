@@ -65,12 +65,10 @@ defmodule JidoActionTest.Exec.TelemetryTest do
     forms = [
       action: {Add, %{value: 2}, [@action_start, @action_stop], :action, Add.name()},
       action_instruction:
-        {action_instruction, %{}, [@action_start, @action_stop], :instruction, Add.name()},
+        {action_instruction, %{}, [@action_start, @action_stop], :action, Add.name()},
       flow_value: {MathFlow.flow(), %{value: 2}, [@flow_start, @flow_stop], nil, "math_flow"},
       flow_module: {MathFlow, %{value: 2}, [@flow_start, @flow_stop], nil, "math_flow"},
-      flow_instruction:
-        {flow_instruction, %{}, [@action_start, @flow_start, @flow_stop, @action_stop],
-         :instruction, "math_flow"}
+      flow_instruction: {flow_instruction, %{}, [@flow_start, @flow_stop], nil, "math_flow"}
     ]
 
     for {form, {target, input, expected_events, kind, name}} <- forms do

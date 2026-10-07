@@ -79,7 +79,6 @@ defmodule Jido.Exec do
   """
 
   alias Jido.Action.Error
-  alias Jido.Executable
   alias Jido.Exec.Controller
   alias Jido.Exec.Execution
   alias Jido.Exec.Flow.Engine
@@ -247,12 +246,16 @@ defmodule Jido.Exec do
           resolution =
             if transition,
               do: resolve_transition_target(transition),
-              else: resolve_run_target(executable)
+              else: resolve_run_target(executable, input, context)
 
-          with {:ok, resolved} <- resolution do
-            Controller.resolved(call, timeout_owner(resolved), execution_name(resolved))
+          with {:ok, instruction} <- resolution do
+            Controller.resolved(
+              call,
+              timeout_owner(instruction),
+              execution_name(instruction)
+            )
 
-            run_with_lifecycle(executable, resolved, input, context, options, call)
+            run_with_lifecycle(instruction, options, call)
           end
         end,
         chain.timeout_owner,
@@ -292,9 +295,10 @@ defmodule Jido.Exec do
   end
 
   defp resolve_transition_target(%Transition{} = transition) do
-    with {:ok, %Executable{} = executable} <- Executable.resolve(transition.target),
-         :ok <- Executable.validate(executable) do
-      {:ok, executable}
+    with {:ok, %Instruction{} = instruction} <-
+           Instruction.resolve(transition.target, transition.input, transition.context),
+         :ok <- Instruction.validate_resolved(instruction) do
+      {:ok, instruction}
     else
       {:error, cause} ->
         {:error,
@@ -398,8 +402,8 @@ defmodule Jido.Exec do
 
     Controller.operation(
       fn _call ->
-        with {:ok, resolved} <- resolve_run_target(executable) do
-          do_start(executable, resolved, input, context, opts, execution_id)
+        with {:ok, instruction} <- resolve_run_target(executable, input, context) do
+          do_start(instruction, opts, execution_id)
           |> detach_execution()
         end
       end,
@@ -508,14 +512,12 @@ defmodule Jido.Exec do
 
   defp detach_execution(result), do: result
 
-  defp timeout_owner(%Executable{kind: :flow}), do: FlowError
-  defp timeout_owner(%Executable{kind: :action}), do: Error
+  defp timeout_owner(%Instruction{kind: :flow}), do: FlowError
+  defp timeout_owner(%Instruction{kind: :action}), do: Error
 
   defp initial_timeout_owner(%Instruction{target: target}), do: initial_timeout_owner(target)
   defp initial_timeout_owner(%Flow{}), do: FlowError
   defp initial_timeout_owner(_executable), do: Error
-
-  defp execution_name(%Executable{target: target}), do: execution_name(target)
 
   defp execution_name(%Instruction{target: target}),
     do: execution_name(target)
@@ -524,108 +526,67 @@ defmodule Jido.Exec do
   defp execution_name(module) when is_atom(module), do: module
   defp execution_name(executable), do: executable
 
-  defp resolve_run_target(%Instruction{target: target}), do: Executable.resolve(target)
-  defp resolve_run_target(executable), do: Executable.resolve(executable)
+  defp resolve_run_target(%Instruction{} = instruction, input, context),
+    do: Instruction.resolve(instruction, input, context)
 
-  defp run_with_lifecycle(
-         %Instruction{} = instruction,
-         %Executable{} = executable,
-         input,
-         context,
-         opts,
-         call
-       ) do
-    metadata = %{
-      execution_id: call.execution_id,
-      kind: :instruction,
-      name: target_name(instruction.target)
-    }
-
-    action_span = Telemetry.start([:jido, :action], metadata)
-
-    result = run_instruction(instruction, executable, input, context, opts, call)
-
-    Telemetry.finish(action_span, result)
-    result
-  end
-
-  defp run_with_lifecycle(
-         _target,
-         %Executable{} = executable,
-         input,
-         context,
-         opts,
-         call
-       ) do
-    with {:ok, context} <- Jido.Exec.Budget.attach(context, call.deadline) do
-      run_resolved_with_lifecycle(executable, input, context, opts, call)
+  defp resolve_run_target(target, input, context) do
+    with {:ok, %Instruction{} = instruction} <- Instruction.resolve(target),
+         {:ok, input, context} <- normalize_direct_call(instruction.kind, input, context) do
+      Instruction.resolve(instruction, input, context)
     end
   end
 
-  defp run_resolved_with_lifecycle(
-         %Executable{} = executable,
-         input,
-         context,
-         opts,
-         call
-       ) do
-    adapter = adapter_for(executable)
+  defp normalize_direct_call(:action, input, context), do: {:ok, input, context}
 
-    case adapter.lifecycle_metadata(executable, call.execution_id) do
-      {:ok, metadata} ->
-        action_span = Telemetry.start([:jido, :action], metadata)
-        result = adapter.run(executable, input, context, opts, call)
-        Telemetry.finish(action_span, result)
-        result
-
-      :none ->
-        adapter.run(executable, input, context, opts, call)
+  defp normalize_direct_call(:flow, input, context) do
+    with {:ok, input} <- normalize_flow_map(input, :input),
+         {:ok, context} <- normalize_flow_map(context, :context) do
+      {:ok, input, context}
     end
   end
 
-  defp run_instruction(
-         instruction,
-         %Executable{} = executable,
-         input,
-         context,
-         opts,
-         call
-       ) do
-    with {:ok, instruction} <- normalize_instruction(instruction, input, context),
-         {:ok, context} <- Jido.Exec.Budget.attach(instruction.context, call.deadline) do
-      adapter = adapter_for(executable)
+  defp normalize_flow_map(nil, _field), do: {:ok, %{}}
+  defp normalize_flow_map(value, _field) when is_map(value), do: {:ok, value}
 
-      adapter.run_instruction(executable, %{instruction | context: context}, opts, call)
+  defp normalize_flow_map(value, _field) when is_list(value) do
+    if Keyword.keyword?(value) do
+      {:ok, Map.new(value)}
+    else
+      {:error, FlowError.invalid_execution_error("expected a map or keyword list")}
     end
   end
 
-  defp do_start(
-         %Instruction{} = instruction,
-         %Executable{} = executable,
-         input,
-         context,
-         opts,
-         execution_id
-       ) do
-    with {:ok, instruction} <- normalize_instruction(instruction, input, context) do
-      case executable do
-        %Executable{kind: :flow} ->
-          adapter = adapter_for(executable)
-          adapter.start(executable, instruction.params, instruction.context, opts, execution_id)
+  defp normalize_flow_map(_value, field) do
+    {:error, FlowError.invalid_execution_error("#{field} must be a map or keyword list")}
+  end
 
-        %Executable{kind: :action} ->
-          stepwise_flow_required(:instruction)
+  defp run_with_lifecycle(%Instruction{} = instruction, opts, call) do
+    with {:ok, context} <- Jido.Exec.Budget.attach(instruction.context, call.deadline) do
+      instruction = %{instruction | context: context}
+      adapter = adapter_for(instruction)
+
+      case adapter.lifecycle_metadata(instruction, call.execution_id) do
+        {:ok, metadata} ->
+          action_span = Telemetry.start([:jido, :action], metadata)
+          result = adapter.run(instruction, opts, call)
+          Telemetry.finish(action_span, result)
+          result
+
+        :none ->
+          adapter.run(instruction, opts, call)
       end
     end
   end
 
-  defp do_start(_target, %Executable{} = executable, input, context, opts, execution_id) do
-    adapter = adapter_for(executable)
-    adapter.start(executable, input, context, opts, execution_id)
+  defp do_start(%Instruction{kind: :flow} = instruction, opts, execution_id) do
+    adapter_for(instruction).start(instruction, opts, execution_id)
   end
 
-  defp adapter_for(%Executable{kind: :action}), do: Jido.Exec.Action.Adapter
-  defp adapter_for(%Executable{kind: :flow}), do: Jido.Exec.Flow.Adapter
+  defp do_start(%Instruction{kind: :action}, _opts, _execution_id),
+    do: stepwise_flow_required(:action)
+
+  defp adapter_for(%Instruction{kind: :action}), do: Jido.Exec.Action.Adapter
+  defp adapter_for(%Instruction{kind: :flow}), do: Jido.Exec.Flow.Adapter
 
   defp stepwise_flow_required(executable_type) do
     {:error,
@@ -633,24 +594,4 @@ defmodule Jido.Exec do
        executable_type: executable_type
      })}
   end
-
-  defp normalize_instruction(executable, input, context) do
-    {:ok, Instruction.normalize_resolved!(executable, input, context)}
-  rescue
-    exception -> {:error, Error.validation_error(Exception.message(exception))}
-  end
-
-  defp target_name(module) when is_atom(module) do
-    if Code.ensure_loaded?(module) and function_exported?(module, :name, 0) do
-      module.name()
-    else
-      module
-    end
-  rescue
-    _exception -> module
-  catch
-    _kind, _reason -> module
-  end
-
-  defp target_name(target), do: target
 end

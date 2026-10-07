@@ -10,7 +10,7 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
     {flow_opts_ast, extensions} = split_options!(opts_ast, __CALLER__)
 
     quote location: :keep do
-      @behaviour Jido.Executable
+      @behaviour Jido.Flow
       use Jido.Flow.DSL, extensions: unquote(Macro.escape(extensions))
       @before_compile Jido.Flow.DSL.ModuleCompiler
       Jido.Action.Inline.setup!(__ENV__)
@@ -43,23 +43,20 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
       def output_schema, do: @__jido_output_schema__
 
       @doc "Validates Flow input parameters."
-      @impl Jido.Executable
+      @impl Jido.Flow
       @spec validate_params(map()) ::
               {:ok, map()} | {:error, Jido.Action.Error.InvalidInputError.t()}
       def validate_params(params), do: Jido.Action.validate_params_for(params, __MODULE__)
 
       @doc "Validates a Flow output value."
-      @impl Jido.Executable
+      @impl Jido.Flow
       @spec validate_output(map() | Jido.Action.Output.t()) ::
               {:ok, map() | Jido.Action.Output.t()}
               | {:error, Jido.Action.Error.InvalidInputError.t()}
       def validate_output(output), do: Jido.Action.validate_output_for(output, __MODULE__)
 
-      @doc false
-      @spec __jido_executable__() :: Jido.Executable.t()
-      def __jido_executable__()
-
       @doc "Returns the canonical Flow data for this module."
+      @impl Jido.Flow
       @spec flow() :: Jido.Flow.t()
       def flow()
 
@@ -231,8 +228,6 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
           do: {name, action}
 
     quote generated: true do
-      @impl Jido.Executable
-      def __jido_executable__, do: Jido.Executable.flow(__MODULE__)
       def flow, do: unquote(escaped_flow)
       def __jido_flow_source_map__, do: unquote(escaped_source_map)
 
@@ -254,7 +249,7 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
         do: Jido.Flow.compile!(flow(), source_map: __jido_flow_source_map__())
 
       # This is a convenience entry point. Exec selects native Flow execution
-      # from the descriptor and does not call this through the Action runner.
+      # from the resolved Instruction and does not call this through the Action runner.
       def run(params, context), do: Jido.Exec.run(__MODULE__, params, context)
     end
   end

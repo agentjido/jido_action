@@ -7,12 +7,12 @@ defmodule JidoActionTest.InstructionTest do
   alias JidoActionTest.Fixtures.Actions.{Add, BasicAction}
 
   describe "new/1" do
-    test "exposes only the four call-data fields" do
+    test "exposes the resolved kind and four call-data fields" do
       assert Instruction.new!(target: BasicAction)
              |> Map.from_struct()
              |> Map.keys()
              |> Enum.sort() ==
-               [:context, :metadata, :params, :target]
+               [:context, :kind, :metadata, :params, :target]
     end
 
     test "rejects removed fields in map and keyword constructors even when empty" do
@@ -135,7 +135,7 @@ defmodule JidoActionTest.InstructionTest do
         assert {:error, %Jido.Action.Error.ConfigurationError{details: details}} =
                  Instruction.new(%{target: target})
 
-        assert details.executable == target
+        assert details.target == target
       end
     end
 
@@ -193,8 +193,8 @@ defmodule JidoActionTest.InstructionTest do
 
         instruction = struct!(Instruction, attrs)
 
-        assert_raise ArgumentError,
-                     "expected #{@field} to be a map or keyword list, got: false",
+        assert_raise Jido.Action.Error.InvalidInputError,
+                     ~r/Invalid #{to_string(@field)}/i,
                      fn -> Instruction.normalize!(instruction, %{override: 1}, %{override: 2}) end
       end
     end
@@ -293,14 +293,14 @@ defmodule JidoActionTest.InstructionTest do
     end
 
     test "rejects invalid normalization inputs" do
-      assert_raise Jido.Action.Error.ConfigurationError, ~r/unknown executable/, fn ->
+      assert_raise Jido.Action.Error.ConfigurationError, ~r/unknown Instruction target/, fn ->
         Instruction.normalize!(nil)
       end
 
       invalid = %Instruction{target: "not executable"}
 
-      assert_raise Jido.Action.Error.InvalidInputError,
-                   ~r/Invalid instruction configuration/,
+      assert_raise Jido.Action.Error.ConfigurationError,
+                   ~r/unknown Instruction target/,
                    fn -> Instruction.normalize!(invalid) end
 
       assert_raise ArgumentError, ~r/expected params to be a map or keyword list/, fn ->

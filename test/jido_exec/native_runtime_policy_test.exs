@@ -29,16 +29,17 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
   end
 
   defmodule BlockingDescriptorAction do
-    def __jido_executable__ do
+    @behaviour Jido.Action
+
+    def validate_params(_params) do
       owner = :persistent_term.get({__MODULE__, :owner})
-      send(owner, {:descriptor_started, self()})
+      send(owner, {:action_validation_started, self()})
 
       receive do
-        :release_descriptor -> Jido.Executable.action(__MODULE__)
+        :release_validation -> {:ok, %{}}
       end
     end
 
-    def validate_params(params), do: {:ok, params}
     def validate_output(output), do: {:ok, output}
     def run(params, _context), do: {:ok, params}
   end
@@ -53,16 +54,18 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
   end
 
   defmodule BlockingFlowDescriptor do
-    def __jido_executable__ do
+    @behaviour Jido.Flow
+
+    def flow do
       owner = :persistent_term.get({__MODULE__, :owner})
-      send(owner, {:continuation_flow_descriptor_started, self()})
+      send(owner, {:continuation_flow_definition_started, self()})
 
       receive do
-        :release_descriptor -> Jido.Executable.flow(__MODULE__)
+        :release_definition -> definition()
       end
     end
 
-    def flow do
+    defp definition do
       Jido.Flow.new!(
         name: "blocking_descriptor_flow",
         components: [
@@ -92,17 +95,18 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
   end
 
   defmodule BlockingActionDescriptorWithFlowHelper do
-    def __jido_executable__ do
+    @behaviour Jido.Action
+
+    def validate_params(_params) do
       owner = :persistent_term.get({__MODULE__, :owner})
-      send(owner, {:continuation_action_descriptor_started, self()})
+      send(owner, {:continuation_action_validation_started, self()})
 
       receive do
-        :release_descriptor -> Jido.Executable.action(__MODULE__)
+        :release_validation -> {:ok, %{}}
       end
     end
 
     def flow, do: :unrelated_application_helper
-    def validate_params(params), do: {:ok, params}
     def validate_output(output), do: {:ok, output}
     def run(params, _context), do: {:ok, params}
   end
@@ -330,7 +334,7 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     end
   end
 
-  test "includes executable resolution in the complete-call timeout" do
+  test "includes Action input validation in the complete-call timeout" do
     key = {BlockingDescriptorAction, :owner}
     :persistent_term.put(key, self())
     on_exit(fn -> :persistent_term.erase(key) end)
@@ -345,28 +349,28 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
         end)
 
       on_exit(fn -> Process.exit(caller, :kill) end)
-      assert_receive {:descriptor_started, descriptor_process}, 1_000
-      refute descriptor_process == caller
+      assert_receive {:action_validation_started, validation_process}, 1_000
+      refute validation_process == caller
 
       assert_receive {:descriptor_result, {:error, %ActionTimeoutError{timeout: 100}}}, 1_000
-      assert_process_stops(descriptor_process)
+      assert_process_stops(validation_process)
     end
   end
 
-  test "keeps continuation resolution under the current Action timeout owner" do
+  test "keeps continuation Flow materialization under the current Action timeout owner" do
     key = {BlockingFlowDescriptor, :owner}
     :persistent_term.put(key, self())
     on_exit(fn -> :persistent_term.erase(key) end)
 
     assert {:error,
-            %ActionTimeoutError{
+            %FlowTimeoutError{
               timeout: 100,
-              details: %{action: ContinueToBlockingFlowDescriptor}
+              details: %{flow: BlockingFlowDescriptor}
             }} =
              Exec.run(ContinueToBlockingFlowDescriptor, %{}, %{}, timeout: 100)
 
-    assert_received {:continuation_flow_descriptor_started, descriptor_process}
-    assert_process_stops(descriptor_process)
+    assert_received {:continuation_flow_definition_started, definition_process}
+    assert_process_stops(definition_process)
   end
 
   test "does not infer timeout ownership from an unrelated flow helper" do
@@ -377,12 +381,12 @@ defmodule JidoActionTest.Exec.NativeRuntimePolicyTest do
     assert {:error,
             %ActionTimeoutError{
               timeout: 100,
-              details: %{action: ContinueToBlockingActionDescriptor}
+              details: %{action: BlockingActionDescriptorWithFlowHelper}
             }} =
              Exec.run(ContinueToBlockingActionDescriptor, %{}, %{}, timeout: 100)
 
-    assert_received {:continuation_action_descriptor_started, descriptor_process}
-    assert_process_stops(descriptor_process)
+    assert_received {:continuation_action_validation_started, validation_process}
+    assert_process_stops(validation_process)
   end
 
   test "accepts a timeout above the native receive limit" do
