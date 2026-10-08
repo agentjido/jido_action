@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- changelog -->
 
+## [v2.4.0](https://github.com/agentjido/jido_action/compare/v2.3.2...v2.4.0) (2026-10-08)
+
+
+
+
+### Features:
+
+* exec: add retryable predicate option (#264) by dl-alexandre
+
+### Bug Fixes:
+
+* deps: update Zoi and compatible Jido dependencies by dependabot[bot]
+
+* deps: update mint for security advisory by mikehostetler
+
+* tool: treat nil optional params as absent (#265) by dl-alexandre
+
+* deps: update Igniter to 0.8.4 by mikehostetler
+
+* deps: update Mint to 1.10.0 by mikehostetler
+
+* schema: validate top-level Zoi unions (#222) by mikehostetler
+
 ## [v2.3.2](https://github.com/agentjido/jido_action/compare/v2.3.1...v2.3.2) (2026-08-07)
 
 

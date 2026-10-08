@@ -1,7 +1,7 @@
 defmodule JidoAction.MixProject do
   use Mix.Project
 
-  @version "2.3.2"
+  @version "2.4.0"
   @source_url "https://github.com/agentjido/jido_action"
   @description "Composable, validated actions for Elixir applications with built-in AI tool integration"
 
