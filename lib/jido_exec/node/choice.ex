@@ -163,7 +163,7 @@ end
 defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Choice do
   alias Jido.Exec.Node.Choice
   alias Runic.Workflow
-  alias Runic.Workflow.{CausalContext, Fact, Runnable}
+  alias Runic.Workflow.{CausalContext, Runnable}
   alias Runic.Workflow.Events.{ActivationConsumed, FactProduced}
 
   def match_or_execute(_node), do: :execute
@@ -185,8 +185,8 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Choice do
   end
 
   def execute(node, %Runnable{input_fact: fact, context: context} = runnable) do
-    {:ok, value} = Choice.pass(fact.value)
-    result = Fact.new(value: value, ancestry: {node.hash, fact.hash})
+    {:ok, value} = Choice.pass(Jido.Exec.Fact.value(fact))
+    result = Jido.Exec.Fact.child(fact, value: value, ancestry: {node.hash, fact.hash})
 
     Runnable.complete(runnable, result, [
       FactProduced.new(result, producer_label: :produced, weight: context.ancestry_depth + 1),

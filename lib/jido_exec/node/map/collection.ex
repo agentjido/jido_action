@@ -90,7 +90,7 @@ end
 defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Map.Collection do
   alias Jido.Exec.Node.Map.Collection
   alias Runic.Workflow
-  alias Runic.Workflow.{CausalContext, Fact, Runnable}
+  alias Runic.Workflow.{CausalContext, Runnable}
   alias Runic.Workflow.Events.{ActivationConsumed, FactProduced}
 
   def match_or_execute(_node), do: :execute
@@ -113,9 +113,9 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Map.Collection do
   end
 
   def execute(node, %Runnable{input_fact: fact, context: context} = runnable) do
-    case Collection.resolve(node, fact.value, context.run_context) do
+    case Collection.resolve(node, Jido.Exec.Fact.value(fact), context.run_context) do
       {:ok, value} ->
-        result = Fact.new(value: value, ancestry: {node.hash, fact.hash})
+        result = Jido.Exec.Fact.child(fact, value: value, ancestry: {node.hash, fact.hash})
 
         Runnable.complete(runnable, result, [
           FactProduced.new(result, producer_label: :produced, weight: context.ancestry_depth + 1),

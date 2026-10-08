@@ -497,10 +497,11 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Action do
     with {:ok, before_apply_fns} <- HookRunner.run_before(context, node, fact),
          {:ok, value, effects} <-
            Telemetry.span(:action, Telemetry.action_metadata(node, runnable), fn ->
-             Action.execute(node, fact.value, context.run_context, fact.meta)
+             Action.execute(node, Jido.Exec.Fact.value(fact), context.run_context, fact.meta)
            end) do
       result_fact =
-        Fact.new(
+        Jido.Exec.Fact.child(
+          fact,
           value: value,
           ancestry: {node.hash, fact.hash},
           meta: append_effects(fact.meta, effects)

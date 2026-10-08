@@ -200,7 +200,7 @@ defmodule Jido.Exec do
         |> Workflow.enable_event_emission()
         |> Workflow.put_run_context(%{_global: context})
         |> Workflow.react_until_satisfied(
-          Fact.new(value: input),
+          Jido.Exec.Fact.local_root(input),
           Keyword.merge(react_opts,
             scheduler_policies: [{:default, Map.from_struct(policy)}]
           )
@@ -217,7 +217,8 @@ defmodule Jido.Exec do
     end
   end
 
-  defp project(%Fact{value: value, meta: meta}) do
+  defp project(%Fact{meta: meta} = fact) do
+    value = Jido.Exec.Fact.value(fact)
     effects = get_in(meta, [:jido, :effects]) || []
     if effects == [], do: {:ok, value}, else: {:ok, value, effects}
   end

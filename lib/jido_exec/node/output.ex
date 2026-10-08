@@ -156,9 +156,11 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Output do
 
   def execute(%Output{} = node, %Runnable{input_fact: fact, context: context} = runnable) do
     with {:ok, before_apply_fns} <- HookRunner.run_before(context, node, fact),
-         {:ok, output, effects} <- Output.resolve(node, fact.value, context.run_context) do
+         {:ok, output, effects} <-
+           Output.resolve(node, Jido.Exec.Fact.value(fact), context.run_context) do
       result_fact =
-        Fact.new(
+        Jido.Exec.Fact.child(
+          fact,
           value: output,
           ancestry: {node.hash, fact.hash},
           meta: %{jido: %{effects: effects}}
