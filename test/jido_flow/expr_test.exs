@@ -202,7 +202,7 @@ defmodule JidoActionTest.Flow.ExprTest do
              value: nil
            }) == {:ok, %{is_nil: true}}
 
-    assert {:ok, 3} = Jido.Exec.run(output_flow(Expr.new!(:+, [1, 2])))
+    assert {:ok, %{value: 3}} = Jido.Exec.run(output_flow(%{value: Expr.new!(:+, [1, 2])}))
   end
 
   test "resolved private map keys are absent from complete Flow errors" do

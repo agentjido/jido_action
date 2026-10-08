@@ -4,15 +4,17 @@ defmodule Jido.Exec.Node.Map.Collection do
   alias Jido.Exec.{Frame, ValueResolver}
   alias Runic.Identity
 
-  @enforce_keys [:id, :name, :hash, :component, :value]
-  defstruct [:id, :name, :hash, :component, :value, :location]
+  @enforce_keys [:id, :name, :hash, :component, :value, :params]
+  defstruct [:id, :name, :hash, :component, :value, :params, :location, :node_path]
 
   @type t :: %__MODULE__{}
 
   @doc false
   @spec new(keyword()) :: t()
   def new(opts) do
-    opts = Keyword.validate!(opts, [:id, :name, :component, :value, :location])
+    opts =
+      Keyword.validate!(opts, [:id, :name, :component, :value, :params, :location, :node_path])
+
     id = Keyword.fetch!(opts, :id)
 
     %__MODULE__{
@@ -26,7 +28,9 @@ defmodule Jido.Exec.Node.Map.Collection do
         }),
       component: Keyword.fetch!(opts, :component),
       value: Keyword.fetch!(opts, :value),
-      location: Keyword.get(opts, :location)
+      params: Keyword.fetch!(opts, :params),
+      location: Keyword.get(opts, :location),
+      node_path: Keyword.get(opts, :node_path, [Keyword.fetch!(opts, :component)])
     }
   end
 
@@ -37,6 +41,10 @@ defmodule Jido.Exec.Node.Map.Collection do
          {:ok, collection} <-
            ValueResolver.resolve(node.value, Frame.resolver_state(frame, context)),
          {:ok, items} <- enumerable(collection) do
+      state = Frame.resolver_state(frame, context)
+
+      # Items carry only their resolved params. The frame rides on the first
+      # item so fact size stays linear in the collection size.
       values =
         case items do
           [] ->
@@ -46,7 +54,10 @@ defmodule Jido.Exec.Node.Map.Collection do
             items
             |> Enum.with_index()
             |> Enum.map(fn {item, index} ->
-              {:jido_map_item, frame, item, index, stable_item_id(index, item)}
+              item_id = Frame.item_id(node.id, index)
+              item_state = Map.merge(state, %{item: item, item_index: index, item_id: item_id})
+              params = ValueResolver.resolve(node.params, item_state)
+              {:jido_map_item, index, item_id, params, if(index == 0, do: frame)}
             end)
         end
 
@@ -60,16 +71,6 @@ defmodule Jido.Exec.Node.Map.Collection do
     else
       {:ok, Enum.to_list(value)}
     end
-  end
-
-  defp stable_item_id(index, item) do
-    digest =
-      {index, item}
-      |> :erlang.term_to_binary([:deterministic])
-      |> then(&:crypto.hash(:sha256, &1))
-      |> Base.encode16(case: :lower)
-
-    digest
   end
 end
 
@@ -119,7 +120,7 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Map.Collection do
           runnable,
           Jido.Exec.Source.attach(error, node.location, %{
             node: node.component,
-            node_path: [node.component]
+            node_path: node.node_path
           })
         )
     end
@@ -137,7 +138,9 @@ defimpl Runic.Component, for: Jido.Exec.Node.Map.Collection do
         name: unquote(node.name),
         component: unquote(node.component),
         value: unquote(Macro.escape(node.value)),
-        location: unquote(Macro.escape(node.location))
+        params: unquote(Macro.escape(node.params)),
+        location: unquote(Macro.escape(node.location)),
+        node_path: unquote(Macro.escape(node.node_path))
       )
     end
   end

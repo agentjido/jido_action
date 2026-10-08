@@ -63,57 +63,12 @@ defmodule Jido.Exec.Frame do
   end
 
   @doc false
-  @spec put_collection_item(t() | nested_t(), String.t(), non_neg_integer(), term()) ::
-          t() | nested_t()
-  def put_collection_item({@nested_tag, @version, parent, child}, name, index, result) do
-    {@nested_tag, @version, parent, put_collection_item(child, name, index, result)}
-  end
-
-  def put_collection_item(
-        {@tag, @version, input, results, effects},
-        name,
-        index,
-        {:collect_errors, {:ok, value, requests}}
-      ) do
-    entry = %{status: :ok, value: value}
-    entries = results |> Map.get(name, []) |> List.insert_at(index, entry)
-    collected_effects = Map.get(effects, name, []) ++ requests
-
-    {@tag, @version, input, Map.put(results, name, entries),
-     Map.put(effects, name, collected_effects)}
-  end
-
-  def put_collection_item(
-        {@tag, @version, input, results, effects},
-        name,
-        index,
-        {:collect_errors, {:error, error}}
-      ) do
-    entry = %{status: :error, error: error}
-    entries = results |> Map.get(name, []) |> List.insert_at(index, entry)
-    {@tag, @version, input, Map.put(results, name, entries), Map.put_new(effects, name, [])}
-  end
-
-  def put_collection_item(
-        {@tag, @version, input, results, effects},
-        name,
-        _index,
-        {_on_error, :empty}
-      ) do
-    {@tag, @version, input, Map.put(results, name, []), Map.put(effects, name, [])}
-  end
-
-  def put_collection_item(
-        {@tag, @version, input, results, effects},
-        name,
-        index,
-        {:fail_fast, {:ok, value, requests}}
-      ) do
-    entries = results |> Map.get(name, []) |> List.insert_at(index, value)
-    collected_effects = Map.get(effects, name, []) ++ requests
-
-    {@tag, @version, input, Map.put(results, name, entries),
-     Map.put(effects, name, collected_effects)}
+  @spec item_id(term(), non_neg_integer()) :: String.t()
+  def item_id(owner_id, index) do
+    {owner_id, index}
+    |> :erlang.term_to_binary([:deterministic])
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
   end
 
   @doc false

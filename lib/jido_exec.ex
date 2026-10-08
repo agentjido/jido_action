@@ -61,37 +61,35 @@ defmodule Jido.Exec do
   def run(target, params \\ %{}, context \\ %{}, opts \\ []) do
     group_leader = Process.group_leader()
 
-    with {:ok, task_supervisor, execution_opts} <- run_options(opts) do
-      run_supervised(task_supervisor, group_leader, fn ->
-        do_run(target, params, context, execution_opts)
+    with {:ok, task_supervisor, execution_opts} <- run_options(opts),
+         {:ok, instruction} <- resolve(target, params, context) do
+      # The Flow span runs in the caller so it stops even if the task is killed.
+      span(instruction, fn ->
+        run_supervised(task_supervisor, group_leader, fn ->
+          do_run_instruction(instruction, execution_opts)
+        end)
       end)
     end
   end
 
-  defp do_run(target, params, context, opts) do
-    with {:ok, instruction} <- Instruction.resolve(target, params, context) do
-      run_instruction(instruction, opts)
-    else
+  defp resolve(target, params, context) do
+    case Instruction.resolve(target, params, context) do
+      {:ok, instruction} -> {:ok, instruction}
       {:error, error} -> {:error, normalize_runtime_error(error)}
     end
   end
 
-  defp run_instruction(%Instruction{kind: :flow} = instruction, opts) do
-    Telemetry.span(:flow, Telemetry.flow_metadata(instruction), fn ->
-      do_run_instruction(instruction, opts)
-    end)
-  end
+  defp span(%Instruction{kind: :flow} = instruction, work),
+    do: Telemetry.span(:flow, Telemetry.flow_metadata(instruction), work)
 
-  defp run_instruction(%Instruction{} = instruction, opts) do
-    do_run_instruction(instruction, opts)
-  end
+  defp span(%Instruction{}, work), do: work.()
 
   defp do_run_instruction(instruction, opts) do
     with {:ok, instruction} <- validate_flow_input(instruction),
          {:ok, workflow} <- compile(instruction),
-         {:ok, workflow, last_fact} <-
+         {:ok, workflow} <-
            run_workflow(workflow, execution_input(instruction), instruction.context, opts) do
-      project(last_fact, workflow)
+      result(workflow)
     else
       {:error, error} -> {:error, normalize_runtime_error(error)}
     end
@@ -110,8 +108,9 @@ defmodule Jido.Exec do
     with {:ok, instruction} <- Instruction.resolve(target, params, context),
          {:ok, instruction} <- validate_flow_input(instruction),
          :ok <- validate_durable_instruction(instruction),
-         {:ok, workflow} <- compile(instruction),
-         {:ok, policy, worker_opts} <- managed_options(runner, opts),
+         # Runic persists the compiled workflow, so context stays runtime-only.
+         {:ok, workflow} <- compile(%{instruction | context: %{}}),
+         {:ok, policy, worker_opts} <- managed_options(runner, execution_id, opts),
          {:ok, pid} <-
            Runic.Runner.start_workflow(runner, execution_id, workflow, worker_opts),
          :ok <-
@@ -122,6 +121,51 @@ defmodule Jido.Exec do
       {:ok, pid}
     else
       {:error, error} -> {:error, normalize_runtime_error(error)}
+    end
+  end
+
+  @doc """
+  Resumes a managed execution from the Runner's Runic Store.
+
+  Runic does not persist runtime context or runtime policy. Pass the same
+  context and the same managed options that were given to `start/6`. Context
+  must contain portable values. Worker options such as `hooks` and
+  `dispatch_mode` apply to the resumed worker.
+  """
+  @spec resume(module(), term(), map() | keyword() | nil, keyword()) ::
+          DynamicSupervisor.on_start_child() | {:error, Exception.t()}
+  def resume(runner, execution_id, context \\ %{}, opts \\ []) do
+    with {:ok, context} <- runtime_context(context),
+         :ok <- Portable.validate(context, :context),
+         {:ok, policy, worker_opts} <- managed_options(runner, execution_id, opts) do
+      runner
+      |> Runic.Runner.resume(
+        execution_id,
+        worker_opts ++
+          [
+            run_context: %{_global: durable_context(context)},
+            scheduler_policies: [{:default, Map.from_struct(policy)}]
+          ]
+      )
+      |> normalize_start()
+    else
+      {:error, error} -> {:error, normalize_runtime_error(error)}
+    end
+  end
+
+  @doc """
+  Projects a Runic workflow to the `run/4` result contract.
+
+  Use this with the workflow returned by `step/2` or `Runic.Runner.get_workflow/2`
+  for a managed execution. A terminal Runnable failure returns `{:error,
+  exception}`. A workflow without a Flow or Action result returns an execution
+  error.
+  """
+  @spec result(Workflow.t()) :: exec_result()
+  def result(%Workflow{} = workflow) do
+    case first_failure(workflow) do
+      nil -> project(result_fact(workflow))
+      error -> {:error, normalize_runtime_error(error)}
     end
   end
 
@@ -162,41 +206,29 @@ defmodule Jido.Exec do
           )
         )
 
-      case last_failure(workflow) do
-        nil -> {:ok, workflow, result_fact(workflow)}
-        error -> {:error, error}
-      end
+      {:ok, workflow}
     end
   end
 
   defp result_fact(workflow) do
     case Workflow.results(workflow, nil, facts: true) do
-      %{result: %Runic.Workflow.Fact{} = fact} -> fact
-      _ -> nil
+      %{result: %Fact{} = fact} -> fact
+      _ports -> nil
     end
   end
 
-  defp project(last_fact, workflow) do
-    case Workflow.results(workflow, nil, facts: true) do
-      %{result: %Runic.Workflow.Fact{} = fact} -> project_fact(fact)
-      _ -> project_last(last_fact, workflow)
-    end
-  end
-
-  defp project_last(nil, _workflow),
-    do: {:error, Jido.Action.Error.execution_error("Exec produced no result")}
-
-  defp project_last(%Runic.Workflow.Fact{} = fact, _workflow), do: project_fact(fact)
-
-  defp project_fact(%Runic.Workflow.Fact{value: value, meta: meta}) do
+  defp project(%Fact{value: value, meta: meta}) do
     effects = get_in(meta, [:jido, :effects]) || []
     if effects == [], do: {:ok, value}, else: {:ok, value, effects}
   end
 
-  defp last_failure(%Workflow{runnable_events: events}) do
-    events
-    |> Enum.reverse()
-    |> Enum.find_value(fn
+  defp project(_missing),
+    do: {:error, Jido.Action.Error.execution_error("Exec produced no result")}
+
+  # Runic records events in application order. The first failure is the one
+  # that halted the run, for both serial and concurrent execution.
+  defp first_failure(%Workflow{runnable_events: events}) do
+    Enum.find_value(events, fn
       %RunnableFailed{error: error} -> error
       _event -> nil
     end)
@@ -215,19 +247,14 @@ defmodule Jido.Exec do
 
       case Keyword.keys(opts) -- allowed do
         [] ->
-          case build_policy(opts) do
-            {:ok, policy} ->
-              max_concurrency = Keyword.get(opts, :max_concurrency, 1)
+          with {:ok, policy} <- build_policy(opts),
+               {:ok, max_concurrency} <- max_concurrency(opts) do
+            react_opts =
+              if max_concurrency > 1,
+                do: [async: true, max_concurrency: max_concurrency],
+                else: []
 
-              react_opts =
-                if max_concurrency > 1,
-                  do: [async: true, max_concurrency: max_concurrency],
-                  else: []
-
-              {:ok, policy, react_opts}
-
-            {:error, error} ->
-              {:error, error}
+            {:ok, policy, react_opts}
           end
 
         unknown ->
@@ -274,14 +301,11 @@ defmodule Jido.Exec do
                  elem(task_supervisor, 0) == :via) do
     case GenServer.whereis(task_supervisor) do
       pid when is_pid(pid) and node(pid) == node() ->
-        :ok
+        # A PID reference resolves to itself even after the process exits.
+        if Process.alive?(pid), do: :ok, else: not_running(task_supervisor)
 
       _other ->
-        {:error,
-         Jido.Action.Error.config_error("Task Supervisor is not running", %{
-           option: :task_supervisor,
-           task_supervisor: task_supervisor
-         })}
+        not_running(task_supervisor)
     end
   rescue
     exception ->
@@ -309,6 +333,14 @@ defmodule Jido.Exec do
      )}
   end
 
+  defp not_running(task_supervisor) do
+    {:error,
+     Jido.Action.Error.config_error("Task Supervisor is not running", %{
+       option: :task_supervisor,
+       task_supervisor: task_supervisor
+     })}
+  end
+
   defp run_supervised(task_supervisor, group_leader, work) do
     caller = self()
 
@@ -324,7 +356,6 @@ defmodule Jido.Exec do
     case Task.yield(task, :infinity) do
       {:ok, result} -> result
       {:exit, reason} -> {:error, execution_task_error(reason)}
-      nil -> {:error, execution_task_error(:no_result)}
     end
   rescue
     exception ->
@@ -335,17 +366,9 @@ defmodule Jido.Exec do
   end
 
   # The execution task is not linked to the caller, so a killed Action cannot
-  # exit the caller. This linked watcher kills the task, and the processes
+  # exit the caller. The linked watcher kills the task, and the processes
   # linked to it, when the caller exits.
-  defp watch_caller(caller, task) do
-    spawn_link(fn ->
-      monitor = Process.monitor(caller)
-
-      receive do
-        {:DOWN, ^monitor, :process, ^caller, _reason} -> Process.exit(task, :kill)
-      end
-    end)
-  end
+  defp watch_caller(caller, task), do: Jido.Exec.Runner.TaskExecutor.watch(caller, task)
 
   defp stop_watcher(watcher) do
     Process.unlink(watcher)
@@ -359,7 +382,7 @@ defmodule Jido.Exec do
     })
   end
 
-  defp managed_options(runner, opts) when is_list(opts) do
+  defp managed_options(runner, execution_id, opts) when is_list(opts) do
     policy_keys = [:timeout, :max_attempts, :backoff, :base_delay_ms, :max_delay_ms]
 
     worker_keys = [
@@ -378,10 +401,11 @@ defmodule Jido.Exec do
     if Keyword.keyword?(opts) do
       case Keyword.keys(opts) -- (policy_keys ++ worker_keys) do
         [] ->
-          with {:ok, policy} <- build_policy(Keyword.take(opts, policy_keys)) do
+          with {:ok, policy} <- build_policy(Keyword.take(opts, policy_keys)),
+               worker_opts = Keyword.take(opts, worker_keys),
+               :ok <- validate_worker_options(worker_opts) do
             policy = %{policy | execution_mode: :durable}
-            worker_opts = Keyword.take(opts, worker_keys)
-            {:ok, policy, default_executor(runner, worker_opts)}
+            {:ok, policy, default_executor(runner, execution_id, worker_opts)}
           end
 
         unknown ->
@@ -395,10 +419,58 @@ defmodule Jido.Exec do
     end
   end
 
-  defp managed_options(_runner, _opts),
+  defp managed_options(_runner, _execution_id, _opts),
     do: {:error, Jido.Action.Error.config_error("execution options must be a keyword list")}
 
-  defp default_executor(runner, opts) do
+  defp max_concurrency(opts) do
+    case Keyword.get(opts, :max_concurrency, 1) do
+      value when is_integer(value) and value > 0 ->
+        {:ok, value}
+
+      value ->
+        {:error,
+         Jido.Action.Error.config_error("max_concurrency must be a positive integer", %{
+           option: :max_concurrency,
+           value: value
+         })}
+    end
+  end
+
+  # Runic accepts these values. Other worker options pass through to Runic.
+  defp validate_worker_options(opts) do
+    Enum.reduce_while(opts, :ok, fn {key, value}, :ok ->
+      if valid_worker_option?(key, value) do
+        {:cont, :ok}
+      else
+        {:halt,
+         {:error,
+          Jido.Action.Error.config_error("invalid managed execution option", %{
+            option: key,
+            value: value
+          })}}
+      end
+    end)
+  end
+
+  defp valid_worker_option?(:max_concurrency, value), do: is_integer(value) and value > 0
+  defp valid_worker_option?(:dispatch_mode, value), do: value in [:automatic, :manual]
+
+  defp valid_worker_option?(:checkpoint_strategy, {:every_n, n}),
+    do: is_integer(n) and n > 0
+
+  defp valid_worker_option?(:checkpoint_strategy, value),
+    do: value in [:every_cycle, :on_complete, :manual]
+
+  defp valid_worker_option?(key, value) when key in [:executor, :scheduler],
+    do: is_atom(value) and match?({:module, _}, Code.ensure_loaded(value))
+
+  defp valid_worker_option?(key, value)
+       when key in [:hooks, :executor_opts, :scheduler_opts, :promise_opts],
+       do: is_list(value) and Keyword.keyword?(value)
+
+  defp valid_worker_option?(_key, _value), do: true
+
+  defp default_executor(runner, execution_id, opts) do
     if Keyword.has_key?(opts, :executor) do
       opts
     else
@@ -406,7 +478,7 @@ defmodule Jido.Exec do
       |> Keyword.put(:executor, Jido.Exec.Runner.TaskExecutor)
       |> Keyword.put(
         :executor_opts,
-        task_supervisor: Module.concat(runner, TaskSupervisor)
+        task_supervisor: Runic.Runner.task_supervisor_ref(runner, execution_id)
       )
     end
   end
@@ -449,7 +521,9 @@ defmodule Jido.Exec do
            backoff: backoff,
            base_delay_ms: base_delay_ms,
            max_delay_ms: max_delay_ms,
-           on_failure: :halt
+           on_failure: :halt,
+           # Retry only errors that declare another attempt safe.
+           retry_if: {Jido.Action.Error, :retryable?, []}
          }}
     end
   end
@@ -460,9 +534,10 @@ defmodule Jido.Exec do
     Jido.Action.Error.timeout_error("Action timed out", %{timeout: timeout})
   end
 
-  defp normalize_runtime_error({:deadline_exceeded, remaining_ms}) do
-    Jido.Action.Error.timeout_error("Execution deadline was exceeded", %{
-      remaining_ms: remaining_ms
+  defp normalize_runtime_error({:task_crashed, reason}) do
+    Jido.Action.Error.execution_error("Action process exited", %{
+      phase: :execution_task,
+      reason: reason
     })
   end
 
@@ -474,12 +549,33 @@ defmodule Jido.Exec do
   defp execution_input(%Instruction{kind: :flow, params: params}), do: Frame.new(params)
 
   defp validate_durable_instruction(%Instruction{} = instruction) do
-    with :ok <- Portable.validate(instruction.params, :params) do
+    with :ok <- Portable.validate(instruction.params, :params),
+         :ok <- Portable.validate(instruction.metadata, :metadata) do
       Portable.validate(instruction.context, :context)
     end
   end
 
   defp durable_context(context), do: Map.put(context, :__jido_exec_durable__, true)
+
+  defp runtime_context(nil), do: {:ok, %{}}
+  defp runtime_context(context) when is_map(context), do: {:ok, context}
+
+  defp runtime_context(context) when is_list(context) do
+    if Keyword.keyword?(context), do: {:ok, Map.new(context)}, else: invalid_context(context)
+  end
+
+  defp runtime_context(context), do: invalid_context(context)
+
+  defp invalid_context(context) do
+    {:error,
+     Jido.Action.Error.validation_error("context must be a map or keyword list", %{
+       field: :context,
+       value: context
+     })}
+  end
+
+  defp normalize_start({:ok, pid}), do: {:ok, pid}
+  defp normalize_start({:error, error}), do: {:error, normalize_runtime_error(error)}
 
   defp validate_flow_input(%Instruction{kind: :action} = instruction), do: {:ok, instruction}
 

@@ -21,18 +21,19 @@ The package has four main public parts:
 - `Jido.Flow` defines a validated, in-memory graph of Action calls.
 - `Jido.Exec` is the public execution and error boundary.
 
-A Flow has three supported authoring forms. The module DSL,
-map-based data definitions through `Jido.Flow.new/1` and component constructors,
-and stored JSON through `Jido.Flow.Codec` must all produce the same canonical `%Jido.Flow{}` model.
+A Flow has three supported authoring forms. The module DSL, map-based data
+definitions through `Jido.Flow.new/1`, and stored JSON through
+`Jido.Flow.Codec` must all produce the same canonical `%Jido.Flow{}` model.
 Changes to one form must keep equivalent behavior in the other forms.
 
-`Jido.Exec` owns one in-memory execution session. It supports synchronous and
-asynchronous run-to-completion execution and step-wise Flow execution. An
-asynchronous handle supports owner-bound wait and cancellation. It does not
-provide durable orchestration. Persistence, queues, retries, durable
-cancellation policy, recovery, distributed coordination, and deployment-safe
-continuation belong to a higher-level runtime. `Jido.Exec.run/4` can apply one
-finite timeout to the complete call.
+`Jido.Exec` compiles Actions and Flows to Runic workflows and projects Runic
+results to the Jido result contract. Runic owns readiness, scheduling, retry
+and timeout policy, events, persistence, and resume. `Jido.Exec.run/4` runs to
+completion in memory. `Jido.Exec.start/6`, `step/2`, `resume/4`, and
+`result/1` use a supervised `Runic.Runner` for managed, stepwise, and durable
+execution. Jido adds no scheduler, cursor, checkpoint format, or async handle.
+Queues, distributed coordination, effect delivery, and exactly-once policy
+belong to a higher-level runtime.
 
 Read these files before a change that affects their subject:
 
@@ -49,16 +50,16 @@ Read these files before a change that affects their subject:
 - `lib/jido_instruction.ex` contains the executable call frame.
 - `lib/jido_flow.ex` is the public Flow facade.
 - `lib/jido_flow/dsl/` contains compile-time authoring and lowering.
-- `lib/jido_flow/component.ex` normalizes tagged component maps and constructors.
+- `lib/jido_flow/definition.ex` normalizes map-based component definitions.
 - `lib/jido_flow/codec.ex` and `lib/jido_flow/registry.ex` contain the
   versioned stored-JSON boundary.
-- `lib/jido_exec/flow/compiler.ex` converts canonical Flow data for execution.
+- `lib/jido_exec/compiler.ex` converts canonical Flow data to a Runic workflow.
 - `lib/jido_exec.ex` is the public execution facade.
-- `lib/jido_exec/` contains execution compilation, state, scheduling, guards,
-  limits, and failure handling.
+- `lib/jido_exec/node/` contains the executable Runic components. Runner
+  integration is in `lib/jido_exec/runner/`.
 - `test/support/` contains shared Actions and Flow fixtures.
 
-Compiler, codec, graph-adapter, scheduler, and guard modules are internal.
+Compiler, codec, node, and runner modules are internal.
 Do not make an internal module public only to make a test easy. Test through a
 public boundary unless the internal rule itself needs a focused unit test.
 
@@ -129,11 +130,10 @@ for validation, return normalization, and error behavior.
 ### Actions And Instructions
 
 - An Action callback returns `{:ok, result}`, `{:ok, result, effects}`,
-  `{:error, reason}`, `{:error, reason, effects}`, or
-  `{:continue, input, target}`.
-- A continuation is a terminal transition. A root Action or terminal Dynamic
-  expander can select the next Action or Flow for the same complete Exec call.
-  Other Flow positions reject it.
+  `{:error, reason}`, or `{:error, reason, effects}`.
+- Only a Dispatch expander can return `{:continue, input, target}`. It selects
+  the next Action or Flow for that Dispatch. A root Action and other Flow
+  positions reject a continuation.
 - A normal success result is a map. Other intentional success values use
   `Jido.Action.Output`.
 - Input validation runs before the callback. Normal output validation runs
@@ -147,17 +147,16 @@ for validation, return normalization, and error behavior.
 
 ### Flows
 
-- Direct Flow and component constructors are a supported Flow authoring API.
-  Raw struct literals can show the canonical shape, but constructors own
-  validation.
-- The DSL, data definitions, Codec reader, and direct constructors must use the same
-  validation rules.
+- `Jido.Flow.new/1` owns validation for data definitions. Raw struct literals
+  can show the canonical shape.
+- The DSL, data definitions, and the Codec reader must use the same validation
+  rules.
 - Node names and semantic output must not depend on map enumeration, task
   completion, or scheduler order.
 - Source order does not create a dependency. Result references and `needs:`
   create dependencies.
-- Canonical Flow data, the module DSL, data definitions, Codec, and direct constructors
-  require an explicit, non-nil `output`. In the module DSL, `output` must be the
+- Canonical Flow data, the module DSL, data definitions, and Codec require an
+  explicit, non-nil `output`. In the module DSL, `output` must be the
   final declaration. Do not infer output from source order or graph terminal
   nodes, and do not add a `return` alias.
 - Use `{:ok, output, requests}` for deferred effects.
@@ -171,48 +170,33 @@ for validation, return normalization, and error behavior.
   `Jido.Flow.Registry` and must return structured validation errors.
 - Do not create atoms from runtime Flow input. Registry lookups must resolve
   only the host values that already exist.
-- `validate/1` is inert. `validate_executable/1` also checks target contracts.
-  Neither function runs Action work.
+- `Jido.Flow.validate/1` is inert. `Jido.Exec.compile/2` also checks target
+  contracts. Neither function runs Action work.
 
 ### Execution And OTP
 
-- Each Action invocation must use a fresh supervised Task, including with
-  `timeout: :infinity`, inside serial or concurrent Flows, and through
-  continuations. Input validation, the callback, output validation, and result
-  normalization use that Task. Every root Flow also uses a fresh Task for
-  validation and graph work. Each root Task must exit before the next root
-  executable starts. Keep the complete-call deadline and concurrency limit.
-- For Flows that support step-wise execution, run-to-completion and step-wise
-  execution must use the same Flow semantics and return the same final value.
-- A Flow with Dynamic is run-to-completion only. Step-wise execution and
-  Subflow use must reject it before Action work starts.
-- A step or wave must consume one execution revision. Reuse or concurrent use
-  of an old execution must fail before Action work starts.
-- If a caller stops during a mutation, a later call must not repeat work whose
-  commit state is unknown.
-- A node failure stops new dispatch. Work that already started can finish.
-- Failure lists and node results use canonical node order.
-- `max_concurrency` applies across one execution, including nested Flows and
-  collection work. Reduce and Iterate work stays serial.
-- Each call has one control Task under the selected host Task Supervisor and
-  one private linked Task Supervisor. All executable and runnable Tasks are
-  temporary children of the private supervisor with brutal-kill shutdown.
-- Caller or async owner death stops the call. Control, Flow, and compound
-  runnable death must leave no active Action workers. Ordinary Action errors
-  can let admitted siblings finish. The private supervisor owns Tasks; the
-  scheduler owns Task results. Controller links support cleanup after a hard
-  supervisor failure. Do not add duplicate worker registries or global tables.
-- A paused Execution must contain no controller or supervisor references.
-  Supply new call data for each operation and detach it before returning.
-- Release task slots, monitors, messages, and telemetry spans on normal and
-  handled error paths. Keep bounded cleanup for revision helpers. Supervisor
-  startup and telemetry are synchronous, as in V2; blocked startup or cleanup
-  handlers may delay timeout and cancellation responses. Do not add telemetry
-  delivery, startup, or guard processes to isolate these calls.
-- Keep `timeout:` as one complete-call limit for `Jido.Exec.run/4` and
-  `Jido.Exec.run_async/4`. Keep async cancellation owner-bound and in-memory.
-  Do not add automatic retry, per-runnable deadlines, durable cancellation,
-  rewind, or persistence without an explicit public API decision.
+- Runic owns scheduling, readiness, retry and timeout policy, events,
+  persistence, and resume. Do not add a Jido scheduler, cursor, checkpoint
+  format, async handle, or continuation loop. Use public Runic protocols.
+- `Jido.Exec.run/4` runs in an unlinked task under the selected Task
+  Supervisor. Caller exit stops the task and its linked work. An Action crash
+  does not exit the caller. Helper processes must exit with the task.
+- Run-to-completion, stepwise, and durable execution must use the same Flow
+  semantics and return the same final value and effects.
+- `timeout:` is a per-attempt Runic timeout. `max_attempts:` retries only
+  errors that `Jido.Action.Error.retryable?/1` accepts.
+- A halting failure stops new dispatch. Work that already started can finish.
+  The reported error must not depend on `max_concurrency`.
+- Results, failure selection, item IDs, and effect order must not depend on
+  scheduler or task completion order.
+- Fact values must stay linear in collection size. Do not copy the Flow frame
+  into every collection item or loop iteration.
+- Runic does not persist runtime context or runtime policy. `resume/4` must
+  supply them again. Do not compile context into stored workflow components.
+- Managed execution rejects non-portable params, context, metadata, outputs,
+  and effects.
+- Telemetry handlers run synchronously. Each started Jido span must stop when
+  Exec returns.
 
 ### Telemetry And Errors
 

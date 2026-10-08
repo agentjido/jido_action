@@ -18,7 +18,8 @@ defmodule Jido.Exec.Node.Map do
     :instruction,
     :params,
     :on_error,
-    :location
+    :location,
+    :node_path
   ]
 
   @type t :: %__MODULE__{}
@@ -35,7 +36,8 @@ defmodule Jido.Exec.Node.Map do
         :instruction,
         :params,
         :on_error,
-        :location
+        :location,
+        :node_path
       ])
 
     id = Keyword.fetch!(opts, :id)
@@ -49,7 +51,8 @@ defmodule Jido.Exec.Node.Map do
       instruction: Keyword.fetch!(opts, :instruction),
       params: Keyword.fetch!(opts, :params),
       on_error: Keyword.fetch!(opts, :on_error),
-      location: Keyword.get(opts, :location)
+      location: Keyword.get(opts, :location),
+      node_path: Keyword.get(opts, :node_path, [Keyword.fetch!(opts, :component)])
     }
   end
 
@@ -62,7 +65,9 @@ defmodule Jido.Exec.Node.Map do
         name: internal_name(node, "collection"),
         component: node.component,
         value: node.collection,
-        location: node.location
+        params: node.params,
+        location: node.location,
+        node_path: node.node_path
       )
 
     fan_out = %Runic.Workflow.FanOut{
@@ -80,14 +85,16 @@ defmodule Jido.Exec.Node.Map do
         component: node.component,
         mode: {:map, node.on_error},
         params: node.params,
-        location: node.location
+        location: node.location,
+        node_path: node.node_path
       }
     }
 
-    {:ok, instruction} = Instruction.bind(node.instruction, %{}, %{}, metadata)
+    {:ok, instruction} = Instruction.bind(node.instruction, %{}, %{})
 
     action =
       Action.new(instruction,
+        flow: metadata.jido_flow,
         id: {node.id, :action},
         name: internal_name(node, "action")
       )
@@ -125,15 +132,34 @@ defmodule Jido.Exec.Node.Map do
   @doc false
   @spec collect(term(), term()) :: term()
   def collect({:jido_map_result, frame, component, index, on_error, result}, accumulator) do
-    frame = accumulator || frame
-    Frame.put_collection_item(frame, component, index, {on_error, result})
+    {:jido_map_acc, acc_frame, _component, entries} =
+      accumulator || {:jido_map_acc, nil, component, []}
+
+    {:jido_map_acc, acc_frame || frame, component, [{index, on_error, result} | entries]}
   end
 
   @doc false
   @spec pass(term()) :: term()
-  def pass({:jido_flow_frame, 1, _input, _results, _effects} = frame), do: frame
+  def pass({:jido_map_acc, frame, component, entries}) do
+    {values, effects} =
+      entries
+      |> Enum.sort_by(&elem(&1, 0))
+      |> Enum.flat_map_reduce([], fn
+        {_index, _on_error, :empty}, effects ->
+          {[], effects}
 
-  def pass({:jido_nested_flow_frame, 1, _parent, _child} = frame), do: frame
+        {_index, :fail_fast, {:ok, value, requests}}, effects ->
+          {[value], [requests | effects]}
+
+        {_index, _mode, {:ok, value, requests}}, effects ->
+          {[%{status: :ok, value: value}], [requests | effects]}
+
+        {_index, _mode, {:error, error}}, effects ->
+          {[%{status: :error, error: error}], effects}
+      end)
+
+    Frame.put_result(frame, component, values, effects |> Enum.reverse() |> Enum.concat())
+  end
 
   defp connect_from(workflow, [], child), do: Workflow.add_step(workflow, child)
   defp connect_from(workflow, [parent], child), do: Workflow.add_step(workflow, parent, child)
@@ -199,7 +225,8 @@ defimpl Runic.Component, for: Jido.Exec.Node.Map do
         instruction: unquote(Macro.escape(node.instruction)),
         params: unquote(Macro.escape(node.params)),
         on_error: unquote(node.on_error),
-        location: unquote(Macro.escape(node.location))
+        location: unquote(Macro.escape(node.location)),
+        node_path: unquote(Macro.escape(node.node_path))
       )
     end
   end

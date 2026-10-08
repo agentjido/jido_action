@@ -128,11 +128,6 @@ defmodule Jido.Flow.Ref do
   end
 
   @doc false
-  @spec to_map(t()) :: map()
-  def to_map(%__MODULE__{} = ref),
-    do: %{source: ref.source, component: ref.component, path: ref.path}
-
-  @doc false
   @spec normalize_path(term()) :: path()
   def normalize_path(nil), do: []
   def normalize_path(path) when is_list(path), do: path

@@ -8,14 +8,16 @@ defmodule Jido.Exec.Node.Choice do
   alias Runic.Workflow
 
   @enforce_keys [:id, :name, :hash, :component, :options, :fallback]
-  defstruct [:id, :name, :hash, :component, :options, :fallback, :location]
+  defstruct [:id, :name, :hash, :component, :options, :fallback, :location, :node_path]
 
   @type t :: %__MODULE__{}
 
   @doc false
   @spec new(keyword()) :: t()
   def new(opts) do
-    opts = Keyword.validate!(opts, [:id, :name, :component, :options, :fallback, :location])
+    opts =
+      Keyword.validate!(opts, [:id, :name, :component, :options, :fallback, :location, :node_path])
+
     id = Keyword.fetch!(opts, :id)
     name = Keyword.fetch!(opts, :name)
 
@@ -26,7 +28,8 @@ defmodule Jido.Exec.Node.Choice do
       component: Keyword.fetch!(opts, :component),
       options: Keyword.fetch!(opts, :options),
       fallback: Keyword.fetch!(opts, :fallback),
-      location: Keyword.get(opts, :location)
+      location: Keyword.get(opts, :location),
+      node_path: Keyword.get(opts, :node_path, [Keyword.fetch!(opts, :component)])
     }
   end
 
@@ -41,7 +44,8 @@ defmodule Jido.Exec.Node.Choice do
         name: internal_name(node, "selector", "route"),
         component: node.component,
         options: node.options,
-        location: node.location
+        location: node.location,
+        node_path: node.node_path
       )
 
     workflow = connect_from(workflow, parents, selector)
@@ -54,7 +58,8 @@ defmodule Jido.Exec.Node.Choice do
             name: internal_name(node, "branch", path.name),
             component: node.component,
             option: path.name,
-            location: node.location
+            location: node.location,
+            node_path: node.node_path
           )
 
         condition =
@@ -65,14 +70,16 @@ defmodule Jido.Exec.Node.Choice do
             component: node.component,
             mode: :choice,
             params: path.params,
-            location: node.location
+            location: node.location,
+            node_path: node.node_path
           }
         }
 
-        {:ok, instruction} = Instruction.bind(path.instruction, %{}, %{}, metadata)
+        {:ok, instruction} = Instruction.bind(path.instruction, %{}, %{})
 
         action =
           Action.new(instruction,
+            flow: metadata.jido_flow,
             id: {node.id, :action, path.name},
             name: internal_name(node, "action", path.name)
           )
@@ -202,7 +209,8 @@ defimpl Runic.Component, for: Jido.Exec.Node.Choice do
         component: unquote(node.component),
         options: unquote(Macro.escape(node.options)),
         fallback: unquote(Macro.escape(node.fallback)),
-        location: unquote(Macro.escape(node.location))
+        location: unquote(Macro.escape(node.location)),
+        node_path: unquote(Macro.escape(node.node_path))
       )
     end
   end

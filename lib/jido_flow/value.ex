@@ -110,9 +110,9 @@ defmodule Jido.Flow.Value do
 
   @doc false
   @spec to_map(term()) :: term()
-  def to_map(%Ref{} = ref), do: Ref.to_map(ref)
+  # Keep the struct tags distinct from literal maps with the same fields.
+  def to_map(%Ref{} = ref), do: ref
 
-  # Keep the struct tag distinct from a literal map with operator fields.
   def to_map(%Expr{} = expr), do: %{expr | operands: Enum.map(expr.operands, &to_map/1)}
 
   def to_map(%{} = map) do

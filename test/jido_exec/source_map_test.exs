@@ -56,7 +56,7 @@ defmodule Jido.Exec.SourceMapTest do
 
     workflow = Exec.compile!(FailingFlow)
     node = Runic.Workflow.get_component(workflow, "fail")
-    assert node.instruction.metadata.jido_flow.location == expected
+    assert node.flow.location == expected
 
     assert {:error, error} = Exec.run(FailingFlow)
     assert error.details.source == expected

@@ -23,7 +23,7 @@ defmodule Jido.Flow.GraphIdentityTest do
   for field <- [:output, :params] do
     test "identity distinguishes references from literal maps in #{field}" do
       ref = Ref.input([])
-      literal = Ref.to_map(ref)
+      literal = %{source: ref.source, component: ref.component, path: ref.path}
 
       for {reference, data} <- [
             {ref, literal},
@@ -185,4 +185,32 @@ defmodule Jido.Flow.GraphIdentityTest do
   end
 
   defp workflow_log(flow), do: flow |> Jido.Exec.compile!() |> Runic.Workflow.build_log()
+
+  # Durable Runic component IDs derive from this digest. Erlang guarantees
+  # deterministic term encoding only within one OTP release, so this fixed
+  # value must hold on every OTP version in the test matrix.
+  test "semantic identity is stable across supported OTP releases" do
+    flow =
+      Jido.Flow.new!(%{
+        name: "identity_golden",
+        components: [
+          %{
+            kind: :step,
+            name: "add",
+            action: JidoActionTest.Fixtures.Actions.Add,
+            params: %{value: Jido.Flow.Ref.input(:value), amount: 1},
+            needs: [],
+            meta: %{owner: "ignored"}
+          }
+        ],
+        output: %{
+          total: Jido.Flow.Ref.result("add", :value),
+          label: "sum",
+          items: [1, 2.5, :ok, nil]
+        }
+      })
+
+    assert Jido.Flow.Identity.semantic_digest(flow) ==
+             "6cd9f4be66282986c63db0c031c0ba56c05a61d9eb0b7a9fed41efa3ed21b852"
+  end
 end

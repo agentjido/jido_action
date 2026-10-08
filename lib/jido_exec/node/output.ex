@@ -99,12 +99,25 @@ defmodule Jido.Exec.Node.Output do
   defp validate_output(nil, output), do: {:ok, output}
   defp validate_output(module, output) when is_atom(module), do: module.validate_output(output)
 
+  defp validate_output(%Jido.Flow{}, %Jido.Action.Output{} = output),
+    do: Jido.Action.Output.validate(output)
+
+  # Data and stored Flows follow the same map rule as Flow modules.
   defp validate_output(%Jido.Flow{} = flow, output) do
-    Jido.Action.Validation.open_validate(flow.output_schema, output, %{
-      module: Jido.Flow,
-      flow: flow.name,
-      context: "Flow output"
-    })
+    details = %{module: Jido.Flow, flow: flow.name, context: "Flow output"}
+
+    with {:ok, validated} <-
+           Jido.Action.Validation.open_validate(flow.output_schema, output, details) do
+      if is_map(validated) do
+        {:ok, validated}
+      else
+        {:error,
+         Jido.Action.Error.validation_error(
+           "Action output validation must return a map",
+           Map.put(details, :value, validated)
+         )}
+      end
+    end
   end
 end
 

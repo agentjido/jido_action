@@ -69,7 +69,7 @@ defmodule Jido.Flow.RegistryTest do
     assert {:ok, ^flow} = Codec.decode(document, registry)
   end
 
-  test "from_flow requires an executable Flow" do
+  test "from_flow validates structure and leaves target contracts to Exec" do
     flow =
       JidoActionTest.FlowBuilder.new!(%{
         name: "invalid_target",
@@ -77,7 +77,8 @@ defmodule Jido.Flow.RegistryTest do
         output: Ref.result("invalid")
       })
 
-    assert {:error, %InvalidDefinitionError{}} = Registry.from_flow(flow)
+    assert {:ok, %Registry{}} = Registry.from_flow(flow)
+    assert {:error, %InvalidDefinitionError{}} = Jido.Exec.compile(flow)
     assert {:error, %InvalidDefinitionError{}} = Registry.from_flow(:invalid)
   end
 

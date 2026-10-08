@@ -64,6 +64,113 @@ defmodule Jido.Exec.FlowExecutionTest do
     assert Exec.run(flow, %{value: 5}) == {:ok, %{a: 5, b: 5}, [:a, :b]}
   end
 
+  defmodule TwoParentChild do
+    use Jido.Flow, name: "two_parent_child"
+
+    flow do
+      step "sum", action: FullAction, params: %{a: input(:a), b: input(:b)}
+      output result("sum")
+    end
+  end
+
+  test "a nested Flow waits for every parent dependency" do
+    parent =
+      flow!(
+        "two_parent_parent",
+        [
+          step("left", Add, %{value: Ref.input(:value), amount: 1}),
+          step("right", Multiply, %{value: Ref.input(:value), amount: 2}),
+          %{
+            kind: :subflow,
+            name: "child",
+            flow: TwoParentChild,
+            params: %{a: Ref.result("left", :value), b: Ref.result("right", :value)}
+          }
+        ],
+        Ref.result("child")
+      )
+
+    for max_concurrency <- [1, 3] do
+      assert Exec.run(parent, %{value: 3}, %{}, max_concurrency: max_concurrency) ==
+               {:ok, %{a: 4, b: 6, result: 10}}
+    end
+  end
+
+  defmodule ListOutputFlow do
+    use Jido.Flow, name: "list_output_module"
+
+    flow do
+      step "add", action: Add, params: %{value: input(:value), amount: 1}
+      output [result("add")]
+    end
+  end
+
+  defmodule RawAction do
+    use Jido.Action, name: "flow_raw_output"
+
+    @impl true
+    def run(_params, _context), do: {:ok, Jido.Action.Output.raw("done")}
+  end
+
+  test "data and module Flows apply the same map output rule" do
+    add = step("add", Add, %{value: Ref.input(:value), amount: 1})
+    data = flow!("list_output", [add], [Ref.result("add")])
+
+    for target <- [data, ListOutputFlow] do
+      assert {:error, %Jido.Action.Error.InvalidInputError{} = error} =
+               Exec.run(target, %{value: 1})
+
+      assert Exception.message(error) == "Action output validation must return a map"
+    end
+
+    raw = flow!("raw_output", [step("raw", RawAction, %{})], Ref.result("raw"))
+    assert {:ok, %Jido.Action.Output{kind: :raw, value: "done"}} = Exec.run(raw)
+  end
+
+  defmodule NestedControlChild do
+    use Jido.Flow, name: "nested_control_child"
+
+    flow do
+      map "items", collection: input(:items), action: ErrorAction, params: %{error_type: item()}
+
+      choice "route" do
+        option "fail" do
+          condition(input(:route) == "fail")
+          action(ErrorAction)
+          params(%{error_type: :runtime})
+        end
+
+        otherwise action: Add, params: %{value: 1, amount: 1}
+      end
+
+      output %{items: result("items"), route: result("route")}
+    end
+  end
+
+  test "control component failures in a nested Flow keep the parent path" do
+    for {input, node} <- [
+          {%{items: [:runtime], route: "pass"}, "items"},
+          {%{items: [], route: "fail"}, "route"}
+        ] do
+      parent =
+        flow!(
+          "nested_control_parent",
+          [
+            %{
+              kind: :subflow,
+              name: "child",
+              flow: NestedControlChild,
+              params: %{items: Ref.input(:items), route: Ref.input(:route)}
+            }
+          ],
+          Ref.result("child")
+        )
+
+      assert {:error, error} = Exec.run(parent, input)
+      assert error.details.node_path == ["child", node]
+    end
+  end
+
   test "an Action failure stops dependent Flow work" do
     flow =
       flow!(

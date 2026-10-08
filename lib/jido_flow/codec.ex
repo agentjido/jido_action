@@ -73,7 +73,7 @@ defmodule Jido.Flow.Codec do
   @on_error %{"fail_fast" => :fail_fast, "collect_errors" => :collect_errors}
 
   @doc """
-  Encodes one executable Flow with a generated convenience Registry.
+  Encodes one canonical Flow with a generated convenience Registry.
 
   The generated identifiers are for temporary storage, tests, or transport
   within one application version. They can change when the Flow changes. Use
@@ -82,7 +82,8 @@ defmodule Jido.Flow.Codec do
   @spec encode(Flow.t()) ::
           {:ok, document(), Registry.t()} | {:error, Exception.t()}
   def encode(flow) do
-    with {:ok, flow} <- Jido.Exec.Compiler.validate(flow),
+    # The same structural validation as encode/2. Jido.Exec.compile/2 checks targets.
+    with {:ok, flow} <- Flow.validate(flow),
          {:ok, registry} <- flow |> Registry.entries() |> Registry.new(),
          {:ok, document} <- encode_validated(flow, registry) do
       {:ok, document, registry}
@@ -306,11 +307,11 @@ defmodule Jido.Flow.Codec do
   end
 
   defp canonical_errors(issues) do
-    # Stored documents have always reported graph errors before a nil output's
-    # required-field error. Canonical construction keeps the opposite priority.
+    # Stored documents report graph errors before a nil output's required-field
+    # error. Canonical construction keeps the opposite priority.
     issues =
       case issues do
-        [%{kind: :output_required}, _graph_issue | _rest] -> tl(issues)
+        [%{kind: :output_required} = output | [_graph_issue | _] = rest] -> rest ++ [output]
         _other -> issues
       end
 

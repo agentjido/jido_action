@@ -69,8 +69,9 @@ output
 
 A path can be one atom, string, non-negative integer, or a list of these
 segments. String segments must contain valid UTF-8. A path list must be proper
-and must not contain `nil`. Constructors, data definitions, the DSL, and Codec reject
-invalid paths before execution. An empty path selects the complete source
+and must not contain `nil`. Data definitions, the DSL, and Codec reject
+invalid paths before execution. `Jido.Flow.Ref` helpers do not validate paths
+on their own. An empty path selects the complete source
 value. The `nil` path argument is also an empty path; it is different from
 `[nil]`, which is invalid.
 
@@ -98,9 +99,9 @@ Local helpers are valid only in their component scope.
 | --- | --- |
 | Map params | `item`, `item_index`, `item_id` |
 | Reduce params | `item`, `item_index`, `item_id`, `accumulator` |
-| Iterate params | `state`, `iteration_index` |
+| Iterate params | `state`, `iteration_index`, `body_result` |
 | Iterate State update | `state`, `iteration_index`, `body_result` |
-| Iterate completion | `state`, `iteration_index` |
+| Iterate completion | `state`, `iteration_index`, `body_result` |
 
 The validator rejects a local reference outside its scope. This keeps the data
 grammar explicit before execution.

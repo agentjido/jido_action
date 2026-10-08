@@ -24,7 +24,8 @@ defmodule Jido.Exec.Node.Loop do
     :state,
     :completion,
     :max_iterations,
-    :location
+    :location,
+    :node_path
   ]
 
   @type kind :: :reduce | :iterate
@@ -46,7 +47,8 @@ defmodule Jido.Exec.Node.Loop do
         :state,
         :completion,
         :max_iterations,
-        :location
+        :location,
+        :node_path
       ])
 
     id = Keyword.fetch!(opts, :id)
@@ -74,7 +76,8 @@ defmodule Jido.Exec.Node.Loop do
       state: Keyword.get(opts, :state),
       completion: Keyword.get(opts, :completion),
       max_iterations: Keyword.get(opts, :max_iterations),
-      location: Keyword.get(opts, :location)
+      location: Keyword.get(opts, :location),
+      node_path: Keyword.get(opts, :node_path, [Keyword.fetch!(opts, :component)])
     }
   end
 
@@ -102,14 +105,16 @@ defmodule Jido.Exec.Node.Loop do
         component: node.component,
         mode: {:loop, node},
         params: node.params,
-        location: node.location
+        location: node.location,
+        node_path: node.node_path
       }
     }
 
-    {:ok, instruction} = Instruction.bind(node.instruction, %{}, %{}, metadata)
+    {:ok, instruction} = Instruction.bind(node.instruction, %{}, %{})
 
     action =
       Action.new(instruction,
+        flow: metadata.jido_flow,
         id: {node.id, :action},
         name: internal_name(node, "action")
       )
@@ -127,7 +132,7 @@ defmodule Jido.Exec.Node.Loop do
   end
 
   @doc false
-  @spec start(t(), term(), term()) :: {:ok, term()} | {:error, term()}
+  @spec start(t(), term(), term()) :: {:ok, term(), map()} | {:error, term()}
   def start(%__MODULE__{kind: :reduce} = node, input, context) do
     with {:ok, frame} <- Frame.merge(input),
          state = Frame.resolver_state(frame, context),
@@ -136,7 +141,7 @@ defmodule Jido.Exec.Node.Loop do
          {:ok, initial} <- ValueResolver.resolve(node.initial, state),
          :ok <- validate_reduce_initial(node, initial) do
       status = if items == [], do: :complete, else: :continue
-      {:ok, {:jido_reduce, status, frame, node.component, items, 0, initial, []}}
+      {:ok, {:jido_reduce, status, node.component, 0, initial}, %{frame: frame, items: items}}
     end
   end
 
@@ -147,29 +152,31 @@ defmodule Jido.Exec.Node.Loop do
          {:ok, initial} <- validate_iterate_state(node, initial, :initial, 0),
          {:ok, complete?} <- iterate_complete?(node, frame, initial, 0, nil, context) do
       status = if complete?, do: :complete, else: :continue
-      {:ok, {:jido_iterate, status, frame, node.component, initial, 0, nil, []}}
+      {:ok, {:jido_iterate, status, node.component, initial, 0, nil}, %{frame: frame}}
     end
   end
 
   @doc false
-  @spec run_action(t(), Instruction.t(), term(), term(), function()) ::
+  # Iteration values hold only loop progress. The frame and items ride in the
+  # loop Fact meta, which is not part of Fact identity, so per-iteration cost
+  # does not grow with the frame. Effects accumulate through the Fact meta.
+  @spec run_action(t(), Instruction.t(), term(), map(), term(), function()) ::
           {:ok, term(), [term()]} | {:error, term()}
   def run_action(
         %__MODULE__{kind: :reduce} = node,
         instruction,
-        {:jido_reduce, :continue, frame, component, items, index, accumulator, effects},
+        {:jido_reduce, :continue, component, index, accumulator},
+        %{frame: frame, items: items},
         context,
         action_runner
       ) do
-    item = Enum.at(items, index)
-
     resolver =
       frame
       |> Frame.resolver_state(context)
       |> Map.merge(%{
-        item: item,
+        item: Enum.at(items, index),
         item_index: index,
-        item_id: stable_item_id(index, item),
+        item_id: Frame.item_id(node.id, index),
         accumulator: accumulator
       })
 
@@ -177,17 +184,15 @@ defmodule Jido.Exec.Node.Loop do
          {:ok, output, requests} <- action_runner.(instruction, params, context) do
       next_index = index + 1
       status = if next_index == length(items), do: :complete, else: :continue
-
-      {:ok,
-       {:jido_reduce, status, frame, component, items, next_index, output, effects ++ requests},
-       []}
+      {:ok, {:jido_reduce, status, component, next_index, output}, requests}
     end
   end
 
   def run_action(
         %__MODULE__{kind: :iterate} = node,
         instruction,
-        {:jido_iterate, :continue, frame, component, state, completed, body_result, effects},
+        {:jido_iterate, :continue, component, state, completed, body_result},
+        %{frame: frame},
         context,
         action_runner
       ) do
@@ -211,37 +216,36 @@ defmodule Jido.Exec.Node.Loop do
            iterate_complete?(node, frame, next_state, next_completed, output, context),
          :ok <- within_iteration_limit(node, complete?, next_completed, next_state) do
       status = if complete?, do: :complete, else: :continue
-
-      {:ok,
-       {:jido_iterate, status, frame, component, next_state, next_completed, output,
-        effects ++ requests}, []}
+      {:ok, {:jido_iterate, status, component, next_state, next_completed, output}, requests}
     end
   end
 
   @doc false
   @spec continue?(term()) :: boolean()
-  def continue?({:jido_reduce, :continue, _, _, _, _, _, _}), do: true
-  def continue?({:jido_iterate, :continue, _, _, _, _, _, _}), do: true
+  def continue?({:jido_reduce, :continue, _, _, _}), do: true
+  def continue?({:jido_iterate, :continue, _, _, _, _}), do: true
   def continue?(_value), do: false
 
   @doc false
   @spec complete?(term()) :: boolean()
-  def complete?({:jido_reduce, :complete, _, _, _, _, _, _}), do: true
-  def complete?({:jido_iterate, :complete, _, _, _, _, _, _}), do: true
+  def complete?({:jido_reduce, :complete, _, _, _}), do: true
+  def complete?({:jido_iterate, :complete, _, _, _, _}), do: true
   def complete?(_value), do: false
 
   @doc false
-  @spec finish(t(), term()) :: {:ok, term()}
+  @spec finish(t(), term(), map()) :: {:ok, term()}
   def finish(
         %__MODULE__{kind: :reduce},
-        {:jido_reduce, :complete, frame, component, _items, _index, accumulator, effects}
+        {:jido_reduce, :complete, component, _index, accumulator},
+        %{jido_loop: %{frame: frame}} = meta
       ) do
-    {:ok, Frame.put_result(frame, component, accumulator, effects)}
+    {:ok, Frame.put_result(frame, component, accumulator, loop_effects(meta))}
   end
 
   def finish(
         %__MODULE__{kind: :iterate},
-        {:jido_iterate, :complete, frame, component, state, completed, body_result, effects}
+        {:jido_iterate, :complete, component, state, completed, body_result},
+        %{jido_loop: %{frame: frame}} = meta
       ) do
     output = %{
       kind: :jido_flow_iterate_result,
@@ -250,8 +254,10 @@ defmodule Jido.Exec.Node.Loop do
       output: body_result
     }
 
-    {:ok, Frame.put_result(frame, component, output, effects)}
+    {:ok, Frame.put_result(frame, component, output, loop_effects(meta))}
   end
+
+  defp loop_effects(meta), do: get_in(meta, [:jido, :effects]) || []
 
   @doc false
   @spec condition(term(), term(), :continue | :complete) :: struct()
@@ -421,16 +427,6 @@ defmodule Jido.Exec.Node.Loop do
 
   defp put_loop_details(error, _node, _phase, _completed), do: error
 
-  defp stable_item_id(index, item) do
-    digest =
-      {index, item}
-      |> :erlang.term_to_binary([:deterministic])
-      |> then(&:crypto.hash(:sha256, &1))
-      |> Base.encode16(case: :lower)
-
-    digest
-  end
-
   defp connect_from(workflow, [], child), do: Workflow.add_step(workflow, child)
   defp connect_from(workflow, [parent], child), do: Workflow.add_step(workflow, parent, child)
   defp connect_from(workflow, parents, child), do: Workflow.add_step(workflow, parents, child)
@@ -469,7 +465,7 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Loop do
   end
 
   def execute(node, %Runnable{input_fact: fact, context: context} = runnable) do
-    case Loop.finish(node, fact.value) do
+    case Loop.finish(node, fact.value, fact.meta) do
       {:ok, value} ->
         result = Fact.new(value: value, ancestry: {node.hash, fact.hash})
 
@@ -501,7 +497,8 @@ defimpl Runic.Component, for: Jido.Exec.Node.Loop do
         state: unquote(Macro.escape(node.state)),
         completion: unquote(Macro.escape(node.completion)),
         max_iterations: unquote(node.max_iterations),
-        location: unquote(Macro.escape(node.location))
+        location: unquote(Macro.escape(node.location)),
+        node_path: unquote(Macro.escape(node.node_path))
       )
     end
   end

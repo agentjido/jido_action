@@ -6,18 +6,11 @@ defmodule JidoActionTest.Instruction.TargetTest do
   alias JidoActionTest.Fixtures.MathFlow
   alias JidoActionTest.Fixtures.Actions.Add
 
+  # These targets are defined in test/support/fixtures/action/missing_callbacks.exs.
+  alias __MODULE__.{Ambiguous, MissingActionRun, MissingFlowDefinition}
+
   defmodule CallbackOnly do
     def run(params, _context), do: {:ok, params}
-    def validate_params(params), do: {:ok, params}
-    def validate_output(output), do: {:ok, output}
-  end
-
-  defmodule Ambiguous do
-    @behaviour Jido.Action
-    @behaviour Jido.Flow
-
-    def run(params, _context), do: {:ok, params}
-    def flow, do: MathFlow.flow()
     def validate_params(params), do: {:ok, params}
     def validate_output(output), do: {:ok, output}
   end
@@ -38,18 +31,6 @@ defmodule JidoActionTest.Instruction.TargetTest do
 
     @impl true
     def run(params, _context), do: {:continue, params, FlowWithoutRun}
-  end
-
-  defmodule MissingActionRun do
-    @behaviour Jido.Action
-    def validate_params(params), do: {:ok, params}
-    def validate_output(output), do: {:ok, output}
-  end
-
-  defmodule MissingFlowDefinition do
-    @behaviour Jido.Flow
-    def validate_params(params), do: {:ok, params}
-    def validate_output(output), do: {:ok, output}
   end
 
   test "Action and Flow behaviours own their execution callbacks" do

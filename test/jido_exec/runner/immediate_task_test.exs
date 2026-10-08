@@ -18,6 +18,19 @@ defmodule Jido.Exec.Runner.ImmediateTaskTest do
     end
   end
 
+  defmodule NormalExitAction do
+    use Jido.Action, name: "exec_immediate_normal_exit"
+
+    @impl true
+    def run(_params, %{observer: observer}) do
+      send(observer, {:action_started, self(), Process.group_leader()})
+
+      receive do
+        :release -> Process.exit(self(), :normal)
+      end
+    end
+  end
+
   defmodule KillingAction do
     use Jido.Action, name: "exec_immediate_killing"
 
@@ -100,6 +113,76 @@ defmodule Jido.Exec.Runner.ImmediateTaskTest do
     for monitor <- monitors do
       assert_receive {:DOWN, ^monitor, :process, _pid, _reason}, 1_000
     end
+  end
+
+  test "run/4 stops its caller watcher when the execution task exits normally" do
+    owner = self()
+
+    # The caller stays alive, so only the task exit can stop the watcher.
+    caller =
+      spawn_link(fn ->
+        result = Exec.run(NormalExitAction, %{}, %{observer: owner})
+        send(owner, {:caller_result, self(), result})
+
+        receive do
+          :stop -> :ok
+        end
+      end)
+
+    on_exit(fn -> send(caller, :stop) end)
+
+    assert_receive {:action_started, task_pid, _group_leader}, 1_000
+    supervisor = GenServer.whereis(Jido.Exec.TaskSupervisor)
+    {:links, links} = Process.info(task_pid, :links)
+    monitors = for pid <- links, pid != supervisor, pid != caller, do: Process.monitor(pid)
+    assert monitors != []
+
+    send(task_pid, :release)
+
+    assert_receive {:caller_result, ^caller,
+                    {:error,
+                     %Jido.Action.Error.ExecutionFailureError{message: "Exec task exited"}}},
+                   1_000
+
+    for monitor <- monitors do
+      assert_receive {:DOWN, ^monitor, :process, _pid, _reason}, 1_000
+    end
+  end
+
+  test "a normal Action exit fails once under concurrent and timed execution" do
+    for opts <- [[max_concurrency: 2], [timeout: 1_000]] do
+      {caller, monitor} = run_blocking(parallel_normal_exit_flow(), opts)
+      error = release_until_result(caller)
+
+      assert %Jido.Action.Error.ExecutionFailureError{details: %{reason: :normal}} = error
+      assert_receive {:DOWN, ^monitor, :process, ^caller, :normal}, 1_000
+      refute_received {:action_started, _pid, _group_leader}
+    end
+  end
+
+  # Releases each started Action until the caller returns its error.
+  defp release_until_result(caller) do
+    receive do
+      {:action_started, task_pid, _group_leader} ->
+        send(task_pid, :release)
+        release_until_result(caller)
+
+      {:caller_result, ^caller, {:error, error}} ->
+        error
+    after
+      2_000 -> flunk("run/4 did not return after a normal Action exit")
+    end
+  end
+
+  defp parallel_normal_exit_flow do
+    Flow.new!(%{
+      name: "exec_immediate_normal_exit",
+      components: [
+        %{kind: :step, name: "left", action: NormalExitAction, params: %{}},
+        %{kind: :step, name: "right", action: NormalExitAction, params: %{}}
+      ],
+      output: %{left: Ref.result("left"), right: Ref.result("right")}
+    })
   end
 
   defp assert_caller_exit_stops_actions(target, opts, count) do

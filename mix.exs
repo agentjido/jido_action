@@ -25,6 +25,8 @@ defmodule JidoAction.MixProject do
       test_ignore_filters: [
         # This consumer compiles only in the isolated build tests.
         &String.starts_with?(&1, "test/fixtures/inline_consumer/"),
+        # test_helper.exs loads these intentionally incomplete Actions.
+        &(&1 == "test/support/fixtures/action/missing_callbacks.exs"),
         # Authoring source is compiled only by the selected authoring suite.
         &String.starts_with?(&1, "test/authoring/support/"),
         # Property support is loaded explicitly by its owning test file.

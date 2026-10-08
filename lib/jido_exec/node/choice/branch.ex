@@ -5,7 +5,7 @@ defmodule Jido.Exec.Node.Choice.Branch do
   alias Runic.Identity
 
   @enforce_keys [:id, :name, :hash, :component, :option]
-  defstruct [:id, :name, :hash, :component, :option, :location]
+  defstruct [:id, :name, :hash, :component, :option, :location, :node_path]
 
   @type t :: %__MODULE__{}
 
@@ -18,7 +18,8 @@ defmodule Jido.Exec.Node.Choice.Branch do
         :name,
         :component,
         :option,
-        :location
+        :location,
+        :node_path
       ])
 
     id = Keyword.fetch!(opts, :id)
@@ -30,7 +31,8 @@ defmodule Jido.Exec.Node.Choice.Branch do
         Identity.digest(:component_definition, %{kind: "jido_choice_branch", version: 1, id: id}),
       component: Keyword.fetch!(opts, :component),
       option: Keyword.fetch!(opts, :option),
-      location: Keyword.get(opts, :location)
+      location: Keyword.get(opts, :location),
+      node_path: Keyword.get(opts, :node_path, [Keyword.fetch!(opts, :component)])
     }
   end
 
@@ -93,7 +95,7 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Choice.Branch do
           runnable,
           Jido.Exec.Source.attach(error, node.location, %{
             node: node.component,
-            node_path: [node.component]
+            node_path: node.node_path
           })
         )
     end
@@ -111,7 +113,8 @@ defimpl Runic.Component, for: Jido.Exec.Node.Choice.Branch do
         name: unquote(node.name),
         component: unquote(node.component),
         option: unquote(node.option),
-        location: unquote(Macro.escape(node.location))
+        location: unquote(Macro.escape(node.location)),
+        node_path: unquote(Macro.escape(node.node_path))
       )
     end
   end

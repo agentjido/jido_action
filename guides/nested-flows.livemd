@@ -71,12 +71,12 @@ Flow Instruction template in the call node.
 
 ## Native Execution Boundary
 
-A Subflow lowers to a nested native Runic Workflow. Step-wise execution can
-show child validators, child Steps, InputBinding, and connection work. Jido
-does not hide these native runnables.
+A Subflow lowers to a nested native Runic Workflow. Stepwise execution can
+show the child input boundary, child Steps, and the child output as separate
+Runic units. Jido does not hide these native runnables.
 
-The child inherits the parent context, `max_concurrency`, `task_supervisor` routing, and
-execution ID. Its Action calls share the parent execution budget.
+The child runs in the same Exec call. It inherits the parent context,
+`max_concurrency`, Task Supervisor, and Runic policy.
 
 Child output uses the same caller context as root Flow output. This includes
 context references inside expressions, maps, and lists. Input references read
@@ -87,10 +87,11 @@ present and resolves to `nil`. These rules also apply to managed Runic execution
 An Action failure keeps its typed error and leaf details. Its
 `details.node_path` identifies the authored Subflow path, for example
 `["child", "add"]`. Child input and output validation failures identify the
-Subflow boundary instead, for example `["child"]`. Errors before Action
-validation can lack this path. See
-[Read Failures](https://github.com/agentjido/jido_action/blob/release/v3/guides/debugging-flows.md#read-failures)
-for single and concurrent failure inspection.
+Subflow boundary instead, for example `["child"]`. Map, Reduce, Iterate,
+Choice, and Dispatch failures in a child also include the parent path. Errors
+before Action validation can lack this path. See
+[Inspect Immediate Failures](https://github.com/agentjido/jido_action/blob/release/v3/guides/debugging-flows.md#inspect-immediate-failures)
+for failure inspection.
 
 ## Limits
 

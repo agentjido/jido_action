@@ -19,8 +19,8 @@ Use `jido_action` for validated work and data-first composition:
   Schema descriptions. Treat the result as descriptive data. Runtime Zoi
   validation remains authoritative.
 - Keep `run/2` strict: return `{:ok, result}`, `{:ok, result, effects}`,
-  `{:continue, input, target}`, `{:error, reason}`, or
-  `{:error, reason, effects}`.
+  `{:error, reason}`, or `{:error, reason, effects}`. Only a Dispatch expander
+  can return `{:continue, input, target}`.
 - Return a normal map for success. Use `Jido.Action.Output` for an intentional
   raw, stream, batch, or opaque success value.
 - Keep side effects explicit inside `run/2` and make them easy to test.
@@ -49,7 +49,7 @@ Use `jido_action` for validated work and data-first composition:
   Jido keeps Zoi `:error` and typed preservation policies unchanged.
 - Prefer precise schemas with defaults for optional action inputs.
 - Use `Jido.Flow.validate/1` for canonical Flow structure and graph rules.
-- Use `Jido.Flow.validate_executable/1` to also check all Flow target contracts.
+- Use `Jido.Exec.compile/2` to also check all Flow target contracts.
 - Use `Jido.Flow.Codec.encode/2` and `Jido.Flow.Codec.decode/2` with a trusted
   `Jido.Flow.Registry` for stored JSON data.
 - Use `Jido.Flow.Codec.diagnose/2` when an editor needs all independent stored
@@ -143,81 +143,36 @@ Use `jido_action` for validated work and data-first composition:
 
 ## Execution
 
-- Use `Jido.Exec.run/4` for the public validation and error boundary.
-- Use `Jido.Exec.remaining_time(context)` inside Actions or adapters to cap external
-  request timeouts. It returns remaining milliseconds, `:infinity` for untimed
-  work, or `nil` without budget metadata. Do not start a request when it returns
-  `0`. Exec reserves `context.__jido_exec__` for runtime metadata. Pass context
-  to nested calls to preserve or shorten the budget. This does not transfer
-  cancellation ownership. Do not persist the reserved metadata.
-- Each Action invocation runs in a fresh supervised Task. Input validation,
-  the callback, output validation, and result normalization use that Task.
-  This applies to untimed calls, Flow Actions, and continuations. Synchronous
-  calls wait for the result. A hard Action self-kill returns a structured error.
-  Each call has a control Task and private supervisor. Caller, control Task,
-  Flow Task, or compound runnable death stops its workers. Root Flow validation
-  and graph work also use a fresh Task. Each Action Task exits before the next
-  root executable starts.
-  Close per-invocation resources explicitly on normal return.
-- Supervisor startup and telemetry handlers run synchronously. Blocked host
-  startup or cleanup handlers can delay timeout and cancellation responses.
-  Keep them short; the package adds no helper processes to isolate them.
-- Use `timeout: :infinity` for no timer. `timeout: 0` rejects work immediately.
-- Pass `task_supervisor: reference` for a local Task.Supervisor PID, name, or
-  via route. The host owns supervisor names and capacity. See
-  [Runtime Configuration](guides/configuration.md#task-supervisor-references).
-- All run-to-completion targets accept `max_continuations` and
-  `max_concurrency`. An Action does not use the concurrency limit itself, but
-  it can continue to a Flow. `max_concurrency` defaults to `8`. Use `1` for
-  serial Flow execution.
-- Use `run_async/4` for an asynchronous run-to-completion call. Only the owner
-  process can await, handle messages for, or cancel its handle. Use
-  `handle_message/2` in OTP callbacks. Await, message handling, and cancellation
-  are alternative one-shot terminal consumers. An await timeout cancels that
-  call.
-- Use the optional `invocation:` configuration only when a host must record or
-  reuse complete normalized Action outcomes. The host module implements
-  `Jido.Exec.Invocation`. It receives one callback before Action validation and
-  one callback after a fresh normalized result.
-- Treat replay as a new `run/4` or `run_async/4` call. Flow orchestration runs
-  again. A host-approved receipt replaces Action input validation, `run/2`, and
-  output validation for that occurrence.
-- Use the structured occurrence ID for receipt lookup. Use compatibility,
-  Action, resolved parameters, and executable evidence for a separate host
-  compatibility decision. Raw context is not in the descriptor. Context values
-  that authored bindings copy into parameters remain in those parameters.
-- Make replayed orchestration deterministic for the selected inputs. Flow does
-  not check this condition. Validators, expressions, materializers, state
-  functions, and other work outside the Action receipt boundary can run again.
-- Keep durable intent, receipt storage, encoding, recovery, and deferred effect
-  delivery in the host. Exec cannot decide if an external effect occurred when
-  the call stops before the host accepts its receipt. It supplies no retry,
-  exactly-once, or deduplication policy.
-- Treat receipt payloads as Elixir values. Exceptions, streams, PIDs,
-  references, functions, and effect terms are not automatically portable.
-- Structural Subflows and permitted continuations keep invocation identity in
-  the same Exec call. A nested Exec call made inside an Action is a separate,
-  opaque call. It gets no automatic identity from its parent.
-- Use `start/4`, `ready/1`, `step/1`, `step/2`, `wave/1`, `continue/1`, and
-  `result/1` for a Flow or an Instruction with a Flow target.
-- Do not pass `invocation:` to `start/4`. Step-wise Execution values are
-  in-memory state and are not replay checkpoints.
-- Treat values from `ready/1`, `step/1`, `step/2`, and `wave/1` as small
-  `Jido.Exec.Work` descriptions. Support work remains visible.
-- Use `Jido.Exec.native/1` for advanced, read-only native inspection. Native
-  shapes depend on the Runic version. Other Execution fields are internal.
-- Select `step/2` work with a ready Work token. Refresh all tokens after each
-  mutation, including tokens for work that remains ready.
-- Treat each execution as caller-owned, in-memory state. `max_concurrency`
-  bounds each concurrent ready wave. Always pass the latest value to the next
-  step-wise call.
-- Do not persist an execution as a checkpoint. Reusing a stale value can run an
-  Action side effect again.
-- Let the caller or Jido core select timeout and retry policy. Use `timeout:`
-  with `Jido.Exec.run/4` or `run_async/4` to enforce one finite whole-call
-  timeout. Exec async handles provide only owner-bound, in-memory
-  cancellation. Keep retry, backoff, durable cancellation policy,
-  persistence, and exactly-once behavior in the higher-level runtime.
+- Use `Jido.Exec.run/4` for the public validation and error boundary. Exec
+  compiles the target to a Runic workflow and runs it in an unlinked task under
+  `Jido.Exec.TaskSupervisor`. Caller exit stops that task. An Action crash or
+  kill returns a structured error and does not exit the caller.
+- Pass `task_supervisor: reference` for a local Task Supervisor PID, name, or
+  via reference. The host owns supervisor names and capacity. See
+  [Runtime Configuration](guides/configuration.md).
+- `timeout:` is a per-attempt Runic timeout in milliseconds. It defaults to
+  `:infinity`.
+- `max_attempts:` counts the first attempt. Exec retries a failed attempt only
+  when its error is retryable. Set `details.retry: true` on an error only when
+  another attempt is safe. Timeouts and process exits are not retried. Use
+  `backoff`, `base_delay_ms`, and `max_delay_ms` for retry delay.
+- `max_concurrency:` must be a positive integer. It defaults to `1`, which runs
+  Flow work serially. A halting failure stops new dispatch. Work that already
+  started can finish.
+- Use `Jido.Exec.compile/2` when you need the native `Runic.Workflow`.
+- Use `Jido.Exec.start/6` with a supervised `Runic.Runner` for managed or
+  durable execution. Parameters, context, and Instruction metadata must hold
+  portable values. Use `dispatch_mode: :manual` with `Jido.Exec.step/2` for
+  stepwise dispatch.
+- Runic does not persist runtime context or runtime policy. Resume with
+  `Jido.Exec.resume/4` and the same context and options. Use
+  `Jido.Exec.result/1` to project a managed workflow to the `run/4` result.
+  Use `Runic.Runner` for checkpoint, stop, and inspection.
+- Exec does not dispatch effects or follow Action continuations other than a
+  Dispatch expander continuation. It provides no exactly-once guarantee. Keep
+  durable intent, effect delivery, and deduplication in the host. Use
+  `Jido.Exec.effect_id/4` for a stable effect identity.
+- Telemetry handlers run synchronously. Keep them short.
 
 ## Package Boundary
 
@@ -231,4 +186,4 @@ request effects after success. Flow collects these opaque requests in canonical
 dependency order and returns the complete batch with its final output. Exec
 does not execute effects. Failed execution returns no executable batch.
 The optional third success element must be a proper list of effect requests.
-See [Execution](guides/execution.md#results-and-errors) for ordering, collections, continuations, and migration.
+See [Execution](guides/execution.md#results-and-errors) for ordering, collections, and errors.

@@ -332,17 +332,20 @@ Jido.Exec.run(action, params, context,
 ```
 
 The timeout is a per-attempt Runic timeout. `max_attempts` includes the first
-attempt. Runic owns retry and backoff. Remove version 2 options that are not in
+attempt. Runic owns retry and backoff. Exec retries only errors that set
+`details.retry: true`. Remove version 2 options that are not in
 [Runtime Configuration](configuration.md).
 
-Version 3 removes the Jido async handle and step-wise Execution APIs. Replace
-`run_async`, `await`, `cancel`, `ready`, `step`, `wave`, `continue`, and
-`result` calls with one of these paths:
+Version 3 removes the Jido async handle and the version 2 step-wise Execution
+APIs. Replace `run_async`, `await`, `cancel`, `ready`, `step/1`, `wave`,
+`continue`, and `result` calls on an Execution value with one of these paths:
 
 - use `Jido.Exec.run/4` for immediate execution;
 - use `Jido.Exec.compile/2` for a native `Runic.Workflow`;
-- use `Jido.Exec.start/6` with a supervised `Runic.Runner` for managed work;
-- use `Runic.Runner` for checkpoint, stop, resume, and result inspection.
+- use `Jido.Exec.start/6` with a supervised `Runic.Runner` for managed work,
+  and `Jido.Exec.step/2` for manual dispatch;
+- use `Runic.Runner` to checkpoint and stop, `Jido.Exec.resume/4` to resume,
+  and `Jido.Exec.result/1` to read a managed result.
 
 ```elixir
 {:ok, _worker} =

@@ -105,7 +105,7 @@ defmodule Jido.Flow.Registry do
   end
 
   @doc """
-  Builds a convenience Registry from one executable Flow.
+  Builds a convenience Registry from one canonical Flow.
 
   The generated identifiers are deterministic only for the exact canonical
   Flow value. They can change when the Flow, a target module, or a schema
@@ -113,12 +113,12 @@ defmodule Jido.Flow.Registry do
   one application version. Use `new/1` with application-owned identifiers for
   durable storage.
 
-  The function validates the Flow and all Action and child Flow contracts. It
-  does not run Action work.
+  The function validates the canonical Flow structure. It does not load target
+  modules or run Action work. `Jido.Exec.compile/2` checks target contracts.
   """
   @spec from_flow(Jido.Flow.t()) :: {:ok, t()} | {:error, Exception.t()}
   def from_flow(flow) do
-    with {:ok, flow} <- Jido.Exec.Compiler.validate(flow) do
+    with {:ok, flow} <- Jido.Flow.validate(flow) do
       flow
       |> entries()
       |> new()

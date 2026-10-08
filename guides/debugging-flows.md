@@ -69,14 +69,19 @@ Start a managed execution with a stable ID:
   )
 ```
 
-Use Runic operations for runtime inspection:
+Use Runic operations for runtime inspection and Jido Exec to resume and read
+the result:
 
 ```elixir
-Runic.Runner.get_results(MyApp.Runner, "order-42")
+{:ok, workflow} = Runic.Runner.get_workflow(MyApp.Runner, "order-42")
+Jido.Exec.result(workflow)
 Runic.Runner.checkpoint(MyApp.Runner, "order-42")
 Runic.Runner.stop(MyApp.Runner, "order-42", persist: true)
-Runic.Runner.resume(MyApp.Runner, "order-42")
+Jido.Exec.resume(MyApp.Runner, "order-42", context, checkpoint_strategy: :every_cycle)
 ```
+
+Pass `resume/4` the same context and options as `start/6`. Runic does not
+persist them.
 
 The Store and event stream are the runtime evidence. Jido does not have a
 parallel execution value, revision token, or ready-work list.

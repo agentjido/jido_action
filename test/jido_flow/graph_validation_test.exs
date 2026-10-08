@@ -139,7 +139,7 @@ end
                output: Ref.result("one")
              )
 
-    assert error.details == %{owner: "one", component: "z_missing"}
+    assert error.details == %{owner: "one", component: "z_missing", path: [:components, 0]}
     document = stored([stored_step("one", component.needs)], stored_ref("one"))
     assert {:error, %Error.Invalid{errors: errors}} = Codec.diagnose(document, registry())
 
@@ -174,7 +174,7 @@ end
                output: Ref.result("missing_output")
              )
 
-    assert error.details == %{name: "same"}
+    assert error.details == %{name: "same", path: [:components, 1, :name]}
   end
 
   test "nil output retains canonical and stored graph error precedence" do
@@ -183,13 +183,15 @@ end
     assert {:error, %{message: "Flow output is required", details: %{path: [:output]}}} =
              JidoActionTest.FlowBuilder.new(name: "graph", components: components, output: nil)
 
-    assert {:error, %Error.Invalid{errors: [duplicate]}} =
+    # Stored diagnostics report graph errors first, then the required output.
+    assert {:error, %Error.Invalid{errors: [duplicate, output]}} =
              Codec.diagnose(
                stored([stored_step("same", []), stored_step("same", [])], nil),
                registry()
              )
 
     assert duplicate.message == "duplicate component name"
+    assert output.message == "Flow output is required"
 
     assert {:error, %Error.Invalid{errors: [required]}} =
              Codec.diagnose(stored([stored_step("one", [])], nil), registry())
@@ -383,7 +385,7 @@ end
     assert {:error, error} =
              JidoActionTest.FlowBuilder.new(name: "graph", components: [dispatch], output: %{})
 
-    assert error.details == %{owner: "next", component: "missing"}
+    assert error.details == %{owner: "next", component: "missing", path: [:components, 0]}
 
     flow =
       JidoActionTest.FlowBuilder.new!(

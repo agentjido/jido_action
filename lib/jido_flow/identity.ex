@@ -43,11 +43,19 @@ defmodule Jido.Flow.Identity do
     }
   end
 
+  # Needs keep their authored order as data, but they form a set of control
+  # dependencies, so their order does not change semantic identity.
   defp component_identity(named_component) do
     named_component
     |> Definition.component_to_definition()
     |> Map.delete(:meta)
+    |> sort_needs()
   end
+
+  defp sort_needs(%{needs: needs} = definition) when is_list(needs),
+    do: %{definition | needs: Enum.sort(needs)}
+
+  defp sort_needs(definition), do: definition
 
   @doc false
   @spec identity(map()) :: %{

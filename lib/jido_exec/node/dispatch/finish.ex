@@ -3,8 +3,8 @@ defmodule Jido.Exec.Node.Dispatch.Finish do
 
   alias Runic.Identity
 
-  @enforce_keys [:id, :name, :hash, :dispatch_name, :component, :target_component]
-  defstruct [:id, :name, :hash, :dispatch_name, :component, :target_component]
+  @enforce_keys [:id, :name, :hash, :dispatch_id, :dispatch_name, :component, :target_component]
+  defstruct [:id, :name, :hash, :dispatch_id, :dispatch_name, :component, :target_component]
 
   @type t :: %__MODULE__{}
 
@@ -22,6 +22,7 @@ defmodule Jido.Exec.Node.Dispatch.Finish do
           version: 1,
           id: inspect(id)
         }),
+      dispatch_id: dispatch.id,
       dispatch_name: dispatch.name,
       component: dispatch.component,
       target_component: Jido.Exec.Node.Dispatch.target_component_key(dispatch)
@@ -93,42 +94,21 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Dispatch.Finish do
   end
 end
 
-defimpl Runic.Workflow.Activator, for: Jido.Exec.Node.Dispatch.Finish do
-  alias Jido.Exec.Node.Output
-  alias Runic.Workflow
-  alias Runic.Workflow.Events.RunnableActivated
-  alias Runic.Workflow.{Fact, Invokable, Runnable}
-
-  def activate_downstream(node, workflow, %Runnable{result: %Fact{} = fact}) do
-    dispatch = Workflow.get_component(workflow, node.dispatch_name)
-
-    events =
-      workflow
-      |> Workflow.next_steps(dispatch)
-      |> Enum.filter(&match?(%Output{}, &1))
-      |> Enum.map(fn successor ->
-        %RunnableActivated{
-          fact_hash: fact.hash,
-          node_hash: successor.hash,
-          activation_kind: activation_kind(successor)
-        }
-      end)
-
-    updated = Enum.reduce(events, workflow, fn event, acc -> Workflow.apply_event(acc, event) end)
-    {updated, events}
-  end
-
-  defp activation_kind(node) do
-    case Invokable.match_or_execute(node) do
-      :match -> :matchable
-      :execute -> :runnable
-    end
-  end
-end
-
 defimpl Runic.Component, for: Jido.Exec.Node.Dispatch.Finish do
   def connectable?(_node, _other), do: true
-  def connect(node, to, workflow), do: Runic.Workflow.add_step(workflow, to, node)
+  # Connect to the Dispatch output Condition here, so durable replay keeps the edge.
+  def connect(node, to, workflow) do
+    workflow
+    |> Runic.Workflow.add_step(to, node)
+    |> Runic.Workflow.add_step(
+      node,
+      Jido.Exec.Node.Dispatch.finished_condition(
+        node.dispatch_id,
+        node.dispatch_name,
+        node.component
+      )
+    )
+  end
 
   def source(node) do
     quote do
@@ -136,6 +116,7 @@ defimpl Runic.Component, for: Jido.Exec.Node.Dispatch.Finish do
         id: unquote(Macro.escape(node.id)),
         name: unquote(node.name),
         hash: unquote(Macro.escape(node.hash)),
+        dispatch_id: unquote(Macro.escape(node.dispatch_id)),
         dispatch_name: unquote(node.dispatch_name),
         component: unquote(node.component),
         target_component: unquote(node.target_component)

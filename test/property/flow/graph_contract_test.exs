@@ -35,7 +35,6 @@ defmodule JidoActionTest.Property.Flow.GraphContractTest do
     ]
     @tag contracts: ["FLOW-001", "FLOW-002", "STORE-001", "EFFECT-001"]
     @tag contract_cases: [
-           "FLOW-001/direct",
            "FLOW-001/data",
            "FLOW-001/codec",
            "EFFECT-001/graph-once",

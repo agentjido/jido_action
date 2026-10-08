@@ -45,7 +45,7 @@ defmodule Jido.Exec.Telemetry do
   @doc false
   @spec action_metadata(Action.t(), Runnable.t()) :: map()
   def action_metadata(
-        %Action{instruction: %Instruction{target: action, metadata: instruction_metadata}} = node,
+        %Action{instruction: %Instruction{target: action}, flow: flow} = node,
         %Runnable{} = runnable
       ) do
     %{
@@ -57,7 +57,7 @@ defmodule Jido.Exec.Telemetry do
       attempt_id: runnable.attempt_id,
       attempt: runnable.attempt_number
     }
-    |> Map.merge(flow_component_metadata(Map.get(instruction_metadata, :jido_flow)))
+    |> Map.merge(flow_component_metadata(flow))
   end
 
   @doc false

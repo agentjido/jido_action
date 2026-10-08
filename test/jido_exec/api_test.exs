@@ -25,9 +25,110 @@ defmodule Jido.Exec.ApiTest do
              {:ok, %{value: 8}, [%{trace_id: "trace-1"}]}
   end
 
+  test "caller Instruction metadata does not select Flow execution behavior" do
+    instruction =
+      Instruction.new!(
+        target: Add,
+        params: %{value: 1, amount: 2},
+        metadata: %{jido_flow: %{component: "c", params: %{}}}
+      )
+
+    assert Exec.run(instruction) == {:ok, %{value: 3}}
+  end
+
+  test "invalid compile and Task Supervisor options return configuration errors" do
+    assert {:error, %Jido.Action.Error.ConfigurationError{details: %{option: :name}}} =
+             Exec.compile(Add, name: %{})
+
+    flow =
+      Jido.Flow.new!(%{
+        name: "compile_options",
+        components: [%{kind: :step, name: "add", action: Add, params: %{value: 1, amount: 1}}],
+        output: Jido.Flow.Ref.result("add")
+      })
+
+    for option <- [name: "root", id: :root] do
+      assert {:error, %Jido.Action.Error.ConfigurationError{}} = Exec.compile(flow, [option])
+    end
+
+    {:ok, supervisor} = Task.Supervisor.start_link()
+    Process.unlink(supervisor)
+    monitor = Process.monitor(supervisor)
+    Process.exit(supervisor, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^supervisor, :killed}
+
+    assert {:error,
+            %Jido.Action.Error.ConfigurationError{message: "Task Supervisor is not running"}} =
+             Exec.run(Add, %{value: 1, amount: 1}, %{}, task_supervisor: supervisor)
+  end
+
   test "run/4 projects validation failures" do
     assert {:error, %Jido.Action.Error.InvalidInputError{}} =
              Exec.run(BasicAction, %{value: "bad"})
+  end
+
+  defmodule StructInput do
+    defstruct [:id]
+  end
+
+  defmodule StructSchemaAction do
+    use Jido.Action,
+      name: "exec_struct_schema",
+      schema: Zoi.struct(StructInput, %{id: Zoi.integer()}, coerce: true)
+
+    @impl true
+    def run(%{id: id}, _context), do: {:ok, %{id: id}}
+  end
+
+  defmodule AtomSchemaAction do
+    use Jido.Action, name: "exec_atom_schema", schema: Zoi.object(%{mode: Zoi.atom()})
+
+    @impl true
+    def run(%{mode: mode}, _context), do: {:ok, %{mode: mode}}
+  end
+
+  test "run/4 executes Actions whose schemas have no JSON Schema form" do
+    assert_raise ArgumentError, fn -> StructSchemaAction.to_json() end
+
+    assert Exec.run(StructSchemaAction, %{id: 1}) == {:ok, %{id: 1}}
+    assert Exec.run(AtomSchemaAction, %{mode: :fast}) == {:ok, %{mode: :fast}}
+    assert {:ok, %Runic.Workflow{}} = Exec.compile(AtomSchemaAction)
+  end
+
+  defmodule Fail do
+    use Jido.Action, name: "exec_api_fail"
+
+    @impl true
+    def run(%{label: label}, _context), do: {:error, label}
+  end
+
+  test "run/4 rejects invalid max_concurrency values" do
+    for value <- [0, -1, :bogus, 2.5, nil, "2"] do
+      assert {:error, %Jido.Action.Error.ConfigurationError{details: details}} =
+               Exec.run(Add, %{value: 1, amount: 1}, %{}, max_concurrency: value)
+
+      assert details == %{option: :max_concurrency, value: value}
+    end
+  end
+
+  test "run/4 reports the same failure for serial and concurrent execution" do
+    flow =
+      Jido.Flow.new!(%{
+        name: "exec_api_two_failures",
+        components: [
+          %{kind: :step, name: "a", action: Fail, params: %{label: "fail_a"}},
+          %{kind: :step, name: "b", action: Fail, params: %{label: "fail_b"}}
+        ],
+        output: %{a: Jido.Flow.Ref.result("a"), b: Jido.Flow.Ref.result("b")}
+      })
+
+    messages =
+      for max_concurrency <- [1, 2, 4] do
+        assert {:error, error} = Exec.run(flow, %{}, %{}, max_concurrency: max_concurrency)
+        Exception.message(error)
+      end
+
+    assert [message, message, message] = messages
   end
 
   test "run/4 projects Action exceptions" do

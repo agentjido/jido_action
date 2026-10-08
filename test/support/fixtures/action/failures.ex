@@ -1,24 +1,3 @@
-defmodule JidoActionTest.Fixtures.Actions.MissingRun do
-  @moduledoc false
-  @behaviour Jido.Action
-  def validate_params(params), do: {:ok, params}
-  def validate_output(output), do: {:ok, output}
-end
-
-defmodule JidoActionTest.Fixtures.Actions.MissingValidateParams do
-  @moduledoc false
-  @behaviour Jido.Action
-  def run(params, _context), do: {:ok, params}
-  def validate_output(output), do: {:ok, output}
-end
-
-defmodule JidoActionTest.Fixtures.Actions.MissingValidateOutput do
-  @moduledoc false
-  @behaviour Jido.Action
-  def run(params, _context), do: {:ok, params}
-  def validate_params(params), do: {:ok, params}
-end
-
 defmodule JidoActionTest.Fixtures.Actions.AtomValidationAction do
   @moduledoc false
   @behaviour Jido.Action

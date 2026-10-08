@@ -5,14 +5,14 @@ defmodule Jido.Exec.Node.Choice.Selector do
   alias Runic.Identity
 
   @enforce_keys [:id, :name, :hash, :component, :options]
-  defstruct [:id, :name, :hash, :component, :options, :location]
+  defstruct [:id, :name, :hash, :component, :options, :location, :node_path]
 
   @type t :: %__MODULE__{}
 
   @doc false
   @spec new(keyword()) :: t()
   def new(opts) do
-    opts = Keyword.validate!(opts, [:id, :name, :component, :options, :location])
+    opts = Keyword.validate!(opts, [:id, :name, :component, :options, :location, :node_path])
     id = Keyword.fetch!(opts, :id)
 
     %__MODULE__{
@@ -22,7 +22,8 @@ defmodule Jido.Exec.Node.Choice.Selector do
         Identity.digest(:component_definition, %{kind: "jido_choice_selector", version: 1, id: id}),
       component: Keyword.fetch!(opts, :component),
       options: Keyword.fetch!(opts, :options),
-      location: Keyword.get(opts, :location)
+      location: Keyword.get(opts, :location),
+      node_path: Keyword.get(opts, :node_path, [Keyword.fetch!(opts, :component)])
     }
   end
 
@@ -94,7 +95,7 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Choice.Selector do
           runnable,
           Jido.Exec.Source.attach(error, node.location, %{
             node: node.component,
-            node_path: [node.component]
+            node_path: node.node_path
           })
         )
     end
@@ -112,7 +113,8 @@ defimpl Runic.Component, for: Jido.Exec.Node.Choice.Selector do
         name: unquote(node.name),
         component: unquote(node.component),
         options: unquote(Macro.escape(node.options)),
-        location: unquote(Macro.escape(node.location))
+        location: unquote(Macro.escape(node.location)),
+        node_path: unquote(Macro.escape(node.node_path))
       )
     end
   end

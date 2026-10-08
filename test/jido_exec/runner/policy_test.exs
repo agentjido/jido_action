@@ -30,6 +30,16 @@ defmodule Jido.Exec.Runner.PolicyTest do
     end
   end
 
+  defmodule UnsafeAction do
+    use Jido.Action, name: "exec_v2_unsafe"
+
+    @impl true
+    def run(_params, %{counter: counter}) do
+      Agent.update(counter, &(&1 + 1))
+      {:error, Error.execution_error("unsafe", %{retry: false})}
+    end
+  end
+
   defmodule RetryEffectAction do
     use Jido.Action, name: "exec_v2_retry_effect"
 
@@ -61,6 +71,18 @@ defmodule Jido.Exec.Runner.PolicyTest do
            ) == {:ok, %{attempt: 3}}
 
     assert Agent.get(counter, & &1) == 3
+  end
+
+  test "max_attempts retries only errors marked retryable" do
+    {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+    assert {:error, %Error.ExecutionFailureError{message: "unsafe"}} =
+             Exec.run(UnsafeAction, %{}, %{counter: counter}, max_attempts: 3)
+
+    assert Agent.get(counter, & &1) == 1
+
+    assert {:error, %Error.TimeoutError{}} =
+             Exec.run(TimeoutAction, %{}, %{}, timeout: 5, max_attempts: 3)
   end
 
   test "retry attempts keep one activation and one logical effect identity" do

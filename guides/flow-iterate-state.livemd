@@ -3,7 +3,8 @@
 ## Overview
 
 Iterate runs one Action as a bounded local state transition. It is one Flow
-component and one native Runic Step.
+component. At runtime it is a small native Runic loop: a start node, two
+Conditions, the body Action, and a finish node.
 
 Run the cells from top to bottom.
 
@@ -103,7 +104,8 @@ These references have Iterate-local scope:
 
 - `state(path)`;
 - `iteration_index()`; and
-- `body_result(path)` in the update expression.
+- `body_result(path)` in params, the update expression, and the completion
+  condition.
 
 The Iterate target must be an Action. Nested Flow execution is not supported in
 the body target slot.

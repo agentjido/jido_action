@@ -21,11 +21,10 @@ defmodule Jido.Instruction do
   `normalize!/3` and `resolve/3` accept a target or an existing Instruction.
   Existing Instructions are flattened. Their parameters and context are merged
   with shallow, right-biased call data. Metadata remains an annotation and has
-  no meaning to the target. Flow-created Action Instructions use the reserved
-  `:jido_flow` metadata entry for their component location. Flow uses this data
-  for telemetry, error details, and invocation occurrence IDs.
+  no meaning to the target or to Exec.
 
-  Bound Instructions can be direct Exec targets and continuation targets.
+  Bound Instructions can be direct Exec targets and Dispatch continuation
+  targets.
   Public constructors accept map parameters. Flow can resolve any portable
   value before Action input validation, so an internal bound call can hold a
   non-map value long enough for the target validator to return its normal
@@ -349,7 +348,8 @@ defmodule Jido.Instruction do
   defp classify(%Flow{}), do: {:ok, :flow}
 
   defp classify(module) when is_atom(module) and not is_nil(module) do
-    case Code.ensure_loaded(module) do
+    # During compilation this waits for a target module that is still compiling.
+    case Code.ensure_compiled(module) do
       {:module, ^module} -> classify_loaded_module(module)
       {:error, reason} -> unknown_target(module, reason)
     end

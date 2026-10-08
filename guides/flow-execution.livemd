@@ -137,10 +137,10 @@ A supervised application can start the same compiled Flow under a
 ```
 
 ```elixir
-{:ok, productions} =
-  Runic.Runner.get_results(FlowExecution.Runner, "diamond-1")
+{:ok, workflow} = Runic.Runner.get_workflow(FlowExecution.Runner, "diamond-1")
+Jido.Exec.result(workflow)
 ```
 
-Use `Runic.Runner.checkpoint/2`, `stop/3`, and `resume/3` for durable lifecycle
-control. The Runic Store contains progress. Flow JSON contains only the
+Use `Runic.Runner.checkpoint/2` and `stop/3` for durable lifecycle control.
+Resume with `Jido.Exec.resume/4` and the same context and options. The Runic Store contains progress. Flow JSON contains only the
 portable definition.

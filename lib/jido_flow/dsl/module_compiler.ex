@@ -156,11 +156,7 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
   @doc false
   @spec register_step!(term(), Macro.Env.t()) :: String.t()
   def register_step!(value, env) do
-    name =
-      case Definition.name(value) do
-        {:ok, name} -> name
-        {:error, error} -> MacroSupport.compile_error!(env, Exception.message(error))
-      end
+    name = declaration_name!(value, env)
 
     names = Module.get_attribute(env.module, :__jido_flow_step_names__) || MapSet.new()
 
@@ -170,6 +166,16 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
 
     Module.put_attribute(env.module, :__jido_flow_step_names__, MapSet.put(names, name))
     name
+  end
+
+  @doc false
+  # Declarations normalize names as data definitions do.
+  @spec declaration_name!(term(), Macro.Env.t()) :: String.t()
+  def declaration_name!(value, env) do
+    case Definition.name(value) do
+      {:ok, name} -> name
+      {:error, error} -> MacroSupport.compile_error!(env, Exception.message(error))
+    end
   end
 
   @doc false
@@ -323,7 +329,6 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
 
   defp source_paths(%{path: [:output | _rest]}), do: [[:output]]
   defp source_paths(%{component: component}), do: [[:components, component]]
-  defp source_paths(%{node: component}), do: [[:components, component]]
   defp source_paths(_details), do: []
 
   defp normalize_options(raw_opts) when is_list(raw_opts) do

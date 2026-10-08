@@ -131,7 +131,8 @@ Jido.Exec.run(
 
 Exec runs input validation, the Action callback, output validation, and result
 normalization through a Runic Runnable. Exceptions and invalid return shapes
-become structured errors. Runic owns timeout and retry policy.
+become structured errors. Runic owns timeout and retry policy. Exec retries an
+Action error only when it sets `details.retry: true`.
 
 ### Prepare Raw Input
 

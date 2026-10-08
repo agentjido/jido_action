@@ -63,9 +63,9 @@ Run durable tests through a real `Runic.Runner` and Store:
 1. start the Flow with `Jido.Exec.start/6`;
 2. block at a known Action;
 3. checkpoint and stop the Worker;
-4. call `Runic.Runner.resume/3`;
+4. call `Jido.Exec.resume/4` with the same context and options;
 5. assert that completed Actions did not run again;
-6. inspect results through `Runic.Runner.get_results/2`.
+6. assert the result through `Jido.Exec.result/1` on the final workflow.
 
 Use a stable execution ID. Keep process-local values out of durable params,
 context, and outputs.

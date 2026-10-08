@@ -44,8 +44,9 @@ defmodule Jido.Action do
   `run/2` can be pure or can perform I/O. Keep one Action focused on one unit
   of work. The caller selects retry, timeout, scheduling, cancellation, and
   persistence policy. Return an optional effect list with `{:ok, output, requests}`;
-  Exec carries the requests without dispatch. `Jido.Exec` enforces a requested execution timeout and
-  owns process cleanup. It does not retry an Action automatically.
+  Exec carries the requests without dispatch. `Jido.Exec` enforces a requested
+  per-attempt timeout and owns process cleanup. It retries an Action only when
+  the caller sets `max_attempts` and the error is retryable.
   """
 
   alias Jido.Action.{Error, Output, Validation}
@@ -418,8 +419,9 @@ defmodule Jido.Action do
 
   - `{:ok, result}` where `result` is a map or a `Jido.Action.Output` value.
   - `{:ok, result, effects}` where `effects` is a proper list of effect requests.
-  - `{:continue, continuation_input, continuation_target}` where the current
-    executable ends and the target becomes the next executable.
+  - `{:continue, continuation_input, continuation_target}` only from a Dispatch
+    expander, where the target becomes the next executable. Exec rejects it
+    from a root Action and other Flow positions.
   - `{:error, reason}` where `reason` describes why the Action failed.
   - `{:error, reason, effects}` is accepted, but Exec discards the effects.
 

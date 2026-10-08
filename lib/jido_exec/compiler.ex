@@ -16,7 +16,8 @@ defmodule Jido.Exec.Compiler do
   def compile(target, opts \\ []) do
     with {:ok, opts} <- validate_options(opts),
          {:ok, instruction} <- normalize(target),
-         :ok <- Instruction.validate_resolved(instruction) do
+         :ok <- Instruction.validate_resolved(instruction),
+         :ok <- validate_target_options(instruction, opts) do
       compile_instruction(instruction, opts)
     end
   rescue
@@ -120,6 +121,34 @@ defmodule Jido.Exec.Compiler do
 
   defp validate_options(_opts),
     do: {:error, Error.config_error("compile options must be a keyword list")}
+
+  # `name` and `id` name the root Action node, so a Flow target rejects them.
+  defp validate_target_options(%Instruction{kind: :flow}, opts) do
+    case Keyword.take(opts, [:name, :id]) do
+      [] ->
+        :ok
+
+      [{option, _value} | _rest] ->
+        {:error,
+         Error.config_error("compile option applies only to an Action target", %{
+           option: option
+         })}
+    end
+  end
+
+  defp validate_target_options(%Instruction{kind: :action}, opts) do
+    case Keyword.fetch(opts, :name) do
+      {:ok, name} when not (is_binary(name) or (is_atom(name) and not is_nil(name))) ->
+        {:error,
+         Error.config_error("compile option name must be a string or atom", %{
+           option: :name,
+           value: name
+         })}
+
+      _name ->
+        :ok
+    end
+  end
 
   defp validate_component_targets(components, module_stack, children) do
     components
@@ -386,9 +415,10 @@ defmodule Jido.Exec.Compiler do
       }
     }
 
-    with {:ok, instruction} <- Instruction.bind(template, %{}, %{}, metadata) do
+    with {:ok, instruction} <- Instruction.bind(template, %{}, %{}) do
       {:ok,
        Action.new(instruction,
+         flow: metadata.jido_flow,
          id: {:flow, digest, namespace, name},
          name: graph_name
        )}
@@ -406,7 +436,7 @@ defmodule Jido.Exec.Compiler do
          digest,
          source_map,
          namespace,
-         _node_path_prefix
+         node_path_prefix
        ) do
     {:ok,
      Dispatch.new(
@@ -416,7 +446,8 @@ defmodule Jido.Exec.Compiler do
        decision: decision,
        decision_params: params,
        expander: expander,
-       location: Map.get(source_map, [:components, name])
+       location: Map.get(source_map, [:components, name]),
+       node_path: node_path_prefix ++ [name]
      )}
   end
 
@@ -432,7 +463,7 @@ defmodule Jido.Exec.Compiler do
          digest,
          source_map,
          namespace,
-         _node_path_prefix
+         node_path_prefix
        ) do
     {:ok,
      Loop.new(
@@ -444,7 +475,8 @@ defmodule Jido.Exec.Compiler do
        initial: initial,
        instruction: instruction,
        params: params,
-       location: Map.get(source_map, [:components, name])
+       location: Map.get(source_map, [:components, name]),
+       node_path: node_path_prefix ++ [name]
      )}
   end
 
@@ -461,7 +493,7 @@ defmodule Jido.Exec.Compiler do
          digest,
          source_map,
          namespace,
-         _node_path_prefix
+         node_path_prefix
        ) do
     {:ok,
      Loop.new(
@@ -474,7 +506,8 @@ defmodule Jido.Exec.Compiler do
        state: state,
        completion: completion,
        max_iterations: max_iterations,
-       location: Map.get(source_map, [:components, name])
+       location: Map.get(source_map, [:components, name]),
+       node_path: node_path_prefix ++ [name]
      )}
   end
 
@@ -490,7 +523,7 @@ defmodule Jido.Exec.Compiler do
          digest,
          source_map,
          namespace,
-         _node_path_prefix
+         node_path_prefix
        ) do
     {:ok,
      MapComponent.new(
@@ -501,7 +534,8 @@ defmodule Jido.Exec.Compiler do
        instruction: instruction,
        params: params,
        on_error: on_error,
-       location: Map.get(source_map, [:components, name])
+       location: Map.get(source_map, [:components, name]),
+       node_path: node_path_prefix ++ [name]
      )}
   end
 
@@ -512,7 +546,7 @@ defmodule Jido.Exec.Compiler do
          digest,
          source_map,
          namespace,
-         _node_path_prefix
+         node_path_prefix
        ) do
     {:ok,
      Choice.new(
@@ -521,7 +555,8 @@ defmodule Jido.Exec.Compiler do
        component: name,
        options: options,
        fallback: fallback,
-       location: Map.get(source_map, [:components, name])
+       location: Map.get(source_map, [:components, name]),
+       node_path: node_path_prefix ++ [name]
      )}
   end
 
@@ -574,16 +609,30 @@ defmodule Jido.Exec.Compiler do
   defp add_component(workflow, component, [parent]) do
     source = Workflow.get_component(workflow, parent)
 
-    if match?(%Workflow{}, source) or match?(%Workflow{}, component) do
-      {source_port, _source_schema} = source |> Runic.Component.outputs() |> List.first()
-      {target_port, _target_schema} = component |> Runic.Component.inputs() |> List.first()
+    cond do
+      # Only a finished Dispatch reaches the Flow output.
+      match?(%Dispatch{}, source) ->
+        Workflow.add(workflow, component, to: Dispatch.finished_condition(source))
 
-      Workflow.add(workflow, component,
-        connections: [[from: {parent, source_port}, to: target_port]]
-      )
-    else
-      Workflow.add(workflow, component, to: parent)
+      match?(%Workflow{}, source) or match?(%Workflow{}, component) ->
+        {source_port, _source_schema} = source |> Runic.Component.outputs() |> List.first()
+        {target_port, _target_schema} = component |> Runic.Component.inputs() |> List.first()
+
+        Workflow.add(workflow, component,
+          connections: [[from: {parent, source_port}, to: target_port]]
+        )
+
+      true ->
+        Workflow.add(workflow, component, to: parent)
     end
+  end
+
+  defp add_component(workflow, %Workflow{} = component, parents) do
+    # A child workflow connects its root to one vertex, so join the parents first.
+    endpoints = Enum.map(parents, &component_endpoint(workflow, &1))
+    join = endpoints |> Enum.map(& &1.hash) |> Runic.Workflow.Join.new()
+    workflow = Enum.reduce(endpoints, workflow, &Workflow.add_step(&2, &1, join))
+    Workflow.add(workflow, component, to: join)
   end
 
   defp add_component(workflow, component, parents) do

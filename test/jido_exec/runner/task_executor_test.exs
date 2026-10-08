@@ -54,6 +54,39 @@ defmodule Jido.Exec.Runner.TaskExecutorTest do
     assert_receive {:DOWN, ^monitor, :process, ^action_pid, _reason}, 1_000
   end
 
+  test "managed execution releases finished Action tasks" do
+    runner = start_runner!()
+    execution_id = unique_id()
+    test_pid = self()
+    params = %{value: 1, amount: 2}
+    hooks = [on_idle: fn _state -> send(test_pid, :managed_idle) end]
+
+    assert {:ok, worker} =
+             Exec.start(runner, execution_id, JidoActionTest.Fixtures.Actions.Add, params, %{},
+               hooks: hooks
+             )
+
+    assert_receive :managed_idle, 1_000
+    assert %{executor_state: %{tasks: tasks}} = :sys.get_state(worker)
+    assert tasks == %{}
+  end
+
+  test "worker death stops its active Action task" do
+    runner = start_runner!()
+    observer = :"exec_v2_orphan_observer_#{System.unique_integer([:positive])}"
+    Process.register(self(), observer)
+    on_exit(fn -> if Process.whereis(observer) == self(), do: Process.unregister(observer) end)
+
+    assert {:ok, worker} =
+             Exec.start(runner, unique_id(), BlockingAction, %{}, %{observer: observer})
+
+    assert_receive {:blocking_action_started, action_pid}, 1_000
+    monitor = Process.monitor(action_pid)
+
+    Process.exit(worker, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^action_pid, _reason}, 1_000
+  end
+
   defp start_runner! do
     runner = __MODULE__.Runner
     start_supervised!({Runic.Runner, name: runner})

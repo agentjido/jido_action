@@ -52,9 +52,18 @@ defmodule Jido.Flow.Definition do
   def validate(attrs) do
     case diagnose(attrs) do
       {:ok, normalized} -> {:ok, normalized}
-      {:error, [issue | _rest]} -> {:error, issue.error}
+      {:error, [issue | _rest]} -> {:error, put_location(issue.error, issue.location)}
     end
   end
+
+  # Graph issues carry their location separately; expose it as the error path.
+  defp put_location(%{details: details} = error, [_ | _] = location) when is_map(details) do
+    if Map.has_key?(details, :path),
+      do: error,
+      else: %{error | details: Map.put(details, :path, location)}
+  end
+
+  defp put_location(error, _location), do: error
 
   @doc false
   @spec validate_canonical(map()) :: {:ok, map()} | {:error, Exception.t()}
@@ -157,11 +166,6 @@ defmodule Jido.Flow.Definition do
         expander: {expander, expander_params}
       }),
       do: [{:decision, decision, params}, {:expander, expander, expander_params}]
-
-  @doc false
-  @spec target_modules(component_node()) :: [module()]
-  def target_modules(node),
-    do: Enum.map(calls(node), fn {_role, instruction, _params} -> instruction.target end)
 
   @doc false
   @spec reference_dependencies(component_node()) :: [String.t()]
@@ -632,14 +636,16 @@ defmodule Jido.Flow.Definition do
     |> canonical_component_error_path(canonical_entries(components))
   end
 
+  # Canonical entries are sorted for validation. Report the component name, not
+  # that internal position.
   defp canonical_component_error_path(
-         {:error, %{details: %{path: [:components, index, :state | rest]} = details} = error},
+         {:error, %{details: %{path: [:components, index | rest]} = details} = error},
          entries
        )
        when is_integer(index) do
     case Enum.fetch(entries, index) do
       {:ok, {name, _node}} ->
-        {:error, %{error | details: %{details | path: [:components, name, :state | rest]}}}
+        {:error, %{error | details: %{details | path: [:components, name | rest]}}}
 
       :error ->
         {:error, error}
@@ -833,7 +839,7 @@ defmodule Jido.Flow.Definition do
   end
 
   defp common(attrs) do
-    with {:ok, name} <- name(Map.get(attrs, :name), "component"),
+    with {:ok, name} <- component_name(Map.get(attrs, :name)),
          {:ok, needs} <- needs_names(Map.get(attrs, :needs, [])),
          {:ok, meta} <- meta(Map.get(attrs, :meta, %{})) do
       {:ok, name, needs, meta}
@@ -921,7 +927,11 @@ defmodule Jido.Flow.Definition do
         {:ok, options}
 
       [name | _rest] ->
-        {:error, Error.validation_error("choice option names must be unique", %{name: name})}
+        {:error,
+         Error.validation_error("choice option names must be unique", %{
+           name: name,
+           path: [:options]
+         })}
     end
   end
 
@@ -966,7 +976,11 @@ defmodule Jido.Flow.Definition do
        do: {:ok, value}
 
   defp maximum_iterations(_value),
-    do: {:error, Error.validation_error("iterate max_iterations must be from 1 to 10000")}
+    do:
+      {:error,
+       Error.validation_error("iterate max_iterations must be from 1 to 10000", %{
+         path: [:max_iterations]
+       })}
 
   defp on_error(value) when value in [:fail_fast, :collect_errors], do: {:ok, value}
 
@@ -976,6 +990,11 @@ defmodule Jido.Flow.Definition do
        path: [:on_error],
        on_error: value
      })}
+  end
+
+  defp component_name(value) do
+    with {:error, error} <- name(value, "component"),
+         do: {:error, Error.prefix_path(error, [:name])}
   end
 
   defp name(value, _owner) when is_atom(value) and not is_nil(value),
@@ -1032,7 +1051,11 @@ defmodule Jido.Flow.Definition do
         {:ok, names}
 
       [name | _rest] ->
-        {:error, Error.validation_error("component needs contains a duplicate", %{name: name})}
+        {:error,
+         Error.validation_error("component needs contains a duplicate", %{
+           name: name,
+           path: [:needs]
+         })}
     end
   end
 

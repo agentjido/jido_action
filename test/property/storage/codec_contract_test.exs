@@ -394,7 +394,7 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
       reference = Ref.input(:value)
 
       flows =
-        for expression <- [reference, Ref.to_map(reference)] do
+        for expression <- [reference, Map.take(reference, [:source, :component, :path])] do
           JidoActionTest.FlowBuilder.new!(
             name: "identity",
             components: [

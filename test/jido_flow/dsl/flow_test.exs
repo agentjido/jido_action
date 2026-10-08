@@ -273,6 +273,86 @@ defmodule Jido.Flow.DSL.FlowTest do
     assert_raise CompileError, ~r/Flow output is required/, fn -> Code.compile_string(code) end
   end
 
+  test "negative number literals match the data definition form" do
+    [{module, _binary}] =
+      Code.compile_string("""
+      defmodule NegativeLiteralFlow do
+        use Jido.Flow, name: "negative_literals"
+
+        flow do
+          step "echo",
+            action: JidoActionTest.Fixtures.Actions.EchoParamsAction,
+            params: %{offset: -1, scale: -2.5, items: [-3]}
+
+          output result("echo")
+        end
+      end
+      """)
+
+    data =
+      Jido.Flow.new!(%{
+        name: "negative_literals",
+        components: [
+          %{
+            kind: :step,
+            name: "echo",
+            action: JidoActionTest.Fixtures.Actions.EchoParamsAction,
+            params: %{offset: -1, scale: -2.5, items: [-3]}
+          }
+        ],
+        output: Jido.Flow.Ref.result("echo")
+      })
+
+    assert Jido.Flow.semantic_identity(module.flow()) == Jido.Flow.semantic_identity(data)
+  end
+
+  test "atom names and non-atom meta keys match the data definition form" do
+    [{module, _binary}] =
+      Code.compile_string("""
+      defmodule AtomNameMetaFlow do
+        use Jido.Flow, name: "atom_name_meta"
+
+        flow do
+          step :load,
+            action: JidoActionTest.Fixtures.Actions.EchoParamsAction,
+            params: %{},
+            meta: %{"ui" => %{"x" => 1}, 1 => :first}
+
+          map :items,
+            collection: input(:items),
+            action: JidoActionTest.Fixtures.Actions.EchoParamsAction,
+            params: %{item: item()}
+
+          output %{load: result("load"), items: result("items")}
+        end
+      end
+      """)
+
+    data =
+      Jido.Flow.new!(%{
+        name: "atom_name_meta",
+        components: [
+          %{
+            kind: :step,
+            name: "load",
+            action: JidoActionTest.Fixtures.Actions.EchoParamsAction,
+            params: %{},
+            meta: %{"ui" => %{"x" => 1}, 1 => :first}
+          },
+          %{
+            kind: :map,
+            name: "items",
+            collection: Jido.Flow.Ref.input(:items),
+            action: JidoActionTest.Fixtures.Actions.EchoParamsAction,
+            params: %{item: Jido.Flow.Ref.item()}
+          }
+        ],
+        output: %{load: Jido.Flow.Ref.result("load"), items: Jido.Flow.Ref.result("items")}
+      })
+
+    assert Jido.Flow.to_map(module.flow()) == Jido.Flow.to_map(data)
+  end
+
   test "empty lists compile and execute as data across Flow declarations" do
     code = """
     defmodule EmptyListLiteralFlow do

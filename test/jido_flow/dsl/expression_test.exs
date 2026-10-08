@@ -104,8 +104,9 @@ defmodule JidoActionTest.Flow.DSL.ExpressionTest do
     assert {:ok, %{amounts: [-2, %{amount: -3.5}]}} =
              ValueParser.parse(quote(do: value(%{amounts: [-2, %{amount: -3.5}]})))
 
-    assert {:ok, %Jido.Expr{operator: :-, operands: [1]}} =
-             ValueParser.parse(quote(do: -1))
+    # A negative number is literal data, as in a data definition.
+    assert {:ok, -1} = ValueParser.parse(quote(do: -1))
+    assert {:ok, %Jido.Expr{operator: :-}} = ValueParser.parse(quote(do: -input(:amount)))
 
     for expression <- [
           quote(do: value(-input(:amount))),

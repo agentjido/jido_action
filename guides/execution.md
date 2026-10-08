@@ -51,8 +51,8 @@ The compile options are:
 | Option | Purpose |
 | --- | --- |
 | `source_map` | Add source locations to compiler errors. |
-| `name` | Override the root Action node name. |
-| `id` | Override the root Action node identity input. |
+| `name` | Override the root Action node name. Action targets only. |
+| `id` | Override the root Action node identity input. Action targets only. |
 
 Flow modules supply their DSL source map automatically. Compiled workflows are
 derived runtime values. Store the Flow definition as JSON and compile it after
@@ -100,16 +100,23 @@ components. Exec does not follow Action result continuations in a private loop.
 | Option | Default | Rule |
 | --- | --- | --- |
 | `timeout` | `:infinity` | Per-attempt Runic timeout in milliseconds. |
-| `max_attempts` | `1` | Total attempts, including the first attempt. |
+| `max_attempts` | `1` | Total attempts, including the first. Only retryable errors retry. |
 | `backoff` | `:none` | `:none`, `:linear`, `:exponential`, or `:jitter`. |
 | `base_delay_ms` | `0` | Non-negative retry delay base. |
 | `max_delay_ms` | `0` | Non-negative retry delay limit. |
-| `max_concurrency` | `1` | Ready Runnable concurrency for immediate execution. |
+| `max_concurrency` | `1` | Positive integer. Ready Runnable concurrency for immediate execution. |
 | `task_supervisor` | `Jido.Exec.TaskSupervisor` | Local Task Supervisor for the execution task. |
 
 Exec converts these options to `Runic.Workflow.SchedulerPolicy`. Runic performs
-the timeout, retry, backoff, and scheduling work. The default failure action is
-`:halt`.
+the timeout, retry, backoff, and scheduling work. Exec retries a failed attempt
+only when `Jido.Action.Error.retryable?/1` accepts its error, so set
+`details.retry: true` only when another attempt is safe. Timeouts and process
+exits are not retried. Invalid option values return a
+`Jido.Action.Error.ConfigurationError`.
+
+The default failure action is `:halt`. A halting failure stops new dispatch;
+work that already started can finish. The returned error is the first failure
+that Runic recorded, for serial and concurrent execution.
 
 ## Managed And Durable Execution
 
@@ -146,18 +153,31 @@ children = [
   )
 ```
 
-Managed execution checks that Instruction parameters and context contain
-portable values. Its default adapter runs Action Tasks under the Runner's Task
-supervisor.
+Managed execution checks that Instruction parameters, context, and metadata
+contain portable values. Context reaches Actions as runtime data and is not
+stored in the Runic Store. Its default adapter runs Action Tasks under the
+Runner's Task supervisor, including a partitioned supervisor.
 
-Use the Runic API for lifecycle operations:
+Use the Runic API to checkpoint and stop. Use `Jido.Exec.resume/4` to resume,
+and `Jido.Exec.result/1` to read the result:
 
 ```elixir
 :ok = Runic.Runner.checkpoint(MyApp.Runner, "order-42")
 :ok = Runic.Runner.stop(MyApp.Runner, "order-42", persist: true)
-{:ok, _worker} = Runic.Runner.resume(MyApp.Runner, "order-42")
-{:ok, results} = Runic.Runner.get_results(MyApp.Runner, "order-42")
+
+{:ok, _worker} =
+  Jido.Exec.resume(MyApp.Runner, "order-42", %{request_id: "r-42"},
+    checkpoint_strategy: :every_cycle
+  )
+
+{:ok, workflow} = Runic.Runner.get_workflow(MyApp.Runner, "order-42")
+{:ok, value} = Jido.Exec.result(workflow)
 ```
+
+Runic does not persist runtime context or runtime policy. Pass `resume/4` the
+same context and managed options that you gave `start/6`. `result/1` returns
+the same `{:ok, value}`, `{:ok, value, effects}`, or `{:error, exception}`
+values as `run/4`.
 
 The configured Runic Store is the source of truth for runtime progress. A
 resume restores the Runnable frontier and continues with the next work. Jido
@@ -210,8 +230,9 @@ failure also returns `{:complete, workflow}` because no ready work remains;
 inspect `workflow.runnable_events` for `Runic.Workflow.RunnableFailed`.
 
 Use `Runic.Runner.continue/2` to change the same worker back to automatic
-dispatch. Use `dispatch_mode: :manual` with `Runic.Runner.resume/3` to keep
-stepwise control after durable recovery.
+dispatch. Use `dispatch_mode: :manual` with `Jido.Exec.resume/4` to keep
+stepwise control after durable recovery. Use `Jido.Exec.result/1` on a
+completed workflow to read its result.
 
 Runic remains responsible for readiness, dispatch, active work, events,
 persistence, and recovery. `Jido.Exec.step/2` only delegates the dispatch and
@@ -239,9 +260,9 @@ Runic owns the Worker, Scheduler, Executor, Task supervisor, and Store. Jido
 provides the Action adapter and the default managed Executor. A host can replace
 Runic's public scheduler, executor, or store components.
 
-Stopping a managed execution cancels active Action Tasks. A timeout or process
-exit becomes a failed Runnable and follows the selected Runic policy. Jido does
-not add another Task tree or cancellation model.
+Stopping a managed execution, or the death of its worker, stops active Action
+Tasks. A timeout or process exit becomes a failed Runnable. It is not retried.
+Jido does not add another Task tree or cancellation model.
 
 ## Telemetry
 

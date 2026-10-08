@@ -168,6 +168,24 @@ defmodule Jido.Exec.TelemetryTest do
     assert metadata_for(events, @flow_exception) == []
   end
 
+  defmodule KillAction do
+    use Jido.Action, name: "telemetry_kill"
+
+    @impl true
+    def run(_params, _context), do: Process.exit(self(), :kill)
+  end
+
+  test "a Flow span stops when its execution task is killed" do
+    token = attach([@flow_start, @flow_stop, @flow_exception])
+
+    flow = one_step_flow("telemetry_kill", KillAction, %{})
+    assert {:error, %Error.ExecutionFailureError{}} = Exec.run(flow)
+
+    events = receive_events(token, 2)
+    assert [%{outcome: :error}] = metadata_for(events, @flow_stop)
+    assert metadata_for(events, @flow_exception) == []
+  end
+
   test "managed execution combines Jido Action spans with Runic runtime events" do
     runic_workflow_start = [:runic, :runner, :workflow, :start]
     runic_workflow_stop = [:runic, :runner, :workflow, :stop]

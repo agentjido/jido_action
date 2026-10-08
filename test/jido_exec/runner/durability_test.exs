@@ -252,8 +252,11 @@ defmodule Jido.Exec.Runner.DurabilityTest do
     assert_receive :resumed_flow_idle, 2_000
     assert Recorder.steps() == Enum.to_list(1..10)
 
-    assert {:ok, productions} = Runic.Runner.get_results(__MODULE__.Runner, execution_id)
-    assert %{value: 10} in productions
+    assert {:ok, %{result: %{value: 10}}} =
+             Runic.Runner.get_results(__MODULE__.Runner, execution_id, [])
+
+    assert {:ok, workflow} = Runic.Runner.get_workflow(__MODULE__.Runner, execution_id)
+    assert Exec.result(workflow) == {:ok, %{value: 10}}
 
     {store, store_state} = Runic.Runner.get_store(__MODULE__.Runner)
     assert {:ok, events} = store.stream(execution_id, store_state)
@@ -281,26 +284,32 @@ defmodule Jido.Exec.Runner.DurabilityTest do
             params: %{value: Ref.item(), index: Ref.item_index()}
           }
         ],
-        output: Ref.result("items")
+        output: %{items: Ref.result("items")}
       })
 
     execution_id = {:durable_map, System.unique_integer([:positive])}
     start_execution(runner, execution_id, flow, %{items: [2, 3, 4]})
 
     assert_receive {:checkpoint_waiting, {:map, 1}}, 2_000
-    assert Recorder.steps() == [{:map, 0}]
+    # Dispatch order is not a Map contract; result order is.
+    completed_before_stop = Recorder.steps()
+    assert {:map, 0} in completed_before_stop
+    refute {:map, 1} in completed_before_stop
 
     stop_and_resume(runner, execution_id)
     :ok = CheckpointGate.open()
     assert_receive {:resumed_flow_idle, ^execution_id}, 2_000
 
-    assert Recorder.steps() == [{:map, 0}, {:map, 1}, {:map, 2}]
+    # Each item completes exactly once across the stop and resume.
+    assert Enum.sort(Recorder.steps()) == [{:map, 0}, {:map, 1}, {:map, 2}]
 
-    assert [
-             %{index: 0, value: 4},
-             %{index: 1, value: 6},
-             %{index: 2, value: 8}
-           ] in results(runner, execution_id)
+    assert %{
+             items: [
+               %{index: 0, value: 4},
+               %{index: 1, value: 6},
+               %{index: 2, value: 8}
+             ]
+           } in results(runner, execution_id)
   end
 
   test "Runic restores Iterate state at the next body activation" do

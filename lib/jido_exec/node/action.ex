@@ -8,7 +8,9 @@ defmodule Jido.Exec.Node.Action do
   alias Runic.Identity
 
   @enforce_keys [:id, :name, :hash, :instruction, :inputs, :outputs]
-  defstruct [:id, :name, :hash, :instruction, :inputs, :outputs]
+  # `flow` holds the Flow component data for a Flow-created node. Caller
+  # Instruction metadata stays an annotation with no execution meaning.
+  defstruct [:id, :name, :hash, :instruction, :inputs, :outputs, :flow]
 
   @type t :: %__MODULE__{
           id: term(),
@@ -16,7 +18,8 @@ defmodule Jido.Exec.Node.Action do
           hash: Identity.t(),
           instruction: Instruction.t(),
           inputs: keyword(),
-          outputs: keyword()
+          outputs: keyword(),
+          flow: map() | nil
         }
 
   @doc false
@@ -24,7 +27,7 @@ defmodule Jido.Exec.Node.Action do
   def new(instruction, opts \\ [])
 
   def new(%Instruction{kind: :action, target: action} = instruction, opts) do
-    opts = Keyword.validate!(opts, [:id, :name])
+    opts = Keyword.validate!(opts, [:id, :name, :flow])
 
     case Instruction.validate_resolved(instruction) do
       :ok -> :ok
@@ -48,7 +51,8 @@ defmodule Jido.Exec.Node.Action do
       hash: hash,
       instruction: instruction,
       inputs: ports(:input, action),
-      outputs: ports(:output, action)
+      outputs: ports(:output, action),
+      flow: Keyword.get(opts, :flow)
     }
   end
 
@@ -58,21 +62,26 @@ defmodule Jido.Exec.Node.Action do
   end
 
   @doc false
-  @spec action_metadata(t()) :: map() | nil
-  def action_metadata(%__MODULE__{instruction: %Instruction{target: action}}) do
-    if function_exported?(action, :to_json, 0), do: action.to_json()
-  end
-
-  @doc false
-  @spec execute(t(), term(), map()) :: {:ok, term(), [term()]} | {:error, Exception.t()}
-  def execute(%__MODULE__{instruction: instruction}, input, run_context) do
+  @spec execute(t(), term(), map(), map()) :: {:ok, term(), [term()]} | {:error, Exception.t()}
+  def execute(
+        %__MODULE__{instruction: instruction, flow: flow_metadata},
+        input,
+        run_context,
+        meta \\ %{}
+      ) do
     {durable?, run_context} = Map.pop(run_context, :__jido_exec_durable__, false)
-    flow_metadata = Map.get(instruction.metadata, :jido_flow)
 
     result =
       case flow_metadata do
         %{mode: {:loop, %Loop{} = loop}} ->
-          Loop.run_action(loop, instruction, input, run_context, &execute_action/3)
+          Loop.run_action(
+            loop,
+            instruction,
+            input,
+            Map.get(meta, :jido_loop, %{}),
+            run_context,
+            &execute_action/3
+          )
 
         %{mode: {:dispatch, phase, dispatch}, params: params} ->
           execute_dispatch(instruction, phase, dispatch, params, input, run_context)
@@ -116,31 +125,44 @@ defmodule Jido.Exec.Node.Action do
   defp execute_map_component(
          instruction,
          component,
-         params,
+         _params,
          on_error,
-         {:jido_map_item, frame, item, index, item_id},
+         {:jido_map_item, index, item_id, resolved, frame},
          run_context
        ) do
-    resolver_state =
-      frame
-      |> Frame.resolver_state(run_context)
-      |> Map.merge(%{item: item, item_index: index, item_id: item_id})
-
-    with {:ok, resolved_params} <- ValueResolver.resolve(params, resolver_state) do
-      case execute_action(instruction, resolved_params, run_context) do
-        {:ok, output, effects} ->
-          {:ok, {:jido_map_result, frame, component, index, on_error, {:ok, output, effects}}, []}
-
-        {:error, error} when on_error == :collect_errors ->
-          {:ok,
-           {:jido_map_result, frame, component, index, on_error, {:error, portable_error(error)}},
-           []}
-
-        {:error, error} ->
-          {:error, error}
+    result =
+      with {:ok, params} <- resolved do
+        execute_action(instruction, params, run_context)
       end
+
+    case result do
+      {:ok, output, effects} ->
+        {:ok, {:jido_map_result, frame, component, index, on_error, {:ok, output, effects}}, []}
+
+      {:error, error} when on_error == :collect_errors ->
+        error = collected_error(error, resolved, instruction.target, component, index, item_id)
+        {:ok, {:jido_map_result, frame, component, index, on_error, {:error, error}}, []}
+
+      {:error, error} ->
+        {:error, error}
     end
   end
+
+  # A reference failure keeps its own details. An Action failure names its item.
+  defp collected_error(error, {:error, _reference_error}, _action, _component, _index, _item_id),
+    do: error |> Jido.Flow.Error.to_map() |> drop_stacktrace()
+
+  defp collected_error(error, _resolved, action, component, index, item_id) do
+    error
+    |> Jido.Flow.Error.to_map()
+    |> Map.update!(:details, fn details ->
+      Map.merge(details, %{node: component, target: action, item_index: index, item_id: item_id})
+    end)
+    |> drop_stacktrace()
+  end
+
+  defp drop_stacktrace(error_map),
+    do: Map.update!(error_map, :details, &Map.delete(&1, :stacktrace))
 
   defp execute_flow_component(instruction, component, params, input, run_context) do
     input = unwrap_flow_input(input)
@@ -177,35 +199,12 @@ defmodule Jido.Exec.Node.Action do
     action = instruction.target
 
     with {:ok, params} <- call_validator(action, :validate_params, decision, :input) do
-      case safe_apply(action, :run, [params, context], :run) do
-        {:ok, {:ok, output}} ->
-          dispatch_output(instruction, frame, component, output, effects, [], run_context)
-
-        {:ok, {:ok, output, requests}} when is_list(requests) ->
-          dispatch_output(
-            instruction,
-            frame,
-            component,
-            output,
-            effects,
-            requests,
-            run_context
-          )
-
-        {:ok, {:continue, input, target}} ->
+      case call_action(action, params, context, true) do
+        {:continue, input, target} ->
           {:ok, {:jido_dispatch_continue, frame, component, input, target, effects}, []}
 
-        {:ok, {:error, reason}} ->
-          {:error, normalize_action_error(action, reason)}
-
-        {:ok, other} ->
-          {:error,
-           Error.execution_error("Action returned an invalid value", %{
-             action: action,
-             phase: :run,
-             return: other,
-             reason: :invalid_return
-           })}
+        {:ok, output, requests} ->
+          dispatch_output(instruction, frame, component, output, effects, requests, run_context)
 
         {:error, error} ->
           {:error, error}
@@ -282,7 +281,8 @@ defmodule Jido.Exec.Node.Action do
     end
   end
 
-  defp call_action(action, params, context) do
+  # Only a Dispatch expander can select the next executable.
+  defp call_action(action, params, context, continue? \\ false) do
     case safe_apply(action, :run, [params, context], :run) do
       {:ok, {:ok, output}} ->
         {:ok, output, []}
@@ -302,6 +302,9 @@ defmodule Jido.Exec.Node.Action do
 
       {:ok, {:error, reason, _effects}} ->
         {:error, normalize_action_error(action, reason)}
+
+      {:ok, {:continue, input, target}} when continue? ->
+        {:continue, input, target}
 
       {:ok, {:continue, _input, _target} = continuation} ->
         {:error,
@@ -388,12 +391,15 @@ defmodule Jido.Exec.Node.Action do
     [out: [type: :any, doc: "Action output", schema: portable_schema(action, "output_schema")]]
   end
 
+  # Port schemas are descriptive. A schema without a JSON form still executes.
   defp portable_schema(action, key) do
     if function_exported?(action, :to_json, 0) do
       action |> apply(:to_json, []) |> Map.get(key, %{})
     else
       %{}
     end
+  rescue
+    ArgumentError -> %{}
   end
 
   defp action_name(action) do
@@ -411,19 +417,13 @@ defmodule Jido.Exec.Node.Action do
   defp error_message(message) when is_atom(message), do: Atom.to_string(message)
   defp error_message(message), do: inspect(message)
 
-  defp portable_error(error) when is_exception(error) do
-    %{type: error.__struct__ |> Atom.to_string(), message: Exception.message(error)}
-  end
-
-  defp portable_error(error), do: %{type: "error", message: error_message(error)}
-
   defp tag_flow_error({:error, %{details: details} = error}, metadata, input)
        when is_map(metadata) and is_map(details) do
     component = Map.get(metadata, :component)
 
     flow_details =
       %{node: component, node_path: Map.get(metadata, :node_path, [component])}
-      |> Map.merge(flow_position(input))
+      |> Map.merge(flow_position(input, metadata))
       |> maybe_put(:source, Map.get(metadata, :location))
 
     {:error, %{error | details: Map.merge(details, flow_details)}}
@@ -431,30 +431,18 @@ defmodule Jido.Exec.Node.Action do
 
   defp tag_flow_error(result, _metadata, _input), do: result
 
-  defp flow_position({:jido_map_item, _frame, _item, index, item_id}),
+  defp flow_position({:jido_map_item, index, item_id, _params, _frame}, _metadata),
     do: %{item_index: index, item_id: item_id}
 
-  defp flow_position({:jido_reduce, _status, _frame, _component, items, index, _acc, _effects}) do
-    item = Enum.at(items, index)
-    %{item_index: index, item_id: stable_item_id(index, item)}
-  end
+  defp flow_position({:jido_reduce, _status, _component, index, _accumulator}, %{
+         mode: {:loop, loop}
+       }),
+       do: %{item_index: index, item_id: Frame.item_id(loop.id, index)}
 
-  defp flow_position(
-         {:jido_iterate, _status, _frame, _component, _state, completed, _body, _effects}
-       ),
-       do: %{iteration_index: completed, state_revision: completed}
+  defp flow_position({:jido_iterate, _status, _component, _state, completed, _body}, _metadata),
+    do: %{iteration_index: completed, state_revision: completed}
 
-  defp flow_position(_input), do: %{}
-
-  defp stable_item_id(index, item) do
-    digest =
-      {index, item}
-      |> :erlang.term_to_binary([:deterministic])
-      |> then(&:crypto.hash(:sha256, &1))
-      |> Base.encode16(case: :lower)
-
-    digest
-  end
+  defp flow_position(_input, _metadata), do: %{}
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
@@ -499,7 +487,7 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Action do
     with {:ok, before_apply_fns} <- HookRunner.run_before(context, node, fact),
          {:ok, value, effects} <-
            Telemetry.span(:action, Telemetry.action_metadata(node, runnable), fn ->
-             Action.execute(node, fact.value, context.run_context)
+             Action.execute(node, fact.value, context.run_context, fact.meta)
            end) do
       result_fact =
         Fact.new(
@@ -545,7 +533,7 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Action do
   end
 
   defp map_reduce_events(
-         %Action{instruction: %{metadata: %{jido_flow: %{mode: {:map, _}}}}} = node,
+         %Action{flow: %{mode: {:map, _}}} = node,
          %Fact{
            hash: fan_out_fact_hash,
            ancestry: {fan_out_hash, source_fact_hash},
@@ -592,12 +580,14 @@ defimpl Runic.Component, for: Jido.Exec.Node.Action do
   def source(%Action{} = node) do
     instruction = :erlang.term_to_binary(node.instruction)
     id = :erlang.term_to_binary(node.id)
+    flow = :erlang.term_to_binary(node.flow)
 
     quote do
       Jido.Exec.Node.Action.new(
         :erlang.binary_to_term(unquote(instruction)),
         id: :erlang.binary_to_term(unquote(id)),
-        name: unquote(node.name)
+        name: unquote(node.name),
+        flow: :erlang.binary_to_term(unquote(flow))
       )
     end
   end

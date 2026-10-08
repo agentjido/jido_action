@@ -99,8 +99,7 @@ defmodule Jido.Flow.DSL.Macros do
       entity(step_name, options, extension_module(["Flow", "Step"]), :__step__, caller)
 
     quote line: caller.line do
-      unquote(step_name) = unquote(name)
-      unquote(ModuleCompiler).register_step!(unquote(step_name), __ENV__)
+      unquote(step_name) = unquote(ModuleCompiler).register_step!(unquote(name), __ENV__)
       unquote(declaration)
     end
   end
@@ -192,7 +191,7 @@ defmodule Jido.Flow.DSL.Macros do
 
   defp named_declaration(name, evaluated_name, declaration, caller) do
     quote line: caller.line do
-      unquote(evaluated_name) = unquote(name)
+      unquote(evaluated_name) = unquote(ModuleCompiler).declaration_name!(unquote(name), __ENV__)
       unquote(declaration)
     end
   end

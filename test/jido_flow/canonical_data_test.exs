@@ -262,4 +262,54 @@ defmodule JidoActionTest.Flow.CanonicalDataTest do
       assert {:error, %InvalidDefinitionError{}} = validate.(flow)
     end
   end
+
+  test "needs order does not change Flow identity" do
+    flows =
+      for needs <- [["a", "b"], ["b", "a"]] do
+        Jido.Flow.new!(%{
+          name: "needs_order",
+          components: [
+            %{kind: :step, name: "a", action: JidoActionTest.Fixtures.Actions.EchoParamsAction},
+            %{kind: :step, name: "b", action: JidoActionTest.Fixtures.Actions.EchoParamsAction},
+            %{
+              kind: :step,
+              name: "c",
+              action: JidoActionTest.Fixtures.Actions.EchoParamsAction,
+              needs: needs
+            }
+          ],
+          output: Jido.Flow.Ref.result("c")
+        })
+      end
+
+    assert [ordered, reversed] = flows
+    assert reversed.components["c"].needs == ["b", "a"]
+    assert Jido.Flow.semantic_identity(ordered) == Jido.Flow.semantic_identity(reversed)
+
+    assert Jido.Exec.compile!(ordered) |> Runic.Workflow.get_component("c") |> Map.get(:id) ==
+             Jido.Exec.compile!(reversed) |> Runic.Workflow.get_component("c") |> Map.get(:id)
+  end
+
+  test "to_map and explain keep references distinct from literal maps" do
+    flows =
+      for output <- [
+            %{value: Jido.Flow.Ref.input(:x)},
+            %{value: %{source: :input, component: nil, path: [:x]}}
+          ] do
+        Jido.Flow.new!(%{
+          name: "ref_or_literal",
+          components: [
+            %{kind: :step, name: "echo", action: JidoActionTest.Fixtures.Actions.EchoParamsAction}
+          ],
+          output: output
+        })
+      end
+
+    [ref_flow, literal_flow] = flows
+    assert %{output: %{value: %Jido.Flow.Ref{}}} = Jido.Flow.to_map(ref_flow)
+    assert Jido.Flow.to_map(ref_flow) != Jido.Flow.to_map(literal_flow)
+    assert {:ok, ref_explain} = Jido.Flow.explain(ref_flow)
+    assert {:ok, literal_explain} = Jido.Flow.explain(literal_flow)
+    assert ref_explain.output != literal_explain.output
+  end
 end

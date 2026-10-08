@@ -12,7 +12,8 @@ defmodule Jido.Flow.DSL.Schema do
       doc: "Explicit control dependencies."
     ],
     meta: [
-      type: :map,
+      # Definition.meta/1 validates keys and values, as for data definitions.
+      type: {:map, :any, :any},
       default: %{},
       doc: "Non-semantic node metadata."
     ]

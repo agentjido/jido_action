@@ -60,8 +60,9 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Loop.Start do
 
   def execute(node, %Runnable{input_fact: fact, context: context} = runnable) do
     case Loop.start(node.loop, fact.value, context.run_context) do
-      {:ok, value} ->
-        result = Fact.new(value: value, ancestry: {node.hash, fact.hash})
+      {:ok, value, loop} ->
+        result =
+          Fact.new(value: value, ancestry: {node.hash, fact.hash}, meta: %{jido_loop: loop})
 
         Runnable.complete(runnable, result, [
           FactProduced.new(result, producer_label: :produced, weight: context.ancestry_depth + 1),
@@ -73,7 +74,7 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Loop.Start do
           runnable,
           Jido.Exec.Source.attach(error, node.loop.location, %{
             node: node.loop.component,
-            node_path: [node.loop.component]
+            node_path: node.loop.node_path
           })
         )
     end

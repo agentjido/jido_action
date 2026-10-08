@@ -1,5 +1,10 @@
 ExUnit.start()
 
+{_result, _expected_warnings} =
+  Code.with_diagnostics(fn ->
+    Code.require_file("support/fixtures/action/missing_callbacks.exs", __DIR__)
+  end)
+
 ExUnit.configure(
   exclude: [:integration, :skip, :authoring, :system, :load, :throughput, :property, :fuzz]
 )

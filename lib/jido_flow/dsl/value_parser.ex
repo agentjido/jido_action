@@ -39,6 +39,9 @@ defmodule Jido.Flow.DSL.ValueParser do
   defp parse_value(value) when is_atom(value) or is_number(value) or is_binary(value),
     do: {:ok, value}
 
+  # Elixir quotes `-1` as unary minus. Keep it a literal, as data definitions do.
+  defp parse_value({:-, _meta, [number]}) when is_number(number), do: {:ok, -number}
+
   defp parse_value(value) do
     case direct_leaf(value) do
       {:ok, leaf} -> {:ok, leaf}

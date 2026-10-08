@@ -55,43 +55,6 @@ defmodule JidoActionTest.Flow.ErrorTest do
   end
 
   describe "Flow execution failures" do
-    test "keeps native runnable failure details in the public map" do
-      action_error = ActionError.execution_error("action failed", retry: false)
-
-      error =
-        Error.flow_failure("checkout", [
-          %{node: "charge", runnable_id: 21, error: action_error},
-          %{node: "notify", runnable_id: 22, error: RuntimeError.exception("offline")}
-        ])
-
-      assert %Error.ExecutionFailureError{
-               flow: "checkout",
-               failures: [_, _]
-             } = error
-
-      assert %{
-               type: :flow_execution_error,
-               message: "Flow \"checkout\" failed in 2 runnables",
-               retryable?: false,
-               details: %{flow: "checkout", failures: failures}
-             } = Error.to_map(error)
-
-      assert [
-               %{
-                 node: "charge",
-                 runnable_id: 21,
-                 error: %{type: :execution_error, retryable?: false}
-               },
-               %{
-                 node: "notify",
-                 runnable_id: 22,
-                 error: %{type: :execution_error, retryable?: false}
-               }
-             ] = failures
-
-      refute Error.retryable?(error)
-    end
-
     test "uses an explicit retry value only when one is present" do
       assert Error.retryable?(Error.execution_error("temporary", retry: true))
       refute Error.retryable?(Error.execution_error("permanent"))
@@ -99,7 +62,7 @@ defmodule JidoActionTest.Flow.ErrorTest do
   end
 
   describe "error maps" do
-    test "keeps native Runic IDs in failures and nested error details" do
+    test "keeps native Runic IDs in nested error details" do
       first = Runic.Identity.digest(:activation, :first)
       second = Runic.Identity.digest(:activation, :second)
 
@@ -114,16 +77,6 @@ defmodule JidoActionTest.Flow.ErrorTest do
         })
 
       assert Error.to_map(invalid).details === invalid.details
-
-      error =
-        Error.flow_failure("checkout", [
-          %{node: "charge", runnable_id: first, error: invalid},
-          %{node: "notify", runnable_id: second, error: RuntimeError.exception("offline")}
-        ])
-
-      assert %{details: %{failures: failures}} = Error.to_map(error)
-      assert Enum.map(failures, & &1.runnable_id) == [first, second]
-      assert hd(failures).error.details === invalid.details
     end
 
     test "maps each Flow leaf and Splode class" do
@@ -184,7 +137,6 @@ defmodule JidoActionTest.Flow.ErrorTest do
         assert is_binary(message)
         assert is_map(details)
         assert is_boolean(retryable?)
-        assert Error.owned?(error)
         refute Error.retryable?(error)
       end
     end
@@ -203,7 +155,6 @@ defmodule JidoActionTest.Flow.ErrorTest do
       refute Error.retryable?({:error, error, %{effect: :none}})
 
       assert Error.to_map(:foreign_failure) == ActionError.to_map(:foreign_failure)
-      refute Error.owned?(:foreign_failure)
     end
   end
 end

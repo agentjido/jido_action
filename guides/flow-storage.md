@@ -40,8 +40,9 @@ required:
 {:ok, decoded_flow} = Jido.Flow.Codec.decode(decoded_document, registry)
 ```
 
-`encode/1` validates the executable Flow. It collects its Action modules,
-child Flow modules, schemas, and data atoms. It assigns generated identifiers
+`encode/1` validates the canonical Flow, as `encode/2` does. It does not
+check target contracts; `Jido.Exec.compile/2` does. It collects its Action
+modules, child Flow modules, schemas, and data atoms. It assigns generated identifiers
 and returns the Registry separately.
 
 The generated identifiers are deterministic only for the exact Flow value.
@@ -213,8 +214,8 @@ records, expressions, conditions, lists, maps, and graph references. They do
 not return a partial Flow. Unknown-reference errors suppress a derived cycle
 error because that cycle result would be misleading.
 
-Document size, collection size, nesting, root type, and document version
-errors are terminal. Diagnostics do not traverse a document after one of
+Document size, collection size, nesting, root type, unknown root field, and
+document version errors are terminal. Diagnostics do not traverse a document after one of
 these failures.
 
 `diagnose/2` checks the stored and canonical Flow contract. It does not check
