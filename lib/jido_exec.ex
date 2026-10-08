@@ -382,7 +382,7 @@ defmodule Jido.Exec do
     })
   end
 
-  defp managed_options(runner, execution_id, opts) when is_list(opts) do
+  defp managed_options(_runner, _execution_id, opts) when is_list(opts) do
     policy_keys = [:timeout, :max_attempts, :backoff, :base_delay_ms, :max_delay_ms]
 
     worker_keys = [
@@ -405,7 +405,7 @@ defmodule Jido.Exec do
                worker_opts = Keyword.take(opts, worker_keys),
                :ok <- validate_worker_options(worker_opts) do
             policy = %{policy | execution_mode: :durable}
-            {:ok, policy, default_executor(runner, execution_id, worker_opts)}
+            {:ok, policy, default_executor(worker_opts)}
           end
 
         unknown ->
@@ -470,16 +470,11 @@ defmodule Jido.Exec do
 
   defp valid_worker_option?(_key, _value), do: true
 
-  defp default_executor(runner, execution_id, opts) do
+  defp default_executor(opts) do
     if Keyword.has_key?(opts, :executor) do
       opts
     else
-      opts
-      |> Keyword.put(:executor, Jido.Exec.Runner.TaskExecutor)
-      |> Keyword.put(
-        :executor_opts,
-        task_supervisor: Runic.Runner.task_supervisor_ref(runner, execution_id)
-      )
+      Keyword.put(opts, :executor, Jido.Exec.Runner.TaskExecutor)
     end
   end
 
