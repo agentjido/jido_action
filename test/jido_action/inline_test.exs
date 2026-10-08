@@ -374,6 +374,27 @@ defmodule Jido.Action.InlineTest do
     assert Enum.all?(targets, &(&1.name() == "shared_name"))
   end
 
+  test "compilation does not intern a separate atom for the owner callback" do
+    owner = unique_owner("CallbackAtom")
+    declaration_path = path("bounded")
+
+    digest =
+      :crypto.hash(:sha256, :erlang.term_to_binary({owner, declaration_path}))
+      |> Base.encode16(case: :lower)
+
+    callback_name = "__jido_inline_action_" <> digest
+
+    assert_raise ArgumentError, fn -> String.to_existing_atom(callback_name) end
+
+    compile_source(
+      owner,
+      ~s(action #{inspect(declaration_path)}, :bound, [], do: {:ok, %{bounded: true}})
+    )
+
+    assert_raise ArgumentError, fn -> String.to_existing_atom(callback_name) end
+    assert Inline.target!(owner, declaration_path).run(%{}, %{}) == {:ok, %{bounded: true}}
+  end
+
   test "duplicate and foreign identities fail before target replacement" do
     owner = unique_owner("Duplicate")
 
@@ -556,8 +577,14 @@ defmodule Jido.Action.InlineTest do
       {function, required} =
         if kind == :index, do: {:__jido_inline_actions__, 0}, else: {body_function, 2}
 
-      args = List.duplicate("_", required) ++ List.duplicate("_ \\\\ []", defaults)
-      clause = "def #{function}(#{Enum.join(args, ", ")}), do: :user"
+      args =
+        List.duplicate({:_, [], nil}, required) ++
+          List.duplicate({:\\, [], [{:_, [], nil}, []]}, defaults)
+
+      definition = {:def, [], [{function, [], args}, [do: :user]]}
+
+      clause =
+        "Code.eval_quoted(#{inspect(definition, limit: :infinity)}, [], __ENV__)"
 
       declaration =
         ~s(action [host: :test, declaration: "same", role: :action], :bound, [], do: {:ok, %{}})
@@ -777,8 +804,8 @@ defmodule Jido.Action.InlineTest do
     digest =
       :crypto.hash(:sha256, :erlang.term_to_binary({owner, path})) |> Base.encode16(case: :lower)
 
-    {Module.concat(Jido.Action.Generated.Inline, "A" <> digest),
-     String.to_atom("__jido_inline_action_" <> digest)}
+    target = Module.concat(Jido.Action.Generated.Inline, "A" <> digest)
+    {target, target}
   end
 
   defp diagnostic_line(%{position: {line, _}}), do: line

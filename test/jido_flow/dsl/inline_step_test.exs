@@ -227,8 +227,8 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     for position <- [:before, :after], kind <- [:body, :lookup], visibility <- [:def, :defp] do
       owner = unique_owner("Reserved")
       {_target, body_function} = generated_identity(owner, "same")
-      {function, args} = if kind == :body, do: {body_function, "_, _"}, else: {:step_action, "_"}
-      clause = "#{visibility} #{function}(#{args}), do: :user_clause"
+      {function, arity} = if kind == :body, do: {body_function, 2}, else: {:step_action, 1}
+      clause = definition_source(visibility, function, List.duplicate({:_, [], nil}, arity))
       declaration = ~s(step "same", [], do: {:ok, %{}})
       {before, after_code} = if position == :before, do: {clause, ""}, else: {"", clause}
       source = flow_source(owner, declaration, before, after_code)
@@ -290,11 +290,9 @@ defmodule Jido.Flow.DSL.InlineStepTest do
       owner = unique_owner("DefaultConflict")
       {_target, body_function} = generated_identity(owner, "same")
       {function, arity} = if kind == :lookup, do: {:step_action, 1}, else: {body_function, 2}
-      required = List.duplicate("_", arity)
-      optional = List.duplicate("_ \\\\ []", defaults)
-
-      clause =
-        "#{visibility} #{function}(#{Enum.join(required ++ optional, ", ")}), do: :user_clause"
+      required = List.duplicate({:_, [], nil}, arity)
+      optional = List.duplicate({:\\, [], [{:_, [], nil}, []]}, defaults)
+      clause = definition_source(visibility, function, required ++ optional)
 
       {before, after_code} = if position == :before, do: {clause, ""}, else: {"", clause}
       source = flow_source(owner, ~s(step "same", [], do: {:ok, %{}}), before, after_code)
@@ -329,7 +327,8 @@ defmodule Jido.Flow.DSL.InlineStepTest do
     for visibility <- [:def, :defp] do
       owner = unique_owner("EarlyDefaultBody")
       {target, function} = generated_identity(owner, "same")
-      helper = "#{visibility} #{function}(_, _, _ \\\\ []), do: :user_clause"
+      args = List.duplicate({:_, [], nil}, 2) ++ [{:\\, [], [{:_, [], nil}, []]}]
+      helper = definition_source(visibility, function, args)
       source = flow_source(owner, ~s(step "same", [], do: {:ok, %{}}), helper)
 
       error =
@@ -1094,8 +1093,14 @@ defmodule Jido.Flow.DSL.InlineStepTest do
       )
       |> Base.encode16(case: :lower)
 
-    {Module.concat(Jido.Action.Generated.Inline, "A" <> digest),
-     String.to_atom("__jido_inline_action_" <> digest)}
+    target = Module.concat(Jido.Action.Generated.Inline, "A" <> digest)
+    {target, target}
+  end
+
+  defp definition_source(visibility, function, args) do
+    definition = {visibility, [], [{function, [], args}, [do: :user_clause]]}
+
+    "Code.eval_quoted(#{inspect(definition, limit: :infinity, printable_limit: :infinity, width: :infinity)}, [], __ENV__)"
   end
 
   defp generated_modules do

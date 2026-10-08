@@ -71,8 +71,11 @@ defmodule Jido.Action.Inline.Compiler do
     digest =
       :crypto.hash(:sha256, :erlang.term_to_binary({owner, path})) |> Base.encode16(case: :lower)
 
-    {Module.concat(Jido.Action.Generated.Inline, "A" <> digest),
-     String.to_atom("__jido_inline_action_" <> digest)}
+    target = Module.concat(Jido.Action.Generated.Inline, "A" <> digest)
+
+    # The generated Action requires one module atom. Reuse it as the private
+    # owner callback name instead of interning a second digest-derived atom.
+    {target, target}
   end
 
   defp ensure_owner!(target, identity, caller, label) do
