@@ -606,7 +606,15 @@ defimpl Runic.Component, for: Jido.Exec.Node.Action do
   def inputs(%Action{inputs: inputs}), do: inputs
   def outputs(%Action{outputs: outputs}), do: outputs
 
-  defp register(workflow, node) do
+  defp register(workflow, %Action{flow: nil} = node) do
+    workflow
+    |> Map.put(:output_ports, result: [type: :any, from: node.name])
+    |> register_action(node)
+  end
+
+  defp register(workflow, node), do: register_action(workflow, node)
+
+  defp register_action(workflow, node) do
     workflow
     |> Workflow.draw_connection(node, node, :component_of, properties: %{kind: :action})
     |> Workflow.register_component(node)

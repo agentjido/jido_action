@@ -143,6 +143,16 @@ defmodule Jido.Exec.RebuildTest do
     assert %Workflow{} = Runic.Transmutable.to_workflow(flow_instruction)
   end
 
+  test "root Action and Flow result ports rebuild from component logs" do
+    action = Exec.compile!(Add)
+    rebuilt_action = action |> Workflow.build_log() |> Workflow.from_log()
+    assert rebuilt_action.output_ports == [result: [type: :any, from: "add_one"]]
+
+    flow = Exec.compile!(Child)
+    rebuilt_flow = flow |> Workflow.build_log() |> Workflow.from_log()
+    assert [result: [type: :any, from: _name]] = rebuilt_flow.output_ports
+  end
+
   defp rebuilt_output(flow, input) do
     rebuilt = flow |> Exec.compile!() |> Workflow.build_log() |> Workflow.from_log()
 
@@ -153,12 +163,7 @@ defmodule Jido.Exec.RebuildTest do
         scheduler_policies: [{:default, %{on_failure: :halt}}]
       )
 
-    # A build log has no output ports, so read the root Flow Output directly.
-    {name, _output} =
-      Enum.find(Workflow.components(workflow), fn {_name, component} ->
-        match?(%Jido.Exec.Node.Output{parent_component: nil}, component)
-      end)
-
-    workflow |> Workflow.results([name]) |> Map.fetch!(name)
+    assert [result: [type: :any, from: _name]] = workflow.output_ports
+    workflow |> Workflow.results() |> Map.fetch!(:result)
   end
 end

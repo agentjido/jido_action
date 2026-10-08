@@ -235,7 +235,15 @@ defimpl Runic.Component, for: Jido.Exec.Node.Output do
   def inputs(_node), do: [in: [type: :any, doc: "Flow frame"]]
   def outputs(_node), do: [out: [type: :any, doc: "Flow output"]]
 
-  defp register(workflow, node) do
+  defp register(workflow, %Output{parent_component: nil} = node) do
+    workflow
+    |> Map.put(:output_ports, result: [type: :any, from: node.name])
+    |> register_output(node)
+  end
+
+  defp register(workflow, node), do: register_output(workflow, node)
+
+  defp register_output(workflow, node) do
     workflow
     |> Workflow.draw_connection(node, node, :component_of, properties: %{kind: :flow_output})
     |> Workflow.register_component(node)
