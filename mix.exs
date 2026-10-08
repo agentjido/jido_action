@@ -217,7 +217,7 @@ defmodule JidoAction.MixProject do
       {:jason, "~> 1.4"},
       {:nimble_options, "~> 1.1"},
       {:telemetry, "~> 1.3"},
-      {:zoi, "~> 0.17"},
+      {:zoi, "~> 0.18.11"},
       {:splode, "~> 0.3.0"},
 
       # Skill & Action Dependencies for examples
