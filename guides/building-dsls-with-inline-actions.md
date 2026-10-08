@@ -3,7 +3,7 @@
 This advanced guide describes the public `Jido.Action.Inline` host API. A
 downstream package must adopt this API before its own compile-time DSL can
 provide inline Actions. For normal Flow authoring, start with
-[Inline Actions](inline-actions.md).
+[Inline Steps](inline-actions.md).
 
 An inline body compiles to an ordinary Action. It uses the normal `Jido.Exec`
 validation and error contract and Runic execution policy. It does not add a
@@ -40,7 +40,7 @@ expression body.
 action "divide", nil,
   schema: Zoi.object(%{operand: Zoi.number()}), context: ctx do
   %{operand: operand} when operand == 0 ->
-    {:error, Jido.Action.Error.validation_error("Cannot divide by zero")}
+    {:error, Jido.Action.Error.validation_error("Cannot divide #{ctx.total} by zero")}
 
   %{operand: operand} ->
     {:ok, %{value: ctx.total / operand}}
@@ -70,7 +70,7 @@ continuation is valid only from a terminal Dispatch expander.
 
 Jido Flow uses this API for direct inline Step bodies only. A Flow Step can
 set Action options through `inline:`. Map, Reduce, Choice targets, Iterate,
-and Dispatch use Action modules. See [Inline Actions](inline-actions.md).
+and Dispatch use Action modules. See [Inline Steps](inline-actions.md).
 
 This Flow boundary does not restrict downstream packages. A downstream DSL
 can define bound or callback slots, its own macro names, and its own typed
@@ -432,8 +432,9 @@ Action metadata, not host lookup identity.
 An extracted target works with map definitions and a trusted Registry. Supply
 a new parameter mapping for each host position. Register
 the target under an application-owned identifier, not its generated module
-name. JSON stores ordinary targets and data, never bodies. Inline Actions add
-no Codec version; Expr nodes still follow the existing version 2 rule.
+name. JSON stores ordinary targets and data, never bodies. Inline Actions do
+not change the stored document format. The Codec writes document version 2
+when a Flow contains `Jido.Expr` operations and version 1 otherwise.
 
 Normal source compilation produces the owner and generated Action BEAM files.
 Deploy them together. Generated names and graph identity are not code

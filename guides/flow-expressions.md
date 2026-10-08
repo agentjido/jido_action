@@ -1,18 +1,18 @@
-# Expressions In Flows And Host DSLs
+# Expressions
 
-`Jido.Expr` adds small, portable calculations to `jido_action` v3. The API is
-available in `3.0.0-beta.6` or later.
+`Jido.Expr` adds small, portable calculations and conditions to Flow fields.
+An expression contains a fixed set of operators and data. It never contains
+executable callbacks.
 
 Use an expression for a short calculation or an obvious condition. Use an
 inline Action or a named Action when the operation needs an explanation,
-application calls, or side effects. Keep a named Action for custom validation
-or lifecycle hooks.
+application calls, or side effects.
 
 ## Calculate At The Point Of Use
 
-Flow captures its data fields before Elixir evaluates them. No import or
-`expr(...)` wrapper is required in those fields. The wrapper is optional.
-Normal Elixir inside an inline Action body is unchanged.
+The module DSL reads its field values before Elixir evaluates them. You do not
+need an import or an `expr(...)` wrapper in those fields; the wrapper is
+optional. Normal Elixir inside an inline Action body is unchanged.
 
 ```elixir
 defmodule ExprGuide.Invoice do
@@ -41,13 +41,13 @@ end
 ```
 
 The same syntax works in Step and Subflow params, Choice conditions and
-params, Map and Reduce fields, Iterate State and conditions, Dispatch params,
-and Flow output. Each field keeps its existing reference scope and result-shape
-rules. A normal Flow output is still a map.
-The [Flow inline syntax](inline-actions.md) supplies direct bodies for Step.
-These bodies compile to ordinary Action targets. Binding sources use direct
-references or data. Bodies use normal Elixir and own calculations. Advanced
-components use Action modules.
+params, Map and Reduce fields, Iterate State, `update`, and `while`, Dispatch
+params, and Flow output. Each field keeps its reference scope and result-shape
+rules.
+
+Inline Step binding sources are the exception. The right side of `<-` accepts
+references and data only. Bind the data and calculate in the body. See
+[Inline Steps](inline-actions.md).
 
 ## Complete Operation List
 
@@ -65,46 +65,49 @@ components use Action modules.
 | `abs` | `:abs` | A number. |
 | `<>` | `:<>` | Binaries only; no implicit conversion. |
 
-Parentheses use normal Elixir precedence. Build more than two Boolean tests as
-an explicit tree of binary `and` or `or` operations. Portable literals, nested
-maps and lists, and reference helpers remain valid.
+Precedence and grouping follow Elixir. `a and b and c` works without
+parentheses; parentheses change grouping as they do in Elixir. Literals,
+nested maps and lists, and reference helpers are valid operands.
 
-There is no `&&`, `||`, `!`, `===`, `!==`, power, rounding, interpolation,
-range, unary `+`, conditional statement, assignment, pipe, function call, or custom
-guard system. The fixed helpers above are the only function-shaped
-operations. Expressions are not `Jido.Instruction` targets.
+These forms are rejected: `&&`, `||`, `!`, `===`, `!==`, unary `+`, power,
+rounding, string interpolation, ranges, tuples, keyword lists, conditional
+statements, assignment, pipes, function calls, module attributes, and
+variables from the surrounding module. The fixed helpers in the table are the
+only function-shaped operations.
 
-## Boolean Conditions And Missing Values
+## Conditions And Missing Values
 
-`condition: input(:enabled)` and `while not state(:done)` are valid. Their
-evaluated values must be Boolean. A present `nil`, number, or string fails.
-Use a Boolean schema when the input contract requires a Boolean field.
+A condition must evaluate to a Boolean. `condition: input(:enabled)` and
+`while not state(:done)` are valid. A present `nil`, number, or string fails
+at runtime. Use a required `Zoi.boolean()` field in the Flow input schema, the
+producing Action's output schema, or the Iterate State schema when the
+contract needs a Boolean.
 
-`false and input(:missing)` skips its second operand. `true or 1 / 0 > 0`
-also succeeds. This does not make producer Steps lazy: every result reference
-remains a static dependency, including references in skipped operands.
+`and` and `or` can return their right operand unchanged, as in Elixir:
+`false and 1` returns `false`, and `true and 1` returns `1`. A condition
+rejects the result of `true and 1`, but `%{value: true and 1}` is valid output
+data. `(true and 1) and false` fails because the outer left operand is not a
+Boolean.
 
-Binary Boolean expressions preserve native grouping. `false and 1` returns
-`false`; `true and 1` returns `1`. `(true and 1) and false` fails because the
-outer left operand is not Boolean. A Flow condition rejects the result of
-`true and 1`, but `%{value: true and 1}` is valid output data. Construction
-checks data, tree shape, and reference scope even in skipped operands.
+`false and input(:missing)` skips its second operand, and `true or 1 / 0 > 0`
+succeeds. This does not make producer components lazy. Every result reference
+is still a static dependency, including references in skipped operands.
+Validation also checks data, tree shape, and reference scope in skipped
+operands.
 
-A missing reference is an error. A present `nil` is a value: `input(:value)
-== nil` tests that value, but does not catch a missing key. Exact map keys
-take priority; an atom path can fall back to its string spelling. A string
-path does not create or select an atom key.
+A missing reference is an error. A present `nil` is a value:
+`input(:value) == nil` tests that value, but it does not catch a missing key.
 
 ## Data Definitions And Direct Construction
 
-Use `Jido.Expr.new!/2` for runtime operator data. Its non-raising `new/2`
-checks the operator and arity. Flow definitions then validate the complete
-expression and its reference scopes.
+In map definitions, build operations with `Jido.Expr.new/2` or
+`Jido.Expr.new!/2`. Both check the operator and arity. `Jido.Flow.new/1` then
+validates the complete expression and its reference scopes.
 
-The standalone `expr/1` macro uses the same operation syntax. Insert a
-prebuilt reference or value with `^variable`. This is a trusted source-code
-feature, not syntax accepted from stored documents or inside Flow fields.
-Calls inside a pin are rejected; compute a value before the macro if needed.
+The `expr/1` macro accepts the same operation syntax. Insert a prebuilt
+reference or value from an Elixir variable with `^variable`. Pins are a
+trusted source-code feature. Stored documents and DSL fields do not accept
+them. Calls inside a pin are rejected; compute the value before the macro.
 
 ```elixir
 import Jido.Expr, only: [expr: 1]
@@ -131,20 +134,20 @@ true = total == Jido.Expr.new!(:*, [quantity, price])
 {:ok, %{total: 6}} = Jido.Exec.run(built, %{name: "Ada", quantity: 2, price: 3})
 ```
 
-Use `Jido.Expr` for conditions and Boolean parameter or output values:
+A condition in a map definition is a Boolean, a reference, or an expression:
 
 ```elixir
 eligible = Jido.Expr.new!(:>=, [Ref.input(:score), 10])
 ```
 
-The V3 beta no longer provides `Jido.Flow.Condition` or accepts its records.
-Replace its constructors with `Jido.Expr.new/2` or `Jido.Expr.new!/2`.
-Use `Jido.Expr` for comparison and Boolean operations.
-Expr construction checks the operator and arity; Flow definitions validate
-the full expression, portable values, and reference scope. Do not use
-`Jido.Expr.validate/2` as a replacement for Flow-specific validation.
+`Jido.Flow.Condition` no longer exists. Replace its constructors with
+`Jido.Expr.new/2` or `Jido.Expr.new!/2`. Do not use `Jido.Expr.validate/2` as
+a replacement for Flow validation; it does not check Flow reference scopes.
 
 ## Stored JSON
+
+`Jido.Flow.Codec` stores each operation under a `$expr` tag. A document with
+operations uses version 2:
 
 ```elixir
 {:ok, document, registry} = Jido.Flow.Codec.encode(built)
@@ -155,16 +158,47 @@ true = restored == built
 {:ok, %{total: 6}} = Jido.Exec.run(restored, %{name: "Ada", quantity: 2, price: 3})
 ```
 
-See [Store Flows As JSON](flow-storage.md) for document versions, operation
-tags, Registry IDs, and storage limits.
+See [Store Flows As JSON](flow-storage.md) for document versions, tags,
+Registry identifiers, and storage limits.
 
-## Reuse The Syntax In A Host DSL
+## Errors And Limits
 
-The helper does not depend on Flow. A host calls `Jido.Expr.parse/2` with a
-small parser for its reference forms. The shared parser owns all operators;
-the host does not copy or replace them. The host then validates its reference
-scope and supplies values at evaluation. The callbacks belong to trusted
-host code and are never stored in an expression.
+Generic failures use `Jido.Expr.Error`. Flow converts expression failures to
+its structured errors. Runtime errors include `operator`, `reason`,
+`expression_path`, and `retry: false`. Reference failures keep the reference
+`path` and add the expression location. Error metadata does not include
+operand values or unrelated context.
+
+Each complete operation tree, including a condition, has these limits:
+
+- 64 levels;
+- 10,000 visited values;
+- 1,048,576 cumulative binary bytes; and
+- 4,096 bits per integer magnitude.
+
+The limits apply at construction and evaluation. Evaluation also counts
+resolved data, comparison work, and generated values. A Boolean tree must fit
+within the node limit even when evaluation skips an operand.
+
+Plain Flow data around an operation does not count toward that budget. Stored
+documents also have [Codec limits](flow-storage.md#validation-and-limits).
+
+## Elixir Conformance
+
+Supported syntax behaves like native Elixir for the supported data. For
+example, `1 in [1.0]` is false, and `true and 123` returns `123`. Ordering and
+`min` or `max` accept mixed portable values and use term order.
+
+The test suite includes `test/jido_expr/elixir_conformance_test.exs`. It lists
+every accepted spelling and compares results with native Elixir.
+
+## Advanced: Reuse The Syntax In A Host DSL
+
+`Jido.Expr` does not depend on Flow. Another data-only DSL can call
+`Jido.Expr.parse/2` with a small parser for its own reference forms. The
+shared parser owns all operators; the host cannot add operators. The host
+validates its reference scope and supplies values at evaluation. The callbacks
+belong to trusted host code and are never stored in an expression.
 
 ```elixir
 defmodule ExprGuide.Field do
@@ -180,6 +214,7 @@ defmodule ExprGuide.Host do
 
   def parse_reference({:field, _, [key]}) when is_atom(key),
     do: {:ok, struct(ExprGuide.Field, key: key)}
+
   def parse_reference(_), do: :error
 
   def evaluate(expression, values) do
@@ -199,48 +234,20 @@ defmodule ExprGuide.HostExample do
   def rule, do: ExprGuide.Host.expr(field(:count) * 2 >= 8 and not field(:paused))
 end
 
-:ok = Jido.Expr.validate(ExprGuide.HostExample.rule(),
-  validate_leaf: fn %{__struct__: ExprGuide.Field} -> :ok end)
+:ok =
+  Jido.Expr.validate(ExprGuide.HostExample.rule(),
+    validate_leaf: fn %{__struct__: ExprGuide.Field} -> :ok end
+  )
+
 {:ok, true} = ExprGuide.Host.evaluate(ExprGuide.HostExample.rule(), %{count: 4, paused: false})
 ```
 
 A host can use an arity-two validator or resolver to receive the expression
 path. A returned `Jido.Expr.Error` path is relative to that location. Other
-host errors pass through unchanged. Reference values are treated as data,
-never as new expression instructions. Host callbacks must be bounded and
-must accept only the host's documented reference forms. Parsing and
-validation must not run application work. The API does not add a custom
-operator registry or automatically integrate another Jido package.
+host errors pass through unchanged. Resolved values are treated as data, never
+as new expressions. Host callbacks must be bounded, accept only the host's
+documented reference forms, and not run application work during parsing or
+validation.
 
 For a complete host that also compiles inline Action bodies, see
-[Build A Non-Flow Host](building-dsls-with-inline-actions.md#build-a-non-flow-host). The host must
-parse and validate binding sources before it creates an Action declaration.
-
-## Errors And Limits
-
-Generic failures use `Jido.Expr.Error`. Flow converts expression failures to
-its normal structured errors. Runtime errors include `operator`, `reason`,
-`expression_path`, and `retry: false`. Reference failures retain the reference
-`path` and add the expression location. Error metadata does not include
-operand values or unrelated context.
-
-Each complete operation tree, including conditions, has limits of 64 levels,
-10,000 visited values, 1,048,576 cumulative binary bytes, and 4,096 bits per
-integer magnitude. These limits apply at construction and evaluation.
-Evaluation also counts resolved data, comparison work, and generated values.
-A Boolean expression tree must fit within the remaining node limit even when
-evaluation skips an operand.
-
-Surrounding plain Flow data is outside the operation budget. Flow uses the
-fixed limits; a separate host can set the `Jido.Expr` limit options. Stored
-documents also have [Codec limits](flow-storage.md#validation-and-limits).
-
-## Elixir Conformance
-
-Supported syntax follows native Elixir for the supported data set. For
-example, `1 in [1.0]` is false, and `true and 123` returns `123`. Ordering and
-`min` or `max` accept mixed portable values and use term order.
-
-The default test suite includes `test/jido_expr/elixir_conformance_test.exs`.
-It lists every accepted spelling and compares trusted fixtures with native
-Elixir by strict result comparison. Native evaluation is used only in tests.
+[Building DSLs With Inline Actions](building-dsls-with-inline-actions.md).

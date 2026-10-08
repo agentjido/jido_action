@@ -1,7 +1,12 @@
 # Instructions
 
-A `Jido.Instruction` is data for one executable call. It can target an Action
-module, a Flow module, or a runtime `%Jido.Flow{}` value.
+A `Jido.Instruction` is data for one executable call. It names a target and
+holds the params, context, and metadata for that call. The target can be an
+Action module, a Flow module, or a runtime `%Jido.Flow{}` value.
+
+Use an Instruction when a call is built in one place and run in another: for
+example, after it is logged, queued in memory, or enriched with more context.
+When you run a target immediately, pass it straight to `Jido.Exec.run/4`.
 
 ## Construct An Instruction
 
@@ -67,20 +72,47 @@ Jido.Exec.run(
 )
 ```
 
-An Instruction accepts the [Exec options](configuration.md) of its target.
+An Instruction holds no execution options. Pass `timeout:`,
+`max_attempts:`, and other options to `Jido.Exec.run/4`. See
+[Execution](execution.md#options).
 
-Use a supervised Runic Runner for managed execution:
+An Instruction is also a valid target for
+[managed execution](managed-execution.md):
 
 ```elixir
 {:ok, _worker} =
-  Jido.Exec.start(MyApp.Runner, "delivery-1", flow_instruction, %{}, %{},
-    checkpoint_strategy: :every_cycle
-  )
+  Jido.Exec.start(MyApp.Runner, "delivery-1", flow_instruction, %{}, %{})
 ```
 
-## Use An Inert Template
+## Check An Instruction
 
-`template/2` records a declared target kind without loading the module or
+`validate/1` checks that the target module is loaded and implements its
+behaviour. `resolve/3` applies call-site params and context the same way
+`Jido.Exec.run/4` does. Neither runs work.
+
+```elixir
+:ok = Jido.Instruction.validate(instruction)
+
+{:ok, resolved} =
+  Jido.Instruction.resolve(instruction, %{to: "new@example.com"}, %{})
+```
+
+Both resolve the target again each time. A `kind` stored in an old Instruction
+does not override the currently loaded module.
+
+## What An Instruction Is Not
+
+An Instruction has no Flow structure and no runtime policy. It is not a
+storage format: module atoms and runtime Flow values have no portable JSON
+form. Store Flow definitions with `Jido.Flow.Codec`. If you must persist a
+call, choose an application-owned format with stable identifiers.
+
+## Advanced: Templates
+
+Most applications do not need templates. Flow uses them internally, and tools
+that build Flow-like structures can use them too.
+
+`template/3` records a declared target kind without loading the module or
 binding runtime data:
 
 ```elixir
@@ -106,14 +138,6 @@ the template with the current context, and attaches the evaluated parameter
 value. This lets Flow use the same Instruction target model as a direct call
 without putting runtime values in the authoring graph.
 
-## Boundary
-
-An Instruction does not contain Flow structure or runtime policy. It is not a
-general JSON form because module atoms and runtime Flow values do not have one
-portable representation. Use `Jido.Flow.Codec` to store a Flow definition.
-Choose an application-owned format if you must store Instructions.
-
-Flow call nodes keep Instruction templates beside their parameter expressions.
-Map definitions still use `action` or `flow` module fields; `Jido.Flow.new/1`
-creates the templates. They do not accept bound Instructions. Direct Exec calls
-accept bound Instructions.
+Flow data definitions use `action:` or `flow:` module fields, and
+`Jido.Flow.new/1` creates the templates. Data definitions do not accept bound
+Instructions. `Jido.Exec.run/4` does.

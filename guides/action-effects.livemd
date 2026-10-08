@@ -1,20 +1,25 @@
-# Maps, Streams, And Optional Effects
+# Outputs And Effects
 
-These examples approve an order and prepare a CSV export. Each Action can
-return its result alone or with a list of requests for the caller:
+An Action returns a result. It can also return a list of effect requests. An
+*effect request* is plain data that asks the caller to do something after the
+work succeeds, such as send an email or write an audit entry:
 
 ```text
 {:ok, map_or_output}
 {:ok, map_or_output, requests}
 ```
 
-The requests in this guide are application data. `Jido.Exec` returns them;
-the caller decides how to perform them. No email or audit service is needed
-to run this guide. No request wrapper or Jido core dependency is needed.
+`Jido.Exec` returns the requests with the result. It never performs them. Your
+application decides how and when to act on them.
 
-## Use The Local Package
+This Livebook approves an order and prepares a CSV export. It runs each
+example as an Action, a Flow, an Instruction, and a managed execution. The
+[Effect Rules](#effect-rules) section at the end lists the complete contract.
+No email or audit service is needed.
 
-This example uses the local source with Flow effect support. Before you start
+## Set Up
+
+This Livebook installs `jido_action` from a local checkout. Before you start
 Livebook, set `JIDO_ACTION_PATH` to the absolute path of your `jido_action`
 folder. The path must be available to the Livebook runtime. Run the cells in
 order.
@@ -86,13 +91,18 @@ for target <- [EffectExamples.ApproveOrder, approval_flow] do
 end
 ```
 
-Omit the third element when there are no requests. Returning `[]` is also
-valid; Exec returns the same two-element success form.
+Omit the third element when there are no requests. Returning `[]` gives the
+same two-element result.
 
 ## Return A Stream With An Optional Request
 
-The export Action accepts a row source through context. Each row has integer
-`order_id` and `total_cents` fields. It builds a lazy CSV stream and can request
+A normal success result is a map. `Jido.Action.Output` is an envelope for a
+success value that is intentionally not a map. Build it with `Output.raw/2`,
+`Output.stream/2`, `Output.batch/2`, or `Output.opaque/2`. The optional
+`meta:` map describes the value.
+
+The export Action reads its rows from context. Each row has integer `order_id`
+and `total_cents` fields. The Action builds a lazy CSV stream and can request
 an audit entry that records when the export was prepared.
 
 ```elixir
@@ -132,8 +142,8 @@ defmodule EffectExamples.ExportOrders do
 end
 ```
 
-`Output.meta` describes the stream. The third tuple element contains only
-effects. Exec does not read the rows or perform the audit request.
+`Output.meta` describes the stream. The third tuple element holds only effect
+requests. Exec does not read the rows or perform the audit request.
 
 ```elixir
 export_flow =
@@ -169,13 +179,13 @@ end
 ```
 
 The audit event means **export prepared**. It does not mean that all rows were
-read or sent. A row source can fail during later consumption. That failure
-cannot revoke a request that Exec has already returned. If the application
-needs an audit entry for completed delivery, it must create that entry after
-it has consumed and delivered the stream successfully.
+read or sent. A row source can fail later, while the caller consumes the
+stream. That failure cannot take back a request that Exec has already
+returned. If you need an audit entry for completed delivery, create it after
+you consume and deliver the stream.
 
-The caller must keep the row source available while it consumes the stream.
-An Action-owned resource can close when the Action returns.
+Keep the row source available while you consume the stream. A resource that
+the Action owns can close when the Action returns.
 
 ## Use Instructions
 
@@ -192,16 +202,129 @@ expected_requests = [{:audit, %{event: :export_prepared, report_id: "report-7"}}
 ## Handle Failure
 
 Without a row source, the export fails before it creates the stream. Exec
-returns an error with no audit request.
+returns an error and no audit request.
 
 ```elixir
 {:error, _error} = Exec.run(export_flow, params)
 ```
 
-For a Flow with several Actions, only successful completion returns the full
-effect list. Failure, cancellation, and timeout return no partial effect list.
-See the [execution contract](execution.md#results-and-errors) for the complete
-ordering and failure rules.
+In a Flow with several Actions, only a successful run returns requests. If any
+component fails or times out, Exec returns `{:error, error}` and drops the
+requests of components that already succeeded.
+
+## See The Request Order
+
+A Flow returns one list with the requests of every component. This Flow has
+three independent components and one component that waits for `"zeta"`:
+
+```elixir
+defmodule EffectExamples.Request do
+  use Jido.Action,
+    name: "example_request",
+    schema: Zoi.object(%{tag: Zoi.string()})
+
+  @impl true
+  def run(%{tag: tag}, _context), do: {:ok, %{tag: tag}, [{:request, tag}]}
+end
+
+order_flow =
+  Flow.new!(%{
+    name: "request_order",
+    components: [
+      %{kind: :step, name: "zeta", action: EffectExamples.Request, params: %{tag: "zeta"}},
+      %{
+        kind: :step,
+        name: "after_zeta",
+        action: EffectExamples.Request,
+        params: %{tag: "after_zeta"},
+        needs: ["zeta"]
+      },
+      %{kind: :step, name: "alpha", action: EffectExamples.Request, params: %{tag: "alpha"}},
+      %{
+        kind: :map,
+        name: "items",
+        collection: Ref.input(:items),
+        action: EffectExamples.Request,
+        params: %{tag: Ref.item()}
+      }
+    ],
+    output: %{done: true}
+  })
+
+{:ok, %{done: true}, requests} =
+  Exec.run(order_flow, %{items: ["i1", "i2"]}, %{}, max_concurrency: 4)
+
+[
+  {:request, "alpha"},
+  {:request, "i1"},
+  {:request, "i2"},
+  {:request, "zeta"},
+  {:request, "after_zeta"}
+] = requests
+```
+
+`"alpha"`, `"items"`, and `"zeta"` have no dependencies, so they appear in
+name order. `"after_zeta"` depends on `"zeta"`, so it comes after it. The Map
+component keeps item order. The list is the same for every `max_concurrency`
+value.
+
+## Read Requests From A Managed Execution
+
+`Jido.Exec.start/6` runs a target under a supervised `Runic.Runner`. See
+[Managed Execution](managed-execution.md). There, the requests are stored in
+the result's metadata at `meta.jido.effects`:
+
+```elixir
+{:ok, _runner} = Runic.Runner.start_link(name: EffectExamples.Runner)
+parent = self()
+
+{:ok, _worker} =
+  Exec.start(
+    EffectExamples.Runner,
+    "approve-order-42",
+    approval_flow,
+    %{order_id: "order-42", notify: true},
+    %{},
+    on_complete: fn id, _workflow -> send(parent, {:execution_complete, id}) end
+  )
+
+receive do
+  {:execution_complete, "approve-order-42"} -> :ok
+after
+  5_000 -> raise "the managed execution did not complete"
+end
+
+{:ok, %{result: fact}} =
+  Runic.Runner.get_results(EffectExamples.Runner, "approve-order-42", facts: true)
+
+%{order_id: "order-42", status: :approved} = fact.value
+[{:send_confirmation, "order-42"}] = fact.meta.jido.effects
+
+dedup_key =
+  Exec.effect_id("approve-order-42", fact.causal_ancestry.activation_id, fact.id, 0)
+```
+
+A retry or a resume can repeat work. `Jido.Exec.effect_id/4` derives the same
+key for the same request every time. Store that key with the delivery record
+so that you perform each request once.
+
+## Effect Rules
+
+- **Shape.** The third success element is a proper list. Any other value
+  fails with an `ExecutionFailureError` whose `details.reason` is
+  `:invalid_effects`. An empty list gives `{:ok, result}`.
+- **Errors.** Exec discards the third element of `{:error, reason, effects}`.
+- **Flow failure.** A failed, timed-out, or cancelled Flow returns
+  `{:error, error}` with no requests, even from components that succeeded.
+- **Order.** A Flow lists requests in dependency order, then component name.
+  A component keeps the order of its own list. A nested Flow's requests take
+  its position in the parent. Map, Reduce, and Iterate requests follow item
+  or iteration order. A Dispatch lists decision requests, then expander
+  requests, then the requests of the target it continues to.
+- **No delivery.** Exec never performs a request and never consumes a stream
+  output. Your application owns delivery and its retry policy.
+- **Managed execution.** The requests are in `fact.meta.jido.effects` of the
+  result fact. Use `Jido.Exec.effect_id/4` for deduplication keys.
 
 ## Run The Example Tests
 
@@ -211,6 +334,6 @@ From the `jido_action` folder:
 mix test test/examples/action_effects_test.exs
 ```
 
-The tests execute this guide's Elixir cells with the current package source.
-They also check lazy consumption, optional effects, entry-point agreement,
-and failure before and after stream creation. They run in the default suite.
+The tests run this Livebook's Elixir cells against the current package
+source. They also check lazy consumption, optional effects, agreement between
+entry points, and failure before and after stream creation.

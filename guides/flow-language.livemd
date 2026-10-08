@@ -1,19 +1,22 @@
-# Flow DSL
+# Flow DSL Tour
 
 ## Overview
 
-The Flow DSL is compile-time Elixir syntax for canonical Flow data. Its data
-expressions are restricted. An inline Action body is normal Elixir code that
-compiles to an Action.
+A Flow module declares a graph of named components inside `flow do ... end`.
+Jido compiles that block once, at compile time, to one canonical
+`%Jido.Flow{}` value.
 
-Run the cells from top to bottom.
+Field values such as `params:` and `condition:` are Flow values: restricted
+data, references, and expressions. They are not general Elixir. An inline Step
+body is the exception: it is normal Elixir that compiles to an Action.
+
+This guide shows every component in one Flow. The linked guides cover each
+component in detail. Run the cells from top to bottom.
 
 ## Install The Package
 
-Inline Steps require `3.0.0-beta.5` or later.
-
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-beta.11"}])
+Mix.install([{:jido_action, "~> 3.0.0-beta.12"}])
 ```
 
 ## Define Small Actions
@@ -45,10 +48,24 @@ end
 
 ## Declare The Graph
 
-The seven component forms are `step`, `choice`, `map`, `reduce`, `iterate`,
-`dispatch`, and a Flow-derived `subflow`. A child Flow is written as a `step`
-whose target is a Flow module. Dispatch can only appear at the end of a
-run-to-completion Flow.
+A `flow` block contains component declarations and one `output`:
+
+| Declaration | What it does | Guide |
+| --- | --- | --- |
+| `step` | Calls one Action, an inline body, or a child Flow. | [Steps And Output](flow-steps.livemd) |
+| `choice` | Runs the first option whose condition is true. | [Choices And Conditions](flow-choices.livemd) |
+| `map` | Runs one Action for each list item. | [Map And Reduce](flow-collections.livemd) |
+| `reduce` | Folds a list through one Action. | [Map And Reduce](flow-collections.livemd) |
+| `iterate` | Runs one Action in a bounded loop with State. | [Iterate And State](flow-iterate-state.livemd) |
+| `dispatch` | Selects work at runtime. | [Dynamic Flows](dynamic-flows.md) |
+| `output` | Builds the Flow result. Required and last. | [Steps And Output](flow-steps.livemd) |
+
+A `step` whose target is a Flow module becomes a Subflow. See
+[Nested Flows](nested-flows.livemd).
+
+A Flow can contain at most one `dispatch`. It must be the single final
+component in the dependency graph, and the Flow output must be its complete
+result, such as `output result("route")`.
 
 ```elixir
 defmodule FlowLanguage.Example do
@@ -65,7 +82,8 @@ defmodule FlowLanguage.Example do
         action: FlowLanguage.Echo,
         params: %{route: :fast, value: result("seed", :value)}
 
-      otherwise action: FlowLanguage.Echo, params: %{route: :standard, value: result("seed", :value)}
+      otherwise action: FlowLanguage.Echo,
+                params: %{route: :standard, value: result("seed", :value)}
     end
 
     map "mapped",
@@ -74,28 +92,25 @@ defmodule FlowLanguage.Example do
       params: %{value: item(), index: item_index()}
 
     reduce "collected" do
-      collection(result("mapped"))
-      initial(%{values: value([])})
-      action(FlowLanguage.Append)
-      params(%{
-        values: accumulator(:values),
-        item: item(:value)
-      })
+      collection result("mapped")
+      initial %{values: []}
+      action FlowLanguage.Append
+      params %{values: accumulator(:values), item: item(:value)}
     end
 
     iterate "counter" do
-      state(Zoi.object(%{count: Zoi.integer()}), initial: %{count: 0})
-      action(FlowLanguage.Increment)
-      params(%{count: state(:count)})
-      update(%{count: body_result(:count)})
-      repeat(2)
+      state Zoi.object(%{count: Zoi.integer()}), initial: %{count: 0}
+      action FlowLanguage.Increment
+      params %{count: state(:count)}
+      update %{count: body_result(:count)}
+      repeat 2
     end
 
-    output(%{
+    output %{
       route: result("route"),
       values: result("collected", :values),
       counter: result("counter", :state)
-    })
+    }
   end
 end
 ```
@@ -111,23 +126,24 @@ end
 result
 ```
 
-## Keep Headers And Output As Data
+Source order does not create dependencies. Result references such as
+`result("mapped")` and explicit `needs:` entries do. See
+[Dependencies And Parallel Work](flow-dependencies.livemd).
 
-An inline binding source can contain:
+## Write Field Values
 
-- `nil`, Boolean values, numbers, strings, and atoms;
-- proper lists;
-- maps with supported data keys; and
-- Flow references.
+Fields such as `params:`, `collection:`, `condition:`, and `output` accept
+Flow values:
 
-Inline binding sources do not accept `Jido.Expr` operations. Bind the required
-data and put calculations in the inline body. Other Flow data fields accept
-fixed portable operations. See
-[Expressions](https://github.com/agentjido/jido_action/blob/release/v3/guides/flow-expressions.md).
-It requires
-`3.0.0-beta.6` or later.
+- literals: `nil`, Booleans, numbers, strings, atoms, proper lists, and maps
+  with atom, string, or non-negative integer keys;
+- references such as `input(:name)` and `result("load", :id)`; and
+- `Jido.Expr` operations such as `input(:price) * input(:quantity)`.
 
-These forms are not Flow expressions:
+See [References And Data](flow-references.livemd) and
+[Expressions](flow-expressions.md).
+
+These forms are not Flow values:
 
 ```text
 function calls
@@ -137,57 +153,62 @@ pattern matches
 tuples
 keyword lists
 struct construction
+module attributes
+variables from the surrounding module
 ```
 
-Use `value/1` when you want to mark one supported literal explicitly. Use
-`select/2` to append a path to a reference. The Reduce example uses
-`value([])` to mark its empty-list accumulator as literal data.
+Plain literals work directly, including `[]` and `%{values: []}`. Use
+`value/1` only when you want to mark a literal explicitly, such as
+`value(-1)`. Use `select/2` to append a path to a reference.
 
-These restrictions do not apply inside an inline Action body. It can call
-functions, use pipes, match patterns, and create local anonymous functions.
-Those functions are not Flow targets. Flow reference helpers have no runtime
-meaning in the body; bind their data in the header first. See
-[Steps And Output](flow-steps.livemd#write-an-inline-body) for the binding forms.
+## Write An Inline Body
 
-An inline body has the owning Flow module's function scope. It can use private
-helpers, aliases, available imports, declaration-time module attributes, and
-`__MODULE__`. It does not capture runtime variables outside the declaration. Jido
-removes its declaration imports inside the body. Spark can also remove an
-outer import that conflicts with a DSL name. Use a qualified call such as
-`MyApp.Helpers.output(value)`, or import that helper inside the body.
+An inline Step binds Flow data in its header and runs normal Elixir in its
+body:
 
-Only `step` accepts an inline Action body. Use `inline:` on that Step for
-Action settings. Map, Reduce, Choice targets, Iterate, and Dispatch use named
-Action modules. See
-[Inline Actions](https://github.com/agentjido/jido_action/blob/release/v3/guides/inline-actions.md)
-for the Flow syntax. See
-[Building DSLs With Inline Actions](https://github.com/agentjido/jido_action/blob/release/v3/guides/building-dsls-with-inline-actions.md)
-for the separate public downstream host API.
+- A binding source, the right side of `<-`, accepts references and data. It
+  does not accept `Jido.Expr` operations. Bind the data you need and calculate
+  in the body.
+- The body can call functions, use pipes, match patterns, and create local
+  anonymous functions. Flow reference helpers such as `input/1` have no
+  meaning in the body.
+- The body runs in the owning Flow module's function scope. It can use private
+  helpers, aliases, imports, module attributes, and `__MODULE__`. It does not
+  capture runtime variables outside the declaration.
+- Jido removes the DSL imports inside the body. If a helper name conflicts
+  with a DSL name, call it with its module, such as
+  `MyApp.Helpers.output(value)`.
 
-## Use Closed Conditions
+Only `step` accepts an inline body. Use `inline:` on that Step for Action
+settings. Map, Reduce, Choice targets, Iterate, and Dispatch use Action
+modules. See [Steps And Output](flow-steps.livemd#write-an-inline-body) and
+[Inline Steps](inline-actions.md).
 
-The DSL supports these condition forms:
+## Write Conditions
+
+Choice options use `condition:`. Iterate uses `while`. A condition is a
+Boolean literal, a Boolean reference, or any `Jido.Expr` operation that
+evaluates to a Boolean:
 
 <!-- livebook:{"force_markdown":true} -->
 
 ```elixir
 input(:status) == :ready
-input(:count) >= 3
+input(:count) + input(:extra) >= 3
 input(:tier) in [:gold, :silver]
-input(:enabled) == true and input(:blocked) != true
-not (input(:status) == :closed)
+input(:enabled) and not input(:blocked) and input(:age) >= 18
 ```
 
-The expression data uses the same operator atoms as this Elixir syntax:
-`:==`, `:!=`, `:<`, `:<=`, `:>`, `:>=`, `:in`, `:and`, `:or`, and `:not`.
-Build more than two Boolean tests as an explicit tree of binary `and` or `or`
-operations.
+Chained `and` and `or` work as they do in Elixir. Parentheses change grouping
+as they do in Elixir. See [Expressions](flow-expressions.md) for the complete
+operator list and the Boolean rules.
 
 ## Declare Output
 
-The module DSL requires an explicit `output` as the final declaration. Normal
-Flow output must be a map. An explicit `Jido.Action.Output` envelope can carry
-a non-map result.
+`output` must be the last declaration, and its value must not be `nil`. Build
+a map from references. A Flow module whose output is not a map compiles, but
+it fails at runtime in the `:flow_output` phase. Use `Jido.Action.Output` when
+a Flow must return a non-map value.
 
 Continue with [Steps And Output](flow-steps.livemd) and
 [References And Data](flow-references.livemd).

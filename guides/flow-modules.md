@@ -1,10 +1,11 @@
-# Flow Modules
+# Flow Modules And Extensions
 
-A Flow module is the primary source-code authoring API. Spark parses the DSL at
-compile time and lowers it once to a canonical `%Jido.Flow{}`.
+A Flow module is the main way to write a Flow in source code. You
+`use Jido.Flow` and declare components in a `flow do ... end` block. Jido
+compiles the block once, at compile time, to a canonical `%Jido.Flow{}`.
 
-The [DSL field reference](Jido.Flow.html#module-dsl-field-reference) is generated
-from the Spark schemas. It includes nested Choice targets and Iterate state.
+The [DSL field reference](Jido.Flow.html#module-dsl-field-reference) lists
+every declaration and field, including Choice targets and Iterate State.
 
 ## Define A Module
 
@@ -24,23 +25,44 @@ defmodule MyApp.Flows.Greeting do
     output result("greet")
   end
 end
+
+{:ok, %{message: "Hello, Ada!"}} = Jido.Exec.run(MyApp.Flows.Greeting, %{name: "Ada"})
 ```
 
-The DSL validates syntax, Flow structure, reference scope, graph cycles, and
-target contracts during compilation. Compile errors use DSL source locations.
-This inline form requires `3.0.0-beta.5` or later.
+`use Jido.Flow` accepts these options:
 
-An inline body becomes an ordinary Action. The Flow owns the body, so it can
-call the module's private helpers. Headers use direct references or data; the
-body is normal Elixir and owns calculations. See
-[Steps And Output](flow-steps.livemd) for the full syntax.
+| Option | Required | Meaning |
+| --- | --- | --- |
+| `name` | Yes | The Flow name, a string. |
+| `description` | No | A string description. |
+| `schema` | No | A static Zoi schema for Flow input. Defaults to `[]`, no validation. |
+| `output_schema` | No | A static Zoi schema for Flow output. Defaults to `[]`. |
+| `extensions` | No | A list of `Jido.Flow.Extension` modules. See below. |
+
+Action and Flow schemas use Zoi. A keyword-list schema fails at compile time
+with "must be a Zoi schema".
+
+During compilation, Jido checks the DSL syntax, the Flow structure, reference
+scopes, graph cycles, and target Action contracts. Compile errors point to the
+DSL source line.
+
+An inline body becomes an ordinary Action owned by the Flow module, so it can
+call the module's private functions. See [Steps And Output](flow-steps.livemd)
+for the binding syntax.
 
 ## Add Authoring Macros
 
-Use a Flow extension when several Flow modules need the same declarative
-shorthand. An extension macro must expand to normal Flow declarations.
+Use a Flow extension when several Flow modules need the same shorthand. An
+extension macro must expand to normal Flow declarations.
 
 ```elixir
+defmodule MyApp.Actions.Notify do
+  use Jido.Action, name: "notify"
+
+  @impl true
+  def run(%{address: address}, _context), do: {:ok, %{notified: address}}
+end
+
 defmodule MyApp.Flows.Helpers do
   use Jido.Flow.Extension
 
@@ -54,7 +76,7 @@ defmodule MyApp.Flows.Helpers do
 end
 ```
 
-Add the extension through a static module list:
+Add the extension with a static module list:
 
 ```elixir
 defmodule MyApp.Flows.Welcome do
@@ -63,35 +85,40 @@ defmodule MyApp.Flows.Welcome do
     extensions: [MyApp.Flows.Helpers]
 
   flow do
-    notify "welcome", input(:address)
+    notify("welcome", input(:address))
     output result("welcome")
   end
 end
+
+{:ok, %{notified: "ada@example.com"}} =
+  Jido.Exec.run(MyApp.Flows.Welcome, %{address: "ada@example.com"})
 ```
 
-The extension runs only during compilation. Its macros can expand to core
-declarations, including inline Action forms. Core lowering then applies the
-same validation, source mapping, canonical data, and execution rules.
+`mix format` keeps parentheses on extension macros. To call them without
+parentheses, add them to `locals_without_parens` in your own
+`.formatter.exs`.
 
-An extension does not add a new component type or runtime. Put domain work in
-Actions or Flows. Keep runtime input in Flow input or context. The extension
-module must compile before each Flow that configures it.
+An extension runs only during compilation. Its macros can expand to any core
+declaration, including inline Steps. The expanded declarations get the same
+validation, source locations, and execution rules as hand-written ones.
+
+An extension does not add a component type or runtime behavior. Put domain
+work in Actions or Flows. Keep runtime values in Flow input or context. The
+extension module must compile before each Flow that uses it.
 
 ### Use Helpers With Other Authoring Forms
 
-Extensions apply only to the compile-time module DSL. The extension module and
-macro calls are not part of the canonical `%Jido.Flow{}` value.
+Extensions apply only to the module DSL. Map definitions and Codec documents
+never load extensions or run authoring macros.
 
-For data authoring, use normal functions that return component maps or complete
-Flow definitions. Validate the complete definition with `Jido.Flow.new/1`.
-The module DSL loads compile-time extensions. Data definitions do not load
-extensions or execute authoring macros. If an application owns another stored
-format, translate it to data definitions or Registry-backed Codec documents.
+For map definitions, write ordinary functions that return component maps or
+complete definitions, then validate with `Jido.Flow.new/1`. See
+[Flow Data Definitions](flow-data.md).
 
 ## Format The DSL
 
-Add `:jido_action` to the `import_deps` list in your project's `.formatter.exs`.
-Keep all existing formatter options and imported dependencies.
+Add `:jido_action` to `import_deps` in your project's `.formatter.exs`. Keep
+your existing options.
 
 ```elixir
 [
@@ -101,116 +128,116 @@ Keep all existing formatter options and imported dependencies.
 ```
 
 The package exports `locals_without_parens` for Flow declarations and block
-fields. Standard `mix format` then keeps forms such as `step "greet", ...`
-and `output result("greet")`. No formatter plugin is required.
-
-Reference calls such as `input(:name)`, `result("greet")`, and `state(:count)`
-keep their parentheses. The formatter also preserves explicit parentheses on
-declarations. Remove those parentheses once if you want the form shown above.
+fields. `mix format` then keeps forms such as `step "greet", ...` and
+`output result("greet")` without parentheses. Reference calls such as
+`input(:name)`, `result("greet")`, and `state(:count)` keep their parentheses.
+The formatter keeps parentheses you already wrote on declarations; remove them
+once to get the form shown above.
 
 ## Generated API
 
-A Flow module exposes its definition, validation, metadata, and convenience
-functions:
+A Flow module defines these functions:
 
 ```elixir
 MyApp.Flows.Greeting.name()
+# "greeting"
 MyApp.Flows.Greeting.description()
+# "Creates one greeting"
 MyApp.Flows.Greeting.schema()
 MyApp.Flows.Greeting.output_schema()
 MyApp.Flows.Greeting.validate_params(%{name: "Ada"})
+# {:ok, %{name: "Ada"}}
 MyApp.Flows.Greeting.validate_output(%{message: "Hello"})
+# {:ok, %{message: "Hello"}}
 MyApp.Flows.Greeting.flow()
+# %Jido.Flow{name: "greeting", ...}
 MyApp.Flows.Greeting.compiled()
 MyApp.Flows.Greeting.step_action("greet")
+# the generated Action module
 MyApp.Flows.Greeting.run(%{name: "Ada"}, %{})
+# {:ok, %{message: "Hello, Ada!"}}
 ```
 
-`flow/0` returns the same canonical value for the life of the loaded module
-version. Put changing values in input or context, not in module construction.
+`flow/0` returns the same canonical value for the life of the loaded module.
+Put changing values in input or context, not in module construction.
 
-`compiled/0` returns a derived `Runic.Workflow` with the module source map
-applied during compilation. It is not a storage format.
+`compiled/0` returns the executable workflow that `Jido.Exec` derives from the
+Flow. It is not a storage format. See [Inspect Flows](flow-inspection.md).
 
-`run/2` delegates to `Jido.Exec.run/4` with default options. Use `Jido.Exec`
-directly when you need runtime options. Exec uses the descriptor to select
-native Flow execution; it does not call this convenience function.
+`run/2` calls `Jido.Exec.run/4` with default options. Call `Jido.Exec.run/4`
+directly when you need runtime options such as `max_concurrency`.
 
 ## Reuse A Step Target
 
-`step_action/1` returns the Action module for an inline or explicit
-Action-backed Step. It accepts an atom or string name. Invalid or unknown
-names and non-Step components, including Subflows, raise `ArgumentError`.
-Lookup does not execute the body or create atoms.
+`step_action/1` returns the Action module of a named Step, inline or explicit.
+It accepts a string or atom name. It raises `ArgumentError` for an invalid or
+unknown name, or for a component that is not an Action-backed Step, such as a
+Subflow. It does not run the body or create atoms.
 
-The helper returns only the target. It does not copy the Step's parameters,
-`needs`, or `meta`. Supply those fields for the new graph. Call the helper
-after its Flow module has compiled, not from that module's unfinished `flow`
-block. See [data definitions reuse](flow-data.md#reuse-an-inline-step) and
+The function returns only the target. It does not copy the Step's `params`,
+`needs`, or `meta`; supply new ones in the new graph. Call it after the Flow
+module has compiled, not from inside its `flow` block. See
+[data definitions reuse](flow-data.md#reuse-an-inline-step) and
 [JSON storage](flow-storage.md#store-a-compiled-inline-step).
 
-Context bindings are also Step parameters. For example, `ctx <- context()`
-puts the Flow context in the generated Action's `:ctx` parameter. If you call
-that Action directly, supply `:ctx` in its input map. Passing only the Exec
-context does not recreate the binding. Reuse through a new Step also needs an
-explicit context reference in that Step's parameters.
-
-The Step `inline:` settings also accept `context: ctx`, which binds actual
-execution context without adding a parameter. `step_action/1` stays Step-only.
+A context binding is a parameter of the generated Action. For example,
+`ctx <- context()` puts the Flow context in the Action's `:ctx` parameter. If
+you call that Action directly, supply `:ctx` in its input map. If you reuse it
+in a new Step, add an explicit `context()` reference to that Step's `params`.
+The `inline: [context: ctx]` setting binds the execution context without
+adding a parameter.
 
 ## Convert An Action To An Inline Step
 
-Inline bodies reduce source code for small transformations. They do not infer
-field types or defaults from bindings. Use Step `inline:` settings to declare
-static input and output schemas, defaults, descriptions, and Action names.
-The inline Action does not inherit the owning Flow's schemas or the validation
-hooks of an Action that it replaces.
+Inline bodies reduce code for small transformations. They do not infer field
+types or defaults from bindings. Use `inline:` to declare the Action name,
+description, and input and output schemas. An inline Action does not inherit
+the owning Flow's schemas, or the hooks of an Action that it replaces.
 
-Tools and routers can read declared Action schemas. Binding names alone do not
+Tools and routers can read declared Action schemas; binding names alone do not
 provide them. Keep a named Action for custom lifecycle hooks or a separate
-public module API. See [Inline Actions](inline-actions.md).
+public module API. See [Inline Steps](inline-actions.md).
 
-The owning Flow still validates its input and final output. Those schemas do
-not validate each intermediate Step result. Calling an extracted target with
-`step_action/1` also bypasses the owning Flow's validation and defaults. A
-missing binding can then fail as a function-clause error during execution
-unless the target's own schema rejects it or supplies a default first.
+The owning Flow validates its input and final output, not each intermediate
+Step result. Calling an extracted target directly skips the Flow's validation
+and defaults. A missing binding can then fail as a function-clause error,
+unless the target's own schema rejects it or supplies a default.
 
-Explicit effect lists survive composition in explicit and
-inline Steps. Untagged success extras fail with migration guidance. See
-[Results And Errors](execution.md#results-and-errors).
+An Action can return deferred effect requests in explicit and inline Steps.
+See [Outputs And Effects](action-effects.livemd).
 
 ## Source Metadata
 
-The compiler stores file, line, and available column data in a source map
-outside the canonical Flow value. Component `meta` remains portable author
-data. This separation keeps map definitions, DSL, and Codec values equal.
+The compiler stores file, line, and column data in a source map outside the
+canonical Flow value. Component `meta` stays portable author data. Because of
+this split, the DSL, map definitions, and Codec can produce equal Flow values.
 
-Inline body warnings and errors retain source locations. Runtime stacktraces
-include the body in its owning Flow module. Do not depend on the generated
-function or Action module names; they are internal.
+Inline body warnings, errors, and runtime stacktraces point to the owning Flow
+module. Do not depend on generated function or Action module names; they are
+internal.
 
 ## Deploy Inline Steps
 
-Normal source compilation writes the owner and generated Action BEAM files.
-Deploy them together in the same application build. Lookup, Flow inspection,
-Codec operations, and execution do not compile stored code.
+Normal compilation writes BEAM files for the owning module and its generated
+Actions. Deploy them together in the same build. Lookup, inspection, Codec
+operations, and execution never compile stored code.
 
-The target identity depends on the owner module and the typed path
-`[host: Jido.Flow, step: name, role: :action]`, not the body.
-A body-only edit can keep the same semantic Flow identity. That identity
-describes graph data, not a code version or a durable code snapshot. Use an
-application release version when you need to identify deployed behavior.
+A generated Action's identity depends on the owning module and the Step name,
+not the body. A body-only edit can keep the same semantic Flow identity. That
+identity describes graph data, not a code version. Use your application
+release version to identify deployed behavior.
 
-## Use The Flow Facade
+## Inspect A Flow
 
-Inspection functions belong to `Jido.Flow`, not to each generated module.
+Inspection functions belong to `Jido.Flow`, not to each Flow module:
 
 ```elixir
 flow = MyApp.Flows.Greeting.flow()
 
-Jido.Flow.validate(flow)
-Jido.Flow.dependencies(flow)
-Jido.Flow.explain(flow)
-Jido.Flow.semantic_identity(flow)
+{:ok, _flow} = Jido.Flow.validate(flow)
+{:ok, _dependencies} = Jido.Flow.dependencies(flow)
+{:ok, _explanation} = Jido.Flow.explain(flow)
+{:ok, _identity} = Jido.Flow.semantic_identity(flow)
 ```
+
+See [Inspect Flows](flow-inspection.md) for what each function returns.

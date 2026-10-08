@@ -2,8 +2,9 @@
 
 ## Overview
 
-`Jido.Exec` compiles Actions and Flows to native Runic workflows. Runic owns
-scheduling and durable runtime state.
+This Livebook runs one Flow four ways: to completion, with concurrency,
+compiled without running, and under a managed Runner. It also shows a
+failure. Read [Execution](execution.md) for the full contract.
 
 Run the cells from top to bottom.
 
@@ -65,7 +66,9 @@ end
   Jido.Exec.run(FlowExecution.Diamond, %{value: 5})
 ```
 
-Independent ready work can run concurrently:
+`"left"` and `"right"` do not depend on each other. With
+`max_concurrency` above `1`, they can run at the same time. The result is the
+same either way:
 
 ```elixir
 {:ok, result} =
@@ -80,14 +83,14 @@ Independent ready work can run concurrently:
 ## Compile And Inspect
 
 ```elixir
-{:ok, %Runic.Workflow{} = workflow} =
-  Jido.Exec.compile(FlowExecution.Diamond)
+{:ok, %Runic.Workflow{}} = Jido.Exec.compile(FlowExecution.Diamond)
 
-Runic.Workflow.build_log(workflow)
+{:ok, dependencies} = Jido.Flow.dependencies(FlowExecution.Diamond.flow())
+dependencies["combine"]
 ```
 
-The result is the executable graph. It contains real Runic components and
-edges. Jido does not create a separate execution-plan struct.
+`compile/2` checks every target and returns the executable workflow without
+running it. Use it in tests and tools to catch target errors early.
 
 ## Observe Failure
 
@@ -114,16 +117,21 @@ end
 Exception.message(error)
 ```
 
-The Action error fails its Runic Runnable. With the default policy, a terminal
-failure stops later dispatch.
+The Action's error is returned unchanged, with the failing component in
+`details.node`. Exec starts no new work after a failure. See
+[Errors](errors.md).
 
 ## Managed Execution
 
-A supervised application can start the same compiled Flow under a
-`Runic.Runner`:
+A supervised application can run the same Flow under a `Runic.Runner`. The
+Runner keeps running after the caller exits and can checkpoint and resume the
+work. In an application, add the Runner to your supervision tree. Here, start
+it directly:
 
 ```elixir
-{:ok, runner} = Runic.Runner.start_link(name: FlowExecution.Runner)
+{:ok, _runner} = Runic.Runner.start_link(name: FlowExecution.Runner)
+
+parent = self()
 
 {:ok, _worker} =
   Jido.Exec.start(
@@ -132,15 +140,26 @@ A supervised application can start the same compiled Flow under a
     FlowExecution.Diamond,
     %{value: 5},
     %{},
-    checkpoint_strategy: :every_cycle
+    on_complete: fn execution_id, _workflow -> send(parent, {:done, execution_id}) end
   )
 ```
 
+`start/6` returns before the work runs. Wait for `on_complete`, then read the
+result fact:
+
 ```elixir
+receive do
+  {:done, "diamond-1"} -> :ok
+after
+  5_000 -> raise "the managed execution did not finish"
+end
+
 {:ok, workflow} = Runic.Runner.get_workflow(FlowExecution.Runner, "diamond-1")
 Jido.Exec.result(workflow)
 ```
 
 Use `Runic.Runner.checkpoint/2` and `stop/3` for durable lifecycle control.
-Resume with `Jido.Exec.resume/4` and the same context and options. The Runic Store contains progress. Flow JSON contains only the
-portable definition.
+Resume with `Jido.Exec.resume/4` and the same context and options. The Runic
+Store contains progress. Flow JSON contains only the portable definition. See
+[Managed Execution](managed-execution.md) for options, manual stepping,
+checkpoints, and resume.

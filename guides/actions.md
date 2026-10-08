@@ -1,7 +1,8 @@
 # Actions
 
-An Action is one named and validated unit of work. It is the only executable
-leaf in a Jido Flow.
+An Action is a module that does one named, validated unit of work. It
+declares schemas for its input and output and implements `run/2`. Every Flow
+component that does work calls an Action.
 
 ## Define An Action
 
@@ -36,11 +37,19 @@ JSON Schema. It returns `nil` for an empty input or output schema. It raises
 projection is descriptive. Use `validate_params/1` and `validate_output/1` for
 the runtime contract.
 
-`Jido.Action` declares `run/2`, `validate_params/1`, `validate_output/1`, and
-the optional input-preparation hook. A Flow implements `Jido.Flow` and supplies
-`flow/0` plus its validation callbacks. `Jido.Instruction` resolves these
-behaviours to an execution kind. Runtime contract checks remain in place for
-all resolved module targets.
+Use `to_json/0` when a tool registry, an API, or a language model needs to
+describe the Action.
+
+```elixir
+MyApp.Actions.CreateGreeting.to_json()
+#=> %{
+#=>   "kind" => "action",
+#=>   "name" => "create_greeting",
+#=>   "description" => "Creates one greeting",
+#=>   "input_schema" => %{"type" => "object", ...},
+#=>   "output_schema" => %{"type" => "object", ...}
+#=> }
+```
 
 ## Use An Inline Step For Small Local Work
 
@@ -60,11 +69,10 @@ defmodule ActionGuide.Greeting do
 end
 ```
 
-This form compiles the body to an ordinary Action. It does not add inline
-methods to `use Jido.Action` or function/MFA executable targets. Its field
-schemas default to empty. Use Step `inline:` settings for explicit schemas,
-descriptions, or execution context. No schema is inferred from bindings.
-Exec owns the Jido adapter and result contract. Runic owns execution policy.
+The body compiles to an ordinary Action. Its schemas default to empty. Use
+the Step's `inline:` settings for explicit schemas, a description, or the
+execution context. Schemas are not inferred from bindings. See
+[Inline Steps](inline-actions.md).
 
 The separate public `Jido.Action.Inline` API lets a downstream package provide
 inline Actions in its own compile-time DSL.
@@ -76,7 +84,7 @@ the complete inline example and named-Action extraction.
 
 ## Callback Results
 
-An Action callback returns one of four normal shapes:
+An Action callback returns one of four shapes:
 
 ```elixir
 {:ok, result}
@@ -93,17 +101,19 @@ value is intentionally raw, streamed, batched, or opaque.
 {:ok, Jido.Action.Output.batch([%{id: 1}, %{id: 2}])}
 ```
 
-Effects are optional for both maps and Output values. Return
-`{:ok, result, requests}` with a proper list to request deferred effects.
-An empty list returns the two-element success form. Direct Actions and Flows
-preserve the requests. Exec does not dispatch them or consume stream output.
-Non-list third success elements fail with `:invalid_effects`. Put metadata in
-the result map or `Output.meta`. Error results discard the third element.
-See the [effect rules](execution.md#results-and-errors).
+Return `{:ok, result, effects}` to request deferred effects, such as an email
+to send after the work succeeds. `effects` must be a proper list. Exec returns
+the list with the result and never performs it. Error results discard their
+effects. See [Outputs And Effects](action-effects.livemd) for ordering and
+examples.
 
-A terminal Flow Dispatch expander can also return its special
-`{:continue, input, target}` form. Root Actions and other Flow positions reject
-that form. See [Dynamic Flows](dynamic-flows.md).
+A Dispatch expander, and only a Dispatch expander, can also return
+`{:continue, input, target}` to select the next Action or Flow. Any other
+Action that returns it fails with `reason: :unsupported_continuation`. See
+[Dynamic Flows](dynamic-flows.md).
+
+Exec turns raises, throws, exits, and unsupported return values into
+structured errors. See [Errors](errors.md).
 
 ## Validation
 
@@ -132,7 +142,9 @@ Jido.Exec.run(
 Exec runs input validation, the Action callback, output validation, and result
 normalization through a Runic Runnable. Exceptions and invalid return shapes
 become structured errors. Runic owns timeout and retry policy. Exec retries an
-Action error only when it sets `details.retry: true`.
+Action error only when it sets `details.retry: true`. The fourth argument sets
+timeout, retry, and concurrency options. See
+[Execution](execution.md#options).
 
 ### Prepare Raw Input
 
@@ -150,10 +162,16 @@ def on_before_validate_params(%{"enabled" => value} = params)
 
   {:ok, prepared}
 end
+
+def on_before_validate_params(params), do: {:ok, params}
 ```
 
+Include a final clause that returns other input unchanged. Without it, any
+other input raises `FunctionClauseError`, which Exec returns as an execution
+error.
+
 `validate_params/1` and `Jido.Exec.run/4` both run this callback before the
-input schema. The callback must return `{:ok, map}` or `{:error, reason}`.
+input schema. The callback must return `{:ok, params}` or `{:error, reason}`.
 
 Prefer Zoi coercion, defaults, enums, and refinements when they can express the
 required rule. Keep authentication, authorization, secret lookup, I/O, retry,
@@ -164,10 +182,11 @@ and compensation out of this callback.
 - Keep one Action focused on one unit of work.
 - Put external effects in the Action, not in a Flow expression.
 - Treat context as caller-owned execution data.
-- Keep process-local values out of context when managed execution must persist
-  and resume it.
+- Keep PIDs, references, and functions out of params and context when the
+  Action runs under [managed execution](managed-execution.md).
 - Return structured domain errors when the caller can act on them.
-- Make effects idempotent when a higher-level runtime can repeat work.
+- Make effects idempotent when work can be retried with `max_attempts` or
+  resumed after a crash.
 
 See [Schemas And Validation](schemas-validation.md) and
-[Execution Contract](execution.md) for the complete boundary.
+[Execution](execution.md) for the complete boundary.

@@ -58,6 +58,30 @@ Zoi.object(%{
 })
 ```
 
+## String-Keyed Input
+
+JSON decoders and Phoenix params produce maps with string keys. A
+`Zoi.object/2` schema with atom keys rejects them by default. Add
+`coerce: true` to the object to accept string keys for its declared fields.
+Add `coerce: true` to a field to convert its value, such as `"3"` to `3`:
+
+```elixir
+schema =
+  Zoi.object(
+    %{
+      quantity: Zoi.integer(coerce: true),
+      unit_price: Zoi.number(coerce: true)
+    },
+    coerce: true
+  )
+
+{:ok, %{quantity: 3, unit_price: 2.5}} =
+  Zoi.parse(schema, %{"quantity" => "3", "unit_price" => "2.5"})
+```
+
+The validated map uses atom keys for declared fields. Undeclared string keys
+stay as strings in the open root.
+
 ## Flow Schemas
 
 A Flow module uses the same options.

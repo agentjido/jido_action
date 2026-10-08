@@ -2,17 +2,20 @@
 
 ## Overview
 
-This Livebook builds a small Flow module. A Flow is a validated graph of Action
-calls with one explicit output.
+A Flow is a validated graph of Action calls with one explicit output. This
+Livebook builds one in two passes:
 
-Run the cells from top to bottom.
+1. a two-step greeting, to learn how Steps, references, and `output` work; and
+2. a checkout Flow that reuses the greeting and adds a Map, a Reduce, a
+   Choice, and independent work that can run in parallel.
+
+Read [Getting Started](getting-started.livemd) first if you have not defined
+an Action yet. Run the cells from top to bottom.
 
 ## Install The Package
 
-Inline Steps require `3.0.0-beta.5` or later.
-
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-beta.11"}])
+Mix.install([{:jido_action, "~> 3.0.0-beta.12"}])
 ```
 
 ## Define The Flow
@@ -101,9 +104,238 @@ step "greet",
   params: %{name: result("normalize", :name)}
 ```
 
+## Grow The Flow
+
+A real Flow does more than call two Steps in a row. The next Flow prices an
+order. It greets the customer, prices each order line, adds the lines, picks a
+discount, and builds a receipt. Along the way it uses:
+
+| Component | What it does here |
+| --- | --- |
+| Nested Flow | A `step` whose target is `FirstFlow.Greeting` runs that whole Flow. |
+| `map` | Prices each order line with the same Action. |
+| `reduce` | Adds the line totals, one at a time, into a subtotal. |
+| `choice` | Picks a 10 percent discount for large orders, or none. |
+| Inline `step` | Combines several results into a receipt. |
+
+### Define The Actions
+
+Map, Reduce, and Choice call Action modules, not inline bodies. Each Action
+validates its own input and output.
+
+```elixir
+defmodule FirstFlow.LineTotal do
+  use Jido.Action,
+    name: "line_total",
+    description: "Prices one order line",
+    schema:
+      Zoi.object(%{
+        sku: Zoi.string(),
+        price: Zoi.integer(),
+        quantity: Zoi.integer() |> Zoi.min(1)
+      }),
+    output_schema: Zoi.object(%{sku: Zoi.string(), total: Zoi.integer()})
+
+  @impl true
+  def run(%{sku: sku, price: price, quantity: quantity}, _context) do
+    {:ok, %{sku: sku, total: price * quantity}}
+  end
+end
+
+defmodule FirstFlow.AddLine do
+  use Jido.Action,
+    name: "add_line",
+    description: "Adds one line total to a running subtotal",
+    schema: Zoi.object(%{subtotal: Zoi.integer(), line_total: Zoi.integer()}),
+    output_schema: Zoi.object(%{subtotal: Zoi.integer()})
+
+  @impl true
+  def run(%{subtotal: subtotal, line_total: line_total}, _context) do
+    {:ok, %{subtotal: subtotal + line_total}}
+  end
+end
+
+defmodule FirstFlow.ApplyDiscount do
+  use Jido.Action,
+    name: "apply_discount",
+    description: "Applies a percentage discount to a subtotal",
+    schema: Zoi.object(%{subtotal: Zoi.integer(), percent: Zoi.integer()}),
+    output_schema:
+      Zoi.object(%{subtotal: Zoi.integer(), discount: Zoi.integer(), total: Zoi.integer()})
+
+  @impl true
+  def run(%{subtotal: subtotal, percent: percent}, _context) do
+    discount = div(subtotal * percent, 100)
+    {:ok, %{subtotal: subtotal, discount: discount, total: subtotal - discount}}
+  end
+end
+```
+
+### Compose The Checkout
+
+Prices are integers in cents.
+
+```elixir
+defmodule FirstFlow.Checkout do
+  use Jido.Flow,
+    name: "checkout",
+    description: "Greets a customer and prices an order",
+    schema:
+      Zoi.object(%{
+        customer: Zoi.string(),
+        items:
+          Zoi.list(
+            Zoi.object(%{sku: Zoi.string(), price: Zoi.integer(), quantity: Zoi.integer()})
+          )
+      })
+
+  flow do
+    step "greeting",
+      action: FirstFlow.Greeting,
+      params: %{name: input(:customer)}
+
+    map "lines",
+      collection: input(:items),
+      action: FirstFlow.LineTotal,
+      params: %{sku: item(:sku), price: item(:price), quantity: item(:quantity)}
+
+    reduce "subtotal" do
+      collection result("lines")
+      initial %{subtotal: 0}
+      action FirstFlow.AddLine
+      params %{subtotal: accumulator(:subtotal), line_total: item(:total)}
+    end
+
+    choice "pricing" do
+      option "bulk",
+        condition: result("subtotal", :subtotal) >= 5_000,
+        action: FirstFlow.ApplyDiscount,
+        params: %{subtotal: result("subtotal", :subtotal), percent: 10}
+
+      otherwise action: FirstFlow.ApplyDiscount,
+                params: %{subtotal: result("subtotal", :subtotal), percent: 0}
+    end
+
+    step "receipt",
+         [
+           greeting <- result("greeting", :message),
+           lines <- result("lines"),
+           pricing <- result("pricing")
+         ] do
+      {:ok,
+       %{
+         message: greeting,
+         line_count: length(lines),
+         subtotal: pricing.subtotal,
+         discount: pricing.discount,
+         total: pricing.total
+       }}
+    end
+
+    output result("receipt")
+  end
+end
+```
+
+Read each component from its references:
+
+- `"greeting"` passes `input(:customer)` to the greeting Flow. Its result is
+  that Flow's output, `%{message: ...}`.
+- `"lines"` runs `FirstFlow.LineTotal` once per item. `item(:price)` reads a
+  field of the current item. The result is a list in item order.
+- `"subtotal"` starts from `initial` and calls `FirstFlow.AddLine` for each
+  line. `accumulator(:subtotal)` reads the running value. The result is the
+  final accumulator.
+- `"pricing"` checks its options in order. The condition is a data-only
+  expression, not Elixir code. When no option matches, `otherwise` runs.
+- `"receipt"` binds three results in one list and builds the output in normal
+  Elixir.
+
+### Run It
+
+A large order gets the discount:
+
+```elixir
+order = %{
+  customer: "  ada ",
+  items: [
+    %{sku: "book", price: 2_400, quantity: 2},
+    %{sku: "pen", price: 150, quantity: 4}
+  ]
+}
+
+{:ok, receipt} = Jido.Exec.run(FirstFlow.Checkout, order)
+receipt
+```
+
+A small order takes the `otherwise` path:
+
+```elixir
+{:ok, %{discount: 0, total: 300}} =
+  Jido.Exec.run(FirstFlow.Checkout, %{
+    customer: "grace",
+    items: [%{sku: "pen", price: 150, quantity: 2}]
+  })
+```
+
+### See What Can Run In Parallel
+
+`Jido.Flow.dependencies/1` lists what each component waits for:
+
+```elixir
+{:ok, dependencies} = Jido.Flow.dependencies(FirstFlow.Checkout.flow())
+Map.new(dependencies, fn {name, info} -> {name, info.effective} end)
+```
+
+`"greeting"` and `"lines"` wait for nothing, so they can run at the same
+time. The items inside `"lines"` are independent too. `"subtotal"`,
+`"pricing"`, and `"receipt"` must wait for the results they read.
+
+Exec runs one unit of work at a time by default. Pass `max_concurrency:` to
+run independent work in parallel. The result is the same:
+
+```elixir
+{:ok, ^receipt} = Jido.Exec.run(FirstFlow.Checkout, order, %{}, max_concurrency: 4)
+```
+
+### Read A Failure
+
+When an Action rejects its input, the error names the component and the
+item that failed. Here, the second line has a quantity of `0`:
+
+```elixir
+{:error, error} =
+  Jido.Exec.run(FirstFlow.Checkout, %{
+    customer: "ada",
+    items: [
+      %{sku: "book", price: 2_400, quantity: 1},
+      %{sku: "pen", price: 150, quantity: 0}
+    ]
+  })
+
+{Exception.message(error), Map.take(error.details, [:node, :item_index])}
+```
+
+Components that depend on `"lines"` do not run, and the Flow returns no
+partial result. See
+[Errors](errors.md) for every error shape.
+
+## What You Learned
+
+- A Flow is a graph of named components. References such as `input/1`,
+  `result/2`, and `item/1` connect them and create the dependencies.
+- `output` selects the value that the Flow returns.
+- A `step` can call an Action, a whole Flow, or an inline body.
+- `map`, `reduce`, and `choice` call Action modules for collections and
+  decisions.
+- Independent work runs in parallel when you pass `max_concurrency:`, with the
+  same result.
+
 ## Next
 
-Use [Flow DSL](flow-language.livemd) for the complete language. Use
-[Executing Flows](flow-execution.livemd) for immediate and managed execution.
-[Flow Data Definitions](https://github.com/agentjido/jido_action/blob/release/v3/guides/flow-data.md#reuse-an-inline-step)
-shows how to reuse the compiled body without extracting an Action.
+- [Flow DSL Tour](flow-language.livemd) covers every component, including
+  `iterate` for bounded loops and `dispatch` for runtime routing.
+- [Executing Flows](flow-execution.livemd) covers concurrency, compilation,
+  failures, and managed execution.
+- [Flow Data Definitions](flow-data.md) builds the same kind of Flow from
+  runtime data, and [Store Flows As JSON](flow-storage.md) stores it.

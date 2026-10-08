@@ -1,15 +1,13 @@
 # Version 2 To Version 3 Migration Guide
 
-This guide explains how to migrate an application from the published
-`jido_action` version `2.3.2` API to version `3.0.0-beta.6`.
+This guide moves an application from `jido_action` `2.3.2` to
+`3.0.0-beta.12`. Read [Core Concepts](concepts.md) first if you are new to the
+version 3 model.
 
-The current install example targets `3.0.0-beta.11`. The `beta.6` references
-below identify the first V3 API used by this guide.
-
-This guide covers only version 2 to version 3 changes. Each section starts
-with version 2 code that no longer has the same contract. It then gives the
-version 3 replacement. New version 3 features that do not require a change to
-version 2 code are outside the scope of this guide.
+Each section shows version 2 code that no longer works the same way, then the
+version 3 replacement. New version 3 features that need no change to version 2
+code are out of scope. If you already use an earlier version 3 beta, skip to
+[Upgrading From Earlier v3 Betas](#upgrading-from-earlier-v3-betas).
 
 Upgrade one area at a time. Compile and test the application after each area.
 
@@ -20,19 +18,15 @@ Change the package version in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:jido_action, "~> 3.0.0-beta.11"}
+    {:jido_action, "~> 3.0.0-beta.12"}
   ]
 end
 ```
 
-Version 3 no longer supplies several dependencies used by version 2 catalogs,
-tools, schemas, and examples.
-
-### What You Need To Change
-
-Add a direct dependency if your application code still uses Jason,
-NimbleOptions, Req, Lua, Multigraph, or Igniter. Do not depend on
-`jido_action` to supply these packages.
+Version 3 no longer depends on NimbleOptions, Req, Lua, Multigraph, or
+Igniter. Add a direct dependency for each one that your application code still
+calls. `jido_action` still lists Jason as a dependency today, but declare Jason
+yourself if your code calls it.
 
 ## Replace Version 2 Action Options And Schemas
 
@@ -63,8 +57,8 @@ end
 ```
 
 Version 3 accepts only `name`, `description`, `schema`, and `output_schema`.
-When present, each schema must be a map-shaped Zoi schema. An empty list still
-means that the Action has no declared field schema.
+Each schema is a map-shaped Zoi schema. An empty list means that the Action
+has no declared field schema.
 
 ### What You Need To Change
 
@@ -98,7 +92,7 @@ the complete operation.
 
 ## Make Action Schemas Static
 
-Version 2 can accept schema values that contain anonymous functions, lazy
+Version 2 accepts schema values that contain anonymous functions, lazy
 schemas, process values, or other runtime-only data. Version 3 rejects these
 values when it compiles an Action.
 
@@ -131,11 +125,10 @@ reference, port, or anonymous function in an Action schema.
 
 ## Declare The Unknown-Key Policy For Nested Data
 
-Version 3 preserves unknown keys at a direct Action object or struct root.
-Nested and wrapped schemas use their declared Zoi unknown-key policy.
-
-Version 2 code can therefore lose or reject nested keys after the upgrade if
-it relied on the old open behavior.
+Version 3 preserves unknown keys at the root of an Action object or struct
+schema. Nested and wrapped schemas use their declared Zoi unknown-key policy.
+Code that relied on the version 2 open behavior can lose or reject nested keys
+after the upgrade.
 
 ### What You Need To Change
 
@@ -207,13 +200,9 @@ does not restore version 2 categories, tags, versions, execution policy, or
 tool data.
 
 Move AI tool conversion to the package that owns the AI integration. That
-adapter can read `to_json/0`, then call `Jido.Exec.run/4`.
-
-An Action does not need a second tool specification. Its name, description,
-and input schema contain the data that an integration needs to create a tool.
-ReqLLM owns the generic Tool type and provider-specific tool formats. Jido AI
-owns the adapter from a Jido Action to a ReqLLM Tool and owns execution of the
-selected Action.
+adapter can read `to_json/0`, then call `Jido.Exec.run/4`. ReqLLM owns the
+generic Tool type and provider-specific tool formats. Jido AI owns the adapter
+from a Jido Action to a ReqLLM Tool and owns execution of the selected Action.
 
 If you use Jido AI, replace the generated function with the Jido AI adapter:
 
@@ -225,12 +214,30 @@ tool = MyApp.Actions.Search.to_tool()
 tool = Jido.AI.ToolAdapter.from_action(MyApp.Actions.Search)
 ```
 
-Use a Jido AI release that supports `jido_action` version 3. An adapter for
-version 3 can pass the Action Zoi schema to ReqLLM. It must not depend on the
-removed `Jido.Action.Schema` or `Jido.Action.Tool` modules.
+Use a Jido AI release that supports `jido_action` version 3. It must not
+depend on the removed `Jido.Action.Schema` or `Jido.Action.Tool` modules.
 
-Replace Action JSON with an application-owned format. An Action module is not
-a stored version 3 document.
+## Return Effects As A List
+
+Version 2 accepts any third success element, such as a directive:
+`{:ok, result, extras}`. Version 3 reserves the third element for a proper
+list of effect requests. Any other value fails with an
+`ExecutionFailureError` whose `details.reason` is `:invalid_effects`.
+
+### What You Need To Change
+
+Wrap a single extra value in a list, or move metadata into the result map:
+
+```elixir
+# Version 2
+{:ok, result, directive}
+
+# Version 3
+{:ok, result, [directive]}
+```
+
+Exec returns the list to the caller and never performs it. See
+[Outputs And Effects](action-effects.livemd) for ordering and failure rules.
 
 ## Replace Instruction Fields
 
@@ -246,8 +253,8 @@ Jido.Instruction.new!(
 )
 ```
 
-A version 3 Instruction stores one executable target. Execution options are
-passed to `Jido.Exec`:
+A version 3 Instruction stores one executable target. You pass execution
+options to `Jido.Exec`:
 
 ```elixir
 instruction =
@@ -273,9 +280,9 @@ Apply these field changes:
 | `context` | `context` |
 | `opts` | Options passed to `Jido.Exec.run/4` |
 
-Constructors reject removed fields. Pass supported execution options directly
-to Exec, as shown above. Keep retry, backoff, and other runtime policy in the
-caller. See [Runtime Configuration](configuration.md) for supported options.
+Constructors reject the removed `:id`, `:action`, `:flow`, and `:opts` fields.
+See [Replace The Exec Options](#replace-the-exec-options) for the supported
+options.
 
 ## Replace Instruction Shorthand And Allowlists
 
@@ -285,9 +292,6 @@ Version 3 removes these version 2 functions and input forms:
 - The version 2 list-return behavior of `normalize!/3`
 - Module, tuple, and list shorthand
 - `validate_allowed_actions/2`
-
-Version 3 has a different `normalize!/3` contract for one target or
-Instruction. It does not replace the version 2 list normalizer.
 
 ### What You Need To Change
 
@@ -315,14 +319,15 @@ When a target name comes from an external boundary, resolve it through an
 application allowlist before you build the Instruction. Do not create an atom
 from external input.
 
-## Replace The Exec Runtime Boundary
+## Replace The Exec Options
 
-Version 3 keeps `Jido.Exec.run/4` as the immediate execution entry point, but
-it compiles every Action or Flow to a Runic workflow. One Action is a one-node
-workflow.
+`Jido.Exec.run/4` is still the immediate execution entry point. Version 3
+compiles every Action or Flow to a Runic workflow and runs it. Runic applies
+the timeout and retry policy to each runnable. A runnable is one unit of
+scheduled work, such as one Action call or one internal Flow node.
 
 ```elixir
-Jido.Exec.run(action, params, context,
+Jido.Exec.run(MyApp.Actions.CreateOrder, params, context,
   timeout: 30_000,
   max_attempts: 3,
   backoff: :exponential,
@@ -333,8 +338,35 @@ Jido.Exec.run(action, params, context,
 
 The timeout is a per-attempt Runic timeout. `max_attempts` includes the first
 attempt. Runic owns retry and backoff. Exec retries only errors that set
-`details.retry: true`. Remove version 2 options that are not in
-[Runtime Configuration](configuration.md).
+`details.retry: true`.
+
+### What You Need To Change
+
+Map each version 2 option to its version 3 form:
+
+| Version 2 | Version 3 |
+| --- | --- |
+| `timeout:` (default `30_000`, whole Action) | `timeout:` (default `:infinity`, each attempt of each runnable) |
+| `max_retries: n` (default `1`) | `max_attempts: n + 1` (default `1`, no retry) |
+| `backoff: ms` (initial delay, doubles) | `backoff: :exponential` with `base_delay_ms:` and `max_delay_ms:` |
+| `log_level:` | Removed. Configure Logger. |
+| `:jido_action` application config defaults | Removed. Pass options on each call. |
+
+Check these behavior changes:
+
+- Version 3 has no default timeout. Set `timeout:` where version 2 relied on
+  its 30 second default.
+- Version 3 retries only errors that `Jido.Action.Error.retryable?/1` accepts.
+  Set `details.retry: true` only when another attempt is safe.
+- `base_delay_ms` and `max_delay_ms` both default to `0`. Set both to get a
+  delay between attempts.
+- `max_concurrency` defaults to `1`. Raise it to run independent Flow
+  components in parallel.
+
+Unknown options return a `Jido.Action.Error.ConfigurationError`. See
+[Execution](execution.md) for the complete option list.
+
+## Replace Async Handles
 
 Version 3 removes the Jido async handle and the version 2 step-wise Execution
 APIs. Replace `run_async`, `await`, `cancel`, `ready`, `step/1`, `wave`,
@@ -347,25 +379,50 @@ APIs. Replace `run_async`, `await`, `cancel`, `ready`, `step/1`, `wave`,
 - use `Runic.Runner` to checkpoint and stop, `Jido.Exec.resume/4` to resume,
   and `Jido.Exec.result/1` to read a managed result.
 
+For in-memory background work, call `Jido.Exec.run/4` from your own supervised
+Task. Stop that Task to cancel the call. For work that must outlive the caller,
+checkpoint, or resume, use `Jido.Exec.start/6` with a supervised
+`Runic.Runner`. See [Managed Execution](managed-execution.md).
+
 ```elixir
-{:ok, _worker} =
-  Jido.Exec.start(
-    MyApp.Runner,
-    execution_id,
-    target,
-    params,
-    context,
-    checkpoint_strategy: :every_cycle
-  )
+task =
+  Task.Supervisor.async_nolink(MyApp.TaskSupervisor, fn ->
+    Jido.Exec.run(MyApp.Actions.CreateOrder, params, context, timeout: 5_000)
+  end)
+
+Task.await(task)
 ```
 
-Do not copy version 2 continuation loops into Actions. Use Choice, Iterate, or
-Dispatch so Runic owns control flow. Only a Dispatch expander can return the
-special `{:continue, input, target}` form.
+`run/4` stops its work when the calling process exits.
 
-For durable execution, store two values: the Flow definition through
-`Jido.Flow.Codec`, and runtime progress through a Runic Store. Do not store a
-compiled workflow or add checkpoint fields to Instructions.
+## Replace The Task Supervisor
+
+Version 2 asks you to add `{Task.Supervisor, name: Jido.Action.TaskSupervisor}`
+to your supervision tree.
+
+### What You Need To Change
+
+Remove that child. Version 3 starts `Jido.Exec.TaskSupervisor` in its own
+application. `run/4` runs each call in one task under that supervisor. Pass
+`task_supervisor:` to use a local Task Supervisor that you own:
+
+```elixir
+Jido.Exec.run(MyApp.Actions.CreateOrder, params, context,
+  task_supervisor: MyApp.ExecSupervisor
+)
+```
+
+Managed execution does not use this option. `start/6` rejects
+`task_supervisor:`. Its Actions run under the Runner's own Task Supervisor.
+
+## Replace Continuation Loops
+
+Version 3 keeps control flow in Flow components, so Runic owns it. Use Choice
+for routing, Iterate for bounded loops, and Dispatch for runtime target
+selection. Only a Dispatch expander can return `{:continue, input, target}`.
+Any other Action that returns it fails with an `ExecutionFailureError` whose
+`details.reason` is `:unsupported_continuation`. See
+[Dynamic Flows](dynamic-flows.md).
 
 ## Replace Jido Plan With Jido Flow
 
@@ -410,7 +467,9 @@ A result reference creates a dependency. Use `needs:` only for order that has
 no data dependency. Pass runtime context to `Jido.Exec.run/4`; a Flow does not
 store invocation context.
 
-Update error handling for Flow calls to use `Jido.Flow.Error`. Test the new
+An Action failure inside a Flow keeps its `Jido.Action.Error` type, with the
+component name in `details.node`. `Jido.Flow.Error` covers Flow definition,
+reference, and coordination failures. See [Errors](errors.md). Test the new
 Flow dependency order and final output against the old Plan behavior.
 
 ## Replace Action Chains And Closures
@@ -451,8 +510,8 @@ removed Mix generators.
 
 ## Migrate Stored Version 2 Data Deliberately
 
-Version 3 cannot decode a stored version 2 Plan, Instruction, Action JSON, or
-development-spike record as a version 3 Flow document.
+Version 3 cannot decode a stored version 2 Plan, Instruction, or Action JSON
+record as a version 3 Flow document.
 
 ### What You Need To Change
 
@@ -464,17 +523,43 @@ Do not send version 2 data directly to `Jido.Flow.Codec.decode/2`. Add a format
 version to application-owned stored data and test the migration through real
 JSON bytes.
 
-## Replace Direct Task Supervisor References
+For durable execution, store two values: the Flow definition through
+`Jido.Flow.Codec`, and runtime progress through a Runic Store. Do not store a
+compiled workflow or add checkpoint fields to Instructions.
 
-Version 2 can refer to `Jido.Action.TaskSupervisor` directly. Version 3 uses
-Runic Runner supervision for managed execution.
+## Upgrading From Earlier v3 Betas
 
-### What You Need To Change
+The `Jido.Exec` rebuild on Runic replaced the version 3 execution API that
+shipped through `3.0.0-beta.12`. Replace each removed API:
 
-Replace direct references to the old global supervisor. Supervise a
-`Runic.Runner` and pass its name to `Jido.Exec.start/6`. Configure custom
-executors and schedulers through Runic Runner options. See
-[Runtime Configuration](configuration.md#managed-execution).
+| Removed | Replacement |
+| --- | --- |
+| `run_async/4`, `await/1,2`, `cancel/1`, `handle_message/2` | `run/4` inside your own supervised Task, or `start/6` for managed work. See [Replace Async Handles](#replace-async-handles). |
+| `remaining_time/1` and `context.__jido_exec__` | None. `timeout:` applies to each attempt. Pass your own deadline in context when an Action needs one. |
+| `start/4`, `ready/1`, `status/1`, `step/1`, `step/2` with a Work token, `wave/1`, `continue/1`, `result/1`, `native/1`, `Jido.Exec.Work`, and `%Jido.Exec.Execution{}` | `start/6` with `dispatch_mode: :manual`, then `Jido.Exec.step(runner, execution_id)`. Read state and results through `Runic.Runner`. See [Managed Execution](managed-execution.md). |
+| `max_continuations:` | None. Only a Dispatch expander can continue. |
+| `{:continue, input, target}` from a root Action | A Dispatch component. Other Actions fail with `:unsupported_continuation`. |
+| `invocation:` and `Jido.Exec.Invocation` (development builds) | None. Keep receipts and replay in your application. |
+| `Jido.Flow.compile/1`, `compile!/1`, and `validate_executable/1` | `Jido.Exec.compile/2`. It checks targets and returns a `%Runic.Workflow{}`. |
+| `Jido.Executable` | `Jido.Instruction.resolve/3` and `Jido.Instruction.validate/1` |
+| `Jido.Exec.Flow.*` and `Jido.Flow.Component` | None. These were internal. Use `Jido.Exec` and the public Runic APIs. |
+
+Check these behavior changes:
+
+- `timeout:` applies to each attempt of each runnable, including internal Flow
+  nodes. There is no whole-call timeout.
+- `max_concurrency` for `run/4` now defaults to `1`, not `8`. `start/6`
+  defaults to `System.schedulers_online()`.
+- An Action no longer runs in its own fresh Task under a private supervisor.
+  `run/4` runs the whole call in one task under `Jido.Exec.TaskSupervisor`.
+- `max_attempts`, `backoff`, `base_delay_ms`, and `max_delay_ms` are new retry
+  options. See [Replace The Exec Options](#replace-the-exec-options).
+- Flows now return the effect lists of all their components. See
+  [Outputs And Effects](action-effects.livemd).
+- `Jido.Exec.effect_id/4` derives a stable deduplication key for one effect
+  in a managed result.
+- Runic does not persist run context. After a resume, Actions receive an empty
+  context. Put data that must survive a restart in params.
 
 ## Version 2 To Version 3 Migration Checklist
 
@@ -486,34 +571,22 @@ executors and schedulers through Runic Runner options. See
 5. Keep only `on_before_validate_params/1`; move work from the five removed
    Action hooks.
 6. Replace generated Action metadata, JSON, and AI tool functions.
-7. Replace Instruction fields, shorthand forms, and allowlist calls.
-8. Set explicit Runic policy where the application relied on V2 defaults.
-9. Move rollback and compensation to their owning application service.
-10. Remove unsupported Exec options and `:jido_action` runtime defaults.
-11. Replace Plans, Chains, and Closures where the application uses them.
-12. Replace catalog, bundled-tool, and generator integrations.
-13. Migrate stored version 2 data with an explicit versioned data migration.
-14. Replace direct Task Supervisor references with managed Runic execution.
-15. Compile with warnings as errors and remove all old Instruction fields.
-16. Test Action input, output, error, timeout, and process-exit boundaries.
-17. Test each replacement Flow for data dependencies, order, and final output.
+7. Wrap each third success element in a list of effect requests.
+8. Replace Instruction fields, shorthand forms, and allowlist calls.
+9. Map Exec options: set `timeout:` explicitly, convert `max_retries` to
+   `max_attempts`, and remove `log_level:` and `:jido_action` config defaults.
+10. Replace async handles with your own Task or managed execution.
+11. Remove the `Jido.Action.TaskSupervisor` child.
+12. Replace continuation loops with Choice, Iterate, or Dispatch.
+13. Move rollback and compensation to their owning application service.
+14. Replace Plans, Chains, and Closures where the application uses them.
+15. Replace catalog, bundled-tool, and generator integrations.
+16. Migrate stored version 2 data with an explicit versioned data migration.
+17. Compile with warnings as errors.
+18. Test Action input, output, error, timeout, retry, and process-exit
+    boundaries.
+19. Test each replacement Flow for data dependencies, order, and final output.
 
 See [Actions](actions.md), [Instructions](instructions.md),
-[Execution](execution.md), [Flows](flows.md), and
+[Execution](execution.md), [Errors](errors.md), [Flows](flows.md), and
 [Store Flows As JSON](flow-storage.md) for the version 3 contracts.
-
-## Preserve Effect Lists Through Flow Composition
-
-Use `{:ok, output, requests}` with a proper list of effect requests. The output
-can be a map or a `Jido.Action.Output` value. The list is optional, and no
-wrapper is required. Flow now preserves the effects that earlier execution
-dropped. Failed execution returns no effect list, including effects from
-prior successful steps. Error results discard their third element.
-
-Non-list third success elements fail with `:invalid_effects`. Put metadata in
-the output map or in `Output.meta`, and diagnostics in the error itself. See
-[Execution](execution.md#optional-effect-lists).
-
-Use an Action release that contains this Flow contract. The published version
-examples above do not identify that release. Use the coordinated source
-changes for local validation until the Action changes are released.

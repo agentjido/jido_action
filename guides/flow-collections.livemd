@@ -2,15 +2,19 @@
 
 ## Overview
 
-Map and Reduce operate on ordered lists. Map preserves source order. Reduce is
-a serial left fold.
+Map and Reduce work on ordered lists:
+
+- `map` runs one Action for each item. Its result is a list of Action results
+  in input order.
+- `reduce` passes each item and an accumulator through one Action, one item at
+  a time. Its result is the final accumulator.
 
 Run the cells from top to bottom.
 
 ## Install The Package
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-beta.11"}])
+Mix.install([{:jido_action, "~> 3.0.0-beta.12"}])
 ```
 
 ## Define Item Actions
@@ -51,16 +55,17 @@ defmodule FlowCollections.Example do
       }
 
     reduce "total" do
-      collection(result("doubled"))
-      initial(%{total: 0})
-      action(FlowCollections.Sum)
-      params(%{
+      collection result("doubled")
+      initial %{total: 0}
+      action FlowCollections.Sum
+
+      params %{
         total: accumulator(:total),
         value: item(:value)
-      })
+      }
     end
 
-    output(%{items: result("doubled"), total: result("total")})
+    output %{items: result("doubled"), total: result("total")}
   end
 end
 ```
@@ -74,47 +79,89 @@ end
 result
 ```
 
-Map returns one ordered list of Action outputs when a scalar expression reads
-its result. Map supports `item()`, `item_index()`, and `item_id()`. Reduce adds
-`accumulator()`. The item ID is a runtime identifier for one collection work
-unit. IDs are deterministic for the Flow, component name, and source index.
-Reduce uses its own component name for item IDs, including when it reads a
-Map result. Do not treat item IDs as execution IDs.
+`result("doubled")` reads the complete Map result: an ordered list of
+`FlowCollections.Double` results. The Reduce reads that list without
+consuming it, so the Flow output can return both results.
 
-An empty Map returns an empty list. An empty Reduce returns its initial value.
+## Local References
 
-A Reduce reads the complete ordered Map result without consuming it. Other
-components can read the same Map result, and the Flow can return both results,
-as shown above.
+| Reference | Map `params` | Reduce `params` |
+| --- | --- | --- |
+| `item(path)` | The current item. | The current item. |
+| `item_index()` | The zero-based index. | The zero-based index. |
+| `item_id()` | A runtime identifier for this item. | A runtime identifier for this item. |
+| `accumulator(path)` | Not available. | The current accumulator. |
 
-The Map Action runs once per input item, regardless of the number of readers.
-Each Reduce runs its own serial fold over that list.
+An item ID is deterministic for the Flow, the component name, and the item
+index. Each component uses its own name, so a Reduce over a Map result has
+different item IDs than the Map. Do not use item IDs as execution IDs.
+
+## Rules
+
+- An empty Map returns `[]`. An empty Reduce returns its `initial` value.
+- The Reduce `initial` value must be a map or a `Jido.Action.Output` value.
+  A list or scalar compiles, but fails at runtime.
+- Each Reduce call returns the next accumulator.
+- The Map Action runs once per item, no matter how many components read the
+  Map result.
+- Map and Reduce targets must be Action modules, not Flow modules or inline
+  bodies.
 
 ## Map Error Modes
 
-The default `on_error: :fail_fast` stops the component on an item failure.
+With the default `on_error: :fail_fast`, the first item failure fails the Map.
 
-`on_error: :collect_errors` returns one tagged record for every item, in source
+With `on_error: :collect_errors`, an Action failure becomes a record instead
+of failing the Map. A reference failure in `params`, such as a missing item
+key, still fails the Map. The Map returns one record for each item, in input
 order:
 
 ```text
 %{status: :ok, value: action_result}
-%{status: :error, error: error_map}
+%{status: :error, error: %{type: type, message: message}}
 ```
 
-The error map uses `Jido.Flow.Error.to_map/1`: `type`, `message`, `details`,
-and `retryable?`. Action failures retain their error type and existing details,
-including the Map node, target, phase, item index, and item ID. Detail values
-can contain runtime terms. A parameter reference failure retains its reference
-path and reason; it does not add target or item identity. Runtime stacktraces
-are not included in this map.
+`type` is the error module name as a string, such as
+`"Elixir.Jido.Action.Error.ExecutionFailureError"`. `message` is the error
+message. The record does not include error details or stacktraces.
 
-Choose the mode as part of author intent. A fallback or retry is not inferred.
+```elixir
+defmodule FlowCollections.Check do
+  use Jido.Action, name: "flow_collections_check"
+
+  @impl true
+  def run(%{value: value}, _context) when value < 0 do
+    {:error, Jido.Action.Error.execution_error("negative value")}
+  end
+
+  def run(%{value: value}, _context), do: {:ok, %{value: value}}
+end
+
+defmodule FlowCollections.CollectErrors do
+  use Jido.Flow, name: "flow_collections_collect_errors"
+
+  flow do
+    map "checked",
+      collection: input(:values),
+      action: FlowCollections.Check,
+      params: %{value: item()},
+      on_error: :collect_errors
+
+    output %{checked: result("checked")}
+  end
+end
+
+{:ok, %{checked: checked}} =
+  Jido.Exec.run(FlowCollections.CollectErrors, %{values: [1, -2, 3]})
+
+checked
+```
+
+Choose the mode on purpose. Jido does not add a fallback or retry for you.
 
 ## Concurrency
 
-Map items can run concurrently when `max_concurrency` is greater than `1`.
-The option limits the native Runic item runnables in each ready wave.
+Map items can run concurrently when `max_concurrency` is greater than `1`:
 
 ```elixir
 Jido.Exec.run(
@@ -125,11 +172,11 @@ Jido.Exec.run(
 )
 ```
 
-Result order stays equal to input order. Reduce work always stays serial.
-Collection targets must be Actions, not Flow modules.
+The result order still matches the input order. Reduce always runs one item
+at a time. See [Execution](execution.md) for runtime options.
 
-## Use Named Collection Actions
+## Data Form
 
-Map and Reduce use Action modules. Put `item`, `item_index`, `item_id`,
-and `accumulator` references in `params`. This keeps collection declarations
-as graph data and gives the Action an independent contract.
+In a map definition, use `kind: :map` with `collection`, `action`, `params`,
+and `on_error`, or `kind: :reduce` with `collection`, `initial`, `action`, and
+`params`. See [Flow Data Definitions](flow-data.md#reduce).

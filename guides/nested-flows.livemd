@@ -2,15 +2,17 @@
 
 ## Overview
 
-A Flow module used in a DSL `step` becomes a canonical Flow call. This is the
-only implicit child Flow derivation.
+A Flow can call another Flow. The called Flow is a child Flow, and the
+component that calls it is a Subflow. In the module DSL, you write a Subflow
+as a `step` whose `action:` is a Flow module. Its result is the child Flow's
+output.
 
 Run the cells from top to bottom.
 
 ## Install The Package
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-beta.11"}])
+Mix.install([{:jido_action, "~> 3.0.0-beta.12"}])
 ```
 
 ## Define A Child Flow
@@ -31,7 +33,7 @@ defmodule NestedFlows.Child do
       action: NestedFlows.AddOne,
       params: %{value: input(:value)}
 
-    output(%{value: result("add", :value)})
+    output %{value: result("add", :value)}
   end
 end
 ```
@@ -51,25 +53,27 @@ defmodule NestedFlows.Parent do
       action: NestedFlows.AddOne,
       params: %{value: result("child", :value)}
 
-    output(%{value: result("finish", :value)})
+    output %{value: result("finish", :value)}
   end
 end
 ```
 
 ```elixir
-%{
-  kind: :call,
-  call: {%Jido.Instruction{kind: :flow, target: NestedFlows.Child}, _params}
-} = NestedFlows.Parent.flow().components["child"]
-
 {:ok, %{value: 3}} =
   Jido.Exec.run(NestedFlows.Parent, %{value: 1})
+
+%{kind: :subflow, flow: NestedFlows.Child} =
+  NestedFlows.Parent.flow()
+  |> Jido.Flow.to_map()
+  |> Map.fetch!(:components)
+  |> Enum.find(&(&1.name == "child"))
 ```
 
-The DSL shape stays `step ... action: ChildFlow`. The lowerer stores an inert
-Flow Instruction template in the call node.
+The child Flow validates `params` against its own input schema, runs its
+components, and validates its output. `result("child", :value)` reads that
+output. `Jido.Flow.to_map/1` reports the component as `kind: :subflow`.
 
-## Native Execution Boundary
+## Define A Subflow With Data
 
 A Subflow lowers to a nested native Runic Workflow. Stepwise execution can
 show the child input boundary, child Steps, and the child output as separate
@@ -78,29 +82,56 @@ Runic units. Jido does not hide these native runnables.
 The child runs in the same Exec call. It inherits the parent context,
 `max_concurrency`, Task Supervisor, and Runic policy.
 
-Child output uses the same caller context as root Flow output. This includes
-context references inside expressions, maps, and lists. Input references read
-the validated child input. Result references read components in that child.
-A missing context key returns a reference error. A key with a `nil` value is
-present and resolves to `nil`. These rules also apply to managed Runic execution.
+A map definition does not infer a Subflow from the target. Use
+`kind: :subflow` and the `flow` field:
 
-An Action failure keeps its typed error and leaf details. Its
-`details.node_path` identifies the authored Subflow path, for example
-`["child", "add"]`. Child input and output validation failures identify the
-Subflow boundary instead, for example `["child"]`. Map, Reduce, Iterate,
-Choice, and Dispatch failures in a child also include the parent path. Errors
-before Action validation can lack this path. See
-[Inspect Immediate Failures](https://github.com/agentjido/jido_action/blob/release/v3/guides/debugging-flows.md#inspect-immediate-failures)
-for failure inspection.
+```elixir
+{:ok, parent} =
+  Jido.Flow.new(%{
+    name: "nested_flows_data_parent",
+    components: [
+      %{
+        kind: :subflow,
+        name: "child",
+        flow: NestedFlows.Child,
+        params: %{value: Jido.Flow.Ref.input(:value)}
+      }
+    ],
+    output: Jido.Flow.Ref.result("child")
+  })
+
+{:ok, %{value: 2}} = Jido.Exec.run(parent, %{value: 1})
+```
+
+## Execution Boundary
+
+The child Flow runs inside the parent execution. It receives the parent
+context and the same runtime options, such as `max_concurrency`.
+
+Inside the child:
+
+- `input(...)` reads the validated child input.
+- `result(...)` reads components in the child.
+- `context(...)` reads the caller context. A missing context key is an error;
+  a key whose value is `nil` resolves to `nil`.
+
+An Action failure inside the child keeps its error type. Its
+`details.node_path` lists the authored path, such as `["child", "add"]`. A
+child input or output validation failure identifies the Subflow itself, such
+as `["child"]`. Map, Reduce, Iterate, Choice, and Dispatch failures in a child
+also include the parent path. Errors before Action validation can lack this
+path. See [Debug Flows](debugging-flows.md) to read single and concurrent
+failures.
 
 ## Limits
 
-Only `step` derives Subflow. Choice options, Choice fallback, Map, Reduce, and
-Iterate target slots require Actions. A canonical child call stores a Flow
-module, not an arbitrary runtime Flow value.
+Only `step` and `kind: :subflow` call a child Flow. Choice options, the Choice
+fallback, Map, Reduce, Iterate, and Dispatch targets must be Action modules.
+A Subflow stores a Flow module, not a runtime `%Jido.Flow{}` value.
 
-Validate the complete boundary without running work:
+Check the complete parent and child boundary without running work:
 
 ```elixir
-Jido.Exec.compile(NestedFlows.Parent)
+{:ok, _workflow} = Jido.Exec.compile(NestedFlows.Parent)
+:ok
 ```

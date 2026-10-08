@@ -2,15 +2,21 @@
 
 ## Overview
 
-A Flow graph gets dependencies from result references and explicit `needs`
-entries. Source order does not create a dependency.
+A Flow component runs after the components it depends on. A component depends
+on another component when:
+
+- one of its fields contains a result reference such as `result("left")`; or
+- it lists that component in `needs:`.
+
+Source order does not create a dependency. Components without a dependency
+path between them can run concurrently.
 
 Run the cells from top to bottom.
 
 ## Install The Package
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-beta.11"}])
+Mix.install([{:jido_action, "~> 3.0.0-beta.12"}])
 ```
 
 ## Define A Diamond
@@ -42,13 +48,13 @@ defmodule FlowDependencies.Diamond do
         right: result("right", :value)
       }
 
-    output(%{joined: result("join")})
+    output %{joined: result("join")}
   end
 end
 ```
 
 `left` and `right` are independent. `join` depends on both because its
-parameter expression reads both results.
+`params` read both results. `Jido.Flow.dependencies/1` returns the graph:
 
 ```elixir
 {:ok, dependencies} =
@@ -60,33 +66,38 @@ dependencies
 
 ## Use Needs For Control Only
 
-`needs:` orders work without copying predecessor output into the next Action.
-
-<!-- livebook:{"force_markdown":true} -->
-
-```elixir
-step "publish",
-  action: FlowDependencies.Echo,
-  params: %{status: :published},
-  needs: ["audit", "approve"]
-```
-
-Use a result reference when the Action needs data. Use `needs` only when the
-dependency is an author control decision.
-
-Jido keeps the three forms separate:
+`needs:` orders work without passing the earlier result to the next Action.
+Use a result reference when the Action needs data. Use `needs:` only for an
+ordering decision, such as "publish after the audit finishes".
 
 ```elixir
-%{
-  needs: ["audit"],
-  references: ["render"],
-  effective: ["audit", "render"]
-}
+defmodule FlowDependencies.Publish do
+  use Jido.Flow, name: "flow_dependencies_publish"
+
+  flow do
+    step "audit", action: FlowDependencies.Echo, params: %{checked: true}
+    step "render", action: FlowDependencies.Echo, params: %{body: input(:body)}
+
+    step "publish",
+      action: FlowDependencies.Echo,
+      params: %{status: :published, body: result("render", :body)},
+      needs: ["audit"]
+
+    output result("publish")
+  end
+end
+
+{:ok, %{"publish" => publish}} = Jido.Flow.dependencies(FlowDependencies.Publish.flow())
+publish
 ```
+
+Each entry keeps the two sources separate. `needs` lists explicit control
+dependencies. `references` lists components read through result references.
+`effective` is their sorted union.
 
 ## Execute Independent Work
 
-Run the Flow with a Runic concurrency limit:
+Pass `max_concurrency:` to let independent components run at the same time:
 
 ```elixir
 {:ok, %{joined: %{left: 4, right: 4}}} =
@@ -98,16 +109,9 @@ Run the Flow with a Runic concurrency limit:
   )
 ```
 
-Runic derives the ready frontier from graph dependencies. `left` and `right`
-can run together. `join` becomes ready only after both results exist. The
-option changes scheduling capacity. It does not change the graph.
+`left` and `right` can run together. `join` runs only after both results
+exist. The option changes scheduling capacity. It does not change the graph or
+the result.
 
-For low-level inspection, compile the Flow and use Runic's public preparation
-API:
-
-```elixir
-workflow = Jido.Exec.compile!(FlowDependencies.Diamond)
-workflow = Runic.Workflow.plan_eagerly(workflow, %{value: 4})
-{workflow, runnables} = Runic.Workflow.prepare_for_dispatch(workflow)
-Enum.map(runnables, & &1.node.name)
-```
+See [Execution](execution.md) for runtime options and
+[Debug Flows](debugging-flows.md) to inspect the compiled graph.

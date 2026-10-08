@@ -1,14 +1,16 @@
-# Dynamic Flows
+# Dynamic Flows With Dispatch
 
-A dynamic Flow can select the next Action or Flow from runtime data. Use a
-terminal `dispatch` component when the current Flow must make that selection.
+Most Flows have a fixed shape. A dynamic Flow lets runtime data choose the
+next Action or Flow while the Flow runs. Use a `dispatch` component at the end
+of a Flow for that choice.
 
-Dispatch uses Runic's public dynamic graph behavior. The decision and expander
-run as Action nodes. When the expander selects another executable, Runic adds
-the compiled target and schedules its Runnables.
+Pick the right tool:
 
-Use `Jido.Flow.new/1` instead when application code must construct the graph
-itself at runtime. See [Flow Data Definitions](flow-data.md).
+- Use [`choice`](flow-choices.livemd) when the possible targets are known
+  when you write the Flow.
+- Use `dispatch` when an Action must decide the target at runtime.
+- Use [`Jido.Flow.new/1`](flow-data.md) when your code must build the whole
+  graph from data before it runs.
 
 ## How Dispatch Works
 
@@ -25,8 +27,9 @@ The expander can return either form:
 {:continue, next_input, next_executable}
 ```
 
-A normal result completes the Flow. A continuation selects the Action or Flow
-that Runic adds next.
+A normal result completes the Flow. A continuation runs the selected Action or
+Flow next, with `next_input` as its params. The selected target's result
+becomes the Dispatch result.
 
 ## Define A Dispatch
 
@@ -93,9 +96,13 @@ Jido.Exec.run(MyApp.Flows.DynamicRoute, %{
 })
 ```
 
-Target selection is application code. Only select trusted executable values.
-A stored name or external value must first pass through an application-owned
-registry.
+Target selection is application code. Only select trusted targets. Map a
+stored or user-supplied name to a module through an application-owned
+registry; never convert input to a module name.
+
+In this example, `params` reads `input(:target)` on every call. A call
+without a `:target` key fails with a missing reference error, even in
+`:finish` mode. Supply every key that the Dispatch params read.
 
 ## Use Action Modules For Dispatch
 
@@ -127,7 +134,7 @@ effects before expander effects.
 When the expander returns a continuation, the selected executable owns final
 output validation and the final output. Earlier effects remain in the same
 list, before the next executable's effects. Failure anywhere in the chain
-returns no executable effects. See [Execution](execution.md#results-and-errors).
+returns no executable effects. See [Outputs And Effects](action-effects.livemd).
 
 A continuation selects the next executable:
 
@@ -137,8 +144,11 @@ def run(params, _context) do
 end
 ```
 
-Do not start a nested `Jido.Exec` call from the expander. Return the Dispatch
-continuation so Runic owns the complete graph.
+Do not start a nested `Jido.Exec` call from the expander. Return the
+continuation instead, so the selected target runs inside the same execution
+with the same options, telemetry, and effect list.
+
+A selected target cannot continue again. A continuation is one hop.
 
 ## Define Dispatch With Data
 
@@ -164,12 +174,7 @@ All Flow authoring forms produce the same canonical Dispatch node.
 Use `Jido.Flow.new/1` for map definitions. Use `Jido.Flow.Codec` and a trusted
 Registry when stored JSON defines the Flow.
 
-## Build A Bounded Loop
+## Loops
 
-Use an Iterate component for a bounded loop. Iterate keeps explicit state,
-checks a declarative completion expression, and requires `max_iterations`.
-Each body call is a normal Action node and each iteration is part of Runic's
-durable execution state.
-
-A root Action cannot select another executable through `{:continue, ...}`.
-Use Dispatch when runtime data must select the next Action or Flow.
+Dispatch selects one more target; it does not loop. Use an
+[`iterate`](flow-iterate-state.livemd) component for bounded repetition.

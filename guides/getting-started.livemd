@@ -2,18 +2,18 @@
 
 ## Overview
 
-This Livebook introduces the three basic Jido values:
+This Livebook introduces the three basic parts of Jido Action:
 
 1. an Action defines one validated unit of work;
-2. an Instruction describes one call; and
-3. `Jido.Exec` runs the call through the public error boundary.
+2. `Jido.Exec` runs it and returns a structured result; and
+3. an Instruction describes one call as data.
 
 Run the cells from top to bottom.
 
 ## Install The Package
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-beta.11"}])
+Mix.install([{:jido_action, "~> 3.0.0-beta.12"}])
 ```
 
 ## Define An Action
@@ -49,8 +49,9 @@ The generated validation functions are useful in focused Action tests.
 
 ## Run Through Jido.Exec
 
-`Jido.Exec.run/4` validates input, isolates the callback, validates normal
-output, and returns structured errors.
+`Jido.Exec.run/4` validates the input, calls `run/2` in a supervised task,
+validates the output, and returns `{:ok, result}` or `{:error, exception}`.
+The third argument is a context map for caller data such as request IDs.
 
 ```elixir
 {:ok, %{result: 5}} =
@@ -61,13 +62,21 @@ output, and returns structured errors.
   )
 ```
 
-Invalid input does not call the Action.
+Invalid input does not call the Action. The error is an exception struct with
+a readable message and structured details.
 
 ```elixir
 {:error, %Jido.Action.Error.InvalidInputError{} = error} =
   Jido.Exec.run(GettingStarted.Add, %{left: "2", right: 3})
 
 Exception.message(error)
+```
+
+Use `Jido.Flow.Error.to_map/1` when you need a plain map for logs or an API.
+It works for every error from this package.
+
+```elixir
+Jido.Flow.Error.to_map(error)
 ```
 
 ## Create An Instruction
@@ -94,7 +103,15 @@ Call-site parameters and context override keys in the Instruction.
   Jido.Exec.run(instruction, %{right: 6}, %{request_id: "req-3"})
 ```
 
+## What You Learned
+
+- An Action declares input and output schemas and implements `run/2`.
+- `Jido.Exec.run/4` is the boundary that validates and runs it.
+- Results are `{:ok, result}`, `{:ok, result, effects}`, or
+  `{:error, exception}`.
+- An Instruction holds a call as data until you run it.
+
 ## Next
 
-Continue with [Build Your First Flow](build-your-first-flow.livemd) to compose
-Actions as data.
+Read [Core Concepts](concepts.md) for the mental model, then continue with
+[Build Your First Flow](build-your-first-flow.livemd).

@@ -2,15 +2,20 @@
 
 ## Overview
 
-A `Jido.Flow.Ref` reads data when a Flow executes. References are also the
-source of inferred graph dependencies.
+A reference reads a value when the Flow runs. `input(:user)` reads Flow input,
+`context(:actor_id)` reads caller context, and `result("load")` reads the
+result of the component named `"load"`. A result reference also makes its
+component depend on the named component.
+
+In the module DSL, you write references with helpers such as `input/1`. In map
+definitions, you build the same values with `Jido.Flow.Ref`.
 
 Run the cells from top to bottom.
 
 ## Install The Package
 
 ```elixir
-Mix.install([{:jido_action, "~> 3.0.0-beta.11"}])
+Mix.install([{:jido_action, "~> 3.0.0-beta.12"}])
 ```
 
 ## Define An Action And Flow
@@ -32,7 +37,7 @@ defmodule FlowReferences.Example do
       params: %{
         user: input([:request, :user]),
         actor_id: context(:actor_id),
-        literal: value("profile")
+        literal: "profile"
       }
 
     step "summary",
@@ -42,7 +47,7 @@ defmodule FlowReferences.Example do
         actor_id: select(result("profile"), [:actor_id])
       }
 
-    output(%{summary: result("summary")})
+    output %{summary: result("summary")}
   end
 end
 ```
@@ -60,12 +65,14 @@ output
 
 ## Global References
 
-| DSL helper | Canonical source | Reads |
+You can use these references in any Flow field:
+
+| DSL helper | `Jido.Flow.Ref` constructor | Reads |
 | --- | --- | --- |
-| `input(path)` | `:input` | Validated Flow input. |
-| `context(path)` | `:context` | Caller context. |
-| `result(name, path)` | `:result` | Named component output. |
-| `select(ref, path)` | same as source | A deeper path on a reference. |
+| `input(path)` | `Ref.input(path)` | Validated Flow input. |
+| `context(path)` | `Ref.context(path)` | Caller context. |
+| `result(name, path)` | `Ref.result(name, path)` | The named component's result. |
+| `select(ref, path)` | `Ref.select(ref, path)` | A deeper path on another reference. |
 
 A path can be one atom, string, non-negative integer, or a list of these
 segments. String segments must contain valid UTF-8. A path list must be proper
@@ -74,47 +81,62 @@ invalid paths before execution. `Jido.Flow.Ref` helpers do not validate paths
 on their own. An empty path selects the complete source
 value. The `nil` path argument is also an empty path; it is different from
 `[nil]`, which is invalid.
+The path is optional in the DSL helpers. For example, `input()` reads the
+complete input.
 
-A valid path can select a present `nil` value. Missing keys and invalid list
-indexes return structured execution errors.
+A path is one atom, string, or non-negative integer, or a proper list of these
+segments. Strings must be valid UTF-8. A list must not contain `nil`. An empty
+path, or a `nil` path argument, selects the complete value. `[nil]` is invalid.
 
-`Jido.Flow.Ref.select/2` validates its source reference before it appends a path.
-An invalid source raises `Jido.Flow.Error.InvalidDefinitionError`. The next
-component or Flow definition validates the complete selected path.
+The `Ref` constructors build references without validating them.
+`Ref.select/2` validates its source reference before it appends a path, and
+raises `Jido.Flow.Error.InvalidDefinitionError` for an invalid source. The
+module DSL compiler, `Jido.Flow.new/1`, and `Jido.Flow.Codec` validate every
+reference and path before execution.
 
-A result reference creates an inferred dependency on the named component.
-Input and context references do not.
+At runtime, a path can select a present `nil` value. A missing key or an
+invalid list index returns a structured execution error. An atom path segment
+can also match the same key written as a string. A string segment matches only
+a string key.
 
-References can appear inside `Jido.Expr` operations. Their scopes and graph
-dependencies do not change. See
-[Expressions](https://github.com/agentjido/jido_action/blob/release/v3/guides/flow-expressions.md)
-for the
-new calculation syntax and its version requirement.
+A result reference creates a dependency on the named component. Input and
+context references do not. References keep their scope and dependencies inside
+`Jido.Expr` operations. See [Expressions](flow-expressions.md).
 
 ## Local References
 
-Local helpers are valid only in their component scope.
+Some references are valid only inside one component field:
 
-| Scope | Helpers |
+| Field | Local references |
 | --- | --- |
-| Map params | `item`, `item_index`, `item_id` |
-| Reduce params | `item`, `item_index`, `item_id`, `accumulator` |
-| Iterate params | `state`, `iteration_index`, `body_result` |
-| Iterate State update | `state`, `iteration_index`, `body_result` |
-| Iterate completion | `state`, `iteration_index`, `body_result` |
+| Map `params` | `item(path)`, `item_index()`, `item_id()` |
+| Reduce `params` | `item(path)`, `item_index()`, `item_id()`, `accumulator(path)` |
+| Iterate `params`, `update`, and `while` | `state(path)`, `iteration_index()`, `body_result(path)` |
 
-The validator rejects a local reference outside its scope. This keeps the data
-grammar explicit before execution.
+Map `collection`, Reduce `collection` and `initial`, and the Iterate initial
+State accept global references only.
 
-## Portable Literals
+In Iterate `params` and `while`, `body_result()` is `nil` before the first body
+call. After that, it holds the latest body result. In `update`, it holds the
+result of the call that just finished.
 
-Flow literals are `nil`, Boolean values, numbers, strings, and registered
-atoms. Lists must be proper lists. Use maps, not keyword lists. Stored JSON
-uses a trusted Registry for atoms and atom map keys.
+Jido rejects a local reference outside its field before execution.
 
-An empty list is valid data: use `[]` directly, including in nested values
-such as `%{items: []}` or a condition such as `input(:items) == []`.
-`value([])` has the same meaning. This does not make a bare list a valid normal
-Flow output, Reduce accumulator, or Iterate State. Use a map such as
-`%{items: []}` for those values. The existing explicit `Jido.Action.Output`
-forms for Flow output and Reduce accumulators remain available.
+## Literals
+
+Flow literals are `nil`, Booleans, numbers, strings, and atoms. Lists must be
+proper lists. Maps can use atom, string, or non-negative integer keys. Use
+maps, not keyword lists.
+
+An empty list is valid data. Use `[]` directly, including in nested values
+such as `%{items: []}` or a condition such as `input(:items) == []`. In the
+DSL, `value([])` has the same meaning; `value/1` only marks a literal
+explicitly.
+
+A bare list is still not a valid normal Flow output, Reduce accumulator, or
+Iterate State. Use a map such as `%{items: []}` for those values, or a
+`Jido.Action.Output` envelope for Flow output and Reduce accumulators.
+
+Stored JSON cannot create atoms. `Jido.Flow.Codec` maps each atom and atom key
+through a trusted `Jido.Flow.Registry`. See
+[Store Flows As JSON](flow-storage.md).

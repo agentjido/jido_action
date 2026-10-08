@@ -109,29 +109,23 @@ defmodule JidoAction.MixProject do
       source_url: "https://github.com/agentjido/jido_action",
       authors: ["Mike Hostetler <mike.hostetler@gmail.com>"],
       groups_for_extras: [
-        Project: [
-          "README.md",
-          "CHANGELOG.md",
-          "LICENSE"
-        ],
         "Start Here": [
+          "README.md",
           "guides/getting-started.livemd",
+          "guides/concepts.md",
           "guides/build-your-first-flow.livemd"
         ],
-        "Core Contracts": [
+        Actions: [
           "guides/actions.md",
-          "guides/inline-actions.md",
-          "guides/building-dsls-with-inline-actions.md",
-          "guides/instructions.md",
-          "guides/flows.md",
-          "guides/dynamic-flows.md",
           "guides/schemas-validation.md",
-          "guides/execution.md",
-          "guides/public-contracts.md"
+          "guides/action-effects.livemd",
+          "guides/instructions.md"
         ],
         "Author Flows": [
+          "guides/flows.md",
           "guides/flow-language.livemd",
           "guides/flow-steps.livemd",
+          "guides/inline-actions.md",
           "guides/flow-references.livemd",
           "guides/flow-expressions.md",
           "guides/flow-dependencies.livemd",
@@ -139,109 +133,135 @@ defmodule JidoAction.MixProject do
           "guides/flow-collections.livemd",
           "guides/flow-iterate-state.livemd",
           "guides/nested-flows.livemd",
-          "guides/flow-modules.md",
+          "guides/dynamic-flows.md",
+          "guides/flow-modules.md"
+        ],
+        "Flows As Data": [
           "guides/flow-data.md",
           "guides/flow-storage.md",
           "guides/flow-inspection.md"
         ],
         "Run And Operate": [
+          "guides/execution.md",
           "guides/flow-execution.livemd",
-          "guides/action-effects.livemd",
+          "guides/managed-execution.md",
+          "guides/errors.md",
           "guides/debugging-flows.md",
-          "guides/configuration.md",
-          "guides/security.md",
           "guides/testing.md",
-          "guides/benchmarks.md"
+          "guides/security.md"
+        ],
+        Extend: [
+          "guides/building-dsls-with-inline-actions.md"
+        ],
+        Reference: [
+          "guides/public-contracts.md",
+          "guides/benchmarks.md",
+          "CHANGELOG.md",
+          "LICENSE"
         ],
         Upgrade: [
           "guides/v2-to-v3-migration.md",
           "guides/v2-to-v3-upgrade-skill.md"
+        ],
+        "Visual Test": [
+          "guides/visual-test.md"
         ]
       ],
       extras: [
-        # Project
-        {"README.md", title: "Home"},
-        {"CHANGELOG.md", title: "Changelog"},
-        {"LICENSE", title: "Apache 2.0 License"},
         # Start Here
+        {"README.md", title: "Home"},
         {"guides/getting-started.livemd", title: "Getting Started"},
+        {"guides/concepts.md", title: "Core Concepts"},
         {"guides/build-your-first-flow.livemd", title: "Build Your First Flow"},
-        # Core Contracts
+        # Actions
         {"guides/actions.md", title: "Actions"},
-        {"guides/inline-actions.md", title: "Inline Actions"},
-        {"guides/building-dsls-with-inline-actions.md",
-         title: "Building DSLs With Inline Actions"},
+        {"guides/schemas-validation.md", title: "Schemas And Validation"},
+        {"guides/action-effects.livemd", title: "Outputs And Effects"},
         {"guides/instructions.md", title: "Instructions"},
-        {"guides/flows.md", title: "Flows"},
-        {"guides/dynamic-flows.md", title: "Dynamic Flows"},
-        {"guides/schemas-validation.md", title: "Schemas & Validation"},
-        {"guides/execution.md", title: "Execution Contract"},
-        {"guides/public-contracts.md", title: "Public Contract Register"},
         # Author Flows
-        {"guides/flow-language.livemd", title: "Flow DSL"},
+        {"guides/flows.md", title: "Flows"},
+        {"guides/flow-language.livemd", title: "Flow DSL Tour"},
         {"guides/flow-steps.livemd", title: "Steps And Output"},
+        {"guides/inline-actions.md", title: "Inline Steps"},
         {"guides/flow-references.livemd", title: "References And Data"},
-        {"guides/flow-expressions.md", title: "Expressions And Host DSLs"},
+        {"guides/flow-expressions.md", title: "Expressions"},
         {"guides/flow-dependencies.livemd", title: "Dependencies And Parallel Work"},
         {"guides/flow-choices.livemd", title: "Choices And Conditions"},
         {"guides/flow-collections.livemd", title: "Map And Reduce"},
         {"guides/flow-iterate-state.livemd", title: "Iterate And State"},
         {"guides/nested-flows.livemd", title: "Nested Flows"},
-        {"guides/flow-modules.md", title: "Flow Modules"},
+        {"guides/dynamic-flows.md", title: "Dynamic Flows With Dispatch"},
+        {"guides/flow-modules.md", title: "Flow Modules And Extensions"},
+        # Flows As Data
         {"guides/flow-data.md", title: "Flow Data Definitions"},
         {"guides/flow-storage.md", title: "Store Flows As JSON"},
         {"guides/flow-inspection.md", title: "Inspect Flows"},
         # Run And Operate
+        {"guides/execution.md", title: "Execution"},
         {"guides/flow-execution.livemd", title: "Executing Flows"},
-        {"guides/action-effects.livemd", title: "Maps, Streams, And Optional Effects"},
+        {"guides/managed-execution.md", title: "Managed Execution"},
+        {"guides/errors.md", title: "Errors"},
         {"guides/debugging-flows.md", title: "Debug Flows"},
-        {"guides/configuration.md", title: "Runtime Configuration"},
-        {"guides/security.md", title: "Security"},
         {"guides/testing.md", title: "Testing"},
+        {"guides/security.md", title: "Security"},
+        # Extend
+        {"guides/building-dsls-with-inline-actions.md",
+         title: "Building DSLs With Inline Actions"},
+        # Reference
+        {"guides/public-contracts.md", title: "Public Contract Register"},
         {"guides/benchmarks.md", title: "Execution Benchmarks"},
+        {"CHANGELOG.md", title: "Changelog"},
+        {"LICENSE", title: "Apache 2.0 License"},
         # Upgrade
-        {"guides/v2-to-v3-migration.md", title: "Version 2 To Version 3 Migration"},
-        {"guides/v2-to-v3-upgrade-skill.md", title: "Upgrade From v2 To v3 Skill"}
+        {"guides/v2-to-v3-migration.md", title: "Version 2 To Version 3 Migration Guide"},
+        {"guides/v2-to-v3-upgrade-skill.md", title: "v2 To v3 Upgrade Skill"},
+        # Visual Test
+        {"guides/visual-test.md", title: "Visual Test: Flow Diagrams"}
       ],
+      assets: %{"guides/assets" => "assets"},
       extra_section: "Guides",
       formatters: ["html"],
+      # The migration guide names removed functions on purpose.
       skip_undefined_reference_warnings_on: [
         "CHANGELOG.md",
-        "LICENSE"
+        "LICENSE",
+        "guides/v2-to-v3-migration.md"
       ],
       groups_for_modules: [
-        "Action API": [
+        Actions: [
           Jido.Action,
-          Jido.Action.Inline,
-          Jido.Action.Output
+          Jido.Action.Output,
+          Jido.Action.Inline
         ],
-        "Execution Values": [Jido.Instruction],
-        "Flow API": [
+        Instructions: [Jido.Instruction],
+        Flows: [
           Jido.Flow,
+          Jido.Flow.Ref,
+          Jido.Flow.Value,
+          Jido.Flow.Extension
+        ],
+        "Flow Storage": [
           Jido.Flow.Codec,
-          Jido.Flow.Extension,
           Jido.Flow.Registry
         ],
-        "Expression API": [Jido.Expr, Jido.Expr.Error],
-        "Flow Values": [
-          Jido.Flow.Value,
-          Jido.Flow.Ref
-        ],
-        Execution: [Jido.Exec],
-        Errors: [
+        Expressions: [Jido.Expr, Jido.Expr.Error],
+        Execution: [Jido.Exec, Jido.Exec.Telemetry],
+        "Action Errors": [
           Jido.Action.Error,
-          Jido.Action.Error.ConfigurationError,
-          Jido.Action.Error.ExecutionFailureError,
-          Jido.Action.Error.InternalError,
           Jido.Action.Error.InvalidInputError,
+          Jido.Action.Error.ExecutionFailureError,
           Jido.Action.Error.TimeoutError,
+          Jido.Action.Error.ConfigurationError,
+          Jido.Action.Error.InternalError
+        ],
+        "Flow Errors": [
           Jido.Flow.Error,
           Jido.Flow.Error.Invalid,
-          Jido.Flow.Error.ExecutionFailureError,
-          Jido.Flow.Error.InternalError,
           Jido.Flow.Error.InvalidDefinitionError,
           Jido.Flow.Error.InvalidExecutionError,
-          Jido.Flow.Error.TimeoutError
+          Jido.Flow.Error.ExecutionFailureError,
+          Jido.Flow.Error.TimeoutError,
+          Jido.Flow.Error.InternalError
         ]
       ]
     ]

@@ -1,27 +1,22 @@
 # Execution Benchmarks
 
-The repository has one small manual benchmark for the current Exec API:
+This page is for contributors who change `jido_action` itself. Application
+code does not need it.
+
+The repository has two manual probes. Run them from a checkout of the
+`jido_action` repository, not from an application that depends on it. Neither
+probe is a test; no timing value is a pass condition.
+
+## Execution Benchmark
 
 ```bash
 MIX_ENV=prod mix run test/bench/run.exs --samples 100 --warmup 20
 ```
 
-It checks every result and measures:
-
-- one Action through `Jido.Exec.run/4`;
-- one Flow through `Jido.Exec.compile/2`; and
-- one serial Flow through `Jido.Exec.run/4`.
-
-The output reports median and 95th percentile wall-clock time in microseconds.
-No timing value is a test pass condition.
-
-Use the same host, Elixir and OTP versions, scheduler count, dependency lock,
-and command when you compare revisions. Run fresh VMs and alternate the
-revision order. Keep the output with the exact commits.
+It checks each result and reports median and 95th percentile wall-clock time
+for one Action run, one Flow compilation, and one serial Flow run.
 
 ## DSL Compilation Probe
-
-The separate DSL probe measures cold, changed-file, and no-change compilation:
 
 ```bash
 MIX_ENV=test mix compile --warnings-as-errors
@@ -29,4 +24,9 @@ MIX_ENV=test mix run --no-compile \
   test/bench/dsl_compile_probe.exs test/bench/results/dsl-compile
 ```
 
-This probe measures compiler behavior. It does not measure Runic execution.
+It measures cold, changed-file, and no-change compilation of Flow DSL
+modules. It does not measure execution.
+
+See the
+[benchmark README](https://github.com/agentjido/jido_action/blob/main/test/bench/README.md)
+for how to compare two revisions fairly.

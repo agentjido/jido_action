@@ -1,33 +1,43 @@
-# Execution Contract
+# Execution
 
-`Jido.Exec` is the public bridge from Jido definitions to Runic execution.
-Every target uses the same path:
+`Jido.Exec` is the one execution boundary for Actions and Flows. This guide
+covers immediate execution with `run/4`, compilation with `compile/2`,
+options, process behavior, and telemetry. For work that runs under a
+supervised Runner, see [Managed Execution](managed-execution.md).
+
+## How Exec Runs A Target
+
+Every target takes the same path:
 
 ```text
-Action or Flow
-  -> Jido.Instruction
-  -> Runic.Workflow
-  -> Runic Runnable execution
+Action module | Flow module | %Jido.Flow{} | %Jido.Instruction{}
+  -> resolve to an Instruction (target, params, context)
+  -> validate Flow input (Flow targets only)
+  -> compile to a %Runic.Workflow{}
+  -> run the workflow until no work remains
+  -> {:ok, value} | {:ok, value, effects} | {:error, exception}
 ```
 
-An Action becomes a one-node workflow. A Flow becomes a workflow with real
-Runic components and edges. Runic owns readiness, runnable identity,
-scheduling, policy, event recording, checkpoints, persistence, and resume.
+An Action compiles to a one-node workflow. A Flow compiles to a workflow
+with one node per component plus the nodes that pass data between them.
+Runic performs scheduling, timeouts, and retries.
 
 ## Run To Completion
-
-Use `run/4` for immediate in-memory execution:
 
 ```elixir
 Jido.Exec.run(target, params \\ %{}, context \\ %{}, opts \\ [])
 ```
 
-The target can be an Action module, Flow module, `Jido.Instruction`, or
-canonical `%Jido.Flow{}`. Exec resolves the target, validates root Flow input,
-compiles a Runic workflow, runs it until it stops, and projects the result.
+The examples in this guide use `MyApp.Actions.GreetUser` and
+`MyApp.Flows.Welcome` from the Quick Tour in the README.
+
+`params` and `context` can be maps, keyword lists, or `nil`. When the target
+is an Instruction, call-site params and context replace equal keys in the
+Instruction's own maps.
 
 ```elixir
-{:ok, result} = Jido.Exec.run(MyApp.Actions.Greet, %{name: "Ada"})
+{:ok, %{greeting: "Hello, Ada."}} =
+  Jido.Exec.run(MyApp.Actions.GreetUser, %{name: "Ada"})
 
 {:ok, result, effects} =
   Jido.Exec.run(MyApp.Flows.Notify, %{name: "Ada"}, %{request_id: "r-1"})
@@ -234,68 +244,175 @@ dispatch. Use `dispatch_mode: :manual` with `Jido.Exec.resume/4` to keep
 stepwise control after durable recovery. Use `Jido.Exec.result/1` on a
 completed workflow to read its result.
 
+Errors are exception structs from `Jido.Action.Error` or `Jido.Flow.Error`.
+See [Errors](errors.md) for each error by phase.
+
 Runic remains responsible for readiness, dispatch, active work, events,
-persistence, and recovery. `Jido.Exec.step/2` only delegates the dispatch and
+persistence, and recovery. `Jido.Exec.step/2` only delegates dispatch and
 returns Runic's current workflow state.
 
-## Durable Boundaries
+## Runtime Details
 
-A durable execution has two separate records:
+### Timeouts
 
-- the versioned Jido Flow definition, encoded with `Jido.Flow.Codec`;
-- the Runic execution state, stored through `Runic.Runner.Store`.
+`timeout` limits each attempt of each runnable. A runnable is one unit of
+work in the compiled workflow: an Action call, or an internal Flow node such
+as a Choice selector or a collection join. There is no limit on the complete
+call. A Flow with three steps and `timeout: 50` can take longer than 50
+milliseconds in total.
 
-This split lets an application hydrate the same Flow definition and restore the
-exact runtime frontier. The package tests cover a ten-Action Flow that stops
-after Action 5 and resumes at Action 6. They also cover recovery for Map,
-Iterate, nested Flow, and Dispatch work.
+When an attempt exceeds the timeout, Exec kills it and returns
+`Jido.Action.Error.TimeoutError`. `timeout: 0` fails every attempt.
 
-A completed Action can have external effects that cannot be rolled back. Use a
-stable effect identity from `Jido.Exec.effect_id/4` when a host needs deduplication.
-The host still owns effect delivery and its transaction policy.
+### Retries
 
-## Process And Policy Ownership
+`max_attempts` above `1` retries a failed runnable only when
+`Jido.Action.Error.retryable?/1` accepts the error. `backoff` selects the
+delay:
 
-Runic owns the Worker, Scheduler, Executor, Task supervisor, and Store. Jido
-provides the Action adapter and the default managed Executor. A host can replace
-Runic's public scheduler, executor, or store components.
+| Backoff | Delay before attempt `n + 1` |
+| --- | --- |
+| `:none` | No delay. |
+| `:linear` | `min(base_delay_ms * (n + 1), max_delay_ms)` |
+| `:exponential` | `min(base_delay_ms * 2^n, max_delay_ms)` |
+| `:jitter` | A random delay up to `min(base_delay_ms * 2^n, max_delay_ms)` |
+
+Both delay options default to `0`, so set both when you want a delay.
+
+> #### Retries repeat work {: .warning}
+>
+> Set `details.retry: true` only when another attempt is safe. Validation
+> failures, timeouts, and process exits are not retried by default. Use
+> `max_attempts` above `1` only when repeated Action work is safe.
+
+```elixir
+Jido.Exec.run(MyApp.Actions.FetchQuote, %{symbol: "ACME"}, %{},
+  timeout: 2_000,
+  max_attempts: 3,
+  backoff: :exponential,
+  base_delay_ms: 100,
+  max_delay_ms: 1_000
+)
+```
+
+### Concurrency
+
+With the default `max_concurrency: 1`, ready work runs one runnable at a
+time. With a larger value, independent Flow components and collection items
+run concurrently, up to that limit.
+
+```elixir
+Jido.Exec.run(MyApp.Flows.BuildReport, input, %{}, max_concurrency: 4)
+```
+
+Concurrency does not change results. Flow results, collection results, and
+effects keep their canonical order. Reduce and Iterate always run their
+items in order. When one runnable fails, Exec starts no new work, but work
+that already started can finish.
+
+### Task Supervisor
+
+`run/4` executes the call in a task under `Jido.Exec.TaskSupervisor`, which
+the `:jido_action` application starts. Pass `task_supervisor:` to use your
+own local Task Supervisor, for example to separate workloads:
+
+```elixir
+# In your application's supervision tree:
+children = [
+  {Task.Supervisor, name: MyApp.ExecSupervisor}
+]
+
+# Then, when you run work:
+Jido.Exec.run(MyApp.Actions.GreetUser, %{name: "Ada"}, %{},
+  task_supervisor: MyApp.ExecSupervisor
+)
+```
+
+The value can be a PID, a registered name, or a `{:via, module, name}`
+tuple. It must be running on the local node.
+
+## Process Behavior
+
+`run/4` blocks the calling process until the work finishes. It runs the work
+in an unlinked task so that a crashing Action cannot crash the caller:
+
+- The task keeps the caller's group leader, so `IO` output goes to the same
+  place.
+- A raise, throw, or exit in an Action becomes an error result.
+- A killed execution task becomes `ExecutionFailureError` with
+  `details.phase == :execution_task`.
+- If the caller exits, Exec kills the task and all work that it started.
+
+Close resources that an Action opens before it returns. Do not rely on
+process exit for cleanup.
 
 Stopping a managed execution, or the death of its worker, stops active Action
 Tasks. A timeout or process exit becomes a failed Runnable. It is not retried.
 Jido does not add another Task tree or cancellation model.
 
+## Durable Boundaries
+
+A durable execution has two separate records:
+
+- the versioned Jido Flow definition, encoded with `Jido.Flow.Codec`; and
+- the Runic execution state, stored through `Runic.Runner.Store`.
+
+This split lets an application hydrate the same Flow definition and restore
+the exact runtime frontier. A completed Action can have external effects that
+cannot be rolled back. Use `Jido.Exec.effect_id/4` when the host needs a stable
+deduplication identity. The host still owns effect delivery and transaction
+policy.
+
 ## Telemetry
 
-Jido emits semantic spans for Action attempts and immediate Flow invocations:
+Exec emits `:telemetry` spans. `Jido.Exec.Telemetry.event_names/0` returns the
+complete list:
 
-- `[:jido, :action, :start | :stop | :exception]`
-- `[:jido, :flow, :start | :stop | :exception]`
+| Event | When |
+| --- | --- |
+| `[:jido, :action, :start]` | An Action attempt starts. |
+| `[:jido, :action, :stop]` | An Action attempt returns a success or an error. |
+| `[:jido, :action, :exception]` | A raise, throw, or exit escapes the span. This is rare. |
+| `[:jido, :flow, :start]` | `run/4` starts a Flow target. |
+| `[:jido, :flow, :stop]` | That Flow run finishes. |
+| `[:jido, :flow, :exception]` | A raise, throw, or exit escapes the Flow span. |
 
-A normal returned error emits `:stop` with `outcome: :error`. The `:exception`
-event is for a raise, throw, or exit that escapes the span. Metadata includes
-static Action or Flow identity, authored Flow location, and Runic activation
-and attempt identities. Start and normal stop metadata do not include
-parameters, context, results, effects, complete errors, or stacktraces. A
-standard `:telemetry.span/3` exception event includes its reason and
-stacktrace.
+Measurements follow `:telemetry.span/3`: `monotonic_time` and `system_time` on
+start, and `monotonic_time` and `duration` on stop.
 
-Runic emits managed runtime telemetry under `[:runic, :runner, ...]`. Use those
-events for workflow lifecycle, runnable dispatch, persistence, promises, and
-rehydration. Jido does not copy those events under a second prefix. Managed
-Action spans can be correlated with Runic runnable events by `runnable_id`.
+Action metadata includes `action`, `action_name`, `node_name`, `runnable_id`,
+`activation_id`, `attempt_id`, and `attempt`. Inside a Flow it also includes
+`component`, `node_path`, `component_kind`, and, for Dispatch,
+`dispatch_phase`. Flow metadata includes `flow` (the name) and, for Flow
+modules, `target`.
 
-A durable execution does not keep one Jido Flow span open across process stop
-and resume. Runic workflow events describe each managed runtime lifecycle.
+Stop metadata adds `outcome`. A success adds `outcome: :ok` and
+`effect_count`. An error adds `outcome: :error`, `error_type`, and
+`retryable?`. Start and stop metadata do not include params, context,
+results, or full errors.
 
-Runic can terminate an Action process after a timeout or cancellation. Such an
-Action attempt can emit `:start` without a terminal Jido event. For managed
-execution, use the Runic runnable failure event as the terminal runtime signal.
-For immediate execution, use the returned Exec error and the outer Flow span,
-when the target is a Flow.
+Keep these limits in mind:
+
+- Each retry attempt has its own Action span.
+- When an attempt times out or is killed, only `:start` is emitted. Use the
+  returned error, or the Flow `:stop` event, as the terminal signal.
+- Managed execution emits Action spans but no Flow span. Runic emits runtime
+  events under `[:runic, :runner, ...]`.
+
+```elixir
+:telemetry.attach_many(
+  "my-app-jido-exec",
+  Jido.Exec.Telemetry.event_names(),
+  fn event, measurements, metadata, _config ->
+    MyApp.Metrics.record(event, measurements, metadata)
+  end,
+  nil
+)
+```
 
 ## Scope
 
-`Jido.Exec` provides Action and Flow execution. It does not provide a database,
-queue, lease service, distributed coordinator, or exactly-once external effect
-guarantee. Use Runic Store and Runner adapters, plus application services, for
-those responsibilities.
+Exec runs Actions and Flows. It does not provide a database, a queue,
+distributed coordination, or exactly-once effects. Use
+[Managed Execution](managed-execution.md) for checkpoints and resume, and
+your application or a higher-level runtime for the rest.

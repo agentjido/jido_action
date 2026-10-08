@@ -1,7 +1,8 @@
-# Inline Actions
+# Inline Steps
 
-An inline Action keeps a small operation in the Flow Step that owns it. Its
-body is normal Elixir code, but it compiles to an ordinary `Jido.Action`.
+An inline Step keeps a small operation in the Flow that owns it. Its body is
+normal Elixir code, and it compiles to an ordinary `Jido.Action`. Use one when
+the work is local to one Flow and does not need its own module.
 
 Flow supports inline Actions only for Step. Map, Reduce, Choice targets,
 Iterate, and Dispatch use Action modules. This keeps advanced Flow blocks
@@ -203,10 +204,11 @@ An inline Step uses the same return forms as a named Action:
 ```
 
 A normal success result is a map. Use `Jido.Action.Output` for an intentional
-raw, stream, batch, or opaque value.
+raw, stream, batch, or opaque value. The third element is an optional effect
+list; see [Outputs And Effects](action-effects.livemd).
 
-Flow components collect effect lists and require a proper list for the third success element. A root Action can return
-`{:continue, input, target}`. A Step cannot continue to another target.
+An inline Step cannot return `{:continue, input, target}`. Only a Dispatch
+expander can select the next target. See [Dynamic Flows](dynamic-flows.md).
 
 ## Reuse A Compiled Inline Step
 

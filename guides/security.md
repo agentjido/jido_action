@@ -41,10 +41,39 @@ parser limits, and request timeouts before Codec.
 Registry size is limited to 10,000 entries. Registry lookup is inert. It does
 not load or execute an Action.
 
+## Bound Expressions
+
+An expression is a `Jido.Expr` operation in a Flow field, such as
+`input(:a) + 1` or `input(:tags) == ["x"]`. Flow evaluates each expression
+with these limits:
+
+| Limit | Default |
+| --- | --- |
+| Nesting depth | 64 levels |
+| Visited values, including data the expression reads | 10,000 |
+| Binary bytes visited or produced | 1,048,576 |
+| Integer size | 4,096 bits |
+
+An expression that exceeds a limit fails the Flow with a
+`Jido.Flow.Error.ExecutionFailureError`. Its `details.reason` names the limit,
+such as `:max_nodes`. Limits apply to each evaluation. Data that an operation
+reads counts toward them, so comparing a large input list can exceed a limit.
+A plain reference such as `input(:list)` is not an expression and has no
+limit.
+
+## Trust Dispatch Targets
+
+A Dispatch expander returns `{:continue, input, target}`, and Exec runs that
+target. Select the target only from values your code trusts. When a name comes
+from input, an AI model, or storage, look it up in an application-owned
+registry of allowed Actions and Flows. Do not convert external text to a
+module atom.
+
 ## Apply Runtime Limits
 
-Use a finite `timeout` to bound each Runic Runnable attempt. Use
-`max_attempts`, backoff limits, and `max_concurrency` to bound one execution.
+Use a finite `timeout` to bound each attempt of each Action call and internal
+Flow node. There is no whole-call timeout, so the total time can grow with the
+number of nodes and attempts. Keep `max_attempts` and `max_concurrency` small.
 Also validate collection sizes in application input. Runtime Map does not use
 the Codec collection limit.
 

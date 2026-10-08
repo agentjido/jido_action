@@ -1,139 +1,152 @@
 # Flows
 
-A `Jido.Flow` is a declarative control program. Its leaves are Instruction
-templates, its values are computed by expressions, and Actions provide its
-executable behavior. `Jido.Exec` owns compilation and execution.
+A `Jido.Flow` is a named graph of components. Each component does one kind of
+work, usually by calling an Action. References connect components to Flow
+input and to each other. One required `output` expression selects the value
+that the Flow returns.
 
-See [Flow Modules](flow-modules.md#generated-api) for the module API.
+A Flow is data. It does no work until `Jido.Exec` runs it.
 
-## Canonical Value
-
-A Flow has six fields:
-
-| Field | Type | Purpose |
-| --- | --- | --- |
-| `name` | string | Stable human-readable name. |
-| `description` | string or `nil` | Optional description. |
-| `schema` | static Zoi schema or `[]` | Input contract. |
-| `output_schema` | static Zoi schema or `[]` | Output contract. |
-| `components` | name-keyed map | Normalized graph nodes. |
-| `output` | expression | Required Flow result. |
-
-Map definitions use these component kinds:
-
-- `:step` for one Action call;
-- `:subflow` for one child Flow module;
-- `:choice` for ordered routing with a required fallback;
-- `:map` for ordered fan-out and fan-in;
-- `:reduce` for a serial left fold;
-- `:iterate` for a bounded local loop; and
-- `:dispatch` for one choice at the end of a Flow.
-
-Each author component has a name, explicit `needs` dependencies, and portable
-`meta` data. The normalized graph uses the name as its map key. Data references
-create inferred dependencies. Jido keeps explicit and inferred dependencies
-separate.
-
-A Flow can have at most one Dispatch component. Dispatch must be the last
-component, and the Flow output must be the complete Dispatch result. Its
-decision Action returns data for its expander Action. The expander selects the
-next Action or Flow target. Runic adds that target to the executable graph.
-See [Dynamic Flows](dynamic-flows.md).
-
-## One Expression Grammar
-
-Expressions contain portable scalar values, proper lists, maps, and
-`Jido.Flow.Ref` values. `Jido.Expr` adds fixed Boolean, comparison, numeric,
-and binary-concatenation operations. Flow fields accept these operations
-directly or inside an optional `expr(...)` wrapper.
-
-References can read Flow input, context, prior component results, and
-component-local Map, Reduce, or Iterate values. A reference is valid only in
-its defined scope.
-
-Boolean references and literals are also valid conditions. Their evaluated
-values must be Boolean. See [Expressions](flow-expressions.md) for the shared
-helper DSL, exact operations, runtime construction, errors, and limits.
-
-The authoring grammar permits any expression at `output`. At execution, a
-normal Flow result must be a map. Use `Jido.Action.Output` when a Flow must
-return an intentional raw, stream, batch, or opaque value.
-
-## Three Authoring Forms
-
-All supported forms produce the same canonical value:
-
-1. a module that uses `Jido.Flow`;
-2. map definitions with `Jido.Flow.new/1`; and
-3. `Jido.Flow.Codec.decode/2` for stored JSON data.
-
-The module DSL is the normal source-code API. Map definitions and Codec input
-pass through the same canonical validation.
-
-`new/1` accepts a plain map. Its `components` field contains a list of tagged
-component maps. The canonical `%Jido.Flow{}` stores those components in a map
-keyed by component name. Each value is a tagged node. A call node has this
-shape:
+## A Small Flow
 
 ```elixir
-%{
-  kind: :call,
-  needs: [],
-  meta: %{},
-  call: {
-    Jido.Instruction.template(:action, MyApp.Actions.Send),
-    %{address: Jido.Flow.Ref.input(:address)}
-  }
-}
+defmodule MyApp.Actions.Price do
+  use Jido.Action,
+    name: "price",
+    schema: Zoi.object(%{quantity: Zoi.integer(), unit_price: Zoi.integer()})
+
+  @impl true
+  def run(%{quantity: quantity, unit_price: unit_price}, _context) do
+    {:ok, %{total: quantity * unit_price}}
+  end
+end
+
+defmodule MyApp.Flows.Quote do
+  use Jido.Flow,
+    name: "quote",
+    schema: Zoi.object(%{quantity: Zoi.integer(), unit_price: Zoi.integer()})
+
+  flow do
+    step "price",
+      action: MyApp.Actions.Price,
+      params: %{quantity: input(:quantity), unit_price: input(:unit_price)}
+
+    step "discount", total <- result("price", :total) do
+      {:ok, %{total: total, discounted: div(total * 9, 10)}}
+    end
+
+    output result("discount")
+  end
+end
+
+{:ok, %{total: 300, discounted: 270}} =
+  Jido.Exec.run(MyApp.Flows.Quote, %{quantity: 3, unit_price: 100})
 ```
 
-The tuple joins one inert Instruction template with its parameter expression.
-The template identifies the Action or child Flow. `Jido.Exec` binds evaluated
-parameters, context, and runtime location data when it executes the call.
-Choice, Map, Reduce, Iterate, and Dispatch nodes use the same call tuple where
-they invoke an Action. A Dispatch expander uses `nil` as the tuple value because
-it receives the decision result directly. This internal graph shape is for
-inspection. Author with the DSL or tagged component maps, and store a Flow with
-`Jido.Flow.Codec`.
+- `input(:quantity)` reads Flow input.
+- `result("price", :total)` reads the `:total` field of the `"price"` result
+  and makes `"discount"` depend on `"price"`.
+- The `"discount"` step has an inline body that compiles to an Action.
+- `output result("discount")` is the Flow's return value.
 
-## Author Data And Runtime Data
+## Dependencies And Order
 
-A Flow stores author intent. `Jido.Exec.compile/2` derives a native
-`Runic.Workflow`. Do not store the compiled value. Store the canonical Flow as
-JSON and compile it after hydration.
+References create dependencies. A component that reads `result("price")` runs
+after `"price"`. Use `needs: ["name"]` when one component must wait for
+another without reading its data.
 
-Runic owns all runtime state. Immediate execution uses
-`Jido.Exec.run/4`. Durable execution uses `Jido.Exec.start/6` with a
-`Runic.Runner`. Checkpoint, stop, resume, and result inspection use the Runic
-Runner API.
+Source order never creates a dependency. Components that do not depend on each
+other can run at the same time when you pass `max_concurrency:` above `1`.
+Results and effects keep a deterministic order either way. See
+[Dependencies And Parallel Work](flow-dependencies.livemd).
 
-## Validation And Inspection
+## Components
+
+| Component | Does | Returns |
+| --- | --- | --- |
+| `step` | Calls one Action, or one child Flow, or an inline body. | The Action's result, or the child Flow's output. |
+| `choice` | Runs the first option whose condition is true, or the fallback. | The selected Action's result. |
+| `map` | Calls one Action for each item of a collection. | A list in item order. |
+| `reduce` | Folds a collection through one Action, in order. | The final accumulator. |
+| `iterate` | Repeats one Action with local state until a condition ends it. | `%{kind: :jido_flow_iterate_result, iterations:, state:, output:}` |
+| `dispatch` | Lets an Action choose the next Action or Flow at runtime. | The final result of the chosen path. |
+
+Each component has a unique string name, optional `needs:`, and optional
+`meta:` data. A Flow can have at most one `dispatch`, and it must be the last
+component. Each component has its own guide: [Steps](flow-steps.livemd),
+[Choices](flow-choices.livemd), [Map And Reduce](flow-collections.livemd),
+[Iterate](flow-iterate-state.livemd), [Nested Flows](nested-flows.livemd), and
+[Dynamic Flows](dynamic-flows.md).
+
+## Values, References, And Expressions
+
+Component fields such as `params`, `condition`, and `output` hold Flow
+values. A Flow value is one of:
+
+- literal data: numbers, strings, atoms, Booleans, `nil`, lists, and maps;
+- a reference, such as `input(:id)`, `context(:tenant)`, or `result("load")`;
+- a `Jido.Expr` operation, such as `input(:count) > 0`.
+
+Expressions are a small, data-only subset of Elixir: comparisons, Boolean
+operators, arithmetic, `in`, and `<>`. They cannot call functions. Put real
+work in an Action or an inline body. See
+[References And Data](flow-references.livemd) and
+[Expressions](flow-expressions.md).
+
+## Flow Input And Output
+
+`schema:` validates Flow input before any work starts. `output_schema:`
+validates the output value after the last component finishes. Both are Zoi
+schemas, the same as Action schemas. See
+[Schemas And Validation](schemas-validation.md).
+
+Make `output` a map. A Flow module whose output is not a map fails at runtime
+with `details.phase == :flow_output`. Return `Jido.Action.Output` from an
+Action when the Flow must return an intentional non-map value.
+
+## Choose An Authoring Form
+
+All three forms produce the same `%Jido.Flow{}` value and use the same
+validation rules.
+
+| Form | Choose it when | Start with |
+| --- | --- | --- |
+| Module DSL | You write the Flow in your code base. This is the default. | [Flow DSL Tour](flow-language.livemd) |
+| Data definition | Your code builds the graph from runtime data. | [Flow Data Definitions](flow-data.md) |
+| Stored JSON | A database, a UI, or an AI model supplies the Flow. | [Store Flows As JSON](flow-storage.md) |
+
+Only the module DSL supports inline bodies and
+[extensions](flow-modules.md#add-authoring-macros). Data definitions and
+JSON reference existing Action modules. JSON names them through a
+`Jido.Flow.Registry` that your application owns, so stored data cannot load
+arbitrary modules or create atoms.
+
+## Validate And Inspect
 
 ```elixir
+flow = MyApp.Flows.Quote.flow()
+
 {:ok, flow} = Jido.Flow.validate(flow)
 {:ok, dependencies} = Jido.Flow.dependencies(flow)
 {:ok, explanation} = Jido.Flow.explain(flow)
 {:ok, identity} = Jido.Flow.semantic_identity(flow)
-{:ok, %Runic.Workflow{} = workflow} = Jido.Exec.compile(flow)
+{:ok, %Runic.Workflow{}} = Jido.Exec.compile(flow)
 ```
 
-`validate/1` is inert and does not load or check target modules.
-`Jido.Exec.compile/2` also checks Action and child Flow contracts. Neither
-operation runs Action work.
+`validate/1` checks structure, references, expressions, and cycles without
+loading target modules. `Jido.Exec.compile/2` also checks every Action and
+child Flow. Neither runs Action work. See [Inspect Flows](flow-inspection.md).
 
-All authoring forms use the same graph rules. DSL errors identify the source
-declaration; `new/1` and `validate/1` return the first error.
+## Run A Flow
 
-Continue with [Flow DSL](flow-language.livemd),
-[Flow Data Definitions](flow-data.md), and
-[Store Flows As JSON](flow-storage.md).
+Run a Flow module, a `%Jido.Flow{}` value, or an Instruction that targets one:
 
-## Deferred Effect Requests
+```elixir
+Jido.Exec.run(MyApp.Flows.Quote, %{quantity: 3, unit_price: 100})
+Jido.Exec.run(flow, %{quantity: 3, unit_price: 100}, %{}, max_concurrency: 4)
+MyApp.Flows.Quote.run(%{quantity: 3, unit_price: 100}, %{})
+```
 
-Return `{:ok, output, requests}` from an Action to
-request effects after success. Flow collects these opaque requests in canonical
-dependency order and returns the complete batch with its final output. Exec
-does not execute effects. Failed execution returns no executable batch.
-The optional third success element must be a proper list of effect requests.
-See [Execution](execution.md#results-and-errors) for ordering, collections,
-and migration.
+Effects that Actions return are collected across the Flow and returned with
+the output. A failure anywhere returns `{:error, exception}` and no effects.
+See [Execution](execution.md) and [Outputs And Effects](action-effects.livemd).

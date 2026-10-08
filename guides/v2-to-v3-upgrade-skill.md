@@ -1,57 +1,57 @@
-# Upgrade From Version 2 To Version 3
+# v2 To v3 Upgrade Skill
 
-Use this checklist when an application moves from Jido Action 2.x to 3.x.
-Review the detailed [migration guide](v2-to-v3-migration.md) before you edit.
+Use this page to hand a version 2 to version 3 upgrade to a coding agent. The
+[migration guide](v2-to-v3-migration.md) holds the detailed changes and the
+checklist. This page adds preparation steps, a prompt, and review checks.
 
 ## Before You Start
 
-- Keep the V2 package and application tests green.
-- Record the current Action input, output, error, and effect behavior.
-- Find every Exec call and every stored Instruction or workflow record.
-- Decide which calls are immediate and which need durable Runic execution.
+- Keep the version 2 package and application tests green.
+- Record the current Action input, output, error, timeout, and retry behavior.
+- Find every `Jido.Exec` call, every stored Instruction, Plan, or workflow
+  record, and every `Jido.Action.TaskSupervisor` reference.
+- Decide which calls run immediately and which need managed execution under a
+  `Runic.Runner`.
 
 ## Agent Prompt
 
 ```text
-Upgrade this application from jido_action 2.x to 3.x.
+Upgrade this application from jido_action 2.x to 3.0.0-beta.12.
 
-Use Jido.Action with static Zoi input and output schemas.
-Replace old Instruction fields with target, params, context, metadata, and kind.
-Replace Jido.Plan or Action chains with Jido.Flow only when a reusable graph is needed.
-Give every Flow an explicit output.
-Use Jido.Exec.run/4 for immediate work.
-Use Jido.Exec.compile/2 when native Runic inspection is needed.
-Use Jido.Exec.start/6 with a supervised Runic.Runner for managed or durable work.
-Use Runic.Runner for checkpoint, stop, resume, and results.
-Do not add compatibility wrappers for removed async handles, step-wise Execution values, or root Action continuations.
-Store Flow definitions with Jido.Flow.Codec and a trusted Registry.
-Store runtime progress through the Runic Store contract.
-Run format, compile, tests, property tests, documentation checks, Credo, and Dialyzer.
+Follow guides/v2-to-v3-migration.md in the jido_action package. Work through
+its checklist one item at a time. Compile and run the tests after each item.
+
+Rules:
+- Use Jido.Action with static Zoi input and output schemas.
+- Build Instructions with target, params, context, and metadata.
+- Return effects only as a proper list in the third success element.
+- Pass execution options to Jido.Exec.run/4. Set timeout: explicitly.
+  Convert max_retries: n to max_attempts: n + 1, and only for idempotent work.
+- Replace run_async/await/cancel with a supervised Task around run/4, or with
+  Jido.Exec.start/6 under a supervised Runic.Runner for managed work.
+- Replace Jido.Plan and Action chains with Jido.Flow only when a reusable
+  graph is needed. Give every Flow an explicit output.
+- Use Choice, Iterate, or Dispatch for control flow. Only a Dispatch expander
+  may return {:continue, input, target}.
+- Use Runic.Runner for checkpoint, stop, resume, and results.
+- Store Flow definitions with Jido.Flow.Codec and an application-owned
+  Jido.Flow.Registry. Store runtime progress through the Runic Store.
+- Do not add compatibility wrappers for removed version 2 APIs.
+
+Finish by running format, compile with warnings as errors, the full test
+suite, Credo, and Dialyzer.
 ```
-
-## Required Changes
-
-1. Update the package requirement and lock file.
-2. Convert Action schemas to static Zoi schemas.
-3. Replace removed Action hooks and generated metadata functions.
-4. Replace old Instruction fields and shorthand constructors.
-5. Replace old Exec retry options with `max_attempts`, `backoff`,
-   `base_delay_ms`, and `max_delay_ms`.
-6. Replace async handle and step-wise Exec APIs with immediate Exec or managed
-   Runic execution.
-7. Replace root Action continuations with explicit Flow control components.
-8. Convert stored workflow data to `Jido.Flow.Codec` documents and a trusted
-   Registry.
-9. Add durable recovery tests when execution must survive process loss.
 
 ## Review The Result
 
 Confirm these facts:
 
-- Every Action and Flow runs through a real Runic workflow.
-- No application code depends on a Jido execution cursor or checkpoint.
+- Every checklist item in the migration guide is done or does not apply.
+- No code calls a removed version 2 function, hook, or Instruction field.
+- Every `Jido.Exec.run/4` call that needs a time limit passes `timeout:`.
+- Retries (`max_attempts` above `1`) apply only to idempotent work.
 - Durable work resumes through `Runic.Runner` and its Store.
 - Stored Flow JSON cannot create atoms or select unregistered modules.
-- Action and Flow output schemas still match the V2 application contract.
-- Deferred effects have stable host deduplication keys when retries are enabled.
-- All package and application checks pass.
+- Action output schemas still match the version 2 application contract.
+- Flows that replace Plans or Chains return the same final output.
+- Deferred effects have stable deduplication keys when retries are enabled.
