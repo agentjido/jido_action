@@ -56,12 +56,19 @@ defmodule Jido.Exec.Node.Map.Collection do
             |> Enum.map(fn {item, index} ->
               item_id = Frame.item_id(node.id, index)
               item_state = Map.merge(state, %{item: item, item_index: index, item_id: item_id})
-              params = ValueResolver.resolve(node.params, item_state)
+              params = resolve_params(node.params, item_state)
               {:jido_map_item, index, item_id, params, if(index == 0, do: frame)}
             end)
         end
 
       {:ok, values}
+    end
+  end
+
+  defp resolve_params(params, state) do
+    case ValueResolver.resolve(params, state) do
+      {:error, error} -> {:error, Jido.Flow.Error.to_map(error)}
+      result -> result
     end
   end
 

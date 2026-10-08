@@ -149,6 +149,16 @@ defmodule Jido.Exec.Node.Action do
   end
 
   # A reference failure keeps its own details. An Action failure names its item.
+  defp collected_error(
+         %{type: _type, message: _message, details: _details, retryable?: _retryable?} = error,
+         {:error, _reference_error},
+         _action,
+         _component,
+         _index,
+         _item_id
+       ),
+       do: drop_stacktrace(error)
+
   defp collected_error(error, {:error, _reference_error}, _action, _component, _index, _item_id),
     do: error |> Jido.Flow.Error.to_map() |> drop_stacktrace()
 
