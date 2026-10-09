@@ -214,9 +214,11 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
         assert {:ok, ^flow} = Flow.validate(flow)
         assert {:ok, ^flow} = Jido.Exec.Compiler.validate(flow)
 
-        for operation <- [:dependencies, :explain, :semantic_identity, :compile] do
+        for operation <- [:dependencies, :explain, :semantic_identity] do
           assert {:ok, _} = apply(Flow, operation, [flow])
         end
+
+        assert {:ok, %Runic.Workflow{}} = Exec.compile(flow)
 
         invalid = replace_target(flow, List.first(names), String)
         assert {:error, _} = Jido.Exec.Compiler.validate(invalid)
