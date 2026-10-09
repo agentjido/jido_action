@@ -125,8 +125,9 @@ exits are not retried. Invalid option values return a
 `Jido.Action.Error.ConfigurationError`.
 
 The default failure action is `:halt`. A halting failure stops new dispatch;
-work that already started can finish. The returned error is the first failure
-that Runic recorded, for serial and concurrent execution.
+work that already started can finish. Exec uses stable admission order to
+select an observed failure, so completion timing does not select the error.
+Runic's events keep the actual completion order for audit.
 
 ## Managed And Durable Execution
 
@@ -236,8 +237,8 @@ also executable Runic units.
 
 `step/2` returns the current `%Runic.Workflow{}` after dispatch. The dispatched
 unit can still be active. Call it again after the unit finishes. A terminal
-failure also returns `{:complete, workflow}` because no ready work remains;
-inspect `workflow.runnable_events` for `Runic.Workflow.RunnableFailed`.
+failure or drained uncertain work also returns `{:complete, workflow}`;
+use `Jido.Exec.result/1` to read its error.
 
 Use `Runic.Runner.continue/2` to change the same worker back to automatic
 dispatch. Use `dispatch_mode: :manual` with `Jido.Exec.resume/4` to keep

@@ -121,7 +121,7 @@ options:
 | `dispatch_mode` | `:automatic` | `:manual` enables `Jido.Exec.step/2`. |
 | `checkpoint_strategy` | `:every_cycle` | `:every_cycle`, `:on_complete`, `:manual`, or `{:every_n, n}`. |
 | `on_complete` | none | `fn execution_id, workflow -> ... end`, called when no work remains. |
-| `executor`, `executor_opts` | Jido Task executor | Replace how runnables are executed. |
+| `executor`, `executor_opts` | Runic Task executor | Replace how runnables are executed. |
 | `scheduler`, `scheduler_opts` | Runic default | Replace how ready work is grouped. |
 | `hooks`, `promise_opts` | none | Runic worker hooks and promise settings. |
 
@@ -131,6 +131,16 @@ Runner's own Task Supervisor. Unknown options return a configuration error.
 
 See [Execution](execution.md#options) for how `timeout` and `max_attempts`
 apply to runnables.
+
+The native Runic executor owns Action tasks. Stop and cancellation wait for
+native work to stop, including Actions that trap exits. A failed persistent
+stop leaves the Worker and its active work alive so persistence can be retried.
+
+An executor exit without a returned Runnable is an uncertain result. Runic
+retains the unresolved activation and records the observed exit reason.
+`result/1` returns an execution error with no executable effects. Use
+`Runic.Runner.admission_status/2` to inspect stopped admission and active work.
+Explicit recovery can repeat work that produced no accepted result.
 
 ## Keep Data Portable
 
@@ -179,22 +189,22 @@ end
 | Result | Meaning |
 | --- | --- |
 | `{:ok, workflow}` | One unit was dispatched. It may still be running. |
-| `{:complete, workflow}` | No ready work remains. The execution finished or failed. |
-| `{:error, :busy}` | The previous unit is still running. Call again after it finishes. |
+| `{:complete, workflow}` | No work is ready, or stopped admission has drained. Inspect the result. |
+| `{:error, :busy}` | Previously admitted work is still running. Call again after it finishes. |
 | `{:error, :automatic_dispatch}` | The execution was not started with `dispatch_mode: :manual`. |
 | `{:error, :not_found}` | No execution has this ID. |
 
 A scheduler unit is not always an authored Flow step. Flow input, output,
 joins, and collection bookkeeping are units too. A failed execution also
-returns `{:complete, workflow}`. Check for failures:
+returns `{:complete, workflow}`. Read its public result:
 
 ```elixir
-failures =
-  for %Runic.Workflow.RunnableFailed{} = event <- workflow.runnable_events, do: event
+Jido.Exec.result(workflow)
 ```
 
 Call `Runic.Runner.continue/2` to switch a manual execution back to automatic
-dispatch.
+dispatch or reopen stopped admission after active work drains. Reopening an
+uncertain execution can repeat work that has no accepted result.
 
 ## Checkpoint, Stop, And Resume
 

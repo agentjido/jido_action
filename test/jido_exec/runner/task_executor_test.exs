@@ -21,8 +21,10 @@ defmodule Jido.Exec.Runner.TaskExecutorTest do
     runner = start_runner!()
     test_pid = self()
 
+    execution_id = unique_id()
+
     assert {:ok, worker} =
-             Exec.start(runner, unique_id(), KillingAction, %{}, %{},
+             Exec.start(runner, execution_id, KillingAction, %{}, %{},
                hooks: [
                  on_failed: fn _runnable, reason, _state ->
                    send(test_pid, {:managed_failed, reason})
@@ -31,8 +33,20 @@ defmodule Jido.Exec.Runner.TaskExecutorTest do
                ]
              )
 
-    assert_receive {:managed_failed, {:task_crashed, :killed}}, 1_000
     assert_receive :managed_idle, 1_000
+    refute_received {:managed_failed, _}
+
+    assert {:ok,
+            %{status: :stopped, active_units: 0, causes: [%{kind: :uncertain, reason: :killed}]}} =
+             Runic.Runner.admission_status(runner, execution_id)
+
+    assert {:ok, workflow} = Runic.Runner.get_workflow(runner, execution_id)
+
+    assert {:error,
+            %Jido.Action.Error.ExecutionFailureError{
+              details: %{reason: :killed, phase: :execution_task}
+            }} = Exec.result(workflow)
+
     assert is_pid(worker)
     assert Process.alive?(worker)
   end
@@ -67,7 +81,10 @@ defmodule Jido.Exec.Runner.TaskExecutorTest do
              )
 
     assert_receive :managed_idle, 1_000
-    assert %{executor_state: %{tasks: tasks}} = :sys.get_state(worker)
+
+    assert %{executor: Runic.Runner.Executor.Task, executor_state: %{tasks: tasks}} =
+             :sys.get_state(worker)
+
     assert tasks == %{}
   end
 

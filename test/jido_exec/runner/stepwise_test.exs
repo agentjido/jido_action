@@ -130,8 +130,6 @@ defmodule Jido.Exec.Runner.StepwiseTest do
     assert {:ok, _pid} =
              Runic.Runner.resume(runner, execution_id,
                dispatch_mode: :manual,
-               executor: Jido.Exec.Runner.TaskExecutor,
-               executor_opts: [task_supervisor: Module.concat(runner, TaskSupervisor)],
                max_concurrency: 1,
                hooks: runner_hooks(tag)
              )
