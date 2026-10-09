@@ -299,7 +299,7 @@ defmodule JidoAction.MixProject do
       {:jason, "~> 1.4"},
       {:runic,
        github: "mikehostetler/runic",
-       ref: "743f487337a74668c60b9b6cad71d87818b49913",
+       ref: "234bbc15f394c4792ce8cbd57d4eb263132c77cf",
        override: true},
       {:splode, "~> 0.3.0"},
       {:spark, "~> 2.7.3"},

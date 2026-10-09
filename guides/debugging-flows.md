@@ -94,9 +94,19 @@ For an execution under a `Runic.Runner`, read its state through the Runner:
 {:ok, %{result: fact}} = Runic.Runner.get_results(MyApp.Runner, "order-42", facts: true)
 {:ok, workflow} = Runic.Runner.get_workflow(MyApp.Runner, "order-42")
 
-failures =
-  for %Runic.Workflow.RunnableFailed{} = event <- workflow.runnable_events, do: event
+outcome = Jido.Exec.result(workflow)
+{:ok, admission} = Runic.Runner.admission_status(MyApp.Runner, "order-42")
+
+observations =
+  Enum.filter(workflow.runnable_events, fn event ->
+    is_struct(event, Runic.Workflow.RunnableFailed) or
+      is_struct(event, Runic.Workflow.ExecutionUncertain)
+  end)
 ```
+
+A task exit without a returned Runnable is recorded as `ExecutionUncertain`.
+It can produce an error outcome without a `RunnableFailed` event. Admission
+status shows whether dispatch has stopped and whether active work remains.
 
 Use Runic operations for runtime inspection and Jido Exec to resume and read
 the result:

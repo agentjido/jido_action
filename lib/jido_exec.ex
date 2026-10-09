@@ -118,13 +118,14 @@ defmodule Jido.Exec do
          # Runic persists the compiled workflow, so context stays runtime-only.
          {:ok, workflow} <- compile(%{instruction | context: %{}}),
          {:ok, policy, worker_opts} <- managed_options(runner, execution_id, opts),
+         {:ok, input_fact} <- durable_input(instruction),
          {:ok, pid} <-
            Runic.Runner.start_workflow(runner, execution_id, workflow, worker_opts),
          :ok <-
            Runic.Runner.run(
              runner,
              execution_id,
-             Jido.Exec.Fact.portable_root(execution_input(instruction)),
+             input_fact,
              run_context: %{_global: durable_context(instruction.context)},
              scheduler_policies: [{:default, Map.from_struct(policy)}]
            ) do
@@ -581,6 +582,13 @@ defmodule Jido.Exec do
 
   defp normalize_runtime_error(error) when is_exception(error), do: error
 
+  defp normalize_runtime_error({:value_encoding_failed, error}) do
+    Jido.Action.Error.execution_error("Runic value cannot be encoded", %{
+      reason: error,
+      retry: false
+    })
+  end
+
   defp normalize_runtime_error({:timeout, timeout}) do
     Jido.Action.Error.timeout_error("Action timed out", %{timeout: timeout})
   end
@@ -594,6 +602,18 @@ defmodule Jido.Exec do
 
   defp normalize_runtime_error(reason) do
     Jido.Action.Error.execution_error("Runic execution failed", %{reason: reason})
+  end
+
+  defp durable_input(instruction) do
+    {:ok, Jido.Exec.Fact.portable_root(execution_input(instruction))}
+  rescue
+    error in Runic.Identity.CanonicalError ->
+      {:error,
+       Jido.Action.Error.execution_error("durable execution input cannot be encoded", %{
+         phase: :durability,
+         reason: error,
+         retry: false
+       })}
   end
 
   defp execution_input(%Instruction{kind: :action}), do: %{}

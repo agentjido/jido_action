@@ -63,12 +63,7 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Loop.Start do
            Loop.start(node.loop, Jido.Exec.Fact.value(fact), context.run_context),
          :ok <- Jido.Exec.Portable.validate(value, :output, context.run_context),
          :ok <- Jido.Exec.Portable.validate(%{jido_loop: loop}, :metadata, context.run_context) do
-      result =
-        Jido.Exec.Fact.child(
-          fact,
-          [value: value, ancestry: {node.hash, fact.hash}, meta: %{jido_loop: loop}],
-          context.run_context
-        )
+      result = Jido.Exec.Fact.from_runnable(runnable, value, %{jido_loop: loop})
 
       Runnable.complete(runnable, result, [
         FactProduced.new(result, producer_label: :produced, weight: context.ancestry_depth + 1),

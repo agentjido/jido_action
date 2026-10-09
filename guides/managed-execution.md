@@ -125,10 +125,11 @@ options:
 | `scheduler`, `scheduler_opts` | Runic default | Replace how ready work is grouped. |
 | `hooks`, `promise_opts` | none | Runic worker hooks and promise settings. |
 
-With the default scheduler, ready work advances by causal depth. A child waits
+Runic filters ready work by causal depth before hooks that transform candidates
+and scheduler grouping. All managed schedulers use this filter. A child waits
 until active work at an earlier depth finishes. Failure selection uses stable
-keys from the observed failures. Custom hooks and schedulers control which work
-is admitted. A chain Promise can run its descendants inside one admitted unit;
+keys from the observed failures. Custom hooks and schedulers control which units
+are admitted from the filtered candidates. A chain Promise can run its descendants inside one admitted unit;
 its internal progress does not wait for sibling units. These extensions can
 change which failures are observed before admission stops.
 
@@ -198,8 +199,11 @@ end
 | `{:ok, workflow}` | One unit was dispatched. It may still be running. |
 | `{:complete, workflow}` | No work is ready, or stopped admission has drained. Inspect the result. |
 | `{:error, :busy}` | Previously admitted work is still running. Call again after it finishes. |
-| `{:error, :automatic_dispatch}` | The execution was not started with `dispatch_mode: :manual`. |
+| `{:error, :automatic_dispatch}` | Admission is open and the execution was not started with `dispatch_mode: :manual`. |
 | `{:error, :not_found}` | No execution has this ID. |
+
+After admission stops, both dispatch modes report `:busy` while active work
+remains and `{:complete, workflow}` after it drains.
 
 A scheduler unit is not always an authored Flow step. Flow input, output,
 joins, and collection bookkeeping are units too. A failed execution also

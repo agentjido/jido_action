@@ -308,12 +308,7 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Dispatch do
   end
 
   defp complete(runnable, node, fact, value, context, apply_fns) do
-    result =
-      Jido.Exec.Fact.child(
-        fact,
-        [value: value, ancestry: {node.hash, fact.hash}],
-        context.run_context
-      )
+    result = Jido.Exec.Fact.from_runnable(runnable, value)
 
     Runnable.complete(
       runnable,

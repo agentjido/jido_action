@@ -91,6 +91,7 @@ API to use. See the guides on HexDocs for explanations and examples.
   `{:complete, workflow}`, or `{:error, reason}` (`:busy`,
   `:automatic_dispatch`, or `:not_found`). `{:complete, workflow}` also
   covers terminal failure and drained uncertain work; call `Jido.Exec.result/1`.
+  After admission stops, automatic executions also report the drain state.
   Use `Runic.Runner.admission_status/2` to inspect stopped admission and active work.
 
 ## Instructions

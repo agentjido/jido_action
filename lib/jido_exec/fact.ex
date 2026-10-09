@@ -19,7 +19,7 @@ defmodule Jido.Exec.Fact do
   alias Jido.Exec.Fact.{LocalValue, PortableValue}
   alias Jido.Exec.Portable
   alias Runic.Identity
-  alias Runic.Workflow.Fact
+  alias Runic.Workflow.{Fact, Runnable}
 
   @local_identity %{jido: %{identity_mode: :local}}
   @max_local_depth 32
@@ -35,6 +35,20 @@ defmodule Jido.Exec.Fact do
   def portable_root(value) do
     validate_portable!(value, :input)
     Fact.new(value: wrap(value, :portable))
+  end
+
+  @doc false
+  @spec from_runnable(Runnable.t(), term(), map()) :: Fact.t()
+  def from_runnable(
+        %Runnable{node: node, input_fact: fact, context: context},
+        value,
+        metadata \\ %{}
+      ) do
+    child(
+      fact,
+      [value: value, ancestry: {node.hash, fact.hash}, meta: metadata],
+      context.run_context
+    )
   end
 
   @doc false
@@ -72,10 +86,6 @@ defmodule Jido.Exec.Fact do
   @doc false
   @spec decode_value(term()) :: term()
   def decode_value(value), do: unwrap(value)
-
-  @doc false
-  @spec encode_output(term(), term(), map()) :: {term(), map()}
-  def encode_output(value, input, metadata), do: encode_output(value, input, metadata, %{})
 
   @doc false
   @spec encode_output(term(), term(), map(), map()) :: {term(), map()}

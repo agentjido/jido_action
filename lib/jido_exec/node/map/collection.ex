@@ -118,12 +118,7 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Map.Collection do
   def execute(node, %Runnable{input_fact: fact, context: context} = runnable) do
     case Collection.resolve(node, Jido.Exec.Fact.value(fact), context.run_context) do
       {:ok, value} ->
-        result =
-          Jido.Exec.Fact.child(
-            fact,
-            [value: value, ancestry: {node.hash, fact.hash}],
-            context.run_context
-          )
+        result = Jido.Exec.Fact.from_runnable(runnable, value)
 
         Runnable.complete(runnable, result, [
           FactProduced.new(result, producer_label: :produced, weight: context.ancestry_depth + 1),

@@ -64,7 +64,7 @@ defmodule Jido.Exec.FactTest do
     assert length(Enum.uniq(digests)) == length(values)
   end
 
-  test "portable facts retain canonical identity fixtures across supported OTP versions" do
+  test "portable facts retain canonical identity fixtures across supported Elixir and OTP versions" do
     fixtures = [
       {URI.parse("https://example.com"),
        "c9271338edc356d12750dc4a17256159f3296ca8d93b29decc18848de0996384"},
