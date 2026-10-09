@@ -1,11 +1,14 @@
 defmodule Jido.Exec.Node.Action do
   @moduledoc false
 
+  use Runic.Workflow.SingleOutput
+
   alias Jido.Action.Error
-  alias Jido.Exec.{Frame, Portable, ValueResolver}
+  alias Jido.Exec.{Frame, Portable, Telemetry, ValueResolver}
   alias Jido.Exec.Node.Loop
   alias Jido.Instruction
   alias Runic.Identity
+  alias Runic.Workflow.SingleOutput.{Context, Result}
 
   @enforce_keys [:id, :name, :hash, :instruction, :inputs, :outputs]
   # `flow` holds the Flow component data for a Flow-created node. Caller
@@ -59,6 +62,32 @@ defmodule Jido.Exec.Node.Action do
   def new(%Instruction{} = instruction, _opts) do
     raise ArgumentError,
           "expected an Action Instruction, got: #{inspect(instruction.kind)}"
+  end
+
+  @impl Runic.Workflow.SingleOutput
+  @doc false
+  @spec run(t(), term(), Context.t()) :: Result.t()
+  def run(node, input, context) do
+    result =
+      Telemetry.span(:action, Telemetry.action_metadata(node, context), fn ->
+        execute(node, Jido.Exec.Fact.decode_value(input), context.runtime, context.input_metadata)
+      end)
+
+    case result do
+      {:ok, value, effects} ->
+        metadata = context.input_metadata |> Map.delete(:runic) |> append_effects(effects)
+        {value, metadata} = Jido.Exec.Fact.encode_output(value, input, metadata)
+        Result.value(value, metadata: metadata)
+
+      {:error, error} ->
+        Result.failure(error)
+    end
+  end
+
+  defp append_effects(meta, effects) do
+    jido = Map.get(meta, :jido, %{})
+    prior = Map.get(jido, :effects, [])
+    Map.put(meta, :jido, Map.put(jido, :effects, prior ++ effects))
   end
 
   @doc false
@@ -462,108 +491,6 @@ defimpl Runic.Identity.Projectable, for: Jido.Exec.Node.Action do
   def identity_document(node) do
     %{kind: :jido_action, version: 1, id: inspect(node.id)}
   end
-end
-
-defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Action do
-  alias Jido.Exec.Node.Action
-  alias Jido.Exec.Telemetry
-  alias Runic.Workflow
-
-  alias Runic.Workflow.{CausalContext, Fact, HookRunner, Runnable}
-  alias Runic.Workflow.Events.{ActivationConsumed, FactProduced, MapReduceTracked}
-
-  def match_or_execute(_node), do: :execute
-
-  def invoke(%Action{} = node, workflow, fact) do
-    {:ok, runnable} = prepare(node, workflow, fact)
-    executed = execute(node, runnable)
-    Workflow.apply_runnable(workflow, executed)
-  end
-
-  def prepare(%Action{} = node, %Workflow{} = workflow, %Fact{} = fact) do
-    context =
-      CausalContext.new(
-        node_hash: node.hash,
-        input_fact: fact,
-        ancestry_depth: Workflow.ancestry_depth(workflow, fact),
-        hooks: Workflow.get_hooks(workflow, node.hash),
-        run_context: Workflow.get_run_context(workflow, node.name)
-      )
-
-    {:ok, Runnable.new(node, fact, context)}
-  end
-
-  def execute(%Action{} = node, %Runnable{input_fact: fact, context: context} = runnable) do
-    with {:ok, before_apply_fns} <- HookRunner.run_before(context, node, fact),
-         {:ok, value, effects} <-
-           Telemetry.span(:action, Telemetry.action_metadata(node, runnable), fn ->
-             Action.execute(node, Jido.Exec.Fact.value(fact), context.run_context, fact.meta)
-           end) do
-      result_fact =
-        Jido.Exec.Fact.child(
-          fact,
-          value: value,
-          ancestry: {node.hash, fact.hash},
-          meta: append_effects(fact.meta, effects)
-        )
-
-      case HookRunner.run_after(context, node, fact, result_fact) do
-        {:ok, after_apply_fns} ->
-          events =
-            [
-              FactProduced.new(result_fact,
-                producer_label: :produced,
-                weight: context.ancestry_depth + 1
-              ),
-              %ActivationConsumed{
-                fact_hash: fact.hash,
-                node_hash: node.hash,
-                from_label: :runnable
-              }
-            ] ++ map_reduce_events(node, fact, result_fact)
-
-          Runnable.complete(
-            runnable,
-            result_fact,
-            events,
-            before_apply_fns ++ after_apply_fns
-          )
-
-        {:error, reason} ->
-          Runnable.fail(runnable, {:hook_error, reason})
-      end
-    else
-      {:error, reason} -> Runnable.fail(runnable, reason)
-    end
-  end
-
-  defp append_effects(meta, effects) do
-    jido = Map.get(meta, :jido, %{})
-    prior = Map.get(jido, :effects, [])
-    Map.put(meta, :jido, Map.put(jido, :effects, prior ++ effects))
-  end
-
-  defp map_reduce_events(
-         %Action{flow: %{mode: {:map, _}}} = node,
-         %Fact{
-           hash: fan_out_fact_hash,
-           ancestry: {fan_out_hash, source_fact_hash},
-           causal_ancestry: %{output_port: :fan_out}
-         },
-         %Fact{hash: result_fact_hash}
-       ) do
-    [
-      %MapReduceTracked{
-        source_fact_hash: source_fact_hash,
-        fan_out_hash: fan_out_hash,
-        fan_out_fact_hash: fan_out_fact_hash,
-        step_hash: node.hash,
-        result_fact_hash: result_fact_hash
-      }
-    ]
-  end
-
-  defp map_reduce_events(_node, _fact, _result_fact), do: []
 end
 
 defimpl Runic.Component, for: Jido.Exec.Node.Action do

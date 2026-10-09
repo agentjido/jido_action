@@ -46,6 +46,20 @@ defmodule Jido.Exec.Fact do
   @spec value(Fact.t()) :: term()
   def value(%Fact{value: value}), do: unwrap(value)
 
+  @doc false
+  @spec decode_value(term()) :: term()
+  def decode_value(value), do: unwrap(value)
+
+  @doc false
+  @spec encode_output(term(), term(), map()) :: {term(), map()}
+  def encode_output(value, input, metadata) do
+    if match?(%{jido: %{identity_mode: :local}}, metadata) or contains_local_value?(input) do
+      {wrap(value), put_local_identity(metadata)}
+    else
+      {value, metadata}
+    end
+  end
+
   defp local?(%Fact{meta: %{jido: %{identity_mode: :local}}}), do: true
   defp local?(%Fact{value: value}), do: contains_local_value?(value)
 
@@ -69,7 +83,7 @@ defmodule Jido.Exec.Fact do
   end
 
   defp wrap(value, depth) when is_list(value) do
-    Enum.map(value, &wrap(&1, depth + 1))
+    if List.improper?(value), do: local_value(value), else: Enum.map(value, &wrap(&1, depth + 1))
   end
 
   defp wrap(value, depth) when is_tuple(value) do
