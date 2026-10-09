@@ -297,7 +297,10 @@ defmodule JidoAction.MixProject do
       {:telemetry, "~> 1.3"},
       {:zoi, "~> 0.18.11"},
       {:jason, "~> 1.4"},
-      {:runic, github: "mikehostetler/runic", branch: "integration/jido-v3", override: true},
+      {:runic,
+       github: "mikehostetler/runic",
+       ref: "234bbc15f394c4792ce8cbd57d4eb263132c77cf",
+       override: true},
       {:splode, "~> 0.3.0"},
       {:spark, "~> 2.7.3"},
 

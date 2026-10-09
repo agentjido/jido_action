@@ -22,6 +22,11 @@ defmodule Jido.Exec.Portable do
     end
   end
 
+  @doc false
+  @spec validate(term(), atom(), map()) :: :ok | {:error, Exception.t()}
+  def validate(value, field, %{__jido_exec_durable__: true}), do: validate(value, field)
+  def validate(_value, _field, _runtime), do: :ok
+
   defp walk(value, path) when is_pid(value), do: {:error, :pid, path}
   defp walk(value, path) when is_port(value), do: {:error, :port, path}
   defp walk(value, path) when is_reference(value), do: {:error, :reference, path}

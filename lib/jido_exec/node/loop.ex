@@ -458,7 +458,8 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Loop do
       CausalContext.new(
         node_hash: node.hash,
         input_fact: fact,
-        ancestry_depth: Workflow.ancestry_depth(workflow, fact)
+        ancestry_depth: Workflow.ancestry_depth(workflow, fact),
+        run_context: Workflow.get_run_context(workflow, node.name)
       )
 
     {:ok, Runnable.new(node, fact, context)}
@@ -467,7 +468,7 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Loop do
   def execute(node, %Runnable{input_fact: fact, context: context} = runnable) do
     case Loop.finish(node, Jido.Exec.Fact.value(fact), fact.meta) do
       {:ok, value} ->
-        result = Jido.Exec.Fact.child(fact, value: value, ancestry: {node.hash, fact.hash})
+        result = Jido.Exec.Fact.from_runnable(runnable, value)
 
         Runnable.complete(runnable, result, [
           FactProduced.new(result, producer_label: :produced, weight: context.ancestry_depth + 1),

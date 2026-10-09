@@ -21,6 +21,14 @@ defmodule JidoActionTest.Property.Expression.ExpressionContractTest do
 
     Fuzz.check("expression_trees", generator, Map.to_list(context), fn sample ->
       {expression, expected, depth} = expression(sample["tree"])
+
+      expression =
+        case expression do
+          %Expr{} -> expression
+          value when is_boolean(value) -> Expr.new!(:and, [true, value])
+          value -> Expr.new!(:+, [0, value])
+        end
+
       assert Expr.evaluate(expression) == {:ok, expected}
       size = sample["size"]
       bad = Expr.new!(:/, [size, 0])

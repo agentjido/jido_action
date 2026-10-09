@@ -145,9 +145,14 @@ defmodule JidoActionTest.Authoring.ComponentsTest do
              details: %{node_path: ["items"], item_index: 1}
            } = Jido.Flow.Error.to_map(error)
 
-    assert_receive {:map_item, 1}
-    assert_receive {:map_item, :bad}
-    refute_received {:map_item, 3}
+    # Exec returned, so all serial callbacks have finished. Dispatch order is
+    # a Runic choice; the failure must be the last admitted item.
+    {:messages, messages} = Process.info(self(), :messages)
+    items = for {:map_item, value} <- messages, do: value
+    assert List.last(items) == :bad
+    assert Enum.count(items, &(&1 == :bad)) == 1
+    assert length(items) == length(Enum.uniq(items))
+    assert Enum.all?(items, &(&1 in [1, :bad, 3]))
   end
 
   test "Map keeps input order and item identity when repeated items finish in reverse order" do

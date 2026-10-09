@@ -10,7 +10,14 @@ defmodule Jido.Exec do
   alias Jido.Exec.{Compiler, Frame, Portable, Telemetry}
   alias Jido.Instruction
   alias Runic.Workflow
-  alias Runic.Workflow.{Fact, RunnableFailed, SchedulerPolicy}
+
+  alias Runic.Workflow.{
+    ExecutionUncertain,
+    Fact,
+    RunnableCompleted,
+    RunnableFailed,
+    SchedulerPolicy
+  }
 
   @default_task_supervisor Jido.Exec.TaskSupervisor
 
@@ -111,10 +118,14 @@ defmodule Jido.Exec do
          # Runic persists the compiled workflow, so context stays runtime-only.
          {:ok, workflow} <- compile(%{instruction | context: %{}}),
          {:ok, policy, worker_opts} <- managed_options(runner, execution_id, opts),
+         {:ok, input_fact} <- durable_input(instruction),
          {:ok, pid} <-
            Runic.Runner.start_workflow(runner, execution_id, workflow, worker_opts),
          :ok <-
-           Runic.Runner.run(runner, execution_id, execution_input(instruction),
+           Runic.Runner.run(
+             runner,
+             execution_id,
+             input_fact,
              run_context: %{_global: durable_context(instruction.context)},
              scheduler_policies: [{:default, Map.from_struct(policy)}]
            ) do
@@ -159,7 +170,8 @@ defmodule Jido.Exec do
   Use this with the workflow returned by `step/2` or `Runic.Runner.get_workflow/2`
   for a managed execution. A terminal Runnable failure returns `{:error,
   exception}`. A workflow without a Flow or Action result returns an execution
-  error.
+  error. An unresolved executor loss returns an execution error with its
+  observed exit reason; recovery can repeat work without an accepted result.
   """
   @spec result(Workflow.t()) :: exec_result()
   def result(%Workflow{} = workflow) do
@@ -180,15 +192,25 @@ defmodule Jido.Exec do
   workflow is the current Runic state and the unit can still be active. Retry
   after `{:error, :busy}` when that unit completes.
 
-  `{:complete, workflow}` means that Runic has no ready work. Inspect the
-  workflow results and events to distinguish successful completion from a
-  terminal failure.
+  `{:complete, workflow}` means that no work is ready, or that admission has
+  stopped and active work has drained. Call `result/1` to distinguish success
+  from failure or an uncertain executor result. A stopped scope that is still
+  draining returns `{:error, :busy}`.
   """
   @spec step(module(), term()) :: step_result()
   def step(runner, execution_id) do
     case Runic.Runner.step(runner, execution_id) do
       :ok -> current_workflow(runner, execution_id, :ok)
       {:error, :not_runnable} -> current_workflow(runner, execution_id, :complete)
+      {:error, :admission_stopped} -> stopped_step(runner, execution_id)
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp stopped_step(runner, execution_id) do
+    case Runic.Runner.admission_status(runner, execution_id) do
+      {:ok, %{active_units: 0}} -> current_workflow(runner, execution_id, :complete)
+      {:ok, _draining} -> {:error, :busy}
       {:error, _reason} = error -> error
     end
   end
@@ -198,10 +220,11 @@ defmodule Jido.Exec do
       workflow =
         workflow
         |> Workflow.enable_event_emission()
-        |> Workflow.put_run_context(%{_global: context})
+        |> Workflow.put_run_context(%{_global: Map.put(context, :__jido_exec_durable__, false)})
         |> Workflow.react_until_satisfied(
           Jido.Exec.Fact.local_root(input),
           Keyword.merge(react_opts,
+            runnable_order: :stable,
             scheduler_policies: [{:default, Map.from_struct(policy)}]
           )
         )
@@ -226,14 +249,43 @@ defmodule Jido.Exec do
   defp project(_missing),
     do: {:error, Jido.Action.Error.execution_error("Exec produced no result")}
 
-  # Runic records events in application order. The first failure is the one
-  # that halted the run, for both serial and concurrent execution.
+  # Keep the audit order intact. Select an observed error by the same stable
+  # key used for admission, after resolving older uncertainty observations.
   defp first_failure(%Workflow{runnable_events: events}) do
-    Enum.find_value(events, fn
-      %RunnableFailed{error: error} -> error
-      _event -> nil
-    end)
+    {_resolved, error} =
+      events
+      |> Enum.reverse()
+      |> Enum.reduce({MapSet.new(), nil}, fn
+        %RunnableCompleted{runnable_id: id}, {resolved, error} ->
+          {MapSet.put(resolved, id), error}
+
+        %RunnableFailed{runnable_id: id, error: error} = event, {resolved, later} ->
+          key = Map.get(event, :order_key) || {0, id}
+          {MapSet.put(resolved, id), select_failure(later, key, error)}
+
+        %ExecutionUncertain{runnable_ids: ids, reason: reason} = event, {resolved, later} ->
+          error =
+            if ids != [] and Enum.all?(ids, &MapSet.member?(resolved, &1)),
+              do: later,
+              else:
+                select_failure(
+                  later,
+                  Map.get(event, :order_key) || {0, List.first(ids)},
+                  {:task_crashed, reason}
+                )
+
+          {resolved, error}
+
+        _event, state ->
+          state
+      end)
+
+    if error, do: elem(error, 1)
   end
+
+  defp select_failure(nil, key, error), do: {key, error}
+  defp select_failure({later_key, _}, key, error) when key <= later_key, do: {key, error}
+  defp select_failure(later, _key, _error), do: later
 
   defp execution_options(opts) when is_list(opts) do
     if Keyword.keyword?(opts) do
@@ -369,7 +421,19 @@ defmodule Jido.Exec do
   # The execution task is not linked to the caller, so a killed Action cannot
   # exit the caller. The linked watcher kills the task, and the processes
   # linked to it, when the caller exits.
-  defp watch_caller(caller, task), do: Jido.Exec.Runner.TaskExecutor.watch(caller, task)
+  # Runic owns managed and nested native work. This watcher owns the outer
+  # task used by run/4, including an Action that runs inline in that task.
+  defp watch_caller(caller, task) do
+    spawn_link(fn ->
+      owner_monitor = Process.monitor(caller)
+      task_monitor = Process.monitor(task)
+
+      receive do
+        {:DOWN, ^owner_monitor, :process, ^caller, _reason} -> Process.exit(task, :kill)
+        {:DOWN, ^task_monitor, :process, ^task, _reason} -> :ok
+      end
+    end)
+  end
 
   defp stop_watcher(watcher) do
     Process.unlink(watcher)
@@ -406,7 +470,7 @@ defmodule Jido.Exec do
                worker_opts = Keyword.take(opts, worker_keys),
                :ok <- validate_worker_options(worker_opts) do
             policy = %{policy | execution_mode: :durable}
-            {:ok, policy, default_executor(worker_opts)}
+            {:ok, policy, Keyword.put(worker_opts, :runnable_order, :stable)}
           end
 
         unknown ->
@@ -471,14 +535,6 @@ defmodule Jido.Exec do
 
   defp valid_worker_option?(_key, _value), do: true
 
-  defp default_executor(opts) do
-    if Keyword.has_key?(opts, :executor) do
-      opts
-    else
-      Keyword.put(opts, :executor, Jido.Exec.Runner.TaskExecutor)
-    end
-  end
-
   defp current_workflow(runner, execution_id, status) do
     case Runic.Runner.get_workflow(runner, execution_id) do
       {:ok, %Workflow{} = workflow} -> {status, workflow}
@@ -526,6 +582,13 @@ defmodule Jido.Exec do
 
   defp normalize_runtime_error(error) when is_exception(error), do: error
 
+  defp normalize_runtime_error({:value_encoding_failed, error}) do
+    Jido.Action.Error.execution_error("Runic value cannot be encoded", %{
+      reason: error,
+      retry: false
+    })
+  end
+
   defp normalize_runtime_error({:timeout, timeout}) do
     Jido.Action.Error.timeout_error("Action timed out", %{timeout: timeout})
   end
@@ -539,6 +602,18 @@ defmodule Jido.Exec do
 
   defp normalize_runtime_error(reason) do
     Jido.Action.Error.execution_error("Runic execution failed", %{reason: reason})
+  end
+
+  defp durable_input(instruction) do
+    {:ok, Jido.Exec.Fact.portable_root(execution_input(instruction))}
+  rescue
+    error in Runic.Identity.CanonicalError ->
+      {:error,
+       Jido.Action.Error.execution_error("durable execution input cannot be encoded", %{
+         phase: :durability,
+         reason: error,
+         retry: false
+       })}
   end
 
   defp execution_input(%Instruction{kind: :action}), do: %{}
