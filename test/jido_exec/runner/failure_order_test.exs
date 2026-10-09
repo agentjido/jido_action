@@ -19,6 +19,19 @@ defmodule Jido.Exec.Runner.FailureOrderTest do
     end
   end
 
+  defmodule Parent do
+    use Jido.Action, name: "ordered_parent"
+    @impl true
+    def run(%{label: label}, context) do
+      if context[:block] == label do
+        send(Process.whereis(context.observer), {:blocked_parent, self()})
+        receive do: (:release -> :ok)
+      end
+
+      {:ok, %{label: label}}
+    end
+  end
+
   setup do
     observer = :"failure_order_#{System.unique_integer([:positive])}"
     Process.register(self(), observer)
@@ -74,6 +87,59 @@ defmodule Jido.Exec.Runner.FailureOrderTest do
     assert errors == [other, ctx.expected]
     assert {:error, error} = Exec.result(workflow)
     assert Exception.message(error) == ctx.expected
+  end
+
+  test "managed stable admission waits for parent work before admitting failing children", ctx do
+    flow =
+      Jido.Flow.new!(%{
+        name: "ordered_parent_frontier",
+        components: [
+          %{kind: :step, name: "a_parent", action: Parent, params: %{label: "a"}},
+          %{kind: :step, name: "b_parent", action: Parent, params: %{label: "b"}},
+          %{
+            kind: :step,
+            name: "a_fail",
+            action: Fail,
+            params: %{label: "a"},
+            needs: ["a_parent"]
+          },
+          %{kind: :step, name: "b_fail", action: Fail, params: %{label: "b"}, needs: ["b_parent"]}
+        ],
+        output: %{a: Jido.Flow.Ref.result("a_fail"), b: Jido.Flow.Ref.result("b_fail")}
+      })
+
+    {:error, serial} = Exec.run(flow)
+    expected = Exception.message(serial)
+    other = if expected == "a", do: "b", else: "a"
+    runner = :"frontier_runner_#{System.unique_integer([:positive])}"
+    start_supervised!({Runner, name: runner})
+    owner = self()
+
+    {:ok, _} =
+      Exec.start(runner, :frontier, flow, %{}, %{observer: ctx.observer, block: expected},
+        max_concurrency: 2,
+        hooks: [
+          on_dispatch: fn runnable, _ ->
+            if String.ends_with?(runnable.node.name, "_fail"), do: send(owner, :child_admitted)
+          end,
+          on_complete: fn runnable, _, _ ->
+            if runnable.node.name == other <> "_parent", do: send(owner, :other_parent_done)
+          end
+        ],
+        on_complete: fn _, workflow -> send(owner, {:frontier_done, workflow}) end
+      )
+
+    assert_receive {:blocked_parent, parent}, 2_000
+    assert_receive :other_parent_done, 2_000
+    assert {:ok, %{status: :open, active_units: 1}} = Runner.admission_status(runner, :frontier)
+    refute_received :child_admitted
+    send(parent, :release)
+    # Child Actions have an observer gate; release each after admission.
+    tasks = started_tasks()
+    Enum.each(tasks, fn {_, pid} -> send(pid, :release) end)
+    assert_receive {:frontier_done, workflow}, 2_000
+    assert {:error, error} = Exec.result(workflow)
+    assert Exception.message(error) == expected
   end
 
   defp started_tasks do

@@ -125,6 +125,13 @@ options:
 | `scheduler`, `scheduler_opts` | Runic default | Replace how ready work is grouped. |
 | `hooks`, `promise_opts` | none | Runic worker hooks and promise settings. |
 
+With the default scheduler, ready work advances by causal depth. A child waits
+until active work at an earlier depth finishes. Failure selection uses stable
+keys from the observed failures. Custom hooks and schedulers control which work
+is admitted. A chain Promise can run its descendants inside one admitted unit;
+its internal progress does not wait for sibling units. These extensions can
+change which failures are observed before admission stops.
+
 The `max_concurrency` default differs from `run/4`, which defaults to `1`.
 `task_supervisor` is not a managed option; the default executor uses the
 Runner's own Task Supervisor. Unknown options return a configuration error.
