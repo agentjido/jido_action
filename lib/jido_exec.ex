@@ -121,7 +121,10 @@ defmodule Jido.Exec do
          {:ok, pid} <-
            Runic.Runner.start_workflow(runner, execution_id, workflow, worker_opts),
          :ok <-
-           Runic.Runner.run(runner, execution_id, execution_input(instruction),
+           Runic.Runner.run(
+             runner,
+             execution_id,
+             Jido.Exec.Fact.portable_root(execution_input(instruction)),
              run_context: %{_global: durable_context(instruction.context)},
              scheduler_policies: [{:default, Map.from_struct(policy)}]
            ) do
@@ -216,7 +219,7 @@ defmodule Jido.Exec do
       workflow =
         workflow
         |> Workflow.enable_event_emission()
-        |> Workflow.put_run_context(%{_global: context})
+        |> Workflow.put_run_context(%{_global: Map.put(context, :__jido_exec_durable__, false)})
         |> Workflow.react_until_satisfied(
           Jido.Exec.Fact.local_root(input),
           Keyword.merge(react_opts,

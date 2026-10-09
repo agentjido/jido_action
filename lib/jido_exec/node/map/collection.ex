@@ -1,7 +1,7 @@
 defmodule Jido.Exec.Node.Map.Collection do
   @moduledoc false
 
-  alias Jido.Exec.{Frame, ValueResolver}
+  alias Jido.Exec.{Frame, Portable, ValueResolver}
   alias Runic.Identity
 
   @enforce_keys [:id, :name, :hash, :component, :value, :params]
@@ -61,7 +61,10 @@ defmodule Jido.Exec.Node.Map.Collection do
             end)
         end
 
-      {:ok, values}
+      case Portable.validate(values, :output, context) do
+        :ok -> {:ok, values}
+        {:error, _} = error -> error
+      end
     end
   end
 
@@ -115,7 +118,12 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Map.Collection do
   def execute(node, %Runnable{input_fact: fact, context: context} = runnable) do
     case Collection.resolve(node, Jido.Exec.Fact.value(fact), context.run_context) do
       {:ok, value} ->
-        result = Jido.Exec.Fact.child(fact, value: value, ancestry: {node.hash, fact.hash})
+        result =
+          Jido.Exec.Fact.child(
+            fact,
+            [value: value, ancestry: {node.hash, fact.hash}],
+            context.run_context
+          )
 
         Runnable.complete(runnable, result, [
           FactProduced.new(result, producer_label: :produced, weight: context.ancestry_depth + 1),

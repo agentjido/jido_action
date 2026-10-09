@@ -1,7 +1,7 @@
 defmodule Jido.Exec.Node.Input do
   @moduledoc false
 
-  alias Jido.Exec.{Frame, ValueResolver}
+  alias Jido.Exec.{Frame, Portable, ValueResolver}
   alias Runic.Identity
 
   @enforce_keys [:id, :name, :hash, :component, :params]
@@ -56,7 +56,8 @@ defmodule Jido.Exec.Node.Input do
          {:ok, params} <-
            ValueResolver.resolve(node.params, Frame.resolver_state(parent, context)),
          {:ok, params} <-
-           validate_params(node.validator, params, node.component, node.node_path) do
+           validate_params(node.validator, params, node.component, node.node_path),
+         :ok <- Portable.validate(params, :output, context) do
       {:ok, Frame.nest(parent, params)}
     end
   end
@@ -124,7 +125,12 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Input do
   def execute(node, %Runnable{input_fact: fact, context: context} = runnable) do
     case Input.resolve(node, Jido.Exec.Fact.value(fact), context.run_context) do
       {:ok, value} ->
-        result = Jido.Exec.Fact.child(fact, value: value, ancestry: {node.hash, fact.hash})
+        result =
+          Jido.Exec.Fact.child(
+            fact,
+            [value: value, ancestry: {node.hash, fact.hash}],
+            context.run_context
+          )
 
         Runnable.complete(runnable, result, [
           FactProduced.new(result, producer_label: :produced, weight: context.ancestry_depth + 1),

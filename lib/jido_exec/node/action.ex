@@ -76,7 +76,7 @@ defmodule Jido.Exec.Node.Action do
     case result do
       {:ok, value, effects} ->
         metadata = context.input_metadata |> Map.delete(:runic) |> append_effects(effects)
-        {value, metadata} = Jido.Exec.Fact.encode_output(value, input, metadata)
+        {value, metadata} = Jido.Exec.Fact.encode_output(value, input, metadata, context.runtime)
         Result.value(value, metadata: metadata)
 
       {:error, error} ->

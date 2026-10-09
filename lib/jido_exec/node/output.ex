@@ -1,7 +1,7 @@
 defmodule Jido.Exec.Node.Output do
   @moduledoc false
 
-  alias Jido.Exec.{Frame, ValueResolver}
+  alias Jido.Exec.{Frame, Portable, ValueResolver}
   alias Runic.Identity
 
   @enforce_keys [:id, :name, :hash, :output, :effect_order]
@@ -69,7 +69,8 @@ defmodule Jido.Exec.Node.Output do
   def resolve(%__MODULE__{} = node, input, context) do
     with {:ok, frame} <- Frame.merge(input),
          {:ok, output} <- ValueResolver.resolve(node.output, Frame.resolver_state(frame, context)),
-         {:ok, output} <- validate_output(node.validator, output) do
+         {:ok, output} <- validate_output(node.validator, output),
+         :ok <- Portable.validate(output, :output, context) do
       effects = Frame.effects(frame, node.effect_order)
       complete_output(node, frame, output, effects)
     end
@@ -161,9 +162,8 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Output do
       result_fact =
         Jido.Exec.Fact.child(
           fact,
-          value: output,
-          ancestry: {node.hash, fact.hash},
-          meta: %{jido: %{effects: effects}}
+          [value: output, ancestry: {node.hash, fact.hash}, meta: %{jido: %{effects: effects}}],
+          context.run_context
         )
 
       case HookRunner.run_after(context, node, fact, result_fact) do
@@ -191,6 +191,9 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Output do
           Runnable.fail(runnable, {:hook_error, reason})
       end
     else
+      {:error, %{details: %{phase: :durability}} = reason} ->
+        Runnable.fail(runnable, Jido.Exec.Source.attach(reason, node.location))
+
       {:error, reason} ->
         phase = if is_nil(node.parent_component), do: :flow_output, else: :subflow_output
         Runnable.fail(runnable, Jido.Exec.Source.attach(reason, node.location, %{phase: phase}))

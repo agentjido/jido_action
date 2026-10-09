@@ -74,7 +74,7 @@ defmodule Jido.Exec.Frame do
   @doc false
   @spec resolver_state(t() | nested_t(), map()) :: map()
   def resolver_state({@tag, @version, input, results, _effects}, context) do
-    %{input: input, context: context, results: results}
+    %{input: input, context: Map.delete(context, :__jido_exec_durable__), results: results}
   end
 
   def resolver_state({@nested_tag, @version, _parent, child}, context) do
