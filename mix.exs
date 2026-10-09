@@ -295,7 +295,7 @@ defmodule JidoAction.MixProject do
   defp deps do
     [
       {:telemetry, "~> 1.3"},
-      {:zoi, "~> 0.17"},
+      {:zoi, "~> 0.18.11"},
       {:jason, "~> 1.4"},
       {:runic, github: "mikehostetler/runic", branch: "integration/jido-v3", override: true},
       {:splode, "~> 0.3.0"},
