@@ -473,6 +473,10 @@ When `jido: MyApp.Jido` is provided, all tasks spawn under `MyApp.Jido.TaskSuper
 
 We welcome contributions! Please see our [GitHub repository](https://github.com/agentjido/jido_action) for details.
 
+## Local Documentation
+
+Run `mix docs` to generate HTML and Markdown documentation in `doc/`, including Markdown pages and `llms.txt`.
+
 ## License
 
 Copyright 2024-2025 Mike Hostetler

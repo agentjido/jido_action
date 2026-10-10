@@ -128,7 +128,7 @@ defmodule JidoAction.MixProject do
         {"LICENSE", title: "Apache 2.0 License"}
       ],
       extra_section: "Guides",
-      formatters: ["html"],
+      formatters: ["html", "markdown"],
       skip_undefined_reference_warnings_on: [
         "CHANGELOG.md",
         "LICENSE"
@@ -231,7 +231,7 @@ defmodule JidoAction.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test]},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:mix_audit, "~> 2.0", only: [:dev, :test], runtime: false},
-      {:ex_doc, "~> 0.34", only: :dev, runtime: false},
+      {:ex_doc, "~> 0.40.4", only: :dev, runtime: false},
       {:excoveralls, "~> 0.18.3", only: [:dev, :test]},
       {:mix_test_watch, "~> 1.0", only: [:dev, :test], runtime: false},
       {:mimic, "~> 2.0", only: :test},
@@ -249,7 +249,7 @@ defmodule JidoAction.MixProject do
       test: "test --exclude flaky",
 
       # Helper to run docs
-      docs: "docs -f html --open",
+      docs: "docs --open",
 
       # Run to check the quality of your code
       q: ["quality"],
