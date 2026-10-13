@@ -15,7 +15,7 @@ defmodule Jido.Exec.Telemetry do
   alias Jido.Flow
   alias Jido.Flow.Error, as: FlowError
   alias Jido.Instruction
-  alias Runic.Workflow.Runnable
+  alias Runic.Workflow.SingleOutput.Context
 
   @type kind :: :action | :flow
 
@@ -43,19 +43,19 @@ defmodule Jido.Exec.Telemetry do
   end
 
   @doc false
-  @spec action_metadata(Action.t(), Runnable.t()) :: map()
+  @spec action_metadata(Action.t(), Context.t()) :: map()
   def action_metadata(
         %Action{instruction: %Instruction{target: action}, flow: flow} = node,
-        %Runnable{} = runnable
+        %Context{} = context
       ) do
     %{
       action: action,
       action_name: action_name(action),
       node_name: node.name,
-      runnable_id: runnable.id,
-      activation_id: runnable.activation_id,
-      attempt_id: runnable.attempt_id,
-      attempt: runnable.attempt_number
+      runnable_id: context.runnable_id,
+      activation_id: context.activation_id,
+      attempt_id: context.attempt_id,
+      attempt: context.attempt_number
     }
     |> Map.merge(flow_component_metadata(flow))
   end

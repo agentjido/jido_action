@@ -32,13 +32,20 @@ defmodule Jido.Exec.Fact do
   @doc false
   @spec child(Fact.t(), keyword()) :: Fact.t()
   def child(%Fact{} = parent, opts) do
-    if local?(parent) do
+    parent.value
+    |> child_options(parent.meta, opts)
+    |> Fact.new()
+  end
+
+  @doc false
+  @spec child_options(term(), map(), keyword()) :: keyword()
+  def child_options(input, metadata, opts) do
+    if local?(input, metadata) do
       opts
       |> Keyword.update!(:value, &wrap/1)
       |> Keyword.update(:meta, @local_identity, &put_local_identity/1)
-      |> Fact.new()
     else
-      Fact.new(opts)
+      opts
     end
   end
 
@@ -46,8 +53,8 @@ defmodule Jido.Exec.Fact do
   @spec value(Fact.t()) :: term()
   def value(%Fact{value: value}), do: unwrap(value)
 
-  defp local?(%Fact{meta: %{jido: %{identity_mode: :local}}}), do: true
-  defp local?(%Fact{value: value}), do: contains_local_value?(value)
+  defp local?(_input, %{jido: %{identity_mode: :local}}), do: true
+  defp local?(input, _metadata), do: contains_local_value?(input)
 
   defp put_local_identity(meta) do
     Map.update(meta, :jido, %{identity_mode: :local}, &Map.put(&1, :identity_mode, :local))
@@ -85,22 +92,24 @@ defmodule Jido.Exec.Fact do
 
   defp wrap(value, _depth), do: local_value(value)
 
-  defp unwrap(%LocalValue{value: value}), do: value
-  defp unwrap(%_{} = value), do: value
-  defp unwrap(value) when is_list(value), do: Enum.map(value, &unwrap/1)
+  @doc false
+  @spec unwrap(term()) :: term()
+  def unwrap(%LocalValue{value: value}), do: value
+  def unwrap(%_{} = value), do: value
+  def unwrap(value) when is_list(value), do: Enum.map(value, &unwrap/1)
 
-  defp unwrap(value) when is_tuple(value) do
+  def unwrap(value) when is_tuple(value) do
     value
     |> Tuple.to_list()
     |> Enum.map(&unwrap/1)
     |> List.to_tuple()
   end
 
-  defp unwrap(value) when is_map(value) do
+  def unwrap(value) when is_map(value) do
     Map.new(value, fn {key, item} -> {unwrap(key), unwrap(item)} end)
   end
 
-  defp unwrap(value), do: value
+  def unwrap(value), do: value
 
   defp contains_local_value?(%LocalValue{}), do: true
   defp contains_local_value?(%_{}), do: false

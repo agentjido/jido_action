@@ -52,6 +52,7 @@ For each change, identify the old code removed and the contracts verified.
    as live observations. Rejected initial input closes the new Worker through
    Runic cancellation. Validation: 767 default tests passed, 93.07 percent
    coverage, and quality checks passed. The three recorded fuzz failures remain.
+   Custom ordering is now proposed upstream in [Runic PR #47](https://github.com/zblanco/runic/pull/47).
 
 2. Adopt native task ownership (#292).
    Replace the custom TaskExecutor where the native executor meets the current
@@ -70,7 +71,7 @@ For each change, identify the old code removed and the contracts verified.
    passed. Fuzz retains the three recorded baseline failures. Ownership tests
    cover timed and untimed work that traps exits, Worker and caller death,
    stop and cancel, task release, supervisor and group leader, and failed
-   persistent stop.
+   persistent stop. Jido implementation commit: `c89fafac`.
 
 3. Adopt SingleOutput (#293).
    Convert the Action node first. Remove repeated context, hook, child Fact,
@@ -78,6 +79,19 @@ For each change, identify the old code removed and the contracts verified.
    explicit. Verify local values and portable managed values, schemas, retry
    classification, telemetry, effects, and replay. Convert other ordinary nodes
    only where their readiness contract fits.
+
+   Implemented locally for the Action node: use `Runic.Workflow.SingleOutput`
+   and return its explicit value or failure result. Runic now owns preparation,
+   hooks, child Facts, activation consumption, and collection tracking. Jido
+   retains validation, error conversion, local-value encoding, telemetry, and
+   effect metadata. The Fact helper separates value encoding from construction;
+   telemetry reads the native callback context. This removes 59 production lines.
+   Validation: 52 focused tests and 779 default tests passed, with 93.12 percent
+   coverage. Quality, strict test compilation, authoring, property, system, and
+   load checks passed. Fuzz retains the three recorded baseline failures.
+   The Action-only #293 change passed a design review. The review reran 139
+   Exec tests and six temporary contract probes; all passed. Native before-hook
+   error nesting remains a separate Runic error-format decision.
 
 4. Adopt public ports (#295).
    Replace compiler endpoint lookup and manual multi-parent Join construction.
