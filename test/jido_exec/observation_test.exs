@@ -72,4 +72,16 @@ defmodule Jido.Exec.ObservationTest do
 
     assert details.reason == :admission_stopped
   end
+
+  test "a computed result does not acknowledge failed persistence" do
+    {workflow, observation} = Workflow.execute(Exec.compile!(Add), %{value: 1, amount: 2})
+
+    observation = %{
+      observation
+      | persistence: %{status: {:error, :storage_unavailable}, event_cursor: 0, pending_events: 1}
+    }
+
+    assert Exec.result(workflow, observation) == {:ok, %{value: 3}}
+    assert observation.persistence.status == {:error, :storage_unavailable}
+  end
 end

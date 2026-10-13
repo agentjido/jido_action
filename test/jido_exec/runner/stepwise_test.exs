@@ -86,6 +86,7 @@ defmodule Jido.Exec.Runner.StepwiseTest do
 
     assert {3, %Workflow{} = workflow} = step_to_completion(runner, execution_id, tag)
     refute Workflow.is_runnable?(workflow)
+    assert Exec.result(runner, execution_id) == {:ok, %{value: 2}}
     assert Recorder.entries() == [:first, :second]
 
     assert {:ok, productions} = Runic.Runner.get_results(runner, execution_id)
@@ -103,10 +104,10 @@ defmodule Jido.Exec.Runner.StepwiseTest do
                hooks: runner_hooks(tag)
              )
 
-    assert {_steps, %Workflow{} = workflow} = step_to_completion(runner, execution_id, tag)
+    assert {_steps, %Workflow{}} = step_to_completion(runner, execution_id, tag)
 
     assert {:error, %Jido.Action.Error.ExecutionFailureError{message: "step_failed"}} =
-             Exec.result(workflow)
+             Exec.result(runner, execution_id)
 
     assert Recorder.entries() == [:failed]
   end
@@ -144,10 +145,10 @@ defmodule Jido.Exec.Runner.StepwiseTest do
 
     send(b, :release)
     assert_receive :idle, 1_000
-    assert {:complete, workflow} = Exec.step(runner, id)
+    assert {:complete, %Workflow{}} = Exec.step(runner, id)
 
     assert {:error, %Jido.Action.Error.ExecutionFailureError{message: "controlled_failure"}} =
-             Exec.result(workflow)
+             Exec.result(runner, id)
   end
 
   test "manual execution resumes from durable Runic state", %{runner: runner} do

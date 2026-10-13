@@ -109,9 +109,11 @@ stopped admission, uncertain outcomes, and output from another input occurrence.
 It selects the declared Jido result port; runtime support-node outputs are not
 Jido results. Runic Store acknowledgement remains a separate persistence status.
 
-`result(workflow)` remains the snapshot form for managed or restored workflows.
-It includes historical failure and uncertainty events. Use an observation when
-a reusable workflow has more than one input scope.
+For managed work, use `result(runner, execution_id)`. It reads the Runic
+observation for the input admitted by `start/6`. After resume, Runic has no
+live observation for that input. Exec checks for active and ready work, then
+projects the restored snapshot. `result(workflow)` remains the completed
+snapshot form and includes historical failure and uncertainty events.
 
 ## Immediate Runtime Options
 

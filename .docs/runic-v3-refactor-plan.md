@@ -37,6 +37,22 @@ For each change, identify the old code removed and the contracts verified.
    Verify active work, stopped admission, uncertain exits, repeated inputs,
    failure order, and persistence status.
 
+   Implemented locally: `start/6` admits a Runic execution scope, and
+   `result(runner, execution_id)` reads its observation. Snapshot and observed
+   results share projection and error normalization. Runic does not restore
+   process-local observations, so resumed work retains snapshot event scanning
+   after active and ready work checks. Remove that scan only when Runic supplies
+   restored observations.
+   Managed admission uses the same sort callback as immediate execution. The
+   local Runic Worker now applies that callback to resolved candidates at the
+   lowest ready or active causal depth. This Worker support also needs to reach
+   the Runic Hex release before replacing the local path dependency.
+
+   Runic Worker support commit: `84db769`. Saved failures use the same selector
+   as live observations. Rejected initial input closes the new Worker through
+   Runic cancellation. Validation: 767 default tests passed, 93.07 percent
+   coverage, and quality checks passed. The three recorded fuzz failures remain.
+
 2. Adopt native task ownership (#292).
    Replace the custom TaskExecutor where the native executor meets the current
    contract. Review the immediate caller watcher separately. Verify caller and

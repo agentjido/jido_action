@@ -377,7 +377,7 @@ APIs. Replace `run_async`, `await`, `cancel`, `ready`, `step/1`, `wave`,
 - use `Jido.Exec.start/6` with a supervised `Runic.Runner` for managed work,
   and `Jido.Exec.step/2` for manual dispatch;
 - use `Runic.Runner` to checkpoint and stop, `Jido.Exec.resume/4` to resume,
-  and `Jido.Exec.result/1` to read a managed result.
+  and `Jido.Exec.result(runner, execution_id)` to read a managed result.
 
 For in-memory background work, call `Jido.Exec.run/4` from your own supervised
 Task. Stop that Task to cancel the call. For work that must outlive the caller,

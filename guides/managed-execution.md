@@ -91,19 +91,23 @@ ID that is still running returns an error.
 
 ## Read The Result
 
-Wait for completion, then project the stored workflow to the public result:
+Wait for completion, then read the public result:
 
 ```elixir
 receive do
   {:done, "add-1"} -> :ok
 end
 
-{:ok, workflow} = Runic.Runner.get_workflow(MyApp.Runner, "add-1")
-{:ok, %{value: 4}, [added: 1, added: 2]} = Jido.Exec.result(workflow)
+{:ok, %{value: 4}, [added: 1, added: 2]} = Jido.Exec.result(MyApp.Runner, "add-1")
 ```
 
-`result/1` returns the same success or error contract as `run/4`. Do not read
-the result before the execution completes.
+`result(runner, execution_id)` returns the same success or error contract as
+`run/4`. It uses the Runic observation for the input admitted by `start/6`.
+Active or ready work returns an error with `details.reason: :execution_active`.
+Later input occurrences do not replace this result.
+
+Computation and Store acknowledgement are separate. Read
+`Runic.Runner.persistence_status/2` before treating a result as stored.
 
 ## Options
 
@@ -169,9 +173,9 @@ step_all = fn step_all, count ->
   end
 end
 
-{_count, workflow} = step_all.(step_all, 0)
+{_count, _workflow} = step_all.(step_all, 0)
 
-{:ok, %{value: 13}, [added: 1, added: 2]} = Jido.Exec.result(workflow)
+{:ok, %{value: 13}, [added: 1, added: 2]} = Jido.Exec.result(MyApp.Runner, "add-3")
 ```
 
 `step/2` returns:
@@ -187,14 +191,11 @@ end
 A scheduler unit is not always an authored Flow step. Flow input, output,
 joins, and collection bookkeeping are units too. A failed execution also
 returns `{:complete, workflow}`. A stopped scope can retain ready work. Read
-`Jido.Exec.result/1` for the terminal result. Uncertain executor work returns an
-error with the original reason and `details.retry: false`; it does not become
-a fabricated node failure or automatically restart. Check for failures:
-
-```elixir
-failures =
-  for %Runic.Workflow.RunnableFailed{} = event <- workflow.runnable_events, do: event
-```
+`Jido.Exec.result(runner, execution_id)` for the terminal result. Uncertain
+executor work returns an error with the original reason and
+`details.retry: false`; it does not become
+a fabricated node failure or automatically restart. Failure selection follows
+causal depth, component name, and collection item order.
 
 Call `Runic.Runner.continue/2` to switch a manual execution back to automatic
 dispatch.
@@ -216,6 +217,12 @@ The Runic store is the source of truth for progress. A resume restores the
 completed work and continues with the remaining work. Completed Actions do not
 run again. Jido keeps no separate checkpoint, and Flow JSON holds only the
 definition.
+
+Runic observations are process-local and are not restored from the Store.
+After resume, `result(runner, execution_id)` checks for active and ready work,
+then projects the restored snapshot. This path includes historical failure
+and uncertainty events. `result(workflow)` remains available for a completed
+snapshot obtained directly from Runic.
 
 > #### Supply context and policy again {: .warning}
 >

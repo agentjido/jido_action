@@ -106,6 +106,8 @@ defmodule Jido.Exec.Runner.ManagedTest do
 
     assert Exec.result(workflow) ==
              {:ok, %{value: 2, request_id: "r-42"}, [:first, :second]}
+
+    assert Exec.result(runner, id) == Exec.result(workflow)
   end
 
   test "managed Action targets keep context out of the Runic store" do
@@ -181,7 +183,8 @@ defmodule Jido.Exec.Runner.ManagedTest do
 
       assert_receive {:idle, ^id}, 2_000
       assert {:ok, workflow} = Runic.Runner.get_workflow(runner, id)
-      assert {:error, %^error{}} = Exec.result(workflow)
+      assert {:error, %^error{message: message, details: details}} = Exec.result(workflow)
+      assert {:error, %^error{message: ^message, details: ^details}} = Exec.result(runner, id)
     end
   end
 

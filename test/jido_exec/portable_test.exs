@@ -2,6 +2,13 @@ defmodule Jido.Exec.PortableTest do
   use ExUnit.Case, async: false
 
   alias Jido.Exec
+  alias Jido.Flow
+  alias Jido.Flow.Ref
+  alias JidoActionTest.Fixtures.Actions.Add
+
+  defmodule UnprojectedData do
+    defstruct value: 1
+  end
 
   defmodule BlockingAction do
     use Jido.Action, name: "exec_v2_portable_blocking"
@@ -48,6 +55,57 @@ defmodule Jido.Exec.PortableTest do
     assert_receive {:local_output_failed, error}, 1_000
     assert error.details.reason == :non_portable_durable_value
     assert error.details.type == :pid
+  end
+
+  test "rejected Runic input closes the new Worker and permits a corrected retry" do
+    runner = start_runner!()
+    id = unique_id()
+    flow = input_flow()
+
+    assert {:error, %Runic.Identity.CanonicalError{}} =
+             Exec.start(runner, id, flow, %{value: %UnprojectedData{}})
+
+    assert Runic.Runner.lookup(runner, id) == nil
+    assert DynamicSupervisor.which_children(Module.concat(runner, WorkerSupervisor)) == []
+
+    scopes =
+      Registry.select(Module.concat(runner, Registry), [
+        {{{Runic.TaskScope, :_}, :"$1", :_}, [], [:"$1"]}
+      ])
+
+    refute Enum.any?(scopes, &Process.alive?/1)
+    owner = self()
+
+    assert {:ok, _worker} =
+             Exec.start(runner, id, flow, %{value: 1}, %{},
+               hooks: [on_idle: fn _state -> send(owner, :retry_idle) end]
+             )
+
+    assert_receive :retry_idle
+    assert Exec.result(runner, id) == {:ok, %{value: 1}}
+  end
+
+  test "a duplicate start leaves the existing Worker intact" do
+    runner = start_runner!()
+    id = unique_id()
+    flow = input_flow()
+    assert {:ok, worker} = Exec.start(runner, id, flow, %{value: 1}, %{}, dispatch_mode: :manual)
+
+    assert {:error, %{details: %{reason: {:already_started, ^worker}}}} =
+             Exec.start(runner, id, flow, %{value: %UnprojectedData{}})
+
+    assert Runic.Runner.lookup(runner, id) == worker
+    assert Process.alive?(worker)
+  end
+
+  defp input_flow do
+    Flow.new!(%{
+      name: "portable_input",
+      components: [
+        %{kind: :step, name: "add", action: Add, params: %{value: Ref.input(:value), amount: 0}}
+      ],
+      output: Ref.result("add")
+    })
   end
 
   defp start_runner! do

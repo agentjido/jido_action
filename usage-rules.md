@@ -78,10 +78,13 @@ API to use. See the guides on HexDocs for explanations and examples.
 - `start/6` returns `{:ok, pid}` after it starts the Runner worker and requests
   dispatch. Use the `on_complete:` option or `Runic.Runner` to learn when it
   finishes.
-- Read the final workflow with `Runic.Runner.get_workflow/2`, then use
-  `Jido.Exec.result/1` to get the same result contract as `run/4`. With a
-  Runic execution observation, use `result(workflow, observation)` to select
-  one input scope and reject active or uncertain work.
+- Use `Jido.Exec.result(runner, execution_id)` to read the managed result.
+  It selects the input admitted by `start/6` and rejects active or ready work.
+  After resume, it checks progress and projects the restored snapshot, which
+  includes historical failures. Use `result(workflow)` for a completed
+  snapshot, or `result(workflow, observation)` for a specific Runic input scope.
+- Read `Runic.Runner.persistence_status/2` for Store acknowledgement. A
+  computed result can still have pending or failed persistence.
 - Keep managed params, context, Action outputs, and effects portable: no
   PIDs, ports, references, or functions. Managed execution rejects them.
 - Managed `max_concurrency` defaults to `System.schedulers_online()`, not `1`.
@@ -92,7 +95,8 @@ API to use. See the guides on HexDocs for explanations and examples.
   `Jido.Exec.step(runner, execution_id)`. It returns `{:ok, workflow}`,
   `{:complete, workflow}`, or `{:error, reason}` (`:busy`,
   `:automatic_dispatch`, or `:not_found`). `{:complete, workflow}` also
-  covers stopped admission; read `Jido.Exec.result/1` for failure or uncertain work.
+  covers stopped admission; read `Jido.Exec.result(runner, execution_id)` for
+  failure or uncertain work.
 
 ## Instructions
 

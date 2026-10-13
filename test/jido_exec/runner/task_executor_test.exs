@@ -42,6 +42,10 @@ defmodule Jido.Exec.Runner.TaskExecutorTest do
     assert details.outcome == :uncertain
     assert details.reason == :killed
     assert details.retry == false
+
+    assert {:error, %Jido.Action.Error.ExecutionFailureError{details: ^details}} =
+             Exec.result(runner, execution_id)
+
     assert Runic.Workflow.is_runnable?(workflow)
     assert is_pid(worker)
     assert Process.alive?(worker)

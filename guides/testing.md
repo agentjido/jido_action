@@ -143,8 +143,7 @@ test "a managed Flow completes", %{runner: runner} do
     )
 
   assert_receive {:done, "add-1"}
-  assert {:ok, workflow} = Runic.Runner.get_workflow(runner, "add-1")
-  assert {:ok, %{sum: 6}} = Jido.Exec.result(workflow)
+  assert {:ok, %{sum: 6}} = Jido.Exec.result(runner, "add-1")
 end
 ```
 
@@ -167,7 +166,7 @@ Run durable tests through a real `Runic.Runner` and Store:
 3. checkpoint and stop the Worker;
 4. call `Jido.Exec.resume/4` with the same context and options;
 5. assert that completed Actions did not run again;
-6. assert the result through `Jido.Exec.result/1` on the final workflow.
+6. assert the result through `Jido.Exec.result(runner, execution_id)`.
 
 Use a stable execution ID. Keep process-local values out of durable params,
 context, and outputs.
