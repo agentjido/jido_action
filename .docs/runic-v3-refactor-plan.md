@@ -92,11 +92,28 @@ For each change, identify the old code removed and the contracts verified.
    The Action-only #293 change passed a design review. The review reran 139
    Exec tests and six temporary contract probes; all passed. Native before-hook
    error nesting remains a separate Runic error-format decision.
+   Jido implementation commit: `92fe548b`.
 
 4. Adopt public ports (#295).
    Replace compiler endpoint lookup and manual multi-parent Join construction.
    Verify all-input semantics, nested boundaries, declared outputs, missing
    ports, build-log replay, and effect order.
+
+   Implemented locally in the compiler: named connections select public ports
+   for multiple parents, with `input_mode: :all` and explicit input positions.
+   Single-parent connections use Runic's public whole-output connection, which
+   resolves nested exports without an extra binding node. The compiler no
+   longer inspects child output endpoints or constructs multi-parent Joins.
+   The existing Dispatch completion gate remains. Direct native grouped Action
+   composition remains supported and has a parent-order/rebuild test.
+   This removes 14 production lines and adds no module or Runic change.
+   Tests cover ordinary and nested parents, `needs`, an explicit non-terminal
+   child output, effect order under serial and concurrent execution, missing
+   ports, build-log replay, and managed execution. Validation: 783 default tests
+   passed with 93.05 percent coverage. Quality, strict test compilation,
+   authoring, property, system, and load checks passed. Fuzz retains the three
+   recorded baseline failures. The design review reran 143 Exec tests and seven
+   temporary contract probes; all passed, with no findings.
 
 5. Adopt Batch (#296).
    Replace manual FanOut/FanIn wiring, the empty-item token, and first-item

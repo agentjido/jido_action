@@ -607,48 +607,34 @@ defmodule Jido.Exec.Compiler do
   defp add_component(workflow, component, []), do: Workflow.add(workflow, component)
 
   defp add_component(workflow, component, [parent]) do
-    source = Workflow.get_component(workflow, parent)
-
-    cond do
+    case Workflow.get_component(workflow, parent) do
       # Only a finished Dispatch reaches the Flow output.
-      match?(%Dispatch{}, source) ->
+      %Dispatch{} = source ->
         Workflow.add(workflow, component, to: Dispatch.finished_condition(source))
 
-      match?(%Workflow{}, source) or match?(%Workflow{}, component) ->
-        {source_port, _source_schema} = source |> Runic.Component.outputs() |> List.first()
-        {target_port, _target_schema} = component |> Runic.Component.inputs() |> List.first()
-
-        Workflow.add(workflow, component,
-          connections: [[from: {parent, source_port}, to: target_port]]
-        )
-
-      true ->
+      _source ->
         Workflow.add(workflow, component, to: parent)
     end
   end
 
-  defp add_component(workflow, %Workflow{} = component, parents) do
-    # A child workflow connects its root to one vertex, so join the parents first.
-    endpoints = Enum.map(parents, &component_endpoint(workflow, &1))
-    join = endpoints |> Enum.map(& &1.hash) |> Runic.Workflow.Join.new()
-    workflow = Enum.reduce(endpoints, workflow, &Workflow.add_step(&2, &1, join))
-    Workflow.add(workflow, component, to: join)
-  end
-
   defp add_component(workflow, component, parents) do
-    endpoints = Enum.map(parents, &component_endpoint(workflow, &1))
-    Workflow.add(workflow, component, to: endpoints)
-  end
+    {target_port, _schema} = component |> Runic.Component.inputs() |> List.first()
 
-  defp component_endpoint(workflow, parent) do
-    case Workflow.get_component(workflow, parent) do
-      %Workflow{output_ports: output_ports} ->
-        {_port, port_options} = List.first(output_ports)
-        Workflow.get_component(workflow, Keyword.fetch!(port_options, :from))
+    connections =
+      parents
+      |> Enum.with_index()
+      |> Enum.map(fn {parent, index} ->
+        {source_port, _schema} =
+          workflow |> Workflow.get_component(parent) |> Runic.Component.outputs() |> List.first()
 
-      component ->
-        component
-    end
+        [
+          from: {parent, source_port},
+          to: target_port,
+          target_path: [index]
+        ]
+      end)
+
+    Workflow.add(workflow, component, connections: connections, input_mode: :all)
   end
 
   defp terminal_components(components) do
