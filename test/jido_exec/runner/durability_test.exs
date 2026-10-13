@@ -239,8 +239,6 @@ defmodule Jido.Exec.Runner.DurabilityTest do
 
     assert {:ok, _worker} =
              Runic.Runner.resume(__MODULE__.Runner, execution_id,
-               executor: Jido.Exec.Runner.TaskExecutor,
-               executor_opts: [task_supervisor: Module.concat(__MODULE__.Runner, TaskSupervisor)],
                max_concurrency: 1,
                hooks: [
                  on_dispatch: dispatch_hook,
@@ -472,8 +470,6 @@ defmodule Jido.Exec.Runner.DurabilityTest do
 
     assert {:ok, _worker} =
              Runic.Runner.resume(runner, execution_id,
-               executor: Jido.Exec.Runner.TaskExecutor,
-               executor_opts: [task_supervisor: Module.concat(runner, TaskSupervisor)],
                max_concurrency: 1,
                hooks: [
                  on_idle: fn _state -> send(test_pid, {:resumed_flow_idle, execution_id}) end

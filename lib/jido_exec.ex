@@ -533,7 +533,17 @@ defmodule Jido.Exec do
   # The execution task is not linked to the caller, so a killed Action cannot
   # exit the caller. The linked watcher kills the task, and the processes
   # linked to it, when the caller exits.
-  defp watch_caller(caller, task), do: Jido.Exec.Runner.TaskExecutor.watch(caller, task)
+  defp watch_caller(caller, task) do
+    spawn_link(fn ->
+      caller_monitor = Process.monitor(caller)
+      task_monitor = Process.monitor(task)
+
+      receive do
+        {:DOWN, ^caller_monitor, :process, ^caller, _reason} -> Process.exit(task, :kill)
+        {:DOWN, ^task_monitor, :process, ^task, _reason} -> :ok
+      end
+    end)
+  end
 
   defp stop_watcher(watcher) do
     Process.unlink(watcher)
@@ -571,10 +581,7 @@ defmodule Jido.Exec do
                :ok <- validate_worker_options(worker_opts) do
             policy = %{policy | execution_mode: :durable}
 
-            {:ok, policy,
-             worker_opts
-             |> default_executor()
-             |> Keyword.put(:runnable_order, &observation_order/1)}
+            {:ok, policy, Keyword.put(worker_opts, :runnable_order, &observation_order/1)}
           end
 
         unknown ->
@@ -638,14 +645,6 @@ defmodule Jido.Exec do
        do: is_list(value) and Keyword.keyword?(value)
 
   defp valid_worker_option?(_key, _value), do: true
-
-  defp default_executor(opts) do
-    if Keyword.has_key?(opts, :executor) do
-      opts
-    else
-      Keyword.put(opts, :executor, Jido.Exec.Runner.TaskExecutor)
-    end
-  end
 
   defp current_workflow(runner, execution_id, status) do
     case Runic.Runner.get_workflow(runner, execution_id) do

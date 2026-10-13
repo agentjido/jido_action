@@ -125,7 +125,7 @@ options:
 | `dispatch_mode` | `:automatic` | `:manual` enables `Jido.Exec.step/2`. |
 | `checkpoint_strategy` | `:every_cycle` | `:every_cycle`, `:on_complete`, `:manual`, or `{:every_n, n}`. |
 | `on_complete` | none | `fn execution_id, workflow -> ... end`, called when no work remains. |
-| `executor`, `executor_opts` | Jido Task executor | Replace how runnables are executed. |
+| `executor`, `executor_opts` | Runic Task executor | Replace how runnables are executed. |
 | `scheduler`, `scheduler_opts` | Runic default | Replace how ready work is grouped. |
 | `hooks`, `promise_opts` | none | Runic worker hooks and promise settings. |
 
@@ -217,6 +217,11 @@ The Runic store is the source of truth for progress. A resume restores the
 completed work and continues with the remaining work. Completed Actions do not
 run again. Jido keeps no separate checkpoint, and Flow JSON holds only the
 definition.
+
+Managed execution continues after its caller exits. Runic owns its active
+tasks. With the default executor, a successful `Runic.Runner.stop/3` or
+`cancel/2` waits for those tasks to exit. If a persistent stop cannot save the
+workflow, it returns an error and keeps the same Worker and tasks running.
 
 Runic observations are process-local and are not restored from the Store.
 After resume, `result(runner, execution_id)` checks for active and ready work,

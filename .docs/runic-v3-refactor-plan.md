@@ -59,6 +59,19 @@ For each change, identify the old code removed and the contracts verified.
    Worker death, trapping exits, crash containment, cancellation, task release,
    supervisor selection, group leader, and failed persistent stop.
 
+   Implemented locally for managed execution: use Runic's default Task
+   executor and remove `Jido.Exec.Runner.TaskExecutor`. Runic owns task scopes,
+   task release, and confirmed shutdown. Custom executor options still pass
+   through to Runic. Immediate execution keeps its existing caller watcher as
+   a private function in `Jido.Exec`; its supervisor and caller-exit contracts
+   remain covered by the immediate task tests.
+   Validation: 774 default tests passed with 93.05 percent coverage. Format,
+   strict compilation, quality, authoring, property, system, and load checks
+   passed. Fuzz retains the three recorded baseline failures. Ownership tests
+   cover timed and untimed work that traps exits, Worker and caller death,
+   stop and cancel, task release, supervisor and group leader, and failed
+   persistent stop.
+
 3. Adopt SingleOutput (#293).
    Convert the Action node first. Remove repeated context, hook, child Fact,
    activation, and collection event construction. Keep Jido result conversion
