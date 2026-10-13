@@ -22,27 +22,8 @@ defmodule JidoAction.MixProject do
         counter_examples:
           Path.join(System.get_env("MIX_BUILD_PATH", "_build"), "propcheck-property.ctx")
       ],
-      test_ignore_filters: [
-        # This consumer compiles only in the isolated build tests.
-        &String.starts_with?(&1, "test/fixtures/inline_consumer/"),
-        # test_helper.exs loads these intentionally incomplete Actions.
-        &(&1 == "test/support/fixtures/action/missing_callbacks.exs"),
-        # Authoring source is compiled only by the selected authoring suite.
-        &String.starts_with?(&1, "test/authoring/support/"),
-        # Property support is loaded explicitly by its owning test file.
-        fn path ->
-          String.starts_with?(path, "test/property/") and
-            String.contains?(path, "/support/")
-        end,
-        fn path ->
-          String.starts_with?(path, "test/bench/") and
-            not String.ends_with?(path, "_test.exs")
-        end,
-        fn path ->
-          String.starts_with?(path, "test/load/") and
-            not String.ends_with?(path, "_test.exs")
-        end
-      ],
+      test_ignore_filters: test_ignore_filters(),
+      test_coverage: test_coverage(),
 
       # Docs
       name: "Jido Action",
@@ -50,29 +31,7 @@ defmodule JidoAction.MixProject do
       source_url: @source_url,
       homepage_url: @source_url,
       package: package(),
-      docs: docs(),
-      test_coverage: [
-        # Test support compiles into the test application but is not product code.
-        ignore_modules: [
-          ~r/^Inspect\.JidoActionTest\./,
-          ~r/^JidoActionTest\./,
-
-          # Spark owns this generated namespace. Handwritten DSL and compiler
-          # modules remain part of the coverage result.
-          ~r/^Jido\.Flow\.DSL\.Extension\.Flow\./,
-
-          # Inline wrappers contain generated Action scaffolding only.
-          ~r/^Jido\.Action\.Generated\.Inline\./
-        ],
-        summary: [threshold: 93]
-      ],
-
-      # Dialyzer
-      dialyzer: [
-        plt_local_path: "priv/plts/project.plt",
-        plt_core_path: "priv/plts/core.plt",
-        plt_add_apps: [:mix]
-      ]
+      docs: docs()
     ]
   end
 
@@ -100,6 +59,31 @@ defmodule JidoAction.MixProject do
   defp elixirc_paths(:test), do: ["lib", "test/support"]
   defp elixirc_paths(:dev), do: ["lib"]
   defp elixirc_paths(_), do: ["lib"]
+
+  defp test_ignore_filters do
+    # Mix loads *_test.exs first and already ignores compiled test/support files.
+    # These directories contain isolated fixtures or explicitly loaded helpers.
+    [
+      ~r/^test\/fixtures\/inline_consumer\//,
+      ~r/^test\/authoring\/support\//,
+      ~r/^test\/property\/support\//,
+      ~r/^test\/bench\//
+    ]
+  end
+
+  defp test_coverage do
+    [
+      ignore_modules: [
+        # Test helpers and their Inspect implementations.
+        ~r/^Inspect\.JidoActionTest\./,
+        ~r/^JidoActionTest\./,
+        # Generated Spark and inline Action scaffolding. Authored bodies stay covered.
+        ~r/^Jido\.Flow\.DSL\.Extension\.Flow\./,
+        ~r/^Jido\.Action\.Generated\.Inline\./
+      ],
+      summary: [threshold: 93]
+    ]
+  end
 
   defp docs do
     [
@@ -297,7 +281,7 @@ defmodule JidoAction.MixProject do
       {:telemetry, "~> 1.3"},
       {:zoi, "~> 0.18.11"},
       {:jason, "~> 1.4"},
-      {:runic, github: "mikehostetler/runic", branch: "integration/jido-v3", override: true},
+      {:runic, path: "../runic", override: true},
       {:splode, "~> 0.3.0"},
       {:spark, "~> 2.7.3"},
 
@@ -317,8 +301,6 @@ defmodule JidoAction.MixProject do
 
   defp aliases do
     [
-      # Helper to run tests with trace when needed
-      # test: "test --trace --exclude flaky",
       test: "test --exclude flaky",
       "test.authoring": "test test/authoring --only authoring --seed 0",
       "test.system": "test test/system --only system --seed 0",

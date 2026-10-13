@@ -10,7 +10,7 @@ defmodule Jido.Exec do
   alias Jido.Exec.{Compiler, Frame, Portable, Telemetry}
   alias Jido.Instruction
   alias Runic.Workflow
-  alias Runic.Workflow.{Fact, RunnableFailed, SchedulerPolicy}
+  alias Runic.Workflow.{Execution, ExecutionUncertain, Fact, RunnableFailed, SchedulerPolicy}
 
   @default_task_supervisor Jido.Exec.TaskSupervisor
 
@@ -87,9 +87,9 @@ defmodule Jido.Exec do
   defp do_run_instruction(instruction, opts) do
     with {:ok, instruction} <- validate_flow_input(instruction),
          {:ok, workflow} <- compile(instruction),
-         {:ok, workflow} <-
+         {:ok, workflow, observation} <-
            run_workflow(workflow, execution_input(instruction), instruction.context, opts) do
-      result(workflow)
+      result(workflow, observation)
     else
       {:error, error} -> {:error, normalize_runtime_error(error)}
     end
@@ -158,8 +158,9 @@ defmodule Jido.Exec do
 
   Use this with the workflow returned by `step/2` or `Runic.Runner.get_workflow/2`
   for a managed execution. A terminal Runnable failure returns `{:error,
-  exception}`. A workflow without a Flow or Action result returns an execution
-  error.
+  exception}`. Uncertain executor work also returns an error. This snapshot
+  form includes historical failures; use `result/2` with an observation to
+  select one input scope. A missing Flow or Action result returns an error.
   """
   @spec result(Workflow.t()) :: exec_result()
   def result(%Workflow{} = workflow) do
@@ -167,6 +168,60 @@ defmodule Jido.Exec do
       nil -> project(result_fact(workflow))
       error -> {:error, normalize_runtime_error(error)}
     end
+  end
+
+  @doc """
+  Projects a quiescent Runic execution observation to the Jido result contract.
+
+  Pass the workflow and observation returned by `Runic.Workflow.execute/3`.
+  Active work, stopped admission, failures, and uncertain work return errors.
+  Result selection is limited to the observation's input occurrence. Store
+  acknowledgement remains a separate Runic persistence status.
+  """
+  @spec result(Workflow.t(), Execution.t()) :: exec_result()
+  def result(%Workflow{} = workflow, %Execution{} = observation) do
+    failures =
+      observation
+      |> Execution.failures()
+      |> Enum.reject(&(&1.kind == :skipped and is_nil(&1.error)))
+
+    cond do
+      not observation.quiescent? ->
+        observation_error(observation, :execution_active)
+
+      failures != [] ->
+        failure = Enum.min_by(failures, &failure_order/1)
+
+        error =
+          if failure.kind == :uncertain,
+            do: uncertain_error(failure.error),
+            else: normalize_runtime_error(failure.error)
+
+        {:error, error}
+
+      observation.admission == :stopped ->
+        observation_error(observation, :admission_stopped)
+
+      true ->
+        case scoped_result_fact(workflow, observation.input_fact_id) do
+          %Fact{} = fact ->
+            project(fact)
+
+          nil ->
+            if result_fact(workflow),
+              do: observation_error(observation, :foreign_execution),
+              else: project(nil)
+        end
+    end
+  end
+
+  defp observation_error(observation, reason) do
+    {:error,
+     Jido.Action.Error.execution_error("Exec execution is not complete", %{
+       execution_id: observation.id,
+       reason: reason,
+       retry: false
+     })}
   end
 
   @doc """
@@ -180,40 +235,73 @@ defmodule Jido.Exec do
   workflow is the current Runic state and the unit can still be active. Retry
   after `{:error, :busy}` when that unit completes.
 
-  `{:complete, workflow}` means that Runic has no ready work. Inspect the
-  workflow results and events to distinguish successful completion from a
-  terminal failure.
+  `{:complete, workflow}` means that no work is ready or admission has stopped.
+  Read `result/1` to distinguish success, failure, and uncertain work. Retained
+  ready work does not resume automatically after stopped admission.
   """
   @spec step(module(), term()) :: step_result()
   def step(runner, execution_id) do
     case Runic.Runner.step(runner, execution_id) do
       :ok -> current_workflow(runner, execution_id, :ok)
       {:error, :not_runnable} -> current_workflow(runner, execution_id, :complete)
+      {:error, :admission_stopped} -> stopped_workflow(runner, execution_id)
       {:error, _reason} = error -> error
     end
   end
 
   defp run_workflow(workflow, input, context, opts) do
     with {:ok, policy, react_opts} <- execution_options(opts) do
-      workflow =
+      {workflow, observation} =
         workflow
         |> Workflow.enable_event_emission()
         |> Workflow.put_run_context(%{_global: context})
-        |> Workflow.react_until_satisfied(
-          Jido.Exec.Fact.local_root(input),
+        |> Workflow.execute(
+          Jido.Exec.Fact.local_value(input),
           Keyword.merge(react_opts,
+            runnable_order: &observation_order/1,
             scheduler_policies: [{:default, Map.from_struct(policy)}]
           )
         )
 
-      {:ok, workflow}
+      {:ok, workflow, observation}
     end
+  end
+
+  defp observation_order(runnable) do
+    index =
+      case Jido.Exec.Fact.value(runnable.input_fact) do
+        {:jido_map_item, index, _id, _params, _frame} -> index
+        _value -> 0
+      end
+
+    {elem(Runic.Workflow.Runnable.order_key(runnable), 0), Map.get(runnable.node, :name), index,
+     Runic.Workflow.Runnable.activation_id(runnable)}
+  end
+
+  defp failure_order(failure) do
+    index =
+      case failure.error do
+        %{details: %{item_index: index}} -> index
+        _error -> 0
+      end
+
+    {elem(failure.order_key, 0), failure.node_name, index}
   end
 
   defp result_fact(workflow) do
     case Workflow.results(workflow, nil, facts: true) do
       %{result: %Fact{} = fact} -> fact
       _ports -> nil
+    end
+  end
+
+  defp scoped_result_fact(workflow, input_fact_id) do
+    case Workflow.results(workflow, nil, facts: true, all: true) do
+      %{result: facts} when is_list(facts) ->
+        Enum.find(facts, &(Workflow.root_ancestor_hash(workflow, &1) == input_fact_id))
+
+      _ports ->
+        nil
     end
   end
 
@@ -226,13 +314,22 @@ defmodule Jido.Exec do
   defp project(_missing),
     do: {:error, Jido.Action.Error.execution_error("Exec produced no result")}
 
-  # Runic records events in application order. The first failure is the one
-  # that halted the run, for both serial and concurrent execution.
+  # Snapshot compatibility for restored workflows without live observations.
   defp first_failure(%Workflow{runnable_events: events}) do
     Enum.find_value(events, fn
       %RunnableFailed{error: error} -> error
+      %ExecutionUncertain{reason: reason} -> uncertain_error(reason)
       _event -> nil
     end)
+  end
+
+  defp uncertain_error(reason) do
+    Jido.Action.Error.execution_error("Runic execution outcome is uncertain", %{
+      phase: :execution_task,
+      outcome: :uncertain,
+      reason: reason,
+      retry: false
+    })
   end
 
   defp execution_options(opts) when is_list(opts) do
@@ -482,6 +579,14 @@ defmodule Jido.Exec do
   defp current_workflow(runner, execution_id, status) do
     case Runic.Runner.get_workflow(runner, execution_id) do
       {:ok, %Workflow{} = workflow} -> {status, workflow}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp stopped_workflow(runner, execution_id) do
+    case Runic.Runner.admission_status(runner, execution_id) do
+      {:ok, %{active_units: 0}} -> current_workflow(runner, execution_id, :complete)
+      {:ok, _status} -> {:error, :busy}
       {:error, _reason} = error -> error
     end
   end

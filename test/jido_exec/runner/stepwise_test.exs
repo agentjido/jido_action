@@ -5,7 +5,6 @@ defmodule Jido.Exec.Runner.StepwiseTest do
   alias Jido.Flow
   alias Jido.Flow.Ref
   alias Runic.Workflow
-  alias Runic.Workflow.RunnableFailed
 
   defmodule Recorder do
     use Agent
@@ -32,6 +31,19 @@ defmodule Jido.Exec.Runner.StepwiseTest do
     def run(_params, _context) do
       :ok = Recorder.record(:failed)
       {:error, :step_failed}
+    end
+  end
+
+  defmodule Controlled do
+    use Jido.Action, name: "stepwise_controlled"
+
+    @impl true
+    def run(%{label: label, fail: fail}, %{observer: observer}) do
+      send(Process.whereis(observer), {:started, label, self()})
+
+      receive do
+        :release -> if fail, do: {:error, :controlled_failure}, else: {:ok, %{value: 1}}
+      end
     end
   end
 
@@ -93,17 +105,49 @@ defmodule Jido.Exec.Runner.StepwiseTest do
 
     assert {_steps, %Workflow{} = workflow} = step_to_completion(runner, execution_id, tag)
 
-    assert Enum.any?(workflow.runnable_events, fn
-             %RunnableFailed{
-               error: %Jido.Action.Error.ExecutionFailureError{message: "step_failed"}
-             } ->
-               true
-
-             _event ->
-               false
-           end)
+    assert {:error, %Jido.Action.Error.ExecutionFailureError{message: "step_failed"}} =
+             Exec.result(workflow)
 
     assert Recorder.entries() == [:failed]
+  end
+
+  test "stopped admission stays busy until already admitted work completes", %{runner: runner} do
+    observer = Module.concat(__MODULE__, Observer)
+    Process.register(self(), observer)
+    owner = self()
+    id = {:active_failure, System.unique_integer([:positive])}
+
+    flow =
+      Flow.new!(%{
+        name: "active_failure",
+        components: [
+          %{kind: :step, name: "a", action: Controlled, params: %{label: :a, fail: true}},
+          %{kind: :step, name: "b", action: Controlled, params: %{label: :b, fail: false}}
+        ],
+        output: %{a: Ref.result("a"), b: Ref.result("b")}
+      })
+
+    assert {:ok, _worker} =
+             Exec.start(runner, id, flow, %{}, %{observer: observer},
+               max_concurrency: 2,
+               hooks: [
+                 on_failed: fn _runnable, _reason, _state -> send(owner, :failed) end,
+                 on_idle: fn _state -> send(owner, :idle) end
+               ]
+             )
+
+    assert_receive {:started, :a, a}, 1_000
+    assert_receive {:started, :b, b}, 1_000
+    send(a, :release)
+    assert_receive :failed, 1_000
+    assert Exec.step(runner, id) == {:error, :busy}
+
+    send(b, :release)
+    assert_receive :idle, 1_000
+    assert {:complete, workflow} = Exec.step(runner, id)
+
+    assert {:error, %Jido.Action.Error.ExecutionFailureError{message: "controlled_failure"}} =
+             Exec.result(workflow)
   end
 
   test "manual execution resumes from durable Runic state", %{runner: runner} do

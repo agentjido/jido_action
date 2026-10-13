@@ -124,7 +124,9 @@ defmodule Jido.Exec.Fact do
     Runic.Identity.Projectable.impl_for(value) != Runic.Identity.Projectable.Any
   end
 
-  defp local_value(value) do
+  @doc false
+  @spec local_value(term()) :: LocalValue.t()
+  def local_value(value) do
     %LocalValue{
       value: value,
       digest: :crypto.hash(:sha256, :erlang.term_to_binary(value, [:deterministic]))

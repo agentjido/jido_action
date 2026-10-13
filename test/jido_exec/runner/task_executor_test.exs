@@ -17,12 +17,13 @@ defmodule Jido.Exec.Runner.TaskExecutorTest do
     end
   end
 
-  test "managed execution contains an Action process crash" do
+  test "managed execution retains an uncertain Action after a process crash" do
     runner = start_runner!()
     test_pid = self()
+    execution_id = unique_id()
 
     assert {:ok, worker} =
-             Exec.start(runner, unique_id(), KillingAction, %{}, %{},
+             Exec.start(runner, execution_id, KillingAction, %{}, %{},
                hooks: [
                  on_failed: fn _runnable, reason, _state ->
                    send(test_pid, {:managed_failed, reason})
@@ -31,8 +32,17 @@ defmodule Jido.Exec.Runner.TaskExecutorTest do
                ]
              )
 
-    assert_receive {:managed_failed, {:task_crashed, :killed}}, 1_000
     assert_receive :managed_idle, 1_000
+    refute_received {:managed_failed, _reason}
+    assert {:ok, workflow} = Runic.Runner.get_workflow(runner, execution_id)
+
+    assert {:error, %Jido.Action.Error.ExecutionFailureError{details: details}} =
+             Exec.result(workflow)
+
+    assert details.outcome == :uncertain
+    assert details.reason == :killed
+    assert details.retry == false
+    assert Runic.Workflow.is_runnable?(workflow)
     assert is_pid(worker)
     assert Process.alive?(worker)
   end

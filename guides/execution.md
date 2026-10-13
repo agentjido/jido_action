@@ -103,6 +103,16 @@ Actions can return:
 The effects list must be a proper list. Dynamic control belongs in Flow
 components. Exec does not follow Action result continuations in a private loop.
 
+For a workflow and execution observation returned by `Runic.Workflow.execute/3`,
+use `Jido.Exec.result(workflow, observation)`. This form rejects active work,
+stopped admission, uncertain outcomes, and output from another input occurrence.
+It selects the declared Jido result port; runtime support-node outputs are not
+Jido results. Runic Store acknowledgement remains a separate persistence status.
+
+`result(workflow)` remains the snapshot form for managed or restored workflows.
+It includes historical failure and uncertainty events. Use an observation when
+a reusable workflow has more than one input scope.
+
 ## Immediate Runtime Options
 
 `run/4` accepts these options:
@@ -125,8 +135,11 @@ exits are not retried. Invalid option values return a
 `Jido.Action.Error.ConfigurationError`.
 
 The default failure action is `:halt`. A halting failure stops new dispatch;
-work that already started can finish. The returned error is the first failure
-that Runic recorded, for serial and concurrent execution.
+work that already started can finish. Immediate execution selects failures by causal depth and authored node name,
+so completion timing does not select the returned error. An executor that ends
+without an accepted result returns an uncertain-work error with the original
+exit reason and `details.retry: false`. Work with an uncertain outcome can
+have caused external effects.
 
 ## Managed And Durable Execution
 
@@ -220,7 +233,7 @@ case Jido.Exec.step(MyApp.Runner, "order-42") do
     workflow
 
   {:complete, %Runic.Workflow{} = workflow} ->
-    # No ready work remains. Inspect results or failure events.
+    # No work is ready, or admission stopped. Read Jido.Exec.result(workflow).
     workflow
 
   {:error, :busy} ->

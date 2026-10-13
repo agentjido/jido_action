@@ -1,4 +1,4 @@
-ExUnit.start()
+ExUnit.start(capture_log: true)
 
 {_result, _expected_warnings} =
   Code.with_diagnostics(fn ->

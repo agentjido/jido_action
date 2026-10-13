@@ -22,7 +22,10 @@ defmodule JidoActionTest.Examples.ActionEffectsTest do
       end
     end)
 
-    {_, bindings} = Code.eval_string(Enum.join(examples, "\n"), [], file: guide)
+    {{_, bindings}, _expected_logs} =
+      ExUnit.CaptureLog.with_log(fn ->
+        Code.eval_string(Enum.join(examples, "\n"), [], file: guide)
+      end)
 
     {:ok,
      approval_flow: Keyword.fetch!(bindings, :approval_flow),

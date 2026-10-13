@@ -179,14 +179,17 @@ end
 | Result | Meaning |
 | --- | --- |
 | `{:ok, workflow}` | One unit was dispatched. It may still be running. |
-| `{:complete, workflow}` | No ready work remains. The execution finished or failed. |
+| `{:complete, workflow}` | No work is ready, or admission stopped after failure or uncertain work. |
 | `{:error, :busy}` | The previous unit is still running. Call again after it finishes. |
 | `{:error, :automatic_dispatch}` | The execution was not started with `dispatch_mode: :manual`. |
 | `{:error, :not_found}` | No execution has this ID. |
 
 A scheduler unit is not always an authored Flow step. Flow input, output,
 joins, and collection bookkeeping are units too. A failed execution also
-returns `{:complete, workflow}`. Check for failures:
+returns `{:complete, workflow}`. A stopped scope can retain ready work. Read
+`Jido.Exec.result/1` for the terminal result. Uncertain executor work returns an
+error with the original reason and `details.retry: false`; it does not become
+a fabricated node failure or automatically restart. Check for failures:
 
 ```elixir
 failures =
