@@ -3,6 +3,7 @@ defmodule Jido.Exec.Node.Map.Collection do
 
   alias Jido.Exec.{Frame, ValueResolver}
   alias Runic.Identity
+  alias Runic.Workflow.Batch
 
   @enforce_keys [:id, :name, :hash, :component, :value, :params]
   defstruct [:id, :name, :hash, :component, :value, :params, :location, :node_path]
@@ -35,7 +36,7 @@ defmodule Jido.Exec.Node.Map.Collection do
   end
 
   @doc false
-  @spec resolve(t(), term(), term()) :: {:ok, [term()]} | {:error, term()}
+  @spec resolve(t(), term(), term()) :: {:ok, %Batch.Input{}} | {:error, term()}
   def resolve(%__MODULE__{} = node, input, context) do
     with {:ok, frame} <- Frame.merge(input),
          {:ok, collection} <-
@@ -43,25 +44,17 @@ defmodule Jido.Exec.Node.Map.Collection do
          {:ok, items} <- enumerable(collection) do
       state = Frame.resolver_state(frame, context)
 
-      # Items carry only their resolved params. The frame rides on the first
-      # item so fact size stays linear in the collection size.
       values =
-        case items do
-          [] ->
-            [{:jido_map_empty, frame, node.component}]
+        items
+        |> Enum.with_index()
+        |> Enum.map(fn {item, index} ->
+          item_id = Frame.item_id(node.id, index)
+          item_state = Map.merge(state, %{item: item, item_index: index, item_id: item_id})
+          params = resolve_params(node.params, item_state)
+          {:jido_map_item, index, item_id, params}
+        end)
 
-          items ->
-            items
-            |> Enum.with_index()
-            |> Enum.map(fn {item, index} ->
-              item_id = Frame.item_id(node.id, index)
-              item_state = Map.merge(state, %{item: item, item_index: index, item_id: item_id})
-              params = resolve_params(node.params, item_state)
-              {:jido_map_item, index, item_id, params, if(index == 0, do: frame)}
-            end)
-        end
-
-      {:ok, values}
+      {:ok, Batch.input(values, {frame, node.component})}
     end
   end
 

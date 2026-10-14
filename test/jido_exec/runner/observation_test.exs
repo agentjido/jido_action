@@ -15,8 +15,29 @@ defmodule Jido.Exec.Runner.ObservationTest do
 
       receive do
         :release ->
-          if params.fail, do: {:error, params.label}, else: {:ok, params, [:saved]}
+          case params.fail do
+            :crash -> Process.exit(self(), {:item_crashed, params.label})
+            true -> {:error, params.label}
+            false -> {:ok, params, Map.get(params, :effects, [:saved])}
+          end
       end
+    end
+  end
+
+  defmodule CompletionScheduler do
+    @behaviour Runic.Runner.Scheduler
+
+    @impl true
+    def init(opts), do: {:ok, Keyword.fetch!(opts, :observer)}
+
+    @impl true
+    defdelegate plan_dispatch(workflow, runnables, observer),
+      to: Runic.Runner.Scheduler.Default
+
+    @impl true
+    def on_complete({:runnable, runnable}, _duration, observer) do
+      if runnable.status == :pending, do: send(observer, :executor_ended)
+      observer
     end
   end
 
@@ -145,6 +166,181 @@ defmodule Jido.Exec.Runner.ObservationTest do
              Exec.result(ctx.runner, id)
   end
 
+  test "native Map outcomes and effects keep input order after later items finish first", ctx do
+    id = {:batch_order, System.unique_integer([:positive])}
+
+    flow =
+      map_flow(%{label: Ref.item(), fail: false, effects: [Ref.item()]})
+
+    assert {:ok, _worker} =
+             Exec.start(ctx.runner, id, flow, %{items: [:a, :b, :c]}, ctx.context,
+               hooks: ctx.opts[:hooks],
+               max_concurrency: 2
+             )
+
+    assert_receive {:started, :a, a}
+    assert_receive {:started, :b, b}
+    send(b, :release)
+    # Admission of c confirms that b completed while a remains active.
+    assert_receive {:started, :c, c}
+    send(c, :release)
+    send(a, :release)
+    assert_receive :idle
+
+    assert Exec.result(ctx.runner, id) ==
+             {:ok,
+              %{
+                items:
+                  for label <- [:a, :b, :c] do
+                    %{label: label, fail: false, effects: [label]}
+                  end
+              }, [:a, :b, :c]}
+  end
+
+  test "native Map cancellation stops active items and admits no later item", ctx do
+    id = {:batch_cancel, System.unique_integer([:positive])}
+    flow = map_flow(%{label: Ref.item(), fail: false})
+
+    assert {:ok, worker} =
+             Exec.start(ctx.runner, id, flow, %{items: [:a, :b, :c]}, ctx.context,
+               hooks: ctx.opts[:hooks],
+               max_concurrency: 2
+             )
+
+    assert_receive {:started, :a, a}
+    assert_receive {:started, :b, b}
+    monitors = for task <- [worker, a, b], do: {task, Process.monitor(task)}
+    assert :ok = Runic.Runner.cancel(ctx.runner, id)
+
+    for {task, monitor} <- monitors do
+      assert_receive {:DOWN, ^monitor, :process, ^task, _reason}
+    end
+
+    refute_received {:started, :c, _task}
+  end
+
+  @tag :capture_log
+  test "native Map failure stops admission and selects the same item at each concurrency", ctx do
+    flow = map_flow(%{label: Ref.item(), fail: true})
+
+    errors =
+      for concurrency <- [1, 2] do
+        id = {:batch_failure, concurrency, System.unique_integer([:positive])}
+
+        assert {:ok, _worker} =
+                 Exec.start(ctx.runner, id, flow, %{items: [:a, :b, :c]}, ctx.context,
+                   hooks: ctx.opts[:hooks],
+                   max_concurrency: concurrency
+                 )
+
+        assert_receive {:started, :a, a}
+
+        if concurrency == 2 do
+          assert_receive {:started, :b, b}
+          send(b, :release)
+          assert_receive {:failed, "__jido_map__/items/action"}
+          assert {:error, %{details: %{reason: :execution_active}}} = Exec.result(ctx.runner, id)
+        end
+
+        send(a, :release)
+        assert_receive :idle
+        refute_received {:started, :c, _task}
+        if concurrency == 1, do: refute_received({:started, :b, _task})
+        assert {:error, %{message: "a", details: details}} = Exec.result(ctx.runner, id)
+        assert %{node: "items", item_index: 0, item_id: item_id} = details
+        item_id
+      end
+
+    assert [id, id] = errors
+  end
+
+  @tag :capture_log
+  test "native Map selects the first item after a later task crash and recovery", ctx do
+    flow = map_flow(%{label: Ref.item(:label), fail: Ref.item(:fail)})
+    items = [%{label: :a, fail: true}, %{label: :b, fail: :crash}, %{label: :c, fail: false}]
+
+    results =
+      for concurrency <- [1, 2] do
+        id = {:batch_crash, concurrency, System.unique_integer([:positive])}
+
+        opts =
+          ctx.opts ++
+            [
+              max_concurrency: concurrency,
+              scheduler: CompletionScheduler,
+              scheduler_opts: [observer: self()]
+            ]
+
+        assert {:ok, _worker} =
+                 Exec.start(ctx.runner, id, flow, %{items: items}, ctx.context, opts)
+
+        assert_receive {:started, :a, a}
+
+        if concurrency == 2 do
+          assert_receive {:started, :b, b}
+          send(b, :release)
+          # The scheduler callback runs in the Worker. This query is a barrier
+          # after that Worker records task loss and stops admission.
+          assert_receive :executor_ended
+
+          assert {:ok, %{status: :stopped, active_units: 1}} =
+                   Runic.Runner.admission_status(ctx.runner, id)
+
+          assert {:error, %{details: %{reason: :execution_active}}} = Exec.result(ctx.runner, id)
+        end
+
+        send(a, :release)
+        assert_receive :idle
+        refute_received {:started, :c, _task}
+        if concurrency == 1, do: refute_received({:started, :b, _task})
+        live = Exec.result(ctx.runner, id)
+        assert {:ok, workflow} = Runic.Runner.get_workflow(ctx.runner, id)
+        snapshot = Exec.result(workflow)
+        assert :ok = Runic.Runner.checkpoint(ctx.runner, id)
+
+        assert {:ok, %{status: :saved, pending_events: 0}} =
+                 Runic.Runner.persistence_status(ctx.runner, id)
+
+        assert :ok = Runic.Runner.stop(ctx.runner, id, persist: true)
+
+        assert {:ok, _worker} =
+                 Exec.resume(ctx.runner, id, ctx.context, opts ++ [dispatch_mode: :manual])
+
+        assert {:ok, restored} = Runic.Runner.get_workflow(ctx.runner, id)
+        restored_snapshot = Exec.result(restored)
+
+        recovered =
+          if concurrency == 2 do
+            assert {:error, %{details: %{reason: :execution_active}}} =
+                     Exec.result(ctx.runner, id)
+
+            assert {:ok, _workflow} = Exec.step(ctx.runner, id)
+            assert_receive {:started, :b, b}
+            send(b, :release)
+            assert_receive :executor_ended
+            assert_receive :idle
+            refute_received {:started, :a, _task}
+            refute_received {:started, :c, _task}
+            [Exec.result(ctx.runner, id)]
+          else
+            []
+          end
+
+        assert :ok = Runic.Runner.cancel(ctx.runner, id)
+        [live, snapshot, restored_snapshot | recovered]
+      end
+
+    item_ids =
+      for result <- List.flatten(results) do
+        assert {:error, %{message: "a", details: details}} = result
+        assert %{node: "items", item_index: 0, item_id: item_id} = details
+        assert is_binary(item_id)
+        item_id
+      end
+
+    assert length(Enum.uniq(item_ids)) == 1
+  end
+
   for order <- [[:a, :b], [:b, :a]] do
     @tag completion_order: order
     test "failure selection survives resume after completion order #{inspect(order)}", ctx do
@@ -218,6 +414,22 @@ defmodule Jido.Exec.Runner.ObservationTest do
         %{kind: :step, name: "b", action: Controlled, params: %{label: :b, fail: true}}
       ],
       output: %{a: Ref.result("a"), b: Ref.result("b")}
+    })
+  end
+
+  defp map_flow(params) do
+    Flow.new!(%{
+      name: "managed_batch",
+      components: [
+        %{
+          kind: :map,
+          name: "items",
+          collection: Ref.input(:items),
+          action: Controlled,
+          params: params
+        }
+      ],
+      output: %{items: Ref.result("items")}
     })
   end
 end

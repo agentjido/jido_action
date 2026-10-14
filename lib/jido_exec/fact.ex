@@ -71,6 +71,11 @@ defmodule Jido.Exec.Fact do
   defp wrap(%LocalValue{} = value, _depth), do: value
   defp wrap(value, depth) when depth >= @max_local_depth, do: local_value(value)
 
+  defp wrap(%Runic.Workflow.Batch.Input{} = input, _depth) do
+    # Batch FanOut drops source metadata, so each item must retain local identity.
+    %{input | items: Enum.map(input.items, &local_value/1), parent: local_value(input.parent)}
+  end
+
   defp wrap(%_{} = value, _depth) do
     if portable_struct?(value), do: value, else: local_value(value)
   end

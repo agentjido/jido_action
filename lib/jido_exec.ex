@@ -10,7 +10,15 @@ defmodule Jido.Exec do
   alias Jido.Exec.{Compiler, Frame, Portable, Telemetry}
   alias Jido.Instruction
   alias Runic.Workflow
-  alias Runic.Workflow.{Execution, ExecutionUncertain, Fact, RunnableFailed, SchedulerPolicy}
+
+  alias Runic.Workflow.{
+    Execution,
+    ExecutionUncertain,
+    Fact,
+    RunnableDispatched,
+    RunnableFailed,
+    SchedulerPolicy
+  }
 
   @default_task_supervisor Jido.Exec.TaskSupervisor
 
@@ -188,7 +196,7 @@ defmodule Jido.Exec do
   @spec result(Workflow.t(), Execution.t()) :: exec_result()
   @spec result(module(), term()) :: exec_result()
   def result(%Workflow{} = workflow, %Execution{} = observation),
-    do: project_result(workflow, result_error(observation), observation)
+    do: project_result(workflow, result_error(observation, workflow), observation)
 
   def result(runner, execution_id) when is_atom(runner) do
     case Runic.Runner.execution(runner, execution_id, managed_identity(execution_id)) do
@@ -264,26 +272,50 @@ defmodule Jido.Exec do
   end
 
   defp observation_order(runnable) do
-    index =
-      case Jido.Exec.Fact.value(runnable.input_fact) do
-        {:jido_map_item, index, _id, _params, _frame} -> index
-        _value -> 0
-      end
-
-    {elem(Runic.Workflow.Runnable.order_key(runnable), 0), Map.get(runnable.node, :name), index,
-     Runic.Workflow.Runnable.activation_id(runnable)}
+    {elem(Runic.Workflow.Runnable.order_key(runnable), 0), Map.get(runnable.node, :name),
+     map_item_index(runnable.input_fact), Runic.Workflow.Runnable.activation_id(runnable)}
   end
 
-  defp failure_order(failure) do
+  defp failure_order(failure, workflow) do
+    {depth, activation} = failure.order_key || {0, nil}
+
     index =
       case failure.error do
         %{details: %{item_index: index}} -> index
-        _error -> 0
+        _error -> failure_item_index(workflow, activation)
       end
 
-    {depth, _activation} = failure.order_key || {0, nil}
     {depth, failure.node_name, index}
   end
+
+  defp failure_item_index(workflow, activation) do
+    Enum.find_value(workflow.runnable_events, 0, fn
+      %RunnableDispatched{order_key: {_depth, ^activation}, input_fact: fact} ->
+        map_item_index(fact)
+
+      %ExecutionUncertain{members: members} ->
+        # A task can die before its dispatch event is accepted.
+        Enum.find_value(members || [], fn
+          %{order_key: {_depth, ^activation}, input_fact_id: id} ->
+            map_item_index(Map.get(workflow.graph.vertices, id))
+
+          _member ->
+            nil
+        end)
+
+      _event ->
+        nil
+    end)
+  end
+
+  defp map_item_index(%Fact{} = fact) do
+    case Jido.Exec.Fact.value(fact) do
+      {:jido_map_item, index, _id, _params} -> index
+      _value -> 0
+    end
+  end
+
+  defp map_item_index(_fact), do: 0
 
   defp result_fact(workflow, nil) do
     case Workflow.results(workflow, nil, facts: true) do
@@ -356,14 +388,14 @@ defmodule Jido.Exec do
       _event ->
         []
     end)
-    |> result_error()
+    |> result_error(workflow)
   end
 
-  defp result_error(%Execution{quiescent?: false, id: id}),
+  defp result_error(%Execution{quiescent?: false, id: id}, _workflow),
     do: incomplete_error(id, :execution_active)
 
-  defp result_error(%Execution{} = observation) do
-    case result_error(Execution.failures(observation)) do
+  defp result_error(%Execution{} = observation, workflow) do
+    case result_error(Execution.failures(observation), workflow) do
       nil when observation.admission == :stopped ->
         incomplete_error(observation.id, :admission_stopped)
 
@@ -372,11 +404,11 @@ defmodule Jido.Exec do
     end
   end
 
-  defp result_error(failures) when is_list(failures) do
+  defp result_error(failures, workflow) when is_list(failures) do
     failure =
       failures
       |> Enum.reject(&(&1.kind == :skipped and is_nil(&1.error)))
-      |> Enum.min_by(&failure_order/1, fn -> nil end)
+      |> Enum.min_by(&failure_order(&1, workflow), fn -> nil end)
 
     case failure do
       %{kind: :uncertain, error: reason} ->

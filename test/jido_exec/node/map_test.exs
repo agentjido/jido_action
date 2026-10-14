@@ -14,11 +14,47 @@ defmodule Jido.Exec.Node.MapTest do
     def run(%{value: value}, _context), do: {:ok, %{value: value}}
   end
 
-  test "Map uses Runic FanOut and FanIn and keeps input order" do
+  defmodule RetryAction do
+    use Jido.Action, name: "batch_retry"
+
+    @impl true
+    def run(%{index: index} = params, %{counter: counter}) do
+      attempt =
+        Agent.get_and_update(counter, fn counts ->
+          attempt = Map.get(counts, index, 0) + 1
+          {attempt, Map.put(counts, index, attempt)}
+        end)
+
+      if index == 1 and attempt == 1,
+        do: {:error, Jido.Action.Error.execution_error("retry item", %{retry: true})},
+        else: {:ok, params, [index]}
+    end
+  end
+
+  defmodule LocalOutput do
+    use Jido.Action, name: "batch_local_output"
+
+    @impl true
+    def run(_params, _context), do: {:ok, %{owner: self(), reference: make_ref()}}
+  end
+
+  defmodule MapChild do
+    use Jido.Flow, name: "batch_child"
+
+    flow do
+      map "items", collection: input(:items), action: EchoParamsAction, params: %{id: item_id()}
+      output %{items: result("items")}
+    end
+  end
+
+  test "Map uses native Batch and keeps input order" do
     flow = map_flow(EchoParamsAction, %{index: Ref.item_index(), value: Ref.item()}, :fail_fast)
 
     rebuilt = flow |> Exec.compile!() |> Runic.Workflow.build_log() |> Runic.Workflow.from_log()
     assert %Jido.Exec.Node.Map{} = Runic.Workflow.get_component(rebuilt, "items")
+
+    assert %Runic.Workflow.Batch{} =
+             Runic.Workflow.get_component(rebuilt, "__jido_map__/items/batch")
 
     assert Enum.any?(rebuilt.graph.vertices, fn {_id, node} ->
              match?(%Runic.Workflow.FanOut{}, node)
@@ -39,6 +75,154 @@ defmodule Jido.Exec.Node.MapTest do
               }}
 
     assert Exec.run(flow, %{items: []}) == {:ok, %{items: []}}
+  end
+
+  test "an empty native batch has no item invocation" do
+    flow = map_flow(EchoParamsAction, %{value: Ref.item()}, :fail_fast)
+    definition = Exec.compile!(flow)
+    batch = Runic.Workflow.get_component(definition, "__jido_map__/items/batch")
+    assert %Runic.Workflow.Batch{} = batch
+
+    {workflow, observation} =
+      Runic.Workflow.execute(definition, Jido.Exec.Frame.new(%{items: []}))
+
+    assert Exec.result(workflow, observation) == {:ok, %{items: []}}
+    assert [id] = Runic.Workflow.Batch.invocations(workflow, batch)
+    assert {:ok, []} = Runic.Workflow.Batch.outcomes(workflow, batch, id)
+    assert Runic.Workflow.raw_productions(workflow, batch.component.name) == []
+  end
+
+  test "shared parent data stays outside native item Facts" do
+    flow = map_flow(EchoParamsAction, %{value: Ref.item()}, :fail_fast)
+    input = %{items: [2, 2, 1], padding: Enum.to_list(1..1_000)}
+    definition = Exec.compile!(flow)
+    batch = Runic.Workflow.get_component(definition, "__jido_map__/items/batch")
+    assert %Runic.Workflow.Batch{} = batch
+    {workflow, observation} = Runic.Workflow.execute(definition, Jido.Exec.Frame.new(input))
+
+    assert Exec.result(workflow, observation) ==
+             {:ok, %{items: [%{value: 2}, %{value: 2}, %{value: 1}]}}
+
+    items =
+      workflow
+      |> Runic.Workflow.facts()
+      |> Enum.filter(&match?(%{ancestry: {producer, _}} when producer == batch.fan_out.hash, &1))
+
+    assert length(items) == 3
+    assert Enum.all?(items, &match?({:jido_map_item, _, _, _}, &1.value))
+    assert Enum.all?(items, &(:erlang.external_size(&1.value) < 256))
+
+    for item <- items do
+      assert {:ok, runnable} = Runic.Workflow.Invokable.prepare(batch.component, workflow, item)
+      refute Map.has_key?(runnable.context.batch, :parent)
+      assert runnable.context.batch.item_id == item.hash
+    end
+  end
+
+  test "native batches preserve local item values" do
+    flow = map_flow(EchoParamsAction, %{value: Ref.item()}, :fail_fast)
+    item = %{owner: self(), reference: make_ref(), uri: URI.parse("/batch")}
+
+    assert Exec.run(flow, %{items: [item, item]}, %{}, max_concurrency: 2) ==
+             {:ok, %{items: [%{value: item}, %{value: item}]}}
+  end
+
+  test "a completed batch preserves local execution for a following Action" do
+    flow =
+      Flow.new!(%{
+        name: "batch_then_local",
+        components: [
+          %{
+            kind: :map,
+            name: "items",
+            collection: Ref.input(:items),
+            action: EchoParamsAction,
+            params: %{value: Ref.item()}
+          },
+          %{kind: :step, name: "local", action: LocalOutput, needs: ["items"]}
+        ],
+        output: Ref.result("local")
+      })
+
+    for items <- [[], [1]] do
+      assert {:ok, %{owner: owner, reference: reference}} = Exec.run(flow, %{items: items})
+      assert is_pid(owner)
+      assert is_reference(reference)
+    end
+  end
+
+  test "repeated native executions have separate batches and keep public item IDs" do
+    flow = map_flow(EchoParamsAction, %{id: Ref.item_id(), value: Ref.item()}, :fail_fast)
+    definition = Exec.compile!(flow)
+    batch = Runic.Workflow.get_component(definition, "__jido_map__/items/batch")
+
+    {outputs, workflow} =
+      Enum.map_reduce([[], [2, 2], [2, 2]], definition, fn items, workflow ->
+        {workflow, observation} =
+          Runic.Workflow.execute(workflow, Jido.Exec.Frame.new(%{items: items}))
+
+        assert {:ok, output} = Exec.result(workflow, observation)
+        {output, workflow}
+      end)
+
+    assert [%{items: []}, %{items: [first, second]} = repeated, repeated] = outputs
+    assert first.value == second.value
+    assert first.id != second.id
+    ids = Runic.Workflow.Batch.invocations(workflow, batch)
+    assert length(ids) == 3
+    assert length(Enum.uniq(ids)) == 3
+  end
+
+  test "nested Map exports rebuild with separate native batches" do
+    flow =
+      Flow.new!(%{
+        name: "nested_batches",
+        components:
+          for name <- ["left", "right"] do
+            %{
+              kind: :subflow,
+              name: name,
+              flow: MapChild,
+              params: %{items: Ref.input(:items)}
+            }
+          end,
+        output: %{left: Ref.result("left"), right: Ref.result("right")}
+      })
+
+    assert {:ok, %{left: %{items: [%{id: left}]}, right: %{items: [%{id: right}]}} = expected} =
+             Exec.run(flow, %{items: [1]})
+
+    assert left != right
+    rebuilt = flow |> Exec.compile!() |> Runic.Workflow.build_log() |> Runic.Workflow.from_log()
+
+    {workflow, observation} =
+      Runic.Workflow.execute(rebuilt, Jido.Exec.Frame.new(%{items: [1]}))
+
+    assert Exec.result(workflow, observation) == {:ok, expected}
+  end
+
+  @tag :capture_log
+  test "native batches retry fail-fast items but keep collected errors as data" do
+    for mode <- [:fail_fast, :collect_errors] do
+      counter = start_supervised!({Agent, fn -> %{} end}, id: mode)
+      flow = map_flow(RetryAction, %{index: Ref.item_index(), value: Ref.item()}, mode)
+
+      assert {:ok, %{items: items}, effects} =
+               Exec.run(flow, %{items: [4, 4, 2]}, %{counter: counter},
+                 max_attempts: 2,
+                 max_concurrency: 3
+               )
+
+      if mode == :fail_fast do
+        assert items == [%{index: 0, value: 4}, %{index: 1, value: 4}, %{index: 2, value: 2}]
+        assert effects == [0, 1, 2]
+        assert Agent.get(counter, & &1) == %{0 => 1, 1 => 2, 2 => 1}
+      else
+        assert Enum.map(items, & &1.status) == [:ok, :error, :ok]
+        assert effects == [0, 2]
+        assert Agent.get(counter, & &1) == %{0 => 1, 1 => 1, 2 => 1}
+      end
+    end
   end
 
   test "Map can collect Action errors as ordered data" do

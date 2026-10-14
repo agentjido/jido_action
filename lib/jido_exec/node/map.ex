@@ -1,12 +1,15 @@
 defmodule Jido.Exec.Node.Map do
   @moduledoc false
 
+  alias Jido.Exec.Fact
+  alias Jido.Exec.Fact.LocalValue
   alias Jido.Exec.Frame
   alias Jido.Exec.Node.Action
   alias Jido.Exec.Node.Map.Collection
   alias Jido.Instruction
   alias Runic.Identity
   alias Runic.Workflow
+  alias Runic.Workflow.Batch
 
   @enforce_keys [:id, :name, :hash, :component, :collection, :instruction, :params, :on_error]
   defstruct [
@@ -70,16 +73,6 @@ defmodule Jido.Exec.Node.Map do
         node_path: node.node_path
       )
 
-    fan_out = %Runic.Workflow.FanOut{
-      hash:
-        Identity.digest(:component_definition, %{
-          kind: "jido_map_fan_out",
-          version: 1,
-          id: node.id
-        }),
-      name: internal_name(node, "fan_out")
-    }
-
     metadata = %{
       jido_flow: %{
         component: node.component,
@@ -99,66 +92,46 @@ defmodule Jido.Exec.Node.Map do
         name: internal_name(node, "action")
       )
 
-    fan_in = %Runic.Workflow.FanIn{
-      hash:
-        Identity.digest(:component_definition, %{
-          kind: "jido_map_fan_in",
-          version: 1,
-          id: node.id
-        }),
-      name: internal_name(node, "fan_in"),
-      map: node.name,
-      init: &__MODULE__.initial/0,
-      reducer: &__MODULE__.collect/2,
-      mergeable: false,
-      meta_refs: []
-    }
+    batch = Runic.batch(action, name: internal_name(node, "batch"))
+
+    projection =
+      Runic.Workflow.Step.new(
+        name: internal_name(node, "result"),
+        hash: Identity.derive(:component_definition, [node.hash, :result]),
+        work: &__MODULE__.pass/1
+      )
 
     workflow
     |> connect_from(parents, collection)
-    |> Workflow.add_step(collection, fan_out)
-    |> Workflow.add_step(fan_out, action)
-    |> Workflow.add_step(action, fan_in)
-    |> Workflow.draw_connection(fan_out, fan_in, :fan_in)
-    |> Workflow.add_step(fan_in, node)
-    |> Workflow.draw_connection(node, node, :component_of, properties: %{kind: :map})
+    |> Workflow.add(batch, to: collection, log: false)
+    |> Workflow.add(projection, to: batch, log: false)
+    |> Workflow.draw_connection(node, projection, :component_of, properties: %{kind: :map})
     |> Workflow.register_component(node)
   end
 
   @doc false
-  @spec initial() :: nil
-  def initial, do: nil
+  @spec pass(%Batch.Result{}) :: Frame.t() | Frame.nested_t() | LocalValue.t()
+  def pass(%Batch.Result{parent: parent, outcomes: outcomes}) do
+    {frame, component} = Fact.unwrap(parent)
 
-  @doc false
-  @spec collect(term(), term()) :: term()
-  def collect({:jido_map_result, frame, component, index, on_error, result}, accumulator) do
-    {:jido_map_acc, acc_frame, _component, entries} =
-      accumulator || {:jido_map_acc, nil, component, []}
-
-    {:jido_map_acc, acc_frame || frame, component, [{index, on_error, result} | entries]}
-  end
-
-  @doc false
-  @spec pass(term()) :: term()
-  def pass({:jido_map_acc, frame, component, entries}) do
     {values, effects} =
-      entries
-      |> Enum.sort_by(&elem(&1, 0))
-      |> Enum.flat_map_reduce([], fn
-        {_index, _on_error, :empty}, effects ->
-          {[], effects}
+      Enum.flat_map_reduce(outcomes, [], fn %{status: :completed, value: result}, effects ->
+        case Fact.unwrap(result) do
+          {:fail_fast, {:ok, value, requests}} ->
+            {[value], [requests | effects]}
 
-        {_index, :fail_fast, {:ok, value, requests}}, effects ->
-          {[value], [requests | effects]}
+          {:collect_errors, {:ok, value, requests}} ->
+            {[%{status: :ok, value: value}], [requests | effects]}
 
-        {_index, _mode, {:ok, value, requests}}, effects ->
-          {[%{status: :ok, value: value}], [requests | effects]}
-
-        {_index, _mode, {:error, error}}, effects ->
-          {[%{status: :error, error: error}], effects}
+          {:collect_errors, {:error, error}} ->
+            {[%{status: :error, error: error}], effects}
+        end
       end)
 
-    Frame.put_result(frame, component, values, effects |> Enum.reverse() |> Enum.concat())
+    result =
+      Frame.put_result(frame, component, values, effects |> Enum.reverse() |> Enum.concat())
+
+    if is_struct(parent, LocalValue), do: Fact.local_value(result), else: result
   end
 
   defp connect_from(workflow, [], child), do: Workflow.add_step(workflow, child)
@@ -171,41 +144,6 @@ end
 defimpl Runic.Identity.Projectable, for: Jido.Exec.Node.Map do
   def identity_document(node) do
     %{kind: :jido_map, version: 1, id: inspect(node.id)}
-  end
-end
-
-defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Map do
-  alias Jido.Exec.Node.Map
-  alias Runic.Workflow
-  alias Runic.Workflow.{CausalContext, Runnable}
-  alias Runic.Workflow.Events.{ActivationConsumed, FactProduced}
-
-  def match_or_execute(_node), do: :execute
-
-  def invoke(node, workflow, fact) do
-    {:ok, runnable} = prepare(node, workflow, fact)
-    Workflow.apply_runnable(workflow, execute(node, runnable))
-  end
-
-  def prepare(node, workflow, fact) do
-    context =
-      CausalContext.new(
-        node_hash: node.hash,
-        input_fact: fact,
-        ancestry_depth: Workflow.ancestry_depth(workflow, fact)
-      )
-
-    {:ok, Runnable.new(node, fact, context)}
-  end
-
-  def execute(node, %Runnable{input_fact: fact, context: context} = runnable) do
-    value = Map.pass(Jido.Exec.Fact.value(fact))
-    result = Jido.Exec.Fact.child(fact, value: value, ancestry: {node.hash, fact.hash})
-
-    Runnable.complete(runnable, result, [
-      FactProduced.new(result, producer_label: :produced, weight: context.ancestry_depth + 1),
-      %ActivationConsumed{fact_hash: fact.hash, node_hash: node.hash, from_label: :runnable}
-    ])
   end
 end
 
@@ -233,5 +171,5 @@ defimpl Runic.Component, for: Jido.Exec.Node.Map do
 
   def hash(node), do: node.hash
   def inputs(_node), do: [items: [type: :any, cardinality: :many]]
-  def outputs(_node), do: [out: [type: :any]]
+  def outputs(node), do: [out: [type: :any, from: "__jido_map__/#{node.name}/result"]]
 end

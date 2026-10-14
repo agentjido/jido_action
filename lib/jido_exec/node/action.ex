@@ -1,7 +1,7 @@
 defmodule Jido.Exec.Node.Action do
   @moduledoc false
 
-  use Runic.Workflow.SingleOutput
+  use Runic.Workflow.SingleOutput, batch_parent: false
 
   alias Jido.Action.Error
   alias Jido.Exec.{Frame, Portable, ValueResolver}
@@ -146,22 +146,11 @@ defmodule Jido.Exec.Node.Action do
   defp validate_durable_result(result, _durable?), do: result
 
   defp execute_map_component(
-         _instruction,
-         component,
-         _params,
-         on_error,
-         {:jido_map_empty, frame, component},
-         _run_context
-       ) do
-    {:ok, {:jido_map_result, frame, component, 0, on_error, :empty}, []}
-  end
-
-  defp execute_map_component(
          instruction,
          component,
          _params,
          on_error,
-         {:jido_map_item, index, item_id, resolved, frame},
+         {:jido_map_item, index, item_id, resolved},
          run_context
        ) do
     result =
@@ -171,11 +160,11 @@ defmodule Jido.Exec.Node.Action do
 
     case result do
       {:ok, output, effects} ->
-        {:ok, {:jido_map_result, frame, component, index, on_error, {:ok, output, effects}}, []}
+        {:ok, {on_error, {:ok, output, effects}}, []}
 
       {:error, error} when on_error == :collect_errors ->
         error = collected_error(error, resolved, instruction.target, component, index, item_id)
-        {:ok, {:jido_map_result, frame, component, index, on_error, {:error, error}}, []}
+        {:ok, {on_error, {:error, error}}, []}
 
       {:error, error} ->
         {:error, error}
@@ -475,7 +464,7 @@ defmodule Jido.Exec.Node.Action do
 
   defp tag_flow_error(result, _metadata, _input), do: result
 
-  defp flow_position({:jido_map_item, index, item_id, _params, _frame}, _metadata),
+  defp flow_position({:jido_map_item, index, item_id, _params}, _metadata),
     do: %{item_index: index, item_id: item_id}
 
   defp flow_position({:jido_reduce, _status, _component, index, _accumulator}, %{

@@ -114,6 +114,7 @@ For each change, identify the old code removed and the contracts verified.
    authoring, property, system, and load checks passed. Fuzz retains the three
    recorded baseline failures. The design review reran 143 Exec tests and seven
    temporary contract probes; all passed, with no findings.
+   Jido implementation commit: `7ed376f0`.
 
 5. Adopt Batch (#296).
    Replace manual FanOut/FanIn wiring, the empty-item token, and first-item
@@ -121,6 +122,92 @@ For each change, identify the old code removed and the contracts verified.
    collected errors, effects, and supported recovery. Measure stored Facts and
    worker copies separately.
 
+   Implemented and reviewed for Map on `release/v3`.
+   Runic Batch owns FanOut/FanIn wiring, empty completion,
+   item occurrences, and ordered outcomes. A native Runic Step converts the
+   Batch result to a Jido frame and exports the Map output through its public
+   port. The Map no longer implements Invokable, retains a first-item frame,
+   sorts completed items, or creates an empty-item token. This removes 43
+   production lines and adds no production module or Runic source change.
+   Jido retains reference resolution, public item IDs, Action error conversion,
+   collected-error results, and ordered effects. Small local-value encoding
+   clauses preserve immediate local values across the native Batch boundary.
+   Task-loss failure selection reads retained Runic input Facts, so item order
+   is the same for live results and restored snapshots. The projection's return
+   spec also includes nested Flow frames.
+
+   Tests cover empty, single, many, and duplicate items; separate nested and
+   repeated batches; local values and following Actions; reverse completion;
+   stable failure selection and stopped admission; retries; cancellation; and
+   build-log replay. The existing checkpoint/resume test confirms that accepted
+   Map items are not repeated. Full-value events and native snapshots are the
+   supported recovery boundary. Unfinished or uncertain work can repeat its
+   external effects. Runic lazy/hybrid replay, remote progress, and portable
+   journals remain outside the native Batch recovery contract.
+
+   Size samples compare `7ed376f0` with this change on the same local Runic.
+   They use EchoParams over integer items, immediate local values, and a
+   prepared callback for item index 1. Stored bytes are the sum of the encoded
+   Fact values; callback bytes are the encoded Runnable size. Copy bytes are
+   the memory of a fresh process that holds the Runnable after garbage
+   collection. This measures one copied callback, not peak Runner memory.
+   Each byte column shows before -> after.
+
+   | Items | Facts | Stored value bytes | Callback bytes | Process copy bytes |
+   | --- | --- | --- | --- | --- |
+   | 100 | 205 | 37,052 -> 95,456 | 5,668 -> 7,501 | 8,744 -> 13,632 |
+   | 1,000 | 2,005 | 408,218 -> 979,014 | 5,668 -> 11,639 | 8,744 -> 34,328 |
+
+   Stored Fact values stay linear in collection size. Native outcome records
+   add stored data. Runic prepares shared parent data in each callback context,
+   so copied callback size now grows with the parent. This is a measured cost
+   of the native contract, not a memory reduction.
+
+   Memory follow-up: the unnecessary callback parent copy is in Runic's
+   SingleOutput preparation. Jido's Action callback does not read that parent.
+   Runic now supports `use Runic.Workflow.SingleOutput, batch_parent: false`;
+   Jido's Action member uses that option. Item coordinates remain available,
+   and the source Fact and completed Batch result keep the parent. The default
+   and ordinary Steps retain their parent view. Regression tests show that a
+   10,000-item parent does not increase the opted-out prepared callback size.
+   The patch is submitted separately in
+   [the fork memory PR](https://github.com/mikehostetler/runic/pull/1) as `c0a3998` and
+   retained in the combined local integration as `e50f5e6`. The memory patch
+   was removed from PR #45 with a forward revert; PR #45 retains its Batch
+   scope. The memory PR is based on `mikehostetler/runic:codex/runic-issue-35`,
+   the source branch of PR #45. GitHub confirms one commit and exactly seven
+   changed files. Upstream PR #48 is closed and links the replacement; GitHub
+   does not permit an existing PR to change its base repository.
+
+   | Items | Callback bytes after fix | Process copy bytes after fix |
+   | --- | --- | --- |
+   | 100 | 7,232 | 13,632 |
+   | 1,000 | 7,232 | 13,632 |
+
+   Encoded stored value bytes are unchanged by this callback fix. At 1,000
+   items, Runic outcome envelopes add 423,232 encoded bytes over their values.
+   Jido LocalValue wrappers add 206,412 encoded bytes across the stored Fact
+   values. These are encoding costs, not total heap memory, and the columns
+   count a shared value again when another Fact encodes it. The first supports
+   outcome identity and status; the second preserves local values and local
+   execution across native item Facts. Neither is removed by the parent fix.
+   The fresh native workflow occupies 3,872,752 shared heap bytes in this sample;
+   a process copy is a separate measurement. This is not a comparison with the
+   previous Map's total heap use.
+
+   Patch validation: the memory-fix branch passed 1,904 tests with 13 skipped.
+   The restored PR #45 branch passed 1,901 tests with 13 skipped.
+   The combined local Runic passed 2,015 with 13 skipped. Format and compile
+   checks passed; the combined source also passed strict test compilation.
+   Final Jido validation: 794 default tests passed, 120 excluded, with 93.11 percent
+   coverage. Quality, strict test compilation, authoring (59), property (49),
+   system (1), and load (1) checks passed. Fuzz retains the three recorded
+   baseline failures. The 154 Exec tests passed on OTP 27, 28, and 29, using
+   Elixir 1.18.5, 1.18.4, and 1.20.4 respectively. The nine temporary design
+   review probes passed after the failure-selection and nested-frame spec fixes.
+   Regression coverage checks serial and concurrent item failure selection,
+   stopped admission, persisted snapshots, resume, and stable public item IDs.
+   Publication and final validation against a Runic Hex release remain pending.
 6. Assess Dispatch child invocation in a separate change.
    Start with ordinary Action targets. Verify Runic Call's supported target
    set and selected-output semantics before changing Flow targets. Call has no
