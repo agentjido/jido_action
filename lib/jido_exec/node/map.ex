@@ -6,20 +6,18 @@ defmodule Jido.Exec.Node.Map do
   alias Jido.Exec.Frame
   alias Jido.Exec.Node.Action
   alias Jido.Exec.Node.Map.Collection
-  alias Jido.Instruction
   alias Runic.Identity
   alias Runic.Workflow
   alias Runic.Workflow.Batch
 
-  @enforce_keys [:id, :name, :hash, :component, :collection, :instruction, :params, :on_error]
+  @enforce_keys [:id, :name, :hash, :component, :collection, :call, :on_error]
   defstruct [
     :id,
     :name,
     :hash,
     :component,
     :collection,
-    :instruction,
-    :params,
+    :call,
     :on_error,
     :location,
     :node_path
@@ -36,8 +34,7 @@ defmodule Jido.Exec.Node.Map do
         :name,
         :component,
         :collection,
-        :instruction,
-        :params,
+        :call,
         :on_error,
         :location,
         :node_path
@@ -51,8 +48,7 @@ defmodule Jido.Exec.Node.Map do
       hash: Identity.digest(:component_definition, %{kind: "jido_map", version: 1, id: id}),
       component: Keyword.fetch!(opts, :component),
       collection: Keyword.fetch!(opts, :collection),
-      instruction: Keyword.fetch!(opts, :instruction),
-      params: Keyword.fetch!(opts, :params),
+      call: Keyword.fetch!(opts, :call),
       on_error: Keyword.fetch!(opts, :on_error),
       location: Keyword.get(opts, :location),
       node_path: Keyword.get(opts, :node_path, [Keyword.fetch!(opts, :component)])
@@ -68,26 +64,21 @@ defmodule Jido.Exec.Node.Map do
         name: internal_name(node, "collection"),
         component: node.component,
         value: node.collection,
-        params: node.params,
+        params: node.call.params,
         location: node.location,
         node_path: node.node_path
       )
 
-    metadata = %{
-      jido_flow: %{
-        component: node.component,
-        mode: {:map, node.on_error},
-        params: node.params,
-        location: node.location,
-        node_path: node.node_path
-      }
+    flow = %{
+      component: node.component,
+      mode: {:map, node.on_error},
+      location: node.location,
+      node_path: node.node_path
     }
 
-    {:ok, instruction} = Instruction.bind(node.instruction, %{}, %{})
-
     action =
-      Action.new(instruction,
-        flow: metadata.jido_flow,
+      Action.new(node.call,
+        flow: flow,
         id: {node.id, :action},
         name: internal_name(node, "action")
       )
@@ -160,8 +151,7 @@ defimpl Runic.Component, for: Jido.Exec.Node.Map do
         name: unquote(node.name),
         component: unquote(node.component),
         collection: unquote(Macro.escape(node.collection)),
-        instruction: unquote(Macro.escape(node.instruction)),
-        params: unquote(Macro.escape(node.params)),
+        call: unquote(Macro.escape(node.call)),
         on_error: unquote(node.on_error),
         location: unquote(Macro.escape(node.location)),
         node_path: unquote(Macro.escape(node.node_path))

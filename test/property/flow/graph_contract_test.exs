@@ -33,6 +33,7 @@ defmodule JidoActionTest.Property.Flow.GraphContractTest do
           90_000
         end
     ]
+    @tag fuzz_id: "graph_semantics"
     @tag contracts: ["FLOW-001", "FLOW-002", "STORE-001", "EFFECT-001"]
     @tag contract_cases: [
            "FLOW-001/data",

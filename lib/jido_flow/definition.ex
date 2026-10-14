@@ -20,21 +20,25 @@ defmodule Jido.Flow.Definition do
 
   @doc false
   @spec validate_canonical(map()) :: {:ok, map()} | {:error, Exception.t()}
-  def validate_canonical(attrs), do: first_error(diagnose(attrs, :canonical))
+  def validate_canonical(attrs), do: first_error(without_analysis(diagnose(attrs, :canonical)))
+
+  @doc false
+  @spec prepare_canonical(map()) :: {:ok, map(), Graph.analysis()} | {:error, Exception.t()}
+  def prepare_canonical(attrs), do: first_error(diagnose(attrs, :canonical))
 
   @doc false
   @spec diagnose(map()) :: {:ok, map()} | {:error, [issue()]}
-  def diagnose(attrs), do: diagnose(attrs, :authoring)
+  def diagnose(attrs), do: without_analysis(diagnose(attrs, :authoring))
 
   @doc false
   @spec diagnose_lowered(map()) :: {:ok, map()} | {:error, [issue()]}
-  def diagnose_lowered(attrs), do: diagnose(attrs, :lowered)
+  def diagnose_lowered(attrs), do: without_analysis(diagnose(attrs, :lowered))
 
   @doc false
   @spec diagnose_body(map(), term(), term()) :: {:ok, map()} | {:error, [issue()]}
   def diagnose_body(config, components, output) do
     attrs = %{components: components, output: output}
-    diagnose_fields(attrs, body_fields(:lowered), :lowered, config, [])
+    without_analysis(diagnose_fields(attrs, body_fields(:lowered), :lowered, config, []))
   end
 
   defp diagnose(%{} = attrs, mode) when not is_struct(attrs) do
@@ -103,12 +107,9 @@ defmodule Jido.Flow.Definition do
     end
   end
 
-  @doc false
-  @spec diagnose_normalized(map(), [named_component()]) :: {:ok, map()} | {:error, [issue()]}
-  def diagnose_normalized(attrs, components) do
-    case GraphValidation.diagnose(components, attrs.output) do
-      [] -> {:ok, Map.put(attrs, :components, Map.new(components))}
-      issues -> {:error, issues}
+  defp diagnose_normalized(attrs, components) do
+    with {:ok, analysis} <- GraphValidation.validate(components, attrs.output) do
+      {:ok, Map.put(attrs, :components, Map.new(components)), analysis}
     end
   end
 
@@ -319,10 +320,14 @@ defmodule Jido.Flow.Definition do
   defp component_result({:ok, value}), do: {:ok, value}
   defp component_result({:error, [error | _]}), do: {:error, error}
   defp first_error({:ok, value}), do: {:ok, value}
+  defp first_error({:ok, value, analysis}), do: {:ok, value, analysis}
 
   defp first_error({:error, [issue | _]}),
     do: {:error, %{issue.error | details: Map.put(issue.error.details, :path, issue.location)}}
 
   defp issue(error),
     do: %{kind: :definition, error: error, location: Map.get(error.details, :path, [])}
+
+  defp without_analysis({:ok, value, _analysis}), do: {:ok, value}
+  defp without_analysis({:error, issues}), do: {:error, issues}
 end

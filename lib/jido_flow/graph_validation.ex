@@ -4,8 +4,42 @@ defmodule Jido.Flow.GraphValidation do
   alias Jido.Flow.{Definition, Error, Graph, Ref, Value}
 
   @doc false
-  @spec diagnose([Definition.named_component()], Value.t()) :: [Definition.issue()]
-  def diagnose(components, output), do: output_issues(output) ++ graph_issues(components, output)
+  @spec validate([Definition.named_component()], Value.t()) ::
+          {:ok, Graph.analysis()} | {:error, [Definition.issue()]}
+  def validate(named_components, output) do
+    {known, duplicates} = duplicate_name_issues(named_components)
+    references = unknown_dependency_issues(named_components, output, known)
+
+    case duplicates ++ references do
+      [] ->
+        analysis = Graph.analyze(Map.new(named_components))
+
+        issues =
+          case analysis do
+            %{remaining: [], terminals: terminals} ->
+              dispatch_issues(named_components, output, terminals)
+
+            %{remaining: names} ->
+              [
+                issue(
+                  :cycle,
+                  Error.validation_error("flow dependency graph contains a cycle", %{
+                    components: names
+                  }),
+                  [:components]
+                )
+              ]
+          end
+
+        case output_issues(output) ++ issues do
+          [] -> {:ok, analysis}
+          issues -> {:error, issues}
+        end
+
+      issues ->
+        {:error, output_issues(output) ++ issues}
+    end
+  end
 
   defp output_issues(nil) do
     [
@@ -18,35 +52,6 @@ defmodule Jido.Flow.GraphValidation do
   end
 
   defp output_issues(_output), do: []
-
-  defp graph_issues(named_components, output) do
-    {known, duplicates} = duplicate_name_issues(named_components)
-    references = unknown_dependency_issues(named_components, output, known)
-
-    case duplicates ++ references do
-      [] ->
-        components = Map.new(named_components)
-
-        case Graph.analyze(components) do
-          %{remaining: []} ->
-            dispatch_issues(named_components, output)
-
-          %{remaining: names} ->
-            [
-              issue(
-                :cycle,
-                Error.validation_error("flow dependency graph contains a cycle", %{
-                  components: names
-                }),
-                [:components]
-              )
-            ]
-        end
-
-      issues ->
-        issues
-    end
-  end
 
   defp duplicate_name_issues(named_components) do
     {known, issues} =
@@ -100,7 +105,7 @@ defmodule Jido.Flow.GraphValidation do
     end)
   end
 
-  defp dispatch_issues(named_components, output) do
+  defp dispatch_issues(named_components, output, terminals) do
     dispatches =
       named_components
       |> Enum.with_index()
@@ -112,7 +117,7 @@ defmodule Jido.Flow.GraphValidation do
           []
 
         [{{name, _node}, index}] ->
-          dispatch_sink_errors(named_components, name, index) ++
+          dispatch_sink_errors(terminals, name, index) ++
             dispatch_output_errors(output, name)
 
         [_first, {{name, _node}, index} | _rest] ->
@@ -129,18 +134,7 @@ defmodule Jido.Flow.GraphValidation do
     Enum.map(errors, &issue(:dispatch, &1, &1.details.path))
   end
 
-  defp dispatch_sink_errors(named_components, dispatch_name, dispatch_index) do
-    dependencies =
-      named_components
-      |> Enum.flat_map(fn {_name, node} -> Definition.effective_dependencies(node) end)
-      |> MapSet.new()
-
-    sinks =
-      named_components
-      |> Enum.map(&elem(&1, 0))
-      |> Enum.reject(&MapSet.member?(dependencies, &1))
-      |> Enum.sort()
-
+  defp dispatch_sink_errors(sinks, dispatch_name, dispatch_index) do
     if sinks == [dispatch_name] do
       []
     else

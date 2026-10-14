@@ -41,6 +41,7 @@ defmodule JidoActionTest.Property.Flow.IterateFuzzTest do
   end
 
   @tag :fuzz
+  @tag fuzz_id: "iterate_state"
   @tag max_runs: 200, max_run_time: 300_000, timeout: 900_000, max_iterations: 12
   @tag contracts: ["EXEC-003", "EXEC-004", "EXEC-005", "EFFECT-001", "EFFECT-002"]
   @tag contract_cases: [
@@ -135,11 +136,11 @@ defmodule JidoActionTest.Property.Flow.IterateFuzzTest do
         output: Ref.result("loop")
       )
 
-    for mode <- [:run, :step, :wave, :continue] do
+    for concurrency <- [1, 3] do
       Runtime.with_context(fn runtime ->
         {:ok, probe} = Agent.start_link(fn -> %{active: 0, maximum: 0} end)
         runtime = Map.put(runtime, :probe, probe)
-        caller = Task.async(fn -> execute(flow, runtime, mode) end)
+        caller = Task.async(fn -> execute(flow, runtime, concurrency) end)
 
         try do
           token = runtime.token
@@ -173,7 +174,7 @@ defmodule JidoActionTest.Property.Flow.IterateFuzzTest do
 
             "body" ->
               assert {:error, %Jido.Action.Error.ExecutionFailureError{details: details}} = result
-              assert details.phase == :iterate_body_execution
+              assert details.phase == :run
               assert details.iteration_index == at
               assert details.state_revision == at
               Runtime.assert_calls(runtime, [:prior])
@@ -212,9 +213,9 @@ defmodule JidoActionTest.Property.Flow.IterateFuzzTest do
       end)
     end
 
-    [fault, "iterations:#{count}", "all-modes"]
+    [fault, "iterations:#{count}", "serial-and-concurrent"]
   end
 
-  defp execute(flow, context, _mode),
-    do: Exec.run(flow, %{}, context, Runtime.options(context, 3))
+  defp execute(flow, context, concurrency),
+    do: Exec.run(flow, %{}, context, Runtime.options(context, concurrency))
 end

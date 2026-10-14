@@ -5,8 +5,13 @@ defmodule JidoActionTest.Property.ReportTest do
   @moduletag :property
   alias JidoActionTest.Property.Report
 
+  test "the documented fuzz inventory matches the full gate" do
+    register = File.read!(Path.expand("../../guides/public-contracts.md", __DIR__))
+    ids = Regex.scan(~r/^\| `([a-z][a-z_]+)` \|/m, register) |> Enum.map(&List.last/1)
+    assert Enum.sort(ids) == Report.fuzz_ids()
+  end
+
   setup do
-    # ExUnit's default tmp_dir paths are shared by runtime jobs in one checkout.
     suffix = "#{System.pid()}-#{System.unique_integer([:positive])}"
     dir = Path.join([Mix.Project.build_path(), "property-report-tests", suffix])
     File.mkdir_p!(dir)
@@ -53,6 +58,7 @@ defmodule JidoActionTest.Property.ReportTest do
       finish(dir, [test_record("invalid tags", nil, ["ACT-001"], ["ACT-002/raise", "ACT-001/"])])
 
     assert Enum.sort(report["invalid_case_ids"]) == ["ACT-001/", "ACT-002/raise"]
+    assert report["outcome"] == "failed"
   end
 
   test "an empty selection has no evidence and an invalid test fails the run", %{tmp_dir: dir} do
@@ -62,7 +68,6 @@ defmodule JidoActionTest.Property.ReportTest do
     assert finish(dir, [test_record("invalid", {:invalid, nil}, ["ACT-001"], [])])["outcome"] ==
              "failed"
 
-    # --include property can also run default tests. Their failures affect this outcome.
     normal = %{test_record("normal", {:failed, []}, [], []) | tags: %{}}
     assert finish(dir, [normal])["outcome"] == "failed"
   end
@@ -83,7 +88,7 @@ defmodule JidoActionTest.Property.ReportTest do
     {:ok, state} = Report.init(path: path)
     fuzz_dir = Path.join([dir, "property-fuzz", state.metadata.run_id])
     File.mkdir_p!(fuzz_dir)
-    current = %{id: "current", run_id: state.metadata.run_id, generated: 7}
+    current = measurement(state.metadata.run_id)
     stale = %{id: "stale", run_id: "previous-run", generated: 900}
     File.write!(Path.join(fuzz_dir, "current.json"), JSON.encode!(current))
     File.write!(Path.join(fuzz_dir, "stale.json"), JSON.encode!(stale))
@@ -110,12 +115,96 @@ defmodule JidoActionTest.Property.ReportTest do
     assert [%{"path" => _, "error" => _}] = read(path)["artifact_errors"]
   end
 
-  test "fuzz-only tests contribute evidence", %{tmp_dir: dir} do
+  test "a passed fuzz test without measurements fails the report", %{tmp_dir: dir} do
     record = test_record("fuzz pass", nil, ["ACT-001"], [])
     record = %{record | tags: record.tags |> Map.delete(:property) |> Map.put(:fuzz, true)}
     report = finish(dir, [record])
-    assert report["outcome"] == "passed"
+    assert report["outcome"] == "failed"
+    assert report["validation_errors"] != []
     assert report["contracts_with_passed_evidence"] == ["ACT-001"]
+  end
+
+  test "failed or incomplete measurements cannot pass with a passed test", %{tmp_dir: dir} do
+    for outcome <- ["failed", "incomplete"] do
+      path = Path.join(dir, "report.json")
+      {:ok, state} = Report.init(path: path)
+      write_measurement(dir, %{measurement(state.metadata.run_id) | outcome: outcome})
+      {:noreply, _} = Report.handle_cast({:suite_finished, %{}}, state)
+      assert read(path)["outcome"] == "failed"
+    end
+  end
+
+  test "measurement counts and budgets must be valid", %{tmp_dir: dir} do
+    for invalid <- [
+          %{generated: -1},
+          %{limits: %{max_runs: 0}},
+          %{observations: %{"checked" => 8}}
+        ] do
+      path = Path.join(dir, "report.json")
+      {:ok, state} = Report.init(path: path)
+      write_measurement(dir, Map.merge(measurement(state.metadata.run_id), invalid))
+      {:noreply, _} = Report.handle_cast({:suite_finished, %{}}, state)
+      assert read(path)["outcome"] == "failed"
+      assert read(path)["artifact_errors"] != []
+    end
+  end
+
+  test "an artifact without a passed owner cannot provide full-suite evidence", %{tmp_dir: dir} do
+    path = Path.join(dir, "report.json")
+    {:ok, state} = Report.init(path: path)
+    record = test_record("unrelated property", nil, ["ACT-001"], [])
+    {:noreply, state} = Report.handle_cast({:test_finished, record}, state)
+    write_measurement(dir, measurement(state.metadata.run_id))
+    {:noreply, _} = Report.handle_cast({:suite_finished, %{}}, state)
+    assert read(path)["outcome"] == "failed"
+  end
+
+  test "a full fuzz gate rejects a missing required case", %{tmp_dir: dir} do
+    report = finish(dir, [test_record("pass", nil, ["ACT-001"], [])])
+    assert report["outcome"] == "passed"
+
+    assert_raise RuntimeError, ~r/missing fuzz cases/, fn ->
+      Report.check!(Path.join(dir, "report.json"), ["action_boundaries"])
+    end
+  end
+
+  test "measurement tags must match the owning passed test", %{tmp_dir: dir} do
+    path = Path.join(dir, "report.json")
+    {:ok, state} = Report.init(path: path)
+    record = test_record("fuzz pass", nil, ["ACT-002"], [])
+    record = %{record | tags: %{fuzz: true, fuzz_id: "action_boundaries", contracts: ["ACT-002"]}}
+    {:noreply, state} = Report.handle_cast({:test_finished, record}, state)
+    write_measurement(dir, measurement(state.metadata.run_id))
+    {:noreply, _} = Report.handle_cast({:suite_finished, %{}}, state)
+    assert read(path)["outcome"] == "failed"
+    assert read(path)["validation_errors"] != []
+  end
+
+  defp measurement(run_id) do
+    %{
+      id: "action_boundaries",
+      run_id: run_id,
+      variant: "fuzz",
+      seed: 0,
+      generated: 7,
+      examples: 0,
+      replayed: 0,
+      shrink_attempts: 0,
+      confirmations: 0,
+      elapsed_ms: 1,
+      outcome: "passed",
+      contracts: ["ACT-001"],
+      declared_forced_cases: [],
+      observations: %{"checked" => 7},
+      test_timeout: 900_000,
+      limits: %{max_runs: 7, max_run_time: 10_000, max_shrinking_steps: 200}
+    }
+  end
+
+  defp write_measurement(dir, record) do
+    path = Path.join([dir, "property-fuzz", record.run_id, "#{record.id}-#{record.variant}.json"])
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, JSON.encode!(record))
   end
 
   test "short properties cannot fill gaps in fuzz contract evidence", %{tmp_dir: dir} do

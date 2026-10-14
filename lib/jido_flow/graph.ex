@@ -3,23 +3,28 @@ defmodule Jido.Flow.Graph do
 
   alias Jido.Flow.Definition
 
+  @type analysis :: %{
+          levels: %{optional(String.t()) => non_neg_integer()},
+          remaining: [String.t()],
+          ordered: [Definition.named_component()] | nil,
+          dependencies: %{optional(String.t()) => [String.t()]},
+          terminals: [String.t()]
+        }
+
   @doc false
   @spec canonical_components(Definition.components()) :: [Definition.named_component()]
   def canonical_components(components) when is_map(components) do
-    %{levels: levels, remaining: []} = analyze(components)
-
-    components
-    |> Map.to_list()
-    |> Enum.sort_by(fn {name, _node} -> {Map.fetch!(levels, name), name} end)
+    %{ordered: ordered, remaining: []} = analyze(components)
+    ordered
   end
 
   @doc false
-  @spec analyze(Definition.components()) :: %{
-          levels: %{optional(String.t()) => non_neg_integer()},
-          remaining: [String.t()]
-        }
+  @spec analyze(Definition.components()) :: analysis()
   def analyze(components) when is_map(components) do
-    graph = dependency_graph(components)
+    dependencies =
+      Map.new(components, fn {name, node} -> {name, Definition.effective_dependencies(node)} end)
+
+    graph = dependency_graph(dependencies)
     blocked = blocked_vertices(graph, components)
 
     levels =
@@ -38,17 +43,34 @@ defmodule Jido.Flow.Graph do
       end)
 
     remaining = blocked |> Enum.filter(&Map.has_key?(components, &1)) |> Enum.sort()
-    %{levels: levels, remaining: remaining}
+
+    ordered =
+      if remaining == [] do
+        Enum.sort_by(components, fn {name, _node} -> {Map.fetch!(levels, name), name} end)
+      end
+
+    terminals =
+      components
+      |> Map.keys()
+      |> Enum.filter(&(Multigraph.out_neighbors(graph, &1) == []))
+      |> Enum.sort()
+
+    %{
+      levels: levels,
+      remaining: remaining,
+      ordered: ordered,
+      dependencies: dependencies,
+      terminals: terminals
+    }
   end
 
-  defp dependency_graph(components) do
+  defp dependency_graph(dependencies) do
     graph =
       Multigraph.new(vertex_identifier: &Function.identity/1)
-      |> Multigraph.add_vertices(Map.keys(components))
+      |> Multigraph.add_vertices(Map.keys(dependencies))
 
-    Enum.reduce(components, graph, fn {name, node}, graph ->
-      node
-      |> Definition.effective_dependencies()
+    Enum.reduce(dependencies, graph, fn {name, dependencies}, graph ->
+      dependencies
       |> Enum.reduce(graph, fn dependency, graph ->
         Multigraph.add_edge(graph, dependency, name)
       end)

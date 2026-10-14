@@ -1,7 +1,10 @@
 defmodule Jido.Exec.Node.Loop.Start do
   @moduledoc false
 
+  use Runic.Workflow.SingleOutput, batch_parent: false
+
   alias Runic.Identity
+  alias Runic.Workflow.SingleOutput.{Context, Result}
 
   @enforce_keys [:id, :name, :hash, :loop]
   defstruct [:id, :name, :hash, :loop]
@@ -25,63 +28,29 @@ defmodule Jido.Exec.Node.Loop.Start do
       loop: loop
     }
   end
-end
 
-defimpl Runic.Identity.Projectable, for: Jido.Exec.Node.Loop.Start do
-  def identity_document(node) do
-    %{kind: :jido_loop_start, version: 1, id: inspect(node.id)}
-  end
-end
-
-defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Loop.Start do
-  alias Jido.Exec.Node.Loop
-  alias Runic.Workflow
-  alias Runic.Workflow.{CausalContext, Runnable}
-  alias Runic.Workflow.Events.{ActivationConsumed, FactProduced}
-
-  def match_or_execute(_node), do: :execute
-
-  def invoke(node, workflow, fact) do
-    {:ok, runnable} = prepare(node, workflow, fact)
-    Workflow.apply_runnable(workflow, execute(node, runnable))
-  end
-
-  def prepare(node, workflow, fact) do
-    context =
-      CausalContext.new(
-        node_hash: node.hash,
-        input_fact: fact,
-        ancestry_depth: Workflow.ancestry_depth(workflow, fact),
-        run_context: Workflow.get_run_context(workflow, node.name)
-      )
-
-    {:ok, Runnable.new(node, fact, context)}
-  end
-
-  def execute(node, %Runnable{input_fact: fact, context: context} = runnable) do
-    case Loop.start(node.loop, Jido.Exec.Fact.value(fact), context.run_context) do
+  @impl Runic.Workflow.SingleOutput
+  @doc false
+  @spec run(t(), term(), Context.t()) :: Result.t()
+  def run(%__MODULE__{} = node, input, %Context{} = context) do
+    case Jido.Exec.Node.Loop.start(node.loop, Jido.Exec.Fact.unwrap(input), context.runtime) do
       {:ok, value, loop} ->
-        result =
-          Jido.Exec.Fact.child(fact,
-            value: value,
-            ancestry: {node.hash, fact.hash},
-            meta: %{jido_loop: loop}
-          )
-
-        Runnable.complete(runnable, result, [
-          FactProduced.new(result, producer_label: :produced, weight: context.ancestry_depth + 1),
-          %ActivationConsumed{fact_hash: fact.hash, node_hash: node.hash, from_label: :runnable}
-        ])
+        Jido.Exec.Fact.result(input, context, value, %{jido_loop: loop})
 
       {:error, error} ->
-        Runnable.fail(
-          runnable,
+        Result.failure(
           Jido.Exec.Source.attach(error, node.loop.location, %{
             node: node.loop.component,
             node_path: node.loop.node_path
           })
         )
     end
+  end
+end
+
+defimpl Runic.Identity.Projectable, for: Jido.Exec.Node.Loop.Start do
+  def identity_document(node) do
+    %{kind: :jido_loop_start, version: 1, id: inspect(node.id)}
   end
 end
 

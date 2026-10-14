@@ -301,15 +301,7 @@ defmodule Jido.Flow do
   """
   @spec validate(t()) :: {:ok, t()} | {:error, Exception.t()}
   def validate(%__MODULE__{} = flow) do
-    with {:ok, attrs} <-
-           Definition.validate_canonical(%{
-             name: flow.name,
-             description: flow.description,
-             schema: flow.schema,
-             output_schema: flow.output_schema,
-             components: flow.components,
-             output: flow.output
-           }) do
+    with {:ok, attrs} <- Definition.validate_canonical(Map.from_struct(flow)) do
       {:ok, struct!(__MODULE__, attrs)}
     end
   end

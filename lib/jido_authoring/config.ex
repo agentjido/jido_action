@@ -76,13 +76,13 @@ defmodule Jido.Authoring.Config do
 
   @doc false
   @spec prepare!(Jido.Instruction.kind(), term(), Macro.Env.t()) ::
-          {map(), Jido.Action.schema(), Jido.Action.schema()} | no_return()
+          map() | no_return()
   def prepare!(kind, raw_opts, env) do
     case validate_config(kind, normalize_options(raw_opts)) do
       {:ok, opts} ->
-        schema = ensure_escapable_schema!(opts.schema, :schema, env)
-        output_schema = ensure_escapable_schema!(opts.output_schema, :output_schema, env)
-        {opts, schema, output_schema}
+        ensure_escapable_schema!(opts.schema, :schema, env)
+        ensure_escapable_schema!(opts.output_schema, :output_schema, env)
+        opts
 
       {:error, errors} ->
         raise CompileError,

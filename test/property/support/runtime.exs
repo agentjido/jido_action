@@ -3,17 +3,17 @@ defmodule JidoActionTest.Property.Runtime do
   import ExUnit.Assertions
 
   def with_context(fun) do
-    {:ok, supervisor} = Task.Supervisor.start_link()
-    context = %{observer: self(), token: make_ref(), supervisor: supervisor}
+    token = make_ref()
+    supervisor = ExUnit.Callbacks.start_supervised!({Task.Supervisor, []}, id: token)
+    context = %{observer: self(), token: token, supervisor: supervisor}
 
     try do
       result = fun.(context)
-      # An async result can precede controller exit. Confirm termination first.
       assert_supervisor_idle(supervisor)
       result
     after
       try do
-        Supervisor.stop(supervisor)
+        ExUnit.Callbacks.stop_supervised!(token)
       after
         drain(context.token)
       end
@@ -30,10 +30,9 @@ defmodule JidoActionTest.Property.Runtime do
     end
   end
 
-  def options(_context, concurrency \\ 1),
-    do: [max_concurrency: concurrency]
+  def options(context, concurrency \\ 1),
+    do: [task_supervisor: context.supervisor, max_concurrency: concurrency]
 
-  # Read callback messages only after a public completion or mutation barrier.
   def calls(context), do: calls(context.token, [])
 
   defp calls(token, acc) do
@@ -64,8 +63,6 @@ defmodule JidoActionTest.Property.Runtime do
 
   def assert_supervisor_idle(supervisor) do
     assert_workers_stopped(Task.Supervisor.children(supervisor))
-    # A DOWN message to this process does not confirm that the supervisor has
-    # removed the child's entry. Check live processes, not that bookkeeping race.
     refute Enum.any?(Task.Supervisor.children(supervisor), &Process.alive?/1)
   end
 

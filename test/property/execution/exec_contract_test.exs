@@ -8,6 +8,8 @@ defmodule JidoActionTest.Property.Execution.ExecContractTest do
   alias Jido.Flow.Ref
   alias JidoActionTest.Fixtures.Actions.Add
 
+  @tag contracts: ["EXEC-001"]
+  @tag contract_cases: ["EXEC-001/action-and-flow"]
   property "an Action and an equivalent one-step Flow have the same result" do
     check all(value <- integer(-10_000..10_000), amount <- integer(-100..100)) do
       flow =
@@ -24,7 +26,9 @@ defmodule JidoActionTest.Property.Execution.ExecContractTest do
         )
 
       input = %{value: value, amount: amount}
-      assert Exec.run(Add, input) == Exec.run(flow, input)
+      expected = {:ok, %{value: value + amount}}
+      assert Exec.run(Add, input) == expected
+      assert Exec.run(flow, input) == expected
     end
   end
 end

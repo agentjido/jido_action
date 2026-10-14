@@ -38,13 +38,15 @@ defmodule Jido.Exec.Compiler do
   @spec compile_nested!(Instruction.t(), keyword()) :: Workflow.t() | no_return()
   def compile_nested!(%Instruction{kind: :flow} = instruction, opts) do
     with {:ok, flow} <- instruction_flow(instruction),
-         {:ok, flow} <- validate(flow),
+         {:ok, flow, analysis, children} <- prepare_flow(flow, [], %{}),
          {:ok, workflow} <-
            compile_flow(
              flow,
              opts
              |> with_module_source_map(instruction.target)
-             |> Keyword.put(:validation_target, instruction.target)
+             |> Keyword.put(:validation_target, instruction.target),
+             analysis,
+             children
            ) do
       workflow
     else
@@ -59,7 +61,7 @@ defmodule Jido.Exec.Compiler do
   @doc false
   @spec validate(Flow.t()) :: {:ok, Flow.t()} | {:error, Exception.t()}
   def validate(%Flow{} = flow) do
-    with {:ok, flow} <- Flow.validate(flow), do: validate_targets(flow)
+    with {:ok, flow, _analysis, _children} <- prepare_flow(flow, [], %{}), do: {:ok, flow}
   end
 
   def validate(value), do: Flow.validate(value)
@@ -67,7 +69,8 @@ defmodule Jido.Exec.Compiler do
   @doc false
   @spec validate_targets(Flow.t()) :: {:ok, Flow.t()} | {:error, Exception.t()}
   def validate_targets(%Flow{} = flow) do
-    with {:ok, _children} <- validate_component_targets(flow.components, [], %{}) do
+    with {:ok, _children} <-
+           validate_component_targets(Graph.canonical_components(flow.components), [], %{}) do
       {:ok, flow}
     end
   end
@@ -90,12 +93,14 @@ defmodule Jido.Exec.Compiler do
 
   defp compile_instruction(%Instruction{kind: :flow} = instruction, opts) do
     with {:ok, flow} <- instruction_flow(instruction),
-         {:ok, flow} <- validate(flow) do
+         {:ok, flow, analysis, children} <- prepare_flow(flow, [], %{}) do
       compile_flow(
         flow,
         opts
         |> with_module_source_map(instruction.target)
-        |> Keyword.put(:validation_target, instruction.target)
+        |> Keyword.put(:validation_target, instruction.target),
+        analysis,
+        children
       )
     end
   end
@@ -157,7 +162,6 @@ defmodule Jido.Exec.Compiler do
 
   defp validate_component_targets(components, module_stack, children) do
     components
-    |> Graph.canonical_components()
     |> Enum.reduce_while({:ok, children}, fn {name, component}, {:ok, children} ->
       case validate_component_target(name, component, module_stack, children) do
         {:ok, children} -> {:cont, {:ok, children}}
@@ -217,7 +221,9 @@ defmodule Jido.Exec.Compiler do
   end
 
   defp validate_child_flow(%Flow{} = child, module_stack, children) do
-    validate_child_definition(child, child, module_stack, children)
+    with {:ok, _flow, _analysis, children} <-
+           prepare_flow(child, [child | module_stack], children),
+         do: {:ok, children}
   end
 
   defp validate_child_flow(module, module_stack, children) when is_atom(module) do
@@ -227,15 +233,17 @@ defmodule Jido.Exec.Compiler do
 
       :error ->
         with {:ok, child} <- instruction_flow(%Instruction{target: module, kind: :flow}),
-             {:ok, children} <- validate_child_definition(child, module, module_stack, children) do
-          {:ok, Map.put(children, module, child)}
+             {:ok, child, analysis, children} <-
+               prepare_flow(child, [module | module_stack], children) do
+          {:ok, Map.put(children, module, {child, analysis})}
         end
     end
   end
 
-  defp validate_child_definition(child, identity, module_stack, children) do
-    with {:ok, child} <- Flow.validate(child) do
-      validate_component_targets(child.components, [identity | module_stack], children)
+  defp prepare_flow(flow, module_stack, children) do
+    with {:ok, attrs, analysis} <- Definition.prepare_canonical(Map.from_struct(flow)),
+         {:ok, children} <- validate_component_targets(analysis.ordered, module_stack, children) do
+      {:ok, struct!(Flow, attrs), analysis, children}
     end
   end
 
@@ -294,8 +302,8 @@ defmodule Jido.Exec.Compiler do
     end
   end
 
-  defp compile_flow(flow, opts) do
-    digest = Identity.semantic_digest(flow)
+  defp compile_flow(flow, opts, analysis, children) do
+    digest = Identity.semantic_digest(flow, analysis.ordered)
     source_map = Keyword.get(opts, :source_map, %{})
     namespace = Keyword.get(opts, :namespace)
     boundary_name = Keyword.get(opts, :boundary_name)
@@ -304,8 +312,16 @@ defmodule Jido.Exec.Compiler do
     boundary_location = Keyword.get(opts, :boundary_location)
     validation_target = Keyword.get(opts, :validation_target)
     node_path_prefix = Keyword.get(opts, :node_path_prefix, [])
-    ordered = Graph.canonical_components(flow.components)
+    ordered = analysis.ordered
     output = output_name(flow, digest, namespace)
+
+    context = %{
+      digest: digest,
+      source_map: source_map,
+      namespace: namespace,
+      node_path_prefix: node_path_prefix,
+      children: children
+    }
 
     initial =
       Workflow.new(
@@ -329,12 +345,9 @@ defmodule Jido.Exec.Compiler do
     with {:ok, workflow} <-
            add_flow_components(
              initial,
-             ordered,
-             digest,
-             source_map,
-             namespace,
-             root_parent,
-             node_path_prefix
+             analysis,
+             context,
+             root_parent
            ) do
       output =
         Output.new(
@@ -348,8 +361,7 @@ defmodule Jido.Exec.Compiler do
         )
 
       terminals =
-        flow.components
-        |> terminal_components()
+        analysis.terminals
         |> Enum.map(&graph_name(namespace, &1))
         |> then(fn
           [] when not is_nil(root_parent) -> [root_parent]
@@ -363,32 +375,21 @@ defmodule Jido.Exec.Compiler do
     error -> {:error, error}
   end
 
-  defp add_flow_components(
-         workflow,
-         components,
-         digest,
-         source_map,
-         namespace,
-         root_parent,
-         node_path_prefix
-       ) do
-    Enum.reduce_while(components, {:ok, workflow}, fn {name, node}, {:ok, current} ->
-      graph_name = graph_name(namespace, name)
+  defp add_flow_components(workflow, analysis, context, root_parent) do
+    Enum.reduce_while(analysis.ordered, {:ok, workflow}, fn {name, node}, {:ok, current} ->
+      opts = [
+        id: {:flow, context.digest, context.namespace, name},
+        name: graph_name(context.namespace, name),
+        component: name,
+        location: Map.get(context.source_map, [:components, name]),
+        node_path: context.node_path_prefix ++ [name]
+      ]
 
-      case runtime_component(
-             name,
-             graph_name,
-             node,
-             digest,
-             source_map,
-             namespace,
-             node_path_prefix
-           ) do
+      case runtime_component(node, opts, context) do
         {:ok, component} ->
           dependencies =
-            node
-            |> Definition.effective_dependencies()
-            |> Enum.map(&graph_name(namespace, &1))
+            analysis.dependencies[name]
+            |> Enum.map(&graph_name(context.namespace, &1))
             |> then(fn
               [] when not is_nil(root_parent) -> [root_parent]
               names -> names
@@ -404,216 +405,150 @@ defmodule Jido.Exec.Compiler do
     end)
   end
 
-  defp runtime_instruction!(%{kind: kind, target: target}) do
-    Instruction.new!(kind: kind, target: target)
-  end
-
   defp runtime_component(
-         name,
-         graph_name,
-         %{kind: :call, call: %{kind: :action, params: params} = call},
-         digest,
-         source_map,
-         namespace,
-         node_path_prefix
+         %{kind: :call, call: %{kind: :action} = call},
+         opts,
+         context
        ) do
-    metadata = %{
-      jido_flow: %{
-        flow: digest,
-        component: name,
-        node_path: node_path_prefix ++ [name],
-        params: params,
-        location: Map.get(source_map, [:components, name])
-      }
-    }
+    flow = opts |> Keyword.take([:component, :location, :node_path]) |> Map.new()
+    flow = Map.put(flow, :flow, context.digest)
 
-    with {:ok, instruction} <- Instruction.new(kind: call.kind, target: call.target) do
-      {:ok,
-       Action.new(instruction,
-         flow: metadata.jido_flow,
-         id: {:flow, digest, namespace, name},
-         name: graph_name
-       )}
-    end
-  end
-
-  defp runtime_component(
-         name,
-         graph_name,
-         %{
-           kind: :dispatch,
-           decision: %{kind: :action, params: params} = decision,
-           expander: %{kind: :action} = expander
-         },
-         digest,
-         source_map,
-         namespace,
-         node_path_prefix
-       ) do
     {:ok,
-     Dispatch.new(
-       id: {:flow, digest, namespace, name},
-       name: graph_name,
-       component: name,
-       decision: runtime_instruction!(decision),
-       decision_params: params,
-       expander: runtime_instruction!(expander),
-       location: Map.get(source_map, [:components, name]),
-       node_path: node_path_prefix ++ [name]
+     Action.new(
+       call,
+       [flow: flow] ++ Keyword.take(opts, [:id, :name])
      )}
   end
 
   defp runtime_component(
-         name,
-         graph_name,
+         %{
+           kind: :dispatch,
+           decision: %{kind: :action} = decision,
+           expander: %{kind: :action} = expander
+         },
+         opts,
+         _context
+       ) do
+    {:ok,
+     Dispatch.new(
+       opts ++
+         [
+           decision: decision,
+           expander: expander
+         ]
+     )}
+  end
+
+  defp runtime_component(
          %{
            kind: :reduce,
            collection: collection,
            initial: initial,
-           call: %{kind: :action, params: params} = instruction
+           call: %{kind: :action} = call
          },
-         digest,
-         source_map,
-         namespace,
-         node_path_prefix
+         opts,
+         _context
        ) do
     {:ok,
      Loop.new(
-       id: {:flow, digest, namespace, name},
-       name: graph_name,
-       kind: :reduce,
-       component: name,
-       collection: collection,
-       initial: initial,
-       instruction: runtime_instruction!(instruction),
-       params: params,
-       location: Map.get(source_map, [:components, name]),
-       node_path: node_path_prefix ++ [name]
+       opts ++
+         [
+           kind: :reduce,
+           collection: collection,
+           initial: initial,
+           call: call
+         ]
      )}
   end
 
   defp runtime_component(
-         name,
-         graph_name,
          %{
            kind: :iterate,
-           call: %{kind: :action, params: params} = instruction,
+           call: %{kind: :action} = call,
            state: state,
            completion: completion,
            max_iterations: max_iterations
          },
-         digest,
-         source_map,
-         namespace,
-         node_path_prefix
+         opts,
+         _context
        ) do
     {:ok,
      Loop.new(
-       id: {:flow, digest, namespace, name},
-       name: graph_name,
-       kind: :iterate,
-       component: name,
-       instruction: runtime_instruction!(instruction),
-       params: params,
-       state: state,
-       completion: completion,
-       max_iterations: max_iterations,
-       location: Map.get(source_map, [:components, name]),
-       node_path: node_path_prefix ++ [name]
+       opts ++
+         [
+           kind: :iterate,
+           call: call,
+           state: state,
+           completion: completion,
+           max_iterations: max_iterations
+         ]
      )}
   end
 
   defp runtime_component(
-         name,
-         graph_name,
          %{
            kind: :map,
            collection: collection,
-           call: %{kind: :action, params: params} = instruction,
+           call: %{kind: :action} = call,
            on_error: on_error
          },
-         digest,
-         source_map,
-         namespace,
-         node_path_prefix
+         opts,
+         _context
        ) do
     {:ok,
      MapComponent.new(
-       id: {:flow, digest, namespace, name},
-       name: graph_name,
-       component: name,
-       collection: collection,
-       instruction: runtime_instruction!(instruction),
-       params: params,
-       on_error: on_error,
-       location: Map.get(source_map, [:components, name]),
-       node_path: node_path_prefix ++ [name]
+       opts ++
+         [
+           collection: collection,
+           call: call,
+           on_error: on_error
+         ]
      )}
   end
 
   defp runtime_component(
-         name,
-         graph_name,
          %{kind: :choice, options: options, fallback: fallback},
-         digest,
-         source_map,
-         namespace,
-         node_path_prefix
+         opts,
+         _context
        ) do
-    {:ok,
-     Choice.new(
-       id: {:flow, digest, namespace, name},
-       name: graph_name,
-       component: name,
-       options:
-         Enum.map(options, fn option ->
-           %{option | call: {runtime_instruction!(option.call), option.call.params}}
-         end),
-       fallback: {runtime_instruction!(fallback), fallback.params},
-       location: Map.get(source_map, [:components, name]),
-       node_path: node_path_prefix ++ [name]
-     )}
+    {:ok, Choice.new(opts ++ [options: options, fallback: fallback])}
   end
 
   defp runtime_component(
-         name,
-         _graph_name,
          %{kind: :call, call: %{kind: :flow, params: params} = instruction},
-         digest,
-         source_map,
-         namespace,
-         node_path_prefix
+         opts,
+         context
        ) do
-    with {:ok, flow} <- instruction_flow(runtime_instruction!(instruction)),
-         {:ok, flow} <- validate(flow) do
-      child_namespace = nested_namespace(namespace, digest, name)
-      child_source_map = module_source_map(instruction.target)
+    {flow, analysis} = Map.fetch!(context.children, instruction.target)
+    name = Keyword.fetch!(opts, :component)
+    child_namespace = nested_namespace(context.namespace, context.digest, name)
+    child_source_map = module_source_map(instruction.target)
 
-      compile_flow(flow,
+    compile_flow(
+      flow,
+      [
         source_map: child_source_map,
         namespace: child_namespace,
-        boundary_name: graph_name(namespace, name),
+        boundary_name: Keyword.fetch!(opts, :name),
         parent_component: name,
         input_params: params,
-        boundary_location: Map.get(source_map, [:components, name]),
+        boundary_location: Keyword.get(opts, :location),
         validation_target: instruction.target,
-        node_path_prefix: node_path_prefix ++ [name]
-      )
-    end
+        node_path_prefix: Keyword.fetch!(opts, :node_path)
+      ],
+      analysis,
+      context.children
+    )
   end
 
   defp runtime_component(
-         name,
-         _graph_name,
          node,
-         _digest,
-         _source_map,
-         _namespace,
-         _node_path_prefix
+         opts,
+         _context
        ) do
     {:error,
      Error.config_error("Flow component is not supported by this compiler gate", %{
-       component: name,
+       component: Keyword.fetch!(opts, :component),
        kind: node.kind,
        reason: :unsupported_component
      })}
@@ -649,18 +584,6 @@ defmodule Jido.Exec.Compiler do
       end)
 
     Workflow.add(workflow, component, connections: connections, input_mode: :all)
-  end
-
-  defp terminal_components(components) do
-    depended_on =
-      components
-      |> Enum.flat_map(fn {_name, node} -> Definition.effective_dependencies(node) end)
-      |> MapSet.new()
-
-    components
-    |> Map.keys()
-    |> Enum.reject(&MapSet.member?(depended_on, &1))
-    |> Enum.sort()
   end
 
   defp add_flow_input(

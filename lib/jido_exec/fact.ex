@@ -19,6 +19,7 @@ defmodule Jido.Exec.Fact do
   alias Jido.Exec.Fact.LocalValue
   alias Runic.Identity
   alias Runic.Workflow.Fact
+  alias Runic.Workflow.SingleOutput.{Context, Result}
 
   @local_identity %{jido: %{identity_mode: :local}}
   @max_local_depth 32
@@ -47,6 +48,13 @@ defmodule Jido.Exec.Fact do
     else
       opts
     end
+  end
+
+  @doc false
+  @spec result(term(), Context.t(), term(), map()) :: Result.t()
+  def result(input, context, value, metadata \\ %{}) do
+    opts = child_options(input, context.input_metadata, value: value, meta: metadata)
+    Result.value(Keyword.fetch!(opts, :value), metadata: Keyword.fetch!(opts, :meta))
   end
 
   @doc false

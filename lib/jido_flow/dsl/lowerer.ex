@@ -2,7 +2,7 @@ defmodule Jido.Flow.DSL.Lowerer do
   @moduledoc false
 
   alias Jido.Flow
-  alias Jido.Flow.Definition
+  alias Jido.Flow.{Component, Definition}
   alias Jido.Expr
   alias Jido.Flow.Error
   alias Jido.Flow.Ref
@@ -72,47 +72,31 @@ defmodule Jido.Flow.DSL.Lowerer do
   defp lower_entity(%Choice{} = choice) do
     with {:ok, options} <- lower_choice_options(choice.options),
          {:ok, fallback} <- lower_fallback(choice.fallback) do
-      {:ok,
-       %{
-         kind: :choice,
-         name: choice.name,
-         options: options,
-         fallback: fallback,
-         needs: choice.needs,
-         meta: choice.meta
-       }}
+      component(choice, :choice, options: options, fallback: fallback)
     end
   end
 
   defp lower_entity(%MapNode{} = map) do
     with {:ok, %{collection: collection, params: params}} <-
            ValueParser.parse_fields(map, collection: :value, params: :value) do
-      {:ok,
-       %{
-         kind: :map,
-         name: map.name,
-         collection: collection,
-         call: %{kind: :action, target: map.action, params: params},
-         on_error: map.on_error,
-         needs: map.needs,
-         meta: map.meta
-       }}
+      component(map, :map,
+        collection: collection,
+        action: map.action,
+        params: params,
+        on_error: map.on_error
+      )
     end
   end
 
   defp lower_entity(%Reduce{} = reduce) do
     with {:ok, %{collection: collection, initial: initial, params: params}} <-
            ValueParser.parse_fields(reduce, collection: :value, initial: :value, params: :value) do
-      {:ok,
-       %{
-         kind: :reduce,
-         name: reduce.name,
-         collection: collection,
-         initial: initial,
-         call: %{kind: :action, target: reduce.action, params: params},
-         needs: reduce.needs,
-         meta: reduce.meta
-       }}
+      component(reduce, :reduce,
+        collection: collection,
+        initial: initial,
+        action: reduce.action,
+        params: params
+      )
     end
   end
 
@@ -126,31 +110,23 @@ defmodule Jido.Flow.DSL.Lowerer do
            ),
          {:ok, completion, max_iterations} <-
            normalize_termination(iterate, condition) do
-      {:ok,
-       %{
-         kind: :iterate,
-         name: iterate.name,
-         call: %{kind: :action, target: iterate.action, params: params},
-         state: Map.put(state, :update, update),
-         completion: completion,
-         max_iterations: max_iterations,
-         needs: iterate.needs,
-         meta: iterate.meta
-       }}
+      component(iterate, :iterate,
+        action: iterate.action,
+        params: params,
+        state: Map.put(state, :update, update),
+        completion: completion,
+        max_iterations: max_iterations
+      )
     end
   end
 
   defp lower_entity(%Dispatch{} = dispatch) do
     with {:ok, %{params: params}} <- ValueParser.parse_fields(dispatch, params: :value) do
-      {:ok,
-       %{
-         kind: :dispatch,
-         name: dispatch.name,
-         decision: %{kind: :action, target: dispatch.decision, params: params},
-         expander: %{kind: :action, target: dispatch.expander},
-         needs: dispatch.needs,
-         meta: dispatch.meta
-       }}
+      component(dispatch, :dispatch,
+        decision: dispatch.decision,
+        expander: dispatch.expander,
+        params: params
+      )
     end
   end
 
@@ -165,14 +141,9 @@ defmodule Jido.Flow.DSL.Lowerer do
   defp step_component(step, params) do
     with {:module, _module} <- Code.ensure_compiled(step.action),
          {:ok, kind} <- Jido.Instruction.target_kind(step.action) do
-      {:ok,
-       %{
-         kind: :call,
-         name: step.name,
-         call: %{kind: kind, target: step.action, params: params},
-         needs: step.needs,
-         meta: step.meta
-       }}
+      if kind == :action,
+        do: component(step, :step, action: step.action, params: params),
+        else: component(step, :subflow, flow: step.action, params: params)
     else
       {:error, error} when is_exception(error) ->
         details = error |> Map.get(:details, %{}) |> Map.put(:cause, error.__struct__)
@@ -199,7 +170,8 @@ defmodule Jido.Flow.DSL.Lowerer do
         value = %{
           name: option.name,
           condition: condition,
-          call: %{kind: :action, target: option.action, params: params}
+          action: option.action,
+          params: params
         }
 
         {:cont, {:ok, [value | lowered]}}
@@ -212,7 +184,7 @@ defmodule Jido.Flow.DSL.Lowerer do
 
   defp lower_fallback(%Otherwise{} = fallback) do
     with {:ok, %{params: params}} <- ValueParser.parse_fields(fallback, params: :value) do
-      {:ok, %{kind: :action, target: fallback.action, params: params}}
+      {:ok, %{action: fallback.action, params: params}}
     end
   end
 
@@ -268,4 +240,9 @@ defmodule Jido.Flow.DSL.Lowerer do
 
   defp reverse_ok({:ok, values}), do: {:ok, Enum.reverse(values)}
   defp reverse_ok({:error, error}), do: {:error, error}
+
+  defp component(entity, kind, fields) do
+    attrs = entity |> Map.take([:name, :needs, :meta]) |> Map.merge(Map.new(fields))
+    {:ok, Component.authoring(Map.put(attrs, :kind, kind))}
+  end
 end

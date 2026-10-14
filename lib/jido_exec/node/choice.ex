@@ -1,10 +1,12 @@
 defmodule Jido.Exec.Node.Choice do
   @moduledoc false
 
+  use Runic.Workflow.SingleOutput, batch_parent: false
+
   alias Jido.Exec.Node.Action
   alias Jido.Exec.Node.Choice.{Branch, Selector}
-  alias Jido.Instruction
   alias Runic.Identity
+  alias Runic.Workflow.SingleOutput.{Context, Result}
   alias Runic.Workflow
 
   @enforce_keys [:id, :name, :hash, :component, :options, :fallback]
@@ -36,7 +38,7 @@ defmodule Jido.Exec.Node.Choice do
   @doc false
   @spec connect(t(), [term()], Workflow.t()) :: Workflow.t()
   def connect(%__MODULE__{} = node, parents, %Workflow{} = workflow) do
-    paths = option_paths(node.options) ++ [fallback_path(node.options, node.fallback)]
+    paths = node.options ++ [%{name: "fallback", call: node.fallback}]
 
     selector =
       Selector.new(
@@ -65,21 +67,16 @@ defmodule Jido.Exec.Node.Choice do
         condition =
           condition({node.id, :condition, path.name}, internal_name(node, "if", path.name))
 
-        metadata = %{
-          jido_flow: %{
-            component: node.component,
-            mode: :choice,
-            params: path.params,
-            location: node.location,
-            node_path: node.node_path
-          }
+        flow = %{
+          component: node.component,
+          mode: :choice,
+          location: node.location,
+          node_path: node.node_path
         }
 
-        {:ok, instruction} = Instruction.bind(path.instruction, %{}, %{})
-
         action =
-          Action.new(instruction,
-            flow: metadata.jido_flow,
+          Action.new(path.call,
+            flow: flow,
             id: {node.id, :action, path.name},
             name: internal_name(node, "action", path.name)
           )
@@ -128,70 +125,23 @@ defmodule Jido.Exec.Node.Choice do
 
   def pass({:jido_nested_flow_frame, 1, _parent, _child} = frame), do: {:ok, frame}
 
-  defp option_paths(options) do
-    options
-    |> Enum.map(fn %{name: name, call: {instruction, params}} ->
-      %{
-        name: name,
-        instruction: instruction,
-        params: params
-      }
-    end)
-  end
-
-  defp fallback_path(_options, {instruction, params}) do
-    %{
-      name: "fallback",
-      instruction: instruction,
-      params: params
-    }
-  end
-
   defp connect_from(workflow, [], child), do: Workflow.add_step(workflow, child)
   defp connect_from(workflow, [parent], child), do: Workflow.add_step(workflow, parent, child)
   defp connect_from(workflow, parents, child), do: Workflow.add_step(workflow, parents, child)
 
   defp internal_name(node, kind, path), do: "__jido_choice__/#{node.name}/#{kind}/#{path}"
+  @impl Runic.Workflow.SingleOutput
+  @doc false
+  @spec run(t(), term(), Context.t()) :: Result.t()
+  def run(%__MODULE__{}, input, %Context{} = context) do
+    {:ok, value} = pass(Jido.Exec.Fact.unwrap(input))
+    Jido.Exec.Fact.result(input, context, value)
+  end
 end
 
 defimpl Runic.Identity.Projectable, for: Jido.Exec.Node.Choice do
   def identity_document(node) do
     %{kind: :jido_choice, version: 1, id: inspect(node.id)}
-  end
-end
-
-defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Choice do
-  alias Jido.Exec.Node.Choice
-  alias Runic.Workflow
-  alias Runic.Workflow.{CausalContext, Runnable}
-  alias Runic.Workflow.Events.{ActivationConsumed, FactProduced}
-
-  def match_or_execute(_node), do: :execute
-
-  def invoke(node, workflow, fact) do
-    {:ok, runnable} = prepare(node, workflow, fact)
-    Workflow.apply_runnable(workflow, execute(node, runnable))
-  end
-
-  def prepare(node, workflow, fact) do
-    context =
-      CausalContext.new(
-        node_hash: node.hash,
-        input_fact: fact,
-        ancestry_depth: Workflow.ancestry_depth(workflow, fact)
-      )
-
-    {:ok, Runnable.new(node, fact, context)}
-  end
-
-  def execute(node, %Runnable{input_fact: fact, context: context} = runnable) do
-    {:ok, value} = Choice.pass(Jido.Exec.Fact.value(fact))
-    result = Jido.Exec.Fact.child(fact, value: value, ancestry: {node.hash, fact.hash})
-
-    Runnable.complete(runnable, result, [
-      FactProduced.new(result, producer_label: :produced, weight: context.ancestry_depth + 1),
-      %ActivationConsumed{fact_hash: fact.hash, node_hash: node.hash, from_label: :runnable}
-    ])
   end
 end
 

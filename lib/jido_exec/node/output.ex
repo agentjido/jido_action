@@ -1,8 +1,11 @@
 defmodule Jido.Exec.Node.Output do
   @moduledoc false
 
+  @behaviour Runic.Workflow.SingleOutput
+
   alias Jido.Exec.{Frame, Validation, ValueResolver}
   alias Runic.Identity
+  alias Runic.Workflow.SingleOutput.{Context, Result}
 
   @enforce_keys [:id, :name, :hash, :output, :effect_order]
   defstruct [
@@ -25,6 +28,28 @@ defmodule Jido.Exec.Node.Output do
           parent_component: String.t() | nil,
           validator: module() | Jido.Flow.t() | nil
         }
+
+  @doc false
+  @spec __runic_single_output__() :: true
+  def __runic_single_output__, do: true
+
+  @doc false
+  @spec __runic_batch_parent__() :: false
+  def __runic_batch_parent__, do: false
+
+  @impl Runic.Workflow.SingleOutput
+  @doc false
+  @spec run(t(), term(), Context.t()) :: Result.t()
+  def run(%__MODULE__{} = node, input, %Context{} = context) do
+    case resolve(node, Jido.Exec.Fact.unwrap(input), context.runtime) do
+      {:ok, value, effects} ->
+        Jido.Exec.Fact.result(input, context, value, %{jido: %{effects: effects}})
+
+      {:error, error} ->
+        phase = if is_nil(node.parent_component), do: :flow_output, else: :subflow_output
+        Result.failure(Jido.Exec.Source.attach(error, node.location, %{phase: phase}))
+    end
+  end
 
   @doc false
   @spec new(keyword()) :: t()
@@ -104,69 +129,31 @@ defimpl Runic.Identity.Projectable, for: Jido.Exec.Node.Output do
 end
 
 defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Output do
-  alias Jido.Exec.Node.Output
   alias Runic.Workflow
-  alias Runic.Workflow.{CausalContext, Fact, HookRunner, Runnable}
-  alias Runic.Workflow.Events.{ActivationConsumed, FactProduced}
+  alias Runic.Workflow.{CausalContext, HookRunner, Runnable, SingleOutput}
 
   def match_or_execute(_node), do: :execute
 
-  def invoke(%Output{} = node, workflow, fact) do
+  defdelegate prepare(node, workflow, fact), to: SingleOutput
+
+  def invoke(node, workflow, fact) do
     {:ok, runnable} = prepare(node, workflow, fact)
-    executed = execute(node, runnable)
-    Workflow.apply_runnable(workflow, executed)
+    Workflow.apply_runnable(workflow, execute(node, runnable))
   end
 
-  def prepare(%Output{} = node, %Workflow{} = workflow, %Fact{} = fact) do
-    context =
-      CausalContext.new(
-        node_hash: node.hash,
-        input_fact: fact,
-        ancestry_depth: Workflow.ancestry_depth(workflow, fact),
-        hooks: Workflow.get_hooks(workflow, node.hash),
-        run_context: Workflow.get_run_context(workflow, node.name)
-      )
+  def execute(node, %Runnable{input_fact: fact, context: context} = runnable) do
+    case HookRunner.run_before(context, node, fact) do
+      {:ok, before_fns} ->
+        after_context =
+          CausalContext.with_hooks(context, {[], CausalContext.after_hooks(context)})
 
-    {:ok, Runnable.new(node, fact, context)}
-  end
+        executed = SingleOutput.execute(node, %{runnable | context: after_context})
+        executed = %{executed | context: context}
 
-  def execute(%Output{} = node, %Runnable{input_fact: fact, context: context} = runnable) do
-    with {:ok, before_apply_fns} <- HookRunner.run_before(context, node, fact),
-         {:ok, output, effects} <-
-           Output.resolve(node, Jido.Exec.Fact.value(fact), context.run_context) do
-      result_fact =
-        Jido.Exec.Fact.child(
-          fact,
-          value: output,
-          ancestry: {node.hash, fact.hash},
-          meta: %{jido: %{effects: effects}}
-        )
+        if executed.status == :completed,
+          do: %{executed | hook_apply_fns: before_fns ++ executed.hook_apply_fns},
+          else: executed
 
-      case HookRunner.run_after(context, node, fact, result_fact) do
-        {:ok, after_apply_fns} ->
-          events = [
-            FactProduced.new(result_fact,
-              producer_label: :produced,
-              weight: context.ancestry_depth + 1
-            ),
-            %ActivationConsumed{
-              fact_hash: fact.hash,
-              node_hash: node.hash,
-              from_label: :runnable
-            }
-          ]
-
-          Runnable.complete(
-            runnable,
-            result_fact,
-            events,
-            before_apply_fns ++ after_apply_fns
-          )
-
-        {:error, reason} ->
-          Runnable.fail(runnable, {:hook_error, reason})
-      end
-    else
       {:error, reason} ->
         phase = if is_nil(node.parent_component), do: :flow_output, else: :subflow_output
         Runnable.fail(runnable, Jido.Exec.Source.attach(reason, node.location, %{phase: phase}))

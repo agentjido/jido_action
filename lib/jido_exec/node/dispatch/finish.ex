@@ -1,7 +1,10 @@
 defmodule Jido.Exec.Node.Dispatch.Finish do
   @moduledoc false
 
+  use Runic.Workflow.SingleOutput, batch_parent: false
+
   alias Runic.Identity
+  alias Runic.Workflow.SingleOutput.{Context, Result}
 
   @enforce_keys [:id, :name, :hash, :dispatch_id, :dispatch_name, :component, :target_component]
   defstruct [:id, :name, :hash, :dispatch_id, :dispatch_name, :component, :target_component]
@@ -46,51 +49,21 @@ defmodule Jido.Exec.Node.Dispatch.Finish do
       {:ok, Jido.Exec.Frame.put_result(frame, node.component, output, prior ++ target_effects)}
     end
   end
+
+  @impl Runic.Workflow.SingleOutput
+  @doc false
+  @spec run(t(), term(), Context.t()) :: Result.t()
+  def run(%__MODULE__{} = node, input, %Context{} = context) do
+    case finish(node, Jido.Exec.Fact.unwrap(input)) do
+      {:ok, value} -> Jido.Exec.Fact.result(input, context, value)
+      {:error, error} -> Result.failure(error)
+    end
+  end
 end
 
 defimpl Runic.Identity.Projectable, for: Jido.Exec.Node.Dispatch.Finish do
   def identity_document(node) do
     %{kind: :jido_dispatch_finish, version: 1, id: inspect(node.id)}
-  end
-end
-
-defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Dispatch.Finish do
-  alias Jido.Exec.Node.Dispatch.Finish
-  alias Runic.Workflow
-  alias Runic.Workflow.{CausalContext, Runnable}
-  alias Runic.Workflow.Events.{ActivationConsumed, FactProduced}
-
-  def match_or_execute(_node), do: :execute
-
-  def invoke(node, workflow, fact) do
-    {:ok, runnable} = prepare(node, workflow, fact)
-    Workflow.apply_runnable(workflow, execute(node, runnable))
-  end
-
-  def prepare(node, workflow, fact) do
-    context =
-      CausalContext.new(
-        node_hash: node.hash,
-        input_fact: fact,
-        ancestry_depth: Workflow.ancestry_depth(workflow, fact)
-      )
-
-    {:ok, Runnable.new(node, fact, context)}
-  end
-
-  def execute(node, %Runnable{input_fact: fact, context: context} = runnable) do
-    case Finish.finish(node, Jido.Exec.Fact.value(fact)) do
-      {:ok, value} ->
-        result = Jido.Exec.Fact.child(fact, value: value, ancestry: {node.hash, fact.hash})
-
-        Runnable.complete(runnable, result, [
-          FactProduced.new(result, producer_label: :produced, weight: context.ancestry_depth + 1),
-          %ActivationConsumed{fact_hash: fact.hash, node_hash: node.hash, from_label: :runnable}
-        ])
-
-      {:error, error} ->
-        Runnable.fail(runnable, error)
-    end
   end
 end
 

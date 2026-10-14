@@ -186,7 +186,14 @@ mix test.authoring
 mix test.property
 mix test.system
 mix test.load
+mix test.fuzz
+mix test.all
 ```
 
-The default `mix test` suite excludes these tagged groups. Run all groups when
-you change Flow compilation or Exec behavior.
+The default `mix test` suite excludes these tagged groups. `mix test.all` runs
+the default tests and all five optional suites. It also requires a passing
+property report and measurements for all 15 fuzz cases. CI and release
+preflight use this command. Run it after a Flow compiler or Exec change.
+
+See [the property test guide](https://github.com/agentjido/jido_action/blob/release/v3/test/property/README.md) for bounds, replay,
+execution modes, and remaining coverage limits.

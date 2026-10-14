@@ -18,10 +18,6 @@ defmodule JidoAction.MixProject do
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
-      propcheck: [
-        counter_examples:
-          Path.join(System.get_env("MIX_BUILD_PATH", "_build"), "propcheck-property.ctx")
-      ],
       test_ignore_filters: test_ignore_filters(),
       test_coverage: test_coverage(),
 
@@ -50,7 +46,8 @@ defmodule JidoAction.MixProject do
         "test.system": :test,
         "test.load": :test,
         "test.property": :test,
-        "test.fuzz": :test
+        "test.fuzz": :test,
+        "test.all": :test
       ]
     ]
   end
@@ -295,8 +292,7 @@ defmodule JidoAction.MixProject do
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       {:doctor, "~> 0.23.0", only: :dev, runtime: false},
       {:mix_test_watch, "~> 1.0", only: [:dev, :test], runtime: false},
-      {:stream_data, "~> 1.4", only: :test, runtime: false},
-      {:propcheck, "~> 1.5", only: :test, runtime: false}
+      {:stream_data, "~> 1.4", only: :test, runtime: false}
     ]
   end
 
@@ -307,7 +303,13 @@ defmodule JidoAction.MixProject do
       "test.system": "test test/system --only system --seed 0",
       "test.load": "test test/load --only load --seed 0",
       "test.property": "test test/property --only property --seed 0",
-      "test.fuzz": "test test/property --only fuzz --seed 0",
+      "test.fuzz": fn args -> test_with_report(args, ["test/property", "--only", "fuzz"]) end,
+      "test.all": fn args ->
+        test_with_report(
+          args,
+          Enum.flat_map(~w(authoring property fuzz system load), &["--include", &1])
+        )
+      end,
 
       # Run to check the quality of your code
       q: ["quality"],
@@ -320,5 +322,10 @@ defmodule JidoAction.MixProject do
         "dialyzer"
       ]
     ]
+  end
+
+  defp test_with_report(args, selection) do
+    Mix.Task.run("test", selection ++ ["--seed", "0"] ++ args)
+    Mix.Task.run("run", ["test/property/support/check_report.exs"])
   end
 end

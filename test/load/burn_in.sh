@@ -14,8 +14,7 @@ fi
 
 index=0
 while [ "$index" -lt "$runs" ]; do
-  seed=$((20260914 + index))
-  echo "load run $((index + 1))/$runs seed=$seed"
-  JIDO_ACTION_LOAD_SEED="$seed" mix test.load
+  echo "load run $((index + 1))/$runs"
+  mix test.load
   index=$((index + 1))
 done

@@ -7,6 +7,7 @@ defmodule JidoActionTest.Property.Expression.ExpressionContractTest do
   alias Jido.Expr
 
   @tag :fuzz
+  @tag fuzz_id: "expression_trees"
   @tag max_runs: 1_000, max_run_time: 300_000, timeout: 900_000
   @tag contracts: ["EXPR-001", "EXPR-002"]
   @tag contract_cases: [
@@ -21,6 +22,14 @@ defmodule JidoActionTest.Property.Expression.ExpressionContractTest do
 
     Fuzz.check("expression_trees", generator, Map.to_list(context), fn sample ->
       {expression, expected, depth} = expression(sample["tree"])
+
+      expression =
+        cond do
+          is_struct(expression, Expr) -> expression
+          is_boolean(expression) -> Expr.new!(:or, [false, expression])
+          true -> Expr.new!(:+, [0, expression])
+        end
+
       assert Expr.evaluate(expression) == {:ok, expected}
       size = sample["size"]
       bad = Expr.new!(:/, [size, 0])

@@ -77,7 +77,9 @@ defmodule JidoActionTest.Property.Flow.InlineContractTest do
       assert direct == Extended.flow()
 
       Runtime.with_context(fn context ->
-        assert Exec.run(Extended, %{value: value}, context) == {:ok, %{value: value}, [value]}
+        assert Exec.run(Extended, %{value: value}, context, Runtime.options(context)) ==
+                 {:ok, %{value: value}, [value]}
+
         Runtime.assert_calls(context, [value])
       end)
     end

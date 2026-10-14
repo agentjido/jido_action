@@ -17,7 +17,6 @@ defmodule Jido.Exec.Node.Dispatch do
     :hash,
     :component,
     :decision,
-    :decision_params,
     :expander
   ]
   defstruct [
@@ -26,7 +25,6 @@ defmodule Jido.Exec.Node.Dispatch do
     :hash,
     :component,
     :decision,
-    :decision_params,
     :expander,
     :location,
     :node_path
@@ -43,7 +41,6 @@ defmodule Jido.Exec.Node.Dispatch do
         :name,
         :component,
         :decision,
-        :decision_params,
         :expander,
         :location,
         :node_path
@@ -62,7 +59,6 @@ defmodule Jido.Exec.Node.Dispatch do
         }),
       component: Keyword.fetch!(opts, :component),
       decision: Keyword.fetch!(opts, :decision),
-      decision_params: Keyword.fetch!(opts, :decision_params),
       expander: Keyword.fetch!(opts, :expander),
       location: Keyword.get(opts, :location),
       node_path: Keyword.get(opts, :node_path, [Keyword.fetch!(opts, :component)])
@@ -72,7 +68,7 @@ defmodule Jido.Exec.Node.Dispatch do
   @doc false
   @spec connect(t(), [term()], Workflow.t()) :: Workflow.t()
   def connect(%__MODULE__{} = node, parents, %Workflow{} = workflow) do
-    decision = action(node, :decision, node.decision, node.decision_params)
+    decision = action(node, :decision, node.decision, node.decision.params)
     expander = action(node, :expander, node.expander, nil)
 
     workflow
@@ -175,13 +171,21 @@ defmodule Jido.Exec.Node.Dispatch do
   defp action(node, phase, instruction, params, target_id \\ nil) do
     flow = %{
       component: node.component,
-      mode: {:dispatch, phase, node},
+      mode: {:dispatch, phase},
       params: params,
       location: node.location,
       node_path: node.node_path
     }
 
-    {:ok, instruction} = Instruction.bind(instruction, %{}, %{})
+    instruction =
+      case instruction do
+        %Instruction{} ->
+          {:ok, bound} = Instruction.bind(instruction, %{}, %{})
+          bound
+
+        call ->
+          call
+      end
 
     id = if target_id, do: {node.id, phase, target_id}, else: {node.id, phase}
     suffix = if target_id, do: "#{phase}/#{target_id}", else: Atom.to_string(phase)
@@ -327,7 +331,6 @@ defimpl Runic.Component, for: Jido.Exec.Node.Dispatch do
         name: unquote(node.name),
         component: unquote(node.component),
         decision: unquote(Macro.escape(node.decision)),
-        decision_params: unquote(Macro.escape(node.decision_params)),
         expander: unquote(Macro.escape(node.expander)),
         location: unquote(Macro.escape(node.location)),
         node_path: unquote(Macro.escape(node.node_path))

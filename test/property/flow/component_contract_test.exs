@@ -129,7 +129,7 @@ defmodule JidoActionTest.Property.Flow.ComponentContractTest do
           )
 
         if fail do
-          for mode <- [:run, :step, :wave, :continue] do
+          for mode <- [:serial, :concurrent] do
             Runtime.with_context(fn context ->
               assert {:error, %Jido.Action.Error.ExecutionFailureError{details: details}} =
                        execute(flow, context, mode)
@@ -172,7 +172,7 @@ defmodule JidoActionTest.Property.Flow.ComponentContractTest do
 
       exhausted = iterator(seed, count + 1, count)
 
-      for mode <- [:run, :step, :wave, :continue] do
+      for mode <- [:serial, :concurrent] do
         Runtime.with_context(fn context ->
           assert {:error, %Flow.Error.ExecutionFailureError{details: details}} =
                    execute(exhausted, context, mode)
@@ -187,7 +187,7 @@ defmodule JidoActionTest.Property.Flow.ComponentContractTest do
 
   @tag contracts: ["EXEC-003", "EFFECT-001"]
   @tag contract_cases: ["EXEC-003/subflow", "EFFECT-001/nested"]
-  property "Subflow input mapping and output agree across all step-wise modes" do
+  property "Subflow input mapping and output agree across serial and concurrent runs" do
     check all(value <- integer(), max_runs: 40) do
       flow =
         JidoActionTest.FlowBuilder.new!(
@@ -232,7 +232,7 @@ defmodule JidoActionTest.Property.Flow.ComponentContractTest do
   defp assert_modes(flow, output, effects, calls, serial?) do
     expected = if effects == [], do: {:ok, output}, else: {:ok, output, effects}
 
-    for mode <- [:run, :concurrent, :step, :wave, :continue] do
+    for mode <- [:serial, :concurrent] do
       Runtime.with_context(fn context ->
         assert execute(flow, context, mode) == expected
         observed = Runtime.calls(context)

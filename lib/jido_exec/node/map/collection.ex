@@ -1,8 +1,11 @@
 defmodule Jido.Exec.Node.Map.Collection do
   @moduledoc false
 
+  use Runic.Workflow.SingleOutput, batch_parent: false
+
   alias Jido.Exec.{Frame, ValueResolver}
   alias Runic.Identity
+  alias Runic.Workflow.SingleOutput.{Context, Result}
   alias Runic.Workflow.Batch
 
   @enforce_keys [:id, :name, :hash, :component, :value, :params]
@@ -72,58 +75,29 @@ defmodule Jido.Exec.Node.Map.Collection do
       {:ok, Enum.to_list(value)}
     end
   end
-end
 
-defimpl Runic.Identity.Projectable, for: Jido.Exec.Node.Map.Collection do
-  def identity_document(node) do
-    %{kind: :jido_map_collection, version: 1, id: inspect(node.id)}
-  end
-end
-
-defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Map.Collection do
-  alias Jido.Exec.Node.Map.Collection
-  alias Runic.Workflow
-  alias Runic.Workflow.{CausalContext, Runnable}
-  alias Runic.Workflow.Events.{ActivationConsumed, FactProduced}
-
-  def match_or_execute(_node), do: :execute
-
-  def invoke(node, workflow, fact) do
-    {:ok, runnable} = prepare(node, workflow, fact)
-    Workflow.apply_runnable(workflow, execute(node, runnable))
-  end
-
-  def prepare(node, workflow, fact) do
-    context =
-      CausalContext.new(
-        node_hash: node.hash,
-        input_fact: fact,
-        ancestry_depth: Workflow.ancestry_depth(workflow, fact),
-        run_context: Workflow.get_run_context(workflow, node.name)
-      )
-
-    {:ok, Runnable.new(node, fact, context)}
-  end
-
-  def execute(node, %Runnable{input_fact: fact, context: context} = runnable) do
-    case Collection.resolve(node, Jido.Exec.Fact.value(fact), context.run_context) do
+  @impl Runic.Workflow.SingleOutput
+  @doc false
+  @spec run(t(), term(), Context.t()) :: Result.t()
+  def run(%__MODULE__{} = node, input, %Context{} = context) do
+    case resolve(node, Jido.Exec.Fact.unwrap(input), context.runtime) do
       {:ok, value} ->
-        result = Jido.Exec.Fact.child(fact, value: value, ancestry: {node.hash, fact.hash})
-
-        Runnable.complete(runnable, result, [
-          FactProduced.new(result, producer_label: :produced, weight: context.ancestry_depth + 1),
-          %ActivationConsumed{fact_hash: fact.hash, node_hash: node.hash, from_label: :runnable}
-        ])
+        Jido.Exec.Fact.result(input, context, value)
 
       {:error, error} ->
-        Runnable.fail(
-          runnable,
+        Result.failure(
           Jido.Exec.Source.attach(error, node.location, %{
             node: node.component,
             node_path: node.node_path
           })
         )
     end
+  end
+end
+
+defimpl Runic.Identity.Projectable, for: Jido.Exec.Node.Map.Collection do
+  def identity_document(node) do
+    %{kind: :jido_map_collection, version: 1, id: inspect(node.id)}
   end
 end
 

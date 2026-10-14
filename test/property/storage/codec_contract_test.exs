@@ -264,6 +264,7 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
   end
 
   @tag :fuzz
+  @tag fuzz_id: "codec_mutations"
   @tag max_runs: 300, max_run_time: 300_000, timeout: 900_000
   @tag contracts: ["FLOW-003", "FLOW-004", "STORE-002", "STORE-003"]
   @tag contract_cases: [
@@ -373,6 +374,7 @@ defmodule JidoActionTest.Property.Storage.CodecContractTest do
   end
 
   @tag :fuzz
+  @tag fuzz_id: "codec_portability"
   @tag max_runs: 300, max_run_time: 300_000, timeout: 900_000
   @tag contracts: ["STORE-001", "STORE-002", "FLOW-005"]
   @tag contract_cases: [

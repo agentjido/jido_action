@@ -3,6 +3,24 @@ defmodule JidoActionTest.Property.Report do
   use GenServer
 
   @root Path.expand("../../..", __DIR__)
+  @fuzz_ids ~w(action_boundaries runner_schedules authoring_equivalence codec_mutations
+    codec_portability dispatch_chains expression_trees graph_rejections graph_semantics
+    instruction_targets iterate_state mixed_components nested_runner_failures
+    runner_histories runner_telemetry)
+
+  def fuzz_ids, do: Enum.sort(@fuzz_ids)
+
+  def check!(path \\ report_path(), required_fuzz_ids \\ []) do
+    report = path |> File.read!() |> JSON.decode!()
+
+    unless report["status"] == "finished" and report["outcome"] == "passed",
+      do: raise("property report did not pass: #{inspect(report["outcome"])}")
+
+    completed = for record <- report["fuzz"], record["variant"] == "fuzz", do: record["id"]
+    missing = required_fuzz_ids -- completed
+    if missing != [], do: raise("missing fuzz cases: #{Enum.join(missing, ", ")}")
+    :ok
+  end
 
   # Call before test files compile. A load failure must not retain old evidence.
   def prepare!(path \\ report_path()) do
@@ -49,6 +67,7 @@ defmodule JidoActionTest.Property.Report do
       record = %{
         test: "#{inspect(test.module)}: #{test.name}",
         suite: if(test.tags[:fuzz], do: "fuzz", else: "property"),
+        measurement_id: test.tags[:fuzz_id],
         contracts: Map.get(test.tags, :contracts, []),
         declared_forced_cases: Map.get(test.tags, :contract_cases, []),
         result: result
@@ -66,6 +85,9 @@ defmodule JidoActionTest.Property.Report do
     evidenced = passed |> Enum.flat_map(& &1.contracts) |> Enum.uniq() |> Enum.sort()
     cases = passed |> Enum.flat_map(& &1.declared_forced_cases) |> Enum.uniq() |> Enum.sort()
     declared = state.records |> Enum.flat_map(& &1.contracts) |> Enum.uniq()
+    unknown = Enum.sort(declared -- state.ids)
+    invalid = invalid_case_ids(state.records, state.ids)
+    validation_errors = measurement_errors(state.records, fuzz)
 
     report =
       Map.merge(state.metadata, %{
@@ -73,9 +95,15 @@ defmodule JidoActionTest.Property.Report do
         finished_at: DateTime.to_iso8601(DateTime.utc_now()),
         outcome:
           cond do
-            state.failed? or artifact_errors != [] -> "failed"
-            evidenced == [] -> "no_evidence"
-            true -> "passed"
+            state.failed? or artifact_errors != [] or validation_errors != [] or
+              unknown != [] or invalid != [] ->
+              "failed"
+
+            evidenced == [] ->
+              "no_evidence"
+
+            true ->
+              "passed"
           end,
         contracts_with_passed_evidence: evidenced,
         declared_forced_cases_in_passed_tests: cases,
@@ -84,8 +112,9 @@ defmodule JidoActionTest.Property.Report do
           Map.new(["property", "fuzz"], fn suite ->
             {suite, evidence(Enum.filter(state.records, &(&1.suite == suite)), state.ids)}
           end),
-        unknown_contract_ids: Enum.sort(declared -- state.ids),
-        invalid_case_ids: invalid_case_ids(state.records, state.ids),
+        unknown_contract_ids: unknown,
+        invalid_case_ids: invalid,
+        validation_errors: validation_errors,
         tests: Enum.sort_by(state.records, & &1.test),
         fuzz: fuzz,
         artifact_errors: artifact_errors
@@ -115,9 +144,11 @@ defmodule JidoActionTest.Property.Report do
     |> Enum.reduce({[], []}, fn path, {records, errors} ->
       with {:ok, data} <- File.read(path),
            {:ok, record} when is_map(record) <- JSON.decode(data) do
-        if record["run_id"] == state.metadata.run_id,
-          do: {[record | records], errors},
-          else: {records, errors}
+        cond do
+          record["run_id"] != state.metadata.run_id -> {records, errors}
+          valid_measurement?(record, state.ids) -> {[record | records], errors}
+          true -> {records, [%{path: path, error: "invalid fuzz measurement"} | errors]}
+        end
       else
         error -> {records, [%{path: path, error: inspect(error)} | errors]}
       end
@@ -125,6 +156,71 @@ defmodule JidoActionTest.Property.Report do
     |> then(fn {records, errors} ->
       {Enum.sort_by(records, &{&1["id"], &1["variant"]}), Enum.sort_by(errors, & &1.path)}
     end)
+  end
+
+  defp valid_measurement?(record, ids) do
+    limits = record["limits"]
+    counts = ~w(generated examples replayed shrink_attempts confirmations elapsed_ms)
+
+    record["id"] in @fuzz_ids and record["variant"] in ["fuzz", "property"] and
+      record["outcome"] in ["passed", "failed", "incomplete"] and
+      is_integer(record["seed"]) and is_integer(record["test_timeout"]) and
+      record["test_timeout"] > 0 and
+      Enum.all?(counts, &(is_integer(record[&1]) and record[&1] >= 0)) and
+      is_map(limits) and is_integer(limits["max_runs"]) and limits["max_runs"] > 0 and
+      is_integer(limits["max_run_time"]) and limits["max_run_time"] > 0 and
+      is_integer(limits["max_shrinking_steps"]) and limits["max_shrinking_steps"] >= 0 and
+      record["generated"] <= limits["max_runs"] and
+      record["shrink_attempts"] <= limits["max_shrinking_steps"] and
+      is_list(record["contracts"]) and record["contracts"] != [] and
+      Enum.all?(record["contracts"], &(&1 in ids)) and
+      is_list(record["declared_forced_cases"]) and
+      Enum.all?(record["declared_forced_cases"], &valid_case?(&1, record["contracts"], ids)) and
+      is_map(record["observations"]) and
+      Enum.all?(record["observations"], fn {name, count} ->
+        is_binary(name) and is_integer(count) and count > 0 and
+          count <= record["generated"] + record["examples"] + record["replayed"]
+      end) and
+      (record["outcome"] != "passed" or
+         (record["generated"] > 0 and map_size(record["observations"]) > 0))
+  end
+
+  defp measurement_errors(tests, measurements) do
+    owners =
+      Enum.filter(
+        tests,
+        &(&1.result == "passed" and (&1.suite == "fuzz" or not is_nil(&1.measurement_id)))
+      )
+
+    missing =
+      for test <- owners,
+          not Enum.any?(measurements, fn record ->
+            record["id"] == test.measurement_id and record["variant"] == test.suite and
+              record["outcome"] == "passed" and record["contracts"] == test.contracts and
+              record["declared_forced_cases"] == test.declared_forced_cases
+          end),
+          do: "missing or mismatched measurements: #{test.test}"
+
+    failed =
+      for record <- measurements,
+          record["outcome"] != "passed",
+          do: "measurement did not pass: #{record["id"]}"
+
+    orphaned =
+      for record <- measurements,
+          not Enum.any?(
+            owners,
+            &(&1.measurement_id == record["id"] and &1.suite == record["variant"])
+          ),
+          do: "measurement has no passed owner: #{record["id"]}"
+
+    duplicates =
+      measurements
+      |> Enum.frequencies_by(&{&1["id"], &1["variant"]})
+      |> Enum.filter(fn {_key, count} -> count > 1 end)
+      |> Enum.map(fn {key, _count} -> "duplicate measurements: #{inspect(key)}" end)
+
+    missing ++ failed ++ orphaned ++ duplicates
   end
 
   defp invalid_case_ids(records, ids) do
@@ -136,7 +232,7 @@ defmodule JidoActionTest.Property.Report do
   end
 
   defp valid_case?(id, contracts, ids) do
-    case String.split(id, "/", parts: 2) do
+    case if(is_binary(id), do: String.split(id, "/", parts: 2), else: []) do
       [contract, name] -> name != "" and contract in contracts and contract in ids
       _ -> false
     end

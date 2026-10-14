@@ -1,6 +1,6 @@
 # Manual performance checks
 
-Run the small Exec V2 smoke benchmark from the package root:
+Run the small Exec smoke benchmark from the package root:
 
 ```sh
 MIX_ENV=prod mix run test/bench/run.exs --samples 100 --warmup 20

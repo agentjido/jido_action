@@ -25,5 +25,5 @@ jobs:
       credo_command: mix credo --min-priority high
       docs_command: mix docs --warnings-as-errors
       test_command: |
-        mix test --cover --warnings-as-errors
+        mix test.all --cover --warnings-as-errors
         ERL_FLAGS='+S 2:2' mix run test/bench/run.exs --samples 10 --warmup 2

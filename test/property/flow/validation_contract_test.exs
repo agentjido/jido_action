@@ -142,6 +142,7 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
   end
 
   @tag :fuzz
+  @tag fuzz_id: "graph_rejections"
   @tag max_runs: 300, max_run_time: 300_000, timeout: 900_000, max_nodes: 12
   @tag contracts: ["FLOW-003", "FLOW-004"]
   @tag contract_cases: [
@@ -215,9 +216,11 @@ defmodule JidoActionTest.Property.Flow.ValidationContractTest do
         assert {:ok, ^flow} = Flow.validate(flow)
         assert {:ok, ^flow} = Jido.Exec.Compiler.validate(flow)
 
-        for operation <- [:dependencies, :explain, :semantic_identity, :compile] do
+        for operation <- [:dependencies, :explain, :semantic_identity] do
           assert {:ok, _} = apply(Flow, operation, [flow])
         end
+
+        assert {:ok, %Runic.Workflow{}} = Exec.compile(flow)
 
         invalid = replace_target(flow, List.first(names), String)
         assert {:error, _} = Jido.Exec.Compiler.validate(invalid)

@@ -154,11 +154,9 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
   @doc false
   @spec before_compile(Macro.Env.t()) :: Macro.t()
   def before_compile(env) do
-    opts = Module.get_attribute(env.module, :__jido_authoring_opts__)
-    schema = Module.get_attribute(env.module, :__jido_schema__)
-    output_schema = Module.get_attribute(env.module, :__jido_output_schema__)
+    config = Module.get_attribute(env.module, :__jido_authoring_config__)
 
-    {flow, source_map} = compile_flow!(env, opts, schema, output_schema)
+    {flow, source_map} = compile_flow!(env, config)
     escaped_flow = Macro.escape(flow)
     escaped_source_map = Macro.escape(source_map)
 
@@ -193,9 +191,7 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
     end
   end
 
-  defp compile_flow!(env, opts, schema, output_schema) do
-    config = Map.merge(opts, %{schema: schema, output_schema: output_schema})
-
+  defp compile_flow!(env, config) do
     case Lowerer.lower(env.module, config, env.file) do
       {:ok, flow, source_map} ->
         case Jido.Exec.Compiler.validate_targets(flow) do

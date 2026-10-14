@@ -30,6 +30,7 @@ defmodule JidoActionTest.Property.Instruction.CallContractTest do
   end
 
   @tag :fuzz
+  @tag fuzz_id: "instruction_targets"
   @tag max_runs: 500, max_run_time: 300_000, timeout: 900_000
   @tag contracts: ["INS-001", "TARGET-001"]
   @tag contract_cases: [

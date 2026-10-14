@@ -38,6 +38,7 @@ defmodule JidoActionTest.Property.Flow.AuthoringContractTest do
   end
 
   @tag :fuzz
+  @tag fuzz_id: "authoring_equivalence"
   @tag max_runs: 100, max_run_time: 300_000, timeout: 900_000, max_nodes: 8
   @tag contracts: ["FLOW-001", "FLOW-006", "ACT-005"]
   @tag contract_cases: [
@@ -130,7 +131,9 @@ defmodule JidoActionTest.Property.Flow.AuthoringContractTest do
       assert Extended.flow() == extended
 
       Runtime.with_context(fn runtime ->
-        assert Exec.run(Extended, %{value: value}, runtime) == {:ok, %{value: value}, [value]}
+        assert Exec.run(Extended, %{value: value}, runtime, Runtime.options(runtime)) ==
+                 {:ok, %{value: value}, [value]}
+
         Runtime.assert_calls(runtime, [value])
       end)
 

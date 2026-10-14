@@ -112,6 +112,7 @@ defmodule JidoActionTest.Property.Action.BoundaryContractTest do
   end
 
   @tag :fuzz
+  @tag fuzz_id: "action_boundaries"
   @tag max_runs: 250, max_run_time: 300_000, timeout: 900_000, max_items: 30
   @tag contracts: [
          "ACT-001",
@@ -204,7 +205,10 @@ defmodule JidoActionTest.Property.Action.BoundaryContractTest do
     # Action root validation preserves undeclared fields.
     Runtime.with_context(fn context ->
       input = %{value: value, extra: %{value: value}}
-      assert {:ok, %{value: ^value}, [:request]} = Exec.run(Validated, input, context)
+
+      assert {:ok, %{value: ^value}, [:request]} =
+               Exec.run(Validated, input, context, Runtime.options(context))
+
       Runtime.assert_calls(context, [input])
     end)
   end

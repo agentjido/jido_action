@@ -34,37 +34,27 @@ defmodule Jido.Authoring.Compiler do
     quote location: :keep do
       @behaviour Jido.Action
 
-      {validated_opts, stored_schema, stored_output_schema} = unquote(opts_ast)
-
-      module_json =
-        Jido.Authoring.Compiler.compile_json(
-          unquote(kind),
-          validated_opts,
-          stored_schema,
-          stored_output_schema
-        )
-
-      Module.put_attribute(__MODULE__, :__jido_schema__, stored_schema)
-      Module.put_attribute(__MODULE__, :__jido_output_schema__, stored_output_schema)
-      Module.put_attribute(__MODULE__, :__jido_authoring_json__, module_json)
-
-      @__jido_authoring_opts__ Map.drop(validated_opts, [:schema, :output_schema])
+      @__jido_authoring_config__ unquote(opts_ast)
+      @__jido_authoring_json__ Jido.Authoring.Compiler.compile_json(
+                                 unquote(kind),
+                                 @__jido_authoring_config__
+                               )
 
       @doc unquote("Returns the name of the #{label}.")
       @spec name() :: String.t()
-      def name, do: @__jido_authoring_opts__[:name]
+      def name, do: @__jido_authoring_config__[:name]
 
       @doc unquote("Returns the description of the #{label}.")
       @spec description() :: String.t() | nil
-      def description, do: @__jido_authoring_opts__[:description]
+      def description, do: @__jido_authoring_config__[:description]
 
       @doc unquote("Returns the input schema of the #{label}.")
       @spec schema() :: Jido.Action.schema()
-      def schema, do: @__jido_schema__
+      def schema, do: @__jido_authoring_config__[:schema]
 
       @doc unquote("Returns the output schema of the #{label}.")
       @spec output_schema() :: Jido.Action.schema()
-      def output_schema, do: @__jido_output_schema__
+      def output_schema, do: @__jido_authoring_config__[:output_schema]
 
       @doc unquote("""
            Returns the compile-time #{label} description as JSON-safe data.
@@ -95,16 +85,16 @@ defmodule Jido.Authoring.Compiler do
   end
 
   @doc false
-  @spec compile_json(Jido.Instruction.kind(), map(), Jido.Action.schema(), Jido.Action.schema()) ::
+  @spec compile_json(Jido.Instruction.kind(), map()) ::
           {:ok, map()} | {:error, String.t()}
-  def compile_json(kind, opts, schema, output_schema) do
+  def compile_json(kind, opts) do
     json =
       %{
         "kind" => Atom.to_string(kind),
         "name" => Map.fetch!(opts, :name),
         "description" => Map.get(opts, :description),
-        "input_schema" => compile_json_schema(schema, :schema),
-        "output_schema" => compile_json_schema(output_schema, :output_schema)
+        "input_schema" => compile_json_schema(opts.schema, :schema),
+        "output_schema" => compile_json_schema(opts.output_schema, :output_schema)
       }
       |> Jason.encode!(maps: :strict)
       |> Jason.decode!()

@@ -38,6 +38,7 @@ defmodule JidoActionTest.Property.Flow.MixedContractTest do
       max_items: maximum,
       timeout: if(suite == :fuzz, do: 900_000, else: 90_000)
     ]
+    @tag fuzz_id: "mixed_components"
     @tag contracts: ["EXEC-003", "EFFECT-001"]
     @tag contract_cases: [
            "EXEC-003/mixed-empty",
@@ -127,7 +128,7 @@ defmodule JidoActionTest.Property.Flow.MixedContractTest do
         output: Ref.result("fold")
       )
 
-    for mode <- [:serial, :concurrent, :step, :wave, :continue] do
+    for mode <- [:serial, :concurrent] do
       Runtime.with_context(fn context ->
         assert execute(flow, context, mode) == {:ok, expected, effects}
         calls = Runtime.calls(context)

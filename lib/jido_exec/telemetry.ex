@@ -106,12 +106,12 @@ defmodule Jido.Exec.Telemetry do
 
   defp component_kind(%{mode: {:map, _on_error}}), do: :map
   defp component_kind(%{mode: {:loop, %{kind: kind}}}) when kind in [:reduce, :iterate], do: kind
-  defp component_kind(%{mode: {:dispatch, _phase, _dispatch}}), do: :dispatch
+  defp component_kind(%{mode: {:dispatch, _phase}}), do: :dispatch
   defp component_kind(%{mode: :choice}), do: :choice
   defp component_kind(%{component: component}) when not is_nil(component), do: :step
   defp component_kind(_metadata), do: nil
 
-  defp dispatch_phase(%{mode: {:dispatch, phase, _dispatch}}), do: phase
+  defp dispatch_phase(%{mode: {:dispatch, phase}}), do: phase
   defp dispatch_phase(_metadata), do: nil
 
   defp default_node_path(nil), do: nil

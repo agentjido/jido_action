@@ -10,15 +10,14 @@ defmodule Jido.Exec.Node.Loop do
   alias Runic.Identity
   alias Runic.Workflow
 
-  @enforce_keys [:id, :name, :hash, :kind, :component, :instruction, :params]
+  @enforce_keys [:id, :name, :hash, :kind, :component, :call]
   defstruct [
     :id,
     :name,
     :hash,
     :kind,
     :component,
-    :instruction,
-    :params,
+    :call,
     :collection,
     :initial,
     :state,
@@ -40,8 +39,7 @@ defmodule Jido.Exec.Node.Loop do
         :name,
         :kind,
         :component,
-        :instruction,
-        :params,
+        :call,
         :collection,
         :initial,
         :state,
@@ -69,8 +67,7 @@ defmodule Jido.Exec.Node.Loop do
         }),
       kind: kind,
       component: Keyword.fetch!(opts, :component),
-      instruction: Keyword.fetch!(opts, :instruction),
-      params: Keyword.fetch!(opts, :params),
+      call: Keyword.fetch!(opts, :call),
       collection: Keyword.get(opts, :collection),
       initial: Keyword.get(opts, :initial),
       state: Keyword.get(opts, :state),
@@ -100,21 +97,16 @@ defmodule Jido.Exec.Node.Loop do
         :complete
       )
 
-    metadata = %{
-      jido_flow: %{
-        component: node.component,
-        mode: {:loop, node},
-        params: node.params,
-        location: node.location,
-        node_path: node.node_path
-      }
+    flow = %{
+      component: node.component,
+      mode: {:loop, node},
+      location: node.location,
+      node_path: node.node_path
     }
 
-    {:ok, instruction} = Instruction.bind(node.instruction, %{}, %{})
-
     action =
-      Action.new(instruction,
-        flow: metadata.jido_flow,
+      Action.new(node.call,
+        flow: flow,
         id: {node.id, :action},
         name: internal_name(node, "action")
       )
@@ -180,7 +172,7 @@ defmodule Jido.Exec.Node.Loop do
         accumulator: accumulator
       })
 
-    with {:ok, params} <- ValueResolver.resolve(node.params, resolver),
+    with {:ok, params} <- ValueResolver.resolve(node.call.params, resolver),
          {:ok, output, requests} <- action_runner.(instruction, params, context) do
       next_index = index + 1
       status = if next_index == length(items), do: :complete, else: :continue
@@ -205,7 +197,7 @@ defmodule Jido.Exec.Node.Loop do
         body_result: body_result
       })
 
-    with {:ok, params} <- ValueResolver.resolve(node.params, resolver),
+    with {:ok, params} <- ValueResolver.resolve(node.call.params, resolver),
          {:ok, output, requests} <- action_runner.(instruction, params, context),
          {:ok, candidate} <-
            ValueResolver.resolve(node.state.update, Map.put(resolver, :body_result, output)),
@@ -490,8 +482,7 @@ defimpl Runic.Component, for: Jido.Exec.Node.Loop do
         name: unquote(node.name),
         kind: unquote(node.kind),
         component: unquote(node.component),
-        instruction: unquote(Macro.escape(node.instruction)),
-        params: unquote(Macro.escape(node.params)),
+        call: unquote(Macro.escape(node.call)),
         collection: unquote(Macro.escape(node.collection)),
         initial: unquote(Macro.escape(node.initial)),
         state: unquote(Macro.escape(node.state)),

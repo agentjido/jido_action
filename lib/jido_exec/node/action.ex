@@ -27,8 +27,16 @@ defmodule Jido.Exec.Node.Action do
         }
 
   @doc false
-  @spec new(Instruction.t(), keyword()) :: t()
+  @spec new(
+          Instruction.t() | Jido.Flow.Component.target() | Jido.Flow.Component.call(),
+          keyword()
+        ) :: t()
   def new(instruction, opts \\ [])
+
+  def new(%{kind: :action, target: target} = call, opts) when not is_struct(call) do
+    flow = opts |> Keyword.fetch!(:flow) |> Map.put(:params, Map.get(call, :params))
+    new(Instruction.new!(kind: :action, target: target), Keyword.put(opts, :flow, flow))
+  end
 
   def new(%Instruction{kind: :action, target: action} = instruction, opts) do
     opts = Keyword.validate!(opts, [:id, :name, :flow])
@@ -76,13 +84,12 @@ defmodule Jido.Exec.Node.Action do
 
     case result do
       {:ok, value, effects} ->
-        opts =
-          Jido.Exec.Fact.child_options(input, context.input_metadata,
-            value: value,
-            meta: append_effects(Map.delete(context.input_metadata, :runic), effects)
-          )
-
-        Result.value(Keyword.fetch!(opts, :value), metadata: Keyword.fetch!(opts, :meta))
+        Jido.Exec.Fact.result(
+          input,
+          context,
+          value,
+          append_effects(Map.delete(context.input_metadata, :runic), effects)
+        )
 
       {:error, error} ->
         Result.failure(error)
@@ -117,8 +124,8 @@ defmodule Jido.Exec.Node.Action do
             &execute_action/3
           )
 
-        %{mode: {:dispatch, phase, dispatch}, params: params} ->
-          execute_dispatch(instruction, phase, dispatch, params, input, run_context)
+        %{mode: {:dispatch, phase}, component: component, params: params} ->
+          execute_dispatch(instruction, phase, component, params, input, run_context)
 
         %{component: component, mode: {:map, on_error}, params: params} ->
           execute_map_component(instruction, component, params, on_error, input, run_context)
@@ -208,15 +215,15 @@ defmodule Jido.Exec.Node.Action do
     end
   end
 
-  defp execute_dispatch(instruction, :decision, dispatch, _params, input, run_context) do
+  defp execute_dispatch(instruction, :decision, component, params, input, run_context) do
     with {:ok, frame} <- Frame.merge(input),
          {:ok, params} <-
            ValueResolver.resolve(
-             dispatch.decision_params,
+             params,
              Frame.resolver_state(frame, run_context)
            ),
          {:ok, output, effects} <- execute_action(instruction, params, run_context) do
-      {:ok, {:jido_dispatch_decision, frame, dispatch.component, output, effects}, []}
+      {:ok, {:jido_dispatch_decision, frame, component, output, effects}, []}
     end
   end
 
@@ -248,16 +255,15 @@ defmodule Jido.Exec.Node.Action do
   defp execute_dispatch(
          instruction,
          :target,
-         dispatch,
+         component,
          params,
          frame,
          run_context
        ) do
     with {:ok, frame} <- Frame.merge(frame),
-         effects = Frame.effects_for(frame, dispatch.component),
+         effects = Frame.effects_for(frame, component),
          {:ok, output, requests} <- execute_action(instruction, params, run_context) do
-      {:ok,
-       {:jido_dispatch_target_result, frame, dispatch.component, output, effects ++ requests}, []}
+      {:ok, {:jido_dispatch_target_result, frame, component, output, effects ++ requests}, []}
     end
   end
 
