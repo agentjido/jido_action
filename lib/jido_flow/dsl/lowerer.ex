@@ -23,22 +23,13 @@ defmodule Jido.Flow.DSL.Lowerer do
   }
 
   @doc "Lowers the Spark entities for one module into a canonical Flow."
-  @spec lower(module(), keyword()) :: {:ok, Flow.t()} | {:error, Exception.t()}
-  def lower(module, opts) do
+  @spec lower(module(), map()) :: {:ok, Flow.t()} | {:error, Exception.t()}
+  def lower(module, config) do
     entities = Spark.Dsl.Extension.get_entities(module, [:flow])
 
     with :ok <- validate_output_position(entities),
          {:ok, components, output} <- lower_entities(entities) do
-      attrs = %{
-        name: Keyword.fetch!(opts, :name),
-        description: Keyword.get(opts, :description),
-        schema: Keyword.get(opts, :schema, []),
-        output_schema: Keyword.get(opts, :output_schema, []),
-        components: components,
-        output: output
-      }
-
-      case Definition.diagnose_lowered(attrs) do
+      case Definition.diagnose_body(config, components, output) do
         {:ok, attrs} ->
           {:ok, struct!(Flow, attrs)}
 

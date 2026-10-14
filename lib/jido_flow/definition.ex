@@ -30,6 +30,13 @@ defmodule Jido.Flow.Definition do
   @spec diagnose_lowered(map()) :: {:ok, map()} | {:error, [issue()]}
   def diagnose_lowered(attrs), do: diagnose(attrs, :lowered)
 
+  @doc false
+  @spec diagnose_body(map(), term(), term()) :: {:ok, map()} | {:error, [issue()]}
+  def diagnose_body(config, components, output) do
+    attrs = %{components: components, output: output}
+    diagnose_fields(attrs, body_fields(:lowered), :lowered, config, [])
+  end
+
   defp diagnose(%{} = attrs, mode) when not is_struct(attrs) do
     unknown =
       case known_keys(attrs) do
@@ -37,17 +44,30 @@ defmodule Jido.Flow.Definition do
         {:error, error} -> [error]
       end
 
-    fields = [
-      name: &Config.flow_name/1,
-      description: &Config.description/1,
-      schema: &Config.schema(&1, "schema"),
-      output_schema: &Config.schema(&1, "output_schema"),
+    fields =
+      [
+        name: &Config.flow_name/1,
+        description: &Config.description/1,
+        schema: &Config.schema(&1, "schema"),
+        output_schema: &Config.schema(&1, "output_schema")
+      ] ++ body_fields(mode)
+
+    diagnose_fields(attrs, fields, mode, %{}, unknown)
+  end
+
+  defp diagnose(_attrs, _mode),
+    do: {:error, [issue(Error.validation_error("flow definition must be a map"))]}
+
+  defp body_fields(mode) do
+    [
       components: &components(&1, mode),
       output: &prepare_output(&1, mode)
     ]
+  end
 
+  defp diagnose_fields(attrs, fields, mode, initial, unknown) do
     {values, errors} =
-      Enum.reduce(fields, {%{}, unknown}, fn {field, validator}, {values, errors} ->
+      Enum.reduce(fields, {initial, unknown}, fn {field, validator}, {values, errors} ->
         default = if field in [:schema, :output_schema], do: [], else: nil
 
         result =
@@ -82,9 +102,6 @@ defmodule Jido.Flow.Definition do
       {:error, Enum.map(errors, &issue/1)}
     end
   end
-
-  defp diagnose(_attrs, _mode),
-    do: {:error, [issue(Error.validation_error("flow definition must be a map"))]}
 
   @doc false
   @spec diagnose_normalized(map(), [named_component()]) :: {:ok, map()} | {:error, [issue()]}

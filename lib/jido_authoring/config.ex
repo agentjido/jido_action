@@ -5,35 +5,7 @@ defmodule Jido.Authoring.Config do
   alias Jido.Flow.Error
 
   @keys [:name, :description, :schema, :output_schema]
-
   @max_action_name_bytes 256
-  @action_config_schema Zoi.object(
-                          %{
-                            name:
-                              Zoi.string(
-                                description: "The non-blank metadata name of the Action."
-                              )
-                              |> Zoi.refine({__MODULE__, :validate_name, []}),
-                            description:
-                              Zoi.string(description: "A description of what the Action does.")
-                              |> Zoi.optional(),
-                            schema:
-                              Zoi.any(
-                                description:
-                                  "A Zoi schema for validating the Action's input parameters."
-                              )
-                              |> Zoi.refine({__MODULE__, :validate_map_schema, []})
-                              |> Zoi.default([]),
-                            output_schema:
-                              Zoi.any(
-                                description:
-                                  "A Zoi schema for validating the Action's output. Only specified fields are validated."
-                              )
-                              |> Zoi.refine({__MODULE__, :validate_map_schema, []})
-                              |> Zoi.default([])
-                          },
-                          unrecognized_keys: :error
-                        )
 
   @doc false
   @spec validate_name(term(), keyword()) :: :ok | {:error, String.t()}
@@ -89,91 +61,32 @@ defmodule Jido.Authoring.Config do
   @spec validate_static_data(term()) :: :ok | {:error, String.t()}
   def validate_static_data(term), do: static_schema_data(term, [])
 
-  @doc false
-  @spec ensure_static_schema!(term(), atom(), Macro.Env.t()) :: term() | no_return()
-  def ensure_static_schema!(schema, option, env) do
-    case validate_static_data(schema) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        raise CompileError,
-          description:
-            "#{inspect(option)} must be static module data; #{reason}. " <>
-              "Use named MFA effects such as {Module, :function, args}",
-          file: env.file,
-          line: env.line
-    end
-
-    ensure_escapable_schema!(schema, option, env)
-  end
-
   defp ensure_escapable_schema!(schema, option, env) do
-    case escapable_static_schema?(schema) do
-      true ->
-        schema
-
-      false ->
-        raise CompileError,
-          description:
-            "#{inspect(option)} must be static module data that can be stored in the Action module. " <>
-              "Use named MFA effects such as {Module, :function, args}",
-          file: env.file,
-          line: env.line
-    end
-  end
-
-  defp escapable_static_schema?(schema) do
     Macro.escape(schema)
-    true
+    schema
   rescue
-    ArgumentError -> false
-  end
-
-  @doc false
-  @spec prepare_action!(term(), Macro.Env.t()) ::
-          {map(), Jido.Action.schema(), Jido.Action.schema()} | no_return()
-  def prepare_action!(raw_opts, env) do
-    opts_map =
-      if is_list(raw_opts) and Keyword.keyword?(raw_opts),
-        do: Map.new(raw_opts),
-        else: raw_opts
-
-    if is_map(opts_map) do
-      ensure_static_schema!(Map.get(opts_map, :schema, []), :schema, env)
-      ensure_static_schema!(Map.get(opts_map, :output_schema, []), :output_schema, env)
-    end
-
-    case Zoi.parse(@action_config_schema, opts_map) do
-      {:ok, validated_opts} ->
-        validated_opts =
-          if is_struct(validated_opts), do: Map.from_struct(validated_opts), else: validated_opts
-
-        {validated_opts, Map.fetch!(validated_opts, :schema),
-         Map.fetch!(validated_opts, :output_schema)}
-
-      {:error, errors} ->
-        message = "Action configuration validation failed:\n" <> Zoi.prettify_errors(errors)
-
-        raise CompileError, description: message, file: env.file, line: env.line
-    end
+    ArgumentError ->
+      raise CompileError,
+        description:
+          "#{inspect(option)} must be static module data that can be stored in the Action module. " <>
+            "Use named MFA effects such as {Module, :function, args}",
+        file: env.file,
+        line: env.line
   end
 
   @doc false
   @spec prepare!(Jido.Instruction.kind(), term(), Macro.Env.t()) ::
           {map(), Jido.Action.schema(), Jido.Action.schema()} | no_return()
-  def prepare!(:action, raw_opts, env), do: prepare_action!(raw_opts, env)
-
-  def prepare!(:flow, raw_opts, env) do
-    case validate_flow(normalize_options(raw_opts)) do
+  def prepare!(kind, raw_opts, env) do
+    case validate_config(kind, normalize_options(raw_opts)) do
       {:ok, opts} ->
         schema = ensure_escapable_schema!(opts.schema, :schema, env)
         output_schema = ensure_escapable_schema!(opts.output_schema, :output_schema, env)
         {opts, schema, output_schema}
 
-      {:error, error} ->
+      {:error, errors} ->
         raise CompileError,
-          description: "Flow configuration validation failed: #{Exception.message(error)}",
+          description: compile_error(kind, errors),
           file: env.file,
           line: env.line
     end
@@ -181,74 +94,127 @@ defmodule Jido.Authoring.Config do
 
   @doc false
   @spec validate_flow(term()) :: {:ok, map()} | {:error, Exception.t()}
-  def validate_flow(%{} = attrs) when not is_struct(attrs) do
-    with :ok <- known_keys(attrs),
-         {:ok, name} <- flow_name(Map.get(attrs, :name)),
-         {:ok, description} <- description(Map.get(attrs, :description)),
-         {:ok, schema} <- schema(Map.get(attrs, :schema, []), "schema"),
-         {:ok, output_schema} <- schema(Map.get(attrs, :output_schema, []), "output_schema") do
-      {:ok, %{name: name, description: description, schema: schema, output_schema: output_schema}}
+  def validate_flow(attrs) do
+    case validate_config(:flow, attrs) do
+      {:ok, opts} -> {:ok, opts}
+      {:error, [error | _]} -> {:error, flow_error(error)}
     end
   end
 
-  def validate_flow(_attrs),
-    do: {:error, Error.validation_error("flow configuration must be a map")}
+  defp validate_config(kind, %{} = attrs) when not is_struct(attrs) do
+    {values, errors} =
+      Enum.reduce(@keys, {%{}, []}, fn field, {values, errors} ->
+        case {kind, field, Map.fetch(attrs, field)} do
+          {:action, :description, :error} ->
+            {values, errors}
 
-  @doc false
-  @spec flow_name(term()) :: {:ok, String.t()} | {:error, Exception.t()}
-  def flow_name(value) when is_binary(value) do
+          {:action, :name, :error} ->
+            {values, errors ++ [{field, :required}]}
+
+          _ ->
+            case validate_field(kind, field, Map.get(attrs, field)) do
+              {:ok, value} -> {Map.put(values, field, value), errors}
+              {:error, reason} -> {values, errors ++ [{field, reason}]}
+            end
+        end
+      end)
+
+    unknown = for key <- Map.keys(attrs), key not in @keys, do: {nil, {:unknown, key}}
+    errors = if kind == :action, do: errors ++ unknown, else: unknown ++ errors
+
+    if errors == [], do: {:ok, values}, else: {:error, errors}
+  end
+
+  defp validate_config(_kind, _attrs), do: {:error, [{nil, :map}]}
+
+  defp validate_field(_kind, :name, value) when is_binary(value) do
     case validate_name(value) do
       :ok -> {:ok, value}
-      {:error, message} -> {:error, Error.validation_error(message)}
+      {:error, reason} -> {:error, reason}
     end
   end
 
-  def flow_name(_value), do: {:error, Error.validation_error("flow name must be a string")}
+  defp validate_field(:flow, :description, nil), do: {:ok, nil}
 
-  @doc false
-  @spec description(term()) :: {:ok, String.t() | nil} | {:error, Exception.t()}
-  def description(nil), do: {:ok, nil}
-
-  def description(value) when is_binary(value) do
-    if String.valid?(value),
-      do: {:ok, value},
-      else: {:error, Error.validation_error("flow description must be valid UTF-8")}
+  defp validate_field(kind, :description, value) when is_binary(value) do
+    if kind == :flow and not String.valid?(value),
+      do: {:error, "flow description must be valid UTF-8"},
+      else: {:ok, value}
   end
 
-  def description(_value),
-    do: {:error, Error.validation_error("flow description must be a string")}
+  defp validate_field(_kind, field, _value) when field in [:name, :description],
+    do: {:error, :string}
 
-  @doc false
-  @spec schema(term(), String.t()) :: {:ok, Jido.Action.schema()} | {:error, Exception.t()}
-  def schema(nil, _field), do: {:ok, []}
+  defp validate_field(_kind, _field, nil), do: {:ok, []}
 
-  def schema(value, field) do
+  defp validate_field(_kind, _field, value) do
     with :ok <- static_schema(value),
          :ok <- validate_map_schema(value) do
       {:ok, value}
-    else
-      {:error, message} ->
-        {:error, Error.validation_error("#{field} #{message}", %{field: field})}
+    end
+  end
+
+  @doc false
+  @spec flow_name(term()) :: {:ok, String.t()} | {:error, Exception.t()}
+  def flow_name(value), do: flow_field(:name, value)
+
+  @doc false
+  @spec description(term()) :: {:ok, String.t() | nil} | {:error, Exception.t()}
+  def description(value), do: flow_field(:description, value)
+
+  @doc false
+  @spec schema(term(), String.t()) :: {:ok, Jido.Action.schema()} | {:error, Exception.t()}
+  def schema(value, field), do: flow_field(field, value)
+
+  defp flow_field(field, value) do
+    case validate_field(:flow, field, value) do
+      {:ok, value} -> {:ok, value}
+      {:error, reason} -> {:error, flow_error({field, reason})}
     end
   end
 
   defp static_schema(value) do
     case validate_static_data(value) do
       :ok -> :ok
-      {:error, message} -> {:error, "must be static module data; #{message}"}
+      {:error, message} -> {:error, {:static, message}}
     end
   end
 
-  defp known_keys(attrs) do
-    case Enum.reject(Map.keys(attrs), &(&1 in @keys)) do
-      [] ->
-        :ok
+  defp compile_error(:flow, [error | _]),
+    do: "Flow configuration validation failed: #{Exception.message(flow_error(error))}"
 
-      [key | _] ->
-        {:error,
-         Error.validation_error("unknown Flow configuration key: #{inspect(key)}", %{key: key})}
+  defp compile_error(:action, errors) do
+    case Enum.find(errors, fn {_field, reason} -> match?({:static, _}, reason) end) do
+      {field, {:static, reason}} ->
+        "#{inspect(field)} must be static module data; #{reason}. " <>
+          "Use named MFA effects such as {Module, :function, args}"
+
+      nil ->
+        "Action configuration validation failed:\n" <>
+          Enum.map_join(errors, "\n", &action_error/1)
     end
   end
+
+  defp action_error({nil, {:unknown, key}}), do: Zoi.Error.unrecognized_key(key).message
+  defp action_error({nil, :map}), do: "invalid type: expected map"
+  defp action_error({field, :required}), do: "is required, at #{field}"
+  defp action_error({field, :string}), do: "invalid type: expected string, at #{field}"
+  defp action_error({field, reason}), do: "#{reason}, at #{field}"
+
+  defp flow_error({nil, {:unknown, key}}),
+    do: Error.validation_error("unknown Flow configuration key: #{inspect(key)}", %{key: key})
+
+  defp flow_error({nil, :map}), do: Error.validation_error("flow configuration must be a map")
+  defp flow_error({field, :string}), do: Error.validation_error("flow #{field} must be a string")
+
+  defp flow_error({field, {:static, reason}}),
+    do: flow_error({field, "must be static module data; #{reason}"})
+
+  defp flow_error({field, reason}) when field in [:name, :description],
+    do: Error.validation_error(reason)
+
+  defp flow_error({field, reason}),
+    do: Error.validation_error("#{field} #{reason}", %{field: to_string(field)})
 
   defp normalize_options(raw_opts) when is_list(raw_opts) do
     if Keyword.keyword?(raw_opts), do: Map.new(raw_opts), else: raw_opts

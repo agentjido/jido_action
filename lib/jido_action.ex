@@ -135,7 +135,10 @@ defmodule Jido.Action do
   defmacro __using__(opts_ast) do
     quote location: :keep do
       alias Jido.Action
-      use Jido.Authoring.Compiler, kind: :action, config: unquote(opts_ast)
+
+      use Jido.Authoring.Compiler,
+        kind: :action,
+        config: Jido.Authoring.Config.prepare!(:action, unquote(opts_ast), __ENV__)
 
       @doc "Executes the Action with the given parameters and context."
       @impl Jido.Action

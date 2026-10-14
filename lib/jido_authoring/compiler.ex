@@ -24,6 +24,7 @@ defmodule Jido.Authoring.Compiler do
   defmacro __using__(opts) do
     kind = Keyword.fetch!(opts, :kind)
     opts_ast = Keyword.fetch!(opts, :config)
+
     label = if kind == :action, do: "Action", else: "Flow"
     validate_params_doc = String.replace(@validate_params_doc, "Action", label)
 
@@ -33,8 +34,7 @@ defmodule Jido.Authoring.Compiler do
     quote location: :keep do
       @behaviour Jido.Action
 
-      {validated_opts, stored_schema, stored_output_schema} =
-        Jido.Authoring.Config.prepare!(unquote(kind), unquote(opts_ast), __ENV__)
+      {validated_opts, stored_schema, stored_output_schema} = unquote(opts_ast)
 
       module_json =
         Jido.Authoring.Compiler.compile_json(

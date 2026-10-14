@@ -59,13 +59,18 @@ defmodule Jido.Exec.Compiler do
   @doc false
   @spec validate(Flow.t()) :: {:ok, Flow.t()} | {:error, Exception.t()}
   def validate(%Flow{} = flow) do
-    with {:ok, flow} <- Flow.validate(flow),
-         {:ok, _children} <- validate_component_targets(flow.components, [], %{}) do
-      {:ok, flow}
-    end
+    with {:ok, flow} <- Flow.validate(flow), do: validate_targets(flow)
   end
 
   def validate(value), do: Flow.validate(value)
+
+  @doc false
+  @spec validate_targets(Flow.t()) :: {:ok, Flow.t()} | {:error, Exception.t()}
+  def validate_targets(%Flow{} = flow) do
+    with {:ok, _children} <- validate_component_targets(flow.components, [], %{}) do
+      {:ok, flow}
+    end
+  end
 
   defp compile_instruction(%Instruction{kind: :action} = instruction, opts) do
     name = Keyword.get(opts, :name)

@@ -15,7 +15,9 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
       Jido.Action.Inline.setup!(__ENV__)
       unquote(module_compiler).reserve_function!(__ENV__, {:step_action, 1})
 
-      use Jido.Authoring.Compiler, kind: :flow, config: unquote(flow_opts_ast)
+      use Jido.Authoring.Compiler,
+        kind: :flow,
+        config: Jido.Authoring.Config.prepare!(:flow, unquote(flow_opts_ast), __ENV__)
 
       @doc "Returns the canonical Flow data for this module."
       @spec flow() :: Jido.Flow.t()
@@ -194,14 +196,11 @@ defmodule Jido.Flow.DSL.ModuleCompiler do
   defp compile_flow!(env, opts, schema, output_schema) do
     source_map = Lowerer.source_map(env.module, env.file)
 
-    case Lowerer.lower(env.module,
-           name: opts[:name],
-           description: opts[:description],
-           schema: schema,
-           output_schema: output_schema
-         ) do
+    config = Map.merge(opts, %{schema: schema, output_schema: output_schema})
+
+    case Lowerer.lower(env.module, config) do
       {:ok, flow} ->
-        case Jido.Exec.Compiler.validate(flow) do
+        case Jido.Exec.Compiler.validate_targets(flow) do
           {:ok, flow} ->
             {flow, source_map}
 

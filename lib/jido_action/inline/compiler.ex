@@ -95,7 +95,9 @@ defmodule Jido.Action.Inline.Compiler do
       quote generated: true do
         @moduledoc false
         @compile {:no_warn_undefined, unquote(owner)}
-        use Jido.Action, unquote(Macro.escape(config))
+        use Jido.Authoring.Compiler,
+          kind: :action,
+          config: unquote(Macro.escape({config, config.schema, config.output_schema}))
 
         @doc false
         @spec __jido_inline_action__() :: {module(), Jido.Action.Inline.path()}
