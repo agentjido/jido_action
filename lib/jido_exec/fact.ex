@@ -76,6 +76,11 @@ defmodule Jido.Exec.Fact do
     %{input | items: Enum.map(input.items, &local_value/1), parent: local_value(input.parent)}
   end
 
+  defp wrap(%Runic.Workflow.ChildInvocation{} = request, _depth) do
+    # Call must see the request; only the child input uses local identity.
+    %{request | input: local_value(request.input)}
+  end
+
   defp wrap(%_{} = value, _depth) do
     if portable_struct?(value), do: value, else: local_value(value)
   end

@@ -1,12 +1,15 @@
 defmodule Jido.Exec.Node.Dispatch do
   @moduledoc false
 
+  require Runic
+
   alias Jido.Exec.Frame
   alias Jido.Exec.Node.Action
   alias Jido.Exec.Node.Dispatch.Finish
   alias Jido.Instruction
   alias Runic.Identity
   alias Runic.Workflow
+  alias Runic.Workflow.{Call, ChildInvocation}
 
   @enforce_keys [
     :id,
@@ -121,6 +124,8 @@ defmodule Jido.Exec.Node.Dispatch do
 
   @doc false
   @spec finished?(term(), String.t()) :: boolean()
+  def finished?(%ChildInvocation{}, _component), do: false
+
   def finished?(value, component) do
     case Frame.fetch_result(value, component) do
       {:ok, nil} -> false
@@ -130,14 +135,15 @@ defmodule Jido.Exec.Node.Dispatch do
   end
 
   @doc false
-  @spec expansion(t(), term(), term()) :: (Workflow.t() -> Workflow.t()) | no_return()
-  def expansion(node, target, input) do
+  @spec expansion(t(), term(), term(), term()) ::
+          {term(), (Workflow.t() -> Workflow.t())} | no_return()
+  def expansion(node, target, input, frame) do
     case Instruction.resolve(target) do
       {:ok, %Instruction{kind: :action} = instruction} ->
-        action_target(node, instruction, input)
+        action_target(node, instruction, input, frame)
 
       {:ok, %Instruction{kind: :flow} = instruction} ->
-        flow_target(node, instruction, input)
+        {frame, flow_target(node, instruction, input)}
 
       {:error, %{details: details} = error} when is_map(details) ->
         raise %{
@@ -167,54 +173,43 @@ defmodule Jido.Exec.Node.Dispatch do
     "__jido_dispatch_target__/#{node.component}"
   end
 
-  defp action(node, phase, instruction, params) do
-    metadata = %{
-      jido_flow: %{
-        component: node.component,
-        mode: {:dispatch, phase, node},
-        params: params,
-        location: node.location,
-        node_path: node.node_path
-      }
+  defp action(node, phase, instruction, params, target_id \\ nil) do
+    flow = %{
+      component: node.component,
+      mode: {:dispatch, phase, node},
+      params: params,
+      location: node.location,
+      node_path: node.node_path
     }
 
     {:ok, instruction} = Instruction.bind(instruction, %{}, %{})
 
-    Action.new(instruction,
-      flow: metadata.jido_flow,
-      id: {node.id, phase},
-      name: internal_name(node, Atom.to_string(phase))
-    )
+    id = if target_id, do: {node.id, phase, target_id}, else: {node.id, phase}
+    suffix = if target_id, do: "#{phase}/#{target_id}", else: Atom.to_string(phase)
+
+    Action.new(instruction, flow: flow, id: id, name: internal_name(node, suffix))
   end
 
-  defp action_target(node, instruction, input) do
-    metadata = %{
-      jido_flow: %{
-        component: node.component,
-        mode: {:dispatch, :target, node},
-        params: input,
-        location: node.location,
-        node_path: node.node_path
-      }
-    }
-
-    {:ok, instruction} = Instruction.bind(instruction, %{}, %{})
+  defp action_target(node, instruction, input, frame) do
     target_id = target_id(node, instruction.target)
 
-    target =
-      Action.new(instruction,
-        flow: metadata.jido_flow,
-        id: {node.id, :target, target_id},
-        name: internal_name(node, "target/#{target_id}")
+    target = action(node, :target, instruction, input, target_id)
+    request = ChildInvocation.new(target: target, input: frame)
+
+    call =
+      Call.new(Runic.step(fn request -> request end),
+        name: internal_name(node, "call/#{target_id}")
       )
 
     finish = Finish.new(node, target_id)
 
-    fn workflow ->
+    apply_fn = fn workflow ->
       workflow
-      |> Workflow.add(target, to: node)
-      |> Workflow.add(finish, to: target)
+      |> Workflow.add(call, to: node)
+      |> Workflow.add(finish, connections: [[from: {call.name, :out}, to: :in]])
     end
+
+    {request, apply_fn}
   end
 
   defp flow_target(node, instruction, input) do
@@ -296,8 +291,8 @@ defimpl Runic.Workflow.Invokable, for: Jido.Exec.Node.Dispatch do
 
       {:continue, {:jido_dispatch_continue, frame, component, input, target, effects}} ->
         # Build the target before apply so its errors fail this Runnable.
-        apply_fn = Dispatch.expansion(node, target, input)
-        value = Frame.put_result(frame, component, nil, effects)
+        frame = Frame.put_result(frame, component, nil, effects)
+        {value, apply_fn} = Dispatch.expansion(node, target, input, frame)
         complete(runnable, node, fact, value, context, [apply_fn])
     end
   rescue

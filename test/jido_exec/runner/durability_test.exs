@@ -389,46 +389,140 @@ defmodule Jido.Exec.Runner.DurabilityTest do
     assert %{value: 2} in results(runner, execution_id)
   end
 
-  test "Runic restores a dynamic Dispatch target without replaying its routing Actions" do
+  for {kind, target} <- [action: DispatchTargetStep, flow: DispatchTargetFlow] do
+    test "Runic restores a Dispatch #{kind} target without replaying its routing Actions" do
+      start_supervised!(Recorder)
+      start_supervised!({CheckpointGate, self()})
+      runner = __MODULE__.DispatchRunner
+      start_supervised!({Runic.Runner, name: runner})
+
+      flow =
+        Flow.new!(%{
+          name: "durable_dispatch",
+          components: [
+            %{
+              kind: :dispatch,
+              name: "route",
+              decision: DispatchDecision,
+              expander: DispatchExpand,
+              params: %{
+                value: Ref.input(:value),
+                target: unquote(target)
+              }
+            }
+          ],
+          output: Ref.result("route")
+        })
+
+      execution_id = {:durable_dispatch, System.unique_integer([:positive])}
+      start_execution(runner, execution_id, flow, %{value: 4})
+
+      assert_receive {:checkpoint_waiting, :dispatch_target}, 2_000
+      assert Recorder.steps() == [:dispatch_decision, :dispatch_expander]
+
+      assert :ok = Runic.Runner.checkpoint(runner, execution_id)
+
+      if unquote(kind) == :flow do
+        assert_dynamic_components_persisted(runner, execution_id)
+      else
+        assert {:ok, workflow} = Runic.Runner.get_workflow(runner, execution_id)
+        assert Enum.any?(Multigraph.vertices(workflow.graph), &is_struct(&1, Runic.Workflow.Call))
+      end
+
+      assert :ok = Runic.Runner.stop(runner, execution_id, persist: true)
+
+      resume_execution(runner, execution_id)
+      :ok = CheckpointGate.open()
+      assert_receive {:resumed_flow_idle, ^execution_id}, 2_000
+
+      assert Recorder.steps() == [:dispatch_decision, :dispatch_expander, :dispatch_target]
+      assert %{value: 5} in results(runner, execution_id)
+    end
+  end
+
+  test "an accepted Dispatch Action is not repeated after a manual checkpoint" do
     start_supervised!(Recorder)
     start_supervised!({CheckpointGate, self()})
-    runner = __MODULE__.DispatchRunner
-    start_supervised!({Runic.Runner, name: runner})
-
-    flow =
-      Flow.new!(%{
-        name: "durable_dispatch",
-        components: [
-          %{
-            kind: :dispatch,
-            name: "route",
-            decision: DispatchDecision,
-            expander: DispatchExpand,
-            params: %{
-              value: Ref.input(:value),
-              target: DispatchTargetFlow
-            }
-          }
-        ],
-        output: Ref.result("route")
-      })
-
-    execution_id = {:durable_dispatch, System.unique_integer([:positive])}
-    start_execution(runner, execution_id, flow, %{value: 4})
-
-    assert_receive {:checkpoint_waiting, :dispatch_target}, 2_000
-    assert Recorder.steps() == [:dispatch_decision, :dispatch_expander]
-
-    assert :ok = Runic.Runner.checkpoint(runner, execution_id)
-    assert_dynamic_components_persisted(runner, execution_id)
-    assert :ok = Runic.Runner.stop(runner, execution_id, persist: true)
-
-    resume_execution(runner, execution_id)
     :ok = CheckpointGate.open()
-    assert_receive {:resumed_flow_idle, ^execution_id}, 2_000
+    runner = __MODULE__.AcceptedDispatchRunner
+    start_supervised!({Runic.Runner, name: runner})
+    flow = dispatch_action_flow()
+    id = {:accepted_dispatch, System.unique_integer([:positive])}
+    owner = self()
+    tag = make_ref()
+    hooks = [on_complete: fn _runnable, _duration, _state -> send(owner, {tag, :accepted}) end]
+
+    assert {:ok, _worker} =
+             Exec.start(runner, id, flow, %{value: 4}, %{},
+               dispatch_mode: :manual,
+               hooks: hooks
+             )
+
+    Enum.reduce_while(1..10, nil, fn _, _ ->
+      assert {:ok, _workflow} = Exec.step(runner, id)
+      assert_receive {^tag, :accepted}, 1_000
+      if :dispatch_target in Recorder.steps(), do: {:halt, nil}, else: {:cont, nil}
+    end)
 
     assert Recorder.steps() == [:dispatch_decision, :dispatch_expander, :dispatch_target]
-    assert %{value: 5} in results(runner, execution_id)
+    assert {:error, _incomplete} = Exec.result(runner, id)
+    assert :ok = Runic.Runner.checkpoint(runner, id)
+
+    assert {:ok, %{status: :saved, pending_events: 0}} =
+             Runic.Runner.persistence_status(runner, id)
+
+    assert :ok = Runic.Runner.stop(runner, id, persist: true)
+
+    assert {:ok, _worker} =
+             Exec.resume(runner, id, %{}, dispatch_mode: :manual, hooks: hooks)
+
+    Enum.reduce_while(1..10, nil, fn _, _ ->
+      case Exec.step(runner, id) do
+        {:ok, _workflow} ->
+          assert_receive {^tag, :accepted}, 1_000
+          {:cont, nil}
+
+        {:complete, _workflow} ->
+          {:halt, nil}
+      end
+    end)
+
+    assert Exec.result(runner, id) == {:ok, %{value: 5}}
+    assert Recorder.steps() == [:dispatch_decision, :dispatch_expander, :dispatch_target]
+  end
+
+  test "cancellation stops a selected Dispatch Action" do
+    start_supervised!(Recorder)
+    start_supervised!({CheckpointGate, self()})
+    runner = __MODULE__.CancelledDispatchRunner
+    start_supervised!({Runic.Runner, name: runner})
+    id = {:cancelled_dispatch, System.unique_integer([:positive])}
+    assert {:ok, worker} = Exec.start(runner, id, dispatch_action_flow(), %{value: 4})
+    assert_receive {:checkpoint_waiting, :dispatch_target}, 2_000
+    [{task, _reply_tag}] = :sys.get_state(CheckpointGate).waiting
+    task_monitor = Process.monitor(task)
+    worker_monitor = Process.monitor(worker)
+    assert :ok = Runic.Runner.cancel(runner, id)
+    assert_receive {:DOWN, ^task_monitor, :process, ^task, _reason}, 2_000
+    assert_receive {:DOWN, ^worker_monitor, :process, ^worker, _reason}, 2_000
+    assert Recorder.steps() == [:dispatch_decision, :dispatch_expander]
+    assert {:error, :not_found} = Exec.result(runner, id)
+  end
+
+  defp dispatch_action_flow do
+    Flow.new!(%{
+      name: "durable_action_dispatch",
+      components: [
+        %{
+          kind: :dispatch,
+          name: "route",
+          decision: DispatchDecision,
+          expander: DispatchExpand,
+          params: %{value: Ref.input(:value), target: DispatchTargetStep}
+        }
+      ],
+      output: Ref.result("route")
+    })
   end
 
   defp ten_step_flow do

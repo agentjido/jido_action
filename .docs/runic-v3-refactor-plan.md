@@ -207,12 +207,103 @@ For each change, identify the old code removed and the contracts verified.
    review probes passed after the failure-selection and nested-frame spec fixes.
    Regression coverage checks serial and concurrent item failure selection,
    stopped admission, persisted snapshots, resume, and stable public item IDs.
-   Publication and final validation against a Runic Hex release remain pending.
+   Jido implementation commit: `02c30779`. The six local commits were published
+   to `release/v3` on 13 October 2026; Jido Action #292–#296 are closed as completed.
+   Final validation against a Runic Hex release remains pending.
+
 6. Assess Dispatch child invocation in a separate change.
    Start with ordinary Action targets. Verify Runic Call's supported target
    set and selected-output semantics before changing Flow targets. Call has no
    whole-child success barrier. Record the remaining Jido completion and effect
    responsibilities before removing Finish or gate code.
+
+   Initial ordinary Action assessment completed on 13 October 2026 against
+   local Runic `e50f5e6`, with Jido Action at `02c30779`. That assessment changed
+   only this plan; production code and local Runic stayed unchanged.
+   A temporary prototype uses the existing Action adapter as a ChildInvocation
+   target, a one-input request Step inside Call, and the existing Finish
+   projection connected explicitly to Call's public `out` port.
+
+   The ordinary Action adapter is accepted without a new adapter module.
+   Its input/output validation, structured failures, rejection of a second
+   continuation, runtime context, target-phase telemetry, and ordered effects
+   still work. Equal requests in separate execution scopes have separate child
+   occurrences. Definition reconstruction and accepted full-value event replay
+   work. A manual checkpoint after Action acceptance resumes the return path
+   without running that Action again. Native cancellation stops a child Action
+   that traps exits.
+
+   | Boundary | Assessment result |
+   | --- | --- |
+   | Child request input | Supply the complete native child value. Immediate execution must encode the child frame itself with the existing local-value adapter. A locally encoded outer request does not protect raw PIDs or references inside ChildInvocation. |
+   | Selected output | Consume `{call_name, :out}` through public connections. The current Finish connection callback uses direct `add_step` wiring; its whole-component `to:` form can attach to the request node instead of the selected return producer. |
+   | Completion | The Call Runnable accepts the request before child output exists. A request result must not become the Dispatch result. Call's public port has `:many` cardinality; the current ordinary Action emits one accepted result. |
+   | Frame and effects | Keep Jido projection. The existing target mode carries the parent frame and decision effects; Finish places the target result and ordered effects under the Dispatch component name. Call does not perform that conversion. |
+   | Direct expander result | Call requires ChildInvocation and rejects an ordinary final value. Preserve the expander's `{:ok, result}` path outside Call. A policy fallback has different semantics and is not an equivalent final-result path. |
+   | Flow targets | The current compiled Jido Flow is rejected because it lacks a declared native input port. Adding that port alone is insufficient: its Input/Output and other coordination nodes are outside Call's stateless SingleOutput target set. Retain the existing Flow target path and its completion gate. |
+
+   Initial assessment decision: ordinary Action calls are compatible, but Call is not a complete
+   replacement for Dispatch. Keep Finish's frame/effect projection and the
+   current completion Condition during the first implementation. Keep Jido
+   target resolution and source/error tagging, and preserve the direct final
+   result and Flow target branches. No production deletion was established by
+   that prototype: the current Action target already uses SingleOutput, while
+   Call adds native occurrence, entry, and return nodes. A proposed integration
+   must show which current wiring or lifecycle code it removes before adoption.
+   Check memory cost with the parent frame still present in the return path.
+
+   Validation: the 13 existing Dispatch, reconstruction, and durability tests
+   passed. All 12 temporary contract probes passed with strict test compilation
+   on Elixir 1.20.4 / OTP 29.1. The probes are
+   `/private/tmp/jido-dispatch-call-assessment_test.exs`; the final log is
+   `/private/tmp/jido-dispatch-call-assessment-green.log`. They assess the native
+   boundary, not a completed Jido compiler migration. A production change still
+   needs committed public-boundary regressions and the package checks below.
+
+   Ordinary Action migration implemented locally on 14 October 2026. Dispatch
+   builds a ChildInvocation for each continued Action and attaches a native
+   Call. The reusable Call uses an identity request Step; target parameters
+   live in the request Fact. A regression with two different inputs verifies
+   that the second occurrence does not reuse the first target's parameters.
+   The existing Finish consumes Call's public `out` port and updates the Flow
+   frame and effects. The finished Condition ignores pending child requests.
+   Flow targets and direct expander results keep their existing paths.
+
+   The change removes the duplicate target metadata map, Instruction binding,
+   and Action construction. All three Dispatch Action phases use the existing
+   constructor, with the same authored IDs and names. The direct Action
+   attachment is replaced by Runic's child occurrence attachment and return
+   wiring. Finish, the completion Condition, and Dispatch's current Invokable
+   remain. A five-line local-value clause keeps ChildInvocation visible to
+   Call and encodes its child input. Only two production files change, with no
+   new module: 40 lines added and 40 removed. This is no net line reduction.
+
+   A sample retains 100 or 1,000 integers in the parent input while Dispatch
+   selects Add with one value parameter. It compares `02c30779` with this
+   change on the same local Runic and checks the same final result. The previous
+   Dispatch source is loaded only inside the isolated measurement process.
+
+   | Retained integers | Facts before -> after | Encoded Fact value bytes before -> after |
+   | --- | --- | --- |
+   | 100 | 7 -> 13 | 1,361 -> 8,724 |
+   | 1,000 | 7 -> 13 | 26,189 -> 58,380 |
+
+   Call adds six stored Facts in this sample. Request construction data and
+   additional frame values increase encoded storage; growth stays linear.
+   These totals encode shared values again for each Fact. They exclude Fact
+   metadata, event logs, and total or peak process memory. Keep this cost
+   visible when deciding whether to retain the migration.
+
+   Validation: 22 focused Dispatch, reconstruction, and durability tests passed.
+   The default suite passed 803 tests, with 120 excluded and 93.11 percent
+   coverage. Quality and strict test compilation passed. The 163 Exec tests
+   passed on OTP 27, 28, and 29 with Elixir 1.18.5, 1.18.4, and 1.20.4.
+   Authoring (59), property (49), system (1), and load (1) checks passed. Fuzz
+   retains the same three recorded baseline failures (7/10 passed).
+   Regressions cover current parameters across repeated inputs, local values,
+   validation/error locations, ordered and discarded effects, direct results,
+   Action and Flow recovery, accepted Action progress, and cancellation.
+   Committed locally on `release/v3`. Local Runic remains unchanged at `e50f5e6`.
 
 ## Checks for each implementation change
 
