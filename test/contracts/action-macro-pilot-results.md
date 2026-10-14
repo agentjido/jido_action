@@ -126,12 +126,10 @@ prefix in the same directory. The repeated Action matrix is saved as
 
 ## Run it
 
-The published Git pin still selects the original Covenant implementation.
-Use the local fork for this macro command until its changes are published
-and the pin is updated:
+The current Git pin includes the fork's macro support. Run the check and
+mutation task with the normal Mix dependency:
 
 ```sh
-export COVENANT_PATH=../covenant
 mix deps.get
 JIDO_COVENANT_PILOT=1 mix covenant.check
 JIDO_COVENANT_PILOT=1 mix covenant.mutate jido_action.action --macros \

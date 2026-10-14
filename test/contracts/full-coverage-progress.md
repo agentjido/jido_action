@@ -1,8 +1,8 @@
 # Full local Covenant coverage
 
 The user approved stages 1 through 5 on 2026-10-13. Publishing, dependency
-pin updates, and CI changes are excluded. All commands use the local Covenant
-fork through `COVENANT_PATH=../covenant`.
+pin updates, and CI changes were excluded from that work. Those commands used
+the local Covenant fork. The current Git setup is in [the README](README.md).
 
 ## Initial source and baseline
 

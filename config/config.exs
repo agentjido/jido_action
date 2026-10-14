@@ -2,6 +2,7 @@ import Config
 
 if config_env() in [:dev, :test] do
   config :covenant,
+    contracts_dir: "test/contracts",
     test_paths: [
       "test/jido_action/action_test.exs",
       "test/jido_authoring/config_test.exs",

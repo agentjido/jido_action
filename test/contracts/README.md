@@ -1,23 +1,26 @@
-# Local Covenant coverage work
+# Covenant contract checks
 
-Use the Jido Action checkout with the local Covenant fork. The approved goal
-covers the public package contracts. Publishing, dependency pin updates and CI
-changes are outside its scope. See [progress](full-coverage-progress.md) and the
-stable [public register](../guides/public-contracts.md).
+The contract files under `test/contracts` define the requirements checked by
+the tagged tests. See [progress](full-coverage-progress.md) and the stable
+[public register](../../guides/public-contracts.md).
 
-Set the path for every Mix command in this checkout:
+Mix fetches the pinned Covenant fork. No local Covenant checkout is required:
 
 ```sh
-export COVENANT_PATH="$(pwd)/../covenant"
 export ERL_FLAGS="+S 2:2 +SDcpu 1 +SDio 1"
 mix deps.get
 JIDO_COVENANT_PILOT=1 mix covenant.check
 ```
 
-The existing Git dependency remains pinned to
-`642ea797bf8637c7d6c1fbb763836ce996193221`. That revision does not contain the
-local macro and protocol extensions. Current validation requires the local
-path above. The Git lock entry stays in `mix.lock` during path use.
+The Git dependency in `mix.exs` includes macro and protocol mutation support.
+It is used in development and tests only. `config/config.exs` sets
+`contracts_dir: "test/contracts"`.
+
+Static checks do not load Mix configuration. Supply the paths explicitly:
+
+```sh
+mix covenant.check --static --contracts test/contracts --test-path 'test/**/*_test.exs'
+```
 
 The current components are Action metadata/macros, Action errors, Instructions,
 Action execution boundaries, Output, shared validation, inline Actions and
@@ -66,7 +69,7 @@ Each test names the obligations it checks. IDs use `<component>.I<n>` and the
 original sixteen pilot IDs remain stable. The public module documentation is
 the API source; obligation files are evidence indexes for those promises.
 
-Fresh coverage is written to `contracts/coverage.json`. Matrices are under
+Fresh coverage is written to `test/contracts/coverage.json`. Matrices are under
 `tmp/covenant/mutate/<component>/`; local logs are under `tmp/covenant-pilot/`.
 `mix covenant.check --no-run` reads saved results and does not check whether
 they match the current source. Use the full check command above for acceptance.

@@ -284,7 +284,11 @@ defmodule JidoAction.MixProject do
       {:spark, "~> 2.7.3"},
 
       # Development & Test Dependencies
-      covenant_dep(),
+      {:covenant,
+       github: "mikehostetler/covenant",
+       ref: "cf09f6c17c0847cdadd3f1297ba536d49623e328",
+       only: [:dev, :test],
+       runtime: false},
       {:git_ops, "~> 2.9", only: :dev, runtime: false},
       {:git_hooks, "~> 0.8", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test]},
@@ -295,23 +299,6 @@ defmodule JidoAction.MixProject do
       {:mix_test_watch, "~> 1.0", only: [:dev, :test], runtime: false},
       {:stream_data, "~> 1.4", only: :test, runtime: false}
     ]
-  end
-
-  defp covenant_dep do
-    options = [only: [:dev, :test], runtime: false]
-
-    case System.get_env("COVENANT_PATH") do
-      nil ->
-        {:covenant,
-         options ++
-           [
-             github: "mikehostetler/covenant",
-             ref: "642ea797bf8637c7d6c1fbb763836ce996193221"
-           ]}
-
-      path ->
-        {:covenant, options ++ [path: Path.expand(path, __DIR__), override: true]}
-    end
   end
 
   defp aliases do
